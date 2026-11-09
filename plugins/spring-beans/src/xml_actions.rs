@@ -110,7 +110,27 @@ fn taken_names(els: &[xml::Element]) -> Vec<String> {
 }
 
 /// `project_names` gives the bean names taken elsewhere in the project; it is only called once the caret sits on an inner bean.
-pub fn introduce_bean(text: &str, caret: usize, project_names: impl FnOnce() -> BTreeSet<String>) -> Option<Vec<TextEdit>> {
+fn choose_id(class:&str,taken:&BTreeSet<String>,requested:Option<&str>)->Option<String> {
+    if let Some(id)=requested {
+        let mut bytes=id.bytes();
+        if id.len()>128||!bytes.next().is_some_and(|b|b.is_ascii_alphabetic()||b==b'_')
+            || !bytes.all(|b|b.is_ascii_alphanumeric()||b"_.-".contains(&b))||taken.contains(id){return None;}
+        return Some(id.into());
+    }
+    let simple=decapitalize(class.rsplit(['.','$']).next()?);
+    std::iter::once(simple.clone()).chain((2..).map(|n|format!("{simple}{n}"))).find(|candidate|!taken.contains(candidate))
+}
+pub fn suggested_bean_id(text:&str,caret:usize,mut taken:BTreeSet<String>)->Option<String>{
+    let elements=xml::elements(text);let inner=&elements[xml::element_at(&elements,caret)?];
+    taken.extend(taken_names(&elements));
+    let suggested=choose_id(inner.value("class")?,&taken,None)?;
+    if suggested.len()<=128 {Some(suggested)} else {choose_id("Bean",&taken,None)}
+}
+pub fn introduce_bean(text:&str,caret:usize,project_names:impl FnOnce()->BTreeSet<String>)->Option<Vec<TextEdit>>{
+    introduce_bean_named(text,caret,project_names,None)
+}
+pub fn introduce_bean_named(text:&str,caret:usize,project_names:impl FnOnce()->BTreeSet<String>,requested:Option<&str>)->Option<Vec<TextEdit>> {
+
     let els = xml::elements(text);
     if !is_beans_file(&els) {
         return None;
@@ -136,12 +156,9 @@ pub fn introduce_bean(text: &str, caret: usize, project_names: impl FnOnce() -> 
     if top == at || els[top].parent.is_none() {
         return None;
     }
-    let simple = decapitalize(class.rsplit(['.', '$']).next()?);
     let mut taken = project_names();
     taken.extend(taken_names(&els));
-    let id = std::iter::once(simple.clone())
-        .chain((2..).map(|n| format!("{simple}{n}")))
-        .find(|candidate| !taken.contains(candidate))?;
+    let id = choose_id(class,&taken,requested)?;
 
     let eol = line_ending(text);
     let (own_indent, top_indent) = (indent_of(text, inner.start), indent_of(text, els[top].start));

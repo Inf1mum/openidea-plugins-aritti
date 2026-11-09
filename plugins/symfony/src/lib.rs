@@ -9,11 +9,16 @@ mod attr_args;
 mod checks;
 mod config_checks;
 mod doctrine;
+mod file_actions;
 mod generators;
 mod index;
 mod indexer;
+mod hover;
+mod ownership;
 mod intentions;
 mod make_commands;
+mod live;
+mod namespace_paths;
 mod php_checks;
 mod php_text;
 mod practice_checks;
@@ -22,8 +27,16 @@ mod query_builder_checks;
 mod refs;
 mod rewrites;
 mod route_defs;
+mod route_duplicates;
+mod source_xml;
 mod service_gen;
+mod service_file_actions;
+mod service_edit_actions;
+mod config_file_actions;
 mod suggest;
+mod strict_json;
+mod psr4;
+mod composer_compiler;
 mod twig;
 mod twig_checks;
 mod wiring;
@@ -39,29 +52,37 @@ use openidea_plugin::{Error, Invocation, LogLevel, NotificationLevel, Plugin, Pr
 
 pub use index::Index;
 use index::{Entry, Names, Sink};
+use refs::{Kind, Reference};
 use ui_kit::routes::{self, Handler, Route, RouteEvent, RouteList};
 use ui_kit::sections::{SectionDef, Switcher};
-use refs::{Kind, Reference};
 
 const VIEW: &str = "symfony";
+/// Main source index only; profiler/native editors keep their own protocols.
+fn refresh_profiler_view() {
+    host::refresh_view(PROFILER_VIEW);
+    let _ = host::post_view_message(PROFILER_VIEW, r#"{"channel":"ui-kit-refresh"}"#);
+}
+fn refresh_main_view() {
+    host::refresh_view(VIEW);
+    let _ = host::post_view_message(VIEW, r#"{"channel":"ui-kit-refresh"}"#);
+}
+
 const STATUS_ITEM: &str = "symfony";
 const SECTIONS_KEY: &str = "symfony.section";
 const ROUTES_KEY: &str = "symfony.routes";
 const DEFAULT_BASE_URL: &str = "http://localhost:8000";
 const ROUTES_SECTION: &str = "routes";
-const SECTIONS: &[SectionDef] = &[
-    SectionDef { id: ROUTES_SECTION, label: "Routes" },
-    SectionDef { id: "index", label: "Index" },
-];
+const SECTIONS: &[SectionDef] = &[SectionDef { id: ROUTES_SECTION, label: "Routes" }, SectionDef { id: "index", label: "Index" }];
 const PROFILER_VIEW: &str = "symfony-profiler";
 const SOURCE: &str = "Symfony";
 const DEFAULT_DOMAIN: &str = "messages";
 const CHECKED_LANGUAGES: &[(&str, &str)] = &[(".php", "php"), (".twig", "twig"), (".yaml", "yaml"), (".yml", "yaml"), (".xml", "xml")];
 /// Whether a saved file (project-relative) feeds the index.
 fn affects_index(relative: &str) -> bool {
-    let directory = ["config/", "templates/", "translations/"].iter().any(|d| relative.starts_with(d));
-    let source = relative.starts_with("src/") && relative.ends_with(".php");
-    directory || source || matches!(relative, "composer.json" | "webpack.config.js" | "importmap.php")
+    let directory = ["config", "templates", "translations", "src"]
+        .iter()
+        .any(|directory| relative == *directory || relative.starts_with(&format!("{directory}/")));
+    directory || index::affects_compiled_index(relative) || matches!(relative, "composer.json" | "symfony.lock" | "webpack.config.js" | "importmap.php")
 }
 /// Parent templates followed for blocks (`extends` chains are short; this stops cycles).
 const MAX_PARENTS: usize = 8;
@@ -71,7 +92,11 @@ fn under(path: &str, root: &str) -> bool {
 }
 
 fn project_for(path: &str) -> Option<Project> {
-    host::projects().ok()?.into_iter().filter(|p| p.root().is_ok_and(|root| under(path, &root))).max_by_key(|p| p.root().map_or(0, |r| r.len()))
+    host::projects()
+        .ok()?
+        .into_iter()
+        .filter(|p| p.root().is_ok_and(|root| under(path, &root)))
+        .max_by_key(|p| p.root().map_or(0, |r| r.len()))
 }
 
 fn language_of(path: &str) -> Option<&'static str> {
@@ -103,8 +128,12 @@ fn parent_blocks(index: &Index, project: &Project, text: &str) -> Names {
 
     for _ in 0..MAX_PARENTS {
         let Some(name) = parent.take() else { break };
-        let Some(entry) = index.templates.get(&name) else { break };
-        let Ok(parent_text) = project.read_file(&entry.path) else { break };
+        let Some(entry) = index.templates.get(&name) else {
+            break;
+        };
+        let Ok(parent_text) = project.read_file(&entry.path) else {
+            break;
+        };
 
         for (block, offset) in refs::twig_blocks(&parent_text) {
             blocks.add(block, Some(name.clone()), &entry.path, text::position(&parent_text, offset));
@@ -115,9 +144,15 @@ fn parent_blocks(index: &Index, project: &Project, text: &str) -> Names {
     blocks
 }
 
-/// The domain a translation reference uses: its own, or `messages`.
-fn domain_of(doc_language: &str, text: &str, reference: &Reference) -> String {
-    refs::translation_domain(doc_language, text, reference).unwrap_or_else(|| DEFAULT_DOMAIN.into())
+/// A known literal domain, or the default only when no domain was supplied.
+fn domain_of(doc_language: &str, text: &str, reference: &Reference) -> Option<String> {
+    if doc_language=="twig" { return twig_checks::reference_domain(text,reference); }
+    if doc_language=="php" {
+        let before=text.get(..reference.start.checked_sub(1)?)?.trim_end();
+        if before.strip_suffix(':').is_some_and(|name|name.ends_with("message") || name.ends_with("Message")) {return Some("validators".into());}
+        return ownership::source_domain(doc_language,text,reference);
+    }
+    Some(refs::translation_domain(doc_language, text, reference).unwrap_or_else(|| DEFAULT_DOMAIN.into()))
 }
 
 /// The tags of Symfony's "Built-in Symfony Service Tags" page.
@@ -209,7 +244,9 @@ fn candidates<'a>(index: &'a Index, path: &str, language: &str, text: &str, refe
         Kind::Tag => {
             let mut all: Names = CORE_TAGS
                 .iter()
-                .map(|tag| ((*tag).to_owned(), Entry { detail: Some("Symfony core tag".into()), path: String::new(), at: Position::new(0, 0) }))
+                .map(|tag| {
+                    ((*tag).to_owned(), Entry { detail: Some("Symfony core tag".into()), path: String::new(), at: Position::new(0, 0) })
+                })
                 .collect();
             for (tag, entry) in &index.tags {
                 all.entry(tag.clone()).or_insert_with(|| entry.clone());
@@ -217,17 +254,13 @@ fn candidates<'a>(index: &'a Index, path: &str, language: &str, text: &str, refe
             Cow::Owned(all)
         }
         Kind::Translation => {
-            if let Some(names) = index.translations.get(&domain_of(language, text, reference)) {
+            if let Some(names) = domain_of(language,text,reference).and_then(|domain|index.translations.get(&domain)) {
                 return Cow::Borrowed(names);
             }
 
-            let mut all = Names::new();
-            for names in index.translations.values() {
-                for (key, entry) in names {
-                    all.entry(key.clone()).or_insert_with(|| entry.clone());
-                }
-            }
-            Cow::Owned(all)
+            // A known key in another catalogue does not establish ownership in
+            // the requested domain. Never merge unrelated translation scopes.
+            Cow::Owned(Names::new())
         }
         Kind::Block => Cow::Owned(project_for(path).map(|p| parent_blocks(index, &p, text)).unwrap_or_default()),
     }
@@ -247,7 +280,8 @@ fn completion_kind(kind: Kind) -> CompletionKind {
 }
 
 /// Twig built-ins that are variables rather than functions.
-const TWIG_BUILT_IN_VARIABLES: [(&str, &str); 4] = [("app", "Symfony global"), ("_self", "Twig"), ("_context", "Twig"), ("_charset", "Twig")];
+const TWIG_BUILT_IN_VARIABLES: [(&str, &str); 4] =
+    [("app", "Symfony global"), ("_self", "Twig"), ("_context", "Twig"), ("_charset", "Twig")];
 
 /// Variables at the caret: the template's own (`set`, `for`, macro arguments, `@var`),
 /// those a controller renders it with or another template includes it with,
@@ -257,7 +291,9 @@ fn twig_variables(index: &Index, doc: &Document, offset: usize) -> Vec<Completio
         return Vec::new();
     }
 
-    let Some((start, end)) = refs::twig_variable_at(&doc.text, offset) else { return Vec::new() };
+    let Some((start, end)) = refs::twig_variable_at(&doc.text, offset) else {
+        return Vec::new();
+    };
     let template = index.template_of(&doc.path);
     let mut seen = BTreeSet::new();
     let mut items = Vec::new();
@@ -307,7 +343,9 @@ fn twig_names(index: &Index, doc: &Document, offset: usize) -> Vec<CompletionIte
         return imported_macros(index, doc, &template, typed);
     }
 
-    let Some((slot, start, end)) = twig::slot_at(&doc.text, offset) else { return Vec::new() };
+    let Some((slot, start, end)) = twig::slot_at(&doc.text, offset) else {
+        return Vec::new();
+    };
     let kind = match slot {
         twig::Slot::Tag => CompletionKind::Keyword,
         _ => CompletionKind::Function,
@@ -358,6 +396,15 @@ pub(crate) fn is_quoted_config(path: &str) -> bool {
 
 /// Problems of a file: missing routes, templates, services and translation
 /// keys (the plugin's *Missing* inspections), and routes defined twice.
+fn source_service_duplicates(path: &str, language: &str, text: &str) -> Option<Vec<checks::Finding>> {
+    if language != "xml" || path.contains("/var/cache/") { return None; }
+    let services = source_xml::service_ids(text)?;
+    let mut seen = BTreeSet::new();
+    Some(services.into_iter().filter_map(|(id, range)| {
+        (!seen.insert(id.clone())).then(||checks::Finding::warn(range,"duplicate-service",format!("Service \"{id}\" is already defined in this file.")))
+    }).collect())
+}
+
 pub fn problems(index: &Index, path: &str, language: &str, text: &str) -> Vec<Diagnostic> {
     let mut problems = Vec::new();
     let mut problem = |start: usize, end: usize, code: &str, message: String| {
@@ -378,6 +425,7 @@ pub fn problems(index: &Index, path: &str, language: &str, text: &str) -> Vec<Di
     };
 
     for reference in refs::references(language, text) {
+        if language=="twig" && matches!(reference.kind,Kind::Template|Kind::Translation) {continue;}
         let name = &text[reference.start..reference.end];
         if is_dynamic(name) {
             continue;
@@ -387,14 +435,19 @@ pub fn problems(index: &Index, path: &str, language: &str, text: &str) -> Vec<Di
             Kind::Route if language != "twig" && index.compiled_routes && !index.routes.contains_key(name) => {
                 problem(reference.start, reference.end, "missing-route", format!("Route \"{name}\" is not defined."));
             }
-            Kind::Template if !name.starts_with('@') && !index.templates.contains_key(name) => {
+            Kind::Template
+                if !name.starts_with('@')
+                    && !index.template_paths_unknown
+                    && !index.ambiguous_templates.contains(name)
+                    && !index.templates.contains_key(name) =>
+            {
                 problem(reference.start, reference.end, "missing-template", format!("Template \"{name}\" does not exist in templates/."));
             }
             Kind::Service if index.compiled_container && !index.services.contains_key(name) => {
                 problem(reference.start, reference.end, "missing-service", format!("Service \"{name}\" is not defined."));
             }
             Kind::Translation => {
-                let domain = domain_of(language, text, &reference);
+                let Some(domain) = domain_of(language, text, &reference) else {continue;};
                 if index.translations.get(&domain).is_some_and(|keys| !keys.contains_key(name)) {
                     let message = format!("Translation key \"{name}\" is missing from domain \"{domain}\".");
                     problem(reference.start, reference.end, "missing-translation", message);
@@ -404,7 +457,12 @@ pub fn problems(index: &Index, path: &str, language: &str, text: &str) -> Vec<Di
         }
     }
 
-    if language == "xml" && !path.contains("/var/cache/") {
+    if language=="twig" {
+        for finding in twig_checks::source_references(index,text) {problem(finding.start,finding.end,finding.code,finding.message);}
+    }
+    if let Some(findings) = source_service_duplicates(path, language, text) {
+        for finding in findings { problem(finding.start, finding.end, finding.code, finding.message); }
+    } else if language == "xml" && !path.contains("/var/cache/") {
         let mut services: Vec<(String, Position)> = Vec::new();
         index::xml_services(path, text, &mut services);
         for (i, (id, at)) in services.iter().enumerate() {
@@ -415,6 +473,9 @@ pub fn problems(index: &Index, path: &str, language: &str, text: &str) -> Vec<Di
         }
     }
 
+    if let Some(findings) = route_duplicates::check(path, language, text) {
+        for finding in findings { problem(finding.start, finding.end, finding.code, finding.message); }
+    } else {
     let mut routes: Vec<(String, Position)> = Vec::new();
     match language {
         "php" => index::php_routes(path, text, &mut routes),
@@ -426,6 +487,8 @@ pub fn problems(index: &Index, path: &str, language: &str, text: &str) -> Vec<Di
             let start = text::offset(text, *at).unwrap_or(0);
             problem(start, start + name.len(), "duplicate-route", format!("Route \"{name}\" is already defined in this file."));
         }
+    }
+
     }
 
     problems
@@ -596,9 +659,18 @@ impl Window {
 
 #[derive(Default)]
 pub struct Main {
+    profiler_snapshot: profiler::Snapshot,
+    namespace_editor: namespace_paths::Editor,
+    template_creation: file_actions::Creation,
+    service_registration: service_file_actions::Registration,
+    service_edits: service_edit_actions::Edits,
+    config_creation: config_file_actions::Creation,
+    compiler_creation: composer_compiler::Creation,
     window: Option<Window>,
     /// Key of the last selected row of the tool window.
     selected: Option<String>,
+    route_owner: Option<String>,
+    route_selection: Option<(String, Route)>,
     /// By project root.
     indexes: BTreeMap<String, Index>,
     /// Files with published problems, checked again when the index changes.
@@ -620,14 +692,15 @@ impl Main {
         let Ok(root) = project.root() else { return };
 
         if !index::is_symfony(project) {
-            self.indexes.remove(&root);
+            let removed = self.indexes.remove(&root).is_some();
             self.update_status_item(&root);
+            if removed { refresh_main_view(); }
             return;
         }
 
         let index = Index::build(project);
         if index.partial {
-            host::log(LogLevel::Warn, &format!("index of {root} is partial: out of time"));
+            host::log(LogLevel::Warn, &format!("index of {root} is partial: discovery, read or time limit"));
         }
         self.indexes.insert(root.clone(), index);
         self.update_status_item(&root);
@@ -636,7 +709,7 @@ impl Main {
         for path in checked {
             self.check(project, &path);
         }
-        host::refresh_view(VIEW);
+        refresh_main_view();
     }
 
     fn update_status_item(&self, root: &str) {
@@ -655,26 +728,70 @@ impl Main {
     }
 
     fn index_all(&mut self) {
-        for project in host::projects().unwrap_or_default() {
+        let projects = host::projects().unwrap_or_default();
+        let roots: BTreeSet<_> = projects.iter().filter_map(|project| project.root().ok()).collect();
+        let before = self.indexes.len();
+        self.indexes.retain(|root, _| roots.contains(root));
+        if self.indexes.len() != before { refresh_main_view(); }
+        self.checked.retain(|path| roots.iter().any(|root| under(path, root)));
+        for project in projects {
             self.index_project(&project);
         }
     }
 
     fn index_for(&self, path: &str) -> Option<&Index> {
-        self.indexes.iter().filter(|(root, _)| under(path, root)).max_by_key(|(root, _)| root.len()).map(|(_, index)| index)
+        let root = host::project_of(path)?.root().ok()?;
+        self.indexes.get(&root).filter(|index|index.settings_current())
     }
 
     /// Publishes the problems of a file (none when they are switched off).
     fn check(&mut self, project: &Project, path: &str) {
-        let Some(language) = language_of(path) else { return };
-        let Some(index) = self.index_for(path) else { return };
+        let Some(language) = language_of(path) else {
+            return;
+        };
+        let Some(index) = self.index_for(path) else {
+            return;
+        };
 
         let enabled = host::setting_bool("diagnostics").unwrap_or(true);
         let found = match project.read_file(path) {
             Ok(text) if enabled && !index.partial => {
                 let read = |file: &str| project.read_file(file).ok();
-                let mut found = problems(index, path, language, &text);
-                found.extend(extra_problems(index, Groups::from_settings(), &read, path, language, &text));
+                let source_xml_owned = source_service_duplicates(path, language, &text).is_some();
+                let source_factory_owned=config_checks::source_factory_settings(path,language,&text).is_some();
+                let source_route_settings_owned=checks::source_route_deprecations(path,language,&text,None).is_some();
+                let source_routes_owned = route_duplicates::check(path, language, &text).is_some();
+                let source_classes_owned = index.psr4_source_verified && checks::source_service_classes(path, language, &text).is_some();
+                let mut groups = Groups::from_settings();
+                let mut found: Vec<_> = problems(index, path, language, &text).into_iter()
+                    .filter(|finding| match finding.code.as_deref() {
+                        Some("duplicate-service") => !source_xml_owned && groups.services,
+                        Some("duplicate-route") => !source_routes_owned && groups.controllers,
+                        Some("missing-template"|"missing-translation") if language=="twig" => false,
+                        _ => true,
+                    }).collect();
+                // These source-local groups are owned by the versioned current-document provider.
+                groups.twig_syntax = false;
+                groups.yaml_syntax = false;
+                groups.commands = false;
+                groups.practices = false;
+                groups.deprecations = false;
+                groups.doctrine = false;
+                if language == "php" { groups.controllers = false; }
+                // Keep source-reading checks here; migrated codes/scopes have one current-document owner.
+                found.extend(extra_problems(index, groups, &read, path, language, &text).into_iter()
+                    .filter(|finding| {
+                        !(source_classes_owned && finding.code.as_deref()==Some("service-class-missing"))
+                            && !(source_factory_owned && finding.code.as_deref()==Some("deprecated-factory-setting"))
+                            && !(source_route_settings_owned && finding.code.as_deref()==Some("deprecated-route-setting"))
+                            && !matches!(finding.code.as_deref(), Some(
+                                "unknown-parameter" | "duplicate-parameter-key"
+                                | "form-type-string" | "missing-asset"
+                                | "missing-translation-domain" | "twig-missing-route" | "twig-missing-asset"
+                                | "twig-route-compare" | "twig-missing-translation-domain"
+                                | "twig-assets-tag-missing" | "twig-path-replacement"
+                            ))
+                    }));
                 found
             }
             _ => Vec::new(),
@@ -691,7 +808,9 @@ impl Main {
         let args = ["bin/console".to_owned(), command.to_owned()];
 
         let output = match project.run_process("php", &args, None) {
-            Err(Error::Denied(_)) => return Err("Allow the process:php capability in Settings › Plugins.".into()),
+            Err(Error::Denied(_)) => {
+                return Err("Allow the process:php capability in Settings › Plugins.".into());
+            }
             result => result?,
         };
 
@@ -716,7 +835,9 @@ impl Main {
         let mut descriptions: BTreeMap<String, Option<String>> = BTreeMap::new();
         for line in listed.iter().flat_map(|o| o.stdout.lines()) {
             let mut parts = line.trim().splitn(2, char::is_whitespace);
-            let Some(name) = parts.next().filter(|n| !n.is_empty()) else { continue };
+            let Some(name) = parts.next().filter(|n| !n.is_empty()) else {
+                continue;
+            };
             descriptions.insert(name.to_owned(), parts.next().map(|d| d.trim().to_owned()));
         }
         if let Some(index) = self.view_index(ctx) {
@@ -738,8 +859,12 @@ impl Main {
                 }
             })
             .collect();
-        let Some(name) = host::pick("Run console command", &items)? else { return Ok(None) };
-        let Some(arguments) = host::input(&format!("Arguments for bin/console {name}"), None)? else { return Ok(None) };
+        let Some(name) = host::pick("Run console command", &items)? else {
+            return Ok(None);
+        };
+        let Some(arguments) = host::input(&format!("Arguments for bin/console {name}"), None)? else {
+            return Ok(None);
+        };
 
         let mut args = vec!["bin/console".to_owned(), name.clone()];
         args.extend(arguments.split_whitespace().map(str::to_owned));
@@ -750,7 +875,8 @@ impl Main {
     }
 
     fn go_to(&self, ctx: &Invocation, what: &str, select: impl Fn(&Index) -> &Names) -> Result<Option<String>, Error> {
-        let index = self.view_index(ctx).ok_or("No Symfony project is indexed.")?;
+        let root = ctx.project().and_then(|project| project.root().ok()).ok_or(Error::Stale)?;
+        let index = self.indexes.get(&root).filter(|index|index.settings_current()).ok_or("No Symfony project is indexed.")?;
         let names = select(index);
         if names.is_empty() {
             return Err(format!("No {what}s are indexed.").into());
@@ -766,12 +892,15 @@ impl Main {
                 }
             })
             .collect();
-        let Some(key) = host::pick(&format!("Go to {what}"), &items)? else { return Ok(None) };
+        let Some(key) = host::pick(&format!("Go to {what}"), &items)? else {
+            return Ok(None);
+        };
         let entry = names.get(&key).ok_or_else(|| format!("{key} is no longer indexed."))?;
         if entry.path.is_empty() {
             return Err(format!("{key} is defined by the framework, not by a project file.").into());
         }
 
+        if !self.current_navigation_target(ctx, &root, &entry.path) { return Err(Error::Stale); }
         host::open_location(&entry.path, entry.at.line, entry.at.character)?;
         Ok(None)
     }
@@ -792,7 +921,9 @@ impl Main {
         let own = index.template_of(&path);
         let items: Vec<PickItem> =
             index.templates.keys().filter(|name| Some(name.as_str()) != own).map(|name| PickItem::new(name, name)).collect();
-        let Some(parent) = host::pick("Extend template", &items)? else { return Ok(None) };
+        let Some(parent) = host::pick("Extend template", &items)? else {
+            return Ok(None);
+        };
 
         let start = Position::new(0, 0);
         let edit = TextEdit { range: Range::new(start, start), text: format!("{{% extends '{parent}' %}}\n") };
@@ -810,6 +941,7 @@ impl Main {
     }
 
     fn summary_of(&self, root: &str, i: &Index) -> String {
+        if !i.settings_current() {return format!("{root}: source settings changed; Reindex to refresh cached facts.");}
         let partial = if i.partial { " (index incomplete)" } else { "" };
         let translations: usize = i.translations.values().map(Names::len).sum();
         format!(
@@ -823,7 +955,8 @@ impl Main {
 
 impl Plugin for Main {
     fn activate(&mut self, _ctx: &Context) -> Result<(), Error> {
-        for kind in [EventKind::FileSaved, EventKind::FileOpened] {
+        self.profiler_snapshot = profiler::Snapshot::default();
+        for kind in [EventKind::FileSaved, EventKind::FileOpened, EventKind::FilesChanged] {
             if let Err(error) = host::subscribe(kind) {
                 host::log(LogLevel::Warn, &format!("Symfony problems need the {} event: {error}", kind.name()));
             }
@@ -834,6 +967,10 @@ impl Plugin for Main {
 
     fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
         match id {
+            "twig-paths" => {
+                host::reveal_view(namespace_paths::VIEW)?;
+                Ok(None)
+            }
             "reindex" => {
                 let _task = host::begin_task("Indexing Symfony projects", false);
                 self.index_all();
@@ -841,7 +978,9 @@ impl Plugin for Main {
                 Ok(None)
             }
             "show-profiler" => {
+                self.profiler_snapshot.refresh(ctx);
                 host::refresh_view(PROFILER_VIEW);
+                let _ = host::post_view_message(PROFILER_VIEW, r#"{"channel":"ui-kit-refresh"}"#);
                 host::notify(NotificationLevel::Info, SOURCE, "The latest requests are in the Symfony Profiler tool window.");
                 Ok(None)
             }
@@ -849,13 +988,13 @@ impl Plugin for Main {
             "cache-clear" => self.console(ctx, "cache:clear"),
             "run-console-command" => self.run_console_command(ctx),
             "route-copy-curl" => {
-                if let Some(route) = self.selected_route() {
+                if let Some(route) = self.selected_route(ctx) {
                     routes::copy_as_curl(&concrete_method(route), DEFAULT_BASE_URL)?;
                 }
                 Ok(None)
             }
             "route-create-http" => {
-                if let Some(route) = self.selected_route() {
+                if let Some(route) = self.selected_route(ctx) {
                     routes::create_http_file(&concrete_method(route), DEFAULT_BASE_URL, None)?;
                 }
                 Ok(None)
@@ -873,32 +1012,68 @@ impl Plugin for Main {
     }
 
     fn handle_events(&mut self, events: &[Event], _ctx: &Invocation) {
-        let mut saved: BTreeSet<&str> = BTreeSet::new();
-        let mut opened: BTreeSet<&str> = BTreeSet::new();
-
-        for event in events {
-            match event {
-                Event::FileSaved(path) => {
-                    saved.insert(path);
+        let projects = host::projects().unwrap_or_default();
+        let roots: BTreeSet<_> = projects.iter().filter_map(|project| project.root().ok()).collect();
+        // Do not retain stale facts after an oversized batch or perform unbounded callbacks.
+        let mut changed = BTreeSet::new();
+        let mut opened = BTreeSet::new();
+        let mut count = 0usize;
+        for event in events.iter().take(1025) {
+            let (paths, is_open): (Box<dyn Iterator<Item = &str>>, bool) = match event {
+                Event::FileSaved(path) => (Box::new(std::iter::once(path.as_str())), false),
+                Event::FileOpened(path) => (Box::new(std::iter::once(path.as_str())), true),
+                Event::FilesChanged(files) => {
+                    (Box::new(files.created.iter().chain(&files.modified).chain(&files.removed).map(String::as_str)), false)
                 }
-                Event::FileOpened(path) => {
+                _ => continue,
+            };
+            for path in paths.take(1025) {
+                count += 1;
+                if count > 1024 || path.len() > 4096 {
+                    let changed = !self.indexes.is_empty();
+                    self.indexes.clear();
+                    self.checked.clear();
+                    if changed { refresh_main_view(); }
+                    if self.profiler_snapshot.invalidate_changes(&BTreeSet::new(), &roots, true) { refresh_profiler_view(); }
+                    return;
+                }
+                if is_open {
                     opened.insert(path);
+                } else {
+                    changed.insert(path);
                 }
-                _ => {}
             }
         }
-
-        for project in host::projects().unwrap_or_default() {
-            let Ok(root) = project.root() else { continue };
-            let relative = |path: &&str| path.strip_prefix(&format!("{root}/")).map(str::to_owned);
-
-            let changed = saved.iter().filter_map(relative).any(|r| affects_index(&r));
+        if events.len() > 1024 {
+            let changed = !self.indexes.is_empty();
+            self.indexes.clear();
+            self.checked.clear();
+            if changed { refresh_main_view(); }
+            if self.profiler_snapshot.invalidate_changes(&BTreeSet::new(), &roots, true) { refresh_profiler_view(); }
+            return;
+        }
+        let configured_inputs = index::configured_input_paths();
+        if self.profiler_snapshot.invalidate_changes(&changed, &roots, false) { refresh_profiler_view(); }
+        let before = self.indexes.len();
+        self.indexes.retain(|root, _| roots.contains(root));
+        if self.indexes.len() != before { refresh_main_view(); }
+        self.checked.retain(|path| roots.iter().any(|root| under(path, root)));
+        for project in projects {
+            let Ok(root) = project.root() else {
+                continue;
+            };
+            let directories = self.indexes.get(&root).filter(|index|index.settings_current()).map(|index| index.template_directories.clone()).unwrap_or_default();
+            let relevant = changed
+                .iter()
+                .filter_map(|path| path.strip_prefix(&format!("{root}/")))
+                .any(|relative| affects_index(relative) || index::affects_configured_index(relative, &configured_inputs)
+                    || namespace_paths::affects(relative, &directories));
             let unknown = !self.indexes.contains_key(&root) && opened.iter().any(|path| under(path, &root));
-            if changed || unknown {
+            let settings_changed=self.indexes.get(&root).is_some_and(|index|!index.settings_current());
+            if relevant || unknown || settings_changed {
                 self.index_project(&project);
             }
-
-            for path in saved.iter().chain(&opened).filter(|path| under(path, &root)) {
+            for path in changed.iter().chain(&opened).filter(|path| under(path, &root)) {
                 self.check(&project, path);
             }
         }
@@ -907,8 +1082,13 @@ impl Plugin for Main {
 
 impl Providers for Main {
     fn completion(&mut self, doc: &Document, at: Position, _trigger: Option<&str>) -> Vec<CompletionItem> {
-        let Some(index) = self.index_for(&doc.path) else { return Vec::new() };
-        let Some(offset) = text::offset(&doc.text, at) else { return Vec::new() };
+        let Some(root)=host::project_of(&doc.path).and_then(|project|project.root().ok()) else {return Vec::new();};
+        let Some(index) = self.indexes.get(&root).filter(|index|index.settings_current()) else {
+            return Vec::new();
+        };
+        let Some(offset) = text::offset(&doc.text, at) else {
+            return Vec::new();
+        };
 
         if doc.language == "php" {
             if let Some((range, items)) = attr_args::completions(&doc.text, offset) {
@@ -931,29 +1111,43 @@ impl Providers for Main {
         };
         let replace = range_of(&doc.text, reference.start, reference.end);
 
-        candidates(index, &doc.path, &doc.language, &doc.text, &reference)
+        let items=candidates(index, &doc.path, &doc.language, &doc.text, &reference)
             .iter()
+            .filter(|(_,entry)|entry.path.is_empty() || host::project_of(&entry.path).and_then(|project|project.root().ok()).as_deref()==Some(root.as_str()))
             .map(|(name, entry)| {
                 let mut item = CompletionItem::new(name, completion_kind(reference.kind));
                 item.detail = entry.detail.clone();
                 item.replace = Some(replace);
                 item
             })
-            .collect()
+            .collect();
+        if host::project_of(&doc.path).and_then(|project|project.root().ok()).as_deref()!=Some(root.as_str()) {return Vec::new();}
+        items
     }
 
     fn definition(&mut self, doc: &Document, at: Position) -> Vec<Location> {
-        let Some(index) = self.index_for(&doc.path) else { return Vec::new() };
-        let Some(offset) = text::offset(&doc.text, at) else { return Vec::new() };
-        let Some(reference) = refs::reference_at(&doc.language, &doc.text, offset) else { return Vec::new() };
+        let Some(root) = host::project_of(&doc.path).and_then(|project|project.root().ok()) else {return Vec::new();};
+        let Some(index) = self.indexes.get(&root).filter(|index|index.settings_current()) else {return Vec::new();};
+        let Some(offset) = text::offset(&doc.text, at) else {
+            return Vec::new();
+        };
+        let Some(reference) = refs::reference_at(&doc.language, &doc.text, offset) else {
+            return Vec::new();
+        };
         if reference.kind == Kind::Tag {
             return Vec::new();
         }
 
         let name = &doc.text[reference.start..reference.end];
         let names = candidates(index, &doc.path, &doc.language, &doc.text, &reference);
-        let Some(entry) = names.get(name) else { return Vec::new() };
+        let Some(entry) = names.get(name) else {
+            return Vec::new();
+        };
 
+        // Recheck selected logical ownership without discovery or declaration reads.
+        if entry.path.is_empty()
+            || host::project_of(&doc.path).and_then(|project|project.root().ok()).as_deref()!=Some(root.as_str())
+            || host::project_of(&entry.path).and_then(|project|project.root().ok()).as_deref()!=Some(root.as_str()) {return Vec::new();}
         let is_file = matches!(reference.kind, Kind::Template | Kind::Class | Kind::Asset);
         let width = if is_file { 0 } else { name.encode_utf16().count() as u32 };
         location(entry, width).into_iter().collect()
@@ -961,7 +1155,9 @@ impl Providers for Main {
 
     /// Quick fixes (quote YAML scalars, apply check replacements, add a missing translation key) and refactorings (`intentions.rs`).
     fn code_actions(&mut self, doc: &Document, selection: Range) -> Vec<CodeAction> {
-        let Some(index) = self.index_for(&doc.path) else { return Vec::new() };
+        let Some(index) = self.index_for(&doc.path) else {
+            return Vec::new();
+        };
         let mut actions = Vec::new();
 
         if doc.language == "yaml" && is_quoted_config(&doc.path) && Groups::from_settings().yaml_syntax {
@@ -983,7 +1179,9 @@ impl Providers for Main {
             );
         }
 
-        let Some(offset) = text::offset(&doc.text, selection.start) else { return actions };
+        let Some(offset) = text::offset(&doc.text, selection.start) else {
+            return actions;
+        };
         let selection_end = text::offset(&doc.text, selection.end).unwrap_or(offset);
 
         let intentions = match doc.language.as_str() {
@@ -993,7 +1191,9 @@ impl Providers for Main {
                 php
             }
             "twig" if intentions::caret_on_extends(&doc.text, offset) => {
-                let blocks: Vec<String> = project_for(&doc.path).map(|project| parent_blocks(index, &project, &doc.text).into_keys().collect()).unwrap_or_default();
+                let blocks: Vec<String> = project_for(&doc.path)
+                    .map(|project| parent_blocks(index, &project, &doc.text).into_keys().collect())
+                    .unwrap_or_default();
                 intentions::twig_actions(&doc.text, offset, &blocks)
             }
             _ => Vec::new(),
@@ -1002,15 +1202,23 @@ impl Providers for Main {
             title: action.title,
             kind: Some(action.kind.into()),
             preferred: false,
-            edits: vec![(doc.path.clone(), action.edits.into_iter().map(|(range, text)| TextEdit { range: range_of(&doc.text, range.start, range.end), text }).collect())],
+            edits: vec![(
+                    doc.path.clone(),
+                    action
+                        .edits
+                        .into_iter()
+                        .map(|(range, text)| TextEdit { range: range_of(&doc.text, range.start, range.end), text })
+                        .collect(),
+                )],
             data: None,
         }));
 
-        actions.extend(service_actions(index, doc, offset));
         actions.extend(generator_actions(index, doc, offset, selection_end));
 
         for finding in fixes(index, &doc.path, &doc.language, &doc.text) {
-            let Some(replacement) = finding.replacement else { continue };
+            let Some(replacement) = finding.replacement else {
+                continue;
+            };
             if finding.start > selection_end || finding.end < offset {
                 continue;
             }
@@ -1019,18 +1227,23 @@ impl Providers for Main {
                 title: format!("Replace with {replacement}"),
                 kind: Some("quickfix".into()),
                 preferred: true,
-                edits: vec![(doc.path.clone(), vec![TextEdit { range: range_of(&doc.text, finding.start, finding.end), text: replacement }])],
+                edits: vec![(
+                    doc.path.clone(),
+                    vec![TextEdit { range: range_of(&doc.text, finding.start, finding.end), text: replacement }],
+                )],
                 data: None,
             });
         }
 
         actions.extend(typo_fixes(index, doc, offset, selection_end));
 
-        let Some(reference) = refs::reference_at(&doc.language, &doc.text, offset) else { return actions };
+        let Some(reference) = refs::reference_at(&doc.language, &doc.text, offset) else {
+            return actions;
+        };
 
         let key = &doc.text[reference.start..reference.end];
-        let domain = domain_of(&doc.language, &doc.text, &reference);
-        let missing = index.translations.get(&domain).is_some_and(|keys| !keys.contains_key(key));
+        let Some(domain) = domain_of(&doc.language, &doc.text, &reference) else {return actions;};
+        let missing = twig_checks::cached_translation_key(index,&domain,key)==Some(false);
         if reference.kind != Kind::Translation || is_dynamic(key) || !missing {
             return actions;
         }
@@ -1049,20 +1262,28 @@ impl Providers for Main {
     fn resolve_code_action(&mut self, doc: &Document, mut action: CodeAction) -> Result<CodeAction, Error> {
         let data = action.data.clone().ok_or("Nothing to resolve.")?;
         if let Some(rest) = data.strip_prefix("translate\n") {
-            action.edits = translation_edits(doc, rest)?;
+            let mut parts=rest.splitn(4, '\n');
+            let (Some(file),Some(start),Some(end),Some(key))=(parts.next(),parts.next(),parts.next(),parts.next()) else {return Err(Error::Stale);};
+            let (Ok(start),Ok(end))=(start.parse::<usize>(),end.parse::<usize>()) else {return Err(Error::Stale);};
+            let index=self.index_for(&doc.path).ok_or(Error::Stale)?;
+            let expected=generator_actions(index,doc,start,end).into_iter().any(|candidate|candidate.data.as_deref()==Some(data.as_str()));
+            if !expected {return Err(Error::Stale);}
+            let existing=self.translation_target(doc,file,key)?;
+            action.edits = translation_edits(doc, rest, &existing)?;
             return Ok(action);
         }
 
-        if let Some(rest) = data.strip_prefix("service\n") {
-            let (services_file, class_file) = rest.split_once('\n').ok_or("Malformed code action.")?;
-            let index = self.index_for(services_file).ok_or("The file is not in a Symfony project.")?;
-            action.edits = vec![service_definition_edit(index, services_file, class_file)?];
-            return Ok(action);
-        }
+        if data.starts_with("service\n") { return Err(Error::Stale); }
 
         let (file, key) = data.split_once('\n').ok_or("Malformed code action.")?;
-        let project = project_for(file).ok_or("The file is not in an open project.")?;
-        let text = project.read_file(file)?;
+        let index=self.index_for(&doc.path).ok_or(Error::Stale)?;
+        let domain=index::translation_domain(file);
+        let expected=refs::references(&doc.language,&doc.text).into_iter().any(|reference| reference.kind==Kind::Translation
+            && doc.text.get(reference.start..reference.end)==Some(key)
+            && domain_of(&doc.language,&doc.text,&reference).as_deref()==Some(domain)
+            && twig_checks::cached_translation_key(index,domain,key)==Some(false));
+        if !expected {return Err(Error::Stale);}
+        let text = self.translation_target(doc,file,key)?;
 
         let end = text::position(&text, text.len());
         let separator = if text.is_empty() || text.ends_with('\n') { "" } else { "\n" };
@@ -1075,15 +1296,15 @@ impl Providers for Main {
 }
 
 /// Replaces the selected Twig text with a `trans` call and adds the key to the domain's translation file.
-fn translation_edits(doc: &Document, data: &str) -> Result<Vec<(String, Vec<TextEdit>)>, Error> {
+fn translation_edits(doc: &Document, data: &str, existing: &str) -> Result<Vec<(String, Vec<TextEdit>)>, Error> {
     let mut parts = data.splitn(4, '\n');
     let (file, start, end, key) = (parts.next(), parts.next(), parts.next(), parts.next());
-    let (Some(file), Some(Ok(start)), Some(Ok(end)), Some(key)) = (file, start.map(str::parse::<usize>), end.map(str::parse::<usize>), key) else { return Err("Malformed code action.".into()) };
+    let (Some(file), Some(Ok(start)), Some(Ok(end)), Some(key)) = (file, start.map(str::parse::<usize>), end.map(str::parse::<usize>), key)
+    else {
+        return Err("Malformed code action.".into());
+    };
     let value = doc.text.get(start..end).ok_or("The selection changed.")?;
-    let project = project_for(file).ok_or("The file is not in an open project.")?;
-    let existing = project.read_file(file)?;
-
-    let (at, line) = generators::translation_line(&existing, key, value);
+    let (at, line) = generators::translation_line(existing, key, value);
     let replacement = TextEdit { range: range_of(&doc.text, start, end), text: format!("{{{{ '{key}'|trans }}}}") };
     let addition = TextEdit { range: range_of(&existing, at, at), text: line };
 
@@ -1092,7 +1313,9 @@ fn translation_edits(doc: &Document, data: &str) -> Result<Vec<(String, Vec<Text
 
 /// "Add form fields" in a form type and "Extract translation" for selected Twig text.
 fn generator_actions(index: &Index, doc: &Document, offset: usize, selection_end: usize) -> Vec<CodeAction> {
-    let Some(project) = project_for(&doc.path) else { return Vec::new() };
+    let Some(project) = project_for(&doc.path) else {
+        return Vec::new();
+    };
 
     if doc.language == "php" {
         let read = |file: &str| project.read_file(file).ok();
@@ -1103,7 +1326,14 @@ fn generator_actions(index: &Index, doc: &Document, offset: usize, selection_end
                 title: action.title,
                 kind: Some(action.kind.into()),
                 preferred: false,
-                edits: vec![(doc.path.clone(), action.edits.into_iter().map(|(range, text)| TextEdit { range: range_of(&doc.text, range.start, range.end), text }).collect())],
+                edits: vec![(
+                    doc.path.clone(),
+                    action
+                        .edits
+                        .into_iter()
+                        .map(|(range, text)| TextEdit { range: range_of(&doc.text, range.start, range.end), text })
+                        .collect(),
+                )],
                 data: None,
             })
             .collect();
@@ -1113,13 +1343,23 @@ fn generator_actions(index: &Index, doc: &Document, offset: usize, selection_end
         return Vec::new();
     }
 
-    let Some(range) = generators::translatable(&doc.text, offset, selection_end) else { return Vec::new() };
-    let domain = generators::default_domain(&doc.text);
-    let Some(file) = index.translation_files.get(&domain).and_then(|files| files.iter().find(|file| file.contains(".en.")).or(files.first())) else { return Vec::new() };
-    let Some(base) = generators::translation_key(index.template_of(&doc.path), &doc.text[range.clone()]) else { return Vec::new() };
+    let Some(range) = generators::translatable(&doc.text, offset, selection_end) else {
+        return Vec::new();
+    };
+    let Some(domain) = generators::default_domain(&doc.text) else {return Vec::new();};
+    let Some(file) =
+        index.translation_files.get(&domain).and_then(|files| files.iter().find(|file| file.contains(".en.")).or(files.first()))
+    else {
+        return Vec::new();
+    };
+    let Some(base) = generators::translation_key(index.template_of(&doc.path), &doc.text[range.clone()]) else {
+        return Vec::new();
+    };
 
     let taken = |key: &str| index.translations.get(&domain).is_some_and(|keys| keys.contains_key(key));
-    let Some(key) = std::iter::once(base.clone()).chain((2..10).map(|n| format!("{base}_{n}"))).find(|key| !taken(key)) else { return Vec::new() };
+    let Some(key) = std::iter::once(base.clone()).chain((2..10).map(|n| format!("{base}_{n}"))).find(|key| !taken(key)) else {
+        return Vec::new();
+    };
 
     vec![CodeAction {
         title: format!("Extract translation \"{key}\" to {}", file_name(file)),
@@ -1141,62 +1381,81 @@ fn services_file(project: &Project) -> Option<(String, String)> {
     })
 }
 
-/// Appends the definition of the class in `class_file` to the service file.
-fn service_definition_edit(index: &Index, services_file: &str, class_file: &str) -> Result<(String, Vec<TextEdit>), Error> {
-    let project = project_for(services_file).ok_or("The file is not in an open project.")?;
-    let services = project.read_file(services_file)?;
-    let source = project.read_file(class_file)?;
-    let model = php_text::class_model(&source).ok_or("No class found.")?;
-    let read = |file: &str| project.read_file(file).ok();
-    let ctx = checks::Context::new(index, &read);
-
-    let plan = service_gen::plan(&ctx, &model, &[], !service_gen::has_autoconfigure(&services));
-    let (range, text) = match services_file.ends_with(".xml") {
-        true => service_gen::xml_insertion(&services, &plan).ok_or("The service file has no <services> element.")?,
-        false => service_gen::yaml_insertion(&services, &plan),
-    };
-
-    Ok((services_file.to_owned(), vec![TextEdit { range: range_of(&services, range.start, range.end), text }]))
-}
-
 /// Service definition generators: a new definition for the class at the caret
 /// (in the project's service file) and, in a YAML service file, constructor
 /// arguments and implied tags for the service at the caret.
-fn service_actions(index: &Index, doc: &Document, offset: usize) -> Vec<CodeAction> {
-    let Some(project) = project_for(&doc.path) else { return Vec::new() };
-    let read = |file: &str| project.read_file(file).ok();
-    let ctx = checks::Context::new(index, &read);
+fn service_source_actions(index: &Index, doc: &Document, offset: usize, read: checks::Reader) -> Vec<CodeAction> {
+    let ctx = checks::Context::new(index, read);
     let mut actions = Vec::new();
-
     if doc.language == "yaml" && checks::is_service_file(&doc.path) {
-        let edit = |range: std::ops::Range<usize>, text: String| vec![(doc.path.clone(), vec![TextEdit { range: range_of(&doc.text, range.start, range.end), text }])];
+        let edit = |range: std::ops::Range<usize>, text: String| {
+            vec![(doc.path.clone(), vec![TextEdit { range: range_of(&doc.text, range.start, range.end), text }])]
+        };
 
         if let Some((range, text)) = service_gen::resync_arguments(&ctx, &doc.text, offset) {
-            actions.push(CodeAction { title: "Resync arguments with the constructor".into(), kind: Some("refactor.rewrite".into()), preferred: false, edits: edit(range, text), data: None });
+            actions.push(CodeAction {
+                title: "Resync arguments with the constructor".into(),
+                kind: Some("refactor.rewrite".into()),
+                preferred: false,
+                edits: edit(range, text),
+                data: None,
+            });
         }
 
         if let Some((tags, (range, text))) = service_gen::add_implied_tags(&ctx, &doc.text, offset) {
-            actions.push(CodeAction { title: format!("Add tags {}", tags.join(", ")), kind: Some("refactor.rewrite".into()), preferred: false, edits: edit(range, text), data: None });
+            actions.push(CodeAction {
+                title: format!("Add tags {}", tags.join(", ")),
+                kind: Some("refactor.rewrite".into()),
+                preferred: false,
+                edits: edit(range, text),
+                data: None,
+            });
         }
     }
 
     if doc.language == "xml" && checks::is_service_file(&doc.path) && doc.text.contains("<container") {
-        let edit = |range: std::ops::Range<usize>, text: String| vec![(doc.path.clone(), vec![TextEdit { range: range_of(&doc.text, range.start, range.end), text }])];
+        let edit = |range: std::ops::Range<usize>, text: String| {
+            vec![(doc.path.clone(), vec![TextEdit { range: range_of(&doc.text, range.start, range.end), text }])]
+        };
 
         if let Some((range, text)) = service_gen::add_arguments_xml(&ctx, &doc.text, offset) {
-            actions.push(CodeAction { title: "Add arguments from the constructor".into(), kind: Some("refactor.rewrite".into()), preferred: false, edits: edit(range, text), data: None });
+            actions.push(CodeAction {
+                title: "Add arguments from the constructor".into(),
+                kind: Some("refactor.rewrite".into()),
+                preferred: false,
+                edits: edit(range, text),
+                data: None,
+            });
         }
 
         if let Some((tags, (range, text))) = service_gen::add_implied_tags_xml(&ctx, &doc.text, offset) {
-            actions.push(CodeAction { title: format!("Add tags {}", tags.join(", ")), kind: Some("refactor.rewrite".into()), preferred: false, edits: edit(range, text), data: None });
+            actions.push(CodeAction {
+                title: format!("Add tags {}", tags.join(", ")),
+                kind: Some("refactor.rewrite".into()),
+                preferred: false,
+                edits: edit(range, text),
+                data: None,
+            });
         }
     }
+
+    actions
+}
+
+fn service_actions(index: &Index, doc: &Document, offset: usize) -> Vec<CodeAction> {
+    let Some(project) = project_for(&doc.path) else {
+        return Vec::new();
+    };
+    let read = |file: &str| project.read_file(file).ok();
+    let mut actions = service_source_actions(index,doc,offset,&read);
 
     if doc.language != "php" {
         return actions;
     }
 
-    let Some(model) = php_text::class_model(&doc.text) else { return actions };
+    let Some(model) = php_text::class_model(&doc.text) else {
+        return actions;
+    };
     let masked = php_text::mask(&doc.text);
     let line_start = masked[..model.name_range.start].rfind('\n').map_or(0, |at| at + 1);
     let line_end = masked[model.name_range.start..].find('\n').map_or(masked.len(), |at| model.name_range.start + at);
@@ -1207,7 +1466,9 @@ fn service_actions(index: &Index, doc: &Document, offset: usize) -> Vec<CodeActi
         return actions;
     }
 
-    let Some((services_path, services)) = services_file(&project) else { return actions };
+    let Some((services_path, services)) = services_file(&project) else {
+        return actions;
+    };
     if service_gen::registered_by_prototype(&services, &model.fqcn) {
         return actions;
     }
@@ -1233,11 +1494,13 @@ fn typo_fixes(index: &Index, doc: &Document, offset: usize, selection_end: usize
         let known = match reference.kind {
             Kind::Route if index.compiled_routes && !name.starts_with('_') && !index.routes.contains_key(name) => Some(&index.routes),
             Kind::Template if !name.starts_with('@') && !index.templates.contains_key(name) => Some(&index.templates),
-            Kind::Translation => index.translations.get(&domain).filter(|keys| !keys.contains_key(name)),
+            Kind::Translation => domain.as_deref().filter(|domain|twig_checks::cached_translation_key(index,domain,name)==Some(false)).and_then(|domain|index.translations.get(domain)),
             _ => None,
         };
 
-        let near = known.filter(|_| !is_dynamic(name)).and_then(|names| suggest::closest(name, names.keys().map(String::as_str).filter(|candidate| !candidate.starts_with('_'))));
+        let near = known
+            .filter(|_| !is_dynamic(name))
+            .and_then(|names| suggest::closest(name, names.keys().map(String::as_str).filter(|candidate| !candidate.starts_with('_'))));
         wanted.extend(near.map(|candidate| (reference.start..reference.end, candidate.to_owned())));
     }
 
@@ -1337,7 +1600,9 @@ impl Main {
 
                 if domain_expanded {
                     items.extend(
-                        names.iter().map(|(name, entry)| leaf(format!("translation:{domain}:{name}"), name, entry, &domain_key, "property")),
+                        names
+                            .iter()
+                            .map(|(name, entry)| leaf(format!("translation:{domain}:{name}"), name, entry, &domain_key, "property")),
                     );
                 }
             }
@@ -1357,10 +1622,17 @@ impl Main {
             let class = if def.class.is_empty() { "Closure" } else { def.class.as_str() };
             let handler = Handler { class: class.to_owned(), member: def.member.clone() };
             let width = def.path.len() as u32;
-            let location = Some(Location { path: def.file.clone(), range: Range::new(def.at, Position::new(def.at.line, def.at.character + width)) });
+            let location =
+                Some(Location { path: def.file.clone(), range: Range::new(def.at, Position::new(def.at.line, def.at.character + width)) });
             let methods: Vec<&str> = if def.methods.is_empty() { vec!["ANY"] } else { def.methods.iter().map(String::as_str).collect() };
             for method in methods {
-                routes.push(Route { method: method.to_owned(), path: def.path.clone(), handler: handler.clone(), name: def.name.clone(), location: location.clone() });
+                routes.push(Route {
+                    method: method.to_owned(),
+                    path: def.path.clone(),
+                    handler: handler.clone(),
+                    name: def.name.clone(),
+                    location: location.clone(),
+                });
             }
         }
 
@@ -1391,54 +1663,69 @@ impl Main {
         routes
     }
 
-    fn selected_route(&self) -> Option<&Route> {
-        self.window.as_ref()?.routes.route(self.selected.as_deref()?)
+    fn translation_target(&self, doc: &Document, file: &str, key: &str) -> Result<String, Error> {
+        if doc.text.len()>128<<10 || key.is_empty() || key.len()>512 || key.contains(['\n','\r'])
+            || !file_actions::normalized(file) {return Err(Error::Stale);}
+        let project=host::project_of(&doc.path).ok_or(Error::Stale)?;
+        let root=project.root()?;
+        let index=self.indexes.get(&root).filter(|index|index.settings_current()).ok_or(Error::Stale)?;
+        let domain=index::translation_domain(file);
+        if !under(file,&root) || !index.translation_files.get(domain).is_some_and(|files|files.iter().any(|path|path==file))
+            || host::project_of(file).and_then(|project|project.root().ok()).as_deref()!=Some(root.as_str()) {return Err(Error::Stale);}
+        let text=project.read_file(file)?;
+        if text.len()>128<<10 {return Err(Error::Stale);}
+        let mut names=Names::new();index::translation_keys(file,&text,&mut names);
+        let parsed_key=index::yaml_keys(&text).into_iter().any(|entry| {
+            let mut parts=entry.parents;parts.push(entry.key);parts.join(".")==key
+        });
+        if names.contains_key(key) || parsed_key
+            || host::project_of(&doc.path).and_then(|project|project.root().ok()).as_deref()!=Some(root.as_str())
+            || host::project_of(file).and_then(|project|project.root().ok()).as_deref()!=Some(root.as_str()) {return Err(Error::Stale);}
+        Ok(text)
+    }
+
+    fn current_navigation_target(&self, ctx: &Invocation, root: &str, path: &str) -> bool {
+        !path.is_empty() && self.indexes.get(root).is_some_and(|index|index.settings_current())
+            && ctx.project().and_then(|project|project.root().ok()).as_deref() == Some(root)
+            && host::project_of(path).and_then(|project|project.root().ok()).as_deref() == Some(root)
+    }
+
+    fn current_route_member(&self, ctx: &Invocation, route: &Route) -> bool {
+        let root = ctx.project().and_then(|p| p.root().ok());
+        root.is_some() && root == self.route_owner
+            && self.view_index(ctx).is_some_and(|index| self.routes(index).contains(route))
+    }
+
+    fn selected_route(&self, ctx: &Invocation) -> Option<&Route> {
+        let (owner, expected) = self.route_selection.as_ref()?;
+        if ctx.project()?.root().ok()?.as_str() != owner { return None; }
+        let route = self.window.as_ref()?.routes.route(self.selected.as_deref()?)?;
+        (route == expected && self.current_route_member(ctx, route)).then_some(route)
     }
 
     fn view_index(&self, ctx: &Invocation) -> Option<&Index> {
         let root = ctx.project()?.root().ok()?;
-        self.indexes.get(&root)
+        self.indexes.get(&root).filter(|index|index.settings_current())
     }
 }
 
-/// The profiler's recent requests; the file is read when the view is shown
-/// (a missing one is `NotFound` in the mock and `Invalid` in the host).
-fn profiler_view(ctx: &Invocation) -> View {
-    let refresh = Button::new("refresh-profiler", "Refresh").icon("refresh");
-    let Some(project) = ctx.project() else {
-        return View::message("No project is open.").button(refresh);
-    };
-    let Ok(text) = project.read_file(profiler::INDEX_FILE) else {
-        return View::message(&format!("No {} yet: open a page of the app in dev mode with the web profiler enabled.", profiler::INDEX_FILE))
-            .button(refresh);
-    };
-
-    let requests = profiler::rows(&text);
-    let rows: Vec<Vec<String>> = requests
-        .iter()
-        .map(|r| vec![profiler::timestamp(r.time), r.method.clone(), r.status.clone(), r.url.clone(), r.ip.clone(), r.token.clone()])
-        .collect();
-    let table = Table {
-        columns: ["Time (UTC)", "Method", "Status", "URL", "IP", "Token"].map(String::from).to_vec(),
-        total_rows: rows.len() as u32,
-        first_row: 0,
-        rows,
-        editable: false,
-    };
-
-    View::new(Body::Table(table)).button(refresh).status(&format!("{} latest requests", requests.len()))
-}
 
 impl Views for Main {
     fn render(&mut self, view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
+        if view == namespace_paths::VIEW {
+            return Ok(self.namespace_editor.render(ctx));
+        }
         if view == PROFILER_VIEW {
-            return Ok(profiler_view(ctx));
+            return Ok(self.profiler_snapshot.render(ctx));
         }
 
         let routes_active = self.window.get_or_insert_with(Window::new).sections.active() == ROUTES_SECTION;
         let reindex = Button::new("reindex", "Reindex").icon("refresh");
+        let stale_settings=ctx.project().and_then(|project|project.root().ok()).and_then(|root|self.indexes.get(&root)).is_some_and(|index|!index.settings_current());
         let Some(index) = self.view_index(ctx) else {
-            return Ok(View::message("This project is not a Symfony application.").button(reindex));
+            self.route_owner = None; self.route_selection = None; self.selected = None;
+            let message=if stale_settings {"Symfony source settings changed. Reindex to refresh cached facts."} else {"This project is not a Symfony application."};
+            return Ok(View::message(message).button(reindex));
         };
 
         let mut status = if index.compiled_container {
@@ -1446,8 +1733,14 @@ impl Views for Main {
         } else {
             String::from("No compiled container: run Warm Up Cache to index bundle services and routes")
         };
+        if index.template_paths_unknown {
+            status.push_str(" · Twig plugin hints are incomplete or runtime-unverified");
+        }
+        if !index.ambiguous_templates.is_empty() {
+            status.push_str(" · ambiguous template hints suppressed");
+        }
         if index.partial {
-            status.push_str(" · Index incomplete (time limit reached)");
+            status.push_str(" · Index incomplete (discovery, read or time limit)");
         }
 
         let base = View::new(Body::Tree(Vec::new()))
@@ -1458,6 +1751,9 @@ impl Views for Main {
             true => (self.routes(index), Vec::new()),
             false => (Vec::new(), self.tree(index)),
         };
+        let root = ctx.project().and_then(|p| p.root().ok());
+        if self.route_owner != root { self.selected = None; self.route_selection = None; }
+        self.route_owner = root;
         let window = self.window.get_or_insert_with(Window::new);
         let view = if routes_active {
             window.routes.set_routes(routes);
@@ -1470,53 +1766,91 @@ impl Views for Main {
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {
+        if ui_kit::web::handle(self, view, &event, ctx, include_str!("ui_config.json"))? {
+            return Ok(());
+        }
+
+        if view == PROFILER_VIEW {
+            match event {
+                ViewEvent::Button(id) if id == "discover-profiler-source" => {
+                    if profiler::discover_source(ctx)? { refresh_profiler_view(); }
+                }
+                ViewEvent::Button(id) if id == "choose-profiler-source" => {
+                    if profiler::choose_source(ctx)? { refresh_profiler_view(); }
+                }
+                ViewEvent::Button(id) if id == "refresh-profiler" => {
+                    self.profiler_snapshot.refresh(ctx);
+                    host::refresh_view(PROFILER_VIEW);
+                }
+                ViewEvent::Activate(key) => self.profiler_snapshot.open(&key, ctx)?,
+                _ => {}
+            }
+            return Ok(());
+        }
+        if view == namespace_paths::VIEW {
+            let changed = self.namespace_editor.handle(&event, ctx)?;
+            if changed {
+                if let Some(project) = ctx.project() {
+                    self.index_project(&project);
+                }
+            }
+            host::refresh_view(view);
+            return Ok(());
+        }
         if view == VIEW {
-            let window = self.window.get_or_insert_with(Window::new);
-            if window.sections.handle(&event) {
-                host::refresh_view(view);
+            if self.window.get_or_insert_with(Window::new).sections.handle(&event) {
+                refresh_main_view();
                 return Ok(());
             }
-
-            if let ViewEvent::Select(key) = &event {
-                self.selected = Some(key.clone());
-            }
-
-            if window.sections.active() == ROUTES_SECTION {
-                match window.routes.handle(&event) {
-                    RouteEvent::Changed => {
-                        host::refresh_view(view);
-                        return Ok(());
-                    }
+            let routes_active = self.window.as_ref().is_some_and(|w| w.sections.active() == ROUTES_SECTION);
+            if routes_active {
+                let root = ctx.project().and_then(|p| p.root().ok());
+                if root.is_none() || root != self.route_owner || self.view_index(ctx).is_none() { return Err(Error::Stale); }
+                if let ViewEvent::Select(key) = &event {
+                    let route = self.window.as_ref().and_then(|w| w.routes.route(key)).cloned();
+                    self.route_selection = route.filter(|r| self.current_route_member(ctx, r)).map(|r| (root.clone().unwrap(), r));
+                    self.selected = Some(key.clone());
+                }
+                let outcome = self.window.as_mut().unwrap().routes.handle(&event);
+                match outcome {
+                    RouteEvent::Changed => { refresh_main_view(); return Ok(()); }
                     RouteEvent::Open(route) => {
+                        if !self.current_route_member(ctx, &route) { return Err(Error::Stale); }
                         if let Some(location) = route.location {
+                            let root = ctx.project().and_then(|project|project.root().ok()).ok_or(Error::Stale)?;
+                            if !self.current_navigation_target(ctx, &root, &location.path) { return Err(Error::Stale); }
                             host::open_location(&location.path, location.range.start.line, location.range.start.character)?;
                         }
                         return Ok(());
                     }
                     RouteEvent::Ignored => {}
                 }
+            } else if let ViewEvent::Select(key) = &event {
+                self.selected = Some(key.clone());
+                self.route_selection = None;
             }
         }
 
         match event {
             ViewEvent::Expand(key) => {
                 self.expanded.insert(key);
-                host::refresh_view(view);
+                refresh_main_view();
             }
             ViewEvent::Collapse(key) => {
                 self.expanded.remove(&key);
-                host::refresh_view(view);
+                refresh_main_view();
             }
             ViewEvent::Activate(key) => {
                 let entry = self.view_index(ctx).and_then(|index| entry_for(index, &key));
                 if let Some(entry) = entry.filter(|e| !e.path.is_empty()) {
+                    let root = ctx.project().and_then(|project|project.root().ok()).ok_or(Error::Stale)?;
+                    if !self.current_navigation_target(ctx, &root, &entry.path) { return Err(Error::Stale); }
                     host::open_location(&entry.path, entry.at.line, entry.at.character)?;
                 }
             }
-            ViewEvent::Button(id) if id == "refresh-profiler" => host::refresh_view(PROFILER_VIEW),
             ViewEvent::Button(id) => {
                 self.run_command(&id, ctx, None)?;
-                host::refresh_view(view);
+                refresh_main_view();
             }
             _ => {}
         }
@@ -1524,17 +1858,7 @@ impl Views for Main {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-const _: fn() -> Main = <Main as Default>::default;
-#[cfg(target_arch = "wasm32")]
-const _: () = {
-    struct Component;
-    openidea_plugin::__plugin_exports!(Main, Component, openidea_plugin::bindings);
-    openidea_plugin::__providers_exports!(Main, Component);
-    openidea_plugin::__views_exports!(Main, Component);
-    openidea_plugin::__indexing_exports!(Main, Component);
-    openidea_plugin::bindings::__export_plugin_world!(Component with_types_in openidea_plugin::bindings);
-};
+openidea_plugin::register_plugin!(Main, providers, views, indexing, endpoints, file_actions, hover, diagnostics);
 
 #[cfg(test)]
 mod tests {
@@ -1572,16 +1896,120 @@ mod tests {
         items.into_iter().map(|item| item.label).collect()
     }
 
+    fn main_notices(host:&MockHost,after:usize)->Vec<String>{
+        host.view_messages()[after..].iter().filter(|(_,text)|text==r#"{"channel":"ui-kit-refresh"}"#).map(|(view,_)|view.clone()).collect()
+    }
+
+    #[test]
+    fn compiled_cache_input_events_rebuild_and_notify_only_for_owned_known_inputs() {
+        let host=MockHost::install();let mut plugin=activated(&host);
+        let path="var/cache/dev/url_generating_routes.php";
+        host.add_file(path,"<?php\nreturn [\n'owned_cache_route' => [[], ['_controller' => 'App\\\\Controller\\\\HomeController::index'], [], []]];");
+        let before=host.view_messages().len();plugin.handle_events(&[Event::FileSaved(format!("/project/{path}"))],&host.invocation());
+        assert!(plugin.indexes["/project"].routes.contains_key("owned_cache_route"));assert_eq!(main_notices(&host,before),[VIEW.to_owned()]);
+        let before=host.view_messages().len();plugin.handle_events(&[Event::FileSaved("/other/var/cache/dev/url_generating_routes.php".into()),Event::FileSaved("/project/var/cache/dev/profiler/index.csv".into())],&host.invocation());
+        assert!(main_notices(&host,before).is_empty());
+        host.add_file(path,"<?php return [];");let before=host.view_messages().len();
+        plugin.handle_events(&[Event::FileSaved("/project/var/cache/dev".into())],&host.invocation());
+        assert!(!plugin.indexes["/project"].routes.contains_key("owned_cache_route"));assert_eq!(main_notices(&host,before),[VIEW.to_owned()]);
+    }
+    #[test]
+    fn custom_cache_and_extra_source_events_invalidate_exact_inputs_and_ancestors() {
+        let host = MockHost::install();
+        host.set_setting("compiledRoutes", &serde_json::to_string("build/cache/routes.php").unwrap());
+        host.set_setting("compiledContainers", &serde_json::to_string("build/cache/container.xml").unwrap());
+        host.set_setting("extraServiceFiles", &serde_json::to_string("custom/services.yaml").unwrap());
+        let mut plugin = activated(&host);
+        host.add_file("build/cache/routes.php", "<?php\nreturn [\n'custom_cache_route' => [[], [], [], []]];");
+        host.add_file("build/cache/container.xml", "<container><services><service id=\"custom_compiled\" class=\"App\\Custom\" /></services></container>");
+        host.add_file("custom/services.yaml", "services:\n  custom_source:\n    class: App\\Custom\n");
+        let before = host.view_messages().len();
+        plugin.handle_events(&[Event::FileSaved("/project/build/cache/routes.php".into()), Event::FileSaved("/project/custom/services.yaml".into())], &host.invocation());
+        assert!(plugin.indexes["/project"].routes.contains_key("custom_cache_route"));
+        assert!(plugin.indexes["/project"].services.contains_key("custom_compiled"));
+        assert!(plugin.indexes["/project"].services.contains_key("custom_source"));
+        assert_eq!(main_notices(&host, before), [VIEW.to_owned()]);
+        host.add_file("build/cache/routes.php", "<?php\nreturn [];" );
+        host.add_file("build/cache/container.xml", "<container/>" );
+        let before = host.view_messages().len();
+        plugin.handle_events(&[Event::FileSaved("/project/build".into())], &host.invocation());
+        assert!(!plugin.indexes["/project"].routes.contains_key("custom_cache_route"));
+        assert!(!plugin.indexes["/project"].services.contains_key("custom_compiled"));
+        assert_eq!(main_notices(&host, before), [VIEW.to_owned()]);
+        let before = host.view_messages().len();
+        plugin.handle_events(&[Event::FileSaved("/project/build/cache/routes.php.old".into()), Event::FileSaved("/other/build/cache/routes.php".into())], &host.invocation());
+        assert!(main_notices(&host, before).is_empty());
+    }
+    #[test]
+    fn compiled_cache_filter_uses_shared_reader_inputs_and_directory_boundaries() {
+        for path in ["var","var/cache","var/cache/dev","var/cache/dev/UrlGenerator.php","var/cache/dev/srcApp_KernelDevDebugContainer.xml"] {assert!(affects_index(path),"{path}");}
+        for path in ["","var/cache/development","var/cache/dev/profiler/index.csv","var/cache/dev/OtherContainer.xml","var/cache/prod/UrlGenerator.php","var/cache/dev/UrlGenerator.php.old"]{assert!(!affects_index(path),"{path}");}
+    }
+    #[test]
+    fn main_commit_and_framework_removal_notify_only_main_view(){
+        let host=MockHost::install();let mut plugin=activated(&host);let before=host.view_messages().len();
+        plugin.index_project(&host.invocation().project().unwrap());assert_eq!(main_notices(&host,before),[VIEW.to_owned()]);
+        host.add_file("composer.json","{}");let before=host.view_messages().len();plugin.index_project(&host.invocation().project().unwrap());
+        assert_eq!(main_notices(&host,before),[VIEW.to_owned()]);assert!(plugin.view_index(&host.invocation()).is_none());
+        let before=host.view_messages().len();plugin.index_project(&host.invocation().project().unwrap());assert!(main_notices(&host,before).is_empty());
+    }
+    #[test]
+    fn overflow_clear_and_closed_root_prune_notify_but_do_not_rebuild_from_render(){
+        let host=MockHost::install();let mut plugin=activated(&host);let before=host.view_messages().len();
+        let events=vec![Event::FileSaved("/project/a.php".into());1025];plugin.handle_events(&events,&host.invocation());
+        assert!(plugin.indexes.is_empty());assert_eq!(main_notices(&host,before),[VIEW.to_owned()]);
+        let before=host.view_messages().len();plugin.render(VIEW,None,&host.invocation()).unwrap();assert_eq!(host.view_messages().len(),before);
+        plugin.index_project(&host.invocation().project().unwrap());let before=host.view_messages().len();host.set_project_root(None);
+        plugin.handle_events(&[],&host.invocation());assert!(plugin.indexes.is_empty());assert_eq!(main_notices(&host,before),[VIEW.to_owned()]);
+    }
+    #[test]
+    fn stable_main_ui_kit_render_replies_without_index_invalidation_loop(){
+        let host=MockHost::install();let mut plugin=activated(&host);
+        for sequence in [1,2]{
+            let before=host.view_messages().len();let request=serde_json::json!({"channel":"ui-kit","frameId":"0123456789abcdef0123456789abcdef","sequence":sequence,"project":"/project","op":"render"});
+            plugin.handle(VIEW,ViewEvent::Message(request.to_string()),&host.invocation()).unwrap();let messages=host.view_messages();assert_eq!(messages.len(),before+1);
+            let reply:serde_json::Value=serde_json::from_str(&messages[before].1).unwrap();assert_eq!(reply["channel"],"ui-kit");assert!(reply.get("model").is_some());
+        }
+    }
+    #[test]
+    fn route_actions_reject_last_other_root_and_no_index_cached_rows(){
+        let host=MockHost::install();let mut plugin=activated(&host);let ctx=host.invocation();
+        let Body::List(rows)=plugin.render(VIEW,None,&ctx).unwrap().body else {panic!("routes expected")};let key=rows[0].key.clone();
+        plugin.handle(VIEW,ViewEvent::Select(key.clone()),&ctx).unwrap();assert!(plugin.selected_route(&ctx).is_some());
+        host.set_project_root(Some("/other"));let other=host.invocation();plugin.run_command("route-copy-curl",&other,None).unwrap();assert!(host.clipboard().is_none());
+        assert!(matches!(plugin.handle(VIEW,ViewEvent::Activate(key),&other),Err(Error::Stale)));assert!(host.opened_locations().is_empty());
+        host.set_project_root(Some("/project"));plugin.indexes.clear();plugin.run_command("route-copy-curl",&host.invocation(),None).unwrap();assert!(host.clipboard().is_none());
+    }
+    #[test]
+    fn cached_route_disappearance_refuses_old_selected_fact_without_io(){
+        let host=MockHost::install();let mut plugin=activated(&host);let ctx=host.invocation();let Body::List(rows)=plugin.render(VIEW,None,&ctx).unwrap().body else {panic!("routes expected")};
+        plugin.handle(VIEW,ViewEvent::Select(rows[0].key.clone()),&ctx).unwrap();
+        plugin.indexes.get_mut("/project").unwrap().routes.clear();
+        let before=host.requests().len();plugin.run_command("route-copy-curl",&ctx,None).unwrap();assert!(host.clipboard().is_none());assert_eq!(host.requests().len(),before);assert!(host.process_runs().is_empty());
+    }
+
     #[test]
     fn code_actions_combine_quote_fix_and_intentions() {
         let host = MockHost::install();
         let mut plugin = activated(&host);
 
-        let yaml = doc("/project/config/services.yaml", "yaml", "services:\n    app.mailer:\n        arguments: [@foo]\n        class: App\\Mailer\n        factory: @bar\n");
-        let titles: Vec<String> = plugin.code_actions(&yaml, Range::new(Position::new(4, 17), Position::new(4, 17))).into_iter().map(|action| action.title).collect();
+        let yaml = doc(
+            "/project/config/services.yaml",
+            "yaml",
+            "services:\n    app.mailer:\n        arguments: [@foo]\n        class: App\\Mailer\n        factory: @bar\n",
+        );
+        let titles: Vec<String> = plugin
+            .code_actions(&yaml, Range::new(Position::new(4, 17), Position::new(4, 17)))
+            .into_iter()
+            .map(|action| action.title)
+            .collect();
         assert!(titles.iter().any(|title| title.starts_with("Quote ")), "{titles:?}");
 
-        let php = doc("/project/src/Controller/PostController.php", "php", "<?php\nnamespace App\\Controller;\n\nclass PostController extends AbstractController\n{\n    public function show()\n    {\n    }\n}\n");
+        let php = doc(
+            "/project/src/Controller/PostController.php",
+            "php",
+            "<?php\nnamespace App\\Controller;\n\nclass PostController extends AbstractController\n{\n    public function show()\n    {\n    }\n}\n",
+        );
         let actions = plugin.code_actions(&php, Range::new(Position::new(5, 22), Position::new(5, 22)));
         let route = actions.iter().find(|action| action.title == "Add #[Route] attribute").expect("route action");
         assert_eq!(route.kind.as_deref(), Some("refactor.rewrite"));
@@ -1605,9 +2033,29 @@ mod tests {
     #[test]
     fn settings_groups_default_on_and_switch_off_independently() {
         let host = MockHost::install();
-        let keys = ["controllerChecks", "serviceChecks", "phpCallChecks", "twigChecks", "twigSyntaxChecks", "yamlSyntaxChecks", "commandChecks", "deprecationChecks", "doctrineChecks"];
+        let keys = [
+            "controllerChecks",
+            "serviceChecks",
+            "phpCallChecks",
+            "twigChecks",
+            "twigSyntaxChecks",
+            "yamlSyntaxChecks",
+            "commandChecks",
+            "deprecationChecks",
+            "doctrineChecks",
+        ];
         let states = |groups: Groups| {
-            [groups.controllers, groups.services, groups.php_calls, groups.twig, groups.twig_syntax, groups.yaml_syntax, groups.commands, groups.deprecations, groups.doctrine]
+            [
+                groups.controllers,
+                groups.services,
+                groups.php_calls,
+                groups.twig,
+                groups.twig_syntax,
+                groups.yaml_syntax,
+                groups.commands,
+                groups.deprecations,
+                groups.doctrine,
+            ]
         };
         assert_eq!(states(Groups::from_settings()), [true; 9]);
 
@@ -1676,7 +2124,9 @@ mod tests {
         };
 
         let tags = complete(&mut plugin, "{% ", 3);
-        assert!(["if", "for", "block", "extends", "endblock", "endif", "verbatim", "types"].iter().all(|t| tags.contains(&(*t).to_owned())));
+        assert!(
+            ["if", "for", "block", "extends", "endblock", "endif", "verbatim", "types"].iter().all(|t| tags.contains(&(*t).to_owned()))
+        );
 
         let filters = complete(&mut plugin, "{{ name|", 8);
         assert!(filters.contains(&"upper".to_owned()) && !filters.contains(&"if".to_owned()));
@@ -1731,7 +2181,9 @@ mod tests {
         let mut plugin = activated(&host);
         host.add_file("templates/broken.html.twig", "{% extends 'missing.html.twig' %}");
         plugin.handle_events(&[Event::FileOpened("/project/templates/broken.html.twig".into())], &host.invocation());
-        assert_eq!(host.diagnostics()["/project/templates/broken.html.twig"].len(), 1);
+        assert!(host.diagnostics().get("/project/templates/broken.html.twig").is_none_or(Vec::is_empty));
+        let document=Document {path:"/project/templates/broken.html.twig".into(),language:"twig".into(),version:1,text:"{% extends 'missing.html.twig' %}".into()};
+        assert_eq!(openidea_plugin::diagnostics::DiagnosticsProvider::diagnostics(&mut plugin,&document).len(),1);
     }
 
     fn console_host() -> (MockHost, Main) {
@@ -1741,7 +2193,11 @@ mod tests {
         plugin.index_all();
         host.on_process("php", |args, _| {
             assert_eq!(args, ["bin/console", "list", "--raw"]);
-            Ok(openidea_plugin::ProcessOutput { status: Some(0), stdout: "about  Display info\ncache:clear  Clear\n".into(), stderr: String::new() })
+            Ok(openidea_plugin::ProcessOutput {
+                status: Some(0),
+                stdout: "about  Display info\ncache:clear  Clear\n".into(),
+                stderr: String::new(),
+            })
         });
         (host, plugin)
     }
@@ -1771,7 +2227,11 @@ mod tests {
         let (host, mut plugin) = generator_host(&["project.read", "process:php"]);
         host.on_process("php", |args, _| {
             assert_eq!(args, ["bin/console", "list", "make", "--raw"]);
-            Ok(openidea_plugin::ProcessOutput { status: Some(0), stdout: "make:controller  Create a controller\nmake:entity  Create an entity\ncache:clear  x\n".into(), stderr: String::new() })
+            Ok(openidea_plugin::ProcessOutput {
+                status: Some(0),
+                stdout: "make:controller  Create a controller\nmake:entity  Create an entity\ncache:clear  x\n".into(),
+                stderr: String::new(),
+            })
         });
         host.answer_next_prompt(Some(&["controller"]));
         host.answer_next_prompt(Some(&["Blog --no-template"]));
@@ -1796,23 +2256,11 @@ mod tests {
     }
 
     #[test]
-    fn create_template_writes_with_tee_and_falls_back_to_the_clipboard() {
-        let (host, mut plugin) = generator_host(&["project.read", "process:tee", "clipboard"]);
-        host.on_process("tee", |_, _| Ok(openidea_plugin::ProcessOutput { status: Some(0), stdout: String::new(), stderr: String::new() }));
-        host.answer_next_prompt(Some(&["blog/show.html.twig"]));
+    fn legacy_create_template_command_guides_to_atomic_intention_without_process_or_writes() {
+        let (host, mut plugin) = generator_host(&["project.read"]);
         plugin.run_command("create-template", &host.invocation(), None).unwrap();
-        let run = host.process_runs().into_iter().find(|run| run.program == "tee").unwrap();
-        assert_eq!(run.args, ["/project/templates/blog/show.html.twig"]);
-
-        host.answer_next_prompt(Some(&["../escape.html.twig"]));
-        assert!(plugin.run_command("create-template", &host.invocation(), None).is_err());
-        host.answer_next_prompt(Some(&["base.html.twig"]));
-        assert!(plugin.run_command("create-template", &host.invocation(), None).is_err());
-
-        let (denied, mut plugin) = generator_host(&["project.read", "clipboard"]);
-        denied.answer_next_prompt(Some(&["blog/show.html.twig"]));
-        plugin.run_command("create-template", &denied.invocation(), None).unwrap();
-        assert_eq!(denied.clipboard().as_deref(), Some("templates/blog/show.html.twig"));
+        assert!(host.process_runs().is_empty());
+        assert!(host.notifications().iter().any(|notification| notification.body.contains("Create missing Twig template")));
     }
 
     #[test]
@@ -1821,7 +2269,10 @@ mod tests {
         host.open_editor("/project/templates/post.html.twig", "twig", "<h1>x</h1>\n", &[(1, 0, 1, 0)]);
         host.answer_next_prompt(Some(&["App\\Form\\PostType"]));
         plugin.run_command("twig-form-fields", &host.invocation(), None).unwrap();
-        assert_eq!(host.editor_text(), "<h1>x</h1>\n{{ form_start(form) }}\n{{ form_row(form.title) }}\n{{ form_row(form.body) }}\n{{ form_end(form) }}\n");
+        assert_eq!(
+            host.editor_text(),
+            "<h1>x</h1>\n{{ form_start(form) }}\n{{ form_row(form.title) }}\n{{ form_row(form.body) }}\n{{ form_end(form) }}\n"
+        );
     }
 
     #[test]
@@ -1850,6 +2301,28 @@ mod tests {
     }
 
     #[test]
+    fn cached_picker_and_tree_targets_reject_new_nested_owner() {
+        let (host, mut plugin) = console_host();
+        let ctx = host.invocation();
+        host.add_project("/project/src/Controller");
+        host.answer_next_prompt(Some(&["blog_index"]));
+        assert!(matches!(plugin.run_command("go-to-route", &ctx, None), Err(Error::Stale)));
+        assert!(matches!(plugin.handle(VIEW, ViewEvent::Activate("route:blog_index".into()), &ctx), Err(Error::Stale)));
+        assert!(host.opened_locations().is_empty());
+    }
+
+    #[test]
+    fn navigation_target_requires_current_root_and_metadata_grant() {
+        let host=MockHost::install().with_capabilities(&["project.read"]); let mut plugin=Main::default();
+        plugin.indexes.insert("/project".into(), Index::default());
+        assert!(plugin.current_navigation_target(&host.invocation(), "/project", "/project/config/routes.yaml"));
+        assert!(!plugin.current_navigation_target(&host.invocation(), "/other", "/other/routes.yaml"));
+        host.add_project("/project/config");
+        assert!(!plugin.current_navigation_target(&host.invocation(), "/project", "/project/config/routes.yaml"));
+        assert!(!plugin.current_navigation_target(&host.invocation(), "/project", ""));
+    }
+
+    #[test]
     fn extends_generator_inserts_the_picked_template() {
         let (host, mut plugin) = console_host();
         host.open_editor("/project/templates/page.html.twig", "twig", "{% block body %}{% endblock %}", &[(0, 0, 0, 0)]);
@@ -1872,6 +2345,91 @@ mod tests {
     }
 
     #[test]
+    fn literal_completion_filters_newly_foreign_declarations_but_keeps_builtins() {
+        let host=MockHost::install().with_capabilities(&["project.read"]);let mut plugin=Main::default();let mut index=Index::default();
+        index.routes.insert("known".into(),Entry{detail:None,path:"/project/config/routes.yaml".into(),at:Position::new(0,0)});
+        index.routes.insert("builtin".into(),Entry{detail:None,path:String::new(),at:Position::new(0,0)});plugin.indexes.insert("/project".into(),index);
+        let doc=doc("/project/templates/a.twig","twig","{{ path('') }}");
+        let labels=|items:Vec<CompletionItem>|items.into_iter().map(|item|item.label).collect::<Vec<_>>();
+        assert_eq!(labels(plugin.completion(&doc,Position::new(0,9),None)),vec!["builtin","known"]);
+        host.add_project("/project/config");
+        assert_eq!(labels(plugin.completion(&doc,Position::new(0,9),None)),vec!["builtin"]);
+        assert!(host.requests().is_empty() && host.process_runs().is_empty());
+    }
+
+    #[test]
+    fn changed_settings_rebuild_on_next_event_without_settings_event_kind() {
+        let host=MockHost::install();let mut plugin=activated(&host);
+        host.set_setting("publicDirectory",r#""web""#);
+        assert!(plugin.view_index(&host.invocation()).is_none());
+        plugin.handle_events(&[Event::FileOpened("/project/README.md".into())],&host.invocation());
+        assert!(plugin.view_index(&host.invocation()).is_some());
+    }
+
+    #[test]
+    fn changed_index_settings_hide_cached_providers_until_reindex() {
+        let host=MockHost::install();let mut plugin=activated(&host);
+        let doc=doc("/project/templates/a.twig","twig","{{ path('blog_index') }}");
+        assert_eq!(plugin.definition(&doc,Position::new(0,12)).len(),1);
+        host.set_setting("compiledRoutes",r#""custom/routes.php""#);
+        assert!(plugin.definition(&doc,Position::new(0,12)).is_empty());
+        assert!(plugin.completion(&doc,Position::new(0,12),None).is_empty());
+        assert!(plugin.view_index(&host.invocation()).is_none());
+        plugin.run_command("reindex",&host.invocation(),None).unwrap();
+        assert_eq!(plugin.definition(&doc,Position::new(0,12)).len(),1);
+        assert!(plugin.view_index(&host.invocation()).is_some());
+    }
+
+    #[test]
+    fn cached_definition_requires_current_invoking_and_declaration_owner() {
+        let host=MockHost::install().with_capabilities(&["project.read"]);let mut plugin=Main::default();let mut index=Index::default();
+        index.routes.insert("known".into(),Entry{detail:None,path:"/project/config/routes.yaml".into(),at:Position::new(3,4)});plugin.indexes.insert("/project".into(),index);
+        let document=doc("/project/templates/current.twig","twig","{{ path('known') }}");
+        assert_eq!(plugin.definition(&document,Position::new(0,10)).len(),1,"no source files are needed for a positive cached location");
+        host.add_project("/project/config");
+        assert!(plugin.definition(&document,Position::new(0,10)).is_empty(),"cached declaration is newly foreign");
+        assert!(host.requests().is_empty() && host.process_runs().is_empty());
+    }
+
+    #[test]
+    fn cold_nested_definition_does_not_fall_back_to_parent_or_cross_root_entry() {
+        let host=MockHost::install().with_capabilities(&["project.read"]);let mut plugin=Main::default();let mut parent=Index::default();
+        parent.routes.insert("known".into(),Entry{detail:None,path:"/project/config/routes.yaml".into(),at:Position::new(0,0)});plugin.indexes.insert("/project".into(),parent);
+        host.add_project("/project/templates");
+        let document=doc("/project/templates/current.twig","twig","{{ path('known') }}");
+        assert!(plugin.definition(&document,Position::new(0,10)).is_empty(),"cold nested owner cannot borrow parent facts");
+        let mut child=Index::default();child.routes.insert("known".into(),Entry{detail:None,path:"/project/config/routes.yaml".into(),at:Position::new(0,0)});plugin.indexes.insert("/project/templates".into(),child);
+        assert!(plugin.definition(&document,Position::new(0,10)).is_empty(),"child cache cannot navigate to a foreign parent declaration");
+    }
+
+    #[test]
+    fn php_dynamic_translation_domain_does_not_borrow_messages_catalog() {
+        let host=MockHost::install();let mut plugin=activated(&host);
+        for suffix in [", [], $domain)", ", domain: $domain)", ", domain : $domain)", ", ...$args)", ", /* note */ domain: $domain)", ", [], 'messages' . $suffix)", ", [],"] {
+            let text=format!("<?php $t->trans('app.title'{suffix};");
+            let doc=doc("/project/src/A.php","php",&text);
+            let at=text.find("app.title").unwrap()+2;
+            assert!(plugin.definition(&doc,Position::new(0,at as u32)).is_empty(),"{text}");
+            assert!(plugin.completion(&doc,Position::new(0,at as u32),None).is_empty(),"{text}");
+        }
+        let doc=doc("/project/src/A.php","php","<?php $t->trans('app.new', domain: $domain);");
+        assert!(plugin.code_actions(&doc,Range::new(Position::new(0,18),Position::new(0,18))).iter().all(|a|!a.title.starts_with("Add translation key")));
+    }
+
+    #[test]
+    fn twig_dynamic_domain_does_not_offer_default_catalog_actions_or_navigation() {
+        let host=MockHost::install();let mut plugin=activated(&host);
+        let document=doc("/project/templates/a.html.twig","twig","{{ 'app.title'|trans({}, domainName) }}");
+        assert!(plugin.definition(&document,Position::new(0,7)).is_empty());
+        assert!(plugin.completion(&document,Position::new(0,7),None).is_empty());
+        let missing=doc("/project/templates/a.html.twig","twig","{{ 'app.new'|trans({}, domainName) }}");
+        let actions=plugin.code_actions(&missing,Range::new(Position::new(0,7),Position::new(0,7)));
+        assert!(actions.iter().all(|action|!action.title.starts_with("Add translation key") && !action.title.starts_with("Change to")));
+        let known=doc("/project/templates/a.html.twig","twig","{{ 'app.title'|trans({}, 'messages') }}");
+        assert!(!plugin.definition(&known,Position::new(0,7)).is_empty());
+    }
+
+    #[test]
     fn adds_missing_translation_keys() {
         let host = MockHost::install();
         let mut plugin = activated(&host);
@@ -1885,6 +2443,50 @@ mod tests {
         assert_eq!(path, "/project/translations/messages.en.yaml");
         assert_eq!(edits[0].text, "'app.new': 'app.new'\n");
         assert_eq!(edits[0].range.start, Position::new(2, 0));
+    }
+
+    #[test]
+    fn translation_resolution_rejects_foreign_catalog_and_current_duplicate() {
+        let host=MockHost::install();let mut plugin=activated(&host);
+        let doc=doc("/project/templates/a.html.twig","twig","{{ 'app.new'|trans }}");
+        let action=plugin.code_actions(&doc,Range::new(Position::new(0,5),Position::new(0,5))).into_iter().find(|a|a.title.starts_with("Add translation key")).unwrap();
+        host.add_file("translations/messages.en.yaml", "'app.new': existing\n");
+        assert!(matches!(plugin.resolve_code_action(&doc,action.clone()),Err(Error::Stale)));
+        host.add_file("translations/messages.en.yaml", "'other': value\n");host.add_project("/project/translations");
+        assert!(matches!(plugin.resolve_code_action(&doc,action),Err(Error::Stale)));
+    }
+
+    #[test]
+    fn translation_extraction_revalidates_selection_and_target_owner() {
+        let host=MockHost::install();let mut plugin=activated(&host);
+        let doc=doc("/project/templates/blog/index.html.twig","twig","<p>Read more</p>");
+        let action=plugin.code_actions(&doc,Range::new(Position::new(0,3),Position::new(0,12))).into_iter().find(|a|a.title.starts_with("Extract translation")).unwrap();
+        let changed=Document{text:"<p>Different</p>".into(),..doc.clone()};
+        assert!(matches!(plugin.resolve_code_action(&changed,action.clone()),Err(Error::Stale)));
+        host.add_project("/project/translations");
+        assert!(matches!(plugin.resolve_code_action(&doc,action),Err(Error::Stale)));
+    }
+
+    #[test]
+    fn translation_resolution_rejects_current_null_and_branch_key_collisions() {
+        let host=MockHost::install();let mut plugin=activated(&host);
+        let doc=doc("/project/templates/a.html.twig","twig","{{ 'app.new'|trans }}");
+        let action=plugin.code_actions(&doc,Range::new(Position::new(0,5),Position::new(0,5))).into_iter().find(|a|a.title.starts_with("Add translation key")).unwrap();
+        for current in ["'app.new':\n", "app:\n  new:\n", "app:\n  new:\n    child: value\n"] {
+            host.add_file("translations/messages.en.yaml",current);
+            assert!(matches!(plugin.resolve_code_action(&doc,action.clone()),Err(Error::Stale)),"{current}");
+        }
+    }
+
+    #[test]
+    fn translation_resolution_rejects_changed_reference_and_unindexed_catalog() {
+        let host=MockHost::install();let mut plugin=activated(&host);
+        let doc=doc("/project/templates/a.html.twig","twig","{{ 'app.new'|trans }}");
+        let action=plugin.code_actions(&doc,Range::new(Position::new(0,5),Position::new(0,5))).into_iter().find(|a|a.title.starts_with("Add translation key")).unwrap();
+        let changed=Document{text:"{{ 'app.new'|trans({}, runtimeDomain) }}".into(),..doc.clone()};
+        assert!(matches!(plugin.resolve_code_action(&changed,action.clone()),Err(Error::Stale)));
+        let mut forged=action;forged.data=Some("/project/unindexed.yaml\napp.new".into());
+        assert!(matches!(plugin.resolve_code_action(&doc,forged),Err(Error::Stale)));
     }
 
     #[test]
@@ -2150,7 +2752,17 @@ mod tests {
             "services:\n    a:\n        tags:\n            - priority: 3\n              name: app.fl|\n",
         ] {
             let offered = complete_marked(&mut plugin, SERVICES_FILE, "yaml", marked);
-            for expected in ["kernel.event_listener", "console.command", "twig.extension", "app.flow_tag", "app.block_tag", "app.bare_tag", "app.list_tag", "app.xml_tag", "app.real"] {
+            for expected in [
+                "kernel.event_listener",
+                "console.command",
+                "twig.extension",
+                "app.flow_tag",
+                "app.block_tag",
+                "app.bare_tag",
+                "app.list_tag",
+                "app.xml_tag",
+                "app.real",
+            ] {
                 assert!(offered.contains(&expected.to_owned()), "{expected} in {marked:?}");
             }
         }
@@ -2183,7 +2795,12 @@ mod tests {
         quiet(&mut plugin, SERVICES_FILE, "yaml", "services:\n    a:\n        arguments:\n            - name: |\n");
         quiet(&mut plugin, SERVICES_FILE, "yaml", "services:\n    a:\n        arguments: [{ name: '|' }]\n");
         quiet(&mut plugin, SERVICES_FILE, "yaml", "services:\n    a:\n        tags:\n            - { priority: |, name: x }\n");
-        quiet(&mut plugin, SERVICES_FILE, "yaml", "services:\n    a:\n        tags:\n            - { name: x }\n        calls:\n            - |\n");
+        quiet(
+            &mut plugin,
+            SERVICES_FILE,
+            "yaml",
+            "services:\n    a:\n        tags:\n            - { name: x }\n        calls:\n            - |\n",
+        );
         quiet(&mut plugin, "/project/src/Controller/HomeController.php", "php", "<?php\n$x->tags('|');\n");
         quiet(&mut plugin, "/project/templates/a.html.twig", "twig", "{{ include('|') }}");
         quiet(&mut plugin, "/project/config/services.xml", "xml", "<service id=\"a\"><argument name=\"|\"/></service>");
@@ -2214,7 +2831,8 @@ mod tests {
             assert!(!offered.contains(&hidden.to_owned()), "{hidden}");
         }
 
-        let commented = complete_marked(&mut plugin, SERVICES_FILE, "yaml", "services:\n    a:\n        tags:\n            # - { name: |\n");
+        let commented =
+            complete_marked(&mut plugin, SERVICES_FILE, "yaml", "services:\n    a:\n        tags:\n            # - { name: |\n");
         assert!(!commented.contains(&"kernel.event_listener".to_owned()));
     }
 
@@ -2258,16 +2876,24 @@ mod tests {
         host.add_file("templates/forms.html.twig", "{% macro input(name, type = 'text') %}x{% endmacro %}{% macro row() %}{% endmacro %}");
         let mut plugin = activated(&host);
 
-        let offered = complete_marked(&mut plugin, "/project/templates/a.html.twig", "twig", "{% import 'forms.html.twig' as f %}{{ f.in| }}");
+        let offered =
+            complete_marked(&mut plugin, "/project/templates/a.html.twig", "twig", "{% import 'forms.html.twig' as f %}{{ f.in| }}");
         assert_eq!(offered, ["input", "row"]);
 
-        let own = complete_marked(&mut plugin, "/project/templates/a.html.twig", "twig", "{% import _self as me %}{% macro mine() %}{% endmacro %}{{ me.| }}");
+        let own = complete_marked(
+            &mut plugin,
+            "/project/templates/a.html.twig",
+            "twig",
+            "{% import _self as me %}{% macro mine() %}{% endmacro %}{{ me.| }}",
+        );
         assert_eq!(own, ["mine"]);
     }
 
     #[test]
     fn twig_namespaces_setting_resolves_templates() {
         let host = MockHost::install();
+        host.add_dir("templates");
+        host.add_dir("templates/mail");
         host.set_setting("twigNamespaces", r#""emails=templates/mail""#);
         host.add_file("templates/mail/welcome.html.twig", "hi");
         let mut plugin = activated(&host);
@@ -2282,6 +2908,9 @@ mod tests {
     #[test]
     fn twig_namespaces_setting_merges_with_twig_yaml_paths() {
         let host = MockHost::install();
+        host.add_dir("templates");
+        host.add_dir("templates/mail");
+        host.add_dir("templates/pdf");
         host.set_setting("twigNamespaces", r#""emails=templates/mail""#);
         host.add_file("config/packages/twig.yaml", "twig:\n    paths:\n        'templates/pdf': pdf\n");
         host.add_file("templates/mail/welcome.html.twig", "hi");
@@ -2296,6 +2925,8 @@ mod tests {
     #[test]
     fn twig_namespaces_setting_ignores_malformed_pairs() {
         let host = MockHost::install();
+        host.add_dir("templates");
+        host.add_dir("templates/ok");
         host.set_setting("twigNamespaces", r#""nodelimiter, a=, b=../mail, c=templates/ok""#);
         host.add_file("mail/welcome.html.twig", "hi");
         host.add_file("templates/ok/fine.html.twig", "ok");
@@ -2336,16 +2967,104 @@ mod tests {
     #[test]
     fn profiler_view_lists_requests_latest_first() {
         let host = MockHost::install();
-        host.add_file(profiler::INDEX_FILE, "a,1.1.1.1,GET,/old,1700000000,,200\nb,1.1.1.1,POST,/new,1700000500,,500\n");
+        host.add_file(profiler::INDEX_FILE, "aaaaaa,1.1.1.1,GET,/old,1700000000,,200\nbbbbbb,1.1.1.1,POST,/new,1700000500,,500\n");
         let mut plugin = activated(&host);
         let ctx = host.invocation();
 
+        assert!(host.view_messages().iter().all(|(view,_)|view==VIEW));
+        let before=host.view_messages().len();
+        plugin.run_command("show-profiler", &ctx, None).unwrap();
+        assert_eq!(&host.view_messages()[before..], &[(PROFILER_VIEW.to_owned(), r#"{"channel":"ui-kit-refresh"}"#.to_owned())]);
         let View { body: Body::Table(table), .. } = plugin.render(PROFILER_VIEW, None, &ctx).unwrap() else { panic!("not a table") };
-        assert_eq!(table.rows[0], ["2023-11-14 22:21:40", "POST", "500", "/new", "1.1.1.1", "b"]);
+        assert_eq!(table.rows[0], ["2023-11-14 22:21:40", "POST", "500", "/new", "1.1.1.1", "bbbbbb"]);
         assert_eq!(table.rows.len(), 2);
+        assert_eq!(host.view_messages().len(), before + 1, "render must not send another invalidation");
 
         plugin.run_command("show-profiler", &ctx, None).unwrap();
         assert!(host.refreshed_views().contains(&PROFILER_VIEW.to_owned()));
+        assert_eq!(host.view_messages().len(), before + 2);
+        assert!(host.view_messages()[before..].iter().all(|(view, message)| view == PROFILER_VIEW && message == r#"{"channel":"ui-kit-refresh"}"#));
+    }
+
+    #[test]
+    fn profiler_filesystem_events_mark_cached_details_stale_without_adoption() {
+        let host = MockHost::install();
+        host.add_file(profiler::INDEX_FILE, "abcdef,ip,GET,/old,1,,200\n");
+        let mut plugin = activated(&host);
+        let ctx = host.invocation();
+        plugin.run_command("show-profiler", &ctx, None).unwrap();
+        let key = plugin.profiler_snapshot.row_key("abcdef");
+        let messages = host.view_messages().len();
+        host.add_file(profiler::INDEX_FILE, "abcdef,ip,GET,/new,1,,200\n");
+        for path in ["/other/var/cache/dev/profiler/index.csv", "/project/var/cache/dev/profiler/index.csv.old", "/project/var/cache/dev/profiler-other"] {
+            plugin.handle_events(&[Event::FileSaved(path.into())], &ctx);
+        }
+        assert_eq!(host.view_messages().len(), messages);
+        plugin.handle_events(&[Event::FileOpened(format!("/project/{}", profiler::INDEX_FILE))], &ctx);
+        assert_eq!(host.view_messages().len(), messages, "opening alone does not stale cached source");
+        plugin.handle_events(&[Event::FileSaved("/project/var/cache/dev/profiler".into())], &ctx);
+        assert_eq!(&host.view_messages()[messages..], &[(PROFILER_VIEW.to_owned(), r#"{"channel":"ui-kit-refresh"}"#.to_owned())]);
+        let view = plugin.render(PROFILER_VIEW, None, &ctx).unwrap();
+        assert!(view.status.unwrap().contains("STALE filesystem change"));
+        let Body::Table(table) = view.body else { panic!("cached rows") };
+        assert_eq!(table.rows[0][3], "/old", "event does not adopt changed record");
+        assert_eq!(plugin.profiler_snapshot.row_key("abcdef"), key);
+        assert!(plugin.handle(PROFILER_VIEW, ViewEvent::Activate(key), &ctx).is_err());
+        plugin.run_command("show-profiler", &ctx, None).unwrap();
+        let view = plugin.render(PROFILER_VIEW, None, &ctx).unwrap();
+        assert!(!view.status.unwrap().contains("STALE"));
+        let Body::Table(table) = view.body else { panic!("refreshed rows") };
+        assert_eq!(table.rows[0][3], "/new");
+        for field in 0..3 {
+            plugin.run_command("show-profiler", &ctx, None).unwrap();
+            let mut files = openidea_plugin::FilesChanged::default();
+            let list = match field { 0 => &mut files.created, 1 => &mut files.modified, _ => &mut files.removed };
+            list.push(format!("/project/{}", profiler::INDEX_FILE));
+            plugin.handle_events(&[Event::FilesChanged(files)], &ctx);
+            assert!(plugin.render(PROFILER_VIEW, None, &ctx).unwrap().status.unwrap().contains("STALE filesystem change"));
+        }
+        plugin.run_command("show-profiler", &ctx, None).unwrap();
+        plugin.handle_events(&vec![Event::FileSaved("/unrelated".into()); 1025], &ctx);
+        assert!(plugin.render(PROFILER_VIEW, None, &ctx).unwrap().status.unwrap().contains("STALE filesystem change"));
+        assert!(host.requests().is_empty() && host.process_runs().is_empty());
+    }
+
+    #[test]
+    fn profiler_project_source_button_hides_prior_details_until_explicit_refresh() {
+        let host = MockHost::install();
+        host.add_file(profiler::INDEX_FILE, "abcdef,ip,GET,/default,1,,200\n");
+        host.add_file("custom/profiler.csv", "abcdef,ip,GET,/custom,1,,200\n");
+        let mut plugin = activated(&host);
+        let ctx = host.invocation();
+        plugin.run_command("show-profiler", &ctx, None).unwrap();
+        let key = plugin.profiler_snapshot.row_key("abcdef");
+        host.answer_next_prompt(Some(&["custom/profiler.csv"]));
+        plugin.handle(PROFILER_VIEW, ViewEvent::Button("choose-profiler-source".into()), &ctx).unwrap();
+        assert!(matches!(plugin.render(PROFILER_VIEW, None, &ctx).unwrap().body, Body::Message(_)));
+        assert!(plugin.handle(PROFILER_VIEW, ViewEvent::Activate(key), &ctx).is_err());
+        plugin.handle(PROFILER_VIEW, ViewEvent::Button("refresh-profiler".into()), &ctx).unwrap();
+        let Body::Table(table) = plugin.render(PROFILER_VIEW, None, &ctx).unwrap().body else { panic!("custom rows") };
+        assert_eq!(table.rows[0][3], "/custom");
+        plugin.handle(PROFILER_VIEW, ViewEvent::Activate(plugin.profiler_snapshot.row_key("abcdef")), &ctx).unwrap();
+        assert_eq!(host.opened_locations(), [("/project/custom/profiler.csv".into(),0,0)]);
+        assert!(host.requests().is_empty() && host.process_runs().is_empty());
+    }
+
+    #[test]
+    fn profiler_discovery_button_selects_bounded_custom_cache_without_adoption() {
+        let host = MockHost::install();
+        host.set_setting("compiledContainers", "\"build/cache/container.xml\"");
+        host.add_file("build/cache/container.xml", "<container/>");
+        host.add_file("build/cache/profiler/index.csv", "abcdef,ip,GET,/discovered,1,,200\n");
+        let mut plugin = activated(&host);
+        let ctx = host.invocation();
+        host.answer_next_prompt(Some(&["0"]));
+        plugin.handle(PROFILER_VIEW, ViewEvent::Button("discover-profiler-source".into()), &ctx).unwrap();
+        assert!(matches!(plugin.render(PROFILER_VIEW, None, &ctx).unwrap().body, Body::Message(_)));
+        plugin.handle(PROFILER_VIEW, ViewEvent::Button("refresh-profiler".into()), &ctx).unwrap();
+        let Body::Table(table) = plugin.render(PROFILER_VIEW, None, &ctx).unwrap().body else { panic!("discovered rows") };
+        assert_eq!(table.rows[0][3], "/discovered");
+        assert!(host.requests().is_empty() && host.process_runs().is_empty());
     }
 
     #[test]
@@ -2355,6 +3074,102 @@ mod tests {
 
         let View { body, .. } = plugin.render(PROFILER_VIEW, None, &host.invocation()).unwrap();
         assert!(matches!(body, Body::Message(_)));
+    }
+
+    #[test]
+    fn profiler_open_public_handler_opens_only_exact_current_owned_index_line() {
+        let host = MockHost::install();
+        let text = "123abc,ip,GET,/older,1,,200\nabcdef,127.0.0.1,POST,/café😀?private=one,1700000000,,400\n";
+        host.add_file(profiler::INDEX_FILE, text);
+        let mut plugin = activated(&host);
+        let ctx = host.invocation();
+        plugin.run_command("show-profiler", &ctx, None).unwrap();
+        plugin.handle(PROFILER_VIEW, ViewEvent::Activate(plugin.profiler_snapshot.row_key("abcdef")), &ctx).unwrap();
+        assert_eq!(host.opened_locations(), [(format!("/project/{}", profiler::INDEX_FILE), 1, 0)]);
+    }
+
+    #[test]
+    fn profiler_open_public_handler_refuses_unknown_changed_and_ambiguous_sources() {
+        let host = MockHost::install();
+        let original = "abcdef,ip,GET,/a?secret=old,1,,200\n";
+        host.add_file(profiler::INDEX_FILE, original);
+        let mut plugin = activated(&host);
+        let ctx = host.invocation();
+        plugin.run_command("show-profiler", &ctx, None).unwrap();
+        for key in ["request:unknown", "abcdef", "service:abcdef", "request:../abcdef"] {
+            assert!(plugin.handle(PROFILER_VIEW, ViewEvent::Activate(key.into()), &ctx).is_err());
+        }
+        for changed in [
+            "abcdef,ip,POST,/a?secret=old,1,,200\n",
+            "\nabcdef,ip,GET,/a?secret=old,1,,200\n",
+            "abcdef,ip,GET,/a?secret=old,1,,200\nABCDEF,ip,GET,/a?secret=old,1,,200\n",
+            "malformed",
+            "",
+        ] {
+            host.add_file(profiler::INDEX_FILE, changed);
+            assert!(plugin.handle(PROFILER_VIEW, ViewEvent::Activate(plugin.profiler_snapshot.row_key("abcdef")), &ctx).is_err());
+        }
+        host.add_file(profiler::INDEX_FILE, &"x".repeat(1024*1024+1));
+        assert!(plugin.handle(PROFILER_VIEW, ViewEvent::Activate(plugin.profiler_snapshot.row_key("abcdef")), &ctx).is_err());
+        assert!(host.opened_locations().is_empty());
+    }
+
+    #[test]
+    fn profiler_open_public_handler_rejects_foreign_nested_and_denied_owners() {
+        let host = MockHost::install();
+        host.add_file(profiler::INDEX_FILE, "abcdef,ip,GET,/a,1,,200\n");
+        let mut plugin = activated(&host);
+        plugin.run_command("show-profiler", &host.invocation(), None).unwrap();
+        host.set_project_root(Some("/foreign"));
+        assert!(plugin.handle(PROFILER_VIEW, ViewEvent::Activate(plugin.profiler_snapshot.row_key("abcdef")), &host.invocation()).is_err());
+        host.set_project_root(None);
+        assert!(plugin.handle(PROFILER_VIEW, ViewEvent::Activate(plugin.profiler_snapshot.row_key("abcdef")), &host.invocation()).is_err());
+        host.set_project_root(Some("/project"));host.add_project("/project/var/cache");
+        assert!(plugin.handle(PROFILER_VIEW, ViewEvent::Activate(plugin.profiler_snapshot.row_key("abcdef")), &host.invocation()).is_err());
+        let host = host.with_capabilities(&[]);
+        assert!(plugin.handle(PROFILER_VIEW, ViewEvent::Activate(plugin.profiler_snapshot.row_key("abcdef")), &host.invocation()).is_err());
+        assert!(host.opened_locations().is_empty());
+    }
+
+    #[test]
+    fn profiler_public_custom_source_uses_current_path_and_handles_empty_missing_scopes() {
+        let host=MockHost::install();host.set_setting("profilerIndexPath",r#""build/profiler/index.csv""#);
+        host.add_file("build/profiler/index.csv","abcdef,ip,GET,/custom,1,,200\n");host.add_file(profiler::INDEX_FILE,"123abc,ip,GET,/default,1,,200\n");
+        let mut plugin=activated(&host);assert!(matches!(plugin.render(PROFILER_VIEW,None,&host.invocation()).unwrap().body,Body::Message(_)));
+        plugin.run_command("show-profiler",&host.invocation(),None).unwrap();
+        let key=plugin.profiler_snapshot.row_key("abcdef");plugin.handle(PROFILER_VIEW,ViewEvent::Activate(key.clone()),&host.invocation()).unwrap();
+        assert_eq!(host.opened_locations(),[("/project/build/profiler/index.csv".into(),0,0)]);
+        assert!(plugin.handle(PROFILER_VIEW,ViewEvent::Activate(plugin.profiler_snapshot.row_key("999999")),&host.invocation()).is_err());
+        host.set_setting("profilerIndexPath",r#""build/empty.csv""#);host.add_file("build/empty.csv","");
+        plugin.handle(PROFILER_VIEW,ViewEvent::Button("refresh-profiler".into()),&host.invocation()).unwrap();
+        let Body::Table(table)=plugin.render(PROFILER_VIEW,None,&host.invocation()).unwrap().body else {panic!("valid empty source")};assert!(table.rows.is_empty());
+        assert!(plugin.handle(PROFILER_VIEW,ViewEvent::Activate(key),&host.invocation()).is_err());
+        host.set_setting("profilerIndexPath",r#""build/missing.csv""#);plugin.run_command("show-profiler",&host.invocation(),None).unwrap();
+        assert!(matches!(plugin.render(PROFILER_VIEW,None,&host.invocation()).unwrap().body,Body::Message(_)));
+        assert!(host.requests().is_empty()&&host.process_runs().is_empty());
+    }
+
+    #[test]
+    fn profiler_public_refresh_and_model_hide_nested_owner_changes() {
+        let host=MockHost::install();host.add_file(profiler::INDEX_FILE,"abcdef,ip,GET,/owned,1,,200\n");let mut plugin=activated(&host);
+        plugin.run_command("show-profiler",&host.invocation(),None).unwrap();
+        assert!(matches!(plugin.render(PROFILER_VIEW,None,&host.invocation()).unwrap().body,Body::Table(_)));
+        host.add_project("/project/var/cache");
+        assert!(matches!(plugin.render(PROFILER_VIEW,None,&host.invocation()).unwrap().body,Body::Message(_)));
+        plugin.handle(PROFILER_VIEW,ViewEvent::Button("refresh-profiler".into()),&host.invocation()).unwrap();
+        assert!(matches!(plugin.render(PROFILER_VIEW,None,&host.invocation()).unwrap().body,Body::Message(_)));
+        assert!(host.opened_locations().is_empty()&&host.requests().is_empty()&&host.process_runs().is_empty());
+    }
+
+    #[test]
+    fn profiler_open_hidden_url_only_changes_are_accepted_without_caching_raw_values() {
+        let host = MockHost::install();
+        host.add_file(profiler::INDEX_FILE, "abcdef,ip,GET,https://user:old@host/a?secret=old#old,1,,200\n");
+        let mut plugin = activated(&host);
+        let ctx = host.invocation();plugin.run_command("show-profiler", &ctx, None).unwrap();
+        host.add_file(profiler::INDEX_FILE, "abcdef,ip,GET,https://other:new@host/a?secret=new#new,1,,200\n");
+        plugin.handle(PROFILER_VIEW, ViewEvent::Activate(plugin.profiler_snapshot.row_key("abcdef")), &ctx).unwrap();
+        assert_eq!(host.opened_locations(), [(format!("/project/{}", profiler::INDEX_FILE), 0, 0)]);
     }
 
     #[test]
@@ -2377,7 +3192,9 @@ mod tests {
         let distinct = wrap("    <service id=\"app.a\"/>\n    <service id=\"app.b\"/>\n");
         assert!(found(&distinct).is_empty());
 
-        let defaults = wrap("    <defaults autowire=\"true\"/>\n    <prototype namespace=\"App\\\" resource=\"../src\"/>\n    <service id=\"app.a\"><argument type=\"service\" id=\"app.a\"/></service>\n");
+        let defaults = wrap(
+            "    <defaults autowire=\"true\"/>\n    <prototype namespace=\"App\\\" resource=\"../src\"/>\n    <service id=\"app.a\"><argument type=\"service\" id=\"app.a\"/></service>\n",
+        );
         assert!(found(&defaults).is_empty());
     }
 
@@ -2403,7 +3220,9 @@ mod tests {
 
         let other = doc("/project/docker/compose.yaml", "yaml", "a: @x\n");
         assert!(plugin.code_actions(&other, at).is_empty());
-        assert!(extra_problems(plugin.index_for("/project/x").unwrap(), Groups::all_on(), &read, &other.path, "yaml", &other.text).is_empty());
+        assert!(
+            extra_problems(plugin.index_for("/project/x").unwrap(), Groups::all_on(), &read, &other.path, "yaml", &other.text).is_empty()
+        );
     }
 
     #[test]
@@ -2442,7 +3261,9 @@ mod tests {
     #[test]
     fn every_template_is_registered_and_exists() {
         let manifest = include_str!("../plugin.toml");
-        let value = |line: &str, key: &str| line.strip_prefix(key).and_then(|rest| rest.trim_start().strip_prefix("= \"")).map(|rest| rest.trim_end_matches('"').to_owned());
+        let value = |line: &str, key: &str| {
+            line.strip_prefix(key).and_then(|rest| rest.trim_start().strip_prefix("= \"")).map(|rest| rest.trim_end_matches('"').to_owned())
+        };
         let (mut ids, mut names, mut paths) = (Vec::new(), Vec::new(), Vec::new());
         let mut in_template = false;
         for line in manifest.lines() {
@@ -2457,8 +3278,9 @@ mod tests {
             paths.extend(value(line, "path"));
         }
 
-        assert_eq!(ids.len(), 17);
-        assert_eq!((names.len(), paths.len()), (17, 17));
+        assert_eq!(ids.len(), 13);
+        for retired in ["compiler-pass","services-yaml","services-xml","services-php"] {assert!(!ids.contains(&retired.to_owned()));}
+        assert_eq!((names.len(), paths.len()), (13, 13));
         for list in [&ids, &names, &paths] {
             let unique: BTreeSet<_> = list.iter().collect();
             assert_eq!(unique.len(), list.len(), "{list:?}");
@@ -2486,7 +3308,7 @@ mod tests {
     }
 
     #[test]
-    fn service_templates_use_the_documented_defaults() {
+    fn retired_service_template_reference_assets_keep_the_documented_defaults() {
         let root = concat!(env!("CARGO_MANIFEST_DIR"), "/templates/");
         for file in ["ServicesYaml.yaml", "ServicesXml.xml", "ServicesPhp.php"] {
             let text = std::fs::read_to_string(format!("{root}{file}")).unwrap();
@@ -2585,18 +3407,33 @@ mod tests {
         let path = "/project/src/Controller/BlogController.php";
 
         let route = doc(path, "php", "<?php\n$this->generateUrl('app_hom');\n");
-        assert_eq!(change_titles(&mut plugin, &route, route.text.find("app_hom").unwrap() + 2), [("Change to \"app_home\"".to_owned(), "app_home".to_owned())]);
+        assert_eq!(
+            change_titles(&mut plugin, &route, route.text.find("app_hom").unwrap() + 2),
+            [("Change to \"app_home\"".to_owned(), "app_home".to_owned())]
+        );
 
         let template = doc(path, "php", "<?php\n$this->render('blog/indx.html.twig');\n");
-        assert_eq!(change_titles(&mut plugin, &template, template.text.find("indx").unwrap()), [("Change to \"blog/index.html.twig\"".to_owned(), "blog/index.html.twig".to_owned())]);
+        assert_eq!(
+            change_titles(&mut plugin, &template, template.text.find("indx").unwrap()),
+            [("Change to \"blog/index.html.twig\"".to_owned(), "blog/index.html.twig".to_owned())]
+        );
 
         let domain = doc(path, "php", "<?php\n$t->trans('menu', [], 'admn');\n");
-        assert_eq!(change_titles(&mut plugin, &domain, domain.text.find("admn").unwrap()), [("Change to \"admin\"".to_owned(), "admin".to_owned())]);
+        assert_eq!(
+            change_titles(&mut plugin, &domain, domain.text.find("admn").unwrap()),
+            [("Change to \"admin\"".to_owned(), "admin".to_owned())]
+        );
 
         let twig_path = "/project/templates/a.html.twig";
         let in_twig = doc(twig_path, "twig", "{{ path('app_abot') }}{{ 'app.titl'|trans({}, 'messages') }}");
-        assert_eq!(change_titles(&mut plugin, &in_twig, in_twig.text.find("app_abot").unwrap()), [("Change to \"app_about\"".to_owned(), "app_about".to_owned())]);
-        assert_eq!(change_titles(&mut plugin, &in_twig, in_twig.text.find("app.titl").unwrap()), [("Change to \"app.title\"".to_owned(), "app.title".to_owned())]);
+        assert_eq!(
+            change_titles(&mut plugin, &in_twig, in_twig.text.find("app_abot").unwrap()),
+            [("Change to \"app_about\"".to_owned(), "app_about".to_owned())]
+        );
+        assert_eq!(
+            change_titles(&mut plugin, &in_twig, in_twig.text.find("app.titl").unwrap()),
+            [("Change to \"app.title\"".to_owned(), "app.title".to_owned())]
+        );
     }
 
     #[test]
@@ -2606,7 +3443,12 @@ mod tests {
         let mut plugin = activated(&host);
         let path = "/project/src/Controller/BlogController.php";
 
-        for text in ["<?php\n$this->generateUrl('app_hom');\n", "<?php\n$this->generateUrl('app_home');\n", "<?php\n$this->generateUrl('app_' . $x);\n", "<?php\n$this->generateUrl('zzzzzz');\n"] {
+        for text in [
+            "<?php\n$this->generateUrl('app_hom');\n",
+            "<?php\n$this->generateUrl('app_home');\n",
+            "<?php\n$this->generateUrl('app_' . $x);\n",
+            "<?php\n$this->generateUrl('zzzzzz');\n",
+        ] {
             let document = doc(path, "php", text);
             let at = text.find("generateUrl").unwrap() + 14;
             assert!(change_titles(&mut plugin, &document, at).is_empty(), "{text}");
@@ -2616,7 +3458,10 @@ mod tests {
     #[test]
     fn twig_path_replacement_hints_at_exact_route_paths_only() {
         let host = MockHost::install();
-        host.add_file("config/routes.yaml", "blog:\n    path: /blog\n    controller: App\\C::i\nshow:\n    path: /blog/{id}\nx:\n    path: /dup\ny:\n    path: /dup\n");
+        host.add_file(
+            "config/routes.yaml",
+            "blog:\n    path: /blog\n    controller: App\\C::i\nshow:\n    path: /blog/{id}\nx:\n    path: /dup\ny:\n    path: /dup\n",
+        );
         let mut plugin = activated(&host);
         let text = "<a href=\"/blog\">a</a><a href='/blog/{id}'>b</a><a href=\"/dup\">c</a><a href=\"https://x/blog\">d</a><form action=\"/blog\"></form><a data-href=\"/blog\"></a>{# <a href=\"/blog\"> #}";
         let template = doc("/project/templates/a.html.twig", "twig", text);
@@ -2650,11 +3495,18 @@ mod tests {
     }
 
     fn service_action(plugin: &mut Main, path: &str, text: &str, marker: &str) -> Option<CodeAction> {
+        use openidea_plugin::file_actions::FileActions;
         let document = doc(path, "php", text);
         let before = &text[..text.find(marker).unwrap()];
         let at = Position::new(before.matches('\n').count() as u32, before.rsplit('\n').next().unwrap().len() as u32);
-        let action = plugin.code_actions(&document, Range::new(at, at)).into_iter().find(|action| action.title.starts_with("Add service definition"))?;
-        Some(plugin.resolve_code_action(&document, action).unwrap())
+        let action = plugin
+            .file_actions(&document, Range::new(at, at))
+            .into_iter()
+            .find(|action| action.title.starts_with("Add service definition"))?;
+        // Existing parser-output checks also exercise the concrete review requirement.
+        // The host confirmation answer is supplied by each test.
+        let resolved = plugin.resolve_file_action(&document, action).unwrap();
+        Some(CodeAction { title: resolved.title, kind: resolved.kind, edits: resolved.edits, preferred: false, data: None })
     }
 
     fn applied(text: &str, action: &CodeAction) -> String {
@@ -2676,6 +3528,7 @@ mod tests {
         let mut plugin = Main::default();
         plugin.activate(&host.context("aritti.symfony")).unwrap();
 
+        host.answer_next_prompt(Some(&[]));
         let action = service_action(&mut plugin, "/project/src/Service/Mailer.php", MAILER, "class Mailer").unwrap();
         assert_eq!(action.title, "Add service definition to services.yaml");
         assert_eq!(action.edits[0].0, "/project/config/services.yaml");
@@ -2692,11 +3545,16 @@ mod tests {
         plugin.activate(&host.context("aritti.symfony")).unwrap();
         let voter = VOTER.to_owned();
 
+        host.answer_next_prompt(Some(&[]));
         let action = service_action(&mut plugin, "/project/src/Security/PostVoter.php", &voter, "class PostVoter").unwrap();
-        assert!(applied("services:\n    _defaults:\n        autowire: true\n", &action).ends_with("    App\\Security\\PostVoter:\n        tags: ['security.voter']\n"));
+        assert!(
+            applied("services:\n    _defaults:\n        autowire: true\n", &action)
+                .ends_with("    App\\Security\\PostVoter:\n        tags: ['security.voter']\n")
+        );
 
         let auto = "services:\n    _defaults:\n        autowire: true\n        autoconfigure: true\n";
         host.add_file("config/services.yaml", auto);
+        host.answer_next_prompt(Some(&[]));
         let action = service_action(&mut plugin, "/project/src/Security/PostVoter.php", &voter, "class PostVoter").unwrap();
         assert!(applied(auto, &action).ends_with("    App\\Security\\PostVoter: ~\n"));
     }
@@ -2705,11 +3563,13 @@ mod tests {
     fn service_definition_goes_into_xml_when_there_is_no_yaml_file() {
         let host = MockHost::install();
         generator_project(&host, "");
-        let xml = "<?xml version=\"1.0\"?>\n<container>\n    <services>\n        <service id=\"App\\Other\"/>\n    </services>\n</container>\n";
+        let xml =
+            "<?xml version=\"1.0\"?>\n<container>\n    <services>\n        <service id=\"App\\Other\"/>\n    </services>\n</container>\n";
         host.add_file("config/services.xml", xml);
         let mut plugin = Main::default();
         plugin.activate(&host.context("aritti.symfony")).unwrap();
 
+        host.answer_next_prompt(Some(&[]));
         let action = service_action(&mut plugin, "/project/src/Service/Mailer.php", MAILER, "class Mailer").unwrap();
         let out = applied(xml, &action);
         assert!(out.contains("        <service id=\"App\\Other\"/>\n        <service id=\"App\\Service\\Mailer\">\n            <argument key=\"$logger\" type=\"service\" id=\"App\\Logger\"/>\n            <argument key=\"$dsn\" type=\"string\"></argument>\n        </service>\n    </services>"), "{out}");
@@ -2732,16 +3592,23 @@ mod tests {
         let mut plugin = Main::default();
         plugin.activate(&host.context("aritti.symfony")).unwrap();
         assert!(service_action(&mut plugin, "/project/src/Service/Mailer.php", MAILER, "namespace").is_none());
+        host.answer_next_prompt(Some(&[]));
         assert!(service_action(&mut plugin, "/project/src/Service/Mailer.php", MAILER, "class Mailer").is_some());
         let abstract_text = MAILER.replace("class Mailer", "abstract class Mailer");
         assert!(service_action(&mut plugin, "/project/src/Service/Mailer.php", &abstract_text, "abstract class").is_none());
     }
 
-    fn yaml_actions(plugin: &mut Main, text: &str, marker: &str) -> Vec<CodeAction> {
+    fn yaml_actions(host: &MockHost, plugin: &mut Main, text: &str, marker: &str) -> Vec<CodeAction> {
         let document = doc("/project/config/services.yaml", "yaml", text);
         let before = &text[..text.find(marker).unwrap()];
         let at = Position::new(before.matches('\n').count() as u32, before.rsplit('\n').next().unwrap().len() as u32);
-        plugin.code_actions(&document, Range::new(at, at))
+        use openidea_plugin::file_actions::FileActions;
+        host.add_file(&document.path,text);
+        plugin.file_actions(&document,Range::new(at,at)).into_iter().map(|action| {
+            host.answer_next_prompt(Some(&[]));
+            let resolved=plugin.resolve_file_action(&document,action).unwrap();
+            CodeAction { title:resolved.title,kind:resolved.kind,preferred:false,edits:resolved.edits,data:None }
+        }).collect()
     }
 
     fn yaml_applied(text: &str, action: &CodeAction) -> String {
@@ -2762,14 +3629,20 @@ mod tests {
         plugin.activate(&host.context("aritti.symfony")).unwrap();
 
         let stale = "services:\n    App\\Service\\Mailer:\n        arguments:\n            $dsn: 'smtp://x'\n            $gone: 1\n\n    App\\Other: ~\n";
-        let actions = yaml_actions(&mut plugin, stale, "$dsn");
+        let actions = yaml_actions(&host, &mut plugin, stale, "$dsn");
         let action = actions.iter().find(|action| action.title == "Resync arguments with the constructor").unwrap();
-        assert_eq!(yaml_applied(stale, action), "services:\n    App\\Service\\Mailer:\n        arguments:\n            $logger: '@App\\Logger'\n            $dsn: 'smtp://x'\n\n    App\\Other: ~\n");
+        assert_eq!(
+            yaml_applied(stale, action),
+            "services:\n    App\\Service\\Mailer:\n        arguments:\n            $logger: '@App\\Logger'\n            $dsn: 'smtp://x'\n\n    App\\Other: ~\n"
+        );
 
         let bare = "services:\n    App\\Service\\Mailer:\n        public: true\n\n    App\\Other: ~\n";
-        let actions = yaml_actions(&mut plugin, bare, "public");
+        let actions = yaml_actions(&host, &mut plugin, bare, "public");
         let action = actions.iter().find(|action| action.title == "Resync arguments with the constructor").unwrap();
-        assert_eq!(yaml_applied(bare, action), "services:\n    App\\Service\\Mailer:\n        public: true\n        arguments:\n            $logger: '@App\\Logger'\n            $dsn: ''\n\n    App\\Other: ~\n");
+        assert_eq!(
+            yaml_applied(bare, action),
+            "services:\n    App\\Service\\Mailer:\n        public: true\n        arguments:\n            $logger: '@App\\Logger'\n            $dsn: ''\n\n    App\\Other: ~\n"
+        );
     }
 
     #[test]
@@ -2786,7 +3659,7 @@ mod tests {
             "services:\n    app.x:\n        class: Vendor\\Thing\n",
         ] {
             let marker = if text.contains("app.x") { "app.x" } else { "App\\Service\\Mailer" };
-            let actions = yaml_actions(&mut plugin, text, marker).into_iter().filter(|action| action.title.starts_with("Resync")).count();
+            let actions = yaml_actions(&host, &mut plugin, text, marker).into_iter().filter(|action| action.title.starts_with("Resync")).count();
             assert_eq!(actions, 0, "{text}");
         }
     }
@@ -2799,22 +3672,31 @@ mod tests {
         plugin.activate(&host.context("aritti.symfony")).unwrap();
 
         let text = "services:\n    App\\Security\\PostVoter:\n        public: true\n\n    App\\Other: ~\n";
-        let actions = yaml_actions(&mut plugin, text, "public");
+        let actions = yaml_actions(&host, &mut plugin, text, "public");
         let action = actions.iter().find(|action| action.title == "Add tags security.voter").unwrap();
-        assert_eq!(yaml_applied(text, action), "services:\n    App\\Security\\PostVoter:\n        public: true\n        tags: ['security.voter']\n\n    App\\Other: ~\n");
+        assert_eq!(
+            yaml_applied(text, action),
+            "services:\n    App\\Security\\PostVoter:\n        public: true\n        tags: ['security.voter']\n\n    App\\Other: ~\n"
+        );
 
         let tagged = text.replace("public: true", "tags: ['x']");
-        assert!(yaml_actions(&mut plugin, &tagged, "tags").iter().all(|action| !action.title.starts_with("Add tags")));
+        assert!(yaml_actions(&host, &mut plugin, &tagged, "tags").iter().all(|action| !action.title.starts_with("Add tags")));
 
         let auto = format!("services:\n    _defaults:\n        autoconfigure: true\n{}", &text["services:\n".len()..]);
-        assert!(yaml_actions(&mut plugin, &auto, "public").iter().all(|action| !action.title.starts_with("Add tags")));
+        assert!(yaml_actions(&host, &mut plugin, &auto, "public").iter().all(|action| !action.title.starts_with("Add tags")));
     }
 
-    fn xml_actions(plugin: &mut Main, text: &str, marker: &str) -> Vec<CodeAction> {
+    fn xml_actions(host: &MockHost, plugin: &mut Main, text: &str, marker: &str) -> Vec<CodeAction> {
         let document = doc("/project/config/services.xml", "xml", text);
         let before = &text[..text.find(marker).unwrap()];
         let at = Position::new(before.matches('\n').count() as u32, before.rsplit('\n').next().unwrap().len() as u32);
-        plugin.code_actions(&document, Range::new(at, at))
+        use openidea_plugin::file_actions::FileActions;
+        host.add_file(&document.path,text);
+        plugin.file_actions(&document,Range::new(at,at)).into_iter().map(|action| {
+            host.answer_next_prompt(Some(&[]));
+            let resolved=plugin.resolve_file_action(&document,action).unwrap();
+            CodeAction { title:resolved.title,kind:resolved.kind,preferred:false,edits:resolved.edits,data:None }
+        }).collect()
     }
 
     #[test]
@@ -2825,19 +3707,35 @@ mod tests {
         plugin.activate(&host.context("aritti.symfony")).unwrap();
 
         let text = "<container>\n    <services>\n        <service id=\"App\\Security\\PostVoter\"/>\n        <service id=\"App\\Service\\Mailer\">\n        </service>\n    </services>\n</container>\n";
-        let actions = xml_actions(&mut plugin, text, "PostVoter");
+        let actions = xml_actions(&host, &mut plugin, text, "PostVoter");
         let action = actions.iter().find(|action| action.title == "Add tags security.voter").unwrap();
         assert_eq!(
             yaml_applied(text, action),
             "<container>\n    <services>\n        <service id=\"App\\Security\\PostVoter\">\n            <tag name=\"security.voter\"/>\n        </service>\n        <service id=\"App\\Service\\Mailer\">\n        </service>\n    </services>\n</container>\n"
         );
 
-        let actions = xml_actions(&mut plugin, text, "Mailer");
+        let actions = xml_actions(&host, &mut plugin, text, "Mailer");
         let action = actions.iter().find(|action| action.title == "Add arguments from the constructor").unwrap();
         assert!(yaml_applied(text, action).contains("            <argument key=\"$logger\" type=\"service\" id=\"App\\Logger\"/>\n            <argument key=\"$dsn\" type=\"string\"></argument>\n        </service>"));
 
         let tagged = text.replace("PostVoter\"/>", "PostVoter\"><tag name=\"x\"/></service>");
-        assert!(xml_actions(&mut plugin, &tagged, "PostVoter").iter().all(|action| !action.title.starts_with("Add tags")));
+        assert!(xml_actions(&host, &mut plugin, &tagged, "PostVoter").iter().all(|action| !action.title.starts_with("Add tags")));
+    }
+
+    #[test]
+    fn translation_extraction_requires_known_default_catalog_domain() {
+        let host=MockHost::install();host.add_file("translations/admin.en.yaml","'existing': value\n");let mut plugin=activated(&host);
+        for prefix in ["{% trans_default_domain runtimeDomain %}","{% if flag %}{% trans_default_domain 'admin' %}{% endif %}","{% trans_default_domain 'messages' %}{% trans_default_domain 'admin' %}"] {
+            let text=format!("{prefix}<p>Read more</p>");let start=text.find("Read more").unwrap();
+            let doc=doc("/project/templates/blog/index.html.twig","twig",&text);
+            let selection=Range::new(text::position(&text,start),text::position(&text,start+9));
+            assert!(plugin.code_actions(&doc,selection).iter().all(|action|!action.title.starts_with("Extract translation")),"{prefix}");
+        }
+        let text="{% trans_default_domain 'admin' %}<p>Read more</p>";let start=text.find("Read more").unwrap();
+        let doc=doc("/project/templates/blog/index.html.twig","twig",text);
+        let action=plugin.code_actions(&doc,Range::new(text::position(text,start),text::position(text,start+9))).into_iter().find(|action|action.title.starts_with("Extract translation")).unwrap();
+        assert!(action.title.ends_with("admin.en.yaml"));let resolved=plugin.resolve_code_action(&doc,action).unwrap();
+        assert_eq!(resolved.edits[1].0,"/project/translations/admin.en.yaml");
     }
 
     #[test]
@@ -2869,13 +3767,20 @@ mod tests {
     #[test]
     fn form_fields_are_offered_in_a_form_type_with_a_project_entity() {
         let host = MockHost::install();
-        host.add_file("src/Entity/Product.php", "<?php\nnamespace App\\Entity;\n\nclass Product\n{\n    private string $name;\n    private int $stock;\n}\n");
+        host.add_file(
+            "src/Entity/Product.php",
+            "<?php\nnamespace App\\Entity;\n\nclass Product\n{\n    private string $name;\n    private int $stock;\n}\n",
+        );
         let mut plugin = activated(&host);
         let form = "<?php\nnamespace App\\Form;\n\nuse App\\Entity\\Product;\nuse Symfony\\Component\\Form\\AbstractType;\n\nclass ProductType extends AbstractType\n{\n    public function buildForm(FormBuilderInterface $builder, array $options): void\n    {\n        $builder->add('name', TextType::class);\n    }\n\n    public function configureOptions($resolver): void\n    {\n        $resolver->setDefaults(['data_class' => Product::class]);\n    }\n}\n";
         let document = doc("/project/src/Form/ProductType.php", "php", form);
         let at = Position::new(10, 10);
 
-        let action = plugin.code_actions(&document, Range::new(at, at)).into_iter().find(|action| action.title == "Add form fields for Product").unwrap();
+        let action = plugin
+            .code_actions(&document, Range::new(at, at))
+            .into_iter()
+            .find(|action| action.title == "Add form fields for Product")
+            .unwrap();
         let text = &action.edits[0].1.iter().map(|edit| edit.text.as_str()).collect::<String>();
         assert!(text.contains("$builder->add('stock', IntegerType::class);") && !text.contains("'name', TextType"), "{text}");
     }
@@ -2896,7 +3801,8 @@ mod tests {
         let elsewhere = complete_marked(&mut plugin, "/project/templates/base.html.twig", "twig", "{{ |");
         assert!(!elsewhere.contains(&"post".to_owned()) && elsewhere.contains(&"site_name".to_owned()));
 
-        let in_loop = complete_marked(&mut plugin, "/project/templates/base.html.twig", "twig", "{% for item in items %}{{ it| }}{% endfor %}");
+        let in_loop =
+            complete_marked(&mut plugin, "/project/templates/base.html.twig", "twig", "{% for item in items %}{{ it| }}{% endfor %}");
         assert!(in_loop.contains(&"item".to_owned()) && in_loop.contains(&"loop".to_owned()));
     }
 
@@ -2917,5 +3823,21 @@ mod tests {
         let item = items.iter().find(|item| item.label == "methods").unwrap();
         assert_eq!(item.insert_text, "methods: ");
         assert_eq!(item.replace, Some(Range::new(Position::new(3, 14), Position::new(3, 16))));
+    }
+}
+
+impl openidea_plugin::endpoints::EndpointsProvider for Main {
+    fn endpoints(&mut self, ctx: &Invocation) -> Result<Vec<openidea_plugin::endpoints::Endpoint>, Error> {
+        let Some(project) = ctx.project() else {
+            return Ok(Vec::new());
+        };
+        self.index_project(&project);
+        let Some(index) = self.view_index(ctx) else {
+            return Ok(Vec::new());
+        };
+        if index.partial {
+            return Err(Error::Failed("Symfony route index is incomplete; refresh after indexing.".into()));
+        }
+        Ok(ui_kit::routes::endpoints(&self.routes(index), "Symfony"))
     }
 }

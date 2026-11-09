@@ -75,6 +75,7 @@ document.getElementById("reload").addEventListener("click", () => {
 document.getElementById("switch").addEventListener("click", (event) => {
   mode = mode === "swagger" ? "redoc" : "swagger";
   event.target.textContent = mode === "swagger" ? "Redoc" : "Swagger UI";
+  event.target.setAttribute("aria-label", `Switch API renderer to ${mode === "swagger" ? "Redoc" : "Swagger UI"}`);
   document.getElementById("swagger").style.display = mode === "swagger" ? "" : "none";
   document.getElementById("redoc").style.display = mode === "redoc" ? "block" : "none";
   show(latest);

@@ -1,0 +1,23 @@
+{
+  "title": "OpenAPI",
+  "views": {
+    "endpoints": "OpenAPI Endpoints",
+    "compare": "OpenAPI Changes"
+  },
+  "actions": [
+    {
+      "view": "endpoints",
+      "id": "copy-route-curl",
+      "label": "OpenAPI: Copy as curl",
+      "kind": "route"
+    },
+    {
+      "view": "endpoints",
+      "id": "create-route-http",
+      "label": "OpenAPI: Create HTTP Request File",
+      "kind": "route"
+    }
+  ],
+  "project_independent": false,
+  "project_bound_buttons": []
+}

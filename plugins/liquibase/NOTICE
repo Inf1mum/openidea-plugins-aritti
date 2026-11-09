@@ -7,3 +7,7 @@ Inc., licensed under the Apache License 2.0. The schema itself is not included.
 
 Liquibase is a trademark of Liquibase Inc. This plugin is not affiliated with
 or endorsed by Liquibase Inc. or JetBrains.
+
+YAML/JSON source mutation validation uses yaml-rust2 0.13, with copyright notices
+for Chen Yuheng (2015) and Ethiraric (2023), under the MIT license option (LICENSE-yaml-rust2).
+Dependency source is not vendored; existing aliases/tags are refused before loading.

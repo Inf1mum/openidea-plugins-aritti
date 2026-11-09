@@ -17,8 +17,9 @@
     },
     "springData.checkQueryTypes": {
       "type": "boolean",
-      "title": "Check derived query parameter types against the entity's property types and the return type against the query verb",
-      "default": true
+      "title": "Show cached repository/query hover and known source parameter hints",
+      "default": true,
+      "description": "Uses source-owned cached domain facts and explicit query aliases. Effective runtime parameter/return types and query execution are not inferred."
     }
   }
 }

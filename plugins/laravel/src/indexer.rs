@@ -6,7 +6,7 @@
 //! `route#PostController`. Routes link to the controller class from any file; the provider's
 //! own markers keep the action and view links.
 
-use crate::{index, php, project_for};
+use crate::{index, php};
 use openidea_plugin::indexing::{Anchor, Document, DocumentIndexer, Edges};
 use openidea_plugin::text;
 use openidea_plugin::{Position, Range};
@@ -64,14 +64,16 @@ fn range_of(text: &str, start: usize, length: usize) -> Range {
 }
 
 fn class_name(masked: &str, expected: &str) -> Option<usize> {
-    masked
-        .match_indices("class ")
-        .map(|(at, _)| at + "class ".len())
-        .find(|start| masked[*start..].starts_with(expected) && masked.as_bytes().get(start + expected.len()).is_none_or(|b| !php::is_identifier(*b)))
+    masked.match_indices("class ").map(|(at, _)| at + "class ".len()).find(|start| {
+        masked[*start..].starts_with(expected) && masked.as_bytes().get(start + expected.len()).is_none_or(|b| !php::is_identifier(*b))
+    })
 }
 
 fn extends_model(masked: &str) -> bool {
-    masked.contains(" extends Model") || masked.contains(" extends Authenticatable") || masked.contains(" extends Pivot") || masked.contains("\\Model")
+    masked.contains(" extends Model")
+        || masked.contains(" extends Authenticatable")
+        || masked.contains(" extends Pivot")
+        || masked.contains("\\Model")
 }
 
 fn tables_of_migration(masked: &str) -> Vec<(usize, String)> {
@@ -95,7 +97,8 @@ fn uses_of(masked: &str, marker: &str) -> Vec<(usize, usize)> {
             let end = at;
             let start = masked[..end].rfind(|c: char| !(c.is_ascii_alphanumeric() || c == '_')).map_or(0, |i| i + 1);
             let name = &masked[start..end];
-            (!name.is_empty() && name.chars().next().is_some_and(|c| c.is_ascii_uppercase()) && !masked[..start].ends_with("$")).then_some((start, end))
+            (!name.is_empty() && name.chars().next().is_some_and(|c| c.is_ascii_uppercase()) && !masked[..start].ends_with("$"))
+                .then_some((start, end))
         })
         .collect()
 }
@@ -143,7 +146,12 @@ pub fn edges_of(path: &str, text: &str, exists: &dyn Fn(&str) -> bool) -> Edges 
             definition(format!("model-table#{table}"), range);
             markers.push(Anchor { key: format!("migration#{table}"), range });
 
-            for (prefix, directory, suffix) in [("factory", "database/factories", "Factory"), ("policy", "app/Policies", "Policy"), ("observer", "app/Observers", "Observer"), ("seeder", "database/seeders", "Seeder")] {
+            for (prefix, directory, suffix) in [
+                ("factory", "database/factories", "Factory"),
+                ("policy", "app/Policies", "Policy"),
+                ("observer", "app/Observers", "Observer"),
+                ("seeder", "database/seeders", "Seeder"),
+            ] {
                 if exists(&format!("{directory}/{stem}{suffix}.php")) {
                     markers.push(Anchor { key: format!("{prefix}#{stem}"), range });
                 }
@@ -220,13 +228,17 @@ pub fn edges_of(path: &str, text: &str, exists: &dyn Fn(&str) -> bool) -> Edges 
     edges
 }
 
-impl DocumentIndexer for Main {
-    fn index(&mut self, doc: &Document) -> Edges {
-        let Some((_, root, _)) = classify(&doc.path) else { return Edges::default() };
-        let project = project_for(&doc.path);
-        let exists = |relative: &str| project.as_ref().is_some_and(|p| p.read_file(&format!("{root}/{relative}")).is_ok());
+/// A transient source graph for provider navigation, never host rename edits.
+pub(crate) fn navigation(path: &str, text: &str) -> ui_kit::navigation::Graph {
+    edges_of(path, text, &|_| true).into()
+}
 
-        edges_of(&doc.path, &doc.text, &exists)
+impl DocumentIndexer for Main {
+    fn index(&mut self, _doc: &Document) -> Edges {
+        // These keys connect related files with transformed names (Post versus
+        // PostFactory, inferred tables, listener classes and route expressions).
+        // Their targets belong in Providers, not the host's automatic Rename graph.
+        Edges::default()
     }
 }
 
@@ -260,7 +272,11 @@ mod tests {
 
     #[test]
     fn explicit_table_and_non_model_classes() {
-        let edges = edges_of("/p/app/Models/Article.php", "<?php\nclass Article extends Model\n{\n    protected $table = 'posts';\n}\n", &nothing_exists);
+        let edges = edges_of(
+            "/p/app/Models/Article.php",
+            "<?php\nclass Article extends Model\n{\n    protected $table = 'posts';\n}\n",
+            &nothing_exists,
+        );
         assert_eq!(keys(&edges.definitions), ["model#Article", "model-table#posts"]);
         assert!(edges_of("/p/app/Models/Helper.php", "<?php\nclass Helper\n{\n}\n", &nothing_exists).definitions.is_empty());
     }
@@ -291,7 +307,8 @@ mod tests {
         let event = edges_of("/p/app/Events/OrderShipped.php", "<?php\nclass OrderShipped\n{\n}\n", &nothing_exists);
         assert_eq!((keys(&event.definitions), keys(&event.markers)), (vec!["event#OrderShipped"], vec!["listener#OrderShipped"]));
 
-        let listener = "<?php\nuse App\\Events\\OrderShipped;\nclass SendNotice\n{\n    public function handle(OrderShipped $event): void {}\n}\n";
+        let listener =
+            "<?php\nuse App\\Events\\OrderShipped;\nclass SendNotice\n{\n    public function handle(OrderShipped $event): void {}\n}\n";
         let edges = edges_of("/p/app/Listeners/SendNotice.php", listener, &nothing_exists);
         assert_eq!((keys(&edges.definitions), keys(&edges.markers)), (vec!["listener#OrderShipped"], vec!["event#OrderShipped"]));
 
@@ -301,19 +318,31 @@ mod tests {
 
     #[test]
     fn routes_and_controllers_meet_through_the_class_name() {
-        let routes = "<?php\nRoute::get('/a', [PostController::class, 'index'])->name('a');\nRoute::resource('posts', PostController::class);\n";
+        let routes =
+            "<?php\nRoute::get('/a', [PostController::class, 'index'])->name('a');\nRoute::resource('posts', PostController::class);\n";
         let edges = edges_of("/p/routes/web.php", routes, &nothing_exists);
         assert_eq!(keys(&edges.definitions), ["route#PostController", "route#PostController"]);
         assert_eq!(keys(&edges.markers), ["controller#PostController", "controller#PostController"]);
 
-        let controller = edges_of("/p/app/Http/Controllers/Admin/PostController.php", "<?php\nclass PostController extends Controller\n{\n}\n", &nothing_exists);
-        assert_eq!((keys(&controller.definitions), keys(&controller.markers)), (vec!["controller#PostController"], vec!["route#PostController"]));
+        let controller = edges_of(
+            "/p/app/Http/Controllers/Admin/PostController.php",
+            "<?php\nclass PostController extends Controller\n{\n}\n",
+            &nothing_exists,
+        );
+        assert_eq!(
+            (keys(&controller.definitions), keys(&controller.markers)),
+            (vec!["controller#PostController"], vec!["route#PostController"])
+        );
     }
 
     #[test]
     fn factory_calls_are_references_and_vendor_files_publish_nothing() {
         let text = "<?php\nclass Seed\n{\n    public function run() { Post::factory()->create(); $x->factory(); }\n}\n";
-        let edges = edges_of("/p/app/Models/Seed.php", "<?php\nclass Seed extends Model\n{\n    function a() { return Post::factory(); }\n}\n", &nothing_exists);
+        let edges = edges_of(
+            "/p/app/Models/Seed.php",
+            "<?php\nclass Seed extends Model\n{\n    function a() { return Post::factory(); }\n}\n",
+            &nothing_exists,
+        );
         assert_eq!(keys(&edges.references), ["factory#Post"]);
         assert!(edges_of("/p/vendor/a/app/Models/B.php", text, &nothing_exists).definitions.is_empty());
         assert!(edges_of("/p/app/Models/Multi.php", "<?php\nclass Multi extends Model\n{\n}\n", &nothing_exists).references.is_empty());

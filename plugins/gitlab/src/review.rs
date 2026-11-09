@@ -24,15 +24,28 @@ pub struct Line {
 }
 
 fn hunk_start(header: &str, side: char) -> Option<u32> {
-    let range = header.split(' ').find_map(|part| part.strip_prefix(side))?;
-
-    range.split(',').next()?.parse().ok()
+    let mut parts = header.split_whitespace();
+    if parts.next()? != "@@" { return None; }
+    let old = parts.next()?.strip_prefix('-')?;
+    let new = parts.next()?.strip_prefix('+')?;
+    if parts.next()? != "@@" { return None; }
+    let range = |value: &str| -> Option<Option<u32>> {
+        let mut numbers = value.split(',');
+        let number = |value: &str| value.bytes().all(|byte| byte.is_ascii_digit()).then(|| value.parse::<u32>().ok()).flatten();
+        let start = number(numbers.next()?)?;
+        let count = match numbers.next() { Some(value) => number(value)?, None => 1 };
+        if numbers.next().is_some() { return None; }
+        if count == 0 { Some(None) } else { (start > 0).then_some(Some(start)) }
+    };
+    let old = range(old)?;
+    let new = range(new)?;
+    if side == '-' { old } else { new }
 }
 
 /// A unified diff (GitLab's `diff` field) with each line's old/new number.
 pub fn parse_diff(diff: &str) -> Vec<Line> {
     let mut lines = Vec::new();
-    let (mut old, mut new) = (0, 0);
+    let (mut old, mut new) = (None, None);
 
     for raw in diff.lines() {
         let (kind, text) = raw.split_at(raw.chars().next().map_or(0, char::len_utf8));
@@ -40,23 +53,23 @@ pub fn parse_diff(diff: &str) -> Vec<Line> {
 
         match kind {
             '@' => {
-                old = hunk_start(raw, '-').unwrap_or(1);
-                new = hunk_start(raw, '+').unwrap_or(1);
+                old = hunk_start(raw, '-');
+                new = hunk_start(raw, '+');
                 lines.push(Line { kind, old: None, new: None, text: raw.to_owned() });
             }
             '+' => {
-                lines.push(Line { kind, old: None, new: Some(new), text: text.to_owned() });
-                new += 1;
+                lines.push(Line { kind, old: None, new, text: text.to_owned() });
+                new = new.and_then(|line: u32| line.checked_add(1));
             }
             '-' => {
-                lines.push(Line { kind, old: Some(old), new: None, text: text.to_owned() });
-                old += 1;
+                lines.push(Line { kind, old, new: None, text: text.to_owned() });
+                old = old.and_then(|line: u32| line.checked_add(1));
             }
             '\\' => {}
             _ => {
-                lines.push(Line { kind: ' ', old: Some(old), new: Some(new), text: text.to_owned() });
-                old += 1;
-                new += 1;
+                lines.push(Line { kind: ' ', old, new, text: text.to_owned() });
+                old = old.and_then(|line: u32| line.checked_add(1));
+                new = new.and_then(|line: u32| line.checked_add(1));
             }
         }
     }
@@ -150,6 +163,7 @@ fn thread_html(d: &Discussion, drafts: &[&DraftNote]) -> String {
 }
 
 pub struct Page<'a> {
+    pub context: &'a str,
     pub iid: u64,
     pub head_sha: &'a str,
     pub last_commits: &'a BTreeMap<String, String>,
@@ -181,7 +195,8 @@ fn commit_summary(iid: u64, commit: &str, files: usize) -> String {
 
 pub fn render_html(page: &Page) -> String {
     let read_only = if page.commit.is_some() { " data-read-only" } else { "" };
-    let mut html = format!("<style>{THEME_DEFAULTS}{CONTROLS}{STYLE}</style><body data-anchor=\"{}\"{read_only}>", escape(page.anchor.unwrap_or("")));
+    let mut html =
+        format!("<style>{THEME_DEFAULTS}{CONTROLS}{STYLE}</style><body data-review-context=\"{}\" data-anchor=\"{}\"{read_only}>", escape(page.context), escape(page.anchor.unwrap_or("")));
     let summary = match page.commit {
         Some(commit) => commit_summary(page.iid, commit, page.diffs.len()),
         None => summary(page.iid, page.diffs.len()),
@@ -192,7 +207,8 @@ pub fn render_html(page: &Page) -> String {
     }
 
     for (index, file) in page.diffs.iter().enumerate() {
-        let is_viewed = page.commit.is_none() && page.viewed.get(&file.new_path).is_some_and(|sha| sha == version(page.last_commits, &file.new_path, page.head_sha));
+        let is_viewed = page.commit.is_none()
+            && page.viewed.get(&file.new_path).is_some_and(|sha| sha == version(page.last_commits, &file.new_path, page.head_sha));
         let lines = parse_diff(&file.diff);
         let added = lines.iter().filter(|l| l.kind == '+').count();
         let removed = lines.iter().filter(|l| l.kind == '-').count();
@@ -221,7 +237,9 @@ pub fn render_html(page: &Page) -> String {
         ));
 
         if file.diff.is_empty() {
-            html.push_str("<tr><td colspan=\"3\" class=\"empty\">No diff to show (binary or too large). Open the file on GitLab.</td></tr>");
+            html.push_str(
+                "<tr><td colspan=\"3\" class=\"empty\">No diff to show (binary or too large). Open the file on GitLab.</td></tr>",
+            );
         }
 
         for line in &lines {
@@ -247,7 +265,7 @@ pub fn render_html(page: &Page) -> String {
             }
 
             let at = |p: &api::NotePosition| p.is_at(&file.old_path, &file.new_path, line.old, line.new);
-            for d in page.threads.iter().filter(|d| d.notes[0].position.as_ref().is_some_and(at)) {
+            for d in page.threads.iter().filter(|d| d.notes.first().and_then(|note| note.position.as_ref()).is_some_and(at)) {
                 let replies: Vec<&DraftNote> = page.drafts.iter().filter(|n| n.discussion_id.as_deref() == Some(&d.id)).collect();
                 html.push_str(&format!("<tr class=\"comments\"><td colspan=\"3\">{}</td></tr>", thread_html(d, &replies)));
             }
@@ -318,7 +336,7 @@ const NO_SCRIPTS: &str = "<p class=\"nojs\" role=\"note\">Commenting on lines do
 
 const SCRIPT: &str = r#"
 document.documentElement.classList.add("js");
-const send = (message) => openidea.postMessage(JSON.stringify(message));
+const send = (message) => openidea.postMessage(JSON.stringify({ ...message, reviewContext: document.body.dataset.reviewContext }));
 const fileOf = (el) => el.closest('.file');
 const anchorOf = (tr) => { while (tr && !tr.id) tr = tr.previousElementSibling; return tr ? tr.id : ''; };
 const lineOf = (tr) => ({ old: tr.dataset.old ? +tr.dataset.old : null, new: tr.dataset.new ? +tr.dataset.new : null });
@@ -460,6 +478,16 @@ impl GitLab {
         Ok(())
     }
 
+    /// Source-page identity, not an authority token or a remote freshness proof.
+    pub(crate) fn review_context(&self, ctx: &openidea_plugin::Invocation) -> Result<String, Error> {
+        let repo = gitlab_project(ctx)?;
+        let iid = self.checked_selection(&repo, ctx)?;
+        let details = self.details.as_ref().filter(|details| details.mr.iid == iid).ok_or("Refresh the current Changes page first.")?;
+        let refs = details.mr.diff_refs.as_ref().ok_or("The current merge request has no diff identity.")?;
+        serde_json::to_string(&(crate::selection_scope(&repo), iid, &details.mr.sha, &refs.base_sha, &refs.head_sha, &refs.start_sha,
+            self.active_commit().map(|commit| commit.id.as_str()))).map_err(|_| Error::Stale)
+    }
+
     pub(crate) fn render_files(&mut self, ctx: &openidea_plugin::Invocation) -> Result<View, Error> {
         let Some(iid) = Self::selected() else {
             return Ok(View::message("Select a merge request in the Merge Requests tool window."));
@@ -486,10 +514,18 @@ impl GitLab {
             false => Button::new("layout", "List").icon("module"),
         };
 
-        Ok(View::new(Body::Tree(file_items(files, is_viewed, as_list)))
+        let context = self.review_context(ctx)?;
+        let mut items = file_items(files, is_viewed, as_list);
+        for item in &mut items {
+            if let Some(path) = item.key.strip_prefix("file:") {
+                item.key = format!("file:{}", serde_json::to_string(&(&context, path)).map_err(|_| Error::Stale)?);
+            }
+        }
+        let action = |kind: &str| format!("file-action:{}", serde_json::to_string(&(&context, kind)).unwrap_or_default());
+        Ok(View::new(Body::Tree(items))
             .button(layout)
-            .button(Button::new("mark-all", "Mark All Viewed").icon("check"))
-            .button(Button::new("clear", "Clear Viewed").icon("undo"))
+            .button(Button::new(&action("mark-all"), "Mark All Viewed").icon("check"))
+            .button(Button::new(&action("clear"), "Clear Viewed").icon("undo"))
             .button(refresh)
             .status(&format!("!{iid} · {done} of {} files viewed · double-click a file to toggle", files.len())))
     }
@@ -497,25 +533,40 @@ impl GitLab {
     pub(crate) fn handle_files(&mut self, event: ViewEvent, ctx: &openidea_plugin::Invocation) -> Result<(), Error> {
         let Some(iid) = Self::selected() else { return Ok(()) };
         let project = gitlab_project(ctx)?.path;
-        self.ensure_details(&project, iid)?;
+        let context = self.review_context(ctx)?;
+        let decode = |key: &str, prefix: &str| -> Result<Option<String>, Error> {
+            let Some(payload) = key.strip_prefix(prefix).filter(|payload| payload.len() <= 2 * 1024 * 1024) else { return Ok(None); };
+            let Ok((owner, value)) = serde_json::from_str::<(String, String)>(payload) else { return Ok(None); };
+            if owner != context { return Err("This Files callback belongs to another source page; refresh Files.".into()); }
+            Ok(Some(value))
+        };
+        let event = if let ViewEvent::Button(key) = event {
+            if key == "mark-all" || key == "clear" { return Ok(()); }
+            match decode(&key, "file-action:")? { Some(kind) if matches!(kind.as_str(), "mark-all" | "clear") => ViewEvent::Button(kind),
+                _ => ViewEvent::Button(key) }
+        } else { event };
         let head = self.details.as_ref().and_then(|d| d.mr.diff_refs.clone());
         let commits = || last_commits(ctx, head.as_ref());
         let head_sha = head.as_ref().map(|r| r.head_sha.clone()).unwrap_or_default();
-        let listed: Vec<String> = self.diffs.as_ref().filter(|(i, _)| *i == iid).map(|(_, d)| d.iter().map(|f| f.new_path.clone()).collect()).unwrap_or_default();
+        let listed: Vec<String> =
+            self.diffs.as_ref().filter(|(i, _)| *i == iid).map(|(_, d)| d.iter().map(|f| f.new_path.clone()).collect()).unwrap_or_default();
 
         match event {
             ViewEvent::Activate(key) => {
-                let Some(path) = key.strip_prefix("file:").filter(|p| listed.iter().any(|l| l == p)) else { return Ok(()) };
-                let sha = version(&commits(), path, &head_sha).to_owned();
-                let on = viewed(&project, iid).get(path) != Some(&sha);
-                set_viewed(&project, iid, path, on.then_some(sha))?;
+                let Some(path) = decode(&key, "file:")?.filter(|path| listed.iter().any(|listed| listed == path)) else { return Ok(()) };
+                safe::repo_file_path(&path)?;
+                if path.len() > 4096 || path.chars().any(char::is_control) { return Err(Error::Stale); }
+                let sha = version(&commits(), &path, &head_sha).to_owned();
+                let on = viewed(&project, iid).get(&path) != Some(&sha);
+                set_viewed(&project, iid, &path, on.then_some(sha))?;
             }
             ViewEvent::Button(id) if id == "layout" => {
                 storage::set(LAYOUT_KEY, if files_as_list() { "tree" } else { "list" })?;
             }
             ViewEvent::Button(id) if id == "mark-all" => {
                 let commits = commits();
-                let marks: BTreeMap<String, String> = listed.iter().map(|p| (p.clone(), version(&commits, p, &head_sha).to_owned())).collect();
+                let marks: BTreeMap<String, String> =
+                    listed.iter().map(|p| (p.clone(), version(&commits, p, &head_sha).to_owned())).collect();
                 storage::set(&viewed_key(&project, iid), &serde_json::to_string(&marks).map_err(|e| Error::Failed(e.to_string()))?)?;
             }
             ViewEvent::Button(id) if id == "clear" => storage::set(&viewed_key(&project, iid), "{}")?,
@@ -544,15 +595,17 @@ impl GitLab {
         self.ensure_diffs(&project, iid)?;
 
         if let Some(commit) = self.active_commit().cloned() {
-            return self.render_commit_changes(&project, iid, &commit);
+            return self.render_commit_changes(&project, iid, &commit, ctx);
         }
 
+        let context = self.review_context(ctx)?;
         let details = self.details.as_ref().ok_or("The merge request is not loaded; refresh it.")?;
         let threads: Vec<Discussion> = self.threads.get(&iid).into_iter().flatten().filter(|d| !d.is_system()).cloned().collect();
         let head_sha = details.mr.diff_refs.as_ref().map(|r| r.head_sha.as_str()).unwrap_or("");
         let viewed = viewed(&project, iid);
         let last_commits = last_commits(ctx, details.mr.diff_refs.as_ref());
         let page = Page {
+            context: &context,
             iid,
             head_sha,
             last_commits: &last_commits,
@@ -564,7 +617,9 @@ impl GitLab {
             commit: None,
         };
 
-        let mut view = View::new(Body::Html(render_html(&page))).button(Button::new("refresh", "Refresh").icon("refresh"));
+        let mut view = View::new(Body::Html(render_html(&page)))
+            .button(Button::new("open-diff-snapshot", "Open Diff Snapshot").icon("diff"))
+            .button(Button::new("refresh", "Refresh").icon("refresh"));
         if !details.drafts.is_empty() {
             view = view.button(Button::new("submit", &format!("Submit Review ({})", details.drafts.len())).icon("send"));
         }
@@ -577,14 +632,16 @@ impl GitLab {
     }
 
     /// One commit's diff, read-only: its threads need the merge request's diff refs, so none are shown.
-    fn render_commit_changes(&mut self, project: &str, iid: u64, commit: &Commit) -> Result<View, Error> {
+    fn render_commit_changes(&mut self, project: &str, iid: u64, commit: &Commit, ctx: &openidea_plugin::Invocation) -> Result<View, Error> {
         if self.commit_diff.as_ref().map(|(sha, _)| sha) != Some(&commit.id) {
             let _task = host::begin_task("Loading commit", false);
             self.commit_diff = Some((commit.id.clone(), api::Project(project).commit_diff(&commit.id)?));
         }
 
         let none = BTreeMap::new();
+        let context = self.review_context(ctx)?;
         let page = Page {
+            context: &context,
             iid,
             head_sha: "",
             last_commits: &none,
@@ -604,9 +661,14 @@ impl GitLab {
     }
 
     pub(crate) fn handle_changes_message(&mut self, message: &str, ctx: &openidea_plugin::Invocation) -> Result<(), Error> {
+        if message.len() > 2 * 1024 * 1024 { return Err(Error::Stale); }
         let message: Value = serde_json::from_str(message).map_err(|e| Error::Invalid(e.to_string()))?;
+        if message["reviewContext"].as_str() != Some(self.review_context(ctx)?.as_str()) {
+            return Err("This Changes callback belongs to another source page; refresh Changes before acting.".into());
+        }
         if self.active_commit().is_some() && message["type"] != "open" {
-            let error = serde_json::json!({ "type": "error", "message": "A commit's changes are read-only. Click All Changes to comment." });
+            let error =
+                serde_json::json!({ "type": "error", "message": "A commit's changes are read-only. Click All Changes to comment." });
             return host::post_view_message(DETAILS, &error.to_string());
         }
 
@@ -619,11 +681,31 @@ impl GitLab {
         let details = self.details.as_ref().ok_or("Select a merge request first.")?;
         let iid = details.mr.iid;
         let text = |key: &str| message[key].as_str().unwrap_or("").to_owned();
-        let line = |key: &str| message[key].as_u64().map(|n| n as u32);
+        let line = |key: &str| message[key].as_u64().and_then(|n| u32::try_from(n).ok());
 
+        if matches!(message["type"].as_str(), Some("open" | "viewed")) {
+            let path = text("path");
+            safe::repo_file_path(&path)?;
+            if path.len() > 4096 || path.chars().any(char::is_control) {
+                return Err("The diff path exceeds local source navigation limits.".into());
+            }
+            let listed = if let Some(commit) = self.active_commit() {
+                self.commit_diff.as_ref().filter(|(sha, _)| sha == &commit.id).map(|(_, files)| files)
+            } else {
+                self.diffs.as_ref().filter(|(owner, _)| *owner == iid).map(|(_, files)| files)
+            };
+            if !listed.is_some_and(|files| files.iter().any(|file| file.new_path == path)) {
+                return Err("This file is not a row in the current cached diff; refresh Changes.".into());
+            }
+        }
         match message["type"].as_str().unwrap_or("") {
             "open" => {
                 let path = format!("{}/{}", status.root, text("path"));
+                if path.len() > 4096
+                    || ctx.project().and_then(|project| project.root().ok()).as_deref() != Some(status.root.as_str())
+                    || host::project_of(&path).and_then(|project| project.root().ok()).as_deref() != Some(status.root.as_str()) {
+                    return Err("The diff file is not owned by the current repository project.".into());
+                }
                 return host::open_location(&path, line("line").unwrap_or(1).saturating_sub(1), 0);
             }
             "viewed" => {
@@ -639,6 +721,32 @@ impl GitLab {
             _ => {}
         }
 
+        let kind = message["type"].as_str().unwrap_or("");
+        if matches!(kind, "comment" | "reply" | "resolve") {
+            let files = self.diffs.as_ref().filter(|(owner, _)| *owner == iid).map(|(_, files)| files)
+                .ok_or("Refresh the current diff before reviewing its rows.")?;
+            if kind == "comment" {
+                let valid_line = |key: &str| match message.get(key) {
+                    None | Some(Value::Null) => true,
+                    Some(value) => value.as_u64().is_some_and(|number| number > 0 && number <= u64::from(u32::MAX)),
+                };
+                if !valid_line("old") || !valid_line("new") || (line("old").is_none() && line("new").is_none()) || !files.iter().any(|file|
+                    file.old_path == text("oldPath") && file.new_path == text("newPath")
+                    && parse_diff(&file.diff).iter().any(|row| row.kind != '@' && (row.old, row.new) == (line("old"), line("new")))) {
+                    return Err("The comment position is not a displayed line in the current diff.".into());
+                }
+            } else {
+                let listed: Vec<_> = self.threads.get(&iid).into_iter().flatten()
+                    .filter(|thread| thread.id == text("discussion") && !thread.is_system()).collect();
+                let [thread] = listed.as_slice() else { return Err("The discussion is not uniquely listed in this Changes page.".into()); };
+                let displayed = thread.notes.first().and_then(|note| note.position.as_ref()).is_some_and(|position|
+                    files.iter().any(|file| parse_diff(&file.diff).iter().any(|row| row.kind != '@'
+                        && position.is_at(&file.old_path, &file.new_path, row.old, row.new))));
+                if !displayed || kind == "resolve" && !thread.resolvable() {
+                    return Err("The discussion action is not available on a displayed diff row.".into());
+                }
+            }
+        }
         let api = api::Project(&project);
         let draft = message["draft"].as_bool() == Some(true);
         let _task = host::begin_task("Updating merge request", false);
@@ -664,13 +772,15 @@ impl GitLab {
             return host::post_view_message(DETAILS, &serde_json::json!({ "type": "error", "message": e.to_string() }).to_string());
         }
 
-        self.status = Some(match (draft, message["type"].as_str(), message["resolved"].as_bool()) {
-            (true, ..) => "Added to your review.",
-            (false, Some("resolve"), Some(true)) => "Thread resolved.",
-            (false, Some("resolve"), _) => "Thread unresolved.",
-            (false, ..) => "Comment posted.",
-        }
-        .into());
+        self.status = Some(
+            match (draft, message["type"].as_str(), message["resolved"].as_bool()) {
+                (true, ..) => "Added to your review.",
+                (false, Some("resolve"), Some(true)) => "Thread resolved.",
+                (false, Some("resolve"), _) => "Thread unresolved.",
+                (false, ..) => "Comment posted.",
+            }
+            .into(),
+        );
         self.anchor = Some(text("anchor")).filter(|a| !a.is_empty());
         self.reload_merge_request(iid);
 
@@ -679,11 +789,12 @@ impl GitLab {
 
     /// Forgets the loaded merge request and redraws everything that shows it.
     pub(crate) fn reload_merge_request(&mut self, iid: u64) {
+        self.loaded = None;
         self.details = None;
         self.threads.remove(&iid);
         self.events.remove(&iid);
-        host::refresh_view(DETAILS);
-        host::refresh_view(LIST);
+        crate::refresh_mr_view(DETAILS);
+        crate::refresh_mr_view(LIST);
     }
 }
 

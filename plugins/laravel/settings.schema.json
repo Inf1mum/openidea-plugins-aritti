@@ -1,5 +1,20 @@
 {
   "properties": {
+    "artisanDockerSocket": {
+      "type": "string",
+      "title": "Docker Artisan metadata: explicit local unix:///socket endpoint",
+      "default": "unix:///var/run/docker.sock"
+    },
+    "artisanDockerContainer": {
+      "type": "string",
+      "title": "Docker Artisan metadata: full lowercase 64-hex running container ID (opt-in)",
+      "default": ""
+    },
+    "artisanDockerWorkdir": {
+      "type": "string",
+      "title": "Docker Artisan metadata: absolute container directory bound to this exact project root",
+      "default": ""
+    },
     "diagnostics": {
       "type": "boolean",
       "title": "Report views, config keys and translation keys that don't exist",

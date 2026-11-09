@@ -1,0 +1,11 @@
+{
+  "title": "GitLab",
+  "views": {
+    "merge-requests": "Merge Requests",
+    "merge-request": "Merge Request",
+    "gitlab-projects": "GitLab Projects"
+  },
+  "actions": [],
+  "project_independent": false,
+  "project_bound_buttons": []
+}

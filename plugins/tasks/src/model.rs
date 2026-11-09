@@ -10,6 +10,13 @@ pub const DEFAULT_TASK_ID: &str = "Default";
 const CLOSED_TASKS_KEPT: usize = 50;
 const CONTEXT_FILES_KEPT: usize = 10;
 
+/// Ephemeral facts retained only from validated explicit server search data.
+/// Not serialized: stored/local tasks cannot mint contextual reference authority.
+#[derive(Clone,Debug,PartialEq,Eq)]
+pub enum SourceReference {
+    GitLab{project_path:String,project_id:u64,iid:u64},
+    Trello{short_link:String},
+}
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Task {
     pub id: String,
@@ -24,6 +31,8 @@ pub struct Task {
     pub tracker: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api: Option<String>,
+    #[serde(skip)]
+    pub source_reference:Option<SourceReference>,
     #[serde(default)]
     pub closed: bool,
     #[serde(default)]

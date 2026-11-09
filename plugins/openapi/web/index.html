@@ -2,23 +2,18 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>API Preview</title>
+    <link rel="stylesheet" href="./resources/tokens.css" />
+    <link rel="stylesheet" href="./resources/components.css" />
     <link rel="stylesheet" href="./vendor/swagger-ui.css" />
-    <style>
-      body { margin: 0; background: #fff; }
-      /* ponytail: Swagger UI has no dark theme; inverted colours until a real one is worth the CSS. */
-      :root[data-theme="dark"] body { filter: invert(0.9) hue-rotate(180deg); }
-      #reload, #switch { position: fixed; top: 8px; z-index: 10; }
-      #reload { right: 16px; }
-      #switch { right: 80px; }
-      #redoc { display: none; }
-    </style>
+    <link rel="stylesheet" href="./preview.css" />
   </head>
   <body>
-    <button id="reload" type="button">Reload</button>
-    <button id="switch" type="button">Redoc</button>
+    <header class="api-toolbar"><strong>API Preview</strong><button id="reload" type="button" class="ui-button">Reload</button><button id="switch" type="button" class="ui-button" aria-label="Switch API renderer to Redoc">Redoc</button></header>
     <div id="swagger"></div>
     <div id="redoc"></div>
+    <script src="./resources/icons.js"></script><script src="./resources/widgets.js"></script><script src="./resources/controls.js"></script>
     <script src="./vendor/swagger-ui-bundle.js"></script>
     <script src="./main.js"></script>
   </body>

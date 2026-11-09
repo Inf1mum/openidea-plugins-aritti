@@ -1,7 +1,7 @@
 id = "ideolog"
 name = "Log (Ideolog)"
 extensions = []
-# A glob, not `extensions = ["log"]`: the built-in Log language keeps its
-# extensions, but file name globs are matched before extensions.
-filenames = ["*.log"]
+# Manual lexical/fold/outline fallback. Built-in Log owns .log by default
+# and receives this plugin's semantic-token overlay.
+filenames = []
 indent = { tab-size = 4, insert-spaces = true }

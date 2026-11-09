@@ -4,22 +4,26 @@ version = "0.2.0" # x-release-please-version
 description = "Flyway database migrations in OpenIDEA. Checks migration file names (V, U, R and B prefixes, version, separator, suffix, as configured in flyway.toml, flyway.conf or spring.flyway.*) and reports duplicate versions across migration locations. Copies the next migration version, runs Flyway info, validate, migrate, repair and clean (CLI or Maven) in a terminal, and completes ${…} placeholders in SQL and keys in flyway.conf and flyway.toml. Independent implementation, not affiliated with JetBrains or Redgate."
 authors = ["Arnaud RITTI <arnaud.ritti@gmail.com>"]
 license = "MIT"
-change-notes = "Unreleased: Flyway: New Migration asks for a description and creates V<next>__<description>.sql next to the latest migration (needs the optional tee permission; without it the file name is copied instead). New › Flyway SQL Migration, Java Migration, Kotlin Migration, Java Callback and SQL Callback templates; Flyway icon on V*__*.sql, U*__*.sql and R__*.sql files. Project-wide Go to Declaration and gutter markers from the document index: entity and migration tables (@Entity, @Table(name), CREATE TABLE in V/U/R migrations) and ${placeholder} to its flyway.conf or flyway.toml entry. Flyway: Clean asks for confirmation in a dialog (older hosts: run it twice within 30 seconds). 0.1.0: first release. Migration name and duplicate version checks on open and save and with Flyway: Check Migrations; Copy Next Migration Version; info, validate, migrate, repair and clean in a terminal (flyway or mvn); completion of placeholders in SQL and of keys in flyway.conf and flyway.toml."
+change-notes = "Unreleased: managed comparison readiness and a tested finite Child orchestration core; runtime Start/Continue remain blocked pending an authoritative installed offline CLI profile. Existing imported SQL review stays available. Unreleased: offline local diffText JSON comparison review with selected source/target SQL definitions and an exact non-executing 13.12.1 Enterprise CLI recipe; no database diff/migration execution. Unreleased: New Migration prepares an editable naming form and read-only target preview; atomic editor FileActions create from the bundled SQL template or rename migrations after concrete confirmation and collision/staleness checks. Removed process:tee. New › Flyway SQL Migration, Java Migration, Kotlin Migration, Java Callback and SQL Callback templates; Flyway icon on V*__*.sql, U*__*.sql and R__*.sql files. Read-only cached placeholder navigation and gutter markers use one source-established Flyway configuration and owned migration locations. Incomplete table/entity and placeholder Rename graph anchors are withheld; full SQL/type resolution is not claimed. CLI commands now review bounded source provenance and unresolved target before launch; Clean always requires concrete confirmation. Cached rendering never runs Info. Managed finite output offers scoped Status/Cancel; terminal compatibility remains. 0.1.0: first release. Migration name and duplicate version checks on open and save and with Flyway: Check Migrations; Copy Next Migration Version; info, validate, migrate, repair and clean in a terminal (flyway or mvn); completion of placeholders in SQL and of keys in flyway.conf and flyway.toml."
 categories = ["frameworks", "linters"]
 icon = "icon.svg"
-engines.openidea = "^1.2"
+engines.openidea = "^1.3"
 wasm = "dist/plugin.wasm"
-activation = ["on-event:file-opened", "on-event:file-saved", "on-view:migrations"]
+activation = ["on-event:file-opened", "on-event:file-saved", "on-event:files-changed", "on-view:migrations", "on-view:command-output", "on-view:comparison-review"]
 
 [capabilities]
 required = ["project.read", "events"]
-# clipboard: Copy Next Migration Version. process:tee: New Migration creates the file. process: the Flyway commands (setting `runner`).
-optional = ["clipboard", "process:flyway", "process:mvn", "process:tee"]
+# clipboard: Copy Next Migration Version. FileActions create/rename without a process.
+optional = ["clipboard", "process:flyway", "process:mvn"]
 
 # flyway.conf is the `ini` language, flyway.toml `toml`; the code filters by file name.
 [[contributes.providers]]
-kinds = ["completion"]
+kinds = ["completion", "definition", "line-markers"]
 languages = ["sql", "ini", "toml"]
+
+[[contributes.providers]]
+kinds = ["code-actions"]
+languages = ["sql", "ini", "toml", "properties", "yaml"]
 
 [[contributes.commands]]
 id = "check"
@@ -92,6 +96,7 @@ id = "migrations"
 title = "Flyway Migrations"
 icon = "icons/flyway.svg"
 location = "bottom"
+web = "web/resources/hub.html"
 
 [[contributes.fileTemplates]]
 id = "migration-sql"
@@ -131,3 +136,31 @@ icon = "icons/flyway.svg"
 [contributes.settings]
 title = "Flyway Migrations"
 schema = "settings.schema.json"
+
+[[contributes.commands]]
+id = "status"
+title = "Flyway: Refresh Managed Command Status"
+category = "Flyway"
+
+[[contributes.commands]]
+id = "cancel"
+title = "Flyway: Cancel Owned Managed Command"
+category = "Flyway"
+
+[[contributes.views]]
+id = "command-output"
+title = "Flyway Command Output"
+icon = "terminal"
+location = "right"
+
+
+[[contributes.commands]]
+id = "review-comparison"
+title = "Flyway: Review Local Comparison Report..."
+category = "Flyway"
+
+[[contributes.views]]
+id = "comparison-review"
+title = "Flyway Comparison Review"
+icon = "file-sql"
+location = "right"

@@ -1,0 +1,14 @@
+{
+  "title": "Flyway Migrations",
+  "views": {
+    "migrations": "Flyway Migrations"
+  },
+  "actions": [],
+  "project_independent": false,
+  "project_bound_buttons": [
+    "refresh",
+    "execution-output",
+    "execution-status",
+    "execution-cancel"
+  ]
+}

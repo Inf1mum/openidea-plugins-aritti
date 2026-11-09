@@ -11,10 +11,11 @@ pub enum Section {
     Commits,
     Files,
     Pipelines,
+    Timeline,
 }
 
 impl Section {
-    pub const ALL: [Section; 5] = [Section::Overview, Section::Changes, Section::Commits, Section::Files, Section::Pipelines];
+    pub const ALL: [Section; 6] = [Section::Overview, Section::Changes, Section::Commits, Section::Files, Section::Pipelines, Section::Timeline];
 
     pub fn id(self) -> &'static str {
         match self {
@@ -23,6 +24,7 @@ impl Section {
             Section::Commits => "commits",
             Section::Files => "files",
             Section::Pipelines => "pipelines",
+            Section::Timeline => "timeline",
         }
     }
 
@@ -33,6 +35,7 @@ impl Section {
             Section::Commits => "Commits",
             Section::Files => "Files",
             Section::Pipelines => "Pipelines",
+            Section::Timeline => "Timeline",
         }
     }
 
@@ -64,7 +67,7 @@ pub struct Badges {
 
 fn button_label(section: Section, active: bool, badges: &Badges) -> String {
     let badge = match section {
-        Section::Overview => None,
+        Section::Overview | Section::Timeline => None,
         Section::Changes => badges.changes.map(|n| n.to_string()),
         Section::Commits => badges.commits.map(|n| n.to_string()),
         Section::Files => badges.files.map(|n| n.to_string()),

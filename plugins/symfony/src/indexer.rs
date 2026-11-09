@@ -1,17 +1,12 @@
-//! Project-wide navigation for the host's document index. Keys: `service#id`,
-//! `route#name`, `command#name`, `param#name`, `twig-filter#`, `twig-function#`,
-//! `twig-test#`, `twig-component#`, `stimulus#`, `event#`, `event-dispatch#`,
-//! `macro#`, `voter#`, `validator-of#`, `constraint-of#`; a definition is where the file
-//! names it, a reference is a use. Gutter markers use keys of their own
-//! (`template#`, `render#`, `block#`, `override#`, `class#`, `class-service#`,
-//! `route-use#`), so one icon can open several targets. Reuses the scanners of
-//! the project index.
-
+//! Legacy read-only association parser evidence. The registered indexer returns
+//! an empty graph: these transformed/global equality keys do not prove safe
+//! exact-token, complete-scope usages or Rename. Explicit definition providers
+//! remain the active source navigation path.
+use crate::Main;
 use crate::index::{self, Sink};
 use crate::php_checks::{arguments, named, trimmed};
 use crate::php_text::{attributes, class_model, mask, matching_close, read_word, resolver, skip_whitespace};
 use crate::refs::{self, Kind};
-use crate::Main;
 use openidea_plugin::indexing::{Anchor, Document, DocumentIndexer, Edges};
 use openidea_plugin::text;
 use openidea_plugin::{Position, Range};
@@ -291,7 +286,12 @@ const GRANTED_CALLS: [&str; 3] = ["isGranted(", "denyAccessUnlessGranted(", "is_
 
 /// The event an expression names (`'kernel.request'`, `Foo::class`,
 /// `KernelEvents::REQUEST`) and the byte range to anchor.
-fn event_of(text: &str, masked: &str, resolve: &dyn Fn(&str) -> String, expression: std::ops::Range<usize>) -> Option<(String, std::ops::Range<usize>)> {
+fn event_of(
+    text: &str,
+    masked: &str,
+    resolve: &dyn Fn(&str) -> String,
+    expression: std::ops::Range<usize>,
+) -> Option<(String, std::ops::Range<usize>)> {
     let expression = trimmed(masked, expression);
     let raw = &text[expression.clone()];
 
@@ -355,7 +355,12 @@ fn php_events(text: &str, masked: &str, out: &mut Collected) {
         }
 
         let list = arguments(masked, attribute.arguments.start - 1);
-        let expression = list.iter().find_map(|argument| named(masked, argument.clone()).filter(|(name, _)| &masked[name.clone()] == "event").map(|(_, value)| value)).or_else(|| list.first().filter(|first| named(masked, (*first).clone()).is_none()).cloned());
+        let expression = list
+            .iter()
+            .find_map(|argument| {
+                named(masked, argument.clone()).filter(|(name, _)| &masked[name.clone()] == "event").map(|(_, value)| value)
+            })
+            .or_else(|| list.first().filter(|first| named(masked, (*first).clone()).is_none()).cloned());
         if let Some(event) = expression.and_then(|expression| event_of(text, masked, &resolve, expression)) {
             listener(out, text, event);
         }
@@ -388,7 +393,11 @@ fn php_voters(text: &str, masked: &str, out: &mut Collected) {
     let Some(open) = masked[supports.parameters.end..model.body.end].find('{').map(|found| supports.parameters.end + found) else { return };
     let Some(close) = matching_close(masked, open) else { return };
 
-    let attribute_like = |value: &str| value.len() > 1 && value.starts_with(|c: char| c.is_ascii_uppercase()) && value.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_');
+    let attribute_like = |value: &str| {
+        value.len() > 1
+            && value.starts_with(|c: char| c.is_ascii_uppercase())
+            && value.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
+    };
     let mut define = |start: usize, end: usize| {
         out.definition(format!("voter#{}", &text[start..end]), range_of(text, start, end));
     };
@@ -411,7 +420,9 @@ fn php_voters(text: &str, masked: &str, out: &mut Collected) {
         for (found, _) in masked[open..close].match_indices(owner) {
             let name = read_word(masked, open + found + owner.len());
             let declaration = format!("const {}", &masked[name.clone()]);
-            let Some(declared) = masked[model.body.clone()].find(&declaration).map(|position| model.body.start + position) else { continue };
+            let Some(declared) = masked[model.body.clone()].find(&declaration).map(|position| model.body.start + position) else {
+                continue;
+            };
             let after = skip_whitespace(masked, declared + declaration.len());
             let value = skip_whitespace(masked, after + 1);
             let quote = masked.as_bytes().get(value).copied().filter(|b| matches!(b, b'\'' | b'"'));
@@ -646,7 +657,17 @@ fn twig(path: &str, text: &str, out: &mut Collected) {
 const MAX_INDEXED_BYTES: usize = 1_000_000;
 
 impl DocumentIndexer for Main {
-    fn index(&mut self, doc: &Document) -> Edges {
+    fn index(&mut self, _doc: &Document) -> Edges {
+        // Global equality/transformed navigation keys do not prove complete
+        // replaceable symbol ownership. API1.3 also uses this graph for Rename.
+        Edges::default()
+    }
+}
+impl Main {
+    // Retain the audited association parsers/tests as navigation-model evidence,
+    // never as automatic edits. Explicit definition providers remain available.
+    #[allow(dead_code)]
+    fn navigation_associations(&mut self, doc: &Document) -> Edges {
         let path = doc.path.as_str();
         let text = doc.text.as_str();
         let Some(language) = language(path) else { return Edges::default() };
@@ -728,7 +749,7 @@ mod tests {
     use super::*;
 
     fn index(path: &str, text: &str) -> Edges {
-        Main::default().index(&Document { path: path.into(), text: text.into(), symbols: Vec::new() })
+        Main::default().navigation_associations(&Document { path: path.into(), text: text.into(), symbols: Vec::new() })
     }
 
     fn keys(anchors: &[Anchor]) -> Vec<&str> {
@@ -848,7 +869,10 @@ mod tests {
         assert!(defined(&services, "class-service#App\\BlogController"));
         assert!(keys(&services.markers).contains(&"class#App\\BlogController"));
 
-        let route = index("/p/src/R.php", "<?php\nclass R {\n  #[Route('/x', name: 'blog')] function a() {}\n  function b() { return $this->generateUrl('blog'); }\n}\n");
+        let route = index(
+            "/p/src/R.php",
+            "<?php\nclass R {\n  #[Route('/x', name: 'blog')] function a() {}\n  function b() { return $this->generateUrl('blog'); }\n}\n",
+        );
         assert!(defined(&route, "route-use#blog"));
     }
 
@@ -862,7 +886,16 @@ mod tests {
     fn listeners_are_event_definitions_and_dispatches_are_references() {
         let edges = index("/p/src/EventSubscriber/S.php", SUBSCRIBER);
         let defined_events: Vec<_> = keys(&edges.definitions).into_iter().filter(|key| key.starts_with("event#")).collect();
-        assert_eq!(defined_events, ["event#kernel.request", "event#App\\Event\\OrderPlaced", "event#custom.event", "event#kernel.response", "event#App\\Event\\OrderPlaced"]);
+        assert_eq!(
+            defined_events,
+            [
+                "event#kernel.request",
+                "event#App\\Event\\OrderPlaced",
+                "event#custom.event",
+                "event#kernel.response",
+                "event#App\\Event\\OrderPlaced"
+            ]
+        );
         assert!(marked(&edges, "event-dispatch#kernel.request"));
 
         let dispatcher = "<?php\nnamespace App\\Service;\n\nuse App\\Event\\OrderPlaced;\n\nclass Checkout\n{\n    public function go($dispatcher, $e, $dynamic)\n    {\n        $dispatcher->dispatch(new OrderPlaced($x));\n        $dispatcher->dispatch($e, 'custom.event');\n        $dispatcher->dispatch($e, $dynamic);\n        $dispatcher->dispatch($e);\n    }\n}\n";
@@ -886,13 +919,19 @@ mod tests {
 
     #[test]
     fn twig_macros_link_definitions_to_imports() {
-        let macros = index("/p/templates/forms/_macros.html.twig", "{% macro input(name) %}<input>{% endmacro %}\n{% macro label(t) -%}x{%- endmacro %}");
+        let macros = index(
+            "/p/templates/forms/_macros.html.twig",
+            "{% macro input(name) %}<input>{% endmacro %}\n{% macro label(t) -%}x{%- endmacro %}",
+        );
         assert!(defined(&macros, "macro#forms/_macros.html.twig::input") && defined(&macros, "macro#forms/_macros.html.twig::label"));
 
         let user = "{% import 'forms/_macros.html.twig' as forms %}{% from 'forms/_macros.html.twig' import input, label as l %}{{ forms.input('x') }}{{ other.input('y') }}{{ xforms.label('z') }}";
         let edges = index("/p/templates/a.html.twig", user);
         let found: Vec<_> = keys(&edges.references).into_iter().filter(|key| key.starts_with("macro#")).collect();
-        assert_eq!(found, ["macro#forms/_macros.html.twig::input", "macro#forms/_macros.html.twig::label", "macro#forms/_macros.html.twig::input"]);
+        assert_eq!(
+            found,
+            ["macro#forms/_macros.html.twig::input", "macro#forms/_macros.html.twig::label", "macro#forms/_macros.html.twig::input"]
+        );
 
         let own = index("/p/templates/b.html.twig", "{% macro a() %}{% endmacro %}{% import _self as me %}{{ me.a() }}");
         assert!(keys(&own.references).contains(&"macro#b.html.twig::a"));
@@ -905,7 +944,8 @@ mod tests {
         let found: Vec<_> = keys(&edges.definitions).into_iter().filter(|key| key.starts_with("voter#")).collect();
         assert_eq!(found, ["voter#POST_DELETE", "voter#POST_VIEW", "voter#POST_EDIT"]);
 
-        let controller = "<?php\nclass C {\n  function a() { $this->denyAccessUnlessGranted('POST_EDIT', $p); $this->isGranted(\"POST_VIEW\"); }\n}\n";
+        let controller =
+            "<?php\nclass C {\n  function a() { $this->denyAccessUnlessGranted('POST_EDIT', $p); $this->isGranted(\"POST_VIEW\"); }\n}\n";
         let granted = index("/p/src/C.php", controller);
         let found: Vec<_> = keys(&granted.references).into_iter().filter(|key| key.starts_with("voter#")).collect();
         assert_eq!(found, ["voter#POST_VIEW", "voter#POST_EDIT"]);
@@ -929,7 +969,15 @@ mod tests {
 
     #[test]
     fn new_keys_survive_degenerate_input_and_the_anchor_limit() {
-        for text in ["<?php\nfunction getSubscribedEvents", "<?php\nclass A { function getSubscribedEvents() { return [", "<?php\n->dispatch(", "<?php\n#[AsEventListener(", "{% from", "{% macro %}{% import 'x' as %}", "{% import 'x' as m %}m."] {
+        for text in [
+            "<?php\nfunction getSubscribedEvents",
+            "<?php\nclass A { function getSubscribedEvents() { return [",
+            "<?php\n->dispatch(",
+            "<?php\n#[AsEventListener(",
+            "{% from",
+            "{% macro %}{% import 'x' as %}",
+            "{% import 'x' as m %}m.",
+        ] {
             index("/p/src/A.php", text);
             index("/p/templates/a.html.twig", text);
         }
@@ -947,5 +995,20 @@ mod tests {
 
         assert!(edges.references.is_empty());
         assert!(started.elapsed().as_secs() < 5);
+    }
+    #[test]
+    fn registered_indexer_never_exports_unproven_navigation_keys_to_rename() {
+        for (path, text) in [
+            ("/p/config/services.yaml", "services:\n  shared:\n    class: App\\Shared\n    arguments: ['@shared']\n"),
+            (
+                "/p/src/C.php",
+                "<?php #[Route('/x',name:'shared')] class C { function x(){ $this->generateUrl('shared'); $d->dispatch($e,'shared'); }}",
+            ),
+            ("/p/templates/x.twig", "{% macro shared() %}{% endmacro %}{% import _self as m %}{{ m.shared() }}"),
+            ("/p/assets/controllers/x_controller.js", "export default class {}"),
+        ] {
+            let edges = Main::default().index(&Document { path: path.into(), text: text.into(), symbols: Vec::new() });
+            assert!(edges.definitions.is_empty() && edges.references.is_empty() && edges.aliases.is_empty() && edges.markers.is_empty());
+        }
     }
 }

@@ -4,15 +4,23 @@
 //! the project's Java sources (classes by fully qualified name, methods by
 //! name and simple parameter types) instead of the IntelliJ Spring model.
 
-use openidea_plugin::providers::{CompletionItem, CompletionKind, Document, LineMarker, Providers};
+use openidea_plugin::diagnostics::DiagnosticsProvider;
+use openidea_plugin::file_actions::{FileAction, FileActions};
+use openidea_plugin::providers::{CompletionItem, CompletionKind, Document, Providers};
 use openidea_plugin::text::offset;
 use openidea_plugin::{
-    Diagnostic, Error, Invocation, Location, PickItem, Plugin, Position, Range, Severity, TextEdit, host, register_plugin,
+    Context, Diagnostic, Error, Event, EventKind, Invocation, Location, PickItem, Plugin, Position, Range, Severity, TextEdit, host, register_plugin,
 };
 use spring_text::index::{Index, Indexes, PROVIDER_BUDGET};
 use spring_text::xml::{self, Attr, Element};
 use spring_text::{beans, java, range};
 
+mod hierarchy;
+mod bean_facts;
+mod ownership;
+use ownership::Facts;
+
+const BEANS: &str = "http://www.springframework.org/schema/beans";
 const OSGI: &str = "http://www.springframework.org/schema/osgi";
 const COMPENDIUM: &str = "http://www.springframework.org/schema/osgi-compendium";
 const LIFECYCLE_LISTENER: &str = "org.springframework.osgi.service.importer.OsgiServiceLifecycleListener";
@@ -20,8 +28,7 @@ const LIFECYCLE_LISTENER: &str = "org.springframework.osgi.service.importer.Osgi
 // SpringOsgiBundle.properties
 const ILLEGAL_INTERFACES: &str = "It is illegal to use both interface attribute and interfaces element at the same time";
 const ILLEGAL_REF_AND_BEAN: &str = "It is illegal to use both ref attribute and bean element at the same time";
-const ILLEGAL_COMPARATOR: &str =
-    "It is illegal to use both comparator-ref attribute and comparator element at the same time";
+const ILLEGAL_COMPARATOR: &str = "It is illegal to use both comparator-ref attribute and comparator element at the same time";
 const RETURN_TYPE: &str = "Method must have 'void' return type";
 const PUBLIC: &str = "Method must be public";
 const PARAMETERS: &str = "Method must have parameters: anyMethodName(ServiceType service, Dictionary properties), anyMethodName(ServiceType service, Map properties), anyMethodName(ServiceReference ref)";
@@ -34,6 +41,7 @@ struct Method {
     void: bool,
     /// Simple names of the parameter types.
     params: Vec<String>,
+    parameter_types: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -43,6 +51,7 @@ struct Class {
     range: Range,
     /// Fully qualified, as far as the file's imports tell.
     supers: Vec<String>,
+    unknown_supers: Vec<String>,
     methods: Vec<Method>,
 }
 
@@ -58,35 +67,54 @@ struct BeanDecl {
 struct Info {
     beans: Vec<BeanDecl>,
     classes: Vec<Class>,
+    complete: bool,
+    names_complete: bool,
 }
 
 fn parse(path: &str, text: &str) -> Option<Info> {
+    if text.len() > 512 * 1024 {
+        return Some(Info { complete: false, ..Info::default() });
+    }
     if path.ends_with(".java") {
         return Some(java_info(text));
     }
     if beans::ignored(path) || !text.contains("springframework.org/schema/") {
         return None;
     }
+    if validate_generation_xml(text).is_err() { return Some(Info::default()); }
     let els = xml::elements(text);
-    if xml::root(&els) != Some("beans") {
-        return None;
-    }
+    if xml::root(&els) != Some("beans") { return None; }
+    if xml::namespace(&els,0).is_some_and(|namespace|namespace!=BEANS) { return Some(Info::default()); }
     let mut beans = Vec::new();
+    let mut names_complete=!els.iter().enumerate().any(|(i,e)|e.local()=="import" && xml::namespace(&els,i).is_none_or(|ns|ns==BEANS));
     for a in xml::bean_ids(&els) {
-        let class = xml::element_at(&els, a.at)
-            .map(|e| &els[e])
-            .filter(|e| e.local() == "bean")
-            .and_then(|e| e.value("class"))
-            .map(|c| c.replace('$', "."));
+        let Some(owner)=xml::element_at(&els,a.at) else {names_complete=false;continue;};
+        let global=els[owner].parent.is_some_and(|parent|els[parent].local()=="beans" && xml::namespace(&els,parent).is_none_or(|ns|ns==BEANS));
+        if !global {continue;}
+        if a.value.contains('&') || beans::is_expression(&a.value) {names_complete=false;continue;}
+        let mut ancestor=Some(owner);
+        let mut conditional=false;
+        while let Some(i)=ancestor {
+            conditional|=els[i].local()=="beans" && els[i].attr("profile").is_some();
+            ancestor=els[i].parent;
+        }
+        let class = (!conditional && xml::namespace(&els,owner).is_none_or(|ns|ns==BEANS)).then(||declared_xml_class(&els[owner])).flatten();
         for (name, from, to) in split_names(&a.value, a.value_at) {
             beans.push(BeanDecl { name: name.to_owned(), class: class.clone(), range: range(text, from, to) });
         }
     }
-    Some(Info { beans, classes: Vec::new() })
+    Some(Info { beans, classes: Vec::new(), complete: true, names_complete })
 }
 
+fn declared_xml_class(element:&Element)->Option<String> {
+    if element.local()!="bean" || element.attr("factory-method").is_some() || element.attr("factory-bean").is_some() {return None;}
+    element.value("class").filter(|class|!class.is_empty() && !class.contains('&') && !beans::is_expression(class)).map(|class|class.replace('$',"."))
+}
 fn java_info(text: &str) -> Info {
     let f = java::parse(text);
+    if !hierarchy::balanced(text) || f.types.len() > 512 || f.types.iter().map(|t| t.members.len()).sum::<usize>() > 4096 {
+        return Info::default();
+    }
     let classes = f
         .types
         .iter()
@@ -95,7 +123,23 @@ fn java_info(text: &str) -> Info {
             fqn: f.qualified(i),
             interface: t.kind == "interface",
             range: range(text, t.at, t.at + t.name.len()),
-            supers: t.supers().map(|s| qualified(&f, s)).collect(),
+            supers: t
+                .supers()
+                .filter_map(|s| hierarchy::qualified(&f, i, s).ok())
+                .chain(
+                    (t.kind == "class" && t.extends.is_empty() && f.qualified(i) != "java.lang.Object").then(|| "java.lang.Object".into()),
+                )
+                .collect(),
+            unknown_supers: t
+                .supers()
+                .filter_map(|s| hierarchy::qualified(&f, i, s).err())
+                .chain(match t.kind.as_str() {
+                    "record" => Some("implicit java.lang.Record hierarchy".into()),
+                    "enum" => Some("implicit java.lang.Enum hierarchy".into()),
+                    "@interface" => Some("implicit annotation hierarchy".into()),
+                    _ => None,
+                })
+                .collect(),
             methods: t
                 .methods()
                 .map(|m| Method {
@@ -104,27 +148,28 @@ fn java_info(text: &str) -> Info {
                     public: t.kind == "interface" || m.modifiers.iter().any(|x| x == "public"),
                     void: m.ty.as_ref().is_some_and(|t| t.name == "void"),
                     params: m.params.iter().map(|p| p.ty.name.clone()).collect(),
+                    parameter_types: m
+                        .params
+                        .iter()
+                        .map(|p| {
+                            if p.ty.array {
+                                "[]".into()
+                            } else if matches!(
+                                p.ty.name.as_str(),
+                                "boolean" | "byte" | "short" | "int" | "long" | "float" | "double" | "char"
+                            ) {
+                                p.ty.name.clone()
+                            } else {
+                                hierarchy::qualified(&f, i, &p.ty).unwrap_or_default()
+                            }
+                        })
+                        .collect(),
                 })
                 .collect(),
         })
         .collect();
-    let beans = java::bean_names(&f)
-        .into_iter()
-        .map(|b| {
-            let class = match f.types.iter().position(|t| t.at == b.at) {
-                Some(i) => f.qualified(i),
-                None => f.resolve(&b.ty),
-            };
-            BeanDecl { name: b.name, class: Some(class), range: range(text, b.at, b.at + b.len) }
-        })
-        .collect();
-    Info { beans, classes }
-}
-
-/// A supertype's fully qualified name: as written when qualified, else through the imports.
-fn qualified(f: &java::JavaFile, t: &java::TypeRef) -> String {
-    let head: String = t.text.split('<').next().unwrap_or("").split_whitespace().collect();
-    if head.contains('.') { head } else { f.resolve(&t.name) }
+    let (beans,names_complete)=bean_facts::java_names(&f,text);
+    Info { beans, classes, complete: true, names_complete }
 }
 
 /// The names of a `name`/`depends-on` list (`a, b c`) with their byte ranges.
@@ -143,84 +188,118 @@ fn split_names(value: &str, at: usize) -> Vec<(&str, usize, usize)> {
     out
 }
 
-fn class<'a>(index: &'a Index<Info>, fqn: &str) -> Option<(&'a str, &'a Class)> {
-    index.iter().find_map(|(p, info)| info.classes.iter().find(|c| c.fqn == fqn).map(|c| (p, c)))
+fn class<'a>(index: &'a impl Facts, fqn: &str) -> Option<(&'a str, &'a Class)> {
+    let mut matches =
+        index.iter().flat_map(|(path, info)| info.classes.iter().filter(move |class| class.fqn == fqn).map(move |class| (path, class)));
+    let first = matches.next()?;
+    matches.next().is_none().then_some(first)
 }
 
-fn named<'a>(index: &'a Index<Info>, name: &'a str) -> impl Iterator<Item = (&'a str, &'a BeanDecl)> {
+fn named<'a>(index: &'a impl Facts, name: &'a str) -> impl Iterator<Item = (&'a str, &'a BeanDecl)> {
     index.iter().flat_map(move |(p, info)| info.beans.iter().filter(move |b| b.name == name).map(move |b| (p, b)))
 }
 
-/// `fqn` and its supertypes, and whether they are all project classes (so
-/// the list is complete).
-fn ancestors(index: &Index<Info>, fqn: &str) -> (Vec<String>, bool) {
-    let mut seen: Vec<String> = Vec::new();
-    let mut todo = vec![fqn.to_owned()];
-    let mut known = true;
-    while let Some(next) = todo.pop() {
-        if seen.contains(&next) {
-            continue;
-        }
-        match class(index, &next) {
-            Some((_, c)) => todo.extend(c.supers.iter().cloned()),
-            None if next != "java.lang.Object" => known = false,
-            None => {}
-        }
-        seen.push(next);
+fn bean_class(index: &impl Facts, name: &str) -> Option<String> {
+    if name.is_empty() || beans::is_expression(name) {
+        return None;
     }
-    (seen, known)
+    let mut declarations = named(index, name);
+    let first = declarations.next()?.1;
+    if declarations.next().is_some() {
+        return None;
+    }
+    first.class.clone()
 }
 
 /// The methods named `name` (any name when `None`) of `fqn` and its project supertypes.
-fn methods<'a>(index: &'a Index<Info>, fqn: &str, name: Option<&str>) -> Vec<(&'a str, &'a Method)> {
-    let (all, _) = ancestors(index, fqn);
-    all.iter()
-        .filter_map(|c| class(index, c))
-        .flat_map(|(p, c)| c.methods.iter().map(move |m| (p, m)))
-        .filter(|(_, m)| name.is_none_or(|n| m.name == n))
-        .collect()
+fn methods<'a>(index: &'a impl Facts, fqn: &str, name: Option<&str>) -> Vec<(&'a str, &'a Method)> {
+    hierarchy::Graph::new(index).methods(fqn, name)
 }
 
 /// `ReferenceListenerMethodConverter.checkProperParameters`, or the
-/// registration listener's `(ServiceType, Map|Dictionary)`, by simple name.
-fn proper_parameters(m: &Method, registration: bool) -> bool {
-    let map = |t: &str| matches!(t, "Map" | "Dictionary" | "Object");
-    match m.params.as_slice() {
-        [_, props] => map(props),
-        [r] => !registration && matches!(r.as_str(), "ServiceReference" | "Object"),
-        _ => false,
+/// registration listener's `(ServiceType, Map|Dictionary)` for known qualified types.
+fn proper_parameters(m: &Method, registration: bool) -> Option<bool> {
+    let known = |name: &str, accepted: &[&str]| {
+        if accepted.contains(&name) {
+            Some(true)
+        } else if matches!(
+            name,
+            "[]" | "boolean"
+                | "byte"
+                | "short"
+                | "int"
+                | "long"
+                | "float"
+                | "double"
+                | "char"
+                | "java.lang.String"
+                | "java.lang.Integer"
+                | "java.lang.Long"
+                | "java.lang.Boolean"
+        ) {
+            Some(false)
+        } else {
+            None
+        }
+    };
+    match m.parameter_types.as_slice() {
+        [_, properties] => known(properties, &["java.util.Map", "java.util.Dictionary", "java.lang.Object"]),
+        [reference] if !registration => known(reference, &["org.osgi.framework.ServiceReference", "java.lang.Object"]),
+        _ => Some(false),
     }
 }
-
 fn accepts(m: &Method, registration: bool) -> bool {
-    m.void && m.public && proper_parameters(m, registration)
+    m.void && m.public && proper_parameters(m, registration) == Some(true)
 }
 
-/// A Spring DM XML document: its elements and the prefixes of the OSGi namespaces.
+/// Reject only source-established registration parameter incompatibility. External
+/// or incomplete service/parameter types cannot prove an invalid listener.
+fn registration_parameter_compatible(graph: &hierarchy::Graph, service: Option<&str>, method: &Method) -> bool {
+    let Some(parameter) = method.parameter_types.first() else { return false; };
+    if matches!(parameter.as_str(), "[]" | "boolean" | "byte" | "short" | "int" | "long" | "float" | "double" | "char") { return false; }
+    let Some(service) = service else { return true; };
+    if parameter == "java.lang.Object" || parameter == service { return true; }
+    if graph.class(parameter).is_none() || graph.class(service).is_none() { return true; }
+    let report = graph.report(service);
+    !report.complete || report.types.iter().any(|ty| ty == parameter)
+}
+
+/// A Spring DM XML document with scoped core/Beans namespace admission.
 struct OsgiXml<'a> {
     text: &'a str,
     els: Vec<Element>,
-    prefixes: Vec<String>,
+    core: std::collections::BTreeSet<usize>,
+    beans: std::collections::BTreeSet<usize>,
 }
 
 impl<'a> OsgiXml<'a> {
     fn new(text: &'a str) -> Option<Self> {
-        if !text.contains(OSGI) {
+        if text.len()>512*1024 || !text.contains(OSGI) {
             return None;
         }
         let els = xml::elements(text);
+        if els.len()>2048 { return None; }
         let prefixes: Vec<String> = els
             .iter()
             .flat_map(|e| &e.attrs)
             .filter(|a| matches!(a.value.trim(), OSGI | COMPENDIUM))
             .filter_map(|a| if a.name == "xmlns" { Some(String::new()) } else { a.name.strip_prefix("xmlns:").map(str::to_owned) })
             .collect();
-        (!prefixes.is_empty()).then_some(Self { text, els, prefixes })
+        if prefixes.is_empty() { return None; }
+        let legacy=xml::root(&els)==Some("beans") && xml::namespace(&els,0).is_none();
+        let core=els.iter().enumerate().filter(|(i,e)|xml::namespace(&els,*i)==Some(OSGI) && e.name.matches(':').count()<=1 && !e.name.starts_with("xml:") && !e.name.starts_with("xmlns:")).map(|(_,e)|e.at).collect();
+        let beans=els.iter().enumerate().filter(|(i,_)|xml::namespace(&els,*i)==Some(BEANS) || legacy && xml::namespace(&els,*i).is_none()).map(|(_,e)|e.at).collect();
+        Some(Self { text, els, core, beans })
     }
 
-    fn osgi(&self, e: &Element) -> bool {
-        let prefix = e.name.rsplit_once(':').map_or("", |(p, _)| p);
-        self.prefixes.iter().any(|p| p == prefix)
+    fn osgi(&self, e: &Element) -> bool { self.core.contains(&e.at) }
+    fn value(&self, e: &Element) -> bool { self.osgi(e) || self.beans.contains(&e.at) }
+    fn declared_namespace(&self, mut i:usize, prefix:&str) -> Option<&str> {
+        let key=format!("xmlns:{prefix}");
+        loop {
+            if let Some(binding)=self.els[i].attr(&key) {return Some(&binding.value);}
+            i=self.els[i].parent?;
+        }
     }
 
     fn children(&self, i: usize) -> impl Iterator<Item = &Element> {
@@ -228,7 +307,7 @@ impl<'a> OsgiXml<'a> {
     }
 
     fn child(&self, i: usize, local: &str) -> Option<&Element> {
-        self.children(i).find(|c| c.local() == local)
+        self.children(i).find(|c| c.local() == local && if local=="bean" {self.beans.contains(&c.at)} else {self.osgi(c)})
     }
 
     fn name_range(&self, e: &Element) -> (usize, usize) {
@@ -248,26 +327,26 @@ impl<'a> OsgiXml<'a> {
     fn interfaces(&self, i: usize) -> Vec<(String, usize, usize)> {
         let e = &self.els[i];
         let mut out: Vec<_> = e.attr("interface").map(|a| (a.value.clone(), a.value_at, a.value_end)).into_iter().collect();
-        if let Some(list) = self.els.iter().position(|c| c.parent == Some(i) && c.local() == "interfaces") {
-            for v in self.children(list).filter(|c| c.local() == "value") {
+        if let Some(list) = self.els.iter().position(|c| c.parent == Some(i) && c.local() == "interfaces" && self.osgi(c)) {
+            for v in self.children(list).filter(|c| c.local() == "value" && self.value(c)) {
                 if let Some((from, to)) = self.content(v) {
                     out.push((self.text[from..to].to_owned(), from, to));
                 }
             }
         }
-        out.retain(|(v, ..)| !v.is_empty() && !beans::is_expression(v));
+        out.retain(|(v, ..)| !v.is_empty() && !v.contains('&') && !v.chars().any(char::is_whitespace) && !beans::is_expression(v));
         out
     }
 
     /// The class of a listener's bean (its `ref`, or a nested `<bean class>`) and where it's named.
-    fn listener_class(&self, index: &Index<Info>, i: usize) -> Option<(String, (usize, usize))> {
+    fn listener_class(&self, index: &impl Facts, i: usize) -> Option<(String, (usize, usize))> {
         let e = &self.els[i];
         if let Some(r) = e.attr("ref") {
-            let class = named(index, &r.value).find_map(|(_, b)| b.class.clone())?;
+            let class = bean_class(index, &r.value)?;
             return Some((class, (r.value_at, r.value_end)));
         }
         let bean = self.child(i, "bean")?;
-        Some((bean.value("class")?.replace('$', "."), self.name_range(bean)))
+        Some((declared_xml_class(bean)?, self.name_range(bean)))
     }
 }
 
@@ -279,7 +358,7 @@ enum Target {
 }
 
 /// The reference under the byte offset `at`: what it names, its text and bytes.
-fn target_at(doc: &OsgiXml, index: &Index<Info>, at: usize) -> Option<(Target, String, usize, usize)> {
+fn target_at(doc: &OsgiXml, index: &impl Facts, at: usize) -> Option<(Target, String, usize, usize)> {
     if let Some(i) = xml::element_at(&doc.els, at) {
         let e = &doc.els[i];
         let a: &Attr = e.attrs.iter().find(|a| a.holds(at))?;
@@ -287,21 +366,15 @@ fn target_at(doc: &OsgiXml, index: &Index<Info>, at: usize) -> Option<(Target, S
             return None;
         }
         let whole = |t| Some((t, a.value.clone(), a.value_at, a.value_end));
-        return match (e.local(), a.local()) {
-            ("service" | "listener" | "registration-listener", "ref") | ("list" | "set", "comparator-ref") => {
-                whole(Target::Bean)
-            }
+        return match (e.local(), a.name.as_str()) {
+            ("service" | "listener" | "registration-listener", "ref") | ("list" | "set", "comparator-ref") => whole(Target::Bean),
             (_, "depends-on") => {
-                let (name, from, to) = split_names(&a.value, a.value_at)
-                    .into_iter()
-                    .find(|&(_, from, to)| from <= at && at <= to)
-                    .unwrap_or(("", at, at));
+                let (name, from, to) =
+                    split_names(&a.value, a.value_at).into_iter().find(|&(_, from, to)| from <= at && at <= to).unwrap_or(("", at, at));
                 Some((Target::Bean, name.to_owned(), from, to))
             }
             ("service" | "reference" | "list" | "set", "interface") => whole(Target::Class),
-            ("listener", "bind-method" | "unbind-method") => {
-                whole(Target::Method(doc.listener_class(index, i).map(|c| c.0), false))
-            }
+            ("listener", "bind-method" | "unbind-method") => whole(Target::Method(doc.listener_class(index, i).map(|c| c.0), false)),
             ("registration-listener", "registration-method" | "unregistration-method") => {
                 whole(Target::Method(doc.listener_class(index, i).map(|c| c.0), true))
             }
@@ -310,7 +383,7 @@ fn target_at(doc: &OsgiXml, index: &Index<Info>, at: usize) -> Option<(Target, S
     }
     doc.els.iter().find_map(|v| {
         let list = &doc.els[v.parent?];
-        if v.local() != "value" || list.local() != "interfaces" || !doc.osgi(list) {
+        if v.local() != "value" || !doc.value(v) || list.local() != "interfaces" || !doc.osgi(list) {
             return None;
         }
         let (from, to) = doc.content(v)?;
@@ -323,8 +396,9 @@ fn problem(text: &str, (from, to): (usize, usize), message: impl Into<String>, c
 }
 
 /// The three inspections of the original plugin, plus unresolved listener methods.
-fn check(doc: &OsgiXml, index: &Index<Info>) -> Vec<Diagnostic> {
+fn check(doc: &OsgiXml, index: &impl Facts) -> Vec<Diagnostic> {
     let text = doc.text;
+    let graph = hierarchy::Graph::new(index);
     let mut out = Vec::new();
     for (i, e) in doc.els.iter().enumerate().filter(|(_, e)| doc.osgi(e)) {
         let has = |local: &str| doc.child(i, local).is_some();
@@ -342,15 +416,15 @@ fn check(doc: &OsgiXml, index: &Index<Info>) -> Vec<Diagnostic> {
                 if e.attr("ref").is_some() && has("bean") {
                     out.push(inconsistent(ILLEGAL_REF_AND_BEAN));
                 }
-                check_service(doc, index, i, &mut out);
+                check_service(doc, index, &graph, i, &mut out);
             }
             "list" | "set" if e.attr("comparator-ref").is_some() && has("comparator") => {
                 out.push(inconsistent(ILLEGAL_COMPARATOR));
             }
-            "listener" if e.parent.is_some_and(|p| matches!(doc.els[p].local(), "reference" | "list" | "set")) => {
-                check_listener(doc, index, i, false, &mut out);
+            "listener" if e.parent.is_some_and(|p| doc.osgi(&doc.els[p]) && matches!(doc.els[p].local(), "reference" | "list" | "set")) => {
+                check_listener(doc, index, &graph, i, false, &mut out);
             }
-            "registration-listener" => check_listener(doc, index, i, true, &mut out),
+            "registration-listener" if e.parent.is_some_and(|p|doc.osgi(&doc.els[p]) && doc.els[p].local()=="service") => check_listener(doc, index, &graph, i, true, &mut out),
             _ => {}
         }
     }
@@ -359,14 +433,17 @@ fn check(doc: &OsgiXml, index: &Index<Info>) -> Vec<Diagnostic> {
 }
 
 /// Beans of libraries and of the container are invisible here, so an unknown `ref` is only information.
-fn check_refs(doc: &OsgiXml, index: &Index<Info>, out: &mut Vec<Diagnostic>) {
+fn check_refs(doc: &OsgiXml, index: &impl Facts, out: &mut Vec<Diagnostic>) {
+    if !index.fresh() || index.iter().any(|(_, info)| !info.complete || !info.names_complete) {
+        return;
+    }
     for e in doc.els.iter().filter(|e| doc.osgi(e) && matches!(e.local(), "service" | "listener" | "registration-listener")) {
         let Some(a) = e.attr("ref") else { continue };
         let name = a.value.trim();
-        if name.is_empty() || beans::is_expression(name) || named(index, name).next().is_some() {
+        if name.is_empty() || name.contains('&') || beans::is_expression(name) || named(index, name).next().is_some() {
             continue;
         }
-        let message = format!("No bean named '{name}' is defined in the project.");
+        let message = format!("No cached source declaration named '{name}' is known; imported, computed or runtime beans remain unresolved.");
         out.push(Diagnostic {
             code: Some("unresolved-osgi-ref".into()),
             ..Diagnostic::new(range(doc.text, a.value_at, a.value_end), Severity::Info, message)
@@ -381,16 +458,13 @@ fn check_values(doc: &OsgiXml, i: usize, out: &mut Vec<Diagnostic>) {
     let e = &doc.els[i];
     let local = e.local();
     let importer = matches!(local, "reference" | "list" | "set");
-    let comparator_basis = local == "natural" && e.parent.is_some_and(|p| doc.els[p].local() == "comparator");
+    let comparator_basis = local == "natural" && e.parent.is_some_and(|p| doc.osgi(&doc.els[p]) && doc.els[p].local() == "comparator");
     let enumerated: &[(&str, &[&str])] = match local {
         "service" => &[
             ("auto-export", &["disabled", "interfaces", "class-hierarchy", "all-classes"]),
             ("context-class-loader", &["unmanaged", "service-provider"]),
         ],
-        "reference" => &[
-            ("cardinality", &["0..1", "1..1"]),
-            ("context-class-loader", &["client", "service-provider", "unmanaged"]),
-        ],
+        "reference" => &[("cardinality", &["0..1", "1..1"]), ("context-class-loader", &["client", "service-provider", "unmanaged"])],
         "list" | "set" => &[
             ("cardinality", &["0..N", "1..N"]),
             ("context-class-loader", &["client", "service-provider", "unmanaged"]),
@@ -428,40 +502,46 @@ fn check_values(doc: &OsgiXml, i: usize, out: &mut Vec<Diagnostic>) {
 }
 
 /// `SpringOsgiServiceCommonInspection`: the service bean implements every exported interface.
-fn check_service(doc: &OsgiXml, index: &Index<Info>, i: usize, out: &mut Vec<Diagnostic>) {
+fn check_service(doc: &OsgiXml, index: &impl Facts, graph: &hierarchy::Graph, i: usize, out: &mut Vec<Diagnostic>) {
     let e = &doc.els[i];
     let mut implementors = Vec::new();
     if let Some(r) = e.attr("ref")
-        && let Some(class) = named(index, &r.value).find_map(|(_, b)| b.class.clone())
+        && let Some(class) = bean_class(index, &r.value)
     {
         implementors.push((class, (r.value_at, r.value_end)));
     }
     if let Some(bean) = doc.child(i, "bean")
-        && let Some(class) = bean.value("class")
+        && let Some(class) = declared_xml_class(bean)
     {
-        implementors.push((class.replace('$', "."), doc.name_range(bean)));
+        implementors.push((class, doc.name_range(bean)));
     }
     let interfaces = doc.interfaces(i);
     for (class, at) in implementors {
-        let (supers, known) = ancestors(index, &class);
-        for (interface, ..) in interfaces.iter().filter(|(fqn, ..)| known && !supers.contains(fqn)) {
-            let message = format!("Bean must be inheritor of '{interface}'");
-            out.push(problem(doc.text, at, message, "osgi-service-common"));
+        let report = graph.report(&class);
+        let (supers, known) = (report.types, report.complete);
+        for (interface, ..) in &interfaces {
+            let interface=interface.replace('$',".");
+            if known && interface!="java.lang.Object" && graph.class(&interface).is_some() && !supers.contains(&interface) {
+                let message = format!("Bean must be inheritor of '{interface}'");
+                out.push(problem(doc.text, at, message, "osgi-service-common"));
+            }
         }
     }
 }
 
 /// `SpringOsgiListenerInspection` (reference listeners) and the method
 /// converters (registration listeners: unresolved methods only).
-fn check_listener(doc: &OsgiXml, index: &Index<Info>, i: usize, registration: bool, out: &mut Vec<Diagnostic>) {
+fn check_listener(doc: &OsgiXml, index: &impl Facts, graph: &hierarchy::Graph, i: usize, registration: bool, out: &mut Vec<Diagnostic>) {
     let e = &doc.els[i];
-    let Some((class, named_at)) = doc.listener_class(index, i) else { return };
-    let (supers, known) = ancestors(index, &class);
-    let attrs: &[&str] =
-        if registration { &["registration-method", "unregistration-method"] } else { &["bind-method", "unbind-method"] };
+    let Some((class, named_at)) = doc.listener_class(index, i) else {
+        return;
+    };
+    let report = graph.report(&class);
+    let (supers, known) = (report.types, report.complete);
+    let attrs: &[&str] = if registration { &["registration-method", "unregistration-method"] } else { &["bind-method", "unbind-method"] };
     for a in attrs.iter().filter_map(|n| e.attr(n)).filter(|a| !a.value.is_empty()) {
         let at = (a.value_at, a.value_end);
-        let found = methods(index, &class, Some(&a.value));
+        let found = graph.methods(&class, Some(&a.value));
         let Some((_, first)) = found.first() else {
             if known {
                 let simple = class.rsplit('.').next().unwrap_or(&class);
@@ -469,7 +549,10 @@ fn check_listener(doc: &OsgiXml, index: &Index<Info>, i: usize, registration: bo
             }
             continue;
         };
-        if registration || found.iter().any(|(_, m)| accepts(m, false)) {
+        if !known
+            || registration
+            || found.iter().any(|(_, m)| accepts(m, false) || m.void && m.public && proper_parameters(m, false).is_none())
+        {
             continue;
         }
         if !first.void {
@@ -478,12 +561,12 @@ fn check_listener(doc: &OsgiXml, index: &Index<Info>, i: usize, registration: bo
         if !first.public {
             out.push(problem(doc.text, at, PUBLIC, "osgi-listener"));
         }
-        if !proper_parameters(first, false) {
+        if proper_parameters(first, false) == Some(false) {
             out.push(problem(doc.text, at, PARAMETERS, "osgi-listener"));
         }
     }
     // IDEADEV-40586: a listener with both methods needn't implement the interface.
-    let both = attrs.iter().all(|n| e.attr(n).is_some());
+    let both = attrs.iter().all(|n| e.attr(n).is_some_and(|a| !a.value.is_empty() && !graph.methods(&class, Some(&a.value)).is_empty()));
     if !registration && !both && known && !supers.iter().any(|s| s == LIFECYCLE_LISTENER) {
         out.push(problem(doc.text, named_at, format!("Listener must implement '{LIFECYCLE_LISTENER}'"), "osgi-listener"));
     }
@@ -491,56 +574,88 @@ fn check_listener(doc: &OsgiXml, index: &Index<Info>, i: usize, registration: bo
 
 pub struct SpringOsgi {
     indexes: Indexes<Info>,
+    known_roots: Option<Vec<String>>,
+    generation: std::collections::BTreeMap<u64, (String, Document, u32)>,
+    next_generation: u64,
 }
 
 impl Default for SpringOsgi {
     fn default() -> Self {
-        Self { indexes: Indexes::new(&["**/*.java", "**/*.xml"], parse) }
+        Self { indexes: Indexes::new(&["**/*.java", "**/*.xml"], parse), known_roots:None, generation: Default::default(), next_generation: 0 }
     }
 }
 
 impl SpringOsgi {
+    fn source_scope(&mut self,path:&str)->ownership::Scope {
+        let roots=ownership::roots();
+        if roots.is_none() || self.known_roots.as_ref().is_some_and(|old|Some(old)!=roots.as_ref()) {self.indexes.reset();}
+        self.known_roots=roots.clone();
+        ownership::Scope::new(roots,path)
+    }
     /// The OSGi document, the byte offset of `at` and the project index.
-    fn open<'d>(&mut self, doc: &'d Document, at: Position) -> Option<(OsgiXml<'d>, usize, &Index<Info>)> {
+    fn open<'d>(&mut self, doc: &'d Document, at: Position) -> Option<(OsgiXml<'d>, usize, ownership::Scoped<'_>)> {
         let osgi = OsgiXml::new(&doc.text)?;
         let at = offset(&doc.text, at)?;
+        let scope=self.source_scope(&doc.path);
+        if !scope.known() {return None;}
         let index = self.indexes.for_document(&doc.path, &doc.text, PROVIDER_BUDGET)?;
-        Some((osgi, at, index))
+        Some((osgi, at, ownership::Scoped::new(index,&scope)))
+    }
+}
+
+impl DiagnosticsProvider for SpringOsgi {
+    fn diagnostics(&mut self, doc: &Document) -> Vec<Diagnostic> {
+        if !doc.path.ends_with(".xml") { return Vec::new(); }
+        let scope=self.source_scope(&doc.path);
+        if doc.text.len()>512*1024 {
+            let _=self.indexes.for_cached_document(&doc.path,&doc.text);
+            return Vec::new();
+        }
+        let mut local = Index::new(&["**/*.java", "**/*.xml"], parse);
+        let index = match self.indexes.for_cached_document(&doc.path,&doc.text) {
+            Some(index)=>index,
+            None=>{local.update(&doc.path,&doc.text);&mut local}
+        };
+        let index=ownership::Scoped::new(index,&scope);
+        let mut found = validate_generation_xml(&doc.text).ok().and_then(|_|OsgiXml::new(&doc.text)).map(|osgi| check(&osgi, &index)).unwrap_or_default();
+        found.truncate(500);
+        found
     }
 }
 
 impl Providers for SpringOsgi {
-    fn line_markers(&mut self, doc: &Document) -> Vec<LineMarker> {
-        let problems = match OsgiXml::new(&doc.text) {
-            Some(osgi) => match self.indexes.for_document(&doc.path, &doc.text, PROVIDER_BUDGET) {
-                Some(index) => check(&osgi, index),
-                None => Vec::new(),
-            },
-            None => Vec::new(),
-        };
-        let _ = host::publish_diagnostics(&doc.path, &problems);
-        Vec::new()
-    }
-
     fn definition(&mut self, doc: &Document, at: Position) -> Vec<Location> {
-        let Some((osgi, at, index)) = self.open(doc, at) else { return Vec::new() };
-        let Some((target, value, ..)) = target_at(&osgi, index, at) else { return Vec::new() };
+        if doc.language!="xml" || !doc.path.ends_with(".xml") || doc.text.len()>512*1024 || validate_generation_xml(&doc.text).is_err() {return Vec::new();}
+        let Some((osgi, at, index)) = self.open(doc, at) else {
+            return Vec::new();
+        };
+        let Some((target, value, ..)) = target_at(&osgi, &index, at) else {
+            return Vec::new();
+        };
         let location = |path: &str, range| Location { path: path.into(), range };
         match target {
-            Target::Bean => named(index, &value).map(|(p, b)| location(p, b.range)).collect(),
-            Target::Class => class(index, &value.replace('$', ".")).map(|(p, c)| location(p, c.range)).into_iter().collect(),
-            Target::Method(Some(class), _) => methods(index, &class, Some(&value)).into_iter().map(|(p, m)| location(p, m.range)).collect(),
+            Target::Bean => named(&index, &value).map(|(p, b)| location(p, b.range)).collect(),
+            Target::Class => class(&index, &value.replace('$', ".")).map(|(p, c)| location(p, c.range)).into_iter().collect(),
+            Target::Method(Some(class), _) => methods(&index, &class, Some(&value)).into_iter().map(|(p, m)| location(p, m.range)).collect(),
             Target::Method(None, _) => Vec::new(),
         }
     }
 
     fn completion(&mut self, doc: &Document, at: Position, _trigger: Option<&str>) -> Vec<CompletionItem> {
-        let Some((osgi, at, index)) = self.open(doc, at) else { return Vec::new() };
-        let Some((target, _, from, to)) = target_at(&osgi, index, at) else {
+        let Some((osgi, at, index)) = self.open(doc, at) else {
+            return Vec::new();
+        };
+        let Some((target, _, from, to)) = target_at(&osgi, &index, at) else {
             return compendium_tags(&osgi, &doc.text, at);
         };
         let replace = Some(range(&doc.text, from, to));
+        let graph = hierarchy::Graph::new(&index);
         let exported = exported_interfaces(&osgi, at);
+        let registration_service = xml::element_at(&osgi.els, at)
+            .filter(|&i| osgi.els[i].local() == "registration-listener" && osgi.osgi(&osgi.els[i]))
+            .and_then(|i| osgi.els[i].parent)
+            .filter(|&i| osgi.els[i].local() == "service" && osgi.osgi(&osgi.els[i]))
+            .and_then(|i| osgi.listener_class(&index, i)).map(|(class, _)| class);
         let mut items: Vec<CompletionItem> = match target {
             Target::Bean => index
                 .iter()
@@ -549,11 +664,11 @@ impl Providers for SpringOsgi {
                     let simple = b.class.as_deref().map(|c| c.rsplit('.').next().unwrap_or(c).to_owned());
                     let implements = !exported.is_empty()
                         && b.class.as_deref().is_some_and(|c| {
-                            let (supers, _) = ancestors(index, c);
+                            let supers = graph.report(c).types;
                             exported.iter().any(|i| supers.contains(i))
                         });
                     let sort = (!exported.is_empty()).then(|| format!("{}{}", if implements { 0 } else { 1 }, b.name));
-                    CompletionItem { detail: simple, sort_text: sort, ..CompletionItem::new(&b.name, CompletionKind::Reference) }
+                    CompletionItem { detail: simple, sort_text: sort, insert_text:escape(&b.name).replace('\'',"&apos;"), ..CompletionItem::new(&b.name, CompletionKind::Reference) }
                 })
                 .collect(),
             Target::Class => index
@@ -565,9 +680,10 @@ impl Providers for SpringOsgi {
                     CompletionItem { sort_text: Some(sort), ..CompletionItem::new(&c.fqn, kind) }
                 })
                 .collect(),
-            Target::Method(Some(class), registration) => methods(index, &class, None)
+            Target::Method(Some(class), registration) => graph
+                .methods(&class, None)
                 .into_iter()
-                .filter(|(_, m)| accepts(m, registration))
+                .filter(|(_, m)| accepts(m, registration) && (!registration || registration_parameter_compatible(&graph, registration_service.as_deref(), m)))
                 .map(|(_, m)| {
                     let detail = format!("({})", m.params.join(", "));
                     CompletionItem { detail: Some(detail), ..CompletionItem::new(&m.name, CompletionKind::Method) }
@@ -586,7 +702,9 @@ impl Providers for SpringOsgi {
 
 /// The interfaces a `<service ref>` under the cursor exports; empty elsewhere.
 fn exported_interfaces(doc: &OsgiXml, at: usize) -> Vec<String> {
-    let Some(i) = xml::element_at(&doc.els, at) else { return Vec::new() };
+    let Some(i) = xml::element_at(&doc.els, at) else {
+        return Vec::new();
+    };
     if !doc.osgi(&doc.els[i]) || doc.els[i].local() != "service" {
         return Vec::new();
     }
@@ -602,14 +720,18 @@ const COMPENDIUM_TAGS: &[(&str, &str)] = &[
 
 /// Offers the compendium elements while a `<prefix:name` tag name is being typed.
 fn compendium_tags(doc: &OsgiXml, text: &str, at: usize) -> Vec<CompletionItem> {
-    let Some(head) = text.get(..at) else { return Vec::new() };
+    let Some(head) = text.get(..at) else {
+        return Vec::new();
+    };
     let typed = head.rsplit(|c: char| !(c.is_alphanumeric() || matches!(c, ':' | '-' | '_' | '.'))).next().unwrap_or("");
     let from = at - typed.len();
     if !head[..from].ends_with('<') {
         return Vec::new();
     }
-    let Some((prefix, _)) = typed.split_once(':') else { return Vec::new() };
-    let compendium = doc.els.iter().flat_map(|e| &e.attrs).any(|a| a.value.trim() == COMPENDIUM && a.name.strip_prefix("xmlns:") == Some(prefix));
+    let Some((prefix, _)) = typed.split_once(':') else {
+        return Vec::new();
+    };
+    let compendium = xml::element_at(&doc.els,from).is_some_and(|i|doc.declared_namespace(i,prefix)==Some(COMPENDIUM));
     if !compendium {
         return Vec::new();
     }
@@ -625,61 +747,343 @@ fn compendium_tags(doc: &OsgiXml, text: &str, at: usize) -> Vec<CompletionItem> 
 }
 
 impl Plugin for SpringOsgi {
-    fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
-        match id {
-            "generate-osgi-bean" => generate_osgi_bean(ctx),
-            _ => Err(Error::NotFound(format!("command {id}"))),
+    fn activate(&mut self, _ctx: &Context) -> Result<(), Error> {
+        // Event delivery maintains caches only; providers own diagnostic publication.
+        let _ = host::subscribe_paths("files-changed", &["**/*.java", "**/*.xml"]);
+        for kind in [EventKind::FileOpened, EventKind::FileSaved] { let _ = host::subscribe(kind); }
+        Ok(())
+    }
+    fn handle_events(&mut self, events: &[Event], _ctx: &Invocation) {
+        let source = |path: &str| path.ends_with(".java") || path.ends_with(".xml");
+        let mut count = 0usize;
+        let mut changed = events.len() > 256;
+        for event in events.iter().take(256) {
+            match event {
+                Event::FileOpened(path) | Event::FileSaved(path) => { changed |= source(path); }
+                Event::FilesChanged(batch) => {
+                    for path in batch.created.iter().chain(&batch.modified).chain(&batch.removed).take(257) {
+                        count += 1;
+                        changed |= source(path) || count > 256;
+                    }
+                }
+                _ => {}
+            }
+            if changed { break; }
+        }
+        if changed {
+            self.indexes.reset();
+            self.generation.clear();
         }
     }
+    fn run_command(&mut self, id: &str, _ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
+        Err(Error::NotFound(format!("command {id}; use the OSGi generation editor intention")))
+    }
 }
 
-fn osgi_prefix(text: &str) -> Option<&'static str> {
-    if text.contains(&format!("xmlns:osgi=\"{OSGI}\"")) {
-        return Some("osgi:");
+// Generator ownership is independent of the navigation/source cache.
+fn generation_owner(doc: &Document) -> Result<String, Error> {
+    if doc.language != "xml"
+        || !doc.path.ends_with(".xml")
+        || !doc.path.starts_with('/')
+        || doc.path.len() > 1024
+        || doc.path.contains('\\')
+        || doc.path.chars().any(char::is_control)
+        || doc.path.split('/').any(|p| matches!(p, "." | ".."))
+    {
+        return Err(Error::Stale);
     }
-
-    text.contains(&format!("xmlns=\"{OSGI}\"")).then_some("")
+    let root = host::project_of(&doc.path).and_then(|p| p.root().ok()).ok_or(Error::Stale)?;
+    if !doc.path.strip_prefix(root.trim_end_matches('/')).is_some_and(|tail| tail.starts_with('/')) {
+        return Err(Error::Stale);
+    }
+    Ok(root)
+}
+// NsReader enforces scoped bindings and the library's reserved-prefix rules.
+// Its raw namespace resolver does not reject reserved default URIs or normalize
+// character references, so validate decoded declaration values as well.
+fn validate_generation_namespaces<R>(
+    reader: &quick_xml::reader::NsReader<R>,
+    element: &quick_xml::events::BytesStart<'_>,
+) -> Result<(), Error> {
+    use quick_xml::name::ResolveResult;
+    const XML: &str = "http://www.w3.org/XML/1998/namespace";
+    const XMLNS: &str = "http://www.w3.org/2000/xmlns/";
+    if element.name().as_ref().starts_with(b"xmlns:") || element.name().as_ref().iter().filter(|b|**b==b':').count()>1
+        || matches!(reader.resolver().resolve_element(element.name()).0, ResolveResult::Unknown(_))
+    {
+        return Err("Invalid or unbound element namespace.".into());
+    }
+    for attribute in element.attributes() {
+        let attribute = attribute.map_err(|_| Error::Invalid("Malformed or duplicate XML attributes.".into()))?;
+        let key = std::str::from_utf8(attribute.key.as_ref()).map_err(|_| Error::Stale)?;
+        if key.matches(':').count()>1 { return Err("Invalid qualified attribute name.".into()); }
+        if key == "xmlns" || key.starts_with("xmlns:") {
+            let value = attribute.decode_and_unescape_value(reader.decoder()).map_err(|_| Error::Stale)?;
+            if key == "xmlns:xmlns"
+                || key.starts_with("xmlns:") && value.is_empty()
+                || key == "xmlns:xml" && value != XML
+                || key != "xmlns:xml" && matches!(value.as_ref(), XML | XMLNS)
+            {
+                return Err("Reserved XML namespace declaration is invalid.".into());
+            }
+        } else if matches!(reader.resolver().resolve_attribute(attribute.key).0, ResolveResult::Unknown(_)) {
+            return Err("Unbound attribute namespace.".into());
+        }
+    }
+    Ok(())
 }
 
-fn generate_osgi_bean(ctx: &Invocation) -> Result<Option<String>, Error> {
-    let editor = ctx.editor().ok_or("Open the Spring XML file to add the bean to.")?;
-    let doc = editor.document()?;
-    let Some(prefix) = osgi_prefix(&doc.text) else {
-        return Err("Declare the Spring OSGi namespace (xmlns:osgi) in this file first.".into());
-    };
-
-    let items = [PickItem::new("service", "osgi:service"), PickItem::new("reference", "osgi:reference")];
-    let Some(kind) = host::pick("Generate OSGi bean", &items)? else { return Ok(None) };
-    let Some(interface) = host::input("Interface (fully qualified class name)", None)? else { return Ok(None) };
-    let interface = interface.trim().to_owned();
-    if interface.is_empty() {
-        return Ok(None);
+fn validate_generation_xml(text: &str) -> Result<(), Error> {
+    use quick_xml::{events::Event, reader::NsReader};
+    let mut reader = NsReader::from_str(text);
+    reader.config_mut().check_comments=true;
+    let mut depth = 0usize;
+    let mut roots = 0usize;
+    for _ in 0..8192 {
+        match reader.read_event() {
+            Ok(Event::Start(e) | Event::Empty(e)) => {
+                validate_generation_namespaces(&reader, &e)?;
+                if depth == 0 {
+                    roots += 1;
+                }
+                // Empty tags have no matching End event.
+                let empty = text[..reader.buffer_position() as usize].ends_with("/>");
+                if !empty {
+                    depth += 1;
+                }
+                if depth > 128 {
+                    return Err("XML nesting exceeds generation budget.".into());
+                }
+            }
+            Ok(Event::End(_)) => {
+                depth = depth.checked_sub(1).ok_or(Error::Stale)?;
+            }
+            Ok(Event::DocType(_) | Event::GeneralRef(_)) => {
+                return Err("DTD/entity XML is not supported for generation.".into());
+            }
+            Ok(Event::Text(t)) if depth == 0 && !t.as_ref().iter().all(u8::is_ascii_whitespace) => {
+                return Err("Text outside the beans root.".into());
+            }
+            Ok(Event::CData(_)) if depth == 0 => return Err(Error::Stale),
+            Ok(Event::Decl(_)) if depth!=0 || roots!=0 => return Err(Error::Stale),
+            Ok(Event::Eof) if depth == 0 && roots == 1 => return Ok(()),
+            Ok(Event::Eof) | Err(_) => {
+                return Err("Complete well-formed XML is required for generation.".into());
+            }
+            _ => {}
+        }
     }
+    Err("XML element budget exceeded.".into())
+}
 
-    let element = if kind == "service" {
-        let Some(target) = host::input("Bean to export (ref)", None)? else { return Ok(None) };
-        format!("<{prefix}service ref=\"{}\" interface=\"{}\"/>", escape(target.trim()), escape(&interface))
-    } else {
-        let id = interface.rsplit('.').next().unwrap_or(&interface);
-        let id = format!("{}{}Reference", id[..1].to_lowercase(), &id[1..]);
-        format!("<{prefix}reference id=\"{id}\" interface=\"{}\"/>", escape(&interface))
+// Only root declarations apply to generated top-level children. Nested or shadowed
+// namespace declarations must not authorize generation in a different scope.
+fn generation_site(text: &str, at: Position) -> Result<String, Error> {
+    if text.len() > 512 * 1024 {
+        return Err("Generation is limited to XML buffers up to 512 KiB.".into());
+    }
+    validate_generation_xml(text)?;
+    let els = xml::elements(text);
+    let root =
+        els.first().filter(|e| e.parent.is_none() && e.local() == "beans").ok_or("Generate OSGi beans only inside a Spring beans root.")?;
+    let binding = |name: &str| root.attrs.iter().find(|a| a.name == name).map(|a| a.value.as_str());
+    let root_prefix = root.name.rsplit_once(':').map_or("xmlns".to_owned(), |(p, _)| format!("xmlns:{p}"));
+    if binding(&root_prefix) != Some("http://www.springframework.org/schema/beans") {
+        return Err("The root must use the Spring beans namespace.".into());
+    }
+    let prefix = root
+        .attrs
+        .iter()
+        .find_map(|a| {
+            if a.value != OSGI {
+                return None;
+            }
+            if a.name == "xmlns" {
+                Some(String::new())
+            } else {
+                a.name.strip_prefix("xmlns:").filter(|p| xml_prefix(p)).map(|p| format!("{p}:"))
+            }
+        })
+        .ok_or("Declare the Spring OSGi namespace on the beans root first.")?;
+    let pos = offset(text, at).ok_or("The insertion position is no longer valid.")?;
+    if els.iter().skip(1).any(|e| e.parent.is_none()) {
+        return Err("Use a single beans root.".into());
+    }
+    let line = text.lines().nth(at.line as usize).unwrap_or("").trim();
+    let close = text[..root.end].rfind(&format!("</{}", root.name)).ok_or("Close the beans root before generating a child.")?;
+    for (open, close) in [("<!--", "-->"), ("<![CDATA[", "]]>"), ("<?", "?>")] {
+        let before = &text[..pos];
+        if before.rfind(open).is_some_and(|start| before.rfind(close).is_none_or(|end| start > end)) {
+            return Err("Generate outside comments, CDATA and processing instructions.".into());
+        }
+    }
+    let top_line = line.is_empty()
+        || text[pos..].trim_start().starts_with(&format!("</{}", root.name))
+        || els
+            .iter()
+            .skip(1)
+            .any(|e| e.parent == Some(0) && e.start >= pos && !text[pos..e.start].contains('\n') && text[pos..e.start].trim().is_empty());
+    if !top_line || pos < root.tag_end || pos > close || els.iter().skip(1).any(|e| e.start < pos && pos < e.end) {
+        return Err("Place the caret on a top-level bean line or a blank line inside beans.".into());
+    }
+    Ok(prefix)
+}
+
+fn xml_prefix(prefix: &str) -> bool {
+    let mut chars = prefix.chars();
+    !matches!(prefix, "xml" | "xmlns")
+        && chars.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+}
+
+fn java_fqn(value: &str) -> bool {
+    value.split('.').all(|s| {
+        let mut c = s.chars();
+        c.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || c == '$')
+            && c.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+    })
+}
+
+fn generation_edit(text: &str, at: Position, kind: &str, interface: &str, target: Option<&str>) -> Result<TextEdit, Error> {
+    let prefix = generation_site(text, at)?;
+    if !java_fqn(interface) {
+        return Err("Use a Java class name without generics, placeholders or XML markup.".into());
+    }
+    let els = xml::elements(text);
+    let element = match kind {
+        "service" => {
+            let target = target
+                .filter(|s| !s.is_empty() && !s.chars().any(char::is_whitespace))
+                .ok_or("Enter a nonempty bean reference without whitespace.")?;
+            format!("<{prefix}service ref=\"{}\" interface=\"{}\"/>", escape(target), escape(interface))
+        }
+        "reference" | "list" | "set" => {
+            // Imported bean names are not proven locally. Refuse instead of claiming
+            // collision freedom for a resource glob, library or dynamic import.
+            if els.iter().any(|e| e.local() == "import") {
+                return Err("Reference generation cannot prove name uniqueness with imported contexts; add it manually.".into());
+            }
+            if els.iter().any(|e| {
+                e.attrs.iter().any(|a| {
+                    matches!(a.name.as_str(), "id" | "name" | "alias") && (a.value.contains('&') || beans::is_expression(&a.value))
+                })
+            }) {
+                return Err("Reference generation cannot prove uniqueness for entity-encoded bean names.".into());
+            }
+            let simple = interface.rsplit('.').next().unwrap();
+            let suffix = match kind {
+                "list" => "List",
+                "set" => "Set",
+                _ => "Reference",
+            };
+            let id = format!("{}{}{suffix}", simple[..1].to_ascii_lowercase(), &simple[1..]);
+            if els.iter().any(|e| {
+                e.attrs.iter().any(|a| {
+                    matches!(a.name.as_str(), "id" | "name" | "alias") && split_names(&a.value, 0).iter().any(|(name, ..)| *name == id)
+                })
+            }) {
+                return Err(format!("Bean name {id} already exists in this document.").into());
+            }
+            format!("<{prefix}{kind} id=\"{id}\" interface=\"{}\"/>", escape(interface))
+        }
+        _ => return Err("Unknown OSGi bean kind.".into()),
     };
-
-    let at = editor.selections()?.first().map_or(Position::new(0, 0), |r| Position::new(r.start.line, 0));
-    let line = doc.text.lines().nth(at.line as usize).unwrap_or("");
+    let line = text.lines().nth(at.line as usize).unwrap_or("");
     let indent: String = line.chars().take_while(|c| c.is_whitespace()).collect();
-    let newline = if doc.text.contains("\r\n") { "\r\n" } else { "\n" };
-    let edit = TextEdit { range: Range::new(at, at), text: format!("{indent}{element}{newline}") };
-    editor.apply_edits(doc.version, &[edit])?;
+    let newline = if text.contains("\r\n") { "\r\n" } else { "\n" };
+    Ok(TextEdit { range: Range::new(at, at), text: format!("{indent}{element}{newline}") })
+}
 
-    Ok(Some(format!("Added {kind} bean.")))
+fn prompt_generation(text: &str, at: Position) -> Result<Option<TextEdit>, Error> {
+    generation_site(text, at)?;
+    let items = [
+        PickItem::new("service", "OSGi service"),
+        PickItem::new("reference", "OSGi reference"),
+        PickItem::new("list", "OSGi service reference list"),
+        PickItem::new("set", "OSGi service reference set"),
+    ];
+    let Some(kind) = host::pick("Generate OSGi bean", &items)? else {
+        return Ok(None);
+    };
+    if !matches!(kind.as_str(), "service" | "reference" | "list" | "set") {
+        return Err("Unknown OSGi bean kind.".into());
+    }
+    let Some(interface) = host::input("Interface (fully qualified class name)", None)? else {
+        return Ok(None);
+    };
+    let target = if kind == "service" {
+        let Some(target) = host::input("Bean to export (ref)", None)? else {
+            return Ok(None);
+        };
+        Some(target)
+    } else {
+        None
+    };
+    generation_edit(text, at, &kind, interface.trim(), target.as_deref().map(str::trim)).map(Some)
+}
+
+impl FileActions for SpringOsgi {
+    fn file_actions(&mut self, doc: &Document, selection: Range) -> Vec<FileAction> {
+        let at = Position::new(selection.start.line, 0);
+        if doc.language != "xml" || generation_site(&doc.text, at).is_err() {
+            return Vec::new();
+        }
+        let Ok(root) = generation_owner(doc) else {
+            return vec![];
+        };
+        let Some(next) = self.next_generation.checked_add(1) else {
+            return vec![];
+        };
+        self.next_generation = next;
+        if self.generation.len() >= 8 {
+            self.generation.clear();
+        }
+        self.generation.insert(next, (root, doc.clone(), at.line));
+        vec![FileAction {
+            title: "Generate OSGi service, reference or collection bean…".into(),
+            kind: Some("refactor.rewrite".into()),
+            data: Some(format!("osgi:{next}")),
+            ..FileAction::default()
+        }]
+    }
+
+    fn resolve_file_action(&mut self, doc: &Document, action: FileAction) -> Result<FileAction, Error> {
+        let ticket =
+            action.data.as_deref().and_then(|s| s.strip_prefix("osgi:")).and_then(|s| s.parse::<u64>().ok()).ok_or(Error::Stale)?;
+        let (root, original, line) = self.generation.get(&ticket).ok_or(Error::Stale)?.clone();
+        let current = || -> Result<(), Error> {
+            if doc.path != original.path
+                || doc.version != original.version
+                || doc.text != original.text
+                || doc.language != "xml"
+                || generation_owner(doc)? != root
+            {
+                return Err(Error::Stale);
+            }
+            let project=host::project_of(&doc.path).ok_or(Error::Stale)?;
+            if project.read_file(&doc.path)?!=doc.text {return Err(Error::Stale);}
+            Ok(())
+        };
+        current()?;
+        let Some(edit) = prompt_generation(&doc.text, Position::new(line, 0))? else {
+            return Err(Error::Cancelled);
+        };
+        // A resolved single-file action can apply immediately in the host.
+        // Show the concrete edit before returning it; lazy list preview has no edits yet.
+        if !ui_kit::prompts::confirm_exact("Insert OSGi bean?", &format!("{} at line {}:\n\n{}", doc.path, line + 1, edit.text))? {
+            return Err(Error::Cancelled);
+        }
+        current()?;
+        // Return edits only: the host owns atomic application and undo.
+        Ok(FileAction { title: action.title, kind: action.kind, edits: vec![(doc.path.clone(), vec![edit])], ..FileAction::default() })
+    }
 }
 
 fn escape(value: &str) -> String {
     value.replace('&', "&amp;").replace('"', "&quot;").replace('<', "&lt;")
 }
 
-register_plugin!(SpringOsgi, providers);
+register_plugin!(SpringOsgi, providers, diagnostics, file_actions, hover);
 
 #[cfg(test)]
 mod tests {
@@ -687,8 +1091,7 @@ mod tests {
     use openidea_plugin::mock::MockHost;
 
     const GREETER: &str = "package com.acme.api;\n\npublic interface Greeter {\n    String greet(String name);\n}\n";
-    const IMPL: &str =
-        "package com.acme.impl;\n\nimport com.acme.api.Greeter;\n\npublic class GreeterImpl implements Greeter {\n}\n";
+    const IMPL: &str = "package com.acme.impl;\n\nimport com.acme.api.Greeter;\n\npublic class GreeterImpl implements Greeter {\n}\n";
     const PLAIN: &str = "package com.acme.impl;\n\npublic class Plain {\n}\n";
     const LISTENER: &str = r#"package com.acme.impl;
 
@@ -700,11 +1103,12 @@ public class GreeterListener {
     public void unbound(ServiceReference ref) {}
     void hidden(Greeter g, Map props) {}
     public String wrong(Greeter g, Map props) { return null; }
-    public void badParams(Greeter g) {}
+    public void badParams() {}
 }
 "#;
     const AUDIT: &str = r#"package com.acme.impl;
 
+import org.springframework.stereotype.Component;
 @Component
 public class AuditListener implements OsgiServiceLifecycleListener {
 }
@@ -765,12 +1169,182 @@ public class AuditListener implements OsgiServiceLifecycleListener {
         openidea_plugin::text::position(text, text.find(needle).unwrap() + needle.len())
     }
 
+    fn warmed_diagnostics(doc: &Document) -> Vec<Diagnostic> {
+        let mut plugin = SpringOsgi::default();
+        plugin.indexes.for_document(&doc.path, &doc.text, PROVIDER_BUDGET);
+        plugin.diagnostics(doc)
+    }
+
+    #[test]
+    fn foreign_rebound_xml_cannot_borrow_osgi_prefix_or_child_names() {
+        let _host=setup(); let mut plugin=SpringOsgi::default();
+        for body in [
+            "<scope xmlns:osgi='urn:foreign'><osgi:service interface='com.acme.api.Greeter'><osgi:interfaces/></osgi:service></scope>",
+            "<osgi:service interface='com.acme.api.Greeter'><foreign:interfaces xmlns:foreign='urn:foreign'/></osgi:service>",
+            "<osgi:service ref='greeter'><foreign:bean xmlns:foreign='urn:foreign' class='external.X'/></osgi:service>",
+        ] {
+            let text=format!("<beans xmlns='http://www.springframework.org/schema/beans' xmlns:osgi='{OSGI}'>{body}</beans>");
+            let d=doc("scoped.xml",&text);
+            assert!(plugin.diagnostics(&d).is_empty(),"{text}");
+        }
+    }
+    #[test]
+    fn scoped_namespace_navigation_values_and_compendium_do_not_borrow_foreign_bindings() {
+        use openidea_plugin::hover::HoverProvider;
+        let _host=setup(); let mut plugin=SpringOsgi::default();
+        for body in [
+            "<scope xmlns:osgi='urn:foreign'><osgi:reference interface='com.acme.api.Greeter'/></scope>",
+            "<osgi:reference xmlns:f='urn:foreign' f:interface='com.acme.api.Greeter'/>",
+            "<osgi:reference><osgi:interfaces><f:value xmlns:f='urn:foreign'>com.acme.api.Greeter</f:value></osgi:interfaces></osgi:reference>",
+        ] {
+            let text=format!("<beans xmlns='{BEANS}' xmlns:osgi='{OSGI}'><!-- 😀 -->{body}</beans>");
+            let d=doc("scope-nav.xml",&text); let at=after(&text,"com.acme.api.Gre");
+            assert!(plugin.definition(&d,at).is_empty()); assert!(plugin.completion(&d,at,None).is_empty()); assert!(plugin.hover(&d,at).is_none());
+        }
+        let text=format!("<beans xmlns='{BEANS}' xmlns:osgi='{OSGI}'><scope><q:reference xmlns:q='{OSGI}' interface='com.acme.api.Greeter'/></scope></beans>");
+        let d=doc("local-prefix.xml",&text); assert_eq!(plugin.definition(&d,after(&text,"com.acme.api.Gre")).len(),1);
+        let text=format!("<beans xmlns='{BEANS}' xmlns:osgix='{COMPENDIUM}'><scope xmlns:osgix='urn:foreign'><osgix:cm\n</scope></beans>");
+        assert!(plugin.completion(&doc("cm-scope.xml",&text),after(&text,"<osgix:cm"),None).is_empty());
+        let restored=text.replace(" xmlns:osgix='urn:foreign'","");
+        assert_eq!(plugin.completion(&doc("cm-scope.xml",&restored),after(&restored,"<osgix:cm"),None).len(),3);
+    }
+    #[test]
+    fn malformed_or_oversized_xml_removes_current_cached_bean_ownership() {
+        let _host=setup(); let mut plugin=SpringOsgi::default();
+        let good=format!("<beans xmlns='{BEANS}' xmlns:o='{OSGI}'><bean id='localBean' class='com.acme.impl.Plain'/><o:service ref='localBean' interface='com.acme.api.Greeter'/></beans>");
+        let d=doc("current.xml",&good); plugin.indexes.for_document(&d.path,&d.text,PROVIDER_BUDGET);
+        assert!(bean_class(plugin.indexes.for_cached_document(&d.path,&d.text).unwrap(),"localBean").is_some());
+        for text in [
+            good.replace("xmlns:o=", "xmlns:xml="),
+            good.replace("<bean", "<unbound:bean"),
+            good.replace("<bean", "<?xml version='1.0'?><bean"),
+            good.replace("<bean", "<!-- invalid--comment --><bean"),
+            "x".repeat(512*1024+1),
+        ] {
+            let invalid=Document {text,version:d.version+1,..d.clone()}; assert!(plugin.diagnostics(&invalid).is_empty());
+            let index=plugin.indexes.for_cached_document(&invalid.path,&invalid.text).unwrap();
+            assert!(bean_class(index,"localBean").is_none()); assert!(index.iter().any(|(_,info)|!info.complete));
+            plugin.diagnostics(&d);
+            assert!(bean_class(plugin.indexes.for_cached_document(&d.path,&d.text).unwrap(),"localBean").is_some());
+        }
+    }
+    #[test]
+    fn foreign_java_stereotype_cannot_manufacture_an_osgi_bean_type_error() {
+        let host=MockHost::install();
+        host.add_file("Fake.java","package app; @foreign.Component(\"fake\") class Fake {} ");
+        host.add_file("Api.java","package external; interface Api {} ");
+        let text=format!("<beans xmlns='{BEANS}' xmlns:o='{OSGI}'><o:service ref='fake' interface='external.Api'/></beans>");
+        let d=doc("foreign-bean.xml",&text); let mut plugin=SpringOsgi::default();
+        let at=after(&text,"ref='fa"); plugin.completion(&d,at,None);
+        assert!(plugin.diagnostics(&d).iter().all(|d|d.code.as_deref()!=Some("osgi-service-common")));
+        assert!(plugin.definition(&d,at).is_empty());
+    }
+    #[test]
+    fn java_bean_facts_require_owned_literal_metadata_without_poisoning_class_facts() {
+        for text in [
+            "package app; import org.springframework.stereotype.Component; @Component(\"named\") class Item {}",
+            "package app; @org.springframework.stereotype.Service(\"named\") class Item {}",
+            "package app; import org.springframework.context.annotation.Bean; class Config { @Bean(name={\"named\",\"alias\"}) Item make(){return null;} } class Item {}",
+        ] {
+            let info=java_info(text); assert!(info.names_complete); assert!(info.beans.iter().any(|b|b.name=="named"));
+        }
+        for text in [
+            "package app; @Component(\"named\") class Item {}",
+            "package app; import other.Component; @Component(\"named\") class Item {}",
+            "package app; import org.springframework.stereotype.Component; @other.Component(\"named\") class Item {}",
+            "package app; import org.springframework.stereotype.Component; class Component {} @Component(\"named\") class Item {}",
+            "package app; import org.springframework.stereotype.Component; @Component(NAME) class Item {}",
+            "package app; import org.springframework.stereotype.Component; @Component(\"na\"+\"med\") class Item {}",
+            "package app; import org.springframework.context.annotation.Bean; class Config { @Bean(name={\"named\"+SUFFIX}) Item make(){return null;} } class Item {}",
+            "package app; import org.springframework.context.annotation.Bean; class Config { @Bean(name=\"named\",value=\"alias\") Item make(){return null;} } class Item {}",
+            "package app; import org.springframework.stereotype.Component; class Outer { @Component class Item {} }",
+        ] {
+            let info=java_info(text); assert!(info.complete,"class source remains admitted"); assert!(!info.names_complete,"{text}"); assert!(info.beans.is_empty(),"{text}"); assert!(!info.classes.is_empty());
+        }
+        let advice=java_info("package app; import org.springframework.web.bind.annotation.ControllerAdvice; @ControllerAdvice(\"app.controllers\") class Advice {}");
+        assert_eq!(advice.beans[0].name,"advice","advice value identifies packages, not bean name");
+        let conditional=java_info("package app; import org.springframework.stereotype.Component; @Component @Profile(\"dev\") class Item {}");
+        assert_eq!(conditional.beans[0].name,"item"); assert!(conditional.beans[0].class.is_none());
+        let host=MockHost::install(); host.add_file("Named.java","package app; @org.springframework.stereotype.Component(\"a&b'c<d\") class Named {}");
+        let text=format!("<beans xmlns='{BEANS}' xmlns:o='{OSGI}'><o:service ref=''/></beans>");
+        let d=doc("escaped-completion.xml",&text); let mut plugin=SpringOsgi::default();
+        let item=plugin.completion(&d,after(&text,"ref='"),None).into_iter().find(|item|item.label=="a&b'c<d").unwrap();
+        assert_eq!(item.insert_text,"a&amp;b&apos;c&lt;d");
+        let updated=text.replace("ref=''",&format!("ref='{}'",item.insert_text));
+        validate_generation_xml(&updated).unwrap(); assert!(plugin.diagnostics(&doc("escaped-completion.xml",&updated)).is_empty());
+    }
+    #[test]
+    fn inner_dynamic_factory_and_profile_xml_names_do_not_establish_global_bean_types() {
+        let text=format!("<beans xmlns='{BEANS}'><bean id='outer' class='app.Outer'><property name='x'><bean id='inner' class='app.Inner'/></property></bean><bean id='${{computed}}' class='app.Dynamic'/><bean id='encoded&#65;' class='app.Encoded'/><bean id='factory' class='app.Factory' factory-method='create'/><beans profile='dev'><bean id='conditional' class='app.Conditional'/></beans></beans>");
+        let info=parse("/project/source.xml",&text).unwrap(); assert!(info.complete); assert!(!info.names_complete);
+        assert!(info.beans.iter().all(|b|!matches!(b.name.as_str(),"inner"|"${computed}"|"encoded&#65;")));
+        assert_eq!(info.beans.iter().find(|b|b.name=="outer").unwrap().class.as_deref(),Some("app.Outer"));
+        for name in ["factory","conditional"] {assert!(info.beans.iter().find(|b|b.name==name).unwrap().class.is_none());}
+    }
+    #[test]
+    fn unresolved_exported_types_and_inline_factories_remain_unknown() {
+        let host=MockHost::install();
+        host.add_file("Plain.java","package app; class Plain {} class Factory {} interface Api {} class Container {interface Nested {}} class Implements implements Container.Nested {}");
+        let mut plugin=SpringOsgi::default();
+        for body in [
+            "<bean id='plain' class='app.Plain'/><o:service ref='plain' interface='vendor.Unresolved'/>",
+            "<o:service interface='app.Api'><bean class='app.Factory' factory-method='make'/></o:service>",
+            "<o:reference interface='app.Api'><o:listener bind-method='missing'><bean class='app.Factory' factory-method='make'/></o:listener></o:reference>",
+        ] {
+            let text=format!("<beans xmlns='{BEANS}' xmlns:o='{OSGI}'>{body}</beans>");
+            let d=doc("unknown-types.xml",&text); plugin.completion(&d,after(&text,"<beans"),None);
+            assert!(plugin.diagnostics(&d).is_empty(),"{text}");
+        }
+        let text=format!("<beans xmlns='{BEANS}' xmlns:o='{OSGI}'><bean id='plain' class='app.Plain'/><o:service ref='plain' interface='app.Api'/></beans>");
+        assert!(plugin.diagnostics(&doc("unknown-types.xml",&text)).iter().any(|d|d.code.as_deref()==Some("osgi-service-common")));
+        for (class,expected) in [("app.Implements",false),("app.Plain",true)] {
+            let text=format!("<beans xmlns='{BEANS}' xmlns:o='{OSGI}'><bean id='impl' class='{class}'/><o:service ref='impl' interface='app.Container$Nested'/></beans>");
+            assert_eq!(plugin.diagnostics(&doc("unknown-types.xml",&text)).iter().any(|d|d.code.as_deref()==Some("osgi-service-common")),expected,"source canonical nested type ownership");
+        }
+    }
+    #[test]
+    fn cached_external_hierarchies_remain_unknown() {
+        let host = setup();
+        host.add_file("src/main/java/com/acme/External.java", "package com.acme; public class External extends vendor.Base {}");
+        let text = r#"<beans xmlns="http://www.springframework.org/schema/beans" xmlns:osgi="http://www.springframework.org/schema/osgi"><bean id="external" class="com.acme.External"/><osgi:service ref="external" interface="vendor.Api"/><osgi:reference interface="vendor.Api"><osgi:listener ref="external" bind-method="fromLibrary"/></osgi:reference></beans>"#;
+        assert!(warmed_diagnostics(&doc("external.xml", text)).is_empty());
+        assert!(host.diagnostics().is_empty());
+    }
+
+    #[test]
+    fn diagnostics_skip_oversized_or_other_document_types() {
+        let _host = setup();
+        let mut plugin = SpringOsgi::default();
+        let large = "x".repeat(512 * 1024 + 1);
+        assert!(plugin.diagnostics(&doc("large.xml", &large)).is_empty());
+        assert!(plugin.diagnostics(&doc("other.txt", CONTEXT)).is_empty());
+    }
+
+    #[test]
+    fn live_unsaved_local_checks_survive_denial_and_clear_after_fix() {
+        for caps in [vec!["project.read"], vec![]] {
+            let host = MockHost::install().with_capabilities(&caps);
+            let bad = r#"<beans xmlns:osgi="http://www.springframework.org/schema/osgi"><osgi:service ref="missing" auto-export="bad" interface="external.Api"/><osgi:reference interface="external.Api"><osgi:listener><bean class="external.Listener"/></osgi:listener></osgi:reference></beans>"#;
+            let path = doc("unsaved.xml", bad).path;
+            host.add_file("resources/META-INF/spring/unsaved.xml", "<beans/>");
+            host.open_editor(&path, "xml", bad, &[]);
+            let mut plugin = SpringOsgi::default();
+            host.refresh_diagnostics(&mut plugin);
+            let problems = host.provider_diagnostics();
+            let problems = &problems[&path];
+            assert_eq!(problems.len(), 1, "cold missing refs and external types are unknown: {problems:?}");
+            assert_eq!(problems[0].code.as_deref(), Some("osgi-attribute-value"));
+            assert!(host.diagnostics().is_empty());
+            host.open_editor(&path, "xml", &bad.replace("auto-export=\"bad\"", "auto-export=\"disabled\""), &[]);
+            host.refresh_diagnostics(&mut plugin);
+            assert!(host.provider_diagnostics().is_empty());
+        }
+    }
+
     #[test]
     fn reports_the_original_inspections() {
-        let host = setup();
-        let mut p = SpringOsgi::default();
-        p.line_markers(&doc("context.xml", CONTEXT));
-        let problems = &host.diagnostics()[&format!("{ROOT}resources/META-INF/spring/context.xml")];
+        let _host = setup();
+        let problems = warmed_diagnostics(&doc("context.xml", CONTEXT));
         let found: Vec<_> = problems
             .iter()
             .filter(|d| d.severity == Severity::Error)
@@ -781,25 +1355,27 @@ public class AuditListener implements OsgiServiceLifecycleListener {
                 (at, d.message.as_str())
             })
             .collect();
-        assert_eq!(found, [
-            ("missing".to_owned(), "Cannot resolve method 'missing' in 'GreeterListener'"),
-            ("plain".into(), "Bean must be inheritor of 'com.acme.api.Greeter'"),
-            ("osgi:service".into(), ILLEGAL_INTERFACES),
-            ("osgi:service".into(), ILLEGAL_REF_AND_BEAN),
-            ("hidden".into(), PUBLIC),
-            ("wrong".into(), RETURN_TYPE),
-            ("listener".into(), "Listener must implement 'org.springframework.osgi.service.importer.OsgiServiceLifecycleListener'"),
-            ("osgi:list".into(), ILLEGAL_COMPARATOR),
-        ]);
+        assert_eq!(
+            found,
+            [
+                ("missing".to_owned(), "Cannot resolve method 'missing' in 'GreeterListener'"),
+                ("plain".into(), "Bean must be inheritor of 'com.acme.api.Greeter'"),
+                ("osgi:service".into(), ILLEGAL_INTERFACES),
+                ("osgi:service".into(), ILLEGAL_REF_AND_BEAN),
+                ("hidden".into(), PUBLIC),
+                ("wrong".into(), RETURN_TYPE),
+                ("listener".into(), "Listener must implement 'org.springframework.osgi.service.importer.OsgiServiceLifecycleListener'"),
+                ("osgi:list".into(), ILLEGAL_COMPARATOR),
+            ]
+        );
         assert!(problems.iter().all(|d| d.severity == Severity::Error));
     }
 
     #[test]
     fn unresolved_ref_is_quiet_for_known_and_dynamic_names() {
-        let host = setup();
+        let _host = setup();
         let text = "<beans xmlns=\"http://www.springframework.org/schema/beans\"\n       xmlns:osgi=\"http://www.springframework.org/schema/osgi\">\n<osgi:service ref=\"greeter\"/>\n<osgi:service ref=\"${bean}\"/>\n<osgi:service ref=\"ghost\"/>\n</beans>\n";
-        SpringOsgi::default().line_markers(&doc("refs.xml", text));
-        let found = &host.diagnostics()[&format!("{ROOT}resources/META-INF/spring/refs.xml")];
+        let found = warmed_diagnostics(&doc("refs.xml", text));
         let codes: Vec<_> = found.iter().map(|d| (d.code.as_deref().unwrap(), d.severity, d.range.start.line)).collect();
         assert_eq!(codes, [("unresolved-osgi-ref", Severity::Info, 4)]);
     }
@@ -822,7 +1398,10 @@ public class AuditListener implements OsgiServiceLifecycleListener {
         let text = "<beans xmlns=\"http://www.springframework.org/schema/beans\"\n       xmlns:osgi=\"http://www.springframework.org/schema/osgi\"\n       xmlns:osgix=\"http://www.springframework.org/schema/osgi-compendium\">\n<osgix:cm\n</beans>\n";
         let d = doc("cm.xml", text);
         let items = p.completion(&d, after(text, "<osgix:cm"), None);
-        assert_eq!(items.iter().map(|i| i.label.as_str()).collect::<Vec<_>>(), ["osgix:cm-properties", "osgix:managed-properties", "osgix:managed-service-factory"]);
+        assert_eq!(
+            items.iter().map(|i| i.label.as_str()).collect::<Vec<_>>(),
+            ["osgix:cm-properties", "osgix:managed-properties", "osgix:managed-service-factory"]
+        );
         assert_eq!(items[0].replace.unwrap().start, after(text, "\n<"));
         let undeclared = text.replace("xmlns:osgix=", "xmlns:other=");
         assert!(p.completion(&doc("cm2.xml", &undeclared), after(&undeclared, "<osgix:cm"), None).is_empty());
@@ -830,11 +1409,9 @@ public class AuditListener implements OsgiServiceLifecycleListener {
 
     #[test]
     fn badly_shaped_parameters_are_reported() {
-        let host = setup();
-        let mut p = SpringOsgi::default();
+        let _host = setup();
         let text = DEFAULT_NS.replace("unbind-method=\"unbound\"", "unbind-method=\"badParams\"");
-        p.line_markers(&doc("default.xml", &text));
-        let problems = &host.diagnostics()[&format!("{ROOT}resources/META-INF/spring/default.xml")];
+        let problems = warmed_diagnostics(&doc("default.xml", &text));
         assert_eq!(problems.iter().map(|d| d.message.as_str()).collect::<Vec<_>>(), [PARAMETERS]);
     }
 
@@ -870,17 +1447,10 @@ public class AuditListener implements OsgiServiceLifecycleListener {
         let d = doc("default.xml", DEFAULT_NS);
         let labels = |items: Vec<CompletionItem>| items.into_iter().map(|i| i.label).collect::<Vec<_>>();
         assert_eq!(labels(p.completion(&d, after(DEFAULT_NS, "bind-method=\"bo"), None)), ["bound", "unbound"]);
-        assert_eq!(labels(p.completion(&d, after(DEFAULT_NS, "ref=\"list"), None)), [
-            "auditListener",
-            "greeter",
-            "greeterRef",
-            "greeterService",
-            "greeters",
-            "listener",
-            "plain",
-            "plainService",
-            "r"
-        ]);
+        assert_eq!(
+            labels(p.completion(&d, after(DEFAULT_NS, "ref=\"list"), None)),
+            ["auditListener", "greeter", "greeterRef", "greeterService", "greeters", "listener", "plain", "plainService", "r"]
+        );
         let classes = p.completion(&d, after(DEFAULT_NS, "interface=\"com"), None);
         let greeter = classes.iter().find(|c| c.label == "com.acme.api.Greeter").unwrap();
         assert_eq!(greeter.kind, Some(CompletionKind::Interface));
@@ -892,12 +1462,11 @@ public class AuditListener implements OsgiServiceLifecycleListener {
     }
 
     fn values(name: &str, body: &str) -> Vec<(String, String)> {
-        let host = setup();
+        let _host = setup();
         let text = format!(
             "<beans xmlns=\"http://www.springframework.org/schema/beans\"\n       xmlns:osgi=\"http://www.springframework.org/schema/osgi\">\n{body}\n</beans>\n"
         );
-        SpringOsgi::default().line_markers(&doc(name, &text));
-        let found = host.diagnostics().get(&format!("{ROOT}resources/META-INF/spring/{name}")).cloned().unwrap_or_default();
+        let found = warmed_diagnostics(&doc(name, &text));
         found
             .iter()
             .filter(|d| d.code.as_deref() == Some("osgi-attribute-value") && d.severity == Severity::Error)
@@ -1002,24 +1571,26 @@ public class AuditListener implements OsgiServiceLifecycleListener {
 <bean id="b" class="a.B" cardinality="nonsense"/>"#,
         );
         assert!(found.is_empty(), "{found:?}");
-        let host = setup();
+        let _host = setup();
         let text = DEFAULT_NS.replace("interface=", "cardinality=\"bad\" greedy-proxying=\"maybe\" interface=");
-        SpringOsgi::default().line_markers(&doc("default.xml", &text));
-        let found = &host.diagnostics()[&format!("{ROOT}resources/META-INF/spring/default.xml")];
-        let at: Vec<_> = found.iter().map(|d| &text.lines().nth(d.range.start.line as usize).unwrap()[d.range.start.character as usize..d.range.end.character as usize]).collect();
+        let found = warmed_diagnostics(&doc("default.xml", &text));
+        let at: Vec<_> = found
+            .iter()
+            .map(|d| {
+                &text.lines().nth(d.range.start.line as usize).unwrap()[d.range.start.character as usize..d.range.end.character as usize]
+            })
+            .collect();
         assert_eq!(at, ["bad", "maybe"]);
-        let host = setup();
-        SpringOsgi::default().line_markers(&doc("default.xml", DEFAULT_NS));
-        assert!(host.diagnostics().get(&format!("{ROOT}resources/META-INF/spring/default.xml")).is_none_or(Vec::is_empty));
+        let _host = setup();
+        assert!(warmed_diagnostics(&doc("default.xml", DEFAULT_NS)).is_empty());
     }
 
     #[test]
     fn value_ranges_use_utf16_columns_with_multibyte_text() {
         let found = {
-            let host = setup();
+            let _host = setup();
             let text = "<beans xmlns:osgi=\"http://www.springframework.org/schema/osgi\"><!-- \u{1F600}\u{e9} --><osgi:service ref=\"greeter\" auto-export=\"bad\"/></beans>";
-            SpringOsgi::default().line_markers(&doc("u.xml", text));
-            let d = host.diagnostics()[&format!("{ROOT}resources/META-INF/spring/u.xml")].clone();
+            let d = warmed_diagnostics(&doc("u.xml", text));
             let prefix = text.find("bad").unwrap();
             let utf16 = text[..prefix].encode_utf16().count() as u32;
             (d, utf16)
@@ -1030,60 +1601,347 @@ public class AuditListener implements OsgiServiceLifecycleListener {
 
     #[test]
     fn value_lines_are_right_in_crlf_files() {
-        let host = setup();
+        let _host = setup();
         let text = "<beans xmlns:osgi=\"http://www.springframework.org/schema/osgi\">\r\n<osgi:service ref=\"greeter\"\r\n    auto-export=\"bad\"/>\r\n</beans>\r\n";
-        SpringOsgi::default().line_markers(&doc("crlf.xml", text));
-        let d = &host.diagnostics()[&format!("{ROOT}resources/META-INF/spring/crlf.xml")];
+        let d = warmed_diagnostics(&doc("crlf.xml", text));
         assert_eq!(d.len(), 1);
         assert_eq!((d[0].range.start.line, d[0].range.start.character, d[0].range.end.character), (2, 17, 20));
     }
 
     #[test]
     fn ignores_other_xml() {
-        let host = setup();
+        let _host = setup();
         let mut p = SpringOsgi::default();
         let beans = r#"<beans xmlns="http://www.springframework.org/schema/beans"><bean id="a" ref="b"/></beans>"#;
-        p.line_markers(&doc("plain.xml", beans));
-        assert!(host.diagnostics().get(&format!("{ROOT}resources/META-INF/spring/plain.xml")).is_none_or(Vec::is_empty));
+        assert!(p.diagnostics(&doc("plain.xml", beans)).is_empty());
         assert!(p.completion(&doc("plain.xml", beans), after(beans, "ref=\""), None).is_empty());
+    }
+
+    #[test]
+    fn optional_event_grant_admits_subscriptions_and_denial_stays_quiet() {
+        assert!(include_str!("../plugin.toml").contains("optional = [\"project.read\", \"events\"]"));
+        for caps in [vec!["events"],vec![]] {
+            let host=MockHost::install().with_capabilities(&caps);
+            let mut plugin=SpringOsgi::default();
+            plugin.activate(&host.context("aritti.spring-osgi")).unwrap();
+            assert_eq!(host.subscriptions().contains(&EventKind::FilesChanged),!caps.is_empty());
+            assert_eq!(host.subscriptions().contains(&EventKind::FileOpened),!caps.is_empty());
+            assert_eq!(host.subscriptions().contains(&EventKind::FileSaved),!caps.is_empty());
+            assert_eq!(host.path_subscriptions().get("files-changed").is_some(),!caps.is_empty());
+            assert!(plugin.diagnostics(&doc("plain.xml","<beans/>")).is_empty());
+            assert!(host.process_runs().is_empty() && host.requests().is_empty());
+        }
+    }
+
+    #[test]
+    fn empty_or_unresolved_listener_methods_do_not_bypass_lifecycle_contract() {
+        for methods in ["bind-method=\"\" unbind-method=\"\"", "bind-method=\"missing\" unbind-method=\"absent\""] {
+            let host=setup();
+            let text=format!("<beans xmlns=\"http://www.springframework.org/schema/beans\" xmlns:o=\"http://www.springframework.org/schema/osgi\"><bean id=\"onlyListener\" class=\"com.acme.impl.GreeterListener\"/><o:reference interface=\"com.acme.api.Greeter\"><o:listener ref=\"onlyListener\" {methods}/></o:reference></beans>");
+            let d=doc("listener-contract.xml",&text);
+            let mut plugin=SpringOsgi::default();
+            plugin.completion(&d,after(&text,"ref=\""),None);
+            assert!(plugin.diagnostics(&d).iter().any(|p|p.message.contains("Listener must implement")),"{methods}");
+            assert!(host.process_runs().is_empty());
+        }
+    }
+
+    #[test]
+    fn lifecycle_changes_invalidate_source_facts_and_generation_without_discovery() {
+        for event in [Event::FileSaved("/project/src/main/Greeter.java".into()), Event::FileOpened("/project/ctx.xml".into()), Event::FilesChanged(openidea_plugin::FilesChanged { created: vec![], modified: vec![], removed: vec!["/project/src/main/Greeter.java".into()] })] {
+            let host=setup();
+            let d=doc("context.xml",CONTEXT);
+            let mut plugin=SpringOsgi::default();
+            plugin.completion(&d,after(CONTEXT,"ref=\""),None);
+            assert!(class(plugin.indexes.for_cached_document(&d.path,&d.text).unwrap(),"com.acme.impl.GreeterImpl").is_some());
+            plugin.generation.insert(1,("/project".into(),d.clone(),0));
+            plugin.handle_events(&[event],&host.invocation());
+            assert!(class(plugin.indexes.for_cached_document(&d.path,&d.text).unwrap(),"com.acme.impl.GreeterImpl").is_none());
+            assert!(plugin.generation.is_empty());
+            assert!(host.process_runs().is_empty() && host.requests().is_empty());
+            plugin.completion(&d,after(CONTEXT,"ref=\""),None);
+            assert!(class(plugin.indexes.for_cached_document(&d.path,&d.text).unwrap(),"com.acme.impl.GreeterImpl").is_some());
+        }
+    }
+
+    #[test]
+    fn registration_completion_rejects_only_established_service_parameter_mismatch() {
+        let host=setup();
+        host.add_file("src/main/Source.java", "package app; public interface Api {} class Service implements Api {} class Other {} class Listener { public void yes(Api service, java.util.Map props) {} public void object(java.lang.Object service, java.util.Map props) {} public void wrong(Other service, java.util.Map props) {} public void primitive(int service, java.util.Map props) {} public void external(external.Unknown service, java.util.Map props) {} }");
+        let text = "<beans xmlns=\"http://www.springframework.org/schema/beans\" xmlns:o=\"http://www.springframework.org/schema/osgi\"><bean id=\"s\" class=\"app.Service\"/><bean id=\"l\" class=\"app.Listener\"/><o:service ref=\"s\" interface=\"app.Api\"><o:registration-listener ref=\"l\" registration-method=\"\"/></o:service></beans>";
+        let d=doc("registration.xml",text);
+        let items=SpringOsgi::default().completion(&d,after(text,"registration-method=\""),None);
+        let labels:Vec<_>=items.iter().map(|i|i.label.as_str()).collect();
+        assert!(labels.contains(&"yes") && labels.contains(&"object") && labels.contains(&"external"),"{labels:?}");
+        assert!(!labels.contains(&"wrong") && !labels.contains(&"primitive"),"{labels:?}");
     }
 
     const EMPTY_CONTEXT: &str = "<beans xmlns=\"http://www.springframework.org/schema/beans\"\n       xmlns:osgi=\"http://www.springframework.org/schema/osgi\">\n  <bean id=\"a\" class=\"A\"/>\n</beans>\n";
 
-    fn generate(host: &MockHost, text: &str, answers: &[Option<&[&str]>]) -> Result<Option<String>, Error> {
-        host.open_editor("/project/ctx.xml", "xml", text, &[(2, 2, 2, 2)]);
-        for a in answers {
-            host.answer_next_prompt(*a);
-        }
-        SpringOsgi::default().run_command("generate-osgi-bean", &host.invocation(), None)
+    fn resolve_generation(host: &MockHost, answers: &[Option<&[&str]>]) -> Result<FileAction, Error> {
+        host.open_editor("/project/ctx.xml", "xml", EMPTY_CONTEXT, &[(2,0,2,0)]);
+        let d = Document { path: "/project/ctx.xml".into(), language: "xml".into(), version: 1, text: EMPTY_CONTEXT.into() };
+        let mut plugin = SpringOsgi::default();
+        let action = plugin.file_actions(&d, Range::new(Position::new(2,0),Position::new(2,0))).remove(0);
+        for answer in answers { host.answer_next_prompt(*answer); }
+        plugin.resolve_file_action(&d,action)
     }
-
     #[test]
-    fn generates_a_service_before_the_selected_line() {
-        let host = MockHost::install();
-        generate(&host, EMPTY_CONTEXT, &[Some(&["service"]), Some(&["com.acme.Api"]), Some(&["a"])]).unwrap();
-        assert!(host.editor_text().contains("  <osgi:service ref=\"a\" interface=\"com.acme.Api\"/>\n  <bean id=\"a\""));
+    fn service_action_preserves_output_without_writing() {
+        let host=MockHost::install();
+        let action=resolve_generation(&host,&[Some(&["service"]),Some(&["com.acme.Api"]),Some(&["a"]),Some(&[])]).unwrap();
+        assert_eq!(action.edits[0].1[0].text,"  <osgi:service ref=\"a\" interface=\"com.acme.Api\"/>\n");
+        assert_eq!(host.editor_text(),EMPTY_CONTEXT);
     }
-
     #[test]
-    fn generates_a_reference() {
-        let host = MockHost::install();
-        generate(&host, EMPTY_CONTEXT, &[Some(&["reference"]), Some(&["com.acme.Greeter"])]).unwrap();
-        assert!(host.editor_text().contains("<osgi:reference id=\"greeterReference\" interface=\"com.acme.Greeter\"/>"));
-    }
-
-    #[test]
-    fn dismissed_prompts_leave_the_file_alone() {
-        let host = MockHost::install();
-        for answers in [vec![None], vec![Some(&["service"][..]), None], vec![Some(&["service"][..]), Some(&["X"][..]), None]] {
-            assert_eq!(generate(&host, EMPTY_CONTEXT, &answers).unwrap(), None);
-            assert_eq!(host.editor_text(), EMPTY_CONTEXT);
+    fn action_prompt_cancellation_never_writes() {
+        for answers in [vec![None],vec![Some(&["service"][..]),None],vec![Some(&["service"][..]),Some(&["X"][..]),None],vec![Some(&["reference"][..]),Some(&["a.Api"][..]),None]] {
+            let host=MockHost::install();
+            assert!(matches!(resolve_generation(&host,&answers),Err(Error::Cancelled)));
+            assert_eq!(host.editor_text(),EMPTY_CONTEXT);
         }
     }
+    #[test]
+    fn source_only_generation_needs_no_editor_capabilities() {
+        let host=MockHost::install().with_capabilities(&["project.read"]);
+        assert!(resolve_generation(&host,&[Some(&["reference"]),Some(&["a.Api"]),Some(&[])]).is_ok());
+        assert_eq!(host.editor_text(),EMPTY_CONTEXT);
+    }
+    #[test]
+    fn action_is_absent_without_osgi_namespace() {
+        let _host=MockHost::install();
+        assert!(SpringOsgi::default().file_actions(&doc("plain.xml","<beans/>"),Range::new(Position::new(0,0),Position::new(0,0))).is_empty());
+    }
 
     #[test]
-    fn refuses_a_file_without_the_osgi_namespace() {
+    fn generation_is_only_a_lazy_host_applied_action() {
         let host = MockHost::install();
-        assert!(generate(&host, "<beans/>", &[]).is_err());
+        host.open_editor("/project/ctx.xml", "xml", EMPTY_CONTEXT, &[(2, 0, 2, 0)]);
+        let d = Document { path: "/project/ctx.xml".into(), language: "xml".into(), version: 1, text: EMPTY_CONTEXT.into() };
+        let mut plugin = SpringOsgi::default();
+        let action = plugin.file_actions(&d, Range::new(Position::new(2,0), Position::new(2,0))).remove(0);
+        assert!(action.edits.is_empty());
+        for answer in [Some(&["reference"][..]), Some(&["com.acme.Greeter"][..]), Some(&[][..])] { host.answer_next_prompt(answer); }
+        let resolved = plugin.resolve_file_action(&d, action).unwrap();
+        assert_eq!(resolved.edits.len(), 1);
+        assert!(resolved.edits[0].1[0].text.contains("<osgi:reference id=\"greeterReference\""));
+        assert_eq!(host.editor_text(), EMPTY_CONTEXT);
+        assert!(plugin.run_command("generate-osgi-bean", &host.invocation(), None).is_err());
+        assert_eq!(host.editor_text(), EMPTY_CONTEXT);
+    }
+
+    #[test]
+    fn reference_collision_checks_ids_names_and_aliases_in_current_buffer() {
+        for declaration in [
+            "<bean id=\"greeterReference\"/>",
+            "<bean name=\"other,greeterReference\"/>",
+            "<alias name=\"other\" alias=\"greeterReference\"/>",
+            "<osgi:reference id=\"greeterReference\"/>",
+        ] {
+            let text = EMPTY_CONTEXT.replace("<bean id=\"a\" class=\"A\"/>", declaration);
+            assert!(generation_edit(&text, Position::new(2, 0), "reference", "a.Greeter", None).is_err());
+        }
+    }
+
+    #[test]
+    fn generation_refuses_imports_invalid_names_and_unknown_kinds() {
+        let encoded = EMPTY_CONTEXT.replace("id=\"a\"", "id=\"api&#82;eference\"");
+        assert!(generation_edit(&encoded, Position::new(2, 0), "reference", "a.Api", None).is_err());
+        let text = EMPTY_CONTEXT.replace("<bean id=\"a\" class=\"A\"/>", "<import resource=\"other.xml\"/>");
+        assert!(generation_edit(&text, Position::new(2, 0), "reference", "a.Api", None).is_err());
+        for value in ["", "a..Api", "a.Écran", "a.Api<T>", "${api}", "a.Api\"", ".Api"] {
+            assert!(generation_edit(EMPTY_CONTEXT, Position::new(2, 0), "reference", value, None).is_err(), "{value}");
+        }
+        assert!(generation_edit(EMPTY_CONTEXT, Position::new(2, 0), "unexpected", "a.Api", None).is_err());
+        assert!(generation_edit(EMPTY_CONTEXT, Position::new(2, 0), "service", "a.Api", Some(" ")).is_err());
+    }
+
+    #[test]
+    fn generation_uses_root_binding_and_refuses_nested_or_wrong_namespace() {
+        let text = EMPTY_CONTEXT.replace("xmlns:osgi=\"", "xmlns:dynamic=\"").replace('"', "'");
+        assert!(generation_edit(&text, Position::new(2, 0), "reference", "a.Api", None).unwrap().text.contains("<dynamic:reference"));
+        let nested = "<beans xmlns='http://www.springframework.org/schema/beans'>\n  <bean xmlns:osgi='http://www.springframework.org/schema/osgi'/>\n</beans>";
+        assert!(generation_edit(nested, Position::new(1, 0), "reference", "a.Api", None).is_err());
+        let wrong = EMPTY_CONTEXT.replace("schema/beans", "schema/other");
+        assert!(generation_edit(&wrong, Position::new(2, 0), "reference", "a.Api", None).is_err());
+        let nested = EMPTY_CONTEXT.replace("<bean id=\"a\" class=\"A\"/>", "<bean id=\"a\">\n    <property name=\"x\"/>\n  </bean>");
+        assert!(generation_edit(&nested, Position::new(3, 0), "reference", "a.Api", None).is_err());
+        let comment = EMPTY_CONTEXT.replace("<bean id=\"a\" class=\"A\"/>", "<!--\n    comment\n  -->");
+        assert!(generation_edit(&comment, Position::new(3, 0), "reference", "a.Api", None).is_err());
+    }
+
+    #[test]
+    fn file_action_resolves_current_buffer_without_mutating_it_and_cancels() {
+        let host = MockHost::install();
+        host.open_editor("/project/src/main/resources/META-INF/spring/ctx.xml", "xml", EMPTY_CONTEXT, &[(2, 0, 2, 0)]);
+        let mut plugin = SpringOsgi::default();
+        let mut d = doc("ctx.xml", EMPTY_CONTEXT);
+        let action = plugin.file_actions(&d, Range::new(Position::new(2, 0), Position::new(2, 0))).pop().unwrap();
+        assert!(action.edits.is_empty());
+        for answers in [
+            vec![None],
+            vec![Some(&["reference"][..]), None],
+            vec![Some(&["service"][..]), Some(&["a.Api"][..]), None],
+            vec![Some(&["reference"][..]), Some(&["a.Greeter"][..]), None],
+        ] {
+            for answer in answers {
+                host.answer_next_prompt(answer);
+            }
+            assert!(matches!(plugin.resolve_file_action(&d, action.clone()), Err(Error::Cancelled)));
+        }
+        host.answer_next_prompt(Some(&["reference"]));
+        host.answer_next_prompt(Some(&["a.Greeter"]));
+        host.answer_next_prompt(Some(&[])); // Concrete XML confirmation.
+        let resolved = plugin.resolve_file_action(&d, action.clone()).unwrap();
+        assert!(resolved.operations.is_empty());
+        assert_eq!(resolved.edits[0].0, d.path);
+        assert!(resolved.edits[0].1[0].text.contains("greeterReference"));
+        assert_eq!(host.editor_text(), EMPTY_CONTEXT, "resolution returns preview edits only");
+        d.version += 1;
+        assert!(plugin.resolve_file_action(&d, action.clone()).is_err());
+        d.version -= 1;
+        d.path = "/project/other.xml".into();
+        assert!(plugin.resolve_file_action(&d, action).is_err());
+    }
+
+    #[test]
+    fn generation_resolution_refuses_changed_actual_source_behind_an_unchanged_ticket_document() {
+        let host=MockHost::install(); let mut plugin=SpringOsgi::default();
+        let d=doc("actual.xml",EMPTY_CONTEXT);
+        host.open_editor(&d.path,"xml",&d.text,&[(2,0,2,0)]);
+        let action=plugin.file_actions(&d,Range::new(Position::new(2,0),Position::new(2,0))).pop().unwrap();
+        host.type_in_editor("<!-- current source changed -->");
+        for answer in [Some(&["reference"][..]),Some(&["a.Api"][..]),Some(&[][..])] {host.answer_next_prompt(answer);}
+        assert!(matches!(plugin.resolve_file_action(&d,action),Err(Error::Stale)));
+        assert!(host.editor_text().contains("current source changed"));
+    }
+    #[test]
+    fn reference_collision_is_rechecked_on_resolution_and_crlf_is_preserved() {
+        let host = MockHost::install();
+        let mut d = doc("unsaved.xml", &EMPTY_CONTEXT.replace('\n', "\r\n"));
+        let mut plugin = SpringOsgi::default();
+        let action = plugin.file_actions(&d, Range::new(Position::new(2, 0), Position::new(2, 0))).pop().unwrap();
+        // Resolver receives the current text, not a cached action-time XML tree.
+        d.text = d.text.replace("id=\"a\"", "id=\"apiReference\"");
+        host.answer_next_prompt(Some(&["reference"]));
+        host.answer_next_prompt(Some(&["a.Api"]));
+        assert!(plugin.resolve_file_action(&d, action).is_err());
+        let edit = generation_edit(&d.text, Position::new(2, 0), "service", "a.Api", Some("a&b")).unwrap();
+        assert!(edit.text.ends_with("\r\n"));
+        assert!(edit.text.contains("a&amp;b"));
+    }
+    #[test]
+    fn collection_generation_is_explicit_and_checks_all_local_name_owners() {
+        for (kind, id) in [("list", "apiList"), ("set", "apiSet")] {
+            let e = generation_edit(EMPTY_CONTEXT, Position::new(2, 0), kind, "a.Api", None).unwrap();
+            assert!(e.text.contains(&format!("<osgi:{kind} id=\"{id}\" interface=\"a.Api\"/>")));
+            for owner in
+                [format!("<bean name='x;{id}'/>"), format!("<alias name='a' alias='{id}'/>"), format!("<osgi:reference id='{id}'/>")]
+            {
+                let text = EMPTY_CONTEXT.replace("<bean id=\"a\" class=\"A\"/>", &owner);
+                assert!(generation_edit(&text, Position::new(2, 0), kind, "a.Api", None).is_err());
+            }
+            for unknown in ["<import resource='other.xml'/>", "<bean id='${dynamic}'/>"] {
+                let text = EMPTY_CONTEXT.replace("<bean id=\"a\" class=\"A\"/>", unknown);
+                assert!(generation_edit(&text, Position::new(2, 0), kind, "a.Api", None).is_err());
+            }
+        }
+    }
+    #[test]
+    fn default_osgi_namespace_is_safe_with_a_prefixed_beans_root() {
+        let text = "<s:beans xmlns:s='http://www.springframework.org/schema/beans' xmlns='http://www.springframework.org/schema/osgi'>\r\n  \r\n</s:beans>";
+        let edit = generation_edit(text, Position::new(1, 0), "list", "a.Api", None).unwrap();
+        assert_eq!(edit.text, "  <list id=\"apiList\" interface=\"a.Api\"/>\r\n");
+        let mut after = text.to_owned();
+        after.insert_str(offset(text, edit.range.start).unwrap(), &edit.text);
+        validate_generation_xml(&after).unwrap();
+    }
+    #[test]
+    fn malformed_generation_xml_never_offers_actions() {
+        let _host = MockHost::install();
+        let mut p = SpringOsgi::default();
+        for text in [
+            EMPTY_CONTEXT.replace("</beans>", "</wrong>"),
+            EMPTY_CONTEXT.replace("xmlns:osgi=", "xmlns:xml="),
+            EMPTY_CONTEXT.replace("class=\"A\"", "id='duplicate'"),
+            format!("<!DOCTYPE beans [<!ENTITY custom 'x'>]>{EMPTY_CONTEXT}"),
+            EMPTY_CONTEXT.replace("<bean id=\"a\" class=\"A\"/>", "<bean><other></bean>"),
+        ] {
+            assert!(p.file_actions(&doc("a.xml", &text), Range::new(Position::new(2, 0), Position::new(2, 0))).is_empty(), "{text}");
+        }
+    }
+    #[test]
+    fn action_tickets_are_instance_source_and_project_owned() {
+        let host = MockHost::install();
+        let mut p = SpringOsgi::default();
+        let d = doc("ctx.xml", EMPTY_CONTEXT);
+        let a = p.file_actions(&d, Range::new(Position::new(2, 0), Position::new(2, 0))).pop().unwrap();
+        assert!(matches!(SpringOsgi::default().resolve_file_action(&d, a.clone()), Err(Error::Stale)));
+        let mut changed = d.clone();
+        changed.text.push(' ');
+        assert!(matches!(p.resolve_file_action(&changed, a.clone()), Err(Error::Stale)));
+        host.set_project_root(None);
+        assert!(matches!(p.resolve_file_action(&d, a), Err(Error::Stale)));
+    }
+    #[test]
+    fn collection_action_preview_returns_one_atomic_edit_without_writing() {
+        let host = MockHost::install();
+        host.open_editor("/project/src/main/resources/META-INF/spring/ctx.xml", "xml", EMPTY_CONTEXT, &[(2, 0, 2, 0)]);
+        let mut p = SpringOsgi::default();
+        let d = doc("ctx.xml", EMPTY_CONTEXT);
+        let a = p.file_actions(&d, Range::new(Position::new(2, 0), Position::new(2, 0))).pop().unwrap();
+        for answer in [Some(&["set"][..]), Some(&["a.Api"][..]), Some(&[][..])] {
+            host.answer_next_prompt(answer);
+        }
+        let action = p.resolve_file_action(&d, a).unwrap();
+        assert!(action.operations.is_empty());
+        assert_eq!(action.edits.len(), 1);
+        assert_eq!(action.edits[0].0, d.path);
+        assert!(action.edits[0].1[0].text.contains("apiSet"));
+        assert_eq!(host.editor_text(), EMPTY_CONTEXT);
+    }
+    #[test]
+    fn oversized_concrete_generation_preview_is_refused_before_confirming() {
+        let host = MockHost::install();
+        let mut p = SpringOsgi::default();
+        let d = doc("ctx.xml", EMPTY_CONTEXT);
+        host.open_editor(&d.path,"xml",&d.text,&[(2,0,2,0)]);
+        let a = p.file_actions(&d, Range::new(Position::new(2, 0), Position::new(2, 0))).pop().unwrap();
+        let huge = "A".repeat(20_000);
+        host.answer_next_prompt(Some(&["service"]));
+        host.answer_next_prompt(Some(&["a.Api"]));
+        host.answer_next_prompt(Some(&[&huge]));
+        host.answer_next_prompt(Some(&[]));
+        assert!(matches!(p.resolve_file_action(&d, a), Err(Error::Invalid(_))));
+        assert!(host::confirm("Unconsumed", "No partial preview was shown").unwrap());
+    }
+    #[test]
+    fn reserved_namespace_bindings_and_aliases_refuse_generation() {
+        let _h = MockHost::install();
+        let mut p = SpringOsgi::default();
+        for declaration in [
+            "xmlns:xml='urn:foreign'",
+            "xmlns:xmlns='urn:foreign'",
+            "xmlns:q='http://www.w3.org/XML/1998/namespace'",
+            "xmlns:q='http://www.w3.org/2000/xmlns/'",
+            "xmlns:q='http://www.w3.org/XML/1998/namespac&#101;'",
+            "xmlns:q=''",
+        ] {
+            let text = EMPTY_CONTEXT.replace("<beans ", &format!("<beans {declaration} "));
+            assert!(
+                p.file_actions(&doc("ctx.xml", &text), Range::new(Position::new(2, 0), Position::new(2, 0))).is_empty(),
+                "{declaration}"
+            );
+        }
+        for namespace in ["http://www.w3.org/XML/1998/namespace", "http://www.w3.org/2000/xmlns/", "http://www.w3.org/2000/xmln&#115;/"] {
+            let text = format!(
+                "<b:beans xmlns:b='http://www.springframework.org/schema/beans' xmlns:osgi='{OSGI}' xmlns='{namespace}'>\n\n</b:beans>"
+            );
+            assert!(generation_site(&text, Position::new(1, 0)).is_err());
+        }
+        let text = EMPTY_CONTEXT.replace("<beans ", "<beans xmlns:xml='http://www.w3.org/XML/1998/namespace' xml:lang='en' ");
+        assert!(generation_edit(&text, Position::new(2, 0), "list", "a.Api", None).is_ok());
+        let implicit = EMPTY_CONTEXT.replace("<beans ", "<beans xml:lang='en' ");
+        assert!(generation_edit(&implicit, Position::new(2, 0), "set", "a.Api", None).is_ok());
     }
 }

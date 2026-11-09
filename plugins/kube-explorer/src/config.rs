@@ -93,6 +93,7 @@ impl KubeExplorer {
             })
             .collect();
         let Some(file) = host::pick("Kubeconfig file", &items)? else { return Ok(()) };
+        self.retire_forward("Kubeconfig choice changed");
         host::storage::set(CHOSEN_KUBECONFIG, &file)?;
         self.context = None;
         self.namespace = None;
@@ -125,7 +126,7 @@ mod tests {
     use openidea_plugin::{Plugin, ProcessOutput};
 
     fn host() -> MockHost {
-        let host = MockHost::install().with_capabilities(&["process:kubectl", "process:telepresence", "storage", "editor.read"]);
+        let host = MockHost::install().with_capabilities(&["project.read", "process:kubectl", "process:telepresence", "storage", "editor.read"]);
         host.on_process(crate::KUBECTL, |_, _| Ok(ProcessOutput { status: Some(0), stdout: String::new(), stderr: String::new() }));
         host
     }

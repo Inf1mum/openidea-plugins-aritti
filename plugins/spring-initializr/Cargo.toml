@@ -11,8 +11,12 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-openidea-plugin = { git = "https://github.com/l0ng-ai/openidea", tag = "v0.1.38" }
+openidea-plugin = { git = "https://github.com/l0ng-ai/openidea", tag = "v0.1.39" }
 serde_json = "1"
+serde = "1"
+quick-xml = "0.42"
+zip = { version = "=9.1.3", default-features = false, features = ["deflate-flate2"] }
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 ui-kit = { path = "../../crates/ui-kit" }
 
 [profile.release]

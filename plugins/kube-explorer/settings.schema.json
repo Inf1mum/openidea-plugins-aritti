@@ -17,7 +17,7 @@
     },
     "yamlInEditor": {
       "type": "boolean",
-      "title": "Open YAML in an editor on a temp file in /tmp (off: YAML opens in the panel; on: the file is readable by other users of this machine, never used for secrets)",
+      "title": "Open supported built-in YAML in a private editor copy (off: panel; Save is local only, explicit review/apply commands required; never Secrets)",
       "default": false
     },
     "checkDeprecatedApiVersions": {

@@ -1,7 +1,7 @@
 //! Editor commands that add a bean dependency or an event listener to the class at the
 //! caret, and the active profiles the plugin's own profile-scoped checks consider.
 
-use crate::{Navigator, BEANS_VIEW, REPORT_SECTION, Report, World, describe, file_name, indent_of, merge_into, problems_of};
+use crate::{BEANS_VIEW, Navigator, REPORT_SECTION, Report, World, describe, file_name, indent_of, merge_into, problems_of};
 use openidea_plugin::text::offset;
 use openidea_plugin::{Error, Invocation, NotificationLevel, PickItem, Severity, TextEdit, TextEditor, host};
 use spring_text::index::COMMAND_BUDGET;
@@ -14,7 +14,6 @@ const AUTOWIRED: &str = "org.springframework.beans.factory.annotation.Autowired"
 const EVENT_LISTENER: &str = "org.springframework.context.event.EventListener";
 const MAX_CHOICES: usize = 500;
 const MAX_CHECKED: usize = 1000;
-const MAX_PROPERTY_FILES: u32 = 100;
 const TITLE: &str = "Spring Beans";
 
 #[derive(Clone, Copy)]
@@ -35,7 +34,9 @@ pub fn change_active_profiles(nav: &mut Navigator, ctx: &Invocation) -> Result<O
     let mut names: BTreeSet<String> = active_profiles().into_iter().collect();
     let world = World::new(nav.indexes.get(&project, COMMAND_BUDGET));
     let declared = world.beans().flat_map(|(_, b)| &b.profiles);
-    names.extend(declared.map(|p| p.trim_start_matches('!')).filter(|p| !p.is_empty() && !p.contains("${") && !p.contains("#{")).map(str::to_owned));
+    names.extend(
+        declared.map(|p| p.trim_start_matches('!')).filter(|p| !p.is_empty() && !p.contains("${") && !p.contains("#{")).map(str::to_owned),
+    );
     for extension in ["yml", "yaml", "properties"] {
         for file in project.find_files(&format!("**/application-*.{extension}"), 200).unwrap_or_default() {
             let profile = file_name(&file).strip_prefix("application-").and_then(|n| n.strip_suffix(&format!(".{extension}")));
@@ -43,17 +44,29 @@ pub fn change_active_profiles(nav: &mut Navigator, ctx: &Invocation) -> Result<O
         }
     }
     if names.is_empty() {
-        host::notify(NotificationLevel::Info, TITLE, "No profiles found in @Profile annotations, <beans profile> or application-*.yml/properties files.");
+        host::notify(
+            NotificationLevel::Info,
+            TITLE,
+            "No profiles found in @Profile annotations, <beans profile> or application-*.yml/properties files.",
+        );
         return Ok(None);
     }
 
     let items: Vec<PickItem> = names.iter().map(|n| PickItem::new(n, n)).collect();
     let current = active_profiles();
-    let title = if current.is_empty() { "Active Spring profiles".to_owned() } else { format!("Active Spring profiles (now: {})", current.join(", ")) };
+    let title = if current.is_empty() {
+        "Active Spring profiles".to_owned()
+    } else {
+        format!("Active Spring profiles (now: {})", current.join(", "))
+    };
     let Some(chosen) = host::pick_many(&title, &items)? else { return Ok(None) };
 
     host::storage::set(ACTIVE_PROFILES, &chosen.join(","))?;
-    let message = if chosen.is_empty() { "No active profile: every bean is considered.".to_owned() } else { format!("Active profiles: {}.", chosen.join(", ")) };
+    let message = if chosen.is_empty() {
+        "No active profile: every bean is considered.".to_owned()
+    } else {
+        format!("Active profiles: {}.", chosen.join(", "))
+    };
     host::notify(NotificationLevel::Info, TITLE, &message);
     Ok(None)
 }
@@ -61,13 +74,24 @@ pub fn change_active_profiles(nav: &mut Navigator, ctx: &Invocation) -> Result<O
 pub fn generate(nav: &mut Navigator, ctx: &Invocation, kind: Generate) -> Result<Option<String>, Error> {
     let editor = ctx.editor().ok_or("Open a Java class first.")?;
     let path = editor.path();
-    let (_, text, _, _) = locate(&editor)?;
+    let (initial_version, text, _, _) = locate(&editor)?;
+    if text.len() > 12 * 1024 {
+        return Err("The source is too large for a complete generation preview.".into());
+    }
+    let project = host::project_of(&path).ok_or("Open the Java source inside a project.")?;
+    let root = project.root()?;
+    if root.is_empty() || root.len() > 512 || path.len() > 512 || !crate::cache::owned(&path, &root)
+        || project.read_file(&path)? != text {
+        return Err(Error::Stale);
+    }
+    let initial_text = text.clone();
 
     let ty = match kind {
         Generate::Listener => {
             let Some(entered) = host::input("Event type", None)? else { return Ok(None) };
             let ty = entered.trim().trim_end_matches(".class").to_owned();
-            if ty.is_empty() || !ty.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '$') {
+            if ty.is_empty() || ty.len() > 128 || !ty.bytes().next().is_some_and(|c| c.is_ascii_alphabetic() || c == b'_' || c == b'$')
+                || !ty.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'$') {
                 return Err(format!("{ty:?} is not a type name.").into());
             }
             ty
@@ -80,6 +104,10 @@ pub fn generate(nav: &mut Navigator, ctx: &Invocation, kind: Generate) -> Result
     let qualified = qualified_in(nav, &path, &text, &ty);
 
     let (version, text, file, class_at) = locate(&editor)?;
+    if version != initial_version || text != initial_text
+        || host::project_of(&path).ok_or(Error::Stale)?.root()? != root {
+        return Err(Error::Stale);
+    }
     let class = &file.types[class_at];
     let spot = Spot::of(&text, class).ok_or("The class has no body.")?;
     let name = decapitalize(&ty);
@@ -142,10 +170,37 @@ pub fn generate(nav: &mut Navigator, ctx: &Invocation, kind: Generate) -> Result
     }
     let mut edits = insertions(&text, inserts);
     edits.extend(extra);
+    if text.contains("\r\n") && !text.replace("\r\n", "").contains('\n') {
+        for edit in &mut edits { edit.text = edit.text.replace("\r\n", "\n").replace('\n', "\r\n"); }
+    }
 
+    let mut ranges = edits.iter().map(|edit| {
+        let start = offset(&text, edit.range.start).ok_or(Error::Stale)?;
+        let end = offset(&text, edit.range.end).ok_or(Error::Stale)?;
+        if start > end { return Err(Error::Stale); }
+        Ok((start, end, &edit.text))
+    }).collect::<Result<Vec<_>, Error>>()?;
+    ranges.sort_by_key(|(start, end, _)| (*start, *end));
+    if ranges.windows(2).any(|pair| pair[0].1 > pair[1].0) { return Err(Error::Stale); }
+    let mut proposed = text.clone();
+    for (start, end, replacement) in ranges.into_iter().rev() {
+        proposed.replace_range(start..end, replacement);
+    }
+    let body = format!("Project: {root}\nSource: {path}\n\nApply this complete proposed Java source in one versioned editor edit?\n\n{proposed}");
+    if !ui_kit::prompts::confirm_exact("Review Spring Java generation", &body)? {
+        return Ok(None);
+    }
+    let current = editor.document()?;
+    let project = host::project_of(&path).ok_or(Error::Stale)?;
+    if editor.path() != path || current.version != version || current.text != text
+        || project.root()? != root || project.read_file(&path)? != text {
+        return Err(Error::Stale);
+    }
     match editor.apply_edits(version, &edits) {
         Ok(_) => {}
-        Err(Error::Denied(_)) => host::notify(NotificationLevel::Warning, TITLE, "Allow editor changes for Spring Beans in Settings › Plugins to add code."),
+        Err(Error::Denied(_)) => {
+            host::notify(NotificationLevel::Warning, TITLE, "Allow editor changes for Spring Beans in Settings › Plugins to add code.")
+        }
         Err(e) => return Err(e),
     }
     Ok(None)
@@ -199,7 +254,11 @@ fn pick_dependency(nav: &mut Navigator, path: &str, text: &str) -> Result<Option
     let items: Vec<PickItem> = typed
         .iter()
         .enumerate()
-        .map(|(at, (p, b))| PickItem { key: at.to_string(), label: b.ty.clone(), description: Some(format!("{} · {}", describe(b), file_name(p))) })
+        .map(|(at, (p, b))| PickItem {
+            key: at.to_string(),
+            label: b.ty.clone(),
+            description: Some(format!("{} · {}", describe(b), file_name(p))),
+        })
         .collect();
     let Some(chosen) = host::pick("Choose a bean", &items)? else { return Ok(None) };
     Ok(chosen.parse::<usize>().ok().and_then(|at| typed.get(at)).map(|(_, b)| b.ty.clone()))
@@ -250,7 +309,7 @@ fn capitalize(name: &str) -> String {
 pub fn check_configuration(nav: &mut Navigator, ctx: &Invocation) -> Result<Option<String>, Error> {
     let project = ctx.project().ok_or("Open a project first.")?;
     let index = nav.indexes.get(&project, COMMAND_BUDGET);
-    let complete = index.complete();
+    let mut complete = index.complete() && index.files().len() <= MAX_CHECKED;
     let world = World::new(index);
     let mut found = Vec::new();
     for path in world.files.keys().take(MAX_CHECKED) {
@@ -259,29 +318,64 @@ pub fn check_configuration(nav: &mut Navigator, ctx: &Invocation) -> Result<Opti
             Some("xml") => "xml",
             _ => "java",
         };
-        let Ok(text) = project.read_file(path) else { continue };
+        let Ok(text) = project.read_file(path) else {
+            complete = false;
+            continue;
+        };
         let mut problems = problems_of(path, language, &text, Some(&world));
         problems.retain(|p| p.severity != Severity::Hint);
         if !problems.is_empty() {
             found.push((path.clone(), problems));
         }
     }
+    // Metadata is not an editor language contribution. Check it only here,
+    // under the explicit project-wide command, never from a gutter request.
+    for suffix in crate::target_checks::SPRING_META_FILES {
+        let paths = match project.find_files(&format!("**/{suffix}"), (MAX_CHECKED + 1) as u32) {
+            Ok(paths) => paths,
+            Err(_) => {
+                complete = false;
+                continue;
+            }
+        };
+        if paths.len() > MAX_CHECKED {
+            complete = false;
+        }
+        for path in paths.into_iter().take(MAX_CHECKED) {
+            let Ok(text) = project.read_file(&path) else {
+                complete = false;
+                continue;
+            };
+            if text.len() > 512 * 1024 {
+                complete = false;
+                continue;
+            }
+            let problems = problems_of(&path, "spring-meta", &text, Some(&world));
+            if !problems.is_empty() {
+                found.push((path, problems));
+            }
+        }
+    }
     drop(world);
 
     let total: usize = found.iter().map(|(_, problems)| problems.len()).sum();
     let partial = if complete { "" } else { " The project is still being scanned, so the result is partial." };
-    let message = if total == 0 { format!("No problems found.{partial}") } else { format!("{total} problems in {} files.{partial}", found.len()) };
+    let message =
+        if total == 0 { format!("No problems found.{partial}") } else { format!("{total} problems in {} files.{partial}", found.len()) };
+    nav.report_root = Some(project.root()?);
+    nav.report_incomplete = !complete;
     nav.report = Report::Problems(found);
     host::notify(NotificationLevel::Info, TITLE, &message);
     nav.sections.set(REPORT_SECTION);
+    crate::refresh_beans_view();
     host::reveal_view(BEANS_VIEW)?;
-    host::refresh_view(BEANS_VIEW);
     Ok(None)
 }
 
 pub fn dump_configuration(nav: &mut Navigator, ctx: &Invocation) -> Result<Option<String>, Error> {
     let project = ctx.project().ok_or("Open a project first.")?;
     let world = World::new(nav.indexes.get(&project, COMMAND_BUDGET));
+    let incomplete = !world.complete;
     let mut lines: Vec<String> = world
         .beans()
         .map(|(path, bean)| {
@@ -305,96 +399,18 @@ pub fn dump_configuration(nav: &mut Navigator, ctx: &Invocation) -> Result<Optio
         })
         .collect();
     lines.sort();
-    let report = format!("{} beans of the project (library and auto-configured beans are not listed)\n\n{}\n", lines.len(), lines.join("\n"));
+    let report = format!(
+        "{} beans of the project (library and auto-configured beans are not listed){}\n\n{}\n",
+        lines.len(),
+        if incomplete { " — partial source cache; absence is unproved" } else { "" },
+        lines.join("\n")
+    );
     drop(world);
+    nav.report_root = Some(project.root()?);
+    nav.report_incomplete = incomplete;
     nav.report = Report::Dump(report);
     nav.sections.set(REPORT_SECTION);
+    crate::refresh_beans_view();
     host::reveal_view(BEANS_VIEW)?;
-    host::refresh_view(BEANS_VIEW);
-    Ok(None)
-}
-
-fn append_property(project: &openidea_plugin::Project, file: &str, line: &str) -> Result<(), Error> {
-    let root = project.root()?;
-    let inside = file.starts_with(&format!("{}/", root.trim_end_matches('/'))) && !file.split('/').any(|part| part == "..");
-    if !inside || line.contains(['\n', '\r']) {
-        return Err("Not writable".into());
-    }
-    let existing = project.read_file(file)?;
-    let separator = if existing.is_empty() || existing.ends_with('\n') { "" } else { "\n" };
-    let out = host::run_process("tee", &[file.to_owned()], Some(&format!("{existing}{separator}{line}\n")))?;
-    if out.status != Some(0) {
-        return Err(out.stderr.into());
-    }
-    Ok(())
-}
-
-/// Replaces the annotation string at the caret with `${key}` and appends `key=value` to the chosen properties
-/// file through the optional `process:tee` capability; without it the line goes to the clipboard.
-pub fn externalize_string(ctx: &Invocation) -> Result<Option<String>, Error> {
-    let editor = ctx.editor().ok_or("Open a Java class first.")?;
-    if !editor.path().ends_with(".java") {
-        return Err("Open a Java class first.".into());
-    }
-    let doc = editor.document()?;
-    let caret = editor.selections()?.first().and_then(|r| offset(&doc.text, r.start)).ok_or("No caret in the editor.")?;
-    let file = java::parse(&doc.text);
-    let annotations = file.types.iter().flat_map(|t| t.annotations.iter().chain(t.members.iter().flat_map(|m| m.annotations.iter().chain(m.params.iter().flat_map(|p| p.annotations.iter())))));
-    let literal = annotations
-        .flat_map(|a| a.args.iter().flat_map(move |arg| arg.strings.iter().map(move |s| (a, s))))
-        .find(|(_, s)| s.at <= caret && caret <= s.end)
-        .ok_or("Put the caret in a string of an annotation such as @Value or @Scheduled.")?;
-    let (annotation, string) = literal;
-    if string.value.contains("${") || string.value.contains("#{") {
-        return Err("The string already holds a placeholder.".into());
-    }
-
-    let project = ctx.project().ok_or("Open a project first.")?;
-    let files = project.find_files("**/*.properties", MAX_PROPERTY_FILES).unwrap_or_default();
-    let candidates: Vec<&String> = files.iter().filter(|f| !f.contains("/target/") && !f.contains("/build/")).collect();
-    let chosen = if candidates.is_empty() {
-        None
-    } else {
-        let items: Vec<PickItem> = candidates.iter().map(|f| PickItem { key: (*f).clone(), label: file_name(f).to_owned(), description: Some((*f).clone()) }).collect();
-        match host::pick("Properties file that will hold the value", &items)? {
-            Some(file) => Some(file),
-            None => return Ok(None),
-        }
-    };
-
-    let suggestion = format!("{}.{}", decapitalize(file.types.first().map_or("app", |t| t.name.as_str())), annotation.args.iter().find(|a| a.strings.iter().any(|s| s.at == string.at)).map_or("value", |a| a.name.as_str()));
-    let Some(key) = host::input("Property key", Some(&suggestion))? else { return Ok(None) };
-    let key = key.trim().to_owned();
-    if key.is_empty() || key.contains(char::is_whitespace) || key.contains(['$', '{', '}', '=']) {
-        return Err(format!("{key:?} is not a property key.").into());
-    }
-    if let Some(file) = &chosen {
-        let existing = project.read_file(file).unwrap_or_default();
-        if spring_text::config::properties(&existing).iter().any(|k| k.key == key) {
-            return Err(format!("{} already defines {key}.", file_name(file)).into());
-        }
-    }
-
-    let edit = TextEdit { range: range(&doc.text, string.at, string.end), text: format!("${{{key}}}") };
-    match editor.apply_edits(doc.version, &[edit]) {
-        Ok(_) => {}
-        Err(Error::Denied(_)) => {
-            host::notify(NotificationLevel::Warning, TITLE, "Allow editor changes for Spring Beans in Settings › Plugins to replace the string.");
-            return Ok(None);
-        }
-        Err(e) => return Err(e),
-    }
-    let line = format!("{key}={}", string.value);
-    if let Some(file) = &chosen {
-        if append_property(&project, file, &line).is_ok() {
-            host::notify(NotificationLevel::Info, TITLE, &format!("Added \"{line}\" to {}.", file_name(file)));
-            return Ok(None);
-        }
-    }
-    let target = chosen.as_deref().map_or("your properties file".to_owned(), |f| file_name(f).to_owned());
-    match host::copy_to_clipboard(&line) {
-        Ok(()) => host::notify(NotificationLevel::Info, TITLE, &format!("Copied \"{line}\": paste it into {target}.")),
-        Err(_) => host::notify(NotificationLevel::Info, TITLE, &format!("Add this line to {target}: {line}")),
-    }
     Ok(None)
 }

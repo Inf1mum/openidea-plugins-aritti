@@ -3,16 +3,29 @@
 //! annotations, the Java DSL and integration XML), then links producers,
 //! channels and consumers. Text-based: channels match by name as written.
 
+mod xml_namespaces;
+mod file_actions;
 mod structure;
+mod navigation;
+mod graph;
+mod channel_generation;
+mod batch_navigation;
+mod batch_actions;
+mod batch_step_rename;
+mod java_hover;
+mod source_scope;
+
+mod source_provenance;
+use source_provenance::{source_type_owned,source_bean_owned};
+
+use openidea_plugin::providers::{CompletionItem, CompletionKind, Document, LineMarker, Providers};
 
 use openidea_plugin::views::{Body, Button, View, ViewEvent, Viewport, Views};
-use openidea_plugin::providers::{CompletionItem, CompletionKind, Document, LineMarker, Providers};
 use openidea_plugin::{Diagnostic, Error, Invocation, Location, Plugin, Position, Project, Range, Severity, host};
 use spring_text::diagram::{self, Edge, Node};
 use spring_text::index::{COMMAND_BUDGET, Index, Indexes, PROVIDER_BUDGET};
 use spring_text::java::{Annotation, Str};
 use spring_text::{beans, contains, range, xml};
-use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
 const NAMESPACE: &str = "http://www.springframework.org/schema/integration";
@@ -43,6 +56,9 @@ pub enum Role {
     Produces,
     /// A bean of any kind declared under this name.
     Bean,
+    /// Unproved bean spelling retained only for conservative creation collision
+    /// checks; never navigation/completion or a proof of project-wide absence.
+    BeanCandidate,
     /// An XML `ref` to a bean.
     BeanRef,
 }
@@ -73,7 +89,9 @@ fn str_ref(text: &str, s: &Str, role: Role, what: String, checked: bool) -> Ref 
     Ref { name: s.value.clone(), role, what, range: range(text, s.at, s.end), checked, owner: 0 }
 }
 
-fn annotation_refs(text: &str, a: &Annotation, what: &str, out: &mut Vec<Ref>) {
+fn annotation_refs(text: &str, a: &Annotation, what: &str, kotlin: bool, out: &mut Vec<Ref>) {
+    let mut names=BTreeSet::new();
+    if a.args.iter().any(|arg|!names.insert(arg.name.as_str())) {return;}
     for arg in &a.args {
         let role = match (a.name.as_str(), arg.name.as_str()) {
             ("BridgeFrom", "value") => Role::Consumes,
@@ -82,56 +100,128 @@ fn annotation_refs(text: &str, a: &Annotation, what: &str, out: &mut Vec<Ref>) {
             (_, n) if n == "channel" || n.ends_with("Channel") => Role::Produces,
             _ => continue,
         };
+        let tokens=spring_text::java::tokens(&arg.text);
+        let [one]=tokens.as_slice() else {continue;};
+        if one.string().is_none() || one.s.starts_with("\"\"\"") || arg.strings.len()!=1 {continue;}
         for s in &arg.strings {
+            if s.value.contains('\\') || kotlin && s.value.contains('$') || text.get(s.at..s.end)!=Some(s.value.as_str()) {continue;}
             out.push(Ref { owner: a.at + 1, ..str_ref(text, s, role, format!("@{} {what}", a.name), role == Role::Produces) });
         }
     }
 }
 
+fn integration_annotation_owned(file: &spring_text::java::JavaFile, text: &str, a: &Annotation) -> bool {
+    let qualified=format!("org.springframework.integration.annotation.{}",a.name);
+    let Some(written)=text.get(a.at+1..a.name_at+a.name.len()) else {return false;};
+    source_type_owned(file,written,&qualified)
+}
+fn channel_bean_owned(file:&spring_text::java::JavaFile,text:&str,bean:&spring_text::java::BeanName,kotlin:bool)->bool {
+    let Some(method)=file.types.iter().flat_map(|t|t.methods()).find(|m|m.at==bean.at) else {return false;};
+    let annotations=method.annotations.iter().filter(|a|a.name=="Bean").collect::<Vec<_>>();
+    let [annotation]=annotations.as_slice() else {return false;};
+    let Some(written)=text.get(annotation.at+1..annotation.name_at+annotation.name.len()) else {return false;};
+    if !source_type_owned(file,written,"org.springframework.context.annotation.Bean") {return false;}
+    let names=annotation.args.iter().filter(|arg|matches!(arg.name.as_str(),"name"|"value")).collect::<Vec<_>>();
+    match names.as_slice() {
+        []=>if bean.name!=method.name {return false;},
+        [name]=>{
+            let tokens=spring_text::java::tokens(&name.text);
+            let [one]=tokens.as_slice() else {return false;};
+            let Some(value)=one.string() else {return false;};
+            if one.s.starts_with("\"\"\"") || value.value!=bean.name || value.value.contains('\\') || kotlin && value.value.contains('$') {return false;}
+        },
+        _=>return false,
+    }
+    let Some(ty)=method.ty.as_ref().filter(|ty|!ty.array && ty.args.is_empty()) else {return false;};
+    ["MessageChannel","PollableChannel","SubscribableChannel"].iter().any(|short|source_type_owned(file,&ty.text,&format!("org.springframework.messaging.{short}")))
+}
+fn dsl_factory_owned(file:&spring_text::java::JavaFile,text:&str,call:&spring_text::java::Call,short:&str)->bool {
+    let qualified=format!("org.springframework.integration.dsl.{short}");
+    let tokens=spring_text::java::tokens(text);
+    let Some(at)=tokens.iter().position(|t|t.at==call.at) else {return false;};
+    if at<2 || tokens[at-1].s!="." {return false;}
+    let mut start=at-2;
+    while start>=2 && tokens[start-1].s=="." && tokens[start-2].is_ident() {start-=2;}
+    let written=tokens[start..at-1].iter().map(|t|t.s).collect::<String>();
+    if !source_type_owned(file,&written,&qualified) {return false;}
+    let name=if written==qualified {"org"} else {short};
+    tokens.iter().enumerate().filter(|(_,t)|t.s==name && !file.imports.iter().any(|i|i.at<=t.at && t.at<i.end)).all(|(i,_)| {
+        if name=="org" {
+            let parts=qualified.split('.').collect::<Vec<_>>();
+            let expected=parts.iter().enumerate().flat_map(|(n,p)|if n==0 {vec![*p]}else{vec![".",*p]}).collect::<Vec<_>>();
+            (i==0 || tokens[i-1].s!=".") && tokens.get(i..i+expected.len()).is_some_and(|slice|slice.iter().map(|t|t.s).eq(expected.iter().copied()))
+        } else {
+            // A value/parameter/field named like the class cannot be borrowed
+            // as a static factory. Explicit type uses remain source candidates.
+            (i==0 || !matches!(tokens[i-1].s,"."|"val"|"var"|"<")) && tokens.get(i+1).is_some_and(|next|next.s=="." || next.is_ident() && !matches!(next.s,"by"|"extends"|"implements"|"permits"))
+        }
+    })
+}
+
 fn parse_source(path: &str, text: &str) -> Vec<Ref> {
+    if text.len()>512*1024 {return vec![Ref{name:String::new(),role:Role::BeanCandidate,what:"Source exceeds admission bound".into(),range:Range::default(),checked:false,owner:0}];}
     let file = spring_text::parse_source(path, text);
     let mut out = Vec::new();
-    for b in spring_text::java::bean_names(&file) {
+    let kotlin=path.ends_with(".kt");
+    let bean_names=spring_text::java::bean_names(&file);
+    let annotations_supported=(if kotlin {
+        !spring_text::java::tokens(text).iter().any(|t|matches!(t.s,"as"|"typealias"))
+    } else { !text.contains("\\u") }) && file.types.iter().all(|owner|owner.supers().next().is_none() && !text[owner.at+owner.name.len()..].trim_start().starts_with('<'));
+    if !annotations_supported && (!bean_names.is_empty() || text.contains("integration") || file.imports.iter().any(|import|import.path.rsplit('.').next().is_some_and(|name|name=="Bean" || spring_text::java::STEREOTYPES.contains(&name)))) {
+        out.push(Ref{name:String::new(),role:Role::BeanCandidate,what:"Unresolved source annotation/type context".into(),range:Range::default(),checked:false,owner:0});
+    }
+    let mut bean_ownership=BTreeMap::new();
+    let mut seen_beans=BTreeSet::new();
+    for b in bean_names {
+        if !seen_beans.insert((b.at,b.name.clone())) {continue;}
         let r = range(text, b.at, b.at + b.len);
         let what = format!("{} bean", b.ty);
-        if b.ty.ends_with("Channel") {
+        // All aliases share one physical declaration and annotation. Validate
+        // that whole declaration once rather than re-tokenizing large arrays.
+        let (owned,channel)=*bean_ownership.entry(b.at).or_insert_with(||(annotations_supported && source_bean_owned(&file,text,&b,kotlin),annotations_supported && channel_bean_owned(&file,text,&b,kotlin)));
+        if channel {
             out.push(Ref { name: b.name.clone(), role: Role::Declares, what: what.clone(), range: r, checked: false, owner: 0 });
         }
-        out.push(Ref { name: b.name, role: Role::Bean, what, range: r, checked: false, owner: 0 });
+        let role=if owned {Role::Bean}else{Role::BeanCandidate};
+        out.push(Ref { name: b.name, role, what, range: r, checked: false, owner: 0 });
     }
     if !text.contains("integration") {
         return out;
     }
     for t in &file.types {
-        for a in t.annotations.iter().filter(|a| a.name == "MessagingGateway") {
-            annotation_refs(text, a, &t.name, &mut out);
+        for a in t.annotations.iter().filter(|a| annotations_supported && a.name == "MessagingGateway" && integration_annotation_owned(&file,text,a)) {
+            annotation_refs(text, a, &t.name, kotlin, &mut out);
         }
         for m in t.methods() {
-            for a in m.annotations.iter().filter(|a| ENDPOINTS.contains(&a.name.as_str())) {
-                annotation_refs(text, a, &format!("{}()", m.name), &mut out);
+            for a in m.annotations.iter().filter(|a| annotations_supported && ENDPOINTS.contains(&a.name.as_str()) && integration_annotation_owned(&file,text,a)) {
+                annotation_refs(text, a, &format!("{}()", m.name), kotlin, &mut out);
             }
         }
     }
-    if !text.contains("IntegrationFlow") && !text.contains("MessageChannels") {
+    if !annotations_supported || kotlin && text.contains('`') || !text.contains("IntegrationFlow") && !text.contains("MessageChannels") {
         return out;
     }
     let calls = spring_text::source_calls(path, text);
-    let in_channel_call =
-        |at: usize| calls.iter().any(|c| c.name == "channel" && c.args.first().is_some_and(|a| a.at <= at && at < a.end));
+    let mut flow_ends=Vec::new();
     for c in &calls {
-        let Some(s) = c.args.first().and_then(|a| a.string.as_ref()) else { continue };
+        let Some(s) = c.args.first().and_then(|a| a.string.as_ref()) else {
+            continue;
+        };
         let receiver = c.receiver.as_deref();
+        if c.args[0].text.trim_start().starts_with("\"\"\"") || s.value.contains('\\') || kotlin && s.value.contains('$') || text.get(s.at..s.end)!=Some(s.value.as_str()) {continue;}
         match c.name.as_str() {
-            n if CHANNEL_FACTORIES.contains(&n) && (receiver == Some("MessageChannels") || in_channel_call(c.at)) => {
+            n if CHANNEL_FACTORIES.contains(&n) && receiver == Some("MessageChannels") && dsl_factory_owned(&file,text,c,"MessageChannels") => {
                 out.push(str_ref(text, s, Role::Declares, format!("MessageChannels.{n}"), false));
             }
-            "from" if matches!(receiver, Some("IntegrationFlow" | "IntegrationFlows")) => {
+            "from" if matches!(receiver, Some("IntegrationFlow" | "IntegrationFlows")) && dsl_factory_owned(&file,text,c,receiver.unwrap()) => {
                 out.push(str_ref(text, s, Role::Consumes, "IntegrationFlow.from".into(), false));
+                flow_ends.push(c.end);
             }
             // The DSL creates the channel when no bean has that name, so it is never unresolved.
-            "channel" if !c.is_new && text.contains("IntegrationFlow") => {
+            "channel" if !c.is_new && c.chained && flow_ends.iter().any(|end|text.get(*end..c.at).is_some_and(|gap|spring_text::java::tokens(gap).iter().map(|t|t.s).eq(["."]))) => {
                 out.push(str_ref(text, s, Role::Declares, "flow .channel".into(), false));
                 out.push(str_ref(text, s, Role::Produces, "flow .channel".into(), false));
+                flow_ends.push(c.end);
             }
             _ => {}
         }
@@ -139,35 +229,82 @@ fn parse_source(path: &str, text: &str) -> Vec<Ref> {
     out
 }
 
-fn parse_xml(text: &str) -> Vec<Ref> {
-    if !text.contains("www.springframework.org/schema/") {
-        return Vec::new();
+fn xml_bean_container_owned(elements:&[xml::Element],mut at:usize)->bool {
+    while let Some(parent)=elements[at].parent {
+        if elements[parent].local()!="beans" || !matches!(xml::namespace(elements,parent),None|Some("http://www.springframework.org/schema/beans")) {return false;}
+        at=parent;
     }
+    true
+}
+fn xml_alias_spans(value:&str)->Vec<(usize,usize)> {
+    let mut result=Vec::new();let mut start=None;
+    for (at,ch) in value.char_indices() {
+        if ch.is_ascii_whitespace() || matches!(ch,','|';') {
+            if let Some(from)=start.take() {result.push((from,at));}
+        } else if start.is_none() {start=Some(at);}
+    }
+    if let Some(from)=start {result.push((from,value.len()));}result
+}
+fn parse_xml(text: &str) -> Vec<Ref> {
+    if text.len()>512*1024 {return vec![Ref{name:String::new(),role:Role::BeanCandidate,what:"XML source exceeds admission bound".into(),range:Range::default(),checked:false,owner:0}];}
     let els = xml::elements(text);
+    let spring=text.contains("www.springframework.org/schema/") || els.first().is_some_and(|root|root.local()=="beans" && matches!(xml::namespace(&els,0),None|Some("http://www.springframework.org/schema/beans")));
+    if !spring {return Vec::new();}
+    if !xml_namespaces::document_valid(text) {
+        return vec![Ref{name:String::new(),role:Role::BeanCandidate,what:"Unresolved XML source envelope".into(),range:Range::default(),checked:false,owner:0}];
+    }
     let attr_range = |a: &xml::Attr| range(text, a.value_at, a.value_end);
-    let mut out: Vec<Ref> = xml::bean_ids(&els)
-        .into_iter()
-        .map(|a| Ref { name: a.value.clone(), role: Role::Bean, what: "XML bean".into(), range: attr_range(a), checked: false, owner: 0 })
-        .collect();
+    let mut out=Vec::new();let mut seen=BTreeSet::new();
+    for (i,element) in els.iter().enumerate() {
+        let top=element.parent.is_none_or(|parent|els[parent].local()=="beans") || element.local()=="bean";
+        if !top || i==0 && element.local()=="beans" {continue;}
+        let namespace=xml::namespace(&els,i);
+        let known_container=xml_bean_container_owned(&els,i);
+        let standard=matches!(namespace,None|Some("http://www.springframework.org/schema/beans")) && matches!(element.local(),"bean"|"alias") && element.parent.is_some();
+        let integration=namespace==Some(NAMESPACE) && matches!(element.local(),"channel"|"publish-subscribe-channel"|"bridge"|"service-activator"|"transformer"|"filter"|"splitter"|"aggregator"|"router"|"gateway"|"inbound-channel-adapter"|"outbound-channel-adapter"|"chain");
+        let batch=namespace==Some("http://www.springframework.org/schema/batch") && matches!(element.local(),"job"|"flow"|"step");
+        for attribute in &element.attrs {
+            let alias=element.local()=="alias" && attribute.local()=="alias";
+            let names=element.local()=="bean" && attribute.local()=="name";
+            if !alias && !names && !(element.local()!="alias" && attribute.local()=="id") {continue;}
+            let spans=if names {xml_alias_spans(&attribute.value)}else{vec![(0,attribute.value.len())]};
+            for (start,end) in spans {
+                let name=&attribute.value[start..end];if name.is_empty() {continue;}
+                let owned=known_container && (standard || integration || batch) && attribute.name==attribute.local() && !name.chars().any(char::is_control) && !name.chars().any(|c|c.is_ascii_whitespace()) && !beans::is_expression(name);
+                let at=attribute.value_at+start;let to=attribute.value_at+end;
+                if !owned || seen.insert((i,name.to_string())) {out.push(Ref{name:name.into(),role:if owned {Role::Bean}else{Role::BeanCandidate},what:"XML bean source name".into(),range:range(text,at,to),checked:false,owner:0});}
+            }
+        }
+    }
     if !text.contains(NAMESPACE) {
         return out;
     }
     for (i, e) in els.iter().enumerate() {
-        if !xml::namespace(&els, i).is_some_and(|ns| ns.starts_with(NAMESPACE)) {
+        if !xml::namespace(&els, i).is_some_and(|ns| ns==NAMESPACE || ns.strip_prefix(NAMESPACE).is_some_and(|rest|rest.starts_with('/'))) {
             continue;
         }
         let outbound = e.local().contains("outbound");
         for a in &e.attrs {
+            if a.name!=a.local() {continue;}
             let role = match a.local() {
                 "id" if matches!(e.local(), "channel" | "publish-subscribe-channel") => Role::Declares,
                 "input-channel" | "default-reply-channel" => Role::Consumes,
                 "reply-channel" if !outbound => Role::Consumes,
                 "request-channel" | "channel" if outbound => Role::Consumes,
-                "output-channel" | "default-output-channel" | "discard-channel" | "error-channel"
-                | "default-request-channel" | "request-channel" | "reply-channel" | "channel" => Role::Produces,
+                "output-channel"
+                | "default-output-channel"
+                | "discard-channel"
+                | "error-channel"
+                | "default-request-channel"
+                | "request-channel"
+                | "reply-channel"
+                | "channel" => Role::Produces,
                 "ref" => Role::BeanRef,
                 _ => continue,
             };
+            if a.value.chars().any(char::is_control) {
+                out.push(Ref{name:String::new(),role:Role::BeanCandidate,what:"Unresolved XML attribute normalization".into(),range:attr_range(a),checked:false,owner:0});continue;
+            }
             let checked = matches!(role, Role::Produces | Role::BeanRef);
             out.push(Ref { name: a.value.clone(), role, what: format!("<{}>", e.name), range: attr_range(a), checked, owner: i + 1 });
         }
@@ -189,11 +326,14 @@ fn file_name(path: &str) -> &str {
 
 pub struct Integration {
     indexes: Indexes<Vec<Ref>>,
+    creation: file_actions::Creation,
+    graph: graph::External,
+    source_creation: channel_generation::Creation,
 }
 
 impl Default for Integration {
     fn default() -> Self {
-        Self { indexes: Indexes::new(&beans::GLOBS, index_file) }
+        Self { indexes: Indexes::new(&beans::GLOBS, index_file), creation: Default::default(), graph: Default::default(), source_creation: Default::default() }
     }
 }
 
@@ -204,9 +344,7 @@ fn all(index: &Index<Vec<Ref>>) -> impl Iterator<Item = (&str, &Ref)> {
 
 /// The references named like `r` in `roles`, `r` itself excluded.
 fn others<'a>(index: &'a Index<Vec<Ref>>, doc: &Document, r: &Ref, roles: &[Role]) -> Vec<(&'a str, &'a Ref)> {
-    all(index)
-        .filter(|(p, x)| roles.contains(&x.role) && x.name == r.name && !(*p == doc.path && x.range == r.range))
-        .collect()
+    all(index).filter(|(p, x)| roles.contains(&x.role) && x.name == r.name && !(*p == doc.path && x.range == r.range)).collect()
 }
 
 fn location((path, r): (&str, &Ref)) -> Location {
@@ -214,11 +352,34 @@ fn location((path, r): (&str, &Ref)) -> Location {
 }
 
 impl Integration {
+    fn warm_project(&mut self, project: &Project, budget: std::time::Duration) {
+        let Some(scope)=project.root().ok().and_then(|root|source_scope::Scope::current(&root)) else{return;};
+        scope.prune(self.indexes.get(project,budget));
+    }
+
+    fn reset_live(&mut self) {
+        self.indexes.reset();
+    }
+
+    fn live_diagnostics(&mut self, doc: &Document) -> Vec<Diagnostic> {
+        if !relevant(doc) {
+            return Vec::new();
+        }
+        let Some(scope)=source_scope::Scope::for_path(&doc.path) else{return Vec::new();};
+        let Some(index)=self.indexes.for_cached_document(&doc.path,&doc.text) else{return Vec::new();};
+        let Some(scope)=scope.refresh_for_path(&doc.path) else{return Vec::new();};
+        if !scope.prune(index) || !index.fresh() {return Vec::new();}
+        problems(index,doc)
+    }
+
     fn index(&mut self, doc: &Document) -> Option<&Index<Vec<Ref>>> {
         if !relevant(doc) {
             return None;
         }
-        self.indexes.for_document(&doc.path, &doc.text, PROVIDER_BUDGET).map(|i| &*i)
+        let scope=source_scope::Scope::for_path(&doc.path)?;
+        let index=self.indexes.for_document(&doc.path,&doc.text,PROVIDER_BUDGET)?;
+        let scope=scope.refresh_for_path(&doc.path)?;
+        scope.prune(index).then_some(&*index)
     }
 }
 
@@ -227,7 +388,7 @@ fn here<'a>(index: &'a Index<Vec<Ref>>, doc: &Document) -> &'a [Ref] {
 }
 
 fn problems(index: &Index<Vec<Ref>>, doc: &Document) -> Vec<Diagnostic> {
-    if !index.complete() {
+    if !index.complete() || all(index).any(|(_,reference)|reference.role==Role::BeanCandidate) {
         return Vec::new();
     }
     let known = |name: &str, roles: &[Role]| all(index).any(|(_, x)| x.name == name && roles.contains(&x.role));
@@ -238,11 +399,14 @@ fn problems(index: &Index<Vec<Ref>>, doc: &Document) -> Vec<Diagnostic> {
         .filter_map(|r| {
             let (code, message) = match r.role {
                 Role::BeanRef if !known(&r.name, &[Role::Bean]) => {
-                    ("unknown-bean", format!("No bean named '{}' is declared in the project.", r.name))
+                    ("unknown-bean", format!("No supported indexed literal bean named '{}' was found. Imported/composed/runtime contexts are unresolved.", r.name))
                 }
                 Role::Produces if !known(&r.name, &[Role::Declares, Role::Consumes, Role::Bean]) => (
                     "unconsumed-channel",
-                    format!("No endpoint consumes channel '{}' and no bean declares it, so nothing receives the messages sent to it.", r.name),
+                    format!(
+                        "No supported indexed literal consumer or declaration for channel '{}' was found. Imported/composed/runtime wiring is unresolved.",
+                        r.name
+                    ),
                 ),
                 _ => return None,
             };
@@ -253,10 +417,11 @@ fn problems(index: &Index<Vec<Ref>>, doc: &Document) -> Vec<Diagnostic> {
 
 impl Providers for Integration {
     fn completion(&mut self, doc: &Document, at: Position, _trigger: Option<&str>) -> Vec<CompletionItem> {
-        let Some(index) = self.index(doc) else { return Vec::new() };
-        let Some(r) = here(index, doc)
-            .iter()
-            .find(|r| contains(r.range, at) && matches!(r.role, Role::Consumes | Role::Produces | Role::BeanRef))
+        let Some(index) = self.index(doc) else {
+            return Vec::new();
+        };
+        let Some(r) =
+            here(index, doc).iter().find(|r| contains(r.range, at) && matches!(r.role, Role::Consumes | Role::Produces | Role::BeanRef))
         else {
             return Vec::new();
         };
@@ -279,9 +444,11 @@ impl Providers for Integration {
     }
 
     fn definition(&mut self, doc: &Document, at: Position) -> Vec<Location> {
-        let Some(index) = self.index(doc) else { return Vec::new() };
-        let Some(r) = here(index, doc).iter().find(|r| contains(r.range, at) && r.role != Role::Bean && !r.name.is_empty())
-        else {
+        if doc.language == "xml" && !crate::xml_namespaces::document_valid(&doc.text) { return vec![]; }
+        let Some(index) = self.index(doc) else {
+            return Vec::new();
+        };
+        let Some(r) = here(index, doc).iter().find(|r| contains(r.range, at) && matches!(r.role,Role::Declares|Role::Consumes|Role::Produces|Role::BeanRef) && !r.name.is_empty()) else {
             return Vec::new();
         };
         let found = match r.role {
@@ -294,8 +461,9 @@ impl Providers for Integration {
     }
 
     fn line_markers(&mut self, doc: &Document) -> Vec<LineMarker> {
-        let Some(index) = self.index(doc) else { return Vec::new() };
-        publish(&doc.path, &problems(index, doc));
+        let Some(index) = self.index(doc) else {
+            return Vec::new();
+        };
         let mut markers = Vec::new();
         for r in here(index, doc).iter().filter(|r| !r.name.is_empty()) {
             let (found, title) = match r.role {
@@ -303,11 +471,11 @@ impl Providers for Integration {
                 Role::Produces => (others(index, doc, r, &[Role::Consumes]), format!("'{}' is consumed by", r.name)),
                 _ => continue,
             };
-            let Some(&first) = found.first() else { continue };
-            let list: Vec<String> = found
-                .iter()
-                .map(|(p, x)| format!("{} ({}:{})", x.what, file_name(p), x.range.start.line + 1))
-                .collect();
+            let Some(&first) = found.first() else {
+                continue;
+            };
+            let list: Vec<String> =
+                found.iter().map(|(p, x)| format!("{} ({}:{})", x.what, file_name(p), x.range.start.line + 1)).collect();
             markers.push(LineMarker {
                 line: r.range.start.line,
                 icon: None,
@@ -370,44 +538,28 @@ fn diagram_of(index: &Index<Vec<Ref>>) -> (Vec<Node>, Vec<Edge>) {
 
 impl Views for Integration {
     fn render(&mut self, _view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
-        let refresh = Button::new("refresh", "Refresh").icon("refresh");
-        let Some(project) = ctx.project() else { return Ok(View::message("Open a project to see its message channels.").button(refresh)) };
-        let index = self.indexes.get(&project, COMMAND_BUDGET);
-        let complete = index.complete();
-        if !complete {
-            self::refresh(&id(VIEW));
-        }
-        let (nodes, edges) = diagram_of(index);
-        let status = format!("{} nodes · {} links{}", nodes.len(), edges.len(), if complete { "" } else { " · scanning…" });
-        Ok(View::new(Body::Html(diagram::html(&nodes, &edges, "No message channels found."))).button(refresh).status(&status))
+        self.render_graph(ctx)
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {
-        let key = match event {
-            ViewEvent::Button(b) if b == "refresh" => {
-                // Resetting a scan in progress would throw away what it has read.
-                if let Some(project) = ctx.project()
-                    && self.indexes.get(&project, std::time::Duration::ZERO).complete()
-                {
-                    self.indexes.reset();
-                }
-                refresh(view);
-                return Ok(());
-            }
-            ViewEvent::Activate(key) | ViewEvent::Message(key) => key,
-            _ => return Ok(()),
-        };
-        let mut parts = key.splitn(4, ':');
-        if let (Some("b" | "e"), Some(line), Some(col), Some(path)) = (parts.next(), parts.next(), parts.next(), parts.next()) {
-            host::open_location(path, line.parse().unwrap_or(0), col.parse().unwrap_or(0))?;
+        if ui_kit::web::handle(self, view, &event, ctx, include_str!("ui_config.json"))? {
+            return Ok(());
         }
-        Ok(())
+
+        if matches!(&event,ViewEvent::Button(b) if b == "refresh") {
+            if let Some(project)=ctx.project() && self.indexes.get(&project,std::time::Duration::ZERO).complete() {self.indexes.reset();}
+            refresh(view);return Ok(());
+        }
+        self.handle_graph(event,ctx)
     }
 }
 
 impl Plugin for Integration {
-    fn run_command(&mut self, id: &str, _ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
-        Err(Error::NotFound(format!("command {id}")))
+    fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
+        match id {
+            "integration.current-file-channel-occurrences" => navigation::occurrences(ctx),
+            _ => Err(Error::NotFound(format!("command {id}"))),
+        }
     }
 }
 
@@ -421,34 +573,25 @@ fn id(name: &str) -> String {
 
 pub(crate) fn refresh(_view: &str) {
     host::refresh_view(OWNER_WINDOW);
-}
-
-thread_local! {
-    static PROBLEMS: RefCell<Vec<Diagnostic>> = const { RefCell::new(Vec::new()) };
-}
-
-/// The diagnostics belong to the owner plugin, which publishes every module's together: a publish replaces the whole file.
-fn publish(_path: &str, problems: &[Diagnostic]) {
-    PROBLEMS.set(problems.to_vec());
-}
-
-pub fn take_problems() -> Vec<Diagnostic> {
-    PROBLEMS.take()
+    let _ = host::post_view_message(OWNER_WINDOW, r#"{"channel":"ui-kit-refresh"}"#);
 }
 
 const BUILD_FILES: [&str; 3] = ["pom.xml", "build.gradle", "build.gradle.kts"];
-const DEPENDENCY_MARKERS: [&str; 8] = ["spring-integration", "starter-integration", "<module>", "include(", "include '", "include \"", "(libs.", " libs."];
+const DEPENDENCY_MARKERS: [&str; 8] =
+    ["spring-integration", "starter-integration", "<module>", "include(", "include '", "include \"", "(libs.", " libs."];
 
 /// True when unsure: a multi-module build or a version catalog hides the dependency from the root build file.
 pub fn applies(project: &Project) -> bool {
-    let Ok(root) = project.root() else { return true };
+    let Ok(root) = project.root() else {
+        return true;
+    };
     BUILD_FILES
         .iter()
         .filter_map(|file| project.read_file(&format!("{root}/{file}")).ok())
         .any(|build| DEPENDENCY_MARKERS.iter().any(|marker| build.contains(marker)))
 }
 
-openidea_plugin::register_plugin!(structure::Structure, providers, views);
+openidea_plugin::register_plugin!(structure::Structure, providers, views, diagnostics, file_actions, hover);
 
 #[cfg(test)]
 mod tests {
@@ -458,7 +601,7 @@ mod tests {
     const CONFIG: &str = r#"package com.acme;
 
 import org.springframework.integration.dsl.IntegrationFlow;
-import org.springframework.integration.dsl.MessageChannels;
+import org.springframework.integration.dsl.MessageChannels; import org.springframework.context.annotation.Configuration; import org.springframework.context.annotation.Bean; import org.springframework.messaging.MessageChannel; import org.springframework.messaging.PollableChannel;
 
 @Configuration
 public class FlowConfig {
@@ -469,7 +612,7 @@ public class FlowConfig {
     public IntegrationFlow shipping() {
         return IntegrationFlow.from("orders")
             .channel("shipping")
-            .channel(c -> c.queue("audit"))
+            .channel(MessageChannels.queue("audit"))
             .get();
     }
 
@@ -479,7 +622,7 @@ public class FlowConfig {
 "#;
     const ENDPOINTS_SRC: &str = r#"package com.acme;
 
-import org.springframework.integration.annotation.*;
+import org.springframework.stereotype.Component; import org.springframework.integration.annotation.ServiceActivator; import org.springframework.integration.annotation.Transformer; import org.springframework.integration.annotation.Filter; import org.springframework.integration.annotation.MessagingGateway; import org.springframework.integration.annotation.Gateway;
 
 @Component
 public class Billing {
@@ -510,7 +653,27 @@ interface OrderGateway {
     <bean id="pricing" class="com.acme.Pricing"/>
 </beans>
 "#;
-    const EXPECTED_LABELS: &[&str] = &["<int-http:outbound-gateway>", "<int:outbound-channel-adapter>", "<int:service-activator>", "@Filter accept()", "@Gateway place()", "@MessagingGateway OrderGateway", "@ServiceActivator bill()", "@Transformer audit()", "audit", "confirmations", "errorChannel", "invoices", "late", "lost", "nowhere", "orders", "quoted", "quotes", "shipping"];
+    const EXPECTED_LABELS: &[&str] = &[
+        "<int-http:outbound-gateway>",
+        "<int:outbound-channel-adapter>",
+        "<int:service-activator>",
+        "@Filter accept()",
+        "@Gateway place()",
+        "@MessagingGateway OrderGateway",
+        "@ServiceActivator bill()",
+        "@Transformer audit()",
+        "audit",
+        "confirmations",
+        "errorChannel",
+        "invoices",
+        "late",
+        "lost",
+        "nowhere",
+        "orders",
+        "quoted",
+        "quotes",
+        "shipping",
+    ];
     const EXPECTED_PAIRS: &[(&str, &str)] = &[
         ("shipping", "@ServiceActivator bill()"),
         ("audit", "@Transformer audit()"),
@@ -569,7 +732,7 @@ interface OrderGateway {
         assert_eq!(names(&xml, Role::Consumes), ["invoices", "invoices", "quotes"]);
         assert_eq!(names(&xml, Role::Produces), ["lost", "quoted"]);
         assert_eq!(names(&xml, Role::BeanRef), ["billing", "mailer"]);
-        assert!(parse(XML_PATH, "<beans><int:channel id=\"x\"/></beans>").is_empty());
+        assert!(parse(XML_PATH, "<beans><int:channel id=\"x\"/></beans>").iter().all(|reference|reference.role==Role::BeanCandidate));
     }
 
     #[test]
@@ -596,12 +759,18 @@ interface OrderGateway {
         let mut p = Integration::default();
         let markers = p.line_markers(&doc(BILLING_PATH, ENDPOINTS_SRC));
         let tips: Vec<_> = markers.iter().map(|m| (m.line, m.tooltip.as_str())).collect();
-        assert_eq!(tips, [
-            (6, "Sent to 'shipping' by: flow .channel (FlowConfig.java:14)"),
-            (6, "'invoices' is consumed by: <int:service-activator> (integration.xml:6), <int:outbound-channel-adapter> (integration.xml:7)"),
-            (16, "'orders' is consumed by: IntegrationFlow.from (FlowConfig.java:13)"),
-            (18, "'orders' is consumed by: IntegrationFlow.from (FlowConfig.java:13)"),
-        ]);
+        assert_eq!(
+            tips,
+            [
+                (6, "Sent to 'shipping' by: flow .channel (FlowConfig.java:14)"),
+                (
+                    6,
+                    "'invoices' is consumed by: <int:service-activator> (integration.xml:6), <int:outbound-channel-adapter> (integration.xml:7)"
+                ),
+                (16, "'orders' is consumed by: IntegrationFlow.from (FlowConfig.java:13)"),
+                (18, "'orders' is consumed by: IntegrationFlow.from (FlowConfig.java:13)"),
+            ]
+        );
         assert_eq!(markers[1].target.as_ref().unwrap().path, XML_PATH);
     }
 
@@ -613,9 +782,9 @@ interface OrderGateway {
             problems.iter().map(|d| (d.range.start.line, d.code.clone().unwrap())).collect()
         };
         p.line_markers(&doc(BILLING_PATH, ENDPOINTS_SRC));
-        assert_eq!(codes(&take_problems()), [(9, "unconsumed-channel".into())]);
+        assert_eq!(codes(&p.live_diagnostics(&doc(BILLING_PATH, ENDPOINTS_SRC))), [(9, "unconsumed-channel".into())]);
         p.line_markers(&doc(XML_PATH, XML));
-        let xml_problems = take_problems();
+        let xml_problems = p.live_diagnostics(&doc(XML_PATH, XML));
         assert_eq!(codes(&xml_problems), [(5, "unconsumed-channel".into()), (6, "unknown-bean".into()), (7, "unconsumed-channel".into())]);
         assert!(xml_problems[1].message.contains("'mailer'"));
     }
@@ -741,5 +910,4 @@ interface OrderGateway {
         refresh("diagram");
         assert_eq!(host.refreshed_views(), ["structure"]);
     }
-
 }

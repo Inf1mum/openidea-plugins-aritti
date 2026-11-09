@@ -5,15 +5,129 @@
 
 use crate::checks::Settings;
 use crate::props::{append_line, escape_key, escape_value, file_name, locale_name, parse, suffix, unescape, whole_lines};
-use crate::{Properties, bundle_siblings, project_for, to_edits};
+use crate::{Properties, bundle_inventory, project_for, to_edits};
 use openidea_plugin::text::position;
 use openidea_plugin::views::{Body, Button, Table, TreeItem, View, ViewEvent, Viewport, Views};
-use openidea_plugin::{Error, EventKind, Invocation, NotificationLevel, host};
+use openidea_plugin::{Error, EventKind, Invocation, NotificationLevel, TextEditor, host};
+use openidea_plugin::providers::Document;
 use std::collections::{HashMap, HashSet};
 use std::ops::Range as Span;
 
 pub const STRUCTURE: &str = "structure";
 pub const BUNDLE: &str = "bundle";
+const MAX_BUNDLE_TEXT: usize = 256 << 10;
+const MAX_BUNDLE_TOTAL: usize = 1 << 20;
+const MAX_BUNDLE_KEYS: usize = 4096;
+const MAX_BUNDLE_CELLS: usize = 32768;
+
+/// Native table events contain row indices, not source versions or opaque keys.
+/// Bind their meaning to the last source/layout actually returned for this file.
+#[derive(Clone)]
+pub(crate) struct BundleBinding {
+    root: String,
+    doc: Document,
+    keys: Vec<String>,
+    files: Vec<String>,
+}
+
+/// One bounded, ephemeral inverse for the last reviewed native-table mutation.
+/// This is deliberately independent of the host's native Undo stack.
+pub(crate) struct BundleRevert {
+    root: String,
+    after: Document,
+    inverse: Vec<openidea_plugin::TextEdit>,
+}
+fn inverse_bundle_edit(doc: &Document, edits: &[openidea_plugin::TextEdit]) -> Result<(String,Vec<openidea_plugin::TextEdit>),Error> {
+    if doc.text.len()>MAX_BUNDLE_TEXT { return Err(Error::Stale); }
+    let mut changes=edits.iter().map(|edit| {
+        let start=openidea_plugin::text::offset(&doc.text,edit.range.start).ok_or(Error::Stale)?;
+        let end=openidea_plugin::text::offset(&doc.text,edit.range.end).ok_or(Error::Stale)?;
+        if start>end { return Err(Error::Stale); }
+        Ok((start,end,edit.text.clone()))
+    }).collect::<Result<Vec<_>,Error>>()?;
+    changes.sort_by_key(|(start,end,_)|(*start,*end));
+    if changes.windows(2).any(|pair|pair[0].1>pair[1].0) { return Err(Error::Stale); }
+    let mut joined: Vec<(usize,usize,String)>=Vec::new();
+    for (start,end,text) in changes {
+        if let Some(previous)=joined.last_mut() {
+            if previous.1==start { previous.1=end; previous.2.push_str(&text); continue; }
+        }
+        joined.push((start,end,text));
+    }
+    let changes=joined;
+    let size=changes.iter().try_fold(doc.text.len(),|size,(start,end,text)|size.checked_sub(end-start).and_then(|n|n.checked_add(text.len()))).ok_or(Error::Stale)?;
+    if size>MAX_BUNDLE_TEXT { return Err("Edited bundle source would exceed 256 KiB.".into()); }
+    let mut after=doc.text.clone();
+    for (start,end,text) in changes.iter().rev() { after.replace_range(*start..*end,text); }
+    let mut delta=0isize;
+    let mut inverse=Vec::new();
+    for (start,end,text) in changes {
+        let shifted=start.checked_add_signed(delta).ok_or(Error::Stale)?;
+        inverse.push(openidea_plugin::TextEdit{range:crate::range_of(&after,&(shifted..shifted+text.len())),text:doc.text[start..end].into()});
+        delta+=text.len() as isize-(end-start) as isize;
+    }
+    Ok((after,inverse))
+}
+fn revert_review(record: &BundleRevert) -> Result<String,Error> {
+    let mut body=format!("Revert the last reviewed bundle edit only. This is a plugin memory-only inverse, not native Undo. No other file changes.\nProject: {}\nFile: {}\nDocument version: {}\n",serde_json::to_string(&record.root).unwrap_or_default(),serde_json::to_string(&record.after.path).unwrap_or_default(),record.after.version);
+    for edit in &record.inverse {
+        let start=openidea_plugin::text::offset(&record.after.text,edit.range.start).ok_or(Error::Stale)?;
+        let end=openidea_plugin::text::offset(&record.after.text,edit.range.end).ok_or(Error::Stale)?;
+        body.push_str(&format!("\nRange: {}:{}–{}:{}\nBefore: {}\nAfter: {}\n",edit.range.start.line+1,edit.range.start.character+1,edit.range.end.line+1,edit.range.end.character+1,serde_json::to_string(&record.after.text[start..end]).unwrap_or_default(),serde_json::to_string(&edit.text).unwrap_or_default()));
+    }
+    Ok(body)
+}
+
+/// Broadcast only invalidation; the receiving page obtains its own current Invocation.
+pub(crate) fn refresh_structure() {
+    host::refresh_view(STRUCTURE);
+    let _ = host::post_view_message(STRUCTURE, r#"{"channel":"ui-kit-refresh"}"#);
+}
+fn owned_editor(ctx: &Invocation) -> Result<(TextEditor, Document, String), Error> {
+    let project = ctx.project().ok_or(Error::Stale)?;
+    let root = project.root()?;
+    let editor = ctx.editor().ok_or(Error::Stale)?;
+    let path = editor.path();
+    if root.is_empty() || editor.language() != "properties" || !path.ends_with(".properties")
+        || host::project_of(&path).and_then(|p|p.root().ok()).as_deref() != Some(root.as_str()) {
+        return Err(Error::Stale);
+    }
+    let snapshot = editor.document()?;
+    let doc = Document { path, language: "properties".into(), version: snapshot.version, text: snapshot.text };
+    Ok((editor, doc, root))
+}
+fn scoped_key(root: &str, doc: &Document, key: &str) -> String {
+    format!("doc:{}", serde_json::json!([root,doc.path,doc.version,key]))
+}
+
+fn bundle_edit_review(root: &str, doc: &Document, grid: &Grid, event: &ViewEvent, edits: &[openidea_plugin::TextEdit]) -> Result<String, Error> {
+    let (operation, keys): (&str, Vec<&str>) = match event {
+        ViewEvent::Cell {row,column:0,..} => ("Change a key spelling in this file", vec![grid.keys.get(*row as usize).ok_or(Error::Stale)?]),
+        ViewEvent::Cell {row,column:1,..} => ("Set this file's property value", vec![grid.keys.get(*row as usize).ok_or(Error::Stale)?]),
+        ViewEvent::DeleteRows(rows) => ("Remove keys from this file", rows.iter().map(|row|grid.keys.get(*row as usize).map(String::as_str).ok_or(Error::Stale)).collect::<Result<_,_>>()?),
+        ViewEvent::InsertRow(before) => ("Insert a property before the listed key, or append if none", grid.keys.get(*before as usize).map(String::as_str).into_iter().collect()),
+        _ => return Err(Error::Stale),
+    };
+    let mut body = format!("Project: {}\nFile: {}\nDocument version: {}\nOperation: {operation}\nCurrent key(s): {}\n\nReview every exact edit below. Only this file changes; code references and other locale files are not edited.\n",serde_json::to_string(root).unwrap_or_default(),serde_json::to_string(&doc.path).unwrap_or_default(),doc.version,serde_json::to_string(&keys).unwrap_or_default());
+    for edit in edits {
+        let start = openidea_plugin::text::offset(&doc.text,edit.range.start).ok_or(Error::Stale)?;
+        let end = openidea_plugin::text::offset(&doc.text,edit.range.end).ok_or(Error::Stale)?;
+        let before = doc.text.get(start..end).ok_or(Error::Stale)?;
+        body.push_str(&format!("\nRange: {}:{}–{}:{}\nBefore: {}\nAfter: {}\n",edit.range.start.line+1,edit.range.start.character+1,edit.range.end.line+1,edit.range.end.character+1,serde_json::to_string(before).unwrap_or_default(),serde_json::to_string(&edit.text).unwrap_or_default()));
+    }
+    Ok(body)
+}
+fn checked_key(key: &str, root: &str, doc: &Document) -> Result<String, Error> {
+    let Some(raw) = key.strip_prefix("doc:") else {
+        // Native structure views retain their established local key spelling.
+        return if ui_kit::web::is_rendering() { Err(Error::Stale) } else { Ok(key.into()) };
+    };
+    let value: serde_json::Value = serde_json::from_str(raw).map_err(|_|Error::Stale)?;
+    let parts = value.as_array().filter(|p|p.len()==4).ok_or(Error::Stale)?;
+    if parts[0].as_str()!=Some(root) || parts[1].as_str()!=Some(doc.path.as_str()) || parts[2].as_u64()!=Some(doc.version) { return Err(Error::Stale); }
+    parts[3].as_str().map(str::to_owned).ok_or(Error::Stale)
+}
+
 
 struct Entry {
     /// Earlier properties of the file with the same key.
@@ -63,6 +177,7 @@ fn group_by_prefix(entries: &[&Entry], consumed: usize, parent: Option<&str>, co
 
 /// The other files of a bundle, read once per editor (until a save or Reload).
 pub struct BundleFiles {
+    pub root: String,
     pub path: String,
     pub others: Vec<(String, String)>,
 }
@@ -76,18 +191,20 @@ pub struct Grid {
     pub rows: Vec<Vec<String>>,
     pub missing: usize,
     pub gaps: Vec<usize>,
+    exact_keys: bool,
 }
 
 pub fn grid(path: &str, text: &str, others: &[(String, String)]) -> Grid {
-    let files: Vec<(&str, &str)> =
-        std::iter::once((path, text)).chain(others.iter().map(|(p, t)| (p.as_str(), t.as_str()))).collect();
+    let files: Vec<(&str, &str)> = std::iter::once((path, text)).chain(others.iter().map(|(p, t)| (p.as_str(), t.as_str()))).collect();
 
     let mut keys: Vec<String> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
     let mut values: Vec<HashMap<String, String>> = Vec::new();
+    let mut exact_keys = true;
     for (_, file_text) in &files {
         let mut file_values = HashMap::new();
         for p in parse(file_text) {
+            exact_keys &= p.exact_key(file_text).is_some();
             let key = p.unescaped_key(file_text);
             if seen.insert(key.clone()) {
                 keys.push(key.clone());
@@ -112,7 +229,7 @@ pub fn grid(path: &str, text: &str, others: &[(String, String)]) -> Grid {
     let gaps: Vec<usize> = keys.iter().map(|key| values.iter().filter(|v| !v.contains_key(key)).count()).collect();
     let missing = gaps.iter().sum();
 
-    Grid { columns, files: files.iter().map(|(p, _)| (*p).to_owned()).collect(), keys, rows, missing, gaps }
+    Grid { columns, files: files.iter().map(|(p, _)| (*p).to_owned()).collect(), keys, rows, missing, gaps, exact_keys }
 }
 
 impl Grid {
@@ -130,6 +247,9 @@ impl Grid {
 /// What a table edit does to this file: cells of the key and of this file's
 /// column, inserted and deleted rows. Other locales are only shown.
 pub fn bundle_edits(text: &str, grid: &Grid, event: &ViewEvent, settings: &Settings) -> Result<Vec<(Span<usize>, String)>, Error> {
+    if !grid.exact_keys || parse(text).iter().any(|p| p.exact_key(text).is_none()) {
+        return Err("A bundle key cannot be represented losslessly; edit its source spelling directly.".into());
+    }
     let props = parse(text);
     let declared = |key: &str| props.iter().filter(|p| p.unescaped_key(text) == key).collect::<Vec<_>>();
     let line = |key: &str, value: &str| format!("{}{}{}", escape_key(key), settings.delimiter_text(), escape_value(value));
@@ -143,11 +263,14 @@ pub fn bundle_edits(text: &str, grid: &Grid, event: &ViewEvent, settings: &Setti
                         return Err("A key can't be empty.".into());
                     }
                     let found = declared(key);
+                    if found.len() > 1 { return Err("Resolve duplicate keys before editing this bundle row.".into()); }
+                    if value != key && !declared(value).is_empty() { return Err("This key already exists in the current file.".into()); }
                     if found.is_empty() {
                         return Err(format!("'{key}' isn't in this file.").into());
                     }
                     Ok(found.iter().map(|p| (p.key.clone(), escape_key(value))).collect())
                 }
+                1 if declared(key).len() > 1 => Err("Resolve duplicate keys before editing this bundle row.".into()),
                 1 => Ok(vec![match declared(key).first() {
                     Some(p) if p.sep.is_some() => (p.value.clone(), escape_value(value)),
                     Some(p) => (p.key.end..p.value.end, format!("{}{}", settings.delimiter_text(), escape_value(value))),
@@ -183,20 +306,50 @@ pub fn bundle_edits(text: &str, grid: &Grid, event: &ViewEvent, settings: &Setti
 
 impl Properties {
     fn bundle_files(&mut self, path: &str) -> Result<&BundleFiles, Error> {
-        if self.bundle.as_ref().is_none_or(|b| b.path != path) {
-            let project = project_for(path)?;
-            let mut others: Vec<(String, String)> = bundle_siblings(&project, path)?
-                .into_iter()
-                .filter_map(|other| project.read_file(&other).ok().map(|text| (other, text)))
-                .collect();
+        let project = project_for(path)?;
+        let root = project.root()?;
+        if root.is_empty() { return Err(Error::Stale); }
+        if self.bundle.as_ref().is_none_or(|b| b.path != path || b.root != root) {
+            let (siblings,complete) = bundle_inventory(&project,path)?;
+            if !complete || siblings.len()>=199 { return Err("Bundle view requires a complete bounded source inventory.".into()); }
+            let mut others=Vec::new();
+            let mut bytes=0usize;
+            for other in siblings {
+                if host::project_of(&other).and_then(|p|p.root().ok()).as_deref()!=Some(root.as_str()) { return Err(Error::Stale); }
+                let stat=project.stat(&other)?;
+                if stat.kind!=openidea_plugin::FileKind::File || stat.size>MAX_BUNDLE_TEXT as u64 { return Err("Bundle locale exceeds its source byte limit.".into()); }
+                let text=project.read_file(&other)?;
+                bytes=bytes.saturating_add(text.len());
+                if text.len()>MAX_BUNDLE_TEXT || bytes>MAX_BUNDLE_TOTAL { return Err("Bundle locales exceed their source byte limit.".into()); }
+                others.push((other,text));
+            }
             others.sort_by(|a, b| suffix(&a.0).cmp(suffix(&b.0)));
-            self.bundle = Some(BundleFiles { path: path.to_owned(), others });
+            self.bundle = Some(BundleFiles { root: root.clone(), path: path.to_owned(), others });
         }
-        self.bundle.as_ref().ok_or_else(|| "no bundle".into())
+        let bundle = self.bundle.as_ref().ok_or_else(|| Error::Invalid("no bundle".into()))?;
+        if bundle.others.iter().any(|(other,_)| host::project_of(other).and_then(|p|p.root().ok()).as_deref()!=Some(root.as_str())) { return Err(Error::Stale); }
+        Ok(bundle)
     }
 
     fn bundle_grid(&mut self, path: &str, text: &str) -> Result<Grid, Error> {
-        let grid = grid(path, text, &self.bundle_files(path)?.others);
+        if text.len()>MAX_BUNDLE_TEXT { return Err("Bundle source exceeds its source byte limit.".into()); }
+        let others = &self.bundle_files(path)?.others;
+        let mut total = 0usize;
+        let mut names = HashSet::new();
+        if others.len() >= 199 { return Err("Bundle view exceeds 199 files; use a smaller source scope.".into()); }
+        for source in std::iter::once(text).chain(others.iter().map(|(_, text)| text.as_str())) {
+            total = total.saturating_add(source.len());
+            if source.len() > MAX_BUNDLE_TEXT || total > MAX_BUNDLE_TOTAL { return Err("Bundle view exceeds its source byte limit.".into()); }
+            for prop in parse(source) {
+                let key = prop.exact_key(source).ok_or("A bundle key cannot be represented losslessly; edit its source spelling directly.")?;
+                names.insert(key);
+                if names.len() > MAX_BUNDLE_KEYS || names.len().saturating_mul(others.len()+2) > MAX_BUNDLE_CELLS {
+                    return Err("Bundle view exceeds its bounded key/cell layout; use a smaller source scope.".into());
+                }
+            }
+        }
+        let grid = grid(path, text, others);
+        if !grid.exact_keys { return Err("A bundle key cannot be represented losslessly; edit its source spelling directly.".into()); }
         Ok(if self.bundle_incomplete_only { grid.keep_incomplete() } else { grid })
     }
 
@@ -214,11 +367,10 @@ impl Properties {
                 .button(Button::new("refresh", "Refresh").icon("refresh"))
         };
 
-        let Some(editor) = ctx.editor().filter(|e| e.language() == "properties") else {
-            return Ok(toolbar(View::message("Open a .properties file to see its properties.")));
+        let Ok((editor, doc, root)) = owned_editor(ctx) else {
+            return Ok(toolbar(View::message("Open a project-owned .properties file to see its properties.")));
         };
-
-        let text = editor.document()?.text;
+        let text = &doc.text;
         let mut seen: HashMap<String, usize> = HashMap::new();
         let mut entries: Vec<Entry> = parse(&text)
             .iter()
@@ -247,6 +399,13 @@ impl Properties {
             group_by_prefix(&entries.iter().collect::<Vec<_>>(), 0, None, &self.structure_collapsed, &mut items);
         }
 
+        if ui_kit::web::is_rendering() {
+            for item in &mut items {
+                item.key = scoped_key(&root, &doc, &item.key);
+                item.parent = item.parent.as_ref().map(|key|scoped_key(&root,&doc,key));
+            }
+        }
+
         let count = match entries.len() {
             1 => "1 property".to_owned(),
             n => format!("{n} properties"),
@@ -256,6 +415,12 @@ impl Properties {
     }
 
     fn handle_structure(&mut self, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {
+        let event = match event {
+            ViewEvent::Activate(key) => { let (_,doc,root)=owned_editor(ctx)?; ViewEvent::Activate(checked_key(&key,&root,&doc)?) },
+            ViewEvent::Expand(key) => { let (_,doc,root)=owned_editor(ctx)?; ViewEvent::Expand(checked_key(&key,&root,&doc)?) },
+            ViewEvent::Collapse(key) => { let (_,doc,root)=owned_editor(ctx)?; ViewEvent::Collapse(checked_key(&key,&root,&doc)?) },
+            event => event,
+        };
         match event {
             ViewEvent::Button(id) => {
                 match id.as_str() {
@@ -265,7 +430,8 @@ impl Properties {
                     "collapse-all" => {
                         self.structure_collapsed.clear();
                         if let Body::Tree(items) = self.render_structure(ctx)?.body {
-                            self.structure_collapsed = items.into_iter().map(|i| i.key).filter(|k| k.starts_with("g:")).collect();
+                            let (_,doc,root)=owned_editor(ctx)?;
+                            self.structure_collapsed = items.into_iter().filter_map(|i| checked_key(&i.key,&root,&doc).ok()).filter(|k| k.starts_with("g:")).collect();
                         }
                     }
                     _ => {}
@@ -281,10 +447,14 @@ impl Properties {
                 host::refresh_view(STRUCTURE);
             }
             ViewEvent::Activate(key) => {
-                let Some((occurrence, key)) = key.strip_prefix("p:").and_then(|k| k.split_once(':')) else { return Ok(()) };
-                let Ok(occurrence) = occurrence.parse::<usize>() else { return Ok(()) };
-                let editor = ctx.editor().ok_or("No file is open.")?;
-                let text = editor.document()?.text;
+                let Some((occurrence, key)) = key.strip_prefix("p:").and_then(|k| k.split_once(':')) else {
+                    return Ok(());
+                };
+                let Ok(occurrence) = occurrence.parse::<usize>() else {
+                    return Ok(());
+                };
+                let (editor,doc,_) = owned_editor(ctx)?;
+                let text = doc.text;
                 let p = parse(&text)
                     .into_iter()
                     .filter(|p| p.unescaped_key(&text) == key)
@@ -299,10 +469,13 @@ impl Properties {
     }
 
     fn render_bundle(&mut self, viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
-        let editor = ctx.editor().ok_or("The Resource Bundle editor needs an open file.")?;
+        let (editor,doc,root) = owned_editor(ctx)?;
         let path = editor.path();
-        let text = editor.document()?.text;
-        let grid = self.bundle_grid(&path, &text)?;
+        self.bundle_bindings.remove(&path);
+        let grid = self.bundle_grid(&path, &doc.text)?;
+        let can_revert=self.bundle_revert.as_ref().is_some_and(|record|record.root==root && record.after==doc);
+        if self.bundle_bindings.len() >= 8 { self.bundle_bindings.clear(); }
+        self.bundle_bindings.insert(path.clone(), BundleBinding {root,doc,keys:grid.keys.clone(),files:grid.files.clone()});
 
         let total = grid.keys.len() as u32;
         let shown = Viewport::range(viewport, total, 200);
@@ -317,71 +490,85 @@ impl Properties {
         let filter = if self.bundle_incomplete_only { "Show All Keys" } else { "Show Incomplete Only" };
         let mut status = format!("{total} keys · {} locales · {} missing translations", grid.files.len(), grid.missing);
         if grid.files.len() > 1 {
-            status.push_str(" · Editing another locale's cell writes its file");
+            status.push_str(" · Other locale cells open their file; use native intentions for atomic bundle edits");
         }
-        Ok(View::new(Body::Table(table))
+        let mut view=View::new(Body::Table(table))
             .button(Button::new("reload", "Reload Locales").icon("refresh"))
             .button(Button::new("incomplete", filter).icon("filter"))
-            .status(&status))
+            .status(&status);
+        if can_revert { view=view.button(Button::new("revert-reviewed", "Revert last reviewed bundle edit…")); }
+        Ok(view)
     }
 
     fn write_locale(&mut self, grid: &Grid, event: &ViewEvent, row: u32, column: u32) -> Result<(), Error> {
-        if !host::setting_bool("bundle.writeOtherLocales").unwrap_or(true) {
-            return self.open_locale(grid, row, column);
-        }
-        let ViewEvent::Cell { value, .. } = event else { return Ok(()) };
-        let other = grid.files.get(column as usize - 1).ok_or("No such column.")?.clone();
-        let project = project_for(&other)?;
-        let text = project.read_file(&other)?;
-        let edit_event = ViewEvent::Cell { row, column: 1, value: value.clone() };
-        let mut edits = bundle_edits(&text, grid, &edit_event, &Settings::load())?;
-        edits.sort_by_key(|(span, _)| std::cmp::Reverse(span.start));
-        let mut updated = text;
-        for (span, replacement) in edits {
-            updated.replace_range(span, &replacement);
-        }
-
-        let written = host::run_process("tee", &[other.clone()], Some(&updated))
-            .and_then(|out| if out.status == Some(0) { Ok(()) } else { Err(Error::Invalid(out.stderr)) });
-        match written {
-            Ok(()) => {
-                self.bundle = None;
-                host::refresh_view(BUNDLE);
-                Ok(())
-            }
-            Err(Error::Denied(_)) => self.open_locale(grid, row, column),
-            Err(e) => Err(e),
-        }
+        let _ = event;
+        // A view callback cannot return a native workspace action. Navigate to
+        // the selected locale instead of silently replacing a sibling file.
+        self.open_locale(grid, row, column)
     }
 
     fn open_locale(&self, grid: &Grid, row: u32, column: u32) -> Result<(), Error> {
+        if !grid.exact_keys { return Err(Error::Stale); }
         let key = grid.keys.get(row as usize).ok_or("No such row.")?;
         let other = grid.files.get(column as usize - 1).ok_or("No such column.")?;
-        let text = project_for(other)?.read_file(other)?;
+        let root = project_for(grid.files.first().ok_or(Error::Stale)?)?.root()?;
+        let project = project_for(other)?;
+        if root.is_empty() || project.root()? != root { return Err(Error::Stale); }
+        let text = project.read_file(other)?;
         let line = parse(&text)
             .iter()
             .find(|p| p.unescaped_key(&text) == *key)
             .map_or_else(|| text.lines().count() as u32, |p| position(&text, p.key.start).line);
-        host::open_location(other, line, 0)
+        host::open_location(other, line, 0)?;
+        refresh_structure();
+        Ok(())
     }
 
     fn handle_bundle(&mut self, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {
+        if matches!(&event,ViewEvent::Button(id) if id=="revert-reviewed") {
+            let (editor,doc,root)=owned_editor(ctx)?;
+            let record=self.bundle_revert.as_ref().ok_or("No reviewed bundle edit is available to revert.")?;
+            if record.root!=root || record.after!=doc { return Err(Error::Stale); }
+            let review=revert_review(record)?;
+            if !ui_kit::prompts::confirm_exact("Revert last reviewed bundle edit?",&review)? { return Ok(()); }
+            let (_,current,current_root)=owned_editor(ctx)?;
+            if current!=doc || current_root!=root { return Err(Error::Stale); }
+            editor.apply_edits(doc.version,&record.inverse)?;
+            self.bundle_revert=None;
+            self.bundle_bindings.remove(&doc.path);
+            refresh_structure();
+            host::refresh_view(BUNDLE);
+            return Ok(());
+        }
         if matches!(&event, ViewEvent::Button(id) if id == "reload") {
             self.bundle = None;
+            self.bundle_bindings.clear();
             host::refresh_view(BUNDLE);
             return Ok(());
         }
 
         if matches!(&event, ViewEvent::Button(id) if id == "incomplete") {
             self.bundle_incomplete_only = !self.bundle_incomplete_only;
+            self.bundle_bindings.clear();
             host::refresh_view(BUNDLE);
             return Ok(());
         }
 
-        let editor = ctx.editor().ok_or("The Resource Bundle editor needs an open file.")?;
+        let (editor,doc,root) = owned_editor(ctx)?;
         let path = editor.path();
-        let doc = editor.document()?;
-        let grid = self.bundle_grid(&path, &doc.text)?;
+        let binding = self.bundle_bindings.get(&path).ok_or("Bundle rows are not current; refresh the view before editing.")?.clone();
+        if binding.root != root || binding.doc != doc || binding.files.iter().any(|path| {
+            host::project_of(path).and_then(|project|project.root().ok()).as_deref()!=Some(root.as_str())
+        }) { return Err(Error::Stale); }
+        let rows = binding.keys.len();
+        let valid = match &event {
+            ViewEvent::Cell {row,column,..} => (*row as usize) < rows && (*column as usize) <= binding.files.len(),
+            ViewEvent::InsertRow(before) => (*before as usize) <= rows,
+            ViewEvent::DeleteRows(indices) => indices.len() <= rows && indices.iter().collect::<HashSet<_>>().len()==indices.len() && indices.iter().all(|row|(*row as usize)<rows),
+            _ => true,
+        };
+        if !valid { return Err(Error::Stale); }
+        let grid = Grid {keys:binding.keys,files:binding.files,columns:Vec::new(),rows:Vec::new(),gaps:Vec::new(),missing:0,exact_keys:true};
 
         if let ViewEvent::Cell { row, column, .. } = &event {
             if *column >= 2 {
@@ -391,7 +578,21 @@ impl Properties {
 
         let edits = bundle_edits(&doc.text, &grid, &event, &Settings::load())?;
         if !edits.is_empty() {
-            editor.apply_edits(doc.version, &to_edits(&doc.text, edits))?;
+            let edits = to_edits(&doc.text, edits);
+            let (expected,inverse)=inverse_bundle_edit(&doc,&edits)?;
+            let review = bundle_edit_review(&root,&doc,&grid,&event,&edits)?;
+            if !ui_kit::prompts::confirm_exact("Review resource bundle edit",&review)? { return Ok(()); }
+            let (_,current,current_root) = owned_editor(ctx)?;
+            if current!=doc || current_root!=root || editor.path()!=path || grid.files.iter().any(|path|host::project_of(path).and_then(|project|project.root().ok()).as_deref()!=Some(root.as_str())) { return Err(Error::Stale); }
+            editor.apply_edits(doc.version, &edits)?;
+            self.bundle_revert=None;
+            if let Ok((_,after,after_root))=owned_editor(ctx) {
+                if after_root==root && after.path==path && after.text==expected && after.version!=doc.version {
+                    self.bundle_revert=Some(BundleRevert{root:root.clone(),after,inverse});
+                }
+            }
+            self.bundle_bindings.remove(&path);
+            refresh_structure();
         }
 
         if let ViewEvent::DeleteRows(rows) = &event {
@@ -422,6 +623,10 @@ impl Views for Properties {
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {
+        if ui_kit::web::handle(self, view, &event, ctx, include_str!("ui_config.json"))? {
+            return Ok(());
+        }
+
         match view {
             STRUCTURE => self.handle_structure(event, ctx),
             BUNDLE => self.handle_bundle(event, ctx),
@@ -434,6 +639,260 @@ impl Views for Properties {
 mod tests {
     use super::*;
     use openidea_plugin::mock::MockHost;
+
+    fn reviewed_cell(host: &MockHost, plugin: &mut Properties, value: &str) {
+        plugin.render(BUNDLE,None,&host.invocation()).unwrap();
+        host.answer_next_prompt(Some(&[]));
+        plugin.handle(BUNDLE,ViewEvent::Cell{row:0,column:1,value:value.into()},&host.invocation()).unwrap();
+    }
+    #[test]
+    fn reviewed_bundle_revert_restores_each_mutation_in_one_versioned_apply() {
+        for event in [ViewEvent::Cell{row:0,column:0,value:"renamed😀".into()},ViewEvent::Cell{row:0,column:1,value:"Changed😀".into()},ViewEvent::InsertRow(0),ViewEvent::DeleteRows(vec![0,1]),ViewEvent::DeleteRows(vec![0,2])] {
+            let host=MockHost::install();let mut plugin=Properties::default();
+            let original="# 😀\nhello=Hello\nkeep=Keep\nlast=Last\n";
+            host.open_editor("/project/messages.properties","properties",original,&[]);
+            host.add_file("/project/messages_fr.properties","hello=Bonjour\n");
+            plugin.render(BUNDLE,None,&host.invocation()).unwrap();host.answer_next_prompt(Some(&[]));
+            plugin.handle(BUNDLE,event,&host.invocation()).unwrap();
+            assert_ne!(host.editor_text(),original);let version=host.editor_version();
+            let view=plugin.render(BUNDLE,None,&host.invocation()).unwrap();
+            assert!(view.toolbar.iter().any(|b|b.id=="revert-reviewed"));
+            host.answer_next_prompt(Some(&[]));
+            plugin.handle(BUNDLE,ViewEvent::Button("revert-reviewed".into()),&host.invocation()).unwrap();
+            assert_eq!(host.editor_text(),original);assert_eq!(host.editor_version(),version+1);
+            assert!(plugin.bundle_revert.is_none());
+            assert_eq!(project_for("/project/messages.properties").unwrap().read_file("/project/messages_fr.properties").unwrap(),"hello=Bonjour\n");
+        }
+    }
+    #[test]
+    fn reviewed_bundle_revert_cancel_retains_record_and_only_last_edit_is_reverted() {
+        let host=MockHost::install();let mut plugin=Properties::default();
+        host.open_editor("/project/messages.properties","properties","hello=Hello\n",&[]);
+        reviewed_cell(&host,&mut plugin,"First");reviewed_cell(&host,&mut plugin,"Second");
+        let version=host.editor_version();host.answer_next_prompt(None);
+        plugin.handle(BUNDLE,ViewEvent::Button("revert-reviewed".into()),&host.invocation()).unwrap();
+        assert_eq!(host.editor_text(),"hello=Second\n");assert_eq!(host.editor_version(),version);assert!(plugin.bundle_revert.is_some());
+        host.answer_next_prompt(Some(&[]));plugin.handle(BUNDLE,ViewEvent::Button("revert-reviewed".into()),&host.invocation()).unwrap();
+        assert_eq!(host.editor_text(),"hello=First\n");
+        assert!(plugin.handle(BUNDLE,ViewEvent::Button("revert-reviewed".into()),&host.invocation()).is_err());
+        assert!(Properties::default().handle(BUNDLE,ViewEvent::Button("revert-reviewed".into()),&host.invocation()).is_err());
+    }
+    #[test]
+    fn reviewed_bundle_revert_rejects_unrelated_text_version_path_and_owner() {
+        for change in 0..4 {
+            let host=MockHost::install();let mut plugin=Properties::default();
+            host.open_editor("/project/messages.properties","properties","hello=Hello\n",&[]);
+            reviewed_cell(&host,&mut plugin,"Changed");
+            match change {
+                0=>host.type_in_editor("hello=Unrelated\n"),
+                1=>host.type_in_editor("hello=Changed\n"),
+                2=>host.open_editor("/project/other.properties","properties","hello=Changed\n",&[]),
+                _=>host.add_project("/project/messages.properties"),
+            }
+            let text=host.editor_text();let version=host.editor_version();host.answer_next_prompt(Some(&[]));
+            assert!(plugin.handle(BUNDLE,ViewEvent::Button("revert-reviewed".into()),&host.invocation()).is_err());
+            assert_eq!(host.editor_text(),text);assert_eq!(host.editor_version(),version);
+        }
+    }
+    #[test]
+    fn reviewed_bundle_inverse_is_exact_utf16_bounded_and_reviewed_in_full() {
+        let doc=Document{path:"/project/messages.properties".into(),language:"properties".into(),version:1,text:"😀=Old\nother=Keep\n".into()};
+        let edits=vec![openidea_plugin::TextEdit{range:openidea_plugin::Range::new(openidea_plugin::Position::new(0,3),openidea_plugin::Position::new(0,6)),text:"New😀".into()}];
+        let (after,inverse)=inverse_bundle_edit(&doc,&edits).unwrap();
+        assert_eq!(after,"😀=New😀\nother=Keep\n");assert_eq!(inverse[0].range.end.character,8);
+        let record=BundleRevert{root:"/project".into(),after:Document{text:after,version:2,..doc.clone()},inverse};
+        let review=revert_review(&record).unwrap();
+        for phrase in ["not native Undo","/project/messages.properties","Document version: 2","Before: \"New😀\"","After: \"Old\""] {assert!(review.contains(phrase));}
+        let too_big=Document{text:"x".repeat(MAX_BUNDLE_TEXT+1),..doc.clone()};assert!(inverse_bundle_edit(&too_big,&[]).is_err());
+        let mut overlapping=edits.clone();overlapping.push(edits[0].clone());assert!(inverse_bundle_edit(&doc,&overlapping).is_err());
+    }
+    #[test]
+    fn reviewed_bundle_revert_oversized_review_does_not_mutate_or_consume_approval() {
+        let host=MockHost::install();let mut plugin=Properties::default();
+        let text=format!("hello={}\n","x".repeat(17000));host.open_editor("/project/messages.properties","properties",&text,&[]);
+        let (_,doc,root)=owned_editor(&host.invocation()).unwrap();
+        let edit=openidea_plugin::TextEdit{range:crate::range_of(&text,&(6..text.len()-1)),text:"Old".into()};
+        plugin.bundle_revert=Some(BundleRevert{root,after:doc,inverse:vec![edit]});host.answer_next_prompt(Some(&[]));
+        assert!(plugin.handle(BUNDLE,ViewEvent::Button("revert-reviewed".into()),&host.invocation()).is_err());
+        assert_eq!(host.editor_text(),text);assert!(plugin.bundle_revert.is_some());
+        host.open_editor("/project/messages.properties","properties","hello=New\n",&[]);
+        let (_,doc,root)=owned_editor(&host.invocation()).unwrap();
+        plugin.bundle_revert=Some(BundleRevert{root,after:doc,inverse:vec![openidea_plugin::TextEdit{range:openidea_plugin::Range::new(openidea_plugin::Position::new(0,6),openidea_plugin::Position::new(0,9)),text:"Old".into()}]});
+        plugin.handle(BUNDLE,ViewEvent::Button("revert-reviewed".into()),&host.invocation()).unwrap();assert_eq!(host.editor_text(),"hello=Old\n");
+    }
+    #[test]
+    fn reviewed_bundle_edit_exposes_explicit_revert_control() {
+        let host=MockHost::install();let mut plugin=Properties::default();
+        host.open_editor("/project/messages.properties","properties","hello=Hello\n",&[]);
+        plugin.render(BUNDLE,None,&host.invocation()).unwrap();host.answer_next_prompt(Some(&[]));
+        plugin.handle(BUNDLE,ViewEvent::Cell{row:0,column:1,value:"Welcome".into()},&host.invocation()).unwrap();
+        let view=plugin.render(BUNDLE,None,&host.invocation()).unwrap();
+        assert!(view.toolbar.iter().any(|button|button.id=="revert-reviewed"));
+        host.answer_next_prompt(Some(&[]));plugin.handle(BUNDLE,ViewEvent::Button("revert-reviewed".into()),&host.invocation()).unwrap();
+        assert_eq!(host.editor_text(),"hello=Hello\n");
+    }
+
+    #[test]
+    fn native_bundle_rows_cannot_retarget_after_source_changes() {
+        let host = MockHost::install();
+        host.open_editor("/project/messages.properties", "properties", "hello=Original\n", &[]);
+        let mut plugin = Properties::default();
+        plugin.render(BUNDLE, None, &host.invocation()).unwrap();
+        let changed = "inserted=Keep\nhello=Original\n";
+        host.open_editor("/project/messages.properties", "properties", changed, &[]);
+        let event = ViewEvent::Cell {row:0,column:1,value:"Wrong row".into()};
+        assert!(plugin.handle(BUNDLE, event, &host.invocation()).is_err());
+        assert_eq!(host.editor_text(), changed);
+        plugin.render(BUNDLE, None, &host.invocation()).unwrap();
+        host.answer_next_prompt(Some(&[]));
+        plugin.handle(BUNDLE, ViewEvent::Cell {row:1,column:1,value:"Updated".into()}, &host.invocation()).unwrap();
+        assert_eq!(host.editor_text(), "inserted=Keep\nhello=Updated\n");
+    }
+
+    #[test]
+    fn native_bundle_callbacks_require_a_current_render_and_valid_rows() {
+        let host = MockHost::install();
+        let source = "a=One\nb=Two\n";
+        host.open_editor("/project/messages.properties", "properties", source, &[]);
+        let mut plugin = Properties::default();
+        let change = || ViewEvent::Cell {row:0,column:1,value:"Changed".into()};
+        assert!(plugin.handle(BUNDLE, change(), &host.invocation()).is_err());
+        plugin.render(BUNDLE, None, &host.invocation()).unwrap();
+        for event in [ViewEvent::DeleteRows(vec![0,99]), ViewEvent::DeleteRows(vec![0,0]), ViewEvent::InsertRow(99), ViewEvent::Cell {row:0,column:99,value:"x".into()}] {
+            assert!(plugin.handle(BUNDLE, event, &host.invocation()).is_err());
+            assert_eq!(host.editor_text(), source);
+        }
+        host.type_in_editor("");
+        assert!(plugin.handle(BUNDLE, change(), &host.invocation()).is_err(), "same bytes/new version is not the issued source");
+        plugin.render(BUNDLE, None, &host.invocation()).unwrap();
+        plugin.handle(BUNDLE, ViewEvent::Button("incomplete".into()), &host.invocation()).unwrap();
+        assert!(plugin.handle(BUNDLE, change(), &host.invocation()).is_err());
+        plugin.handle(BUNDLE, ViewEvent::Button("incomplete".into()), &host.invocation()).unwrap();
+        plugin.render(BUNDLE, None, &host.invocation()).unwrap();
+        host.answer_next_prompt(Some(&[]));
+        plugin.handle(BUNDLE, change(), &host.invocation()).unwrap();
+        assert!(plugin.handle(BUNDLE, change(), &host.invocation()).is_err(), "mutating callbacks require a fresh model");
+        plugin.render(BUNDLE, None, &host.invocation()).unwrap();
+        host.set_project_root(Some("/foreign"));
+        assert!(plugin.handle(BUNDLE, change(), &host.invocation()).is_err());
+    }
+
+    #[test]
+    fn native_bundle_preparation_rejects_oversized_layouts_before_rows() {
+        for case in 0..4 {
+            let host = MockHost::install();
+            let source = match case {
+                0 => "x".repeat(MAX_BUNDLE_TEXT+1),
+                1 => (0..MAX_BUNDLE_KEYS+1).map(|i|format!("key{i}=v\n")).collect(),
+                _ => "a=v\n".into(),
+            };
+            if case==2 {
+                for locale in ["fr","de","it","es","pt"] { host.add_file(&format!("/project/messages_{locale}.properties"), &format!("#{}", "x".repeat(MAX_BUNDLE_TEXT-1))); }
+            }
+            if case==3 { for i in 0..201 { host.add_file(&format!("/project/messages-other-{i:03}.properties"),"x=unrelated\n"); } }
+            host.open_editor("/project/messages.properties", "properties", &source, &[]);
+            let mut plugin=Properties::default();
+            assert!(plugin.render(BUNDLE, None, &host.invocation()).is_err());
+            if case>=2 { assert!(plugin.bundle.is_none(),"oversized/incomplete locale reads cannot become an accepted cache"); }
+            assert_eq!(host.editor_text(), source);
+        }
+        let host = MockHost::install();
+        let source:String=(0..2049).map(|i|format!("k{i}=v\n")).collect();
+        for locale in ["fr","de","it","es","pt","nl","ja","ko","zh","sv","da","no","fi","pl","cs","hu"] { host.add_file(&format!("/project/messages_{locale}.properties"), "a=small\n"); }
+        host.open_editor("/project/messages.properties", "properties", &source, &[]);
+        assert!(Properties::default().render(BUNDLE, None, &host.invocation()).is_err(), "dense cell bound must precede row allocation");
+    }
+
+    #[test]
+    fn native_bundle_cells_refuse_duplicate_or_colliding_key_edits() {
+        for (source,column,value) in [("a=One\nb=Two\n",0,"b"),("a=One\na=Two\n",1,"Changed"),("a=One\na=Two\n",0,"renamed")] {
+            let host = MockHost::install();
+            host.open_editor("/project/messages.properties", "properties", source, &[]);
+            let mut plugin = Properties::default();
+            plugin.render(BUNDLE, None, &host.invocation()).unwrap();
+            assert!(plugin.handle(BUNDLE, ViewEvent::Cell {row:0,column,value:value.into()}, &host.invocation()).is_err());
+            assert_eq!(host.editor_text(), source);
+        }
+    }
+
+    #[test]
+    fn native_bundle_mutations_have_exact_review_and_cancellation() {
+        for event in [ViewEvent::Cell {row:0,column:0,value:"renamed".into()},ViewEvent::Cell {row:0,column:1,value:"Changed".into()},ViewEvent::InsertRow(1),ViewEvent::DeleteRows(vec![0])] {
+            let host = MockHost::install();
+            let source = "emoji😀=A\nb=B\n";
+            host.open_editor("/project/messages.properties", "properties", source, &[]);
+            let mut plugin = Properties::default();
+            plugin.render(BUNDLE, None, &host.invocation()).unwrap();
+            let doc = Document {path:"/project/messages.properties".into(),language:"properties".into(),version:1,text:source.into()};
+            let grid = grid(&doc.path,source,&[]);
+            let edits = to_edits(source,bundle_edits(source,&grid,&event,&Settings::default()).unwrap());
+            let review = bundle_edit_review("/project",&doc,&grid,&event,&edits).unwrap();
+            assert!(review.contains("File: \"/project/messages.properties\"") && review.contains("Before:") && review.contains("After:"));
+            if matches!(&event,ViewEvent::Cell {column:1,..}) { assert!(review.contains("Range: 1:9–1:10") && review.contains("Before: \"A\"")); }
+            host.answer_next_prompt(None);
+            plugin.handle(BUNDLE,event.clone(),&host.invocation()).unwrap();
+            assert_eq!(host.editor_text(),source);
+            assert_eq!(host.editor_version(),1);
+            host.answer_next_prompt(Some(&[]));
+            plugin.handle(BUNDLE,event,&host.invocation()).unwrap();
+            assert_ne!(host.editor_text(),source);
+            assert_eq!(host.editor_version(),2);
+        }
+    }
+
+    #[test]
+    fn late_old_numeric_callback_requires_review_of_its_actual_current_key() {
+        let host = MockHost::install();
+        host.open_editor("/project/messages.properties", "properties", "hello=Original\n", &[]);
+        let mut plugin = Properties::default();
+        plugin.render(BUNDLE,None,&host.invocation()).unwrap();
+        let changed = "inserted=Keep\nhello=Original\n";
+        host.open_editor("/project/messages.properties", "properties", changed, &[]);
+        plugin.render(BUNDLE,None,&host.invocation()).unwrap();
+        // The transport cannot identify that this row index came from the old UI.
+        // The actual current target must therefore be shown and reaffirmed.
+        let event = ViewEvent::Cell {row:0,column:1,value:"Changed".into()};
+        let doc=Document {path:"/project/messages.properties".into(),language:"properties".into(),version:1,text:changed.into()};
+        let grid=grid(&doc.path,changed,&[]);
+        let edits=to_edits(changed,bundle_edits(changed,&grid,&event,&Settings::default()).unwrap());
+        let review=bundle_edit_review("/project",&doc,&grid,&event,&edits).unwrap();
+        assert!(review.contains("Current key(s): [\"inserted\"]") && review.contains("Before: \"Keep\""));
+        host.answer_next_prompt(None);
+        plugin.handle(BUNDLE,event.clone(),&host.invocation()).unwrap();
+        assert_eq!(host.editor_text(),changed);
+        host.answer_next_prompt(Some(&[]));
+        plugin.handle(BUNDLE,event,&host.invocation()).unwrap();
+        assert_eq!(host.editor_text(),"inserted=Changed\nhello=Original\n");
+    }
+
+    #[test]
+    fn native_bundle_review_limit_does_not_consume_an_unshown_approval() {
+        let host=MockHost::install();
+        host.open_editor("/project/messages.properties","properties","a=One\n",&[]);
+        let mut plugin=Properties::default();
+        plugin.render(BUNDLE,None,&host.invocation()).unwrap();
+        host.answer_next_prompt(Some(&[]));
+        assert!(plugin.handle(BUNDLE,ViewEvent::Cell {row:0,column:1,value:"x".repeat(20<<10)},&host.invocation()).is_err());
+        assert_eq!(host.editor_text(),"a=One\n");
+        plugin.handle(BUNDLE,ViewEvent::Cell {row:0,column:1,value:"Small".into()},&host.invocation()).unwrap();
+        assert_eq!(host.editor_text(),"a=Small\n");
+    }
+
+    #[test]
+    fn grid_mutations_require_lossless_identity_across_locales() {
+        let host = MockHost::install();
+        let source = "\\uD800=one\n\\uD801=two\n�=replacement\n";
+        let invalid = grid("/project/messages.properties", source, &[]);
+        assert!(bundle_edits(source, &invalid, &ViewEvent::DeleteRows(vec![0]), &Settings::default()).is_err());
+        let normal = "hello=World\n";
+        let foreign = grid("/project/messages.properties", normal, &[("/project/messages_fr.properties".into(), source.into())]);
+        assert!(bundle_edits(normal, &foreign, &ViewEvent::InsertRow(0), &Settings::default()).is_err());
+        let paired = "\\uD83D\\uDE00=Paired\n";
+        let valid = grid("/project/messages.properties", paired, &[]);
+        assert!(bundle_edits(paired, &valid, &ViewEvent::DeleteRows(vec![0]), &Settings::default()).is_ok());
+        host.open_editor("/project/messages.properties", "properties", source, &[]);
+        assert!(Properties::default().render(BUNDLE, None, &host.invocation()).is_err());
+    }
 
     #[test]
     fn groups_keys_by_prefix() {
@@ -525,24 +984,29 @@ mod tests {
         assert_eq!(table.rows[2], ["extra", "", "En plus"]);
         assert_eq!(
             view.status.as_deref(),
-            Some("3 keys · 2 locales · 2 missing translations · Editing another locale's cell writes its file")
+            Some("3 keys · 2 locales · 2 missing translations · Other locale cells open their file; use native intentions for atomic bundle edits")
         );
 
         let cell = |row, column, value: &str| ViewEvent::Cell { row, column, value: value.into() };
-        plugin.handle(BUNDLE, cell(1, 1, "Goodbye"), &host.invocation()).unwrap();
-        plugin.handle(BUNDLE, cell(2, 1, "Extra"), &host.invocation()).unwrap();
-        plugin.handle(BUNDLE, cell(0, 0, "greeting"), &host.invocation()).unwrap();
+        let shown = |plugin: &mut Properties, event| {
+            plugin.render(BUNDLE, None, &host.invocation()).unwrap();
+            if !matches!(&event,ViewEvent::Cell {column,..} if *column>=2) { host.answer_next_prompt(Some(&[])); }
+            plugin.handle(BUNDLE, event, &host.invocation()).unwrap();
+        };
+        shown(&mut plugin, cell(1, 1, "Goodbye"));
+        shown(&mut plugin, cell(2, 1, "Extra"));
+        shown(&mut plugin, cell(0, 0, "greeting"));
         assert_eq!(host.editor_text(), "greeting=Hello\nbye=Goodbye\nextra=Extra\n");
 
-        plugin.handle(BUNDLE, cell(2, 2, "x"), &host.invocation()).unwrap();
-        assert_eq!(host.opened_locations(), [("/project/messages_fr.properties".to_owned(), 1, 0)], "tee is not granted here");
+        shown(&mut plugin, cell(2, 2, "x"));
+        assert_eq!(host.opened_locations(), [("/project/messages_fr.properties".to_owned(), 1, 0)], "other-locale edits navigate without writing");
 
-        plugin.handle(BUNDLE, ViewEvent::InsertRow(1), &host.invocation()).unwrap();
-        plugin.handle(BUNDLE, ViewEvent::DeleteRows(vec![0, 3]), &host.invocation()).unwrap();
+        shown(&mut plugin, ViewEvent::InsertRow(1));
+        shown(&mut plugin, ViewEvent::DeleteRows(vec![0, 3]));
         assert_eq!(host.editor_text(), "new.property=\nbye=Goodbye\n");
         assert_eq!(host.notifications().len(), 1, "extra stays in fr");
 
-        plugin.handle(BUNDLE, ViewEvent::DeleteRows(vec![1]), &host.invocation()).unwrap();
+        shown(&mut plugin, ViewEvent::DeleteRows(vec![1]));
         assert_eq!(host.editor_text(), "new.property=\n");
         assert_eq!(host.notifications().len(), 1, "bye was only in this file");
     }
@@ -559,6 +1023,7 @@ mod tests {
         let Body::Table(table) = plugin.render(BUNDLE, None, &ctx).unwrap().body else { panic!("a table") };
         assert_eq!(table.rows, [["bye", "Bye", ""]]);
 
+        host.answer_next_prompt(Some(&[]));
         plugin.handle(BUNDLE, ViewEvent::Cell { row: 0, column: 1, value: "Ciao".into() }, &ctx).unwrap();
         assert_eq!(host.editor_text(), "hello=Hello\nbye=Ciao\n");
     }
@@ -570,6 +1035,8 @@ mod tests {
         host.open_editor("/project/messages.properties", "properties", "hello=Hello\n", &[]);
         let mut plugin = Properties::default();
 
+        plugin.render(BUNDLE, None, &host.invocation()).unwrap();
+        host.answer_next_prompt(Some(&[]));
         plugin.handle(BUNDLE, ViewEvent::DeleteRows(vec![0]), &host.invocation()).unwrap();
         assert_eq!(host.editor_text(), "");
         assert_eq!(
@@ -578,40 +1045,109 @@ mod tests {
         );
     }
 
-    fn tee_host() -> (MockHost, std::rc::Rc<std::cell::RefCell<String>>) {
-        let host = MockHost::install().with_capabilities(&["project.read", "editor.read", "editor.write", "process:tee"]);
-        let written = std::rc::Rc::new(std::cell::RefCell::new(String::new()));
-        let sink = written.clone();
-        host.on_process("tee", move |_, stdin| {
-            *sink.borrow_mut() = stdin.unwrap_or_default().to_owned();
-            Ok(openidea_plugin::ProcessOutput { status: Some(0), stdout: String::new(), stderr: String::new() })
-        });
+    fn locale_host() -> MockHost {
+        let host = MockHost::install().with_capabilities(&["project.read", "editor.read", "editor.write"]);
         host.add_file("/project/messages_fr.properties", "hello=Bonjour\n");
         host.open_editor("/project/messages.properties", "properties", "hello=Hello\nbye=Bye\n", &[]);
-        (host, written)
+        host
     }
 
     #[test]
-    fn editing_another_locale_cell_writes_that_file_with_tee() {
-        let (host, written) = tee_host();
+    fn editing_another_locale_never_runs_a_process_or_overwrites_it() {
+        let host = locale_host();
         let mut plugin = Properties::default();
-        let cell = |row, value: &str| ViewEvent::Cell { row, column: 2, value: value.into() };
-
-        plugin.handle(BUNDLE, cell(1, "Au revoir"), &host.invocation()).unwrap();
-        assert_eq!(*written.borrow(), "hello=Bonjour\nbye=Au revoir\n");
-        assert_eq!(host.process_runs()[0].args, ["/project/messages_fr.properties"]);
-        assert!(host.opened_locations().is_empty());
-
-        plugin.handle(BUNDLE, cell(0, "Salut"), &host.invocation()).unwrap();
-        assert_eq!(*written.borrow(), "hello=Salut\n");
+        plugin.render(BUNDLE, None, &host.invocation()).unwrap();
+        plugin.handle(BUNDLE, ViewEvent::Cell { row: 0, column: 2, value: "Salut".into() }, &host.invocation()).unwrap();
+        assert!(host.process_runs().is_empty());
+        assert_eq!(host.opened_locations().len(), 1);
+        assert_eq!(host.invocation().project().unwrap().read_file("/project/messages_fr.properties").unwrap(), "hello=Bonjour\n");
     }
 
     #[test]
     fn the_setting_keeps_other_locales_read_only() {
-        let (host, written) = tee_host();
+        let host = locale_host();
         host.set_setting("bundle.writeOtherLocales", "false");
-        Properties::default().handle(BUNDLE, ViewEvent::Cell { row: 1, column: 2, value: "x".into() }, &host.invocation()).unwrap();
-        assert!(written.borrow().is_empty());
+        let mut plugin = Properties::default();
+        plugin.render(BUNDLE, None, &host.invocation()).unwrap();
+        plugin.handle(BUNDLE, ViewEvent::Cell { row: 1, column: 2, value: "x".into() }, &host.invocation()).unwrap();
         assert_eq!(host.opened_locations().len(), 1);
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod refresh_tests {
+    use super::*;
+    use openidea_plugin::{Event, FilesChanged, Plugin, mock::MockHost};
+    use serde_json::{Value, json};
+    fn request(plugin: &mut Properties, host: &MockHost, operation: Value) -> Value {
+        let mut value=json!({"channel":"ui-kit","sequence":1,"project":"/project"});
+        value.as_object_mut().unwrap().extend(operation.as_object().unwrap().clone());
+        plugin.handle(STRUCTURE,ViewEvent::Message(value.to_string()),&host.invocation()).unwrap();
+        serde_json::from_str(&host.view_messages().last().unwrap().1).unwrap()
+    }
+    #[test]
+    fn external_focus_save_and_file_batches_send_only_targeted_invalidation() {
+        let host=MockHost::install();host.add_file("/project/m.properties","a=1\n");
+        host.open_editor("/project/m.properties","properties","a=1\n",&[]);
+        let mut plugin=Properties::default();
+        for event in [Event::EditorFocused(Some("/project/m.properties".into())),Event::FileSaved("/project/m.properties".into()),Event::FilesChanged(FilesChanged{created:vec!["/project/m_fr.properties".into()],..Default::default()}),Event::FilesChanged(FilesChanged{removed:vec!["/project/m_fr.properties".into()],..Default::default()})] {
+            let before=host.view_messages().len();plugin.handle_events(&[event],&host.invocation());
+            assert_eq!(&host.view_messages()[before..],[(STRUCTURE.to_owned(),r#"{"channel":"ui-kit-refresh"}"#.to_owned())]);
+        }
+        let before=host.view_messages().len();plugin.handle_events(&[Event::FileSaved("/project/unrelated.txt".into())],&host.invocation());
+        assert_eq!(host.view_messages().len(),before);
+        plugin.render(STRUCTURE,None,&host.invocation()).unwrap();assert_eq!(host.view_messages().len(),before,"render must not invalidate itself");
+    }
+    #[test]
+    fn packaged_keys_reject_foreign_editor_and_source_version_drift() {
+        let host=MockHost::install();host.open_editor("/project/a.properties","properties","same=one\n",&[]);
+        let mut plugin=Properties::default();
+        let first=request(&mut plugin,&host,json!({"op":"render"}));
+        let key=first["model"]["body"]["items"][0]["key"].as_str().unwrap().to_owned();assert!(key.starts_with("doc:"));
+        host.open_editor("/project/b.properties","properties","same=two\n",&[]);
+        assert!(request(&mut plugin,&host,json!({"op":"event","event":{"kind":"activate","key":key}}))["error"].is_string());
+        host.open_editor("/project/a.properties","properties","same=one\n",&[]);host.type_in_editor("other=three\n");
+        assert!(request(&mut plugin,&host,json!({"op":"event","event":{"kind":"activate","key":key}}))["error"].is_string());
+        assert!(host.opened_locations().is_empty());
+        let current=request(&mut plugin,&host,json!({"op":"render"}));let fresh=current["model"]["body"]["items"][0]["key"].as_str().unwrap();
+        assert!(request(&mut plugin,&host,json!({"op":"event","event":{"kind":"activate","key":fresh}}))["error"].is_null());
+        assert_eq!(host.opened_locations(),[("/project/a.properties".into(),0,0)]);
+    }
+    #[test]
+    fn packaged_groups_keep_parent_identity_and_collapse_without_refresh_feedback() {
+        let host=MockHost::install();host.open_editor("/project/a.properties","properties","app.a=1\napp.b=2\n",&[]);
+        let mut plugin=Properties::default();let first=request(&mut plugin,&host,json!({"op":"render"}));
+        let items=first["model"]["body"]["items"].as_array().unwrap();let group=items[0]["key"].as_str().unwrap();assert_eq!(items[1]["parent"],group);
+        let response=request(&mut plugin,&host,json!({"op":"event","event":{"kind":"button","key":"collapse-all"}}));
+        assert_eq!(response["model"]["body"]["items"][0]["expanded"],false);
+        assert!(host.view_messages().iter().all(|(_,v)|serde_json::from_str::<Value>(v).unwrap()["channel"]=="ui-kit"),"own packaged events already receive a correlated model; no invalidation feedback");
+    }
+    #[test]
+    fn structure_and_bundle_refuse_mismatched_project_editor_and_unknown_owners() {
+        let host=MockHost::install();host.add_project("/foreign");host.open_editor("/foreign/m.properties","properties","secret=foreign\n",&[]);
+        let mut plugin=Properties::default();let view=plugin.render(STRUCTURE,None,&host.invocation()).unwrap();assert!(matches!(view.body,Body::Message(_)));
+        assert!(plugin.render(BUNDLE,None,&host.invocation()).is_err());
+        assert!(plugin.handle(STRUCTURE,ViewEvent::Activate("p:0:secret".into()),&host.invocation()).is_err());
+        assert!(plugin.handle(BUNDLE,ViewEvent::Cell{row:0,column:1,value:"changed".into()},&host.invocation()).is_err());
+        host.set_project_root(None);assert!(matches!(plugin.render(STRUCTURE,None,&host.invocation()).unwrap().body,Body::Message(_)));
+        assert!(host.opened_locations().is_empty());assert_eq!(host.editor_text(),"secret=foreign\n");
+    }
+    #[test]
+    fn native_locale_and_reformat_mutations_invalidate_only_structure_after_success() {
+        let host=MockHost::install();host.open_editor("/project/m.properties","properties","a=1\n",&[]);
+        let mut plugin=Properties::default();plugin.render(BUNDLE,None,&host.invocation()).unwrap();host.answer_next_prompt(Some(&[]));plugin.handle(BUNDLE,ViewEvent::Cell{row:0,column:1,value:"two".into()},&host.invocation()).unwrap();
+        assert_eq!(host.editor_text(),"a=two\n");assert_eq!(host.view_messages(),[(STRUCTURE.to_owned(),r#"{"channel":"ui-kit-refresh"}"#.to_owned())]);
+        host.open_editor("/project/m.properties","properties","a   =  one\n",&[]);
+        plugin.run_command("reformat",&host.invocation(),None).unwrap();assert_eq!(host.view_messages().len(),2);
+        assert!(host.view_messages().iter().all(|(view,_)|view==STRUCTURE));
+    }
+    #[test]
+    fn bundle_cache_rechecks_member_project_ownership_before_render_or_open() {
+        let host=MockHost::install();host.add_file("/project/m_fr.properties","a=French\n");host.open_editor("/project/m.properties","properties","a=English\n",&[]);
+        let mut plugin=Properties::default();plugin.render(BUNDLE,None,&host.invocation()).unwrap();assert_eq!(plugin.bundle.as_ref().unwrap().root,"/project");
+        host.add_project("/project/m_fr.properties");
+        assert!(plugin.render(BUNDLE,None,&host.invocation()).is_err());
+        assert!(plugin.handle(BUNDLE,ViewEvent::Cell{row:0,column:2,value:"wrong".into()},&host.invocation()).is_err());
+        assert!(host.opened_locations().is_empty());
     }
 }

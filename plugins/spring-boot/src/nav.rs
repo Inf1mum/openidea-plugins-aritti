@@ -3,7 +3,7 @@
 //! profile names, `${}` placeholders, classes, enum constants and resources in values.
 
 use openidea_plugin::providers::{CompletionItem, CompletionKind};
-use openidea_plugin::{Position, Range};
+use openidea_plugin::Range;
 use crate::facts::Summary;
 use crate::values::element_type;
 use spring_text::config::{self, Key, canonical, yaml_parent};
@@ -229,13 +229,31 @@ pub fn target(path: &str, text: &str, at: usize, lookup: &Lookup) -> Option<Targ
     (class_valued && valid).then(|| Target::Class(name.replace('$', ".")))
 }
 
-/// The position of the declaration of `simple` in a source, or the start of the file.
-pub fn declaration(text: &str, simple: &str) -> Range {
-    let at = ["class", "interface", "record", "enum", "object"]
-        .iter()
-        .filter_map(|kw| text.find(&format!("{kw} {simple}")).map(|i| i + kw.len() + 1))
-        .min();
-    at.map_or(Range::new(Position::new(0, 0), Position::new(0, 0)), |from| range(text, from, from + simple.len()))
+/// One exact declared type spelling, after matching its package/enclosing owners.
+/// This is source navigation, not resolved classpath or binding ownership.
+pub fn declaration(path: &str, text: &str, requested: &str) -> Option<Range> {
+    if text.len() > 128 << 10 {return None;}
+    let file=spring_text::parse_source(path,text);
+    let mut found=Vec::new();
+    for ty in &file.types {
+        let mut name=ty.name.clone();
+        let mut outer=ty.outer;
+        let mut depth=0;
+        while let Some(i)=outer {
+            depth+=1;
+            if depth>32 {return None;}
+            let parent=file.types.get(i)?;
+            name=format!("{}.{}",parent.name,name);
+            outer=parent.outer;
+        }
+        let qualified=if file.package.is_empty() {name} else {format!("{}.{}",file.package,name)};
+        if (requested.contains('.') && qualified==requested || !requested.contains('.') && ty.name==requested)
+            && text.get(ty.at..ty.at+ty.name.len())==Some(ty.name.as_str())
+        {
+            found.push(range(text,ty.at,ty.at+ty.name.len()));
+        }
+    }
+    match found.as_slice() {[one]=>Some(*one),_=>None}
 }
 
 #[cfg(test)]

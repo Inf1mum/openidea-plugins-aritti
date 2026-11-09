@@ -1,0 +1,411 @@
+//! Current-source checks and positive cached facts; never a complete runtime model.
+use crate::{
+    changelog::{self, Changelog, Format, Include, Target},
+    checks,
+};
+use openidea_plugin::hover::Hover;
+use openidea_plugin::providers::{Document, LineMarker};
+use openidea_plugin::text::{offset, position};
+use openidea_plugin::{Diagnostic, Location, Position, Range, host};
+use std::collections::{BTreeMap, BTreeSet};
+use std::time::{Duration, Instant};
+const MAX_TEXT: usize = 256 * 1024;
+const TTL: Duration = Duration::from_secs(120);
+struct Fact {
+    at: Instant,
+    bytes: usize,
+    log: Changelog,
+}
+#[derive(Default)]
+pub struct State {
+    roots: BTreeMap<String, BTreeMap<String, Fact>>,
+}
+pub(crate) fn parse(path: &str, text: &str) -> Option<Changelog> {
+    if text.len() > MAX_TEXT
+        || text.match_indices("${").take(1025).count() > 1024
+        || (path.ends_with(".xml") && text.bytes().filter(|b| *b == b'<').take(8193).count() > 8192)
+    {
+        return None;
+    }
+    let log = changelog::parse(path, text)?;
+    if log.change_sets.len() + log.includes.len() + log.changes.len() + log.properties.len() > 4096 {
+        return None;
+    }
+    if log.format == Format::Xml {
+        let elements = spring_text::xml::elements(text);
+        if elements.iter().flat_map(|e| &e.attrs).any(|a| {
+            (a.name == "xmlns" || a.name.starts_with("xmlns:"))
+                && a.name != "xmlns:xsi"
+                && a.value != "http://www.liquibase.org/xml/ns/dbchangelog"
+                && a.value != "http://www.liquibase.org/xml/ns/dbchangelog-ext"
+        }) {
+            return None;
+        }
+        if !elements.is_empty()
+            && spring_text::xml::namespace(&elements, 0).is_some_and(|n| n != "http://www.liquibase.org/xml/ns/dbchangelog")
+        {
+            return None;
+        }
+        if elements.iter().enumerate().any(|(i, e)| e.name.contains(':') && spring_text::xml::namespace(&elements, i).is_none()) { return None; }
+        if elements.iter().enumerate().any(|(i, e)| {
+            matches!(e.local(), "changeSet" | "property" | "include" | "includeAll")
+                && spring_text::xml::namespace(&elements, i).is_some_and(|n| n != "http://www.liquibase.org/xml/ns/dbchangelog")
+        }) {
+            return None;
+        }
+    }
+    Some(log)
+}
+fn range(text: &str, a: usize, b: usize) -> Option<Range> {
+    (a < b && b <= text.len() && text.is_char_boundary(a) && text.is_char_boundary(b))
+        .then(|| Range::new(position(text, a), position(text, b)))
+}
+fn escape(s: &str) -> String {
+    let mut out = String::new();
+    for c in s.chars().take(2048) {
+        if c.is_control() {
+            out.push(' ');
+        } else {
+            if matches!(c, '\\' | '`' | '*' | '_' | '[' | ']' | '<' | '>' | '#' | '!' | '(' | ')' | '|') {
+                out.push('\\');
+            }
+            out.push(c);
+        }
+    }
+    out
+}
+fn owned(root: &str, path: &str) -> bool {
+    root.starts_with('/') && root.len() <= 4096 && path.len() <= 4096
+        && !root.chars().chain(path.chars()).any(char::is_control)
+        && !root.contains('\\') && !path.contains('\\')
+        && !root.split('/').chain(path.split('/')).any(|part| matches!(part, "." | ".."))
+        && path.strip_prefix(root.trim_end_matches('/')).is_some_and(|tail| tail.starts_with('/'))
+        && host::project_of(path).and_then(|project| project.root().ok()).as_deref() == Some(root)
+}
+impl State {
+    pub fn invalidate(&mut self, path: &str) {
+        for files in self.roots.values_mut() {
+            files.remove(path);
+        }
+    }
+    pub fn update(&mut self, root: &str, path: &str, text: &str) {
+        self.invalidate(path);
+        if !owned(root, path) {
+            return;
+        }
+        let Some(log) = parse(path, text) else {
+            return;
+        };
+        if !self.roots.contains_key(root) && self.roots.len() >= 8 {
+            self.roots.clear();
+        }
+        let files = self.roots.entry(root.into()).or_default();
+        files.retain(|_, f| f.at.elapsed() < TTL);
+        if files.len() >= 128 || files.values().map(|f| f.bytes).sum::<usize>() + text.len() > 4 * 1024 * 1024 {
+            files.clear();
+        }
+        files.insert(path.into(), Fact { at: Instant::now(), bytes: text.len(), log });
+    }
+    fn current(&mut self, doc: &Document) -> Option<(Option<String>, Changelog)> {
+        self.invalidate(&doc.path);
+        if !matches!(doc.language.as_str(), "xml" | "yaml" | "json" | "sql") {
+            return None;
+        }
+        let log = parse(&doc.path, &doc.text)?;
+        let root = host::project_of(&doc.path).and_then(|p| p.root().ok());
+        if let Some(root) = &root {
+            self.update(root, &doc.path, &doc.text);
+        }
+        Some((root, log))
+    }
+    fn target(&self, root: &str, path: &str, include: &Include) -> Option<String> {
+        if include.dir || !include.relative || include.path.contains("${") || include.path.starts_with('/') || include.path.contains(':') {
+            return None;
+        }
+        let files = self.roots.get(root)?;
+        let mut found =
+            changelog::candidates(path, root, include).into_iter().filter(|p| files.get(p).is_some_and(|f| f.at.elapsed() < TTL) && owned(root, p));
+        let first = found.next()?;
+        if found.next().is_some() { None } else { Some(first) }
+    }
+    pub fn diagnostics(&mut self, doc: &Document) -> Vec<Diagnostic> {
+        let Some((_, log)) = self.current(doc) else {
+            return vec![];
+        };
+        // Neither an incomplete cache nor a classpath/resource lookup proves absence.
+        let mut problems = checks::problems(&doc.path, &doc.text, &log, &|_| Target::Unknown, None);
+        problems.truncate(256);
+        problems
+    }
+    pub fn markers(&mut self, doc: &Document) -> Vec<LineMarker> {
+        let Some((Some(root), log)) = self.current(doc) else {
+            return vec![];
+        };
+        log.includes
+            .iter()
+            .take(256)
+            .filter_map(|include| {
+                let path = self.target(&root, &doc.path, include)?;
+                Some(LineMarker {
+                    line: changelog::line_of(&doc.text, include.at),
+                    icon: Some("navigate".into()),
+                    tooltip: format!("Open cached source {}", path.rsplit('/').next().unwrap_or(&path)),
+                    target: Some(Location { path, range: Range::new(Position::new(0, 0), Position::new(0, 0)) }),
+                })
+            })
+            .take(256)
+            .collect()
+    }
+    fn declarations(&self, root: &str, path: &str, name: &str, seen: &mut BTreeSet<String>, found: &mut Vec<String>, budget: &mut usize) {
+        if !owned(root, path) || seen.len() >= 32 || !seen.insert(path.into()) {
+            return;
+        }
+        let Some(fact) = self.roots.get(root).and_then(|f| f.get(path)).filter(|f| f.at.elapsed() < TTL) else {
+            return;
+        };
+        for property in &fact.log.properties {
+            if property == name {
+                found.push(path.into());
+            }
+        }
+        for include in &fact.log.includes {
+            if *budget == 0 { found.clear(); return; }
+            *budget -= 1;
+            if let Some(next) = self.target(root, path, include) {
+                self.declarations(root, &next, name, seen, found, budget);
+                if *budget == 0 { found.clear(); return; }
+            }
+        }
+    }
+    pub fn hover(&mut self, doc: &Document, at: Position) -> Option<Hover> {
+        let (root, log) = self.current(doc)?;
+        let at = offset(&doc.text, at)?;
+        for include in &log.includes {
+            if include.at <= at && at < include.end {
+                let target = root.as_ref().and_then(|r| self.target(r, &doc.path, include));
+                let status = target
+                    .map(|p| format!("Cached source: {}", escape(&p)))
+                    .unwrap_or_else(|| "Target not established by the current source cache; no absence or filesystem claim.".into());
+                return Some(Hover::new(format!("**Liquibase {}**: {}\n\n{}\n\nrelativeToChangelogFile: {} · optional: {}. Cached source facts expire after 120 seconds; runtime search paths are not resolved.",if include.dir {"includeAll"} else {"include"},escape(&include.path),status,include.relative,include.optional)).range(range(&doc.text,include.at,include.end)?));
+            }
+        }
+        for set in &log.change_sets {
+            if set.at <= at && at < set.end {
+                return Some(Hover::new(format!("**Liquibase changeset**\n\nID: {}\n\nAuthor: {}\n\nSource: {}\n\nSource declaration only; logicalFilePath, contexts, execution order and database history are not resolved.",escape(set.id.as_deref().unwrap_or("(missing)")),escape(set.author.as_deref().unwrap_or("(missing)")),escape(&doc.path))).range(range(&doc.text,set.at,set.end)?));
+            }
+        }
+        for (from, to, name) in checks::placeholders(&doc.text, log.format) {
+            if from <= at && at < to {
+                let mut found = vec![];
+                if let Some(root) = &root {
+                    self.declarations(root, &doc.path, name, &mut BTreeSet::new(), &mut found, &mut 128);
+                } else {
+                    for n in &log.properties {
+                        if n == name {
+                            found.push(doc.path.clone());
+                        }
+                    }
+                }
+                let [owner] = found.as_slice() else {
+                    return None;
+                };
+                return Some(Hover::new(format!("**Liquibase property**: {}\n\nDeclared in cached source: {}\n\nDeclaration presence only. Values, precedence, contexts and runtime/configuration parameters are not evaluated.",escape(name),escape(owner))).range(range(&doc.text,from,to)?));
+            }
+        }
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Liquibase;
+    use openidea_plugin::mock::MockHost;
+    use openidea_plugin::{Event, FilesChanged, Plugin};
+    const XML: &str = "<databaseChangeLog xmlns='http://www.liquibase.org/xml/ns/dbchangelog'><!-- 😀 --><changeSet id='1' author='a'/><changeSet id='1' author='a'/><include file='child.xml' relativeToChangelogFile='true'/></databaseChangeLog>";
+    fn doc(path: &str, text: &str) -> Document {
+        Document {
+            path: path.into(),
+            language: if path.ends_with("xml") {
+                "xml"
+            } else if path.ends_with("sql") {
+                "sql"
+            } else if path.ends_with("json") {
+                "json"
+            } else {
+                "yaml"
+            }
+            .into(),
+            version: 1,
+            text: text.into(),
+        }
+    }
+    #[test]
+    fn unsaved_provider_reports_and_clears_without_project_permission_or_manual_results() {
+        for caps in [vec![], vec!["project.read", "events", "editor.read"]] {
+            let h = MockHost::install().with_capabilities(&caps);
+            h.add_file("db/a.xml", "<databaseChangeLog/>");
+            h.open_editor("/project/db/a.xml", "xml", XML, &[]);
+            let mut p = Liquibase::default();
+            h.refresh_diagnostics(&mut p);
+            assert!(h.provider_diagnostics()["/project/db/a.xml"].iter().any(|d| d.code.as_deref() == Some("duplicate-changeset")));
+            assert!(h.diagnostics().is_empty());
+            h.open_editor("/project/db/a.xml", "xml", "<databaseChangeLog/>", &[]);
+            h.refresh_diagnostics(&mut p);
+            assert!(h.provider_diagnostics().values().all(Vec::is_empty));
+            assert!(h.diagnostics().is_empty());
+        }
+    }
+    #[test]
+    fn pure_rules_cover_all_existing_formats() {
+        let _h = MockHost::install();
+        let mut s = State::default();
+        for (path, text, code) in [
+            ("/project/db/a.sql", "--changeset a:1\nselect 1;", "missing-header"),
+            (
+                "/project/db/a.yaml",
+                "databaseChangeLog:\n  - changeSet:\n      id: 1\n      changes:\n        - nonexistent: {}\n",
+                "incomplete-changeset",
+            ),
+            ("/project/db/a.json", r#"{"databaseChangeLog":[{"changeSet":{"id":"1"}}]}"#, "incomplete-changeset"),
+            ("/project/db/a.xml", "<databaseChangeLog><changeSet author='a'/></databaseChangeLog>", "incomplete-changeset"),
+        ] {
+            assert!(s.diagnostics(&doc(path, text)).iter().any(|d| d.code.as_deref() == Some(code)), "{path}");
+        }
+    }
+    #[test]
+    fn unknown_include_property_and_foreign_xml_context_are_quiet() {
+        let _h = MockHost::install();
+        let mut s = State::default();
+        assert!(
+            s.diagnostics(&doc(
+                "/project/db/a.xml",
+                "<databaseChangeLog><include file='unknown.xml'/><changeSet id='${library.id}' author='a'/></databaseChangeLog>"
+            ))
+            .is_empty()
+        );
+        assert!(
+            s.diagnostics(&doc("/project/db/a.xml", "<databaseChangeLog xmlns='urn:foreign'><changeSet/></databaseChangeLog>")).is_empty()
+        );
+    }
+    #[test]
+    fn hover_ranges_are_utf16_and_report_only_literal_source_facts() {
+        let _h = MockHost::install();
+        let mut s = State::default();
+        let d = doc("/project/db/a.xml", XML);
+        let at = XML.find("changeSet").unwrap();
+        let h = s.hover(&d, position(XML, at + 2)).unwrap();
+        assert_eq!(h.range, range(XML, at, at + 9));
+        assert!(h.markdown.contains("ID: 1") && h.markdown.contains("not resolved"));
+        let at = XML.find("child.xml").unwrap();
+        let h = s.hover(&d, position(XML, at + 2)).unwrap();
+        assert_eq!(h.range, range(XML, at, at + 9));
+        assert!(h.markdown.contains("Target not established"));
+    }
+    #[test]
+    fn cached_include_navigation_is_positive_root_owned_and_invalidated_by_events() {
+        let h = MockHost::install().with_capabilities(&["project.read", "events"]);
+        let mut p = Liquibase::default();
+        let d = doc("/project/db/a.xml", XML);
+        assert!(p.live.markers(&d).is_empty());
+        p.live.update("/another", "/another/db/child.xml", "<databaseChangeLog/>");
+        assert!(p.live.markers(&d).is_empty());
+        p.live.update("/project", "/project/db/child.xml", "<databaseChangeLog/>");
+        assert_eq!(p.live.markers(&d).len(), 1);
+        p.handle_events(
+            &[Event::FilesChanged(FilesChanged { modified: vec!["/project/db/child.xml".into()], ..Default::default() })],
+            &h.invocation(),
+        );
+        assert!(p.live.markers(&d).is_empty());
+        assert!(h.diagnostics().is_empty());
+    }
+    #[test]
+    fn property_hover_uses_only_reachable_cached_declarations_and_never_values() {
+        let _h = MockHost::install();
+        let mut s = State::default();
+        let text = "<databaseChangeLog><include file='child.xml' relativeToChangelogFile='true'/><changeSet id='${name}' author='a'/></databaseChangeLog>";
+        let d = doc("/project/db/a.xml", text);
+        let at = position(text, text.find("${name}").unwrap() + 3);
+        assert!(s.hover(&d, at).is_none());
+        let property = "<databaseChangeLog><property name='name' value='SECRET'/></databaseChangeLog>";
+        s.update("/project", "/project/other.xml", property);
+        assert!(s.hover(&d, at).is_none());
+        s.update("/project", "/project/db/child.xml", property);
+        let hover = s.hover(&d, at).unwrap();
+        assert!(hover.markdown.contains("/project/db/child.xml") && !hover.markdown.contains("SECRET"));
+        s.update(
+            "/project",
+            "/project/db/child.xml",
+            "<databaseChangeLog><property name='name'/><property name='name'/></databaseChangeLog>",
+        );
+        assert!(s.hover(&d, at).is_none());
+        s.update("/project", "/project/db/child.xml", "<databaseChangeLog/>");
+        assert!(s.hover(&d, at).is_none());
+    }
+    #[test]
+    fn separately_owned_nested_sources_never_supply_outer_include_links_or_property_provenance() {
+        for opened_after_warm in [false, true] {
+            let host = MockHost::install();
+            let mut state = State::default();
+            let nested = "/project/db/nested";
+            if !opened_after_warm { host.add_project(nested); }
+            state.update("/project", "/project/db/nested/child.xml", "<databaseChangeLog><property name='name' value='PRIVATE'/></databaseChangeLog>");
+            if opened_after_warm { host.add_project(nested); }
+            let text = "<databaseChangeLog><include file='nested/child.xml' relativeToChangelogFile='true'/><changeSet id='${name}' author='a'/></databaseChangeLog>";
+            let source = doc("/project/db/a.xml", text);
+            assert!(state.markers(&source).is_empty(), "a nested project cannot supply an outer-root navigation target");
+            assert!(state.hover(&source, position(text, text.find("${name}").unwrap() + 3)).is_none());
+            let include = state.hover(&source, position(text, text.find("nested/child.xml").unwrap() + 2)).unwrap();
+            assert!(include.markdown.contains("Target not established"));
+        }
+    }
+    #[test]
+    fn invalid_ownership_and_exhausted_traversal_never_publish_positive_property_provenance() {
+        let host = MockHost::install();
+        let mut state = State::default();
+        state.update("/project", "/project/db/../child.xml", "<databaseChangeLog/>");
+        state.update("/project", "/project-other/child.xml", "<databaseChangeLog/>");
+        assert!(state.roots.is_empty());
+        state.update("/project", "/project/db/child.xml", "<databaseChangeLog><property name='name'/></databaseChangeLog>");
+        let text = format!("<databaseChangeLog>{}<changeSet id='${{name}}' author='a'/></databaseChangeLog>", "<include file='child.xml' relativeToChangelogFile='true'/>".repeat(129));
+        let source = doc("/project/db/a.xml", &text);
+        assert!(state.hover(&source, position(&text, text.find("${name}").unwrap() + 3)).is_none());
+        let _host = host.with_capabilities(&[]);
+        state.update("/project", "/project/db/new.xml", "<databaseChangeLog/>");
+        assert!(!state.roots["/project"].contains_key("/project/db/new.xml"));
+    }
+    #[test]
+    fn limits_expiry_and_source_removal_drop_positive_facts() {
+        let _h = MockHost::install();
+        let mut s = State::default();
+        s.update("/project", "/project/db/child.xml", "<databaseChangeLog/>");
+        s.roots.get_mut("/project").unwrap().get_mut("/project/db/child.xml").unwrap().at = Instant::now() - TTL;
+        assert!(s.markers(&doc("/project/db/a.xml", XML)).is_empty());
+        s.update("/project", "/project/db/child.xml", "<databaseChangeLog/>");
+        s.update("/project", "/project/db/child.xml", "unrelated");
+        assert!(s.markers(&doc("/project/db/a.xml", XML)).is_empty());
+        assert!(s.diagnostics(&doc("/project/db/a.xml", &"x".repeat(MAX_TEXT + 1))).is_empty());
+        _h.add_project("/p");
+        for n in 0..129 {
+            s.update("/p", &format!("/p/{n}.xml"), "<databaseChangeLog/>");
+        }
+        assert!(s.roots["/p"].len() <= 128);
+    }
+    #[test]
+    fn include_classpath_candidates_never_imply_runtime_owner_and_delimiter_limits_are_quiet() {
+        let _h = MockHost::install();
+        let mut state = State::default();
+        state.update("/project", "/project/child.xml", "<databaseChangeLog/>");
+        let d = doc("/project/a.xml", "<databaseChangeLog><include file='child.xml'/></databaseChangeLog>");
+        assert!(state.markers(&d).is_empty());
+        assert!(
+            state.diagnostics(&doc("/project/a.xml", &format!("<databaseChangeLog>{}</databaseChangeLog>", "${".repeat(1025)))).is_empty()
+        );
+        let problems = state.diagnostics(&doc("/project/a.xml", XML));
+        for diagnostic in problems {
+            let a = offset(XML, diagnostic.range.start).unwrap();
+            let b = offset(XML, diagnostic.range.end).unwrap();
+            assert!(a < b && &XML[a..b] == "changeSet");
+        }
+    }
+}

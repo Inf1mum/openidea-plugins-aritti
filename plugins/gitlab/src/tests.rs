@@ -2,17 +2,8 @@ use super::*;
 use openidea_plugin::mock::MockHost;
 use openidea_plugin::{HttpRequest, HttpResponse, ProcessOutput};
 
-const CAPS: &[&str] = &[
-    "vcs.read",
-    "editor.read",
-    "net:gitlab.com",
-    "secrets",
-    "storage",
-    "clipboard",
-    "project.read",
-    "events",
-    "process:git",
-];
+const CAPS: &[&str] =
+    &["vcs.read", "editor.read", "net:gitlab.com", "secrets", "storage", "clipboard", "project.read", "events", "process:git"];
 
 const MR: &str = r#"{
     "iid": 7, "title": "Add parser", "description": "Adds it", "state": "opened", "draft": false,
@@ -46,10 +37,10 @@ fn gitlab(req: &HttpRequest) -> Result<HttpResponse, Error> {
     match (req.method.as_str(), path) {
         ("GET", "/api/v4/user") => ok(r#"{"id": 1, "username": "me", "name": "Me"}"#),
         ("GET", "/api/v4/projects/g%2Fp") => ok(r#"{"id": 5, "default_branch": "main"}"#),
-        ("GET", p) if p.starts_with("/api/v4/projects?membership=true") => ok(
-            r#"[{"name": "Tool", "path": "tool", "path_with_namespace": "me/tool", "name_with_namespace": "Me / Tool",
-                "http_url_to_repo": "https://gitlab.com/me/tool.git", "ssh_url_to_repo": "git@gitlab.com:me/tool.git"}]"#,
-        ),
+        ("GET", p) if p.starts_with("/api/v4/projects?membership=true") => {
+            ok(r#"[{"name": "Tool", "path": "tool", "path_with_namespace": "me/tool", "name_with_namespace": "Me / Tool",
+                "http_url_to_repo": "https://gitlab.com/me/tool.git", "ssh_url_to_repo": "git@gitlab.com:me/tool.git"}]"#)
+        }
         ("GET", p) if p.starts_with("/api/v4/projects/g%2Fp/merge_requests?") => ok(&format!("[{MR}]")),
         ("GET", p) if p.split('?').next() == Some(mr) => ok(MR),
         ("GET", p) if p == format!("{mr}/approvals") => {
@@ -62,21 +53,29 @@ fn gitlab(req: &HttpRequest) -> Result<HttpResponse, Error> {
             ok(r#"[{"created_at": "2026-01-04", "user": {"username": "bob"}, "state": "reopened"}]"#)
         }
         ("GET", p) if p.starts_with(&format!("{mr}/resource_")) => ok("[]"),
-        ("GET", p) if p.starts_with("/api/v4/projects/g%2Fp/repository/branches?") => ok(r#"[{"name": "main"}, {"name": "develop"}, {"name": "feature"}]"#),
+        ("GET", p) if p.starts_with("/api/v4/projects/g%2Fp/repository/branches?") => {
+            ok(r#"[{"name": "main"}, {"name": "develop"}, {"name": "feature"}]"#)
+        }
         ("GET", p) if p.starts_with("/api/v4/projects/g%2Fp/labels") => ok(r#"[{"name": "bug"}, {"name": "ui"}]"#),
-        ("GET", p) if p.starts_with("/api/v4/projects/g%2Fp/members/all") => ok(r#"[{"id": 2, "username": "ann", "name": "Ann"}, {"id": 3, "username": "bob", "name": "Bob"}]"#),
+        ("GET", p) if p.starts_with("/api/v4/projects/g%2Fp/members/all") => {
+            ok(r#"[{"id": 2, "username": "ann", "name": "Ann"}, {"id": 3, "username": "bob", "name": "Bob"}]"#)
+        }
         ("GET", p) if p.starts_with("/api/v4/projects/g%2Fp/milestones") => ok(r#"[{"id": 40, "title": "v2"}]"#),
-        ("GET", p) if p.starts_with("/api/v4/namespaces?") => ok(r#"[{"id": 3, "full_path": "me", "kind": "user"}, {"id": 12, "full_path": "team/sub", "kind": "group"}]"#),
-        ("GET", "/api/v4/users?username=ann") =>ok(r#"[{"id": 2, "username": "ann"}]"#),
+        ("GET", p) if p.starts_with("/api/v4/namespaces?") => {
+            ok(r#"[{"id": 3, "full_path": "me", "kind": "user"}, {"id": 12, "full_path": "team/sub", "kind": "group"}]"#)
+        }
+        ("GET", "/api/v4/users?username=ann") => ok(r#"[{"id": 2, "username": "ann"}]"#),
         ("GET", "/api/v4/users?username=bob") => ok(r#"[{"id": 3, "username": "bob"}]"#),
         ("GET", p) if p.starts_with("/api/v4/users?") => ok("[]"),
-        ("POST", "/api/v4/projects/g%2Fp/merge_requests") => ok(r#"{"iid": 8, "title": "Add parser", "web_url": "https://gitlab.com/g/p/-/merge_requests/8"}"#),
+        ("POST", "/api/v4/projects/g%2Fp/merge_requests") => {
+            ok(r#"{"iid": 8, "title": "Add parser", "web_url": "https://gitlab.com/g/p/-/merge_requests/8"}"#)
+        }
         ("POST", "/api/v4/snippets") => ok(r#"{"web_url": "https://gitlab.com/-/snippets/9"}"#),
         ("POST", "/api/v4/projects/g%2Fp/snippets") => ok(r#"{"web_url": "https://gitlab.com/g/p/-/snippets/10"}"#),
-        ("POST", "/api/v4/projects") => ok(
-            r#"{"web_url": "https://gitlab.com/me/project", "http_url_to_repo": "https://gitlab.com/me/project.git",
-                "ssh_url_to_repo": "git@gitlab.com:me/project.git"}"#,
-        ),
+        ("POST", "/api/v4/projects") => {
+            ok(r#"{"web_url": "https://gitlab.com/me/project", "http_url_to_repo": "https://gitlab.com/me/project.git",
+                "ssh_url_to_repo": "git@gitlab.com:me/project.git"}"#)
+        }
         ("POST" | "PUT", _) => ok("{}"),
         _ => Ok(HttpResponse { status: 404, headers: vec![], body: br#"{"message":"404 Not Found"}"#.to_vec() }),
     }
@@ -109,7 +108,18 @@ fn render_in(plugin: &mut GitLab, section: Section, host: &MockHost) -> View {
 
 fn handle_in(plugin: &mut GitLab, section: Section, event: ViewEvent, host: &MockHost) {
     storage::set(sections::SECTION_KEY, section.id()).unwrap();
-
+    let event=if section==Section::Files {
+        match event { ViewEvent::Button(kind) if matches!(kind.as_str(),"clear"|"mark-all") => {
+            let label=if kind=="clear" {"Clear Viewed"} else {"Mark All Viewed"};
+            let view=render_in(plugin,section,host);ViewEvent::Button(view.toolbar.iter().find(|button|button.label==label).unwrap().id.clone())
+        }, other=>other }
+    } else if section==Section::Pipelines {
+        match event { ViewEvent::Button(kind) if matches!(kind.as_str(),"retry"|"cancel"|"browser"|"open-job-trace-snapshot") => {
+            let view=render_in(plugin,section,host);
+            let key=view.toolbar.iter().find(|button|button.id.strip_prefix("pipeline-action:").and_then(|json|serde_json::from_str::<serde_json::Value>(json).ok()).is_some_and(|value|value[4].as_str()==Some(&kind)))
+                .map(|button|button.id.clone()).unwrap_or(kind);ViewEvent::Button(key)
+        },other=>other }
+    } else {event};
     plugin.handle(DETAILS, event, &host.invocation()).unwrap();
 }
 
@@ -127,6 +137,14 @@ fn changes_view(plugin: &mut GitLab, host: &MockHost) -> Result<View, Error> {
 
 fn changes_message(plugin: &mut GitLab, host: &MockHost, event: ViewEvent) -> Result<(), Error> {
     storage::set(sections::SECTION_KEY, "changes").unwrap();
+    let event = if let ViewEvent::Message(message) = event {
+        let mut value: serde_json::Value=serde_json::from_str(&message).unwrap();
+        if value.get("reviewContext").is_none() {
+            if plugin.review_context(&host.invocation()).is_err() { changes_view(plugin,host)?; }
+            value["reviewContext"]=serde_json::Value::String(plugin.review_context(&host.invocation())?);
+        }
+        ViewEvent::Message(value.to_string())
+    } else { event };
     plugin.handle(DETAILS, event, &host.invocation())
 }
 
@@ -138,8 +156,11 @@ fn field(key: &str, value: &str) -> ViewEvent {
     ViewEvent::Field(key.into(), value.into())
 }
 
+fn button_matches(key: &str, kind: &str) -> bool {
+    key==kind || key.strip_prefix("pipeline-action:").and_then(|json|serde_json::from_str::<serde_json::Value>(json).ok()).is_some_and(|value|value[4].as_str()==Some(kind))
+}
 fn label<'a>(view: &'a View, id: &str) -> &'a str {
-    &view.toolbar.iter().find(|b| b.id == id).unwrap().label
+    &view.toolbar.iter().find(|b| button_matches(&b.id,id)).unwrap().label
 }
 
 fn buttons(view: &View) -> Vec<&str> {
@@ -260,7 +281,31 @@ fn details_offer_the_review_flow() {
     let view = selected(&host).render(DETAILS, None, &host.invocation()).unwrap();
 
     let actions: Vec<&str> = buttons(&view).into_iter().filter(|b| !b.starts_with("section:")).collect();
-    assert_eq!(actions, ["comment", "react", "approve", "merge", "review", "edit", "draft", "close", "checkout", "browser", "copy", "refresh"]);
+    assert_eq!(
+        actions,
+        [
+            "comment",
+            "react",
+            "approve",
+            "merge",
+            "review",
+            "edit",
+            "edit-attribute:labels",
+            "edit-attribute:assignees",
+            "edit-attribute:reviewers",
+            "edit-attribute:milestone",
+            "edit-attribute:title",
+            "draft",
+            "close",
+            "checkout",
+            "open-overview-snapshot",
+            "open-diff-snapshot",
+            "open-existing-worktree",
+            "browser",
+            "copy",
+            "refresh"
+        ]
+    );
     assert!(view.toolbar.iter().filter(|b| !b.id.starts_with("section:")).all(|b| b.icon.is_some()), "{view:?}");
     assert_eq!(
         view.status.as_deref(),
@@ -270,8 +315,8 @@ fn details_offer_the_review_flow() {
     let keys: Vec<&str> = fields.iter().map(|f| f.key.as_str()).collect();
     assert_eq!(keys, ["comment", "as-draft", "emoji", "remove-source-branch", "squash", "description"]);
     assert_eq!(fields[2].value, FieldValue::Choice(safe::EMOJIS.map(str::to_owned).to_vec(), "thumbsup".into()));
-    assert_eq!(fields[5].label, "Description (read-only)");
-    assert_eq!(fields[5].value, FieldValue::Multiline("Adds it".into()));
+    assert_eq!(fields[5].label, "Description");
+    assert_eq!(fields[5].value, FieldValue::readonly_text("Adds it", true));
     assert!(!fields.iter().any(|f| matches!(f.value, FieldValue::Text(_))), "no read-only facts as inputs: {fields:?}");
 }
 
@@ -284,7 +329,7 @@ fn a_selected_thread_shows_who_is_replied_to_before_the_reply() {
     let view = plugin.render(DETAILS, None, &host.invocation()).unwrap();
 
     let Body::Form(fields) = &view.body else { panic!("{view:?}") };
-    assert_eq!(fields[0], Field::new("replying-to", "Replying to (read-only)", FieldValue::Text("bob: Why?".into())));
+    assert_eq!(fields[0], Field::new("replying-to", "Replying to", FieldValue::readonly_text("bob: Why?", false)));
     assert_eq!(fields[1].label, "Reply");
 }
 
@@ -299,7 +344,7 @@ fn edits_to_the_description_are_ignored_and_the_comment_survives_a_redraw() {
 
     let Body::Form(fields) = &view.body else { panic!("{view:?}") };
     assert_eq!(fields[0].value, FieldValue::Multiline("draft text".into()));
-    assert_eq!(fields.last().unwrap().value, FieldValue::Multiline("Adds it".into()));
+    assert_eq!(fields.last().unwrap().value, FieldValue::readonly_text("Adds it", true));
     assert!(writes(&host).is_empty());
 }
 
@@ -539,6 +584,7 @@ fn the_changes_view_shows_threads_on_their_lines() {
 fn the_changes_page_reads_without_scripts() {
     let host = setup();
     let mut plugin = selected(&host);
+    changes_view(&mut plugin, &host).unwrap();
     changes_message(&mut plugin, &host, ViewEvent::Message(r#"{"type":"viewed","path":"src/a.rs","viewed":true}"#.into())).unwrap();
 
     let view = changes_view(&mut plugin, &host).unwrap();
@@ -556,7 +602,8 @@ fn comments_on_diff_lines_carry_the_position() {
     let mut plugin = selected(&host);
     changes_view(&mut plugin, &host).unwrap();
 
-    let message = r#"{"type":"comment","oldPath":"src/a.rs","newPath":"src/a.rs","old":4,"new":null,"body":"gone?","draft":false,"anchor":"f0-4-"}"#;
+    let message =
+        r#"{"type":"comment","oldPath":"src/a.rs","newPath":"src/a.rs","old":4,"new":null,"body":"gone?","draft":false,"anchor":"f0-4-"}"#;
     changes_message(&mut plugin, &host, ViewEvent::Message(message.into())).unwrap();
     let draft = r#"{"type":"comment","oldPath":"src/a.rs","newPath":"src/a.rs","old":3,"new":3,"body":"ctx","draft":true}"#;
     changes_message(&mut plugin, &host, ViewEvent::Message(draft.into())).unwrap();
@@ -583,13 +630,15 @@ fn a_failed_diff_comment_reports_to_the_page_without_redrawing_it() {
     changes_view(&mut plugin, &host).unwrap();
     let refreshed = host.refreshed_views().len();
 
-    let message = r#"{"type":"comment","oldPath":"src/a.rs","newPath":"src/a.rs","old":4,"new":null,"body":"gone?","draft":false,"anchor":"f0-4-"}"#;
+    let message =
+        r#"{"type":"comment","oldPath":"src/a.rs","newPath":"src/a.rs","old":4,"new":null,"body":"gone?","draft":false,"anchor":"f0-4-"}"#;
     changes_message(&mut plugin, &host, ViewEvent::Message(message.into())).unwrap();
 
     assert_eq!(host.refreshed_views().len(), refreshed);
     assert_eq!(plugin.status, None);
     assert_eq!(plugin.anchor, None);
-    let (view, posted) = &host.view_messages()[0];
+    let messages = host.view_messages();
+    let (view, posted) = messages.iter().find(|(_, text)| text.contains(r#""type":"error""#)).unwrap();
     assert_eq!(view, DETAILS);
     assert!(posted.contains(r#""type":"error""#) && posted.contains("line_code is invalid"), "{posted}");
     assert!(host.view_messages().iter().all(|(view, _)| view == DETAILS));
@@ -739,7 +788,11 @@ fn projects_with(path: &'static str, url: &'static str) -> impl Fn(&HttpRequest)
 #[test]
 fn clone_refuses_a_project_path_starting_with_a_dash() {
     let host = setup();
-    for (path, url) in [("-x", "https://gitlab.com/me/tool.git"), ("--upload-pack=x", "https://gitlab.com/me/tool.git"), ("tool", "https://gitlab.com/me/tool.git;rm -rf ~")] {
+    for (path, url) in [
+        ("-x", "https://gitlab.com/me/tool.git"),
+        ("--upload-pack=x", "https://gitlab.com/me/tool.git"),
+        ("tool", "https://gitlab.com/me/tool.git;rm -rf ~"),
+    ] {
         host.on_fetch(projects_with(path, url));
         let mut plugin = GitLab::default();
         plugin.render(PROJECTS, None, &host.invocation()).unwrap();
@@ -924,10 +977,7 @@ fn creates_a_private_snippet_from_the_selection() {
     GitLab::default().run_command("create-snippet", &host.invocation(), None).unwrap();
 
     let posted = writes(&host);
-    assert_eq!(
-        posted[0].2,
-        r#"{"files":[{"content":"main","file_path":"src/a.rs"}],"title":"a.rs","visibility":"private"}"#
-    );
+    assert_eq!(posted[0].2, r#"{"files":[{"content":"main","file_path":"src/a.rs"}],"title":"a.rs","visibility":"private"}"#);
     assert_eq!(host.clipboard().as_deref(), Some("https://gitlab.com/-/snippets/9"));
     assert_eq!(host.notifications()[0].title, "Snippet created");
 }
@@ -1012,11 +1062,12 @@ fn files_view_toggles_viewed_without_page_scripts_and_switches_layout() {
     };
 
     let tree = items(&mut plugin);
-    assert_eq!(tree.iter().map(|i| i.key.as_str()).collect::<Vec<_>>(), ["dir:src", "file:src/a.rs"]);
+    assert_eq!(tree.len(),2);assert_eq!(tree[0].key,"dir:src");
+    let (_,path): (String,String)=serde_json::from_str(tree[1].key.strip_prefix("file:").unwrap()).unwrap();assert_eq!(path,"src/a.rs");
     assert_eq!(tree[1].parent.as_deref(), Some("dir:src"));
     assert!(tree[1].icon.is_none());
 
-    handle_in(&mut plugin, Section::Files, ViewEvent::Activate("file:src/a.rs".into()), &host);
+    handle_in(&mut plugin, Section::Files, ViewEvent::Activate(tree[1].key.clone()), &host);
 
     assert_eq!(storage::get("viewed:g/p:7").unwrap().unwrap(), r#"{"src/a.rs":"abcdef1"}"#);
     assert_eq!(items(&mut plugin)[1].icon.as_deref(), Some("check"));
@@ -1040,6 +1091,7 @@ fn viewed_falls_back_to_the_head_without_local_history() {
     host.on_process("git", |_, _| Ok(ProcessOutput { status: Some(128), stdout: String::new(), stderr: "bad object".into() }));
     let mut plugin = selected(&host);
 
+    changes_view(&mut plugin, &host).unwrap();
     changes_message(&mut plugin, &host, ViewEvent::Message(r#"{"type":"viewed","path":"src/a.rs","viewed":true}"#.into())).unwrap();
 
     assert_eq!(storage::get("viewed:g/p:7").unwrap().unwrap(), r#"{"src/a.rs":"abcdef1"}"#);
@@ -1061,6 +1113,7 @@ fn non_hex_shas_are_not_passed_to_git() {
     });
     let mut plugin = selected(&host);
 
+    changes_view(&mut plugin, &host).unwrap();
     changes_message(&mut plugin, &host, ViewEvent::Message(r#"{"type":"viewed","path":"src/a.rs","viewed":true}"#.into())).unwrap();
 
     assert_eq!(git_calls.get(), 0);
@@ -1116,7 +1169,8 @@ fn a_plain_suggestion_replaces_the_commented_line_and_an_empty_one_deletes_it() 
 
     let actions = plugin.code_actions(&document("/project/src/a.rs"), at_line(3));
 
-    let edits: Vec<_> = actions.iter().map(|a| (a.edits[0].1[0].range.start.line, a.edits[0].1[0].range.end.line, a.edits[0].1[0].text.as_str())).collect();
+    let edits: Vec<_> =
+        actions.iter().map(|a| (a.edits[0].1[0].range.start.line, a.edits[0].1[0].range.end.line, a.edits[0].1[0].text.as_str())).collect();
     assert_eq!(edits, [(3, 4, "D\n"), (3, 4, "")]);
 }
 
@@ -1167,12 +1221,15 @@ fn suggestion_on_a_last_line_without_newline_adds_none() {
 #[test]
 fn suggestion_is_not_offered_when_the_line_differs_from_the_cached_diff() {
     let (_host, mut plugin) = branch_with_suggestion("```suggestion\nX\n```");
-    plugin.diffs = Some((7, vec![FileDiff {
-        old_path: "src/a.rs".into(),
-        new_path: "src/a.rs".into(),
-        diff: "@@ -3,2 +3,2 @@\n c\n+d\n".into(),
-        ..FileDiff::default()
-    }]));
+    plugin.diffs = Some((
+        7,
+        vec![FileDiff {
+            old_path: "src/a.rs".into(),
+            new_path: "src/a.rs".into(),
+            diff: "@@ -3,2 +3,2 @@\n c\n+d\n".into(),
+            ..FileDiff::default()
+        }],
+    ));
 
     assert_eq!(plugin.code_actions(&document("/project/src/a.rs"), at_line(3)).len(), 1, "line 4 is `d` in the diff and in the file");
 
@@ -1194,12 +1251,15 @@ fn the_viewed_history_is_read_with_unquoted_paths() {
 #[test]
 fn suggestion_guard_checks_the_whole_range() {
     let (_host, mut plugin) = branch_with_suggestion("```suggestion:-1+0\nX\n```");
-    plugin.diffs = Some((7, vec![FileDiff {
-        old_path: "src/a.rs".into(),
-        new_path: "src/a.rs".into(),
-        diff: "@@ -3,2 +3,2 @@\n c\n+d\n".into(),
-        ..FileDiff::default()
-    }]));
+    plugin.diffs = Some((
+        7,
+        vec![FileDiff {
+            old_path: "src/a.rs".into(),
+            new_path: "src/a.rs".into(),
+            diff: "@@ -3,2 +3,2 @@\n c\n+d\n".into(),
+            ..FileDiff::default()
+        }],
+    ));
 
     assert_eq!(plugin.code_actions(&document("/project/src/a.rs"), at_line(3)).len(), 1);
 
@@ -1253,7 +1313,11 @@ mod ci_tests {
         let host = MockHost::install();
         let mut plugin = GitLab::default();
         let path = "/project/gone.gitlab-ci.yml";
-        let stale = openidea_plugin::Diagnostic::new(Range::new(Position::new(0, 0), Position::new(0, 1)), openidea_plugin::Severity::Warning, "old");
+        let stale = openidea_plugin::Diagnostic::new(
+            Range::new(Position::new(0, 0), Position::new(0, 1)),
+            openidea_plugin::Severity::Warning,
+            "old",
+        );
         plugin.ci_problems.insert(path.into(), vec![stale]);
         plugin.publish_review(path);
         assert_eq!(host.diagnostics()[path].len(), 1);
@@ -1337,7 +1401,8 @@ mod ci_tests {
 
     #[test]
     fn single_quoted_dollar_variable_in_script_warns() {
-        let yaml = "job:\n  script:\n    - echo 'deploying $CI_COMMIT_SHA'\n    - printf '${HOME}\\n'\n  after_script:\n    - echo -n '$X'\n";
+        let yaml =
+            "job:\n  script:\n    - echo 'deploying $CI_COMMIT_SHA'\n    - printf '${HOME}\\n'\n  after_script:\n    - echo -n '$X'\n";
         let found = findings(yaml);
 
         assert_eq!(found.len(), 3, "{found:?}");
@@ -1439,7 +1504,14 @@ mod ci_tests {
 
     #[test]
     fn is_ci_path_matches_the_icon_patterns() {
-        for path in [".gitlab-ci.yml", "/p/.gitlab-ci.yaml", "/p/team.gitlab-ci.yml", "x.gitlab-ci.yaml", "/p/a.gitlab-ci.deploy.yml", "a.gitlab-ci.b.yaml"] {
+        for path in [
+            ".gitlab-ci.yml",
+            "/p/.gitlab-ci.yaml",
+            "/p/team.gitlab-ci.yml",
+            "x.gitlab-ci.yaml",
+            "/p/a.gitlab-ci.deploy.yml",
+            "a.gitlab-ci.b.yaml",
+        ] {
             assert!(ci::is_ci_path(path), "{path}");
         }
         for path in ["/p/gitlab-ci.yml", "/p/ci.yml", "/p/.gitlab-ci.json", "/p/docker-compose.yml"] {
@@ -1571,10 +1643,7 @@ mod worktree_tests {
 
         assert_eq!(
             git_runs(&host),
-            [
-                "fetch -- origin +refs/heads/feature:refs/remotes/origin/feature",
-                "worktree add --detach -- /project-feature origin/feature",
-            ]
+            ["fetch -- origin +refs/heads/feature:refs/remotes/origin/feature", "worktree add --detach -- /project-feature origin/feature",]
         );
         assert!(host.notifications()[0].body.contains("/project-feature"));
     }
@@ -1888,7 +1957,11 @@ mod share_prompt_tests {
     use serde_json::Value;
     use std::cell::Cell;
 
-    fn git_staging(statuses: Vec<&'static str>, staged: &'static str, failing: &'static str) -> impl Fn(&[String], Option<&str>) -> Result<ProcessOutput, Error> {
+    fn git_staging(
+        statuses: Vec<&'static str>,
+        staged: &'static str,
+        failing: &'static str,
+    ) -> impl Fn(&[String], Option<&str>) -> Result<ProcessOutput, Error> {
         let calls = Cell::new(0);
         move |args, _| {
             let stdout = match args[0].as_str() {
@@ -1937,7 +2010,11 @@ mod share_prompt_tests {
     }
 
     fn created(host: &MockHost) -> Vec<Value> {
-        writes(host).into_iter().filter(|(_, url, _)| url == "https://gitlab.com/api/v4/projects").map(|(_, _, body)| serde_json::from_str(&body).unwrap()).collect()
+        writes(host)
+            .into_iter()
+            .filter(|(_, url, _)| url == "https://gitlab.com/api/v4/projects")
+            .map(|(_, _, body)| serde_json::from_str(&body).unwrap())
+            .collect()
     }
 
     fn nothing_happened(host: &MockHost) {
@@ -2190,10 +2267,8 @@ mod note_action_tests {
 
         match (req.method.as_str(), path) {
             ("GET", "/discussions") => ok(MINE),
-            ("GET", "/notes/12/award_emoji") => ok(
-                r#"[{"id": 55, "name": "thumbsup", "user": {"id": 1, "username": "me"}},
-                    {"id": 56, "name": "rocket", "user": {"id": 3, "username": "bob"}}]"#,
-            ),
+            ("GET", "/notes/12/award_emoji") => ok(r#"[{"id": 55, "name": "thumbsup", "user": {"id": 1, "username": "me"}},
+                    {"id": 56, "name": "rocket", "user": {"id": 3, "username": "bob"}}]"#),
             ("GET", p) if p.ends_with("/award_emoji") => ok("[]"),
             ("DELETE", _) => ok(""),
             _ => gitlab(req),
@@ -2326,7 +2401,9 @@ mod note_action_tests {
             let path = r.url.strip_prefix(MR_URL).unwrap_or("").split('?').next().unwrap_or("");
             match (r.method.as_str(), path) {
                 _ if r.url.ends_with("/api/v4/user") => ok(r#"{"username": "me"}"#),
-                ("GET", "/discussions") => ok(r#"[{"id": "d1", "notes": [{"id": 12, "body": "x", "author": {"username": "me"}, "created_at": "2026-01-03"}]}]"#),
+                ("GET", "/discussions") => {
+                    ok(r#"[{"id": "d1", "notes": [{"id": 12, "body": "x", "author": {"username": "me"}, "created_at": "2026-01-03"}]}]"#)
+                }
                 ("GET", "/notes/12/award_emoji") => ok(r#"[{"id": 55, "name": "thumbsup", "user": {"username": "me"}}]"#),
                 _ => notes(r),
             }
@@ -2636,7 +2713,13 @@ mod commit_tests {
         let numbers: Vec<(char, Option<u32>, Option<u32>, &str)> = lines.iter().map(|l| (l.kind, l.old, l.new, l.text.as_str())).collect();
         assert_eq!(
             numbers,
-            [('@', None, None, "@@ -1,2 +1,2 @@"), (' ', Some(1), Some(1), "é"), ('-', Some(2), None, "ü😀"), ('+', None, Some(2), "ü😀x"), (' ', Some(3), Some(3), "z")]
+            [
+                ('@', None, None, "@@ -1,2 +1,2 @@"),
+                (' ', Some(1), Some(1), "é"),
+                ('-', Some(2), None, "ü😀"),
+                ('+', None, Some(2), "ü😀x"),
+                (' ', Some(3), Some(3), "z")
+            ]
         );
 
         let host = host();
@@ -2663,12 +2746,14 @@ mod pipeline_tests {
         let url = req.url.split('?').next().unwrap_or("");
 
         match (req.method.as_str(), url.strip_prefix(API).unwrap_or("")) {
-            ("GET", "/merge_requests/7/pipelines") => ok(
-                r#"[{"id": 41, "status": "running", "web_url": "https://gitlab.com/g/p/-/pipelines/41"},
-                    {"id": 40, "status": "failed", "web_url": "https://gitlab.com/g/p/-/pipelines/40"}]"#,
-            ),
+            ("GET", "/merge_requests/7/pipelines") => {
+                ok(r#"[{"id": 41, "status": "running", "web_url": "https://gitlab.com/g/p/-/pipelines/41"},
+                    {"id": 40, "status": "failed", "web_url": "https://gitlab.com/g/p/-/pipelines/40"}]"#)
+            }
             ("GET", "/pipelines/41/jobs") => ok(JOBS_41),
-            ("GET", "/pipelines/40/jobs") => ok(r#"[{"id": 300, "name": "unit", "stage": "test", "status": "failed", "web_url": "https://gitlab.com/g/p/-/jobs/300"}]"#),
+            ("GET", "/pipelines/40/jobs") => {
+                ok(r#"[{"id": 300, "name": "unit", "stage": "test", "status": "failed", "web_url": "https://gitlab.com/g/p/-/jobs/300"}]"#)
+            }
             _ => gitlab(req),
         }
     }
@@ -2700,6 +2785,27 @@ mod pipeline_tests {
         items.iter().map(|i| (i.key.as_str(), i.parent.as_deref(), i.label.as_str(), i.icon.as_deref())).collect()
     }
 
+    #[test]
+    fn captured_retry_button_cannot_retarget_another_selected_job() {
+        let host=host();let mut plugin=on_mr(&host);pick(&mut plugin,&host,"j:301");
+        let view=render_in(&mut plugin,Section::Pipelines,&host);let key=view.toolbar.iter().find(|button|button.label=="Retry Job").unwrap().id.clone();
+        pick(&mut plugin,&host,"j:303");let _=plugin.handle(DETAILS,ViewEvent::Button(key),&host.invocation());assert!(writes(&host).is_empty());
+    }
+    #[test]
+    fn captured_browser_button_cannot_open_another_selected_job() {
+        let host=host();let mut plugin=on_mr(&host);pick(&mut plugin,&host,"j:301");
+        let view=render_in(&mut plugin,Section::Pipelines,&host);let key=view.toolbar.iter().find(|button|button.label=="Open on GitLab").unwrap().id.clone();
+        pick(&mut plugin,&host,"j:303");let _=plugin.handle(DETAILS,ViewEvent::Button(key),&host.invocation());assert!(host.opened_urls().is_empty());assert!(writes(&host).is_empty());
+    }
+    #[test]
+    fn stale_first_cancel_control_cannot_replace_the_rendered_confirmation() {
+        let host=host();let mut plugin=on_mr(&host);pick(&mut plugin,&host,"j:302");
+        let view=render_in(&mut plugin,Section::Pipelines,&host);let key=view.toolbar.iter().find(|button|button.label=="Cancel Pipeline").unwrap().id.clone();
+        plugin.handle(DETAILS,ViewEvent::Button(key.clone()),&host.invocation()).unwrap();assert!(writes(&host).is_empty());
+        assert!(plugin.handle(DETAILS,ViewEvent::Button(key),&host.invocation()).is_err());assert!(writes(&host).is_empty());
+        let view=render_in(&mut plugin,Section::Pipelines,&host);let confirm=view.toolbar.iter().find(|button|button.label=="Confirm Cancel Pipeline #41").unwrap().id.clone();
+        plugin.handle(DETAILS,ViewEvent::Button(confirm),&host.invocation()).unwrap();assert_eq!(writes(&host)[0].1,format!("{API}/pipelines/41/cancel"));
+    }
     #[test]
     fn shows_pipelines_with_jobs_grouped_by_stage_and_status_icons() {
         let host = host();
@@ -2811,10 +2917,8 @@ mod pipeline_tests {
     fn open_in_browser_refuses_a_job_url_on_another_host() {
         let host = setup();
         host.on_fetch(|req| match req.url.contains("/pipelines/41/jobs") {
-            true => ok(
-                r#"[{"id": 1, "name": "evil", "stage": "test", "status": "failed", "web_url": "https://evil.test/j/1"},
-                    {"id": 2, "name": "script", "stage": "test", "status": "failed", "web_url": "javascript:alert(1)"}]"#,
-            ),
+            true => ok(r#"[{"id": 1, "name": "evil", "stage": "test", "status": "failed", "web_url": "https://evil.test/j/1"},
+                    {"id": 2, "name": "script", "stage": "test", "status": "failed", "web_url": "javascript:alert(1)"}]"#),
             false => pipelines(req),
         });
         let mut plugin = on_mr(&host);
@@ -2840,8 +2944,8 @@ mod pipeline_tests {
 
         let view = click(&mut plugin, &host, "retry");
 
-        let retry = view.toolbar.iter().find(|b| b.id == "retry").unwrap();
-        assert_eq!(retry, &Button::new("retry", "Retry Job").icon("rerun").enabled(false));
+        let retry = view.toolbar.iter().find(|b| button_matches(&b.id,"retry")).unwrap();
+        assert_eq!(retry, &Button::new(&retry.id, "Retry Job").icon("rerun").enabled(false));
         assert!(writes(&host).is_empty());
     }
 
@@ -3040,10 +3144,7 @@ fn project_view_opens_a_file_blob_and_a_folder_tree() {
     host.select_paths(&["/project/src"]);
     GitLab::default().run_command("open-in-browser", &host.invocation(), None).unwrap();
 
-    assert_eq!(
-        host.opened_urls(),
-        ["https://gitlab.com/g/p/-/blob/abc123/src/a%20b.rs", "https://gitlab.com/g/p/-/tree/abc123/src"]
-    );
+    assert_eq!(host.opened_urls(), ["https://gitlab.com/g/p/-/blob/abc123/src/a%20b.rs", "https://gitlab.com/g/p/-/tree/abc123/src"]);
 }
 
 mod ci_aid_tests {
@@ -3171,14 +3272,14 @@ mod ci_aid_tests {
 }
 
 #[test]
-fn section_buttons_list_the_five_sections_with_the_active_one_marked() {
+fn section_buttons_list_the_six_sections_with_the_active_one_marked() {
     let host = setup();
     let mut plugin = selected(&host);
 
     let view = plugin.render(DETAILS, None, &host.invocation()).unwrap();
 
     let ids: Vec<&str> = section_buttons(&view).into_iter().map(|(id, _)| id).collect();
-    assert_eq!(ids, ["section:overview", "section:changes", "section:commits", "section:files", "section:pipelines"]);
+    assert_eq!(ids, ["section:overview", "section:changes", "section:commits", "section:files", "section:pipelines", "section:timeline"]);
     assert_eq!(section_buttons(&view)[0].1, "● Overview");
     assert_eq!(section_buttons(&view)[1].1, "Changes");
 
@@ -3223,7 +3324,7 @@ fn no_selected_merge_request_shows_the_select_message_in_every_section() {
         let view = plugin.render(DETAILS, None, &host.invocation()).unwrap();
 
         assert!(matches!(&view.body, Body::Message(m) if m.contains("Select a merge request")), "{}: {view:?}", section.id());
-        assert_eq!(section_buttons(&view).len(), 5);
+        assert_eq!(section_buttons(&view).len(), Section::ALL.len());
         for (id, _) in section_buttons(&view) {
             plugin.handle(DETAILS, ViewEvent::Button(id.into()), &host.invocation()).unwrap();
         }
@@ -3237,7 +3338,7 @@ fn changes_section_still_routes_view_messages() {
     storage::set(sections::SECTION_KEY, "changes").unwrap();
     plugin.render(DETAILS, None, &host.invocation()).unwrap();
 
-    plugin.handle(DETAILS, ViewEvent::Message(r#"{"type":"viewed","path":"src/a.rs","viewed":true}"#.into()), &host.invocation()).unwrap();
+    changes_message(&mut plugin, &host, ViewEvent::Message(r#"{"type":"viewed","path":"src/a.rs","viewed":true}"#.into())).unwrap();
 
     let view = plugin.render(DETAILS, None, &host.invocation()).unwrap();
     let Body::Html(html) = &view.body else { panic!("{view:?}") };
@@ -3267,4 +3368,967 @@ fn files_section_toggles_viewed_and_refreshes_the_window() {
     handle_in(&mut plugin, Section::Files, ViewEvent::Button("clear".into()), &host);
 
     assert!(host.refreshed_views()[before..].contains(&DETAILS.to_owned()));
+}
+
+mod existing_worktree_tests {
+    use super::*;
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    const SHA: &str = "1111111111111111111111111111111111111111";
+    const OTHER: &str = "2222222222222222222222222222222222222222";
+
+    fn record(path: &str, sha: &str, state: &str) -> String {
+        format!("worktree {path}\0HEAD {sha}\0{state}\0\0")
+    }
+
+    fn current_mr() -> String {
+        MR.replace("abc123", SHA)
+    }
+
+    fn prepared() -> (MockHost, GitLab) {
+        let host = setup();
+        host.on_fetch(|request| {
+            if request.method == "GET" && request.url.ends_with("/merge_requests/7") { ok(&current_mr()) } else { gitlab(request) }
+        });
+        let plugin = selected(&host);
+        (host, plugin)
+    }
+
+    fn list_process(host: &MockHost, output: String) {
+        host.on_process("git", move |args, _| {
+            assert_eq!(args, ["worktree", "list", "--porcelain", "-z"], "existing worktree action must be read-only");
+            Ok(ProcessOutput { status: Some(0), stdout: output.clone(), stderr: String::new() })
+        });
+    }
+
+    #[test]
+    fn opens_only_existing_exact_head_in_new_window_and_preserves_review_text() {
+        let (host, mut plugin) = prepared();
+        list_process(&host, record("/work/review space", SHA, "branch refs/heads/feature"));
+        storage::set(COMMENT_KEY, "unfinished review").unwrap();
+        storage::set(AS_DRAFT_KEY, "true").unwrap();
+        host.answer_next_prompt(Some(&["/work/review space"]));
+        plugin.run_command("open-existing-merge-request-worktree", &host.invocation(), None).unwrap();
+        assert_eq!(host.opened_projects(), [("/work/review space".into(), true)]);
+        assert_eq!(git_runs(&host), ["worktree list --porcelain -z", "worktree list --porcelain -z"]);
+        assert!(writes(&host).is_empty());
+        assert_eq!(storage::get(COMMENT_KEY).unwrap().as_deref(), Some("unfinished review"));
+        assert_eq!(storage::get(AS_DRAFT_KEY).unwrap().as_deref(), Some("true"));
+    }
+
+    #[test]
+    fn dismissing_worktree_picker_keeps_project_and_review_state() {
+        let (host, mut plugin) = prepared();
+        list_process(&host, record("/work/review", SHA, "detached"));
+        storage::set(COMMENT_KEY, "draft").unwrap();
+        plugin.handle(DETAILS, ViewEvent::Button("open-existing-worktree".into()), &host.invocation()).unwrap();
+        assert!(host.opened_projects().is_empty());
+        assert_eq!(git_runs(&host).len(), 1);
+        assert_eq!(storage::get(COMMENT_KEY).unwrap().as_deref(), Some("draft"));
+        assert!(plugin.details.is_some());
+    }
+
+    #[test]
+    fn worktree_list_distinguishes_branch_fork_owner_and_detached_heads() {
+        let mut mr: MergeRequest = serde_json::from_str(&current_mr()).unwrap();
+        let output = record("/work/right", SHA, "branch refs/heads/feature")
+            + &record("/work/wrong-branch", SHA, "branch refs/heads/unrelated")
+            + &record("/work/old", OTHER, "branch refs/heads/feature")
+            + &record("/work/detached", SHA, "detached")
+            + &record("/work/locked", SHA, "detached\0locked maintenance")
+            + &record("/work/pruned", SHA, "detached\0prunable missing directory");
+        let paths: Vec<_> = branch::matching_worktrees(&output, &mr).unwrap().into_iter().map(|tree| tree.path).collect();
+        assert_eq!(paths, ["/work/right", "/work/detached"]);
+        mr.source_project_id = 99;
+        let output = record("/work/fork", SHA, "branch refs/heads/fork/ann/feature")
+            + &record("/work/other-owner", SHA, "branch refs/heads/fork/bob/feature");
+        assert_eq!(branch::matching_worktrees(&output, &mr).unwrap()[0].path, "/work/fork");
+        assert_eq!(branch::matching_worktrees(&output, &mr).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn malformed_or_ambiguous_worktree_lists_are_rejected() {
+        for output in [
+            "worktree /work/a\0HEAD abc123\0detached\0\0".into(),
+            record("relative/path", SHA, "detached"),
+            record("/work/../other", SHA, "detached"),
+            record("/work/a", SHA, "detached\0branch refs/heads/feature"),
+            record("/work/a", SHA, "detached\0HEAD 1111111111111111111111111111111111111111"),
+            record("/work/a", SHA, "detached") + &record("/work/a", SHA, "detached"),
+            record("/work/a", SHA, "detached").trim_end_matches('\0').to_owned(),
+            "x".repeat(1024 * 1024 + 1),
+        ] {
+            let mr: MergeRequest = serde_json::from_str(&current_mr()).unwrap();
+            assert!(branch::matching_worktrees(&output, &mr).is_err());
+        }
+    }
+
+    #[test]
+    fn missing_worktrees_and_denied_git_never_create_a_checkout() {
+        let (host, mut plugin) = prepared();
+        list_process(&host, record("/work/old", OTHER, "branch refs/heads/feature"));
+        assert!(plugin.run_command("open-existing-merge-request-worktree", &host.invocation(), None).is_err());
+        assert!(host.opened_projects().is_empty());
+        let caps: Vec<_> = CAPS.iter().copied().filter(|cap| *cap != "process:git").collect();
+        let host = host.with_capabilities(&caps);
+        assert!(matches!(plugin.run_command("open-existing-merge-request-worktree", &host.invocation(), None), Err(Error::Denied(_))));
+        assert!(host.opened_projects().is_empty());
+        assert!(writes(&host).is_empty());
+    }
+
+    #[test]
+    fn selected_project_root_and_gitlab_owner_are_rechecked() {
+        let (host, mut plugin) = prepared();
+        host.set_project_root(Some("/other"));
+        assert!(plugin.run_command("open-existing-merge-request-worktree", &host.invocation(), None).is_err());
+        assert!(host.process_runs().is_empty());
+        host.set_project_root(Some("/project"));
+        host.set_vcs_remotes(&[("origin", "git@gitlab.com:other/project.git")]);
+        assert!(plugin.run_command("open-existing-merge-request-worktree", &host.invocation(), None).is_err());
+        assert!(host.process_runs().is_empty());
+        assert!(host.opened_projects().is_empty());
+    }
+
+    #[test]
+    fn different_target_project_is_rejected_before_listing_worktrees() {
+        let (host, mut plugin) = prepared();
+        host.on_fetch(|request| {
+            if request.method == "GET" && request.url.ends_with("/merge_requests/7") {
+                ok(&current_mr().replace("\"target_project_id\": 5", "\"target_project_id\": 99"))
+            } else {
+                gitlab(request)
+            }
+        });
+        assert!(plugin.run_command("open-existing-merge-request-worktree", &host.invocation(), None).is_err());
+        assert!(host.process_runs().is_empty());
+        assert!(host.opened_projects().is_empty());
+    }
+
+    #[test]
+    fn changed_worktree_after_prompt_is_not_opened() {
+        let (host, mut plugin) = prepared();
+        let calls = Rc::new(Cell::new(0));
+        host.on_process("git", move |args, _| {
+            assert_eq!(args, ["worktree", "list", "--porcelain", "-z"]);
+            let count = calls.get();
+            calls.set(count + 1);
+            Ok(ProcessOutput {
+                status: Some(0),
+                stdout: record("/work/review", if count == 0 { SHA } else { OTHER }, "detached"),
+                stderr: String::new(),
+            })
+        });
+        host.answer_next_prompt(Some(&["/work/review"]));
+        assert!(plugin.run_command("open-existing-merge-request-worktree", &host.invocation(), None).is_err());
+        assert!(host.opened_projects().is_empty());
+    }
+
+    #[test]
+    fn changed_merge_request_head_after_prompt_is_not_opened() {
+        let (host, mut plugin) = prepared();
+        list_process(&host, record("/work/review", SHA, "detached"));
+        let calls = Rc::new(Cell::new(0));
+        host.on_fetch(move |request| {
+            if request.method == "GET" && request.url.ends_with("/merge_requests/7") {
+                let count = calls.get();
+                calls.set(count + 1);
+                ok(&current_mr().replace(SHA, if count == 0 { SHA } else { OTHER }))
+            } else {
+                gitlab(request)
+            }
+        });
+        host.answer_next_prompt(Some(&["/work/review"]));
+        assert!(plugin.run_command("open-existing-merge-request-worktree", &host.invocation(), None).is_err());
+        assert!(host.opened_projects().is_empty());
+        assert_eq!(git_runs(&host).len(), 1);
+    }
+
+    #[test]
+    fn contextual_attribute_buttons_edit_existing_choices_and_preserve_review_draft() {
+        let (host, mut plugin) = prepared();
+        storage::set(COMMENT_KEY, "unfinished review").unwrap();
+        host.answer_next_prompt(Some(&["bug", "ui"]));
+        plugin.handle(DETAILS, ViewEvent::Button("edit-attribute:labels".into()), &host.invocation()).unwrap();
+        assert_eq!(writes(&host).last().unwrap().2, r#"{"labels":"bug,ui"}"#);
+        assert_eq!(storage::get(COMMENT_KEY).unwrap().as_deref(), Some("unfinished review"));
+        plugin.render(DETAILS, None, &host.invocation()).unwrap();
+        let before = writes(&host).len();
+        plugin.handle(DETAILS, ViewEvent::Button("edit-attribute:title".into()), &host.invocation()).unwrap();
+        assert_eq!(writes(&host).len(), before, "dismissal must not write");
+    }
+
+    #[test]
+    fn contextual_attribute_rejects_changed_owner_after_choice_without_writing() {
+        let (host, mut plugin) = prepared();
+        let calls = Rc::new(Cell::new(0));
+        host.on_fetch(move |request| {
+            if request.method == "GET" && request.url.ends_with("/merge_requests/7") {
+                let count = calls.get();
+                calls.set(count + 1);
+                ok(&current_mr()
+                    .replace("\"source_project_id\": 5", if count == 0 { "\"source_project_id\": 5" } else { "\"source_project_id\": 99" }))
+            } else {
+                gitlab(request)
+            }
+        });
+        host.answer_next_prompt(Some(&["new title"]));
+        assert!(plugin.handle(DETAILS, ViewEvent::Button("edit-attribute:title".into()), &host.invocation()).is_err());
+        assert!(writes(&host).is_empty());
+    }
+}
+
+mod content_snapshot_tests {
+    use super::*;
+    use std::cell::Cell;
+    use std::rc::Rc;
+    const FRAME: &str = "0123456789abcdef0123456789abcdef";
+    const OTHER_FRAME: &str = "fedcba9876543210fedcba9876543210";
+    const SHA: &str = "1111111111111111111111111111111111111111";
+    const NEXT_SHA: &str = "2222222222222222222222222222222222222222";
+
+    fn prepared() -> (MockHost, GitLab) {
+        let host = setup();
+        host.on_fetch(|request| {
+            if request.method == "GET" && request.url.ends_with("/merge_requests/7") {
+                ok(&MR.replace("abc123", SHA))
+            } else {
+                gitlab(request)
+            }
+        });
+        let plugin = selected(&host);
+        (host, plugin)
+    }
+    fn open_in_frame(host: &MockHost, plugin: &mut GitLab, button: &str, frame: &str) -> Result<(), Error> {
+        let message = serde_json::json!({"channel":"ui-kit","sequence":1,"frameId":frame,"project":"/project", "op":"event",
+            "event":{"kind":"button","key":button}})
+        .to_string();
+        plugin.handle(DETAILS, ViewEvent::Message(message), &host.invocation())?;
+        let response: serde_json::Value = serde_json::from_str(&host.view_messages().last().unwrap().1).unwrap();
+        if let Some(error) = response["error"].as_str() {
+            return Err(Error::Failed(error.into()));
+        }
+        Ok(())
+    }
+    fn opened(host: &MockHost) -> serde_json::Value {
+        host.view_messages()
+            .into_iter()
+            .filter_map(|(_, text)| serde_json::from_str::<serde_json::Value>(&text).ok())
+            .find(|value| value["channel"] == "gitlab-content-open")
+            .unwrap()["payload"]
+            .clone()
+    }
+    fn action(host: &MockHost, plugin: &mut GitLab, key: &str, action: &str) -> serde_json::Value {
+        let message =
+            serde_json::json!({"op":"content-tab-action","requestId":"ct-1","key":key,"action":action,"content":"FORGED EDITOR TEXT"})
+                .to_string();
+        plugin.handle(DETAILS, ViewEvent::Message(message), &host.invocation()).unwrap();
+        let envelope: serde_json::Value = serde_json::from_str(&host.view_messages().last().unwrap().1).unwrap();
+        assert_eq!(envelope["channel"], "gitlab-content-reply");
+        assert!(envelope.get("op").is_none(), "broadcast reply must not directly resolve a host pending request");
+        assert_eq!(envelope["frameId"], key.split('-').nth(1).unwrap());
+        envelope["payload"].clone()
+    }
+
+    #[test]
+    fn missing_project_content_callback_still_gets_its_filtered_error_reply() {
+        let (host, mut plugin) = prepared();
+        open_in_frame(&host, &mut plugin, "open-overview-snapshot", FRAME).unwrap();
+        let key = plugin.content_snapshots.keys().next().unwrap().clone();
+        let before = host.requests().len();
+        host.set_project_root(None);
+        let reply = action(&host, &mut plugin, &key, "reload");
+        assert!(reply["error"].as_str().unwrap().contains("No project"));
+        assert_eq!(reply["saved"], false);
+        assert_eq!(host.requests().len(), before);
+    }
+
+    #[test]
+    fn overview_snapshot_is_head_bound_readonly_and_cached_reload_never_fetches() {
+        let (host, mut plugin) = prepared();
+        storage::set(COMMENT_KEY, "unfinished review").unwrap();
+        open_in_frame(&host, &mut plugin, "open-overview-snapshot", FRAME).unwrap();
+        let tab = opened(&host);
+        assert_eq!(tab["op"], "open-content-tab");
+        assert_eq!(tab["readOnly"], true);
+        assert!(tab["content"].as_str().unwrap().contains(SHA));
+        assert!(tab["content"].as_str().unwrap().contains("Adds it"));
+        assert!(tab["key"].as_str().unwrap().len() <= 128);
+        let before = host.requests().len();
+        let reply = action(&host, &mut plugin, tab["key"].as_str().unwrap(), "reload");
+        assert_eq!(host.requests().len(), before, "cached callback must not fetch");
+        assert_eq!(reply["content"], tab["content"]);
+        assert!(reply.get("saved").is_none(), "successful content replacement must update the readonly baseline");
+        assert_eq!(reply["readOnly"], true);
+        assert_ne!(reply["content"], "FORGED EDITOR TEXT");
+        assert!(host.process_runs().is_empty());
+        assert!(writes(&host).is_empty());
+        assert_eq!(storage::get(COMMENT_KEY).unwrap().as_deref(), Some("unfinished review"));
+    }
+
+    #[test]
+    fn diff_snapshot_uses_existing_api_and_return_to_review_preserves_draft() {
+        let (host, mut plugin) = prepared();
+        storage::set(COMMENT_KEY, "my draft").unwrap();
+        open_in_frame(&host, &mut plugin, "open-diff-snapshot", FRAME).unwrap();
+        let tab = opened(&host);
+        assert_eq!(tab["language"], "diff");
+        let content = tab["content"].as_str().unwrap();
+        assert!(content.contains("--- src/a.rs\n+++ src/a.rs\n@@ -3,2 +3,2 @@"));
+        assert!(content.contains("may omit changes"));
+        let before = host.requests().len();
+        let reply = action(&host, &mut plugin, tab["key"].as_str().unwrap(), "review");
+        assert!(reply.get("error").is_none());
+        assert_eq!(host.requests().len(), before);
+        assert_eq!(Section::stored(), Section::Changes);
+        assert_eq!(host.revealed_views().last().map(String::as_str), Some(DETAILS));
+        assert_eq!(storage::get(COMMENT_KEY).unwrap().as_deref(), Some("my draft"));
+    }
+
+    #[test]
+    fn snapshot_rejects_wrong_project_selection_unknown_key_and_save() {
+        let (host, mut plugin) = prepared();
+        open_in_frame(&host, &mut plugin, "open-overview-snapshot", FRAME).unwrap();
+        let tab = opened(&host);
+        let key = tab["key"].as_str().unwrap();
+        let before = host.requests().len();
+        let reply = action(&host, &mut plugin, key, "save");
+        assert!(reply["error"].as_str().unwrap().contains("read-only"));
+        assert_eq!(reply["saved"], false);
+        assert!(
+            action(&host, &mut plugin, &format!("gl1-{FRAME}-{SHA}-0000000000000000-o"), "reload")["error"]
+                .as_str()
+                .unwrap()
+                .contains("expired")
+        );
+        storage::set(SELECTED_KEY, "8").unwrap();
+        assert!(action(&host, &mut plugin, key, "reload").get("error").is_some());
+        storage::set(SELECTED_KEY, "7").unwrap();
+        host.set_project_root(Some("/other"));
+        assert!(action(&host, &mut plugin, key, "reload").get("error").is_some());
+        assert_eq!(host.requests().len(), before);
+        assert!(writes(&host).is_empty());
+    }
+
+    #[test]
+    fn explicit_refresh_updates_same_head_and_failure_keeps_old_snapshot_for_retry() {
+        let (host, mut plugin) = prepared();
+        open_in_frame(&host, &mut plugin, "open-overview-snapshot", FRAME).unwrap();
+        let tab = opened(&host);
+        let key = tab["key"].as_str().unwrap();
+        host.on_fetch(|request| {
+            if request.method == "GET" && request.url.ends_with("/merge_requests/7") {
+                ok(&MR.replace("abc123", SHA).replace("Adds it", "Updated description"))
+            } else {
+                gitlab(request)
+            }
+        });
+        let refreshed = action(&host, &mut plugin, key, "refresh");
+        assert!(refreshed["content"].as_str().unwrap().contains("Updated description"));
+        assert!(refreshed.get("saved").is_none(), "successful refresh must update baseline");
+        host.on_fetch(|_| Err(Error::Failed("private server failure that must not be echoed".into())));
+        let failed = action(&host, &mut plugin, key, "refresh");
+        assert!(failed.get("error").is_some());
+        assert!(!failed.to_string().contains("private server failure"));
+        let cached = action(&host, &mut plugin, key, "reload");
+        assert!(cached["content"].as_str().unwrap().contains("Updated description"));
+        host.on_fetch(|request| {
+            if request.method == "GET" && request.url.ends_with("/merge_requests/7") {
+                ok(&MR.replace("abc123", SHA))
+            } else {
+                gitlab(request)
+            }
+        });
+        assert!(action(&host, &mut plugin, key, "refresh").get("error").is_none());
+    }
+
+    #[test]
+    fn content_refresh_remote_timeout_fits_fifteen_second_host_callback_window() {
+        let (h,mut plugin)=prepared();open_in_frame(&h,&mut plugin,"open-overview-snapshot",FRAME).unwrap();let tab=opened(&h);
+        h.on_fetch(|r| {assert!(r.timeout_ms.is_some_and(|ms|ms>0&&ms<=10_000),"{:?}",r.timeout_ms);if r.method=="GET"&&r.url.ends_with("/merge_requests/7"){ok(&MR.replace("abc123",SHA))}else{gitlab(r)}});
+        assert!(action(&h,&mut plugin,tab["key"].as_str().unwrap(),"refresh").get("error").is_none());
+    }
+    #[test]
+    fn expired_content_refresh_retains_last_good_and_budget_scope_does_not_poison_retry() {
+        let (h,mut plugin)=prepared();open_in_frame(&h,&mut plugin,"open-overview-snapshot",FRAME).unwrap();let tab=opened(&h);let key=tab["key"].as_str().unwrap();
+        h.on_fetch(|r| {api::expire_callback_read_budget();if r.method=="GET"&&r.url.ends_with("/merge_requests/7"){ok(&MR.replace("abc123",SHA).replace("Adds it","Late unseen data"))}else{gitlab(r)}});
+        let failed=action(&h,&mut plugin,key,"refresh");assert!(failed["error"].is_string());assert!(failed.get("content").is_none());let before=h.requests().len();
+        assert_eq!(action(&h,&mut plugin,key,"reload")["content"],tab["content"]);assert_eq!(h.requests().len(),before);
+        h.on_fetch(|r|if r.method=="GET"&&r.url.ends_with("/merge_requests/7"){ok(&MR.replace("abc123",SHA))}else{gitlab(r)});
+        assert!(action(&h,&mut plugin,key,"refresh").get("error").is_none());
+    }
+    #[test]
+    fn snapshot_refresh_cannot_rebind_to_another_head() {
+        let (host, mut plugin) = prepared();
+        open_in_frame(&host, &mut plugin, "open-diff-snapshot", FRAME).unwrap();
+        let tab = opened(&host);
+        host.on_fetch(|request| {
+            if request.method == "GET" && request.url.ends_with("/merge_requests/7") {
+                ok(&MR.replace("abc123", NEXT_SHA))
+            } else {
+                gitlab(request)
+            }
+        });
+        assert!(action(&host, &mut plugin, tab["key"].as_str().unwrap(), "refresh").get("error").is_some());
+        assert_eq!(action(&host, &mut plugin, tab["key"].as_str().unwrap(), "reload")["content"], tab["content"]);
+    }
+
+    #[test]
+    fn head_race_while_loading_diff_does_not_publish_snapshot() {
+        let (host, mut plugin) = prepared();
+        let count = Rc::new(Cell::new(0));
+        host.on_fetch(move |request| {
+            if request.method == "GET" && request.url.ends_with("/merge_requests/7") {
+                let current = count.get();
+                count.set(current + 1);
+                ok(&MR.replace("abc123", if current == 0 { SHA } else { NEXT_SHA }))
+            } else {
+                gitlab(request)
+            }
+        });
+        assert!(open_in_frame(&host, &mut plugin, "open-diff-snapshot", FRAME).is_err());
+        assert!(plugin.content_snapshots.is_empty());
+        assert!(!host.view_messages().iter().any(|(_, message)| message.contains("gitlab-content-open")));
+    }
+
+    #[test]
+    fn oversized_multibyte_snapshot_is_bounded_and_nul_free() {
+        let (host, mut plugin) = prepared();
+        host.on_fetch(|request| {
+            if request.method == "GET" && request.url.ends_with("/merge_requests/7") {
+                let mut mr: serde_json::Value = serde_json::from_str(&MR.replace("abc123", SHA)).unwrap();
+                mr["description"] = ("\0🦀".repeat(150_000)).into();
+                ok(&mr.to_string())
+            } else {
+                gitlab(request)
+            }
+        });
+        open_in_frame(&host, &mut plugin, "open-overview-snapshot", FRAME).unwrap();
+        let tab = opened(&host);
+        let content = tab["content"].as_str().unwrap();
+        assert!(content.len() <= 384 * 1024);
+        assert!(!content.contains('\0'));
+        assert!(content.contains("Snapshot truncated"));
+        assert!(content.encode_utf16().count() < 1 << 20);
+    }
+
+    #[test]
+    fn expired_instance_snapshot_does_not_fetch_or_accept_editor_content() {
+        let (host, mut plugin) = prepared();
+        open_in_frame(&host, &mut plugin, "open-overview-snapshot", FRAME).unwrap();
+        let tab = opened(&host);
+        plugin.content_snapshots.clear();
+        let before = host.requests().len();
+        assert!(action(&host, &mut plugin, tab["key"].as_str().unwrap(), "reload")["error"].as_str().unwrap().contains("expired"));
+        assert_eq!(host.requests().len(), before);
+        assert!(writes(&host).is_empty());
+    }
+
+    #[test]
+    fn content_snapshot_cache_is_bounded_and_evicted_tabs_expire() {
+        let (host, mut plugin) = prepared();
+        let mut first_key = None;
+        for digit in 1..=5 {
+            let head = digit.to_string().repeat(40);
+            host.on_fetch(move |request| {
+                if request.method == "GET" && request.url.ends_with("/merge_requests/7") {
+                    ok(&MR.replace("abc123", &head))
+                } else {
+                    gitlab(request)
+                }
+            });
+            open_in_frame(&host, &mut plugin, "open-overview-snapshot", FRAME).unwrap();
+            if first_key.is_none() {
+                first_key = plugin.content_snapshots.keys().next().cloned();
+            }
+            assert!(plugin.content_snapshots.len() <= 4);
+        }
+        assert_eq!(plugin.content_snapshots.len(), 4);
+        assert!(action(&host, &mut plugin, &first_key.unwrap(), "reload")["error"].as_str().unwrap().contains("expired"));
+    }
+
+    #[test]
+    fn snapshot_open_requires_frame_and_origin_is_restored_after_dispatch() {
+        let (host, mut plugin) = prepared();
+        let requests = host.requests().len();
+        assert!(plugin.handle(DETAILS, ViewEvent::Button("open-overview-snapshot".into()), &host.invocation()).is_err());
+        assert!(host.view_messages().iter().all(|(_, text)| text == r#"{"channel":"ui-kit-refresh"}"#));
+        assert_eq!(host.requests().len(), requests);
+        open_in_frame(&host, &mut plugin, "open-overview-snapshot", FRAME).unwrap();
+        assert!(plugin.content_origin_frame.is_none());
+        let message: serde_json::Value = host
+            .view_messages()
+            .iter()
+            .filter_map(|(_, text)| serde_json::from_str::<serde_json::Value>(text).ok())
+            .find(|value| value["channel"] == "gitlab-content-open")
+            .unwrap();
+        assert_eq!(message["frameId"], FRAME);
+        assert!(message.get("op").is_none());
+        assert!(plugin.handle(DETAILS, ViewEvent::Button("open-overview-snapshot".into()), &host.invocation()).is_err());
+        plugin.content_origin_frame = Some(OTHER_FRAME.into());
+        open_in_frame(&host, &mut plugin, "open-overview-snapshot", FRAME).unwrap();
+        assert_eq!(plugin.content_origin_frame.as_deref(), Some(OTHER_FRAME));
+    }
+
+    #[test]
+    fn two_frames_same_request_id_receive_distinct_routed_snapshot_replies() {
+        let (host, mut plugin) = prepared();
+        open_in_frame(&host, &mut plugin, "open-overview-snapshot", FRAME).unwrap();
+        open_in_frame(&host, &mut plugin, "open-overview-snapshot", OTHER_FRAME).unwrap();
+        let opens: Vec<serde_json::Value> = host
+            .view_messages()
+            .iter()
+            .filter_map(|(_, text)| serde_json::from_str::<serde_json::Value>(text).ok())
+            .filter(|value| value["channel"] == "gitlab-content-open")
+            .collect();
+        assert_eq!(opens.len(), 2);
+        assert_ne!(opens[0]["payload"]["key"], opens[1]["payload"]["key"]);
+        for (open, frame) in opens.iter().zip([FRAME, OTHER_FRAME]) {
+            assert_eq!(open["frameId"], frame);
+            let key = open["payload"]["key"].as_str().unwrap();
+            assert!(key.len() <= 128);
+            assert!(key.contains(SHA), "head remains explicit in bounded key");
+            let reply = action(&host, &mut plugin, key, "reload");
+            assert_eq!(reply["requestId"], "ct-1");
+            let envelope: serde_json::Value = serde_json::from_str(&host.view_messages().last().unwrap().1).unwrap();
+            assert_eq!(envelope["frameId"], frame);
+        }
+        plugin.content_snapshots.clear();
+        let reply = action(&host, &mut plugin, opens[0]["payload"]["key"].as_str().unwrap(), "reload");
+        assert!(reply["error"].as_str().unwrap().contains("expired"));
+        assert_eq!(reply["saved"], false);
+        let before = host.view_messages().len();
+        for key in ["unknown", "gl1-invalid-0000000000000000", "gl1-0123456789ABCDEF0123456789ABCDEF-0000000000000000"] {
+            plugin
+                .handle(
+                    DETAILS,
+                    ViewEvent::Message(
+                        serde_json::json!({"op":"content-tab-action","requestId":"ct-1","key":key,"action":"reload"}).to_string(),
+                    ),
+                    &host.invocation(),
+                )
+                .unwrap();
+        }
+        assert_eq!(host.view_messages().len(), before, "unroutable errors must not be broadcast");
+    }
+}
+
+mod cross_pane_refresh_tests {
+    use super::*;
+    fn ready(host: &MockHost) -> GitLab {
+        let mut plugin=GitLab::default();
+        plugin.ensure_view_owner(&host.invocation()).unwrap();
+        plugin.handle(LIST,ViewEvent::Select("mr:7".into()),&host.invocation()).unwrap();
+        plugin.render(DETAILS,None,&host.invocation()).unwrap();
+        plugin
+    }
+    fn notifications(host: &MockHost, after: usize) -> Vec<String> {
+        host.view_messages()[after..].iter().filter(|(_, text)|text==r#"{"channel":"ui-kit-refresh"}"#).map(|(view,_)|view.clone()).collect()
+    }
+    #[test]
+    fn selection_notifies_the_other_packaged_pane_without_broadcasting_a_model() {
+        let host=setup();let mut plugin=ready(&host);let before=host.view_messages().len();
+        plugin.handle(LIST,ViewEvent::Select("mr:7".into()),&host.invocation()).unwrap();
+        let views=notifications(&host,before);assert!(!views.is_empty());assert!(views.iter().all(|view|view==DETAILS));
+    }
+    #[test]
+    fn review_reload_notifies_list_and_details_only() {
+        let host=setup();let mut plugin=ready(&host);let before=host.view_messages().len();
+        plugin.reload_merge_request(7);
+        assert_eq!(notifications(&host,before),[DETAILS.to_owned(),LIST.to_owned()]);
+    }
+    #[test]
+    fn stable_render_never_emits_invalidation() {
+        let host=setup();let mut plugin=ready(&host);let before=host.view_messages().len();
+        plugin.render(DETAILS,None,&host.invocation()).unwrap();plugin.render(DETAILS,None,&host.invocation()).unwrap();
+        assert_eq!(host.view_messages().len(),before);
+    }
+    #[test]
+    fn foreign_repository_same_iid_cannot_render_cached_details_or_comment() {
+        let host=setup();let mut plugin=ready(&host);
+        storage::set(COMMENT_KEY,"private unsent source comment").unwrap();
+        let requests=host.requests().len();
+        host.set_vcs_remotes(&[("origin","git@gitlab.com:g/other.git")]);
+        let view=plugin.render(DETAILS,None,&host.invocation()).unwrap();
+        assert!(!format!("{:?}",view.body).contains("private unsent source comment"));
+        assert!(!format!("{:?}",view.body).contains("Add parser"));
+        assert_eq!(host.requests().len(),requests);assert!(plugin.details.is_none());
+    }
+    #[test]
+    fn foreign_selection_preserves_unsent_comment_and_requires_original_scope() {
+        let host=setup();let mut plugin=ready(&host);storage::set(COMMENT_KEY,"private unsent source comment").unwrap();
+        let original_scope=storage::get(SELECTED_SCOPE_KEY).unwrap();
+        host.set_project_root(Some("/other"));let mut other=status("main");other.root="/other".into();host.set_vcs_status(Some(other));
+        assert!(plugin.handle(LIST,ViewEvent::Select("mr:7".into()),&host.invocation()).is_err());
+        assert_eq!(storage::get(COMMENT_KEY).unwrap().as_deref(),Some("private unsent source comment"));
+        assert_eq!(storage::get(SELECTED_SCOPE_KEY).unwrap(),original_scope);
+        host.set_project_root(Some("/project"));host.set_vcs_status(Some(status("main")));
+        plugin.handle(LIST,ViewEvent::Select("mr:7".into()),&host.invocation()).unwrap();
+        let view=plugin.render(DETAILS,None,&host.invocation()).unwrap();
+        assert!(format!("{:?}",view.body).contains("private unsent source comment"));
+    }
+    #[test]
+    fn same_iid_in_new_scope_discards_old_mr_cache_before_loading() {
+        let host=setup();let mut plugin=ready(&host);
+        plugin.details.as_mut().unwrap().mr.title="old private cache".into();
+        host.set_project_root(Some("/other"));let mut other=status("main");other.root="/other".into();host.set_vcs_status(Some(other));
+        plugin.handle(LIST,ViewEvent::Select("mr:7".into()),&host.invocation()).unwrap();
+        assert!(plugin.details.is_none());
+        let view=plugin.render(DETAILS,None,&host.invocation()).unwrap();
+        assert!(!format!("{:?}",view.body).contains("old private cache"));
+    }
+    #[test]
+    fn foreign_native_field_event_cannot_overwrite_previous_comment() {
+        let host=setup();let mut plugin=ready(&host);storage::set(COMMENT_KEY,"source draft").unwrap();
+        host.set_project_root(Some("/other"));let mut other=status("main");other.root="/other".into();host.set_vcs_status(Some(other));
+        assert!(plugin.handle(DETAILS,ViewEvent::Field("comment".into(),"foreign write".into()),&host.invocation()).is_err());
+        assert_eq!(storage::get(COMMENT_KEY).unwrap().as_deref(),Some("source draft"));
+    }
+    #[test]
+    fn review_reload_invalidates_list_cache_before_its_fresh_model() {
+        let host=setup();let mut plugin=ready(&host);
+        plugin.render(LIST,None,&host.invocation()).unwrap();assert!(plugin.loaded.is_some());
+        plugin.reload_merge_request(7);assert!(plugin.loaded.is_none());
+    }
+    #[test]
+    fn missing_project_cannot_fetch_or_render_owned_cache() {
+        let host=setup();let mut plugin=ready(&host);let requests=host.requests().len();host.set_project_root(None);
+        let view=plugin.render(DETAILS,None,&host.invocation()).unwrap();
+        assert!(!format!("{:?}",view.body).contains("Add parser"));assert!(plugin.details.is_none());assert_eq!(host.requests().len(),requests);
+    }
+}
+
+mod job_trace_snapshot_tests {
+    use super::*;
+    use std::{cell::{Cell,RefCell},rc::Rc};
+    const FRAME:&str="0123456789abcdef0123456789abcdef";
+    const SHA:&str="1111111111111111111111111111111111111111";
+    struct Fixture {response:Rc<RefCell<(u16,Vec<u8>)>>,member:Rc<Cell<bool>>,retire_after_trace:Rc<Cell<bool>>}
+    fn prepared()->(MockHost,GitLab,Fixture) {
+        let h=setup();let response=Rc::new(RefCell::new((200,b"compile ok\n".to_vec())));let member=Rc::new(Cell::new(true));let r=response.clone();let m=member.clone();let retire_after_trace=Rc::new(Cell::new(false));let retire=retire_after_trace.clone();
+        h.on_fetch(move |req| {
+            let path=req.url.split('?').next().unwrap();
+            if path.ends_with("/merge_requests/7") {ok(&MR.replace("abc123",SHA))}
+            else if path.ends_with("/merge_requests/7/pipelines") {ok(if m.get(){r#"[{"id":41,"status":"running","web_url":"https://gitlab.com/g/p/-/pipelines/41"}]"#}else{"[]"})}
+            else if path.ends_with("/pipelines/41/jobs") {ok(r#"[{"id":301,"name":"compile","stage":"build","status":"running","web_url":"https://gitlab.com/g/p/-/jobs/301"}]"#)}
+            else if path.ends_with("/jobs/301/trace") {if retire.get(){m.set(false);}let (status,body)=r.borrow().clone();assert_eq!(req.method,"GET");assert!(req.body.is_none());assert!(req.timeout_ms.is_some_and(|ms|ms>0&&ms<=20_000));Ok(HttpResponse{status,headers:vec![],body})}
+            else{gitlab(req)}
+        });
+        let mut p=selected(&h);let mut context=h.context("aritti.gitlab");context.api_version="1.4".into();<GitLab as Plugin>::activate(&mut p,&context).unwrap();render_in(&mut p,Section::Pipelines,&h);handle_in(&mut p,Section::Pipelines,ViewEvent::Select("j:301".into()),&h);
+        (h,p,Fixture{response,member,retire_after_trace})
+    }
+    fn open(h:&MockHost,p:&mut GitLab)->serde_json::Value {
+        let view=render_in(p,Section::Pipelines,h);let key=view.toolbar.iter().find(|button|button.label=="Open Job Trace Snapshot (API1.4)").unwrap().id.clone();
+        let message=serde_json::json!({"channel":"ui-kit","sequence":1,"frameId":FRAME,"project":"/project","op":"event","event":{"kind":"button","key":key}}).to_string();p.handle(DETAILS,ViewEvent::Message(message),&h.invocation()).unwrap();serde_json::from_str::<serde_json::Value>(&h.view_messages().last().unwrap().1).unwrap()
+    }
+    fn payload(h:&MockHost)->serde_json::Value {h.view_messages().iter().filter_map(|(_,m)|serde_json::from_str::<serde_json::Value>(m).ok()).find(|v|v["channel"]=="gitlab-content-open").unwrap()["payload"].clone()}
+    fn action(h:&MockHost,p:&mut GitLab,key:&str,kind:&str)->serde_json::Value {let m=serde_json::json!({"op":"content-tab-action","requestId":"trace-1","key":key,"action":kind}).to_string();p.handle(DETAILS,ViewEvent::Message(m),&h.invocation()).unwrap();serde_json::from_str::<serde_json::Value>(&h.view_messages().last().unwrap().1).unwrap()["payload"].clone()}
+    #[test]
+    fn explicit_trace_snapshot_is_readonly_scoped_and_cached_reload_performs_no_fetch() {
+        let (h,mut p,_)=prepared();let reply=open(&h,&mut p);assert!(reply.get("error").is_none(),"{reply}");let tab=payload(&h);assert_eq!(tab["readOnly"],true);assert_eq!(tab["fileName"],"gitlab-job-301.log");assert_eq!(tab["language"],"plaintext");let content=tab["content"].as_str().unwrap();assert!(content.contains("compile ok")&&content.contains("Job: #301")&&content.contains("not a live stream"));
+        let key=tab["key"].as_str().unwrap();let requests=h.requests().len();assert_eq!(action(&h,&mut p,key,"reload")["content"],content);assert_eq!(h.requests().len(),requests);assert!(h.process_runs().is_empty());assert!(h.terminals().is_empty());
+        action(&h,&mut p,key,"review");assert_eq!(storage::get(sections::SECTION_KEY).unwrap().as_deref(),Some("pipelines"));
+    }
+    #[test]
+    fn failed_refresh_retains_last_good_without_exposing_raw_job_error_body() {
+        let (h,mut p,f)=prepared();open(&h,&mut p);let tab=payload(&h);let key=tab["key"].as_str().unwrap();*f.response.borrow_mut()=(404,b"PRIVATE-FIXTURE-ERROR".to_vec());let error=action(&h,&mut p,key,"refresh");assert!(error["error"].is_string());assert_eq!(error["saved"],false);assert!(!error.to_string().contains("PRIVATE-FIXTURE"));assert_eq!(action(&h,&mut p,key,"reload")["content"],tab["content"]);
+    }
+    #[test]
+    fn missing_current_membership_refuses_trace_before_fetch_and_snapshot_publication() {
+        let (h,mut p,f)=prepared();f.member.set(false);let reply=open(&h,&mut p);assert!(reply["error"].is_string());assert!(p.content_snapshots.is_empty());assert!(!h.requests().iter().any(|r|r.url.ends_with("/trace")));
+        let (h,mut p,f)=prepared();f.retire_after_trace.set(true);assert!(open(&h,&mut p)["error"].is_string());assert!(h.requests().iter().any(|r|r.url.ends_with("/trace")));assert!(p.content_snapshots.is_empty(),"membership changing during fetch cannot publish captured output");
+    }
+    #[test]
+    fn trace_body_acceptance_utf8_and_display_limits_are_distinct() {
+        for body in [vec![b'x';(1<<20)+1],vec![255]] {let (h,mut p,f)=prepared();*f.response.borrow_mut()=(200,body);assert!(open(&h,&mut p)["error"].is_string());assert!(p.content_snapshots.is_empty());}
+        let (h,mut p,f)=prepared();*f.response.borrow_mut()=(200,format!("\0{}","😀".repeat(110_000)).into_bytes());open(&h,&mut p);let tab=payload(&h);let text=tab["content"].as_str().unwrap();assert!(text.len()<=384<<10);assert!(text.contains("Snapshot truncated"));assert!(!text.contains('\0'));
+    }
+    #[test]
+    fn native_activation_guard_is_default_false_and_downgrade_retires_trace_cache() {
+        let (h,mut p,_)=prepared();open(&h,&mut p);let tab=payload(&h);let old=tab["key"].as_str().unwrap();
+        for version in ["1.3","","2.0","1.4-preview"] {let mut c=h.context("aritti.gitlab");c.api_version=version.into();<GitLab as Plugin>::activate(&mut p,&c).unwrap();let before=h.requests().len();assert!(p.open_content_snapshot(&h.invocation(),content_tabs::Kind::Job{pipeline:41,job:301}).is_err());assert_eq!(h.requests().len(),before);assert!(p.content_snapshots.is_empty());}
+        assert!(action(&h,&mut p,old,"reload")["error"].is_string());let mut cold=GitLab::default();let before=h.requests().len();assert!(cold.open_content_snapshot(&h.invocation(),content_tabs::Kind::Job{pipeline:41,job:301}).is_err());assert_eq!(h.requests().len(),before);
+    }
+}
+
+mod timeline_snapshot_tests {
+    use super::*;
+    use std::sync::{Arc, atomic::{AtomicBool,Ordering}};
+
+    fn ready() -> (MockHost, GitLab) {
+        let host=setup();
+        let plugin=selected(&host);
+        host.on_fetch(|req| {
+            if req.url.split('?').next()==Some("https://gitlab.com/api/v4/projects/g%2Fp/merge_requests/7") {
+                return ok(&MR.replace("\"sha\": \"abc123\"",&format!("\"sha\": \"{}\"","1".repeat(40))));
+            }
+            gitlab(req)
+        });
+        storage::set(sections::SECTION_KEY,"timeline").unwrap();
+        (host,plugin)
+    }
+    fn refresh(plugin:&mut GitLab,host:&MockHost)->Result<(),Error> {
+        plugin.handle(DETAILS,ViewEvent::Button("timeline-refresh".into()),&host.invocation())
+    }
+    fn model(plugin:&mut GitLab,host:&MockHost)->(serde_json::Value,Option<String>) {
+        let view=plugin.render(DETAILS,None,&host.invocation()).unwrap();
+        let Body::Other{kind,data}=view.body else {panic!("expected typed timeline")};
+        assert_eq!(kind,"resources");
+        (serde_json::from_str(&data).unwrap(),view.status)
+    }
+    fn comment_key(model:&serde_json::Value)->String {
+        model["items"].as_array().unwrap().iter().find(|r|r["cells"][4]=="Why?").unwrap()["key"].as_str().unwrap().into()
+    }
+    #[test]
+    fn explicit_snapshot_has_typed_rows_details_and_render_never_fetches() {
+        let (host,mut plugin)=ready();
+        host.on_fetch(|_|panic!("cold render must not fetch"));
+        assert!(matches!(plugin.render(DETAILS,None,&host.invocation()).unwrap().body,Body::Message(_)));
+        host.on_fetch(|r|if r.url.split('?').next()==Some("https://gitlab.com/api/v4/projects/g%2Fp/merge_requests/7"){ok(&MR.replace("abc123",&"1".repeat(40)))}else{gitlab(r)});
+        refresh(&mut plugin,&host).unwrap();
+        host.on_fetch(|_|panic!("cached render must not fetch"));
+        let (model,status)=model(&mut plugin,&host);
+        assert_eq!(model["columns"],serde_json::json!(["Kind","Author","When","Status","Summary"]));
+        assert_eq!(model["items"].as_array().unwrap().len(),4);
+        assert!(status.unwrap().contains("Bounded Timeline snapshot"));
+        let note=model["items"].as_array().unwrap().iter().find(|r|r["cells"][4]=="Why?").unwrap();
+        assert_eq!(note["cells"][1],"bob");assert_eq!(note["cells"][3],"Unresolved");
+        assert!(note["details"].to_string().contains("bounded plain text"));
+    }
+    #[test]
+    fn selected_comment_opens_validated_gitlab_url_and_reply_preserves_unsent_draft() {
+        let (host,mut plugin)=ready();refresh(&mut plugin,&host).unwrap();
+        let key=comment_key(&model(&mut plugin,&host).0);
+        storage::set(COMMENT_KEY,"unsent draft").unwrap();
+        plugin.handle(DETAILS,ViewEvent::Select(key.clone()),&host.invocation()).unwrap();
+        assert_eq!(storage::get(THREAD_KEY).unwrap(),None);
+        plugin.handle(DETAILS,ViewEvent::Activate(key),&host.invocation()).unwrap();
+        assert_eq!(host.opened_urls(),["https://gitlab.com/g/p/-/merge_requests/7#note_11"]);
+        plugin.handle(DETAILS,ViewEvent::Button("timeline-reply".into()),&host.invocation()).unwrap();
+        assert_eq!(storage::get(THREAD_KEY).unwrap().as_deref(),Some("d1"));
+        assert_eq!(storage::get(NOTE_KEY).unwrap().as_deref(),Some("11"));
+        assert_eq!(storage::get(COMMENT_KEY).unwrap().as_deref(),Some("unsent draft"));
+        assert_eq!(Section::stored(),Section::Overview);
+    }
+    #[test]
+    fn failed_refresh_retains_last_good_and_explicit_retry_replaces_it() {
+        let (host,mut plugin)=ready();refresh(&mut plugin,&host).unwrap();
+        let before=model(&mut plugin,&host).0;
+        host.on_fetch(|_|Err(Error::Denied("private host detail".into())));
+        assert!(refresh(&mut plugin,&host).is_err());
+        let (after,status)=model(&mut plugin,&host);assert_eq!(before,after);
+        let status=status.unwrap();assert!(status.starts_with("STALE"));assert!(!status.contains("private"));
+        host.on_fetch(|r|if r.url.split('?').next()==Some("https://gitlab.com/api/v4/projects/g%2Fp/merge_requests/7"){ok(&MR.replace("abc123",&"1".repeat(40)))}else{gitlab(r)});
+        refresh(&mut plugin,&host).unwrap();assert!(!model(&mut plugin,&host).1.unwrap().contains("STALE"));
+    }
+    #[test]
+    fn stale_unknown_and_changed_head_actions_cannot_retarget() {
+        let (host,mut plugin)=ready();refresh(&mut plugin,&host).unwrap();
+        let key=comment_key(&model(&mut plugin,&host).0);
+        assert!(plugin.handle(DETAILS,ViewEvent::Activate(format!("{key}:suffix")),&host.invocation()).is_err());
+        host.on_fetch(|r|if r.url.split('?').next()==Some("https://gitlab.com/api/v4/projects/g%2Fp/merge_requests/7"){ok(&MR.replace("abc123",&"2".repeat(40)))}else{gitlab(r)});
+        assert!(plugin.handle(DETAILS,ViewEvent::Activate(key.clone()),&host.invocation()).is_err());
+        assert!(host.opened_urls().is_empty());
+        refresh(&mut plugin,&host).unwrap();
+        assert!(plugin.handle(DETAILS,ViewEvent::Select(key),&host.invocation()).is_err());
+        host.set_vcs_remotes(&[("origin","git@gitlab.com:other/repository.git")]);
+        let view=plugin.render(DETAILS,None,&host.invocation()).unwrap();
+        assert!(matches!(view.body,Body::Message(_)));
+    }
+    #[test]
+    fn packaged_bridge_allows_only_current_resource_keys_and_declared_reply() {
+        let (host,mut plugin)=ready();refresh(&mut plugin,&host).unwrap();
+        let key=comment_key(&model(&mut plugin,&host).0);
+        let send=|plugin:&mut GitLab,event:serde_json::Value| {
+            let msg=serde_json::json!({"channel":"ui-kit","sequence":1,"frameId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","project":"/project","op":"event","event":event});
+            plugin.handle(DETAILS,ViewEvent::Message(msg.to_string()),&host.invocation()).unwrap();
+            serde_json::from_str::<serde_json::Value>(&host.view_messages().last().unwrap().1).unwrap()
+        };
+        assert!(send(&mut plugin,serde_json::json!({"kind":"button","key":"timeline-reply"}))["error"].is_string());
+        assert!(send(&mut plugin,serde_json::json!({"kind":"select","key":"timeline:forged"}))["error"].is_string());
+        assert!(send(&mut plugin,serde_json::json!({"kind":"select","key":key}))["error"].is_null());
+        assert!(send(&mut plugin,serde_json::json!({"kind":"button","key":"timeline-reply"}))["error"].is_null());
+        assert_eq!(Section::stored(),Section::Overview);
+    }
+    #[test]
+    fn activity_opens_mr_page_without_fabricating_a_reply_target() {
+        let (host,mut plugin)=ready();refresh(&mut plugin,&host).unwrap();
+        let m=model(&mut plugin,&host).0;
+        let key=m["items"].as_array().unwrap().iter().find(|r|r["cells"][0]=="Activity").unwrap()["key"].as_str().unwrap().to_owned();
+        plugin.handle(DETAILS,ViewEvent::Select(key.clone()),&host.invocation()).unwrap();
+        assert!(plugin.handle(DETAILS,ViewEvent::Button("timeline-reply".into()),&host.invocation()).is_err());
+        plugin.handle(DETAILS,ViewEvent::Activate(key),&host.invocation()).unwrap();
+        assert_eq!(host.opened_urls(),["https://gitlab.com/g/p/-/merge_requests/7"]);
+        assert_eq!(storage::get(THREAD_KEY).unwrap(),None);
+    }
+    #[test]
+    fn head_change_during_capture_does_not_replace_last_good() {
+        let (host,mut plugin)=ready();refresh(&mut plugin,&host).unwrap();
+        let before=model(&mut plugin,&host).0;
+        let changed=Arc::new(AtomicBool::new(false));let flag=changed.clone();
+        host.on_fetch(move|r|{
+            if r.url.contains("/discussions") {flag.store(true,Ordering::SeqCst);}
+            if r.url.split('?').next()==Some("https://gitlab.com/api/v4/projects/g%2Fp/merge_requests/7") {return ok(&MR.replace("abc123",&if flag.load(Ordering::SeqCst){"2"}else{"1"}.repeat(40)));}
+            gitlab(r)
+        });
+        assert!(refresh(&mut plugin,&host).is_err());
+        assert_eq!(model(&mut plugin,&host).0,before);
+    }
+}
+
+mod diff_row_path_receipts {
+    use super::*;
+    #[test]
+    fn registered_current_diff_row_opens_without_remote_mutation() {
+        let host=setup();let mut plugin=selected(&host);changes_view(&mut plugin,&host).unwrap();
+        let requests=host.requests().len();
+        changes_message(&mut plugin,&host,ViewEvent::Message(r#"{"type":"open","path":"src/a.rs","line":4}"#.into())).unwrap();
+        assert_eq!(host.opened_locations(),[("/project/src/a.rs".into(),3,0)]);
+        assert_eq!(host.requests().len(),requests);assert!(writes(&host).is_empty());
+    }
+
+    #[test]
+    fn registered_diff_open_refuses_unlisted_traversing_or_nested_owner_rows() {
+        for path in ["../outside.rs","src/unlisted.rs","src/a.rs"] {
+            let host=setup();let mut plugin=selected(&host);changes_view(&mut plugin,&host).unwrap();
+            if path=="src/a.rs" {host.add_project("/project/src");}
+            let message=serde_json::json!({"type":"open","path":path,"line":4}).to_string();
+            let _=changes_message(&mut plugin,&host,ViewEvent::Message(message));
+            assert!(host.opened_locations().is_empty(),"{path}");assert!(writes(&host).is_empty());
+        }
+    }
+    #[test]
+    fn registered_diff_viewed_refuses_unlisted_source_row() {
+        let host=setup();let mut plugin=selected(&host);changes_view(&mut plugin,&host).unwrap();
+        let before=host.storage();let message=r#"{"type":"viewed","path":"not-in-diff.rs","viewed":true}"#;
+        let _=changes_message(&mut plugin,&host,ViewEvent::Message(message.into()));
+        assert_eq!(host.storage(),before);assert!(writes(&host).is_empty());
+    }
+}
+
+mod review_callback_context_receipts {
+    use super::*;
+    #[test]
+    fn emitted_current_page_context_accepts_viewed_but_missing_context_refuses() {
+        let host=setup();let mut plugin=selected(&host);let view=changes_view(&mut plugin,&host).unwrap();let context=page_context(&view);
+        let before=host.storage();let raw=r#"{"type":"viewed","path":"src/a.rs","viewed":true}"#;
+        assert!(plugin.handle(DETAILS,ViewEvent::Message(raw.into()),&host.invocation()).is_err());assert_eq!(host.storage(),before);
+        let message=serde_json::json!({"type":"viewed","path":"src/a.rs","viewed":true,"reviewContext":context}).to_string();
+        plugin.handle(DETAILS,ViewEvent::Message(message),&host.invocation()).unwrap();
+        assert_eq!(host.storage().get("viewed:g/p:7").map(String::as_str),Some(r#"{"src/a.rs":"abcdef1"}"#));assert!(writes(&host).is_empty());
+    }
+    #[test]
+    fn old_page_context_cannot_follow_same_project_into_another_local_root() {
+        let host=setup();let mut plugin=selected(&host);let context=page_context(&changes_view(&mut plugin,&host).unwrap());
+        host.set_project_root(Some("/other"));let mut other=status("main");other.root="/other".into();host.set_vcs_status(Some(other));
+        plugin.handle(LIST,ViewEvent::Select("mr:7".into()),&host.invocation()).unwrap();changes_view(&mut plugin,&host).unwrap();let before=host.storage();
+        let message=serde_json::json!({"type":"viewed","path":"src/a.rs","viewed":true,"reviewContext":context}).to_string();
+        assert!(plugin.handle(DETAILS,ViewEvent::Message(message),&host.invocation()).is_err());assert_eq!(host.storage(),before);assert!(writes(&host).is_empty());
+    }
+
+    fn page_context(view:&View)->String {
+        let Body::Html(html)=&view.body else {panic!("diff page")};
+        html.split("data-review-context=\"").nth(1).and_then(|s|s.split('"').next()).map(|s|s.replace("&quot;","\"").replace("&amp;","&")).unwrap_or_else(||"pre-fix-unbound-page".into())
+    }
+    #[test]
+    fn old_diff_page_cannot_mark_the_same_path_in_another_merge_request() {
+        let host=setup();let mut plugin=selected(&host);let context=page_context(&changes_view(&mut plugin,&host).unwrap());
+        host.on_fetch(|request| {let mut request=request.clone();let other=request.url.contains("/merge_requests/8");request.url=request.url.replace("/merge_requests/8","/merge_requests/7");let mut response=gitlab(&request)?;
+            if other && request.url.split('?').next()==Some("https://gitlab.com/api/v4/projects/g%2Fp/merge_requests/7") {response.body=MR.replace("\"iid\": 7","\"iid\": 8").into_bytes();}Ok(response)});
+        plugin.handle(LIST,ViewEvent::Select("mr:8".into()),&host.invocation()).unwrap();changes_view(&mut plugin,&host).unwrap();
+        let before=host.storage();let requests=host.requests().len();
+        let message=serde_json::json!({"type":"viewed","path":"src/a.rs","viewed":true,"reviewContext":context}).to_string();
+        let _=plugin.handle(DETAILS,ViewEvent::Message(message),&host.invocation());
+        assert_eq!(host.storage(),before);assert_eq!(host.requests().len(),requests);assert!(writes(&host).is_empty());
+    }
+    #[test]
+    fn old_diff_page_cannot_apply_viewed_mark_after_head_refresh() {
+        let host=setup();let mut plugin=selected(&host);let context=page_context(&changes_view(&mut plugin,&host).unwrap());
+        host.on_fetch(|request| {if request.method=="GET" && request.url.split('?').next()==Some("https://gitlab.com/api/v4/projects/g%2Fp/merge_requests/7") {ok(&MR.replace("abcdef1","abcdef2").replace("abc123","def456"))}else{gitlab(request)}});
+        plugin.reload_merge_request(7);changes_view(&mut plugin,&host).unwrap();let before=host.storage();
+        let message=serde_json::json!({"type":"viewed","path":"src/a.rs","viewed":true,"reviewContext":context}).to_string();
+        let _=plugin.handle(DETAILS,ViewEvent::Message(message),&host.invocation());assert_eq!(host.storage(),before);assert!(writes(&host).is_empty());
+    }
+}
+
+mod review_row_membership_receipts {
+    use super::*;
+    #[test]
+    fn registered_displayed_diff_discussion_can_reply_and_resolve() {
+        let host=setup();let mut plugin=selected(&host);changes_view(&mut plugin,&host).unwrap();
+        for kind in ["reply","resolve"] {
+            let message=serde_json::json!({"type":kind,"discussion":"d1","body":"fixture reply","resolved":true}).to_string();
+            changes_message(&mut plugin,&host,ViewEvent::Message(message)).unwrap();
+        }
+        let posted=writes(&host);assert_eq!(posted.len(),2);assert!(posted[0].1.ends_with("/discussions/d1/notes"));assert!(posted[1].1.ends_with("/discussions/d1?resolved=true"));
+    }
+
+    #[test]
+    fn registered_changes_render_ignores_empty_discussion_rows_without_panicking() {
+        let host=setup();host.on_fetch(|request|if request.method=="GET" && request.url.contains("/discussions") {ok(r#"[{"id":"empty","notes":[]}]"#)} else {gitlab(request)});
+        let rendered=std::panic::catch_unwind(std::panic::AssertUnwindSafe(||{let mut plugin=selected(&host);changes_view(&mut plugin,&host).unwrap()}));
+        assert!(rendered.is_ok());assert!(writes(&host).is_empty());
+    }
+
+    #[test]
+    fn registered_current_page_cannot_post_unlisted_diff_path_or_line() {
+        for (path,old,new) in [("not-in-diff.rs",Some(4u64),None),("src/a.rs",Some(999),None),("src/a.rs",Some(3),Some(4)),("src/a.rs",Some(u64::from(u32::MAX)+5),None)] {
+            let host=setup();let mut plugin=selected(&host);changes_view(&mut plugin,&host).unwrap();
+            let message=serde_json::json!({"type":"comment","oldPath":path,"newPath":path,"old":old,"new":new,"body":"fixture review text"}).to_string();
+            let _=changes_message(&mut plugin,&host,ViewEvent::Message(message));assert!(writes(&host).is_empty(),"{path} {old:?} {new:?}");
+        }
+    }
+    #[test]
+    fn registered_current_page_cannot_reply_or_resolve_an_unlisted_discussion() {
+        for kind in ["reply","resolve"] {
+            let host=setup();let mut plugin=selected(&host);changes_view(&mut plugin,&host).unwrap();
+            let message=serde_json::json!({"type":kind,"discussion":"deadbeef","body":"fixture reply","resolved":true}).to_string();
+            let _=changes_message(&mut plugin,&host,ViewEvent::Message(message));assert!(writes(&host).is_empty(),"{kind}");
+        }
+    }
+}
+
+mod diff_line_bounds_receipts {
+    use super::*;
+    fn serve(host:&MockHost,diff:&str) {
+        let body=serde_json::json!([{"old_path":"src/a.rs","new_path":"src/a.rs","diff":diff}]).to_string();
+        host.on_fetch(move |request|if request.method=="GET" && request.url.contains("/diffs") {ok(&body)}else{gitlab(request)});
+    }
+    #[test]
+    fn registered_changes_render_does_not_overflow_maximum_diff_line_numbers() {
+        let host=setup();serve(&host,"@@ -4294967295,2 +4294967295,2 @@\n first\n second\n");
+        let view=std::panic::catch_unwind(std::panic::AssertUnwindSafe(||{let mut plugin=selected(&host);changes_view(&mut plugin,&host).unwrap()}));
+        assert!(view.is_ok());let view=view.unwrap();let Body::Html(html)=view.body else {panic!("diff page")};
+        assert!(html.contains("4294967295"));assert!(html.contains("second"));assert!(!html.contains("data-old=\"0\""));assert!(writes(&host).is_empty());
+    }
+    #[test]
+    fn malformed_or_out_of_range_hunk_cannot_guess_line_one_for_a_comment() {
+        for diff in ["@@ invalid @@\n x\n","@@ -4294967296 +4294967296 @@\n x\n","@@ -0,0 +0,0 @@\n x\n","@@ -+1 ++1 @@\n x\n"] {
+            let host=setup();serve(&host,diff);let mut plugin=selected(&host);changes_view(&mut plugin,&host).unwrap();
+            let message=serde_json::json!({"type":"comment","oldPath":"src/a.rs","newPath":"src/a.rs","old":1,"new":1,"body":"fixture comment"}).to_string();
+            let _=changes_message(&mut plugin,&host,ViewEvent::Message(message));assert!(writes(&host).is_empty(),"{diff}");
+        }
+    }
+}
+
+mod files_callback_context_receipts {
+    use super::*;
+    fn switch(host:&MockHost,plugin:&mut GitLab) {
+        host.on_fetch(|request| {let mut request=request.clone();let other=request.url.contains("/merge_requests/8");request.url=request.url.replace("/merge_requests/8","/merge_requests/7");let mut response=gitlab(&request)?;
+            if other && request.url.split('?').next()==Some("https://gitlab.com/api/v4/projects/g%2Fp/merge_requests/7") {response.body=MR.replace("\"iid\": 7","\"iid\": 8").into_bytes();}Ok(response)});
+        plugin.handle(LIST,ViewEvent::Select("mr:8".into()),&host.invocation()).unwrap();render_in(plugin,Section::Files,host);
+    }
+    #[test]
+    fn captured_file_row_does_not_mark_the_same_path_in_a_new_merge_request() {
+        let host=setup();let mut plugin=selected(&host);let view=render_in(&mut plugin,Section::Files,&host);
+        let Body::Tree(items)=view.body else {panic!("file rows")};let key=items.iter().find(|item|item.key.starts_with("file:")).unwrap().key.clone();
+        switch(&host,&mut plugin);let before=host.storage();let _=plugin.handle(DETAILS,ViewEvent::Activate(key),&host.invocation());assert_eq!(host.storage(),before);assert!(writes(&host).is_empty());
+    }
+    #[test]
+    fn captured_clear_viewed_button_does_not_clear_a_new_merge_request() {
+        let host=setup();let mut plugin=selected(&host);let view=render_in(&mut plugin,Section::Files,&host);
+        let key=view.toolbar.iter().find(|button|button.label=="Clear Viewed").unwrap().id.clone();
+        switch(&host,&mut plugin);storage::set("viewed:g/p:8",r#"{"src/a.rs":"abcdef1"}"#).unwrap();let before=host.storage();
+        let _=plugin.handle(DETAILS,ViewEvent::Button(key),&host.invocation());assert_eq!(host.storage(),before);assert!(writes(&host).is_empty());
+    }
 }

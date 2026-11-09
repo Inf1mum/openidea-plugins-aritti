@@ -37,9 +37,11 @@ fn leading_comments(text: &str) -> &str {
 }
 
 impl KubeExplorer {
-    pub fn reload_from_cluster(&self, ctx: &Invocation) -> Result<(), Error> {
+    pub fn reload_from_cluster(&mut self,ctx:&Invocation)->Result<(),Error>{self.with_process_scope(ctx,|this|this.reload_from_cluster_in(ctx))}
+    fn reload_from_cluster_in(&self, ctx: &Invocation) -> Result<(), Error> {
         let editor = ctx.editor().ok_or("No manifest is open.")?;
         let document = editor.document()?;
+        self.check_editor_owner(&editor.path())?;
         let mut edits = Vec::new();
         let mut skipped = Vec::new();
         let mut manifests = 0;
@@ -102,7 +104,8 @@ mod tests {
     const FILE: &str = "# keep me\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\n  namespace: shop\nspec:\n  replicas: 1\n---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: gone\n";
 
     fn fixture() -> (MockHost, std::rc::Rc<std::cell::RefCell<Vec<Vec<String>>>>) {
-        let host = MockHost::install().with_capabilities(&["process:kubectl", "editor.read", "editor.write", "storage"]);
+        let host = MockHost::install().with_capabilities(&["project.read", "process:kubectl", "editor.read", "editor.write", "storage"]);
+        host.set_project_root(Some("/p"));
         let runs: std::rc::Rc<std::cell::RefCell<Vec<Vec<String>>>> = Default::default();
         let seen = runs.clone();
         host.on_process(KUBECTL, move |args, _| {
@@ -135,7 +138,7 @@ mod tests {
         assert!(KubeExplorer::default().reload_from_cluster(&host.invocation()).is_err());
 
         let (host, _) = fixture();
-        let host = host.with_capabilities(&["process:kubectl", "editor.read", "storage"]);
+        let host = host.with_capabilities(&["project.read", "process:kubectl", "editor.read", "storage"]);
         host.open_editor("/p/web.yaml", "yaml", FILE, &[(0, 0, 0, 0)]);
         KubeExplorer::default().reload_from_cluster(&host.invocation()).unwrap();
         assert_eq!(host.editor_text(), FILE);

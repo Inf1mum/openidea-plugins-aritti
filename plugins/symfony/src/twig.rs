@@ -6,6 +6,64 @@ use std::ops::Range;
 
 use crate::refs::{is_identifier, literal_at, twig_code_start, word_at};
 
+#[derive(Clone,Debug)]
+pub(crate) struct CodeLiteral {
+    pub range: Range<usize>,
+    pub code_start: usize,
+    pub code_end: usize,
+    pub tag: bool,
+    pub closed: bool,
+    pub construct_closed: bool,
+}
+/// Bounded lexical string tokens; quoted Twig-looking delimiters are data.
+pub(crate) fn code_literals(text: &str) -> Vec<CodeLiteral> { lexical(text).0 }
+fn lexical(text: &str) -> (Vec<CodeLiteral>,Vec<Range<usize>>) {
+    if text.len()>128<<10 {return (Vec::new(),vec![0..text.len()]);}
+    let bytes=text.as_bytes();let mut at=0;let mut out=Vec::new();let mut opaque=Vec::new();
+    while let Some(found)=text[at..].find('{') {
+        let start=at+found;at=start+1;
+        if text[start..].starts_with("{#") {
+            let Some(close)=text[start+2..].find("#}") else {opaque.push(start..text.len());break;};
+            at=start+2+close+2;opaque.push(start..at);continue;
+        }
+        let tag=text[start..].starts_with("{%");
+        if !tag && !text[start..].starts_with("{{") {continue;}
+        let code_start=start+2;let mut i=code_start;let mut pending=Vec::new();let mut closed=false;let mut depth=0usize;
+        while i<bytes.len() {
+            if matches!(bytes[i],b'\''|b'"') {
+                let quote=bytes[i];let content=i+1;i+=1;
+                while i<bytes.len() && bytes[i]!=quote {i+=if bytes[i]==b'\\'{2}else{1};}
+                i=i.min(bytes.len());let quoted=i<bytes.len();
+                pending.push((content..i,quoted));if !quoted {break;}i+=1;continue;
+            }
+            let delimiter=if tag{b'%'}else{b'}'};
+            if depth==0 && bytes[i]==delimiter && bytes.get(i+1)==Some(&b'}') {closed=true;break;}
+            match bytes[i] {b'('|b'['|b'{'=>depth+=1,b')'|b']'|b'}'=>depth=depth.saturating_sub(1),_=>{}}
+            i+=1;
+        }
+        let code_end=i.min(bytes.len());
+        out.extend(pending.into_iter().map(|(range,literal_closed)|CodeLiteral {range,code_start,code_end,tag,closed:literal_closed,construct_closed:closed}));
+        if !closed {break;}
+        at=code_end+2;
+        let head=text[code_start..code_end].trim_matches(['-','~',' ','\t','\r','\n']);
+        let raw=head.split_whitespace().next().filter(|name|matches!(*name,"verbatim"|"raw"));
+        if tag && raw.is_some() {
+            let expected=format!("end{}",raw.unwrap());
+            let body_start=at;let mut scan=at;let mut ending=None;
+            while let Some(next)=text[scan..].find("{%") {
+                let open=scan+next;
+                let Some(close)=text[open+2..].find("%}") else {break;};
+                let end=open+2+close;
+                if text[open+2..end].trim_matches(['-','~',' ','\t','\r','\n'])==expected {ending=Some((open,end+2));break;}
+                scan=end+2;
+            }
+            let Some((close,end))=ending else {opaque.push(body_start..text.len());break;};
+            opaque.push(body_start..close);at=end;
+        }
+    }
+    (out,opaque)
+}
+
 pub enum Slot {
     Tag,
     Filter,
@@ -231,41 +289,12 @@ pub fn includes(text: &str) -> Vec<(String, Vec<String>)> {
 /// Byte ranges of the template that are Twig or HTML text: everything but
 /// `{# #}` comments and the bodies of `{% verbatim %}`.
 pub fn code_regions(text: &str) -> Vec<Range<usize>> {
-    let mut regions = Vec::new();
-    let mut region_start = 0;
-    let mut i = 0;
-
-    while let Some(found) = text[i..].find('{') {
-        let at = i + found;
-        i = at + 1;
-
-        if text[at..].starts_with("{#") {
-            regions.push(region_start..at);
-            region_start = text[at + 2..].find("#}").map_or(text.len(), |e| at + 2 + e + 2);
-            i = region_start;
-            continue;
-        }
-
-        if !text[at..].starts_with("{%") {
-            continue;
-        }
-
-        let Some(close) = text[at + 2..].find("%}").map(|e| at + 2 + e + 2) else { break };
-        let inside = text[at + 2..close - 2].trim_matches(['-', '~', ' ', '\t', '\r', '\n']);
-        i = close;
-
-        if inside != "verbatim" {
-            continue;
-        }
-
-        regions.push(region_start..close);
-        let body_end = text[close..].find("endverbatim").and_then(|e| text[..close + e].rfind("{%")).filter(|&at| at >= close);
-        region_start = body_end.unwrap_or(text.len());
-        i = region_start.max(close);
+    let (_,opaque)=lexical(text);let mut regions=Vec::new();let mut from=0;
+    for range in opaque {
+        if from<range.start {regions.push(from..range.start);}
+        from=from.max(range.end);
     }
-
-    regions.push(region_start..text.len());
-    regions.retain(|region| !region.is_empty());
+    if from<text.len(){regions.push(from..text.len());}
     regions
 }
 
@@ -324,6 +353,36 @@ pub fn macro_definitions(source: &str) -> Vec<(String, String)> {
             (!name.is_empty()).then(|| (name, rest[open + 1..close].trim().to_owned()))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod lexical_literal_tests {
+    use super::*;
+    #[test]
+    fn literal_tokens_ignore_nested_markers_comments_and_verbatim_and_keep_adjacent_tags() {
+        let text=r#"{# {{ include('comment') }} #}{% include 'first.twig' %}{% include 'second.twig' %}{{ "{% include 'ghost.twig' %}" }}{% verbatim %}{{ include('raw.twig') }}{% endverbatim %}{{ path('route', {'x': 'y'}) }}"#;
+        let values:Vec<_>=code_literals(text).iter().map(|literal|text[literal.range.clone()].to_owned()).collect();
+        assert_eq!(values,["first.twig","second.twig","{% include 'ghost.twig' %}","route","x","y"]);
+        assert!(code_literals(text).iter().all(|literal|literal.closed && literal.construct_closed));
+    }
+    #[test]
+    fn opaque_regions_share_literal_aware_scanning_and_cover_legacy_raw() {
+        let quoted=r#"{{ "{# fake #}{% verbatim %}" }}{{ path('after') }}"#;
+        assert_eq!(code_regions(quoted),vec![0..quoted.len()]);
+        let raw="{# comment #}{% raw %}{{ path('ghost') }}{% endraw %}{{ path('after') }}";
+        let regions=code_regions(raw);assert!(!regions.iter().any(|range|range.contains(&raw.find("ghost").unwrap())));
+        assert!(regions.iter().any(|range|range.contains(&raw.find("after").unwrap())));
+        assert_eq!(code_literals(raw).len(),1);
+    }
+
+    #[test]
+    fn unfinished_literal_and_unclosed_construct_remain_metadata_only() {
+        let tokens=code_literals("{% include 'part");
+        assert_eq!(tokens.len(),1);assert!(!tokens[0].closed && !tokens[0].construct_closed);
+        let tokens=code_literals("{{ path('route' }}");
+        assert_eq!(tokens.len(),1);assert!(tokens[0].closed && !tokens[0].construct_closed);
+        assert!(code_literals(&"x".repeat((128<<10)+1)).is_empty());
+    }
 }
 
 #[cfg(test)]

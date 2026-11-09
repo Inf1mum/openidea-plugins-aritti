@@ -1,6 +1,6 @@
 //! Dependencies declared by the project manifests and lockfiles.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde_json::Value;
 use spring_text::xml::{Element, elements};
@@ -162,16 +162,55 @@ fn inner_text<'a>(text: &'a str, el: &Element) -> Option<(&'a str, (usize, usize
     Some((trimmed, (from, from + trimmed.len())))
 }
 
+fn pom_dependency_site(els: &[Element], index: usize) -> bool {
+    let mut names=Vec::new();let mut parent=els[index].parent;
+    while let Some(i)=parent {
+        if names.len()>=16 {return false;}
+        names.push(els[i].name.as_str());parent=els[i].parent;
+    }
+    if names.ends_with(&["profile","profiles","project"]) {names.truncate(names.len()-3);names.push("project");}
+    matches!(names.as_slice(),
+        ["dependencies","project"] |
+        ["dependencies","dependencyManagement","project"] |
+        ["dependencies","plugin","plugins","build","project"] |
+        ["dependencies","plugin","plugins","pluginManagement","build","project"])
+}
+
 fn pom(path: &str, text: &str) -> Vec<Dep> {
     let els = elements(text);
-    let properties: Vec<(&str, &str, (usize, usize))> = els
+    // The shared tolerant scanner recovers unfinished/mismatched XML for editor
+    // features. Recovered containers cannot establish an editable POM version.
+    if els.iter().any(|e| {
+        let Some(start)=text.get(e.start..e.tag_end) else {return true;};
+        if start.ends_with("/>") {return false;}
+        let Some(body)=text.get(e.tag_end..e.end) else {return true;};
+        let Some(close)=body.rfind("</").and_then(|at|body.get(at+2..)).and_then(|s|s.strip_suffix('>')) else {return true;};
+        close.trim()!=e.name
+    }) {return Vec::new();}
+    let roots:Vec<_>=els.iter().enumerate().filter(|(_,e)|e.parent.is_none()).collect();
+    let [(root, project)]=roots.as_slice() else {return Vec::new();};
+    if project.name!="project" {return Vec::new();}
+    let root_ns=project.attr("xmlns").map_or("",|a|a.value.as_str());
+    if !matches!(root_ns,""|"http://maven.apache.org/POM/4.0.0") {return Vec::new();}
+    let mut namespaces:Vec<&str>=Vec::with_capacity(els.len());
+    let mut owned:Vec<bool>=Vec::with_capacity(els.len());
+    for e in &els {
+        let ns=e.attr("xmlns").map(|a|a.value.as_str()).unwrap_or_else(||e.parent.map_or("",|p|namespaces[p]));
+        namespaces.push(ns);
+        owned.push(!e.name.contains(':')&&ns==root_ns&&e.parent.is_none_or(|p|owned[p]));
+    }
+    let properties: Vec<(&str, &str, (usize, usize), bool)> = els
         .iter()
-        .filter(|e| e.parent.is_some_and(|p| els[p].name == "properties"))
-        .filter_map(|e| inner_text(text, e).map(|(value, range)| (e.name.as_str(), value, range)))
+        .enumerate()
+        .filter(|(i,e)| owned[*i] && e.parent.is_some_and(|p| els[p].name == "properties"))
+        .map(|(_,e)|e)
+        .filter_map(|e| inner_text(text, e).map(|(value, range)| (e.name.as_str(), value, range, e.parent.is_some_and(|p|els[p].parent==Some(*root)))))
         .collect();
 
     let mut children: HashMap<usize, [Option<usize>; 3]> = HashMap::new();
+    let mut ambiguous=HashSet::new();
     for (child, el) in els.iter().enumerate() {
+        if !owned[child] {continue;}
         let Some(parent) = el.parent else {
             continue;
         };
@@ -179,12 +218,12 @@ fn pom(path: &str, text: &str) -> Vec<Dep> {
             continue;
         };
 
-        children.entry(parent).or_default()[slot].get_or_insert(child);
+        if children.entry(parent).or_default()[slot].replace(child).is_some() {ambiguous.insert(parent);}
     }
 
     let mut deps = Vec::new();
     for (index, dependency) in els.iter().enumerate() {
-        if dependency.name != "dependency" {
+        if !owned[index] || dependency.name != "dependency" || ambiguous.contains(&index) || !pom_dependency_site(&els,index) {
             continue;
         }
         let read = |slot: usize| {
@@ -199,9 +238,10 @@ fn pom(path: &str, text: &str) -> Vec<Dep> {
         };
 
         let (version, version_at) = match declared.strip_prefix("${").and_then(|d| d.strip_suffix('}')) {
-            Some(key) => match properties.iter().find(|(name, _, _)| *name == key) {
-                Some((_, value, range)) => (*value, *range),
-                None => continue,
+            Some(key) => {
+                let matches:Vec<_>=properties.iter().filter(|(name,_,_,_)|*name==key).collect();
+                let [(_,value,range,true)]=matches.as_slice() else {continue;};
+                (*value,*range)
             },
             None => (declared, declared_at),
         };
@@ -224,39 +264,47 @@ fn pom(path: &str, text: &str) -> Vec<Dep> {
 
 fn gradle(path: &str, text: &str) -> Vec<Dep> {
     let is_name = |part: &str| !part.is_empty() && part.chars().all(|c| c.is_ascii_alphanumeric() || "_.-".contains(c));
-
-    let mut deps = Vec::new();
-    let mut line_start = 0;
-    for line in text.split_inclusive('\n') {
-        let mut at = 0;
-        while let Some(open) = line[at..].find(['\'', '"']).map(|i| at + i) {
-            let quote = &line[open..=open];
-            let Some(len) = line[open + 1..].find(quote) else {
-                break;
-            };
-            let (from, to) = (open + 1, open + 1 + len);
-            at = to + 1;
-
-            let parts: Vec<&str> = line[from..to].split(':').collect();
-            let [group, artifact, version] = parts[..] else {
-                continue;
-            };
-            if !is_name(group) || !is_name(artifact) || !version.starts_with(|c: char| c.is_ascii_digit()) || version.contains('$') {
-                continue;
+    let configurations = ["implementation", "api", "compile", "compileOnly", "compileOnlyApi", "runtime", "runtimeOnly", "testCompile", "testImplementation", "testCompileOnly", "testRuntime", "testRuntimeOnly", "annotationProcessor", "testAnnotationProcessor", "kapt", "ksp", "classpath", "platform", "enforcedPlatform"];
+    let bytes=text.as_bytes();
+    let mut deps=Vec::new();let mut i=0;
+    while i<bytes.len() {
+        if bytes[i..].starts_with(b"//") { while i<bytes.len() && bytes[i]!=b'\n' {i+=1;} continue; }
+        if bytes[i..].starts_with(b"/*") {
+            i+=2;let mut depth=1usize;
+            while i<bytes.len()&&depth>0 {
+                if bytes[i..].starts_with(b"/*") {depth+=1;if depth>64 {return Vec::new();}i+=2;}
+                else if bytes[i..].starts_with(b"*/") {depth-=1;i+=2;}
+                else {i+=1;}
             }
-
-            deps.push(Dep {
-                path: path.to_owned(),
-                ecosystem: Ecosystem::Maven,
-                name: format!("{group}:{artifact}"),
-                version: version.to_owned(),
-                at: (line_start + from, line_start + to),
-                version_at: Some((line_start + to - version.len(), line_start + to)),
-            });
+            continue;
         }
-        line_start += line.len();
+        // Groovy slashy/regex forms need a language parser; withhold rather
+        // than interpreting quote-like content inside them as declarations.
+        if bytes[i]==b'/' {return Vec::new();}
+        if !matches!(bytes[i], b'\''|b'"') {i+=1;continue;}
+        let quote=bytes[i];
+        if bytes.get(i..i+3).is_some_and(|s|s.iter().all(|b|*b==quote)) {
+            i+=3;
+            while i<bytes.len()&&!bytes.get(i..i+3).is_some_and(|s|s.iter().all(|b|*b==quote)) {i+=1;}
+            i=(i+3).min(bytes.len());continue;
+        }
+        let open=i;i+=1;let from=i;let mut escaped=false;
+        while i<bytes.len()&&bytes[i]!=quote&&bytes[i]!=b'\n' {
+            if bytes[i]==b'\\' {escaped=true;i=(i+2).min(bytes.len());} else {i+=1;}
+        }
+        if i>=bytes.len()||bytes[i]!=quote {continue;}
+        let to=i;i+=1;
+        if escaped {continue;}
+        let prefix=text[..open].trim_end().trim_end_matches('(').trim_end();
+        let name_start=prefix.char_indices().rev().find(|(_,c)|!c.is_ascii_alphanumeric()&&*c!='_').map_or(0,|(p,c)|p+c.len_utf8());
+        if !configurations.contains(&&prefix[name_start..]) {continue;}
+        // A literal prefix of concatenation/coalescing is not a version declaration.
+        if text[i..].trim_start().starts_with(['+', '.', '?', '$']) {continue;}
+        let parts:Vec<_>=text[from..to].split(':').collect();
+        let [group,artifact,version]=parts[..] else {continue;};
+        if !is_name(group)||!is_name(artifact)||!version.starts_with(|c:char|c.is_ascii_digit())||version.contains('$') {continue;}
+        deps.push(Dep {path:path.into(),ecosystem:Ecosystem::Maven,name:format!("{group}:{artifact}"),version:version.into(),at:(from,to),version_at:Some((to-version.len(),to))});
     }
-
     deps
 }
 
@@ -786,6 +834,9 @@ mod tests {
         let deps = parse("/p/pom.xml", POM, None);
 
         assert_eq!(found(&deps), [("com.fasterxml.jackson.core:jackson-databind", "2.9.10"), ("org.yaml:snakeyaml", "1.33")]);
+        let canonical=POM.replacen("<project>","<project xmlns=\"http://maven.apache.org/POM/4.0.0\">",1);
+        let canonical_deps=parse("/p/pom.xml",&canonical,None);
+        assert_eq!(found(&canonical_deps),found(&deps));
         assert_eq!(deps[0].ecosystem, Ecosystem::Maven);
         assert_eq!(deps[0].path, "/p/pom.xml");
         let (from, to) = deps[0].version_at.unwrap();
@@ -793,6 +844,17 @@ mod tests {
         let (from, to) = deps[1].version_at.unwrap();
         assert_eq!(&POM[from..to], "1.33");
         assert_eq!(&POM[deps[1].at.0..deps[1].at.1], "snakeyaml");
+    }
+
+    #[test]
+    fn pom_model_dependency_sites_retain_root_profile_and_plugin_source_declarations() {
+        let dependency="<dependencies><dependency><groupId>x</groupId><artifactId>a</artifactId><version>1.0</version></dependency></dependencies>";
+        for body in [dependency.into(),format!("<dependencyManagement>{dependency}</dependencyManagement>"),format!("<build><plugins><plugin>{dependency}</plugin></plugins></build>"),format!("<build><pluginManagement><plugins><plugin>{dependency}</plugin></plugins></pluginManagement></build>")] {
+            for body in [body.clone(),format!("<profiles><profile>{body}</profile></profiles>")] {
+                let source=format!("<project>{body}</project>");
+                assert_eq!(found(&parse("/p/pom.xml",&source,None)),[("x:a","1.0")],"{source}");
+            }
+        }
     }
 
     #[test]
@@ -822,6 +884,14 @@ mod tests {
         let (from, to) = deps[1].version_at.unwrap();
         assert_eq!(&GRADLE[from..to], "31.0-jre");
         assert_eq!(&GRADLE[deps[0].at.0..deps[0].at.1], "org.yaml:snakeyaml:1.33");
+    }
+
+    #[test]
+    fn gradle_coordinates_in_comments_examples_and_computed_literals_are_not_declarations() {
+        let text = "/* implementation 'x:a:1' /* nested */ implementation 'x:b:1' */\n// implementation 'x:c:1'\nprintln 'x:d:1'\nimplementation 'x:e:1' + suffix\nimplementation 'x:actual:1'\n";
+        assert_eq!(found(&parse("/p/build.gradle",text,None)),[("x:actual","1")]);
+        assert!(parse("/p/build.gradle","def regex = /implementation 'x:a:1'/",None).is_empty());
+        assert!(parse("/p/build.gradle","def example = \"\"\"implementation 'x:a:1'\"\"\"",None).is_empty());
     }
 
     #[test]

@@ -1,0 +1,23 @@
+{
+  "title": "Symfony",
+  "views": {
+    "symfony": "Symfony",
+    "symfony-profiler": "Symfony Profiler"
+  },
+  "actions": [
+    {
+      "view": "symfony",
+      "id": "route-copy-curl",
+      "label": "Symfony: Copy Route as curl",
+      "kind": "route"
+    },
+    {
+      "view": "symfony",
+      "id": "route-create-http",
+      "label": "Symfony: Create HTTP Request File for Route",
+      "kind": "route"
+    }
+  ],
+  "project_independent": false,
+  "project_bound_buttons": []
+}

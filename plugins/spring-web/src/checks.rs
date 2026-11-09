@@ -39,6 +39,7 @@ const VIEW_RESOLVER_MARKERS: [&str; 5] =
     ["ViewResolver", "configureViewResolvers", "TilesConfigurer", "AbstractView", "ViewResolverRegistry"];
 
 /// Whether every source was read and none brings a view resolver of its own.
+#[cfg(test)]
 pub fn project_has_default_views(complete: bool, files: &[Versioning]) -> bool {
     complete && files.iter().all(|f| !f.custom_view_resolver)
 }
@@ -91,10 +92,7 @@ pub fn check_java(file: &JavaFile, versioning_configured: Option<bool>, standard
 
 fn from_spring(file: &JavaFile, name: &str) -> bool {
     let suffix = format!(".{name}");
-    file.imports
-        .iter()
-        .filter(|i| !i.is_static && i.path.ends_with(&suffix))
-        .all(|i| i.path.starts_with("org.springframework."))
+    file.imports.iter().filter(|i| !i.is_static && i.path.ends_with(&suffix)).all(|i| i.path.starts_with("org.springframework."))
 }
 
 /// Spring Framework 7 routes a request by `version` only when an API version strategy is configured; without one the attribute is ignored.
@@ -144,8 +142,13 @@ fn init_binder_signature(file: &JavaFile, ty: &TypeDecl, out: &mut Vec<Finding>)
         let end = m.at + m.name.len();
         if m.ty.as_ref().is_some_and(|t| t.name != "void" && t.name != "Unit") {
             out.push(
-                Finding::new(m.at, end, "init-binder-signature", "@InitBinder methods must return void; Spring throws IllegalStateException otherwise.")
-                    .with_severity(Severity::Error),
+                Finding::new(
+                    m.at,
+                    end,
+                    "init-binder-signature",
+                    "@InitBinder methods must return void; Spring throws IllegalStateException otherwise.",
+                )
+                .with_severity(Severity::Error),
             );
             continue;
         }
@@ -203,7 +206,10 @@ mod tests {
         assert_eq!(none("/p/application.yml", "spring:\n  mvc:\n    apiversion:\n      use:\n        header: X\n"), Some(true));
         assert_eq!(none("/p/application.properties", "spring.mvc.apiversion.use.header=X"), Some(true));
         assert_eq!(none("/p/A.java", "class A {}"), None);
-        assert_eq!(none("/p/C.java", "class C implements WebMvcConfigurer { void configureApiVersioning(ApiVersionConfigurer c) {} }"), Some(true));
+        assert_eq!(
+            none("/p/C.java", "class C implements WebMvcConfigurer { void configureApiVersioning(ApiVersionConfigurer c) {} }"),
+            Some(true)
+        );
         let cfg = Versioning { is_config_file: true, ..Versioning::default() };
         assert_eq!(project_versioning(true, &[cfg]), Some(false));
         assert_eq!(project_versioning(false, &[cfg]), None);
@@ -215,10 +221,7 @@ mod tests {
 
     #[test]
     fn init_binder_signature_warns() {
-        assert_eq!(
-            run(BINDERS, None),
-            [("init-binder-signature", "bad".to_owned()), ("init-binder-signature", "none".to_owned())]
-        );
+        assert_eq!(run(BINDERS, None), [("init-binder-signature", "bad".to_owned()), ("init-binder-signature", "none".to_owned())]);
         let found = check_java(&parse(BINDERS), None, None, ALL);
         assert_eq!(found[0].severity, Severity::Error);
         assert_eq!(found[1].severity, Severity::Warning);

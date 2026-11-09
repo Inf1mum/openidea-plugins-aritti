@@ -104,7 +104,17 @@ pub fn check_java(file: &JavaFile, autowire_mode_set: Option<bool>, groups: Grou
 pub fn removal_fixes(file: &JavaFile, text: &str) -> Vec<(usize, usize, String)> {
     file.types
         .iter()
-        .flat_map(redundant_annotations(file))
+        .flat_map(|ty| {
+            if crate::meta::supported_annotation(file,text,&ty.annotations,"SpringBootApplication","org.springframework.boot.autoconfigure.SpringBootApplication").is_none() {return Vec::new();}
+            redundant_annotations(file)(ty).into_iter().filter(|annotation| {
+                let owner=match annotation.name.as_str() {
+                    "EnableAutoConfiguration"=>"org.springframework.boot.autoconfigure.EnableAutoConfiguration",
+                    "ComponentScan"=>"org.springframework.context.annotation.ComponentScan",
+                    _=>return false,
+                };
+                crate::meta::supported_annotation(file,text,&ty.annotations,&annotation.name,owner).is_some_and(|known|known.at==annotation.at)
+            }).collect::<Vec<_>>()
+        })
         .map(|a| {
             let rest = &text[a.end..];
             let blank = rest.len() - rest.trim_start_matches([' ', '\t']).len();
@@ -527,7 +537,7 @@ mod tests {
         assert!(codes(&EARLY.replace("ApplicationStartingEvent e", "T e").replace("ApplicationPreparedEvent.class", "TYPES")).is_empty());
     }
 
-    const APP: &str = "package com.acme;\n\nimport org.springframework.boot.autoconfigure.SpringBootApplication;\nimport org.springframework.boot.autoconfigure.EnableAutoConfiguration;\n\n@SpringBootApplication\n@EnableAutoConfiguration\n@ComponentScan\npublic class App {}\n";
+    const APP: &str = "package com.acme;\n\nimport org.springframework.boot.autoconfigure.SpringBootApplication;\nimport org.springframework.boot.autoconfigure.EnableAutoConfiguration;\nimport org.springframework.context.annotation.ComponentScan;\n\n@SpringBootApplication\n@EnableAutoConfiguration\n@ComponentScan\npublic class App {}\n";
 
     #[test]
     fn default_package_application_warns() {
@@ -604,7 +614,7 @@ mod tests {
     fn crlf_files_report_correct_lines() {
         let text = APP.replace('\n', "\r\n");
         let lines: Vec<_> = check_java(&parse(&text), None, ALL).iter().map(|f| f.diagnostic(&text).range.start.line).collect();
-        assert_eq!(lines, [6, 7]);
+        assert_eq!(lines, [7, 8]);
     }
 
     const LIFECYCLE: &str = "import org.springframework.test.annotation.DirtiesContext;\nimport org.springframework.test.context.transaction.BeforeTransaction;\nimport org.springframework.test.context.transaction.AfterTransaction;\nclass T {\n    @BeforeTransaction\n    void before() {}\n    @AfterTransaction\n    void after() {}\n    @DirtiesContext(methodMode = MethodMode.AFTER_METHOD)\n    void m() {}\n}\n@DirtiesContext(classMode = ClassMode.AFTER_CLASS)\nclass U {}\n";

@@ -12,24 +12,30 @@ use crate::{HELM, KubeExplorer};
 pub const ADD_DEPENDENCY: &str = "Add chart dependency";
 const CACHE_KEY: &str = "helm-repos";
 
+fn unique_aliases(repos:Vec<(String,String)>)->Vec<(String,String)> {
+    if repos.len()>4096 {return Vec::new();}
+    let mut targets=std::collections::BTreeMap::<&str,std::collections::BTreeSet<&str>>::new();
+    for (name,url) in &repos {targets.entry(name).or_default().insert(url);}
+    let mut offered=std::collections::BTreeSet::new();
+    repos.iter().filter(|(name,url)|!name.is_empty()&&!url.is_empty()&&!name.chars().chain(url.chars()).any(char::is_control)
+        &&targets.get(name.as_str()).is_some_and(|urls|urls.len()==1)&&offered.insert(name.as_str())).cloned().collect()
+}
 fn cached_repos() -> Vec<(String, String)> {
     let text = host::storage::get(CACHE_KEY).ok().flatten().unwrap_or_default();
-    text.lines().filter_map(|line| line.split_once('\t')).map(|(name, url)| (name.to_owned(), url.to_owned())).collect()
+    if text.len()>256<<10 {return Vec::new();}
+    let repos=text.lines().filter_map(|line|line.split_once('\t')).take(4097).map(|(name,url)|(name.to_owned(),url.to_owned())).collect();
+    unique_aliases(repos)
 }
 
-fn string_after(object: &str, key: &str) -> Option<String> {
-    let rest = &object[object.find(&format!("\"{key}\""))? + key.len() + 2..];
-    let rest = rest.trim_start().strip_prefix(':')?.trim_start().strip_prefix('"')?;
-    Some(rest[..rest.find('"')?].to_owned())
-}
-
-/// `helm repo list -o json`: `[{"name":"bitnami","url":"https://…"}]`.
+/// Decode Helm's JSON strings rather than scanning escaped quote delimiters.
 fn parse_repos(json: &str) -> Vec<(String, String)> {
-    json.split('{')
-        .skip(1)
-        .filter_map(|object| Some((string_after(object, "name")?, string_after(object, "url")?)))
-        .filter(|(name, url)| !name.contains(['\t', '\n']) && !url.contains(['\t', '\n']))
-        .collect()
+    if json.len()>256<<10 {return Vec::new();}
+    let Ok(serde_json::Value::Array(rows))=serde_json::from_str::<serde_json::Value>(json) else{return Vec::new()};
+    if rows.len()>4096 {return Vec::new();}
+    let repos=rows.iter().filter_map(|row|Some((row.get("name")?.as_str()?,row.get("url")?.as_str()?)))
+        .filter(|(name,url)| !name.is_empty()&&!url.is_empty()&&!name.chars().chain(url.chars()).any(char::is_control))
+        .map(|(name,url)|(name.into(),url.into())).collect();
+    unique_aliases(repos)
 }
 
 impl KubeExplorer {
@@ -102,12 +108,76 @@ impl<'a> Lines<'a> {
     }
 }
 
-fn is_chart_v2(text: &str) -> bool {
-    text.lines().any(|line| line.trim_end() == "apiVersion: v2" || line.trim_end() == "apiVersion: \"v2\"")
+#[derive(Clone,Copy,PartialEq)]
+enum SourceScope { Root, Dependencies, Dependency, Other }
+enum SourceFrame {
+    Map(SourceScope,Option<(String,usize,usize)>,std::collections::BTreeSet<String>),
+    Sequence(SourceScope),
+}
+#[derive(Default)]
+struct SourceFacts {
+    frames:Vec<SourceFrame>, repositories:std::collections::BTreeSet<(usize,usize)>,
+    docs:usize,nodes:usize,bad:bool,v2:bool,
+}
+impl SourceFacts {
+    fn child_scope(&mut self,sequence:bool)->SourceScope {
+        match self.frames.last_mut() {
+            None=>if self.docs==1&&!sequence {SourceScope::Root}else{self.bad=true;SourceScope::Other},
+            Some(SourceFrame::Map(scope,key,_))=>match key.take() {
+                Some((key,_,_)) if *scope==SourceScope::Root&&key=="dependencies"&&sequence=>SourceScope::Dependencies,
+                Some(_)=>SourceScope::Other,
+                None=>{self.bad=true;SourceScope::Other},
+            },
+            Some(SourceFrame::Sequence(scope)) if *scope==SourceScope::Dependencies&&!sequence=>SourceScope::Dependency,
+            _=>SourceScope::Other,
+        }
+    }
+}
+impl yaml_rust2::parser::MarkedEventReceiver for SourceFacts {
+    fn on_event(&mut self,event:yaml_rust2::parser::Event,mark:yaml_rust2::scanner::Marker) {
+        use yaml_rust2::parser::Event;
+        if self.bad{return;}
+        self.nodes+=1;if self.nodes>8192||self.frames.len()>32 {self.bad=true;return;}
+        match event {
+            Event::DocumentStart=>{self.docs+=1;if self.docs!=1 {self.bad=true;}},
+            Event::Alias(_)=>self.bad=true,
+            Event::Scalar(value,_,anchor,tag)=>{
+                if anchor!=0||tag.is_some(){self.bad=true;return;}
+                if let Some(SourceFrame::Map(scope,key,seen))=self.frames.last_mut() {
+                    if let Some((name,line,column))=key.take() {
+                        if *scope==SourceScope::Root&&name=="apiVersion" {self.v2=value=="v2";}
+                        if matches!(scope,SourceScope::Root|SourceScope::Dependency)&&name=="repository" {
+                            self.repositories.insert((line,column));
+                        }
+                    }else{
+                        if !seen.insert(value.clone()){self.bad=true;}
+                        *key=Some((value,mark.line().saturating_sub(1),mark.col()));
+                    }
+                }
+            },
+            Event::MappingStart(anchor,tag)=>{
+                if anchor!=0||tag.is_some(){self.bad=true;return;}
+                let scope=self.child_scope(false);
+                self.frames.push(SourceFrame::Map(scope,None,Default::default()));
+            },
+            Event::SequenceStart(anchor,tag)=>{
+                if anchor!=0||tag.is_some(){self.bad=true;return;}
+                let scope=self.child_scope(true);self.frames.push(SourceFrame::Sequence(scope));
+            },
+            Event::MappingEnd|Event::SequenceEnd=>{self.frames.pop();},
+            _=>{},
+        }
+    }
+}
+fn source_facts(text:&str)->Option<SourceFacts> {
+    if text.len()>crate::MAX_BYTES||text.contains("{{"){return None;}
+    let mut facts=SourceFacts::default();
+    yaml_rust2::parser::Parser::new_from_str(text).load(&mut facts,true).ok()?;
+    (!facts.bad&&facts.docs==1&&facts.v2).then_some(facts)
 }
 
 fn add_dependency(doc: &Document) -> Option<CodeAction> {
-    if !is_chart_v2(&doc.text) || doc.text.contains("{{") {
+    if source_facts(&doc.text).is_none() || doc.text.contains("{{") {
         return None;
     }
     let lines = Lines::new(&doc.text);
@@ -140,6 +210,10 @@ fn add_dependency(doc: &Document) -> Option<CodeAction> {
         true => format!("{stanza}{eol}"),
         false => stanza,
     };
+    // The line-based insertion supports block sequences only. A valid source can
+    // still use quoted keys or a flow sequence; never return a duplicate/invalid
+    // YAML edit when that syntax is outside the insertion model.
+    source_facts(&format!("{}{}{}",&doc.text[..at],stanza,&doc.text[at..]))?;
     let point = position(&doc.text, at);
     Some(CodeAction {
         title: ADD_DEPENDENCY.into(),
@@ -150,7 +224,7 @@ fn add_dependency(doc: &Document) -> Option<CodeAction> {
     })
 }
 
-fn repository_value(line: &str) -> Option<(usize, usize, &str)> {
+fn repository_value(line: &str) -> Option<(usize, usize, String)> {
     let key_at = line.find("repository:")?;
     if !line[..key_at].trim().is_empty() && line[..key_at].trim() != "-" {
         return None;
@@ -159,26 +233,39 @@ fn repository_value(line: &str) -> Option<(usize, usize, &str)> {
     let rest = &line[after..];
     let start = after + rest.len() - rest.trim_start().len();
     let value = line[start..].trim_end();
-    let value = match value.split_once(" #") {
-        Some((before, _)) => before.trim_end(),
-        None => value,
-    };
-    (!value.is_empty()).then_some((start, start + value.len(), value.trim_matches(['"', '\''])))
+    let mut quote=None;let mut chars=value.char_indices().peekable();let mut end=value.len();
+    while let Some((at,ch))=chars.next() {
+        match (quote,ch) {
+            (Some('"'),'\\')=>{chars.next();},
+            (Some('\''),'\'') if chars.peek().is_some_and(|(_,next)|*next=='\'')=>{chars.next();},
+            (Some(q),c) if q==c=>quote=None,
+            (None,'"'|'\'') if at==0=>quote=Some(ch),
+            (None,'#') if at==0||value[..at].ends_with(char::is_whitespace)=>{end=at;break},
+            _=>{},
+        }
+    }
+    let value=value[..end].trim_end();
+    let parsed=yaml_rust2::YamlLoader::load_from_str(&format!("repository: {value}")).ok()?;
+    let decoded=parsed.first()?["repository"].as_str()?.to_owned();
+    (!value.is_empty()).then_some((start,start+value.len(),decoded))
 }
 
 fn repository_action(doc: &Document, caret: Position) -> Option<CodeAction> {
     let repos = cached_repos();
-    if repos.is_empty() || !is_chart_v2(&doc.text) {
+    if repos.is_empty() {
         return None;
     }
     let line = doc.text.lines().nth(caret.line as usize)?;
+    let facts=source_facts(&doc.text)?;
+    let key_at=line.find("repository:")?;
+    if !facts.repositories.contains(&(caret.line as usize,line[..key_at].chars().count())) {return None;}
     let (start, end, value) = repository_value(line)?;
     let (title, replacement) = if let Some(name) = value.strip_prefix('@').or_else(|| value.strip_prefix("alias:")) {
         let (_, url) = repos.iter().find(|(known, _)| known == name)?;
-        (format!("Use repository URL {url}"), format!("\"{url}\""))
+        (format!("Use repository URL {url}"), serde_json::to_string(url).ok()?)
     } else {
         let (name, _) = repos.iter().find(|(_, url)| url.trim_end_matches('/') == value.trim_end_matches('/'))?;
-        (format!("Use repository alias @{name}"), format!("\"@{name}\""))
+        (format!("Use repository alias @{name}"), serde_json::to_string(&format!("@{name}")).ok()?)
     };
     let column = |byte: usize| line[..byte].chars().map(char::len_utf16).sum::<usize>() as u32;
     let range = Range::new(Position::new(caret.line, column(start)), Position::new(caret.line, column(end)));
@@ -290,6 +377,93 @@ mod tests {
         assert!(apply(aliased, &back[1]).contains("repository: \"https://charts.bitnami.com/bitnami\""));
     }
 
+    #[test]
+    fn escaped_repository_values_round_trip_as_one_exact_yaml_scalar() {
+        let host=host_with_repos();
+        let name="team\"mirror";let url="https://charts.example/a\\b?label=\"stable\"";
+        let response=serde_json::json!([{"name":name,"url":url}]).to_string();
+        host.on_process(HELM,move |_,_|Ok(ProcessOutput{status:Some(0),stdout:response.clone(),stderr:String::new()}));
+        KubeExplorer::default().run_command("helm-repo-cache",&host.invocation(),None).unwrap();
+        assert_eq!(cached_repos(),vec![(name.into(),url.into())]);
+        let source=format!("apiVersion: v2\ndependencies:\n  - name: pg\n    repository: {}\n",serde_json::to_string(url).unwrap());
+        let action=repository_action(&doc(&source),Position::new(3,0)).unwrap();
+        let changed=apply(&source,&action);
+        let parsed=yaml_rust2::YamlLoader::load_from_str(&changed).unwrap();
+        assert_eq!(parsed[0]["dependencies"][0]["repository"].as_str(),Some(format!("@{name}").as_str()));
+        let back=repository_action(&doc(&changed),Position::new(3,0)).unwrap();
+        let restored=apply(&changed,&back);
+        let parsed=yaml_rust2::YamlLoader::load_from_str(&restored).unwrap();
+        assert_eq!(parsed[0]["dependencies"][0]["repository"].as_str(),Some(url));
+        assert_eq!(host.process_runs().len(),1);
+    }
+    #[test]
+    fn quoted_hashes_and_comments_are_preserved_as_separate_source_values() {
+        let _host=host_with_repos();let url="https://charts.example/path # fragment";
+        host::storage::set(CACHE_KEY,&format!("team\t{url}")).unwrap();
+        let source=format!("apiVersion: v2\nrepository: {} # keep\n",serde_json::to_string(url).unwrap());
+        let action=repository_action(&doc(&source),Position::new(1,0)).unwrap();
+        assert_eq!(apply(&source,&action),"apiVersion: v2\nrepository: \"@team\" # keep\n");
+        assert!(repository_action(&doc("apiVersion: v2\nrepository: [not, scalar]\n"),Position::new(1,0)).is_none());
+    }
+    #[test]
+    fn chart_actions_refuse_repository_text_inside_scalar_or_unrelated_mapping() {
+        let _host=host_with_repos();host::storage::set(CACHE_KEY,"team\thttps://charts.example/team").unwrap();
+        let block="apiVersion: v2\ndescription: |\n  repository: https://charts.example/team\n";
+        assert!(repository_action(&doc(block),Position::new(2,0)).is_none(),"repository-looking description is scalar payload");
+        let unrelated="apiVersion: v2\nannotations:\n  repository: https://charts.example/team\n";
+        assert!(repository_action(&doc(unrelated),Position::new(2,0)).is_none());
+        for ambiguous in ["apiVersion: v2\napiVersion: v2\n", "apiVersion: v2\ndependencies: &deps []\n"] {
+            assert!(code_actions(&doc(ambiguous),at(1)).is_empty());
+        }
+    }
+    #[test]
+    fn chart_actions_refuse_multiple_document_source_ambiguity() {
+        let _host=host_with_repos();
+        let multiple="apiVersion: v2\nname: first\ndependencies:\n  - name: existing\n---\napiVersion: v1\nname: second\n";
+        assert!(code_actions(&doc(multiple),at(3)).is_empty(),"one action must not insert into the next YAML document");
+    }
+
+    #[test]
+    fn add_dependency_withholds_edits_outside_its_block_sequence_insertion_model() {
+        let _host=host_with_repos();
+        for source in ["apiVersion: v2\n\"dependencies\": []\n", "apiVersion: v2\ndependencies:\n  []\n"] {
+            assert!(add_dependency(&doc(source)).is_none(),"unsafe edit for {source}");
+        }
+        let source="apiVersion: 'v2'\ndependencies:\n  - name: existing\n    repository: https://charts.bitnami.com/bitnami\n";
+        assert!(add_dependency(&doc(source)).is_some());
+        host::storage::set(CACHE_KEY,"bitnami\thttps://charts.bitnami.com/bitnami").unwrap();
+        assert!(repository_action(&doc(source),Position::new(3,0)).is_some());
+    }
+
+    #[test]
+    fn internal_plain_scalar_quotes_cannot_consume_the_repository_trailing_comment() {
+        let _host=host_with_repos();
+        for url in ["https://charts.example/team's/path", "https://charts.example/team\"s/path"] {
+            host::storage::set(CACHE_KEY,&format!("team\t{url}")).unwrap();
+            let source=format!("apiVersion: v2\r\n# 🧭\r\nrepository: {url} # keep owner's note\r\n");
+            let action=repository_action(&doc(&source),Position::new(2,0)).unwrap();
+            assert_eq!(apply(&source,&action),"apiVersion: v2\r\n# 🧭\r\nrepository: \"@team\" # keep owner's note\r\n");
+        }
+    }
+
+    #[test]
+    fn conflicting_alias_targets_cannot_rewrite_one_url_into_another() {
+        let host=host_with_repos();
+        host.on_process(HELM,|_,_|Ok(ProcessOutput{status:Some(0),stdout:r#"[{"name":"team","url":"https://first.example/charts"},{"name":"team","url":"https://second.example/charts"}]"#.into(),stderr:String::new()}));
+        KubeExplorer::default().run_command("helm-repo-cache",&host.invocation(),None).unwrap();
+        for value in ["https://second.example/charts","@team"] {
+            let source=format!("apiVersion: v2\nrepository: {}\n",serde_json::to_string(value).unwrap());
+            assert!(repository_action(&doc(&source),Position::new(1,0)).is_none(),"ambiguous alias admitted for {value}");
+        }
+        // Older private cache rows get the same conservative read validation.
+        host::storage::set(CACHE_KEY,"team\thttps://first.example/charts\nteam\thttps://second.example/charts\nsafe\thttps://second.example/charts\nsafe\thttps://second.example/charts").unwrap();
+        assert_eq!(cached_repos(),vec![("safe".into(),"https://second.example/charts".into())]);
+        let source="apiVersion: v2\nrepository: https://second.example/charts\n";
+        let action=repository_action(&doc(source),Position::new(1,0)).unwrap();
+        assert!(apply(source,&action).contains("@safe"));
+        let source="apiVersion: v2\nrepository: '@team'\n";
+        assert!(repository_action(&doc(source),Position::new(1,0)).is_none());
+    }
     #[test]
     fn unknown_repositories_and_other_lines_offer_no_conversion() {
         let host = host_with_repos();

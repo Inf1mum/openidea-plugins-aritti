@@ -11,32 +11,53 @@
 //!   `CREATE TABLE` at the caret.
 //! - The JPA Structure tool window lists the project's entities.
 
+mod attribute_info;
 mod build;
 mod checks;
+mod file_actions;
 mod generate;
+mod live;
+mod local_graph;
+mod local_callbacks;
+mod local_listener;
 mod model;
 mod queries;
+mod repository_completion;
 mod wizard;
 mod xml;
+mod xml_context;
 
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
+use build::{BUILD_FILES, Build, analyse, is_build_file};
+use checks::{
+    CALLBACKS, Finding, declared_entity_graphs, declared_named_queries, entity_graph_paths, entity_graph_references,
+    inspect_attribute_signatures, inspect_attribute_types, inspect_callbacks, inspect_class_signature, inspect_entity,
+    inspect_kotlin_build, inspect_kotlin_entity, inspect_name_references, inspect_query_parameters, inspect_repository, is_empty_listener,
+    lacks_default_constructor, listener_references, listener_without_constructor, missing_id, name_references, named_query_references,
+    unknown_entity_graph, unknown_named_query, unused_listener,
+};
+use generate::{
+    Dialect, callback_method, ddl, dto, dto_fields, entity_from_ddl, inherited, table_name,
+    to_string_method,
+};
+use model::{
+    Class, Edit, Kind, Relation, annotations, capitalize, decapitalize, has_word, language_of, mask, parse_class, snake_case,
+    words,
+};
+use openidea_plugin::diagnostics::DiagnosticsProvider;
 use openidea_plugin::host;
 use openidea_plugin::providers::{CodeAction, CompletionItem, CompletionKind, Document, LineMarker, Providers};
 use openidea_plugin::text::{offset, position};
 use openidea_plugin::views::{Body, Button, TreeItem, View, ViewEvent, Viewport, Views};
 use openidea_plugin::{
-    Context, Diagnostic, Error, Event, Severity, EventKind, Invocation, NotificationLevel, PickItem, Plugin, Location, Position, Project, Range, TextEdit, register_plugin,
+    Context, Diagnostic, Error, Event, EventKind, Invocation, Location, NotificationLevel, PickItem, Plugin, Position, Project, Range,
+    Severity, TextEdit, register_plugin,
 };
-
-use checks::{CALLBACKS, Finding, inspect_attribute_signatures, inspect_attribute_types, lacks_default_constructor, listener_without_constructor, inspect_class_signature, is_empty_listener, listener_references, unused_listener, inspect_callbacks, inspect_entity, inspect_kotlin_build, inspect_name_references, inspect_query_parameters, name_references, named_query_references, unknown_named_query, declared_named_queries, declared_entity_graphs, entity_graph_paths, entity_graph_references, unknown_entity_graph, inspect_kotlin_entity, inspect_repository, missing_id};
-use build::{BUILD_FILES, Build, analyse, is_build_file};
-use generate::{Dialect, Known, callback_import, callback_method, ddl, dto, dto_fields, entity_from_ddl, equals_and_hash_code, inherited, table_name, to_string_method};
-use model::{Class, Edit, Kind, Relation, annotations, capitalize, decapitalize, snake_case, has_word, import_edit, language_of, mask, parse_class, words};
+use queries::{Prop, parse_repository};
 use wizard::{AttributeSpec, EntitySpec, attribute_edits, entity_source, inverse_spec};
 use xml::Lookup;
-use queries::{ItemKind, Prop, complete, parse_repository};
 
 /// Time one provider call may spend reading repositories.
 const REPOSITORY_BUDGET: Duration = Duration::from_millis(30);
@@ -49,11 +70,7 @@ fn setting(name: &str) -> bool {
 }
 
 fn project_of(path: &str) -> Option<Project> {
-    host::projects()
-        .ok()?
-        .into_iter()
-        .filter(|p| p.root().is_ok_and(|r| path.starts_with(&r)))
-        .max_by_key(|p| p.root().map(|r| r.len()).unwrap_or(0))
+    host::project_of(path)
 }
 
 fn file_stem(path: &str) -> &str {
@@ -126,9 +143,11 @@ fn package_of(path: &str) -> Option<String> {
 }
 
 fn ask_identifier(prompt: &str) -> Result<Option<String>, Error> {
-    let Some(answer) = host::input(prompt, None)? else { return Ok(None) };
+    let Some(answer) = host::input(prompt, None)? else {
+        return Ok(None);
+    };
     let answer = answer.trim();
-    if !is_identifier(answer) {
+    if !file_actions::identifier(answer) {
         return Err(format!("\"{answer}\" isn't a valid name.").into());
     }
 
@@ -141,39 +160,40 @@ fn ask_basic_type() -> Result<Option<(String, bool)>, Error> {
     items.push(PickItem::new("enum", "Enum"));
     items.push(PickItem::new("other", "Other type"));
 
-    let Some(key) = choose("Attribute type", &items)? else { return Ok(None) };
+    let Some(key) = choose("Attribute type", &items)? else {
+        return Ok(None);
+    };
     if key == "enum" || key == "other" {
-        let Some(ty) = ask_identifier(if key == "enum" { "Enum type" } else { "Type" })? else { return Ok(None) };
+        let Some(ty) = ask_identifier(if key == "enum" { "Enum type" } else { "Type" })? else {
+            return Ok(None);
+        };
         return Ok(Some((ty, key == "enum")));
     }
 
     Ok(Some((key, false)))
 }
 
-fn deliver_edits(editor: &openidea_plugin::TextEditor, version: u64, edits: &[TextEdit], what: &str) -> Result<(), Error> {
-    match editor.apply_edits(version, edits) {
-        Ok(_) => host::notify(NotificationLevel::Info, "JPA Assist", &format!("{what} added.")),
-        Err(Error::Denied(_)) => host::notify(
-            NotificationLevel::Warning,
-            "JPA Assist",
-            "Allow editor changes for JPA Assist in Settings › Plugins to add code.",
-        ),
-        Err(e) => return Err(e),
-    }
-
-    Ok(())
-}
-
-fn new_entity(ctx: &Invocation) -> Result<Option<String>, Error> {
-    let Some(name) = ask_identifier("Entity class name")? else { return Ok(None) };
+fn prompt_entity(path: Option<&str>, namespace: &str) -> Result<Option<(String, String)>, Error> {
+    let Some(name) = ask_identifier("Entity class name")? else {
+        return Ok(None);
+    };
     let name = capitalize(&name);
-    let Some(table) = host::input("Table name", Some(&snake_case(&name)))? else { return Ok(None) };
+    if !file_actions::identifier(&name) {
+        return Err("Choose a Java/Kotlin class identifier without keywords or path separators.".into());
+    }
+    let Some(table) = host::input("Table name", Some(&snake_case(&name)))? else {
+        return Ok(None);
+    };
 
     let ids = [("none", "Assigned"), ("IDENTITY", "IDENTITY"), ("SEQUENCE", "SEQUENCE"), ("AUTO", "AUTO"), ("UUID", "UUID")];
-    let items: Vec<PickItem> = ids.iter().map(|(k, l)| PickItem::new(k, l)).collect();
-    let Some(id) = choose("ID strategy", &items)? else { return Ok(None) };
+    let items: Vec<PickItem> =
+        ids.iter().filter(|(key, _)| namespace != "javax" || *key != "UUID").map(|(k, l)| PickItem::new(k, l)).collect();
+    let Some(id) = choose("ID strategy", &items)? else {
+        return Ok(None);
+    };
 
-    let extras = [("auditing", "Auditing fields (createdAt, updatedAt)"), ("version", "Version field"), ("equals", "equals() and hashCode()")];
+    let extras =
+        [("auditing", "Auditing fields (createdAt, updatedAt)"), ("version", "Version field"), ("equals", "equals() and hashCode()")];
     let items: Vec<PickItem> = extras.iter().map(|(k, l)| PickItem::new(k, l)).collect();
     let Some(extras) = host::pick_many("Extras", &items).or_else(|e| match e {
         Error::Invalid(_) => Ok(Some(Vec::new())),
@@ -183,16 +203,14 @@ fn new_entity(ctx: &Invocation) -> Result<Option<String>, Error> {
         return Ok(None);
     };
 
-    let editor = ctx.editor();
-    let path = editor.as_ref().map(|e| e.path());
-    let kotlin = path
-        .as_deref()
-        .and_then(language_of)
-        .unwrap_or_else(|| host::setting_string("entityLanguage").as_deref() == Some("kotlin"));
+    let kotlin = path.and_then(language_of).unwrap_or_else(|| host::setting_string("entityLanguage").as_deref() == Some("kotlin"));
     let table = table.trim();
+    if table.len() > 128 || (!table.is_empty() && !table.split('.').all(file_actions::identifier)) {
+        return Err("Use a literal table identifier (optionally schema-qualified), without quotes or control characters.".into());
+    }
     let source = entity_source(&EntitySpec {
         table: if table.is_empty() { snake_case(&name) } else { table.to_owned() },
-        package: path.as_deref().and_then(package_of),
+        package: path.and_then(package_of),
         kotlin,
         id,
         auditing: extras.iter().any(|e| e == "auditing"),
@@ -201,60 +219,44 @@ fn new_entity(ctx: &Invocation) -> Result<Option<String>, Error> {
         name: name.clone(),
     });
 
-    copied(source.clone(), &name)?;
+    let source = if namespace == "javax" { source.replace("jakarta.persistence.", "javax.persistence.") } else { source };
+    Ok(Some((name, source)))
+}
 
-    let Some(editor) = editor else { return Ok(None) };
-    let doc = editor.document()?;
-    if doc.text.trim().is_empty() {
-        let edit = Edit { start: 0, end: doc.text.len(), text: source };
-        deliver_edits(&editor, doc.version, &[edit.to_text_edit(&doc.text)], &name)?;
-        return Ok(None);
+fn new_entity(ctx: &Invocation) -> Result<Option<String>, Error> {
+    let path = ctx.editor().map(|editor| editor.path());
+    if let Some((name, source)) = prompt_entity(path.as_deref(), "jakarta")? {
+        copied(source, &name)?;
+        host::notify(
+            NotificationLevel::Info,
+            "JPA Assist",
+            "Entity source copied. Use Generate JPA entity… in editor code actions for previewed, undoable file creation.",
+        );
     }
-
-    let target = format!("{}/{name}.{}", editor.path().rsplit_once('/').map_or("", |(dir, _)| dir), if kotlin { "kt" } else { "java" });
-    write_new_file(&target, &source, &name);
-
     Ok(None)
 }
 
-fn write_new_file(target: &str, source: &str, name: &str) {
-    let inside_project = project_of(target).is_some_and(|p| p.root().is_ok_and(|r| target.starts_with(&format!("{r}/")))) && !target.contains("/../");
-    if !inside_project {
-        return;
-    }
-
-    if project_of(target).is_some_and(|p| p.read_file(target).is_ok()) {
-        host::notify(NotificationLevel::Warning, "JPA Assist", &format!("{target} already exists. The entity is on the clipboard."));
-        return;
-    }
-
-    match host::run_process("tee", &[target.to_owned()], Some(source)) {
-        Ok(out) if out.status == Some(0) => {
-            host::notify(NotificationLevel::Info, "JPA Assist", &format!("{name} written to {target}."));
-            let _ = host::open_location(target, 0, 0);
-        }
-        Ok(out) => host::notify(NotificationLevel::Warning, "JPA Assist", &format!("Could not write {target}: {}. The entity is on the clipboard.", out.stderr.trim())),
-        Err(Error::Denied(_)) => host::notify(
-            NotificationLevel::Info,
-            "JPA Assist",
-            "The entity is on the clipboard. Allow process:tee for JPA Assist in Settings › Plugins to write the file.",
-        ),
-        Err(e) => host::notify(NotificationLevel::Warning, "JPA Assist", &format!("Could not write {target}: {e}. The entity is on the clipboard.")),
-    }
-}
-
-fn new_attribute(ctx: &Invocation) -> Result<Option<String>, Error> {
-    let editor = ctx.editor().ok_or("Open an entity class first.")?;
-    let path = editor.path();
+fn prompt_attribute(doc: &Document) -> Result<Option<Vec<TextEdit>>, Error> {
+    let path = &doc.path;
     let entity = |text: &str| parse_class(text, &path).filter(|c| c.kind == Kind::Entity).ok_or("The open file isn't a JPA entity.");
-    entity(&editor.document()?.text)?;
+    entity(&doc.text)?;
 
-    let Some(name) = ask_identifier("Attribute name")? else { return Ok(None) };
+    let Some(name) = ask_identifier("Attribute name")? else {
+        return Ok(None);
+    };
     let name = decapitalize(&name);
 
-    let relations = [("none", "None (basic attribute)"), ("ManyToOne", "ManyToOne"), ("OneToMany", "OneToMany"), ("OneToOne", "OneToOne"), ("ManyToMany", "ManyToMany")];
+    let relations = [
+        ("none", "None (basic attribute)"),
+        ("ManyToOne", "ManyToOne"),
+        ("OneToMany", "OneToMany"),
+        ("OneToOne", "OneToOne"),
+        ("ManyToMany", "ManyToMany"),
+    ];
     let items: Vec<PickItem> = relations.iter().map(|(k, l)| PickItem::new(k, l)).collect();
-    let Some(kind) = choose("Association", &items)? else { return Ok(None) };
+    let Some(kind) = choose("Association", &items)? else {
+        return Ok(None);
+    };
     let relation = match kind.as_str() {
         "ManyToOne" => Relation::ManyToOne,
         "OneToMany" => Relation::OneToMany,
@@ -264,10 +266,14 @@ fn new_attribute(ctx: &Invocation) -> Result<Option<String>, Error> {
     };
 
     let (ty, enumerated) = if relation == Relation::None {
-        let Some(chosen) = ask_basic_type()? else { return Ok(None) };
+        let Some(chosen) = ask_basic_type()? else {
+            return Ok(None);
+        };
         chosen
     } else {
-        let Some(target) = ask_identifier("Target entity")? else { return Ok(None) };
+        let Some(target) = ask_identifier("Target entity")? else {
+            return Ok(None);
+        };
         (capitalize(&target), false)
     };
 
@@ -282,10 +288,11 @@ fn new_attribute(ctx: &Invocation) -> Result<Option<String>, Error> {
         let label = if relation.to_one() { "Lazy fetch" } else { "Eager fetch" };
         options.push(PickItem::new("fetch", label));
     }
-    let Some(chosen) = choose_many("Options", &options)? else { return Ok(None) };
+    let Some(chosen) = choose_many("Options", &options)? else {
+        return Ok(None);
+    };
     let has = |key: &str| chosen.iter().any(|c| c == key);
 
-    let doc = editor.document()?;
     let class = entity(&doc.text)?;
     if class.attributes.iter().any(|a| a.name == name) {
         return Err(format!("{} already has an attribute named {name}.", class.name).into());
@@ -306,9 +313,7 @@ fn new_attribute(ctx: &Invocation) -> Result<Option<String>, Error> {
     let edits = attribute_edits(&class, &doc.text, &mask(&doc.text), &spec).ok_or("The class has no body to add an attribute to.")?;
     let edits: Vec<TextEdit> = edits.iter().map(|e| e.to_text_edit(&doc.text)).collect();
 
-    deliver_edits(&editor, doc.version, &edits, &format!("Attribute {name}"))?;
-
-    Ok(None)
+    Ok(Some(edits))
 }
 
 fn entities_count(n: usize) -> String {
@@ -325,8 +330,54 @@ fn action(doc: &Document, title: &str, kind: &str, preferred: bool, edits: &[Edi
     }
 }
 
+// Current-source role admission, with additional constraints per exported action.
+fn owned_entity_source(doc: &Document) -> Option<Class> {
+    let Some(kotlin)=language_of(&doc.path) else {return None;};
+    if (kotlin && doc.language!="kotlin") || (!kotlin && doc.language!="java") || doc.text.len()>128*1024
+        || doc.path.split('/').any(|p|matches!(p,"."|"..")) || !live::trusted_annotations(&doc.text) {return None;}
+    let Some(root)=host::project_of(&doc.path).and_then(|p|p.root().ok()) else {return None;};
+    if !doc.path.strip_prefix(&root).is_some_and(|r|root=="/" || r.starts_with('/')) {return None;}
+    let masked=mask(&doc.text);
+    if !attribute_info::balanced(&masked) || words(&masked,"class").count()!=1
+        || ["interface","enum","record","object","typealias"].iter().any(|word|words(&masked,word).next().is_some())
+        || annotations(&masked).len()>256 {return None;}
+    let Some((class_at,_))=model::declaration_keyword(&masked,0,&["class"]) else {return None;};
+    if !attribute_info::balanced(&masked[..class_at]) {return None;}
+    let Some(class)=parse_class(&doc.text,&doc.path).filter(|c|c.kind==Kind::Entity && c.body_end.is_some()) else {return None;};
+    Some(class)
+}
+
+fn owned_entity_quickfixes(doc: &Document) -> Vec<Finding> {
+    let Some(class)=owned_entity_source(doc) else {return vec![];};
+    checks::inspect_entity_owned(&doc.text,class.kotlin,&class)
+}
+fn owned_callback_source(doc: &Document) -> Option<(Class, &'static str)> {
+    let class=owned_entity_source(doc)?;
+    if class.superclass.is_some() || !live::persistence_annotations_only(&doc.text) {return None;}
+    let masked=mask(&doc.text);let (at,_)=model::declaration_keyword(&masked,0,&["class"])?;
+    let open=masked[at..].find('{')?+at;let header=masked[at+5..open].trim();
+    if words(&masked[..at],"abstract").next().is_some() {return None;}
+    if class.kotlin {
+        let rest=header.strip_prefix(&class.name)?.trim();
+        if !rest.is_empty() && !(rest.starts_with('(') && model::closing(rest.as_bytes(),0)==Some(rest.len()-1)) {return None;}
+    } else if header!=class.name {return None;}
+    let all=annotations(&masked);let entities:Vec<_>=all.iter().filter(|a|a.name=="Entity").collect();
+    let [entity]=entities.as_slice() else {return None;};
+    if entity.start>=at || entity.start<masked[..at].rfind(';').map_or(0,|p|p+1)
+        || all.iter().any(|a|a.args.is_some_and(|(s,e)|entity.start>=s && entity.start<e)) {return None;}
+    let written=&masked[entity.start+1..entity.name_end];
+    let full=if written.contains('.') {written} else {class.imports.iter().find(|i|i.rsplit('.').next()==Some("Entity"))?.as_str()};
+    let ns=["jakarta.persistence","javax.persistence"].into_iter().find(|ns|full==format!("{ns}.Entity"))?;
+    let prefix=ns.split('.').next()?;
+    if class.name==prefix || class.imports.iter().any(|i|i.rsplit('.').next()==Some(prefix)) {return None;}
+    Some((class,ns))
+}
+
 #[derive(Default)]
 pub struct JpaAssist {
+    generation: file_actions::Generation,
+    live: live::State,
+    repository_completion: repository_completion::State,
     /// Java and Kotlin files per project root, listed once per instance.
     sources: HashMap<String, Vec<String>>,
     /// Classes by simple name; `None`: searched the project, not a JPA class.
@@ -367,8 +418,12 @@ impl RepositoryIndex {
             found.retain(|(_, location)| location.path != path);
         }
 
-        let Some(kotlin) = language_of(path) else { return };
-        let Some(repository) = parse_repository(text, kotlin) else { return };
+        let Some(kotlin) = language_of(path) else {
+            return;
+        };
+        let Some(repository) = parse_repository(text, kotlin) else {
+            return;
+        };
 
         let at = position(text, repository.name_start);
         let location = Location { path: path.into(), range: Range::new(at, at) };
@@ -394,7 +449,9 @@ impl JpaAssist {
 
         let start = Instant::now();
         while start.elapsed() < REPOSITORY_BUDGET {
-            let Some(path) = index.unread.pop() else { break };
+            let Some(path) = index.unread.pop() else {
+                break;
+            };
             if let Ok(text) = project.read_file(&path) {
                 index.add(&path, &text);
             }
@@ -406,6 +463,7 @@ impl JpaAssist {
     }
 
     /// The build files from the directory of `path` up to the project root.
+    #[cfg_attr(not(test), allow(dead_code))] // Legacy full-context fixture; not a live provider path.
     fn build_of(&mut self, project: &Project, path: &str) -> &Build {
         self.builds.entry(path.to_owned()).or_insert_with(|| {
             let root = project.root().unwrap_or_default();
@@ -420,7 +478,9 @@ impl JpaAssist {
                     }
                 }
 
-                let Some((parent, _)) = dir.rsplit_once('/') else { break };
+                let Some((parent, _)) = dir.rsplit_once('/') else {
+                    break;
+                };
                 if dir == root {
                     break;
                 }
@@ -494,14 +554,15 @@ impl JpaAssist {
     fn load_graph(&mut self, project: &Project, name: &str, near: &str, depth: u32, search: bool) {
         self.load(project, name, near, search);
 
-        let Some(class) = self.class(name) else { return };
+        let Some(class) = self.class(name) else {
+            return;
+        };
         if depth == 0 {
             return;
         }
 
         let path = class.path.clone();
-        let mut next: Vec<String> =
-            class.attributes.iter().filter(|a| a.relation != Relation::None).map(|a| a.target.clone()).collect();
+        let mut next: Vec<String> = class.attributes.iter().filter(|a| a.relation != Relation::None).map(|a| a.target.clone()).collect();
         next.extend(class.superclass.clone());
 
         for name in next {
@@ -527,6 +588,7 @@ impl JpaAssist {
     }
 
     /// Whether `class` and every superclass above it are project classes and none declares an id.
+    #[cfg_attr(not(test), allow(dead_code))] // Legacy full-context fixture; not a live provider path.
     fn lacks_id(&mut self, project: &Project, class: &Class) -> bool {
         let mut current = class.clone();
 
@@ -535,15 +597,20 @@ impl JpaAssist {
                 return false;
             }
 
-            let Some(parent) = current.superclass.clone() else { return true };
+            let Some(parent) = current.superclass.clone() else {
+                return true;
+            };
             self.load(project, &parent, &current.path, true);
-            let Some(next) = self.class(&parent) else { return false };
+            let Some(next) = self.class(&parent) else {
+                return false;
+            };
             current = next.clone();
         }
 
         false
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // Legacy full-context fixture; not a live provider path.
     fn entity_rule_findings(&mut self, project: &Project, path: &str, text: &str, kotlin: bool) -> Vec<Finding> {
         let mut findings = Vec::new();
 
@@ -567,6 +634,7 @@ impl JpaAssist {
     }
 
     /// Listeners named in `@EntityListeners` that are found once in the project and declare no callback.
+    #[cfg_attr(not(test), allow(dead_code))] // Legacy full-context fixture; not a live provider path.
     fn listener_findings(&mut self, project: &Project, text: &str) -> Vec<Finding> {
         let references = listener_references(text);
         if references.is_empty() {
@@ -578,9 +646,15 @@ impl JpaAssist {
 
         for (name, start, end) in references {
             let mut found = files.iter().filter(|path| file_stem(path) == name);
-            let (Some(path), None) = (found.next(), found.next()) else { continue };
-            let Some(kotlin) = language_of(path) else { continue };
-            let Ok(source) = project.read_file(path) else { continue };
+            let (Some(path), None) = (found.next(), found.next()) else {
+                continue;
+            };
+            let Some(kotlin) = language_of(path) else {
+                continue;
+            };
+            let Ok(source) = project.read_file(path) else {
+                continue;
+            };
 
             if is_empty_listener(&source, &name, kotlin) {
                 findings.push(unused_listener(start, end, &name));
@@ -593,6 +667,7 @@ impl JpaAssist {
     }
 
     /// The names of every named query of the project, `None` when mapping files or constants may declare others.
+    #[cfg_attr(not(test), allow(dead_code))] // Legacy full-context fixture; not a live provider path.
     fn named_queries(&mut self, project: &Project) -> Option<&Declared> {
         if self.named_queries.is_none() {
             let mut names = Declared::default();
@@ -606,8 +681,12 @@ impl JpaAssist {
                 .all(|p| project.read_file(p).is_ok_and(|t| !t.contains("mapping-file")));
 
             for path in self.sources(project) {
-                let Some(kotlin) = language_of(&path) else { continue };
-                let Ok(text) = project.read_file(&path) else { continue };
+                let Some(kotlin) = language_of(&path) else {
+                    continue;
+                };
+                let Ok(text) = project.read_file(&path) else {
+                    continue;
+                };
                 if !["NamedQuery", "NamedNativeQuery", "NamedStoredProcedureQuery", "NamedEntityGraph"].iter().any(|n| text.contains(n)) {
                     continue;
                 }
@@ -627,6 +706,7 @@ impl JpaAssist {
         self.named_queries.as_ref()?.as_ref()
     }
 
+    #[cfg(test)]
     fn check_xml(&mut self, project: &Project, path: &str, text: &str) {
         let persistence = text.contains("<persistence") && text.contains("persistence-unit");
         if !(persistence || text.contains("<entity-mappings")) || !setting("checkPersistenceXml") {
@@ -640,8 +720,11 @@ impl JpaAssist {
         let _ = host::publish_diagnostics(path, &diagnostics);
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // Legacy full-context fixture; not a live provider path.
     fn name_findings(&mut self, project: &Project, path: &str, text: &str, kotlin: bool) -> Vec<Finding> {
-        let Some(class) = parse_class(text, path) else { return Vec::new() };
+        let Some(class) = parse_class(text, path) else {
+            return Vec::new();
+        };
         let references = name_references(text, kotlin, &class);
         if references.is_empty() {
             return Vec::new();
@@ -660,7 +743,9 @@ impl JpaAssist {
             let mut current = name.clone();
             for _ in 0..8 {
                 self.load(project, &current, path, true);
-                let Some(parent) = self.class(&current).and_then(|c| c.superclass.clone()) else { break };
+                let Some(parent) = self.class(&current).and_then(|c| c.superclass.clone()) else {
+                    break;
+                };
                 current = parent;
             }
         }
@@ -688,6 +773,7 @@ impl JpaAssist {
         inspect_name_references(&references, &names)
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // Legacy full-context fixture; not a live provider path.
     fn query_findings(&mut self, project: &Project, text: &str, kotlin: bool) -> Vec<Finding> {
         let mut findings = inspect_query_parameters(text, kotlin);
         let references = named_query_references(text, kotlin);
@@ -695,14 +781,24 @@ impl JpaAssist {
             return findings;
         }
 
-        let Some(known) = self.named_queries(project) else { return findings };
-        findings.extend(references.iter().filter(|(name, ..)| !known.queries.contains(name)).map(|(name, start, end)| unknown_named_query(name, *start, *end)));
+        let Some(known) = self.named_queries(project) else {
+            return findings;
+        };
+        findings.extend(
+            references
+                .iter()
+                .filter(|(name, ..)| !known.queries.contains(name))
+                .map(|(name, start, end)| unknown_named_query(name, *start, *end)),
+        );
 
         findings
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // Legacy full-context fixture; not a live provider path.
     fn target_findings(&mut self, project: &Project, path: &str, text: &str) -> Vec<Finding> {
-        let Some(class) = parse_class(text, path).filter(|c| c.kind == Kind::Entity) else { return Vec::new() };
+        let Some(class) = parse_class(text, path).filter(|c| c.kind == Kind::Entity) else {
+            return Vec::new();
+        };
         let associations: Vec<_> = class
             .attributes
             .iter()
@@ -724,9 +820,13 @@ impl JpaAssist {
             self.load(project, target, path, true);
             let described = match self.classes.get(target) {
                 Some(Some(found)) if found.kind == Kind::Entity => continue,
-                Some(Some(found)) => format!("{} is {}", found.name, if found.kind == Kind::Embeddable { "an @Embeddable" } else { "a @MappedSuperclass" }),
+                Some(Some(found)) => {
+                    format!("{} is {}", found.name, if found.kind == Kind::Embeddable { "an @Embeddable" } else { "a @MappedSuperclass" })
+                }
                 Some(None) => {
-                    let Some(source) = files.iter().find(|f| file_stem(f) == target).and_then(|f| project.read_file(f).ok()) else { continue };
+                    let Some(source) = files.iter().find(|f| file_stem(f) == target).and_then(|f| project.read_file(f).ok()) else {
+                        continue;
+                    };
                     if source.contains("Entity") || !has_word(&mask(&source), "class") {
                         continue;
                     }
@@ -735,7 +835,9 @@ impl JpaAssist {
                 None => continue,
             };
 
-            let Some(start) = offset(text, attribute.pos) else { continue };
+            let Some(start) = offset(text, attribute.pos) else {
+                continue;
+            };
             findings.push(Finding::new(
                 start,
                 start + attribute.name.len(),
@@ -748,6 +850,7 @@ impl JpaAssist {
         findings
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // Legacy full-context fixture; not a live provider path.
     fn entity_graph_findings(&mut self, project: &Project, path: &str, text: &str, kotlin: bool) -> Vec<Finding> {
         let mut findings = Vec::new();
 
@@ -755,10 +858,17 @@ impl JpaAssist {
         if !references.is_empty()
             && let Some(known) = self.named_queries(project)
         {
-            findings.extend(references.iter().filter(|(name, ..)| !known.graphs.contains(name)).map(|(name, start, end)| unknown_entity_graph(name, *start, *end)));
+            findings.extend(
+                references
+                    .iter()
+                    .filter(|(name, ..)| !known.graphs.contains(name))
+                    .map(|(name, start, end)| unknown_entity_graph(name, *start, *end)),
+            );
         }
 
-        let Some(repo) = parse_repository(text, kotlin) else { return findings };
+        let Some(repo) = parse_repository(text, kotlin) else {
+            return findings;
+        };
         let paths = entity_graph_paths(text, kotlin, &repo.entity);
         if paths.is_empty() {
             return findings;
@@ -767,7 +877,9 @@ impl JpaAssist {
         self.load_graph(project, &repo.entity, path, 1, true);
         let mut current = self.class(&repo.entity);
         for _ in 0..8 {
-            let Some(parent) = current.and_then(|c| c.superclass.as_deref()) else { break };
+            let Some(parent) = current.and_then(|c| c.superclass.as_deref()) else {
+                break;
+            };
             current = self.class(parent);
             if current.is_none() {
                 return findings;
@@ -780,6 +892,7 @@ impl JpaAssist {
         findings
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // Legacy full-context fixture; not a live provider path.
     fn findings(&mut self, project: &Project, path: &str, text: &str, kotlin: bool) -> Vec<Finding> {
         let mut findings = self.findings_core(project, path, text, kotlin);
 
@@ -798,6 +911,7 @@ impl JpaAssist {
         findings
     }
 
+    #[cfg_attr(not(test), allow(dead_code))] // Legacy full-context fixture; not a live provider path.
     fn findings_core(&mut self, project: &Project, path: &str, text: &str, kotlin: bool) -> Vec<Finding> {
         let signature = if setting("checkClassSignature") { inspect_class_signature(text, kotlin) } else { Vec::new() };
 
@@ -815,7 +929,17 @@ impl JpaAssist {
                 findings.extend(inspect_kotlin_build(text, build));
             }
             if !setting("checkKotlinEntities") {
-                findings.retain(|f| !matches!(f.code, "jpa-data-class" | "jpa-val-attribute" | "jpa-immutable-collection" | "jpa-kotlin-plugin-missing" | "jpa-redundant-constructor" | "jpa-redundant-open"));
+                findings.retain(|f| {
+                    !matches!(
+                        f.code,
+                        "jpa-data-class"
+                            | "jpa-val-attribute"
+                            | "jpa-immutable-collection"
+                            | "jpa-kotlin-plugin-missing"
+                            | "jpa-redundant-constructor"
+                            | "jpa-redundant-open"
+                    )
+                });
             }
             findings.extend(signature);
             if setting("checkAttributeSignatures") {
@@ -837,13 +961,13 @@ impl JpaAssist {
             return early;
         }
 
-        let Some(repo) = parse_repository(text, kotlin) else { return Vec::new() };
+        let Some(repo) = parse_repository(text, kotlin) else {
+            return Vec::new();
+        };
         self.load_graph(project, &repo.entity, path, 2, true);
 
         let known = |n: &str| self.class(n);
-        let entity_id = self
-            .class(&repo.entity)
-            .and_then(|c| inherited(c, &known).into_iter().find(|a| a.id).map(|a| a.ty.clone()));
+        let entity_id = self.class(&repo.entity).and_then(|c| inherited(c, &known).into_iter().find(|a| a.id).map(|a| a.ty.clone()));
         inspect_repository(&repo, entity_id.as_deref(), &|n| self.props(n))
     }
 
@@ -861,7 +985,9 @@ impl JpaAssist {
                 task.report(i as u32, Some(files.len() as u32), None);
             }
 
-            let Ok(text) = project.read_file(path) else { continue };
+            let Ok(text) = project.read_file(path) else {
+                continue;
+            };
             if !["@Entity", "@MappedSuperclass", "@Embeddable"].iter().any(|m| text.contains(m)) {
                 continue;
             }
@@ -896,9 +1022,8 @@ impl JpaAssist {
     fn current_entity(&mut self, ctx: &Invocation) -> Result<Class, Error> {
         let editor = ctx.editor().ok_or("Open an entity class first.")?;
         let path = editor.path();
-        let class = parse_class(&editor.document()?.text, &path)
-            .filter(|c| c.kind == Kind::Entity)
-            .ok_or("The open file isn't a JPA entity.")?;
+        let class =
+            parse_class(&editor.document()?.text, &path).filter(|c| c.kind == Kind::Entity).ok_or("The open file isn't a JPA entity.")?;
 
         self.remember(class.clone());
         if let Some(project) = ctx.project() {
@@ -909,6 +1034,7 @@ impl JpaAssist {
     }
 }
 
+#[cfg_attr(not(test), allow(dead_code))] // Legacy full-context fixture; not a live provider path.
 fn xml_lookup(project: &Project, files: &[String], fqcn: &str) -> Lookup {
     if fqcn.contains('$') {
         return Lookup::Found { annotated: true };
@@ -916,7 +1042,9 @@ fn xml_lookup(project: &Project, files: &[String], fqcn: &str) -> Lookup {
 
     let relative = fqcn.replace('.', "/");
     let found = files.iter().find(|p| [".java", ".kt"].iter().any(|e| p.ends_with(&format!("/{relative}{e}"))));
-    let Some(path) = found else { return Lookup::NotInProject };
+    let Some(path) = found else {
+        return Lookup::NotInProject;
+    };
 
     let text = project.read_file(path).unwrap_or_default();
     Lookup::Found { annotated: ["@Entity", "@MappedSuperclass", "@Embeddable", "@Converter"].iter().any(|m| text.contains(m)) }
@@ -934,15 +1062,21 @@ fn publish_context(path: Option<&str>) {
 impl Plugin for JpaAssist {
     fn activate(&mut self, _ctx: &Context) -> Result<(), Error> {
         let _ = host::subscribe(EventKind::EditorFocused);
+        let _ = host::subscribe(EventKind::FileOpened);
+        let _ = host::subscribe(EventKind::FileSaved);
+        let _ = host::subscribe_paths("files-changed", &["**/*.java", "**/*.kt", "**/*.xml"]);
 
         Ok(())
     }
 
     fn run_command(&mut self, id: &str, ctx: &Invocation, arg: Option<&str>) -> Result<Option<String>, Error> {
         match id {
+            "find-attribute-usages" => {file_actions::find_attribute_usages(ctx)?; Ok(None)}
             "copy-ddl" => {
                 let class = self.entity_of(ctx, arg)?;
-                let Some(dialect) = choose_dialect()? else { return Ok(None) };
+                let Some(dialect) = choose_dialect()? else {
+                    return Ok(None);
+                };
                 let known = |n: &str| self.class(n);
                 copied(ddl(&[&class], &known, dialect), &format!("DDL of {}", class.name))
             }
@@ -955,7 +1089,9 @@ impl Plugin for JpaAssist {
                     return Ok(None);
                 }
 
-                let Some(dialect) = choose_dialect()? else { return Ok(None) };
+                let Some(dialect) = choose_dialect()? else {
+                    return Ok(None);
+                };
 
                 let known = |n: &str| self.class(n);
                 copied(ddl(&entities, &known, dialect), &format!("DDL of {}", entities_count(entities.len())))
@@ -965,7 +1101,9 @@ impl Plugin for JpaAssist {
                 let known = |n: &str| self.class(n);
                 let items: Vec<PickItem> =
                     dto_fields(&class, &known).iter().map(|(name, ty)| PickItem::new(name, name).description(ty)).collect();
-                let Some(chosen) = choose_many("Fields of the DTO", &items)? else { return Ok(None) };
+                let Some(chosen) = choose_many("Fields of the DTO", &items)? else {
+                    return Ok(None);
+                };
                 if chosen.is_empty() {
                     host::notify(NotificationLevel::Info, "JPA Assist", "No field chosen, nothing copied.");
                     return Ok(None);
@@ -978,18 +1116,25 @@ impl Plugin for JpaAssist {
                 let doc = editor.document()?;
                 let caret = editor.selections()?.first().map_or(Position::new(0, 0), |s| s.start);
                 let at = offset(&doc.text, caret).unwrap_or(doc.text.len());
-                let Some(kotlin) = choose_entity_language()? else { return Ok(None) };
+                let Some(kotlin) = choose_entity_language()? else {
+                    return Ok(None);
+                };
                 let entity = entity_from_ddl(&doc.text, at, kotlin).ok_or("Put the caret in a CREATE TABLE statement.")?;
                 copied(entity, "Entity")
             }
             "new-entity" => new_entity(ctx),
-            "new-attribute" => new_attribute(ctx),
             _ => Err(Error::NotFound(format!("command {id}"))),
         }
     }
 
     fn handle_events(&mut self, events: &[Event], _ctx: &Invocation) {
         for event in events {
+            if let Event::FilesChanged(batch) = event {
+                for path in batch.created.iter().chain(&batch.modified).chain(&batch.removed) {
+                    self.live.invalidate(path);
+                    self.repository_completion.invalidate(path);
+                }
+            }
             match event {
                 Event::EditorFocused(path) => {
                     publish_context(path.as_deref());
@@ -1004,17 +1149,30 @@ impl Plugin for JpaAssist {
                 _ => continue,
             }
 
-            let (Event::FileOpened(path) | Event::FileSaved(path)) = event else { continue };
-            let Some(project) = project_of(path) else { continue };
+            let (Event::FileOpened(path) | Event::FileSaved(path)) = event else {
+                continue;
+            };
+            self.live.invalidate(path);
+            self.repository_completion.invalidate(path);
+            let Some(project) = project_of(path) else {
+                continue;
+            };
             if path.ends_with(".xml") {
                 if let Ok(text) = project.read_file(path) {
-                    self.check_xml(&project, path, &text);
+                    if let Ok(root) = project.root() {
+                        self.live.update(&root, path, &text);
+                        self.repository_completion.observe(&root, path, &text);
+                    }
                 }
                 continue;
             }
 
-            let Some(kotlin) = language_of(path) else { continue };
-            let Ok(text) = project.read_file(path) else { continue };
+            let Some(kotlin) = language_of(path) else {
+                continue;
+            };
+            let Ok(text) = project.read_file(path) else {
+                continue;
+            };
 
             if let Some(Some(known)) = self.named_queries.as_mut()
                 && let Some(queries) = declared_named_queries(&text, kotlin)
@@ -1030,61 +1188,30 @@ impl Plugin for JpaAssist {
                 index.add(path, &text);
             }
 
-            let diagnostics: Vec<Diagnostic> =
-                self.findings(&project, path, &text, kotlin).iter().map(|f| f.diagnostic(&text)).collect();
-            let _ = host::publish_diagnostics(path, &diagnostics);
+            if let Ok(root) = project.root() {
+                self.live.update(&root, path, &text);
+                self.repository_completion.observe(&root, path, &text);
+            }
         }
     }
 }
 
 impl JpaAssist {
-    /// "Add inverse attribute" for the owning-side association whose declaration (annotations included) the selection touches.
-    fn inverse_actions(&mut self, doc: &Document, selection: Range, class: &Class) -> Vec<CodeAction> {
-        let Some(project) = project_of(&doc.path) else { return Vec::new() };
-        let lines: Vec<&str> = doc.text.lines().collect();
-        let mut actions = Vec::new();
-
-        for attribute in class.attributes.iter().filter(|a| matches!(a.relation, Relation::ManyToOne | Relation::OneToOne | Relation::ManyToMany) && !a.mapped_by) {
-            let declared = attribute.pos.line;
-            let reaches = selection.start.line <= declared
-                && selection.end.line >= selection.start.line
-                && declared - selection.start.line <= 4
-                && (selection.start.line..declared).all(|l| lines.get(l as usize).is_some_and(|line| line.trim_start().starts_with('@')))
-                && selection.end.line <= declared;
-            if !reaches {
-                continue;
-            }
-
-            self.load(&project, &attribute.target, &doc.path, true);
-            let Some(target_path) = self.class(&attribute.target).map(|c| c.path.clone()).filter(|p| *p != doc.path) else { continue };
-            let Ok(target_text) = project.read_file(&target_path) else { continue };
-            let Some(target) = parse_class(&target_text, &target_path).filter(|c| c.kind == Kind::Entity) else { continue };
-            let Some(spec) = inverse_spec(class, attribute, &target) else { continue };
-            let Some(edits) = attribute_edits(&target, &target_text, &mask(&target_text), &spec) else { continue };
-
-            actions.push(CodeAction {
-                title: format!("Add inverse attribute '{}' to {}", spec.name, target.name),
-                kind: Some("refactor".into()),
-                preferred: false,
-                edits: vec![(target_path, edits.iter().map(|e| e.to_text_edit(&target_text)).collect())],
-                data: None,
-            });
-        }
-
-        actions
-    }
-
     /// Fully qualified class names of the project's sources for the text typed inside a `<class>` element.
     fn class_element_completion(&mut self, doc: &Document, at: Position) -> Vec<CompletionItem> {
-        let Some(caret) = offset(&doc.text, at) else { return Vec::new() };
-        let before = &doc.text[..caret];
-        let Some(tag) = before.rfind('<') else { return Vec::new() };
-        if before[tag..].starts_with("<property ") {
-            return xml::property_completion(&before[tag..], &doc.text);
-        }
-
-        let Some(typed) = before[tag..].strip_prefix("<class>") else { return Vec::new() };
-        let Some(project) = project_of(&doc.path) else { return Vec::new() };
+        let Some(caret) = offset(&doc.text, at) else {
+            return Vec::new();
+        };
+        if doc.language != "xml" { return vec![]; }
+        let content = match xml_context::completion(&doc.text, caret) {
+            Some(xml_context::Completion::Property { tag, prefix }) => return xml::property_completion_with_prefix(&doc.text[tag..caret], prefix),
+            Some(xml_context::Completion::Class { content }) => content,
+            None => return vec![],
+        };
+        let typed = &doc.text[content..caret];
+        let Some(project) = project_of(&doc.path) else {
+            return Vec::new();
+        };
 
         let typed = typed.trim();
         let mut names: Vec<String> = self
@@ -1104,47 +1231,35 @@ impl JpaAssist {
 }
 
 impl Providers for JpaAssist {
+    fn definition(&mut self, doc: &Document, at: Position) -> Vec<openidea_plugin::Location> {
+        attribute_info::definition(doc, at)
+    }
+
     fn completion(&mut self, doc: &Document, at: Position, _trigger: Option<&str>) -> Vec<CompletionItem> {
         if doc.path.ends_with(".xml") {
             return self.class_element_completion(doc, at);
         }
 
-        let Some(kotlin) = language_of(&doc.path) else { return Vec::new() };
-        let Some(repo) = parse_repository(&doc.text, kotlin) else { return Vec::new() };
-        let Some(at) = offset(&doc.text, at) else { return Vec::new() };
-
-        if let Some(project) = project_of(&doc.path) {
-            self.load_graph(&project, &repo.entity, &doc.path, 2, false);
-        }
-
-        complete(&doc.text, at, &repo, &|n| self.props(n), kotlin)
-            .into_iter()
-            .map(|item| {
-                let kind = match item.kind {
-                    ItemKind::Keyword => CompletionKind::Keyword,
-                    ItemKind::Property => CompletionKind::Property,
-                    ItemKind::Operator => CompletionKind::Operator,
-                    ItemKind::Method => CompletionKind::Method,
-                };
-
-                let mut completion = CompletionItem::new(&item.label, kind);
-                completion.insert_text = item.insert;
-                completion.detail = item.detail;
-                completion.additional_edits = item.imports.iter().map(|e| e.to_text_edit(&doc.text)).collect();
-                completion
-            })
-            .collect()
+        let fields=local_graph::completion(doc,at);
+        if !fields.is_empty() {return fields;}
+        self.cached_repository_completion(doc, at)
     }
 
     fn line_markers(&mut self, doc: &Document) -> Vec<LineMarker> {
-        let Some(class) = parse_class(&doc.text, &doc.path) else { return Vec::new() };
+        let Some(class) = parse_class(&doc.text, &doc.path) else {
+            return Vec::new();
+        };
         if class.kind != Kind::Entity {
             return Vec::new();
         }
-        let Some(project) = project_of(&doc.path) else { return Vec::new() };
+        let Some(project) = project_of(&doc.path) else {
+            return Vec::new();
+        };
 
         let repositories = self.repositories_of(&project, &class.name);
-        let Some((_, first)) = repositories.first() else { return Vec::new() };
+        let Some((_, first)) = repositories.first() else {
+            return Vec::new();
+        };
         let names: Vec<&str> = repositories.iter().map(|(name, _)| name.as_str()).collect();
 
         vec![LineMarker {
@@ -1156,13 +1271,14 @@ impl Providers for JpaAssist {
     }
 
     fn code_actions(&mut self, doc: &Document, selection: Range) -> Vec<CodeAction> {
-        let Some(kotlin) = language_of(&doc.path) else { return Vec::new() };
-        let text = &doc.text;
-        let touches = |start: usize, end: usize| {
-            position(text, start).line <= selection.end.line && position(text, end).line >= selection.start.line
+        let Some(kotlin) = language_of(&doc.path) else {
+            return Vec::new();
         };
+        let text = &doc.text;
+        let touches =
+            |start: usize, end: usize| position(text, start).line <= selection.end.line && position(text, end).line >= selection.start.line;
 
-        let mut actions: Vec<CodeAction> = inspect_entity(text, kotlin)
+        let mut actions: Vec<CodeAction> = owned_entity_quickfixes(doc)
             .into_iter()
             .filter(|f| touches(f.start, f.end))
             .filter_map(|f| {
@@ -1171,7 +1287,10 @@ impl Providers for JpaAssist {
             })
             .collect();
 
-        if kotlin && setting("checkKotlinEntities") && let Some(build) = self.builds.get(&doc.path) {
+        if kotlin
+            && setting("checkKotlinEntities")
+            && let Some(build) = self.builds.get(&doc.path)
+        {
             for finding in inspect_kotlin_build(text, build).into_iter().filter(|f| touches(f.start, f.end)) {
                 if let Some((title, edits)) = finding.fix {
                     actions.push(action(doc, title, "quickfix", true, &edits));
@@ -1191,25 +1310,36 @@ impl Providers for JpaAssist {
             }
         }
 
-        let Some(class) = parse_class(text, &doc.path).filter(|c| c.kind == Kind::Entity) else { return actions };
-        actions.extend(self.inverse_actions(doc, selection, &class));
+        let Some(class) = parse_class(text, &doc.path).filter(|c| c.kind == Kind::Entity) else {
+            return actions;
+        };
 
         if !(selection.start.line..=selection.end.line).contains(&class.pos.line) {
             return actions;
         }
 
         let masked = mask(text);
-        let known = |n: &str| self.class(n);
-        let known: Known = &known;
-
-        if !has_word(&masked, "equals") {
-            actions.extend(equals_and_hash_code(&class, text, known).map(|e| action(doc, "Generate equals() and hashCode()", "source", false, &[e])));
+        // A closed manual scalar source subset cannot borrow cached superclass facts.
+        if let Some((source_class,_))=owned_callback_source(doc)
+            && !source_class.kotlin
+            && source_class.name!="java"
+            && !source_class.imports.iter().any(|i|i.rsplit('.').next()==Some("java"))
+            && let Some(scalar)=file_actions::scalar_source(doc)
+            && let Some(mut equality)=generate::scalar_equality_template(&scalar)
+        {
+            if text.contains("\r\n") {equality.text=equality.text.replace('\n',"\r\n");}
+            if !has_word(&masked,"equals") {actions.push(action(doc,"Generate equals() and hashCode()","source",false,&[equality]));}
+            if !has_word(&masked,"toString") {
+                let none=|_: &str|None;
+                if let Some(mut edit)=to_string_method(&scalar,&none) {
+                    edit.text=edit.text.replace("@Override","@java.lang.Override");
+                    if text.contains("\r\n") {edit.text=edit.text.replace('\n',"\r\n");}
+                    actions.push(action(doc,"Generate toString()","source",false,&[edit]));
+                }
+            }
         }
 
-        if !has_word(&masked, "toString") {
-            actions.extend(to_string_method(&class, known).map(|e| action(doc, "Generate toString()", "source", false, &[e])));
-        }
-
+        let Some((callback_class,callback_namespace))=owned_callback_source(doc) else {return actions;};
         let declared: Vec<&str> = annotations(&masked).iter().map(|a| a.name).collect();
 
         let declares_method = |name: &str| words(&masked, name).any(|i| masked[i + name.len()..].trim_start().starts_with('('));
@@ -1219,9 +1349,11 @@ impl Providers for JpaAssist {
             if declares_method(&decapitalize(callback)) {
                 continue;
             }
-            let Some(method) = callback_method(&class, callback) else { continue };
-            let mut edits: Vec<Edit> = import_edit(text, &[&callback_import(&class, callback)], kotlin).into_iter().collect();
-            edits.push(method);
+            let Some(mut method) = callback_method(&callback_class, callback) else {
+                continue;
+            };
+            method.text=method.text.replacen(&format!("@{callback} "),&format!("@{callback_namespace}.{callback} "),1);
+            let mut edits = vec![method];
             if crlf {
                 edits.iter_mut().for_each(|e| e.text = e.text.replace('\n', "\r\n"));
             }
@@ -1234,7 +1366,9 @@ impl Providers for JpaAssist {
 
 impl Views for JpaAssist {
     fn render(&mut self, _view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
-        let Some(project) = ctx.project() else { return Ok(View::message("Open a project to see its JPA entities.")) };
+        let Some(project) = ctx.project() else {
+            return Ok(View::message("Open a project to see its JPA entities."));
+        };
 
         if !self.scanned {
             self.scan(&project)?;
@@ -1274,6 +1408,10 @@ impl Views for JpaAssist {
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, _ctx: &Invocation) -> Result<(), Error> {
+        if ui_kit::web::handle(self, view, &event, _ctx, include_str!("ui_config.json"))? {
+            return Ok(());
+        }
+
         match event {
             ViewEvent::Button(id) if id == "refresh" => {
                 self.sources.clear();
@@ -1302,12 +1440,46 @@ impl Views for JpaAssist {
     }
 }
 
-register_plugin!(JpaAssist, providers, views);
+impl DiagnosticsProvider for JpaAssist {
+    fn diagnostics(&mut self, doc: &Document) -> Vec<Diagnostic> {
+        if let Some(root) = host::project_of(&doc.path).and_then(|p| p.root().ok()) {
+            self.repository_completion.observe(&root, &doc.path, &doc.text);
+        }
+        self.live.diagnostics(doc)
+    }
+}
+
+register_plugin!(JpaAssist, providers, diagnostics, hover, views, file_actions);
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use openidea_plugin::mock::MockHost;
+
+    impl JpaAssist {
+        /// Explicit full-context regression fixtures for legacy code-action checks.
+        /// Production events never publish diagnostics or discover source files.
+        fn checked_events(&mut self, events: &[Event], ctx: &Invocation) {
+            self.handle_events(events, ctx);
+            for event in events {
+                let (Event::FileOpened(path) | Event::FileSaved(path)) = event else {
+                    continue;
+                };
+                let Some(project) = project_of(path) else {
+                    continue;
+                };
+                let Ok(text) = project.read_file(path) else {
+                    continue;
+                };
+                if path.ends_with(".xml") {
+                    self.check_xml(&project, path, &text);
+                } else if let Some(kotlin) = language_of(path) {
+                    let diagnostics: Vec<_> = self.findings(&project, path, &text, kotlin).iter().map(|f| f.diagnostic(&text)).collect();
+                    let _ = host::publish_diagnostics(path, &diagnostics);
+                }
+            }
+        }
+    }
 
     const ORDER: &str = "package shop;
 
@@ -1325,7 +1497,8 @@ public class Order {
 }
 ";
 
-    const CUSTOMER: &str = "package shop;\n\n@Entity\npublic class Customer {\n    @Id\n    private Long id;\n    private String name;\n}\n";
+    const CUSTOMER: &str =
+        "package shop;\n\n@Entity\npublic class Customer {\n    @Id\n    private Long id;\n    private String name;\n}\n";
 
     const REPOSITORY: &str = "package shop.data;
 
@@ -1350,7 +1523,7 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
     fn publishes_entity_and_repository_problems() {
         let host = host();
         let mut plugin = JpaAssist::default();
-        plugin.handle_events(
+        plugin.checked_events(
             &[
                 Event::FileOpened("/project/src/shop/Order.java".into()),
                 Event::FileOpened("/project/src/shop/data/OrderRepository.java".into()),
@@ -1361,8 +1534,7 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
 
         let diagnostics = host.diagnostics();
         assert_eq!(diagnostics["/project/src/shop/Order.java"].len(), 1, "eager to-one");
-        let repository: Vec<&str> =
-            diagnostics["/project/src/shop/data/OrderRepository.java"].iter().map(|d| d.message.as_str()).collect();
+        let repository: Vec<&str> = diagnostics["/project/src/shop/data/OrderRepository.java"].iter().map(|d| d.message.as_str()).collect();
         assert_eq!(repository, ["The id of Order is Long, not Integer.", "Order has no property 'colour' (at 'Colour')."]);
         assert!(!diagnostics.contains_key("/project/src/notes.txt"));
     }
@@ -1370,10 +1542,8 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
     fn problems(host: &MockHost, path: &str, text: &str) -> Vec<String> {
         host.add_file(path, text);
         let mut plugin = JpaAssist::default();
-        plugin.handle_events(&[Event::FileOpened(format!("/project/{path}"))], &host.invocation());
-        host.diagnostics().get(&format!("/project/{path}")).map_or(Vec::new(), |d| {
-            d.iter().filter_map(|d| d.code.clone()).collect()
-        })
+        plugin.checked_events(&[Event::FileOpened(format!("/project/{path}"))], &host.invocation());
+        host.diagnostics().get(&format!("/project/{path}")).map_or(Vec::new(), |d| d.iter().filter_map(|d| d.code.clone()).collect())
     }
 
     #[test]
@@ -1561,27 +1731,27 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
     }
 
     #[test]
-    fn completes_after_the_repository_was_opened() {
+    fn repository_opening_and_legacy_storage_do_not_authorize_domain_completion() {
         let host = host();
         let mut plugin = JpaAssist::default();
-        plugin.handle_events(&[Event::FileOpened("/project/src/shop/data/OrderRepository.java".into())], &host.invocation());
+        plugin.checked_events(&[Event::FileOpened("/project/src/shop/data/OrderRepository.java".into())], &host.invocation());
 
         let text = REPOSITORY.replace("    List<Order> findByColour(String colour);\n", "    findByCustomerN\n");
         let doc = Document { path: "/project/src/shop/data/OrderRepository.java".into(), language: "java".into(), version: 1, text };
         let items = plugin.completion(&doc, Position::new(6, 19), None);
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
-        assert!(labels.contains(&"findByCustomerName"), "{labels:?}");
+        assert!(labels.is_empty(), "unowned legacy nested fields: {labels:?}");
 
         let mut after_reclaim = JpaAssist::default();
         let items = after_reclaim.completion(&doc, Position::new(6, 19), None);
-        assert!(items.iter().any(|i| i.label == "findByCustomerName"), "found again through storage");
+        assert!(items.is_empty(), "legacy storage must not authorize completion");
     }
 
     #[test]
     fn offers_fixes_and_generators_on_the_class_line() {
         let _host = host();
         let mut plugin = JpaAssist::default();
-        let doc = Document { path: "/project/src/shop/Order.java".into(), language: "java".into(), version: 1, text: ORDER.into() };
+        let doc = Document { path: "/project/src/shop/Order.java".into(), language: "java".into(), version: 1, text: ORDER.replace("@Entity", "@jakarta.persistence.Entity").replace("@Id", "@jakarta.persistence.Id").replace("@ManyToOne", "@jakarta.persistence.ManyToOne") };
 
         let class_line = Position::new(5, 15);
         let titles: Vec<String> = plugin
@@ -1590,11 +1760,11 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
             .map(|a| a.title)
             .filter(|t| !t.starts_with("Add @"))
             .collect();
-        assert_eq!(titles, ["Generate equals() and hashCode()", "Generate toString()"]);
+        assert!(titles.is_empty(), "relationship-rich source is outside the manual scalar template subset");
 
         let association = Position::new(11, 6);
         let titles: Vec<String> = plugin.code_actions(&doc, Range::new(association, association)).into_iter().map(|a| a.title).collect();
-        assert_eq!(titles, ["Fetch lazily", "Add inverse attribute 'orders' to Customer"]);
+        assert_eq!(titles, ["Fetch lazily"]);
     }
 
     #[test]
@@ -1639,7 +1809,12 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
         assert_eq!(markers[0].tooltip, "Repositories: OrderRepository");
         assert_eq!(markers[0].target.as_ref().unwrap().path, "/project/src/shop/data/OrderRepository.java");
 
-        let customer = Document { path: "/project/src/shop/Customer.java".into(), language: "java".into(), version: 1, text: "@Entity\nclass Customer {}".into() };
+        let customer = Document {
+            path: "/project/src/shop/Customer.java".into(),
+            language: "java".into(),
+            version: 1,
+            text: "@Entity\nclass Customer {}".into(),
+        };
         assert!(plugin.line_markers(&customer).is_empty());
     }
 
@@ -1654,14 +1829,14 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
         host.add_file("src/shop/data/OtherRepository.java", REPOSITORY);
         assert_eq!(plugin.line_markers(&doc)[0].tooltip, "Repositories: OrderRepository", "served from the index");
 
-        plugin.handle_events(&[Event::FileSaved("/project/src/shop/data/OrderRepository.java".into())], &host.invocation());
+        plugin.checked_events(&[Event::FileSaved("/project/src/shop/data/OrderRepository.java".into())], &host.invocation());
         assert!(plugin.line_markers(&doc).is_empty(), "a saved repository is read again");
     }
 
     const EMPTY_JAVA: &str = "/project/src/main/java/shop/Tag.java";
 
     fn wizard_host(path: &str, language: &str, text: &str) -> MockHost {
-        let host = MockHost::install().with_capabilities(&["project.read", "editor.read", "editor.write", "storage", "clipboard"]);
+        let host = MockHost::install().with_capabilities(&["project.read", "editor.read", "storage", "clipboard"]);
         host.open_editor(path, language, text, &[(0, 0, 0, 0)]);
         host
     }
@@ -1671,13 +1846,13 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
     }
 
     #[test]
-    fn new_entity_goes_to_the_clipboard_and_the_empty_file() {
+    fn new_entity_command_copies_without_editing_the_empty_file() {
         let host = wizard_host(EMPTY_JAVA, "java", "");
         answers(&host, &[&["Tag"], &["tags"], &["IDENTITY"], &["version", "equals"]]);
         JpaAssist::default().run_command("new-entity", &host.invocation(), None).unwrap();
 
         let source = host.clipboard().unwrap();
-        assert_eq!(host.editor_text(), source);
+        assert_eq!(host.editor_text(), "");
         for expected in [
             "package shop;",
             "import jakarta.persistence.Version;",
@@ -1714,7 +1889,7 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
             assert!(source.contains(expected), "{expected}\n{source}");
         }
         assert!(!source.contains(';') && !source.contains("private "), "{source}");
-        assert_eq!(host.editor_text(), source);
+        assert_eq!(host.editor_text(), "\n");
     }
 
     #[test]
@@ -1747,82 +1922,94 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
         assert!(JpaAssist::default().run_command("new-entity", &host.invocation(), None).is_err());
     }
 
+    fn attribute_preview(host: &MockHost) -> Result<Option<String>, Error> {
+        use openidea_plugin::file_actions::FileActions;
+        let editor = host.invocation().editor().ok_or(Error::Stale)?;
+        let current = editor.document()?;
+        let doc = Document { path: editor.path(), language: editor.language(), text: current.text, version: current.version };
+        let mut plugin = JpaAssist::default();
+        let action = plugin.file_actions(&doc, Range::default()).into_iter().find(|a| a.title == "Add JPA attribute with preview…").ok_or(Error::Stale)?;
+        assert!(action.edits.is_empty() && action.operations.is_empty());
+        let resolved = match plugin.resolve_file_action(&doc, action) {
+            Err(Error::Cancelled) => return Ok(None),
+            result => result?,
+        };
+        let [(target, edits)] = resolved.edits.as_slice() else { panic!("one invoking-document edit group") };
+        assert_eq!(target, &doc.path);
+        assert!(resolved.operations.is_empty());
+        assert_eq!(host.editor_text(), doc.text, "resolution must not apply edits");
+        Ok(Some(file_actions::patched(&doc.text, edits)?))
+    }
     #[test]
-    fn new_attribute_adds_a_typed_field_with_its_import() {
+    fn attribute_file_action_previews_a_typed_field_with_its_import() {
         let host = wizard_host("/project/src/shop/Order.java", "java", ORDER);
-        answers(&host, &[&["total"], &["none"], &["BigDecimal"], &["notNull"]]);
-        JpaAssist::default().run_command("new-attribute", &host.invocation(), None).unwrap();
-
-        let text = host.editor_text();
+        answers(&host, &[&["total"], &["none"], &["BigDecimal"], &["notNull"], &[]]);
+        let text = attribute_preview(&host).unwrap().unwrap();
         assert!(text.contains("import java.math.BigDecimal;\n"), "{text}");
         assert!(text.contains("    @Column(nullable = false)\n    private BigDecimal total;\n}"), "{text}");
-        assert!(!text.contains("getTotal"), "no accessors in a class without getters");
-        assert!(parse_class(&text, "Order.java").unwrap().attributes.iter().any(|a| a.name == "total"));
+        assert!(!text.contains("getTotal"));
+        assert_eq!(host.editor_text(), ORDER);
     }
-
     #[test]
-    fn new_attribute_adds_a_lazy_cascading_collection() {
+    fn attribute_file_action_previews_a_lazy_cascading_collection() {
         let host = wizard_host("/project/src/shop/Order.java", "java", ORDER);
-        answers(&host, &[&["lines"], &["OneToMany"], &["OrderLine"], &["cascade"]]);
-        JpaAssist::default().run_command("new-attribute", &host.invocation(), None).unwrap();
-
-        let text = host.editor_text();
+        answers(&host, &[&["lines"], &["OneToMany"], &["OrderLine"], &["cascade"], &[]]);
+        let text = attribute_preview(&host).unwrap().unwrap();
         assert!(text.contains("@OneToMany(cascade = CascadeType.ALL)\n    private List<OrderLine> lines = new ArrayList<>();"), "{text}");
-        assert!(text.contains("import java.util.ArrayList;") && text.contains("import java.util.List;"), "{text}");
+        assert!(text.contains("import java.util.ArrayList;") && text.contains("import java.util.List;"));
     }
-
     #[test]
-    fn new_attribute_in_kotlin_is_a_var() {
+    fn attribute_file_action_preserves_kotlin_association_and_scalar_choices() {
         let kotlin = "package shop\n\nimport jakarta.persistence.*\n\n@Entity\nclass Order {\n    @Id\n    var id: Long? = null\n}\n";
         let host = wizard_host("/project/src/shop/Order.kt", "kotlin", kotlin);
-        answers(&host, &[&["customer"], &["ManyToOne"], &["Customer"], &["notNull", "fetch"]]);
-        JpaAssist::default().run_command("new-attribute", &host.invocation(), None).unwrap();
-        answers(&host, &[&["count"], &["none"], &["Integer"], &[]]);
-        JpaAssist::default().run_command("new-attribute", &host.invocation(), None).unwrap();
-
-        let text = host.editor_text();
-        assert!(text.contains("@ManyToOne(fetch = FetchType.LAZY, optional = false)\n    var customer: Customer? = null"), "{text}");
-        assert!(text.contains("    var count: Int? = null\n}"), "{text}");
+        answers(&host, &[&["customer"], &["ManyToOne"], &["Customer"], &["notNull", "fetch"], &[]]);
+        let first = attribute_preview(&host).unwrap().unwrap();
+        assert!(first.contains("@ManyToOne(fetch = FetchType.LAZY, optional = false)\n    var customer: Customer? = null"));
+        host.open_editor("/project/src/shop/Order.kt", "kotlin", &first, &[]);
+        answers(&host, &[&["count"], &["none"], &["Integer"], &[], &[]]);
+        let text = attribute_preview(&host).unwrap().unwrap();
+        assert!(text.contains("    var count: Int? = null\n}"));
         assert!(!text.contains(';'));
     }
-
     #[test]
-    fn new_attribute_marks_enums_as_string_enumerated() {
+    fn attribute_file_action_previews_string_enumerated_fields() {
         let host = wizard_host("/project/src/shop/Order.java", "java", ORDER);
-        answers(&host, &[&["status"], &["none"], &["enum"], &["OrderStatus"], &[]]);
-        JpaAssist::default().run_command("new-attribute", &host.invocation(), None).unwrap();
-
-        assert!(host.editor_text().contains("@Enumerated(EnumType.STRING)\n    private OrderStatus status;"));
+        answers(&host, &[&["status"], &["none"], &["enum"], &["OrderStatus"], &[], &[]]);
+        let text = attribute_preview(&host).unwrap().unwrap();
+        assert!(text.contains("@Enumerated(EnumType.STRING)\n    private OrderStatus status;"));
     }
-
     #[test]
-    fn new_attribute_dismissed_or_outside_an_entity_edits_nothing() {
-        let steps: [&[&str]; 4] = [&["total"], &["none"], &["Long"], &["unique"]];
+    fn attribute_file_action_cancel_and_unowned_or_duplicate_targets_edit_nothing() {
+        let steps: [&[&str]; 5] = [&["total"], &["none"], &["Long"], &["unique"], &[]];
         for answered in 0..steps.len() {
             let host = wizard_host("/project/src/shop/Order.java", "java", ORDER);
             answers(&host, &steps[..answered]);
-            JpaAssist::default().run_command("new-attribute", &host.invocation(), None).unwrap();
-            assert_eq!(host.editor_text(), ORDER, "dismissed at prompt {answered}");
+            assert!(attribute_preview(&host).unwrap().is_none());
+            assert_eq!(host.editor_text(), ORDER);
         }
-
         let host = wizard_host("/project/src/notes.java", "java", "class Plain {}");
-        assert!(JpaAssist::default().run_command("new-attribute", &host.invocation(), None).is_err());
-
+        assert!(attribute_preview(&host).is_err());
         let host = wizard_host("/project/src/shop/Order.java", "java", ORDER);
-        answers(&host, &[&["number"], &["none"], &["String"], &[]]);
-        assert!(JpaAssist::default().run_command("new-attribute", &host.invocation(), None).is_err());
+        answers(&host, &[&["number"], &["none"], &["String"], &[], &[]]);
+        assert!(attribute_preview(&host).is_err());
         assert_eq!(host.editor_text(), ORDER);
     }
-
     #[test]
-    fn new_attribute_without_editor_write_shows_a_notice() {
+    fn attribute_file_action_resolution_needs_no_editor_write_grant() {
         let host = MockHost::install().with_capabilities(&["project.read", "editor.read", "storage"]);
-        host.open_editor("/project/src/shop/Order.java", "java", ORDER, &[(0, 0, 0, 0)]);
-        answers(&host, &[&["total"], &["none"], &["Long"], &[]]);
-        JpaAssist::default().run_command("new-attribute", &host.invocation(), None).unwrap();
-
+        host.open_editor("/project/src/shop/Order.java", "java", ORDER, &[]);
+        answers(&host, &[&["total"], &["none"], &["Long"], &[], &[]]);
+        assert!(attribute_preview(&host).unwrap().unwrap().contains("private Long total;"));
         assert_eq!(host.editor_text(), ORDER);
-        assert!(host.notifications()[0].body.contains("Allow editor changes"));
+        assert!(host.notifications().is_empty());
+    }
+    #[test]
+    fn retired_attribute_command_cannot_bypass_lazy_review_or_write_source() {
+        let host = wizard_host("/project/src/shop/Order.java", "java", ORDER);
+        answers(&host, &[&["total"], &["none"], &["Long"], &[]]);
+        assert!(matches!(JpaAssist::default().run_command("new-attribute", &host.invocation(), None), Err(Error::NotFound(_))));
+        assert_eq!(host.editor_text(), ORDER);
+        assert!(host.process_runs().is_empty() && host.requests().is_empty());
     }
 
     #[test]
@@ -1841,10 +2028,10 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
         assert_eq!(
             editor_menus,
             [
-                ("new-attribute".to_owned(), "(editorLangId == java || editorLangId == kotlin) && plugin.aritti.jpa-assist.isEntity".to_owned()),
                 ("copy-ddl".to_owned(), "(editorLangId == java || editorLangId == kotlin) && plugin.aritti.jpa-assist.isEntity".to_owned()),
                 ("copy-dto".to_owned(), "(editorLangId == java || editorLangId == kotlin) && plugin.aritti.jpa-assist.isEntity".to_owned()),
                 ("copy-entity".to_owned(), "editorLangId == sql && plugin.aritti.jpa-assist.hasCreateTable".to_owned()),
+                ("find-attribute-usages".to_owned(), "editorLangId == java && plugin.aritti.jpa-assist.isEntity".to_owned()),
             ]
         );
     }
@@ -1860,7 +2047,9 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
 
         assert_eq!(view.status.as_deref(), Some("2 entities"));
 
-        plugin.handle("structure", ViewEvent::Activate("attribute:/project/src/shop/Order.java#customer".into()), &host.invocation()).unwrap();
+        plugin
+            .handle("structure", ViewEvent::Activate("attribute:/project/src/shop/Order.java#customer".into()), &host.invocation())
+            .unwrap();
         assert_eq!(host.opened_locations(), [("/project/src/shop/Order.java".to_owned(), 12, 21)]);
     }
 
@@ -1891,10 +2080,7 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
         host.answer_next_prompt(Some(&["id"]));
         let result = JpaAssist::default().run_command("copy-dto", &host.invocation(), None).unwrap();
         assert_eq!(result, None);
-        assert_eq!(
-            host.notifications()[0].body,
-            "Allow the clipboard for JPA Assist in Settings › Plugins to copy generated code."
-        );
+        assert_eq!(host.notifications()[0].body, "Allow the clipboard for JPA Assist in Settings › Plugins to copy generated code.");
     }
 
     fn context_of(host: &MockHost) -> (bool, bool) {
@@ -1908,7 +2094,7 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
         host.add_file("src/db.sql", "create table tag (id bigint);");
         let mut plugin = JpaAssist::default();
         let focus = |plugin: &mut JpaAssist, path: Option<&str>| {
-            plugin.handle_events(&[Event::EditorFocused(path.map(str::to_owned))], &host.invocation());
+            plugin.checked_events(&[Event::EditorFocused(path.map(str::to_owned))], &host.invocation());
             context_of(&host)
         };
 
@@ -1917,7 +2103,7 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
         assert_eq!(focus(&mut plugin, Some("/project/src/db.sql")), (false, true));
         assert_eq!(focus(&mut plugin, None), (false, false));
 
-        plugin.handle_events(&[Event::FileOpened("/project/src/shop/Customer.java".into())], &host.invocation());
+        plugin.checked_events(&[Event::FileOpened("/project/src/shop/Customer.java".into())], &host.invocation());
         assert_eq!(context_of(&host), (true, false));
     }
 
@@ -2106,7 +2292,7 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
         all.into_iter().filter(|a| a.title.starts_with("Add @")).collect()
     }
 
-    const BARE: &str = "@Entity\nclass E {\n  @Id Long id;\n}\n";
+    const BARE: &str = "@jakarta.persistence.Entity\nclass E {\n  @jakarta.persistence.Id Long id;\n}\n";
 
     #[test]
     fn class_line_offers_one_action_per_missing_callback() {
@@ -2127,13 +2313,13 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
         let first = &actions_at("src/shop/E.java", BARE, 1)[0];
         assert_eq!(first.kind.as_deref(), Some("source"));
         let method = first.edits[0].1.last().unwrap();
-        assert_eq!(method.text, "\n    @PrePersist void prePersist() {}\n");
+        assert_eq!(method.text, "\n    @jakarta.persistence.PrePersist void prePersist() {}\n");
         assert_eq!(method.range.start, Position::new(3, 0));
     }
 
     #[test]
     fn declared_callbacks_are_not_offered_again() {
-        let text = "@Entity\nclass E {\n  @Id Long id;\n  @PrePersist void p() {}\n  @PostLoad void l() {}\n}\n";
+        let text = "@jakarta.persistence.Entity\nclass E {\n  @jakarta.persistence.Id Long id;\n  @jakarta.persistence.PrePersist void p() {}\n  @jakarta.persistence.PostLoad void l() {}\n}\n";
         let titles: Vec<String> = actions_at("src/shop/E.java", text, 1).into_iter().map(|a| a.title).collect();
         assert_eq!(titles.len(), 5);
         assert!(!titles.iter().any(|t| t.contains("PrePersist") || t.contains("PostLoad")));
@@ -2141,7 +2327,8 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
 
     #[test]
     fn callback_action_is_skipped_when_its_method_name_is_taken() {
-        let text = "@Entity\nclass E {\n  @Id Long id;\n  void prePersist() {}\n  void postLoad (String s) {}\n  String preUpdateNote;\n}\n";
+        let text =
+            "@jakarta.persistence.Entity\nclass E {\n  @jakarta.persistence.Id Long id;\n  void prePersist() {}\n  void postLoad (String s) {}\n  String preUpdateNote;\n}\n";
         let titles: Vec<String> = actions_at("src/shop/E.java", text, 1).into_iter().map(|a| a.title).collect();
         assert_eq!(titles.len(), 5, "{titles:?}");
         assert!(!titles.iter().any(|t| t.contains("PrePersist") || t.contains("PostLoad")), "{titles:?}");
@@ -2155,21 +2342,20 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
         for edit in &action.edits[0].1 {
             assert!(!edit.text.replace("\r\n", "").contains('\n'), "{:?}", edit.text);
         }
-        assert_eq!(action.edits[0].1.last().unwrap().text, "\r\n    @PrePersist void prePersist() {}\r\n");
+        assert_eq!(action.edits[0].1.last().unwrap().text, "\r\n    @jakarta.persistence.PrePersist void prePersist() {}\r\n");
     }
 
     #[test]
-    fn callback_action_adds_the_import_once() {
-        let actions = actions_at("src/shop/E.java", BARE, 1);
-        let imports: Vec<&str> = actions[0].edits[0].1.iter().map(|e| e.text.as_str()).filter(|t| t.contains("import")).collect();
-        assert_eq!(imports, ["import jakarta.persistence.PrePersist;\n\n"]);
-
-        let imported = "import jakarta.persistence.PrePersist;\n@Entity\nclass E {\n  @Id Long id;\n}\n";
-        let actions = actions_at("src/shop/E.java", imported, 2);
-        assert_eq!(actions[0].edits[0].1.len(), 1, "PrePersist is imported already");
-        assert_eq!(actions[1].edits[0].1.len(), 2, "import and method for another callback");
-        let wildcard = "import jakarta.persistence.*;\n@Entity\nclass E {\n  @Id Long id;\n}\n";
-        assert!(actions_at("src/shop/E.java", wildcard, 2).iter().all(|a| a.edits[0].1.len() == 1));
+    fn callback_action_uses_canonical_names_without_import_capture() {
+        let actions=actions_at("src/shop/E.java",BARE,1);
+        assert!(actions.iter().all(|a|a.edits[0].1.len()==1 && !a.edits[0].1[0].text.contains("import")));
+        let foreign=format!("import vendor.PrePersist;\n{BARE}");
+        assert!(actions_at("src/shop/E.java",&foreign,2).is_empty());
+        let unrelated=format!("import javax.persistence.Persistence;\n{BARE}");
+        let actions=actions_at("src/shop/E.java",&unrelated,2);
+        assert!(actions[0].edits[0].1[0].text.contains("@jakarta.persistence.PrePersist"));
+        let wildcard="import jakarta.persistence.*;\n@Entity\nclass E {\n @Id Long id;\n}\n";
+        assert!(actions_at("src/shop/E.java",wildcard,2).is_empty());
     }
 
     #[test]
@@ -2185,7 +2371,7 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
         let text = "import javax.persistence.Entity;\nimport javax.persistence.Id;\n@Entity\nclass E {\n  @Id Long id;\n}\n";
         let actions = actions_at("src/shop/E.java", text, 3);
         let inserted: String = actions[0].edits[0].1.iter().map(|e| e.text.clone()).collect();
-        assert!(inserted.contains("import javax.persistence.PrePersist;"), "{inserted}");
+        assert!(inserted.contains("@javax.persistence.PrePersist"), "{inserted}");
         assert!(!inserted.contains("jakarta"));
     }
 
@@ -2200,14 +2386,14 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
     #[test]
     fn callback_action_for_kotlin_uses_fun() {
         let _host = host();
-        let text = "@Entity\nclass K(@Id var id: Long?) {\n}\n";
+        let text = "@jakarta.persistence.Entity\nclass K(@jakarta.persistence.Id var id: Long?) {\n}\n";
         let doc = Document { path: "/project/src/shop/K.kt".into(), language: "kotlin".into(), version: 1, text: text.into() };
         let at = Position::new(1, 6);
         let actions = JpaAssist::default().code_actions(&doc, Range::new(at, at));
         let action = actions.iter().find(|a| a.title == "Add @PostLoad callback").unwrap();
         let inserted: String = action.edits[0].1.iter().map(|e| e.text.clone()).collect();
-        assert!(inserted.contains("@PostLoad fun postLoad() {}"), "{inserted}");
-        assert!(inserted.contains("import jakarta.persistence.PostLoad\n"), "{inserted}");
+        assert!(inserted.contains("@jakarta.persistence.PostLoad fun postLoad() {}"), "{inserted}");
+        assert!(!inserted.contains("import "), "{inserted}");
     }
 
     #[test]
@@ -2249,19 +2435,20 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
     fn missing_file_is_treated_as_absent() {
         let host = host();
         let mut plugin = JpaAssist::default();
-        plugin.handle_events(&[Event::FileOpened("/project/src/shop/Gone.java".into())], &host.invocation());
+        plugin.checked_events(&[Event::FileOpened("/project/src/shop/Gone.java".into())], &host.invocation());
         assert!(!host.diagnostics().contains_key("/project/src/shop/Gone.java"));
         assert!(problems(&host, "src/shop/E.java", LISTENED).is_empty(), "listener file not in the project");
     }
 
-
     #[test]
     fn two_associations_on_one_attribute_warn_on_the_second() {
         let host = host();
-        let text = "@Entity\nclass E {\n  @Id Long id;\n  @OneToOne(fetch = FetchType.LAZY) @ManyToOne(fetch = FetchType.LAZY) Customer c;\n}\n";
+        let text =
+            "@Entity\nclass E {\n  @Id Long id;\n  @OneToOne(fetch = FetchType.LAZY) @ManyToOne(fetch = FetchType.LAZY) Customer c;\n}\n";
         assert_eq!(problems(&host, "src/shop/E.java", text), ["jpa-attribute-multiple-relations"]);
         assert_eq!(first_range(&host, "src/shop/E.java"), (3, 36));
-        let ok = "@Entity\nclass E {\n  @Id Long id;\n  @ManyToOne(fetch = FetchType.LAZY) Customer c;\n  @OneToMany List<Customer> d;\n}\n";
+        let ok =
+            "@Entity\nclass E {\n  @Id Long id;\n  @ManyToOne(fetch = FetchType.LAZY) Customer c;\n  @OneToMany List<Customer> d;\n}\n";
         assert!(problems(&host, "src/shop/E.java", ok).is_empty());
     }
 
@@ -2275,7 +2462,14 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
         );
         let fine = "@Entity\nclass E {\n  @Id Long id;\n  @OneToMany(mappedBy = \"a\") Map<String, Customer> m;\n  @ManyToOne(fetch = FetchType.LAZY) Vendor.Customer c;\n  @ElementCollection Set<String> tags;\n}\n";
         assert!(problems(&host, "src/shop/E.java", fine).is_empty());
-        assert_eq!(problems(&host, "src/shop/K.kt", "@Entity\nclass K(@Id var id: Long?, @ManyToOne(fetch = FetchType.LAZY) var o: MutableList<A>)\n"), ["jpa-relationship-type"]);
+        assert_eq!(
+            problems(
+                &host,
+                "src/shop/K.kt",
+                "@Entity\nclass K(@Id var id: Long?, @ManyToOne(fetch = FetchType.LAZY) var o: MutableList<A>)\n"
+            ),
+            ["jpa-relationship-type"]
+        );
     }
 
     #[test]
@@ -2324,7 +2518,10 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
         let host = target_host();
         let text = "package shop;\n@Entity\nclass E {\n  @Id Long id;\n  @ManyToOne(fetch = FetchType.LAZY) Address home;\n  @OneToMany(mappedBy = \"e\") List<Plain> plains;\n  @ManyToOne(fetch = FetchType.LAZY) Customer ok;\n  @ManyToOne(fetch = FetchType.LAZY) Vendor library;\n}\n";
         assert_eq!(problems(&host, "src/shop/E.java", text), ["jpa-relationship-target", "jpa-relationship-target"]);
-        assert_eq!(message_of(&host, "src/shop/E.java")[0], "Address is an @Embeddable, so it can't be the target of an association. Make it an entity.");
+        assert_eq!(
+            message_of(&host, "src/shop/E.java")[0],
+            "Address is an @Embeddable, so it can't be the target of an association. Make it an entity."
+        );
         assert_eq!(first_range(&host, "src/shop/E.java"), (4, 45));
     }
 
@@ -2375,7 +2572,8 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
     fn persistence_xml_properties_complete_names_and_values() {
         let host = MockHost::install().with_capabilities(&["project.read"]);
         let text = "<persistence xmlns=\"https://jakarta.ee/xml/ns/persistence\"><persistence-unit name=\"a\"><properties>\n<property name=\"hibernate.hbm2";
-        let labels: Vec<String> = xml::property_completion(&text[text.rfind("<property").unwrap()..], text).into_iter().map(|i| i.label).collect();
+        let labels: Vec<String> =
+            xml::property_completion(&text[text.rfind("<property").unwrap()..], text).into_iter().map(|i| i.label).collect();
         assert_eq!(labels, ["hibernate.hbm2ddl.auto"]);
 
         let all = xml::property_completion("<property name=\"jakarta.persistence.j", text);
@@ -2384,52 +2582,11 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
         let legacy = "<persistence xmlns=\"http://xmlns.jcp.org/xml/ns/persistence\"> javax.persistence";
         assert_eq!(xml::property_completion("<property name=\"javax.persistence.jdbc.u", legacy).len(), 2);
 
-        let values: Vec<String> = xml::property_completion("<property name=\"hibernate.hbm2ddl.auto\" value=\"cr", text).into_iter().map(|i| i.label).collect();
+        let values: Vec<String> =
+            xml::property_completion("<property name=\"hibernate.hbm2ddl.auto\" value=\"cr", text).into_iter().map(|i| i.label).collect();
         assert_eq!(values, ["create", "create-drop"]);
         assert!(xml::property_completion("<property name=\"x\" value=\"", text).is_empty());
         drop(host);
-    }
-
-    fn tee_wizard(path: &str, text: &str) -> (MockHost, std::rc::Rc<std::cell::RefCell<Vec<(String, String)>>>) {
-        let host = MockHost::install().with_capabilities(&["project.read", "editor.read", "editor.write", "storage", "clipboard", "process:tee"]);
-        host.open_editor(path, "java", text, &[(0, 0, 0, 0)]);
-        let written = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
-        let sink = written.clone();
-        host.on_process("tee", move |args, stdin| {
-            sink.borrow_mut().push((args[0].clone(), stdin.unwrap_or_default().to_owned()));
-            Ok(openidea_plugin::ProcessOutput { status: Some(0), stdout: String::new(), stderr: String::new() })
-        });
-        (host, written)
-    }
-
-    #[test]
-    fn new_entity_is_written_next_to_the_focused_file_through_tee() {
-        let (host, written) = tee_wizard("/project/src/main/java/shop/Shop.java", "class Shop {}");
-        answers(&host, &[&["Tag"], &["tags"], &["IDENTITY"], &[]]);
-        JpaAssist::default().run_command("new-entity", &host.invocation(), None).unwrap();
-
-        let written = written.borrow();
-        assert_eq!(written.len(), 1);
-        assert_eq!(written[0].0, "/project/src/main/java/shop/Tag.java");
-        assert_eq!(written[0].1, host.clipboard().unwrap());
-        assert!(written[0].1.contains("package shop;"));
-        assert_eq!(host.opened_locations()[0].0, "/project/src/main/java/shop/Tag.java");
-    }
-
-    #[test]
-    fn new_entity_does_not_overwrite_and_falls_back_to_the_clipboard() {
-        let (host, written) = tee_wizard("/project/src/main/java/shop/Shop.java", "class Shop {}");
-        host.add_file("src/main/java/shop/Tag.java", "class Tag {}");
-        answers(&host, &[&["Tag"], &["tags"], &["IDENTITY"], &[]]);
-        JpaAssist::default().run_command("new-entity", &host.invocation(), None).unwrap();
-        assert!(written.borrow().is_empty());
-        assert!(host.clipboard().is_some());
-
-        let denied = wizard_host("/project/src/main/java/shop/Shop.java", "java", "class Shop {}");
-        answers(&denied, &[&["Tag"], &["tags"], &["IDENTITY"], &[]]);
-        JpaAssist::default().run_command("new-entity", &denied.invocation(), None).unwrap();
-        assert!(denied.clipboard().unwrap().contains("class Tag"));
-        assert!(denied.process_runs().is_empty());
     }
 
     #[test]
@@ -2490,7 +2647,7 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
         assert_eq!(host.diagnostics()["/project/src/shop/K.kt"][0].severity, openidea_plugin::Severity::Info);
 
         let mut plugin = JpaAssist::default();
-        plugin.handle_events(&[Event::FileOpened("/project/src/shop/K.kt".into())], &host.invocation());
+        plugin.checked_events(&[Event::FileOpened("/project/src/shop/K.kt".into())], &host.invocation());
         let doc = Document { path: "/project/src/shop/K.kt".into(), language: "kotlin".into(), version: 1, text: KOTLIN_PLAIN.into() };
         let at = Position::new(0, 1);
         let fix = plugin.code_actions(&doc, Range::new(at, at)).into_iter().find(|a| a.title.starts_with("Add the kotlin-jpa")).unwrap();
@@ -2537,7 +2694,7 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
         let text = "@Entity\nclass K(@Id var id: Long?) {\n    constructor() {}\n    var name: String = \"\"\n}\n";
         problems(&host, "src/shop/K.kt", text);
         let mut plugin = JpaAssist::default();
-        plugin.handle_events(&[Event::FileOpened("/project/src/shop/K.kt".into())], &host.invocation());
+        plugin.checked_events(&[Event::FileOpened("/project/src/shop/K.kt".into())], &host.invocation());
         let doc = Document { path: "/project/src/shop/K.kt".into(), language: "kotlin".into(), version: 1, text: text.into() };
         let at = Position::new(2, 6);
         let fix = plugin.code_actions(&doc, Range::new(at, at)).into_iter().find(|a| a.title == "Remove constructor").unwrap();
@@ -2560,11 +2717,11 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
         host.add_file("src/shop/K.kt", KOTLIN_PLAIN);
         let mut plugin = JpaAssist::default();
         let kotlin = "/project/src/shop/K.kt";
-        plugin.handle_events(&[Event::FileOpened(kotlin.into())], &host.invocation());
+        plugin.checked_events(&[Event::FileOpened(kotlin.into())], &host.invocation());
         assert_eq!(host.diagnostics()[kotlin].len(), 1);
 
         host.add_file("build.gradle.kts", WITH_JPA);
-        plugin.handle_events(&[Event::FileSaved("/project/build.gradle.kts".into()), Event::FileSaved(kotlin.into())], &host.invocation());
+        plugin.checked_events(&[Event::FileSaved("/project/build.gradle.kts".into()), Event::FileSaved(kotlin.into())], &host.invocation());
         assert!(host.diagnostics().get(kotlin).is_none_or(|d| d.is_empty()));
     }
 
@@ -2598,7 +2755,8 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
         let unknown = "@Entity\nclass E {\n  @Id Long id;\n  @Embedded @AttributeOverride(name = \"zip\", column = @Column(name = \"z\")) Vendor v;\n}\n";
         assert!(problems(&host, "src/shop/E.java", unknown).is_empty());
 
-        let library_parent = "@Entity\n@AttributeOverride(name = \"zip\", column = @Column(name = \"z\"))\nclass E extends AbstractPersistable {}\n";
+        let library_parent =
+            "@Entity\n@AttributeOverride(name = \"zip\", column = @Column(name = \"z\"))\nclass E extends AbstractPersistable {}\n";
         assert!(problems(&host, "src/shop/E.java", library_parent).is_empty());
 
         host.add_file("src/other/Address.java", "package other;\n@Embeddable\nclass Address {\n  String zip;\n}\n");
@@ -2660,7 +2818,10 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
     fn kotlin_query_parameters_and_templates() {
         let host = host();
         let text = "interface R : JpaRepository<Order, Long> {\n  @Query(\"select o from Order o where o.number = :number\")\n  fun a(@Param(\"num\") number: String): List<Order>\n  @Query(\"x = :n\")\n  fun b(n: String): List<Order>\n  @Query(\"x = :n and $t\")\n  fun c(): List<Order>\n}\n";
-        assert_eq!(message_of_after(&host, "src/shop/data/R.kt", text), ["The method has no parameter named 'number'. Name the parameter or annotate it with @Param(\"number\")."]);
+        assert_eq!(
+            message_of_after(&host, "src/shop/data/R.kt", text),
+            ["The method has no parameter named 'number'. Name the parameter or annotate it with @Param(\"number\")."]
+        );
     }
 
     #[test]
@@ -2668,7 +2829,10 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
         let host = host();
         host.add_file("src/shop/Order.java", "package shop;\n@Entity\n@NamedQuery(name = \"Order.open\", query = \"select o from Order o\")\nclass Order {\n  @Id Long id;\n}\n");
         let text = "package shop.data;\ninterface R extends JpaRepository<Order, Long> {\n  @Query(name = \"Order.open\")\n  List<Order> a();\n  @Query(name = \"Order.gone\")\n  List<Order> b();\n}\n";
-        assert_eq!(message_of_after(&host, "src/shop/data/R.java", text), ["No @NamedQuery or @NamedNativeQuery named 'Order.gone' in the project."]);
+        assert_eq!(
+            message_of_after(&host, "src/shop/data/R.java", text),
+            ["No @NamedQuery or @NamedNativeQuery named 'Order.gone' in the project."]
+        );
 
         let call = "class S {\n  void f(EntityManager em) { em.createNamedQuery(\"Order.open\"); em.createNamedQuery(\"nope\", Order.class); }\n}\n";
         assert_eq!(message_of_after(&host, "src/shop/S.java", call), ["No @NamedQuery or @NamedNativeQuery named 'nope' in the project."]);
@@ -2707,7 +2871,10 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
         host.add_file("src/main/resources/META-INF/orm.xml", "<entity-mappings><entity class=\"shop.Plain\"/></entity-mappings>");
         let codes = problems(&host, "src/main/resources/META-INF/persistence.xml", PERSISTENCE);
         assert!(!codes.contains(&"jpa-xml-class-not-persistent".to_owned()), "{codes:?}");
-        assert!(problems(&host, "src/main/resources/META-INF/orm.xml", "<entity-mappings><entity class=\"shop.Plain\"/></entity-mappings>").is_empty());
+        assert!(
+            problems(&host, "src/main/resources/META-INF/orm.xml", "<entity-mappings><entity class=\"shop.Plain\"/></entity-mappings>")
+                .is_empty()
+        );
     }
 
     #[test]
@@ -2724,7 +2891,7 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
         let doc = |text: &str| Document { path: "/project/persistence.xml".into(), language: "xml".into(), version: 1, text: text.into() };
         host.add_file("src/main/java/shop/Order.java", ORDER);
         host.add_file("src/main/java/shop/Customer.java", CUSTOMER);
-        let text = "<persistence-unit>\n  <class>shop.O</class>";
+        let text = "<persistence><persistence-unit>\n  <class>shop.O</class></persistence-unit></persistence>";
         let at = Position::new(1, "  <class>shop.O".len() as u32);
         let items = JpaAssist::default().completion(&doc(text), at, None);
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
@@ -2732,18 +2899,6 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
 
         let outside = JpaAssist::default().completion(&doc("<persistence-unit>\n  <provider>shop.O"), Position::new(1, 17), None);
         assert!(outside.is_empty());
-    }
-
-    fn apply_edits(text: &str, edits: &[TextEdit]) -> String {
-        let mut out = text.to_owned();
-        let mut sorted: Vec<&TextEdit> = edits.iter().collect();
-        sorted.sort_by_key(|e| std::cmp::Reverse((e.range.start.line, e.range.start.character)));
-        for e in sorted {
-            let start = offset(&out, e.range.start).unwrap();
-            let end = offset(&out, e.range.end).unwrap();
-            out.replace_range(start..end, &e.text);
-        }
-        out
     }
 
     fn inverse_at(host: &MockHost, line: u32, selected: &str) -> Vec<CodeAction> {
@@ -2754,18 +2909,10 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
     }
 
     #[test]
-    fn many_to_one_offers_a_one_to_many_on_the_target_file() {
+    fn inverse_generation_no_longer_emits_unversioned_cross_file_code_actions() {
         let host = host();
         for line in [11, 12] {
-            let actions = inverse_at(&host, line, ORDER);
-            assert_eq!(actions.len(), 1, "line {line}");
-            assert_eq!(actions[0].title, "Add inverse attribute 'orders' to Customer");
-            let (path, edits) = &actions[0].edits[0];
-            assert_eq!(path, "/project/src/shop/Customer.java");
-            let result = apply_edits(CUSTOMER, edits);
-            assert!(result.contains("import java.util.List;"), "{result}");
-            assert!(result.contains("    @OneToMany(mappedBy = \"customer\")\n    private List<Order> orders = new ArrayList<>();\n}"), "{result}");
-            assert!(result.contains("import jakarta.persistence.OneToMany;"));
+            assert!(inverse_at(&host, line, ORDER).is_empty());
         }
     }
 
@@ -2778,7 +2925,10 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
         host.add_file("src/shop/Customer.java", "package shop;\n@Entity\npublic class Customer {\n    @Id Long id;\n    @OneToMany(mappedBy = \"customer\") List<Order> orders;\n}\n");
         assert!(inverse_at(&host, 12, ORDER).is_empty());
 
-        host.add_file("src/shop/Customer.java", "package shop;\n@Entity\npublic class Customer {\n    @Id Long id;\n    String orders;\n}\n");
+        host.add_file(
+            "src/shop/Customer.java",
+            "package shop;\n@Entity\npublic class Customer {\n    @Id Long id;\n    String orders;\n}\n",
+        );
         assert!(inverse_at(&host, 12, ORDER).is_empty(), "name taken");
 
         host.add_file("src/shop/Customer.java", "package shop;\npublic class Customer {}\n");
@@ -2787,35 +2937,113 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
         let missing = ORDER.replace("Customer customer", "Stranger customer");
         assert!(inverse_at(&host, 12, &missing).is_empty(), "target file missing");
     }
-
     #[test]
-    fn one_to_one_and_cross_package_targets_get_a_mapped_by_and_an_import() {
-        let host = host();
-        host.add_file("src/billing/Invoice.java", "package billing;\n\nimport jakarta.persistence.*;\n\n@Entity\npublic class Invoice {\n    @Id Long id;\n}\n");
-        let text = "package shop;\n\nimport billing.Invoice;\n\n@Entity\npublic class Order {\n    @Id Long id;\n    @OneToOne\n    private Invoice invoice;\n}\n";
-        let doc = Document { path: "/project/src/shop/Order.java".into(), language: "java".into(), version: 1, text: text.into() };
-        let at = Position::new(8, 4);
-        let found = JpaAssist::default().code_actions(&doc, Range::new(at, at));
-        let action = found.iter().find(|a| a.title.starts_with("Add inverse")).unwrap();
-        assert_eq!(action.title, "Add inverse attribute 'order' to Invoice");
-        let invoice = host.invocation().project().unwrap().read_file("/project/src/billing/Invoice.java").unwrap();
-        let result = apply_edits(&invoice, &action.edits[0].1);
-        assert!(result.contains("import shop.Order;"), "{result}");
-        assert!(result.contains("@OneToOne(mappedBy = \"invoice\")\n    private Order order;"), "{result}");
+    fn exported_entity_quickfixes_do_not_borrow_foreign_or_nested_annotations() {
+        let _host = MockHost::install(); let mut plugin=JpaAssist::default();
+        let text="@jakarta.persistence.Entity class Example { @jakarta.persistence.Transient Object helper = new Object() { @jakarta.persistence.ManyToOne Object nested; }; }";
+        let doc=Document{path:"/project/Example.java".into(),language:"java".into(),version:1,text:text.into()};
+        assert!(plugin.code_actions(&doc,Range::new(Position::new(0,0),Position::new(0,200))).iter().all(|a|a.title!="Fetch lazily"));
     }
 
     #[test]
-    fn kotlin_targets_get_a_mutable_list() {
-        let host = MockHost::install().with_capabilities(&["events", "project.read", "editor.read", "storage"]);
-        host.add_file("src/shop/Order.java", ORDER);
-        host.add_file("src/shop/Customer.kt", "package shop\n\nimport jakarta.persistence.*\n\n@Entity\nclass Customer {\n    @Id\n    var id: Long? = null\n}\n");
-        let doc = Document { path: "/project/src/shop/Order.java".into(), language: "java".into(), version: 1, text: ORDER.into() };
-        let at = Position::new(12, 4);
-        let found = JpaAssist::default().code_actions(&doc, Range::new(at, at));
-        let action = found.iter().find(|a| a.title.starts_with("Add inverse")).unwrap();
-        assert_eq!(action.edits[0].0, "/project/src/shop/Customer.kt");
-        let customer = host.invocation().project().unwrap().read_file("/project/src/shop/Customer.kt").unwrap();
-        let result = apply_edits(&customer, &action.edits[0].1);
-        assert!(result.contains("@OneToMany(mappedBy = \"customer\")\n    var orders: MutableList<Order> = mutableListOf()"), "{result}");
+    fn exported_owned_entity_quickfix_edits_keep_canonical_enum_and_lombok_owners() {
+        let host=MockHost::install();let mut plugin=JpaAssist::default();
+        let text="import vendor.Getter;\nimport vendor.Setter;\n@jakarta.persistence.Entity @lombok.Data final class Example { /*😀*/ @jakarta.persistence.ManyToOne(fetch = jakarta.persistence.FetchType.EAGER) Object value; }";
+        let document=Document{path:"/project/Example.java".into(),language:"java".into(),version:1,text:text.into()};
+        let actions=plugin.code_actions(&document,Range::new(Position::new(0,0),Position::new(3,0)));
+        let apply=|action:&CodeAction| {assert_eq!(action.edits.len(),1);assert_eq!(action.edits[0].0,document.path);let mut edits:Vec<_>=action.edits[0].1.iter().map(|e|(offset(text,e.range.start).unwrap(),offset(text,e.range.end).unwrap(),e.text.clone())).collect();edits.sort_by_key(|e|std::cmp::Reverse(e.0));let mut result=text.to_owned();for (a,b,value) in edits{result.replace_range(a..b,&value);}result};
+        let eager=actions.iter().find(|a|a.title=="Fetch lazily").unwrap();let corrected=apply(eager);
+        assert!(corrected.contains("fetch = jakarta.persistence.FetchType.LAZY") && !corrected.contains("persistence.jakarta"));
+        let lombok=actions.iter().find(|a|a.title=="Replace with @Getter and @Setter").unwrap();let corrected=apply(lombok);
+        assert!(corrected.contains("@lombok.Getter @lombok.Setter") && !corrected.contains("import lombok.Getter"));
+        assert!(corrected.contains("import vendor.Getter;"));
+        let final_fix=actions.iter().find(|a|a.title=="Remove final").unwrap();assert!(!apply(final_fix).contains("final class"));
+        assert!(host.requests().is_empty() && host.process_runs().is_empty());
     }
+
+    #[test]
+    fn exported_entity_quickfix_current_text_and_unknown_ownership_stay_quiet() {
+        let host=MockHost::install();let mut plugin=JpaAssist::default();
+        let text="@jakarta.persistence.Entity class Example { @jakarta.persistence.ManyToOne(fetch = jakarta.persistence.FetchType.EAGER) Object value; }";
+        let mut d=Document{path:"/project/Example.java".into(),language:"java".into(),version:1,text:text.into()};
+        let selection=Range::new(Position::new(0,0),Position::new(0,200));
+        assert!(plugin.code_actions(&d,selection).iter().any(|a|a.title=="Fetch lazily"));
+        for unknown in [
+            text.replace("FetchType.EAGER","FetchType.LAZY"),
+            text.replace("jakarta.persistence.FetchType.EAGER","helper(EAGER)"),
+            text.replace("@jakarta.persistence.ManyToOne","@vendor.ManyToOne"),
+            text.replace("@jakarta.persistence.Entity","@Entity"),
+            text.replace("@jakarta.persistence.Entity",""),
+            text.replace("Object value;","Object value; class Nested {}"),
+            text.replace("Object value;","Object value; Object jakarta;"),
+            format!("void wrapper() {{ {text} }}"),
+        ] {d.text=unknown;d.version+=1;assert!(plugin.code_actions(&d,selection).iter().all(|a|a.kind.as_deref()!=Some("quickfix")),"{}",d.text);}
+        d.text=text.into();d.language="kotlin".into();assert!(plugin.code_actions(&d,selection).iter().all(|a|a.kind.as_deref()!=Some("quickfix")));
+        assert!(host.requests().is_empty() && host.process_runs().is_empty());
+        let _denied=MockHost::install().with_capabilities(&[]);d.language="java".into();assert!(JpaAssist::default().code_actions(&d,selection).iter().all(|a|a.kind.as_deref()!=Some("quickfix")));
+    }
+
+    #[test]
+    fn callback_generation_requires_current_canonical_entity_role() {
+        let _host=MockHost::install();let mut plugin=JpaAssist::default();
+        let d=Document{path:"/project/Example.java".into(),language:"java".into(),version:1,text:"@vendor.Entity class Example {}".into()};
+        assert!(plugin.code_actions(&d,Range::new(Position::new(0,0),Position::new(0,40))).iter().all(|a|!a.title.starts_with("Add @")));
+    }
+
+    #[test]
+    fn callback_generation_current_namespace_and_unknown_shapes_are_bounded() {
+        let host=MockHost::install();let mut plugin=JpaAssist::default();
+        let text="import jakarta.persistence.Persistence;\n@javax.persistence.Entity\nclass Example {\n  @javax.persistence.Id long id;\n}\n";
+        let mut d=Document{path:"/project/Example.java".into(),language:"java".into(),version:1,text:text.into()};let selection=Range::new(Position::new(2,0),Position::new(2,40));
+        let actions=plugin.code_actions(&d,selection);let action=actions.iter().find(|a|a.title=="Add @PrePersist callback").unwrap();
+        assert_eq!(action.edits.len(),1);assert_eq!(action.edits[0].0,d.path);assert_eq!(action.edits[0].1.len(),1);
+        let edit=&action.edits[0].1[0];assert!(edit.text.contains("@javax.persistence.PrePersist void prePersist() {}"));assert_eq!(edit.range.start,Position::new(4,0));
+        for unknown in [
+            text.replace("@javax.persistence.Entity","@vendor.Entity"),
+            text.replace("@javax.persistence.Entity","@Entity"),
+            text.replace("@javax.persistence.Entity",""),
+            text.replace("class Example {","class Example extends Base {"),
+            text.replace("class Example {","class Example<T> {"),
+            text.replace("class Example {","abstract class Example {"),
+            text.replace("class Example {","@lombok.Data class Example {"),
+            text.replace("@javax.persistence.Entity","@javax.persistence.EntityListeners(@javax.persistence.Entity)"),
+            text.replace("long id;","long id; class Nested {}"),
+        ] {d.text=unknown;d.version+=1;assert!(plugin.code_actions(&d,Range::new(Position::new(0,0),Position::new(6,0))).iter().all(|a|!a.title.starts_with("Add @")),"{}",d.text);}
+        d.text=text.into();d.language="kotlin".into();assert!(plugin.code_actions(&d,selection).iter().all(|a|!a.title.starts_with("Add @")));
+        assert!(host.requests().is_empty() && host.process_runs().is_empty());
+        let _denied=MockHost::install().with_capabilities(&[]);d.language="java".into();assert!(JpaAssist::default().code_actions(&d,selection).iter().all(|a|!a.title.starts_with("Add @")));
+    }
+
+    #[test]
+    fn scalar_equality_template_does_not_emit_null_or_object_calls_on_primitive_id() {
+        let _host=MockHost::install();let mut plugin=JpaAssist::default();
+        let d=Document{path:"/project/src/main/java/shop/Example.java".into(),language:"java".into(),version:1,text:"package shop;\n@jakarta.persistence.Entity\nclass Example { @jakarta.persistence.Id long id; String title; }".into()};
+        let actions=plugin.code_actions(&d,Range::new(Position::new(2,0),Position::new(2,40)));
+        let action=actions.iter().find(|a|a.title=="Generate equals() and hashCode()").unwrap();
+        let text=&action.edits[0].1[0].text;assert!(text.contains("return this.id == other.id;"));assert!(!text.contains("id != null") && !text.contains("id.equals"));
+    }
+
+    #[test]
+    fn scalar_templates_keep_shadowed_field_names_crlf_and_unknown_models_bounded() {
+        let host=MockHost::install();let mut plugin=JpaAssist::default();
+        let text="package shop;\nimport vendor.Object;\nimport vendor.Override;\n@jakarta.persistence.Entity\nclass Example { @jakarta.persistence.Id Long value; String title; }\n".replace('\n',"\r\n");
+        let mut d=Document{path:"/project/src/main/java/shop/Example.java".into(),language:"java".into(),version:1,text:text.clone()};let selection=Range::new(Position::new(4,0),Position::new(4,100));
+        let actions=plugin.code_actions(&d,selection);let equality=actions.iter().find(|a|a.title=="Generate equals() and hashCode()").unwrap();
+        let edit=&equality.edits[0].1[0];assert!(edit.text.contains("this.value != null && this.value.equals(other.value)"));assert!(edit.text.contains("equals(java.lang.Object value)") && edit.text.contains("@java.lang.Override"));assert!(!edit.text.replace("\r\n","").contains('\n'));
+        assert_eq!(equality.edits[0].0,d.path);let at=offset(&d.text,edit.range.start).unwrap();assert_eq!(d.text.as_bytes()[at],b'}');
+        let tostring=actions.iter().find(|a|a.title=="Generate toString()").unwrap();assert!(tostring.edits[0].1[0].text.contains("@java.lang.Override"));assert!(!tostring.edits[0].1[0].text.replace("\r\n","").contains('\n'));
+        let cached=parse_class("@Entity class Base { @Id Long leaked; }","/foreign/Base.java").unwrap();plugin.classes.insert("Base".into(),Some(cached));
+        for unknown in [
+            text.replace("@jakarta.persistence.Id", ""),
+            text.replace("Long value", "vendor.Long value"),
+            text.replace("Long value", "byte[] value"),
+            text.replace("class Example {", "class Example extends Base {"),
+            text.replace("class Example {", "class Example<T> {"),
+            text.replace("@jakarta.persistence.Id", "@jakarta.persistence.Id @jakarta.persistence.GeneratedValue"),
+            text.replace("String title;", "@jakarta.persistence.ManyToOne Object title;"),
+            text.replace("@jakarta.persistence.Entity", "@foreign.Entity"),
+        ] {d.text=unknown;d.version+=1;assert!(plugin.code_actions(&d,selection).iter().all(|a|!a.title.starts_with("Generate ")),"{}",d.text);}
+        assert!(host.requests().is_empty() && host.process_runs().is_empty());
+    }
+
 }

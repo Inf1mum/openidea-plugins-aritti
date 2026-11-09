@@ -39,7 +39,7 @@
   }
   #msg.ok { border-color: var(--openidea-success); }
 </style>
-<div id="wrap"><div id="box"><pre id="hl">{{highlighted}}</pre><textarea id="src" spellcheck="false" data-lang="{{lang}}" data-name="{{name}}" {{readonly}}>{{text}}</textarea></div></div>
+<div id="wrap"><div id="box"><pre id="hl">{{highlighted}}</pre><textarea id="src" spellcheck="false" data-lang="{{lang}}" data-name="{{name}}" data-callback="{{callback}}" {{readonly}}>{{text}}</textarea></div></div>
 <div id="msg"></div>
 {{nojs}}
 <script>
@@ -95,7 +95,7 @@
 
   msg.addEventListener("click", () => show(""));
 
-  const apply = () => openidea.postMessage("apply\n" + src.value);
+  const apply = () => openidea.postMessage("apply\n" + src.dataset.callback + "\n" + src.value);
 
   function saveToFile() {
     openidea

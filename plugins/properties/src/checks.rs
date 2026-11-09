@@ -89,13 +89,15 @@ pub struct Problem {
 pub fn lint(text: &str, props: &[Prop], settings: &Settings) -> Vec<Problem> {
     let mut problems = Vec::new();
 
-    let mut key_counts: HashMap<String, usize> = HashMap::new();
+    let mut key_counts: HashMap<Vec<u16>, usize> = HashMap::new();
     for p in props {
-        *key_counts.entry(p.unescaped_key(text)).or_default() += 1;
+        if let Some(key) = crate::props::key_identity(&text[p.key.clone()]) {
+            *key_counts.entry(key).or_default() += 1;
+        }
     }
 
     for p in props {
-        if key_counts[&p.unescaped_key(text)] > 1 {
+        if crate::props::key_identity(&text[p.key.clone()]).and_then(|key| key_counts.get(&key)).is_some_and(|count| *count > 1) {
             problems.push(Problem {
                 span: p.key.clone(),
                 severity: Severity::Error,
@@ -242,6 +244,15 @@ mod tests {
             ]
         );
         assert!(codes("ok=1\nescaped=\\\\u12\n", &settings).is_empty());
+    }
+    #[test]
+    fn duplicate_identity_is_lossless_utf16_not_replacement_characters() {
+        let settings = Settings::default();
+        let distinct = "\\uD800=one\n\\uD801=two\n�=replacement\n";
+        assert!(!codes(distinct, &settings).iter().any(|(code, _)| *code == "DuplicatePropertyKey"));
+        assert_eq!(codes("\\uD800=one\n\\uD800=two\n", &settings).iter().filter(|(code, _)| *code == "DuplicatePropertyKey").count(), 2);
+        assert_eq!(codes("\\uD83D\\uDE00=one\n😀=two\n", &settings).iter().filter(|(code, _)| *code == "DuplicatePropertyKey").count(), 2);
+        assert!(!codes("bad\\u12=one\nbad\\u12=two\n", &settings).iter().any(|(code, _)| *code == "DuplicatePropertyKey"));
     }
 
     #[test]

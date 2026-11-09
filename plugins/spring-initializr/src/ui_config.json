@@ -1,0 +1,13 @@
+{
+  "title": "Spring Initializr Launcher",
+  "views": {
+    "initializr": "Spring Initializr"
+  },
+  "actions": [],
+  "project_independent": true,
+  "project_bound_buttons": [
+    "cli",
+    "prepare-import",
+    "open-reviewed-import"
+  ]
+}

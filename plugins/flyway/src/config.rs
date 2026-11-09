@@ -79,7 +79,7 @@ fn toml_settings(text: &str) -> Vec<(String, String)> {
     pairs
 }
 
-fn strip_comment(line: &str) -> &str {
+pub(crate) fn strip_comment(line: &str) -> &str {
     let mut quote = None;
     for (at, c) in line.char_indices() {
         match (quote, c) {

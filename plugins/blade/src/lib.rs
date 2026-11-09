@@ -3,16 +3,14 @@
 //! the plugin's `syntax-provider`. Detection comes from `languages/blade.toml`.
 
 mod checks;
+mod hover;
+mod navigation;
 
 use std::ops::Range;
 
-use std::path::Path;
-
 use openidea_plugin::syntax::{Fold, FoldKind, Highlight, Symbol, SymbolKind, SyntaxProvider, Token};
 use openidea_plugin::text::position;
-use openidea_plugin::{
-    Context, Diagnostic, Error, Event, EventKind, Invocation, LogLevel, Plugin, Range as EditorRange, host, register_plugin,
-};
+use openidea_plugin::{Diagnostic, Error, Invocation, Plugin, Range as EditorRange, host, register_plugin};
 
 use checks::{Finding, UNPAIRED_DIRECTIVE, UNPAIRED_PARENTHESIS};
 
@@ -20,54 +18,26 @@ use checks::{Finding, UNPAIRED_DIRECTIVE, UNPAIRED_PARENTHESIS};
 pub struct Blade;
 
 impl Plugin for Blade {
-    fn activate(&mut self, _ctx: &Context) -> Result<(), Error> {
-        for kind in [EventKind::FileOpened, EventKind::FileSaved] {
-            if let Err(error) = host::subscribe(kind) {
-                host::log(LogLevel::Warn, &format!("Blade inspections need the {} event: {error}", kind.name()));
-            }
-        }
-
-        Ok(())
-    }
-
     fn run_command(&mut self, id: &str, _ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
         Err(Error::NotFound(format!("command {id}")))
     }
-
-    fn handle_events(&mut self, events: &[Event], _ctx: &Invocation) {
-        for event in events {
-            let (Event::FileOpened(path) | Event::FileSaved(path)) = event else { continue };
-            if !path.ends_with(".blade.php") {
-                continue;
-            }
-
-            inspect(path);
-        }
-    }
 }
 
-fn inspect(path: &str) {
-    let Some(project) = host::projects()
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|p| Some((p.root().ok()?, p)))
-        .filter(|(root, _)| Path::new(path).starts_with(root))
-        .max_by_key(|(root, _)| root.len())
-        .map(|(_, project)| project)
-    else {
-        return;
-    };
+impl openidea_plugin::diagnostics::DiagnosticsProvider for Blade {
+    fn diagnostics(&mut self, doc: &openidea_plugin::providers::Document) -> Vec<Diagnostic> {
+        if !doc.path.ends_with(".blade.php") {
+            return Vec::new();
+        }
+        let text = &doc.text;
 
-    let Ok(text) = project.read_file(path) else { return };
-    let diagnostics: Vec<Diagnostic> = enabled_findings(&text)
-        .iter()
-        .map(|f| Diagnostic {
-            code: Some(f.code.into()),
-            ..Diagnostic::new(EditorRange::new(position(&text, f.start), position(&text, f.end)), f.severity, &f.message)
-        })
-        .collect();
-
-    let _ = host::publish_diagnostics(path, &diagnostics);
+        enabled_findings(text)
+            .iter()
+            .map(|f| Diagnostic {
+                code: Some(f.code.into()),
+                ..Diagnostic::new(EditorRange::new(position(text, f.start), position(text, f.end)), f.severity, &f.message)
+            })
+            .collect()
+    }
 }
 
 fn enabled_findings(text: &str) -> Vec<Finding> {
@@ -98,11 +68,37 @@ impl SyntaxProvider for Blade {
     }
 }
 
-register_plugin!(Blade, syntax);
+register_plugin!(Blade, syntax, diagnostics, hover, providers);
 
 const PHP_KEYWORDS: &[&str] = &[
-    "as", "if", "else", "elseif", "for", "foreach", "while", "return", "new", "instanceof", "fn", "function", "use", "and",
-    "or", "xor", "echo", "match", "static", "isset", "empty", "list", "array", "clone", "print", "throw", "try", "catch",
+    "as",
+    "if",
+    "else",
+    "elseif",
+    "for",
+    "foreach",
+    "while",
+    "return",
+    "new",
+    "instanceof",
+    "fn",
+    "function",
+    "use",
+    "and",
+    "or",
+    "xor",
+    "echo",
+    "match",
+    "static",
+    "isset",
+    "empty",
+    "list",
+    "array",
+    "clone",
+    "print",
+    "throw",
+    "try",
+    "catch",
     "finally",
 ];
 const PHP_CONSTANTS: &[&str] = &["true", "false", "null", "TRUE", "FALSE", "NULL"];
@@ -150,11 +146,52 @@ const BLOCKS: &[(&str, &[&str])] = &[
 /// Directives that neither open nor close a block.
 // ponytail: only Laravel's own directives (and Livewire's) are known; custom ones from Blade::directive() stay plain text.
 const STANDALONE: &[&str] = &[
-    "else", "elseif", "elsecan", "elsecannot", "elsecanany", "extends", "yield", "parent", "include", "includeIf",
-    "includeWhen", "includeUnless", "includeFirst", "each", "stack", "continue", "break", "case", "default", "props",
-    "aware", "class", "style", "checked", "selected", "disabled", "readonly", "required", "csrf", "method", "json", "js",
-    "lang", "choice", "use", "inject", "vite", "viteReactRefresh", "dd", "dump", "livewire", "livewireStyles",
-    "livewireScripts", "livewireScriptConfig", "bool", "unlessenv",
+    "else",
+    "elseif",
+    "elsecan",
+    "elsecannot",
+    "elsecanany",
+    "extends",
+    "yield",
+    "parent",
+    "include",
+    "includeIf",
+    "includeWhen",
+    "includeUnless",
+    "includeFirst",
+    "each",
+    "stack",
+    "continue",
+    "break",
+    "case",
+    "default",
+    "props",
+    "aware",
+    "class",
+    "style",
+    "checked",
+    "selected",
+    "disabled",
+    "readonly",
+    "required",
+    "csrf",
+    "method",
+    "json",
+    "js",
+    "lang",
+    "choice",
+    "use",
+    "inject",
+    "vite",
+    "viteReactRefresh",
+    "dd",
+    "dump",
+    "livewire",
+    "livewireStyles",
+    "livewireScripts",
+    "livewireScriptConfig",
+    "bool",
+    "unlessenv",
 ];
 
 fn is_directive(name: &str) -> bool {
@@ -175,10 +212,42 @@ fn opens(name: &str, has_arguments: bool, argument_count: usize) -> Option<&'sta
     (!inline).then_some(closers)
 }
 
+/// A proved local capture role. Unknown values do not establish block ownership.
+fn directive_opens(text: &str, directive: &Directive) -> Result<Option<&'static [&'static str]>, ()> {
+    let name=directive.name.as_str();
+    if !matches!(name,"section"|"push"|"prepend") {
+        let count=directive.arguments.as_ref().map_or(0,|a|argument_count(text,a));
+        return Ok(opens(name,directive.arguments.is_some(),count));
+    }
+    let args=directive.arguments.as_ref().ok_or(())?;
+    let parts=argument_parts(text,args).ok_or(())?;
+    if first_string(text,args).is_none() || !(1..=2).contains(&parts.len()) {return Err(());}
+    let captures=if parts.len()==1 {true} else {
+        let part=&parts[1];let lexer=Lexer{text,bytes:text.as_bytes(),out:Lexed::default()};
+        let from=argument_trivia_end(&lexer,part.start,part.end).ok_or(())?;
+        let null_end=from+4;
+        if text.get(from..null_end).is_some_and(|s|s.eq_ignore_ascii_case("null"))
+            && argument_trivia_end(&lexer,null_end,part.end)==Some(part.end) {
+            if name=="section" {true} else {false}
+        } else {
+            if !matches!(lexer.bytes.get(from),Some(b'\''|b'"')) {return Err(());}
+            let end=lexer.argument_atom_end(from,part.end).map_err(|_|())?.ok_or(())?;
+            if argument_trivia_end(&lexer,end,part.end)!=Some(part.end) {return Err(());}
+            let body=text.get(from+1..end-1).ok_or(())?;
+            if body.contains('\\') || lexer.bytes[from]==b'"' && body.contains('$') {return Err(());}
+            name!="section" && body.is_empty()
+        }
+    };
+    Ok(captures.then(||BLOCKS.iter().find(|(n,_)|*n==name).unwrap().1))
+}
+
 /// Directives whose first string argument names something worth listing.
 fn symbol_kind(name: &str) -> Option<SymbolKind> {
     matches!(name, "section" | "push" | "pushOnce" | "prepend" | "prependOnce" | "fragment").then_some(SymbolKind::Field)
 }
+
+#[derive(Clone, Copy)]
+enum ArgumentFailure { Malformed, Opaque }
 
 #[derive(Debug, PartialEq, Eq)]
 struct Directive {
@@ -193,6 +262,9 @@ struct Lexed {
     tokens: Vec<Token>,
     directives: Vec<Directive>,
     comments: Vec<Range<usize>>,
+    // The remaining source crosses an unsupported PHP lexical state.
+    opaque_from: Option<usize>,
+    argument_scanned: usize,
 }
 
 impl Lexed {
@@ -216,6 +288,11 @@ fn is_identifier_start(b: u8) -> bool {
 fn is_identifier(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_'
 }
+
+// PHP LABEL accepts bytes >=0x80 in identifiers; do not truncate their UTF8
+// spelling or give a Unicode-suffixed variable the special $this role.
+fn is_php_identifier_start(byte: u8) -> bool {is_identifier_start(byte) || byte>=0x80}
+fn is_php_identifier(byte: u8) -> bool {is_identifier(byte) || byte>=0x80}
 
 fn lex(text: &str) -> Lexed {
     let mut lexer = Lexer { text, bytes: text.as_bytes(), out: Lexed::default() };
@@ -251,8 +328,8 @@ impl Lexer<'_> {
                 continue;
             }
 
-            let opens_element = self.bytes[i] == b'<'
-                && self.bytes.get(i + 1).is_some_and(|b| is_identifier_start(*b) || *b == b'/' || *b == b'!');
+            let opens_element =
+                self.bytes[i] == b'<' && self.bytes.get(i + 1).is_some_and(|b| is_identifier_start(*b) || *b == b'/' || *b == b'!');
             if opens_element {
                 i = self.element(i);
                 continue;
@@ -289,7 +366,9 @@ impl Lexer<'_> {
                 return i;
             } else {
                 let name_start = i;
-                while i < self.bytes.len() && !matches!(self.bytes[i], b' ' | b'\t' | b'\n' | b'\r' | b'=' | b'>' | b'/' | b'"' | b'\'' | b'{' | b'<') {
+                while i < self.bytes.len()
+                    && !matches!(self.bytes[i], b' ' | b'\t' | b'\n' | b'\r' | b'=' | b'>' | b'/' | b'"' | b'\'' | b'{' | b'<')
+                {
                     i += 1;
                 }
                 i = i.max(name_start + 1);
@@ -367,14 +446,48 @@ impl Lexer<'_> {
         let body = start + open_length;
         self.out.push(start..body, Highlight::Punctuation);
 
-        let Some(end) = self.find(body, "?>") else {
-            self.php(body, self.bytes.len());
-            return self.bytes.len();
+        let end=match self.php_code_close(body) {
+            Ok(Some(end))=>end,
+            state=> {
+                if state.is_err() {self.out.opaque_from=Some(start);}
+                self.php(body,self.bytes.len());return self.bytes.len();
+            }
         };
 
         self.php(body, end);
         self.out.push(end..end + 2, Highlight::Punctuation);
         end + 2
+    }
+
+    // A PHP closing tag is active in scripting/line-comment state, not in
+    // quoted strings or block comments. Unknown complex string states stay PHP.
+    fn php_code_close(&self, from: usize) -> Result<Option<usize>,ArgumentFailure> {
+        let mut i=from;
+        while i<self.bytes.len() {
+            if self.at(i,"?>") {return Ok(Some(i));}
+            if matches!(self.bytes[i],b'\''|b'"'|b'`') {
+                i=self.php_code_string_end(i).ok_or(ArgumentFailure::Opaque)?;
+            } else if self.at(i,"/*") {
+                i=self.find(i+2,"*/").ok_or(ArgumentFailure::Opaque)?+2;
+            } else if self.at(i,"//") || self.bytes[i]==b'#' && self.bytes.get(i+1)!=Some(&b'[') {
+                i+=if self.bytes[i]==b'#' {1} else {2};
+                while i<self.bytes.len() && !matches!(self.bytes[i],b'\r'|b'\n') && !self.at(i,"?>") {i+=1;}
+            } else if self.at(i,"<<<") {
+                // No guessed heredoc/nowdoc terminator or interpolated PHP parser.
+                return Err(ArgumentFailure::Opaque);
+            } else {i+=1;}
+        }
+        Ok(None)
+    }
+    fn php_code_string_end(&self, from: usize) -> Option<usize> {
+        let quote=self.bytes[from];let mut i=from+1;
+        while i<self.bytes.len() {
+            if self.bytes[i]==b'\\' {i+=2;continue;}
+            if self.bytes[i]==quote {return Some(i+1);}
+            if quote!=b'\'' && (self.at(i,"{$") || self.at(i,"${")) {return None;}
+            i+=1;
+        }
+        None
     }
 
     fn directive(&mut self, at: usize) -> Option<usize> {
@@ -405,8 +518,13 @@ impl Lexer<'_> {
         let mut arguments = None;
         let mut end = name_end;
         if self.bytes.get(open) == Some(&b'(') {
-            let close = self.closing_parenthesis(open);
-            let body_end = close.unwrap_or_else(|| self.line_end(open));
+            let scanned=self.closing_parenthesis(open);
+            let close=scanned.ok();
+            if matches!(scanned,Err(ArgumentFailure::Opaque)) {self.out.opaque_from=Some(at);}
+            let body_end=close.unwrap_or_else(||match scanned {
+                Err(ArgumentFailure::Opaque)=>self.bytes.len(),
+                _=>self.line_end(open),
+            });
 
             self.out.push(open..open + 1, Highlight::Punctuation);
             self.php(open + 1, body_end);
@@ -425,7 +543,10 @@ impl Lexer<'_> {
             return Some(self.find_directive(end, "endverbatim").unwrap_or(self.bytes.len()));
         }
 
-        if name == "php" && !has_arguments && let Some(close) = self.find_directive(end, "endphp") {
+        if name == "php"
+            && !has_arguments
+            && let Some(close) = self.find_directive(end, "endphp")
+        {
             self.php(end, close);
             return Some(close);
         }
@@ -447,27 +568,51 @@ impl Lexer<'_> {
         None
     }
 
-    /// The `)` closing the `(` at `open`, skipping strings.
-    fn closing_parenthesis(&self, open: usize) -> Option<usize> {
-        let mut depth = 0;
-        let mut i = open;
-
-        while i < self.bytes.len() {
-            match self.bytes[i] {
-                b'\'' | b'"' => i = self.string_end(i) - 1,
-                b'(' => depth += 1,
-                b')' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        return Some(i);
-                    }
-                }
-                _ => {}
+    // PHP comments/strings cannot supply argument punctuation or Blade tokens.
+    fn argument_atom_end(&self, at: usize, limit: usize) -> Result<Option<usize>,ArgumentFailure> {
+        let end=if matches!(self.bytes[at],b'\''|b'"'|b'`') {
+            Some(self.php_code_string_end(at).ok_or(ArgumentFailure::Opaque)?)
+        } else if self.at(at,"/*") {
+            Some(self.find(at+2,"*/").ok_or(ArgumentFailure::Opaque)?+2)
+        } else if self.at(at,"//") || self.bytes[at]==b'#' && self.bytes.get(at+1)!=Some(&b'[') {
+            let mut end=at+if self.bytes[at]==b'#' {1} else {2};
+            while end<limit && !matches!(self.bytes[end],b'\r'|b'\n') {
+                if self.at(end,"?>") {return Err(ArgumentFailure::Opaque);}
+                end+=1;
             }
-            i += 1;
+            Some(end)
+        } else if self.at(at,"<<<") || self.at(at,"?>") {
+            return Err(ArgumentFailure::Opaque);
+        } else {None};
+        if end.is_some_and(|end|end>limit) {return Err(ArgumentFailure::Opaque);}
+        Ok(end)
+    }
+    /// The real balanced argument close, ignoring strings and PHP comments.
+    fn closing_parenthesis(&mut self, open: usize) -> Result<usize,ArgumentFailure> {
+        let mut stack=Vec::new();let mut i=open;
+        // Recovery can revisit the remaining suffix for each malformed opener.
+        // Share a linear scan budget and make exhaustion an opaque boundary.
+        let limit=self.bytes.len().saturating_mul(8);
+        while i<self.bytes.len() {
+            if self.out.argument_scanned>=limit {return Err(ArgumentFailure::Opaque);}
+            if let Some(end)=self.argument_atom_end(i,self.bytes.len())? {
+                self.out.argument_scanned=self.out.argument_scanned.saturating_add(end-i);
+                if self.out.argument_scanned>limit {return Err(ArgumentFailure::Opaque);}
+                i=end;continue;
+            }
+            self.out.argument_scanned+=1;
+            match self.bytes[i] {
+                b'('|b'['|b'{'=>stack.push(self.bytes[i]),
+                close @ (b')'|b']'|b'}')=> {
+                    let expected=match close {b')'=>b'(',b']'=>b'[',_=>b'{'};
+                    if stack.pop()!=Some(expected) {return Err(ArgumentFailure::Malformed);}
+                    if stack.is_empty() {return Ok(i);}
+                }
+                _=>{}
+            }
+            i+=1;
         }
-
-        None
+        Err(ArgumentFailure::Malformed)
     }
 
     /// The index after the string literal whose opening quote is at `start`.
@@ -500,7 +645,7 @@ impl Lexer<'_> {
                 self.out.push(token_start..i, Highlight::String);
             } else if b == b'$' {
                 i += 1;
-                while i < end && is_identifier(self.bytes[i]) {
+                while i < end && is_php_identifier(self.bytes[i]) {
                     i += 1;
                 }
                 let kind = if &self.text[token_start..i] == "$this" { Highlight::SelfVariable } else { Highlight::Variable };
@@ -510,8 +655,8 @@ impl Lexer<'_> {
                     i += 1;
                 }
                 self.out.push(token_start..i, Highlight::Number);
-            } else if is_identifier_start(b) || b == b'\\' {
-                while i < end && (is_identifier(self.bytes[i]) || self.bytes[i] == b'\\') {
+            } else if is_php_identifier_start(b) || b == b'\\' {
+                while i < end && (is_php_identifier(self.bytes[i]) || self.bytes[i] == b'\\') {
                     i += 1;
                 }
                 let kind = self.php_word_kind(start, token_start, i, end);
@@ -563,40 +708,52 @@ fn line_of(text: &str, at: usize) -> u32 {
     text[..at].bytes().filter(|b| *b == b'\n').count() as u32
 }
 
-/// The contents of the first string literal of `arguments`.
-fn first_string(text: &str, arguments: &Range<usize>) -> Option<Range<usize>> {
-    let inside = &text[arguments.clone()];
-    let open = inside.find(['\'', '"'])?;
-    let quote = inside.as_bytes()[open];
-    let length = inside[open + 1..].bytes().position(|b| b == quote)?;
-    let start = arguments.start + open + 1;
-    Some(start..start + length)
-}
-
-/// Commas outside strings and brackets, plus one.
-fn argument_count(text: &str, arguments: &Range<usize>) -> usize {
-    let bytes = text.as_bytes();
-    let mut depth = 0;
-    let mut quote: Option<u8> = None;
-    let mut count = 1;
-    let mut i = arguments.start;
-
-    while i < arguments.end {
-        let b = bytes[i];
-        match quote {
-            Some(_) if b == b'\\' => i += 1,
-            Some(q) if b == q => quote = None,
-            Some(_) => {}
-            None if b == b'\'' || b == b'"' => quote = Some(b),
-            None if b"([{".contains(&b) => depth += 1,
-            None if b")]}".contains(&b) => depth -= 1,
-            None if b == b',' && depth == 0 => count += 1,
-            None => {}
+// Split only top-level commas; PHP comments/strings cannot invent argument roles.
+fn argument_parts(text: &str, arguments: &Range<usize>) -> Option<Vec<Range<usize>>> {
+    let lexer=Lexer{text,bytes:text.as_bytes(),out:Lexed::default()};
+    let mut parts=Vec::new();let mut stack=Vec::new();let mut from=arguments.start;let mut i=from;
+    while i<arguments.end {
+        if let Some(end)=lexer.argument_atom_end(i,arguments.end).ok()? {i=end;continue;}
+        match lexer.bytes[i] {
+            b'('|b'['|b'{'=>stack.push(lexer.bytes[i]),
+            close @ (b')'|b']'|b'}')=> {
+                let expected=match close {b')'=>b'(',b']'=>b'[',_=>b'{'};
+                if stack.pop()!=Some(expected) {return None;}
+            }
+            b',' if stack.is_empty()=>{parts.push(from..i);from=i+1;}
+            _=>{}
         }
-        i += 1;
+        i+=1;
     }
-
-    count
+    if !stack.is_empty() {return None;}
+    parts.push(from..arguments.end);Some(parts)
+}
+fn argument_trivia_end(lexer: &Lexer<'_>, mut at: usize, limit: usize) -> Option<usize> {
+    while at<limit {
+        if lexer.bytes[at].is_ascii_whitespace() {at+=1;continue;}
+        if lexer.at(at,"/*") || lexer.at(at,"//") || lexer.bytes[at]==b'#' && lexer.bytes.get(at+1)!=Some(&b'[') {
+            at=lexer.argument_atom_end(at,limit).ok()??;continue;
+        }
+        break;
+    }
+    Some(at)
+}
+/// One complete ordinary literal first argument, with an exact source span.
+fn first_string(text: &str, arguments: &Range<usize>) -> Option<Range<usize>> {
+    let parts=argument_parts(text,arguments)?;let first=parts.first()?;
+    let lexer=Lexer{text,bytes:text.as_bytes(),out:Lexed::default()};
+    let from=argument_trivia_end(&lexer,first.start,first.end)?;
+    if !matches!(lexer.bytes.get(from),Some(b'\''|b'"')) {return None;}
+    let end=lexer.argument_atom_end(from,first.end).ok()??;
+    if argument_trivia_end(&lexer,end,first.end)?!=first.end {return None;}
+    let body=text.get(from+1..end-1)?;
+    if body.is_empty() || body.len()>256 || body.contains('\\') || body.chars().any(char::is_control)
+        || lexer.bytes[from]==b'"' && body.contains('$') {return None;}
+    Some(from+1..end-1)
+}
+/// Commas outside PHP strings/comments/brackets, plus one.
+fn argument_count(text: &str, arguments: &Range<usize>) -> usize {
+    argument_parts(text,arguments).map_or(0,|parts|parts.len())
 }
 
 struct Open {
@@ -614,6 +771,7 @@ fn structure(text: &str) -> (Vec<Symbol>, Vec<Fold>) {
 
     for directive in &lexed.directives {
         let name = directive.name.as_str();
+        if directive.arguments.as_ref().is_some_and(|arguments|directive.range.end<=arguments.end) {open.clear();continue;}
 
         if let Some(at) = open.iter().rposition(|o| o.closers.contains(&name)) {
             let opened = open.remove(at);
@@ -629,8 +787,7 @@ fn structure(text: &str) -> (Vec<Symbol>, Vec<Fold>) {
             continue;
         }
 
-        let has_arguments = directive.arguments.is_some();
-        let count = directive.arguments.as_ref().map_or(0, |a| argument_count(text, a));
+        let Ok(role)=directive_opens(text,directive) else {break;};
         let symbol = symbol_kind(name).zip(directive.arguments.as_ref().and_then(|a| first_string(text, a))).map(|(kind, name_range)| {
             let parent = open.iter().rev().find_map(|o| o.symbol);
             symbols.push(Symbol {
@@ -644,7 +801,7 @@ fn structure(text: &str) -> (Vec<Symbol>, Vec<Fold>) {
             symbols.len() - 1
         });
 
-        if let Some(closers) = opens(name, has_arguments, count) {
+        if let Some(closers) = role {
             open.push(Open { closers, start: directive.range.start, symbol });
         }
     }
@@ -661,6 +818,7 @@ fn structure(text: &str) -> (Vec<Symbol>, Vec<Fold>) {
 
 #[cfg(test)]
 mod tests {
+    use openidea_plugin::Event;
     use openidea_plugin::mock::MockHost;
 
     use super::*;
@@ -673,15 +831,92 @@ mod tests {
     }
 
     fn publish(host: &MockHost, event: Event) {
-        Blade.handle_events(&[event], &host.invocation());
+        Blade.handle_events(std::slice::from_ref(&event), &host.invocation());
+
+        if let Event::FileOpened(path) | Event::FileSaved(path) = event {
+            let project = host::project_of(&path).unwrap();
+            let text = project.read_file(&path).unwrap();
+            host.open_editor(&path, "blade", &text, &[]);
+            host.refresh_diagnostics(&mut Blade);
+        }
     }
 
+    #[test]
+    fn registered_php_highlights_keep_complete_unicode_identifier_ranges() {
+        let _h=openidea_plugin::mock::MockHost::install().with_capabilities(&[]);
+        for source in ["😀 {{ $café }}","@if($café) yes @endif","<?php $café=1; ?>","{{ $🦀 }}"] {
+            let tokens=Blade.highlights("blade",source);
+            assert!(tokens.iter().all(|token|source.is_char_boundary(token.range.start) && source.is_char_boundary(token.range.end)),"{source}");
+            let variable=tokens.iter().find(|token|token.kind==Highlight::Variable).unwrap();
+            let expected=if source.contains("$🦀") {"$🦀"} else {"$café"};
+            assert_eq!(&source[variable.range.clone()],expected);
+        }
+    }
+    #[test]
+    fn registered_php_function_and_this_prefix_use_complete_unicode_source_spelling() {
+        let _h=openidea_plugin::mock::MockHost::install().with_capabilities(&[]);
+        let source="😀 {{ café($thisé) }}";let tokens=Blade.highlights("blade",source);
+        let function=tokens.iter().find(|token|token.kind==Highlight::FunctionCall).expect("whole PHP function spelling");
+        assert_eq!(source.get(function.range.clone()),Some("café"));
+        let variable=tokens.iter().find(|token|token.kind==Highlight::Variable).expect("this prefix is not the special variable");
+        assert_eq!(source.get(variable.range.clone()),Some("$thisé"));
+        assert!(tokens.iter().all(|token|token.kind!=Highlight::SelfVariable));
+    }
+    #[test]
+    fn registered_argument_facts_keep_exact_literals_and_refuse_dynamic_or_opaque_names() {
+        let _h=openidea_plugin::mock::MockHost::install().with_capabilities(&[]);
+        let source="😀 @section(/* 'fake', ) */ 'réal')\r\n@endsection";
+        let symbols=Blade.outline("blade",source);assert_eq!(symbols.len(),1);assert_eq!(symbols[0].name,"réal");
+        assert_eq!(&source[symbols[0].name_range.clone()],"réal");
+        for source in [
+            "@section($name ?? 'fallback') @endsection",
+            "@section('prefix'.$name) @endsection",
+            "@section(\"$name\") @endsection",
+            "@section('escaped\\'name') @endsection",
+        ] {assert!(Blade.outline("blade",source).is_empty(),"{source}");}
+        for source in ["@if([$x)\n@endif","@if({$x])\n@endif"] {
+            let doc=openidea_plugin::providers::Document{path:"/project/view.blade.php".into(),language:"blade".into(),version:8,text:source.into()};
+            assert!(openidea_plugin::providers::Providers::definition(&mut Blade,&doc,position(source,source.find("@endif").unwrap()+2)).is_empty());
+            assert!(openidea_plugin::hover::HoverProvider::hover(&mut Blade,&doc,openidea_plugin::Position::new(0,1)).is_none());
+        }
+        for source in [
+            "@section(<<<TXT\n@if($fake)\nTXT;\n)\n@endsection",
+            "@if($real) <?php $x=<<<TXT\n?> @if($fake)\nTXT;\n?> @endif",
+        ] {
+            let doc=openidea_plugin::providers::Document{path:"/project/view.blade.php".into(),language:"blade".into(),version:8,text:source.into()};
+            assert!(openidea_plugin::hover::HoverProvider::hover(&mut Blade,&doc,position(source,source.find("@if($fake)").unwrap()+2)).is_none());
+            assert!(openidea_plugin::diagnostics::DiagnosticsProvider::diagnostics(&mut Blade,&doc).is_empty());
+            assert!(Blade.outline("blade",source).is_empty());
+        }
+        let source="@section( // 'fake', )\n'real'\n)\n@endsection";
+        assert_eq!(Blade.outline("blade",source)[0].name,"real");
+    }
+    #[test]
+    fn registered_diagnostics_ignore_parenthesis_and_directive_text_in_argument_comment() {
+        let _h=openidea_plugin::mock::MockHost::install().with_capabilities(&[]);
+        let doc=openidea_plugin::providers::Document{path:"/project/view.blade.php".into(),language:"blade".into(),version:7,text:"@if(/* ) @if($fake) */ $real) @endif".into()};
+        assert!(openidea_plugin::diagnostics::DiagnosticsProvider::diagnostics(&mut Blade,&doc).is_empty());
+    }
+    #[test]
+    fn registered_outline_requires_actual_first_literal_argument_not_comment_text() {
+        let _h=openidea_plugin::mock::MockHost::install().with_capabilities(&[]);
+        let source="@section(/* 'fake' */ 'real')\n@endsection";
+        let symbols=Blade.outline("blade",source);assert_eq!(symbols.len(),1);assert_eq!(symbols[0].name,"real");
+    }
+    #[test]
+    fn registered_diagnostics_ignore_directive_text_after_quoted_php_close() {
+        let h=openidea_plugin::mock::MockHost::install().with_capabilities(&[]);
+        let source="<?php $x='?> @if($fake)'; ?> @if($real) @endif";
+        let doc=openidea_plugin::providers::Document{path:"/project/view.blade.php".into(),language:"blade".into(),version:7,text:source.into()};
+        assert!(openidea_plugin::diagnostics::DiagnosticsProvider::diagnostics(&mut Blade,&doc).is_empty());
+        assert!(h.requests().is_empty() && h.process_runs().is_empty());
+    }
     #[test]
     fn publishes_findings_for_a_blade_file() {
         let host = project("v.blade.php", "<p>é</p>\n@endif\n");
         publish(&host, Event::FileOpened("/p/v.blade.php".into()));
 
-        let published = &host.diagnostics()["/p/v.blade.php"];
+        let published = &host.provider_diagnostics()["/p/v.blade.php"];
         assert_eq!(published.len(), 1);
         assert_eq!(published[0].code.as_deref(), Some("unpaired-directive"));
         assert_eq!(published[0].range.start.line, 1);
@@ -691,18 +926,19 @@ mod tests {
     fn fixed_file_publishes_empty_list() {
         let host = project("v.blade.php", "@endif\n");
         publish(&host, Event::FileOpened("/p/v.blade.php".into()));
-        assert_eq!(host.diagnostics().len(), 1);
+        assert_eq!(host.provider_diagnostics().len(), 1);
 
         host.add_file("v.blade.php", "@if($a)\n@endif\n");
+        host.open_editor("/p/v.blade.php", "blade", "@if($a)\n@endif\n", &[]);
         publish(&host, Event::FileSaved("/p/v.blade.php".into()));
-        assert!(host.diagnostics().is_empty());
+        assert!(host.provider_diagnostics().is_empty());
     }
 
     #[test]
     fn non_blade_files_are_ignored() {
         let host = project("v.php", "@endif\n");
         publish(&host, Event::FileOpened("/p/v.php".into()));
-        assert!(host.diagnostics().is_empty());
+        assert!(host.provider_diagnostics().is_empty());
     }
 
     #[test]
@@ -710,19 +946,23 @@ mod tests {
         let host = project("v.blade.php", "@endif\n@if(\n");
         host.set_setting("checkDirectivePairs", "false");
         publish(&host, Event::FileOpened("/p/v.blade.php".into()));
-        let codes: Vec<_> = host.diagnostics()["/p/v.blade.php"].iter().map(|d| d.code.clone().unwrap()).collect();
+        let codes: Vec<_> = host.provider_diagnostics()["/p/v.blade.php"].iter().map(|d| d.code.clone().unwrap()).collect();
         assert_eq!(codes, ["unpaired-parenthesis-in-string"]);
 
         host.set_setting("checkParentheses", "false");
         publish(&host, Event::FileOpened("/p/v.blade.php".into()));
-        assert!(host.diagnostics().is_empty());
+        assert!(host.provider_diagnostics().is_empty());
     }
 
     #[test]
-    fn denied_events_log_a_warning_and_still_activate() {
+    fn current_document_diagnostics_work_without_file_events() {
         let host = MockHost::install().with_capabilities(&["project.read"]);
-        assert!(Blade.activate(&host.context("aritti.blade")).is_ok());
-        assert!(host.logs().iter().any(|(level, _)| *level == LogLevel::Warn));
+        let mut plugin = Blade;
+        assert!(plugin.activate(&host.context("aritti.blade")).is_ok());
+        let doc = openidea_plugin::providers::Document { path: "/p/test.blade.php".into(), language: "blade".into(), version: 7, text: "@endif".into() };
+        assert!(!openidea_plugin::diagnostics::DiagnosticsProvider::diagnostics(&mut plugin, &doc).is_empty());
+        let fixed = openidea_plugin::providers::Document { text: String::new(), version: 8, ..doc };
+        assert!(openidea_plugin::diagnostics::DiagnosticsProvider::diagnostics(&mut plugin, &fixed).is_empty());
     }
 
     fn kinds(text: &str) -> Vec<(&str, &'static str)> {
@@ -811,11 +1051,7 @@ mod tests {
         let outline: Vec<_> = symbols.iter().map(|s| (s.name.as_str(), s.kind, s.parent)).collect();
         assert_eq!(
             outline,
-            [
-                ("content", SymbolKind::Field, None),
-                ("scripts", SymbolKind::Field, Some(0)),
-                ("title", SymbolKind::Field, None)
-            ]
+            [("content", SymbolKind::Field, None), ("scripts", SymbolKind::Field, Some(0)), ("title", SymbolKind::Field, None)]
         );
         assert!(text[symbols[0].range.clone()].starts_with("@section('content')"));
         assert!(text[symbols[0].range.clone()].ends_with("@endsection"));
@@ -846,4 +1082,69 @@ mod tests {
             structure(prefix);
         }
     }
+}
+
+#[cfg(test)]
+mod form_role_repro {
+ use super::*;
+ fn registered_quiet(source:&str) {
+  let _host=openidea_plugin::mock::MockHost::install().with_capabilities(&[]);
+  let doc=openidea_plugin::providers::Document{path:"/p/view.blade.php".into(),language:"blade".into(),version:1,text:source.into()};
+  let diagnostics=openidea_plugin::diagnostics::DiagnosticsProvider::diagnostics(&mut Blade,&doc);
+  assert!(diagnostics.is_empty(), "{source}: {diagnostics:?}");
+ }
+ #[test] fn registered_section_literal_null_captures(){registered_quiet("@section('title', null)\nbody\n@endsection");}
+ #[test] fn registered_push_literal_content_is_inline(){registered_quiet("@push('scripts', 'asset')");}
+ #[test] fn registered_prepend_literal_content_is_inline(){registered_quiet("@prepend('scripts', 'asset')");}
+ #[test] fn registered_unknown_content_has_no_guessed_absence_or_navigation(){
+  for source in ["@section('title', $content) @endsection", "@push('s', $content) @endpush", "@prepend('s', ...$contents) @endprepend", "@section(section: 's', content: 'x') @endsection"] {
+   registered_quiet(source);
+   let doc=openidea_plugin::providers::Document{path:"/p/view.blade.php".into(),language:"blade".into(),version:1,text:source.into()};
+   let at=source.rfind('@').unwrap()+2;
+   assert!(openidea_plugin::providers::Providers::definition(&mut Blade,&doc,openidea_plugin::text::position(source,at)).is_empty());
+   assert!(structure(source).1.is_empty());
+  }
+ }
+ #[test] fn exact_literal_roles_share_navigation_and_structure(){
+  let source="😀 @section('s', /* content */ NULL)\nbody\n@endsection";
+  registered_quiet(source);
+  let doc=openidea_plugin::providers::Document{path:"/p/view.blade.php".into(),language:"blade".into(),version:1,text:source.into()};
+  let links=openidea_plugin::providers::Providers::definition(&mut Blade,&doc,openidea_plugin::text::position(source,source.rfind('@').unwrap()+2));
+  assert_eq!(links.len(),1);assert_eq!(links[0].range.start.character,3);
+  assert_eq!(structure(source).1.len(),1);
+  for source in ["@push('s', '')\nbody\n@endpush","@prepend('s', /* empty */ \"\")\nbody\n@endprepend","@section('s', '')"]{registered_quiet(source);}
+ }
+
+ #[test] fn registered_hover_uses_same_literal_role_and_unknown_boundary(){
+  use openidea_plugin::hover::HoverProvider;
+  for (source,expected,forbidden) in [
+   ("@section('s', null)","Block form","Inline form"),
+   ("@push('s', 'x')","Inline form","Block form"),
+   ("@prepend('s', '')","Block form","Inline form"),
+   ("@section('s', $content)","Capture role is unknown","Inline form"),
+  ] {
+   let _h=openidea_plugin::mock::MockHost::install().with_capabilities(&[]);
+   let doc=openidea_plugin::hover::Document{path:"/p/view.blade.php".into(),language:"blade".into(),version:1,text:source.into()};
+   let result=Blade.hover(&doc,openidea_plugin::Position::new(0,2)).unwrap();
+   let rendered=format!("{result:?}"); assert!(rendered.contains(expected),"{rendered}");assert!(!rendered.contains(forbidden),"{rendered}");
+  }
+ }
+
+ #[test] fn registered_malformed_argument_recovery_keeps_uncertain_suffix_bounded(){
+  let _h=openidea_plugin::mock::MockHost::install().with_capabilities(&[]);
+  let source=format!("{}@if($tail) @endif", "@if(\n".repeat(4000));
+  let doc=openidea_plugin::providers::Document{path:"/p/view.blade.php".into(),language:"blade".into(),version:1,text:source.clone()};
+  let diagnostics=openidea_plugin::diagnostics::DiagnosticsProvider::diagnostics(&mut Blade,&doc);
+  assert!(!diagnostics.is_empty() && diagnostics.len()<64,"unknown suffix must not flood absence facts");
+  assert!(openidea_plugin::providers::Providers::definition(&mut Blade,&doc,openidea_plugin::text::position(&source,source.rfind("@endif").unwrap()+2)).is_empty());
+ }
+ #[test] fn registered_large_balanced_template_preserves_successor_navigation(){
+  let _h=openidea_plugin::mock::MockHost::install().with_capabilities(&[]);
+  let source=format!("{}😀 @if($tail)\nbody\n@endif", "@if(/* ) */ $ok) @endif\n".repeat(1500));
+  let doc=openidea_plugin::providers::Document{path:"/p/view.blade.php".into(),language:"blade".into(),version:1,text:source.clone()};
+  assert!(openidea_plugin::diagnostics::DiagnosticsProvider::diagnostics(&mut Blade,&doc).is_empty());
+  let found=openidea_plugin::providers::Providers::definition(&mut Blade,&doc,openidea_plugin::text::position(&source,source.rfind("@endif").unwrap()+2));
+  assert_eq!(found.len(),1);assert_eq!(found[0].range.start,openidea_plugin::text::position(&source,source.find("@if($tail)").unwrap()));
+ }
+
 }

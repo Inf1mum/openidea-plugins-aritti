@@ -19,8 +19,9 @@ plugin supplies the highlighting: keys, values, comments, `export`, the `=` /
 
 ## Inspections
 
-Problems are published when a `.env` file is opened or saved, and again each
-time the editor asks for code actions, so they follow typing between saves.
+Problems are returned by the registered current-document diagnostics provider.
+The host versions these results against the editor text; code actions remain a
+separate request. Cross-file facts still follow the index lifecycle described below.
 
 | Check | Severity | Quick fix |
 |---|---|---|
@@ -56,11 +57,11 @@ the other variants.
   the declarations in the other `.env.*` files.
 - Go to Declaration on a key where a `.env` file declares it: its usages, in
   code and in `${KEY}` of `.env` files.
-- After you edit a key in a `.env` file without saving, ⌥⏎ on that line
-  offers **Rename usages of OLD to NEW**. It rewrites every indexed usage of
-  the old key, in code and in `${…}`. It only appears when the value, the
-  number of keys and the line are unchanged from the saved file, and the old
-  key is gone from it.
+- After you edit a literal key without saving, an explicit lazy FileAction may offer
+  **Update this file's literal ${OLD} references to ${NEW} (source only)**.
+  It previews and confirms only current-file interpolation token replacements.
+  This replaces the old unversioned, project-wide guessed rename quick fix.
+  Cached same-line/value evidence is a suggestion, not proof of semantic ownership.
 
 ## Where keys are found
 
@@ -102,7 +103,9 @@ plus `phpunit.xml*`.
 
 ## Settings
 
-Settings › Plugins › .env files:
+Settings › Plugins › .env files groups the existing options under **Completion**
+and **Value visibility**, with descriptions of their scope. Existing keys/defaults
+and project overrides are preserved:
 
 | Key | Default | Effect |
 |---|---|---|
@@ -130,15 +133,13 @@ Settings › Plugins › .env files:
   anchored block they point to are skipped, never turned into keys). Keys in Dockerfiles and compose files are
   declarations only: `$KEY` there isn't a usage, and Go to Declaration doesn't
   work from those files.
-- Rename isn't a refactoring. The quick fix above covers it after the edit,
-  using the usages known to the index.
+- Semantic Rename/host Find Usages indexing remains withheld. Lexical matches across
+  env variants, Compose services, Docker build/run stages and code do not establish
+  one complete runtime owner set. Navigation still returns source candidates.
 - Lines longer than 2,000 bytes (minified code) aren't searched for usages.
-- When the editor gets an empty code action answer for a `.env` file, it can
-  stop asking for 15 s. Problems shown while typing may lag behind until the
-  next save or request.
 
-`src/lib.rs` registers the component by hand: `register_plugin!` has no arm
-for syntax with providers.
+`src/lib.rs` uses the API 1.3 registration macro for syntax, providers,
+diagnostics, hover and semantic tokens.
 
 The original plugin is MIT, copyright 2017 Adel Fayzrakhmanov (see `LICENSE`).
 
@@ -147,3 +148,86 @@ cargo test
 openidea-plugin build
 openidea-plugin link
 ```
+
+
+### Cached declaration hover
+
+Hover on a declared `.env` key, `${VARIABLE}` reference or an already-supported
+code reference shows its known declaration paths and one-based line/column,
+classified as env, Dockerfile or Compose sources. Multiple declarations are
+explicit candidates: hover does not infer runtime precedence. Current `.env`
+buffer declarations replace that file's cached entries, including unsaved edits.
+`showValues` controls values in both completion and hover (existing default: true).
+When false, hover includes only keys/source metadata and a hidden-values note.
+This setting hides output; it does not remove values from the existing index or
+hide values already visible in source files.
+
+Hover never warms the index, probes env files, runs a process or accesses the
+network. It only looks up the current project identity, reads an already-built
+cache, and parses the current `.env` text. Cold code-reference requests return no
+hover until activation/events have populated the cache. Cross-file values can
+lag edits/deletions until the existing open/save event indexing runs. Cache
+incompleteness and bounded results are labelled; runtime environment values and
+interpolation are not evaluated.
+
+Limits: current documents up to 256 KiB, code lines up to 2,000 bytes, keys up to 256 bytes, the first
+8,192 cached declarations and up to 32 matching sources; displayed keys/values
+are capped at 256 characters and source paths at 1,024. The complete response is
+capped at 16 KiB of UTF-8, including Markdown fences and provenance notes; whole
+entries are omitted with a bounded-results label, rather than clipped inside a
+value/path. Markdown values are code
+spans with control characters escaped. Native settings use explicit groups and
+output-visibility descriptions; no index lifecycle or new scalar option is introduced. Original 263.7307.209 settings evidence exposes store/complete-values
+and hidden-value controls; this bounded source hover reuses our existing
+`showValues` output policy rather than claiming full original documentation or
+runtime-resolution parity. Desktop hover has not been verified for this change.
+
+## P04.2 ownership audit and atomic current-file source update
+
+Original9525 `DotEnvKeySymbolRenameUsageSearcher` checks a DotEnvKeySymbol target,
+keeps its symbol pointer and constructs case-sensitive SearchService word queries
+for code/string symbol usages. That contract is not reproduced by treating all
+project-wide equal strings as rename tokens. The previous after-edit eager rewrite
+has therefore been removed; no automatic DocumentIndexer/host Rename graph is enabled.
+There is no matching new-action screenshot or native desktop acceptance receipt.
+
+The supported replacement is deliberately explicit: update only current-file nested
+`${OLD}` lexer tokens after a suggested key edit, through API1.3 atomic FileActions.
+It requires cached prior declaration evidence, the same value/key count/source line,
+one current NEW declaration, no remaining OLD declaration, and literal ASCII names
+of at most128 bytes. It uses no provider file discovery and writes no other env,
+Compose, Docker or language file. Values never enter the confirmation; it lists
+only exact target/key-token ranges and replacement names. It is not runtime-aware
+Rename or proof that these interpolation uses resolve to the edited declaration.
+
+The action is single-use and revalidates exact invoking path/language/version/text,
+innermost currently open project root, cached suggestion and current unsaved text
+before and after exact confirmation. Cancellation returns no edit. No shell or
+direct writes occur. Bounds:12KiB text,256 declarations,8192 cached declarations,
+128 token replacements and eight pending actions; the shared16KiB exact-preview
+bound rejects oversized confirmations. CRLF and other source text are preserved.
+[The index-anchor/scope audit](ANCHOR_AUDIT.md) enumerates actual internal cache
+versus exported APIs and the missing proof for each source family.
+Import/loader/Compose-service/stage/language ownership, complete cross-file usages
+and safe semantic Rename remain P04.2 gaps.
+
+### Built-in dotenv variable tokens (P04.1)
+
+The existing versioned DiagnosticsProvider remains the single diagnostic owner;
+current-source checks and known cached declarations do not trigger provider
+discovery, network or duplicate manual publication. Unknown cache completeness
+continues to suppress absence warnings.
+
+A separate SDK1.3 SemanticTokens export now covers variable declarations and
+`${KEY}` references recognized by the established dotenv lexer, with declaration
+modifiers only on actual parsed keys. It uses supplied unsaved text only, no
+project/index/type lookup. Single-quoted/comment text is not interpreted as a
+reference; no runtime ownership or resolved-variable claim is made. Tokens use
+real `Variable` semantics (mapped by the pinned renderer), not invented types to
+colour strings/comments. Existing lexical fallback remains for the full syntax.
+
+Work is capped at256KiB/4096tokens, with sorted nonempty single-line UTF16 ranges
+computed in one forward pass, including long interpolation-heavy lines. Other
+languages and oversized documents return no tokens. Native built-in-language
+colour/theme acceptance is pending; complete original lexical colours are not
+asserted by passing source/package tests.

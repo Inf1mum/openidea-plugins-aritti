@@ -4,19 +4,24 @@ version = "0.2.0" # x-release-please-version
 description = "Spring Data repositories in Java and Kotlin: checks derived query method names (findByAddressZipCodeOrderByAgeDesc…) against the domain class and the method's parameter count, completes them with the entity's properties and operator keywords, links repositories to their entity and custom implementation, opens the entity field from a method name with Go to Definition, checks @Query named parameters and @Modifying without @Query, and completes and checks entity names and alias properties in JPQL queries. Independent implementation, not affiliated with JetBrains or Broadcom."
 authors = ["Arnaud RITTI <arnaud.ritti@gmail.com>"]
 license = "MIT"
-change-notes = "Unreleased: parameter and return type checks for derived queries, MongoDB @Query field check, JDBC entity shared by two aggregate roots, derived query tooltips, a Show Repository Inherited Members command (Java and Kotlin), a `repository` snippet, a Sort the query fields action for MongoDB @Query and a Spring Data Repository file template. 0.1.0 0.1.0 (first release): derived query validation and completion, repository → entity navigation, @Query parameter and @Modifying checks."
+change-notes = "Unreleased: current-owner cached repository/domain hover, declared literal JPA query hover, derived-criterion and explicit named Param source hints, versioned current-text diagnostics and conservative annotation/project ownership. Source-local atomic Java/Kotlin CrudRepository creation remains previewed and non-overwriting. Effective classpath, runtime identifier/query binding and semantic usages/Rename are not inferred."
 categories = ["frameworks"]
 icon = "icon.svg"
-engines.openidea = "^1.2"
+engines.openidea = "^1.3"
 wasm = "dist/plugin.wasm"
-activation = ["on-language:java", "on-language:kotlin"]
+activation = ["on-language:java", "on-language:kotlin", "on-event:files-changed"]
 
 [capabilities]
 required = ["project.read"]
-optional = ["editor.read"]
+optional = ["editor.read", "events"]
 
+# code-actions includes the registered atomic repository FileActions.
 [[contributes.providers]]
 kinds = ["completion", "definition", "line-markers", "code-actions"]
+languages = ["java", "kotlin"]
+
+[[contributes.providers]]
+kinds = ["diagnostics", "hover", "inlay-hints"]
 languages = ["java", "kotlin"]
 
 [contributes.settings]

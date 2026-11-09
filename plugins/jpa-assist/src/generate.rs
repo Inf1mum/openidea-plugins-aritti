@@ -26,6 +26,7 @@ fn id_attribute(class: &Class, known: Known) -> Option<Attribute> {
 }
 
 /// `equals` and `hashCode` comparing the id, the same for proxies of the entity.
+#[cfg_attr(not(test), allow(dead_code))] // Legacy pure fixture; exported templates require owned scalar source.
 pub fn equals_and_hash_code(class: &Class, text: &str, known: Known) -> Option<Edit> {
     let at = class.body_end?;
     let id = id_attribute(class, known).map_or_else(|| "id".to_owned(), |a| a.name);
@@ -71,6 +72,20 @@ pub fn equals_and_hash_code(class: &Class, text: &str, known: Known) -> Option<E
     };
 
     Some(Edit::insert(at, &method))
+}
+
+/// Manual scalar ID source template; no inherited/proxy/provider model is consulted.
+pub(super) fn scalar_equality_template(class: &Class) -> Option<Edit> {
+    if class.kotlin {return None;}
+    let ids:Vec<_>=class.attributes.iter().filter(|a|a.id).collect();let [id]=ids.as_slice() else {return None;};
+    let field=&id.name;
+    let comparison=if ["byte","short","int","long"].contains(&id.ty.as_str()) {
+        format!("this.{field} == other.{field}")
+    } else if ["Byte","Short","Integer","Long","String"].contains(&id.ty.as_str()) {
+        format!("this.{field} != null && this.{field}.equals(other.{field})")
+    } else {return None;};
+    let name=&class.name;
+    Some(Edit::insert(class.body_end?,&format!("\n    @java.lang.Override\n    public boolean equals(java.lang.Object value) {{\n        if (this == value) {{ return true; }}\n        if (!(value instanceof {name} other)) {{ return false; }}\n        return {comparison};\n    }}\n\n    @java.lang.Override\n    public int hashCode() {{ return {name}.class.hashCode(); }}\n")))
 }
 
 /// The annotation's class: `javax` when the file already imports `javax.persistence`.
@@ -145,7 +160,7 @@ fn base_type(ty: &str) -> &str {
     ty.trim_end_matches('?').rsplit('.').next().unwrap_or(ty)
 }
 
-fn sql_type(a: &Attribute, dialect: Dialect) -> Option<String> {
+pub(crate) fn sql_type(a: &Attribute, dialect: Dialect) -> Option<String> {
     let pg = dialect == Dialect::PostgreSql;
     let pick = |p: &str, m: &str| Some(if pg { p } else { m }.to_owned());
 

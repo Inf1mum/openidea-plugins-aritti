@@ -39,28 +39,31 @@ static GENERIC: LazyLock<Regex> =
 
 /// Stack frames of one log line, in line order.
 pub fn frames(line: &str) -> Vec<Frame> {
+    if line.len()>8192 {return Vec::new();}
     let mut frames: Vec<Frame> = Vec::new();
     let mut add = |frame: Frame| {
-        if !frames.iter().any(|f| f.span.start < frame.span.end && frame.span.start < f.span.end) {
+        if frames.len()<32 && !frames.iter().any(|f| f.span.start < frame.span.end && frame.span.start < f.span.end) {
             frames.push(frame);
         }
     };
 
     for captures in JAVA.captures_iter(line).map_while(Result::ok) {
+        let Some(line)=captures[3].parse::<u32>().ok().filter(|n|*n>0) else {continue;};
         let class = &captures[1];
         let package = class.rsplit_once('.').map_or("", |(package, _)| package);
         let dirs = package.split('.').filter(|p| !p.is_empty()).map(|p| format!("{p}/")).collect::<String>();
         add(Frame {
             path: format!("{dirs}{}", &captures[2]),
-            line: captures[3].parse().unwrap_or(1),
+            line,
             span: captures.get(0).unwrap().range(),
         });
     }
     for pattern in [&*PYTHON, &*DOTNET, &*URI, &*SWIFT_FATAL, &*GENERIC] {
         for captures in pattern.captures_iter(line).map_while(Result::ok) {
+            let Some(line)=captures[2].parse::<u32>().ok().filter(|n|*n>0) else {continue;};
             add(Frame {
                 path: captures[1].replace('\\', "/"),
-                line: captures[2].parse().unwrap_or(1),
+                line,
                 span: captures.get(0).unwrap().range(),
             });
         }
@@ -77,8 +80,11 @@ pub fn best_path<'a>(path: &str, candidates: &'a [String]) -> Option<&'a String>
         let segments = candidate.rsplit(['/', '\\']);
         segments.zip(&wanted).take_while(|(a, b)| a == *b).count()
     };
-    let best = candidates.iter().max_by_key(|c| (shared(c), std::cmp::Reverse(c.len())))?;
-    (shared(best) > 0).then_some(best)
+    let most=candidates.iter().map(shared).max()?;
+    if most==0 {return None;}
+    let mut best=candidates.iter().filter(|c|shared(c)==most);
+    let first=best.next()?;
+    (!best.any(|other|other!=first)).then_some(first)
 }
 
 fn glob_literal(name: &str) -> String {
@@ -90,8 +96,17 @@ fn glob_literal(name: &str) -> String {
 /// The project file a frame points at.
 pub fn resolve(project: &Project, frame: &Frame) -> Result<Option<String>, Error> {
     let name = frame.path.rsplit('/').next().unwrap_or(&frame.path);
+    let root=project.root()?;
     let found = project.find_files(&format!("**/{}", glob_literal(name)), 200)?;
-    Ok(best_path(&frame.path, &found).cloned())
+    if found.len()>=200 {return Ok(None);} // A capped inventory cannot prove a unique best match.
+    let owned=found.into_iter().filter(|path| {
+        path.starts_with(&format!("{}/",root.trim_end_matches('/')))
+            && !path.contains('\\') && !path.chars().any(char::is_control)
+            && !path.split('/').skip(1).any(|p|p.is_empty() || matches!(p,"."|".."))
+            && host::project_of(path).and_then(|p|p.root().ok()).as_deref()==Some(root.as_str())
+            && project.stat(path).ok().map(|s|s.kind)==Some(openidea_plugin::FileKind::File)
+    }).collect::<Vec<_>>();
+    Ok(best_path(&frame.path, &owned).cloned())
 }
 
 /// Ideolog's `FileMatch.calculateFilenameMatch`: 2 for the category, 1 for a
@@ -152,6 +167,7 @@ pub fn find_logging_line(
     category: Option<&str>,
     event: &str,
 ) -> Result<Option<(String, u32)>, Error> {
+    let owner_root=project.root()?;
     let anchor = words(message).filter(|w| w.len() >= 4).max_by_key(|w| w.len());
     let task = host::begin_task("Finding the source of the log event", true);
     let files: Vec<String> = project
@@ -162,12 +178,14 @@ pub fn find_logging_line(
         .collect();
 
     let mut best: Option<((usize, u32), String, u32)> = None;
+    let mut ambiguous=false;
     for (done, path) in files.iter().enumerate() {
         if task.is_cancelled() {
             return Err(Error::Cancelled);
         }
 
         task.report(done as u32, Some(files.len() as u32), None);
+        if host::project_of(path).and_then(|p|p.root().ok()).as_deref()!=Some(owner_root.as_str()) {continue;}
         let Ok(text) = project.read_file(path) else { continue };
         if anchor.is_some_and(|a| !text.contains(a)) {
             continue;
@@ -179,9 +197,12 @@ pub fn find_logging_line(
         let rank = (score, file_name_score(stem, category, event));
         if best.as_ref().is_none_or(|(most, _, _)| rank > *most) {
             best = Some((rank, path.clone(), line));
+            ambiguous=false;
+        } else if best.as_ref().is_some_and(|(most, _, _)|rank==*most) {
+            ambiguous=true;
         }
     }
-    Ok(best.map(|(_, path, line)| (path, line)))
+    Ok(if ambiguous {None} else {best.map(|(_, path, line)| (path, line))})
 }
 
 #[cfg(test)]
@@ -241,6 +262,16 @@ mod tests {
         assert_eq!(best_path("Bar.java", &found), None);
     }
 
+    #[test]
+    fn invalid_frame_line_numbers_and_ambiguous_suffixes_never_become_line_one() {
+        for number in ["0","99999999999999999999999"] {
+            assert!(frames(&format!("at demo.Foo.run(Foo.java:{number})")).is_empty());
+            assert!(frames(&format!("File \"/app/main.py\", line {number}")).is_empty());
+        }
+        let candidates=["/p/a/Foo.java".into(),"/p/longer/Foo.java".into()];assert!(best_path("Foo.java",&candidates).is_none());
+        assert!(frames(&format!("{}Foo.java:3","😀".repeat(3000))).is_empty());
+        assert!(frames(&"Foo.java:3 ".repeat(100)).len()<=32);
+    }
     #[test]
     fn scores_file_names_like_ideolog() {
         assert_eq!(file_name_score("UserService", Some("UserService"), ""), 2);

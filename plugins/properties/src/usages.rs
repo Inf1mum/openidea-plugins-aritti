@@ -1,10 +1,8 @@
-//! Keys used outside `.properties` files: the text search behind
-//! `UnusedPropertyInspection`, and the string literals of Java/Kotlin i18n
-//! calls that complete and navigate to keys (`PropertiesCompletionContributor`,
-//! `PropertyReference`).
+//! Conservative text-use hints, legacy markup candidates and positive cached
+//! property declarations. Explicit Java/Kotlin bundle ownership lives in source.rs.
 
-use crate::props::{dir, file_name, parse, range_of, split_locale, stem, suffix, unescape};
-use openidea_plugin::{Error, Location, Project};
+use crate::props::{file_name, parse, range_of, unescape};
+use openidea_plugin::{Error, Location, Project, host};
 use std::collections::{BTreeMap, HashSet};
 use std::ops::Range as Span;
 
@@ -35,170 +33,24 @@ pub fn implicitly_used(path: &str) -> bool {
     ["log4j", "commons-logging", "logging"].iter().any(|prefix| name.starts_with(prefix)) || name == "simplelogger.properties"
 }
 
-/// The content span of the `"…"` literal around `at` on its line (an
-/// unterminated one runs to the end of the line, as while typing).
-pub fn literal_at(text: &str, at: usize) -> Option<Span<usize>> {
-    let line_start = text[..at].rfind('\n').map_or(0, |i| i + 1);
-    let line_end = text[at..].find('\n').map_or(text.len(), |i| at + i);
-    let b = text.as_bytes();
-    let mut open: Option<usize> = None;
-    let mut i = line_start;
-
-    while i < line_end {
-        match b[i] {
-            b'\\' if open.is_some() => i += 1,
-            b'"' => match open.take() {
-                Some(start) if (start + 1..=i).contains(&at) => return Some(start + 1..i),
-                Some(_) => {}
-                None => open = Some(i),
-            },
-            _ => {}
-        }
-        i += 1;
-    }
-
-    open.filter(|&start| at > start).map(|start| start + 1..line_end)
-}
-
-/// Methods whose first string argument is a bundle key.
-// ponytail: method names stand in for IntelliJ's @PropertyKey / ResourceBundle references; add names as projects need them.
-const I18N_METHODS: [&str; 5] = ["getString", "getObject", "getStringArray", "getMessage", "message"];
-
-/// Whether the literal is the first argument of an i18n call (`bundle.getString("…")`).
-pub fn is_i18n_argument(text: &str, literal: &Span<usize>) -> bool {
-    let before = text[..literal.start.saturating_sub(1)].trim_end();
-    let Some(callee) = before.strip_suffix('(') else { return false };
-    let callee = callee.trim_end();
-    let name_start = callee.rfind(|c: char| !(c.is_alphanumeric() || c == '_')).map_or(0, |i| i + 1);
-    I18N_METHODS.contains(&&callee[name_start..])
-}
-
-/// A key used in code or a template, and whether a missing declaration is worth a warning.
+/// A candidate key use and optional literal bundle hint; neither proves type ownership.
 pub struct KeyUse {
     pub span: Span<usize>,
     /// The literal base name of the bundle the call reads, when it names one.
     pub bundle: Option<String>,
-    pub report: bool,
-}
-
-fn comment_line(text: &str, at: usize) -> bool {
-    let line = text[..at].rsplit('\n').next().unwrap_or_default().trim_start();
-    line.starts_with("//") || line.starts_with('*') || line.starts_with("/*")
-}
-
-fn string_end(text: &str, from: usize) -> Option<usize> {
-    let b = text.as_bytes();
-    let mut i = from;
-    while i < b.len() && b[i] != b'\n' {
-        match b[i] {
-            b'\\' => i += 1,
-            b'"' => return Some(i),
-            _ => {}
-        }
-        i += 1;
-    }
-    None
-}
-
-/// The top-level arguments of the call whose `(` ends just before `from`.
-fn call_arguments(text: &str, from: usize) -> Vec<&str> {
-    let b = text.as_bytes();
-    let (mut args, mut depth, mut start, mut i) = (Vec::new(), 0, from, from);
-    while i < b.len() {
-        match b[i] {
-            b'"' => match string_end(text, i + 1) {
-                Some(end) => i = end,
-                None => break,
-            },
-            b'(' | b'[' | b'{' => depth += 1,
-            b')' | b']' | b'}' if depth == 0 => {
-                args.push(text[start..i].trim());
-                return args;
-            }
-            b')' | b']' | b'}' => depth -= 1,
-            b',' if depth == 0 => {
-                args.push(text[start..i].trim());
-                start = i + 1;
-            }
-            _ => {}
-        }
-        i += 1;
-    }
-    args
-}
-
-fn string_literal(arg: &str) -> Option<&str> {
-    arg.strip_prefix('"')?.strip_suffix('"').filter(|s| !s.contains('"'))
-}
-
-/// Whether the text before `.getMessage` ends in an identifier that looks like a
-/// `MessageSource`: library bundles and custom helpers aren't in the project's files.
-fn message_source_receiver(before: &str) -> bool {
-    let Some(receiver) = before.strip_suffix('.') else { return false };
-    let name = receiver.rsplit(|c: char| !(c.is_alphanumeric() || c == '_')).next().unwrap_or_default();
-    let lower = name.to_lowercase();
-    lower.contains("messagesource") || lower.contains("messages") || name.ends_with("Accessor")
-}
-
-/// Keys read through `MessageSource.getMessage("k", …)` and through
-/// `ResourceBundle.getBundle("name")…getString("k")` in Java/Kotlin source.
-/// Only calls whose key is a plain literal are reported; a default message
-/// argument or a bundle that can't be told stay quiet.
-// ponytail: text scan, no types: `getMessage` of any receiver counts, `message(…)` (IntelliJ's helper) is never reported.
-pub fn source_uses(text: &str) -> Vec<KeyUse> {
-    let mut uses = Vec::new();
-
-    for name in ["getMessage", "getString", "getObject", "getStringArray"] {
-        for (at, _) in text.match_indices(name) {
-            let after = at + name.len();
-            if text[..at].chars().next_back().is_some_and(|c| c.is_alphanumeric() || c == '_') || comment_line(text, at) {
-                continue;
-            }
-            let Some(rest) = text[after..].strip_prefix('(') else { continue };
-            let Some(literal) = rest.trim_start().strip_prefix('"') else { continue };
-            let start = text.len() - literal.len();
-            let Some(end) = string_end(text, start) else { continue };
-            let key = &text[start..end];
-            if key.is_empty() || !key.chars().all(key_char) {
-                continue;
-            }
-            let args = call_arguments(text, after + 1);
-            if !matches!(text[end + 1..].trim_start().chars().next(), Some(',' | ')')) {
-                continue;
-            }
-
-            let bundle = if name == "getMessage" {
-                let third_is_locale = args.get(2).is_none_or(|a| ["Locale", "locale", "LocaleContextHolder"].iter().any(|p| a.starts_with(p)));
-                if args.len() >= 4 || !third_is_locale || !message_source_receiver(&text[..at]) {
-                    continue;
-                }
-                None
-            } else {
-                let statement = text[..at].rfind([';', '{', '}']).map_or(0, |i| i + 1);
-                let Some(call) = text[statement..at].rfind("getBundle(") else { continue };
-                let opened = statement + call + "getBundle(".len();
-                let Some(literal) = call_arguments(text, opened).first().and_then(|a| string_literal(a)) else { continue };
-                Some(literal.to_owned())
-            };
-
-            uses.push(KeyUse { span: start..end, bundle, report: true });
-        }
-    }
-
-    uses
 }
 
 /// Keys in a template: `#{a.b}` (Thymeleaf messages; Java EL in `.xhtml`/JSP
 /// is only navigated), `<spring:message code="a.b"/>` and `<fmt:message key="a.b"/>`.
 pub fn markup_uses(text: &str, path: &str) -> Vec<KeyUse> {
     let mut uses = Vec::new();
-    let thymeleaf = path.ends_with(".html") || path.ends_with(".htm");
+    let _ = path;
 
     for (at, _) in text.match_indices("#{") {
         let start = at + 2;
         let len = text[start..].find(|c: char| !key_char(c)).unwrap_or(text.len() - start);
         if len > 0 && matches!(text[start + len..].chars().next(), Some('}' | '(')) {
-            uses.push(KeyUse { span: start..start + len, bundle: None, report: thymeleaf });
+            uses.push(KeyUse { span: start..start + len, bundle: None });
         }
     }
 
@@ -207,7 +59,9 @@ pub fn markup_uses(text: &str, path: &str) -> Vec<KeyUse> {
         .filter_map(|(at, _)| text[at + 9..].strip_prefix(['"', '\'']).and_then(|v| v.split(['"', '\'']).next()))
         .collect();
 
-    for (tag, attribute, quiet_attribute) in [("<spring:message", "code", "text"), ("<s:message", "code", "text"), ("<fmt:message", "key", "bundle")] {
+    for (tag, attribute, _quiet_attribute) in
+        [("<spring:message", "code", "text"), ("<s:message", "code", "text"), ("<fmt:message", "key", "bundle")]
+    {
         for (at, _) in text.match_indices(tag) {
             let end = text[at..].find('>').map_or(text.len(), |i| at + i);
             let element = &text[at..end];
@@ -220,10 +74,8 @@ pub fn markup_uses(text: &str, path: &str) -> Vec<KeyUse> {
                 continue;
             }
 
-            let mixed_bundles = basenames.iter().any(|b| *b != basenames[0]);
-            let report = !element.contains(&format!(" {quiet_attribute}=")) && !(tag == "<fmt:message" && mixed_bundles);
             let bundle = (tag == "<fmt:message").then(|| basenames.first().map(|b| (*b).to_owned())).flatten();
-            uses.push(KeyUse { span: start..start + len, bundle, report });
+            uses.push(KeyUse { span: start..start + len, bundle });
         }
     }
 
@@ -233,90 +85,125 @@ pub fn markup_uses(text: &str, path: &str) -> Vec<KeyUse> {
 pub struct Declaration {
     pub location: Location,
     pub value: String,
-    pub default_locale: bool,
 }
 
 /// Every key of the project's `.properties` files.
 #[derive(Default)]
 pub struct KeyIndex {
+    pub root: String,
     pub keys: BTreeMap<String, Vec<Declaration>>,
     pub files: Vec<String>,
+    /// Positive cached names by source file, so editor completion need not scan
+    /// every unrelated key in the project.
+    pub file_keys: BTreeMap<String, Vec<String>>,
+}
+
+/// One bounded metadata snapshot per request, never a source read or scan.
+/// Cached source paths cannot retain an outer owner after a nested project opens.
+pub(crate) struct SourceOwnership {
+    root: String,
+    roots: Vec<String>,
+}
+impl SourceOwnership {
+    fn normalized(path: &str) -> bool {
+        path.starts_with('/') && path.len() <= 4096 && !path.contains('\\')
+            && !path.chars().any(char::is_control)
+            && path.split('/').skip(1).all(|part| !matches!(part, "" | "." | ".."))
+    }
+    pub(crate) fn current(root: &str) -> Option<Self> {
+        if !Self::normalized(root) { return None; }
+        let projects = host::projects().ok()?;
+        if projects.len() > 64 { return None; }
+        let roots = projects.into_iter().map(|project| project.root().ok()).collect::<Option<Vec<_>>>()?;
+        if roots.iter().any(|root| !Self::normalized(root)) || !roots.iter().any(|candidate| candidate == root) {
+            return None;
+        }
+        Some(Self { root: root.into(), roots })
+    }
+    pub(crate) fn contains(&self, path: &str) -> bool {
+        Self::normalized(path) && self.roots.iter().filter(|root| {
+            path.strip_prefix(root.as_str()).is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+        }).max_by_key(|root| root.len()).is_some_and(|root| root == &self.root)
+    }
 }
 
 impl KeyIndex {
     pub fn build(project: &Project) -> Result<Self, Error> {
-        let mut index = Self::default();
+        let mut index = Self { root: project.root()?, ..Self::default() };
+        let ownership = SourceOwnership::current(&index.root).ok_or(Error::Stale)?;
+        let started = std::time::Instant::now();
+        let mut bytes = 0usize;
         for path in project.find_files("**/*.properties", 5000)? {
+            if started.elapsed() > std::time::Duration::from_millis(250) {
+                break;
+            }
+            if !ownership.contains(&path) { continue; }
+            let Ok(stat) = project.stat(&path) else { continue };
+            if stat.kind != openidea_plugin::FileKind::File || stat.size > 128 << 10 {
+                continue;
+            }
+            if stat.size > ((8 << 20) - bytes) as u64 { break; }
             let Ok(text) = project.read_file(&path) else { continue };
+            if text.len() > 128 << 10 {
+                continue;
+            }
+            bytes = bytes.saturating_add(text.len());
+            if bytes > 8 << 20 {
+                break;
+            }
+            let properties = parse(&text);
+            if properties.len() > 4096 {
+                continue;
+            }
             index.files.push(path.clone());
-            for p in parse(&text) {
-                index.keys.entry(p.unescaped_key(&text)).or_default().push(Declaration {
+            for p in properties {
+                let Some(key) = p.exact_key(&text) else { continue; };
+                index.file_keys.entry(path.clone()).or_default().push(key.clone());
+                index.keys.entry(key).or_default().push(Declaration {
                     location: Location { path: path.clone(), range: range_of(&text, &p.key) },
                     value: unescape(&text[p.value.clone()]),
-                    default_locale: suffix(&path).is_empty(),
                 });
             }
         }
         Ok(index)
-    }
-
-    /// The base name of the project's only MessageSource-style bundle
-    /// (`messages`, `ValidationMessages`, or anything under `i18n/`), if there is exactly one.
-    pub fn conventional_bundle(&self) -> Option<&str> {
-        let mut found: Vec<(&str, &str)> = Vec::new();
-        for path in &self.files {
-            let base = split_locale(stem(path)).0;
-            let folder = dir(path);
-            let conventional = matches!(base, "messages" | "message" | "ValidationMessages") || folder.rsplit('/').next() == Some("i18n");
-            if conventional && !found.contains(&(folder, base)) {
-                found.push((folder, base));
-            }
-        }
-        match found.as_slice() {
-            [(_, base)] => Some(base),
-            _ => None,
-        }
-    }
-
-    /// The uses whose key no `.properties` file declares, in a project with one unambiguous bundle.
-    pub fn undeclared<'a>(&self, uses: &'a [KeyUse], text: &str) -> Vec<&'a KeyUse> {
-        let Some(base) = self.conventional_bundle() else { return Vec::new() };
-        uses.iter()
-            .filter(|u| u.report)
-            .filter(|u| u.bundle.as_deref().is_none_or(|name| name.rsplit(['.', '/']).next() == Some(base)))
-            .filter(|u| !self.keys.contains_key(&text[u.span.clone()]))
-            .collect()
-    }
-
-    /// The value shown next to a key: the default locale's, else any.
-    pub fn value(&self, key: &str) -> Option<&str> {
-        let declarations = self.keys.get(key)?;
-        declarations.iter().find(|d| d.default_locale).or(declarations.first()).map(|d| d.value.as_str())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn index_admission_rejects_oversized_disk_even_when_an_unsaved_buffer_is_small() {
+        let host = openidea_plugin::mock::MockHost::install();
+        let path = "/project/src/main/resources/messages.properties";
+        host.add_file(path, &"x".repeat((128 << 10) + 1));
+        host.open_editor(path, "properties", "hello=Unsaved\n", &[]);
+        let index = KeyIndex::build(&crate::project_for(path).unwrap()).unwrap();
+        assert!(index.files.is_empty());
+        assert!(index.keys.is_empty());
+        // The policy intentionally refuses rather than replacing the live text
+        // with disk text or publishing a declaration after failed admission.
+        assert_eq!(host.editor_text(), "hello=Unsaved\n");
+        host.add_file(path, "hello=Disk\n");
+        let index = KeyIndex::build(&crate::project_for(path).unwrap()).unwrap();
+        assert_eq!(index.keys["hello"][0].value, "Unsaved");
+    }
 
     #[test]
     fn marks_mentioned_keys_as_used() {
-        let mut unused: HashSet<String> =
-            ["app.title", "app.unused", "error.code", "with space"].iter().map(|s| (*s).to_owned()).collect();
+        let mut unused: HashSet<String> = ["app.title", "app.unused", "error.code", "with space"].iter().map(|s| (*s).to_owned()).collect();
         mark_used("label = bundle.getString(\"app.title\"); x = \"${prefix.error.code}\" + \"with space\";", &mut unused);
         assert_eq!(unused, HashSet::from(["app.unused".to_owned()]));
     }
 
     #[test]
-    fn finds_i18n_literals() {
-        let text = "String s = bundle.getString(\"app.ti\");\nlog(\"other\");";
-        let at = text.find("ti\"").unwrap() + 2;
-        let literal = literal_at(text, at).unwrap();
-        assert_eq!(&text[literal.clone()], "app.ti");
-        assert!(is_i18n_argument(text, &literal));
-
-        let other = literal_at(text, text.find("other").unwrap()).unwrap();
-        assert!(!is_i18n_argument(text, &other));
-        assert_eq!(literal_at(text, 3), None);
+    fn unowned_getter_spelling_is_not_a_bundle_reference() {
+        let doc = openidea_plugin::providers::Document {
+            path: "/p/src/main/java/A.java".into(),
+            language: "java".into(),
+            version: 1,
+            text: "bundle.getString(\"key\")".into(),
+        };
+        assert!(crate::source::context(&doc, doc.text.find("key").unwrap() + 1).is_none());
     }
 }

@@ -1,0 +1,9 @@
+{
+  "title": "Spring Beans Navigator",
+  "views": {
+    "beans": "Spring Beans"
+  },
+  "actions": [],
+  "project_independent": false,
+  "project_bound_buttons": []
+}

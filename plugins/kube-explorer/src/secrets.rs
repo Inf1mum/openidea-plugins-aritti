@@ -3,9 +3,9 @@
 //! these functions' arguments and results; nothing here logs or stores them.
 
 use openidea_plugin::views::{Body, Button, Field, FieldValue, View};
-use openidea_plugin::{Error, host};
+use openidea_plugin::Error;
 
-use crate::{KUBECTL, KubeExplorer, REQUEST_TIMEOUT, TREE, config, failure};
+use crate::{KUBECTL, KubeExplorer, REQUEST_TIMEOUT, config};
 
 const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
@@ -25,6 +25,10 @@ pub fn b64_encode(bytes: &[u8]) -> String {
 }
 
 pub fn b64_decode(text: &str) -> Option<Vec<u8>> {
+    // Kubernetes JSON uses padded standard base64. Only CR/LF may be ignored;
+    // round-trip identity below rejects misplaced padding and leftover bits.
+    let normalized:String=text.chars().filter(|c|!matches!(c,'\r'|'\n')).collect();
+    if normalized.len()%4!=0 {return None;}
     let mut out = Vec::new();
     let (mut bits, mut count) = (0u32, 0);
     for c in text.bytes().filter(|c| !c.is_ascii_whitespace() && *c != b'=') {
@@ -36,7 +40,7 @@ pub fn b64_decode(text: &str) -> Option<Vec<u8>> {
             bits &= (1 << count) - 1;
         }
     }
-    Some(out)
+    (b64_encode(&out)==normalized).then_some(out)
 }
 
 /// Text when the bytes are UTF-8, otherwise their base64.
@@ -134,14 +138,45 @@ impl Json<'_> {
     }
 }
 
+/// Bound and validate before the order-preserving span parser sees input.
+/// serde_json's default recursion bound prevents unbounded unknown-field descent.
+fn validate_object(json:&str)->Result<serde_json::Value,String> {
+    if json.len()>2<<20 {return Err("Secret JSON exceeds the 2 MiB read bound".into());}
+    let value:serde_json::Value=serde_json::from_str(json).map_err(|_|"Malformed or excessively nested Secret JSON".to_owned())?;
+    let object=value.as_object().ok_or("The Secret is not a JSON object")?;
+    if let Some(data)=object.get("data").filter(|v|!v.is_null()) {
+        let data=data.as_object().ok_or("Secret data is not a JSON object")?;
+        if data.len()>4096||data.iter().any(|(key,value)|!valid_key(key)||!value.is_string()) {return Err("Secret data has unsupported keys or values".into());}
+    }
+    Ok(value)
+}
+
+pub(crate) fn validate_response(json:&str,name:&str,namespace:Option<&str>,editing:bool)->Result<(),String> {
+    let value=validate_object(json)?;
+    let actual_namespace=value["metadata"]["namespace"].as_str();
+    if value["apiVersion"].as_str()!=Some("v1")||value["kind"].as_str()!=Some("Secret")
+        ||value["metadata"]["name"].as_str()!=Some(name)
+        ||!actual_namespace.is_some_and(crate::is_dns_label)
+        ||namespace.is_some_and(|expected|actual_namespace!=Some(expected)) {
+        return Err("Secret response does not match the selected resource and namespace".into());
+    }
+    if editing&&!value["metadata"]["resourceVersion"].as_str().is_some_and(|version|!version.is_empty()&&!version.chars().any(char::is_control)) {
+        return Err("Secret response has no usable resourceVersion replacement guard".into());
+    }
+    Ok(())
+}
+
 /// The decoded top-level `data` of a Secret, in the order kubectl printed it.
 pub fn data_entries(json: &str) -> Result<Vec<(String, Vec<u8>)>, String> {
+    validate_object(json)?;
+    let mut seen_data=false;
     let mut p = Json { bytes: json.as_bytes(), at: 0 };
     let mut entries = Vec::new();
     p.eat(b'{')?;
     while p.peek() != Some(b'}') {
         let key = p.string()?;
         p.eat(b':')?;
+        if key=="data" {if seen_data {return Err("Secret JSON repeats its data member".into());}seen_data=true;}
         if key != "data" || p.peek() != Some(b'{') {
             p.skip()?;
         } else {
@@ -149,8 +184,9 @@ pub fn data_entries(json: &str) -> Result<Vec<(String, Vec<u8>)>, String> {
             while p.peek() != Some(b'}') {
                 let name = p.string()?;
                 p.eat(b':')?;
+                if !valid_key(&name)||entries.len()>=4096||entries.iter().any(|(key,_)|key==&name) {return Err("Secret data has unsupported or repeated keys".into());}
                 let value = p.string()?;
-                let bytes = b64_decode(&value).ok_or_else(|| format!("the value of {name} is not valid base64"))?;
+                let bytes = b64_decode(&value).ok_or_else(|| "Secret data contains invalid base64".to_owned())?;
                 entries.push((name, bytes));
                 if p.peek() == Some(b',') {
                     p.at += 1;
@@ -204,13 +240,12 @@ pub fn manifest(name: &str, entries: &[(String, String)]) -> Result<String, Stri
     Ok(out)
 }
 
-/// `text` without the values (raw or base64), for messages.
-pub fn redact(text: &str, entries: &[(String, String)]) -> String {
-    let mut text = text.to_owned();
-    for (_, value) in entries.iter().filter(|(_, v)| !v.is_empty()) {
-        text = text.replace(&b64_encode(value.as_bytes()), "***").replace(value.as_str(), "***");
-    }
-    text
+pub(crate) fn command_failure(operation:&str,status:Option<i32>)->Error {
+    let status=status.map(|code|format!(" (kubectl status {code})")).unwrap_or_default();
+    Error::Failed(format!("Could not {operation} Secret{status}; command diagnostics withheld to protect Secret data."))
+}
+pub(crate) fn command_error(operation:&str,error:Error)->Error {
+    match error {Error::Stale=>Error::Stale,Error::Cancelled=>Error::Cancelled,Error::Denied(_)=>Error::Denied("process:kubectl".into()),_=>command_failure(operation,None)}
 }
 
 /// Byte span of the value of a top-level member of a JSON object.
@@ -235,6 +270,7 @@ fn member_span(json: &str, name: &str) -> Result<Option<(usize, usize)>, String>
 
 /// `json` (a whole Secret) with its `data` replaced; everything else, the resourceVersion included, stays.
 pub fn replace_data(json: &str, data: &[(String, Vec<u8>)]) -> Result<String, String> {
+    validate_object(json)?;
     let members: Vec<String> = data.iter().map(|(key, bytes)| format!("\"{key}\":\"{}\"", b64_encode(bytes))).collect();
     let object = format!("{{{}}}", members.join(","));
     match member_span(json, "data")? {
@@ -253,6 +289,7 @@ pub struct SecretEdit {
     row: String,
     json: String,
     entries: Vec<(String, String)>,
+    original_entries: Vec<(String, String)>,
     binary: Vec<(String, Vec<u8>)>,
     new_key: String,
     new_value: String,
@@ -260,6 +297,9 @@ pub struct SecretEdit {
 }
 
 impl SecretEdit {
+    pub(crate) fn is_dirty(&self)->bool {
+        self.entries!=self.original_entries||!self.new_key.is_empty()||!self.new_value.is_empty()||!self.remove.is_empty()
+    }
     pub fn set_field(&mut self, key: &str, value: String) {
         match key {
             "secret-new-key" => self.new_key = value,
@@ -300,7 +340,8 @@ impl KubeExplorer {
             return Ok(());
         }
         let (namespace, name) = self.split_scope("secrets", row)?;
-        let json = self.kubectl_in(namespace.as_deref(), &["get", "secret", &name, "-o", "json", REQUEST_TIMEOUT], None)?;
+        let json = self.kubectl_in(namespace.as_deref(), &["get", "secret", &name, "-o", "json", REQUEST_TIMEOUT], None).map_err(|error|command_error("read",error))?;
+        validate_response(&json,&name,namespace.as_deref(),true)?;
         let mut entries = Vec::new();
         let mut binary = Vec::new();
         for (key, bytes) in data_entries(&json)? {
@@ -309,9 +350,11 @@ impl KubeExplorer {
                 Err(error) => binary.push((key, error.into_bytes())),
             }
         }
+        self.begin_panel()?;
         self.editing_secret = Some(SecretEdit {
             row: row.to_owned(),
             json,
+            original_entries: entries.clone(),
             entries,
             binary,
             new_key: String::new(),
@@ -319,7 +362,7 @@ impl KubeExplorer {
             remove: String::new(),
         });
         self.details = None;
-        host::refresh_view(TREE);
+        crate::refresh_views();
         Ok(())
     }
 
@@ -351,15 +394,13 @@ impl KubeExplorer {
         let data = edit.data()?;
         let (namespace, _) = self.split_scope("secrets", &edit.row)?;
         let manifest = replace_data(&edit.json, &data)?;
-        let shown: Vec<(String, String)> = data.iter().map(|(k, v)| (k.clone(), String::from_utf8_lossy(v).into_owned())).collect();
         let args = self.args_in(namespace.as_deref(), &["replace", "-f", "-"]);
-        let out = host::run_process(KUBECTL, &args, Some(&manifest))?;
+        let out = self.process(KUBECTL, &args, Some(&manifest)).map_err(|error|command_error("save",error))?;
         if out.status != Some(0) {
-            let stderr = redact(&out.stderr, &shown);
-            if stderr.contains("Conflict") || stderr.contains("has been modified") {
+            if out.stderr.contains("Conflict") || out.stderr.contains("has been modified") {
                 return Err("The secret changed in the cluster since it was opened. Click Back and Edit Secret again; nothing was saved.".into());
             }
-            return Err(failure(KUBECTL, &stderr, out.status));
+            return Err(command_failure("save",out.status));
         }
         let row = edit.row.clone();
         self.editing_secret = None;
@@ -377,7 +418,7 @@ mod tests {
 
     use super::*;
 
-    const JSON: &str = r#"{"apiVersion":"v1","data":{"user":"YWRtaW4=","blob":"/+8="},"kind":"Secret","metadata":{"name":"db","resourceVersion":"41"},"type":"Opaque"}"#;
+    const JSON: &str = r#"{"apiVersion":"v1","data":{"user":"YWRtaW4=","blob":"/+8="},"kind":"Secret","metadata":{"name":"db","namespace":"shop","resourceVersion":"41"},"type":"Opaque"}"#;
 
     type Runs = std::rc::Rc<std::cell::RefCell<Vec<(Vec<String>, Option<String>)>>>;
 
@@ -499,7 +540,7 @@ mod tests {
     fn field_events_reach_the_form() {
         let (_host, _) = host(true, "");
         let mut kube = editing();
-        kube.handle_tree(ViewEvent::Field("secret-edit:user".into(), "x".into())).unwrap();
+        kube.handle_tree(ViewEvent::Field("secret-edit:user".into(), "x".into()), &_host.invocation()).unwrap();
         assert_eq!(kube.editing_secret.as_ref().unwrap().entries[0].1, "x");
     }
 }

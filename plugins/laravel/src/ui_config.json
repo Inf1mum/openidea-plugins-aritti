@@ -1,0 +1,28 @@
+{
+  "title": "Laravel",
+  "views": {
+    "laravel": "Laravel"
+  },
+  "actions": [
+    {
+      "view": "laravel",
+      "id": "reindex",
+      "label": "Laravel: Reindex Project",
+      "kind": "group"
+    },
+    {
+      "view": "laravel",
+      "id": "route-copy-curl",
+      "label": "Laravel: Copy as curl",
+      "kind": "route"
+    },
+    {
+      "view": "laravel",
+      "id": "route-create-http",
+      "label": "Laravel: Create HTTP Request File",
+      "kind": "route"
+    }
+  ],
+  "project_independent": false,
+  "project_bound_buttons": []
+}

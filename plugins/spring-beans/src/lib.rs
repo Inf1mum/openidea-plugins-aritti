@@ -5,23 +5,33 @@
 //! hierarchy; beans from libraries and auto-configuration aren't seen.
 
 mod annotation_checks;
+mod annotation_owners;
 mod aop;
+mod cache;
 mod checks;
 mod commands;
+mod hover;
+mod property_file_actions;
+mod xml_create;
 mod indexer;
 mod injection_checks;
 mod kotlin;
 mod kotlin_build;
 mod live_templates;
 mod model;
+mod resources;
 mod sites;
 mod target_checks;
 mod xml_actions;
 mod xml_checks;
 mod xml_class_checks;
+mod xml_file_actions;
+mod xml_namespace;
 
 pub use model::{Bean, FileModel, Injection, TypeInfo, parse};
 
+use cache::{Index, Indexes};
+use openidea_plugin::diagnostics::DiagnosticsProvider;
 use openidea_plugin::providers::{CodeAction, CompletionItem, CompletionKind, Document, LineMarker, Providers};
 use openidea_plugin::text::{offset, position};
 use openidea_plugin::views::{Body, Button, TreeItem, View, ViewEvent, Viewport, Views};
@@ -29,22 +39,25 @@ use openidea_plugin::{
     Context, Diagnostic, Error, Event, EventKind, Invocation, Location, LogLevel, Plugin, Position, Range, Severity, TextEdit, host,
 };
 use sites::{Hit, Site, Word};
-use spring_text::index::{COMMAND_BUDGET, Index, Indexes, PROVIDER_BUDGET};
 use spring_text::diagram;
-use spring_text::tree::Expansion;
-use ui_kit::sections::{SectionDef, Switcher};
+use spring_text::index::COMMAND_BUDGET;
 use spring_text::java::{self, MemberKind};
+use spring_text::tree::Expansion;
 use spring_text::{contains, range};
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
+use ui_kit::sections::{SectionDef, Switcher};
 
-const GLOBS: &[&str] = &["**/*.java", "**/*.kt", "**/*.xml"];
+const GLOBS: &[&str] = &["**/*.java", "**/*.kt", "**/*.xml", "**/*.properties", "**/*.yml", "**/*.yaml", "**/*.sql"];
+/// A model-free hint; the packaged page re-renders through its own scope.
+fn refresh_beans_view() {
+    host::refresh_view(BEANS_VIEW);
+    let _ = host::post_view_message(BEANS_VIEW, r#"{"channel":"ui-kit-refresh"}"#);
+}
+
 const BEANS_VIEW: &str = "beans";
-const SECTIONS: &[SectionDef] = &[
-    SectionDef { id: "beans", label: "Beans" },
-    SectionDef { id: "graph", label: "Graph" },
-    SectionDef { id: "report", label: "Report" },
-];
+const SECTIONS: &[SectionDef] =
+    &[SectionDef { id: "beans", label: "Beans" }, SectionDef { id: "graph", label: "Graph" }, SectionDef { id: "report", label: "Report" }];
 const GRAPH_SECTION: &str = "graph";
 const REPORT_SECTION: &str = "report";
 const MAX_GRAPH: usize = 400;
@@ -102,7 +115,9 @@ impl<'a> World<'a> {
                 continue;
             }
             let mut matches = self.files.values().flat_map(|m| &m.types).filter(|t| t.name == name);
-            let (Some(ty), None) = (matches.next(), matches.next()) else { return None };
+            let (Some(ty), None) = (matches.next(), matches.next()) else {
+                return None;
+            };
             if !ty.members_known || (found.is_empty() && qualified.is_some_and(|q| q != ty.qualified)) {
                 return None;
             }
@@ -114,7 +129,9 @@ impl<'a> World<'a> {
 
     fn project_type(&self, qualified: &str) -> Option<&'a TypeInfo> {
         let mut matches = self.files.values().flat_map(|m| &m.types).filter(|t| t.qualified == qualified);
-        let (Some(ty), None) = (matches.next(), matches.next()) else { return None };
+        let (Some(ty), None) = (matches.next(), matches.next()) else {
+            return None;
+        };
         Some(ty)
     }
 
@@ -242,7 +259,9 @@ fn problems_of(path: &str, language: &str, text: &str, world: Option<&World>) ->
         "spring-meta" => world.map(|w| diagnostics(target_checks::spring_meta_findings(path, text, w))).unwrap_or_default(),
         "xml" => {
             let els = spring_text::xml::elements(text);
-            let Some(world) = world.filter(|_| xml_checks::is_beans_file(&els)) else { return Vec::new() };
+            let Some(world) = world.filter(|_| xml_checks::is_beans_file(&els)) else {
+                return Vec::new();
+            };
             let mut findings = xml_checks::check_xml(path, text, world, groups);
             findings.extend(xml_class_checks::check(&els, world, groups));
             diagnostics(findings)
@@ -284,7 +303,8 @@ fn lib_hits(path: &str, text: &str) -> Vec<Hit> {
 /// Removes the field annotations of a class's injected fields, makes them
 /// final and adds a constructor taking them, or extends the class's only constructor.
 fn constructor_injection(text: &str, line: u32) -> Option<Vec<TextEdit>> {
-    let file = java::parse(text);
+    let mut file = java::parse(text);
+    annotation_owners::Owners::new(&file,text,false).filter_definitions(&mut file,text);
     let on_line = |m: &java::Member| position(text, m.start).line <= line && line <= position(text, m.end).line;
     let (class, fields) = file.types.iter().find_map(|t| {
         let fields: Vec<&java::Member> = t.fields().filter(|m| m.has(&["Autowired", "Inject"])).collect();
@@ -424,8 +444,28 @@ fn braces_balanced(text: &str) -> bool {
     depth == 0
 }
 
-/// Events only refresh diagnostics on open and save, which the providers publish anyway.
+/// Events maintain navigation caches; the host owns live diagnostic publication.
 fn subscribe_to_file_events() {
+    if let Err(error) = host::subscribe_paths(
+        "files-changed",
+        &[
+            "**/*.java",
+            "**/*.kt",
+            "**/*.xml",
+            "**/*.properties",
+            "**/*.yml",
+            "**/*.yaml",
+            "**/*.sql",
+            "**/pom.xml",
+            "**/gradle.properties",
+            "**/build.gradle",
+            "**/build.gradle.kts",
+            "**/settings.gradle",
+            "**/settings.gradle.kts",
+        ],
+    ) {
+        host::log(LogLevel::Warn, &format!("Filesystem navigation updates unavailable: {error:?}"));
+    }
     for kind in [EventKind::FileSaved, EventKind::FileOpened] {
         if let Err(error) = host::subscribe(kind) {
             host::log(LogLevel::Warn, &format!("File events unavailable, checks run from the editor only: {error:?}"));
@@ -443,9 +483,14 @@ enum Report {
 }
 
 pub struct Navigator {
-    indexes: Indexes<FileModel>,
+    indexes: Indexes,
     expansion: Expansion,
+    xml_generation: xml_file_actions::Generation,
+    property_generation: property_file_actions::Generation,
+    xml_creation: xml_create::Generation,
     report: Report,
+    report_root: Option<String>,
+    report_incomplete: bool,
     sections: Switcher,
 }
 
@@ -454,37 +499,49 @@ impl Default for Navigator {
         Self {
             indexes: Indexes::new(GLOBS, model::parse),
             expansion: Expansion::default(),
+            xml_generation: xml_file_actions::Generation::default(),
+            property_generation: property_file_actions::Generation::default(),
+            xml_creation: xml_create::Generation::default(),
             report: Report::default(),
+            report_root: None,
+            report_incomplete: false,
             sections: Switcher::new("beans.section", SECTIONS),
         }
     }
 }
 
 impl Navigator {
-    /// Runs `f` on the project of `doc`, its index brought up to date with the document.
+    /// Uses current-document facts and the owning cached project; never starts I/O.
     fn with_doc<R: Default>(&mut self, doc: &Document, f: impl FnOnce(&World, &FileModel) -> R) -> R {
-        let Some(index) = self.indexes.for_document(&doc.path, &doc.text, PROVIDER_BUDGET) else { return R::default() };
+        if doc.text.len() > 128 * 1024 {
+            return R::default();
+        }
+        if doc.language=="xml" && !xml_namespace::beans_document(&doc.text) {
+            let _=self.indexes.for_cached_document(&doc.path,&doc.text);
+            return R::default();
+        }
+        let Some(index) = self.indexes.for_cached_document(&doc.path, &doc.text) else {
+            return R::default();
+        };
+        let mut local = Index::new(GLOBS, model::parse);
+        let index = if index.files().len() <= 512 {
+            index
+        } else {
+            local.update(&doc.path, &doc.text);
+            &local
+        };
         let world = World::new(index);
         let empty = FileModel::default();
         let model = world.files.get(&doc.path).unwrap_or(&empty);
         f(&world, model)
     }
 
-    /// Publishes the problems of a Java, Kotlin or Spring XML source; a fixed file gets an empty list.
-    fn diagnose(&mut self, path: &str, language: &str, text: &str) {
-        let skips_index = language == "xml" && !xml_checks::is_beans_file(&spring_text::xml::elements(text));
-        let problems = match (!skips_index).then(|| self.indexes.for_document(path, text, PROVIDER_BUDGET)).flatten() {
-            Some(index) => problems_of(path, language, text, Some(&World::new(index))),
-            None => problems_of(path, language, text, None),
-        };
-        let _ = host::publish_diagnostics(path, &problems);
-    }
-
     fn live_templates(doc: &Document, cursor: usize) -> Vec<CompletionItem> {
         let text = doc.text.as_str();
         let (start, end) = sites::word(text, 0, cursor, cursor);
         let typed = &text[start..end];
-        let in_beans_xml = doc.language != "xml" || xml_checks::is_beans_file(&spring_text::xml::elements(text)) && live_templates::outside_tag(text, start);
+        let in_beans_xml = doc.language != "xml"
+            || xml_checks::is_beans_file(&spring_text::xml::elements(text)) && live_templates::outside_tag(text, start);
         let line = &text[text[..start].rfind('\n').map_or(0, |n| n + 1)..start];
         let in_literal_or_comment = doc.language != "xml" && (line.matches('"').count() % 2 == 1 || line.contains("//"));
         if typed.is_empty() || !in_beans_xml || in_literal_or_comment {
@@ -519,14 +576,85 @@ impl Navigator {
     }
 }
 
+/// Live checks use only the supplied document and already cached project facts.
+impl DiagnosticsProvider for Navigator {
+    fn diagnostics(&mut self, doc: &Document) -> Vec<Diagnostic> {
+        if !matches!(doc.language.as_str(), "java" | "kotlin" | "xml") {return Vec::new();}
+        if doc.text.len()>512*1024 {
+            let _=self.indexes.for_cached_document(&doc.path,&doc.text);
+            return Vec::new();
+        }
+        if doc.language=="xml"&&!xml_namespace::beans_document(&doc.text) {
+            let _=self.indexes.for_cached_document(&doc.path,&doc.text);
+            return Vec::new();
+        }
+        let mut local = Index::new(GLOBS, model::parse);
+        local.update(&doc.path, &doc.text);
+        let index = self.indexes.for_cached_document(&doc.path, &doc.text).unwrap_or(&mut local);
+        let bounded = index.files().len() <= 512
+            && index
+                .files()
+                .values()
+                .try_fold(0usize, |count, m| {
+                    let count = count + m.beans.len() + m.injections.len() + m.types.len() + m.pointcuts.len() + m.constants.len();
+                    if count > 4096 {
+                        return None;
+                    }
+                    m.types.iter().try_fold(count, |count, t| {
+                        let count = count + t.supers.len() + t.methods.len() + t.ctors.len();
+                        (count <= 4096).then_some(count)
+                    })
+                })
+                .is_some();
+        let index = if bounded { index } else { &local };
+        let world = World::new(index);
+        let mut groups = checks::Groups::from_settings();
+        // These require external resources or build configuration, which is unknown here.
+        groups.aop = false;
+        groups.duplicate_names = false;
+        groups.unresolved_references = false;
+        let findings = match doc.language.as_str() {
+            "java" => checks::check_java(&doc.path, &java::parse(&doc.text), &doc.text, &world, groups),
+            "xml" => {
+                groups.aop = checks::Groups::from_settings().aop;
+                let mut findings = xml_checks::check_xml_cached(&doc.path, &doc.text, &world, groups);
+                findings.extend(xml_class_checks::check(&spring_text::xml::elements(&doc.text), &world, groups));
+                findings
+            }
+            "kotlin" if groups.kotlin_plugin => {
+                let mut findings = kotlin::router_path_variables(&doc.text);
+                findings.extend(kotlin::reified_extension_hints(&doc.text));
+                findings
+            }
+            _ => Vec::new(),
+        };
+        let mut problems: Vec<_> = findings.iter().take(512).map(|f| f.diagnostic(&doc.text)).collect();
+        if doc.language != "xml" {
+            problems.extend(
+                field_injection_problems(&model::parse(&doc.path, &doc.text).unwrap_or_default()).into_iter().take(512 - problems.len()),
+            );
+        }
+        problems
+    }
+}
+
 impl Providers for Navigator {
     fn line_markers(&mut self, doc: &Document) -> Vec<LineMarker> {
-        self.diagnose(&doc.path, &doc.language, &doc.text);
         self.with_doc(doc, |world, model| {
-            let mut markers = Vec::new();
+            let resolver = ui_kit::navigation::Resolver::new(world.files.iter().map(|(p, m)| (p.as_str(), &m.navigation)));
+            let mut markers = resolver
+                .checked(|path| {
+                    if path == doc.path {
+                        return Some(model.navigation.clone());
+                    }
+                    world.files.get(path).map(|model| model.navigation.clone())
+                })
+                .markers(&model.navigation);
             for inj in &model.injections {
                 let found = world.candidates(inj);
-                let Some((path, first)) = found.first() else { continue };
+                let Some((path, first)) = found.first() else {
+                    continue;
+                };
                 let tooltip = match found.as_slice() {
                     [(_, one)] => format!("Injected bean: {}", describe(one)),
                     many => {
@@ -539,7 +667,9 @@ impl Providers for Navigator {
             }
             for bean in &model.beans {
                 let users = world.users(&doc.path, bean);
-                let Some((first, _)) = users.first() else { continue };
+                let Some((first, _)) = users.first() else {
+                    continue;
+                };
                 let names: BTreeSet<&str> = users.iter().map(|(_, into)| into.as_str()).collect();
                 let names: Vec<&str> = names.into_iter().collect();
                 markers.push(LineMarker {
@@ -554,32 +684,45 @@ impl Providers for Navigator {
     }
 
     fn definition(&mut self, doc: &Document, at: Position) -> Vec<Location> {
-        let Some(cursor) = offset(&doc.text, at) else { return Vec::new() };
-        if let Some((class, from, to)) = xml_class_checks::property_site(&doc.text, cursor) {
-            let name = &doc.text[from..to];
-            let found: Vec<Location> = self.with_doc(doc, |world, _| {
-                let setters = xml_class_checks::setters(world, &class);
-                setters.into_iter().filter(|(p, _, _)| p == name).map(|(_, m, path)| Location { path: path.into(), range: m.range }).collect()
-            });
-            if !found.is_empty() {
-                return found;
-            }
-        }
+        let Some(cursor) = offset(&doc.text, at) else {
+            return Vec::new();
+        };
+        let property = xml_class_checks::property_site(&doc.text, cursor);
         let hit = sites::at(hits(doc), cursor);
         let text = doc.text.as_str();
         self.with_doc(doc, |world, model| {
-            let to_locations =
-                |found: Vec<Found>| found.into_iter().map(|(p, b)| Location { path: p.into(), range: b.range }).collect();
+            if let Some((class, from, to)) = &property {
+                let found: Vec<Location> = xml_class_checks::setters(world, class)
+                    .into_iter()
+                    .filter(|(p, _, _)| p == &text[*from..*to])
+                    .map(|(_, m, path)| Location { path: path.into(), range: m.range })
+                    .collect();
+                if !found.is_empty() {
+                    return found;
+                }
+            }
+            let related = || {
+                ui_kit::navigation::Resolver::new(world.files.iter().map(|(p, m)| (p.as_str(), &m.navigation)))
+                    .checked(|path| {
+                        if path == doc.path {
+                            return Some(model.navigation.clone());
+                        }
+                        world.files.get(path).map(|model| model.navigation.clone())
+                    })
+                    .definition(&model.navigation, at)
+            };
+            let to_locations = |found: Vec<Found>| found.into_iter().map(|(p, b)| Location { path: p.into(), range: b.range }).collect();
             if let Some(inj) = model.injections.iter().find(|i| !i.ty.is_empty() && contains(i.range, at)) {
                 return to_locations(world.candidates(inj));
             }
-            let Some(hit) = hit else { return Vec::new() };
+            let Some(hit) = hit else { return related() };
             match &hit.site {
                 Site::BeanRef => {
                     let (s, e) = sites::list_item(text, hit.from, cursor, hit.to);
                     to_locations(world.named(&text[s..e]))
                 }
-                Site::Scope | Site::Profile => Vec::new(),
+                Site::Scope => Vec::new(),
+                Site::Profile => related(),
                 Site::Class => {
                     let class = text[hit.from..hit.to].replace('$', ".");
                     world
@@ -607,7 +750,9 @@ impl Providers for Navigator {
     }
 
     fn completion(&mut self, doc: &Document, at: Position, _trigger: Option<&str>) -> Vec<CompletionItem> {
-        let Some(cursor) = offset(&doc.text, at) else { return Vec::new() };
+        let Some(cursor) = offset(&doc.text, at) else {
+            return Vec::new();
+        };
         if let Some((class, from, to)) = xml_class_checks::property_site(&doc.text, cursor) {
             let replace = range(&doc.text, from, to);
             return self.with_doc(doc, |world, _| {
@@ -616,7 +761,11 @@ impl Providers for Navigator {
                 setters
                     .into_iter()
                     .filter(|(p, _, _)| seen.insert(p.clone()))
-                    .map(|(p, _, _)| CompletionItem { detail: Some(format!("setter of {class}")), replace: Some(replace), ..CompletionItem::new(&p, CompletionKind::Property) })
+                    .map(|(p, _, _)| CompletionItem {
+                        detail: Some(format!("setter of {class}")),
+                        replace: Some(replace),
+                        ..CompletionItem::new(&p, CompletionKind::Property)
+                    })
                     .collect()
             });
         }
@@ -628,12 +777,18 @@ impl Providers for Navigator {
                 let names: BTreeSet<&String> = chain.first().into_iter().flat_map(|t| &t.ctor_names).flatten().collect();
                 names
                     .into_iter()
-                    .map(|n| CompletionItem { detail: Some(format!("constructor parameter of {class}")), replace: Some(replace), ..CompletionItem::new(n, CompletionKind::Property) })
+                    .map(|n| CompletionItem {
+                        detail: Some(format!("constructor parameter of {class}")),
+                        replace: Some(replace),
+                        ..CompletionItem::new(n, CompletionKind::Property)
+                    })
                     .collect::<Vec<_>>()
             });
             return items;
         }
-        let Some(hit) = sites::at(hits(doc), cursor) else { return Self::live_templates(doc, cursor) };
+        let Some(hit) = sites::at(hits(doc), cursor) else {
+            return Self::live_templates(doc, cursor);
+        };
         let text = doc.text.as_str();
         self.with_doc(doc, |world, _| match &hit.site {
             Site::BeanRef => {
@@ -644,16 +799,28 @@ impl Providers for Navigator {
                 let replace = range(text, hit.from, hit.to);
                 xml_checks::KNOWN_SCOPES
                     .iter()
-                    .map(|scope| CompletionItem { detail: Some("bean scope".into()), replace: Some(replace), ..CompletionItem::new(scope, CompletionKind::Keyword) })
+                    .map(|scope| CompletionItem {
+                        detail: Some("bean scope".into()),
+                        replace: Some(replace),
+                        ..CompletionItem::new(scope, CompletionKind::Keyword)
+                    })
                     .collect()
             }
             Site::Profile => {
                 let (s, e) = sites::word_in(text, hit.from, cursor, hit.to);
                 let replace = range(text, s, e);
-                let profiles: BTreeSet<&str> = world.beans().flat_map(|(_, b)| b.profiles.iter().map(|p| p.trim_start_matches('!'))).filter(|p| !p.is_empty()).collect();
+                let profiles: BTreeSet<&str> = world
+                    .beans()
+                    .flat_map(|(_, b)| b.profiles.iter().map(|p| p.trim_start_matches('!')))
+                    .filter(|p| !p.is_empty())
+                    .collect();
                 profiles
                     .into_iter()
-                    .map(|p| CompletionItem { detail: Some("profile".into()), replace: Some(replace), ..CompletionItem::new(p, CompletionKind::Reference) })
+                    .map(|p| CompletionItem {
+                        detail: Some("profile".into()),
+                        replace: Some(replace),
+                        ..CompletionItem::new(p, CompletionKind::Reference)
+                    })
                     .collect()
             }
             Site::Class => {
@@ -735,8 +902,7 @@ impl Providers for Navigator {
 
     fn code_actions(&mut self, doc: &Document, selection: Range) -> Vec<CodeAction> {
         if doc.language == "xml" {
-            let project_names = || self.with_doc(doc, |world, _| world.beans().flat_map(|(_, b)| checks::names_of(b)).map(str::to_owned).collect());
-            return xml_code_actions(doc, selection, project_names);
+            return xml_code_actions(doc, selection);
         }
         if doc.language == "kotlin" {
             return kotlin_code_actions(doc, selection);
@@ -744,7 +910,9 @@ impl Providers for Navigator {
         if doc.language != "java" {
             return Vec::new();
         }
-        let Some(edits) = constructor_injection(&doc.text, selection.start.line) else { return Vec::new() };
+        let Some(edits) = constructor_injection(&doc.text, selection.start.line) else {
+            return Vec::new();
+        };
         vec![CodeAction {
             title: "Use constructor injection".into(),
             kind: Some("quickfix".into()),
@@ -756,7 +924,9 @@ impl Providers for Navigator {
 }
 
 fn kotlin_code_actions(doc: &Document, selection: Range) -> Vec<CodeAction> {
-    let Some(caret) = offset(&doc.text, selection.start) else { return Vec::new() };
+    let Some(caret) = offset(&doc.text, selection.start) else {
+        return Vec::new();
+    };
     if !checks::Groups::from_settings().kotlin_plugin {
         return Vec::new();
     }
@@ -769,7 +939,9 @@ fn kotlin_code_actions(doc: &Document, selection: Range) -> Vec<CodeAction> {
     if !findings.iter().any(|f| (f.start..=f.end).contains(&caret)) {
         return Vec::new();
     }
-    let Some((build_path, edit)) = kotlin_build::fix_for(&doc.path) else { return Vec::new() };
+    let Some((build_path, edit)) = kotlin_build::fix_for(&doc.path) else {
+        return Vec::new();
+    };
     vec![CodeAction {
         title: "Add the kotlin-spring Gradle plugin".into(),
         kind: Some("quickfix".into()),
@@ -779,8 +951,10 @@ fn kotlin_code_actions(doc: &Document, selection: Range) -> Vec<CodeAction> {
     }]
 }
 
-fn xml_code_actions(doc: &Document, selection: Range, project_names: impl FnOnce() -> BTreeSet<String>) -> Vec<CodeAction> {
-    let Some(caret) = offset(&doc.text, selection.start) else { return Vec::new() };
+fn xml_code_actions(doc: &Document, selection: Range) -> Vec<CodeAction> {
+    let Some(caret) = offset(&doc.text, selection.start) else {
+        return Vec::new();
+    };
     let text = &doc.text;
     let mut actions = Vec::new();
     let mut offer = |title: &str, kind: &str, preferred: bool, edits: Vec<TextEdit>| {
@@ -797,9 +971,6 @@ fn xml_code_actions(doc: &Document, selection: Range, project_names: impl FnOnce
     }
     if let Some(edits) = xml_actions::use_p_namespace(text, caret) {
         offer("Use p-namespace", "refactor", false, edits);
-    }
-    if let Some(edits) = xml_actions::introduce_bean(text, caret, project_names) {
-        offer("Introduce bean", "refactor", false, edits);
     }
     if let Some(edits) = xml_actions::update_schema(text) {
         offer("Update XML schema", "refactor", false, edits);
@@ -820,7 +991,7 @@ impl Navigator {
         }
         let refresh = Button::new("refresh", "Refresh").icon("refresh");
         if groups.is_empty() {
-            let text = if index.complete() { "No Spring beans found." } else { "Scanning…" };
+            let text = if index.complete() { "No Spring beans found in inventoried sources." } else { index.state() };
             return View::message(text).button(refresh);
         }
         let mut items = Vec::new();
@@ -861,7 +1032,11 @@ impl Navigator {
                 let escaped = text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
                 View::new(Body::Html(format!("<pre style=\"font-family: monospace; white-space: pre-wrap\">{escaped}</pre>")))
             }
-            Report::Problems(files) if files.is_empty() => View::message("No problems found."),
+            Report::Problems(files) if files.is_empty() => View::message(if self.report_incomplete {
+                "Partial source check: no findings in checked sources; unavailable/capped facts cannot prove absence."
+            } else {
+                "No problems found."
+            }),
             Report::Problems(files) => {
                 let mut items = Vec::new();
                 let mut total = 0;
@@ -874,7 +1049,11 @@ impl Navigator {
                     }
                     total += problems.len();
                 }
-                View::new(Body::Tree(items)).status(&format!("{total} problems in {} files", files.len()))
+                View::new(Body::Tree(items)).status(&format!(
+                    "{total} problems in {} files{}",
+                    files.len(),
+                    if self.report_incomplete { " · partial source check" } else { "" }
+                ))
             }
         }
     }
@@ -885,14 +1064,16 @@ impl Navigator {
         let beans: Vec<Found> = world.beans().take(MAX_GRAPH).collect();
         let refresh = Button::new("refresh", "Refresh").icon("refresh");
         if beans.is_empty() {
-            return View::message(if index.complete() { "No Spring beans found." } else { "Scanning…" }).button(refresh);
+            return View::message(if index.complete() { "No Spring beans found in inventoried sources." } else { index.state() })
+                .button(refresh);
         }
-        let node_of: BTreeMap<(&str, Range), usize> =
-            beans.iter().enumerate().map(|(i, (p, b))| ((*p, b.range), i)).collect();
+        let node_of: BTreeMap<(&str, Range), usize> = beans.iter().enumerate().map(|(i, (p, b))| ((*p, b.range), i)).collect();
         let mut edges = BTreeSet::new();
         for (path, m) in world.files {
             for inj in &m.injections {
-                let Some(from) = inj.owner.and_then(|o| node_of.get(&(path.as_str(), m.beans[o].range))) else { continue };
+                let Some(from) = inj.owner.and_then(|o| node_of.get(&(path.as_str(), m.beans[o].range))) else {
+                    continue;
+                };
                 for (p, b) in world.candidates(inj) {
                     if let Some(&to) = node_of.get(&(p, b.range)) {
                         edges.insert((*from, to));
@@ -904,12 +1085,10 @@ impl Navigator {
             beans.iter().map(|(p, b)| diagram::Node::new(&location_key(p, b.range), &b.name).detail(&b.kind)).collect();
         let edges: Vec<diagram::Edge> = edges.into_iter().map(|(a, b)| diagram::Edge::new(&nodes[a].id, &nodes[b].id)).collect();
         let shown = if total > nodes.len() { format!("{} of {total} beans shown", nodes.len()) } else { bean_count(total) };
-        let status = format!(
-            "{shown} · {} dependencies · arrows point to dependencies{}",
-            edges.len(),
-            scanning(index)
-        );
-        View::new(Body::Html(diagram::html(&nodes, &edges, "No Spring beans found."))).button(refresh).status(&status)
+        let status = format!("{shown} · {} dependencies · arrows point to dependencies{}", edges.len(), scanning(index));
+        View::new(Body::Html(diagram::html(&nodes, &edges, "No Spring beans found in inventoried sources.")))
+            .button(refresh)
+            .status(&status)
     }
 }
 
@@ -917,22 +1096,41 @@ fn bean_count(n: usize) -> String {
     if n == 1 { "1 bean".into() } else { format!("{n} beans") }
 }
 
-fn scanning(index: &Index<FileModel>) -> &'static str {
-    if index.complete() { "" } else { " · scanning…" }
+fn scanning(index: &Index<FileModel>) -> String {
+    if index.complete() { String::new() } else { format!(" · {}", index.state()) }
 }
 
 impl Views for Navigator {
-    fn render(&mut self, view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
-        let Some(project) = ctx.project() else { return Ok(View::message("Open a project to see its Spring beans.")) };
+    fn render(&mut self, _view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
+        let Some(project) = ctx.project() else {
+            return Ok(View::message("Open a project to see its Spring beans."));
+        };
+        let root = match project.root() {
+            Ok(root) if !root.is_empty() => root,
+            _ => return Ok(View::message("Project identity is unavailable. Allow project.read to see this project's Spring beans.")),
+        };
         let section = self.sections.active();
         let mut shown = if section == REPORT_SECTION {
-            self.report_view()
-        } else {
-            let index = self.indexes.get(&project, COMMAND_BUDGET);
-            if !index.complete() {
-                host::refresh_view(view);
+            if self.report_root.as_deref() != Some(root.as_str()) {
+                View::message("No configuration report for this project; run Check or Dump Spring Configuration.")
+            } else {
+                self.report_view()
             }
-            if section == GRAPH_SECTION { Self::graph(index) } else { Self::tree(index) }
+        } else {
+            let Some(index) = self.indexes.cached(&project) else {
+                return Ok(self.sections.buttons(
+                    View::message("Source cache cold; Refresh to index this project.")
+                        .button(Button::new("refresh", "Refresh").icon("refresh")),
+                    &[],
+                ));
+            };
+            if section == GRAPH_SECTION {
+                Self::graph(index)
+            } else if ui_kit::web::is_rendering() {
+                resources::view(index)
+            } else {
+                Self::tree(index)
+            }
         };
         if let Body::Tree(items) = &mut shown.body {
             self.expansion.apply(items);
@@ -941,22 +1139,24 @@ impl Views for Navigator {
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {
+        if ui_kit::web::handle(self, view, &event, ctx, include_str!("ui_config.json"))? {
+            return Ok(());
+        }
+
         if self.sections.handle(&event) || self.expansion.handle(&event) {
-            host::refresh_view(view);
+            refresh_beans_view();
             return Ok(());
         }
 
         let key = match event {
             ViewEvent::Button(b) if b == "refresh" => {
-                // Starting over mid-scan would throw the progress away, and a
-                // big project would never finish.
                 if let Some(project) = ctx.project() {
-                    let index = self.indexes.get(&project, Duration::ZERO);
-                    if index.complete() {
-                        index.reset();
+                    if !self.indexes.cached(&project).is_some_and(|index| index.scanning()) {
+                        self.indexes.reset_project(&project);
                     }
+                    self.indexes.get(&project, COMMAND_BUDGET);
                 }
-                host::refresh_view(BEANS_VIEW);
+                refresh_beans_view();
                 return Ok(());
             }
             ViewEvent::Activate(key) | ViewEvent::Message(key) => key,
@@ -964,7 +1164,24 @@ impl Views for Navigator {
         };
         let mut parts = key.splitn(4, ':');
         if let (Some("b"), Some(line), Some(col), Some(path)) = (parts.next(), parts.next(), parts.next(), parts.next()) {
-            host::open_location(path, line.parse().unwrap_or(0), col.parse().unwrap_or(0))?;
+            let (line, col) = (line.parse::<u32>().map_err(|_| Error::Stale)?, col.parse::<u32>().map_err(|_| Error::Stale)?);
+            let project = ctx.project().ok_or(Error::Stale)?;
+            let root = project.root()?;
+            if host::project_of(path).and_then(|project| project.root().ok()).as_deref() != Some(root.as_str()) {
+                return Err(Error::Stale);
+            }
+            let at = Position::new(line, col);
+            let bean = self
+                .indexes
+                .cached(&project)
+                .and_then(|index| index.files().get(path))
+                .is_some_and(|model| model.beans.iter().any(|bean| bean.range.start == at));
+            let report = self.report_root.as_deref() == Some(root.as_str())
+                && matches!(&self.report,Report::Problems(files) if files.iter().any(|(file,problems)|file==path&&problems.iter().any(|problem|problem.range.start==at)));
+            if !bean && !report {
+                return Err(Error::Stale);
+            }
+            host::open_location(path, line, col)?;
         }
         Ok(())
     }
@@ -973,37 +1190,112 @@ impl Views for Navigator {
 impl Plugin for Navigator {
     fn activate(&mut self, _ctx: &Context) -> Result<(), Error> {
         subscribe_to_file_events();
+        let started = std::time::Instant::now();
+        for project in host::projects().unwrap_or_default().into_iter().take(8) {
+            let remaining = Duration::from_millis(100).saturating_sub(started.elapsed());
+            if remaining.is_zero() {
+                break;
+            }
+            self.indexes.get(&project, remaining.min(Duration::from_millis(25)));
+        }
+        self.indexes.checkpoint();
         Ok(())
     }
 
     fn handle_events(&mut self, events: &[Event], _ctx: &Invocation) {
-        let paths: BTreeSet<&str> = events
-            .iter()
-            .filter_map(|e| match e {
-                Event::FileSaved(path) | Event::FileOpened(path) => Some(path.as_str()),
-                _ => None,
-            })
-            .filter(|path| [".java", ".kt", ".xml"].iter().any(|ext| path.ends_with(ext)) || target_checks::SPRING_META_FILES.iter().any(|f| path.ends_with(f)))
-            .collect();
-        for path in paths {
-            let Some(project) = host::projects().unwrap_or_default().into_iter().find(|p| {
-                p.root().is_ok_and(|root| path.starts_with(&format!("{root}/")))
-            }) else {
-                continue;
+        self.indexes.prune();
+        if self
+            .report_root
+            .as_ref()
+            .is_some_and(|root| !host::projects().unwrap_or_default().iter().any(|project| project.root().ok().as_ref() == Some(root)))
+        {
+            self.report = Report::Empty;
+            self.report_root = None;
+            refresh_beans_view();
+        }
+        let started = std::time::Instant::now();
+        let mut changes = BTreeMap::new();
+        let mut warm = BTreeMap::new();
+        let mut count = 0usize;
+        for event in events.iter().take(257) {
+            let (paths, removed, opened): (Box<dyn Iterator<Item = &str>>, bool, bool) = match event {
+                Event::FileOpened(path) => (Box::new(std::iter::once(path.as_str())), false, true),
+                Event::FileSaved(path) => (Box::new(std::iter::once(path.as_str())), false, false),
+                Event::FilesChanged(batch) => {
+                    for path in batch.removed.iter().take(257) {
+                        changes.insert(path.as_str(), true);
+                        count += 1;
+                    }
+                    (Box::new(batch.created.iter().chain(&batch.modified).map(String::as_str)), false, false)
+                }
+                _ => continue,
             };
-            let Ok(text) = project.read_file(path) else { continue };
-            let language = match path.rsplit('.').next() {
-                _ if target_checks::SPRING_META_FILES.iter().any(|f| path.ends_with(f)) => "spring-meta",
-                Some("kt") => "kotlin",
-                Some("xml") => "xml",
-                _ => "java",
-            };
-            self.diagnose(path, language, &text);
+            for path in paths.take(257) {
+                count += 1;
+                if count > 256 {
+                    break;
+                }
+                if opened {
+                    if cache::source(path) {
+                        changes.insert(path, false);
+                        if let Some(project) = host::project_of(path) {
+                            if let Ok(root) = project.root() {
+                                warm.insert(root, project);
+                            }
+                        }
+                    }
+                } else {
+                    changes.insert(path, removed);
+                }
+            }
+            if count > 256 {
+                break;
+            }
+        }
+        if count > 256 || events.len() > 256 {
+            self.indexes.clear();
+            refresh_beans_view();
+            return;
+        }
+        let mut changed = false;
+        for (path, removed) in changes {
+            if started.elapsed() > Duration::from_millis(100) {
+                self.indexes.clear();
+                refresh_beans_view();
+                return;
+            }
+            if let Some(project) = host::project_of(path) {
+                if self.indexes.changed(&project, path, removed) {
+                    changed = true;
+                    if let Ok(root) = project.root() {
+                        warm.insert(root, project);
+                    }
+                }
+            }
+        }
+        for (_, project) in warm.into_iter().take(8) {
+            let remaining = Duration::from_millis(100).saturating_sub(started.elapsed());
+            if remaining.is_zero() {
+                break;
+            }
+            self.indexes.get(&project, remaining.min(Duration::from_millis(25)));
+            changed = true;
+        }
+        self.indexes.checkpoint();
+        if changed {
+            refresh_beans_view();
         }
     }
 
     fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
         match id {
+            "reindex" => {
+                let project = ctx.project().ok_or("Open a project first.")?;
+                self.indexes.reset_project(&project);
+                self.indexes.get(&project, COMMAND_BUDGET);
+                refresh_beans_view();
+                Ok(None)
+            }
             "generate-setter" => commands::generate(self, ctx, commands::Generate::Setter),
             "generate-constructor-dependency" => commands::generate(self, ctx, commands::Generate::Constructor),
             "generate-autowired-dependency" => commands::generate(self, ctx, commands::Generate::Autowire),
@@ -1011,24 +1303,14 @@ impl Plugin for Navigator {
             "change-active-profiles" => commands::change_active_profiles(self, ctx),
             "check-spring-configuration" => commands::check_configuration(self, ctx),
             "dump-spring-configuration" => commands::dump_configuration(self, ctx),
-            "externalize-annotation-string" => commands::externalize_string(ctx),
+            "externalize-annotation-string" => property_file_actions::command(ctx),
             _ => Err(Error::NotFound(format!("command {id}"))),
         }
     }
 }
 
-// `register_plugin!` has no arm for providers, views and indexing together.
-#[cfg(not(target_arch = "wasm32"))]
-const _: fn() -> Navigator = <Navigator as Default>::default;
-#[cfg(target_arch = "wasm32")]
-const _: () = {
-    struct Component;
-    openidea_plugin::__plugin_exports!(Navigator, Component, openidea_plugin::bindings);
-    openidea_plugin::__providers_exports!(Navigator, Component);
-    openidea_plugin::__views_exports!(Navigator, Component);
-    openidea_plugin::__indexing_exports!(Navigator, Component);
-    openidea_plugin::bindings::__export_plugin_world!(Component with_types_in openidea_plugin::bindings);
-};
+// API 1.3 registers the optional exports on the same component.
+openidea_plugin::register_plugin!(Navigator, providers, views, indexing, diagnostics, file_actions, hover);
 
 #[cfg(test)]
 mod tests;

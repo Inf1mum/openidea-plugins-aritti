@@ -137,27 +137,15 @@ fn run(command: &str, args: Vec<String>) -> Result<(), Error> {
 
 pub fn run_artisan(ctx: &Invocation) -> Result<Option<String>, Error> {
     let project = ctx.project().ok_or("No project is open.")?;
-    let listed = project
-        .run_process("php", &["artisan".to_owned(), "list".to_owned(), "--raw".to_owned()], None)
-        .ok()
-        .filter(|output| output.status == Some(0))
-        .map(|output| output.stdout);
-
-    let commands: Vec<(String, String)> = match &listed {
-        Some(stdout) => stdout
-            .lines()
-            .filter_map(|line| {
-                let line = line.trim();
-                let (name, description) = line.split_once(char::is_whitespace).unwrap_or((line, ""));
-                (!name.is_empty()).then(|| (name.to_owned(), description.trim().to_owned()))
-            })
-            .collect(),
-        None => FALLBACK_COMMANDS.iter().map(|name| ((*name).to_owned(), String::new())).collect(),
+    let cached = crate::artisan_metadata::cached(&project);
+    let (commands, source): (Vec<(String,String)>, &str) = match cached {
+        Some(commands) => (commands, "Executed runtime snapshot — explicit PHP metadata refresh"),
+        None => (FALLBACK_COMMANDS.iter().map(|name| ((*name).to_owned(), String::new())).collect(), "Bundled static choices — use Refresh Artisan Metadata to execute discovery"),
     };
 
     let choices: Vec<PickItem> = commands
         .iter()
-        .map(|(name, description)| PickItem::new(name, name).description(description))
+        .map(|(name, description)| PickItem::new(name, name).description(&format!("{source}. {description}")))
         .collect();
     let Some(command) = host::pick("Artisan command", &choices)? else { return Ok(None) };
     if !commands.iter().any(|(name, _)| *name == command) {
@@ -316,8 +304,12 @@ pub fn create_missing(ctx: &Invocation, index: Option<&Index>) -> Result<Option<
     };
     let name = &document.text[reference.start..reference.end];
 
+    if reference.kind == Kind::View && !index.views.contains_key(name) {
+        host::notify(openidea_plugin::NotificationLevel::Info, "Laravel", "Choose Create missing literal Blade view from the editor's intentions to review an undoable file creation. Only supported plain literal references and the conventional resources/views root are offered; other view scopes remain unsupported.");
+        return Ok(None);
+    }
+
     let (id, argument) = match reference.kind {
-        Kind::View if !index.views.contains_key(name) => ("view", name.to_owned()),
         Kind::Component if !index.components.contains_key(name) => {
             ("component", name.split('.').map(studly).collect::<Vec<_>>().join("/"))
         }

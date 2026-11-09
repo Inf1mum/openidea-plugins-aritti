@@ -4,16 +4,16 @@ version = "0.2.0" # x-release-please-version
 description = "Starts a Spring Boot project from a tool window. Pick the build, language, Spring Boot and Java versions, coordinates, packaging and dependencies. Generate Project then downloads the project zip from a Spring Initializr server (start.spring.io or your own) in the browser, and Explore in Browser opens the server's web page with the same options, and Generate with Spring Boot CLI runs `spring init` in an IDE terminal when the Spring Boot CLI is allowed. The plugin remembers the form. Independent implementation, not affiliated with JetBrains or Broadcom."
 authors = ["Arnaud RITTI <arnaud.ritti@gmail.com>"]
 license = "MIT"
-change-notes = "Unreleased: Dependencies section: browse the catalogue by category in a tree, with the chosen dependencies listed (and removable) under Selected, search, Clear all, and Boot-version compatibility filtering; replaces the Pick Dependencies button. README describes the pick lists and Add Spring Boot Starters. Pick Spring Boot Version and Pick Dependencies buttons (lists from start.spring.io), and an Add Spring Boot Starters command that inserts dependencies into the open pom.xml or build.gradle(.kts). 0.1.0: first release, with the Spring Initializr tool window (Generate Project and Explore in Browser) and the Open start.spring.io command."
+change-notes = "Previewed literal Groovy/Kotlin Gradle Add Starters with exact Boot-bound metadata and unsupported BOM/repository refusal. Bounded unsaved conflict drafts survive project switches with guarded recovery. Separate reviewed managed CLI lifecycle with bounded observed output, cancellation and explicit unverified-tree status. Stale form/catalogue draft guards and confirmed reload recovery preserve newer saved state. Unreleased: keep the current form/server after failed persistence, and use a consistent bounded selector envelope so valid long project/server identities reload. Maven edit proof rejects misplaced/duplicate declarations, malformed comments, reserved XML PI targets and unbound xsi schema attributes before metadata fetch. reject duplicate-decoded or overbudget server/state JSON and malformed metadata containers while preserving accepted catalogue/state. source-only import revalidates current innermost ownership for parent, target and every planned/verified file, refusing nested-project destinations before fetch or creates. scoped in-memory Maven source-only ZIP import with full exact-source preview, atomic nonoverwrite creates, wrapper exclusions and separate reviewed-folder trust/open request. Previewed atomic Maven Add Starters from version-bound cached metadata, with strict parent/source/configuration guards; the immediate Maven/Gradle writer is removed. Dependencies section: browse the catalogue by category in a tree, with the chosen dependencies listed (and removable) under Selected, search, Clear all, and Boot-version compatibility filtering; replaces the Pick Dependencies button. README describes the pick lists and Add Spring Boot Starters. Pick Spring Boot Version and Pick Dependencies buttons (lists from start.spring.io), and a metadata preparation command for the previewed Maven source intention. 0.1.0: first release, with the Spring Initializr tool window (Generate Project and Explore in Browser) and the Open start.spring.io command."
 categories = ["frameworks"]
 icon = "icon.svg"
-engines.openidea = "^1.2"
+engines.openidea = "^1.3"
 wasm = "dist/plugin.wasm"
-activation = ["on-view:initializr"]
+activation = ["on-view:initializr", "on-file:**/pom.xml"]
 
 [capabilities]
 required = ["storage"]
-optional = ["process:spring", "net:start.spring.io", "editor.read", "editor.write"]
+optional = ["project.read", "process:spring", "net:start.spring.io", "editor.read"]
 
 [[contributes.commands]]
 id = "open-start"
@@ -25,12 +25,35 @@ id = "initializr"
 title = "Spring Initializr"
 icon = "icons/springboot.svg"
 location = "right"
+web = "web/resources/hub.html"
 
 [[contributes.commands]]
 id = "add-starters"
-title = "Spring Initializr: Add Spring Boot Starters"
+title = "Spring Initializr: Prepare Add Spring Boot Starters"
 category = "Spring Initializr"
 
 [[contributes.menus]]
 menu = "tools"
 command = "add-starters"
+
+[[contributes.providers]]
+kinds = ["code-actions"]
+languages = ["*"]
+
+[[contributes.commands]]
+id = "prepare-import"
+title = "Spring Initializr: Prepare Maven Source-only Import"
+category = "Spring Initializr"
+
+[[contributes.commands]]
+id = "open-reviewed-import"
+title = "Spring Initializr: Open Reviewed Source Folder"
+category = "Spring Initializr"
+
+[[contributes.menus]]
+menu = "tools"
+command = "prepare-import"
+
+[[contributes.menus]]
+menu = "tools"
+command = "open-reviewed-import"

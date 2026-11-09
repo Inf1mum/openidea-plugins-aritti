@@ -4,9 +4,14 @@
 //! each task gets its branch (`git.rs`). The task list of each project is kept
 //! in storage, as TaskManagerImpl keeps it in the workspace.
 
+mod commit_message;
 mod git;
+mod issue_context;
 mod model;
+mod search;
+mod state;
 mod trackers;
+mod view_scope;
 
 use std::collections::BTreeSet;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -20,21 +25,41 @@ use git::Git;
 use model::{Choices, DEFAULT_TASK_ID, NamedContext, Task, TaskList, trimmed};
 
 const VIEW: &str = "tasks";
+/// Refresh only this packaged view; receiving pages fetch their own scoped model.
+fn refresh_tasks_view() {
+    host::refresh_view(VIEW);
+    let _ = host::post_view_message(VIEW, r#"{"channel":"ui-kit-refresh"}"#);
+}
+
 const STATUS_ITEM: &str = "active-task";
 
 /// Shown in place of the task tree: the IDE has no dialogs.
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Form {
-    New { summary: String, description: String },
-    Edit { id: String, summary: String, description: String },
+    New {
+        summary: String,
+        description: String,
+    },
+    Edit {
+        id: String,
+        summary: String,
+        description: String,
+    },
     /// OpenTaskDialog, for an issue that isn't a task yet.
-    Open { id: String },
-    Close { id: String },
+    Open {
+        id: String,
+    },
+    Close {
+        id: String,
+    },
+    CachedOpen { review: issue_context::Review },
 }
 
 #[derive(Default)]
 struct Tasks {
     git: bool,
+    scope: view_scope::Scope,
+    issue_search: search::Search,
     selected: Option<String>,
     form: Option<Form>,
     /// The checkboxes of the open form.
@@ -46,20 +71,56 @@ impl Plugin for Tasks {
     fn activate(&mut self, ctx: &Context) -> Result<(), Error> {
         self.git = ctx.has("process:git");
 
-        if let Some(project) = host::projects().ok().and_then(|p| p.into_iter().next()) {
-            if let Ok(tasks) = project.root().and_then(|root| load(&root)) {
-                show_status(&tasks);
-            }
-        }
+        host::remove_status_item(STATUS_ITEM);
+        let _ = host::subscribe(openidea_plugin::EventKind::EditorFocused);
+        let _ = host::subscribe(openidea_plugin::EventKind::FileOpened);
 
         Ok(())
     }
 
     fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
+        host::remove_status_item(STATUS_ITEM);
+        if matches!(id, "open-issue-at-caret" | "activate-issue-at-caret") {
+            issue_context::run(&self.issue_search, ctx, id == "activate-issue-at-caret")?;
+            if let Some(root) = ctx.project().and_then(|p| p.root().ok()) {
+                if let Ok(tasks) = load(&root) {
+                    show_status(&root, &tasks);
+                }
+            }
+            return Ok(None);
+        }
         let project = ctx.project().ok_or("No project is open.")?;
-        let tasks = load(&project.root()?)?;
-
+        let root = project.root()?;
+        if id == "reset-project-state" {
+            state::recover(&root)?;
+            self.scope.clear();
+            self.form = None;
+            self.selected = None;
+            refresh_tasks_view();
+            return Ok(None);
+        }
+        let (tasks, stamp) = state::snapshot(&root)?;
+        if self.scope.bind(&root, stamp) {
+            self.form = None;
+            self.selected = None;
+            self.collapsed.clear();
+        }
+        self.scope.rotate();
+        // Even a cancelled command invalidates the old rendered action tokens.
+        refresh_tasks_view();
         match id {
+            "review-issue-branch-at-caret" => {
+                if !self.git { return Err("Grant process:git and reload Tasks to review branch options.".into()); }
+                let review = issue_context::prepare(&self.issue_search, ctx)?;
+                if tasks.find(&review.issue.id).is_some() {
+                    return Err("This issue already has a local task; use its existing task switch/branch workflow.".into());
+                }
+                self.choices = tasks.choices.clone();
+                self.choices.create_branch = true;
+                self.form = Some(Form::CachedOpen { review });
+                refresh_tasks_view();
+                host::reveal_view(VIEW)?;
+            }
             // Closing can merge and delete the branch and close the issue: the user reviews the choices first.
             "close" => {
                 if tasks.active().is_default() {
@@ -67,7 +128,7 @@ impl Plugin for Tasks {
                 }
 
                 self.show_form(Form::Close { id: tasks.active.clone() }, &tasks);
-                host::refresh_view(VIEW);
+                refresh_tasks_view();
                 if host::reveal_view(VIEW).is_err() {
                     host::notify(NotificationLevel::Info, "Close the active task", "Review the close options in the Tasks tool window.");
                 }
@@ -85,13 +146,14 @@ impl Plugin for Tasks {
 
                 if let Some(id) = host::pick("Switch Task", &items)? {
                     self.switch_task(&project, &id, false, &tasks.choices)?;
-                    host::refresh_view(VIEW);
+                    refresh_tasks_view();
                 }
             }
             "open-in-browser" => {
                 let url = tasks.active().url.as_deref().ok_or("The active task isn't an issue, so it has no page to open.")?;
                 host::open_url(url)?;
             }
+            "apply-commit-message" => commit_message::run(&project)?,
             "copy-commit-message" => {
                 let message = tasks.commit_message(&commit_message_format())?;
                 host::copy_to_clipboard(&message)?;
@@ -100,13 +162,14 @@ impl Plugin for Tasks {
             "refresh" => refresh_issues(&project, false)?,
             "search-issues" => self.search_issues(&project, &tasks, ctx)?,
             "save-context" => save_context(&project, &tasks)?,
-            "load-context" => load_context(&tasks)?,
+            "load-context" => load_context(&project, &tasks)?,
             "remove-context" => remove_context(&project, &tasks)?,
             "add-repository" => add_repository(&project)?,
             "remove-repository" => remove_repository(&project, &tasks)?,
             _ => return Err(Error::NotFound(format!("command {id}"))),
         }
 
+        show_status(&root, &load(&root)?);
         Ok(None)
     }
 
@@ -115,6 +178,19 @@ impl Plugin for Tasks {
 
         for event in events {
             match event {
+                Event::EditorFocused(path) => {
+                    if let Some(root) = ctx.project().and_then(|p| p.root().ok()).filter(|root| {
+                        path.as_ref().is_some_and(|p| host::project_of(p).and_then(|p| p.root().ok()).as_deref() == Some(root))
+                    }) {
+                        if let Ok(tasks) = load(&root) {
+                            show_status(&root, &tasks);
+                        } else {
+                            host::remove_status_item(STATUS_ITEM);
+                        }
+                    } else {
+                        host::remove_status_item(STATUS_ITEM);
+                    }
+                }
                 Event::FileOpened(path) => opened.push(path.clone()),
                 Event::Scheduled => update_all_issues(),
                 _ => {}
@@ -129,11 +205,21 @@ impl Plugin for Tasks {
             return;
         };
 
+        opened.retain(|path| state::owns(&root, path) && host::project_of(path).and_then(|p| p.root().ok()).as_deref() == Some(&root));
+        if opened.is_empty() {
+            return;
+        }
         let recorded = update(&root, |tasks, _| {
-            opened.iter().filter(|path| path.starts_with(&root)).for_each(|path| tasks.record_file(path));
+            opened
+                .iter()
+                .filter(|path| state::owns(&root, path) && host::project_of(path).and_then(|p| p.root().ok()).as_deref() == Some(&root))
+                .for_each(|path| tasks.record_file(path));
             Ok(())
         });
 
+        if recorded.is_ok() && self.scope.owner_is(&root) {
+            self.scope.after(ctx);
+        }
         if let Err(e) = recorded {
             host::log(LogLevel::Warn, &format!("recording opened files: {e}"));
         }
@@ -143,13 +229,41 @@ impl Plugin for Tasks {
 impl Views for Tasks {
     fn render(&mut self, _view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
         let Some(project) = ctx.project() else {
+            self.scope.clear();
+            self.form = None;
+            self.selected = None;
+            self.collapsed.clear();
+            host::remove_status_item(STATUS_ITEM);
             return Ok(View::message("Open a project to work on tasks."));
         };
 
-        let tasks = load(&project.root()?)?;
-
+        let root = match project.root() {
+            Ok(root) => root,
+            Err(error) => {
+                self.scope.clear(); self.form = None; self.selected = None; self.collapsed.clear();
+                host::remove_status_item(STATUS_ITEM);
+                return Err(error);
+            }
+        };
+        let (tasks, stamp) = match state::snapshot(&root) {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                self.scope.clear();
+                self.form = None;
+                self.selected = None;
+                self.collapsed.clear();
+                host::remove_status_item(STATUS_ITEM);
+                return Err(error);
+            }
+        };
+        show_status(&root, &tasks);
+        if self.scope.bind(&root, stamp) {
+            self.form = None;
+            self.selected = None;
+            self.collapsed.clear();
+        }
         if let Some(form) = &self.form {
-            return Ok(self.render_form(form, &tasks));
+            return Ok(self.scope.view(self.render_form(form, &tasks)));
         }
 
         let now = now();
@@ -208,18 +322,38 @@ impl Views for Tasks {
             None => "Post Work Time".to_owned(),
         };
 
-        Ok(View::new(Body::Tree(items))
-            .button(Button::new("new", "New Task").icon("plus"))
-            .button(Button::new("switch", "Switch to Task").icon("run").enabled(can_switch))
-            .button(Button::new("edit", "Edit Task").icon("edit").enabled(can_edit))
-            .button(Button::new("close", "Close Task").icon("check").enabled(can_close))
-            .button(Button::new("post-time", &post_label).icon("clock").enabled(can_post))
-            .button(Button::new("browse", "Open in Browser").icon("web").enabled(can_browse))
-            .button(Button::new("refresh", "Update Issues").icon("refresh"))
-            .status(&format!("Active: {}", tasks.active().label())))
+        Ok(self.scope.view(
+            View::new(Body::Tree(items))
+                .button(Button::new("new", "New Task").icon("plus"))
+                .button(Button::new("switch", "Switch to Task").icon("run").enabled(can_switch))
+                .button(Button::new("edit", "Edit Task").icon("edit").enabled(can_edit))
+                .button(Button::new("close", "Close Task").icon("check").enabled(can_close))
+                .button(Button::new("post-time", &post_label).icon("clock").enabled(can_post))
+                .button(Button::new("browse", "Open in Browser").icon("web").enabled(can_browse))
+                .button(Button::new("refresh", "Update Issues").icon("refresh"))
+                .status(&format!("Active: {}", tasks.active().label())),
+        ))
     }
 
     fn handle(&mut self, _view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {
+        if ui_kit::web::handle(self, _view, &event, ctx, include_str!("ui_config.json"))? {
+            return Ok(());
+        }
+
+        state::clear_receipt();
+        let event = match self.scope.decode(event, ctx) {
+            Ok(event) => event,
+            Err(error) => {
+                refresh_tasks_view();
+                return Err(error);
+            }
+        };
+        if self.form.is_some()
+            && matches!(&event, ViewEvent::Select(_) | ViewEvent::Activate(_) | ViewEvent::Expand(_) | ViewEvent::Collapse(_))
+        {
+            return Err(Error::Stale);
+        }
+        let rotate = matches!(&event, ViewEvent::Select(_) | ViewEvent::Activate(_) | ViewEvent::Button(_));
         let result = match event {
             ViewEvent::Select(key) => {
                 self.selected = Some(key);
@@ -245,7 +379,16 @@ impl Views for Tasks {
             _ => Ok(()),
         };
 
-        host::refresh_view(VIEW);
+        if rotate {
+            self.scope.rotate();
+        }
+        self.scope.after(ctx);
+        if let Some(root) = ctx.project().and_then(|p| p.root().ok()) {
+            if let Ok(tasks) = load(&root) {
+                show_status(&root, &tasks);
+            }
+        }
+        refresh_tasks_view();
 
         result
     }
@@ -289,6 +432,10 @@ impl Tasks {
                 let label = tasks.find_any(id).map(Task::label).unwrap_or_default();
                 (Vec::new(), "Open Task", true, label)
             }
+            Form::CachedOpen { review } => (
+                Vec::new(), "Open Task", true,
+                format!("Review cached issue {} — {}. Branch: {} (create from HEAD or switch existing). Source/configuration rechecked on Open Task.", review.issue.id, review.issue.summary, git::branch_name(&review.issue, &review.branch_format)),
+            ),
             Form::Close { id } => {
                 let mut fields = Vec::new();
                 let task = tasks.find(id);
@@ -306,7 +453,7 @@ impl Tasks {
             }
         };
 
-        if matches!(form, Form::New { .. } | Form::Open { .. }) {
+        if matches!(form, Form::New { .. } | Form::Open { .. } | Form::CachedOpen { .. }) {
             fields.extend(vcs_fields());
         }
 
@@ -368,7 +515,7 @@ impl Tasks {
                 host::open_url(&url)?;
             }
             "refresh" => refresh_issues(&project, false)?,
-            "ok" => self.submit(&project)?,
+            "ok" => self.submit(&project, ctx)?,
             "cancel" => self.form = None,
             _ => {}
         }
@@ -381,7 +528,15 @@ impl Tasks {
         self.form = Some(form);
     }
 
-    fn submit(&mut self, project: &Project) -> Result<(), Error> {
+    fn submit(&mut self, project: &Project, ctx: &Invocation) -> Result<(), Error> {
+        if let Some(Form::CachedOpen { review }) = &self.form {
+            review.validate(&self.issue_search, ctx)?;
+        }
+        if let Some(Form::New { summary, description } | Form::Edit { summary, description, .. }) = &self.form {
+            if summary.trim().is_empty() || summary.len() > 4096 || description.len() > 32 * 1024 {
+                return Err("A task needs a nonempty summary (up to 4096 bytes) and a bounded description (32 KiB).".into());
+            }
+        }
         let Some(form) = self.form.take() else {
             return Ok(());
         };
@@ -414,6 +569,19 @@ impl Tasks {
                 self.switch_task(project, &id, true, &choices)?;
                 self.selected = Some(format!("task:{id}"));
             }
+            Form::CachedOpen { review } => {
+                // The retained source/configuration ticket was checked before
+                // changing choices, importing the issue, activating, or running Git.
+                let id = review.issue.id.clone();
+                update(&root, |tasks, _| {
+                    if tasks.find(&id).is_some() { return Err(Error::Stale); }
+                    tasks.issues.retain(|issue| issue.id != id);
+                    tasks.issues.push(review.issue.clone());
+                    Ok(())
+                })?;
+                self.switch_task(project, &id, true, &choices)?;
+                self.selected = Some(format!("task:{id}"));
+            }
             Form::Close { id } => self.close_task(project, &id, &choices)?,
         }
 
@@ -424,53 +592,36 @@ impl Tasks {
         self.selected.as_deref().and_then(|key| selected_task(tasks, key)).ok_or_else(|| "Select a task first.".into())
     }
 
-    fn search_issues(&mut self, project: &Project, tasks: &TaskList, ctx: &Invocation) -> Result<(), Error> {
-        let Some(query) = host::input("Search issues", None)?.map(|q| q.trim().to_owned()).filter(|q| !q.is_empty()) else {
+    fn search_issues(&mut self, project: &Project, _tasks: &TaskList, ctx: &Invocation) -> Result<(), Error> {
+        let Some(issue) = self.issue_search.pick(project, ctx)? else {
             return Ok(());
         };
-
-        let _progress = host::begin_task("Searching issues", false);
-        let remotes = project.vcs_remotes().unwrap_or_default();
-        let scope = trackers::Scope { remotes: &remotes, query: Some(&query), repositories: &tasks.repositories };
-        let found = trackers::fetch_all(&scope);
-
-        warn("Some trackers couldn't be searched", &found.errors);
-
-        if found.trackers == 0 {
-            return Err("No issue tracker set up. Enter a token in Settings › Plugins › Tasks.".into());
+        let root = project.root()?;
+        let current = load(&root)?;
+        if let Some(existing) = current.find_any(&issue.id) {
+            if existing.tracker != issue.tracker || existing.api != issue.api {
+                return Err("This issue ID belongs to a different existing task/server. It cannot be replaced by search.".into());
+            }
         }
-
-        if found.issues.is_empty() {
-            return Err(format!("No issue matches \"{query}\".").into());
-        }
-
-        let items: Vec<PickItem> = found
-            .issues
-            .iter()
-            .enumerate()
-            .map(|(i, t)| PickItem::new(&i.to_string(), &t.label()).description(trackers::name(t)))
-            .collect();
-
-        let Some(index) = host::pick("Go to Issue", &items)?.and_then(|key| key.parse::<usize>().ok()) else {
-            return Ok(());
-        };
-
-        let issue = found.issues[index].clone();
         let id = issue.id.clone();
 
-        update(&project.root()?, |tasks, _| {
-            if tasks.find_any(&id).is_none() {
+        update(&root, |tasks, _| {
+            if let Some(existing) = tasks.find_any(&id) {
+                if existing.tracker != issue.tracker || existing.api != issue.api {
+                    return Err("The issue ID now belongs to a different task/server.".into());
+                }
+            } else {
                 tasks.issues.push(issue);
             }
             Ok(())
         })?;
 
-        self.selected = Some(format!("issue:{id}"));
+        self.selected = Some(format!("{}:{id}", if current.find(&id).is_some() { "task" } else { "issue" }));
 
         self.start_selected(ctx)?;
 
         if self.form.is_some() {
-            host::refresh_view(VIEW);
+            refresh_tasks_view();
             if host::reveal_view(VIEW).is_err() {
                 host::notify(NotificationLevel::Info, "Open the issue", "Review the branch options in the Tasks tool window.");
             }
@@ -506,6 +657,9 @@ impl Tasks {
     /// restore its changes, its commit message and the files it had open.
     fn switch_task(&self, project: &Project, id: &str, new_task: bool, choices: &Choices) -> Result<(), Error> {
         let root = project.root()?;
+        if let Some(task) = load(&root)?.find_any(id) {
+            owned_files(project, &task.files)?;
+        }
         let _progress = host::begin_task("Switching task", false);
         let git = self.git.then(|| Git::new(project));
         let mut warnings = Vec::new();
@@ -658,7 +812,21 @@ fn save_context(project: &Project, tasks: &TaskList) -> Result<(), Error> {
         return Ok(());
     };
 
-    update(&project.root()?, |tasks, _| {
+    let root = project.root()?;
+    if name.len() > 128 || name.chars().any(char::is_control) {
+        return Err("Use a context name of at most 128 bytes without control characters.".into());
+    }
+    if load(&root)? != *tasks {
+        return Err(Error::Stale);
+    }
+    update(&root, |current, _| {
+        if *current != *tasks {
+            return Err(Error::Stale);
+        }
+        if current.contexts.len() >= 64 && !current.contexts.iter().any(|c| c.name == name) {
+            return Err("Saved context limit (64) reached.".into());
+        }
+        let tasks = current;
         tasks.contexts.retain(|c| c.name != name);
         tasks.contexts.push(NamedContext { name: name.clone(), files });
         Ok(())
@@ -673,24 +841,46 @@ fn pick_context(tasks: &TaskList, title: &str) -> Result<Option<NamedContext>, E
         return Err("There is no saved context.".into());
     }
 
-    let items: Vec<PickItem> = tasks
-        .contexts
-        .iter()
-        .map(|c| PickItem::new(&c.name, &c.name).description(&format!("{} files", c.files.len())))
-        .collect();
+    let items: Vec<PickItem> =
+        tasks.contexts.iter().map(|c| PickItem::new(&c.name, &c.name).description(&format!("{} files", c.files.len()))).collect();
 
-    Ok(host::pick(title, &items)?.and_then(|name| tasks.contexts.iter().find(|c| c.name == name).cloned()))
+    match host::pick(title, &items)? {
+        None => Ok(None),
+        Some(name) => tasks
+            .contexts
+            .iter()
+            .find(|c| c.name == name)
+            .cloned()
+            .map(Some)
+            .ok_or_else(|| Error::Invalid("Unknown context selection.".into())),
+    }
 }
 
-fn load_context(tasks: &TaskList) -> Result<(), Error> {
-    let Some(context) = pick_context(tasks, "Load Context")? else {
+fn owned_files(project: &Project, files: &[String]) -> Result<(), Error> {
+    let root = project.root()?;
+    if files.len() > 10
+        || files
+            .iter()
+            .any(|file| !state::owns(&root, file) || host::project_of(file).and_then(|p| p.root().ok()).as_deref() != Some(&root))
+    {
+        return Err("Recorded files no longer belong to this exact project.".into());
+    }
+    Ok(())
+}
+fn load_context(project: &Project, tasks: &TaskList) -> Result<(), Error> {
+    let root = project.root()?;
+    let Some(context) = pick_context(tasks, "Reopen Recorded Context Files")? else {
         return Ok(());
     };
-
-    for file in &context.files {
-        let _ = host::open_location(file, 0, 0);
+    if load(&root)? != *tasks {
+        return Err(Error::Stale);
     }
-
+    owned_files(project, &context.files)?;
+    for (opened, file) in context.files.iter().enumerate() {
+        if let Err(error) = host::open_location(file, 0, 0) {
+            return Err(Error::Failed(format!("Opened {opened} of {} recorded context files; {error}", context.files.len())));
+        }
+    }
     Ok(())
 }
 
@@ -703,8 +893,15 @@ fn remove_context(project: &Project, tasks: &TaskList) -> Result<(), Error> {
         return Ok(());
     }
 
-    update(&project.root()?, |tasks, _| {
-        tasks.contexts.retain(|c| c.name != context.name);
+    let root = project.root()?;
+    if load(&root)? != *tasks {
+        return Err(Error::Stale);
+    }
+    update(&root, |current, _| {
+        if *current != *tasks {
+            return Err(Error::Stale);
+        }
+        current.contexts.retain(|c| c.name != context.name);
         Ok(())
     })
 }
@@ -747,7 +944,9 @@ fn remove_repository(project: &Project, tasks: &TaskList) -> Result<(), Error> {
         .repositories
         .iter()
         .filter(|(kind, _)| trackers::is_repository_tracker(kind))
-        .flat_map(|(kind, list)| list.iter().map(move |r| PickItem::new(&format!("{kind} {r}"), r).description(trackers::tracker_name(kind))))
+        .flat_map(|(kind, list)| {
+            list.iter().map(move |r| PickItem::new(&format!("{kind} {r}"), r).description(trackers::tracker_name(kind)))
+        })
         .collect();
 
     if items.is_empty() {
@@ -779,7 +978,7 @@ fn refresh_issues(project: &Project, quiet: bool) -> Result<(), Error> {
     let _progress = host::begin_task("Updating issues", false);
     let remotes = project.vcs_remotes().unwrap_or_default();
     let repositories = load(&root)?.repositories;
-    let fetched = trackers::fetch_all(&trackers::Scope { remotes: &remotes, query: None, repositories: &repositories });
+    let fetched = trackers::fetch_all(&trackers::Scope { remotes: &remotes, query: None, page: 1, repositories: &repositories });
 
     if fetched.trackers == 0 {
         if !quiet {
@@ -819,29 +1018,21 @@ fn refresh_issues(project: &Project, quiet: bool) -> Result<(), Error> {
     })
 }
 
-fn storage_key(root: &str) -> String {
-    format!("tasks:{root}")
-}
-
 fn load(root: &str) -> Result<TaskList, Error> {
-    let stored = host::storage::get(&storage_key(root))?;
-
-    Ok(stored.and_then(|json| serde_json::from_str(&json).ok()).unwrap_or_else(|| TaskList::new(now())))
+    state::load(root)
 }
-
 fn update<R>(root: &str, change: impl FnOnce(&mut TaskList, u64) -> Result<R, Error>) -> Result<R, Error> {
-    let mut tasks = load(root)?;
-    let result = change(&mut tasks, now())?;
-    let json = serde_json::to_string(&tasks).map_err(|e| e.to_string())?;
-
-    host::storage::set(&storage_key(root), &json)?;
-    show_status(&tasks);
-    host::refresh_view(VIEW);
-
+    let result = state::update(root, change)?;
+    refresh_tasks_view();
     Ok(result)
 }
 
-fn show_status(tasks: &TaskList) {
+fn show_status(root: &str, tasks: &TaskList) {
+    let projects = host::projects().unwrap_or_default();
+    if projects.len() != 1 || projects[0].root().ok().as_deref() != Some(root) {
+        host::remove_status_item(STATUS_ITEM);
+        return;
+    }
     let item = StatusItem {
         text: trimmed(&tasks.active().label(), 40),
         tooltip: Some("Active task. Click to copy its commit message.".into()),
@@ -877,7 +1068,17 @@ fn duration(seconds: u64) -> String {
     }
 }
 
-register_plugin!(Tasks, views);
+impl openidea_plugin::hover::HoverProvider for Tasks {
+    fn hover(
+        &mut self,
+        doc: &openidea_plugin::providers::Document,
+        at: openidea_plugin::Position,
+    ) -> Option<openidea_plugin::hover::Hover> {
+        issue_context::hover(&self.issue_search, doc, at)
+    }
+}
+
+register_plugin!(Tasks, views, hover);
 
 #[cfg(test)]
 mod tests {
@@ -914,7 +1115,83 @@ mod tests {
     }
 
     fn press(plugin: &mut Tasks, host: &MockHost, event: ViewEvent) {
+        plugin.render(VIEW, None, &host.invocation()).unwrap();
+        let event = match event {
+            ViewEvent::Button(k) => ViewEvent::Button(plugin.scope.key(&k, true)),
+            ViewEvent::Field(k, v) => ViewEvent::Field(plugin.scope.key(&k, true), v),
+            ViewEvent::Select(k) => ViewEvent::Select(plugin.scope.key(&k, false)),
+            ViewEvent::Activate(k) => ViewEvent::Activate(plugin.scope.key(&k, false)),
+            ViewEvent::Expand(k) => ViewEvent::Expand(plugin.scope.key(&k, false)),
+            ViewEvent::Collapse(k) => ViewEvent::Collapse(plugin.scope.key(&k, false)),
+            event => event,
+        };
         plugin.handle(VIEW, event, &host.invocation()).unwrap();
+    }
+
+    fn seeded() -> (MockHost, Tasks) {
+        let host=MockHost::install().with_capabilities(&["project.read","storage"]);
+        update("/project",|tasks,now| { let id=tasks.add_local("Private project task","");tasks.activate(&id,now)?;Ok(()) }).unwrap();
+        (host,Tasks::default())
+    }
+    fn notified(host:&MockHost, after:usize) -> bool {
+        host.view_messages()[after..].iter().any(|(view,text)|view==VIEW && text==r#"{"channel":"ui-kit-refresh"}"#)
+    }
+    #[test]
+    fn external_close_form_refreshes_packaged_page_without_closing_task() {
+        let (host,mut plugin)=seeded();let before=host.view_messages().len();
+        plugin.run_command("close",&host.invocation(),None).unwrap();
+        assert!(notified(&host,before));assert!(matches!(plugin.form,Some(Form::Close{..})));
+        assert_eq!(load("/project").unwrap().active,"LOCAL-00001");assert!(host.requests().is_empty());
+    }
+    #[test]
+    fn external_switch_and_cancelled_switch_refresh_current_action_tokens() {
+        let (host,mut plugin)=seeded();plugin.render(VIEW,None,&host.invocation()).unwrap();
+        let old=plugin.scope.key("new",true);let before=host.view_messages().len();
+        plugin.run_command("switch",&host.invocation(),None).unwrap();
+        assert!(notified(&host,before));assert!(plugin.handle(VIEW,ViewEvent::Button(old),&host.invocation()).is_err());
+        host.answer_next_prompt(Some(&[DEFAULT_TASK_ID]));let before=host.view_messages().len();
+        plugin.run_command("switch",&host.invocation(),None).unwrap();
+        assert!(notified(&host,before));assert_eq!(load("/project").unwrap().active,DEFAULT_TASK_ID);
+        assert!(host.requests().is_empty());assert!(host.process_runs().is_empty());
+    }
+    #[test]
+    fn external_reset_and_committed_update_notify_only_tasks_view() {
+        let (host,mut plugin)=seeded();let before=host.view_messages().len();
+        host.answer_next_prompt(Some(&[]));plugin.run_command("reset-project-state",&host.invocation(),None).unwrap();
+        assert!(notified(&host,before));assert_eq!(load("/project").unwrap().tasks.len(),1);
+        let before=host.view_messages().len();update("/project",|tasks,_|{tasks.add_local("Updated","");Ok(())}).unwrap();
+        assert!(notified(&host,before));assert!(host.view_messages()[before..].iter().all(|(view,_)|view==VIEW));
+    }
+    #[test]
+    fn failed_update_and_stable_render_do_not_create_refresh_loop() {
+        let (host,mut plugin)=seeded();let before=host.view_messages().len();
+        plugin.render(VIEW,None,&host.invocation()).unwrap();plugin.render(VIEW,None,&host.invocation()).unwrap();
+        assert_eq!(host.view_messages().len(),before);
+        let failed:Result<(),Error>=update("/project",|_,_|Err(Error::Stale));assert!(failed.is_err());
+        assert_eq!(host.view_messages().len(),before);
+        for sequence in [1,2] {
+            let previous=host.view_messages().len();
+            let request=serde_json::json!({"channel":"ui-kit","frameId":"0123456789abcdef0123456789abcdef","sequence":sequence,"project":"/project","op":"render"});
+            plugin.handle(VIEW,ViewEvent::Message(request.to_string()),&host.invocation()).unwrap();
+            let messages=host.view_messages();assert_eq!(messages.len(),previous+1);
+            let reply:serde_json::Value=serde_json::from_str(&messages[previous].1).unwrap();
+            assert_eq!(reply["channel"],"ui-kit");assert!(reply.get("model").is_some());
+        }
+    }
+    #[test]
+    fn automatic_foreign_model_drops_private_form_and_old_callbacks() {
+        let (host,mut plugin)=seeded();plugin.render(VIEW,None,&host.invocation()).unwrap();
+        let old=plugin.scope.key("ok",true);plugin.form=Some(Form::New{summary:"Private form content".into(),description:String::new()});
+        host.set_project_root(Some("/other"));let model=plugin.render(VIEW,None,&host.invocation()).unwrap();
+        assert!(!format!("{:?}",model).contains("Private form content"));assert!(plugin.form.is_none());
+        assert!(plugin.handle(VIEW,ViewEvent::Button(old),&host.invocation()).is_err());assert_eq!(load("/other").unwrap().tasks.len(),1);
+    }
+    #[test]
+    fn lost_project_read_clears_form_before_render_error() {
+        let (host,mut plugin)=seeded();plugin.render(VIEW,None,&host.invocation()).unwrap();
+        plugin.form=Some(Form::New{summary:"Private form content".into(),description:String::new()});
+        let host=host.with_capabilities(&["storage"]);assert!(plugin.render(VIEW,None,&host.invocation()).is_err());
+        assert!(plugin.form.is_none());assert!(plugin.selected.is_none());assert!(host.requests().is_empty());
     }
 
     #[test]
@@ -999,8 +1276,8 @@ mod tests {
 
         let view = plugin.render(VIEW, None, &host.invocation()).unwrap();
         let Body::Tree(items) = view.body else { panic!("not a tree") };
-        let hint = items.iter().find(|i| i.parent.as_deref() == Some("issues")).unwrap();
-        assert!(items.iter().any(|i| i.key == "issues"));
+        let hint = items.iter().find(|i| i.parent.as_deref().is_some_and(|k| k.ends_with(":issues"))).unwrap();
+        assert!(items.iter().any(|i| i.key.ends_with(":issues")));
         assert_eq!(hint.icon.as_deref(), Some("info"));
         assert!(plugin.form.is_none());
 
@@ -1012,9 +1289,9 @@ mod tests {
 
         let view = plugin.render(VIEW, None, &host.invocation()).unwrap();
         let Body::Tree(items) = view.body else { panic!("not a tree") };
-        let issue = items.iter().find(|i| i.key == "issue:tool-12").unwrap();
+        let issue = items.iter().find(|i| i.key.ends_with(":issue:tool-12")).unwrap();
         assert_eq!(issue.detail.as_deref(), Some("GitHub"));
-        assert!(!items.iter().any(|i| i.key == "no-issues"));
+        assert!(!items.iter().any(|i| i.key.ends_with(":no-issues")));
     }
 
     #[test]
@@ -1115,6 +1392,43 @@ mod tests {
         plugin.run_command("search-issues", &host.invocation(), None).unwrap();
 
         assert_eq!(load("/project").unwrap().active, "tool-7");
+    }
+
+    #[test]
+    fn search_reuses_only_the_matching_server_task_and_refuses_id_collisions() {
+        let host = MockHost::install().with_capabilities(ALL);
+        host.set_secret("github-token", "token");
+        host.set_vcs_remotes(&[("origin", "git@github.com:acme/tool.git")]);
+        github_hit(&host);
+        update("/project", |tasks, _| {
+            tasks.tasks.push(Task::issue(
+                "github",
+                "tool-7",
+                "Owned",
+                "https://github.com/acme/tool/issues/7",
+                "https://api.github.com/repos/acme/tool/issues/7",
+            ));
+            Ok(())
+        })
+        .unwrap();
+        let mut plugin = plugin(&host);
+        plugin.git = false;
+        host.answer_next_prompt(Some(&["crash"]));
+        host.answer_next_prompt(Some(&["0"]));
+        plugin.run_command("search-issues", &host.invocation(), None).unwrap();
+        assert_eq!(load("/project").unwrap().active, "tool-7");
+        assert_eq!(load("/project").unwrap().find("tool-7").unwrap().summary, "Owned");
+        update("/project", |tasks, _| {
+            tasks.active = DEFAULT_TASK_ID.into();
+            tasks.tasks.iter_mut().find(|task| task.id == "tool-7").unwrap().api =
+                Some("https://api.github.com/repos/other/tool/issues/7".into());
+            Ok(())
+        })
+        .unwrap();
+        host.answer_next_prompt(Some(&["crash"]));
+        host.answer_next_prompt(Some(&["0"]));
+        assert!(plugin.run_command("search-issues", &host.invocation(), None).is_err());
+        assert_eq!(load("/project").unwrap().active, DEFAULT_TASK_ID);
     }
 
     #[test]

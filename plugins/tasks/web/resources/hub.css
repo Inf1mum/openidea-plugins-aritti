@@ -1,0 +1,50 @@
+@import url("./tokens.css");
+@import url("./components.css");
+*{box-sizing:border-box}html,body{height:100%;margin:0;overflow-x:clip}body{display:flex;flex-direction:column;background:var(--bg);color:var(--fg);font:var(--openidea-font-size,13px)/1.45 var(--openidea-font-ui,system-ui,sans-serif)}button,input,select,textarea{font:inherit;color:inherit}button{border:1px solid var(--line);border-radius:4px;background:var(--input);padding:5px 9px;cursor:pointer;white-space:nowrap}button:hover:not(:disabled){background:var(--hover)}button:disabled{opacity:.5;cursor:default}:focus-visible{outline:2px solid var(--focus);outline-offset:2px}input,select,textarea{background:var(--input);border:1px solid var(--line);border-radius:4px;padding:6px;min-width:0}header{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--line)}header>div{flex:1;min-width:0}#plugin{font-size:.8em;color:var(--muted)}h1{font-size:1.1em;margin:0;overflow-wrap:anywhere}h2{font-size:1em;margin:0 0 10px}#notice:not(:empty){padding:8px 16px;border-bottom:1px solid var(--line);color:var(--openidea-warning,var(--fg))}.shell{display:flex;flex:1;min-height:0}nav{width:175px;flex-shrink:0;border-right:1px solid var(--line);overflow:auto;padding:8px}nav button{display:block;width:100%;text-align:left;margin-bottom:4px;border-color:transparent;background:none}nav button[aria-current=page]{background:var(--selected);font-weight:600}main{min-width:0;flex:1;display:flex;flex-direction:column}.toolbar{display:flex;flex-wrap:wrap;gap:6px;padding:8px 12px;border-bottom:1px solid var(--line)}.toolbar:empty{display:none}.filters{display:flex;gap:10px;align-items:end;padding:8px 12px;border-bottom:1px solid var(--line);flex-wrap:wrap}.search{display:flex;flex-direction:column;color:var(--muted);font-size:.85em;min-width:130px;flex:1}.search input{margin-top:3px;width:100%;color:var(--fg)}#facets{display:flex;gap:8px;flex-wrap:wrap}#facets label{font-size:.85em;color:var(--muted);display:flex;flex-direction:column;gap:3px}#facets select{max-width:180px;color:var(--fg)}.workspace{flex:1;display:flex;min-height:0;min-width:0}#content{flex:1;min-width:0;overflow:auto;position:relative}aside{width:290px;min-width:190px;max-width:42%;border-left:1px solid var(--line);padding:14px;overflow:auto;overflow-wrap:anywhere}aside p{white-space:pre-wrap}aside dl{margin:0}aside dt{color:var(--muted);margin-top:10px;font-size:.85em}aside dd{margin:2px 0;font-family:var(--mono);white-space:pre-wrap}aside .actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:14px}table{border-collapse:collapse;width:100%;font-size:1em}thead{position:sticky;top:0;z-index:1;background:var(--bg)}th{text-align:left;border-bottom:1px solid var(--line);font-weight:600;white-space:nowrap}th button{border:0;background:none;text-align:left;width:100%;padding:8px 10px}td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top;max-width:560px;overflow-wrap:anywhere}tr[tabindex]{cursor:pointer}tbody tr:hover{background:var(--hover)}tbody tr[aria-selected=true]{background:var(--selected)}.mono{font-family:var(--mono)}.method{display:inline-block;font-family:var(--mono);font-size:.85em;font-weight:600;padding:1px 6px;border-radius:3px;background:var(--hover);white-space:nowrap}.method[data-method=GET]{color:var(--openidea-success,var(--fg))}.method[data-method=POST]{color:var(--openidea-info,var(--fg))}.method[data-method=DELETE]{color:var(--openidea-danger,var(--fg))}.empty{padding:28px;color:var(--muted);white-space:pre-wrap}.pager{display:flex;gap:10px;align-items:center;justify-content:flex-end;padding:8px 12px;position:sticky;bottom:0;background:var(--bg);border-top:1px solid var(--line)}.form{padding:16px;display:grid;gap:14px;max-width:900px}.form label{display:flex;flex-direction:column;gap:5px}.form label.checkbox{flex-direction:row;align-items:center}.form textarea{min-height:110px;resize:vertical;font-family:var(--mono)}.form output{white-space:pre-wrap;overflow-wrap:anywhere;color:var(--muted)}.tree-toggle{border:0;background:none;padding:0 6px 0 0}.legacy{display:block;position:relative;min-height:100%;height:100%}footer{padding:6px 12px;border-top:1px solid var(--line);color:var(--muted);font-size:.85em}[hidden]{display:none!important}@media(max-width:700px){nav{width:130px}aside{width:240px;max-width:40%}}@media(max-width:480px){.shell{flex-direction:column}nav{width:100%;max-height:110px;display:flex;gap:5px;flex-wrap:wrap;border-right:0;border-bottom:1px solid var(--line)}nav button{width:auto;margin:0}.workspace{flex-direction:column}aside{width:100%;max-width:none;max-height:35%;border-left:0;border-top:1px solid var(--line)}header{padding:8px 12px}.filters{gap:6px}}
+
+/* Keep identifiers readable in narrow docks; scroll the table within its pane. */
+table.resources{min-width:650px}
+
+/* Bottom tool windows need a scrollable workflow when chrome and facets alone
+   exceed the dock height. Keep both table and details usable inside that flow. */
+@media(max-height:420px){
+  header{flex-shrink:0;padding:6px 12px}
+  #plugin{display:none}
+  main{min-height:0;overflow-y:auto}
+  .workspace{flex:0 0 180px;min-height:180px}
+  footer,.toolbar,.filters{flex-shrink:0}
+}
+
+/* Short category names must not split into fragments in narrow tool windows. */
+td.category{white-space:nowrap;overflow-wrap:normal;word-break:normal}
+
+/* Shared Int-style geometry; preserve the existing hub layout and bridge. */
+body{font:var(--ui-text)/var(--ui-leading) var(--ui-font)}
+button,input,select,textarea{min-height:var(--ui-control-height);border-radius:var(--ui-radius)}
+button{padding:var(--ui-space-1) var(--ui-space-3)}
+input,select,textarea{padding:var(--ui-space-1) var(--ui-space-2)}
+input[type=checkbox]{min-height:0;accent-color:var(--ui-accent)}
+header{background:var(--ui-panel);gap:var(--ui-space-3)}
+nav{background:var(--ui-panel)}
+nav button[aria-current=page]{box-shadow:inset 2px 0 var(--ui-accent)}
+thead{background:var(--ui-panel)}
+.method[data-method=GET]{color:var(--ui-success)}
+.method[data-method=POST]{color:var(--ui-info)}
+.method[data-method=DELETE]{color:var(--ui-danger)}
+.method[data-method=PUT],.method[data-method=PATCH]{color:var(--ui-warning)}
+#notice:not(:empty){color:var(--ui-fg);border-left:3px solid var(--ui-danger);background:var(--ui-panel)}
+.detail-heading{display:flex;gap:var(--ui-space-2);align-items:start;margin-bottom:var(--ui-space-3)}
+.detail-heading h2{flex:1;min-width:0;margin:0;overflow-wrap:anywhere}
+.detail-close{padding:0 var(--ui-space-2);flex-shrink:0}
+.tree-toggle{min-height:var(--ui-control-height);min-width:var(--ui-control-height)}
+th .ui-button{border:0;border-radius:0;background:none;text-align:left;justify-content:flex-start}
+.tree-toggle.ui-button{border:0;background:none;padding:0 var(--ui-space-1) 0 0}
+.request-progress{position:absolute;top:0;left:0;z-index:3;margin:0;height:3px}
+.ui-table th:has(>button){padding:0}
+/* The plugin shell uses the source UI type and the source separator hierarchy. */
+body{font-weight:500;font-family:var(--ui-font);line-height:16px;font-optical-sizing:none;font-variation-settings:"opsz" 14}
+#notice:not(:empty){background:var(--ui-error-bg);border:1px solid var(--ui-error-border);padding:12px;color:var(--ui-fg)}
+.toolbar,.filters,header,nav,footer,td,th{border-color:var(--ui-separator)}
+.ui-select-shell{max-width:100%}
+.detail-close{min-width:28px}
+@media(hover:hover){button:active:not(:disabled){background:var(--ui-selected)}}

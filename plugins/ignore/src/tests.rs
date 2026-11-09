@@ -1,6 +1,7 @@
 use super::*;
 use check::{Dialect, Syntax};
 use openidea_plugin::Plugin;
+use openidea_plugin::file_actions::{FileActions,FileAction};
 use openidea_plugin::mock::MockHost;
 
 const GIT: Dialect = Dialect { syntax: Syntax::Glob, switchable: false };
@@ -14,6 +15,12 @@ fn apply(text: &str, edit: &TextEdit) -> String {
     let start = text::offset(text, edit.range.start).unwrap();
     let end = text::offset(text, edit.range.end).unwrap();
     format!("{}{}{}", &text[..start], edit.text, &text[end..])
+}
+
+fn add_actions(plugin:&mut IgnorePlugin,host:&MockHost,doc:&Document)->Vec<FileAction>{
+    host.open_editor(&doc.path,&doc.language,&doc.text,&[]);
+    let actions=plugin.file_actions(doc,Range::default()).into_iter().filter(|a|a.title.starts_with("Add ")).collect::<Vec<_>>();
+    actions.into_iter().map(|a|{host.answer_next_prompt(Some(&[]));plugin.resolve_file_action(doc,a).unwrap()}).collect()
 }
 
 #[test]
@@ -65,10 +72,10 @@ fn offers_add_to_gitignore_for_project_files() {
     let host = MockHost::install();
     host.add_file(".gitignore", "/target/\n/out\\[1\\].log");
     let mut plugin = IgnorePlugin::default();
-    let actions = plugin.code_actions(&doc("/project/out[1].log", ""), Range::default());
+    let actions = add_actions(&mut plugin,&host,&doc("/project/out[1].log", ""));
     assert_eq!(actions.iter().map(|a| a.title.as_str()).collect::<Vec<_>>(), ["Add !/out\\[1\\].log to .gitignore (unignore)"]);
 
-    let actions = plugin.code_actions(&doc("/project/src/main.rs", ""), Range::default());
+    let actions = add_actions(&mut plugin,&host,&doc("/project/src/main.rs", ""));
     let (path, edits) = &actions[0].edits[0];
     assert_eq!(path, "/project/.gitignore");
     assert_eq!(apply("/target/\n/out\\[1\\].log", &edits[0]), "/target/\n/out\\[1\\].log\n/src/main.rs\n");
@@ -274,19 +281,13 @@ fn embeds_the_templates() {
 #[test]
 fn file_templates_create_files_the_plugin_recognises() {
     let manifest = include_str!("../plugin.toml");
-    let language = include_str!("../languages/dotignore.toml");
-    let section = manifest.split("[[contributes.fileTemplates]]").nth(1).expect("a file template");
-    let value = |key: &str| {
-        let line = section.lines().find(|l| l.starts_with(&format!("{key} = "))).unwrap();
-        line.split('"').nth(1).unwrap().to_owned()
-    };
-
-    let extension = value("extension");
-    let extensions = language.lines().find(|l| l.starts_with("extensions = ")).unwrap();
-    assert!(extensions.contains(&format!("\"{extension}\"")), "{extension} is not a language extension");
-
-    let body = std::fs::read_to_string(format!("{}/{}", env!("CARGO_MANIFEST_DIR"), value("path"))).unwrap();
-    assert!(!body.trim().is_empty());
+    let sections:Vec<_>=manifest.split("[[contributes.fileTemplates]]").skip(1).collect();
+    assert_eq!(sections.len(),IGNORE_FILE_NAMES.len());
+    for name in IGNORE_FILE_NAMES {
+        assert!(sections.iter().any(|section|section.contains(&format!("fileName = \"{name}\""))));
+        assert!(dialect(&format!("/project/{name}")).is_some(),"{name}");
+    }
+    assert!(!manifest.contains("extension = \"ignore\""));
 }
 
 fn tree(plugin: &mut IgnorePlugin, host: &MockHost) -> Vec<TreeItem> {
@@ -294,10 +295,10 @@ fn tree(plugin: &mut IgnorePlugin, host: &MockHost) -> Vec<TreeItem> {
     items
 }
 
-fn unignore_edit(content: &str) -> Vec<CodeAction> {
+fn unignore_edit(content: &str) -> Vec<FileAction> {
     let host = MockHost::install();
     host.add_file(".gitignore", content);
-    IgnorePlugin::default().code_actions(&doc("/project/src/a.rs", ""), Range::default())
+    add_actions(&mut IgnorePlugin::default(),&host,&doc("/project/src/a.rs", ""))
 }
 
 #[test]
@@ -305,7 +306,7 @@ fn unignore_action_is_absent_when_the_setting_is_off() {
     let host = MockHost::install();
     host.add_file(".gitignore", "/target/\n");
     host.set_setting("unignoreActions", "false");
-    let actions = IgnorePlugin::default().code_actions(&doc("/project/src/a.rs", ""), Range::default());
+    let actions = add_actions(&mut IgnorePlugin::default(),&host,&doc("/project/src/a.rs", ""));
     assert_eq!(actions.iter().map(|a| a.title.as_str()).collect::<Vec<_>>(), ["Add /src/a.rs to .gitignore"]);
 }
 
@@ -400,7 +401,7 @@ fn unignore_ranges_use_utf16_columns_with_multibyte_text() {
 #[test]
 fn a_missing_gitignore_offers_no_action() {
     let host = MockHost::install();
-    assert!(IgnorePlugin::default().code_actions(&doc("/project/src/a.rs", ""), Range::default()).is_empty());
+    assert!(add_actions(&mut IgnorePlugin::default(),&host,&doc("/project/src/a.rs", "")).is_empty());
     drop(host);
 }
 
@@ -526,40 +527,10 @@ fn the_editor_menu_adds_the_current_file_when_nothing_is_selected() {
     assert_eq!(host.opened_locations(), [("/project/.gitignore".to_owned(), 0, 0)]);
 }
 
-fn tee_host() -> MockHost {
-    let host = MockHost::install().with_capabilities(&["project.read", "process:tee", "clipboard"]);
-    host.on_process("tee", |_, _| Ok(openidea_plugin::ProcessOutput { status: Some(0), stdout: String::new(), stderr: String::new() }));
-    host
-}
-
 #[test]
-fn new_file_writes_the_picked_dot_file_with_tee_and_opens_it() {
-    let host = tee_host();
-    host.answer_next_prompt(Some(&[".dockerignore"]));
-
-    IgnorePlugin::default().run_command("new-file", &host.invocation(), None).unwrap();
-
-    assert_eq!(host.process_runs()[0].args, ["/project/.dockerignore"]);
-    assert_eq!(host.opened_locations(), [("/project/.dockerignore".to_owned(), 0, 0)]);
-}
-
-#[test]
-fn new_file_refuses_an_existing_file() {
-    let host = tee_host();
-    host.add_file("/project/.gitignore", "");
-    host.answer_next_prompt(Some(&[".gitignore"]));
-
-    assert!(IgnorePlugin::default().run_command("new-file", &host.invocation(), None).is_err());
+fn legacy_new_file_command_guides_to_atomic_native_creation_without_process(){
+    let host=MockHost::install().with_capabilities(&["project.read"]);
+    IgnorePlugin::default().run_command("new-file",&host.invocation(),None).unwrap();
     assert!(host.process_runs().is_empty());
-}
-
-#[test]
-fn new_file_copies_the_name_when_tee_is_denied() {
-    let host = MockHost::install().with_capabilities(&["project.read", "clipboard"]);
-    host.answer_next_prompt(Some(&[".npmignore"]));
-
-    IgnorePlugin::default().run_command("new-file", &host.invocation(), None).unwrap();
-
-    assert_eq!(host.clipboard().as_deref(), Some(".npmignore"));
-    assert!(host.opened_locations().is_empty());
+    assert!(host.notifications()[0].body.contains("Create exact-name ignore file"));
 }

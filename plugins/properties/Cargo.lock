@@ -97,8 +97,10 @@ checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 [[package]]
 name = "openidea-plugin"
 version = "0.1.0"
-source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.38#9c5372c7ab44207f0d3ac3d01fcb62af224091b7"
+source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.39#25424465c04c9221a92c02227c905911641d29e3"
 dependencies = [
+ "serde",
+ "serde_json",
  "wit-bindgen",
 ]
 
@@ -107,6 +109,9 @@ name = "openidea-plugin-properties"
 version = "0.1.0"
 dependencies = [
  "openidea-plugin",
+ "serde_json",
+ "spring-text",
+ "ui-kit",
 ]
 
 [[package]]
@@ -150,6 +155,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4148590afebada386688f18773da617792bf2ef03ffc1e4cbd2b1d45b023e0ba"
 dependencies = [
  "serde_core",
+ "serde_derive",
 ]
 
 [[package]]
@@ -186,6 +192,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "spring-text"
+version = "0.1.0"
+dependencies = [
+ "openidea-plugin",
+]
+
+[[package]]
 name = "syn"
 version = "3.0.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -194,6 +207,15 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
+]
+
+[[package]]
+name = "ui-kit"
+version = "0.1.0"
+dependencies = [
+ "openidea-plugin",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

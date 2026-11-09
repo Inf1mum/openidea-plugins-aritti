@@ -844,10 +844,12 @@ mod tests {
         let mut plugin = project(&host);
 
         host.add_file("src/Command/XCommand.php", MIRROR);
-        assert_eq!(published(&host, &mut plugin, Event::FileOpened(PATH.into())), ["filesystem-mirror-copy-on-windows"]);
+        assert!(published(&host, &mut plugin, Event::FileOpened(PATH.into())).is_empty());
+        assert_eq!(live_php_codes(&mut plugin, MIRROR, 1), ["filesystem-mirror-copy-on-windows"]);
 
         host.add_file("src/Command/XCommand.php", &MIRROR.replace(", ['copy_on_windows' => true]", ""));
         assert!(published(&host, &mut plugin, Event::FileSaved(PATH.into())).is_empty());
+        assert!(live_php_codes(&mut plugin, &MIRROR.replace(", ['copy_on_windows' => true]", ""), 2).is_empty());
     }
 
     #[test]
@@ -884,6 +886,12 @@ mod tests {
         host.diagnostics().get(PATH).map(|found| found.iter().filter_map(|d| d.code.clone()).collect()).unwrap_or_default()
     }
 
+    fn live_php_codes(plugin: &mut Main, text: &str, version: u64) -> Vec<String> {
+        use openidea_plugin::diagnostics::{DiagnosticsProvider, Document};
+        plugin.diagnostics(&Document { path: PATH.into(), language: "php".into(), text: text.into(), version })
+            .into_iter().filter_map(|d| d.code).collect()
+    }
+
     fn project(host: &MockHost) -> Main {
         host.add_file("composer.json", r#"{"require": {"symfony/framework-bundle": "^8.1"}, "autoload": {"psr-4": {"App\\": "src/"}}}"#);
         let mut plugin = Main::default();
@@ -897,7 +905,8 @@ mod tests {
         let mut plugin = project(&host);
 
         host.add_file("src/Command/XCommand.php", &command("public function __invoke() {}"));
-        assert_eq!(published(&host, &mut plugin, Event::FileOpened(PATH.into())), ["command-invokable-return-type"]);
+        assert!(published(&host, &mut plugin, Event::FileOpened(PATH.into())).is_empty());
+        assert_eq!(live_php_codes(&mut plugin, &command("public function __invoke() {}"), 1), ["command-invokable-return-type"]);
 
         host.add_file("src/Command/XCommand.php", &command("public function __invoke(): int { return 0; }"));
         assert!(published(&host, &mut plugin, Event::FileSaved(PATH.into())).is_empty());
@@ -918,14 +927,17 @@ mod tests {
         host.add_file("src/Command/XCommand.php", &both);
         let open = || Event::FileOpened(PATH.into());
 
-        assert_eq!(published(&host, &mut plugin, open()), ["command-invokable-return-type", "filesystem-mirror-copy-on-windows"]);
+        assert!(published(&host, &mut plugin, open()).is_empty());
+        assert_eq!(live_php_codes(&mut plugin, &both, 1), ["command-invokable-return-type", "filesystem-mirror-copy-on-windows"]);
 
         host.set_setting("commandChecks", "false");
-        assert_eq!(published(&host, &mut plugin, open()), ["filesystem-mirror-copy-on-windows"]);
+        assert!(published(&host, &mut plugin, open()).is_empty());
+        assert_eq!(live_php_codes(&mut plugin, &both, 1), ["filesystem-mirror-copy-on-windows"]);
 
         host.set_setting("commandChecks", "true");
         host.set_setting("deprecationChecks", "false");
-        assert_eq!(published(&host, &mut plugin, open()), ["command-invokable-return-type"]);
+        assert!(published(&host, &mut plugin, open()).is_empty());
+        assert_eq!(live_php_codes(&mut plugin, &both, 1), ["command-invokable-return-type"]);
     }
 
     fn practice_texts(text: &str) -> Vec<(&'static str, String)> {
@@ -1062,21 +1074,26 @@ mod tests {
         let host = MockHost::install();
         let mut plugin = project(&host);
         host.add_file("src/Command/XCommand.php", CONTROLLER);
-        assert!(published(&host, &mut plugin, Event::FileOpened(PATH.into())).contains(&"controller-superglobal".to_owned()));
+        assert!(published(&host, &mut plugin, Event::FileOpened(PATH.into())).is_empty());
+        assert!(live_php_codes(&mut plugin, CONTROLLER, 1).contains(&"controller-superglobal".to_owned()));
 
         host.set_setting("practiceChecks", "false");
         assert!(published(&host, &mut plugin, Event::FileSaved(PATH.into())).is_empty());
+        assert!(live_php_codes(&mut plugin, CONTROLLER, 2).is_empty());
     }
 
     #[test]
-    fn practice_package_codes_are_published() {
+    fn practice_and_cached_deprecation_groups_are_live_without_manual_duplicates() {
         let host = MockHost::install();
         let mut plugin = project(&host);
         let text = "<?php\nnamespace App\\Command;\n\nuse Symfony\\Component\\Routing\\Annotation\\Route;\nuse Symfony\\Bundle\\FrameworkBundle\\Controller\\AbstractController;\n\nclass XCommand extends AbstractController\n{\n    public function a()\n    {\n        $this->createNotFoundException('x');\n    }\n}\n";
         host.add_file("src/Command/XCommand.php", text);
 
         let codes = published(&host, &mut plugin, Event::FileOpened(PATH.into()));
-        assert!(codes.contains(&"controller-missing-exit".to_owned()));
-        assert!(codes.contains(&"route-attribute-namespace".to_owned()));
+        assert!(!codes.contains(&"controller-missing-exit".to_owned()));
+        assert!(!codes.contains(&"route-attribute-namespace".to_owned()));
+        let live = live_php_codes(&mut plugin, text, 1);
+        assert!(live.contains(&"controller-missing-exit".to_owned()));
+        assert!(live.contains(&"route-attribute-namespace".to_owned()));
     }
 }

@@ -1,0 +1,20 @@
+[
+  {
+    "menu": "viewItem.context",
+    "view": "laravel",
+    "command": "reindex",
+    "when": "viewItemKind == group"
+  },
+  {
+    "menu": "viewItem.context",
+    "view": "laravel",
+    "command": "route-copy-curl",
+    "when": "viewItemKind == route"
+  },
+  {
+    "menu": "viewItem.context",
+    "view": "laravel",
+    "command": "route-create-http",
+    "when": "viewItemKind == route"
+  }
+]

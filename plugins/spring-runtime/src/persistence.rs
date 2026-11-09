@@ -1,0 +1,207 @@
+//! Full, owner-bound snapshots. Reader/writer share one pre-write limit.
+use crate::{DEFAULT_URL, Snapshot, check_url};
+use openidea_plugin::{Error, Project, host};
+use serde::{Deserialize, Serialize};
+
+pub(crate) const MAX_BYTES: usize = 8 << 20;
+const SCHEMA: u8 = 1;
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct Scope {
+    pub root: String,
+    pub url: String,
+    pub auth: String,
+}
+impl Scope {
+    pub fn current(project: &Project) -> Result<Self, Error> {
+        let root = project.root()?;
+        if !root.starts_with('/')
+            || root.len() > 4096
+            || root.chars().any(char::is_control)
+            || root.split('/').any(|p| matches!(p, "." | ".."))
+        {
+            return Err(Error::Invalid("A verified project identity is required.".into()));
+        }
+        let url = check_url(&host::setting_string("actuatorUrl").unwrap_or_else(|| DEFAULT_URL.into()))?;
+        let auth = host::setting_string("actuatorAuth").unwrap_or_else(|| "none".into());
+        if !matches!(auth.as_str(), "none" | "bearer" | "basic") {
+            return Err("Choose a supported Actuator authentication mode.".into());
+        }
+        Ok(Self { root, url, auth })
+    }
+    pub fn key(&self) -> String {
+        let identity = serde_json::to_string(self).expect("scope");
+        let hash = identity.bytes().fold(0xcbf29ce484222325u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x100000001b3));
+        format!("runtime-v1:{hash:016x}")
+    }
+}
+#[derive(Serialize, Deserialize)]
+struct Envelope {
+    schema: u8,
+    scope: Scope,
+    snapshot: Snapshot,
+}
+fn decode(value: &str, scope: &Scope) -> Result<Snapshot, Error> {
+    if value.len() > MAX_BYTES {
+        return Err("The saved runtime snapshot exceeds the 8 MiB read limit; use Clear to discard it.".into());
+    }
+    let stored: Envelope = serde_json::from_str(value)
+        .map_err(|_| Error::Invalid("The saved runtime snapshot is unreadable; use Clear to discard it.".into()))?;
+    if stored.schema != SCHEMA || stored.scope != *scope || stored.snapshot.url != scope.url {
+        return Err("The saved runtime snapshot belongs to a different scope or schema; it was not reused.".into());
+    }
+    Ok(stored.snapshot)
+}
+pub(crate) fn read(scope: &Scope) -> Result<Option<Snapshot>, Error> {
+    host::storage::get(&scope.key())?.map(|s| decode(&s, scope)).transpose()
+}
+pub(crate) fn write(scope: &Scope, snapshot: &Snapshot) -> Result<(), Error> {
+    if snapshot.url != scope.url {
+        return Err(Error::Stale);
+    }
+    let json = serde_json::to_string(&Envelope { schema: SCHEMA, scope: scope.clone(), snapshot: snapshot.clone() })
+        .map_err(|e| Error::Failed(e.to_string()))?;
+    if json.len() > MAX_BYTES {
+        return Err("New runtime data exceeds the 8 MiB snapshot limit; previous snapshot retained.".into());
+    }
+    // A hash is only a storage locator, never proof of ownership.
+    if let Some(existing) = host::storage::get(&scope.key())? {
+        decode(&existing, scope)?;
+    }
+    host::storage::set(&scope.key(), &json)
+}
+#[derive(Serialize, Deserialize)]
+struct Failure {
+    scope: Scope,
+    at: u64,
+    message: String,
+}
+fn failure_key(scope: &Scope) -> String {
+    format!("{}:failure", scope.key())
+}
+pub(crate) fn failure(scope: &Scope) -> Option<String> {
+    let value = host::storage::get(&failure_key(scope)).ok()??;
+    if value.len() > 4096 {
+        return None;
+    }
+    let record: Failure = serde_json::from_str(&value).ok()?;
+    (record.scope == *scope).then(|| format!("{} (Unix {})", record.message, record.at))
+}
+pub(crate) fn failed(scope: &Scope, message: &str) {
+    let end = message.char_indices().map(|(i, _)| i).take_while(|i| *i <= 1600).last().unwrap_or(0);
+    let message = if message.len() > 1600 { format!("{}…", &message[..end]) } else { message.to_owned() };
+    let record = Failure { scope: scope.clone(), at: crate::now(), message };
+    if let Ok(Some(existing)) = host::storage::get(&failure_key(scope)) {
+        if existing.len() > 4096 || serde_json::from_str::<Failure>(&existing).is_ok_and(|r| r.scope != *scope) {
+            return;
+        }
+    }
+    if let Ok(json) = serde_json::to_string(&record) {
+        if json.len() <= 4096 {
+            let _ = host::storage::set(&failure_key(scope), &json);
+        }
+    }
+}
+pub(crate) fn success(scope: &Scope) {
+    if let Ok(Some(value)) = host::storage::get(&failure_key(scope)) {
+        if value.len() > 4096 || serde_json::from_str::<Failure>(&value).is_ok_and(|r| r.scope != *scope) {
+            return;
+        }
+    }
+    let _ = host::storage::delete(&failure_key(scope));
+}
+pub(crate) fn clear(scope: &Scope) -> Result<(), Error> {
+    if let Some(value) = host::storage::get(&scope.key())? {
+        // An unreadable record can be explicitly discarded; never erase a known
+        // different owner merely because its hash happened to collide.
+        if value.len() <= MAX_BYTES {
+            if let Ok(record) = serde_json::from_str::<Envelope>(&value) {
+                if record.scope != *scope {
+                    return Err(Error::Stale);
+                }
+            }
+        }
+    }
+    host::storage::delete(&scope.key())?;
+    success(scope);
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Bean, Logger, Source};
+    use openidea_plugin::mock::MockHost;
+    fn scope() -> Scope {
+        Scope { root: "/project".into(), url: DEFAULT_URL.into(), auth: "none".into() }
+    }
+    fn snapshot() -> Snapshot {
+        Snapshot {
+            url: DEFAULT_URL.into(),
+            fetched_at: 42,
+            beans: vec![Bean { name: "demo".into(), ty: "com.acme.Demo".into(), ..Bean::default() }],
+            loggers: vec![Logger { name: "ROOT".into(), configured: "INFO".into(), effective: "INFO".into() }],
+            ..Snapshot::default()
+        }
+    }
+    #[test]
+    fn full_snapshots_above_old_limit_survive_instance_reclaim_without_trimming() {
+        let host = MockHost::install();
+        let mut snap = snapshot();
+        snap.sources.push(Source { name: "runtime".into(), props: vec![("large".into(), "é".repeat(600_000))] });
+        write(&scope(), &snap).unwrap();
+        let restored = read(&scope()).unwrap().unwrap();
+        assert_eq!(restored, snap);
+        assert!(!restored.trimmed);
+        assert_eq!(restored.loggers.len(), 1);
+        assert!(host.storage()[&scope().key()].len() > 900 * 1024);
+        assert!(host.requests().is_empty());
+    }
+    #[test]
+    fn exact_envelope_boundary_is_readable_and_overflow_preserves_real_previous_bytes() {
+        let host = MockHost::install();
+        let s = scope();
+        let previous = snapshot();
+        write(&s, &previous).unwrap();
+        let bytes = host.storage()[&s.key()].clone();
+        let mut snap = snapshot();
+        snap.sources.push(Source { name: "runtime".into(), props: vec![("large".into(), String::new())] });
+        let empty = serde_json::to_string(&Envelope { schema: SCHEMA, scope: s.clone(), snapshot: snap.clone() }).unwrap().len();
+        snap.sources[0].props[0].1 = "x".repeat(MAX_BYTES - empty + 1);
+        assert!(write(&s, &snap).is_err());
+        assert_eq!(host.storage()[&s.key()], bytes);
+        assert_eq!(read(&s).unwrap(), Some(previous));
+        snap.sources[0].props[0].1.pop();
+        write(&s, &snap).unwrap();
+        assert_eq!(host.storage()[&s.key()].len(), MAX_BYTES);
+        assert_eq!(read(&s).unwrap().unwrap(), snap);
+    }
+    #[test]
+    fn owner_url_auth_and_schema_are_checked_independently_of_hash_locator() {
+        let host = MockHost::install();
+        let s = scope();
+        let snap = snapshot();
+        for wrong in [
+            Scope { root: "/other".into(), ..s.clone() },
+            Scope { url: "http://localhost:9090/actuator".into(), ..s.clone() },
+            Scope { auth: "bearer".into(), ..s.clone() },
+        ] {
+            let value = serde_json::to_string(&Envelope { schema: SCHEMA, scope: wrong.clone(), snapshot: snap.clone() }).unwrap();
+            host::storage::set(&s.key(), &value).unwrap();
+            assert!(read(&s).is_err());
+            assert!(write(&s, &snap).is_err());
+            assert!(clear(&s).is_err());
+            assert_eq!(host.storage()[&s.key()], value);
+        }
+        host::storage::set(&s.key(), "broken").unwrap();
+        assert!(read(&s).is_err());
+        assert!(write(&s, &snap).is_err());
+        clear(&s).unwrap();
+        assert!(read(&s).unwrap().is_none());
+        let value = serde_json::to_string(&Envelope { schema: 9, scope: s.clone(), snapshot: snap }).unwrap();
+        host::storage::set(&s.key(), &value).unwrap();
+        assert!(read(&s).is_err());
+        let host = host.with_capabilities(&[]);
+        assert!(read(&s).is_err());
+        assert_eq!(host.storage()[&s.key()], value);
+    }
+}

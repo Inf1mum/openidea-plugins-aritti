@@ -1,0 +1,46 @@
+{
+  "properties": {
+    "springBoot.checkTestConstructors": {
+      "type": "boolean",
+      "title": "Warn when a Spring test class has a constructor with parameters that Spring will not autowire",
+      "default": true,
+      "group": "Tests",
+      "description": "Checks source constructor signatures against known test/autowire facts; unknown configuration stays quiet."
+    },
+    "springBoot.checkEventListeners": {
+      "type": "boolean",
+      "title": "Check the parameters and return type of @EventListener methods",
+      "default": true,
+      "group": "Application events",
+      "description": "Source-local method signature checks; runtime event delivery is not evaluated."
+    },
+    "springBoot.checkConfigurationProperties": {
+      "type": "boolean",
+      "title": "Check @ConfigurationProperties prefixes and constructor binding",
+      "default": true,
+      "group": "Configuration classes",
+      "description": "Checks source prefix/constructor annotations; does not prove effective relaxed-binding owners."
+    },
+    "springBoot.checkEarlyEvents": {
+      "type": "boolean",
+      "title": "Warn about @EventListener methods for events published before the context exists",
+      "default": true,
+      "group": "Application events",
+      "description": "Checks known early event types in source; startup execution is not performed."
+    },
+    "springBoot.checkApplicationSetup": {
+      "type": "boolean",
+      "title": "Check @SpringBootApplication classes (default package, redundant annotations)",
+      "default": true,
+      "group": "Configuration classes",
+      "description": "Checks source application annotations and package facts; no run configuration is created."
+    },
+    "springBoot.checkTestLifecycle": {
+      "type": "boolean",
+      "title": "Check @DirtiesContext modes and @BeforeTransaction/@AfterTransaction signatures",
+      "default": true,
+      "group": "Tests",
+      "description": "Checks source test lifecycle annotations/signatures; tests are not executed."
+    }
+  }
+}

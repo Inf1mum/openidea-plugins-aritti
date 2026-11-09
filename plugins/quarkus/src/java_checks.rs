@@ -10,15 +10,25 @@ use spring_text::metadata::{Lookup, strip_profile};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub enum Fix {
-    DefaultValue { at: usize, value: &'static str },
-    AddKey { key: String },
-    RegisterRestClient { name: String },
+    DefaultValue {
+        at: usize,
+        value: &'static str,
+    },
+    AddKey {
+        key: String,
+    },
+    RegisterRestClient {
+        name: String,
+    },
     /// Byte-range edits of the checked document.
-    Edits { title: String, edits: Vec<(usize, usize, String)> },
+    Edits {
+        title: String,
+        edits: Vec<(usize, usize, String)>,
+    },
 }
 
 const HEALTH_QUALIFIERS: [&str; 4] = ["Liveness", "Readiness", "Wellness", "Health"];
-const SCOPES: [&str; 4] = ["ApplicationScoped", "RequestScoped", "SessionScoped", "Singleton"];
+const SCOPES: [&str; 4] = ["ApplicationScoped", "RequestScoped", "SessionScoped", "Dependent"];
 pub const REGISTER_REST_CLIENT: &str = "org.eclipse.microprofile.rest.client.inject.RegisterRestClient";
 
 fn import_edit(text: &str, fqcn: &str) -> Option<(usize, usize, String)> {
@@ -36,15 +46,13 @@ fn import_edit(text: &str, fqcn: &str) -> Option<(usize, usize, String)> {
     Some((0, 0, format!("import {fqcn};\n")))
 }
 
-/// Edits that put `annotation` on its own line before the declaration starting at `start`, with its import.
+/// Add the annotation at its declaration; fully qualified spellings need no import.
 pub fn annotate_edits(text: &str, start: usize, annotation: &str, import: &str) -> Vec<(usize, usize, String)> {
     let line_start = text[..start].rfind('\n').map_or(0, |i| i + 1);
     let indent = &text[line_start..start];
-    let indent = if indent.trim().is_empty() { indent } else { "" };
-    let mut edits = vec![(line_start, line_start, format!("{indent}@{annotation}\n"))];
-    if let Some(import) = import_edit(text, import) {
-        edits.push(import);
-    }
+    let (at, prefix) = if indent.trim().is_empty() { (line_start, indent) } else { (start, "") };
+    let mut edits = vec![(at, at, format!("{prefix}@{annotation}\n"))];
+    if !annotation.contains('.') && let Some(import) = import_edit(text, import) { edits.push(import); }
     merge(edits)
 }
 
@@ -60,10 +68,6 @@ fn merge(mut edits: Vec<(usize, usize, String)>) -> Vec<(usize, usize, String)> 
     out
 }
 
-fn with_import(text: &str, mut edits: Vec<(usize, usize, String)>, import: &str) -> Vec<(usize, usize, String)> {
-    edits.extend(import_edit(text, import));
-    merge(edits)
-}
 
 pub struct Problem {
     pub finding: Finding,
@@ -76,6 +80,7 @@ pub struct Context<'a> {
     pub configured: Option<&'a BTreeSet<String>>,
     /// Interface name to whether it carries `@RegisterRestClient`; `None` while the project is not fully read.
     pub rest_clients: Option<&'a BTreeMap<String, bool>>,
+    pub qualified_rest_clients: bool,
     pub unassigned: bool,
     pub annotations: bool,
     pub health_metrics: bool,
@@ -84,17 +89,18 @@ pub struct Context<'a> {
 pub fn check(text: &str, ctx: &Context) -> Vec<Problem> {
     let mentions = |needle: &str| text.contains(needle);
     let mut out = Vec::new();
-    let health_metrics = ctx.health_metrics && (mentions("HealthCheck") || mentions("@Liveness") || mentions("@Readiness") || mentions("@Wellness") || mentions("@Gauge"));
-    if !(mentions("@ConfigProperty") || mentions("@RestClient") || mentions("@Scheduled") || health_metrics) {
+    let health_metrics = ctx.health_metrics
+        && (mentions("HealthCheck") || mentions("@org.eclipse.microprofile.health.") || mentions("@Health") || mentions("@Liveness") || mentions("@Readiness") || mentions("@Wellness") || mentions("@Gauge") || mentions("@org.eclipse.microprofile.metrics.annotation.Gauge"));
+    if !(mentions("@ConfigProperty") || mentions("@RestClient") || mentions("@org.eclipse.microprofile.rest.client.inject.RestClient") || mentions("@Scheduled") || mentions("@io.quarkus.scheduler.Scheduled") || health_metrics) {
         return out;
     }
     let file = java::parse(text);
     if ctx.unassigned && mentions("@ConfigProperty") {
-        unassigned(&file, ctx, &mut out);
+        unassigned(&file, text, ctx, &mut out);
     }
     if ctx.annotations {
-        rest_clients(&file, ctx, &mut out);
-        scheduled(&file, ctx, &mut out);
+        rest_clients(&file, text, ctx, &mut out);
+        scheduled(&file, text, ctx, &mut out);
     }
     if health_metrics {
         health(&file, text, &mut out);
@@ -111,9 +117,9 @@ fn default_for(ty: &str) -> &'static str {
     }
 }
 
-fn unassigned(file: &JavaFile, ctx: &Context, out: &mut Vec<Problem>) {
+fn unassigned(file: &JavaFile, text: &str, ctx: &Context, out: &mut Vec<Problem>) {
     let Some(configured) = ctx.configured.filter(|set| !set.is_empty()) else { return };
-    for Injection { key, at, end, optional, has_default, ty, insert_at } in injections(file) {
+    for Injection { key, at, end, optional, has_default, ty, insert_at } in injections(file, text) {
         let provided = key.contains("${")
             || key.starts_with("quarkus.")
             || ctx.lookup.prop(&key).is_some_and(|p| !p.default.is_empty())
@@ -121,7 +127,9 @@ fn unassigned(file: &JavaFile, ctx: &Context, out: &mut Vec<Problem>) {
         if optional || has_default || provided || key.is_empty() {
             continue;
         }
-        let message = format!("`{key}` has no default and no application config file or .env sets it. Quarkus fails at startup unless a system property, the environment or another source supplies it.");
+        let message = format!(
+            "`{key}` has no default and no application config file or .env sets it. Quarkus fails at startup unless a system property, the environment or another source supplies it."
+        );
         out.push(Problem {
             finding: Finding::new(at, end, "unassigned-property", message),
             fixes: vec![Fix::DefaultValue { at: insert_at, value: default_for(&ty) }, Fix::AddKey { key }],
@@ -129,41 +137,63 @@ fn unassigned(file: &JavaFile, ctx: &Context, out: &mut Vec<Problem>) {
     }
 }
 
-fn rest_clients(file: &JavaFile, ctx: &Context, out: &mut Vec<Problem>) {
+fn rest_clients(file: &JavaFile, text: &str, ctx: &Context, out: &mut Vec<Problem>) {
     let Some(known) = ctx.rest_clients else { return };
     let mut injected = Vec::new();
     for t in &file.types {
         for m in &t.members {
-            if let (Some(_), Some(ty)) = (m.annotation("RestClient"), &m.ty) {
+            if let (Some(_), Some(ty)) = (m.annotation("RestClient").filter(|a| crate::java::annotation_owned(file, text, a, "org.eclipse.microprofile.rest.client.inject.RestClient")), &m.ty) {
                 injected.push((ty, m.at, m.name.len()));
             }
             for p in &m.params {
-                if p.annotation("RestClient").is_some() {
+                if p.annotation("RestClient").is_some_and(|a| crate::java::annotation_owned(file, text, a, "org.eclipse.microprofile.rest.client.inject.RestClient")) {
                     injected.push((&p.ty, p.at, p.name.len()));
                 }
             }
         }
     }
     for (ty, at, len) in injected {
-        if known.get(&ty.name) != Some(&false) {
+        let imported: Vec<_> =
+            file.imports.iter().filter(|import| !import.is_static && import.path.rsplit('.').next() == Some(ty.name.as_str())).collect();
+        let qualified = if ty.text.contains('.') && !ty.text.contains('<') {
+            Some(ty.text.clone())
+        } else if imported.len() == 1 {
+            Some(imported[0].path.clone())
+        } else if imported.is_empty() {
+            Some(if file.package.is_empty() { ty.name.clone() } else { format!("{}.{}", file.package, ty.name) })
+        } else {
+            None
+        };
+        let registered = if ctx.qualified_rest_clients { qualified.as_ref().and_then(|name| known.get(name)) } else { known.get(&ty.name) };
+        if registered != Some(&false) {
             continue;
         }
         let message = format!("`{}` is injected with @RestClient but is not annotated with @RegisterRestClient.", ty.name);
-        out.push(Problem { finding: Finding::new(at, at + len, "rest-client-not-registered", message), fixes: vec![Fix::RegisterRestClient { name: ty.name.clone() }] });
+        out.push(Problem {
+            finding: Finding::new(at, at + len, "rest-client-not-registered", message),
+            fixes: vec![Fix::RegisterRestClient { name: if ctx.qualified_rest_clients { qualified.unwrap_or_else(|| ty.name.clone()) } else { ty.name.clone() } }],
+        });
     }
 }
 
 fn health(file: &JavaFile, text: &str, out: &mut Vec<Problem>) {
     for t in file.types.iter().filter(|t| t.kind == "class" && t.outer.is_none() && !t.modifiers.iter().any(|m| m == "abstract")) {
-        let implements = t.implements.iter().any(|i| matches!(i.name.as_str(), "HealthCheck" | "AsyncHealthCheck"));
-        let qualifier = t.annotations.iter().find(|a| HEALTH_QUALIFIERS.contains(&a.name.as_str()));
+        let owned_check = |ty: &java::TypeRef| ty.text == "org.eclipse.microprofile.health.HealthCheck"
+            || ty.text == "HealthCheck" && crate::java::source_type_owned(file, "org.eclipse.microprofile.health.HealthCheck");
+        let implements = t.implements.iter().any(owned_check);
+        let owned_qualifier = |a: &Annotation| ["Liveness", "Readiness", "Health"].contains(&a.name.as_str())
+            && crate::java::annotation_owned(file, text, a, &format!("org.eclipse.microprofile.health.{}", a.name));
+        if t.annotations.iter().any(|a| HEALTH_QUALIFIERS.contains(&a.name.as_str()) && !owned_qualifier(a)) { continue; }
+        let qualifier = t.annotations.iter().find(|a| owned_qualifier(a));
 
-        if let Some(qualifier) = qualifier.filter(|_| !implements && t.extends.is_empty()) {
-            let message = format!("`{}` is annotated with @{} but does not implement HealthCheck, so it is not a health check.", t.name, qualifier.name);
+        if let Some(qualifier) = qualifier.filter(|_| !implements && t.extends.is_empty() && t.implements.is_empty()) {
+            let message = format!(
+                "`{}` declares @{} without a direct HealthCheck interface; inherited or runtime registration is not inferred.",
+                t.name, qualifier.name
+            );
             if let Some(brace) = text[t.at..].find('{').map(|i| t.at + i) {
                 let header_end = text[..brace].trim_end().len();
-                let insert = if t.implements.is_empty() { " implements HealthCheck" } else { ", HealthCheck" };
-                let edits = with_import(text, vec![(header_end, header_end, insert.to_owned())], "org.eclipse.microprofile.health.HealthCheck");
+                let edits = vec![(header_end, header_end, " implements org.eclipse.microprofile.health.HealthCheck".to_owned())];
                 out.push(Problem {
                     finding: Finding::new(qualifier.at, qualifier.end, "health-not-implemented", message),
                     fixes: vec![Fix::Edits { title: format!("Let {} implement HealthCheck", t.name), edits }],
@@ -171,11 +201,17 @@ fn health(file: &JavaFile, text: &str, out: &mut Vec<Problem>) {
             }
         }
 
-        let Some(check) = t.implements.iter().find(|i| i.name == "HealthCheck").filter(|_| qualifier.is_none()) else { continue };
-        let message = format!("`{}` implements HealthCheck but has no @Liveness, @Readiness or @Wellness annotation, so Quarkus does not register it.", t.name);
+        let Some(check) = t.implements.iter().find(|i| owned_check(i)).filter(|_| qualifier.is_none()) else { continue };
+        let message = format!(
+            "`{}` directly declares HealthCheck without a literal supported health qualifier; runtime registration is not inferred.",
+            t.name
+        );
         let fixes = ["Liveness", "Readiness"]
             .iter()
-            .map(|q| Fix::Edits { title: format!("Annotate {} with @{q}", t.name), edits: annotate_edits(text, t.start, q, &format!("org.eclipse.microprofile.health.{q}")) })
+            .map(|q| Fix::Edits {
+                title: format!("Annotate {} with @{q}", t.name),
+                edits: annotate_edits(text, t.start, &format!("org.eclipse.microprofile.health.{q}"), &format!("org.eclipse.microprofile.health.{q}")),
+            })
             .collect();
         out.push(Problem { finding: Finding::new(check.at, check.at + check.name.len(), "health-without-qualifier", message), fixes });
     }
@@ -183,21 +219,23 @@ fn health(file: &JavaFile, text: &str, out: &mut Vec<Problem>) {
 
 fn gauges(file: &JavaFile, text: &str, out: &mut Vec<Problem>) {
     for t in file.types.iter().filter(|t| t.kind == "class") {
-        let scopes: Vec<_> = t.annotations.iter().filter(|a| SCOPES.contains(&a.name.as_str()) || a.name == "Dependent").collect();
+        let scopes: Vec<_> = t.annotations.iter().filter(|a| SCOPES.contains(&a.name.as_str()) && ["javax", "jakarta"].iter().any(|namespace| crate::java::annotation_owned(file, text, a, &format!("{namespace}.enterprise.context.{}", a.name)))).collect();
         let scoped = scopes.iter().any(|a| a.name == "ApplicationScoped");
 
-        for (member, gauge) in t.members.iter().filter_map(|m| m.annotation("Gauge").map(|a| (m, a))) {
+        for (member, gauge) in t.members.iter().filter_map(|m| m.annotation("Gauge").filter(|a| crate::java::annotation_owned(file, text, a, "org.eclipse.microprofile.metrics.annotation.Gauge")).map(|a| (m, a))) {
             if !scoped && !scopes.is_empty() {
                 let message = format!("@Gauge needs an @ApplicationScoped bean, `{}` has another scope.", t.name);
-                let edits = scopes.iter().take(1).map(|a| (a.at, a.end, "@ApplicationScoped".to_owned())).collect();
-                let edits = with_import(text, edits, "jakarta.enterprise.context.ApplicationScoped");
+                let edits = scopes.iter().take(1).map(|a| (a.at, a.end, "@jakarta.enterprise.context.ApplicationScoped".to_owned())).collect();
                 out.push(Problem {
                     finding: Finding::new(gauge.at, gauge.end, "gauge-scope", message),
                     fixes: vec![Fix::Edits { title: "Use @ApplicationScoped".into(), edits }],
                 });
             }
 
-            if matches!(member.ty.as_ref().map(|ty| ty.name.as_str()), Some("void" | "String" | "boolean" | "Boolean" | "char" | "Character")) {
+            if matches!(
+                member.ty.as_ref().map(|ty| ty.name.as_str()),
+                Some("void" | "String" | "boolean" | "Boolean" | "char" | "Character")
+            ) {
                 let message = format!("`{}` is annotated with @Gauge but does not return a number.", member.name);
                 out.push(Problem { finding: Finding::new(gauge.at, gauge.end, "gauge-return-type", message), fixes: Vec::new() });
             }
@@ -209,19 +247,26 @@ fn cron_fields_are_free(ctx: &Context) -> bool {
     ctx.configured.is_some_and(|set| !set.contains(&squash("quarkus.scheduler.cron-type")))
 }
 
-fn scheduled(file: &JavaFile, ctx: &Context, out: &mut Vec<Problem>) {
-    let annotations: Vec<&Annotation> = file.types.iter().flat_map(|t| &t.members).filter_map(|m| m.annotation("Scheduled")).collect();
+fn scheduled(file: &JavaFile, text: &str, ctx: &Context, out: &mut Vec<Problem>) {
+    let annotations: Vec<&Annotation> = file.types.iter().flat_map(|t| &t.members).filter_map(|m| m.annotation("Scheduled")).filter(|a| crate::java::annotation_owned(file, text, a, "io.quarkus.scheduler.Scheduled")).collect();
     for a in annotations {
         let literal = |name: &str| {
             let arg = a.arg(name)?;
             let [value] = arg.strings.as_slice() else { return None };
-            (arg.text.matches('"').count() == 2 && arg.text.starts_with('"') && arg.text.ends_with('"') && !value.value.contains(['{', '$'])).then_some((arg, value))
+            (arg.text.matches('"').count() == 2
+                && arg.text.starts_with('"')
+                && arg.text.ends_with('"')
+                && !value.value.contains(['{', '$']))
+            .then_some((arg, value))
         };
         if let Some((_, cron)) = literal("cron") {
             let fields = cron.value.split_whitespace().count();
             let off = matches!(cron.value.as_str(), "off" | "disabled");
             if cron_fields_are_free(ctx) && !off && !(6..=7).contains(&fields) {
-                let message = format!("A Quartz cron expression has 6 or 7 fields, `{}` has {fields}. Set quarkus.scheduler.cron-type for another syntax.", cron.value);
+                let message = format!(
+                    "A Quartz cron expression has 6 or 7 fields, `{}` has {fields}. Set quarkus.scheduler.cron-type for another syntax.",
+                    cron.value
+                );
                 out.push(Problem { finding: Finding::new(cron.at, cron.end, "invalid-cron", message), fixes: Vec::new() });
             }
         }
@@ -234,7 +279,10 @@ fn scheduled(file: &JavaFile, ctx: &Context, out: &mut Vec<Problem>) {
         }
         if a.arg("cron").is_none() && a.arg("every").is_none() {
             let message = "@Scheduled needs `cron` or `every`.";
-            out.push(Problem { finding: Finding::new(a.at, a.name_at + a.name.len(), "scheduled-without-trigger", message), fixes: Vec::new() });
+            out.push(Problem {
+                finding: Finding::new(a.at, a.name_at + a.name.len(), "scheduled-without-trigger", message),
+                fixes: Vec::new(),
+            });
         }
         if a.arg("cron").is_some() && a.arg("every").is_some() {
             let message = "@Scheduled takes either `cron` or `every`, not both.";
@@ -252,13 +300,21 @@ mod tests {
         let configured: BTreeSet<String> = configured.iter().map(|k| squash(k)).collect();
         let clients: BTreeMap<String, bool> = clients.iter().map(|(n, r)| ((*n).to_owned(), *r)).collect();
         let lookup = Lookup(vec![bundled()]);
-        let ctx = Context { lookup: &lookup, configured: Some(&configured), rest_clients: Some(&clients), unassigned: true, annotations: true, health_metrics: true };
+        let ctx = Context {
+            lookup: &lookup,
+            configured: Some(&configured),
+            qualified_rest_clients: false,
+            rest_clients: Some(&clients),
+            unassigned: true,
+            annotations: true,
+            health_metrics: true,
+        };
         check(text, &ctx).iter().map(|p| (p.finding.code, text[p.finding.start..p.finding.end].to_owned())).collect()
     }
 
     #[test]
     fn unassigned_property_is_reported_only_when_nothing_provides_it() {
-        let text = r#"class A {
+        let text = r#"import org.eclipse.microprofile.config.inject.ConfigProperty; class A {
             @ConfigProperty(name = "app.a") String a;
             @ConfigProperty(name = "app.b", defaultValue = "x") String b;
             @ConfigProperty(name = "app.c") Optional<String> c;
@@ -275,13 +331,13 @@ mod tests {
 
     #[test]
     fn rest_client_must_be_registered() {
-        let text = "class A { @Inject @RestClient Foo foo; @Inject @RestClient Bar bar; @Inject @RestClient Lib lib; }";
+        let text = "import org.eclipse.microprofile.rest.client.inject.RestClient; class A { @Inject @RestClient Foo foo; @Inject @RestClient Bar bar; @Inject @RestClient Lib lib; }";
         assert_eq!(run(text, &[], &[("Foo", false), ("Bar", true)]), [("rest-client-not-registered", "foo".into())]);
     }
 
     #[test]
     fn scheduled_expressions_are_checked() {
-        let text = r#"class J {
+        let text = r#"import io.quarkus.scheduler.Scheduled; class J {
             @Scheduled(cron = "0 0/5 * * * ?") void ok() {}
             @Scheduled(cron = "0/5 * * * *") void five() {}
             @Scheduled(cron = "{job.cron}") void configured() {}
@@ -308,11 +364,20 @@ mod tests {
 
     fn fixed(text: &str) -> Vec<(&'static str, Vec<String>)> {
         let lookup = Lookup(vec![bundled()]);
-        let ctx = Context { lookup: &lookup, configured: None, rest_clients: None, unassigned: false, annotations: false, health_metrics: true };
+        let ctx = Context {
+            lookup: &lookup,
+            configured: None,
+            rest_clients: None,
+            qualified_rest_clients: false,
+            unassigned: false,
+            annotations: false,
+            health_metrics: true,
+        };
         check(text, &ctx)
             .into_iter()
             .map(|p| {
-                let results = p.fixes.iter().filter_map(|f| if let Fix::Edits { edits, .. } = f { Some(apply(text, edits)) } else { None }).collect();
+                let results =
+                    p.fixes.iter().filter_map(|f| if let Fix::Edits { edits, .. } = f { Some(apply(text, edits)) } else { None }).collect();
                 (p.finding.code, results)
             })
             .collect()
@@ -320,34 +385,37 @@ mod tests {
 
     #[test]
     fn a_health_qualifier_without_the_interface_offers_to_implement_it() {
-        let text = "package a;\n\n@Liveness\npublic class Ping {\n}\n";
+        let text = "package a;\nimport org.eclipse.microprofile.health.Liveness;\n\n@Liveness\npublic class Ping {\n}\n";
         let found = fixed(text);
         assert_eq!(found[0].0, "health-not-implemented");
-        assert_eq!(found[0].1[0], "package a;\nimport org.eclipse.microprofile.health.HealthCheck;\n\n@Liveness\npublic class Ping implements HealthCheck {\n}\n");
-        assert!(fixed("@Liveness class Ping implements HealthCheck {}").is_empty());
-        assert!(fixed("@Liveness class Ping extends Base {}").is_empty());
+        assert_eq!(
+            found[0].1[0],
+            "package a;\nimport org.eclipse.microprofile.health.Liveness;\n\n@Liveness\npublic class Ping implements org.eclipse.microprofile.health.HealthCheck {\n}\n"
+        );
+        assert!(fixed("import org.eclipse.microprofile.health.Liveness; import org.eclipse.microprofile.health.HealthCheck; @Liveness class Ping implements HealthCheck {}").is_empty());
+        assert!(fixed("import org.eclipse.microprofile.health.Liveness; @Liveness class Ping extends Base {}").is_empty());
     }
 
     #[test]
     fn a_health_check_without_a_qualifier_offers_liveness_and_readiness() {
-        let text = "import x.Y;\n\n@ApplicationScoped\npublic class Ping implements HealthCheck {\n}\n";
+        let text = "import x.Y;\nimport org.eclipse.microprofile.health.HealthCheck;\n\n@ApplicationScoped\npublic class Ping implements HealthCheck {\n}\n";
         let found = fixed(text);
         assert_eq!(found[0].0, "health-without-qualifier");
         assert_eq!(found[0].1.len(), 2);
         assert!(found[0].1[0].contains("@Liveness\n@ApplicationScoped") || found[0].1[0].contains("@ApplicationScoped"));
-        assert!(found[0].1[0].contains("import org.eclipse.microprofile.health.Liveness;"));
-        assert!(found[0].1[1].contains("@Readiness\n"));
-        assert!(fixed("@Readiness class Ping implements HealthCheck {}").is_empty());
-        assert!(fixed("abstract class Base implements HealthCheck {}").is_empty());
+        assert!(found[0].1[0].contains("@org.eclipse.microprofile.health.Liveness\n"));
+        assert!(found[0].1[1].contains("@org.eclipse.microprofile.health.Readiness\n"));
+        assert!(fixed("import org.eclipse.microprofile.health.Readiness; import org.eclipse.microprofile.health.HealthCheck; @Readiness class Ping implements HealthCheck {}").is_empty());
+        assert!(fixed("import org.eclipse.microprofile.health.HealthCheck; abstract class Base implements HealthCheck {}").is_empty());
     }
 
     #[test]
     fn gauges_need_an_application_scoped_bean_and_a_number() {
-        let text = "@RequestScoped\nclass M {\n  @Gauge(name = \"a\") public int ok() { return 1; }\n  @Gauge(name = \"b\") public String bad() { return \"\"; }\n}\n";
+        let text = "import org.eclipse.microprofile.metrics.annotation.Gauge;\nimport jakarta.enterprise.context.RequestScoped;\n@RequestScoped\nclass M {\n  @Gauge(name = \"a\") public int ok() { return 1; }\n  @Gauge(name = \"b\") public String bad() { return \"\"; }\n}\n";
         let found = fixed(text);
         assert_eq!(found.iter().map(|f| f.0).collect::<Vec<_>>(), ["gauge-scope", "gauge-scope", "gauge-return-type"]);
-        assert!(found[0].1[0].starts_with("import jakarta.enterprise.context.ApplicationScoped;\n@ApplicationScoped\nclass M"));
-        assert!(fixed("@ApplicationScoped class M { @Gauge(name = \"a\") int ok() { return 1; } }").is_empty());
-        assert!(fixed("class M { @Gauge(name = \"a\") int ok() { return 1; } }").is_empty());
+        assert!(found[0].1[0].contains("@jakarta.enterprise.context.ApplicationScoped\nclass M"));
+        assert!(fixed("import org.eclipse.microprofile.metrics.annotation.Gauge; import jakarta.enterprise.context.ApplicationScoped; @ApplicationScoped class M { @Gauge(name = \"a\") int ok() { return 1; } }").is_empty());
+        assert!(fixed("import org.eclipse.microprofile.metrics.annotation.Gauge; class M { @Gauge(name = \"a\") int ok() { return 1; } }").is_empty());
     }
 }

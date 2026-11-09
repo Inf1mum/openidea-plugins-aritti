@@ -7,8 +7,9 @@
     },
     "checkProperties": {
       "type": "boolean",
-      "title": "Warn about ${property} placeholders that no changelog or project configuration declares",
-      "default": true
+      "title": "Undeclared-property warnings (pending complete source scope)",
+      "default": true,
+      "description": "Live diagnostics currently stay quiet about undeclared properties because includes, configuration and runtime parameters may supply them."
     }
   }
 }

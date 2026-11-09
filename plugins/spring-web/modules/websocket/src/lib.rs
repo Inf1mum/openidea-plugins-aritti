@@ -6,9 +6,7 @@
 use openidea_plugin::providers::{CompletionItem, CompletionKind, Document, LineMarker, Providers};
 use openidea_plugin::text::offset;
 use openidea_plugin::views::{Body, Button, TreeItem, View, ViewEvent, Viewport, Views};
-use openidea_plugin::{
-    Diagnostic, Error, Invocation, Location, Plugin, Position, Project, Range, Severity, host,
-};
+use openidea_plugin::{Diagnostic, Error, Invocation, Location, Plugin, Position, Project, Range, Severity, host};
 use spring_text::index::{COMMAND_BUDGET, Indexes, PROVIDER_BUDGET, project_of};
 use spring_text::tree::Expansion;
 use spring_text::{parse_source, range, source_calls};
@@ -70,7 +68,8 @@ impl Kind {
 
 const SCRIPT_EXTENSIONS: [&str; 5] = [".js", ".jsx", ".ts", ".tsx", ".vue"];
 const SKIPPED_DIRECTORIES: [&str; 3] = ["/node_modules/", "/dist/", "/build/"];
-const CLIENT_FACTORIES: [&str; 6] = ["new Client(", "new Client<", "new StompJs.Client(", "new StompJs.Client<", "Stomp.over(", "Stomp.client("];
+const CLIENT_FACTORIES: [&str; 6] =
+    ["new Client(", "new Client<", "new StompJs.Client(", "new StompJs.Client<", "Stomp.over(", "Stomp.client("];
 
 fn ident_before(text: &str, end: usize) -> &str {
     let head = &text[..end];
@@ -131,13 +130,11 @@ fn parse_script(text: &str) -> Option<WsFile> {
             let arg = arg + (text[arg..].len() - text[arg..].trim_start().len());
             let literal = if name == "publish" {
                 let object = text[arg..].strip_prefix('{').and_then(|_| text[arg..].find('}'));
-                object
-                    .and_then(|close| text[arg..arg + close].find("destination").map(|k| arg + k + "destination".len()))
-                    .and_then(|k| {
-                        let rest = text[k..].trim_start().strip_prefix(':')?;
-                        let value = text.len() - rest.trim_start().len();
-                        literal_at(text, value)
-                    })
+                object.and_then(|close| text[arg..arg + close].find("destination").map(|k| arg + k + "destination".len())).and_then(|k| {
+                    let rest = text[k..].trim_start().strip_prefix(':')?;
+                    let value = text.len() - rest.trim_start().len();
+                    literal_at(text, value)
+                })
             } else {
                 literal_at(text, arg)
             };
@@ -340,10 +337,7 @@ pub struct WebSocketTools {
 impl Default for WebSocketTools {
     fn default() -> Self {
         Self {
-            index: Indexes::new(
-                &["**/*.java", "**/*.kt", "**/*.js", "**/*.jsx", "**/*.ts", "**/*.tsx", "**/*.vue"],
-                parse,
-            ),
+            index: Indexes::new(&["**/*.java", "**/*.kt", "**/*.js", "**/*.jsx", "**/*.ts", "**/*.tsx", "**/*.vue"], parse),
             stomp_roots: BTreeSet::new(),
             expansion: Expansion::default(),
             beans: Indexes::new(&spring_text::beans::GLOBS, xml_checks::bean_names),
@@ -361,11 +355,9 @@ impl WebSocketTools {
             return true;
         }
 
-        let names_dependency = BUILD_FILES.iter().any(|file| {
-            project
-                .read_file(file)
-                .is_ok_and(|text| STOMP_DEPENDENCIES.iter().any(|dependency| text.contains(dependency)))
-        });
+        let names_dependency = BUILD_FILES
+            .iter()
+            .any(|file| project.read_file(file).is_ok_and(|text| STOMP_DEPENDENCIES.iter().any(|dependency| text.contains(dependency))));
 
         if names_dependency {
             self.stomp_roots.insert(root);
@@ -422,7 +414,7 @@ impl WebSocketTools {
     fn destinations_view(&mut self, view: &str, project: &Project, budget: Duration) -> View {
         let snapshot = self.project_snapshot(project, budget);
 
-        if !snapshot.complete {
+        if self.index.get(project, Duration::ZERO).scanning() {
             refresh(view);
         }
 
@@ -526,13 +518,15 @@ impl WebSocketTools {
 impl Providers for WebSocketTools {
     fn line_markers(&mut self, doc: &Document) -> Vec<LineMarker> {
         if doc.language == "xml" || doc.path.ends_with(".xml") {
-            self.check_xml(doc);
+            if !cfg!(feature = "embedded") {
+                self.check_xml(doc);
+            }
             return Vec::new();
         }
         let snap = self.snapshot(doc);
         let mut markers = Vec::new();
         let mut problems = Vec::new();
-        let check_routing = host::setting_bool("springWebsocket.checkBrokerPrefixes").unwrap_or(true);
+        let check_routing = !cfg!(feature = "embedded") && host::setting_bool("springWebsocket.checkBrokerPrefixes").unwrap_or(true);
         for u in snap.of_document(doc) {
             let related = snap.related(&doc.path, u);
             match u.kind {
@@ -548,26 +542,18 @@ impl Providers for WebSocketTools {
                     markers.push(LineMarker { line: u.range.start.line, icon: None, tooltip, target });
                 }
                 Kind::Send | Kind::SendToUser | Kind::ClientSubscribe | Kind::ClientSend => {
-                    if check_routing
-                        && u.kind == Kind::Send
-                        && !snap.config.brokers.is_empty() && !snap.config.routed(&u.dest) {
+                    if check_routing && u.kind == Kind::Send && !snap.config.brokers.is_empty() && !snap.config.routed(&u.dest) {
                         let message = format!(
                             "`{}` is not under a broker prefix ({}), so subscribers won't receive it.",
                             u.dest,
                             snap.config.brokers.join(", ")
                         );
-                        problems
-                            .push(Diagnostic::new(u.range, Severity::Warning, message).code("unrouted-destination"));
+                        problems.push(Diagnostic::new(u.range, Severity::Warning, message).code("unrouted-destination"));
                     }
                     let Some(first) = related.first() else { continue };
                     let list: Vec<String> = related.iter().map(|r| describe(r)).collect();
                     let tooltip = format!("{} is also used at {}.", snap.config.keys(u)[0], list.join(", "));
-                    markers.push(LineMarker {
-                        line: u.range.start.line,
-                        icon: None,
-                        tooltip,
-                        target: Some(location(first)),
-                    });
+                    markers.push(LineMarker { line: u.range.start.line, icon: None, tooltip, target: Some(location(first)) });
                 }
             }
         }
@@ -607,10 +593,7 @@ impl Providers for WebSocketTools {
         }
         for (path, u) in &snap.uses {
             if same_side(u.kind) && !(*path == doc.path && u.at == here.at) && seen.insert(u.dest.clone()) {
-                items.push(CompletionItem {
-                    detail: Some(u.via.clone()),
-                    ..CompletionItem::new(&u.dest, CompletionKind::Value)
-                });
+                items.push(CompletionItem { detail: Some(u.via.clone()), ..CompletionItem::new(&u.dest, CompletionKind::Value) });
             }
         }
         let replace = range(&doc.text, here.at, here.end);
@@ -653,7 +636,17 @@ pub fn take_problems() -> Vec<openidea_plugin::Diagnostic> {
     PROBLEMS.take()
 }
 
-const DEPENDENCY_MARKERS: [&str; 9] = ["spring-boot-starter-websocket", "spring-messaging", "spring-websocket", "<module>", "include(", "include '", "include \"", "(libs.", " libs."];
+const DEPENDENCY_MARKERS: [&str; 9] = [
+    "spring-boot-starter-websocket",
+    "spring-messaging",
+    "spring-websocket",
+    "<module>",
+    "include(",
+    "include '",
+    "include \"",
+    "(libs.",
+    " libs.",
+];
 
 /// True when unsure: a multi-module build or a version catalog hides the dependency from the root build file.
 pub fn applies(project: &openidea_plugin::Project) -> bool {
@@ -728,12 +721,7 @@ public class ChatController {
     }
 
     fn doc(name: &str, text: &str) -> Document {
-        Document {
-            path: format!("/project/src/main/java/com/acme/chat/{name}"),
-            language: "java".into(),
-            version: 1,
-            text: text.into(),
-        }
+        Document { path: format!("/project/src/main/java/com/acme/chat/{name}"), language: "java".into(), version: 1, text: text.into() }
     }
 
     const KOTLIN_CHAT: &str = r#"package com.acme.chat
@@ -760,13 +748,16 @@ class KtChatController(private val messagingTemplate: SimpMessagingTemplate) {
     fn kotlin_message_mapping_is_indexed() {
         let chat = parse("KtChat.kt", KOTLIN_CHAT).unwrap();
         let uses: Vec<_> = chat.uses.iter().map(|u| (u.kind, u.dest.as_str(), u.via.as_str())).collect();
-        assert_eq!(uses, [
-            (Kind::Message, "/kchat/send", "@MessageMapping"),
-            (Kind::Send, "/topic/ktmessages", "@SendTo"),
-            (Kind::Subscribe, "/kchat/krooms", "@SubscribeMapping"),
-            (Kind::Send, "/topic/ktmessages", "convertAndSend"),
-            (Kind::SendToUser, "/queue/replies", "convertAndSendToUser"),
-        ]);
+        assert_eq!(
+            uses,
+            [
+                (Kind::Message, "/kchat/send", "@MessageMapping"),
+                (Kind::Send, "/topic/ktmessages", "@SendTo"),
+                (Kind::Subscribe, "/kchat/krooms", "@SubscribeMapping"),
+                (Kind::Send, "/topic/ktmessages", "convertAndSend"),
+                (Kind::SendToUser, "/queue/replies", "convertAndSendToUser"),
+            ]
+        );
         assert_eq!(parse("", CHAT).unwrap().uses.len(), 8);
 
         let host = setup();
@@ -912,18 +903,12 @@ client.onConnect = () => {
 "#;
 
     fn script_doc() -> Document {
-        Document {
-            path: "/project/web/src/chat.ts".into(),
-            language: "typescript".into(),
-            version: 1,
-            text: CLIENT.into(),
-        }
+        Document { path: "/project/web/src/chat.ts".into(), language: "typescript".into(), version: 1, text: CLIENT.into() }
     }
 
     #[test]
     fn script_indexes_only_literal_stomp_calls() {
-        let uses: Vec<_> =
-            parse("chat.ts", CLIENT).unwrap().uses.iter().map(|u| (u.kind, u.dest.clone())).collect();
+        let uses: Vec<_> = parse("chat.ts", CLIENT).unwrap().uses.iter().map(|u| (u.kind, u.dest.clone())).collect();
         assert_eq!(
             uses,
             [
@@ -1056,10 +1041,7 @@ client.onConnect = () => {
         let messages = items.iter().find(|i| i.key == "d:/topic/messages").unwrap();
         assert_eq!(messages.detail.as_deref(), Some("2 senders, 1 receivers"));
         assert_eq!(messages.icon.as_deref(), Some("send"));
-        let uses: Vec<_> = children(&items, "d:/topic/messages")
-            .iter()
-            .map(|i| (i.label.as_str(), i.detail.as_deref().unwrap()))
-            .collect();
+        let uses: Vec<_> = children(&items, "d:/topic/messages").iter().map(|i| (i.label.as_str(), i.detail.as_deref().unwrap())).collect();
         assert_eq!(
             uses,
             [
@@ -1222,3 +1204,23 @@ client.onConnect = () => {
         assert!(applies(project), "multi-module is unsure");
     }
 }
+
+impl WebSocketTools {
+    pub fn live_warm(&mut self, project: &openidea_plugin::Project, budget: std::time::Duration) {
+        if budget.is_zero() {
+            return;
+        }
+        self.index.get(project, budget / 2);
+        self.beans.get(project, budget / 2);
+    }
+    pub fn live_update(&mut self, project: &openidea_plugin::Project, path: &str, text: Option<&str>) {
+        self.index.update_existing(project, path, text);
+        self.beans.update_existing(project, path, text);
+    }
+    pub fn live_reset(&mut self) {
+        self.index.reset();
+        self.beans.reset();
+    }
+}
+
+mod live;

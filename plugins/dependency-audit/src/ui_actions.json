@@ -1,0 +1,20 @@
+[
+  {
+    "menu": "viewItem.context",
+    "view": "vulnerabilities",
+    "command": "preview-upgrade",
+    "when": "viewItemKind == dep"
+  },
+  {
+    "menu": "viewItem.context",
+    "view": "vulnerabilities",
+    "command": "open-advisory",
+    "when": "viewItemKind == advisory"
+  },
+  {
+    "menu": "viewItem.context",
+    "view": "vulnerabilities",
+    "command": "ignore-finding",
+    "when": "viewItemKind == advisory"
+  }
+]

@@ -1,0 +1,14 @@
+[
+  {
+    "menu": "viewItem.context",
+    "view": "structure",
+    "command": "copy-ddl",
+    "when": "viewItemKind == entity"
+  },
+  {
+    "menu": "viewItem.context",
+    "view": "structure",
+    "command": "copy-dto",
+    "when": "viewItemKind == entity"
+  }
+]

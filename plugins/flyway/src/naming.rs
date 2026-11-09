@@ -133,9 +133,16 @@ pub fn next_version(versions: &[&str]) -> String {
         return "1".into();
     };
     let (head, last) = highest.split_at(highest.rfind(['.', '_']).map_or(0, |i| i + 1));
-    // ponytail: u128 caps the last part at 38 digits; real versions are dates or small counters.
-    let bumped = last.parse::<u128>().map_or(1, |n| n + 1);
-    format!("{head}{bumped:0width$}", width = last.len())
+    // Increment decimal text without overflowing a machine integer or silently
+    // replacing a large version with 1. Preserve the user's zero padding.
+    let mut digits = last.as_bytes().to_vec();
+    if digits.is_empty() || !digits.iter().all(u8::is_ascii_digit) { return format!("{head}1"); }
+    let mut carry = true;
+    for digit in digits.iter_mut().rev() {
+        if *digit == b'9' { *digit = b'0'; } else { *digit += 1; carry = false; break; }
+    }
+    if carry { digits.insert(0,b'1'); }
+    format!("{head}{}",String::from_utf8(digits).expect("decimal digits"))
 }
 
 #[cfg(test)]

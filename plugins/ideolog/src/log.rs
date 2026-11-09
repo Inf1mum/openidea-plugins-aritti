@@ -24,13 +24,9 @@ const PYTHON_BASIC: &str = r"^(DEBUG|INFO|WARNING|ERROR|CRITICAL):([^:\s]+):(.*)
 const PYTHON_DASH: &str = concat!(r"^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,\d{3}) - (\S+) - (", level!(), r") - (.*)$");
 const NGINX: &str = r"^(\d{4}/\d\d/\d\d \d\d:\d\d:\d\d) \[(\w+)] (\d+#\d+): (.*)$";
 const SYSLOG: &str = r"^([A-Z][a-z]{2}\s+\d{1,2}\s\d\d:\d\d:\d\d)\s(\S+)\s([^:\s]+(?:\[\d+])?):\s(.*)$";
-const MONOLOG: &str = concat!(
-    r"^\[(\d{4}-\d\d-\d\d[ T]\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:?\d\d)?)]\s+([\w-]+)\.(",
-    level!(),
-    r"):\s*(.*)$"
-);
-const SERILOG: &str =
-    r"^(\d{4}-\d\d-\d\d[ T]\d\d:\d\d:\d\d(?:\.\d+)?\s[+-]\d\d:\d\d)\s\[(VRB|DBG|INF|WRN|ERR|FTL)]\s(.*)$";
+const MONOLOG: &str =
+    concat!(r"^\[(\d{4}-\d\d-\d\d[ T]\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:?\d\d)?)]\s+([\w-]+)\.(", level!(), r"):\s*(.*)$");
+const SERILOG: &str = r"^(\d{4}-\d\d-\d\d[ T]\d\d:\d\d:\d\d(?:\.\d+)?\s[+-]\d\d:\d\d)\s\[(VRB|DBG|INF|WRN|ERR|FTL)]\s(.*)$";
 fn default_name(uuid: &str) -> &'static str {
     match uuid {
         "b5772998-bf1e-4d9d-ab41-da0b86451163" => "Pipe-separated",
@@ -124,19 +120,9 @@ impl Default for Config {
     fn default() -> Self {
         let formats = [
             ("b5772998-bf1e-4d9d-ab41-da0b86451163", r"^(?s)([^|]*)\|([^|]*)\|([^|]*)\|(.*)$", r"^\d", [0, 1, 2]),
-            (
-                "8a0e8992-94cb-4f4c-8be2-42b03609626b",
-                r"^([^\[]+)(\[[\s\d]+])\s*(\w*)\s*-\s*(\S*)\s*-(.+)$",
-                r"^\d",
-                [0, 2, 3],
-            ),
+            ("8a0e8992-94cb-4f4c-8be2-42b03609626b", r"^([^\[]+)(\[[\s\d]+])\s*(\w*)\s*-\s*(\S*)\s*-(.+)$", r"^\d", [0, 2, 3]),
             ("e9fa2755-8390-42f5-a41e-a909c58c8cf9", r"^\[([^]]+)](.):\s*(\[[^]]+])?(.*)$", r"^\[", [0, 1, 2]),
-            (
-                "b8fcb4d4-b1b8-4681-90f1-42f7c02aaf67",
-                r"^(.+)(?:\s+\d*\s+\d*\s+)(V|D|I|W|E)\s([^:]+):(.*)$",
-                r"^\d",
-                [0, 1, 2],
-            ),
+            ("b8fcb4d4-b1b8-4681-90f1-42f7c02aaf67", r"^(.+)(?:\s+\d*\s+\d*\s+)(V|D|I|W|E)\s([^:]+):(.*)$", r"^\d", [0, 1, 2]),
             (
                 "19dd1738-1dc7-4df6-b437-18e0800b7782",
                 r"^(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\.\d{3}\s)\|(\s[A-Z]*\s*)\|(\s.+:.+:\d+\s-\s.*)$",
@@ -168,9 +154,7 @@ impl Default for Config {
             (WARN_WORDS, Highlight::Tag, Some(SYSLOG_UUID), Some(3)),
         ]
         .into_iter()
-        .map(|(pattern, kind, format, column)| {
-            Rule::new(pattern, format.map(str::to_owned), column, Action::Line, kind).unwrap()
-        })
+        .map(|(pattern, kind, format, column)| Rule::new(pattern, format.map(str::to_owned), column, Action::Line, kind).unwrap())
         .collect();
 
         Self { formats, rules, errors: Vec::new() }
@@ -247,17 +231,46 @@ impl Config {
         config
     }
 
+    /// Preview only the draft's highlighting rule; built-in/default rules
+    /// must not make a non-matching draft appear to work.
+    pub(crate) fn highlighting_preview(formats: &str, element: &str) -> Result<Self, String> {
+        let mut config = Self::with_custom(formats);
+        config.rules.clear();
+        for (name, attrs) in elements(element) {
+            if name == "LogHighlightingPattern" {
+                config.rules.extend(custom_rule(&attrs)?);
+            }
+        }
+        Ok(config)
+    }
+
+    /// Exact format identity for settings preview; never substitute a detected
+    /// built-in when the draft pattern does not match its sample.
+    pub(crate) fn format_by_id(&self, id: &str) -> Option<&Format> {
+        self.formats.iter().find(|format| format.uuid == id)
+    }
+
     /// The format matching most of the first lines, `None` for plain logs.
     pub fn detect(&self, text: &str) -> Option<&Format> {
+        self.detect_checked(text, || Ok::<(), std::convert::Infallible>(())).unwrap()
+    }
+
+    /// Detection cooperates between regex attempts, never inside a match.
+    pub fn detect_checked<E>(&self, text: &str, mut checkpoint: impl FnMut() -> Result<(), E>) -> Result<Option<&Format>, E> {
         let first_lines: Vec<&str> = lines(text).take(DETECTION_LINES).map(|(_, line)| line).collect();
         let mut best: Option<(&Format, usize)> = None;
         for format in &self.formats {
-            let matches = first_lines.iter().filter(|line| is_match(&format.pattern, line)).count();
+            let mut matches=0;
+            for line in &first_lines {
+                checkpoint()?;
+                matches+=usize::from(is_match(&format.pattern,line));
+            }
             if matches > 0 && best.is_none_or(|(_, most)| matches > most) {
                 best = Some((format, matches));
             }
         }
-        best.map(|(format, _)| format)
+        checkpoint()?;
+        Ok(best.map(|(format, _)| format))
     }
 
     /// Highlight kinds of an event's ranges (relative to the event), port of
@@ -391,7 +404,7 @@ impl<'a> Parsed<'a> {
 
         let column = format.map_or(Some(0), |f| f.severity_column);
         let level = self.value(column)?.to_ascii_uppercase();
-        match level.trim_matches(|c: char| !c.is_ascii_alphabetic()) {
+        match level.trim_matches(|c: char| !c.is_ascii_alphanumeric()) {
             "E" | "ERR" | "ERROR" | "FTL" | "SEVERE" | "FATAL" | "CRIT" | "CRITICAL" | "ALERT" | "EMERG" | "EMERGENCY" => {
                 Some(Severity::Error)
             }
@@ -402,17 +415,19 @@ impl<'a> Parsed<'a> {
 }
 
 static TIMESTAMP: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^(?:(\d{4})[-/](\d\d)[-/](\d\d)|(\d\d)-(\d\d)|([A-Z][a-z]{2})\s+(\d{1,2}))?[ T]*(\d\d):(\d\d):(\d\d)(?:[.,](\d+))?").unwrap()
+    Regex::new(r"^(?:(\d{4})[-/](\d\d)[-/](\d\d)|(\d\d)-(\d\d)|([A-Z][a-z]{2})\s+(\d{1,2}))?[ T]*(\d\d):(\d\d):(\d\d)(?:[.,](\d+))?")
+        .unwrap()
 });
 
 const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /// Seconds of a log timestamp on a common scale, for the gap between events.
-/// Time zones are ignored and a missing year counts as 2000: only differences
-/// within one log matter.
+/// ISO numeric offsets and Z are normalized; naive timestamps share an
+/// assumed local scale and a missing year counts as 2000.
 // ponytail: handles ISO-like, Logcat, syslog and time-only stamps; other time columns get no gaps.
 pub fn seconds(time: &str) -> Option<f64> {
-    let c = TIMESTAMP.captures(time.trim()).ok()??;
+    let time=time.trim();
+    let c = TIMESTAMP.captures(time).ok()??;
     let number = |i: usize| c.get(i).and_then(|m| m.as_str().parse::<i64>().ok());
 
     let (year, month, day) = if let (Some(y), Some(m), Some(d)) = (number(1), number(2), number(3)) {
@@ -428,7 +443,19 @@ pub fn seconds(time: &str) -> Option<f64> {
     let (y, m) = if month <= 2 { (year - 1, month + 9) } else { (year, month - 3) };
     let days = 365 * y + y / 4 - y / 100 + y / 400 + (153 * m + 2) / 5 + day;
     let fraction = c.get(11).map_or(0.0, |f| format!("0.{}", f.as_str()).parse::<f64>().unwrap_or(0.0));
-    Some((days * 86_400 + number(8)? * 3_600 + number(9)? * 60 + number(10)?) as f64 + fraction)
+    let suffix=time[c.get(0)?.end()..].trim();
+    let offset=match suffix {
+        "" | "Z" => 0,
+        value => {
+            let sign=match value.as_bytes().first()? {b'+' => 1,b'-' => -1,_ => return None};
+            let digits=value[1..].replace(':', "");
+            if digits.len()!=4 || !digits.bytes().all(|b|b.is_ascii_digit()) || !(value.len()==5 || (value.len()==6 && value.as_bytes()[3]==b':')) {return None;}
+            let hours=digits[..2].parse::<i64>().ok()?;let minutes=digits[2..].parse::<i64>().ok()?;
+            if hours>23 || minutes>59 {return None;}
+            sign*(hours*3600+minutes*60)
+        }
+    };
+    Some((days * 86_400 + number(8)? * 3_600 + number(9)? * 60 + number(10)? - offset) as f64 + fraction)
 }
 
 fn message_severity(message: &str) -> Option<Severity> {
@@ -439,9 +466,8 @@ fn message_severity(message: &str) -> Option<Severity> {
     words().any(|w| matches!(w.as_str(), "warn" | "warning")).then_some(Severity::Warning)
 }
 
-static EXCEPTION_NAME: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?:\b[A-Z][A-Za-z0-9_$]*(?:Exception|Error)|[A-Za-z0-9_$]\.(?:Exception|Error))[:(]").unwrap()
-});
+static EXCEPTION_NAME: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?:\b[A-Z][A-Za-z0-9_$]*(?:Exception|Error)|[A-Za-z0-9_$]\.(?:Exception|Error))[:(]").unwrap());
 
 fn is_continuation_frame_line(line: &str) -> bool {
     let after_hash = line.strip_prefix('#').and_then(|rest| rest.chars().next());
@@ -484,8 +510,15 @@ fn is_event_start(format: Option<&Format>, line: &str) -> bool {
 
 /// Events: a line starting an event plus the continuation lines after it.
 pub fn events<'a>(format: Option<&Format>, text: &'a str) -> Vec<Event<'a>> {
+    events_checked(format, text, || Ok::<(), std::convert::Infallible>(())).unwrap()
+}
+
+/// The same grouping with cooperative checkpoints before each physical line.
+/// A single synchronous regex match remains non-preemptible.
+pub fn events_checked<'a, E>(format: Option<&Format>, text: &'a str, mut checkpoint: impl FnMut() -> Result<(), E>) -> Result<Vec<Event<'a>>, E> {
     let mut events: Vec<Event> = Vec::new();
     for (index, (offset, line)) in lines(text).enumerate() {
+        checkpoint()?;
         let index = index as u32;
         let continues = !events.is_empty() && !is_event_start(format, line);
         if continues {
@@ -497,7 +530,8 @@ pub fn events<'a>(format: Option<&Format>, text: &'a str) -> Vec<Event<'a>> {
 
         events.push(Event { text: &text[offset..offset + line.len()], offset, lines: index..index + 1 });
     }
-    events
+    checkpoint()?;
+    Ok(events)
 }
 
 pub fn floor_char_boundary(text: &str, mut at: usize) -> usize {
@@ -522,11 +556,8 @@ fn tokenize(format: Option<&Format>, event: &str) -> Vec<LogToken> {
         };
     };
 
-    let first_line_end = if event.len() > MAX_PARSING_LENGTH {
-        Some(floor_char_boundary(event, MAX_PARSING_LENGTH))
-    } else {
-        event.find('\n')
-    };
+    let first_line_end =
+        if event.len() > MAX_PARSING_LENGTH { Some(floor_char_boundary(event, MAX_PARSING_LENGTH)) } else { event.find('\n') };
     let first_line = &event[..first_line_end.unwrap_or(event.len())];
     let Ok(Some(captures)) = format.pattern.captures(first_line.trim_end_matches('\r')) else {
         return whole();
@@ -697,6 +728,13 @@ mod tests {
   </parsingPatterns>
 </State>"#;
 
+    #[test]
+    fn iso_offset_forms_are_normalized_and_malformed_offsets_refused() {
+        let base=seconds("2024-05-01T08:00:00Z").unwrap();
+        for stamp in ["2024-05-01T10:00:00+02:00","2024-05-01T10:00:00+0200","2024-05-01T03:00:00-05:00"] {assert_eq!(seconds(stamp),Some(base));}
+        assert_eq!(seconds("2024-05-02T00:30:00+02:00"),seconds("2024-05-01T22:30:00Z"));
+        for suffix in ["+24:00","+01:60","+0:200","+02::00","UTC","+😀"] {assert_eq!(seconds(&format!("2024-05-01T08:00:00{suffix}")),None);}
+    }
     #[test]
     fn timestamps_become_comparable_seconds() {
         let gap = |a: &str, b: &str| seconds(b).unwrap() - seconds(a).unwrap();

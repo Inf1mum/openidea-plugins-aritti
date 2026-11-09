@@ -41,7 +41,12 @@ pub fn parse_advisory(json: &str) -> Option<Advisory> {
             _ => name.to_owned(),
         };
         let versions = fixed.entry(format!("{ecosystem}:{name}")).or_default();
-        let events = package["ranges"].as_array().into_iter().flatten().filter(|r| r["type"].as_str() != Some("GIT")).flat_map(|r| r["events"].as_array().into_iter().flatten());
+        let events = package["ranges"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|r| r["type"].as_str() != Some("GIT"))
+            .flat_map(|r| r["events"].as_array().into_iter().flatten());
         versions.extend(events.filter_map(|e| text(&e["fixed"])));
     }
 
@@ -99,11 +104,7 @@ fn compare_segments(a: &str, b: &str) -> Ordering {
 }
 
 pub fn nearest_fix(version: &str, fixed: &[String]) -> Option<String> {
-    fixed
-        .iter()
-        .filter(|f| compare(f, version) == Ordering::Greater)
-        .min_by(|a, b| compare(a, b))
-        .cloned()
+    fixed.iter().filter(|f| compare(f, version) == Ordering::Greater).min_by(|a, b| compare(a, b)).cloned()
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -116,19 +117,13 @@ impl Finding {
     pub fn fix(&self) -> Option<String> {
         let key = format!("{}:{}", self.dep.ecosystem.osv(), self.dep.ecosystem.osv_name(&self.dep.name));
 
-        self.advisories
-            .iter()
-            .filter_map(|a| nearest_fix(&self.dep.version, a.fixed.get(&key)?))
-            .max_by(|a, b| compare(a, b))
+        self.advisories.iter().filter_map(|a| nearest_fix(&self.dep.version, a.fixed.get(&key)?)).max_by(|a, b| compare(a, b))
     }
 
     pub fn severity(&self) -> Severity {
         let levels: Vec<Severity> = self.advisories.iter().map(|a| level(a.severity.as_deref())).collect();
 
-        [Severity::Error, Severity::Warning, Severity::Info]
-            .into_iter()
-            .find(|s| levels.contains(s))
-            .unwrap_or(Severity::Warning)
+        [Severity::Error, Severity::Warning, Severity::Info].into_iter().find(|s| levels.contains(s)).unwrap_or(Severity::Warning)
     }
 
     pub fn message(&self) -> String {
@@ -179,6 +174,8 @@ struct BatchResponse {
 struct BatchResult {
     #[serde(default)]
     vulns: Vec<BatchVuln>,
+    #[serde(default)]
+    next_page_token: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -193,18 +190,19 @@ fn query_key(dep: &Dep) -> String {
 }
 
 fn cached_queries() -> BTreeMap<String, CachedQuery> {
-    host::storage::get("queries")
-        .ok()
-        .flatten()
-        .and_then(|json| serde_json::from_str(&json).ok())
-        .unwrap_or_default()
+    host::storage::get("queries").ok().flatten().and_then(|json| serde_json::from_str(&json).ok()).unwrap_or_default()
 }
+
+const MAX_ADVISORY_BYTES: usize = 128 << 10;
 
 pub(crate) fn cached_advisory(id: &str) -> Option<Advisory> {
-    serde_json::from_str(&host::storage::get(&format!("adv:{id}")).ok()??).ok()
+    if !is_safe_id(id) { return None; }
+    let json = host::storage::get(&format!("adv:{id}")).ok()??;
+    if json.len() > MAX_ADVISORY_BYTES { return None; }
+    serde_json::from_str::<Advisory>(&json).ok().filter(|a| a.id == id)
 }
 
-fn is_safe_id(id: &str) -> bool {
+pub(crate) fn is_safe_id(id: &str) -> bool {
     (1..=200).contains(&id.len()) && id.chars().all(|c| c.is_ascii_alphanumeric() || "._:-".contains(c))
 }
 
@@ -218,22 +216,79 @@ fn fetch(request: HttpRequest) -> Result<Vec<u8>, Error> {
     Ok(response.body)
 }
 
-fn query_batch(chunk: &[&Dep]) -> Result<Vec<BatchResult>, Error> {
-    let queries: Vec<serde_json::Value> = chunk
-        .iter()
-        .map(|dep| serde_json::json!({"package": {"ecosystem": dep.ecosystem.osv(), "name": dep.ecosystem.osv_name(&dep.name)}, "version": dep.version}))
-        .collect();
+fn query_page(queries: Vec<serde_json::Value>) -> Result<Vec<BatchResult>, Error> {
+    let count = queries.len();
     let body = serde_json::json!({"queries": queries}).to_string();
     let request = HttpRequest::post(QUERY_URL, body).header("Content-Type", "application/json");
-    // ponytail: next_page_token ignored; OSV pages only past 1,000 vulns per query or 3,000 per batch
-    let response: BatchResponse = serde_json::from_slice(&fetch(request)?)
-        .map_err(|e| Error::Failed(format!("OSV sent an unreadable answer: {e}")))?;
-
-    if response.results.len() != chunk.len() {
+    let response: BatchResponse =
+        serde_json::from_slice(&fetch(request)?).map_err(|e| Error::Failed(format!("OSV sent an unreadable answer: {e}")))?;
+    if response.results.len() != count {
         return Err(Error::Failed("OSV answered a different number of results".into()));
     }
-
     Ok(response.results)
+}
+
+fn query_batch(chunk: &[&Dep], deadline: Instant) -> Result<Vec<BatchResult>, Error> {
+    let query = |dep: &Dep, token: Option<&str>| {
+        let mut value = serde_json::json!({"package": {"ecosystem": dep.ecosystem.osv(), "name": dep.ecosystem.osv_name(&dep.name)}, "version": dep.version});
+        if let Some(token) = token {
+            value["page_token"] = token.into();
+        }
+        value
+    };
+    let mut results = query_page(chunk.iter().map(|dep| query(dep, None)).collect())?;
+    if results.iter().any(|result| result.vulns.len() > 10_000) {
+        return Err(Error::Failed("OSV result exceeded the advisory bound; incomplete answers were not saved".into()));
+    }
+    let mut seen: Vec<HashSet<String>> = (0..chunk.len()).map(|_| HashSet::new()).collect();
+    // Never cache a truncated answer as a complete result, even if a service
+    // misbehaves or continuation cannot finish inside the command's deadline.
+    for _ in 0..32 {
+        let pending: Vec<usize> = results
+            .iter()
+            .enumerate()
+            .filter(|(_, result)| result.next_page_token.as_deref().is_some_and(|s| !s.is_empty()))
+            .map(|(i, _)| i)
+            .collect();
+        if pending.is_empty() {
+            return Ok(results);
+        }
+        if Instant::now() >= deadline {
+            return Err(Error::Failed("OSV pagination timed out; incomplete answers were not saved".into()));
+        }
+        let mut queries = Vec::new();
+        for &i in &pending {
+            let token = results[i].next_page_token.as_deref().unwrap();
+            if token.len() > 4096 || !seen[i].insert(token.to_owned()) {
+                return Err(Error::Failed(
+                    "OSV returned an invalid or repeated continuation token; incomplete answers were not saved".into(),
+                ));
+            }
+            queries.push(query(chunk[i], Some(token)));
+        }
+        for (i, page) in pending.into_iter().zip(query_page(queries)?) {
+            let result = &mut results[i];
+            result.next_page_token = page.next_page_token;
+            let mut positions: HashMap<String, usize> = result.vulns.iter().enumerate().map(|(at, entry)| (entry.id.clone(), at)).collect();
+            for vuln in page.vulns {
+                if let Some(&at) = positions.get(&vuln.id) {
+                    if vuln.modified > result.vulns[at].modified {
+                        result.vulns[at] = vuln;
+                    }
+                } else {
+                    positions.insert(vuln.id.clone(), result.vulns.len());
+                    result.vulns.push(vuln);
+                }
+            }
+            if result.vulns.len() > 10_000 {
+                return Err(Error::Failed("OSV result exceeded the advisory bound; incomplete answers were not saved".into()));
+            }
+        }
+    }
+    if results.iter().any(|result| result.next_page_token.as_deref().is_some_and(|s| !s.is_empty())) {
+        return Err(Error::Failed("OSV pagination exceeded its page bound; incomplete answers were not saved".into()));
+    }
+    Ok(results)
 }
 
 /// `online` turns false at the first failed fetch or once past the deadline.
@@ -252,7 +307,9 @@ fn advisory(id: &str, modified: &str, online: &mut bool, deadline: Instant, writ
     let fetched = if *online {
         let body = fetch(HttpRequest::get(&format!("{VULN_URL}/{id}")));
         *online = body.is_ok();
-        body.ok().and_then(|body| parse_advisory(&String::from_utf8_lossy(&body)))
+        body.ok().filter(|body| body.len() <= MAX_ADVISORY_BYTES)
+            .and_then(|body| parse_advisory(&String::from_utf8_lossy(&body)))
+            .filter(|advisory| advisory.id == id)
     } else {
         None
     };
@@ -261,7 +318,9 @@ fn advisory(id: &str, modified: &str, online: &mut bool, deadline: Instant, writ
         return id_only;
     };
 
-    writer.set(&format!("adv:{id}"), &serde_json::to_string(&advisory).unwrap_or_default());
+    let stored = serde_json::to_string(&advisory).unwrap_or_default();
+    if stored.len() > MAX_ADVISORY_BYTES { return id_only; }
+    writer.set(&format!("adv:{id}"), &stored);
 
     advisory
 }
@@ -314,6 +373,48 @@ pub fn is_ignored(ignored: &HashSet<String>, id: &str, aliases: &[String]) -> bo
     ignored.contains(&id.to_lowercase()) || aliases.iter().any(|alias| ignored.contains(&alias.to_lowercase()))
 }
 
+/// Read-only, bounded cached evidence for editor requests. Unlike `audit(false)`,
+/// this never migrates/deletes old storage or writes back query state.
+/// Positive results may be stale; callers must display their query date.
+pub(crate) fn cached_findings(deps: &[Dep], deadline: Instant) -> Vec<(Finding, u64)> {
+    let Some(json) = host::storage::get("queries").ok().flatten().filter(|s| s.len() <= 512 << 10) else { return Vec::new() };
+    let Ok(cache) = serde_json::from_str::<BTreeMap<String, CachedQuery>>(&json) else { return Vec::new() };
+    let ignored = ignored_advisories();
+    let mut advisories = HashMap::new();
+    let mut findings = Vec::new();
+    for dep in deps.iter().take(2000) {
+        if Instant::now() >= deadline {
+            break;
+        }
+        let Some(query) = cache.get(&query_key(dep)) else { continue };
+        if query.at > crate::now() {
+            continue;
+        }
+        let mut found = Vec::new();
+        for (id, modified) in query.vulns.iter().take(64) {
+            if Instant::now() >= deadline || !is_safe_id(id) {
+                break;
+            }
+            let advisory = advisories.entry(id.clone()).or_insert_with(|| {
+                host::storage::get(&format!("adv:{id}"))
+                    .ok()
+                    .flatten()
+                    .filter(|s| s.len() <= MAX_ADVISORY_BYTES)
+                    .and_then(|s| serde_json::from_str::<Advisory>(&s).ok())
+                    .filter(|a| a.id == *id && a.modified == *modified)
+                    .unwrap_or_else(|| Advisory { id: id.clone(), modified: modified.clone(), ..Advisory::default() })
+            });
+            if !is_ignored(&ignored, id, &advisory.aliases) {
+                found.push(advisory.clone());
+            }
+        }
+        if !found.is_empty() {
+            findings.push((Finding { dep: dep.clone(), advisories: found }, query.at));
+        }
+    }
+    findings
+}
+
 pub fn audit(deps: &[Dep], online: bool, now: u64, deadline: Instant) -> Result<Vec<Finding>, Error> {
     drop_pre_alias_advisories();
     let mut cache = cached_queries();
@@ -344,7 +445,7 @@ pub fn audit(deps: &[Dep], online: bool, now: u64, deadline: Instant) -> Result<
             return Err(Error::Failed("OSV check timed out".into()));
         }
 
-        for (dep, result) in chunk.iter().zip(query_batch(chunk)?) {
+        for (dep, result) in chunk.iter().zip(query_batch(chunk, deadline)?) {
             let vulns = result.vulns.into_iter().map(|v| (v.id, v.modified)).collect();
             cache.insert(query_key(dep), CachedQuery { at: now, vulns });
         }
@@ -362,9 +463,7 @@ pub fn audit(deps: &[Dep], online: bool, now: u64, deadline: Instant) -> Result<
         let mut found = Vec::new();
 
         for (id, modified) in &query.vulns {
-            let advisory = advisories
-                .entry(id.clone())
-                .or_insert_with(|| advisory(id, modified, &mut online, deadline, &mut writer));
+            let advisory = advisories.entry(id.clone()).or_insert_with(|| advisory(id, modified, &mut online, deadline, &mut writer));
             if !is_ignored(&ignored, id, &advisory.aliases) {
                 found.push(advisory.clone());
             }
@@ -480,7 +579,10 @@ pub(crate) mod tests {
             fixed: BTreeMap::from([("Maven:com.fasterxml.jackson.core:jackson-databind".into(), vec!["2.12.6.1".into()])]),
             ..Advisory::default()
         };
-        let finding = Finding { dep: dep(Ecosystem::Maven, "com.fasterxml.jackson.core:jackson-databind", "2.12.3"), advisories: vec![jackson, older] };
+        let finding = Finding {
+            dep: dep(Ecosystem::Maven, "com.fasterxml.jackson.core:jackson-databind", "2.12.3"),
+            advisories: vec![jackson, older],
+        };
 
         assert_eq!(finding.fix().as_deref(), Some("2.12.7.1"));
         assert_eq!(finding.severity(), Severity::Error);
@@ -488,5 +590,48 @@ pub(crate) mod tests {
             finding.message(),
             "com.fasterxml.jackson.core:jackson-databind 2.12.3 has known vulnerabilities: GHSA-57j2-w4cx-62h2 (HIGH) Deeply nested JSON exhausts the stack; GHSA-older (MODERATE). Upgrade to 2.12.7.1."
         );
+    }
+}
+
+#[cfg(test)]
+mod advisory_identity_tests {
+    use super::*;
+    use openidea_plugin::mock::MockHost;
+    #[test]
+    fn mismatched_cached_and_fetched_ids_never_supply_aliases_fixes_or_replace_cache() {
+        let host=MockHost::install();
+        let requested="GHSA-requested";
+        let wrong=r#"{"id":"GHSA-other","modified":"m","aliases":["CVE-2026-1234"],"summary":"Wrong package evidence","affected":[{"package":{"ecosystem":"npm","name":"x"},"versions":["1.0.0"],"ranges":[{"type":"SEMVER","events":[{"fixed":"99.0.0"}]}]}]}"#;
+        host::storage::set(&format!("adv:{requested}"),wrong).unwrap();
+        assert!(cached_advisory(requested).is_none());
+        let offline = advisory(requested,"m",&mut false,Instant::now(),&mut CacheWriter::default());
+        assert_eq!(offline.id,requested);
+        assert!(offline.fixed.is_empty() && offline.aliases.is_empty());
+        assert!(host.requests().is_empty());
+        host.on_fetch(move |_|Ok(openidea_plugin::HttpResponse{status:200,headers:vec![],body:wrong.as_bytes().to_vec()}));
+        let mut online=true;
+        let result=advisory(requested,"m",&mut online,Instant::now()+std::time::Duration::from_secs(1),&mut CacheWriter::default());
+        assert_eq!(result.id,requested);
+        assert!(result.fixed.is_empty() && result.aliases.is_empty() && result.summary.is_empty());
+        assert_eq!(host.storage()[&format!("adv:{requested}")],wrong,"mismatched fetch is never persisted as requested data");
+        host::storage::delete(&format!("adv:{requested}")).unwrap();
+        let mut online=true;
+        assert_eq!(advisory(requested,"m",&mut online,Instant::now()+std::time::Duration::from_secs(1),&mut CacheWriter::default()).id,requested);
+        assert!(!host.storage().contains_key(&format!("adv:{requested}")));
+    }
+    #[test]
+    fn advisory_detail_bytes_are_bounded_before_parse_reuse_or_persist() {
+        let host=MockHost::install();
+        let id="GHSA-requested";
+        let value=serde_json::json!({"id":id,"modified":"m","summary":"x".repeat(MAX_ADVISORY_BYTES)}).to_string();
+        assert!(value.len()>MAX_ADVISORY_BYTES);
+        host::storage::set(&format!("adv:{id}"),&value).unwrap();
+        assert!(cached_advisory(id).is_none());
+        host.on_fetch(move |_|Ok(openidea_plugin::HttpResponse{status:200,headers:vec![],body:value.as_bytes().to_vec()}));
+        host::storage::delete(&format!("adv:{id}")).unwrap();
+        let result=advisory(id,"m",&mut true,Instant::now()+std::time::Duration::from_secs(1),&mut CacheWriter::default());
+        assert_eq!(result.id,id);
+        assert!(result.summary.is_empty());
+        assert!(!host.storage().contains_key(&format!("adv:{id}")));
     }
 }

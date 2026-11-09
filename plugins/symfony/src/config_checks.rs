@@ -12,6 +12,17 @@ fn deprecated_factory(range: std::ops::Range<usize>, name: &str) -> Finding {
     Finding::warn(range, "deprecated-factory-setting", message)
 }
 
+/// None preserves the saved-file legacy fallback for unsupported structural XML.
+pub(crate) fn source_factory_settings(path: &str, language: &str, text: &str) -> Option<Vec<Finding>> {
+    if !is_service_file(path) {return Some(Vec::new());}
+    if language!="xml" {return Some(deprecated_factory_settings(path,language,text));}
+    let mut found=Vec::new();
+    for (_,name) in FACTORY_SETTINGS {
+        found.extend(crate::source_xml::service_attribute_names(text,name)?.into_iter().map(|range|deprecated_factory(range,name)));
+    }
+    found.sort_by_key(|finding|finding.start);Some(found)
+}
+
 pub fn deprecated_factory_settings(path: &str, language: &str, text: &str) -> Vec<Finding> {
     let mut found = Vec::new();
     if !is_service_file(path) {
@@ -28,6 +39,7 @@ pub fn deprecated_factory_settings(path: &str, language: &str, text: &str) -> Ve
     }
 
     if language == "xml" && text.contains("<container") {
+        if let Some(found)=source_factory_settings(path,language,text) {return found;}
         let comments = xml_comments(text);
         for (tag, at) in xml_tags(text, "service") {
             if comments.iter().any(|comment| comment.contains(&at)) {
@@ -60,6 +72,11 @@ pub fn unknown_parameters(ctx: &Context, path: &str, language: &str, text: &str)
         return found;
     }
 
+    // The current unsaved document can introduce parameters absent from the cached index.
+    // Suppression is conservative; deleting a cached definition still waits for index refresh.
+    let mut local = index::Names::new();
+    if language == "xml" { index::xml_params(path, text, &mut local); }
+    else { index::yaml_params(path, text, &mut local); }
     let comments = if language == "xml" { xml_comments(text) } else { Vec::new() };
     let mut offset = 0;
 
@@ -96,7 +113,7 @@ pub fn unknown_parameters(ctx: &Context, path: &str, language: &str, text: &str)
             let start = line_start + i + 1;
             i += length + 2;
 
-            let known_name = name.starts_with("kernel.") || ctx.index.parameters.contains_key(name) || ctx.index.parameters.keys().any(|key| key.eq_ignore_ascii_case(name));
+            let known_name = name.starts_with("kernel.") || ctx.index.parameters.contains_key(name) || ctx.index.parameters.keys().any(|key| key.eq_ignore_ascii_case(name)) || local.keys().any(|key| key.eq_ignore_ascii_case(name));
             if known_name || comments.iter().any(|comment| comment.contains(&start)) {
                 continue;
             }
@@ -160,6 +177,7 @@ pub fn yaml_scalars(path: &str, language: &str, text: &str) -> Vec<Finding> {
 mod tests {
     use openidea_plugin::mock::MockHost;
     use openidea_plugin::{Diagnostic, Event, Plugin, Position, Range as TextRange};
+    use openidea_plugin::diagnostics::{DiagnosticsProvider, Document};
 
     use crate::index::Index;
     use crate::{Groups, Main};
@@ -319,11 +337,16 @@ mod tests {
 
         host.add_file("config/services.yaml", "a: `x`\nb: \"\\q\"\nc: d: e\nservices:\n    s:\n        factory_method: m\n");
         plugin.handle_events(&[Event::FileOpened(SERVICES.into())], &host.invocation());
-        assert_eq!(host.diagnostics()[SERVICES].len(), 4);
+        assert!(host.diagnostics().get(SERVICES).is_none_or(Vec::is_empty));
+        let text = "a: `x`\nb: \"\\q\"\nc: d: e\nservices:\n    s:\n        factory_method: m\n";
+        let document = Document { path: SERVICES.into(), language: "yaml".into(), version: 1, text: text.into() };
+        assert_eq!(plugin.diagnostics(&document).len(), 4);
 
         host.add_file("config/services.yaml", "a: '`x`'\nb: \"\\\\q\"\nc: 'd: e'\nservices:\n    s:\n        factory: m\n");
         plugin.handle_events(&[Event::FileSaved(SERVICES.into())], &host.invocation());
         assert!(host.diagnostics().get(SERVICES).is_none_or(Vec::is_empty));
+        let fixed = Document { text: "a: '`x`'\nb: \"\\\\q\"\nc: 'd: e'\n".into(), version: 2, ..document };
+        assert!(plugin.diagnostics(&fixed).is_empty());
     }
 
     #[test]

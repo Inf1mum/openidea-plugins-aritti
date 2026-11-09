@@ -42,8 +42,33 @@ fn list(project: &Project, root: &str) -> Result<Vec<Container>, Error> {
     Ok(parse_containers(&output.stdout))
 }
 
+const STATUS_KEY: &str = "devcontainer:status";
+fn status_view(message: &str) -> View {
+    View::new(Body::List(vec![ListItem::new(STATUS_KEY, "Dev Containers").icon("database").detail(message)]))
+}
+
 impl Views for Main {
-    fn render(&mut self, _view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
+    fn render(&mut self, view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
+        if view == crate::operations::VIEW { return Ok(self.operations.render(ctx)); }
+        let project = match self.bind_project(ctx) {
+            Ok(project) => project,
+            Err(Error::NotFound(_)) => return Ok(status_view("Open a project to see its dev containers.").button(Button::new("refresh", "Refresh").icon("refresh"))),
+            Err(error) => return Ok(status_view(&format!("Cannot identify the project: {error}")).button(Button::new("refresh", "Refresh").icon("refresh"))),
+        };
+        let containers = match list(&project, &project.root()?) {
+            Ok(containers) => containers,
+            Err(error) => {
+                self.selected = None;
+                self.running.clear();
+                return Ok(status_view(&match error {
+                    Error::Denied(_) => "Allow the docker permission in Settings > Plugins to list the containers.".into(),
+                    error => format!("Cannot list containers: {error}"),
+                }).button(Button::new("refresh", "Refresh").icon("refresh")));
+            }
+        };
+        if self.selected.as_ref().is_some_and(|id| !containers.iter().any(|c| c.id == *id)) {
+            self.selected = None;
+        }
         let selected = self.selected.clone();
         let toolbar = |view: View, running_ids: &std::collections::BTreeSet<String>| {
             let selected = selected.as_ref();
@@ -52,18 +77,11 @@ impl Views for Main {
                 .button(Button::new("shell", "Open Shell").icon("run").enabled(running))
                 .button(Button::new("stop", "Stop").icon("stop").enabled(running))
                 .button(Button::new("start", "Start").icon("run").enabled(selected.is_some() && !running))
-        };
-        let Some(project) = ctx.project() else {
-            return Ok(View::message("Open a project to see its dev containers."));
-        };
-        let containers = match list(&project, &project.root()?) {
-            Ok(containers) => containers,
-            Err(Error::Denied(_)) => return Ok(View::message("Allow the docker permission in Settings > Plugins to list the containers.")),
-            Err(error) => return Ok(View::message(&format!("Cannot list containers: {error}"))),
+                .button(Button::new("configuration", "Choose Configuration").icon("settings"))
         };
         if containers.is_empty() {
             self.running.clear();
-            return Ok(toolbar(View::message("No dev container for this project. Run Dev Container: Start Container."), &self.running));
+            return Ok(toolbar(status_view("No dev container for this project. Run Dev Container: Start Container."), &self.running));
         }
 
         let running: std::collections::BTreeSet<String> = containers.iter().filter(|c| c.running).map(|c| c.id.clone()).collect();
@@ -80,14 +98,46 @@ impl Views for Main {
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {
+        if view == crate::operations::VIEW { return self.operations.handle(event, ctx); }
+        if matches!(&event, ViewEvent::Select(key) | ViewEvent::Activate(key) if key == STATUS_KEY) {
+            self.selected = None;
+            return Ok(());
+        }
+        if matches!(&event, ViewEvent::Button(button) if button == "refresh") {
+            // A status row remains refreshable even without a project/grant.
+            let _ = self.bind_project(ctx);
+            host::refresh_view(view);
+            return Ok(());
+        }
+        self.bind_project(ctx)?;
         match event {
-            ViewEvent::Select(id) => self.selected = Some(id),
-            ViewEvent::Activate(id) if self.running.contains(&id) => open_shell(&id)?,
-            ViewEvent::Activate(id) => self.start(view, ctx, id)?,
+            ViewEvent::Select(id) => {
+                self.container(ctx, &id)?;
+                self.selected = Some(id);
+                host::refresh_view(view);
+            }
+            ViewEvent::Activate(id) => {
+                let (_, container) = self.container(ctx, &id)?;
+                if container.running {
+                    open_shell(&container.id)?;
+                } else {
+                    self.start(view, ctx, container.id)?;
+                }
+            }
             ViewEvent::Button(button) if button == "refresh" => host::refresh_view(view),
+            ViewEvent::Button(button) if button == "configuration" => {
+                let project = self.bind_project(ctx)?;
+                if let Some(path) = crate::configs::choose(&project, true)? {
+                    host::notify(NotificationLevel::Info, "Dev Container configuration", &format!("Using {path} for this project."));
+                }
+            }
             ViewEvent::Button(button) if button == "shell" => {
-                if let Some(id) = &self.selected {
-                    open_shell(id)?;
+                if let Some(id) = self.selected.clone() {
+                    let (_, container) = self.container(ctx, &id)?;
+                    if !container.running {
+                        return Err("This container is stopped. Refresh Services before opening a shell.".into());
+                    }
+                    open_shell(&container.id)?;
                 }
             }
             ViewEvent::Button(button) if button == "start" => {
@@ -96,28 +146,72 @@ impl Views for Main {
                 }
             }
             ViewEvent::Button(button) if button == "stop" => {
-                let Some(id) = self.selected.take() else {
+                let Some(id) = self.selected.clone() else {
                     return Ok(());
                 };
-                let project = ctx.project().ok_or("No project is open.")?;
-                let stopped = project.run_process("docker", &["stop".to_owned(), id], None)?;
+                let (project, container) = self.container(ctx, &id)?;
+                if !container.running {
+                    return Err("This container is already stopped. Refresh Services.".into());
+                }
+                let stopped = project.run_process("docker", &["stop".to_owned(), container.id], None)?;
                 if stopped.status != Some(0) {
                     return Err(format!("docker stop failed: {}", stopped.stderr.trim()).into());
                 }
+                self.selected = None;
                 host::notify(NotificationLevel::Info, "Dev Container", "Stopped the container.");
                 host::refresh_view(view);
             }
             _ => {}
         }
-
         Ok(())
     }
 }
 
 impl Main {
+    fn bind_project(&mut self, ctx: &Invocation) -> Result<Project, Error> {
+        let identity = ctx.project().ok_or_else(|| Error::NotFound("project".into())).and_then(|p| p.root().map(|root| (p, root)));
+        match identity {
+            Ok((project, root)) => {
+                if self.selection_project.as_deref() != Some(&root) {
+                    self.selected = None;
+                    self.running.clear();
+                    self.selection_project = Some(root);
+                }
+                Ok(project)
+            }
+            Err(error) => {
+                self.selected = None;
+                self.running.clear();
+                self.selection_project = None;
+                Err(error)
+            }
+        }
+    }
+
+    fn container(&mut self, ctx: &Invocation, id: &str) -> Result<(Project, Container), Error> {
+        let project = self.bind_project(ctx)?;
+        if id.is_empty() || !id.bytes().all(|b| b.is_ascii_hexdigit()) {
+            self.selected = None;
+            self.running.clear();
+            return Err(Error::Invalid("Invalid Docker container ID.".into()));
+        }
+        let found = list(&project, &project.root()?).and_then(|containers| containers.into_iter().find(|c| c.id == id).ok_or(Error::Stale));
+        match found {
+            Ok(container) => Ok((project, container)),
+            Err(error) => {
+                self.selected = None;
+                self.running.clear();
+                Err(error)
+            }
+        }
+    }
+
     fn start(&mut self, view: &str, ctx: &Invocation, id: String) -> Result<(), Error> {
-        let project = ctx.project().ok_or("No project is open.")?;
-        let started = project.run_process("docker", &["start".to_owned(), id], None)?;
+        let (project, container) = self.container(ctx, &id)?;
+        if container.running {
+            return Err("This container is already running. Refresh Services.".into());
+        }
+        let started = project.run_process("docker", &["start".to_owned(), container.id], None)?;
         if started.status != Some(0) {
             return Err(format!("docker start failed: {}", started.stderr.trim()).into());
         }
@@ -131,4 +225,180 @@ fn open_shell(id: &str) -> Result<(), Error> {
     let args = ["exec", "-it", id, "sh", "-c", LOGIN_SHELL].map(str::to_owned);
 
     host::open_terminal("Dev Container: Shell", "docker", &args)
+}
+
+impl openidea_plugin::details::Details for Main {
+    fn detail(&mut self, view: &str, key: &str, ctx: &Invocation) -> Result<Vec<openidea_plugin::details::Tab>, Error> {
+        use openidea_plugin::details::{Pane, ProcessLog, Tab};
+        if view == crate::operations::VIEW { return self.operations.detail(key, ctx); }
+        if view != "containers" {
+            return Ok(Vec::new());
+        }
+        if key == STATUS_KEY {
+            return Ok(vec![Tab::new("status", "Dev Containers", Pane::Message(
+                "This is an inventory status row, not a container. Open the owning project and allow Docker in Settings › Plugins, then Refresh. If the inventory is empty, use Dev Container: Start Container or choose a configuration.".into(),
+            ))]);
+        }
+        let project = self.bind_project(ctx)?;
+        let containers = list(&project, &project.root()?)?;
+        let Some(container) = containers.iter().find(|c| c.id == key) else {
+            return Ok(vec![Tab::new(
+                "container",
+                "Container",
+                Pane::Message("This container is no longer available. Refresh Services.".into()),
+            )]);
+        };
+        let mut tabs = vec![Tab::new(
+            "container",
+            "Container",
+            Pane::Text(format!("{}\nID: {}\nImage: {}\nStatus: {}", container.name, container.id, container.image, container.status)),
+        )];
+        tabs.push(Tab::new(
+            "logs",
+            "Logs",
+            ProcessLog::new("docker", &["logs", "--follow", "--tail=1000", &container.id]).toggle(
+                "timestamps",
+                "Timestamps",
+                &["--timestamps"],
+            ),
+        ));
+        Ok(tabs)
+    }
+}
+
+#[cfg(test)]
+mod services_tests {
+    use super::*;
+    use openidea_plugin::details::{Details, Pane};
+    use openidea_plugin::mock::MockHost;
+    #[test]
+    fn selected_container_has_metadata_and_managed_logs_but_missing_ids_do_not() {
+        let host = MockHost::install().with_capabilities(&["project.read", "process:docker"]);
+        host.on_process("docker", |_, _| {
+            Ok(openidea_plugin::ProcessOutput {
+                status: Some(0),
+                stdout: r#"{"ID":"abc123","Names":"app","Image":"node:22","Status":"Up"}"#.into(),
+                stderr: String::new(),
+            })
+        });
+        let mut plugin = Main::default();
+        let tabs = plugin.detail("containers", "abc123", &host.invocation()).unwrap();
+        let Pane::Text(text) = &tabs[0].body else { panic!("metadata") };
+        assert!(text.contains("node:22"));
+        let Pane::Log(log) = &tabs[1].body else { panic!("a managed log") };
+        assert_eq!(log.args, ["logs", "--follow", "--tail=1000", "abc123"]);
+        let missing = plugin.detail("containers", "other", &host.invocation()).unwrap();
+        assert!(matches!(missing[0].body, Pane::Message(_)));
+    }
+    fn mutable_host() -> (MockHost, std::rc::Rc<std::cell::Cell<u8>>) {
+        let host = MockHost::install().with_capabilities(&["project.read", "process:docker"]);
+        let mode = std::rc::Rc::new(std::cell::Cell::new(0));
+        let state = mode.clone();
+        host.on_process("docker", move |args, _| {
+            let stdout = if args[0] != "ps" {
+                ""
+            } else if args.iter().any(|a| a == "label=devcontainer.local_folder=/second") || state.get() == 1 {
+                ""
+            } else if state.get() == 2 {
+                r#"{"ID":"abc123","Names":"app","State":"exited"}"#
+            } else {
+                r#"{"ID":"abc123","Names":"app","State":"running"}"#
+            };
+            Ok(openidea_plugin::ProcessOutput { status: Some(0), stdout: stdout.into(), stderr: String::new() })
+        });
+        (host, mode)
+    }
+
+    fn no_mutations(host: &MockHost) {
+        assert!(host.terminals().is_empty());
+        assert!(host.process_runs().iter().all(|r| r.args[0] == "ps"));
+    }
+
+    #[test]
+    fn switching_projects_clears_selection_before_toolbar_actions() {
+        for action in ["shell", "stop", "start"] {
+            let (host, _) = mutable_host();
+            let mut plugin = Main::default();
+            plugin.handle("containers", ViewEvent::Select("abc123".into()), &host.invocation()).unwrap();
+            host.set_project_root(Some("/second"));
+            plugin.handle("containers", ViewEvent::Button(action.into()), &host.invocation()).unwrap();
+            assert!(plugin.selected.is_none());
+            no_mutations(&host);
+            assert!(plugin.handle("containers", ViewEvent::Activate("abc123".into()), &host.invocation()).is_err());
+            no_mutations(&host);
+        }
+    }
+
+    #[test]
+    fn deleted_or_unlisted_containers_cannot_be_stopped_or_opened() {
+        for action in ["shell", "stop", "start"] {
+            let (host, mode) = mutable_host();
+            let mut plugin = Main::default();
+            plugin.handle("containers", ViewEvent::Select("abc123".into()), &host.invocation()).unwrap();
+            mode.set(1);
+            assert!(plugin.handle("containers", ViewEvent::Button(action.into()), &host.invocation()).is_err());
+            assert!(plugin.selected.is_none());
+            no_mutations(&host);
+        }
+    }
+
+    #[test]
+    fn current_state_not_cached_state_controls_shell_and_activation() {
+        let (host, mode) = mutable_host();
+        let mut plugin = Main::default();
+        plugin.handle("containers", ViewEvent::Select("abc123".into()), &host.invocation()).unwrap();
+        mode.set(2);
+        assert!(plugin.handle("containers", ViewEvent::Button("shell".into()), &host.invocation()).is_err());
+        no_mutations(&host);
+        plugin.handle("containers", ViewEvent::Activate("abc123".into()), &host.invocation()).unwrap();
+        assert!(host.process_runs().iter().any(|r| r.args == ["start", "abc123"]));
+        assert!(host.terminals().is_empty());
+    }
+
+    #[test]
+    fn missing_or_denied_project_identity_clears_selection() {
+        for denied in [false, true] {
+            let (host, _) = mutable_host();
+            let mut plugin = Main::default();
+            plugin.handle("containers", ViewEvent::Select("abc123".into()), &host.invocation()).unwrap();
+            let host = if denied {
+                host.with_capabilities(&["process:docker"])
+            } else {
+                host.set_project_root(None);
+                host
+            };
+            assert!(plugin.handle("containers", ViewEvent::Button("stop".into()), &host.invocation()).is_err());
+            assert!(plugin.selected.is_none());
+            no_mutations(&host);
+        }
+    }
+
+    #[test]
+    fn option_shaped_container_ids_are_rejected_without_execution() {
+        let (host, _) = mutable_host();
+        let mut plugin = Main::default();
+        assert!(plugin.handle("containers", ViewEvent::Activate("--help".into()), &host.invocation()).is_err());
+        no_mutations(&host);
+    }
+}
+
+#[cfg(test)]
+mod status_regressions {
+    use super::*;
+    use openidea_plugin::{mock::MockHost, details::{Details, Pane}};
+    #[test]
+    fn project_free_status_is_visible_and_cannot_start_a_container() {
+        let host = MockHost::install();
+        host.set_project_root(None);
+        let mut plugin = Main::default();
+        let view = plugin.render("containers", None, &host.invocation()).unwrap();
+        assert!(matches!(view.body, Body::List(ref rows) if rows.len()==1 && rows[0].key==STATUS_KEY));
+        plugin.handle("containers", ViewEvent::Select(STATUS_KEY.into()), &host.invocation()).unwrap();
+        plugin.handle("containers", ViewEvent::Activate(STATUS_KEY.into()), &host.invocation()).unwrap();
+        let tabs = plugin.detail("containers", STATUS_KEY, &host.invocation()).unwrap();
+        assert!(matches!(&tabs[0].body, Pane::Message(text) if text.contains("not a container")));
+        assert!(plugin.selected.is_none());
+        assert!(host.process_runs().is_empty());
+        assert!(host.terminals().is_empty());
+    }
 }

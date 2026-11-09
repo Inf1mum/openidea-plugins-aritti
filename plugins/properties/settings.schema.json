@@ -2,8 +2,8 @@
   "properties": {
     "bundle.writeOtherLocales": {
       "type": "boolean",
-      "title": "Resource Bundle editor: write other locales",
-      "description": "Editing another locale's cell rewrites its file with tee (needs the optional tee permission; without it the file is opened). An unsaved editor buffer of that file is overwritten.",
+      "title": "Legacy other-locale write preference (navigation only)",
+      "description": "Compatibility setting. Other-locale cells now always open the locale file; use native intentions for confirmed atomic bundle edits.",
       "default": true
     },
     "codeStyle.keyValueDelimiter": {
@@ -50,14 +50,14 @@
     },
     "reportMissingKeysInCode": {
       "type": "boolean",
-      "title": "Report keys in code that no bundle declares",
-      "description": "Warn on a literal key in getMessage, ResourceBundle.getString, #{key}, <spring:message> and <fmt:message> when the project's only MessageSource bundle (messages, ValidationMessages or i18n/*) doesn't declare it. Dynamic keys, default messages and bundles outside the project are never reported.",
+      "title": "Legacy missing-key-in-code preference",
+      "description": "Compatibility preference. Missing-key absence warnings are withheld until resource-bundle/classpath ownership and complete discovery can be proven; navigation and candidate hover remain available.",
       "default": true
     },
     "unusedProperties.live": {
       "type": "boolean",
-      "title": "Mark unused keys when a bundle file opens or saves",
-      "description": "Scans up to 2000 project files (each under 256 KiB) for mentions of the file's keys and shows the unused ones faded. Keys built at run time look unused, so they show as hints. Find Unused Properties scans everything on demand.",
+      "title": "Cache potential unused-key candidates on open/save",
+      "description": "Compatibility text-search candidate cache (up to 2000 files, each under 256 KiB). No absence diagnostics are published because ignored/generated sources may be unknown. Find Unused Properties reports a potential-unused count on demand.",
       "default": false
     },
     "inspections.alphaUnsorted": {

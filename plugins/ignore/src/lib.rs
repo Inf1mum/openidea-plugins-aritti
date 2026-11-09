@@ -4,14 +4,19 @@ use openidea_plugin::providers::{CodeAction, CompletionItem, CompletionKind, Doc
 use openidea_plugin::syntax::{SyntaxProvider, Token};
 use openidea_plugin::views::{Body, Button, Field, FieldValue, TreeItem, View, ViewEvent, Viewport, Views};
 use openidea_plugin::{
-    Diagnostic, Error, Event, Invocation, Location, LogLevel, NotificationLevel, PickItem, Position, Project, Range, Severity,
-    StatusItem, TextEdit, host, text,
+    Diagnostic, Error, Event, Invocation, Location, LogLevel, NotificationLevel, PickItem, Position, Project, Range, Severity, StatusItem,
+    TextEdit, host, text,
 };
 use std::collections::HashSet;
 
+mod actions;
 mod check;
+mod decorations;
+mod git_inventory;
 mod highlight;
 mod matcher;
+mod preferences;
+mod strict_json;
 mod templates {
     include!(concat!(env!("OUT_DIR"), "/templates.rs"));
 }
@@ -74,49 +79,37 @@ fn append(content: &str, addition: &str, blank_line: bool) -> TextEdit {
 
 /// The open project holding `path`, its root and `path` relative to it.
 fn project_of(path: &str) -> Option<(Project, String, String)> {
-    host::projects().ok()?.into_iter().find_map(|p| {
-        let root = p.root().ok()?.trim_end_matches('/').to_owned();
-        let relative = path.strip_prefix(&root)?.strip_prefix('/')?.to_owned();
-        Some((p, root, relative))
-    })
+    let project = host::project_of(path)?;
+    let root = project.root().ok()?.trim_end_matches('/').to_owned();
+    let relative = path.strip_prefix(&format!("{root}/"))?.to_owned();
+    Some((project, root, relative))
 }
 
-/// Add to .gitignore (and its unignore twin) for a file of a project whose
-/// root has a .gitignore that doesn't list it yet.
-fn gitignore_actions(path: &str) -> Vec<CodeAction> {
-    let Some((project, root, relative)) = project_of(path) else { return Vec::new() };
-    let gitignore = format!("{root}/.gitignore");
-    let Ok(content) = project.read_file(&gitignore) else { return Vec::new() };
-    let listed: HashSet<&str> = content.lines().map(str::trim).collect();
-    let entry = format!("/{}", relative.replace('[', "\\[").replace(']', "\\]"));
-
-    let unignore = setting("unignoreActions", true).then(|| (format!("!{entry}"), " (unignore)"));
-
-    [(entry.clone(), "")]
-        .into_iter()
-        .chain(unignore)
-        .filter(|(line, _)| !listed.contains(line.as_str()))
-        .map(|(line, note)| CodeAction {
-            title: format!("Add {line} to .gitignore{note}"),
-            kind: Some("source".into()),
-            preferred: false,
-            edits: vec![(gitignore.clone(), vec![append(&content, &format!("{line}\n"), false)])],
-            data: None,
-        })
-        .collect()
+fn literal_entry(relative: &str) -> Result<String, Error> {
+    if relative.is_empty() || relative.chars().any(char::is_control) || relative.split('/').any(|p| matches!(p, "." | ".." | "")) {
+        return Err("The selected path cannot be represented as a safe ignore entry.".into());
+    }
+    let mut result = String::from("/");
+    for c in relative.chars() {
+        if matches!(c, '\\' | '*' | '?' | '[' | ']' | ' ') {
+            result.push('\\')
+        }
+        result.push(c)
+    }
+    Ok(result)
 }
 
 const ROOT_IGNORE_FILES: [&str; 5] = [".gitignore", ".dockerignore", ".npmignore", ".prettierignore", ".eslintignore"];
 
 /// The focused ignore file and the ignore files at the project root; asks which one when there are several.
 fn pick_target(ctx: &Invocation, focused: Option<&str>) -> Result<Option<String>, Error> {
-    let mut candidates: Vec<String> = focused.map(str::to_owned).into_iter().collect();
+    let mut candidates: Vec<String> = focused.filter(|path|preferences::can_edit(path)).map(str::to_owned).into_iter().collect();
 
     if let Some(project) = ctx.project() {
         let root = project.root()?;
         for name in ROOT_IGNORE_FILES {
             let path = format!("{root}/{name}");
-            if !candidates.contains(&path) && project.read_file(&path).is_ok() {
+            if preferences::can_edit(&path) && !candidates.contains(&path) && project.read_file(&path).is_ok() {
                 candidates.push(path);
             }
         }
@@ -128,10 +121,7 @@ fn pick_target(ctx: &Invocation, focused: Option<&str>) -> Result<Option<String>
         _ => {
             let items: Vec<PickItem> = candidates.iter().map(|path| PickItem::new(path, path.rsplit('/').next().unwrap_or(path))).collect();
 
-            match host::pick("Add to ignore file", &items) {
-                Err(Error::Invalid(_)) => Ok(candidates.into_iter().next()),
-                picked => picked,
-            }
+            host::pick("Add to ignore file", &items)
         }
     }
 }
@@ -151,12 +141,24 @@ fn add_selected(ctx: &Invocation, unignore: bool) -> Result<(), Error> {
         return Ok(());
     };
 
+    let (_, root, _) = project_of(&file).ok_or("The ignore file must belong to the current project.")?;
+    if !preferences::can_edit(&file) {return Err("Editor assistance is disabled for this ignore file type.".into());}
+    if ctx.project().ok_or(Error::Stale)?.root()?.trim_end_matches('/') != root {
+        return Err(Error::Stale);
+    }
+    if !dialect(&file).is_some_and(|d| d.syntax == check::Syntax::Glob) {
+        return Err("Selected-path append supports glob-syntax ignore file types only.".into());
+    }
     let editor = match focused.filter(|e| e.path() == file) {
         Some(editor) => editor,
         None => {
             host::open_location(&file, 0, 0)?;
             let Some(opened) = ctx.editor().filter(|e| e.path() == file) else {
-                host::notify(NotificationLevel::Info, ".ignore", &format!("Opened {file}. Run the command again to add the selected paths to it."));
+                host::notify(
+                    NotificationLevel::Info,
+                    ".ignore",
+                    &format!("Opened {file}. Run the command again to add the selected paths to it."),
+                );
                 return Ok(());
             };
             opened
@@ -165,12 +167,14 @@ fn add_selected(ctx: &Invocation, unignore: bool) -> Result<(), Error> {
 
     let base = file.rsplit_once('/').map_or("", |(dir, _)| dir);
     let doc = editor.document()?;
-    let listed: HashSet<&str> = doc.text.lines().map(str::trim).collect();
+    let listed: HashSet<&str> = doc.text.lines().collect();
     let negation = if unignore { "!" } else { "" };
     let mut entries: Vec<String> = Vec::new();
     for path in selected_or_focused(ctx) {
-        let Some(relative) = path.strip_prefix(base).and_then(|r| r.strip_prefix('/')) else { continue };
-        let entry = format!("{negation}/{}", relative.replace('[', "\\[").replace(']', "\\]"));
+        let Some(relative) = path.strip_prefix(base).and_then(|r| r.strip_prefix('/')) else {
+            continue;
+        };
+        let entry = format!("{negation}{}", literal_entry(relative)?);
         if !listed.contains(entry.as_str()) && !entries.contains(&entry) {
             entries.push(entry);
         }
@@ -187,45 +191,36 @@ fn add_selected(ctx: &Invocation, unignore: bool) -> Result<(), Error> {
 }
 
 const IGNORE_FILE_NAMES: [&str; 20] = [
-    ".gitignore", ".dockerignore", ".npmignore", ".hgignore", ".prettierignore", ".eslintignore", ".stylelintignore", ".gcloudignore",
-    ".slugignore", ".helmignore", ".vercelignore", ".terraformignore", ".yarnignore", ".nodemonignore", ".jshintignore", ".cfignore",
-    ".bzrignore", ".cvsignore", ".p4ignore", ".chefignore",
+    ".gitignore",
+    ".dockerignore",
+    ".npmignore",
+    ".hgignore",
+    ".prettierignore",
+    ".eslintignore",
+    ".stylelintignore",
+    ".gcloudignore",
+    ".slugignore",
+    ".helmignore",
+    ".vercelignore",
+    ".terraformignore",
+    ".yarnignore",
+    ".nodemonignore",
+    ".jshintignore",
+    ".cfignore",
+    ".bzrignore",
+    ".cvsignore",
+    ".p4ignore",
+    ".chefignore",
 ];
 
 fn new_ignore_file(ctx: &Invocation) -> Result<(), Error> {
-    let project = ctx.project().ok_or("Open a project to create the ignore file in.")?;
-    let root = project.root()?.trim_end_matches('/').to_owned();
-
-    let items: Vec<PickItem> = IGNORE_FILE_NAMES.iter().map(|name| PickItem::new(name, name)).collect();
-    let Some(name) = host::pick("New ignore file", &items)? else { return Ok(()) };
-
-    let directory = ctx
-        .selected_paths()
-        .into_iter()
-        .next()
-        .filter(|p| p.starts_with(&format!("{root}/")))
-        .map(|p| if project.read_file(&p).is_ok() { p.rsplit_once('/').map_or(root.clone(), |(dir, _)| dir.to_owned()) } else { p })
-        .unwrap_or(root);
-    let path = format!("{directory}/{name}");
-    if project.read_file(&path).is_ok() {
-        return Err(format!("{name} already exists in {directory}.").into());
-    }
-
-    let written = host::run_process("tee", &[path.clone()], Some(""))
-        .and_then(|out| if out.status == Some(0) { Ok(()) } else { Err(Error::Invalid(out.stderr)) });
-    match written {
-        Ok(()) => host::open_location(&path, 0, 0),
-        Err(Error::Denied(_)) => {
-            let _ = host::copy_to_clipboard(name.as_str());
-            host::notify(
-                NotificationLevel::Warning,
-                ".ignore",
-                &format!("Create {name} in {directory} yourself (name copied if the clipboard is allowed). Allow running tee for .ignore in Settings › Plugins to create it here."),
-            );
-            Ok(())
-        }
-        Err(e) => Err(e),
-    }
+    ctx.project().ok_or("Open a project first.")?.root()?;
+    host::notify(
+        NotificationLevel::Info,
+        "New Ignore File",
+        "Use New > .gitignore File (or another exact ignore type). From a project editor, enabled Create exact-name ignore file… choices follow Ignore preferences and offer confirmed, undoable creation.",
+    );
+    Ok(())
 }
 
 /// The ignore files that apply to `relative`: `.git/info/exclude`, then the
@@ -254,7 +249,7 @@ fn ignore_sources(project: &Project, root: &str, relative: &str) -> Sources {
 }
 
 fn setting(key: &str, default: bool) -> bool {
-    host::setting_bool(key).unwrap_or(default)
+    preferences::boolean(key, default)
 }
 
 /// The status bar says when the focused file is ignored (the original plugin's
@@ -268,10 +263,9 @@ fn show_ignored_status(path: Option<&str>) {
     });
 
     match verdict {
-        Some(tooltip) => host::set_status_item(
-            IGNORED_STATUS,
-            &StatusItem { text: "Ignored".into(), tooltip: Some(tooltip), command: None },
-        ),
+        Some(tooltip) => {
+            host::set_status_item(IGNORED_STATUS, &StatusItem { text: "Ignored".into(), tooltip: Some(tooltip), command: None })
+        }
         None => host::remove_status_item(IGNORED_STATUS),
     }
 }
@@ -313,7 +307,9 @@ fn path_completions(doc: &Document, offset: usize, line: &str) -> Vec<Completion
     if body.starts_with(|c: char| c.is_whitespace() || c == '#') || body.contains(['*', '?', '[', '\\']) {
         return Vec::new();
     }
-    let Some((project, root, relative)) = project_of(&doc.path) else { return Vec::new() };
+    let Some((project, root, relative)) = project_of(&doc.path) else {
+        return Vec::new();
+    };
 
     let path = body.strip_prefix('/').unwrap_or(body);
     let (typed_dir, partial) = path.rsplit_once('/').map_or(("", path), |(dir, rest)| (dir, rest));
@@ -323,16 +319,17 @@ fn path_completions(doc: &Document, offset: usize, line: &str) -> Vec<Completion
 
     let own_dir = relative.rsplit_once('/').map_or("", |(dir, _)| dir);
     let base = [own_dir, typed_dir].into_iter().filter(|part| !part.is_empty()).collect::<Vec<_>>().join("/");
-    let (glob, prefix) = if base.is_empty() {
-        ("**/*".to_owned(), format!("{root}/"))
-    } else {
-        (format!("{base}/**/*"), format!("{root}/{base}/"))
+    let (glob, prefix) =
+        if base.is_empty() { ("**/*".to_owned(), format!("{root}/")) } else { (format!("{base}/**/*"), format!("{root}/{base}/")) };
+    let Ok(files) = project.find_files(&glob, 2000) else {
+        return Vec::new();
     };
-    let Ok(files) = project.find_files(&glob, 2000) else { return Vec::new() };
 
     let mut names: std::collections::BTreeMap<&str, bool> = std::collections::BTreeMap::new();
     for file in &files {
-        let Some(rest) = file.strip_prefix(&prefix) else { continue };
+        let Some(rest) = file.strip_prefix(&prefix) else {
+            continue;
+        };
         let (name, is_dir) = rest.split_once('/').map_or((rest, false), |(name, _)| (name, true));
         if name.starts_with(partial) {
             *names.entry(name).or_default() |= is_dir;
@@ -343,7 +340,10 @@ fn path_completions(doc: &Document, offset: usize, line: &str) -> Vec<Completion
     names
         .into_iter()
         .map(|(name, is_dir)| {
-            let mut item = CompletionItem::new(&if is_dir { format!("{name}/") } else { name.to_owned() }, if is_dir { CompletionKind::Folder } else { CompletionKind::File });
+            let mut item = CompletionItem::new(
+                &if is_dir { format!("{name}/") } else { name.to_owned() },
+                if is_dir { CompletionKind::Folder } else { CompletionKind::File },
+            );
             item.replace = Some(replace);
             item
         })
@@ -389,7 +389,9 @@ fn template_tree(user: &[String], expanded: &HashSet<String>, starred: &HashSet<
         group("g:community", "Community templates"),
     ];
     items.extend(user.iter().map(|name| TreeItem::new(&format!("u:{name}"), name).icon("star").parent("g:user")));
-    let icon = |key: &str| if starred.contains(key) { "star" } else { "file-ignored" };
+    let icon = |key: &str| {
+        if starred.contains(key) { "star" } else { "file-ignored" }
+    };
     // An expandable item without children shows as loading forever.
     if user.is_empty() {
         items.push(TreeItem::new("g:user:none", "No user templates. Use Create User Template to add one.").icon("info").parent("g:user"));
@@ -425,8 +427,18 @@ fn template_tree(user: &[String], expanded: &HashSet<String>, starred: &HashSet<
     items
 }
 
+/// Model-free invalidation; each mounted page requests its own current model.
+fn refresh_templates() {
+    host::refresh_view("templates");
+    let _ = host::post_view_message("templates", r#"{"channel":"ui-kit-refresh"}"#);
+}
+
 #[derive(Default)]
 struct IgnorePlugin {
+    preferences: preferences::State,
+    inventory: git_inventory::State,
+    directories: decorations::Directories,
+    checked_paths: HashSet<String>,
     /// The name typed for a new user template, while its form is shown.
     naming: Option<String>,
     /// The user template waiting for its deletion to be confirmed.
@@ -449,10 +461,15 @@ impl IgnorePlugin {
     fn add_template(&self, key: &str, ctx: &Invocation) -> Result<(), Error> {
         let (label, content) = template_content(key)?;
         let editor = ctx.editor().ok_or("Open an ignore file to add the template to.")?;
-        if dialect(&editor.path()).is_none() {
-            return Err(format!("{} is not an ignore file.", editor.path()).into());
+        if !preferences::can_edit(&editor.path()) {return Err("Editor assistance is disabled for this ignore file type.".into());}
+        if !dialect(&editor.path()).is_some_and(|d| d.syntax == check::Syntax::Glob) {
+            return Err("Template insertion supports glob-syntax ignore file types only.".into());
         }
 
+        let (_, root, _) = project_of(&editor.path()).ok_or("Open an ignore file inside the current project.")?;
+        if ctx.project().ok_or(Error::Stale)?.root()?.trim_end_matches('/') != root {
+            return Err(Error::Stale);
+        }
         let doc = editor.document()?;
         let mut block = format!("### {label} template\n{content}");
         if !block.ends_with('\n') {
@@ -494,8 +511,24 @@ impl IgnorePlugin {
 }
 
 impl openidea_plugin::Plugin for IgnorePlugin {
+    fn activate(&mut self, _ctx: &openidea_plugin::Context) -> Result<(), Error> {
+        let _ = host::subscribe(openidea_plugin::EventKind::VcsChanged);
+        let files = host::subscribe_paths("files-changed", &["**/*"]);
+        self.directories.configure(files.is_ok());
+        Ok(())
+    }
+
+    fn deactivate(&mut self) {self.directories.configure(false);}
+
     fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
         match id {
+            "git-inventory-start" => self.inventory.start(ctx),
+            "git-inventory-clear" => self.inventory.clear(ctx),
+            "git-inventory-review" => self.inventory.review(ctx),
+            "preferences" => {
+                host::reveal_view(preferences::VIEW)?;
+                Ok(None)
+            }
             "add-selected" => add_selected(ctx, false).map(|()| None),
             "unignore-selected" => add_selected(ctx, true).map(|()| None),
             "new-file" => new_ignore_file(ctx).map(|()| None),
@@ -504,6 +537,19 @@ impl openidea_plugin::Plugin for IgnorePlugin {
     }
 
     fn handle_events(&mut self, events: &[Event], ctx: &Invocation) {
+        self.directories.events(events);
+        for event in events {
+            match event {
+                Event::VcsChanged(root) => self.inventory.invalidate(root),
+                Event::FileSaved(path) => self.inventory.invalidate(path),
+                Event::FilesChanged(batch) => {
+                    for path in batch.created.iter().chain(&batch.modified).chain(&batch.removed) {
+                        self.inventory.invalidate(path);
+                    }
+                }
+                _ => {}
+            }
+        }
         let Some(project) = ctx.project() else { return };
         let mut checked = HashSet::new();
 
@@ -513,8 +559,21 @@ impl openidea_plugin::Plugin for IgnorePlugin {
                     if matches!(event, Event::FileOpened(_)) {
                         warn_missing_gitignore(&project);
                     }
-                    let Some(dialect) = dialect(path).filter(|_| checked.insert(path)) else { continue };
-                    let Ok(text) = project.read_file(path) else { continue };
+                    let Some(dialect) = dialect(path).filter(|_| checked.insert(path)) else {
+                        continue;
+                    };
+                    if self.checked_paths.len() >= 256 {
+                        self.checked_paths.clear();
+                    }
+                    self.checked_paths.insert(path.clone());
+                    let Ok(text) = project.read_file(path) else {
+                        continue;
+                    };
+                    self.directories.admit(path, &text, ctx);
+                    if !preferences::checks(path) {
+                        let _ = host::publish_diagnostics(path, &[]);
+                        continue;
+                    }
                     if let Err(e) = host::publish_diagnostics(path, &diagnostics(&text, dialect)) {
                         host::log(LogLevel::Warn, &format!("{path}: {e}"));
                     }
@@ -527,13 +586,28 @@ impl openidea_plugin::Plugin for IgnorePlugin {
 }
 
 impl Providers for IgnorePlugin {
+    fn line_markers(&mut self, doc: &Document) -> Vec<openidea_plugin::providers::LineMarker> {
+        if !preferences::enabled(&doc.path) {return Vec::new();}
+        let mut markers=decorations::markers(doc);
+        markers.extend(self.directories.markers(doc));
+        markers.sort_by_key(|m|m.line);
+        markers.truncate(256);
+        markers
+    }
     fn completion(&mut self, doc: &Document, at: Position, _trigger: Option<&str>) -> Vec<CompletionItem> {
-        let Some(dialect) = dialect(&doc.path) else { return Vec::new() };
-        let Some(offset) = text::offset(&doc.text, at) else { return Vec::new() };
+        if !preferences::enabled(&doc.path) {return Vec::new();}
+        let Some(dialect) = dialect(&doc.path) else {
+            return Vec::new();
+        };
+        let Some(offset) = text::offset(&doc.text, at) else {
+            return Vec::new();
+        };
         let line = &doc.text[doc.text[..offset].rfind('\n').map_or(0, |i| i + 1)..offset];
 
         if dialect.switchable {
-            let Some(value) = line.trim_start().strip_prefix("syntax:") else { return Vec::new() };
+            let Some(value) = line.trim_start().strip_prefix("syntax:") else {
+                return Vec::new();
+            };
             if !value.trim_start().chars().all(|c| c.is_ascii_alphabetic()) {
                 return Vec::new();
             }
@@ -547,25 +621,33 @@ impl Providers for IgnorePlugin {
     }
 
     fn code_actions(&mut self, doc: &Document, selection: Range) -> Vec<CodeAction> {
+        if !preferences::checks(&doc.path) {
+            return Vec::new();
+        }
         match dialect(&doc.path) {
             Some(dialect) => quick_fixes(doc, selection.start.line, dialect),
-            None => gitignore_actions(&doc.path),
+            None => Vec::new(),
         }
     }
 
     fn definition(&mut self, doc: &Document, at: Position) -> Vec<Location> {
+        if !preferences::enabled(&doc.path) {return Vec::new();}
         entry_target(doc, at).into_iter().collect()
     }
 }
 
 impl SyntaxProvider for IgnorePlugin {
-    fn highlights(&mut self, _language: &str, text: &str) -> Vec<Token> {
+    fn highlights(&mut self, language: &str, text: &str) -> Vec<Token> {
+        if language!="dotignore" || !setting("packageSyntax",true) {return Vec::new();}
         highlight::highlights(text)
     }
 }
 
 impl Views for IgnorePlugin {
     fn render(&mut self, _view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
+        if _view == preferences::VIEW {
+            return self.preferences_render();
+        }
         if let Some(name) = &self.naming {
             return Ok(View::new(Body::Form(vec![Field::new("name", "Template name", FieldValue::Text(name.clone()))]))
                 .button(Button::new("save", "Create"))
@@ -588,10 +670,17 @@ impl Views for IgnorePlugin {
             .button(Button::new("new", "Create User Template").icon("plus").enabled(ctx.editor().is_some()))
             .button(Button::new("delete", "Delete User Template").icon("trash").enabled(user_selected))
             .button(Button::new("star", star_label).icon("star").enabled(selected.is_some()))
-            .status("Double-click a template to add it to the open ignore file."))
+            .status(&format!("Double-click a template to add it to the open ignore file. {}", self.inventory.summary(ctx))))
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {
+        if view == preferences::VIEW {
+            return self.preferences_event(event, ctx);
+        }
+        if ui_kit::web::handle(self, view, &event, ctx, include_str!("ui_config.json"))? {
+            return Ok(());
+        }
+
         match event {
             ViewEvent::Activate(key) if !key.starts_with("g:") => {
                 return self.add_template(key.strip_prefix("s:").unwrap_or(&key), ctx);
@@ -634,7 +723,9 @@ impl Views for IgnorePlugin {
                         self.deleting = Some(name.to_owned());
                     }
                     "confirm-delete" => {
-                        let Some(name) = self.deleting.take() else { return Ok(()) };
+                        let Some(name) = self.deleting.take() else {
+                            return Ok(());
+                        };
                         host::storage::delete(&format!("{USER_TEMPLATE}{name}"))?;
                         host::storage::delete(&format!("{STARRED_PREFIX}u:{name}"))?;
                         self.selected = None;
@@ -650,37 +741,8 @@ impl Views for IgnorePlugin {
     }
 }
 
-// `register_plugin!` has no arm for syntax with providers and views; these are
-// its expansions put together (each export is its own WIT world, merged into
-// one component like the macro does for two of them).
-#[cfg(not(target_arch = "wasm32"))]
-const _: fn() -> IgnorePlugin = <IgnorePlugin as Default>::default;
-#[cfg(target_arch = "wasm32")]
-const _: () = {
-    use openidea_plugin::syntax_bindings::exports::openidea::plugin::syntax_provider as wit;
-
-    struct Component;
-    openidea_plugin::__plugin_exports!(IgnorePlugin, Component, openidea_plugin::bindings);
-    openidea_plugin::__providers_exports!(IgnorePlugin, Component);
-    openidea_plugin::__views_exports!(IgnorePlugin, Component);
-
-    impl wit::Guest for Component {
-        fn highlights(language: String, text: String) -> Vec<wit::Token> {
-            openidea_plugin::__rt::highlights::<IgnorePlugin>(&language, &text)
-        }
-
-        fn outline(language: String, text: String) -> Vec<wit::Symbol> {
-            openidea_plugin::__rt::outline::<IgnorePlugin>(&language, &text)
-        }
-
-        fn folding(language: String, text: String) -> Vec<wit::Fold> {
-            openidea_plugin::__rt::folding::<IgnorePlugin>(&language, &text)
-        }
-    }
-
-    openidea_plugin::bindings::__export_plugin_world!(Component with_types_in openidea_plugin::bindings);
-    openidea_plugin::syntax_bindings::__export_syntax_world!(Component with_types_in openidea_plugin::syntax_bindings);
-};
+// API 1.3 registers the optional exports on the same component.
+openidea_plugin::register_plugin!(IgnorePlugin, providers, views, syntax, semantic_tokens, file_actions);
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests;

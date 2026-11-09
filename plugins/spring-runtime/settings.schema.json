@@ -8,7 +8,11 @@
     "actuatorAuth": {
       "type": "string",
       "title": "Actuator authentication (the token is the actuator-token secret)",
-      "enum": ["none", "bearer", "basic"],
+      "enum": [
+        "none",
+        "bearer",
+        "basic"
+      ],
       "default": "none"
     },
     "timeoutMs": {
@@ -18,8 +22,23 @@
     },
     "autoRefresh": {
       "type": "boolean",
-      "title": "Refresh from Actuator every minute",
+      "title": "Allow bounded minute polling after explicit scoped Start (instance only)",
       "default": false
+    },
+    "snapshotInlays": {
+      "type": "boolean",
+      "title": "Show cached exact-key snapshot observations in configuration",
+      "default": true
+    },
+    "refreshBudgetMs": {
+      "type": "integer",
+      "title": "Maximum cooperative refresh batch budget in ms (1,000\u201360,000)",
+      "default": 20000
+    },
+    "pollAttempts": {
+      "type": "integer",
+      "title": "Maximum request batches per explicitly started polling lease (1\u201310; lease expires after 10 min)",
+      "default": 5
     }
   }
 }

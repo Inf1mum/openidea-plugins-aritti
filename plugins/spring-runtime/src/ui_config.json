@@ -1,0 +1,18 @@
+{
+  "title": "Spring Runtime Insight",
+  "views": {
+    "runtime": "Spring Runtime",
+    "runtime-graph": "Runtime Bean Dependencies"
+  },
+  "actions": [],
+  "project_independent": false,
+  "project_bound_buttons": [
+    "snapshot-details",
+    "runtime-graph",
+    "graph-back",
+    "graph-observations",
+    "runtime-controls",
+    "poll-start",
+    "poll-stop"
+  ]
+}

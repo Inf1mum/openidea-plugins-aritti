@@ -5,6 +5,9 @@
 
 mod code;
 mod docker;
+mod hover;
+mod semantic;
+mod source_update;
 mod index;
 mod lint;
 mod parse;
@@ -13,8 +16,7 @@ use index::{Declaration, Index, Usage, env_declarations, is_env_file, nested_usa
 use openidea_plugin::providers::{CodeAction, CompletionItem, CompletionKind, Document, Providers};
 use openidea_plugin::syntax::{Highlight, SyntaxProvider, Token};
 use openidea_plugin::{
-    Context, Diagnostic, Error, Event, EventKind, Invocation, Location, Plugin, Position, Project, Range, Severity,
-    TextEdit, host, text,
+    Context, Diagnostic, Error, Event, EventKind, Invocation, Location, Plugin, Position, Project, Range, Severity, TextEdit, host, text,
 };
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
@@ -27,6 +29,7 @@ const SCAN_BUDGET: Duration = Duration::from_secs(3);
 pub struct DotEnv {
     /// Each open project's index, by root.
     projects: HashMap<String, Index>,
+    updates: source_update::Updates,
 }
 
 /// The open project holding `path`, and its root.
@@ -50,11 +53,7 @@ fn line_of(text: &str, offset: usize) -> (usize, &str) {
 fn key_at(doc: &Document, at: Position) -> Option<std::ops::Range<usize>> {
     let offset = text::offset(&doc.text, at)?;
     let (start, line) = line_of(&doc.text, offset);
-    let key = if doc.language == "dotenv" {
-        code::key_in_nested(line, offset - start)
-    } else {
-        code::key_in_code(line, offset - start)
-    }?;
+    let key = if doc.language == "dotenv" { code::key_in_nested(line, offset - start) } else { code::key_in_code(line, offset - start) }?;
     Some(start + key.start..start + key.end)
 }
 
@@ -63,7 +62,9 @@ fn dollar_at(doc: &Document, at: Position) -> Option<std::ops::Range<usize>> {
     let offset = text::offset(&doc.text, at)?;
     let tokens = parse::lex(&doc.text);
     let quoted = parse::properties(&doc.text, &tokens).into_iter().any(|p| {
-        let Some(value) = p.value.filter(|_| p.quote == Some('"')) else { return false };
+        let Some(value) = p.value.filter(|_| p.quote == Some('"')) else {
+            return false;
+        };
         let closed = value.len() > 1 && doc.text[..value.end].ends_with('"');
         value.start < offset && offset <= value.end && (offset < value.end || !closed)
     });
@@ -79,10 +80,7 @@ fn dollar_at(doc: &Document, at: Position) -> Option<std::ops::Range<usize>> {
 fn declared_key_at(doc: &Document, at: Position) -> Option<String> {
     let offset = text::offset(&doc.text, at)?;
     let tokens = parse::lex(&doc.text);
-    parse::properties(&doc.text, &tokens)
-        .into_iter()
-        .find(|p| p.key.start <= offset && offset <= p.key.end)
-        .map(|p| p.name(&doc.text))
+    parse::properties(&doc.text, &tokens).into_iter().find(|p| p.key.start <= offset && offset <= p.key.end).map(|p| p.name(&doc.text))
 }
 
 impl DotEnv {
@@ -120,73 +118,32 @@ impl DotEnv {
 
     /// Where `key` is used, with the `${…}` of `unsaved` in place of `path` on disk.
     fn usages(&mut self, path: &str, unsaved: &str, key: &str) -> Vec<Location> {
-        let mut usages: Vec<Usage> = self
-            .index(path)
-            .map(|index| index.usages.iter().filter(|u| u.location.path != path).cloned().collect())
-            .unwrap_or_default();
+        let mut usages: Vec<Usage> =
+            self.index(path).map(|index| index.usages.iter().filter(|u| u.location.path != path).cloned().collect()).unwrap_or_default();
         usages.extend(nested_usages(path, unsaved));
         usages.into_iter().filter(|u| u.key == key).map(|u| u.location).collect()
     }
 
     /// Runs the inspections on `text` and shows their problems in the editor.
     fn inspect(&mut self, path: &str, text: &str) -> Vec<lint::Problem> {
-        let known = self.known(path, Some(text));
+        if text.len() > index::MAX_SOURCE_BYTES {
+            return Vec::new();
+        }
         let tokens = parse::lex(text);
         let properties = parse::properties(text, &tokens);
-        let problems = lint::check(text, &tokens, &properties, |key| known.iter().any(|d| d.key == key));
-        let diagnostics: Vec<Diagnostic> = problems
-            .iter()
-            .map(|p| {
-                let severity = match p.level {
-                    lint::Level::Error => Severity::Error,
-                    lint::Level::Warning => Severity::Warning,
-                };
-                let mut diagnostic = Diagnostic::new(range(text, p.range.clone()), severity, p.message.clone());
-                diagnostic.code = Some(p.code.into());
-                diagnostic
-            })
-            .collect();
-        let _ = host::publish_diagnostics(path, &diagnostics);
-        problems
+        let cached = host::project_of(path).and_then(|project| project.root().ok()).and_then(|root| self.projects.get(&root));
+        // Never call known()/index() on a live diagnostic request: their cold
+        // path reads files. Unknown cache state must not become proven absence.
+        const MAX_CACHED_KEYS: usize = 8192;
+        let complete = cached.is_some_and(|index| index.complete && index.declarations.len() <= MAX_CACHED_KEYS);
+        let mut known: HashSet<String> = properties.iter().map(|p| p.name(text)).collect();
+        if let Some(index) = cached {
+            known.extend(index.declarations.iter().take(MAX_CACHED_KEYS).filter(|d| d.location.path != path).map(|d| d.key.clone()));
+        }
+        lint::check(text, &tokens, &properties, |key| !complete || known.contains(key))
     }
 
-    /// The rename refactoring the original plugin has, after the fact: the key
-    /// on `line` was edited (same value, same number of keys as the saved
-    /// file, another name), so offer to update every usage of the old key.
-    fn rename_usages(&mut self, doc: &Document, line: u32) -> Option<CodeAction> {
-        let tokens = parse::lex(&doc.text);
-        let properties = parse::properties(&doc.text, &tokens);
-        let renamed = properties.iter().find(|p| range(&doc.text, p.key.clone()).start.line == line)?;
-        let new = renamed.name(&doc.text);
-        let index = self.index(&doc.path)?;
-        let saved = index.declarations.iter().find(|d| d.location.path == doc.path && d.location.range.start.line == line)?;
-        let old = saved.key.clone();
-        let saved_keys = index.declarations.iter().filter(|d| d.location.path == doc.path).count();
-        if old == new
-            || saved.value != renamed.short_value()
-            || saved_keys != properties.len()
-            || properties.iter().any(|p| p.name(&doc.text) == old)
-        {
-            return None;
-        }
 
-        let mut edits: BTreeMap<String, Vec<TextEdit>> = BTreeMap::new();
-        let elsewhere = index.usages.iter().filter(|u| u.location.path != doc.path).cloned();
-        for usage in elsewhere.chain(nested_usages(&doc.path, &doc.text)).filter(|u| u.key == old) {
-            edits.entry(usage.location.path).or_default().push(TextEdit { range: usage.location.range, text: new.clone() });
-        }
-        if edits.is_empty() {
-            return None;
-        }
-
-        Some(CodeAction {
-            title: format!("Rename usages of {old} to {new}"),
-            kind: Some("refactor.rewrite".into()),
-            preferred: false,
-            edits: edits.into_iter().collect(),
-            data: None,
-        })
-    }
 }
 
 impl Plugin for DotEnv {
@@ -204,20 +161,28 @@ impl Plugin for DotEnv {
     fn handle_events(&mut self, events: &[Event], _ctx: &Invocation) {
         self.index_projects();
         for event in events {
-            let (Event::FileOpened(path) | Event::FileSaved(path)) = event else { continue };
+            let (Event::FileOpened(path) | Event::FileSaved(path)) = event else {
+                continue;
+            };
             if !Index::indexes(path) {
                 continue;
             }
-            let Some((root, project)) = project_of(path) else { continue };
-            let text = project.read_file(path).ok();
+            let Some((root, project)) = project_of(path) else {
+                continue;
+            };
+            let read = project.read_file(path);
             if let Some(index) = self.projects.get_mut(&root) {
-                index.update(path, text.as_deref());
-                if let Some(text) = &text {
-                    index.add_compose_env_files(&project, &root, path, text);
+                match read {
+                    Ok(text) => {
+                        index.update(path, Some(&text));
+                        index.add_compose_env_files(&project, &root, path, &text);
+                    }
+                    Err(Error::NotFound(_)) => {
+                        index.update(path, None);
+                        index.complete = false;
+                    }
+                    Err(_) => index.complete = false,
                 }
-            }
-            if let Some(text) = text.filter(|_| is_env_file(path)) {
-                self.inspect(path, &text);
             }
         }
     }
@@ -294,7 +259,9 @@ impl Providers for DotEnv {
                 return self.usages(&doc.path, &doc.text, &key);
             }
         }
-        let Some(key) = key_at(doc, at) else { return Vec::new() };
+        let Some(key) = key_at(doc, at) else {
+            return Vec::new();
+        };
 
         let key = &doc.text[key];
         let unsaved = (doc.language == "dotenv").then_some(doc.text.as_str());
@@ -304,12 +271,11 @@ impl Providers for DotEnv {
         matching.into_iter().filter(|d| d.primary == primary).map(|d| d.location).collect()
     }
 
-    /// Also publishes the problems: the editor asks for code actions when it
-    /// opens the file and as it changes, so they follow typing between saves.
+    /// Quick fixes use the same findings as versioned diagnostics.
     // ponytail: with no language server for .env, an empty answer comes back as `unavailable` and the
     // editor stops asking for 15 s; the host should treat a plugin's answer as available (upstream fix).
     fn code_actions(&mut self, doc: &Document, selection: Range) -> Vec<CodeAction> {
-        let mut actions: Vec<CodeAction> = self
+        let actions: Vec<CodeAction> = self
             .inspect(&doc.path, &doc.text)
             .into_iter()
             .filter_map(|problem| {
@@ -325,40 +291,13 @@ impl Providers for DotEnv {
                 })
             })
             .collect();
-        actions.extend(self.rename_usages(doc, selection.start.line));
+
         actions
     }
 }
 
-// `register_plugin!` has no arm for syntax and providers together; this is
-// its `syntax` arm plus the providers export, through the same SDK macros.
-#[cfg(not(target_arch = "wasm32"))]
-const _: fn() -> DotEnv = <DotEnv as Default>::default;
-#[cfg(target_arch = "wasm32")]
-const _: () = {
-    use openidea_plugin::syntax_bindings::exports::openidea::plugin::syntax_provider as wit;
-
-    struct Component;
-    openidea_plugin::__plugin_exports!(DotEnv, Component, openidea_plugin::bindings);
-    openidea_plugin::__providers_exports!(DotEnv, Component);
-
-    impl wit::Guest for Component {
-        fn highlights(language: String, text: String) -> Vec<wit::Token> {
-            openidea_plugin::__rt::highlights::<DotEnv>(&language, &text)
-        }
-
-        fn outline(language: String, text: String) -> Vec<wit::Symbol> {
-            openidea_plugin::__rt::outline::<DotEnv>(&language, &text)
-        }
-
-        fn folding(language: String, text: String) -> Vec<wit::Fold> {
-            openidea_plugin::__rt::folding::<DotEnv>(&language, &text)
-        }
-    }
-
-    openidea_plugin::bindings::__export_plugin_world!(Component with_types_in openidea_plugin::bindings);
-    openidea_plugin::syntax_bindings::__export_syntax_world!(Component with_types_in openidea_plugin::syntax_bindings);
-};
+// API 1.3 registers the optional exports on the same component.
+openidea_plugin::register_plugin!(DotEnv, providers, syntax, diagnostics, hover, file_actions, semantic_tokens);
 
 #[cfg(test)]
 mod tests {
@@ -390,10 +329,7 @@ mod tests {
         let php = doc("/p/index.php", "php", "<?php getenv('DB');");
         let items = DotEnv::default().completion(&php, Position::new(0, 16), None);
         let labels: Vec<_> = items.iter().map(|i| (i.label.as_str(), i.detail.as_deref())).collect();
-        assert_eq!(
-            labels,
-            [("DB_HOST", Some("= localhost")), ("API_URL", Some("= http://x")), ("ONLY_EXAMPLE", Some("= 1"))]
-        );
+        assert_eq!(labels, [("DB_HOST", Some("= localhost")), ("API_URL", Some("= http://x")), ("ONLY_EXAMPLE", Some("= 1"))]);
         assert_eq!(items[0].replace, Some(Range::new(Position::new(0, 14), Position::new(0, 16))));
         assert!(DotEnv::default().completion(&php, Position::new(0, 3), None).is_empty());
     }
@@ -423,23 +359,15 @@ mod tests {
     fn goes_from_a_declaration_to_its_usages() {
         let _host = project();
         let env = doc("/p/.env", "dotenv", "DB_HOST=localhost\nURL=\"${DB_HOST}\"\n");
-        let targets: Vec<_> =
-            walked().definition(&env, Position::new(0, 3)).into_iter().map(|l| (l.path, l.range.start)).collect();
+        let targets: Vec<_> = walked().definition(&env, Position::new(0, 3)).into_iter().map(|l| (l.path, l.range.start)).collect();
         assert_eq!(targets, [("/p/app.py".into(), Position::new(0, 19)), ("/p/.env".into(), Position::new(1, 7))]);
     }
 
     #[test]
-    fn offers_to_rename_the_usages_of_an_edited_key() {
-        let _host = project();
-        let env = doc("/p/.env", "dotenv", "DATABASE_HOST=localhost\nAPI_URL=\"${DB_HOST}\"\n");
-        let actions = walked().code_actions(&env, Range::new(Position::new(0, 5), Position::new(0, 5)));
-        let rename = actions.iter().find(|a| a.title == "Rename usages of DB_HOST to DATABASE_HOST").unwrap();
-        let deleted = doc("/p/.env", "dotenv", "API_URL=\"http://x\"\n");
-        let actions = walked().code_actions(&deleted, Range::new(Position::new(0, 1), Position::new(0, 1)));
-        assert!(actions.iter().all(|a| !a.title.starts_with("Rename")), "a deleted line is no rename");
-        let files: Vec<_> = rename.edits.iter().map(|(path, edits)| (path.as_str(), edits.len())).collect();
-        assert_eq!(files, [("/p/.env", 1), ("/p/app.py", 1)]);
-        assert_eq!(rename.edits[1].1[0].range, Range::new(Position::new(0, 19), Position::new(0, 26)));
+    fn does_not_offer_unversioned_project_wide_rename_from_a_changed_line() {
+        let _host=project();let env=doc("/p/.env","dotenv","DATABASE_HOST=localhost\nAPI_URL=\"${DB_HOST}\"\n");
+        let actions=walked().code_actions(&env,Range::new(Position::new(0,5),Position::new(0,5)));
+        assert!(actions.iter().all(|a| !a.title.starts_with("Rename")));
     }
 
     #[test]
@@ -454,19 +382,69 @@ mod tests {
 
     #[test]
     fn publishes_problems_and_offers_their_fixes() {
-        let host = project();
+        let _host = project();
         let env = doc("/p/.env", "dotenv", "A = 1\nB=\"${DB_HOST}${NOPE}\"\n");
         let actions = DotEnv::default().code_actions(&env, Range::new(Position::new(0, 0), Position::new(0, 0)));
         let titles: Vec<_> = actions.iter().map(|a| a.title.as_str()).collect();
         assert_eq!(titles, ["Remove spaces around '='"]);
-        let problems = &host.diagnostics()["/p/.env"];
+        let problems = openidea_plugin::diagnostics::DiagnosticsProvider::diagnostics(&mut walked(), &env);
         let codes: Vec<_> = problems.iter().map(|d| d.code.as_deref().unwrap()).collect();
         assert_eq!(codes, ["DotEnvSpaceAroundSeparatorInspection", "UndefinedNestedVariableInspection"]);
+    }
+
+    #[test]
+    fn diagnostics_are_cache_only_and_absence_requires_a_complete_owned_cache() {
+        use openidea_plugin::diagnostics::DiagnosticsProvider;
+        let host = project();
+        let env = doc("/p/.env", "dotenv", "A = 1\nB=\"${DB_HOST}${NOPE}\"\n");
+        let mut cold = DotEnv::default();
+        let problems = cold.diagnostics(&env);
+        assert_eq!(problems.len(), 1, "local syntax still checked, absence unknown");
+        assert_eq!(problems[0].code.as_deref(), Some("DotEnvSpaceAroundSeparatorInspection"));
+        assert!(cold.projects.is_empty(), "diagnostics must not lazily probe root files");
+        let mut warm = walked();
+        assert!(warm.diagnostics(&env).iter().any(|p| p.code.as_deref() == Some("UndefinedNestedVariableInspection")));
+        warm.projects.get_mut("/p").unwrap().complete = false;
+        assert!(warm.diagnostics(&env).iter().all(|p| p.code.as_deref() != Some("UndefinedNestedVariableInspection")));
+        let _denied = host.with_capabilities(&[]);
+        assert_eq!(cold.diagnostics(&env).len(), 1);
+        assert!(cold.projects.is_empty());
+    }
+
+    #[test]
+    fn diagnostics_overlay_unsaved_declarations_and_bound_documents() {
+        use openidea_plugin::diagnostics::DiagnosticsProvider;
+        let _host = project();
+        let mut plugin = walked();
+        let env = doc("/p/.env", "dotenv", "LOCAL=1\nB=\"${LOCAL}\"\n");
+        assert!(plugin.diagnostics(&env).is_empty());
+        let other = doc("/other/.env", "dotenv", "B=\"${NOPE}\"\n");
+        assert!(plugin.diagnostics(&other).is_empty(), "foreign project cannot prove absence");
+        let huge = doc("/p/.env", "dotenv", &"#".repeat(index::MAX_SOURCE_BYTES + 1));
+        assert!(plugin.diagnostics(&huge).is_empty());
     }
 
     #[test]
     fn highlights_keys_values_and_comments() {
         let kinds: Vec<_> = DotEnv::default().highlights("dotenv", "A=1 # c").into_iter().map(|t| t.kind).collect();
         assert_eq!(kinds, [Highlight::Keyword, Highlight::Operator, Highlight::String, Highlight::Comment]);
+    }
+}
+
+impl openidea_plugin::diagnostics::DiagnosticsProvider for DotEnv {
+    fn diagnostics(&mut self, doc: &Document) -> Vec<Diagnostic> {
+        if !is_env_file(&doc.path) || doc.text.len() > index::MAX_SOURCE_BYTES {
+            return Vec::new();
+        }
+        self.inspect(&doc.path, &doc.text)
+            .into_iter()
+            .map(|p| {
+                let severity = match p.level {
+                    lint::Level::Error => Severity::Error,
+                    lint::Level::Warning => Severity::Warning,
+                };
+                Diagnostic::new(range(&doc.text, p.range), severity, p.message).code(p.code)
+            })
+            .collect()
     }
 }

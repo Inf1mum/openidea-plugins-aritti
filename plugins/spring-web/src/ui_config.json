@@ -1,0 +1,22 @@
+{
+  "title": "Spring Endpoints Tools",
+  "views": {
+    "endpoints": "Spring Endpoints"
+  },
+  "actions": [
+    {
+      "view": "endpoints",
+      "id": "copy-endpoint-curl",
+      "label": "Copy Endpoint as curl",
+      "kind": "route"
+    },
+    {
+      "view": "endpoints",
+      "id": "create-endpoint-http",
+      "label": "Create HTTP Request File for Endpoint",
+      "kind": "route"
+    }
+  ],
+  "project_independent": false,
+  "project_bound_buttons": []
+}

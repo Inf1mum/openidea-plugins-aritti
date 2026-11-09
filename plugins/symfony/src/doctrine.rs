@@ -668,6 +668,11 @@ mod tests {
         assert!(run(YAML_PATH, "yaml", &YAML.replace("true", "false")).is_empty());
     }
 
+    fn live(plugin: &mut Main,path:&str,language:&str,text:&str,version:u64)->Vec<Diagnostic> {
+        use openidea_plugin::diagnostics::{DiagnosticsProvider,Document};
+        plugin.diagnostics(&Document { path:path.into(),language:language.into(),text:text.into(),version })
+    }
+
     fn published(host: &MockHost, plugin: &mut Main, event: Event) -> Vec<String> {
         plugin.handle_events(&[event], &host.invocation());
         host.diagnostics().get(PATH).map(|found| found.iter().filter_map(|d| d.code.clone()).collect()).unwrap_or_default()
@@ -681,15 +686,44 @@ mod tests {
     }
 
     #[test]
+    fn live_orm_php_xml_yaml_use_current_text_ranges_and_fix_without_manual_publication() {
+        let host=MockHost::install();let mut plugin=project(&host);
+        plugin.indexes.get_mut("/project").unwrap().partial=true;
+        for (path,language,bad,fixed,code,position) in [
+            (PATH,"php",TABLE,TABLE.replace("#[ORM\\Table]","#[ORM\\Table(name: 'users')]"),"orm-empty-table",Position::new(3,2)),
+            (XML_PATH,"xml",XML,XML.replace("true","false"),"orm-join-column-nullable",Position::new(1,34)),
+            (YAML_PATH,"yaml",YAML,YAML.replace("true","false"),"orm-join-column-nullable",Position::new(5,8)),
+        ] {
+            host.add_file(path,&fixed); // The current buffer is independently bad.
+            let found=live(&mut plugin,path,language,bad,2);
+            assert_eq!(found.len(),1,"{path}");assert_eq!(found[0].code.as_deref(),Some(code));assert_eq!(found[0].range.start,position);
+            assert!(live(&mut plugin,path,language,&fixed,3).is_empty(),"{path}");
+        }
+        assert!(host.diagnostics().is_empty());
+    }
+    #[test]
+    fn live_orm_context_gates_keep_unrelated_extensions_and_languages_quiet() {
+        let host=MockHost::install();let mut plugin=project(&host);
+        for (path,language,text) in [("/project/config/User.xml","xml",XML),("/project/config/User.yaml","yaml",YAML),(XML_PATH,"yaml",XML),(YAML_PATH,"xml",YAML)] {
+            assert!(live(&mut plugin,path,language,text,1).is_empty(),"{path} {language}");
+        }
+        assert_eq!(live(&mut plugin,"/project/config/doctrine/User.orm.yaml","yaml",YAML,1).len(),1);
+        host.set_setting("doctrineChecks","false");assert!(live(&mut plugin,XML_PATH,"xml",XML,1).is_empty());
+        host.set_setting("doctrineChecks","true");host.set_project_root(Some("/other"));assert!(live(&mut plugin,XML_PATH,"xml",XML,1).is_empty());
+    }
+
+    #[test]
     fn doctrine_group_fixed_file_publishes_empty_list() {
         let host = MockHost::install();
         let mut plugin = project(&host);
 
         host.add_file("src/Entity/User.php", TABLE);
-        assert_eq!(published(&host, &mut plugin, Event::FileOpened(PATH.into())), ["orm-empty-table"]);
+        assert!(published(&host, &mut plugin, Event::FileOpened(PATH.into())).is_empty());
+        assert_eq!(live(&mut plugin,PATH,"php",TABLE,1).iter().filter_map(|d|d.code.as_deref()).collect::<Vec<_>>(), ["orm-empty-table"]);
 
         host.add_file("src/Entity/User.php", &TABLE.replace("#[ORM\\Table]", "#[ORM\\Table(name: 'users')]"));
         assert!(published(&host, &mut plugin, Event::FileSaved(PATH.into())).is_empty());
+        assert!(live(&mut plugin,PATH,"php",&TABLE.replace("#[ORM\\Table]", "#[ORM\\Table(name: 'users')]"),2).is_empty());
     }
 
     #[test]
@@ -698,10 +732,12 @@ mod tests {
         let mut plugin = project(&host);
         host.add_file("src/Entity/User.php", TABLE);
 
-        assert_eq!(published(&host, &mut plugin, Event::FileOpened(PATH.into())), ["orm-empty-table"]);
+        assert!(published(&host, &mut plugin, Event::FileOpened(PATH.into())).is_empty());
+        assert_eq!(live(&mut plugin,PATH,"php",TABLE,1).iter().filter_map(|d|d.code.as_deref()).collect::<Vec<_>>(), ["orm-empty-table"]);
 
         host.set_setting("doctrineChecks", "false");
         assert!(published(&host, &mut plugin, Event::FileOpened(PATH.into())).is_empty());
+        assert!(live(&mut plugin,PATH,"php",TABLE,2).is_empty());
     }
 
     const SERVICE: &str = "<?php\nnamespace App\\Service;\n\nuse Doctrine\\ORM\\EntityManagerInterface;\nuse Doctrine\\Common\\Collections\\Criteria;\n\nclass Repo\n{\n    public function run($other)\n    {\n        $rows = $this->qb->getQuery()->iterate();\n        $this->em->merge($x);\n        $this->em->flush($x);\n        $this->em->flush();\n        $em->persist($x);\n        $other->flush($x);\n        $this->logger->merge($x);\n        $this->notem->flush($x);\n        $c = Criteria::create()->orderBy(['a' => 'ASC', 'b' => Criteria::DESC, 'c' => $dir])->orderBy(['d' => 'desc']);\n        $q = $qb->orderBy('u.name', 'ASC');\n    }\n}\n";

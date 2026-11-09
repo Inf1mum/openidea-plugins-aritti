@@ -9,6 +9,14 @@ One **Spring Endpoints** tool window (right) with six sections, plus the editor 
 
 A module whose dependency is not in the root build file (multi-module builds and version catalogs count as unsure) does no work. Settings keep their keys (`springWeb.*`, `springWebsocket.*`, `springGraphql.*`, `springCloud.*`); the old plugins' values are not migrated.
 
+The registered `window::Endpoints` wrapper owns API 1.3 current-document diagnostics. It returns one merged response for the active HTTP, WebSocket, messaging, GraphQL, Web Flow and Cloud modules; embedded marker providers no longer publish or recompute these checks. Diagnostics and hover read current unsaved text and cached facts only. Dependency applicability and module indexes warm during activation/file events, outside editor requests. Optional event denial, cold/stale/incomplete reads, failed reads and oversized project inputs suppress absence-based findings. Current input is limited to 128 KiB and the merged response to 500 findings. Existing completion, navigation, endpoint publishing, UI/actions and external language-server ownership are preserved; their pre-existing discovery behavior is separate from the cache-only live providers.
+
+P25.4 is partial. Live HTTP checks cover path variables, XML tables, InitBinder and cached API-version/parser/inserter facts. WebSocket broker-prefix/XML checks, messaging listener XML checks, GraphQL handler/schema-argument/batch-return/root-controller checks, Web Flow checks and existing cached Cloud checks use the wrapper. The previous unresolved-view hint remains deferred because proving template absence needs a versioned template inventory; view completion/navigation still works. GraphQL's broader non-root `unmapped-field` runtime-fetcher inference is also deferred. Legacy parser checks remain tested independently, including standalone embedded-module tests.
+
+Hover covers a path variable bound once within one literal route, with explicitly imported known controller/mapping/PathVariable annotations; multiple routes, dynamic paths, foreign/shadow annotations and duplicate bindings remain quiet. GraphQL hover describes the current SDL field's named type and arguments, without inventing list/nullability/resolver semantics. Messaging hover covers literal destinations of exact Spring JMS/Rabbit XML namespaces, not broker inference from Java receiver names. No new Rename anchors or automatic rename behavior are introduced. Framework resolution, composed annotations, schema/runtime wiring from libraries, full URI/type conversion, runtime routing/authorization and desktop debounce/rendering/close-discard acceptance remain outside this slice.
+
+Original local contracts inspected include `SpringMvcRequestMappingDocumentationProvider` (path variables, request method and consumes/produces sections), `MVCPathVariableInspection`, `SpringGraphQLUnmatchedMappingInspection` and `SpringMQReferenceContributor.registerJmsReferences/registerRabbitReferences/registerKafkaReferences`. Those PSI/framework models are broader than this source/cache subset. No proprietary implementation was copied.
+
 ## Spring Web
 
 Spring MVC helpers for Java controllers in OpenIDEA:
@@ -117,7 +125,7 @@ Spring Web Flow 2 and 3 XML flow definitions in OpenIDEA (files whose root is `<
 
 Matching is text-based: ids as written in attributes. Flows registered in Java configuration (`FlowDefinitionRegistryBuilder`), in libraries or in other modules aren't seen.
 
-Not covered: Java flow registry configuration, view and bean references (`view`, `expression`, `evaluate`), flow input/output mappings, SpEL in expressions, and clicking diagram nodes (the desktop IDE blocks page scripts).
+Not covered: Java flow registry configuration, view and bean references (`view`, `expression`, `evaluate`), flow input/output mappings and SpEL in expressions. The merged packaged graph uses its existing external event bridge for source navigation; this is separate from native acceptance.
 
 ## Spring Cloud
 
@@ -146,3 +154,77 @@ cargo test
 openidea-plugin build
 openidea-plugin link
 ```
+
+### Reviewed local Web Flow graph and transition edits (P25.3)
+
+The merged Web Flow graph uses packaged `webflow-graph.css` and the existing
+packaged event bridge. Its body contains no inline style or executable script.
+The pure shared layout is retained. Rendering accepts bounded well-formed flow
+XML with unique state ids (128 states/256 transitions); unresolved/global/self
+edges omitted by the layout remain outside drawn-edge coverage. State clicks open
+their current source declaration; drawn transition/decision edges open their
+current target attribute. Forged/unknown ids, missing or changed project ownership
+and malformed/over-budget sources are refused. These are source links, not a
+runtime flow, inherited-state or reachability model. Graph CSS bounds short-panel
+height, but desktop layout and keyboard/pointer behavior remain unverified.
+
+In an XML editor, **Add reviewed local Web Flow transition…** is a lazy FileAction
+on a supported view-state. Choose a direct state in the same file, enter a new
+literal event, then review the exact source replacement. It returns one undoable
+text edit, expanding a self-closing state when needed; no direct source write,
+file create, process, network, build or database action occurs. Namespace prefixes,
+current unsaved text, UTF-16 ranges and CRLF are preserved. Ownership, full text,
+document version and project-visible source are checked around every prompt and
+the final exact confirmation; the host prepare/CAS gap is not claimed away.
+Inherited/abstract flows, global transitions, ambiguous ids, dynamic/wildcard or
+duplicate events, unknown state targets and complex state bodies remain quiet.
+This is a conservative source-local creation subset, not all XSD/schema/runtime
+validation or support for action/subflow/decision/global transition editing.
+
+The public Spring Web Flow3.0.0 XSD defines view-state transitions before on-exit
+and exception-handler children. This adapter only admits empty view-states or
+existing empty literal transitions, preserving ordering without moving unknown
+content. The retained original Web Flow live-template contract was inspected;
+a matching original graph implementation/screenshot is absent from the retained
+inventory. No proprietary bodies or original visual/native acceptance are claimed.
+
+### Scoped route binding rename and Java source docs (P25.4 extension)
+
+**Rename route variable and explicit binding…** is a lazy FileAction on a literal
+method route variable or its explicit `@PathVariable` name. It previews and returns
+two atomic source-token edits: `{id}` → `{newName}` and the annotation literal
+`"id"` → `"newName"`. The Java parameter identifier/body stay unchanged. Exact
+Spring imports, one method-level literal route, an explicit unique binding, no
+class-level route, ordinary closed Java source and a collision-free literal name
+are required. Kotlin, implicit parameter-name binding, inherited/class routes,
+regex/wildcard template variables, constants/concatenation and ambiguous aliases
+stay quiet. Selection/resolution use full current text/version/path/innermost
+owner and project-visible source checks around every prompt; cancellation returns
+no edits. Unsaved buffers, CRLF and UTF-16 are supported. No source write/process
+occurs. This changes this route's external variable spelling; it is not Java
+symbol Rename and does not update clients, other routes or runtime metadata. No
+complete host reference/Rename graph or final host-prepare CAS is claimed.
+
+Current Java source hover now documents exact imported `@QueryMapping` and
+`@SchemaMapping` annotations in `@Controller` classes. It reports a literal field
+(or the documented method-name default), Query's composed annotation contract,
+and an explicitly declared parent type. Missing SchemaMapping type inference is
+UNRESOLVED; conflicting aliases, dynamic values, unknown imports and inherited
+sources stay quiet. This complements current SDL field docs without claiming a
+merged schema/resolver/runtime association.
+
+Messaging hover now reports literal Java `@KafkaListener(topics=…)`,
+`@RabbitListener(queues=…)` and `@JmsListener(destination=…)` declarations, including
+literal arrays. Exact framework imports and bounded unescaped source literals are
+required. Patterns/partitions/bindings, placeholders, concatenation, foreign
+annotations and unknown forms stay quiet. Container registration, inherited or
+composed metadata, installed versions, broker/subscription/delivery state and JMS
+queue/topic mode remain unresolved. Existing namespace-qualified XML docs and
+one merged versioned live diagnostic response are retained. These source-only
+providers perform no discovery, file reads, requests or processes.
+
+Fixed public contracts reviewed: Spring Framework6.1.8 PathVariable/JmsListener,
+Spring for GraphQL1.3.0 QueryMapping/SchemaMapping, Spring Kafka3.2.0 KafkaListener
+and Spring AMQP3.1.5 RabbitListener. Original retained Web material does not supply
+matching GraphQL/Messaging docs or scoped rename screenshots. Full semantic
+coverage and native scheduling/hover/rename apply+Undo acceptance remain separate.

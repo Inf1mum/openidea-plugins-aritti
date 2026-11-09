@@ -1,0 +1,258 @@
+//! The built-in Log editor's semantic overlay uses the existing Ideolog
+//! event/field/match rules. It performs no project discovery or file reads.
+use crate::{Ideolog, TIME_GAP, highlights_limited};
+use openidea_plugin::semantic_tokens::{Document, SemanticToken, SemanticTokens, TokenKind};
+use openidea_plugin::syntax::{Highlight, Token};
+use openidea_plugin::{Position, Range, host};
+use std::time::{Duration, Instant};
+
+const MAX_BYTES: usize = 64 << 10;
+const MAX_LINES: usize = 512;
+const MAX_LINE_BYTES: usize = 4096;
+const MAX_TOKENS: usize = 4096;
+const BUDGET: Duration = Duration::from_millis(15);
+
+impl SemanticTokens for Ideolog {
+    fn semantic_tokens(&mut self, doc: &Document) -> Vec<SemanticToken> {
+        if doc.language != "log" {
+            return Vec::new();
+        }
+        let text = bounded_head(&doc.text);
+        if text.is_empty() {
+            return Vec::new();
+        }
+        let deadline = Instant::now() + BUDGET;
+        // Activation/focus/commands/settings forms compile configuration outside
+        // semantic requests. A cold provider never compiles or reads storage.
+        let Some((_, config)) = &self.config else { return Vec::new(); };
+        let gap = host::setting_number(TIME_GAP).unwrap_or(0.0);
+        convert(text, highlights_limited(config, text, gap, MAX_TOKENS, Some(deadline)))
+    }
+}
+
+/// Stop before an overlong line rather than feeding its partial text to
+/// format detection. Bound line count as well as bytes (including CRLF).
+fn bounded_head(text: &str) -> &str {
+    // Bound the newline search itself: split_inclusive on the whole input
+    // otherwise scans an arbitrarily long line before its length can be refused.
+    let prefix_end=crate::log::floor_char_boundary(text,text.len().min(MAX_BYTES));
+    let prefix=&text[..prefix_end];
+    let mut end = 0;
+    for line in prefix.split_inclusive('\n').take(MAX_LINES) {
+        let complete=line.ends_with('\n') || prefix_end==text.len();
+        if !complete || line.len() > MAX_LINE_BYTES || end + line.len() > MAX_BYTES {
+            break;
+        }
+        end += line.len();
+    }
+    &text[..end]
+}
+
+fn kind(highlight: Highlight) -> Option<TokenKind> {
+    Some(match highlight {
+        Highlight::Keyword => TokenKind::Keyword,
+        Highlight::Tag | Highlight::Constant => TokenKind::EnumMember,
+        Highlight::String => TokenKind::String,
+        Highlight::Number => TokenKind::Number,
+        Highlight::Comment => TokenKind::Comment,
+        Highlight::Function => TokenKind::Function,
+        Highlight::Property => TokenKind::Property,
+        _ => return None,
+    })
+}
+
+/// Walk UTF-8 once in sorted range order, counting UTF-16 columns. Calling
+/// text::position from the document start per token would be quadratic.
+fn convert(text: &str, mut tokens: Vec<Token>) -> Vec<SemanticToken> {
+    tokens.sort_by_key(|token| (token.range.start, token.range.end));
+    let mut out = Vec::new();
+    let (mut cursor, mut position) = (0, Position::new(0, 0));
+    for token in tokens.into_iter().take(MAX_TOKENS) {
+        let Some(kind) = kind(token.kind) else {
+            continue;
+        };
+        let span = token.range;
+        if span.start < cursor
+            || span.start >= span.end
+            || span.end > text.len()
+            || !text.is_char_boundary(span.start)
+            || !text.is_char_boundary(span.end)
+        {
+            continue;
+        }
+        advance(text, &mut cursor, &mut position, span.start);
+        let start = position;
+        advance(text, &mut cursor, &mut position, span.end);
+        if start.line == position.line && start.character < position.character {
+            out.push(SemanticToken::new(Range::new(start, position), kind));
+        }
+    }
+    out
+}
+
+fn advance(text: &str, cursor: &mut usize, position: &mut Position, to: usize) {
+    for ch in text[*cursor..to].chars() {
+        if ch == '\n' {
+            position.line += 1;
+            position.character = 0;
+        } else {
+            position.character += ch.len_utf16() as u32;
+        }
+    }
+    *cursor = to;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Config, highlights_with_gaps};
+    use openidea_plugin::{mock::MockHost, text};
+
+    fn doc(language: &str, text: &str) -> Document {
+        Document { path: "/outside/log.txt".into(), language: language.into(), version: 1, text: text.into() }
+    }
+    fn strings<'a>(source: &'a str, tokens: &[SemanticToken]) -> Vec<(&'a str, TokenKind)> {
+        tokens
+            .iter()
+            .map(|token| {
+                let start = text::offset(source, token.range.start).unwrap();
+                let end = text::offset(source, token.range.end).unwrap();
+                assert!(start < end);
+                assert_eq!(token.range.start.line, token.range.end.line);
+                assert!(!source[start..end].contains(['\n', '\r']));
+                (&source[start..end], token.kind)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn built_in_editor_uses_same_level_timestamp_and_stack_trace_rules() {
+        let _host = MockHost::install().with_capabilities(&[]);
+        let source = "2024-05-01 10:00:00,123 [   1] ERROR - #a.B - 😀 boom\r\n\tat demo.Foo.run(Foo.java:42)\r\n2024-05-01 10:00:01,123 [   2] DEBUG - #a.B - quiet\r\n";
+        let mut plugin = Ideolog::default();
+        plugin.config();
+        let tokens = plugin.semantic_tokens(&doc("log", source));
+        let values = strings(source, &tokens);
+        assert!(values.contains(&("2024-05-01 10:00:00,123 ", TokenKind::Number)));
+        assert!(values.contains(&("ERROR", TokenKind::Keyword)));
+        assert!(values.iter().any(|(value, kind)| value.contains("😀 boom") && *kind == TokenKind::Keyword));
+        assert!(values.contains(&("\tat demo.Foo.run(Foo.java:42)", TokenKind::Keyword)));
+        assert!(tokens.iter().all(|t| t.range.start.line < 2), "DEBUG retains its lexical styling");
+        assert!(tokens.windows(2).all(|pair| pair[0].range.end <= pair[1].range.start));
+        let mut plugin = Ideolog::default();
+        assert!(plugin.semantic_tokens(&doc("ideolog", source)).is_empty(), "custom language keeps syntax-provider ownership");
+        assert!(plugin.semantic_tokens(&doc("rust", source)).is_empty());
+    }
+
+    #[test]
+    fn registered_semantic_gap_uses_instant_not_wall_clock_offset() {
+        let h=MockHost::install();h.set_setting("timeGapSeconds","10");let mut p=Ideolog::default();p.config();
+        let same="2024-05-01T08:00:00Z INFO first\n2024-05-01T10:00:00+02:00 INFO same instant\n";
+        assert!(!p.semantic_tokens(&doc("log",same)).iter().any(|t|t.kind==TokenKind::EnumMember),"timezone spelling alone must not manufacture gap");
+        let later="2024-05-01T10:00:00+02:00 INFO first\n2024-05-01T08:00:30Z INFO thirty seconds later\n";
+        assert!(p.semantic_tokens(&doc("log",later)).iter().any(|t|t.range.start.line==1 && t.kind==TokenKind::EnumMember),"actual positive instant gap remains marked");
+    }
+    #[test]
+    fn utf16_columns_survive_non_bmp_text_before_and_inside_captures() {
+        let config = Config::default();
+        let source = "2024-05-01|ERROR|😀logger|é😀 message\r\n\t😀 trace\r\n";
+        let lexical = highlights_with_gaps(&config, source, 0.0);
+        let tokens = convert(source, lexical.clone());
+        assert_eq!(tokens.len(), lexical.len());
+        for (token, original) in tokens.iter().zip(lexical) {
+            assert_eq!(token.range.start, text::position(source, original.range.start));
+            assert_eq!(token.range.end, text::position(source, original.range.end));
+        }
+        assert!(strings(source, &tokens).iter().any(|(value, _)| *value == "é😀 message"));
+    }
+
+    #[test]
+    fn custom_formats_match_and_field_rules_and_time_gap_setting_are_reused() {
+        let host = MockHost::install();
+        let xml = r#"<LogParsingPattern pattern="^(\d\d:\d\d:\d\d) (ALARM) (.*)$" linePattern="^\d" timeId="0" severityId="1" categoryId="-1" uuid="custom"/>
+<LogHighlightingPattern pattern="ALARM" captureGroup="1" action="HIGHLIGHT_LINE" fg="-39836"/>
+<LogHighlightingPattern pattern="user=" captureGroup="2" action="HIGHLIGHT_FIELD" fg="-65281"/>
+<LogHighlightingPattern pattern="user=(\w+)" action="HIGHLIGHT_MATCH" fg="-16776961"/>"#;
+        host.set_setting("customPatterns", &format!("{xml:?}"));
+        host.set_setting("timeGapSeconds", "5.0");
+        let source = "10:00:00 ALARM user=alice\n10:00:10 ALARM user=bob\n";
+        let mut plugin = Ideolog::default();
+        plugin.config();
+        let tokens = plugin.semantic_tokens(&doc("log", source));
+        let values = strings(source, &tokens);
+        assert!(values.contains(&("ALARM", TokenKind::Keyword)));
+        assert!(values.contains(&("alice", TokenKind::Function)));
+        assert!(values.contains(&("user=", TokenKind::Property)));
+        assert!(values.contains(&("10:00:10", TokenKind::EnumMember)));
+        assert!(tokens.windows(2).all(|pair| pair[0].range.end <= pair[1].range.start));
+    }
+
+    #[test]
+    fn semantic_requests_use_warmed_configuration_without_recompiling_external_changes() {
+        let host=MockHost::install();
+        let source="2024-05-01|ERROR|main|message\n";
+        let mut plugin=Ideolog::default();
+        assert!(plugin.semantic_tokens(&doc("log",source)).is_empty(),"cold provider waits for activation/focus warming");
+        plugin.config();
+        let before=plugin.config.as_ref().unwrap().1.clone();
+        host.set_setting("customPatterns", &format!("{:?}","<LogHighlightingPattern pattern=\"message\" action=\"HIGHLIGHT_MATCH\" fg=\"-16776961\"/>"));
+        assert!(!plugin.semantic_tokens(&doc("log",source)).is_empty());
+        assert!(std::rc::Rc::ptr_eq(&before,&plugin.config.as_ref().unwrap().1));
+        plugin.config();
+        assert!(!std::rc::Rc::ptr_eq(&before,&plugin.config.as_ref().unwrap().1),"explicit out-of-provider refresh adopts settings");
+        assert!(host.process_runs().is_empty() && host.requests().is_empty());
+    }
+    #[test]
+    fn checked_semantic_preparation_stops_at_detection_and_grouping_boundaries() {
+        let config=Config::default();
+        let source="2024-05-01|ERROR|main|message\n".repeat(300);
+        let mut checks=0;
+        let empty=crate::highlights_checked(&config,&source,0.0,4096,||{checks+=1;true});
+        assert!(empty.is_empty()); assert_eq!(checks,1);
+        let mut checks=0;
+        let empty=crate::highlights_checked(&config,&source,0.0,4096,||{checks+=1;checks==400});
+        assert!(empty.is_empty()); assert_eq!(checks,400,"cancel during physical-line grouping before token parsing");
+        let mut checks=0;
+        let empty=crate::highlights_checked(&config,&source,0.0,0,||{checks+=1;false});
+        assert!(empty.is_empty()); assert_eq!(checks,0,"zero token budget skips all preparation");
+    }
+    #[test]
+    fn bounded_newline_search_never_admits_a_truncated_line_or_utf8_scalar() {
+        let first=format!("INFO {}\n","x".repeat(202)).repeat(300);
+        let source=format!("{first}ERROR {}\nINFO tail\n","x".repeat(3500));
+        assert!(first.len()<MAX_BYTES && first.len()+3507>MAX_BYTES);
+        assert_eq!(bounded_head(&source),first);
+        let first=format!("{}\n","x".repeat(127)).repeat(511);
+        let source=format!("{first}{}😀tail\n","a".repeat(127));
+        assert!(!source.is_char_boundary(MAX_BYTES));
+        assert_eq!(bounded_head(&source),first);
+        let huge=format!("INFO short\n{}\nINFO tail\n","😀".repeat(MAX_BYTES));
+        assert_eq!(bounded_head(&huge),"INFO short\n");
+        assert_eq!(bounded_head("INFO short"),"INFO short","real end-of-document line remains complete");
+    }
+    #[test]
+    fn request_limits_skip_oversized_lines_and_preserve_complete_utf8_lines() {
+        assert!(bounded_head(&"😀".repeat(MAX_LINE_BYTES)).is_empty());
+        let text = "INFO hello\r\n".repeat(MAX_LINES + 10);
+        let prefix = bounded_head(&text);
+        assert_eq!(prefix.lines().count(), MAX_LINES);
+        let line = format!("INFO {}\n", "😀".repeat(500));
+        let bytes = line.repeat(100);
+        assert!(bounded_head(&bytes).len() <= MAX_BYTES);
+        assert!(bounded_head(&bytes).ends_with('\n'));
+        let source = "INFO x\n";
+        let config = Config::default();
+        assert!(highlights_limited(&config, source, 0.0, MAX_TOKENS, Some(Instant::now() - Duration::from_secs(1))).is_empty());
+        let many = (0..MAX_TOKENS + 100).map(|_| Token { range: 0..1, kind: Highlight::Keyword }).collect();
+        assert_eq!(convert("x", many).len(), 1, "overlapping duplicate tokens rejected");
+        let source = "x".repeat(MAX_TOKENS + 100);
+        let distinct = (0..source.len()).map(|n| Token { range: n..n + 1, kind: Highlight::Keyword }).collect();
+        assert_eq!(convert(&source, distinct).len(), MAX_TOKENS);
+        let malformed = vec![
+            Token { range: 1..2, kind: Highlight::Keyword },
+            Token { range: 0..0, kind: Highlight::Keyword },
+            Token { range: 0..99, kind: Highlight::Keyword },
+        ];
+        assert!(convert("😀", malformed).is_empty());
+    }
+}
