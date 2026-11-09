@@ -7,6 +7,12 @@ attributes around them. The contents of `verbatim` and `raw` are not read as Twi
 The structure view lists blocks, macros and embedded template heads. Recognized block pairs
 and multi-line Twig comments fold; arbitrary custom `{% x %}…{% endx %}` names are not inferred.
 
+API 1.4 native injections expose closed, attribute-free `<script>` and `<style>`
+bodies as JavaScript/CSS ranges. Comments, Twig expressions/tags/raw regions,
+template holes, external/typed scripts and unclosed bodies are excluded. A configured
+installed embedded language server can serve those ranges; embedded formatting and
+Rename remain host-owned. This does not add PHP or full template language semantics.
+
 Completion offers Twig's tags, filters, functions and tests by position
 (after `{%`, `|`, `is`, or a bare name), and in HTML text thirteen snippets
 that expand after typing a prefix: `blk` block, `mcr` macro, `esc`
@@ -231,3 +237,7 @@ Twig49 template navigation requires the literal to be the complete template expr
 Twig50 PHP extension extraction admits registration candidates only in PHP code outside strings/comments/backticks/HTML, at supported constructor or attribute boundaries, and with a complete literal first argument. Explicit foreign qualified class names are excluded; recognized Twig qualified constructors/attributes and legacy Twig_ constructors remain. Heredoc/nowdoc files are withheld conservatively, and input is capped at128KiB. Unqualified PHP names/import aliases, namespace semantics, reachability and runtime registration remain heuristic; no complete PHP semantic ownership is claimed.
 
 Twig51 subscribes to typed PHP files-changed notifications and invalidates matching cached registrations on creation/modification/removal without discovery or reads. Saved-file notification rechecks/warm source as before. At most256 events/paths and100ms are processed before conservative cache clearing. Native event delivery and unsaved PHP synchronization remain unverified; unavailable event grant retains existing activation/saved-event fallback behavior.
+
+## Unreleased follow-up
+
+Local for-loop variables now have document-scoped index anchors, including nested shadowing and outer-variable references in an inner loop iterable. The supported subset is a complete template containing only `for`/`endfor` statement tags; assignments, other tag scopes and dynamic context access disable this graph.

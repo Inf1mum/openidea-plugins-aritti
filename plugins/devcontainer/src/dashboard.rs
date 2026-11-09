@@ -49,6 +49,7 @@ fn status_view(message: &str) -> View {
 
 impl Views for Main {
     fn render(&mut self, view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
+        if view == crate::run_target::REVIEW { return Ok(self.run_target.view(ctx)); }
         if view == crate::operations::VIEW { return Ok(self.operations.render(ctx)); }
         let project = match self.bind_project(ctx) {
             Ok(project) => project,
@@ -98,6 +99,12 @@ impl Views for Main {
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {
+        if view == crate::run_target::REVIEW {
+            return match event {
+                ViewEvent::Button(key) => self.run_target.commit(ctx, &key),
+                _ => Err(Error::Invalid("Target review is read-only.".into())),
+            };
+        }
         if view == crate::operations::VIEW { return self.operations.handle(event, ctx); }
         if matches!(&event, ViewEvent::Select(key) | ViewEvent::Activate(key) if key == STATUS_KEY) {
             self.selected = None;
@@ -128,6 +135,9 @@ impl Views for Main {
             ViewEvent::Button(button) if button == "configuration" => {
                 let project = self.bind_project(ctx)?;
                 if let Some(path) = crate::configs::choose(&project, true)? {
+                    self.run_target.clear_for(&project.root()?);
+                    host::unregister_run_target(&project, crate::run_target::ID);
+                    host::unregister_run_target(&project, crate::run_target::MAPPED_ID);
                     host::notify(NotificationLevel::Info, "Dev Container configuration", &format!("Using {path} for this project."));
                 }
             }
@@ -153,6 +163,9 @@ impl Views for Main {
                 if !container.running {
                     return Err("This container is already stopped. Refresh Services.".into());
                 }
+                self.run_target.clear_for(&project.root()?);
+                host::unregister_run_target(&project, crate::run_target::ID);
+                host::unregister_run_target(&project, crate::run_target::MAPPED_ID);
                 let stopped = project.run_process("docker", &["stop".to_owned(), container.id], None)?;
                 if stopped.status != Some(0) {
                     return Err(format!("docker stop failed: {}", stopped.stderr.trim()).into());
@@ -211,6 +224,9 @@ impl Main {
         if container.running {
             return Err("This container is already running. Refresh Services.".into());
         }
+        self.run_target.clear_for(&project.root()?);
+        host::unregister_run_target(&project, crate::run_target::ID);
+        host::unregister_run_target(&project, crate::run_target::MAPPED_ID);
         let started = project.run_process("docker", &["start".to_owned(), container.id], None)?;
         if started.status != Some(0) {
             return Err(format!("docker start failed: {}", started.stderr.trim()).into());

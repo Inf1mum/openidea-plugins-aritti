@@ -702,3 +702,95 @@ mod tests {
         assert!(!registration.contains("indexing"));
     }
 }
+
+/// Reuse the closed single-class transaction model for read-only occurrences. A path
+/// scope prevents equal command keys in unrelated ShellComponents from merging.
+pub(super) fn public_edges(doc: &openidea_plugin::indexing::Document) -> openidea_plugin::indexing::Edges {
+        use openidea_plugin::indexing::{Anchor, Edges};
+        let source = Document { path: doc.path.clone(), text: doc.text.clone(), language: if doc.path.ends_with(".java") { "java" } else { "unknown" }.into(), version: 0 };
+        let mut edges = Edges::default();
+        let commands = model(&source);
+        if commands.is_empty() { return edges; }
+        // Indicator method names are a separate role from command keys. Never
+        // merge a selector merely because it spells the same word as a method.
+        if let Some(file) = document_model(&source) {
+            let mut indicators = BTreeMap::<String, (Range, Vec<Range>)>::new();
+            for ty in &file.types {
+                for method in ty.methods().filter(|m|m.annotation("ShellMethod").is_some()) {
+                    let Some(annotation) = method.annotation("ShellMethodAvailability") else { continue };
+                    let Some(values) = strings(&source, annotation, "value") else { continue };
+                    let [value] = values.as_slice() else { continue };
+                    let Some(target) = ty.methods().find(|m|m.name==value.value && m.params.is_empty() && m.annotation("ShellMethod").is_none()) else { continue };
+                    indicators.entry(value.value.clone()).or_insert_with(||(range(&doc.text,target.at,target.at+target.name.len()),Vec::new())).1.push(range(&doc.text,value.at,value.end));
+                }
+            }
+            for (name,(definition,uses)) in indicators {
+                let key=format!("spring-shell:indicator:{}:{}:{name}",doc.path.len(),doc.path);
+                edges.definitions.push(Anchor {key:key.clone(),range:definition});
+                edges.references.extend(uses.into_iter().map(|range|Anchor {key:key.clone(),range}));
+            }
+        }
+        for command in commands {
+            let key = format!("spring-shell:{}:{}:{}:{}", doc.path.len(), doc.path, command.class, command.name);
+            edges.definitions.push(Anchor { key: key.clone(), range: command.definition });
+            edges.references.extend(command.uses.into_iter().map(|range| Anchor { key: key.clone(), range }));
+        }
+        edges
+}
+#[cfg(test)]
+mod public_anchor_tests {
+    use super::*;
+    use openidea_plugin::indexing::{Document as IndexedDocument};
+    fn source(path: &str, text: &str) -> IndexedDocument { IndexedDocument { path: path.into(), text: text.into(), symbols: vec![] } }
+    #[test]
+    fn anchors_separate_command_selectors_indicator_names_and_wildcards() {
+        let text = "import org.springframework.shell.standard.ShellMethod; import org.springframework.shell.standard.ShellMethodAvailability; @org.springframework.shell.standard.ShellComponent class C { @ShellMethod(key=\"run\") @ShellMethodAvailability(\"ready\") void execute(){} Availability ready(){return null;} @ShellMethodAvailability(\"run\") Availability gate(){return null;} @ShellMethodAvailability(\"*\") Availability all(){return null;} }";
+        let edges = public_edges(&source("/p/C.java", text));
+        assert_eq!(edges.definitions.len(), 2);
+        assert_eq!(edges.references.len(), 2);
+        for a in edges.definitions.iter().chain(&edges.references) {
+            let start = offset(text, a.range.start).unwrap(); let end = offset(text, a.range.end).unwrap();
+            assert_eq!(&text[start..end], if a.key.contains(":indicator:") { "ready" } else { "run" });
+        }
+        assert_eq!(edges.definitions[0].key, edges.references[0].key);
+        assert_ne!(edges.definitions[0].key, public_edges(&source("/other/C.java", text)).definitions[0].key);
+        assert!(public_edges(&source("/p/C.java", &text.replace("key=\"run\"", "key=PREFIX"))).definitions.is_empty());
+        assert!(public_edges(&source("/p/C.kt", text)).definitions.is_empty());
+    }
+}
+
+pub(super) fn occurrences(ctx: &Invocation) -> Result<Option<String>,Error> {
+    let editor=ctx.editor().ok_or("Open a supported Java ShellComponent and select a literal command or availability name.")?;
+    let snapshot=editor.document()?;let path=editor.path();
+    let at=editor.selections()?.first().map(|r|r.start).ok_or(Error::Stale)?;
+    let project=ctx.project().ok_or(Error::Stale)?;let root=project.root()?;
+    if root=="/" || !path.starts_with(&format!("{root}/")) || host::project_of(&path).and_then(|p|p.root().ok()).as_deref()!=Some(root.as_str()) {return Err(Error::Stale);}
+    let edges=public_edges(&openidea_plugin::indexing::Document {path:path.clone(),text:snapshot.text.clone(),symbols:vec![]});
+    let selected=edges.definitions.iter().chain(&edges.references).find(|a|a.range.start<=at && at<a.range.end).ok_or("Select a supported literal command or availability name in a closed Java source scope.")?;
+    let mut spans:Vec<_>=edges.definitions.iter().chain(&edges.references).filter(|a|a.key==selected.key).map(|a|a.range).collect();
+    spans.sort_by_key(|r|(r.start.line,r.start.character));
+    let items:Vec<_>=spans.iter().enumerate().map(|(i,r)|openidea_plugin::PickItem::new(&i.to_string(),&format!("Literal occurrence · {}:{}",r.start.line+1,r.start.character+1)).description("Current document only; command selectors and indicator method names have separate identity")).collect();
+    let Some(choice)=host::pick("Spring Shell literal source occurrences",&items)? else {return Ok(None);};
+    let destination=spans.get(choice.parse::<usize>().map_err(|_|Error::Stale)?).ok_or(Error::Stale)?.start;
+    let current=ctx.editor().ok_or(Error::Stale)?;let fresh=current.document()?;
+    if ctx.project().ok_or(Error::Stale)?.root()?!=root || host::project_of(&path).and_then(|p|p.root().ok()).as_deref()!=Some(root.as_str()) || current.path()!=path || fresh.version!=snapshot.version || fresh.text!=snapshot.text {return Err(Error::Stale);}
+    host::open_location(&path,destination.line,destination.character)?;Ok(None)
+}
+
+#[cfg(test)]
+mod occurrence_command_tests {
+    use super::*;
+    use openidea_plugin::mock::MockHost;
+    #[test]
+    fn registered_picker_keeps_selector_and_indicator_roles_separate() {
+        let h=MockHost::install();
+        let source="import org.springframework.shell.standard.ShellMethod; import org.springframework.shell.standard.ShellMethodAvailability; @org.springframework.shell.standard.ShellComponent class C { @ShellMethod(key=\"run\") @ShellMethodAvailability(\"ready\") void execute(){} Availability ready(){return null;} @ShellMethodAvailability(\"run\") Availability gate(){return null;} }";
+        let at=position(source,source.find("\"run\"").unwrap()+1);
+        h.open_editor("/project/C.java","java",source,&[(at.line,at.character,at.line,at.character)]);
+        h.answer_next_prompt(Some(&["1"]));ShellTools::default().run_command("command-occurrences",&h.invocation(),None).unwrap();
+        let destination=position(source,source.rfind("\"run\"").unwrap()+1);
+        assert_eq!(h.opened_locations().last(),Some(&(String::from("/project/C.java"),destination.line,destination.character)));
+        h.answer_next_prompt(Some(&["999"]));assert!(ShellTools::default().run_command("command-occurrences",&h.invocation(),None).is_err());
+        assert_eq!(h.opened_locations().len(),1);assert!(h.requests().is_empty() && h.process_runs().is_empty());
+    }
+}

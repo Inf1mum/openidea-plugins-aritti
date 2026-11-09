@@ -8,7 +8,7 @@ license = "Apache-2.0"
 change-notes = "Unreleased: retain bounded literal-directory observations across unchanged save/watcher echoes and irrelevant events without extending TTL; source/owner/target/preference guards remain. Unreleased: bounded event-cached literal project directory markers, source/ownership checks and expiry; no marker filesystem lookup. compact per-file editor-assistance/check/Create controls and shared additional-file colouring switch; separate v2 preferences preserve legacy data and revalidate owned mutation paths. explicit cached Git review revalidates successful historical source proof without collecting new paths; duplicate decoded preference keys are refused and preserved. explicitly reviewed bounded native-task Git ignored-file observations, partial/stale source-scoped cache and read-only sample coverage review; optional Git/VCS grants, no renderer/provider process or absence inference. exact dotfile New-menu templates and confirmed native FileActions for creation, bundled/user-template append and literal Add/Unignore entries; target/source conflict guards and LF/CRLF preservation. The tee writer and permission are removed. Legacy New Ignore File now guides to native creation. Existing selected-path and tool-window append commands keep version-checked editor edits. Ported from .ignore 4.5.7 (JetBrains/idea-gitignore commit 860a6855); github/gitignore templates at 53cf2971."
 categories = ["vcs", "linters"]
 icon = "icon.svg"
-engines.openidea = "^1.3"
+engines.openidea = "^1.4"
 wasm = "dist/plugin.wasm"
 activation = ["on-view:ignore-settings", "on-event:file-opened", "on-event:file-saved", "on-event:editor-focused"]
 
@@ -251,3 +251,13 @@ languages = ["ignore"]
 id = "directory-pattern"
 icon = "icons/directory-pattern.svg"
 iconDark = "icons/directory-pattern_dark.svg"
+
+
+[[contributes.commands]]
+id = "publish-git-sample-hints"
+title = "Ignore: Publish Cached Partial Git Sample Hints (API 1.4)"
+category = "Ignore"
+[[contributes.commands]]
+id = "clear-git-sample-hints"
+title = "Ignore: Clear Partial Git Sample Hints"
+category = "Ignore"

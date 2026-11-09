@@ -397,7 +397,7 @@ impl Launcher {
         let target=format!("{}/{artifact}",root.trim_end_matches('/'));
         if host::project_of(&root).ok_or(Error::Stale)?.root()?!=root||host::project_of(&target).ok_or(Error::Stale)?.root()?!=root {return Err(Error::Stale);}
         if project.exists(&target)? {Self::warn("CLI destination already exists; no merge, overwrite or partial extraction is started.");return Ok(());}
-        match host::open_terminal("Spring Initializr: spring init", "spring", &args) {
+        match self.open_cli_terminal(ctx, args) {
             Err(Error::Denied(_)) => {
                 host::notify(
                     NotificationLevel::Warning,
@@ -558,6 +558,12 @@ impl Views for Launcher {
 }
 
 impl Plugin for Launcher {
+    fn activate(&mut self, _ctx: &openidea_plugin::Context) -> Result<(), Error> {
+        host::subscribe(openidea_plugin::EventKind::TerminalExited)
+    }
+    fn handle_events(&mut self, events: &[openidea_plugin::Event], ctx: &Invocation) {
+        for event in events { self.finish_cli_terminal(event, ctx); }
+    }
     fn deactivate(&mut self){let _=self.cli.cancel("Plugin stopped");}
     fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
         self.bind(ctx)?;
@@ -720,11 +726,10 @@ mod tests {
         field(&mut l, &host, "description", "a b; rm -rf ~ 'x'");
         field(&mut l, &host, "dependencies", "web, data-jpa");
         click(&mut l, &host, "cli");
-        let terminals = host.terminals();
-        assert_eq!(terminals.len(), 1);
-        assert_eq!(terminals[0].program, "spring");
+        let terminal = l.cli.terminal.as_ref().expect("native terminal started");
+        assert!(host.finish_terminal(&terminal.key).is_some());
         assert_eq!(
-            terminals[0].args,
+            terminal.args,
             [
                 "init",
                 "--target=https://start.spring.io",
@@ -809,7 +814,7 @@ mod tests {
         field(&mut l, &host, "bootVersion", "1.0-SNAPSHOT");
         field(&mut l, &host, "dependencies", "spring-web,data-jpa");
         click(&mut l, &host, "cli");
-        assert_eq!(host.terminals().len(), 1);
+        assert!(host.finish_terminal(&l.cli.terminal.as_ref().unwrap().key).is_some());
         assert!(host.notifications().is_empty());
     }
 
@@ -1103,7 +1108,7 @@ mod cli_scope_tests {
     fn cli(l:&mut Launcher,h:&MockHost) {l.handle("initializr",ViewEvent::Button("cli".into()),&h.invocation()).unwrap();}
     #[test]
     fn cli_uses_the_exact_selected_service_in_one_non_shell_argument() {
-        let (h,mut l)=setup();field(&mut l,&h,"server","http://localhost:8080/custom-service");cli(&mut l,&h);let commands=h.terminals();assert_eq!(commands.len(),1);assert_eq!(commands[0].program,"spring");assert!(commands[0].args.iter().any(|a|a=="--target=http://localhost:8080/custom-service"));assert!(commands[0].args.iter().any(|a|a=="./demo"));assert!(h.requests().is_empty());assert!(h.process_runs().is_empty());
+        let (h,mut l)=setup();field(&mut l,&h,"server","http://localhost:8080/custom-service");cli(&mut l,&h);let terminal=l.cli.terminal.as_ref().unwrap();assert!(h.finish_terminal(&terminal.key).is_some());assert!(terminal.args.iter().any(|a|a=="--target=http://localhost:8080/custom-service"));assert!(terminal.args.iter().any(|a|a=="./demo"));assert!(h.requests().is_empty());assert!(h.process_runs().is_empty());
     }
     #[test]
     fn cli_existing_file_or_directory_and_hidden_target_do_not_launch() {

@@ -7,7 +7,7 @@ license = "MIT"
 change-notes = "Unreleased: current-owner cached repository/domain hover, declared literal JPA query hover, derived-criterion and explicit named Param source hints, versioned current-text diagnostics and conservative annotation/project ownership. Source-local atomic Java/Kotlin CrudRepository creation remains previewed and non-overwriting. Effective classpath, runtime identifier/query binding and semantic usages/Rename are not inferred."
 categories = ["frameworks"]
 icon = "icon.svg"
-engines.openidea = "^1.3"
+engines.openidea = "^1.4"
 wasm = "dist/plugin.wasm"
 activation = ["on-language:java", "on-language:kotlin", "on-event:files-changed"]
 
@@ -17,7 +17,7 @@ optional = ["editor.read", "events"]
 
 # code-actions includes the registered atomic repository FileActions.
 [[contributes.providers]]
-kinds = ["completion", "definition", "line-markers", "code-actions"]
+kinds = ["completion", "definition", "line-markers", "code-actions", "injections"]
 languages = ["java", "kotlin"]
 
 [[contributes.providers]]

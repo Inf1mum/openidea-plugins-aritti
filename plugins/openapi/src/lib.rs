@@ -13,6 +13,7 @@ mod spec;
 mod yaml_pointer;
 mod yaml_hover;
 mod pointer_status;
+mod component_occurrences;
 mod yaml_scan;
 
 use checks::Fetched;
@@ -271,36 +272,49 @@ fn copy_or_explain(text: &str, done: &str, denied: &str) -> Result<Option<String
     Ok(None)
 }
 
-const TEE: &str = "tee";
-
 fn sibling_file(path: &str, suffix: &str) -> String {
     let (stem, extension) = path.rsplit_once('.').unwrap_or((path, ""));
 
     suffix.replace("{stem}", stem).replace("{ext}", extension)
 }
 
-/// Writes `text` to a file beside the spec through `tee`, or copies it to the clipboard when `tee` is not granted.
+/// Writes generated text through the owning project's native file API, with clipboard fallback.
 fn save_or_copy(target: &str, text: &str, what: &str) -> Result<Option<String>, Error> {
     let name = target.rsplit('/').next().unwrap_or(target);
-    let exists = project_for(target).is_ok_and(|project| project.read_file(target).is_ok());
-    if exists && !host::confirm("Overwrite file", &format!("{name} already exists and is replaced."))? {
-        return Ok(None);
-    }
-
-    let written = host::run_process(TEE, &[target.to_owned()], Some(text)).and_then(|out| match out.status {
-        Some(0) => Ok(()),
-        _ => Err(Error::Invalid(format!("tee failed: {}", out.stderr.trim()))),
-    });
+    let written = (|| {
+        if !canonical_reference_path(target) { return Err(Error::Invalid("The output path is not canonical.".into())); }
+        let project = project_for(target)?;
+        let root = project.root()?;
+        if host::project_of(target).and_then(|p| p.root().ok()).as_deref() != Some(root.as_str()) { return Err(Error::Stale); }
+        let snapshot = |project: &Project| -> Result<Option<String>, Error> {
+            match project.read_file(target) {
+                Ok(text) => Ok(Some(text)),
+                Err(Error::NotFound(_)) => Ok(None),
+                Err(error) => Err(error),
+            }
+        };
+        let before = snapshot(&project)?;
+        if before.is_some() && !host::confirm("Overwrite file", &format!("{name} already exists and is replaced."))? {
+            return Err(Error::Cancelled);
+        }
+        // Prompts may outlive a project switch or a target edit. Never overwrite
+        // a different owner or content than the user just reviewed.
+        if project.root()? != root
+            || host::project_of(target).and_then(|p| p.root().ok()).as_deref() != Some(root.as_str())
+            || snapshot(&project)? != before { return Err(Error::Stale); }
+        project.write_file(target, text)
+    })();
     match written {
         Ok(()) => {
             host::notify(NotificationLevel::Info, "OpenAPI", &format!("{what} written to {name}."));
             host::open_location(target, 0, 0)?;
             Ok(None)
         }
+        Err(Error::Cancelled) => Ok(None),
         Err(Error::Denied(_)) => copy_or_explain(
             text,
             &format!("{what} copied to the clipboard."),
-            "Allow writing files (tee) or the clipboard for OpenAPI in Settings › Plugins.",
+            "Allow project file writing or the clipboard for OpenAPI in Settings › Plugins.",
         ),
         Err(error) => Err(error),
     }
@@ -514,6 +528,7 @@ impl Plugin for OpenApi {
         if id == "export-self-contained" {
             return self.export_self_contained(ctx);
         }
+        if id == "component-occurrences" { return component_occurrences::run(ctx); }
         if id == "copy-reference" {
             return self.copy_reference(ctx);
         }
@@ -1391,50 +1406,39 @@ mod tests {
         position(text, text.find(needle).unwrap() + plus)
     }
 
-    fn tee_host() -> MockHost {
-        MockHost::install().with_capabilities(&["editor.read", "project.read", "clipboard", "process:tee"])
+    fn writing_host() -> MockHost {
+        MockHost::install().with_capabilities(&["editor.read", "project.read", "project.write", "clipboard"])
     }
 
-    fn recording_tee(host: &MockHost) -> std::rc::Rc<std::cell::RefCell<Vec<(String, String)>>> {
-        let written = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
-        let sink = written.clone();
-        host.on_process("tee", move |args, stdin| {
-            sink.borrow_mut().push((args[0].clone(), stdin.unwrap_or_default().to_owned()));
-            Ok(ProcessOutput { status: Some(0), stdout: String::new(), stderr: String::new() })
-        });
-
-        written
-    }
+    fn generated(path: &str) -> String { project_for(path).unwrap().read_file(path).unwrap() }
 
     #[test]
     fn writes_the_requests_beside_the_spec_and_opens_them() {
-        let host = tee_host();
-        let written = recording_tee(&host);
+        let host = writing_host();
         host.open_editor("/project/api.yaml", "yaml", PETSTORE, &[(0, 0, 0, 0)]);
         OpenApi::default().run_command("copy-http-requests", &host.invocation(), None).unwrap();
 
-        assert_eq!(written.borrow()[0].0, "/project/api.http");
-        assert!(written.borrow()[0].1.starts_with("### listPets\n"));
+        assert!(generated("/project/api.http").starts_with("### listPets\n"));
+        assert!(host.process_runs().is_empty());
         assert_eq!(host.opened_locations()[0].0, "/project/api.http");
         assert!(host.clipboard().is_none());
     }
 
     #[test]
     fn an_existing_http_file_is_replaced_only_after_confirming() {
-        let host = tee_host();
-        let written = recording_tee(&host);
+        let host = writing_host();
         host.add_file("/project/api.http", "old");
         host.open_editor("/project/api.yaml", "yaml", PETSTORE, &[(0, 0, 0, 0)]);
         OpenApi::default().run_command("copy-http-requests", &host.invocation(), None).unwrap();
-        assert!(written.borrow().is_empty());
+        assert_eq!(generated("/project/api.http"), "old");
 
         host.answer_next_prompt(Some(&[]));
         OpenApi::default().run_command("copy-http-requests", &host.invocation(), None).unwrap();
-        assert_eq!(written.borrow().len(), 1);
+        assert!(generated("/project/api.http").starts_with("### listPets\n"));
     }
 
     #[test]
-    fn copies_the_requests_when_tee_is_denied_and_explains_without_clipboard() {
+    fn copies_the_requests_when_project_write_is_denied_and_explains_without_clipboard() {
         let host = MockHost::install().with_capabilities(&["editor.read", "project.read", "clipboard"]);
         host.open_editor("/project/api.yaml", "yaml", PETSTORE, &[(0, 0, 0, 0)]);
         OpenApi::default().run_command("copy-http-requests", &host.invocation(), None).unwrap();
@@ -1447,6 +1451,18 @@ mod tests {
 
         host.open_editor("/project/k8s.yaml", "yaml", "kind: Pod\n", &[(0, 0, 0, 0)]);
         assert!(OpenApi::default().run_command("copy-http-requests", &host.invocation(), None).is_err());
+    }
+
+    #[test]
+    fn native_export_refuses_dirty_or_noncanonical_targets_without_fallback() {
+        let host = writing_host();
+        host.add_file("/project/api.http", "saved");
+        host.open_editor("/project/api.http", "http", "unsaved", &[(0, 0, 0, 0)]);
+        host.answer_next_prompt(Some(&[]));
+        assert!(matches!(save_or_copy("/project/api.http", "replacement", "Requests"), Err(Error::Invalid(_))));
+        assert!(host.clipboard().is_none());
+        assert!(host.process_runs().is_empty());
+        assert!(matches!(save_or_copy("/project/../outside.http", "replacement", "Requests"), Err(Error::Invalid(_))));
     }
 
     #[test]
@@ -2421,26 +2437,24 @@ mod tests {
 
     #[test]
     fn writes_a_self_contained_spec_or_says_there_is_nothing_to_bundle() {
-        let host = tee_host();
-        let written = recording_tee(&host);
+        let host = writing_host();
         host.add_file("/project/common.yaml", "Pet:\n  type: object\n");
         let text = "openapi: 3.0.0\nx:\n  $ref: './common.yaml#/Pet'\n";
         host.open_editor("/project/api.yaml", "yaml", text, &[(0, 0, 0, 0)]);
         OpenApi::default().run_command("export-self-contained", &host.invocation(), None).unwrap();
-        let (target, bundled) = written.borrow()[0].clone();
-        assert_eq!(target, "/project/api.bundled.yaml");
+        let bundled = generated("/project/api.bundled.yaml");
         assert!(bundled.contains("$ref: '#/components/schemas/Pet'") && bundled.ends_with("    Pet:\n      type: object\n"), "{bundled}");
 
         host.open_editor("/project/api.yaml", "yaml", "openapi: 3.0.0\n", &[(0, 0, 0, 0)]);
         OpenApi::default().run_command("export-self-contained", &host.invocation(), None).unwrap();
-        assert_eq!(written.borrow().len(), 1);
+        assert_eq!(generated("/project/api.bundled.yaml"), bundled);
 
         host.open_editor("/project/api.yaml", "yaml", "openapi: 3.0.0\nx:\n  $ref: './gone.yaml#/Pet'\n", &[(0, 0, 0, 0)]);
         assert!(OpenApi::default().run_command("export-self-contained", &host.invocation(), None).is_err());
     }
 
     #[test]
-    fn bundles_a_json_spec_to_the_clipboard_when_tee_is_denied() {
+    fn bundles_a_json_spec_to_the_clipboard_when_project_write_is_denied() {
         let host = MockHost::install().with_capabilities(&["editor.read", "project.read", "clipboard"]);
         host.add_file("/project/common.json", "{\"Pet\": {\"type\": \"object\"}}");
         let text = "{\"openapi\": \"3.0.0\", \"x\": {\"$ref\": \"./common.json#/Pet\"}}";

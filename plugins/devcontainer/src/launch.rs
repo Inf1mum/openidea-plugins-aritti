@@ -69,6 +69,8 @@ impl Plan {
 
     pub(crate) fn launch(self, ctx: &Invocation) -> Result<(), Error> {
         self.validate(ctx)?;
+        host::unregister_run_target(&ctx.project().ok_or(Error::Stale)?, crate::run_target::ID);
+        host::unregister_run_target(&ctx.project().ok_or(Error::Stale)?, crate::run_target::MAPPED_ID);
         let title = if self.rebuild { "Dev Container: Rebuild Container" } else { "Dev Container: Start Container" };
         host::open_terminal(title, "devcontainer", &self.args)
     }
@@ -76,6 +78,8 @@ impl Plan {
     pub(crate) fn launch_managed(self, ctx: &Invocation, operations: &mut crate::operations::Operations) -> Result<(), Error> {
         self.validate(ctx)?;
         let project = ctx.project().ok_or(Error::Stale)?;
+        host::unregister_run_target(&project, crate::run_target::ID);
+        host::unregister_run_target(&project, crate::run_target::MAPPED_ID);
         operations.start(&project, self.config, self.args)
     }
 }

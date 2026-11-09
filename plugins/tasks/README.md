@@ -207,9 +207,7 @@ reuse a previous form's buttons after another project renders. Project-free,
 denied and corrupt views discard their selection/form binding. UI drafts and
 selection are reset across projects; only submitted state is persistent. Multiple
 open projects/project-free contexts do not reuse a global active-task status from
-whichever project happened to load first/last. Active status is shown only from a
-verified invocation/focus and a single known project; each view reports its own
-root's active task separately.
+whichever project happened to load first/last. Active status uses the API 1.4 window override from commands and focus events, so opening another project no longer hides the invoking window's active task; each view reports its own root's active task separately.
 
 File-open events record only exact owning-project paths (including a longest-root
 check for nested projects), never raw string-prefix siblings. Save/Remove Context
@@ -219,10 +217,7 @@ state during a picker or creating a nested project under recorded paths refuses
 reopening. Reopen errors report how many files opened rather than silently claiming
 restoration. Switching back to a task applies the same file-owner preflight.
 
-A supported context is **the last ten recorded file paths**, reopened at line/column
-zero. It is not a snapshot of currently open editors: closed files can remain in
-the recorded list. Carets, selections, tab/split order, folds, dirty buffers,
-bookmarks and debugger breakpoints are not captured/restored. No editor is closed,
+Named contexts now capture **up to ten currently open project editors in the invoking window** using API 1.4. Saving requires optional `editor.read`; foreign/nested-project editors are excluded and more than ten owned tabs refuse rather than truncate. The first selection of the active editor is saved and restored only while its coordinates still fit the current file. Legacy named contexts and automatic task-switch file history remain file-only and reopen at line/column zero. Tab/split order, folds, dirty buffer contents, bookmarks and debugger breakpoints are not captured/restored. No editor is closed,
 rewritten or silently saved by context reopening. Active clock fields survive
 restart as elapsed wall-clock task time (including time while the task/IDE is
 inactive), not measured focused coding time. No unavailable activity API is inferred.
@@ -254,3 +249,6 @@ project and old source tokens stay invalid. HTTP capability/auth and explicit
 network action contracts are unchanged. No atomic active-window, credential
 revocation, original tracker-runtime or native multiwindow acceptance is implied;
 validation uses mocks and pinned build/check only.
+
+
+API 1.4 migration validation: source MockHost tests cover current-tab capture replacing closed-file history, active selection restoration, and status with multiple open projects. Exact native window routing and multi-tab UI acceptance remain to be exercised.

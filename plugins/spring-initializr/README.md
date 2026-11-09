@@ -381,3 +381,17 @@ The existing Prepare Add Starters command also supports the owning project's exa
 Preparation fetches coordinates for that exact source Boot version. Only advertised compatible plain Boot-managed starter coordinates are offered. Compile/runtime/test map to `implementation`/`runtimeOnly`/`testImplementation`; `provided` is refused rather than guessed. Existing exact group/artifact collisions are skipped. Selection produces a complete resulting-file review and one source-bound undoable FileAction insertion; Cancel, stale source/owner/settings/selector and replay refuse. Provider discovery does not fetch or execute Gradle.
 
 Dynamic expressions, escaped/interpolated strings, block comments, extra plugins, applied scripts, modules, version catalogs, properties/build logic, competing build files, custom repositories and additional BOM/platform declarations are outside this adapter. Server coordinates requiring a repository/BOM/explicit version remain refused. This is declared static source management, not an effective Gradle model, installed toolchain check or build/runtime certificate. Maven parent/sole-BOM support and source-only ZIP import safeguards remain unchanged.
+
+### API 1.4 terminal lifecycle
+
+Generate with Spring Boot CLI now uses a keyed native terminal operation, with
+an owned completion event and project-scoped completion notice. An active
+operation prevents a second generation or managed CLI start. Completion never
+validates generated files or opens/removes a generated project. The terminal's
+native controls own cancellation; the separate bounded managed CLI path retains
+its explicit Check/Cancel controls.
+
+A reusable native Run configuration is deliberately not published for `spring
+init`: Rerun would repeat extraction after the destination exists without the
+plugin's destination preflight. Every new generation continues through the
+current form and destination checks.

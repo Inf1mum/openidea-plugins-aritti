@@ -1,0 +1,10 @@
+[
+  {
+    "Name": "desktop-linux",
+    "Endpoints": {
+      "docker": {
+        "Host": "unix:///var/run/docker.sock"
+      }
+    }
+  }
+]

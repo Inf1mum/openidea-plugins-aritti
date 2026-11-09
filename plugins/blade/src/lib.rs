@@ -3,6 +3,7 @@
 //! the plugin's `syntax-provider`. Detection comes from `languages/blade.toml`.
 
 mod checks;
+mod injections;
 mod hover;
 mod navigation;
 
@@ -68,7 +69,7 @@ impl SyntaxProvider for Blade {
     }
 }
 
-register_plugin!(Blade, syntax, diagnostics, hover, providers);
+register_plugin!(Blade, syntax, diagnostics, hover, providers, injections);
 
 const PHP_KEYWORDS: &[&str] = &[
     "as",

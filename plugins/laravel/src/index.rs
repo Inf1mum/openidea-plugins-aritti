@@ -42,6 +42,7 @@ impl AddName for Names {
 #[derive(Clone, Debug)]
 pub struct RouteEntry {
     pub def: routes::RouteDef,
+    pub endpoint_uri: Option<String>,
     pub path: String,
     pub at: Position,
     /// Source token width in UTF-16 units; RouteDef.width remains a byte length.
@@ -636,6 +637,10 @@ impl Index {
             }
         }
 
+        let mounts = routes::application_mounts(
+            &project.read_file("bootstrap/app.php").unwrap_or_default(),
+            &project.read_file("app/Providers/RouteServiceProvider.php").unwrap_or_default(),
+        );
         for path in files(&globs(ROUTE_FILES)) {
             let Some(text) = read(&path, &mut index) else { continue };
             let masked = php::mask_comments(&text);
@@ -648,7 +653,11 @@ impl Index {
                     let detail = format!("{} {} → {}", def.methods, def.uri, def.action);
                     index.routes.add(name, Some(detail), &path, at, width);
                 }
-                index.route_defs.push(RouteEntry { def, path: path.clone(), at, width: width as u32 });
+                let endpoint_uri = match &mounts {
+                    Some(mounts) => mounts.get(&relative(&path)).map(|prefix| format!("/{}", [prefix.as_str(), def.uri.trim_matches('/')].into_iter().filter(|p| !p.is_empty()).collect::<Vec<_>>().join("/"))),
+                    None => (!relative(&path).ends_with("/api.php")).then(|| def.uri.clone()),
+                };
+                index.route_defs.push(RouteEntry { def, endpoint_uri, path: path.clone(), at, width: width as u32 });
             }
 
             index.renders.extend(renders(&path, &text));

@@ -17,6 +17,7 @@ use spring_text::{SOURCE_GLOBS, is_kotlin, parse_source, range};
 use std::collections::BTreeMap;
 
 mod checks;
+mod injections;
 mod generation;
 mod jpql;
 mod live;
@@ -1260,7 +1261,7 @@ impl Plugin for DataTools {
     }
 }
 
-register_plugin!(DataTools, providers, file_actions, diagnostics, hover, inlay_hints);
+register_plugin!(DataTools, injections, providers, file_actions, diagnostics, hover, inlay_hints);
 
 // Legacy fixtures retain parser/marker coverage independently of the stricter live ownership contract.
 #[cfg(test)]

@@ -305,3 +305,9 @@ examined and8 supported options offered; enum lists have1–16 unique strings up
 to128bytes each. Option IDs, descriptions and defaults are bounded/type checked.
 String proposals/free-form values, unsupported types and invalid descriptors are
 omitted. These are form scope limits, not constraints on the broader standard.
+
+## Reviewed native Run Targets (API 1.4)
+
+Tools offers a root-relative Run Target and an experimental mapped project-root tooling target. Preparation inspects a bounded approved local Unix Docker endpoint and exact running container/bind identity. Modal approval only prepares a snapshot: a separate fresh **Register once** button rechecks project/config/container facts before native registration. It never automatically selects a target or launches a command. Plans expire after120seconds; changed configuration and controlled container lifecycle actions withdraw matching registrations.
+
+Mapped mode preserves stdin and declares the verified project bind for configured target language servers. It requires an installed server and manual host target selection. Absolute paths, arbitrary cwd, per-launch container reinspection and a general remote IDE backend are not promised. Existing finite managed CLI commands retain their approval and bounded-output behavior; registration does not make destructive Rebuild freely rerunnable. Native release/container/LSP acceptance remains separate from source tests and Wasm builds.

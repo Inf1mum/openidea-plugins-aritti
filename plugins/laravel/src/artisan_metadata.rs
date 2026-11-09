@@ -374,8 +374,10 @@ mod workflow_tests {
         refresh_with(&host.invocation(), |_, _| Ok(raw)).unwrap();
         host.answer_next_prompt(Some(&["app:runtime"]));
         host.answer_next_prompt(Some(&["--verbose"]));
-        crate::generate::run_artisan(&host.invocation()).unwrap();
-        assert_eq!(host.terminals()[0].args, vec!["artisan", "app:runtime", "--verbose"]);
+        let state = crate::generate::Terminals::default();
+        crate::generate::run_artisan(&state, &host.invocation()).unwrap();
+        assert_eq!(state.commands()[0], vec!["artisan", "app:runtime", "--verbose"]);
+        assert!(host.finish_terminal(&state.keys()[0]).is_some());
         assert!(host.process_runs().is_empty());
     }
     #[test]

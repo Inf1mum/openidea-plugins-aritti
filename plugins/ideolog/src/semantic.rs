@@ -6,6 +6,8 @@ use openidea_plugin::syntax::{Highlight, Token};
 use openidea_plugin::{Position, Range, host};
 use std::time::{Duration, Instant};
 
+pub(super) const DECORATION_SET: &str = "log-source-hints";
+
 const MAX_BYTES: usize = 64 << 10;
 const MAX_LINES: usize = 512;
 const MAX_LINE_BYTES: usize = 4096;
@@ -14,6 +16,9 @@ const BUDGET: Duration = Duration::from_millis(15);
 
 impl SemanticTokens for Ideolog {
     fn semantic_tokens(&mut self, doc: &Document) -> Vec<SemanticToken> {
+        // A new semantic request (including unsaved edits) withdraws explicit
+        // snapshot hints before publishing current semantic results.
+        let _ = host::clear_decorations(DECORATION_SET);
         if doc.language != "log" {
             return Vec::new();
         }
@@ -28,6 +33,56 @@ impl SemanticTokens for Ideolog {
         let gap = host::setting_number(TIME_GAP).unwrap_or(0.0);
         convert(text, highlights_limited(config, text, gap, MAX_TOKENS, Some(deadline)))
     }
+}
+
+/// Explicit bounded snapshot only. Native decorations carry no source version,
+/// so the next request/event clears them instead of leaving mapped stale hints.
+pub(super) fn mark(plugin: &mut Ideolog, ctx: &openidea_plugin::Invocation) -> Result<(), openidea_plugin::Error> {
+    host::clear_decorations(DECORATION_SET)?;
+    // Snapshot publication requires change/lifecycle delivery, not merely an
+    // activation declaration. Denied events leave the set empty.
+    for kind in [openidea_plugin::EventKind::FileSaved, openidea_plugin::EventKind::FilesChanged,
+        openidea_plugin::EventKind::EditorFocused, openidea_plugin::EventKind::FileClosed,
+        openidea_plugin::EventKind::SettingsChanged] {
+        host::subscribe(kind)?;
+    }
+    let editor = ctx.editor().filter(|e| e.language() == "log")
+        .ok_or("Focus a built-in Log editor first.")?;
+    let path = editor.path();
+    let project = host::project_of(&path).ok_or("The log must belong to an open project.")?;
+    let root = project.root()?;
+    if root.is_empty() || !path.starts_with(&format!("{}/", root.trim_end_matches('/'))) {
+        return Err(openidea_plugin::Error::Stale);
+    }
+    let document = editor.document()?;
+    let text = bounded_head(&document.text);
+    let config = plugin.config();
+    let gap = host::setting_number(TIME_GAP).unwrap_or(0.0);
+    let tokens = highlights_limited(&config, text, gap, MAX_TOKENS, Some(Instant::now() + BUDGET));
+    let admitted = tokens.into_iter().filter_map(|mut token| {
+        match token.kind {
+            Highlight::Keyword | Highlight::Tag => {},
+            // Preserve a distinct conversion category for gaps.
+            Highlight::Constant => token.kind = Highlight::Number,
+            _ => return None,
+        }
+        Some(token)
+    }).collect();
+    let items: Vec<_> = convert(text, admitted).into_iter().map(|mapped| {
+        let style = match mapped.kind {
+            TokenKind::Keyword => "error",
+            TokenKind::EnumMember => "warning",
+            _ => "highlight",
+        };
+        openidea_plugin::Decoration { range: mapped.range, style: style.into(),
+            hover: Some("Ideolog source snapshot; re-run Mark Current Log Source to refresh.".into()), after: None }
+    }).collect();
+    let current = editor.document()?;
+    if current.version != document.version || current.text != document.text
+        || host::project_of(&path).and_then(|p| p.root().ok()).as_deref() != Some(root.as_str()) {
+        return Err(openidea_plugin::Error::Stale);
+    }
+    host::set_decorations(&path, DECORATION_SET, &items)
 }
 
 /// Stop before an overlong line rather than feeding its partial text to
@@ -123,6 +178,30 @@ mod tests {
                 (&source[start..end], token.kind)
             })
             .collect()
+    }
+
+    #[test]
+    fn explicit_native_snapshot_is_bounded_owned_and_withdrawn_on_next_request() {
+        let host = MockHost::install().with_capabilities(&["editor.read", "project.read", "events"]);
+        host.set_setting("timeGapSeconds", "5");
+        let source = "2024-05-01|WARN|😀main|warning\r\n2024-05-01 10:00:00 ERROR first\r\n";
+        host.open_editor("/project/app.log", "log", source, &[(0, 0, 0, 0)]);
+        let mut plugin = Ideolog::default();
+        mark(&mut plugin, &host.invocation()).unwrap();
+        let items = host.decorations();
+        let marks = items.get(&(DECORATION_SET.into(), "/project/app.log".into())).unwrap();
+        assert!(!marks.is_empty());
+        assert!(marks.iter().all(|d| matches!(d.style.as_str(), "error" | "warning" | "highlight")));
+        for item in marks {
+            let a = text::offset(source, item.range.start).unwrap();
+            let b = text::offset(source, item.range.end).unwrap();
+            assert!(!source[a..b].contains(['\n', '\r']));
+        }
+        plugin.semantic_tokens(&doc("log", source));
+        assert!(host.decorations().is_empty(), "new semantic request invalidates the snapshot");
+        host.open_editor("/outside/app.log", "log", source, &[(0, 0, 0, 0)]);
+        assert!(mark(&mut plugin, &host.invocation()).is_err());
+        assert!(host.decorations().is_empty());
     }
 
     #[test]

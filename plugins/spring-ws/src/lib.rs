@@ -4,6 +4,7 @@
 //! given to `ClassPathResource`. Text-based, Java and Kotlin.
 
 mod generate;
+mod indexing;
 mod resource_completion;
 mod namespace_values;
 mod resource_paths;
@@ -725,7 +726,8 @@ impl Plugin for WsTools {
         }
     }
 
-    fn run_command(&mut self, id: &str, _ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
+    fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
+        if id == "qname-occurrences" { return indexing::occurrences(ctx); }
         Err(Error::NotFound(format!("command {id}")))
     }
 }

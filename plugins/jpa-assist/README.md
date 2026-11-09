@@ -670,3 +670,7 @@ reported version), live text and project ownership before navigation, and refuse
 drift/unknown contexts. This is a scoped source inventory, not a project-wide
 Find Usages/index or compiler-binding claim. Rename and usages share the strict
 private, non-ID, literal-Column, zero-method v0 grammar.
+
+## Unreleased follow-up
+
+Live attribute diagnostics now flag a second `@Version` field on a proved source-local field-access entity. The warning clears on current-text edits; inherited, property-access, ambiguous annotation and external mapping cases remain unknown.

@@ -3,6 +3,8 @@
 //! plugin's `syntax-provider`. Detection comes from `languages/twig.toml`.
 
 mod checks;
+mod injections;
+mod indexing;
 mod complete;
 mod navigate;
 mod hover;
@@ -428,7 +430,7 @@ impl openidea_plugin::diagnostics::DiagnosticsProvider for Twig {
 }
 
 // API 1.3 registers the optional exports on the same component.
-openidea_plugin::register_plugin!(Twig, providers, syntax, diagnostics, hover);
+openidea_plugin::register_plugin!(Twig, injections, providers, syntax, diagnostics, hover, indexing);
 
 const KEYWORDS: &[&str] =
     &["and", "or", "not", "in", "is", "matches", "starts", "ends", "with", "as", "only", "ignore", "missing", "if", "else", "for"];

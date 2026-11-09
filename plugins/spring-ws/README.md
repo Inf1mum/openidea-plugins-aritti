@@ -397,3 +397,7 @@ remain unsupported. This property-only addition does not extend constructor
 child forms, XPath binding, OXM/CXF typed DOM, libraries or effective classpaths.
 It performs no request-time resource discovery/content read and has no new
 native acceptance.
+
+## Unreleased follow-up
+
+Use **Spring WS: Find Observed QName Occurrences** on a known `@PayloadRoot` local name or XSD/WSDL element name. It lists bounded, namespace-matched observations in the current project and rechecks the selected source before opening it. This is read-only navigation, separate from global Find Usages/Rename.

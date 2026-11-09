@@ -13,6 +13,7 @@ mod actions;
 mod check;
 mod decorations;
 mod git_inventory;
+mod file_hints;
 mod highlight;
 mod matcher;
 mod preferences;
@@ -435,6 +436,7 @@ fn refresh_templates() {
 
 #[derive(Default)]
 struct IgnorePlugin {
+    file_hints: file_hints::State,
     preferences: preferences::State,
     inventory: git_inventory::State,
     directories: decorations::Directories,
@@ -512,18 +514,23 @@ impl IgnorePlugin {
 
 impl openidea_plugin::Plugin for IgnorePlugin {
     fn activate(&mut self, _ctx: &openidea_plugin::Context) -> Result<(), Error> {
-        let _ = host::subscribe(openidea_plugin::EventKind::VcsChanged);
+        self.file_hints.clear()?;
+        let settings = host::subscribe(openidea_plugin::EventKind::SettingsChanged);
+        let vcs = host::subscribe(openidea_plugin::EventKind::VcsChanged);
         let files = host::subscribe_paths("files-changed", &["**/*"]);
         self.directories.configure(files.is_ok());
+        self.file_hints.configure(settings.is_ok() && vcs.is_ok() && files.is_ok());
         Ok(())
     }
 
-    fn deactivate(&mut self) {self.directories.configure(false);}
+    fn deactivate(&mut self) {self.directories.configure(false); self.file_hints.configure(false); let _ = self.file_hints.clear();}
 
     fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
         match id {
-            "git-inventory-start" => self.inventory.start(ctx),
-            "git-inventory-clear" => self.inventory.clear(ctx),
+            "publish-git-sample-hints" => self.file_hints.publish(&self.inventory, ctx),
+            "clear-git-sample-hints" => self.file_hints.clear().map(|_| None),
+            "git-inventory-start" => { self.file_hints.clear()?; self.inventory.start(ctx) },
+            "git-inventory-clear" => { self.file_hints.clear()?; self.inventory.clear(ctx) },
             "git-inventory-review" => self.inventory.review(ctx),
             "preferences" => {
                 host::reveal_view(preferences::VIEW)?;
@@ -537,6 +544,7 @@ impl openidea_plugin::Plugin for IgnorePlugin {
     }
 
     fn handle_events(&mut self, events: &[Event], ctx: &Invocation) {
+        self.file_hints.changed(events, ctx);
         self.directories.events(events);
         for event in events {
             match event {
@@ -675,6 +683,7 @@ impl Views for IgnorePlugin {
 
     fn handle(&mut self, view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {
         if view == preferences::VIEW {
+            self.file_hints.clear()?;
             return self.preferences_event(event, ctx);
         }
         if ui_kit::web::handle(self, view, &event, ctx, include_str!("ui_config.json"))? {

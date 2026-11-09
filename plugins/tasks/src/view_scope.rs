@@ -175,13 +175,13 @@ mod tests {
         openidea_plugin::Plugin::handle_events(&mut p, &events, &h.invocation());
         assert_eq!(crate::load("/project").unwrap().active().files, ["/project/a.rs"]);
         p.render("tasks", None, &h.invocation()).unwrap();
-        assert!(h.status_items().is_empty());
+        assert_eq!(h.status_items()[crate::STATUS_ITEM].text, "Default task");
     }
     #[test]
     fn recorded_context_reopen_refuses_stale_or_newly_foreign_paths_before_opening() {
         let h = MockHost::install().with_capabilities(&["project.read", "storage"]);
         crate::update("/project", |t, _| {
-            t.contexts.push(crate::model::NamedContext { name: "Focus".into(), files: vec!["/project/nested/a.rs".into()] });
+            t.contexts.push(crate::model::NamedContext { name: "Focus".into(), files: vec!["/project/nested/a.rs".into()], selection: None });
             Ok(())
         })
         .unwrap();

@@ -19,6 +19,7 @@ mod generate;
 mod live;
 mod local_graph;
 mod local_callbacks;
+mod local_versions;
 mod local_listener;
 mod model;
 mod queries;

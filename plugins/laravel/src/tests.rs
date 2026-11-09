@@ -1938,8 +1938,8 @@ fn forelse_snippet_has_an_empty_branch_before_its_closing_directive() {
     assert!(body.find("@empty").unwrap() < body.find("@endforelse").unwrap());
 }
 
-fn terminal_args(host: &MockHost) -> Vec<Vec<String>> {
-    host.terminals().into_iter().map(|t| t.args).collect()
+fn terminal_args(_host: &MockHost, plugin: &Main) -> Vec<Vec<String>> {
+    plugin.artisan_terminals.commands()
 }
 
 #[test]
@@ -1952,7 +1952,7 @@ fn make_asks_then_runs_artisan_in_a_terminal() {
     host.answer_next_prompt(Some(&["Post"]));
     plugin.run_command("make", &host.invocation(), None).unwrap();
     assert_eq!(
-        terminal_args(&host),
+        terminal_args(&host, &plugin),
         [["artisan", "make:controller", "Admin/ReportController", "--model=Post", "--resource", "--api"]]
     );
 }
@@ -1964,7 +1964,7 @@ fn new_model_passes_the_flags() {
     host.answer_next_prompt(Some(&["Tag"]));
     host.answer_next_prompt(Some(&["-m", "-f"]));
     plugin.run_command("new-model", &host.invocation(), None).unwrap();
-    assert_eq!(terminal_args(&host), [["artisan", "make:model", "Tag", "-m", "-f"]]);
+    assert_eq!(terminal_args(&host, &plugin), [["artisan", "make:model", "Tag", "-m", "-f"]]);
 }
 
 #[test]
@@ -1989,7 +1989,7 @@ fn generates_for_a_model_with_a_default_name() {
     host.answer_next_prompt(Some(&["policy"]));
     host.answer_next_prompt(Some(&["PostPolicy"]));
     plugin.run_command("generate-for-model", &host.invocation(), None).unwrap();
-    assert_eq!(terminal_args(&host), [["artisan", "make:policy", "PostPolicy", "--model=Post"]]);
+    assert_eq!(terminal_args(&host, &plugin), [["artisan", "make:policy", "PostPolicy", "--model=Post"]]);
 
     host.answer_next_prompt(Some(&["Nope"]));
     assert!(plugin.run_command("generate-for-model", &host.invocation(), None).is_err());
@@ -2005,7 +2005,7 @@ fn run_artisan_uses_static_choices_without_implicit_discovery_and_splits_argumen
     host.answer_next_prompt(Some(&["migrate:status"]));
     host.answer_next_prompt(Some(&["--pending  --no-ansi"]));
     plugin.run_command("artisan-run", &host.invocation(), None).unwrap();
-    assert_eq!(terminal_args(&host), [["artisan", "migrate:status", "--pending", "--no-ansi"]]);
+    assert_eq!(terminal_args(&host, &plugin), [["artisan", "migrate:status", "--pending", "--no-ansi"]]);
     assert!(host.process_runs().is_empty(), "opening the command picker must not execute discovery");
 
     host.answer_next_prompt(Some(&["rm"]));
@@ -2317,44 +2317,31 @@ fn config_app_providers_complete_project_providers() {
     assert_eq!(plugin.definition(&doc(path, "php", &text), at).len(), 1);
 }
 
-type Written = std::rc::Rc<std::cell::RefCell<Vec<(Vec<String>, String)>>>;
-
-fn tee_host() -> (MockHost, Written) {
-    let host = MockHost::install().with_capabilities(&["project.read", "events", "process:php", "process:tee", "editor.read"]);
-    let written: Written = Written::default();
-    let sink = written.clone();
-    host.on_process("tee", move |args, stdin| {
-        sink.borrow_mut().push((args.to_vec(), stdin.unwrap_or_default().to_owned()));
-        Ok(openidea_plugin::ProcessOutput { status: Some(0), stdout: String::new(), stderr: String::new() })
-    });
-    (host, written)
-}
-
 #[test]
 fn generate_for_a_selected_model_writes_a_factory_with_its_columns() {
-    let (host, written) = tee_host();
+    let host = MockHost::install().with_capabilities(&["project.read", "project.write", "events", "process:php", "editor.read"]);
     let mut plugin = activated(&host);
     host.select_paths(&["/project/app/Models/Post.php"]);
     host.answer_next_prompt(Some(&["factory"]));
     host.answer_next_prompt(Some(&["PostFactory"]));
     plugin.run_command("generate-for-model", &host.invocation(), None).unwrap();
 
-    let (args, body) = written.borrow()[0].clone();
-    assert_eq!(args, ["/project/database/factories/PostFactory.php"]);
+    let body = host.invocation().project().unwrap().read_file("database/factories/PostFactory.php").unwrap();
+    assert!(host.process_runs().is_empty());
     assert!(body.contains("'title' => fake()->sentence(),") && body.contains("'body' => fake()->paragraph(),"), "{body}");
     assert!(!body.contains("created_at"), "{body}");
     assert!(host.terminals().is_empty());
 }
 
 #[test]
-fn resource_body_lists_columns_and_falls_back_to_artisan_without_tee() {
+fn resource_body_lists_columns_and_falls_back_to_artisan_without_project_write() {
     let host = MockHost::install().with_capabilities(&["project.read", "events", "process:php", "editor.read"]);
     let mut plugin = activated(&host);
     host.select_paths(&["/project/app/Models/Post.php"]);
     host.answer_next_prompt(Some(&["resource"]));
     host.answer_next_prompt(Some(&["PostResource"]));
     plugin.run_command("generate-for-model", &host.invocation(), None).unwrap();
-    assert_eq!(terminal_args(&host), [["artisan", "make:resource", "PostResource"]]);
+    assert_eq!(terminal_args(&host, &plugin), [["artisan", "make:resource", "PostResource"]]);
 
     let index = plugin.indexes.values().next().unwrap();
     let source = bulk::resource_source(index, "Post", "PostResource");
@@ -2363,16 +2350,19 @@ fn resource_body_lists_columns_and_falls_back_to_artisan_without_tee() {
 
 #[test]
 fn remove_phpdocs_rewrites_every_model_that_has_helper_tags() {
-    let (host, written) = tee_host();
+    let host = MockHost::install().with_capabilities(&["project.read", "project.write", "events", "process:php", "editor.read"]);
     host.add_file("app/Models/Tag.php", "<?php\n/**\n * @property int $id\n */\nclass Tag extends Model {}\n");
     let mut plugin = activated(&host);
+    use openidea_plugin::file_actions::FileActions;
+    let text = host.invocation().project().unwrap().read_file("app/Models/Tag.php").unwrap();
+    let doc = openidea_plugin::providers::Document { path:"/project/app/Models/Tag.php".into(), language:"php".into(), text, version:1 };
+    let action = plugin.file_actions(&doc,Range::new(Position::new(0,0),Position::new(0,0))).into_iter().find(|a|a.data.as_deref().is_some_and(|d|d.starts_with("bulk-phpdocs:"))).unwrap();
     host.answer_next_prompt(Some(&[]));
-    plugin.run_command("remove-phpdocs", &host.invocation(), None).unwrap();
-
-    let runs = written.borrow();
-    assert_eq!(runs.len(), 1);
-    assert_eq!(runs[0].0, ["/project/app/Models/Tag.php"]);
-    assert_eq!(runs[0].1, "<?php\nclass Tag extends Model {}\n");
+    let resolved = plugin.resolve_file_action(&doc,action).unwrap();
+    assert_eq!(resolved.edits.len(),1);
+    assert_eq!(resolved.edits[0].0,"/project/app/Models/Tag.php");
+    assert_eq!(resolved.edits[0].1[0].text,"<?php\nclass Tag extends Model {}\n");
+    assert!(host.process_runs().is_empty());
 }
 
 #[test]
@@ -2384,7 +2374,7 @@ fn new_generators_run_their_own_artisan_commands_when_the_package_is_installed()
     host.answer_next_prompt(Some(&["nova:resource"]));
     host.answer_next_prompt(Some(&["Post"]));
     plugin.run_command("make", &host.invocation(), None).unwrap();
-    assert_eq!(terminal_args(&host), [["artisan", "nova:resource", "Post"]]);
+    assert_eq!(terminal_args(&host, &plugin), [["artisan", "nova:resource", "Post"]]);
 }
 
 #[test]
@@ -2424,7 +2414,7 @@ fn create_missing_makes_the_class_named_by_new_and_refuses_existing_ones() {
     host.open_editor("/project/app/Http/X.php", "php", text, &[(1, 18, 1, 18)]);
     host.answer_next_prompt(Some(&[]));
     plugin.run_command("create-missing", &host.invocation(), None).unwrap();
-    assert_eq!(terminal_args(&host), [["artisan", "make:job", "SendReportJob"]]);
+    assert_eq!(terminal_args(&host, &plugin), [["artisan", "make:job", "SendReportJob"]]);
 
     host.open_editor("/project/app/Http/X.php", "php", text, &[(2, 18, 2, 18)]);
     assert!(plugin.run_command("create-missing", &host.invocation(), None).is_err());
@@ -2799,4 +2789,62 @@ fn registered_component_props_slots_and_livewire_members_refuse_new_foreign_sour
 #[test]
 fn owned_component_source_refreshes_current_properties_without_replacing_root_cache() {
     let host=MockHost::install();host.add_file("resources/views/components/banner.blade.php","@props(['tone'])");let mut plugin=activated(&host);let(source,at)=cursor("<x-banner |");let d=doc("/project/resources/views/x.blade.php","blade",&source);assert_eq!(labels(plugin.completion(&d,at,None)),["tone"]);host.open_editor("/project/resources/views/components/banner.blade.php","blade","@props(['fresh'])",&[]);assert_eq!(labels(plugin.completion(&d,at,None)),["fresh"]);assert!(plugin.indexes.contains_key("/project"));assert!(host.requests().is_empty() && host.process_runs().is_empty());
+}
+
+#[test]
+fn endpoints_resolve_application_mounts_and_refresh_configuration() {
+    use openidea_plugin::endpoints::EndpointsProvider;
+    let host = MockHost::install();
+    let mut plugin = activated(&host);
+    host.add_file("routes/api.php", "<?php Route::post('/snatch/edit', [SnatchController::class, 'edit']); Route::prefix('admin')->group(function(){ Route::apiResource('posts', PostController::class)->only(['index']); });");
+    for (prefix, expected) in [("'api'", Some("/api/snatch/edit")), ("'v2'", Some("/v2/snatch/edit")), ("''", Some("/snatch/edit")), ("$dynamic", None)] {
+        host.add_file("bootstrap/app.php", &format!("<?php return Application::configure()->withRouting(web: __DIR__.'/../routes/web.php', api: __DIR__.'/../routes/api.php', apiPrefix: {prefix});"));
+        plugin.handle_events(&[Event::FileSaved("/project/bootstrap/app.php".into())], &host.invocation());
+        let endpoints = plugin.endpoints(&host.invocation()).unwrap();
+        let api: Vec<_> = endpoints.iter().filter(|e| e.location.path.ends_with("/routes/api.php")).collect();
+        match expected {
+            Some(expected) => {
+                let e = api.iter().find(|e| e.path == expected).expect("mounted issue411 route");
+                assert_eq!(e.handler.as_deref(), Some("SnatchController@edit"));
+                assert_eq!(e.method.as_deref(), Some("POST"));
+                let base = expected.strip_suffix("/snatch/edit").unwrap();
+                assert!(api.iter().any(|e| e.path == format!("{base}/admin/posts")));
+            }
+            None => assert!(api.is_empty()),
+        }
+    }
+    host.add_file("bootstrap/app.php", "<?php return Application::configure()->withRouting(web: __DIR__.'/../routes/web.php');");
+    plugin.handle_events(&[Event::FileSaved("/project/bootstrap/app.php".into())], &host.invocation());
+    assert!(plugin.endpoints(&host.invocation()).unwrap().iter().all(|e| !e.location.path.ends_with("/routes/api.php")));
+}
+
+#[test]
+fn endpoints_watch_legacy_provider_prefix_changes() {
+    use openidea_plugin::endpoints::EndpointsProvider;
+    let h=MockHost::install();let mut plugin=activated(&h);
+    h.add_file("routes/api.php","<?php Route::post('/snatch/edit', 'SnatchController@edit');");
+    for prefix in ["api","v3"] {
+        h.add_file("app/Providers/RouteServiceProvider.php",&format!("<?php Route::middleware('api')->prefix('{prefix}')->group(base_path('routes/api.php'));"));
+        plugin.handle_events(&[Event::FileSaved("/project/app/Providers/RouteServiceProvider.php".into())],&h.invocation());
+        assert!(plugin.endpoints(&h.invocation()).unwrap().iter().any(|e|e.path==format!("/{prefix}/snatch/edit")));
+    }
+    assert!(h.requests().is_empty() && h.process_runs().is_empty());
+}
+
+#[test]
+fn native_bulk_phpdoc_action_refuses_changed_source_and_generators_refuse_collisions() {
+    use openidea_plugin::file_actions::FileActions;
+    let host=MockHost::install().with_capabilities(&["project.read","project.write","events"]);
+    let text="<?php\n/**\n * @property int $id\n */\nclass Tag extends Model {}\n";
+    host.add_file("app/Models/Tag.php",text);
+    let mut plugin=activated(&host);
+    let doc=openidea_plugin::providers::Document { path:"/project/app/Models/Tag.php".into(),language:"php".into(),text:text.into(),version:1 };
+    let action=plugin.file_actions(&doc,Range::new(Position::new(0,0),Position::new(0,0))).remove(0);
+    host.add_file("app/Models/Tag.php","<?php class Tag extends Model { /* changed */ }");
+    assert!(plugin.resolve_file_action(&doc,action).is_err());
+    host.add_file("database/factories/PostFactory.php","existing");
+    let index=plugin.indexes.get("/project").unwrap();
+    assert!(bulk::model_file(&host.invocation().project().unwrap(),index,"factory","Post","PostFactory").is_err());
+    assert_eq!(host.invocation().project().unwrap().read_file("database/factories/PostFactory.php").unwrap(),"existing");
+    assert!(host.process_runs().is_empty());
 }

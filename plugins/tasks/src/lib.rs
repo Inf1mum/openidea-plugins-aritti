@@ -70,8 +70,9 @@ struct Tasks {
 impl Plugin for Tasks {
     fn activate(&mut self, ctx: &Context) -> Result<(), Error> {
         self.git = ctx.has("process:git");
-
         host::remove_status_item(STATUS_ITEM);
+
+        let _ = host::remove_window_status_item(STATUS_ITEM);
         let _ = host::subscribe(openidea_plugin::EventKind::EditorFocused);
         let _ = host::subscribe(openidea_plugin::EventKind::FileOpened);
 
@@ -79,7 +80,7 @@ impl Plugin for Tasks {
     }
 
     fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
-        host::remove_status_item(STATUS_ITEM);
+        let _ = host::remove_window_status_item(STATUS_ITEM);
         if matches!(id, "open-issue-at-caret" | "activate-issue-at-caret") {
             issue_context::run(&self.issue_search, ctx, id == "activate-issue-at-caret")?;
             if let Some(root) = ctx.project().and_then(|p| p.root().ok()) {
@@ -161,7 +162,7 @@ impl Plugin for Tasks {
             }
             "refresh" => refresh_issues(&project, false)?,
             "search-issues" => self.search_issues(&project, &tasks, ctx)?,
-            "save-context" => save_context(&project, &tasks)?,
+            "save-context" => save_context(&project, &tasks, ctx)?,
             "load-context" => load_context(&project, &tasks)?,
             "remove-context" => remove_context(&project, &tasks)?,
             "add-repository" => add_repository(&project)?,
@@ -185,10 +186,10 @@ impl Plugin for Tasks {
                         if let Ok(tasks) = load(&root) {
                             show_status(&root, &tasks);
                         } else {
-                            host::remove_status_item(STATUS_ITEM);
+                            let _ = host::remove_window_status_item(STATUS_ITEM);
                         }
                     } else {
-                        host::remove_status_item(STATUS_ITEM);
+                        let _ = host::remove_window_status_item(STATUS_ITEM);
                     }
                 }
                 Event::FileOpened(path) => opened.push(path.clone()),
@@ -233,7 +234,7 @@ impl Views for Tasks {
             self.form = None;
             self.selected = None;
             self.collapsed.clear();
-            host::remove_status_item(STATUS_ITEM);
+            let _ = host::remove_window_status_item(STATUS_ITEM);
             return Ok(View::message("Open a project to work on tasks."));
         };
 
@@ -241,7 +242,7 @@ impl Views for Tasks {
             Ok(root) => root,
             Err(error) => {
                 self.scope.clear(); self.form = None; self.selected = None; self.collapsed.clear();
-                host::remove_status_item(STATUS_ITEM);
+                let _ = host::remove_window_status_item(STATUS_ITEM);
                 return Err(error);
             }
         };
@@ -252,7 +253,7 @@ impl Views for Tasks {
                 self.form = None;
                 self.selected = None;
                 self.collapsed.clear();
-                host::remove_status_item(STATUS_ITEM);
+                let _ = host::remove_window_status_item(STATUS_ITEM);
                 return Err(error);
             }
         };
@@ -801,22 +802,39 @@ fn update_all_issues() {
     }
 }
 
-fn save_context(project: &Project, tasks: &TaskList) -> Result<(), Error> {
-    let files = tasks.active().files.clone();
+fn capture_files(root: &str) -> Result<Vec<String>, Error> {
+    let mut files = Vec::new();
+    for editor in host::open_editors()? {
+        if state::owns(root, &editor.path)
+            && host::project_of(&editor.path).and_then(|p| p.root().ok()).as_deref() == Some(root)
+            && !files.contains(&editor.path)
+        { files.push(editor.path); }
+    }
+    if files.len() > 10 { return Err("At most ten open project editors can be saved in a context.".into()); }
+    Ok(files)
+}
+
+fn save_context(project: &Project, tasks: &TaskList, ctx: &Invocation) -> Result<(), Error> {
+    let root = project.root()?;
+    let files = capture_files(&root)?;
+    let selection = ctx.editor().and_then(|editor| {
+        let path = editor.path();
+        if !files.contains(&path) { return None; }
+        editor.selections().ok()?.first().copied().map(|range| (path, range))
+    });
 
     if files.is_empty() {
-        return Err("The active task has no recorded files to save.".into());
+        return Err("This window has no open files owned by the current project to save.".into());
     }
 
     let Some(name) = host::input("Save context as", None)?.map(|n| n.trim().to_owned()).filter(|n| !n.is_empty()) else {
         return Ok(());
     };
 
-    let root = project.root()?;
     if name.len() > 128 || name.chars().any(char::is_control) {
         return Err("Use a context name of at most 128 bytes without control characters.".into());
     }
-    if load(&root)? != *tasks {
+    if load(&root)? != *tasks || capture_files(&root)? != files {
         return Err(Error::Stale);
     }
     update(&root, |current, _| {
@@ -828,7 +846,7 @@ fn save_context(project: &Project, tasks: &TaskList) -> Result<(), Error> {
         }
         let tasks = current;
         tasks.contexts.retain(|c| c.name != name);
-        tasks.contexts.push(NamedContext { name: name.clone(), files });
+        tasks.contexts.push(NamedContext { name: name.clone(), files, selection });
         Ok(())
     })?;
     host::notify(NotificationLevel::Info, "Context saved", &name);
@@ -880,6 +898,14 @@ fn load_context(project: &Project, tasks: &TaskList) -> Result<(), Error> {
         if let Err(error) = host::open_location(file, 0, 0) {
             return Err(Error::Failed(format!("Opened {opened} of {} recorded context files; {error}", context.files.len())));
         }
+    }
+    if let Some((path, range)) = context.selection {
+        // A saved selection is advisory after edits: only restore valid current coordinates.
+        let text = project.read_file(&path)?;
+        if text.len() <= 1024 * 1024
+            && openidea_plugin::text::offset(&text, range.start).is_some()
+            && openidea_plugin::text::offset(&text, range.end).is_some()
+        { host::open_editor(&path, Some(range))?; }
     }
     Ok(())
 }
@@ -1027,19 +1053,14 @@ fn update<R>(root: &str, change: impl FnOnce(&mut TaskList, u64) -> Result<R, Er
     Ok(result)
 }
 
-fn show_status(root: &str, tasks: &TaskList) {
-    let projects = host::projects().unwrap_or_default();
-    if projects.len() != 1 || projects[0].root().ok().as_deref() != Some(root) {
-        host::remove_status_item(STATUS_ITEM);
-        return;
-    }
+fn show_status(_root: &str, tasks: &TaskList) {
     let item = StatusItem {
         text: trimmed(&tasks.active().label(), 40),
         tooltip: Some("Active task. Click to copy its commit message.".into()),
         command: Some("copy-commit-message".into()),
     };
 
-    host::set_status_item(STATUS_ITEM, &item);
+    let _ = host::set_window_status_item(STATUS_ITEM, &item);
 }
 
 fn setting_or(key: &str, default: &str) -> String {
@@ -1449,11 +1470,50 @@ mod tests {
     }
 
     #[test]
+    fn native_context_uses_current_tabs_and_restores_active_selection() {
+        let host = MockHost::install().with_capabilities(&["project.read", "storage", "events", "editor.read"]);
+        let mut plugin = plugin(&host);
+        plugin.handle_events(&[Event::FileOpened("/project/closed.rs".into())], &host.invocation());
+        host.open_editor("/project/current.rs", "rust", "abcdef", &[(0, 2, 0, 4)]);
+        host.add_file("current.rs", "abcdef");
+        host.answer_next_prompt(Some(&["Current"]));
+        plugin.run_command("save-context", &host.invocation(), None).unwrap();
+        let saved = &load("/project").unwrap().contexts[0];
+        assert_eq!(saved.files, ["/project/current.rs"]);
+        assert_eq!(saved.selection.as_ref().unwrap().1.start.character, 2);
+        host.answer_next_prompt(Some(&["Current"]));
+        plugin.run_command("load-context", &host.invocation(), None).unwrap();
+        assert_eq!(host.invocation().editor().unwrap().selections().unwrap()[0].end.character, 4);
+    }
+
+    #[test]
+    fn named_context_capture_excludes_nested_project_and_denial_preserves_storage() {
+        let host = MockHost::install().with_capabilities(&["project.read", "storage", "editor.read"]);
+        let mut plugin = plugin(&host);
+        host.add_project("/project/nested");
+        host.open_editor("/project/nested/private.rs", "rust", "secret", &[]);
+        assert!(plugin.run_command("save-context", &host.invocation(), None).is_err());
+        assert!(state::raw("/project").unwrap().is_none());
+        let host = host.with_capabilities(&["project.read", "storage"]);
+        assert!(plugin.run_command("save-context", &host.invocation(), None).is_err());
+        assert!(state::raw("/project").unwrap().is_none());
+    }
+
+    #[test]
+    fn active_task_status_is_available_with_multiple_projects() {
+        let host = MockHost::install().with_capabilities(&["project.read", "storage"]);
+        host.add_project("/other");
+        show_status("/project", &TaskList::new(0));
+        assert_eq!(host.status_items()[STATUS_ITEM].text, "Default task");
+    }
+
+    #[test]
     fn contexts_are_saved_loaded_and_removed_by_name() {
-        let host = MockHost::install().with_capabilities(&["project.read", "storage", "events"]);
+        let host = MockHost::install().with_capabilities(&["project.read", "storage", "events", "editor.read"]);
         let mut plugin = plugin(&host);
         plugin.handle_events(&[Event::FileOpened("/project/a.rs".into())], &host.invocation());
 
+        host.open_editor("/project/a.rs", "rust", "abc", &[]);
         host.answer_next_prompt(Some(&["login"]));
         plugin.run_command("save-context", &host.invocation(), None).unwrap();
         assert_eq!(load("/project").unwrap().contexts[0].files, ["/project/a.rs"]);
@@ -1475,10 +1535,11 @@ mod tests {
 
     #[test]
     fn dismissing_save_context_stores_nothing() {
-        let host = MockHost::install().with_capabilities(&["project.read", "storage", "events"]);
+        let host = MockHost::install().with_capabilities(&["project.read", "storage", "events", "editor.read"]);
         let mut plugin = plugin(&host);
         plugin.handle_events(&[Event::FileOpened("/project/a.rs".into())], &host.invocation());
 
+        host.open_editor("/project/a.rs", "rust", "abc", &[]);
         plugin.run_command("save-context", &host.invocation(), None).unwrap();
 
         assert!(load("/project").unwrap().contexts.is_empty());

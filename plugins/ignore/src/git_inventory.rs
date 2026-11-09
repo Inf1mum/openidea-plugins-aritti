@@ -168,7 +168,31 @@ fn owner(ctx: &Invocation) -> Result<(Project, String), Error> {
     if !valid_root(&root) || !host::projects()?.iter().any(|p|p.root().is_ok_and(|open|open==root)) { return Err(Error::Stale); }
     Ok((project, root))
 }
+pub(crate) struct PositiveSamples {
+    pub root: String,
+    pub paths: Vec<String>,
+    pub observed: usize,
+    scope: Scope,
+    at: Instant,
+}
+impl PositiveSamples {
+    pub fn validate(&self, project: &Project) -> Result<(), Error> {
+        if self.at.elapsed() >= TTL || scope(project)? != self.scope { return Err(Error::Stale); }
+        Ok(())
+    }
+}
 impl State {
+    pub(crate) fn positive_samples(&self, ctx: &Invocation) -> Result<PositiveSamples, Error> {
+        let (project, root) = owner(ctx)?;
+        if self.job.as_ref().is_some_and(|job| job.scope.root == root) { return Err(invalid("Wait for the explicit Git collection to finish first.")); }
+        let snapshot = self.snapshots.get(&root).ok_or_else(|| invalid("No scoped positive Git observations. Run the explicit collection first."))?;
+        if snapshot.state != "Partial" || snapshot.at.elapsed() >= TTL { return Err(Error::Stale); }
+        let proof = snapshot.scope.as_ref().ok_or_else(|| invalid("Only successful-exit scoped observations can publish hints; bounded/error samples stay review-only."))?;
+        let result = PositiveSamples { root, paths: snapshot.paths.iter().take(crate::file_hints::MAX_FILES).cloned().collect(), observed: snapshot.paths.len(), scope: proof.clone(), at: snapshot.at };
+        result.validate(&project)?;
+        Ok(result)
+    }
+
     pub fn start(&mut self, ctx: &Invocation) -> Result<Option<String>, Error> {
         let result =
             self.start_with(ctx, |cmd, project| host::start(cmd, Some(project)).map(|child| Box::new(child) as Box<dyn Process>))?;
@@ -836,6 +860,102 @@ mod tests {
             assert!(state.clear(&h.invocation()).is_err(),"{root}");
         }
         assert!(h.process_runs().is_empty()&&h.requests().is_empty());
+    }
+
+    fn hints_plugin(h: &MockHost, names: &[&str]) -> crate::IgnorePlugin {
+        for name in names { h.add_file(name, "owned"); }
+        let mut inventory=State::default();
+        let output=format!("discard\0{}",names.iter().map(|p|format!("{p}\0")).collect::<String>());
+        start(&mut inventory,h,vec![host::Chunk{stdout:output,status:Some(0),..Default::default()}]);
+        inventory.tick(); inventory.tick();
+        assert!(inventory.snapshots["/project"].scope.is_some());
+        let mut plugin=crate::IgnorePlugin{inventory,..Default::default()};
+        plugin.activate(&openidea_plugin::Context::default()).unwrap();
+        plugin
+    }
+    #[test]
+    fn full_plugin_hints_publish_only_successful_partial_positive_facts_without_a_process() {
+        let h=setup();let mut p=hints_plugin(&h,&["target/a.class","target/b.class"]);
+        let status=p.run_command("publish-git-sample-hints",&h.invocation(),None).unwrap().unwrap();
+        assert!(status.contains("2 historical positive") && status.contains("partial"));
+        let hints=h.file_decorations();assert_eq!(hints.len(),2);
+        assert!(hints.keys().all(|(_,path)|path.starts_with("/project/target/")));
+        for value in hints.values(){assert_eq!(value.style,"muted");assert_eq!(value.badge.as_deref(),Some("I"));let tip=value.tooltip.as_ref().unwrap();assert!(tip.contains("Historical")&&tip.contains("may be stale")&&tip.contains("Not current/effective Git status"));}
+        assert!(h.process_runs().is_empty());
+        p.run_command("clear-git-sample-hints",&h.invocation(),None).unwrap();assert!(h.file_decorations().is_empty());
+    }
+    #[test]
+    fn stale_unproven_running_or_failed_inventory_never_publishes_and_refresh_withdraws() {
+        for kind in 0..5 {
+            let h=setup();let mut p=hints_plugin(&h,&["target/a"]);
+            p.run_command("publish-git-sample-hints",&h.invocation(),None).unwrap();
+            match kind {
+                0 => p.inventory.snapshots.get_mut("/project").unwrap().at-=TTL,
+                1 => p.inventory.snapshots.get_mut("/project").unwrap().scope=None,
+                2 => p.inventory.invalidate("/project/anything"),
+                3 => p.inventory.failed("/project","failed later scan"),
+                _ => { start(&mut p.inventory,&h,vec![]); },
+            }
+            assert!(p.run_command("publish-git-sample-hints",&h.invocation(),None).is_err());
+            assert!(h.file_decorations().is_empty());
+        }
+    }
+    #[test]
+    fn revalidated_scope_changes_missing_paths_and_other_project_owners_are_quiet() {
+        for kind in 0..5 {
+            let h=setup();let mut p=hints_plugin(&h,&["target/a"]);
+            match kind {
+                0 => h.add_file(".gitignore","different/"),
+                1 => h.add_file(".git/HEAD","ref: refs/heads/other"),
+                2 => h.add_project("/project/target"),
+                3 => h.set_project_root(Some("/other")),
+                _ => {p.inventory.snapshots.get_mut("/project").unwrap().paths=vec!["missing".into()];},
+            }
+            let result=p.run_command("publish-git-sample-hints",&h.invocation(),None);
+            if kind<4 {assert!(result.is_err());} else {assert!(result.unwrap().unwrap().starts_with("0 historical"));}
+            assert!(h.file_decorations().is_empty());assert!(h.process_runs().is_empty());
+        }
+    }
+    #[test]
+    fn bounded_file_publication_and_changed_event_cleanup_preserve_other_plugin_features() {
+        let h=setup();let names:Vec<_>=(0..40).map(|i|format!("target/f{i:02}")).collect();let refs:Vec<_>=names.iter().map(String::as_str).collect();let mut p=hints_plugin(&h,&refs);
+        p.run_command("publish-git-sample-hints",&h.invocation(),None).unwrap();assert_eq!(h.file_decorations().len(),16);
+        p.handle_events(&[Event::FilesChanged(Default::default())],&h.invocation());assert!(h.file_decorations().is_empty());
+        p.run_command("publish-git-sample-hints",&h.invocation(),None).unwrap();
+        p.deactivate();assert!(h.file_decorations().is_empty());
+        assert!(p.run_command("publish-git-sample-hints",&h.invocation(),None).is_err());
+        p.activate(&openidea_plugin::Context::default()).unwrap();
+        p.run_command("publish-git-sample-hints",&h.invocation(),None).unwrap();
+        h.set_project_root(Some("/other"));p.handle_events(&[Event::EditorFocused(None)],&h.invocation());assert!(h.file_decorations().is_empty());
+        assert!(h.process_runs().is_empty());
+    }
+    #[test]
+    fn preferences_settings_activation_and_unavailable_events_withdraw_hints() {
+        use openidea_plugin::views::{Views,ViewEvent};
+        let h=setup();let mut p=hints_plugin(&h,&["target/a"]);
+        p.run_command("publish-git-sample-hints",&h.invocation(),None).unwrap();
+        let _=p.handle(crate::preferences::VIEW,ViewEvent::Select("foreign".into()),&h.invocation());
+        assert!(h.file_decorations().is_empty());
+        p.run_command("publish-git-sample-hints",&h.invocation(),None).unwrap();
+        p.handle_events(&[Event::Other{kind:"settings-changed".into(),data:"{}".into()}],&h.invocation());
+        assert!(h.file_decorations().is_empty());
+        p.run_command("publish-git-sample-hints",&h.invocation(),None).unwrap();
+        p.activate(&openidea_plugin::Context::default()).unwrap();assert!(h.file_decorations().is_empty());
+        p.file_hints.configure(false);
+        assert!(p.run_command("publish-git-sample-hints",&h.invocation(),None).is_err());
+        assert!(h.file_decorations().is_empty() && h.process_runs().is_empty());
+    }
+
+    #[test]
+    fn denied_vcs_or_absent_snapshot_clear_before_any_positive_publication() {
+        let h=setup();let mut p=hints_plugin(&h,&["target/a"]);
+        p.run_command("publish-git-sample-hints",&h.invocation(),None).unwrap();
+        let h=h.with_capabilities(&["project.read","events"]);
+        assert!(p.run_command("publish-git-sample-hints",&h.invocation(),None).is_err());
+        assert!(h.file_decorations().is_empty());
+        p.inventory.snapshots.clear();
+        assert!(p.run_command("publish-git-sample-hints",&h.invocation(),None).is_err());
+        assert!(h.file_decorations().is_empty() && h.process_runs().is_empty());
     }
 
 }

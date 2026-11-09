@@ -245,9 +245,11 @@ unverified for this slice.
 
 ## Run configurations
 
-Four configurations appear for a project with a `liquibase.properties` at its
-root: `status --verbose`, `validate`, `update-sql` (a preview that changes
-nothing) and `update` (writes to the database). They need:
+Three dynamic API 1.4 configurations appear for an owned open project with a
+root `liquibase.properties`: `status --verbose`, `validate` and `update-sql`.
+They use the project root as cwd and native Run Stop/Rerun. Database-writing
+update/rollback remain freshly reviewed terminal commands, outside native Rerun.
+The CLI resolves the effective target and credentials. These runs need:
 
 - the `liquibase` CLI on PATH;
 - the `process:liquibase` permission, granted in Settings › Plugins;

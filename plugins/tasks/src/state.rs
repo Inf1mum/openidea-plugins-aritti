@@ -99,6 +99,7 @@ fn validate(owner: &str, tasks: &TaskList) -> Result<(), Error> {
             || !names.insert(&c.name)
             || c.files.len() > 10
             || c.files.iter().any(|f| !owns(owner, f))
+            || c.selection.as_ref().is_some_and(|(path, range)| !c.files.contains(path) || range.start > range.end)
         {
             return Err(invalid("invalid or foreign context data."));
         }
@@ -196,7 +197,7 @@ mod tests {
             t.activate(&id, 100)?;
             t.active_mut().seconds_spent = 25;
             t.active_mut().files = vec!["/project/src/a.rs".into()];
-            t.contexts.push(crate::model::NamedContext { name: "Focus".into(), files: t.active().files.clone() });
+            t.contexts.push(crate::model::NamedContext { name: "Focus".into(), files: t.active().files.clone(), selection: None });
             t.choices.create_branch = false;
             Ok(())
         })

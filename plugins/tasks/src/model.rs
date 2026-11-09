@@ -127,6 +127,9 @@ pub struct TaskList {
 pub struct NamedContext {
     pub name: String,
     pub files: Vec<String>,
+    /// Selection of the active editor only; old records remain file-only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selection: Option<(String, openidea_plugin::Range)>,
 }
 
 impl TaskList {

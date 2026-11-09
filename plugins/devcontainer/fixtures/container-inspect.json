@@ -1,0 +1,30 @@
+[
+  {
+    "Id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "State": {
+      "Running": true,
+      "Paused": false,
+      "Restarting": false,
+      "Dead": false,
+      "StartedAt": "2026-11-09T00:00:00Z"
+    },
+    "Config": {
+      "User": "1000:1000",
+      "Labels": {
+        "devcontainer.local_folder": "/work/app",
+        "devcontainer.config_file": "/work/app/.devcontainer/devcontainer.json"
+      },
+      "Env": [
+        "DO_NOT_DISPLAY=synthetic"
+      ]
+    },
+    "Mounts": [
+      {
+        "Type": "bind",
+        "Source": "/work/app",
+        "Destination": "/workspace/app",
+        "RW": true
+      }
+    ]
+  }
+]

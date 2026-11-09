@@ -6,6 +6,7 @@ mod generated_changelog;
 mod execution_review;
 mod catalog;
 mod changelog;
+mod native_runs;
 mod checks;
 mod complete;
 mod file_actions;
@@ -841,7 +842,7 @@ impl openidea_plugin::hover::HoverProvider for Liquibase {
         self.live.hover(doc, at)
     }
 }
-openidea_plugin::register_plugin!(Liquibase, providers, views, indexing, diagnostics, hover, file_actions);
+openidea_plugin::register_plugin!(Liquibase, providers, views, indexing, diagnostics, hover, file_actions, run_configurations);
 
 #[cfg(test)]
 mod tests {

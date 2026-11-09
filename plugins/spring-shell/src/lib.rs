@@ -515,7 +515,8 @@ impl Providers for ShellTools {
 }
 
 impl Plugin for ShellTools {
-    fn run_command(&mut self, id: &str, _ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
+    fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
+        if id == "command-occurrences" { return command_rename::occurrences(ctx); }
         Err(Error::NotFound(format!("command {id}")))
     }
 }

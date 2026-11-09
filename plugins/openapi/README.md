@@ -65,7 +65,7 @@ The OpenAPI Endpoints view (right side) lists `METHOD /path` for every OpenAPI
 YAML or JSON file (up to 1 MiB) of the current window's project, with the operationId and file name as
 detail. Activating an entry opens the operation. Refresh re-scans the project.
 
-It is the shared route list: a flat list: a method icon (GET, POST, PUT, DELETE, PATCH, other), the path, and grey text with the operationId after it. *Filter* narrows the list to one tag (the status line says which), *Clear* restores it, and *Flat/Tree* groups the rows by tag. Row actions: *Copy as curl* and *Create HTTP Request File* (writes `http/<verb>-<path>.http`, needs `process:tee`; without it the request is copied). Limits: the grey text follows the path rather than sitting in a column, there is no request panel beside the list, and no gutter icon on the handler; these wait on upstream OpenIDEA requests. The HTTP file is written beside the spec.
+It is the shared route list: a flat list: a method icon (GET, POST, PUT, DELETE, PATCH, other), the path, and grey text with the operationId after it. *Filter* narrows the list to one tag (the status line says which), *Clear* restores it, and *Flat/Tree* groups the rows by tag. Row actions: *Copy as curl* and *Create HTTP Request File* (writes `http/<verb>-<path>.http`, needs `project.write`; without it the request is copied). Limits: the grey text follows the path rather than sitting in a column, there is no request panel beside the list, and no gutter icon on the handler; these wait on upstream OpenIDEA requests. The HTTP file is written beside the spec.
 
 ## Preview
 
@@ -90,7 +90,7 @@ referenced files again (not verified in a live IDE).
 
 The command "OpenAPI: Write Requests for the HTTP Client" writes one request per
 operation of the focused file to `<name>.http` beside it and opens it (it asks before
-replacing an existing file). Writing needs the optional `tee` permission; without it the
+replacing an existing file). Writing needs the optional `project.write` permission; without it the
 requests are copied to the clipboard. The base URL comes from
 `servers[0].url` (OpenAPI 3) or `schemes`, `host` and `basePath` (Swagger 2), and
 defaults to `http://localhost`. Path parameters become `{{name}}` variables.
@@ -123,7 +123,7 @@ completes the name only, outside quotes it inserts `"name": `, and enum values a
   a generated name (`ListPetsResponse`, `Owner`; a number is appended when taken) and is replaced by a
   `$ref`. Rename the new schema afterwards.
 - "OpenAPI: Write Self-Contained Spec" writes `<name>.bundled.<ext>` beside the file (clipboard without the
-  optional `tee` permission) with every `$ref` to another file replaced by a pointer
+  optional `project.write` permission) with every `$ref` to another file replaced by a pointer
   into `components` and the referenced objects copied there (including what they reference, recursively;
   a recursive reference is copied once). A YAML spec bundles YAML files (target a block mapping), a JSON spec
   bundles JSON files; mixing them is refused. An object that is not under `/components/<section>/` lands in `schemas`.
@@ -468,3 +468,7 @@ unsupported source forms and pointers over 4096 bytes leave the clipboard alone.
 Source proof keeps its 512 KiB/8192-node/48-depth/4 MiB path bounds. This static
 command can construct array/encoded references; navigation retains its narrower
 supported target subset. No complete usages or Rename graph is established.
+
+## Unreleased follow-up
+
+Use **OpenAPI: Find Component Occurrences in This Document** on a component key or local `$ref`. The picker includes the declaration and exact local references, including references into that component. External incoming references and global Rename are outside this command.

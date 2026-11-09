@@ -1,0 +1,6 @@
+.choice-matrix-scroll{overflow:auto;padding:8px;margin:-8px}
+.choice-matrix{border-collapse:separate;border-spacing:0;width:100%;min-width:680px;text-align:left;font:500 13px/16px var(--ui-font)}
+.choice-matrix th,.choice-matrix td{padding:12px 16px;border-bottom:1px solid var(--ui-separator)}
+.choice-matrix th{font-weight:600}.choice-matrix td{overflow:visible}
+.choice-matrix .ui-check{margin:0;white-space:nowrap}
+.choice-matrix .ui-choice-control{overflow:visible}

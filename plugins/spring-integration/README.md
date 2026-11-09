@@ -619,3 +619,7 @@ Before navigation it rechecks the current editor's exact path/version/text,
 project owner and model. Cancellation or stale/unsupported context opens nothing
 and never edits source. Job/channel/module and cross-file usages, effective
 contexts and global indexed Find Usages/Rename remain partial or absent.
+
+## Unreleased follow-up
+
+On a channel ID or bridge reference in a simple XML channel/bridge document, choose **Rename literal channel in this document…**. The action validates a unique new name and shows the complete before/after document before returning edits. Imports, profiles, nested endpoints and competing registrations are excluded.

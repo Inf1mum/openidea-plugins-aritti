@@ -1,5 +1,13 @@
 # Gap audit: IntelliJ originals against our plugins (2026-11-06)
 
+**API 1.4 released (v0.1.40, 2026-11-09):** [Current blocker requalification](parity-2026-11-08-refresh/api14-release-requalification/README.md). Previously main-only opportunities are now released; canonical SDK13 packages and dated validation receipts remain unchanged. All 16 partial tasks still require implementation, adoption or validation.
+
+**Update 2026-11-08:** all 230 originally blocked rows have now been
+[reclassified against API 1.3](audit-gaps-2026-11-06/reclass-api-1.3.md).
+The detail tables and totals below use the new classes. Implementation status
+(the Ours column and Done sections) remains the historical snapshot; API
+availability does not mean a feature has been built or verified in the IDE.
+
 What each IntelliJ plugin offers that ours does not, and whether the gap can be closed with the current OpenIDEA plugin API. It extends [audit-2026-11-06.md](audit-2026-11-06.md), which compared names only. This pass builds a feature inventory of each original and compares it row by row with the code on `main` at `c2c083d`.
 
 Detail per pair (every gap row, with evidence from our code and the feasibility basis) is in `docs/audit-gaps-2026-11-06/`:
@@ -12,50 +20,67 @@ Detail per pair (every gap row, with evidence from our code and the feasibility 
 3. Five research agents compared each pair with our code and recorded Done, Partial or Missing for every original feature, with evidence (a problem code, command id, template file, provider kind or README line).
 4. Each Partial or Missing row got a class: **F** feasible with the current API; **F\*** feasible with a named risk (unverified in the IDE, false positives from invisible library beans, load cost); **B** blocked by a missing API (Track U items in `api-facts.md`).
 
-## Totals
+## Totals (API 1.3 reclassification, 2026-11-08)
 
-Counted as table rows: one row may group several near-identical original features (for example twelve Spring cache inspections), so rows are not features. The agents also counted per original feature in each file's own summary; those counts differ and are not comparable across files.
+Every originally B row in the five source tables was reviewed against upstream
+main `0bfd4fa3ccbd` (v0.1.39 / API 1.3). **10 become F, 65 become F*, and 155
+remain B**. Existing F/F* rows were not re-audited. Full per-row decisions,
+original blocker evidence and API references are in the
+[decision ledger](audit-gaps-2026-11-06/reclass-api-1.3.md).
 
-| Pair | F | F\* | B | Rows |
-|---|---|---|---|---|
-| Spring core -> `spring-beans` (+ `spring-boot`) | 17 | 21 | 18 | 56 |
-| Spring OSGi -> `spring-osgi` | 2 | 3 | 5 | 10 |
-| Spring Boot -> `spring-boot` | 4 | 9 | 10 | 23 |
-| Spring Data -> `spring-data` | 4 | 8 | 5 | 17 |
-| Spring MVC -> `spring-web` | 3 | 9 | 4 | 16 |
-| Spring Security -> `spring-security` | 1 | 4 | 2 | 7 |
-| Spring Cloud -> `spring-cloud` | 0 | 5 | 1 | 6 |
-| Spring GraphQL -> `spring-graphql` | 1 | 2 | 0 | 3 |
-| Spring Messaging -> `spring-messaging` | 0 | 3 | 0 | 3 |
-| Spring Batch -> `spring-batch` | 0 | 2 | 1 | 3 |
-| Spring WebSocket -> `spring-websocket` | 1 | 1 | 0 | 2 |
-| Spring Debugger -> `spring-runtime` | 0 | 1 | 7 | 8 |
-| Spring Initializr -> `spring-initializr` | 0 | 1 | 1 | 2 |
-| Kubernetes -> `kube-explorer` | 9 | 25 | 22 | 56 |
-| Flyway -> `flyway` | 1 | 3 | 6 | 10 |
-| Liquibase -> `liquibase` | 0 | 6 | 10 | 16 |
-| OpenAPI/Swagger -> `openapi` | 5 | 9 | 15 | 29 |
-| Dev Containers -> `devcontainer` | 2 | 3 | 6 | 11 |
-| JPA -> `jpa-assist` | 7 | 12 | 13 | 32 |
-| Symfony Plugin -> `symfony` | 19 | 35 | 23 | 77 |
-| Twig -> `twig` | 0 | 4 | 4 | 8 |
-| Blade -> `blade` | 1 | 1 | 6 | 8 |
-| Laravel Idea -> `laravel` (+ `blade`) | 8 | 14 | 15 | 37 |
-| Free Laravel plugin -> `laravel` | 1 | 3 | 3 | 7 |
-| .ignore -> `ignore` | 1 | 3 | 7 | 11 |
-| Properties -> `properties` | 1 | 3 | 7 | 11 |
-| Ideolog -> `ideolog` | 0 | 3 | 7 | 10 |
-| Quarkus Tools -> `quarkus` | 0 | 8 | 10 | 18 |
-| GitLab -> `gitlab` | 7 | 6 | 10 | 23 |
-| Issue Trackers -> `tasks` | 0 | 3 | 9 | 12 |
-| dotenv -> `dotenv` | 0 | 0 | 3 | 3 |
-| **Total** | **95** | **210** | **230** | **535** |
+The source tables contain **537 classified rows**, rather than the previously
+reported 535: Symfony has 80 rather than 77, and Laravel Idea has 36 rather
+than 37. Their actual original classes total 99 F / 208 F* / 230 B. The table
+below counts those actual rows after reclassification, not original feature
+counts or completed work. Historical per-feature summaries in the detail files
+are explicitly marked as such.
 
-Reading the totals:
-- Of 535 gap rows, 18% are feasible today (F), 39% are feasible with a risk (F\*), 43% are blocked by a missing API (B).
-- Most B rows trace to the same upstream items: Java and PHP type resolution (U4) for the Spring and Eloquent type checks; file creation and input dialogs (U2, U5) for generators, wizards and `make:*` commands; references and rename (U1); language injection; and the lack of streaming, decorations and caret control.
-- Most F\* rows are inspections that depend on beans, classes or keys the plugin cannot see (library and auto-configured beans, vendor bundles), so they need a quiet-unless-sure design, and templates, intentions and providers whose behaviour in the IDE is unverified.
-- Where the gap is widest in volume: Spring core (56 rows, 64 original inspections against 10 of ours), Symfony (77 rows, mostly inspections), Kubernetes (56 rows, mostly actions and live templates), JPA (32 rows) and Laravel Idea (37 rows).
+| Pair | F | F* | B | Rows |
+| --- | ---: | ---: | ---: | ---: |
+| Spring core (20221) -> `spring-beans` (+ `spring-boot`, `crates/spring-text`) | 17 | 27 | 12 | 56 |
+| Spring OSGi (16877) -> `spring-osgi` | 2 | 4 | 4 | 10 |
+| Spring Boot -> spring-boot | 4 | 13 | 6 | 23 |
+| Spring Data -> spring-data | 4 | 9 | 4 | 17 |
+| Spring MVC -> spring-web | 3 | 11 | 2 | 16 |
+| Spring Security -> spring-security | 1 | 5 | 1 | 7 |
+| Spring Cloud -> spring-cloud | 0 | 5 | 1 | 6 |
+| Spring GraphQL -> spring-graphql | 1 | 2 | 0 | 3 |
+| Spring Messaging -> spring-messaging | 0 | 3 | 0 | 3 |
+| Spring Batch -> spring-batch | 0 | 2 | 1 | 3 |
+| Spring WebSocket -> spring-websocket | 1 | 1 | 0 | 2 |
+| Spring Debugger -> spring-runtime | 0 | 2 | 6 | 8 |
+| Spring Initializr -> spring-initializr | 0 | 2 | 0 | 2 |
+| Kubernetes (10485) -> kube-explorer | 10 | 34 | 12 | 56 |
+| Flyway (23740) -> flyway | 1 | 5 | 4 | 10 |
+| Liquibase (23741) -> liquibase | 1 | 9 | 6 | 16 |
+| OpenAPI/Swagger (14394) -> openapi | 7 | 14 | 8 | 29 |
+| Dev Containers (21962) -> devcontainer | 2 | 5 | 4 | 11 |
+| JPA (20202) -> jpa-assist | 7 | 14 | 11 | 32 |
+| Symfony Plugin (7219) -> `aritti.symfony` | 24 | 39 | 17 | 80 |
+| Twig (7303, proprietary) -> `aritti.twig` | 0 | 5 | 3 | 8 |
+| Blade (7569, proprietary) -> `aritti.blade` | 2 | 2 | 4 | 8 |
+| Laravel Idea (13441, paid) -> `aritti.laravel` (+ `aritti.blade`) | 8 | 19 | 9 | 36 |
+| Laravel (free plugin `de.espend.idea.laravel` 0.15.4, MIT) -> `aritti.laravel` | 1 | 4 | 2 | 7 |
+| .ignore (7495) -> ignore | 2 | 5 | 4 | 11 |
+| Properties (11594) -> properties | 2 | 4 | 5 | 11 |
+| Ideolog (9746) -> ideolog | 0 | 5 | 5 | 10 |
+| Quarkus Tools (13234) -> quarkus | 1 | 11 | 6 | 18 |
+| GitLab (22857) -> gitlab | 8 | 7 | 8 | 23 |
+| Issue Trackers (11545) -> tasks | 0 | 4 | 8 | 12 |
+| dotenv (public source the public source) -> dotenv | 0 | 1 | 2 | 3 |
+| **Total** | **109** | **273** | **155** | **537** |
+
+- **75 of the 230 originally blocked rows are now feasible** (some through
+  APIs already available in 1.2, others through 1.3 or a plugin-owned UI).
+- Current classes are **109 F, 273 F*, 155 B**. Roughly 29% of classified rows
+  remain blocked; this is not a percentage of unfinished implementation work.
+- New feasible work includes atomic file generators/refactorings, indexed
+  usage search and rename, hover, inlays, managed processes/logs, metadata
+  archive reads, and custom diagrams/resource workflows in packaged web views.
+- Remaining blockers include semantic types, injection, native database/debugger
+  and project/run models, folding/selection/decorations, native console hooks,
+  and fixed network grants. Grouped rows remain B when any required integration
+  is missing; the ledger identifies the feasible portions.
 
 ## Done
 

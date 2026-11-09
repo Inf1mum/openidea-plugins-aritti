@@ -418,3 +418,129 @@ mod tests {
         assert_eq!(imports, [("PostController".to_owned(), "App\\Http\\Controllers".to_owned())]);
     }
 }
+
+/// Literal application mounts. `Some` is authoritative even when empty: an
+/// unsupported/dynamic mount must not turn into an invented root-level route.
+pub fn application_mounts(bootstrap: &str, provider: &str) -> Option<std::collections::BTreeMap<String, String>> {
+    use std::collections::BTreeMap;
+    fn path(text: &str, r: Range<usize>, dir: &str) -> Option<String> {
+        let r = php::trimmed(text, r);
+        let code = &text[r.clone()];
+        let value = if let Some(rest) = code.strip_prefix("__DIR__") {
+            let tail = rest.trim_start().strip_prefix('.')?.trim();
+            let (value, _) = php::literal(tail, 0..tail.len())?;
+            if tail != format!("'{value}'") && tail != format!("\"{value}\"") { return None; }
+            format!("{dir}/{value}")
+        } else if code.starts_with("base_path(") {
+            let close = php::closing(code, 9)?;
+            if close + 1 != code.len() { return None; }
+            let args = php::split(code, 10..close);
+            if args.len() != 1 { return None; }
+            let raw = code[args[0].clone()].trim();
+            let (value, _) = php::literal(raw, 0..raw.len())?;
+            if raw != format!("'{value}'") && raw != format!("\"{value}\"") { return None; }
+            value.into()
+        } else { return None; };
+        if value.contains(['\\', '$', '\0', ':']) { return None; }
+        let mut parts = Vec::new();
+        for part in value.split('/') {
+            match part { "" | "." => {}, ".." => { parts.pop()?; }, other => parts.push(other) }
+        }
+        let result = parts.join("/");
+        (result.starts_with("routes/") && result.ends_with(".php")).then_some(result)
+    }
+    fn literal(text: &str, r: Range<usize>) -> Option<String> {
+        let raw = text[r].trim();
+        let (v, _) = php::literal(raw, 0..raw.len())?;
+        ((raw == format!("'{v}'") || raw == format!("\"{v}\"")) && !v.contains(['\\', '$', '?', '#']) && !v.chars().any(char::is_control)).then(|| v.trim_matches('/').to_owned())
+    }
+    if bootstrap.len() > 128 << 10 || provider.len() > 128 << 10 { return Some(BTreeMap::new()); }
+    let b = php::mask_comments(bootstrap);
+    // Only inspect executable call sites, never quoted examples/comments.
+    let mut at = 0;
+    let mut calls = Vec::new();
+    while at < b.len() {
+        if matches!(b.as_bytes()[at], b'\'' | b'"') { at = php::string_end(b.as_bytes(), at); continue; }
+        if b[at..].starts_with("->withRouting(") {
+            let open = at + "->withRouting".len();
+            let Some(close) = php::closing(&b, open) else { return Some(BTreeMap::new()) };
+            calls.push((open, close)); at = close + 1;
+        } else { at += b[at..].chars().next().unwrap().len_utf8(); }
+    }
+    if !calls.is_empty() {
+        let mut mounts = BTreeMap::new();
+        if calls.len() != 1 { return Some(mounts); }
+        let (open, close) = calls[0];
+        let mut args = BTreeMap::new();
+        for r in php::split(&b, open + 1..close) {
+            let Some(colon) = b[r.clone()].find(':') else { return Some(BTreeMap::new()) };
+            let key = b[r.start..r.start+colon].trim();
+            if args.insert(key, r.start+colon+1..r.end).is_some() { return Some(BTreeMap::new()); }
+        }
+        if args.contains_key("using") || args.contains_key("then") { return Some(mounts); }
+        for key in ["web", "api"] {
+            let Some(r) = args.get(key) else { continue };
+            let Some(file) = path(&b, r.clone(), "bootstrap") else { continue };
+            let prefix = if key == "api" {
+                match args.get("apiPrefix") { Some(r) => literal(&b, r.clone()), None => Some("api".into()) }
+            } else { Some(String::new()) };
+            if let Some(prefix) = prefix { mounts.insert(file, prefix); }
+        }
+        return Some(mounts);
+    }
+    let p = php::mask_comments(provider);
+    if p.trim().is_empty() { return None; }
+    let mut mounts = BTreeMap::new();
+    let mut executable = std::collections::BTreeSet::new();
+    let mut at = 0;
+    while at < p.len() {
+        if matches!(p.as_bytes()[at], b'\'' | b'"') { at = php::string_end(p.as_bytes(), at); continue; }
+        if p[at..].starts_with("Route::") { executable.insert(at); }
+        at += p[at..].chars().next().unwrap().len_utf8();
+    }
+    let legacy_chains: Vec<_> = chains(&p).into_iter().filter(|c| executable.contains(&c.start)).collect();
+    let outer_regions: Vec<_> = legacy_chains.iter().filter_map(|c| region_of(&p,c)).collect();
+    for chain in legacy_chains {
+        if outer_regions.iter().any(|r| r.body.contains(&chain.start)) { continue; }
+        let Some(group) = chain.segments.iter().find(|s| s.name == "group") else { continue };
+        if group.args.len() != 1 { continue; }
+        let Some(file) = path(&p, group.args[0].clone(), "app/Providers") else { continue };
+        // Nested closure mounts require composing outer scopes; refuse here.
+        if chain.segments.iter().any(|s| s.name == "namespace" || s.name == "domain") { continue; }
+        let prefixes: Vec<_> = chain.segments.iter().filter(|s| s.name == "prefix").collect();
+        let prefix = match prefixes.as_slice() {
+            [] => Some(String::new()),
+            [s] if s.args.len() == 1 => literal(&p, s.args[0].clone()),
+            _ => None,
+        };
+        if let Some(prefix) = prefix {
+            if mounts.insert(file, prefix).is_some() { return Some(BTreeMap::new()); }
+        }
+    }
+    Some(mounts)
+}
+
+#[cfg(test)]
+mod mount_tests {
+    use super::*;
+    #[test]
+    fn modern_mounts_and_unknowns() {
+        let source = "<?php return Application::configure()->withRouting(web: __DIR__.'/../routes/web.php', api: __DIR__.'/../routes/api.php');";
+        let m = application_mounts(source, "").unwrap();
+        assert_eq!(m.get("routes/api.php").map(String::as_str), Some("api"));
+        assert_eq!(m.get("routes/web.php").map(String::as_str), Some(""));
+        for prefix in ["'v2'", "''", "$prefix", "'v2' . suffix()"] {
+            let s = format!("<?php Application::configure()->withRouting(api: __DIR__.'/../routes/api.php', apiPrefix: {prefix});");
+            let m = application_mounts(&s, "").unwrap();
+            assert_eq!(m.get("routes/api.php").map(String::as_str), match prefix { "'v2'" => Some("v2"), "''" => Some(""), _ => None });
+        }
+        assert!(application_mounts("<?php // ->withRouting(api: x)\n $x='->withRouting(api: x)';", "").is_none());
+        assert!(application_mounts("<?php $a->withRouting(using: fn()=>1, api: __DIR__.'/../routes/api.php');", "").unwrap().is_empty());
+    }
+    #[test]
+    fn legacy_literal_mounts() {
+        let m = application_mounts("", "<?php Route::middleware('api')->prefix('api')->group(base_path('routes/api.php')); Route::middleware('web')->group(base_path('routes/web.php'));").unwrap();
+        assert_eq!(m.get("routes/api.php").map(String::as_str), Some("api"));
+        assert_eq!(m.get("routes/web.php").map(String::as_str), Some(""));
+    }
+}

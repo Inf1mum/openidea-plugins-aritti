@@ -598,6 +598,7 @@ fn missing_translation(index: &Index, name: &str) -> bool {
 
 #[derive(Default)]
 pub struct Main {
+    artisan_terminals: generate::Terminals,
     view_extractions:view_extract::State,
     request_creations:request_creation::State,
     request_promotions:request_promotion::State,
@@ -720,11 +721,11 @@ impl Main {
                 if index.is_some_and(|i| !i.livewire.is_empty()) {
                     composer.push_str("\"livewire/livewire\"");
                 }
-                generate::make(ctx, index, None, &composer)
+                generate::make(&self.artisan_terminals, ctx, index, None, &composer)
             }
-            "new-model" => generate::make(ctx, index, Some("model"), ""),
-            "generate-for-model" => generate::for_model(ctx, index),
-            _ => generate::create_missing(ctx, index),
+            "new-model" => generate::make(&self.artisan_terminals, ctx, index, Some("model"), ""),
+            "generate-for-model" => generate::for_model(&self.artisan_terminals, ctx, index),
+            _ => generate::create_missing(&self.artisan_terminals, ctx, index),
         }
     }
 
@@ -793,7 +794,7 @@ impl Main {
 
 impl Plugin for Main {
     fn activate(&mut self, _ctx: &Context) -> Result<(), Error> {
-        for kind in [EventKind::FileSaved, EventKind::FileOpened] {
+        for kind in [EventKind::FileSaved, EventKind::FileOpened, EventKind::TerminalExited] {
             host::subscribe(kind)?;
         }
         host::subscribe_paths("files-changed", &["**/*.php", "**/*.json", ".env*", "resources/**/*"])?;
@@ -846,7 +847,7 @@ impl Plugin for Main {
                 self.artisan(ctx, "migrate:fresh")
             }
             "unused-views" => self.unused_views(ctx),
-            "artisan-run" => generate::run_artisan(ctx),
+            "artisan-run" => generate::run_artisan(&self.artisan_terminals, ctx),
             "artisan-refresh-metadata" => artisan_metadata::refresh(ctx),
             "artisan-refresh-docker-metadata" => artisan_docker::refresh(ctx),
             "artisan-browse-docker-metadata" => artisan_docker::browse(ctx),
@@ -860,14 +861,22 @@ impl Plugin for Main {
                 Ok(None)
             }
             "route-list" => {
-                host::open_terminal("artisan route:list", "php", &["artisan".to_owned(), "route:list".to_owned()])?;
+                generate::run(&self.artisan_terminals, ctx, "route:list", Vec::new())?;
                 Ok(None)
             }
             _ => Err(Error::NotFound(format!("command {id}"))),
         }
     }
 
-    fn handle_events(&mut self, events: &[Event], _ctx: &Invocation) {
+    fn handle_events(&mut self, events: &[Event], ctx: &Invocation) {
+        for event in events {
+            if let Some(exit) = event.terminal_exited()
+                && let Some(root) = self.artisan_terminals.complete(&exit, ctx)
+                && let Some(project) = host::projects().unwrap_or_default().into_iter().find(|p|p.root().ok().as_deref()==Some(&root)) {
+                self.index_project(&project);
+                refresh_laravel();
+            }
+        }
         let mut saved: BTreeSet<&str> = BTreeSet::new();
         let mut opened: BTreeSet<&str> = BTreeSet::new();
 
@@ -1722,6 +1731,19 @@ impl openidea_plugin::endpoints::EndpointsProvider for Main {
         for (route, entry) in routes.iter_mut().zip(&index.route_defs) {
             route.method = entry.def.methods.clone();
         }
-        Ok(ui_kit::routes::endpoints(&routes, "Laravel"))
+        let mut endpoints = Vec::new();
+        for (mut route, entry) in routes.into_iter().zip(&index.route_defs) {
+            let Some(uri) = &entry.endpoint_uri else { continue };
+            route.path = uri.clone();
+            let mut published = ui_kit::routes::endpoints(&[route], "Laravel");
+            for endpoint in &mut published {
+                endpoint.handler = Some(match &entry.def.controller {
+                    Some((class, method)) => format!("{class}@{method}"),
+                    None => entry.def.action.clone(),
+                });
+            }
+            endpoints.extend(published);
+        }
+        Ok(endpoints)
     }
 }

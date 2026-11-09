@@ -174,6 +174,7 @@ impl State {
                     }));
                 }
             }
+            if setting("checkAttributeTypes") { findings.extend(crate::local_versions::findings(doc)); }
             findings.extend(crate::local_graph::findings(doc));
             findings.extend(crate::local_listener::findings(doc));
             findings.extend(crate::local_listener::callback_findings(doc));

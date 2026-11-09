@@ -98,7 +98,7 @@ and `@` inside `{{ }}` are left alone. Directives registered by vendor packages 
 
 The _Laravel_ tool window has two sections, switched by buttons. _Routes_ (the default) is the route list described below; _Index_ lists views, config keys, translations, middleware and env keys; double-click opens the definition.
 
-The route list is a flat list: a method icon (GET, POST, PUT, DELETE, PATCH, other), the path, and grey text with `[METHOD] Controller` after it. *Filter* narrows the list to one controller (the status line says which), *Clear* restores it, and *Flat/Tree* groups the rows by controller. Row actions: *Copy as curl* and *Create HTTP Request File* (writes `http/<verb>-<path>.http`, needs `process:tee`; without it the request is copied). Limits: the grey text follows the path rather than sitting in a column, there is no request panel beside the list, and no gutter icon on the handler; these wait on upstream OpenIDEA requests.
+The route list is a flat list: a method icon (GET, POST, PUT, DELETE, PATCH, other), the path, and grey text with `[METHOD] Controller` after it. *Filter* narrows the list to one controller (the status line says which), *Clear* restores it, and *Flat/Tree* groups the rows by controller. Row actions: *Copy as curl* and *Create HTTP Request File* (writes `http/<verb>-<path>.http`, needs `project.write`; without it the request is copied). Limits: the grey text follows the path rather than sitting in a column, there is no request panel beside the list, and no gutter icon on the handler; these wait on upstream OpenIDEA requests.
 
  Commands, all under the _Laravel_ category: Reindex Project, Clear
 All Caches (`optimize:clear`), Clear Application / Config / Route Cache,
@@ -212,20 +212,20 @@ check quiet. None of the five checks reports while the index is partial (the
   missing columns to $fillable". Both need a multi-line or empty array.
 - Removing the `@property`/`@method`/`@mixin` lines that IDE helper writes above a model
   class: "Remove IDE helper PHPDoc from model" at the class or its docblock, or
-  _Laravel: Remove IDE Helper PHPDoc from Models_ for every model (or the models
-  selected in the Project view; needs the optional `process:tee` capability).
+  the native editor action _Remove IDE helper PHPDoc from indexed models_ for up to 256 indexed models. It rechecks current owned sources after review and returns one atomic, undoable workspace edit. The legacy command points to this editor action; Project-view selection is no longer a bulk-cleanup scope.
 
 ## Generators
 
 Commands under the _Laravel_ category ask for names and options in dialogs,
-then run `php artisan` in a terminal (optional `process:php` capability):
+then run `php artisan` in a native keyed terminal session (optional `process:php` capability). Each launch has its own operation key. A matching successful exit refreshes only the currently owned project index; failed, closed, foreign and duplicate completions do not trigger refresh. The existing file watcher remains active, and plugin reload loses pending callback tracking. These are interactive terminal operations, not persisted Run configurations:
+
 _Run Artisan Command..._ (cached explicitly discovered runtime commands, or
 clearly labeled bundled static choices without executing discovery), _Generate with artisan make..._ (30 `make:*` generators with
 their flags, for example `--resource`, `--api`, `--requests`, `--inline`; the
 Livewire one only when Livewire is installed), _New Eloquent Model..._ (with
 `-m -f -s -c --policy --all`), _Generate for Model..._ (policy, observer,
 factory, resource or controller with `--model`; right-click a model file in the
-Project view to skip the model pick; with `process:tee` allowed the factory and
+Project view to skip the model pick; with `project.write` allowed the factory and
 the JSON resource are written with the model's migration columns in them,
 otherwise artisan makes the empty stub) and _Create Missing View, Component or
 Controller_ (editor context menu, from the name under the caret; also a Job,
@@ -233,8 +233,7 @@ Mail, Event, Notification, Listener, Policy, Request, Resource... class named by
 `new X` or `X::class` that no file defines). Nova, Filament and Livewire form
 generators appear when `composer.json` requires `laravel/nova`, `filament/filament`
 or `livewire/livewire`. Names are validated before they reach the command line.
-The remaining legacy generators use Artisan or `tee`; API 1.3 FileActions now
-provide the undoable literal missing-view subset described below. _Laravel: Show Laravel Tool Window_ brings the tool
+Command generators use native project writes or Artisan; native project writes refuse unsaved buffers and preserve encoding, but do not provide workspace undo or atomic create-if-absent. FileActions provide undoable PHPDoc cleanup and the literal missing-view subset described below. _Laravel: Show Laravel Tool Window_ brings the tool
 window forward; right-click a group in it for _Reindex_.
 
 ## New file templates
@@ -837,3 +836,7 @@ A bounded **Promote literal validation to reviewed FormRequest…** refactoring 
 Place the caret inside a plain closed route, view, config or translation literal and run **Laravel: Find Literal Source Matches… (Read-only)**. The explicit command scans conventional app, routes, resources/views, config, lang, resources/lang and src PHP/Blade sources plus the current document. It shows matching literal spellings of the same kind with relative file/line/UTF-16 column labels. Choosing a result rechecks its current project owner and exact source text before opening it. No files are edited and no PHP, Artisan, process or network request runs. Providers do not start this scan.
 
 These are source candidates, not semantic usages or Rename. Custom source roots, effective registrations/overrides and complete unsaved-buffer coverage remain unresolved. Comments, opaque Blade/PHP regions, dynamic/escaped strings, hidden/known ignored paths and sources outside the current innermost project are withheld. The active editor's current text is included; other files use the host's project read result. Unreadable/oversize/unresolved-owner sources mark results incomplete. Discovery over2048paths,8MiB total source or512matches aborts instead of reporting a complete result; individual sources are bounded128KiB. A source or query changed while the chooser is open must be rescanned. No definition/reference anchors are added to the host Rename graph.
+
+## Unreleased follow-up
+
+Search Everywhere endpoints now compose route-file paths with literal `withRouting` API prefixes (including custom and empty prefixes), or literal `RouteServiceProvider` mounts. Routing configuration changes refresh the index. Unsupported dynamic and unmounted API routes are omitted; Artisan is never run by the endpoint provider.

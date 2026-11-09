@@ -89,13 +89,19 @@ impl Plugin for Ideolog {
         self.config();
         Ok(())
     }
+    fn deactivate(&mut self) {
+        let _ = host::clear_decorations(semantic::DECORATION_SET);
+    }
     fn handle_events(&mut self, events: &[HostEvent], ctx: &Invocation) {
+        if !events.is_empty() { let _ = host::clear_decorations(semantic::DECORATION_SET); }
         if events.iter().any(|e| matches!(e, HostEvent::EditorFocused(_) | HostEvent::FileOpened(_))) {
             self.show_format(ctx);
         }
     }
 
     fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
+        if id == "mark-log-source" { semantic::mark(self, ctx)?; return Ok(None); }
+        if id == "clear-log-source" { host::clear_decorations(semantic::DECORATION_SET)?; return Ok(None); }
         if id == "capture-log" {self.capture_log(ctx)?;return Ok(None);}
         if id == "log-snapshot" {host::reveal_view(viewer::VIEW)?;return Ok(None);}
         if id == "patterns" {

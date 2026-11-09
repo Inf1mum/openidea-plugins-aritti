@@ -226,6 +226,7 @@ pub(super) fn validate(project: &Project, root: &str, doc: &Document, name: &str
 }
 impl FileActions for Main {
     fn file_actions(&mut self, doc: &Document, selection: Range) -> Vec<FileAction> {
+        let bulk=crate::bulk::actions(self,doc);if !bulk.is_empty(){return bulk;}
         let promotion=crate::request_promotion::actions(self,doc,selection);if !promotion.is_empty(){return promotion;}
         let request=crate::request_creation::actions(self,doc,selection);if !request.is_empty(){return request;}
         let extraction=crate::view_extract::actions(self,doc,selection);if !extraction.is_empty(){return extraction;}
@@ -259,6 +260,7 @@ impl FileActions for Main {
         }]
     }
     fn resolve_file_action(&mut self, doc: &Document, action: FileAction) -> Result<FileAction, Error> {
+        if action.data.as_deref().is_some_and(|key|key.starts_with("bulk-phpdocs:")){return crate::bulk::resolve(self,doc,action);}
         if action.data.as_deref().is_some_and(|key|key.starts_with("request-promote:")){return crate::request_promotion::resolve(self,doc,action);}
         if action.data.as_deref().is_some_and(|key|key.starts_with("request-create:")){return crate::request_creation::resolve(self,doc,action);}
         if action.data.as_deref().is_some_and(|key|key.starts_with("extract-view:")){return crate::view_extract::resolve(self,doc,action);}

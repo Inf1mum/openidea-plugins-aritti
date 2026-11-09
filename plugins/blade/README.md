@@ -138,3 +138,7 @@ not published PHP symbols or Rename anchors.
 Section, push and prepend share one source-local role check across help, diagnostics, outline/folds and closing-token navigation. An ordinary literal name with one positional argument captures. With two admitted positional arguments, section captures for literal null and is inline for an ordinary string; push/prepend capture for an empty string and are inline for a nonempty string or null. Comments around arguments preserve source ranges. Dynamic, named, unpacked, escaped or interpolated forms have unknown roles; subsequent inferred block relationships and absence diagnostics stop at that boundary. Other directive families retain their separate static syntax rules. No PHP values or framework runtime are evaluated.
 
 Malformed argument recovery shares a per-document linear scan budget (eight times source bytes). Exhaustion makes the remaining source opaque, withholding inferred absence warnings and closing-token navigation there. Ordinary balanced argument scans keep their existing behavior; no elapsed-time guarantee is inferred from native unit tests.
+
+## Native embedded JavaScript and CSS (API 1.4)
+
+Literal closed, attribute-free script/style bodies now publish bounded physical UTF16 injection ranges. The host can highlight these ranges and route configured installed embedded language servers. Blade/PHP holes, ambiguous tags and unsupported script/style modes remain excluded; directive/PHP ownership stays with the existing lexer. This does not add full PHP semantics or embedded formatting/Rename.

@@ -432,7 +432,15 @@ impl Execution {
             self.session = Some(session);
             host::reveal_view(VIEW)?;
         } else {
-            if let Err(error) = host::open_terminal(&format!("Flyway {goal}"), &prepared.proof.runner, &prepared.proof.args) {
+            let native = !json && matches!(goal, "info" | "validate")
+                && crate::native_runs::configurations(&prepared.proof.root).iter().any(|config|
+                    config.id == format!("native-{goal}") && config.program == prepared.proof.runner && config.args == prepared.proof.args);
+            let launch = if native {
+                host::start_run(&format!("native-{goal}"), &[], false).map(|_| ())
+            } else {
+                host::open_terminal(&format!("Flyway {goal}"), &prepared.proof.runner, &prepared.proof.args)
+            };
+            if let Err(error) = launch {
                 return match error {
                     Error::Denied(_) => Err(error),
                     _ => Err(Error::Failed(prepared.redactor.line(&error.to_string()))),
@@ -609,6 +617,25 @@ mod tests {
     fn start(execution: &mut Execution, host: &MockHost, json: bool) {
         host.answer_next_prompt(Some(&["yes"]));
         execution.start(&host.invocation(), if json { "info" } else { "validate" }, json, false).unwrap();
+    }
+    #[test]
+    fn interactive_readonly_launch_uses_native_run_after_review_without_terminal_fallback() {
+        let host = MockHost::install().with_capabilities(&["project.read", "events", "process:flyway"]);
+        host.add_file("flyway.toml", "");
+        host.set_run_configurations(crate::native_runs::configurations("/project"));
+        let mut execution = Execution::default();
+        host.answer_next_prompt(None);
+        assert!(execution.start(&host.invocation(), "validate", false, false).is_err());
+        assert!(host.configuration_runs().is_empty());
+        host.answer_next_prompt(Some(&["yes"]));
+        execution.start(&host.invocation(), "validate", false, false).unwrap();
+        assert_eq!(host.configuration_runs()[0].1, "native-validate");
+        assert!(host.configuration_runs()[0].2.is_empty());
+        assert!(host.terminals().is_empty());
+        host.set_run_configurations(Vec::new());
+        host.answer_next_prompt(Some(&["yes"]));
+        assert!(execution.start(&host.invocation(), "validate", false, false).is_err());
+        assert!(host.terminals().is_empty());
     }
     fn invalidations(host: &MockHost) -> usize {
         host.view_messages().iter().filter(|(view,raw)| view=="migrations" && raw==r#"{"channel":"ui-kit-refresh"}"#).count()

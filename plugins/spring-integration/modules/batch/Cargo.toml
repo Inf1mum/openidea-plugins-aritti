@@ -9,5 +9,5 @@ embedded = []
 
 [dependencies]
 quick-xml = "=0.42.0"
-openidea-plugin = { git = "https://github.com/l0ng-ai/openidea", tag = "v0.1.39" }
+openidea-plugin = { git = "https://github.com/l0ng-ai/openidea", tag = "v0.1.40" }
 spring-text = { path = "../../../../crates/spring-text" }

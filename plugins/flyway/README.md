@@ -70,16 +70,20 @@ are ignored. The same files give the prefixes (`sqlMigrationPrefix`,
   newest migration. Without the `clipboard` permission, the notification
   shows the name instead.
 - **Flyway: Info / Validate / Migrate / Repair / Clean** show concrete project/runner/source
-  provenance before launch. The default `executionMode=terminal` preserves native terminal
-  ownership; `managed` uses the scoped finite command view described below. Clean warns that
+  provenance before launch. The default `executionMode=terminal` uses native Run for admitted Info/Validate
+  and a terminal for other commands; `managed` uses the scoped finite command view described below. Clean warns that
   it drops objects and always requires confirmation; there is no unscoped “run twice” fallback.
   Flyway's own `cleanDisabled` setting still applies.
 
-Run configurations: when `flyway.toml` or `flyway.conf` is at the project root, the IDE offers
-**Flyway: info**, **Flyway: validate** and **Flyway: migrate (writes to the database)**. They always run
-plain `flyway <goal>` and ignore the `runner` and `arguments` settings; the CLI resolves configuration and inherited environment itself. The plugin does not establish
-the effective URL/credentials/environment or intercept native run-detector execution. A config in `conf/` is not detected, and `migrate` changes the
-database with one click. Clean and Repair stay commands.
+API 1.4 native Run configurations offer **Flyway: info** and **Flyway: validate**
+for observed root or `conf/` Flyway configuration files. They follow `runner`
+(`flyway` or Maven), use the owning project root as cwd and provide native Stop/Rerun.
+Custom `arguments` withdraw these configurations so credentials/options are not
+persisted in Run configuration records; reviewed command launches remain available.
+Default interactive Info/Validate use native Run when the same configuration is
+available. Managed JSON/private collection stays instance-owned. Migrate, Clean
+and Repair remain freshly reviewed commands, outside native Rerun. The CLI still
+resolves the effective configuration, environment and database target.
 
 The setting `runner` picks `flyway` (the CLI, goal `info`) or `mvn` (goal
 `flyway:info`); `arguments` are added after the goal, split on spaces

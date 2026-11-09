@@ -35,6 +35,7 @@ pub struct Structure {
     applies: BTreeMap<String, (Instant, Applies)>,
     batch_links: crate::batch_actions::Links,
     batch_step_rename: crate::batch_step_rename::Rename,
+    channel_renames: crate::navigation::ChannelRenames,
     watching: bool,
 }
 
@@ -49,6 +50,7 @@ impl Default for Structure {
             applies: BTreeMap::new(),
             batch_links: Default::default(),
             batch_step_rename: Default::default(),
+            channel_renames: Default::default(),
             watching: false,
         }
     }
@@ -1027,6 +1029,7 @@ impl openidea_plugin::file_actions::FileActions for Structure {
         let mut actions = self.integration.file_actions(doc, selection);
         actions.extend(self.batch_links.actions(doc, selection));
         actions.extend(self.batch_step_rename.actions(doc, selection));
+        actions.extend(self.channel_renames.actions(doc, selection));
         actions
     }
     fn resolve_file_action(
@@ -1034,6 +1037,9 @@ impl openidea_plugin::file_actions::FileActions for Structure {
         doc: &Document,
         action: openidea_plugin::file_actions::FileAction,
     ) -> Result<openidea_plugin::file_actions::FileAction, Error> {
+        if action.data.as_deref().is_some_and(|data| data.starts_with("integration-channel-rename:")) {
+            return self.channel_renames.resolve(doc,action);
+        }
         if action.data.as_deref().is_some_and(|data| data.starts_with("batch-step-rename:")) {
             return self.batch_step_rename.resolve(doc,action);
         }

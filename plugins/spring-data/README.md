@@ -2,6 +2,13 @@
 
 Spring Data repository support for Java and Kotlin projects in OpenIDEA:
 
+API 1.4 native SQL injections cover source-owned Java JPA `@Query` methods with
+`nativeQuery = true` and one direct, unescaped string literal. Ranges preserve the
+physical source coordinates. JPQL, SpEL, concatenations, text blocks, transformed
+escapes and Kotlin strings stay outside this injection subset. A configured SQL
+language server is required for embedded LSP features; no database schema/type
+model or embedded Rename/formatting is supplied.
+
 - **Derived query checks**: repository methods without `@Query`/`@NativeQuery`/`@Procedure` are parsed the way Spring Data parses them (`find|read|get|query|search|stream|count|exists|delete|remove` … `By`, criteria split on `And`/`Or`, operator keywords, `IgnoreCase`/`AllIgnoreCase`, `OrderBy … Asc|Desc`). Each property path is resolved on the domain class (longest camel-case prefix first, `_` as explicit separator, nested types, collections unwrapped): an unknown property is a warning at that part of the name. The criteria must take as many arguments as the method declares (`Between` 2, `IsNull`/`True`/`Empty`… 0, others 1; `Pageable`, `Sort`, `Limit`, `ScrollPosition`, `Class` don't count).
 - **Completion** of derived query names: after `findBy`, `countBy`, `findAllByNameAnd`… the entity's properties (and nested ones one level deep), then operator keywords, `And`/`Or`/`OrderBy`, `Asc`/`Desc`.
 - **Navigation**: a gutter arrow on the repository opens its domain class (and `<Repository>Impl` when there is one); Go to Definition on a property part of a method name opens the field.

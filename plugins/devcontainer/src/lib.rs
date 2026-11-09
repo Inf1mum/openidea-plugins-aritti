@@ -11,6 +11,7 @@ mod features;
 mod feature_options;
 mod launch;
 mod operations;
+mod run_target;
 
 use std::path::Path;
 
@@ -26,6 +27,7 @@ const LOGIN_SHELL: &str = "command -v bash >/dev/null && exec bash -l; exec sh -
 
 #[derive(Default)]
 pub struct Main {
+    run_target: run_target::State,
     /// Container id picked in the Dev Containers view.
     selected: Option<String>,
     selection_project: Option<String>,
@@ -34,6 +36,10 @@ pub struct Main {
 }
 
 impl Plugin for Main {
+    fn activate(&mut self, _ctx: &openidea_plugin::Context) -> Result<(), Error> {
+        self.run_target.clear();
+        Ok(())
+    }
     fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
         if id == "managed-output" {
             host::reveal_view(operations::VIEW)?;
@@ -41,6 +47,14 @@ impl Plugin for Main {
         }
         let project = ctx.project().ok_or("No project is open.")?;
         let root = project.root()?;
+
+        if id == "register-run-target" { return run_target::prepare(&mut self.run_target, ctx); }
+        if id == "register-mapped-tooling-target" { return run_target::prepare_mapped(&mut self.run_target, ctx); }
+        if matches!(id, "unregister-run-target" | "unregister-mapped-tooling-target") {
+            self.run_target.clear_for(&root);
+            host::unregister_run_target(&project, if id == "unregister-run-target" { run_target::ID } else { run_target::MAPPED_ID });
+            return Ok(None);
+        }
 
         if matches!(id, "up-managed" | "rebuild-managed") {
             self.operations.idle()?;
@@ -50,12 +64,16 @@ impl Plugin for Main {
                 return Ok(None);
             }
             plan.launch_managed(ctx, &mut self.operations)?;
+            self.run_target.clear_for(&root);
             host::reveal_view(operations::VIEW)?;
             return Ok(None);
         }
 
         if id == "choose-configuration" {
             if let Some(path) = configs::choose(&project, true)? {
+                self.run_target.clear_for(&root);
+                host::unregister_run_target(&project, run_target::ID);
+                host::unregister_run_target(&project, run_target::MAPPED_ID);
                 host::notify(NotificationLevel::Info, "Dev Container configuration", &format!("Using {path} for this project."));
                 return Ok(None);
             }
@@ -63,6 +81,9 @@ impl Plugin for Main {
         }
 
         if id == "stop" {
+            self.run_target.clear_for(&root);
+            host::unregister_run_target(&project, run_target::ID);
+            host::unregister_run_target(&project, run_target::MAPPED_ID);
             return stop(&project, &root);
         }
 
@@ -89,6 +110,7 @@ impl Plugin for Main {
             if !ui_kit::prompts::confirm_exact(plan.title(), &plan.preview())? {
                 return Ok(None);
             }
+            self.run_target.clear_for(&root);
             plan.launch(ctx)?;
         } else {
             let args = ["exec", "--workspace-folder", &root, "--config", &config, "sh", "-c", LOGIN_SHELL].map(str::to_owned);
@@ -662,7 +684,9 @@ mod tests {
     fn manifest_activates_on_file_events() {
         let manifest = include_str!("../plugin.toml");
 
-        assert!(manifest.contains("activation = [\"on-event:file-opened\", \"on-event:file-saved\", \"on-view:containers\"]"));
+        for activation in ["on-event:file-opened", "on-event:file-saved", "on-view:containers", "on-view:run-target-review"] {
+            assert!(manifest.contains(&format!("\"{activation}\"")));
+        }
     }
 
     #[test]

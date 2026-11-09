@@ -375,3 +375,107 @@ mod tests {
         assert_eq!(owner.definition(&legal, at(&legal, "orders")).len(), 1);
     }
 }
+
+/// Explicit same-document edits for a closed channel/bridge source subset.
+/// Imports, profiles, other bean registrations and nested endpoints are excluded.
+#[derive(Default)]
+pub(crate) struct ChannelRenames {
+    next: u64,
+    pending: BTreeMap<String, (String, Document, String, Vec<Range>)>,
+}
+fn rename_sites(doc: &Document, at: Position) -> Option<(String, Vec<Range>)> {
+    let tokens = tokens(doc)?;
+    let elements = xml::elements(&doc.text);
+    if doc.text.contains("${") || doc.text.contains("#{") { return None; }
+    for (i,e) in elements.iter().enumerate() {
+        if i == 0 {
+            if e.attrs.iter().any(|a| !a.name.starts_with("xmlns") && a.name != "xsi:schemaLocation") { return None; }
+        } else {
+            if e.parent != Some(0) || xml::namespace(&elements,i) != Some(NAMESPACE) { return None; }
+            let allowed: &[&str] = match e.local() {
+                "channel" | "publish-subscribe-channel" => &["id"],
+                "bridge" => &["id", "input-channel", "output-channel"],
+                _ => return None,
+            };
+            if e.attrs.iter().any(|a| !allowed.contains(&a.name.as_str()) || !literal(&a.value)) { return None; }
+        }
+    }
+    let selected = selected(&tokens, at)?;
+    if selected.collides || matches!(selected.name.as_str(), "nullChannel" | "errorChannel")
+        || tokens.iter().filter(|t|t.declaration && t.name == selected.name).count()!=1 { return None; }
+    let sites: Vec<_> = tokens.iter().filter(|t|t.name==selected.name).map(|t|t.range).collect();
+    Some((selected.name.clone(), sites))
+}
+fn current_rename(root: &str, doc: &Document) -> Result<(), Error> {
+    let project = host::project_of(&doc.path).ok_or(Error::Stale)?;
+    if project.root()? != root { return Err(Error::Stale); }
+    let current = project.read_file(&doc.path)?;
+    if current != doc.text { return Err(Error::Stale); }
+    Ok(())
+}
+impl ChannelRenames {
+    pub(crate) fn actions(&mut self, doc: &Document, selection: Range) -> Vec<openidea_plugin::file_actions::FileAction> {
+        if selection.start != selection.end { return vec![]; }
+        let Some((name,sites)) = rename_sites(doc,selection.start) else { return vec![] };
+        let Some(root) = host::project_of(&doc.path).and_then(|p|p.root().ok()) else { return vec![] };
+        if root == "/" || !doc.path.starts_with(&format!("{root}/")) { return vec![]; }
+        if self.pending.len()>=8 { self.pending.clear(); }
+        self.next=self.next.wrapping_add(1);
+        let id=format!("integration-channel-rename:{}",self.next);
+        self.pending.insert(id.clone(),(root,doc.clone(),name,sites));
+        vec![openidea_plugin::file_actions::FileAction {title:"Rename literal channel in this document…".into(),kind:Some("refactor".into()),data:Some(id),..Default::default()}]
+    }
+    pub(crate) fn resolve(&mut self, doc: &Document, action: openidea_plugin::file_actions::FileAction) -> Result<openidea_plugin::file_actions::FileAction,Error> {
+        use openidea_plugin::{file_actions::FileAction,TextEdit,text::offset};
+        let (root,original,old,sites)=self.pending.remove(action.data.as_deref().ok_or(Error::Stale)?).ok_or(Error::Stale)?;
+        if original != *doc { return Err(Error::Stale); }
+        current_rename(&root,doc)?;
+        let Some(new)=host::input("New channel ID in this document",Some(&old))? else { return Err(Error::Cancelled) };
+        if !literal(&new) || new==old || matches!(new.as_str(),"nullChannel"|"errorChannel")
+            || xml::elements(&doc.text).iter().flat_map(|e|&e.attrs).any(|a|a.value==new) {
+            return Err(Error::Invalid("Use a different unique literal channel ID (letter/underscore first, then letters/digits/_.-).".into()));
+        }
+        let mut after=doc.text.clone();
+        for span in sites.iter().rev() {
+            let from=offset(&doc.text,span.start).ok_or(Error::Stale)?;
+            let to=offset(&doc.text,span.end).ok_or(Error::Stale)?;
+            if doc.text.get(from..to)!=Some(old.as_str()) { return Err(Error::Stale); }
+            after.replace_range(from..to,&new);
+        }
+        let from=offset(&doc.text,sites[0].start).ok_or(Error::Stale)?;
+        let at=openidea_plugin::text::position(&after,from);
+        let changed=Document {text:after.clone(),..doc.clone()};
+        if !rename_sites(&changed,at).is_some_and(|(name,spans)|name==new && spans.len()==sites.len()) { return Err(Error::Stale); }
+        let review=format!("Source: {}\nVersion: {}\nChannel: {old} → {new}\nExact edits: {}\n\nThis changes only this physical XML document's literal channel and bridge references. External references, runtime contexts, imports and global Rename are excluded.\n\nBEFORE:\n{}\n\nAFTER:\n{after}",doc.path,doc.version,sites.len(),doc.text);
+        current_rename(&root,doc)?;
+        if !ui_kit::prompts::confirm_exact("Rename channel in this document?",&review)? { return Err(Error::Cancelled); }
+        current_rename(&root,doc)?;
+        Ok(FileAction {title:format!("Rename local channel {old} to {new}"),kind:Some("refactor".into()),edits:vec![(doc.path.clone(),sites.into_iter().map(|range|TextEdit {range,text:new.clone()}).collect())],..Default::default()})
+    }
+}
+#[cfg(test)]
+mod channel_rename_tests {
+    use super::*;
+    use openidea_plugin::{file_actions::FileActions,mock::MockHost};
+    fn doc() -> Document {Document {path:"/project/channels.xml".into(),language:"xml".into(),version:1,text:format!("<beans xmlns='{BEANS}' xmlns:i='{NAMESPACE}'><!-- 😀 --><i:channel id='in'/><i:channel id='out'/><i:bridge input-channel='in' output-channel='out'/></beans>")}}
+    fn selection(d:&Document)->Range {let p=openidea_plugin::text::position(&d.text,d.text.find("id='in'").unwrap()+4);Range::new(p,p)}
+    #[test]
+    fn registered_owner_reviews_exact_edits_and_consumes_action() {
+        let d=doc();let h=MockHost::install();h.add_file(&d.path,&d.text);let mut owner=crate::structure::Structure::default();
+        let a=owner.file_actions(&d,selection(&d)).into_iter().find(|a|a.title=="Rename literal channel in this document…").unwrap();
+        let replay=a.clone();h.answer_next_prompt(Some(&["incoming"]));h.answer_next_prompt(Some(&["yes"]));
+        let result=owner.resolve_file_action(&d,a).unwrap();assert_eq!(result.edits[0].1.len(),2);
+        assert!(result.edits[0].1.iter().all(|e|e.text=="incoming"));
+        assert!(owner.resolve_file_action(&d,replay).is_err());assert!(h.process_runs().is_empty() && h.requests().is_empty());
+    }
+    #[test]
+    fn ambiguous_unknown_scope_collision_and_stale_source_refuse() {
+        let d=doc();let h=MockHost::install();h.add_file(&d.path,&d.text);
+        for text in [d.text.replace("</beans>","<import resource='other.xml'/></beans>"),d.text.replace("<i:channel id='out'/>","<i:channel id='in'/>"),d.text.replace("id='out'","id='${out}'")] {
+            let changed=Document{text,..d.clone()};assert!(rename_sites(&changed,selection(&changed).start).is_none());
+        }
+        let mut renames=ChannelRenames::default();let a=renames.actions(&d,selection(&d)).remove(0);
+        h.answer_next_prompt(Some(&["out"]));assert!(renames.resolve(&d,a).is_err());
+        let a=renames.actions(&d,selection(&d)).remove(0);h.add_file(&d.path,"<changed/>");assert!(renames.resolve(&d,a).is_err());
+    }
+}

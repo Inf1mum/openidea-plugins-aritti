@@ -1,5 +1,7 @@
 # OpenIDEA plugins
 
+**API 1.4 released (v0.1.40, 2026-11-09):** [Current blocker requalification](docs/parity-2026-11-08-refresh/api14-release-requalification/README.md). Canonical packages now target SDK v0.1.40 / API 1.4. See the [native migration record](docs/native-api-migration-implementation-2026-11-09.md) for implemented changes and remaining validation. Dated parity receipts remain historical.
+
 Plugins for [OpenIDEA](https://github.com/l0ng-ai/openidea), each a sandboxed WebAssembly component (`wasm32-wasip2`) with a `plugin.toml` manifest. Some are original, some are ports of JetBrains Marketplace plugins. All ids use the `aritti.` prefix (`aritti.<directory name>`).
 
 ## Plugins
@@ -18,6 +20,24 @@ Each plugin directory has its own `README.md` (features) and `LICENSE`.
 - [PARITY.md](PARITY.md): how close each plugin comes to the IntelliJ plugin it stands in for.
 - [LIMITATIONS.md](LIMITATIONS.md): what the OpenIDEA plugin API can't do yet, per port.
 
+Active work: [post-migration feature and UI parity plan](docs/superpowers/plans/2026-11-08-post-services-parity.md), with a refreshed comparison for all 29 plugins.
+
+## Unreleased API 1.4 migration
+
+All packages now target SDK v0.1.40 / plugin API 1.4. Tool-window packages share
+packaged resource UI components; route exports and four live diagnostic providers
+adopt the new APIs. See the [implementation and verification record](docs/parity-2026-11-08/implementation/README.md)
+for completed work, checks and remaining parity tasks. Desktop acceptance is pending.
+
+## Upstream follow-up
+
+- [ ] Once a plugin using API 1.3 view grouping is published in this repository, reply to
+  [the maintainer's request on OpenIDEA PR #2019](https://github.com/l0ng-ai/openidea/pull/2019#issuecomment-6711066426)
+  with a direct link to that plugin and its manifest showing the grouped views.
+- [ ] Once a plugin using API 1.3 `fs.plugin-dir` is published in this repository, reply to
+  [the maintainer's request on OpenIDEA PR #2051](https://github.com/l0ng-ai/openidea/pull/2051#issuecomment-6714118039)
+  with a direct link to that plugin using the private directory API.
+
 ## Layout
 
 ```
@@ -34,7 +54,7 @@ docs/             audits and design notes
 
 ```sh
 # once
-cargo install --locked --git https://github.com/l0ng-ai/openidea ide-host --bin openidea-plugin
+cargo install --locked --git https://github.com/l0ng-ai/openidea --tag v0.1.40 ide-host --bin openidea-plugin
 
 cd plugins/<name>
 cargo test                 # logic against the SDK's MockHost

@@ -361,3 +361,50 @@ impl Proof {
     }
 
 }
+
+impl Proof {
+    /// Exact physical-source occurrences; refs to descendants count as uses of
+    /// their owning component, while a similarly prefixed component does not.
+    pub(crate) fn component_occurrences(&self, caret: usize) -> Option<Vec<(String, openidea_plugin::Range)>> {
+        let pointer = self.navigation_ref_at(caret).and_then(|r| r.target.strip_prefix('#').map(str::to_owned))
+            .or_else(|| self.copy_pointer_at(caret).and_then(|p| p.strip_prefix('#').map(str::to_owned)))?;
+        let parts: Vec<_> = pointer.strip_prefix('/')?.split('/').collect();
+        if parts.len() < 3 || parts[0] != "components" || parts[1].is_empty() || parts[2].is_empty() { return None; }
+        if !["schemas","responses","parameters","examples","requestBodies","headers","securitySchemes","links","callbacks","pathItems"].contains(&parts[1]) { return None; }
+        let base = format!("/components/{}/{}", parts[1], parts[2]);
+        let definition = self.pointer_location(&base)?;
+        let target = format!("#{base}");
+        let prefix = format!("{target}/");
+        let mut spans = vec![("Component declaration".into(), definition)];
+        for ((from, to), value) in &self.references {
+            if value == &target || value.starts_with(&prefix) {
+                spans.push(("Local $ref".into(), spring_text::range(&self.text, *from, *to)));
+            }
+        }
+        if spans.len() > 512 { return None; }
+        spans.sort_by_key(|(_, r)| (r.start.line, r.start.character));
+        Some(spans)
+    }
+}
+#[cfg(test)]
+mod component_occurrence_tests {
+    use super::*;
+    #[test]
+    fn json_and_yaml_component_identity_and_descendants() {
+        for text in [r##"{"openapi":"3.1.1","components":{"schemas":{"Foo":{"type":"object"},"Foo2":{}}},"paths":{},"a":{"$ref":"#/components/schemas/Foo"},"b":{"$ref":"#/components/schemas/Foo/properties/id"},"c":{"$ref":"#/components/schemas/Foo2"},"description":"#/components/schemas/Foo"}"##,
+            "openapi: 3.1.1\ncomponents:\n  schemas:\n    Foo:\n      type: object\n    Foo2: {}\na:\n  $ref: '#/components/schemas/Foo'\nb:\n  $ref: '#/components/schemas/Foo/properties/id'\nc:\n  $ref: '#/components/schemas/Foo2'\ndescription: '#/components/schemas/Foo'\n"] {
+            let proof = Proof::parse(text).unwrap();
+            let at = text.find("Foo").unwrap();
+            let spans = proof.component_occurrences(at).unwrap();
+            assert_eq!(spans.len(), 3, "{text}");
+            assert_eq!(proof.component_occurrences(text.find("#/components/schemas/Foo").unwrap()).unwrap().len(), 3);
+        }
+    }
+    #[test]
+    fn escaped_identity_is_read_only_and_external_refs_are_excluded() {
+        let text = r##"{"openapi":"3.1.1","components":{"schemas":{"a/b":{}}},"a":{"$ref":"#/components/schemas/a~1b"},"b":{"$ref":"other.json#/components/schemas/a~1b"}}"##;
+        let proof = Proof::parse(text).unwrap();
+        assert_eq!(proof.component_occurrences(text.find("a/b").unwrap()).unwrap().len(), 2);
+        assert!(proof.component_occurrences(text.find("other.json").unwrap()).is_none());
+    }
+}

@@ -35,8 +35,15 @@ struct Run {
     status: String,
     at: Instant,
 }
+pub(crate) struct Terminal {
+    pub(crate) key: String,
+    id: String,
+    root: String,
+    pub(crate) args: Vec<String>,
+}
 #[derive(Default)]
 pub(crate) struct State {
+    pub(crate) terminal: Option<Terminal>,
     run: Option<Run>,
 }
 impl State {
@@ -139,13 +146,13 @@ impl State {
                 ));
             }
         }
-        let status=self.run.as_ref().map(|r|format!("{} Elapsed {}s. Check polls only when requested; Cancel or window close stops a still-running CLI. Existing/partial generated files are never removed automatically.",r.status,r.at.elapsed().as_secs())).unwrap_or_else(||"No managed CLI run. The terminal launcher is separate; neither path certifies generated files.".into());
+        let status=if let Some(t)=&self.terminal {format!("Native terminal active for {}: spring {}. Use its native terminal controls to stop/close it. Completion does not validate generated files.",t.root,serde_json::to_string(&t.args).unwrap_or_default())} else {self.run.as_ref().map(|r|format!("{} Elapsed {}s. Check polls only when requested; Cancel or window close stops a still-running CLI. Existing/partial generated files are never removed automatically.",r.status,r.at.elapsed().as_secs())).unwrap_or_else(||"No managed CLI run. The terminal launcher is separate; neither path certifies generated files.".into())};
         View::new(Body::Form(fields))
             .status(&status)
             .button(
                 Button::new("managed-cli-start", "Review and run CLI…")
                     .icon("run")
-                    .enabled(can_start && !self.running()),
+                    .enabled(can_start && !self.running() && self.terminal.is_none()),
             )
             .button(
                 Button::new("managed-cli-check", "Check status / output")
@@ -161,7 +168,7 @@ impl State {
 }
 impl Launcher {
     fn cli_proof(&mut self, ctx: &Invocation) -> Result<(Project, Proof), Error> {
-        if self.cli.running() {
+        if self.cli.running() || self.cli.terminal.is_some() {
             return Err(Error::Invalid(
                 "Cancel the current managed CLI before starting another.".into(),
             ));
@@ -206,6 +213,31 @@ impl Launcher {
             ));
         }
         Ok((project, Proof { root, target, args }))
+    }
+    pub(crate) fn open_cli_terminal(&mut self, ctx: &Invocation, args: Vec<String>) -> Result<(), Error> {
+        if self.cli.terminal.is_some() {
+            return Err(Error::Invalid("A generation terminal is still active; stop or close it before starting another.".into()));
+        }
+        // Reuse the managed path's stricter physical destination and owner proof.
+        let (_, proof) = self.cli_proof(ctx)?;
+        if args != proof.args { return Err(Error::Stale); }
+        host::subscribe(openidea_plugin::EventKind::TerminalExited)?;
+        let hash = proof.root.bytes().chain(proof.target.bytes()).fold(0xcbf29ce484222325u64, |h,b| (h ^ u64::from(b)).wrapping_mul(0x100000001b3));
+        let key = format!("initializr-{hash:016x}");
+        let id = host::open_terminal_session(&key, "Spring Initializr: spring init", &Command::new("spring").args(&args))?;
+        self.cli.terminal = Some(Terminal { key, id, root: proof.root, args });
+        Ok(())
+    }
+    pub(crate) fn finish_cli_terminal(&mut self, event: &openidea_plugin::Event, ctx: &Invocation) {
+        let Some(exit) = event.terminal_exited() else { return };
+        let Some(terminal) = self.cli.terminal.as_ref() else { return };
+        if exit.key != terminal.key || exit.id != terminal.id { return }
+        let root = terminal.root.clone();
+        self.cli.terminal = None;
+        if ctx.project().and_then(|p| p.root().ok()).as_deref() != Some(root.as_str()) { return }
+        let outcome = if exit.closed { "Terminal closed".into() } else { format!("CLI exited with status {:?}", exit.status) };
+        host::notify(NotificationLevel::Info, "Spring Initializr", &format!("{outcome}. Generated files are NOT validated; no cleanup or project opening performed."));
+        host::refresh_view("initializr");
     }
     pub(crate) fn start_managed_cli(&mut self, ctx: &Invocation) -> Result<(), Error> {
         self.start_cli_with(ctx, |cmd, p| {
@@ -539,4 +571,37 @@ mod tests {
         assert!(l.cli.running());
         assert!(l.cli.run.as_ref().unwrap().status.contains("unknown"));
     }
+    #[test]
+    fn keyed_terminal_completion_requires_exact_operation_and_preserves_unverified_output() {
+        let (h, mut l) = setup();
+        let args = l.cli_args().unwrap();
+        l.open_cli_terminal(&h.invocation(), args.clone()).unwrap();
+        let key = l.cli.terminal.as_ref().unwrap().key.clone();
+        assert!(l.open_cli_terminal(&h.invocation(), args).is_err());
+        assert!(l.start_managed_cli(&h.invocation()).is_err());
+        let foreign = openidea_plugin::Event::Other { kind: "terminal-exited".into(), data: serde_json::json!({"key":key,"id":"foreign","status":0,"closed":false}).to_string() };
+        l.handle_events(&[foreign], &h.invocation());
+        assert!(l.cli.terminal.is_some());
+        let event = h.finish_terminal(&key).unwrap();
+        l.handle_events(&[event.clone()], &h.invocation());
+        assert!(l.cli.terminal.is_none());
+        assert!(h.notifications().iter().any(|n| n.body.contains("NOT validated")));
+        let count = h.notifications().len();
+        l.handle_events(&[event], &h.invocation());
+        assert_eq!(h.notifications().len(), count);
+        assert!(h.opened_projects().is_empty());
+        assert!(h.terminals().is_empty());
+    }
+    #[test]
+    fn keyed_terminal_foreign_project_completion_has_no_ui_side_effects() {
+        let (h, mut l) = setup();
+        let args = l.cli_args().unwrap();
+        l.open_cli_terminal(&h.invocation(), args.clone()).unwrap();
+        let event = h.finish_terminal(&l.cli.terminal.as_ref().unwrap().key).unwrap();
+        h.set_project_root(Some("/other"));
+        l.handle_events(&[event], &h.invocation());
+        assert!(l.cli.terminal.is_none());
+        assert!(h.notifications().is_empty());
+    }
+
 }

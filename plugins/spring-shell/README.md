@@ -329,3 +329,7 @@ Wrong-return diagnostics also leave short generic/typealias return names unknown
 A generic called `String` can have an Availability bound; its spelling alone is
 not proof of `java.lang.String`. Explicit canonical wrong return types retain
 their known source checks. No generic erasure/type inference is performed.
+
+## Unreleased follow-up
+
+Use **Spring Shell: Find Literal Command or Availability Occurrences** in a supported closed Java ShellComponent. Command keys/selectors and availability indicator method names are kept separate; wildcard selectors are excluded. The existing reviewed local rename action remains the editing workflow.
