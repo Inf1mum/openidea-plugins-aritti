@@ -35,6 +35,46 @@ pub enum RouteEvent {
     Open(Route),
 }
 
+/// Publish this inventory to Search Everywhere and the HTTP client. Unknown
+/// non-HTTP methods are excluded rather than silently advertised as GET.
+pub fn endpoints(routes: &[Route], framework: &str) -> Vec<openidea_plugin::endpoints::Endpoint> {
+    let mut endpoints = Vec::new();
+    let mut seen = BTreeSet::new();
+    for route in routes {
+        let Some(location) = &route.location else {
+            continue;
+        };
+        if !route.path.starts_with('/') {
+            continue;
+        }
+        for method in route.method.split('|') {
+            let upper = method.to_ascii_uppercase();
+            let method = match upper.as_str() {
+                "" | "ANY" | "*" => None,
+                "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" | "TRACE" | "CONNECT" => Some(upper),
+                _ => continue,
+            };
+            let key =
+                (method.clone(), route.path.clone(), location.path.clone(), location.range.start.line, location.range.start.character);
+            if !seen.insert(key) {
+                continue;
+            }
+            let handler = match &route.handler.member {
+                Some(member) => format!("{}::{member}", route.handler.class),
+                None => route.handler.class.clone(),
+            };
+            endpoints.push(openidea_plugin::endpoints::Endpoint {
+                method,
+                path: route.path.clone(),
+                framework: framework.into(),
+                handler: (!handler.is_empty()).then_some(handler),
+                location: location.clone(),
+            });
+        }
+    }
+    endpoints
+}
+
 pub struct RouteList {
     mode_key: String,
     filter_key: String,
@@ -90,6 +130,22 @@ impl RouteList {
         let capped = &shown[..total.min(MAX_ROWS)];
 
         view.body = if self.tree { self.tree_body(capped) } else { self.list_body(capped) };
+
+        if crate::web::is_rendering() && !self.tree {
+            view.body = Body::Other {
+                kind: "resources".into(),
+                data: serde_json::json!({
+                    "columns": ["Method", "Path", "Controller", "Handler", "Name"],
+                    "facets": [0, 2],
+                    "items": capped.iter().map(|(index, route)| serde_json::json!({
+                        "key": format!("{ROUTE_PREFIX}{index}"),
+                        "cells": [route.method.to_ascii_uppercase(), route.path.clone(), route.handler.class.clone(),
+                            route.handler.member.clone().unwrap_or_default(), route.name.clone().unwrap_or_default()]
+                    })).collect::<Vec<_>>()
+                })
+                .to_string(),
+            };
+        }
         view.status = Some(self.status_line(capped.len(), total));
         view.toolbar.push(Button::new(FILTER_BUTTON, "Filter\u{2026}").icon("filter"));
         if !self.filter.is_empty() {
@@ -145,11 +201,7 @@ impl RouteList {
     }
 
     fn status_line(&self, shown: usize, total: usize) -> String {
-        let mut line = if shown < total {
-            format!("showing {shown} of {total} endpoints")
-        } else {
-            format!("{total} endpoints")
-        };
+        let mut line = if shown < total { format!("showing {shown} of {total} endpoints") } else { format!("{total} endpoints") };
         if !self.filter.is_empty() {
             let classes: Vec<&str> = self.filter.iter().map(String::as_str).collect();
             line.push_str(&format!(" \u{b7} controller: {}", classes.join(", ")));
@@ -240,11 +292,7 @@ pub fn copy_as_curl(route: &Route, default_base: &str) -> Result<(), Error> {
 }
 
 fn http_file_name(route: &Route) -> String {
-    let slug: String = route
-        .path
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' })
-        .collect();
+    let slug: String = route.path.chars().map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' }).collect();
     let slug = slug.split('-').filter(|part| !part.is_empty()).collect::<Vec<_>>().join("-");
     let slug = if slug.is_empty() { "root" } else { &slug };
     format!("{}-{slug}.http", route.method.to_ascii_lowercase())
@@ -255,7 +303,12 @@ pub fn create_http_file(route: &Route, default_base: &str, directory: Option<&st
     let Some(base) = ask_base(default_base)? else {
         return Ok(());
     };
-    let project = host::projects()?.into_iter().next().ok_or_else(|| Error::NotFound("project".into()))?;
+    let project = route
+        .location
+        .as_ref()
+        .and_then(|location| host::project_of(&location.path))
+        .or_else(|| host::projects().ok().and_then(|mut projects| if projects.len() == 1 { projects.pop() } else { None }))
+        .ok_or_else(|| Error::NotFound("The route has no unambiguous project.".into()))?;
     let name = http_file_name(route);
     let (relative, path) = match directory {
         Some(directory) => {
@@ -264,13 +317,12 @@ pub fn create_http_file(route: &Route, default_base: &str, directory: Option<&st
         }
         None => (format!("http/{name}"), format!("{}/http/{name}", project.root()?.trim_end_matches('/'))),
     };
-    if project.read_file(&relative).is_ok() {
+    if project.exists(&path)? {
         return host::open_location(&path, 0, 0);
     }
 
     let content = http_request(&route.method, &base, &route.path);
-    let written = host::run_process("tee", &[path.clone()], Some(&content))
-        .and_then(|out| if out.status == Some(0) { Ok(()) } else { Err(Error::Failed(out.stderr)) });
+    let written = project.write_file(&path, &content);
     match written {
         Ok(()) => host::open_location(&path, 0, 0),
         Err(Error::Denied(_)) => {
@@ -278,7 +330,9 @@ pub fn create_http_file(route: &Route, default_base: &str, directory: Option<&st
             host::notify(
                 NotificationLevel::Warning,
                 TITLE,
-                &format!("Could not write {relative}; the request is on the clipboard. Allow running tee in Settings \u{203a} Plugins to create the file."),
+                &format!(
+                    "Could not write {relative}; the request is on the clipboard. Allow project writes in Settings \u{203a} Plugins to create the file."
+                ),
             );
             Ok(())
         }
@@ -289,7 +343,6 @@ pub fn create_http_file(route: &Route, default_base: &str, directory: Option<&st
 #[cfg(test)]
 mod tests {
     use super::*;
-    use openidea_plugin::ProcessOutput;
     use openidea_plugin::mock::MockHost;
 
     const ID: &str = "aritti.demo";
@@ -322,6 +375,26 @@ mod tests {
     }
 
     #[test]
+    fn endpoint_export_keeps_methods_and_source_and_excludes_non_http_rows() {
+        let mut r = route("GET|POST|GET", "/orders", "OrderController");
+        r.location = Some(Location {
+            path: "/p/Routes.java".into(),
+            range: openidea_plugin::Range::new(openidea_plugin::Position::new(4, 2), openidea_plugin::Position::new(4, 2)),
+        });
+        let mut any = r.clone();
+        any.method = "ANY".into();
+        any.path = "/all".into();
+        let mut topic = r.clone();
+        topic.method = "MESSAGE".into();
+        let mut missing = r.clone();
+        missing.location = None;
+        let result = endpoints(&[r, any, topic, missing], "Spring");
+        assert_eq!(result.iter().map(|e| e.method.as_deref()).collect::<Vec<_>>(), [Some("GET"), Some("POST"), None]);
+        assert_eq!(result[0].location.path, "/p/Routes.java");
+        assert_eq!(result[0].handler.as_deref(), Some("OrderController"));
+    }
+
+    #[test]
     fn flat_rows_show_path_label_and_grey_method_and_controller() {
         let _host = MockHost::install();
         let mut named = route("get", "/users/{id}", "UserController");
@@ -342,10 +415,8 @@ mod tests {
         let routes = methods.iter().map(|m| route(m, "/x", "C")).collect();
         let view = list(routes).render(base_view());
         let icons: Vec<&str> = items(&view).iter().map(|i| i.icon.as_deref().unwrap()).collect();
-        let expected: Vec<String> = ["get", "post", "put", "delete", "patch", "other"]
-            .iter()
-            .map(|n| format!("ext:fileIcon/{ID}/route-{n}"))
-            .collect();
+        let expected: Vec<String> =
+            ["get", "post", "put", "delete", "patch", "other"].iter().map(|n| format!("ext:fileIcon/{ID}/route-{n}")).collect();
         assert_eq!(icons, expected.iter().map(String::as_str).collect::<Vec<_>>());
     }
 
@@ -433,10 +504,7 @@ mod tests {
     fn activate_opens_the_route() {
         let _host = MockHost::install();
         let mut list = list(vec![route("GET", "/a", "A")]);
-        assert_eq!(
-            list.handle(&ViewEvent::Activate("route:0".into())),
-            RouteEvent::Open(route("GET", "/a", "A"))
-        );
+        assert_eq!(list.handle(&ViewEvent::Activate("route:0".into())), RouteEvent::Open(route("GET", "/a", "A")));
         assert_eq!(list.handle(&ViewEvent::Activate("controller:A".into())), RouteEvent::Ignored);
     }
 
@@ -448,21 +516,16 @@ mod tests {
 
     #[test]
     fn http_request_keeps_path_parameters() {
-        assert_eq!(
-            http_request("get", "http://h", "/users/{id}"),
-            "### GET /users/{id}\nGET http://h/users/{id}\n"
-        );
+        assert_eq!(http_request("get", "http://h", "/users/{id}"), "### GET /users/{id}\nGET http://h/users/{id}\n");
     }
 
-    fn tee_host(status: Option<i32>) -> MockHost {
-        let host = MockHost::install().with_capabilities(&["project.read", "process:tee", "clipboard"]);
-        host.on_process("tee", move |_, _| Ok(ProcessOutput { status, stdout: String::new(), stderr: String::new() }));
-        host
+    fn write_host() -> MockHost {
+        MockHost::install().with_capabilities(&["project.read", "project.write", "clipboard"])
     }
 
     #[test]
     fn base_prompt_dismissed_writes_and_copies_nothing() {
-        let host = tee_host(Some(0));
+        let host = write_host();
         let r = route("GET", "/users", "C");
         host.answer_next_prompt(None);
         copy_as_curl(&r, "http://localhost:8080").unwrap();
@@ -475,37 +538,37 @@ mod tests {
 
     #[test]
     fn copy_as_curl_copies_the_command() {
-        let host = tee_host(Some(0));
+        let host = write_host();
         host.answer_next_prompt(Some(&["http://localhost:9000"]));
         copy_as_curl(&route("GET", "/users", "C"), "http://localhost:8080").unwrap();
         assert_eq!(host.clipboard().as_deref(), Some("curl -X GET 'http://localhost:9000/users'"));
     }
 
     #[test]
-    fn http_file_is_written_with_tee_and_opened() {
-        let host = tee_host(Some(0));
+    fn http_file_is_written_with_project_api_and_opened() {
+        let host = write_host();
         host.answer_next_prompt(Some(&["http://localhost:8080"]));
         create_http_file(&route("GET", "/users/{id}", "C"), "http://localhost:8080", None).unwrap();
-        let run = host.process_runs().into_iter().find(|r| r.program == "tee").unwrap();
-        assert_eq!(run.args, ["/project/http/get-users-id.http"]);
+        assert_eq!(
+            host::projects().unwrap()[0].read_file("http/get-users-id.http").unwrap(),
+            "### GET /users/{id}\nGET http://localhost:8080/users/{id}\n"
+        );
+        assert!(host.process_runs().is_empty());
         assert_eq!(host.opened_locations(), [("/project/http/get-users-id.http".to_owned(), 0, 0)]);
     }
 
     #[test]
-    fn denied_tee_falls_back_to_the_clipboard() {
+    fn denied_project_write_falls_back_to_the_clipboard() {
         let host = MockHost::install().with_capabilities(&["project.read", "clipboard"]);
         host.answer_next_prompt(Some(&["http://localhost:8080"]));
         create_http_file(&route("GET", "/users", "C"), "http://localhost:8080", None).unwrap();
-        assert_eq!(
-            host.clipboard().as_deref(),
-            Some("### GET /users\nGET http://localhost:8080/users\n")
-        );
+        assert_eq!(host.clipboard().as_deref(), Some("### GET /users\nGET http://localhost:8080/users\n"));
         assert!(host.opened_locations().is_empty());
     }
 
     #[test]
     fn existing_http_file_is_opened_not_overwritten() {
-        let host = tee_host(Some(0));
+        let host = write_host();
         host.add_file("http/get-users.http", "old");
         host.answer_next_prompt(Some(&["http://localhost:8080"]));
         create_http_file(&route("GET", "/users", "C"), "http://localhost:8080", None).unwrap();

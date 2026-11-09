@@ -1,0 +1,155 @@
+{
+  "reference": "Int UI Kit (Community), inspected through FigCraft",
+  "components": [
+    {
+      "name": "Alert",
+      "sourcePageId": 6613,
+      "example": "preview/inventory.html [data-component=\"Alert\"]"
+    },
+    {
+      "name": "Banner",
+      "sourcePageId": 8280,
+      "example": "preview/inventory.html [data-component=\"Banner\"]"
+    },
+    {
+      "name": "Button",
+      "sourcePageId": 9818,
+      "example": "preview/inventory.html [data-component=\"Button\"]"
+    },
+    {
+      "name": "Checkbox",
+      "sourcePageId": 10993,
+      "example": "preview/inventory.html [data-component=\"Checkbox\"]"
+    },
+    {
+      "name": "Combo box",
+      "sourcePageId": 11637,
+      "example": "preview/inventory.html [data-component=\"Combo box\"]"
+    },
+    {
+      "name": "Context menu",
+      "sourcePageId": 11959,
+      "example": "preview/inventory.html [data-component=\"Context menu\"]"
+    },
+    {
+      "name": "Dialog",
+      "sourcePageId": 14512,
+      "example": "preview/inventory.html [data-component=\"Dialog\"]"
+    },
+    {
+      "name": "Dropdown",
+      "sourcePageId": 16255,
+      "example": "preview/inventory.html [data-component=\"Dropdown\"]"
+    },
+    {
+      "name": "Group header",
+      "sourcePageId": 16772,
+      "example": "preview/inventory.html [data-component=\"Group header\"]"
+    },
+    {
+      "name": "Input field",
+      "sourcePageId": 16957,
+      "example": "preview/inventory.html [data-component=\"Input field\"]"
+    },
+    {
+      "name": "Link",
+      "sourcePageId": 17214,
+      "example": "preview/inventory.html [data-component=\"Link\"]"
+    },
+    {
+      "name": "Loader",
+      "sourcePageId": 18924,
+      "example": "preview/inventory.html [data-component=\"Loader\"]"
+    },
+    {
+      "name": "Notification",
+      "sourcePageId": 20737,
+      "example": "preview/inventory.html [data-component=\"Notification\"]"
+    },
+    {
+      "name": "Popup",
+      "sourcePageId": 24392,
+      "example": "preview/inventory.html [data-component=\"Popup\"]"
+    },
+    {
+      "name": "Progress bar",
+      "sourcePageId": 28932,
+      "example": "preview/inventory.html [data-component=\"Progress bar\"]"
+    },
+    {
+      "name": "Radio button",
+      "sourcePageId": 29166,
+      "example": "preview/inventory.html [data-component=\"Radio button\"]"
+    },
+    {
+      "name": "Segmented control",
+      "sourcePageId": 29646,
+      "example": "preview/inventory.html [data-component=\"Segmented control\"]"
+    },
+    {
+      "name": "Search",
+      "sourcePageId": 30388,
+      "example": "preview/inventory.html [data-component=\"Search\"]"
+    },
+    {
+      "name": "Scrollbar",
+      "sourcePageId": 32687,
+      "example": "preview/inventory.html [data-component=\"Scrollbar\"]"
+    },
+    {
+      "name": "Shortcut and code sample",
+      "sourcePageId": 32866,
+      "example": "preview/inventory.html [data-component=\"Shortcut and code sample\"]"
+    },
+    {
+      "name": "Tab",
+      "sourcePageId": 33305,
+      "example": "preview/inventory.html [data-component=\"Tab\"]"
+    },
+    {
+      "name": "Table",
+      "sourcePageId": 34021,
+      "example": "preview/inventory.html [data-component=\"Table\"]"
+    },
+    {
+      "name": "Toggle",
+      "sourcePageId": 36007,
+      "example": "preview/inventory.html [data-component=\"Toggle\"]"
+    },
+    {
+      "name": "Toolbar",
+      "sourcePageId": 36237,
+      "example": "preview/inventory.html [data-component=\"Toolbar\"]"
+    },
+    {
+      "name": "Tooltip",
+      "sourcePageId": 38134,
+      "example": "preview/inventory.html [data-component=\"Tooltip\"]"
+    },
+    {
+      "name": "Tooltip: Editor",
+      "sourcePageId": 40132,
+      "example": "preview/inventory.html [data-component=\"Tooltip: Editor\"]"
+    },
+    {
+      "name": "Tooltip: Got It",
+      "sourcePageId": 42413,
+      "example": "preview/inventory.html [data-component=\"Tooltip: Got It\"]"
+    },
+    {
+      "name": "Tree",
+      "sourcePageId": 45525,
+      "example": "preview/inventory.html [data-component=\"Tree\"]"
+    },
+    {
+      "name": "Windows: Main window",
+      "sourcePageId": 46594,
+      "example": "preview/inventory.html [data-component=\"Windows: Main window\"]"
+    },
+    {
+      "name": "Windows: Tool window",
+      "sourcePageId": 54005,
+      "example": "preview/inventory.html [data-component=\"Windows: Tool window\"]"
+    }
+  ]
+}
