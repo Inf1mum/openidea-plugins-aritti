@@ -1667,3 +1667,75 @@ Built and tested against the mock host only; the IDE probe (plan Task 1) was not
 - **Route list limits:** the grey `[METHOD] Controller` text follows the path instead of sitting in a column; there is no split request panel beside the list; there is no gutter icon on the handler. These wait on upstream OpenIDEA requests. The handler member (`@method`) is stored but not displayed. The status line always says "endpoints". Copy as curl always emits `-X <METHOD>`; a mapping or route with no method is copied as GET.
 - **Create HTTP Request File:** needs `process:tee` (else the request is copied) and writes under the project root's `http/` (beside the spec for OpenAPI); the first project is used. Whether `tee` creates the missing `http/` directory in the real host is unchecked.
 - **Spring Web Flow:** `editor.read` is optional in the merged `aritti.spring-web`; without it the Web Flow section shows "no flow".
+
+## DDEV Integration (`aritti.ddev`)
+
+Source baseline: IntelliJ 1.2.10+261 / `7291f3e`; latest main `1c54431` also
+reviewed (new regression tests, no additional feature/UI family). Port targets
+**OpenIDEA v0.1.40 / API 1.4**, SDK `37c2a604`.
+
+- **Adopted API 1.4:** project run targets for selected PHP/Node/Composer/test
+  execution and path mapping; native Database source/secure credential/connection
+  requests; keyed native terminal completion and command environment;
+  per-project/global approved executable selection; window-scoped status text.
+  The former blockers #2133, #2134, #2135, #2139, #2140 and #2146 are closed and
+  their APIs are now used by this port.
+- **Notifications:** #2157 is also closed, but its project-targeted API ships in
+  **1.5**, not 1.4. Background messages retain root-labelled bodies and
+  project-checked actions; no 1.5 import is added to this 1.4 component.
+- **Runtime details:** target registration never changes the user's choice; the
+  host asks and owns PHP/Node selections. LSP-in-target is separate, and supported
+  debugger placement uses host path mapping. Tool discovery/version probes and
+  effective global PHP language level remain host-local/unavailable. No
+  JetBrains SDK/Compose credentials/server objects are created.
+- **Static target differences:** generic target Composer bypasses DDEV's
+  Composer root/hooks/environment/sync behavior. Per-command cwd control is
+  requested in [#2407](https://github.com/l0ng-ai/openidea/issues/2407). A built-in
+  target run lacks the original Composer running-state preflight and may let DDEV
+  auto-start; [#2408](https://github.com/l0ng-ai/openidea/issues/2408). The explicit
+  Composer command is guarded and uses `ddev composer`.
+- **Database:** native setup needs `database.sources`, not `project.write`.
+  Windowless startup cannot request a window-only connection; explicit setup or
+  first interactive automatic refresh/focus does. Without native permission, the
+  non-secret legacy file workflow needs `project.write` and manual credentials.
+  Successful native setup removes only a uniquely marked legacy entry when write
+  permission is available; ambiguous/unrelated entries are untouched.
+  Identical automatic native updates skip upsert/credential writes, preserving a
+  live connection; the host disconnects on upsert. Desired settings/credentials
+  are compared only in memory. Rotation/deletion/partial failure invalidate that
+  cache and reconnect marker. Explicit setup forces a reapply.
+  Uniquely identified existing managed sources are reused after a project move;
+  ambiguous matches are refused. No cross-project password copy is performed: the
+  new project's credential is written through its native secure API.
+- **Recovery and completion:** Stop/Restart match the original unavailable-
+  description fallback when the CLI/configuration are available. Configure
+  follow-up checks the actual host operation id as well as the session key,
+  preventing delayed exits from consuming a later request. Changed arguments
+  cannot replace a known active Configure operation.
+- **Terminal/platform:** host environment is append-only; a pre-existing
+  `DDEV_NONINTERACTIVE` prevents adding that variable. There is no terminal
+  profile-menu/preset or typed-command interception extension. Original local
+  UNC/WSL patching and remote log tabs remain different/unverified. Native
+  terminal completion now refreshes immediately even with watching disabled.
+- **Presentation/timing:** original polling is 10 seconds; host schedules have a
+  60-second minimum. Window-specific text is supported, per-window status
+  visibility is not. Tools is flat, so Project Actions supplies the grouped
+  workflow. Exact Got-It overlays, Sentry and third-party config-argument
+  extension points are deliberately adapted/omitted.
+- **Configuration assistance:** official v1.25.5 project/global schemas provide
+  offline completion, hover and validation. Pinned version; individual override
+  files, not an effective merged configuration. Bounded single-document YAML
+  (256 KiB); malformed surroundings can suppress completion. General YAML
+  formatting remains host-owned.
+- **Verification:** 107 native tests, strict Clippy/build/package checks,
+  105 host-evaluator conditions, actual Wasm editing probes with 50 ms deadlines,
+  all 27 commands and native integration callbacks with fixtures, plus real
+  host target argv/path preparation. Native OpenIDEA 0.1.40 Services/Setup and
+  root logo checked in a disposable stopped project. DDEV 1.25.3 and Docker
+  are available. A real native Configure command also
+  updated the disposable project and opened its YAML after terminal completion.
+  [Optional live checks](plugins/ddev/tests/LIVE-SMOKE.md) now pass real PHP/Node
+  argv/path mapping, explicit Composer root/hooks, MariaDB SQL and Xdebug DBGp
+  connect-back/source URI. Secure native Database connection, full IDE debugging
+  and remote/Windows execution remain unverified. No full runtime
+  parity claim. See [source audit](plugins/ddev/SOURCE-AUDIT.md).

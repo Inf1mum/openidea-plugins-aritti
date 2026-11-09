@@ -1,0 +1,292 @@
+id = "aritti.ddev"
+name = "DDEV Integration"
+version = "0.1.0" # x-release-please-version
+description = "DDEV project controls, service links and streaming logs in Services. Source port of DDEV Integration by Nico Löber and the DDEV contributors (de.php_perfect.intellij.ddev 1.2.10+261, source tag 1.2.10, revision 7291f3ea58cf937ae8c6ac7973ed24876915e308), BSD-3-Clause. Requires an approved DDEV executable and OpenIDEA API 1.4. Native database credentials, keyed terminals and a project execution target for PHP, Node and Composer."
+authors = ["Arnaud Ritti <arnaud.ritti@gmail.com>", "Nico Löber and DDEV contributors (original plugin)"]
+homepage = "https://github.com/ddev/ddev-intellij-plugin"
+license = "BSD-3-Clause AND Apache-2.0"
+icon = "icon.svg"
+change-notes = "0.1.0: source port of DDEV Integration 1.2.10, targeting API 1.4. Native Services, readable Overview, redacted Inspect, root logo and streaming logs. State-aware lifecycle controls and guided project preferences. Native owned Database sources, secure credentials and connection requests; non-secret legacy fallback/migration. DDEV execution target for host-selected PHP/Node/Composer runs and tests with project/cwd mapping. Keyed native terminals with command environment, exit-triggered refresh and success-only Configure opening. Window-scoped status and direct service links. Offline official v1.25.5 schema completion, hover and validation. Host-approved global/project executable selection."
+categories = ["tools"]
+engines.openidea = "^1.4"
+wasm = "dist/plugin.wasm"
+activation = ["on-language:yaml", "on-view:ddev", "on-startup-finished", "on-schedule:60", "on-event:file-saved", "on-event:files-changed", "on-event:editor-focused"]
+
+[capabilities]
+required = ["project.read"]
+# Update checks contact GitHub only with the optional network grant.
+optional = ["process:ddev", "net:api.github.com", "events", "storage", "project.write", "clipboard", "database.sources"]
+
+[[contributes.views]]
+id = "ddev"
+title = "DDEV"
+icon = "icons/ddev.svg"
+location = "services"
+
+[[contributes.providers]]
+kinds = ["completion", "diagnostics", "hover"]
+languages = ["yaml"]
+
+[[contributes.commands]]
+id = "start"
+title = "DDEV: Start"
+category = "DDEV"
+when = "workspaceContains:.ddev/config.yaml && (!plugin.aritti.ddev.known || plugin.aritti.ddev.can-start)"
+
+[[contributes.commands]]
+id = "restart"
+title = "DDEV: Restart"
+category = "DDEV"
+when = "workspaceContains:.ddev/config.yaml && (!plugin.aritti.ddev.known || plugin.aritti.ddev.can-restart-stop)"
+
+[[contributes.commands]]
+id = "stop"
+title = "DDEV: Stop"
+category = "DDEV"
+when = "workspaceContains:.ddev/config.yaml && (!plugin.aritti.ddev.known || plugin.aritti.ddev.can-restart-stop)"
+
+[[contributes.commands]]
+id = "poweroff"
+title = "DDEV: Power Off All Projects"
+category = "DDEV"
+when = "workspaceContains:.ddev/config.yaml && (!plugin.aritti.ddev.known || plugin.aritti.ddev.available)"
+
+[[contributes.commands]]
+id = "delete"
+title = "DDEV: Delete Project"
+category = "DDEV"
+when = "workspaceContains:.ddev/config.yaml && (!plugin.aritti.ddev.known || plugin.aritti.ddev.available)"
+
+[[contributes.commands]]
+id = "share"
+title = "DDEV: Share Project"
+category = "DDEV"
+when = "workspaceContains:.ddev/config.yaml && (!plugin.aritti.ddev.known || plugin.aritti.ddev.running)"
+
+[[contributes.commands]]
+id = "config"
+title = "DDEV: Configure Project"
+category = "DDEV"
+
+[[contributes.commands]]
+id = "open-config"
+title = "DDEV: Open Configuration"
+category = "DDEV"
+when = "workspaceContains:.ddev/config.yaml"
+
+[[contributes.commands]]
+id = "shell"
+title = "DDEV: Open Shell"
+category = "DDEV"
+when = "workspaceContains:.ddev/config.yaml && (!plugin.aritti.ddev.known || plugin.aritti.ddev.running)"
+
+[[contributes.commands]]
+id = "open-service"
+title = "DDEV: Open Service in Browser"
+category = "DDEV"
+when = "workspaceContains:.ddev/config.yaml && (!plugin.aritti.ddev.known || plugin.aritti.ddev.running)"
+
+[[contributes.commands]]
+id = "logs"
+title = "DDEV: Open Logs"
+category = "DDEV"
+when = "workspaceContains:.ddev/config.yaml && (!plugin.aritti.ddev.known || plugin.aritti.ddev.available)"
+
+[[contributes.commands]]
+id = "refresh"
+title = "DDEV: Refresh Status"
+category = "DDEV"
+
+[[contributes.commands]]
+id = "check-updates"
+title = "DDEV: Check for Updates"
+category = "DDEV"
+
+[[contributes.menus]]
+menu = "viewItem.context"
+view = "ddev"
+command = "start"
+
+[[contributes.menus]]
+menu = "viewItem.context"
+view = "ddev"
+command = "restart"
+
+[[contributes.menus]]
+menu = "viewItem.context"
+view = "ddev"
+command = "stop"
+
+[[contributes.menus]]
+menu = "viewItem.context"
+view = "ddev"
+command = "shell"
+
+[[contributes.menus]]
+menu = "viewItem.context"
+view = "ddev"
+command = "open-service"
+
+[[contributes.menus]]
+menu = "viewItem.context"
+view = "ddev"
+command = "logs"
+
+[[contributes.menus]]
+menu = "viewItem.context"
+view = "ddev"
+command = "open-config"
+
+[[contributes.statusBar]]
+id = "ddev-status"
+text = "DDEV"
+tooltip = "DDEV project actions"
+command = "actions"
+
+[contributes.settings]
+title = "DDEV Integration"
+schema = "settings.schema.json"
+
+[[contributes.commands]]
+id = "actions"
+title = "DDEV: Project Actions"
+category = "DDEV"
+
+[[contributes.commands]]
+id = "setup-database"
+title = "DDEV: Configure Database Data Source"
+category = "DDEV"
+when = "workspaceContains:.ddev/config.yaml && (!plugin.aritti.ddev.known || plugin.aritti.ddev.has-database)"
+
+[[contributes.commands]]
+id = "copy-db-password"
+title = "DDEV: Copy Database Password"
+category = "DDEV"
+when = "workspaceContains:.ddev/config.yaml && (!plugin.aritti.ddev.known || plugin.aritti.ddev.has-database)"
+
+[[contributes.commands]]
+id = "composer"
+title = "DDEV: Run Composer…"
+category = "DDEV"
+when = "workspaceContains:.ddev/config.yaml && (!plugin.aritti.ddev.known || plugin.aritti.ddev.running)"
+
+[[contributes.commands]]
+id = "php"
+title = "DDEV: Run PHP…"
+category = "DDEV"
+when = "workspaceContains:.ddev/config.yaml && (!plugin.aritti.ddev.known || plugin.aritti.ddev.running)"
+
+[[contributes.commands]]
+id = "node"
+title = "DDEV: Run Node.js…"
+category = "DDEV"
+when = "workspaceContains:.ddev/config.yaml && (!plugin.aritti.ddev.known || plugin.aritti.ddev.running)"
+
+[[contributes.commands]]
+id = "help"
+title = "DDEV: Help and Diagnostics"
+category = "DDEV"
+
+[[contributes.menus]]
+menu = "viewItem.context"
+view = "ddev"
+command = "share"
+submenu = "DDEV"
+
+[[contributes.menus]]
+menu = "viewItem.context"
+view = "ddev"
+command = "poweroff"
+submenu = "DDEV"
+
+[[contributes.menus]]
+menu = "viewItem.context"
+view = "ddev"
+command = "delete"
+submenu = "DDEV"
+
+[[contributes.menus]]
+menu = "viewItem.context"
+view = "ddev"
+command = "setup-database"
+submenu = "DDEV"
+
+[[contributes.menus]]
+menu = "viewItem.context"
+view = "ddev"
+command = "copy-db-password"
+submenu = "DDEV"
+
+[[contributes.menus]]
+menu = "viewItem.context"
+view = "ddev"
+command = "composer"
+submenu = "DDEV"
+
+[[contributes.menus]]
+menu = "viewItem.context"
+view = "ddev"
+command = "php"
+submenu = "DDEV"
+
+[[contributes.menus]]
+menu = "viewItem.context"
+view = "ddev"
+command = "node"
+submenu = "DDEV"
+
+[[contributes.menus]]
+menu = "viewItem.context"
+view = "ddev"
+command = "help"
+submenu = "DDEV"
+
+[[contributes.views]]
+id = "setup"
+title = "DDEV Setup"
+icon = "icons/ddev.svg"
+location = "right"
+
+[[contributes.commands]]
+id = "setup"
+title = "DDEV: Guided Setup"
+category = "DDEV"
+
+[[contributes.commands]]
+id = "show-services"
+title = "DDEV: Show Services"
+category = "DDEV"
+
+[[contributes.commands]]
+id = "open-guide"
+title = "DDEV: Open Installation Guide"
+category = "DDEV"
+
+[[contributes.commands]]
+id = "open-releases"
+title = "DDEV: Open Release Notes"
+category = "DDEV"
+
+[[contributes.commands]]
+id = "report-issue"
+title = "DDEV: Open Plugin Issue Form"
+category = "DDEV"
+
+[[contributes.commands]]
+id = "diagnose"
+title = "DDEV: Check Environment"
+category = "DDEV"
+
+[[contributes.commands]]
+id = "disable-update-checks"
+title = "DDEV: Disable Automatic Update Checks for Project"
+category = "DDEV"
+
+
+[[contributes.menus]]
+menu = "tools"
+command = "actions"
+
+[[contributes.menus]]
+menu = "tools"
+command = "setup"

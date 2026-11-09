@@ -1,5 +1,6 @@
 {
   "plugins/blade": "0.2.0",
+  "plugins/ddev": "0.1.0",
   "plugins/dependency-audit": "0.2.0",
   "plugins/devcontainer": "0.2.0",
   "plugins/dotenv": "0.2.0",

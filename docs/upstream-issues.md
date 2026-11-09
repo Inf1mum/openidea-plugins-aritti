@@ -751,3 +751,36 @@ Hand-written registration with the `__*` macros.
 #### Additional context
 
 Found while building 36 plugins against plugin API 1.2 (OpenIDEA 0.1.38): https://github.com/arnaud-ritti/openidea-plugins/blob/2ab5f0a/LIMITATIONS.md lists each plugin's limits, and https://github.com/arnaud-ritti/openidea-plugins/blob/2ab5f0a/docs/audit-gaps-2026-11-06/audit-v2.md ranks the missing features by cause.
+
+## DDEV API requests — filed 2026-11-08, rechecked 2026-11-09
+
+All seven issues are now closed upstream. Six APIs ship in v0.1.40/API 1.4 and
+are adopted by the DDEV port; project notifications require the newer API 1.5.
+
+| Issue | API / current port adoption |
+|---|---|
+| [#2133](https://github.com/l0ng-ai/openidea/issues/2133) | 1.4: project DDEV run target, raw argv and configurable path/cwd mapping; native host owns user selection |
+| [#2134](https://github.com/l0ng-ai/openidea/issues/2134) | 1.4: native owned source upsert, secure credential and connection request; guarded legacy fallback/migration |
+| [#2135](https://github.com/l0ng-ai/openidea/issues/2135) | 1.4: keyed terminals and completion across reclaim; success-only Configure opening and state refresh |
+| [#2139](https://github.com/l0ng-ai/openidea/issues/2139) | 1.4: DDEV_NONINTERACTIVE on native terminal sessions and finite reads; append-only host environment |
+| [#2140](https://github.com/l0ng-ai/openidea/issues/2140) | 1.4: host-owned global/project executable chooser, keeping approval and pinning |
+| [#2146](https://github.com/l0ng-ai/openidea/issues/2146) | 1.4: invoking-window status overrides; exact per-window hide behavior remains unavailable |
+| [#2157](https://github.com/l0ng-ai/openidea/issues/2157) | **1.5**: project-targeted background notifications; port remains on 1.4 with origin guards |
+
+Source: pinned SDK v0.1.40 (`37c2a604`) and newer HEAD `e3f41a2`, whose WIT is
+1.5. Runtime ABI/fixtures and desktop Services/Setup were checked separately;
+this is not a successful real Database/Xdebug/remote-container claim.
+
+### DDEV static-target gaps found in the API 1.4 recheck
+
+- [#2407](https://github.com/l0ng-ai/openidea/issues/2407): command overrides need
+  separate cwd arguments. Shared `--dir=<mapped-cwd> --` works for DDEV exec, but
+  prevents a correct `ddev composer` override. Generic Composer currently misses
+  DDEV's Composer root/hooks/environment/sync behavior.
+- [#2408](https://github.com/l0ng-ai/openidea/issues/2408): optional pre-launch
+  validation. The original Composer provider rejects stopped projects; a static
+  target can let DDEV auto-start before the plugin checks it. Explicit commands
+  retain the running-state guard.
+
+Both interfaces were also checked at HEAD `84cfac9` / API 1.5. These are
+source/wrapper findings, not observed live container starts.

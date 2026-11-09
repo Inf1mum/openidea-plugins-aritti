@@ -11,6 +11,8 @@ OpenIDEA plugins are sandboxed WebAssembly components (wasmtime, component model
 
 Full upstream doc: `reference.md` in this directory (source: `l0ng-ai/openidea` `plugins/README.md`). Grep it by section heading; do not guess API names, read the table.
 
+For tool-window UI/UX work, read [ui-ux.md](ui-ux.md) for the repository's native-view and contextual-workflow preferences. Verify API availability against the target SDK; the bundled reference contains older limits.
+
 ## Workflow
 
 ```sh
@@ -24,6 +26,16 @@ openidea-plugin keygen acme.key && openidea-plugin pack <dir> --key acme.key --p
 ```
 
 Debug logs: start IDE with `RUST_LOG=info,ide_plugin=trace`. `host::log` and `eprintln!` go to the IDE log.
+
+## Plugin and panel icons
+
+When adding a plugin in this repository, follow [ICONS.md](../../../ICONS.md):
+
+- Add `icon.svg` and declare top-level `icon = "icon.svg"` in `plugin.toml`. Use the supported technology's official logo on the repository's white tile, or an original pictogram when no logo is available.
+- Give contributed tool windows and Services providers a matching package SVG via their own `icon` field; the package icon does not set the panel icon. Use a transparent mark that reads at 16 px, with enough contrast on light and dark themes.
+- For API 1.4 native Services rows, omit `TreeItem.icon` on a root that should inherit the provider logo. The host resolves the manifest view SVG, but treats a row's icon as an already registered icon name; a raw package path such as `icons/ddev.svg` overrides inheritance and falls back to a generic glyph. Verify the actual row after reloading, separately from the tool-window/package icons.
+- Obtain assets from official brand sources or licensed icon sets, respecting porting restrictions. Retain required asset licenses, record sources/modifications in `ICONS.md` and the package's attribution, and update license metadata when needed.
+- Inspect the package icon at 64 px and the panel icon at 16 px, then run the package check so missing paths or rejected SVGs are caught before linking.
 
 ## Minimal Rust plugin
 

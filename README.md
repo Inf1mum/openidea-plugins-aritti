@@ -11,7 +11,7 @@ Plugins for [OpenIDEA](https://github.com/l0ng-ai/openidea), each a sandboxed We
 | Spring | `spring-beans`, `spring-boot`, `spring-data`, `spring-security`, `spring-web`, `spring-integration`, `spring-osgi`, `spring-runtime`, `spring-shell`, `spring-ws`, `spring-initializr`, `jpa-assist` |
 | Java frameworks | `quarkus` |
 | Database migrations | `flyway`, `liquibase` |
-| Tooling and workflow | `dependency-audit`, `devcontainer`, `kube-explorer`, `gitlab`, `tasks` |
+| Tooling and workflow | `dependency-audit`, `ddev`, `devcontainer`, `kube-explorer`, `gitlab`, `tasks` |
 
 Each plugin directory has its own `README.md` (features) and `LICENSE`.
 

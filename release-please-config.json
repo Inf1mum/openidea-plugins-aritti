@@ -13,6 +13,12 @@
         "plugin.toml"
       ]
     },
+    "plugins/ddev": {
+      "component": "ddev",
+      "extra-files": [
+        "plugin.toml"
+      ]
+    },
     "plugins/dependency-audit": {
       "component": "dependency-audit",
       "extra-files": [

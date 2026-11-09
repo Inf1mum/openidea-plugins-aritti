@@ -1,0 +1,25 @@
+DDEV Integration for OpenIDEA
+
+Source port of DDEV Integration for IntelliJ, de.php_perfect.intellij.ddev,
+Marketplace version 1.2.10+261. Source tag 1.2.10, revision
+7291f3ea58cf937ae8c6ac7973ed24876915e308.
+https://github.com/ddev/ddev-intellij-plugin
+Copyright (c) 2022, Nico Löber. BSD-3-Clause; see LICENSE.
+Original authors: Nico Löber and the DDEV contributors.
+
+The Rust/OpenIDEA implementation is by Arnaud Ritti (2026) and is
+redistributed under the same BSD-3-Clause license. Upstream JSON fixtures
+in tests/fixtures are retained for compatibility tests.
+
+DDEV logo assets (icon.svg and icons/ddev.svg): derived from the official
+DDEV figurative mark, docs/content/developers/logos/SVG/Logo.svg,
+https://github.com/ddev/ddev/blob/main/docs/content/developers/logos/SVG/Logo.svg
+Distributed under the DDEV repository's Apache-2.0 license; see icons/LICENSE-DDEV.
+Modifications: inline path styling, square viewport, scaling and a white tile
+for the package icon. The logo is a trademark of the DDEV Foundation and
+identifies the supported technology; no endorsement is implied.
+
+Unmodified DDEV v1.25.5 project and global JSON schemas:
+pkg/ddevapp/schema.json and pkg/globalconfig/schema.json in ddev/ddev.
+Apache-2.0; see schemas/LICENSE-DDEV and schemas/README.md for pinned sources
+and checksums. These are bundled offline, separate from the original plugin.
