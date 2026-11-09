@@ -54,7 +54,7 @@ pub fn is_identifier(b: u8) -> bool {
 fn ends_with_function(before: &str, name: &str) -> bool {
     let call = format!("{name}(");
     let Some(rest) = before.strip_suffix(&call) else { return false };
-    rest.bytes().last().is_none_or(|b| !is_identifier(b) && b != b'>' && b != b':' && b != b'$')
+    rest.bytes().last().is_none_or(|b| !is_identifier(b) && b != b'>' && b != b':' && b != b'$' && b != b'.')
 }
 
 fn line_bounds(text: &str, at: usize) -> (usize, usize) {
@@ -128,8 +128,39 @@ fn is_class_byte(b: u8) -> bool {
     is_identifier(b) || b == b'\\'
 }
 
+fn twig_literal_reference(text: &str, literal: &crate::twig::CodeLiteral) -> Option<Reference> {
+    let (line_start,line_end)=line_bounds(text,literal.range.start);
+    if line_end-line_start>MAX_LINE {return None;}
+    let start=literal.range.start;
+    let end=if literal.closed {literal.range.end}else{line_end.min(literal.range.end)};
+    if text[start..end].contains(['\n','\r']) {return None;}
+    let before=text[literal.code_start..start-1].trim_end();
+    let after=if literal.closed {text[literal.range.end+1..literal.code_end].trim_start()}else{""};
+    let make=|kind|Some(Reference{kind,start,end});
+    for (name,kind) in [("path",Kind::Route),("url",Kind::Route),("include",Kind::Template),("source",Kind::Template),("asset",Kind::Asset),("is_granted",Kind::Role),("block",Kind::Block)] {
+        if ends_with_function(before,name) {return make(kind);}
+    }
+    if TWIG_ENTRY_FUNCTIONS.iter().any(|name|ends_with_function(before,name)) {return make(Kind::Entry);}
+    if literal.tag && TWIG_TEMPLATE_TAGS.contains(&before.trim_start_matches(['-','~',' ','\t','\r','\n'])) {return make(Kind::Template);}
+    let filtered=after.strip_prefix('|').map(str::trim_start);
+    if filtered.is_some_and(|filter|{
+        let length=filter.bytes().take_while(|byte|is_identifier(*byte)).count();
+        matches!(&filter[..length],"trans"|"transchoice") && !filter.as_bytes().get(length).is_some_and(|byte|*byte>=0x80)
+    }) {return make(Kind::Translation);}
+    None
+}
+
 /// What the name at byte offset `at` refers to, if anything.
 pub fn reference_at(language: &str, text: &str, at: usize) -> Option<Reference> {
+    if language=="twig" {
+        if text.len()>128<<10 {return None;}
+        if let Some(literal)=crate::twig::code_literals(text).iter().find(|literal|literal.range.start<=at && at<=literal.range.end) {
+            let reference=twig_literal_reference(text,literal)?;
+            return (at<=reference.end).then_some(reference);
+        }
+        if !crate::twig::code_regions(text).iter().any(|range|range.start<=at && at<=range.end) {return None;}
+        return block_tag_at(text,at).map(|(start,end)|Reference{kind:Kind::Block,start,end});
+    }
     if let Some((start, end)) = crate::index::tag_slot_at(language, text, at) {
         return Some(Reference { kind: Kind::Tag, start, end });
     }
@@ -176,50 +207,10 @@ pub fn reference_at(language: &str, text: &str, at: usize) -> Option<Reference> 
                 return reference(Kind::Asset);
             }
 
-            let container_call = ["container->get(", "container->has(", "container()->get(", "container()->has("]
-                .iter()
-                .any(|call| lower.ends_with(call));
+            let container_call =
+                ["container->get(", "container->has(", "container()->get(", "container()->has("].iter().any(|call| lower.ends_with(call));
             if container_call || ends_with_function(before, "service") || ends_with_function(before, "ref") {
                 return reference(Kind::Service);
-            }
-
-            None
-        }
-        "twig" => {
-            if ends_with_function(before, "path") || ends_with_function(before, "url") {
-                return reference(Kind::Route);
-            }
-
-            if ends_with_function(before, "include") || ends_with_function(before, "source") {
-                return reference(Kind::Template);
-            }
-
-            if ends_with_function(before, "asset") {
-                return reference(Kind::Asset);
-            }
-
-            if TWIG_ENTRY_FUNCTIONS.iter().any(|function| ends_with_function(before, function)) {
-                return reference(Kind::Entry);
-            }
-
-            if ends_with_function(before, "is_granted") {
-                return reference(Kind::Role);
-            }
-
-            if ends_with_function(before, "block") {
-                return reference(Kind::Block);
-            }
-
-            let mut words = before.rsplit(char::is_whitespace);
-            let tag = words.next().unwrap_or_default();
-            let opener = words.next().unwrap_or_default();
-            if TWIG_TEMPLATE_TAGS.contains(&tag) && opener.starts_with("{%") {
-                return reference(Kind::Template);
-            }
-
-            let filtered = after.trim_start().strip_prefix('|').map(str::trim_start);
-            if filtered.is_some_and(|filter| filter.starts_with("trans")) {
-                return reference(Kind::Translation);
             }
 
             None
@@ -297,6 +288,9 @@ pub fn twig_variable_at(text: &str, at: usize) -> Option<(usize, usize)> {
 
 /// Every reference in a document, in order.
 pub fn references(language: &str, text: &str) -> Vec<Reference> {
+    if language=="twig" {
+        return crate::twig::code_literals(text).iter().filter(|literal|literal.closed && literal.construct_closed).filter_map(|literal|twig_literal_reference(text,literal)).collect();
+    }
     let mut found = Vec::new();
     let bytes = text.as_bytes();
     let mut i = 0;

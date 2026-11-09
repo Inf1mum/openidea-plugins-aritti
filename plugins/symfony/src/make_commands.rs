@@ -1,7 +1,6 @@
-//! Commands that run the MakerBundle in a terminal, write a Twig template
-//! through `tee`, or insert form rows from a form type.
+//! Commands that run MakerBundle, guide to atomic template creation, or insert form rows.
 
-use openidea_plugin::{host, Error, Invocation, NotificationLevel, PickItem, Position, Range, TextEdit};
+use openidea_plugin::{Error, Invocation, NotificationLevel, PickItem, Position, Range, TextEdit, host};
 
 use crate::php_checks::{arguments, trimmed};
 use crate::php_text::{mask, skip_whitespace};
@@ -32,7 +31,7 @@ const STATIC_MAKERS: [(&str, &str); 22] = [
     ("schedule", "Create a scheduler component"),
 ];
 
-const PLAIN_BASE_TEMPLATE: &str = "{% block body %}\n{% endblock %}\n";
+pub(crate) const PLAIN_BASE_TEMPLATE: &str = "{% block body %}\n{% endblock %}\n";
 
 impl Main {
     pub(crate) fn make(&mut self, ctx: &Invocation) -> Result<Option<String>, Error> {
@@ -53,7 +52,9 @@ impl Main {
 
         let items: Vec<PickItem> = makers.iter().map(|(name, description)| PickItem::new(name, name).description(description)).collect();
         let Some(maker) = host::pick("Symfony: Make", &items)? else { return Ok(None) };
-        let Some(arguments) = host::input(&format!("Name and options for make:{maker} (empty to be asked)"), None)? else { return Ok(None) };
+        let Some(arguments) = host::input(&format!("Name and options for make:{maker} (empty to be asked)"), None)? else {
+            return Ok(None);
+        };
 
         let mut args = vec!["bin/console".to_owned(), format!("make:{maker}")];
         args.extend(arguments.split_whitespace().map(str::to_owned));
@@ -63,41 +64,13 @@ impl Main {
         }
     }
 
-    pub(crate) fn create_template(&mut self, ctx: &Invocation) -> Result<Option<String>, Error> {
-        let project = ctx.project().ok_or("No project is open.")?;
-        let Some(name) = host::input("Template name, for example blog/show.html.twig", None)? else { return Ok(None) };
-        let name = name.trim().trim_start_matches('/').trim_start_matches("templates/").to_owned();
-        let valid = !name.is_empty() && !name.contains("..") && !name.contains(['\\', ' ']) && name.ends_with(".twig");
-        if !valid {
-            return Err("Enter a path ending in .twig, such as blog/show.html.twig.".into());
-        }
-
-        let relative = format!("templates/{name}");
-        if project.read_file(&relative).is_ok() {
-            return Err(format!("{relative} already exists.").into());
-        }
-
-        let extends = project.read_file("templates/base.html.twig").is_ok();
-        let content = match extends {
-            true => format!("{{% extends 'base.html.twig' %}}\n\n{PLAIN_BASE_TEMPLATE}"),
-            false => String::new(),
-        };
-
-        let path = format!("{}/{relative}", project.root()?.trim_end_matches('/'));
-        let written = host::run_process("tee", &[path.clone()], Some(&content)).and_then(|output| match output.status {
-            Some(0) => Ok(()),
-            _ => Err(Error::Invalid(output.stderr)),
-        });
-
-        match written {
-            Ok(()) => host::open_location(&path, 0, 0).map(|()| None),
-            Err(Error::Denied(_)) => {
-                let _ = host::copy_to_clipboard(&relative);
-                host::notify(NotificationLevel::Warning, SOURCE, &format!("Create {relative} yourself (the path is copied if the clipboard is allowed). Allow process:tee in Settings › Plugins to create it here."));
-                Ok(None)
-            }
-            Err(error) => Err(error),
-        }
+    pub(crate) fn create_template(&mut self, _ctx: &Invocation) -> Result<Option<String>, Error> {
+        host::notify(
+            NotificationLevel::Info,
+            SOURCE,
+            "Place the caret inside a literal unqualified Twig extends/include/embed/use template name, then invoke the Create missing Twig template… intention. Review the exact target/content before one atomic non-overwriting Create. Commands cannot return native FileActions; this command does not write a file.",
+        );
+        Ok(None)
     }
 
     pub(crate) fn twig_form_fields(&mut self, ctx: &Invocation) -> Result<Option<String>, Error> {
@@ -108,13 +81,19 @@ impl Main {
 
         let index = self.index_for(&editor.path()).ok_or("The file is not in an indexed Symfony project.")?;
         let project = ctx.project().ok_or("No project is open.")?;
-        let types: Vec<PickItem> = index.classes.iter().filter(|(class, _)| class.contains("\\Form\\") && class.ends_with("Type")).map(|(class, entry)| PickItem::new(class, class).description(&entry.path)).collect();
+        let types: Vec<PickItem> = index
+            .classes
+            .iter()
+            .filter(|(class, _)| class.contains("\\Form\\") && class.ends_with("Type"))
+            .map(|(class, entry)| PickItem::new(class, class).description(&entry.path))
+            .collect();
         if types.is_empty() {
             return Err("No form types found in the project.".into());
         }
 
         let Some(class) = host::pick("Form type", &types)? else { return Ok(None) };
-        let source = index.classes.get(&class).and_then(|entry| project.read_file(&entry.path).ok()).ok_or("The form type cannot be read.")?;
+        let source =
+            index.classes.get(&class).and_then(|entry| project.read_file(&entry.path).ok()).ok_or("The form type cannot be read.")?;
         let fields = form_fields(&source);
         if fields.is_empty() {
             return Err("The form type adds no fields with a literal name.".into());

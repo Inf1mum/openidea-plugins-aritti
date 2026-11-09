@@ -293,6 +293,19 @@ impl Default for ModulithTools {
     }
 }
 
+impl ModulithTools {
+    pub fn warm_project(&mut self, project: &Project, budget: std::time::Duration) { self.indexes.get(project, budget); }
+    pub fn reset_live(&mut self) { self.indexes.reset(); }
+
+    /// Cached project model plus current text; no file discovery on the typing path.
+    pub fn live_diagnostics(&mut self, doc: &Document) -> Vec<Diagnostic> {
+        let Some(index) = self.indexes.for_cached_document(&doc.path, &doc.text) else { return Vec::new() };
+        if !index.fresh() || index.files().len() > 1000 { return Vec::new(); }
+        let model = Model::build(index);
+        diagnostics(&model, true, &doc.path, &java::parse(&doc.text), &doc.text)
+    }
+}
+
 impl Providers for ModulithTools {
     fn line_markers(&mut self, doc: &Document) -> Vec<LineMarker> {
         let Some(index) = self.indexes.for_document(&doc.path, &doc.text, PROVIDER_BUDGET) else { return Vec::new() };
@@ -350,8 +363,10 @@ impl Providers for ModulithTools {
 }
 
 /// Activation key of a tree item: the module to open, then what makes the key unique.
-fn key(open: &str, rest: &str) -> String {
-    format!("open:{open}#{rest}")
+fn key(model: &Model, open: &str, rest: &str) -> String {
+    let source = model.modules.get(open).and_then(|module| module.location.as_ref()).map(|at| at.path.as_str()).unwrap_or("");
+    let encoded: String = source.as_bytes().iter().map(|byte|format!("{byte:02x}")).collect();
+    format!("open:{open}#{rest}#source:{encoded}")
 }
 
 type Dependencies<'m> = BTreeMap<&'m str, BTreeMap<&'m str, Option<Violation>>>;
@@ -387,13 +402,13 @@ fn diagram_of(model: &Model, index: &Index<Unit>) -> (Vec<Node>, Vec<Edge>) {
     let nodes = model
         .modules
         .values()
-        .map(|m| Node::new(&key(&m.name, ""), &m.name).detail(if m.open { "open" } else { "closed" }))
+        .map(|m| Node::new(&key(&model,&m.name, ""), &m.name).detail(if m.open { "open" } else { "closed" }))
         .collect();
     let edges = dependencies(model, index)
         .into_iter()
         .flat_map(|(from, found)| {
             found.into_iter().map(move |(to, v)| {
-                let edge = Edge::new(&key(from, ""), &key(to, "")).warning(v.is_some());
+                let edge = Edge::new(&key(&model,from, ""), &key(&model,to, "")).warning(v.is_some());
                 match v {
                     Some(v) => edge.label(&violation_label(&v)),
                     None => edge,
@@ -422,12 +437,30 @@ pub fn plantuml(model: &Model, index: &Index<Unit>) -> String {
     out
 }
 
+#[cfg(feature = "embedded")]
+impl ModulithTools {
+    /// Typed source-model facts; no classpath/runtime module resolution is added.
+    pub fn diagram_snapshot(&mut self, ctx: &Invocation) -> Result<(Vec<Node>,Vec<Edge>,Vec<(String,Location)>,String),Error> {
+        let project=ctx.project().ok_or(Error::Stale)?;
+        if project.root()?.is_empty(){return Err(Error::Stale);}
+        let index=self.indexes.get(&project,COMMAND_BUDGET);
+        if index.scanning(){refresh(&id(DIAGRAM_VIEW));}
+        let model=Model::build(index);
+        let (nodes,edges)=diagram_of(&model,index);
+        let sources=model.modules.values().filter_map(|m|m.location.as_ref().map(|at|(key(&model,&m.name,""),at.clone()))).collect();
+        let status=if model.modules.is_empty(){
+            if !index.complete(){"Scanning application-module source…".into()}else if model.roots.is_empty(){"No @SpringBootApplication or @Modulithic source root found.".into()}else{"No application-module source candidates.".into()}
+        }else{format!("{} modules · {} dependencies{} · cached lexical Modulith source model",nodes.len(),edges.len(),if index.complete(){""}else{" · scanning…"})};
+        Ok((nodes,edges,sources,status))
+    }
+}
+
 impl Views for ModulithTools {
     fn render(&mut self, view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
         let Some(project) = ctx.project() else { return Ok(View::message("Open a project to see its application modules.")) };
         let index = self.indexes.get(&project, COMMAND_BUDGET);
         let complete = index.complete();
-        if !complete {
+        if index.scanning() {
             refresh(view);
         }
         let model = Model::build(index);
@@ -454,13 +487,13 @@ impl Views for ModulithTools {
             if let Some(d) = &m.display_name {
                 detail = format!("{detail} · {d}");
             }
-            let parent = key(&m.name, "");
+            let parent = key(&model,&m.name, "");
             items.push(TreeItem::new(&parent, &m.name).detail(&detail).icon("module").expandable(false));
             for i in m.interface_names() {
-                items.push(TreeItem::new(&key(&m.name, &format!("i:{i}")), i).parent(&parent).detail("named interface").icon("interface"));
+                items.push(TreeItem::new(&key(&model,&m.name, &format!("i:{i}")), i).parent(&parent).detail("named interface").icon("interface"));
             }
             for d in m.allowed.iter().flatten() {
-                items.push(TreeItem::new(&key(&m.name, &format!("a:{d}")), d).parent(&parent).detail("allowed dependency").icon("module"));
+                items.push(TreeItem::new(&key(&model,&m.name, &format!("a:{d}")), d).parent(&parent).detail("allowed dependency").icon("module"));
             }
             for (b, v) in dependencies.get(m.name.as_str()).into_iter().flatten() {
                 let (detail, icon) = match v {
@@ -468,7 +501,7 @@ impl Views for ModulithTools {
                     Some(Violation::Internal) => ("dependency on internal types".to_owned(), "warning"),
                     Some(Violation::NotAllowed(d)) => (format!("dependency on {d}, not in allowedDependencies"), "warning"),
                 };
-                let item = TreeItem::new(&key(b, &format!("d:{}", m.name)), b).parent(&parent).detail(&detail).icon(icon);
+                let item = TreeItem::new(&key(&model,b, &format!("d:{}", m.name)), b).parent(&parent).detail(&detail).icon(icon);
                 items.push(item);
             }
         }
@@ -497,12 +530,35 @@ impl Views for ModulithTools {
                 refresh(view);
             }
             ViewEvent::Activate(key) | ViewEvent::Message(key) => {
-                let Some(name) = key.strip_prefix("open:").and_then(|k| k.split('#').next()) else { return Ok(()) };
-                let Some(project) = ctx.project() else { return Ok(()) };
-                let model = Model::build(self.indexes.get(&project, COMMAND_BUDGET));
-                if let Some(at) = model.modules.get(name).and_then(|m| m.location.as_ref()) {
-                    host::open_location(&at.path, at.range.start.line, at.range.start.character)?;
-                }
+                let project = ctx.project().ok_or(Error::Stale)?;
+                let root = project.root()?;
+                if root.is_empty() { return Err(Error::Stale); }
+                let index = self.indexes.get(&project, COMMAND_BUDGET);
+                let model = Model::build(index);
+                let valid = if view == id(DIAGRAM_VIEW) {
+                    diagram_of(&model,index).0.iter().any(|node| node.id == key)
+                } else {
+                    let dependencies = dependencies(&model,index);
+                    model.modules.values().any(|module| {
+                        key == self::key(&model,&module.name, "")
+                            || module.interface_names().iter().any(|name| key == self::key(&model,&module.name,&format!("i:{name}")))
+                            || module.allowed.iter().flatten().any(|name| key == self::key(&model,&module.name,&format!("a:{name}")))
+                            || dependencies.get(module.name.as_str()).into_iter().flatten().any(|(target,_)| key == self::key(&model,target,&format!("d:{}",module.name)))
+                    })
+                };
+                if !valid { return Err(Error::Stale); }
+                let name = key.strip_prefix("open:").and_then(|k| k.split('#').next()).ok_or(Error::Stale)?;
+                let at = model.modules.get(name).and_then(|m| m.location.as_ref()).ok_or(Error::Stale)?;
+                if at.path.len() > 4096 || at.path.chars().any(char::is_control)
+                    || !at.path.starts_with(&format!("{}/",root.trim_end_matches('/')))
+                    || host::project_of(&at.path).and_then(|p| p.root().ok()).as_deref() != Some(root.as_str()) { return Err(Error::Stale); }
+                let expected: Vec<_> = index.iter().filter(|(path,_)| *path == at.path).map(|(_,unit)|unit).collect();
+                if expected.len() != 1 { return Err(Error::Stale); }
+                let text = project.read_file(&at.path)?;
+                if text.len() > 512 * 1024 { return Err("Selected Modulith source exceeds the navigation bound.".into()); }
+                if scan(&at.path,&text).as_ref() != Some(expected[0])
+                    || host::project_of(&at.path).and_then(|p| p.root().ok()).as_deref() != Some(root.as_str()) { return Err(Error::Stale); }
+                host::open_location(&at.path,at.range.start.line,at.range.start.character)?;
             }
             _ => {}
         }
@@ -792,13 +848,13 @@ class Shipper {}
         let index = tools.indexes.get(&host.invocation().project().unwrap(), COMMAND_BUDGET);
         let model = Model::build(index);
         let (nodes, edges) = diagram_of(&model, index);
-        let nodes: Vec<_> = nodes.iter().map(|n| (n.id.as_str(), n.label.as_str(), n.detail.as_deref())).collect();
+        let nodes: Vec<_> = nodes.iter().map(|n| (n.id.split("#source:").next().unwrap(), n.label.as_str(), n.detail.as_deref())).collect();
         assert_eq!(nodes, [
             ("open:inventory#", "inventory", Some("closed")),
             ("open:order#", "order", Some("closed")),
             ("open:shipping#", "shipping", Some("closed")),
         ]);
-        let edges: Vec<_> = edges.iter().map(|e| (e.from.as_str(), e.to.as_str(), e.label.as_deref(), e.warning)).collect();
+        let edges: Vec<_> = edges.iter().map(|e| (e.from.split("#source:").next().unwrap(), e.to.split("#source:").next().unwrap(), e.label.as_deref(), e.warning)).collect();
         assert_eq!(edges, [
             ("open:shipping#", "open:inventory#", Some("inventory not allowed"), true),
             ("open:shipping#", "open:order#", Some("internal types"), true),
@@ -806,9 +862,9 @@ class Shipper {}
 
         let view = tools.render(&id(DIAGRAM_VIEW), None, &host.invocation()).unwrap();
         let Body::Html(page) = view.body else { panic!("html expected") };
-        assert!(page.contains("data-id=\"open:order#\""));
+        assert!(page.contains(&format!("data-id=\"{}\"", key(&model,"order",""))));
         assert_eq!(view.status.as_deref(), Some("3 modules · 2 dependencies"));
-        tools.handle(DIAGRAM_VIEW, ViewEvent::Message("open:order#".into()), &host.invocation()).unwrap();
+        tools.handle(DIAGRAM_VIEW, ViewEvent::Message(key(&model,"order","")), &host.invocation()).unwrap();
         assert_eq!(host.opened_locations(), [(format!("{SRC}order/package-info.java"), 0, 0)]);
 
         let empty = MockHost::install();
@@ -868,6 +924,29 @@ component [shipping]
         let host = MockHost::install();
         refresh("diagram");
         assert_eq!(host.refreshed_views(), ["structure"]);
+    }
+
+    #[test]
+    fn diagram_and_tree_actions_require_current_keys_and_source_facts() {
+        let host=setup();let mut tools=ModulithTools::default();tools.render(&id(DIAGRAM_VIEW),None,&host.invocation()).unwrap();
+        let index=tools.indexes.get(&host.invocation().project().unwrap(),COMMAND_BUDGET);let valid=key(&Model::build(index),"order","");
+        for key in ["open:unknown#","open:order#forged","open:order#a:forged"] {
+            assert!(tools.handle(&id(DIAGRAM_VIEW),ViewEvent::Message(key.into()),&host.invocation()).is_err());
+        }
+        assert!(tools.handle(VIEW,ViewEvent::Activate("open:order#forged".into()),&host.invocation()).is_err());
+        host.add_file("src/main/java/com/acme/order/package-info.java","package com.acme.order;");
+        assert!(tools.handle(&id(DIAGRAM_VIEW),ViewEvent::Message(valid.clone()),&host.invocation()).is_err());
+        assert!(host.opened_locations().is_empty());
+    }
+    #[test]
+    fn module_source_navigation_refuses_foreign_project_and_oversized_reread() {
+        let host=setup();let mut tools=ModulithTools::default();tools.render(&id(DIAGRAM_VIEW),None,&host.invocation()).unwrap();
+        let index=tools.indexes.get(&host.invocation().project().unwrap(),COMMAND_BUDGET);let valid=key(&Model::build(index),"order","");
+        host.add_file("src/main/java/com/acme/order/package-info.java",&" ".repeat(512*1024+1));
+        assert!(tools.handle(&id(DIAGRAM_VIEW),ViewEvent::Message(valid.clone()),&host.invocation()).is_err());
+        host.set_project_root(Some("/other"));
+        assert!(tools.handle(&id(DIAGRAM_VIEW),ViewEvent::Message(valid.clone()),&host.invocation()).is_err());
+        assert!(host.opened_locations().is_empty());
     }
 
 }

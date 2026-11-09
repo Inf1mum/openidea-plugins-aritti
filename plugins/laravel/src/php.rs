@@ -62,13 +62,26 @@ pub fn mask_comments(text: &str) -> String {
     String::from_utf8(out).unwrap_or_else(|_| text.to_owned())
 }
 
-/// The bracket closing the `(`, `[` or `{` at `open`, skipping strings.
+/// End of PHP comment trivia, called only outside a quoted string. Preserve
+/// source coordinates and do not treat PHP8 attributes as hash comments.
+fn comment_end(bytes: &[u8], at: usize) -> Option<usize> {
+    if bytes[at..].starts_with(b"/*") {
+        return Some(bytes[at + 2..].windows(2).position(|p| p == b"*/").map_or(bytes.len(), |n| at + 2 + n + 2));
+    }
+    if bytes[at..].starts_with(b"//") || bytes[at] == b'#' && bytes.get(at + 1) != Some(&b'[') {
+        return Some(bytes[at..].iter().position(|b| matches!(b, b'\r' | b'\n')).map_or(bytes.len(), |n| at + n));
+    }
+    None
+}
+
+/// The bracket closing the `(`, `[` or `{` at `open`, skipping strings/comments.
 pub fn closing(text: &str, open: usize) -> Option<usize> {
     let bytes = text.as_bytes();
     let mut depth = 0i32;
     let mut i = open;
 
     while i < bytes.len() {
+        if let Some(end) = comment_end(bytes, i) { i = end; continue; }
         match bytes[i] {
             b'\'' | b'"' => {
                 i = string_end(bytes, i);
@@ -106,6 +119,7 @@ pub fn split(text: &str, range: Range<usize>) -> Vec<Range<usize>> {
     let mut i = range.start;
 
     while i < range.end {
+        if let Some(end) = comment_end(bytes, i) { i = end.min(range.end); continue; }
         match bytes[i] {
             b'\'' | b'"' => {
                 i = string_end(bytes, i).min(range.end);
@@ -341,7 +355,12 @@ pub fn arguments(text: &str, open: usize) -> Vec<Range<usize>> {
 
 /// Contents and offset of `range` when it is exactly one string literal.
 pub fn literal(text: &str, range: Range<usize>) -> Option<(&str, usize)> {
-    let range = trimmed(text, range);
+    let slice = text.get(range.clone())?;
+    let range = if slice.contains(['/', '#']) {
+        let masked = mask_comments(slice);
+        let content = trimmed(&masked, 0..masked.len());
+        range.start + content.start..range.start + content.end
+    } else { trimmed(text, range) };
     let bytes = text.as_bytes();
     let quote = *bytes.get(range.start)?;
 
@@ -365,6 +384,7 @@ fn arrow(text: &str, range: Range<usize>) -> Option<usize> {
     let mut i = range.start;
 
     while i < range.end {
+        if let Some(end) = comment_end(bytes, i) { i = end.min(range.end); continue; }
         match bytes[i] {
             b'\'' | b'"' => {
                 i = string_end(bytes, i).min(range.end);
@@ -565,4 +585,16 @@ mod tests {
             }
         }
     }
+    #[test]
+    fn argument_delimiters_and_literal_spans_ignore_php_comment_trivia() {
+        let source="f(/* 😀 ) , => */ 'a/*notcomment*/', // ) ,\r\n 'b#notcomment' /* , */)";let open=source.find('(').unwrap();assert_eq!(closing(source,open),Some(source.len()-1));let parts=arguments(source,open);assert_eq!(parts.len(),2);
+        for (part,expected) in parts.into_iter().zip(["a/*notcomment*/","b#notcomment"]) {let (value,offset)=literal(source,part).unwrap();assert_eq!(value,expected);assert_eq!(&source[offset..offset+expected.len()],expected);}
+        let attributed="f(#[Example(') ,')] fn()=>1, 'last')";assert_eq!(closing(attributed,1),Some(attributed.len()-1));assert_eq!(arguments(attributed,1).len(),2);
+    }
+    #[test]
+    fn array_arrows_in_comments_do_not_define_keys_and_computed_literals_stay_refused() {
+        let source="[/* => , 'fake' */ 'real' /* => */ => /* value */ 'text' /* , */]";let items=items(source,0);assert_eq!(items.len(),1);assert_eq!(literal(source,items[0].key.clone().unwrap()).unwrap().0,"real");assert_eq!(literal(source,items[0].value.clone()).unwrap().0,"text");
+        let computed="'one' /* comment */ . 'two'";assert!(literal(computed,0..computed.len()).is_none());assert!(closing("f(/* unterminated )",1).is_none());
+    }
+
 }

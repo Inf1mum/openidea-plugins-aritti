@@ -5,9 +5,15 @@
 //! highlights, comments and folds these files; this adds what the original
 //! plugin computes on top of the PSI.
 
+mod atomic;
 mod checks;
+mod diagnostics;
 mod format;
+mod find_usages;
+mod hover;
 mod props;
+mod source;
+mod scoped_rename;
 mod usages;
 mod views;
 
@@ -16,37 +22,37 @@ use format::{is_sorted, reformat_edits, sorted_text};
 use openidea_plugin::providers::{CodeAction, CompletionItem, CompletionKind, Document, Providers};
 use openidea_plugin::text::offset;
 use openidea_plugin::{
-    Diagnostic, Error, Event, Invocation, Location, LogLevel, NotificationLevel, Plugin, Position, Project, Range,
-    Severity, TextEdit, TextEditor, host, register_plugin,
+    Error, Event, Invocation, Location, LogLevel, NotificationLevel, Plugin, Position, Project, Range, TextEdit, TextEditor, host,
+    register_plugin,
 };
-use props::{
-    Prop, append_line, dir, file_name, locale_name, parse, range_of, split_locale, stem, suffix, unescape, whole_lines,
-};
+use props::{Prop, append_line, dir, file_name, locale_name, parse, range_of, split_locale, stem, suffix, whole_lines};
 use std::collections::{HashMap, HashSet};
 use std::ops::Range as Span;
-use usages::{KeyIndex, implicitly_used, is_i18n_argument, literal_at, mark_used, markup_uses, source_uses};
-use views::{BUNDLE, BundleFiles, STRUCTURE};
+use usages::{KeyIndex, implicitly_used, mark_used, markup_uses};
+use views::{BUNDLE, BundleFiles};
 
 fn project_for(path: &str) -> Result<Project, Error> {
-    host::projects()?
-        .into_iter()
-        .find(|p| p.root().is_ok_and(|root| path.starts_with(&format!("{}/", root.trim_end_matches('/')))))
-        .ok_or_else(|| format!("{path} isn't in an open project.").into())
+    host::project_of(path).ok_or_else(|| format!("{path} isn't in an open project.").into())
 }
 
 /// The other files of the resource bundle: same directory, same base name.
 // ponytail: walks the project with find_files on every call; cache per directory if large projects make it slow.
 fn bundle_siblings(project: &Project, path: &str) -> Result<Vec<String>, Error> {
+    Ok(bundle_inventory(project, path)?.0)
+}
+
+/// Keep the raw discovery sentinel before filtering similar bundle names.
+/// A truncated inventory must never become a proof that a locale is missing.
+fn bundle_inventory(project: &Project, path: &str) -> Result<(Vec<String>, bool), Error> {
     let root = project.root()?;
     let base = split_locale(stem(path)).0;
     let rel_dir = dir(path).strip_prefix(root.trim_end_matches('/')).unwrap_or("").trim_start_matches('/');
     let glob = if rel_dir.is_empty() { format!("{base}*.properties") } else { format!("{rel_dir}/{base}*.properties") };
-
-    Ok(project
-        .find_files(&glob, 200)?
-        .into_iter()
-        .filter(|other| other != path && split_locale(stem(other)).0 == base)
-        .collect())
+    let mut raw = project.find_files(&glob, 201)?;
+    let complete = raw.len() <= 200;
+    raw.truncate(200);
+    let files = raw.into_iter().filter(|other| other != path && dir(other) == dir(path) && split_locale(stem(other)).0 == base).collect();
+    Ok((files, complete))
 }
 
 /// This file (with `text`) and the other files of its bundle, with their text.
@@ -83,14 +89,45 @@ struct Missing {
     files: Vec<(String, String)>,
 }
 
-fn missing_translations(project: &Project, siblings: &[String], text: &str, props: &[Prop], settings: &Settings) -> Result<Vec<Missing>, Error> {
+fn missing_translations(
+    project: &Project,
+    siblings: &[String],
+    text: &str,
+    props: &[Prop],
+    settings: &Settings,
+) -> Result<Vec<Missing>, Error> {
+    if props.iter().any(|p| p.exact_key(text).is_none()) {
+        return Err("Source key identity cannot be interpreted losslessly.".into());
+    }
     let mut others = Vec::new();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(250);
     for other in siblings {
+        if std::time::Instant::now() >= deadline {
+            return Err("Locale discovery deadline exceeded.".into());
+        }
         let other_suffix = suffix(other).to_owned();
         if settings.ignored_suffixes.contains(&other_suffix) {
             continue;
         }
-        let other_keys = keys(&project.read_file(other)?);
+        if siblings.len() > 128 {
+            return Err("Bundle exceeds the live inspection limit.".into());
+        }
+        let other_text = project.read_file(other)?;
+        if std::time::Instant::now() >= deadline {
+            return Err("Locale discovery deadline exceeded.".into());
+        }
+        if other_text.len() > diagnostics::MAX_TEXT {
+            return Err("Locale exceeds the live inspection byte limit.".into());
+        }
+        let parsed = parse(&other_text);
+        if parsed.len() > 4096 || parsed.iter().any(|p| p.exact_key(&other_text).is_none())
+            || lint(&other_text, &parsed, settings).iter().any(|problem| problem.code == "InvalidUnicodeEscape") {
+            return Err("Locale contents are incomplete or cannot be interpreted safely.".into());
+        }
+        if std::time::Instant::now() >= deadline {
+            return Err("Locale discovery deadline exceeded.".into());
+        }
+        let other_keys = parsed.iter().map(|prop| prop.unescaped_key(&other_text)).collect::<HashSet<_>>();
         others.push((other_suffix, other.clone(), other_keys));
     }
 
@@ -128,25 +165,22 @@ fn is_source_file(path: &str) -> bool {
     path.ends_with(".java") || path.ends_with(".kt")
 }
 
-fn is_template_file(path: &str) -> bool {
-    [".html", ".htm", ".xhtml", ".jsp", ".jspx"].iter().any(|ext| path.ends_with(ext))
-}
-
 #[derive(Default)]
 pub struct Properties {
     /// Missing translations of the last inspection per file, for their quick fixes.
     missing: HashMap<String, Vec<Missing>>,
+    missing_complete: HashMap<String, String>,
     /// Files of the bundle (this one included) at the last inspection, per file.
     locales: HashMap<String, usize>,
     /// Keys the last Find Unused Properties found no mention of, per file.
     unused: HashMap<String, HashSet<String>>,
-    /// Files whose `unused` came from the live setting, shown as hints.
+    /// Files whose candidate text search came from the live setting.
     live_unused: HashSet<String>,
     /// Keys of the project's `.properties` files, for Java/Kotlin strings.
     index: Option<KeyIndex>,
-    /// Files with missing-key warnings published, to clear them when the setting is turned off.
-    code_diagnostics: HashSet<String>,
     bundle: Option<BundleFiles>,
+    bundle_bindings: HashMap<String, views::BundleBinding>,
+    bundle_revert: Option<views::BundleRevert>,
     bundle_incomplete_only: bool,
     structure_flat: bool,
     structure_sorted: bool,
@@ -156,72 +190,28 @@ pub struct Properties {
 
 impl Properties {
     fn inspect(&mut self, path: &str) -> Result<(), Error> {
+        self.missing_complete.remove(path);
+        self.missing.remove(path);
         let project = project_for(path)?;
         let text = project.read_file(path)?;
-        let props = parse(&text);
-        let settings = Settings::load();
-
-        let mut diagnostics: Vec<Diagnostic> = lint(&text, &props, &settings)
-            .into_iter()
-            .map(|p| {
-                let mut d = Diagnostic::new(range_of(&text, &p.span), p.severity, p.message);
-                d.code = Some(p.code.into());
-                d
-            })
-            .collect();
-
-        let siblings = bundle_siblings(&project, path)?;
-        let missing = missing_translations(&project, &siblings, &text, &props, &settings)?;
-        for m in &missing {
-            let suffixes: Vec<&str> = m.files.iter().map(|(s, _)| locale_name(s)).collect();
-            let message = format!("Property '{}' has no translation in {}.", m.key, suffixes.join(", "));
-            let mut d = Diagnostic::new(range_of(&text, &m.span), Severity::Error, message);
-            d.code = Some("IncompleteProperty".into());
-            diagnostics.push(d);
-        }
-
-        if let Some(unused) = self.unused.get(path) {
-            for p in props.iter().filter(|p| unused.contains(&p.unescaped_key(&text))) {
-                let severity = if self.live_unused.contains(path) { Severity::Hint } else { Severity::Warning };
-                let mut d = Diagnostic::new(range_of(&text, &p.key), severity, "Unused property");
-                d.code = Some("UnusedProperty".into());
-                d.unnecessary = true;
-                diagnostics.push(d);
-            }
-        }
-
-        host::publish_diagnostics(path, &diagnostics)?;
-        self.missing.insert(path.to_owned(), missing);
-        self.locales.insert(path.to_owned(), siblings.len() + 1);
-        Ok(())
-    }
-
-    /// `PropertyKeyUsage` of the i18n calls and templates of `path`: keys no bundle declares.
-    fn inspect_code(&mut self, path: &str) -> Result<(), Error> {
-        let enabled = host::setting_bool("reportMissingKeysInCode").unwrap_or(true);
-        if !enabled && !self.code_diagnostics.remove(path) {
+        if text.len() > diagnostics::MAX_TEXT {
             return Ok(());
         }
-
-        let mut diagnostics = Vec::new();
-        let has_bundle = enabled && self.key_index(path).is_some_and(|index| index.conventional_bundle().is_some());
-        if has_bundle {
-            let text = project_for(path)?.read_file(path)?;
-            let uses = if is_source_file(path) { source_uses(&text) } else { markup_uses(&text, path) };
-            let Some(index) = self.key_index(path) else { return Ok(()) };
-
-            for u in index.undeclared(&uses, &text) {
-                let message = format!("Property '{}' isn't declared in any resource bundle.", &text[u.span.clone()]);
-                let mut d = Diagnostic::new(range_of(&text, &u.span), Severity::Warning, message);
-                d.code = Some("MissingPropertyKey".into());
-                diagnostics.push(d);
-            }
+        let props = parse(&text);
+        let settings = Settings::load();
+        if props.len() > 4096 {
+            return Ok(());
         }
-
-        host::publish_diagnostics(path, &diagnostics)?;
-        if !diagnostics.is_empty() {
-            self.code_diagnostics.insert(path.to_owned());
+        let (siblings, known_scope) = bundle_inventory(&project, path)?;
+        let missing = missing_translations(&project, &siblings, &text, &props, &settings)?;
+        if self.missing_complete.len() >= 16 {
+            self.missing_complete.clear();
         }
+        if known_scope {
+            self.missing_complete.insert(path.into(), project.root()?);
+        }
+        self.missing.insert(path.to_owned(), missing);
+        self.locales.insert(path.to_owned(), siblings.len() + 1);
         Ok(())
     }
 
@@ -232,11 +222,14 @@ impl Properties {
         let at = offset(&text, caret).unwrap_or(text.len());
         let prop = parse(&text).into_iter().find(|p| p.contains(at)).ok_or("No property at the caret.")?;
 
-        let key = prop.unescaped_key(&text);
+        let key = prop.exact_key(&text);
         if value {
-            host::copy_to_clipboard(&unescape(&text[prop.value]))?;
-            host::notify(NotificationLevel::Info, "Properties", &format!("Value of '{key}' copied to the clipboard."));
+            let value = props::unescape_exact(&text[prop.value.clone()]).ok_or("This property value cannot cross the clipboard UTF-8 API losslessly; its source is unchanged.")?;
+            host::copy_to_clipboard(&value)?;
+            let label = key.as_deref().unwrap_or(&text[prop.key.clone()]);
+            host::notify(NotificationLevel::Info, "Properties", &format!("Value of '{label}' copied to the clipboard."));
         } else {
+            let key = key.ok_or("This property key cannot cross the clipboard UTF-8 API losslessly; its source is unchanged.")?;
             host::copy_to_clipboard(&key)?;
             host::notify(NotificationLevel::Info, "Properties", &format!("Key '{key}' copied to the clipboard."));
         }
@@ -245,7 +238,13 @@ impl Properties {
 
     /// `UnusedPropertyInspection`: keys of `path` that no other project file mentions.
     // ponytail: text search over at most `max_files` files; a key built at run time ("error." + code) looks unused, as in IntelliJ.
-    fn scan_unused(path: &str, text: &str, max_files: u32, max_file_bytes: usize, task: Option<&host::Task>) -> Result<HashSet<String>, Error> {
+    fn scan_unused(
+        path: &str,
+        text: &str,
+        max_files: u32,
+        max_file_bytes: usize,
+        task: Option<&host::Task>,
+    ) -> Result<HashSet<String>, Error> {
         let project = project_for(path)?;
         let mut unused = if implicitly_used(path) { HashSet::new() } else { keys(text) };
         let files = project.find_files("**/*", max_files)?;
@@ -281,13 +280,21 @@ impl Properties {
 
         let summary = match unused.len() {
             0 => format!("No unused properties in {}.", file_name(&path)),
-            1 => format!("1 unused property in {}, marked as a warning in the file.", file_name(&path)),
-            n => format!("{n} unused properties in {}, marked as warnings in the file.", file_name(&path)),
+            1 => format!("1 potentially unused property in {} (text search; no absence warning published).", file_name(&path)),
+            n => format!("{n} potentially unused properties in {} (text search; no absence warnings published).", file_name(&path)),
         };
         self.live_unused.remove(&path);
         self.unused.insert(path.clone(), unused);
         self.inspect(&path)?;
-        host::notify(NotificationLevel::Info, "Properties", &summary);
+        let mut candidates: Vec<_> = self.unused.get(&path).into_iter().flatten().collect();
+        candidates.sort();
+        let preview = candidates.into_iter().take(10).map(|key| key.chars().take(64).collect::<String>()).collect::<Vec<_>>();
+        let report = if preview.is_empty() {
+            summary
+        } else {
+            format!("{summary}\nPotential candidates (not proof of absence):\n{}", preview.join("\n"))
+        };
+        host::notify(NotificationLevel::Info, "Properties", &report);
         Ok(None)
     }
 
@@ -299,7 +306,9 @@ impl Properties {
             return;
         }
 
-        let Ok(text) = project_for(path).and_then(|p| p.read_file(path)) else { return };
+        let Ok(text) = project_for(path).and_then(|p| p.read_file(path)) else {
+            return;
+        };
         match Self::scan_unused(path, &text, 2_000, 256 * 1024, None) {
             Ok(unused) => {
                 self.unused.insert(path.to_owned(), unused);
@@ -318,14 +327,17 @@ impl Properties {
             return Ok(None);
         }
         editor.apply_edits(doc.version, &to_edits(&doc.text, edits))?;
+        views::refresh_structure();
         Ok(None)
     }
 
     fn key_index(&mut self, path: &str) -> Option<&KeyIndex> {
-        if self.index.is_none() {
-            self.index = project_for(path).and_then(|p| KeyIndex::build(&p)).ok();
+        let project = project_for(path).ok()?;
+        let root = project.root().ok()?;
+        if !self.index.as_ref().is_some_and(|index| index.root == root) {
+            self.index = KeyIndex::build(&project).ok();
         }
-        self.index.as_ref()
+        self.index.as_ref().filter(|index| index.root == root)
     }
 
     fn property_actions(&self, doc: &Document, selection: Range) -> Vec<CodeAction> {
@@ -391,11 +403,8 @@ impl Properties {
         Ok(bundle_texts(&doc.path, &doc.text)?
             .into_iter()
             .filter_map(|(path, text)| {
-                let spans: Vec<(Span<usize>, String)> = parse(&text)
-                    .iter()
-                    .filter(|p| p.unescaped_key(&text) == key)
-                    .map(|p| (whole_lines(&text, p), String::new()))
-                    .collect();
+                let spans: Vec<(Span<usize>, String)> =
+                    parse(&text).iter().filter(|p| p.unescaped_key(&text) == key).map(|p| (whole_lines(&text, p), String::new())).collect();
                 (!spans.is_empty()).then(|| (path, to_edits(&text, spans)))
             })
             .collect())
@@ -437,6 +446,7 @@ impl Plugin for Properties {
             "copy-value" => self.copy(ctx, true),
             "reformat" => self.reformat(ctx),
             "find-unused" => self.find_unused(ctx),
+            "find-owned-usages" => find_usages::run(ctx),
             _ => Err(Error::NotFound(format!("command {id}"))),
         }
     }
@@ -446,20 +456,32 @@ impl Plugin for Properties {
         let mut saved = false;
         let mut refresh = false;
         let mut source_opened = None;
-        let mut code: Vec<&str> = Vec::new();
 
         for event in events {
             match event {
-                Event::FileOpened(p) if p.ends_with(".properties") => inspect.push(p),
+                Event::FileOpened(p) if p.ends_with(".properties") => {
+                    inspect.push(p);
+                    saved = true;
+                }
                 Event::FileSaved(p) if p.ends_with(".properties") => {
                     inspect.push(p);
                     saved = true;
                 }
                 Event::FileOpened(p) if is_source_file(p) => {
                     source_opened = Some(p.as_str());
-                    code.push(p);
                 }
-                Event::FileOpened(p) | Event::FileSaved(p) if is_template_file(p) || is_source_file(p) => code.push(p),
+
+                Event::FilesChanged(changes)
+                    if changes
+                        .created
+                        .iter()
+                        .chain(&changes.modified)
+                        .chain(&changes.removed)
+                        .any(|path| path.ends_with(".properties")) =>
+                {
+                    saved = true;
+                    refresh = true;
+                }
                 Event::EditorFocused(_) => refresh = true,
                 _ => {}
             }
@@ -470,6 +492,9 @@ impl Plugin for Properties {
         if saved {
             self.index = None;
             self.bundle = None;
+            self.bundle_bindings.clear();
+            self.missing.clear();
+            self.missing_complete.clear();
             host::refresh_view(BUNDLE);
         }
 
@@ -480,16 +505,10 @@ impl Plugin for Properties {
             }
         }
 
-        code.sort();
-        code.dedup();
-        for path in &code {
-            if let Err(e) = self.inspect_code(path) {
-                host::log(LogLevel::Warn, &format!("checking keys in {path}: {e}"));
-            }
-        }
-
+        // Code missing-key absence requires bundle/type resolution, which the
+        // decoded-key text index does not establish. Warm navigation only.
         if refresh || !inspect.is_empty() {
-            host::refresh_view(STRUCTURE);
+            views::refresh_structure();
         }
 
         // Built here, where there is time, so Java/Kotlin completion finds it ready.
@@ -504,20 +523,12 @@ impl Providers for Properties {
         if doc.language != "properties" {
             return Vec::new();
         }
-        self.property_actions(doc, selection)
+        self.property_actions(doc, selection).into_iter().filter(|a| a.data.is_none()).collect()
     }
 
     fn resolve_code_action(&mut self, doc: &Document, mut action: CodeAction) -> Result<CodeAction, Error> {
-        let data = action.data.clone().ok_or("nothing to resolve")?;
-        let parts: Vec<&str> = data.splitn(3, '\n').collect();
-
-        action.edits = match parts.as_slice() {
-            ["translate", target, key] => Self::add_translation(doc, target, key)?,
-            ["remove", key] => Self::remove_everywhere(doc, key)?,
-            ["sort-bundle"] => Self::sort_bundle(doc)?,
-            _ => return Err(Error::Invalid(format!("unknown action {data:?}"))),
-        };
-        Ok(action)
+        let _ = (doc, &mut action);
+        Err("Bundle actions now use the native FileActions provider. Invoke the action again.".into())
     }
 
     /// `GotoPropertyParentDeclarationHandler` in `.properties` files (the same
@@ -525,25 +536,48 @@ impl Providers for Properties {
     /// the declarations of a key in a Java or Kotlin string.
     fn definition(&mut self, doc: &Document, at: Position) -> Vec<Location> {
         let text = &doc.text;
-        let Some(at) = offset(text, at) else { return Vec::new() };
+        let Some(at) = offset(text, at) else {
+            return Vec::new();
+        };
 
-        if doc.language != "properties" {
-            let key = if matches!(doc.language.as_str(), "html" | "jsp") {
-                let Some(u) = markup_uses(text, &doc.path).into_iter().find(|u| (u.span.start..=u.span.end).contains(&at)) else {
-                    return Vec::new();
-                };
-                &text[u.span]
-            } else {
-                let Some(literal) = literal_at(text, at) else { return Vec::new() };
-                &text[literal]
+        if matches!(doc.language.as_str(), "java" | "kotlin") {
+            let Some(context) = source::context(doc, at) else {
+                return Vec::new();
             };
-            let Some(index) = self.key_index(&doc.path) else { return Vec::new() };
-            return index.keys.get(key).into_iter().flatten().map(|d| d.location.clone()).collect();
+            let Some(root) = host::project_of(&doc.path).and_then(|p| p.root().ok()) else {
+                return Vec::new();
+            };
+            let Some(ownership) = usages::SourceOwnership::current(&root) else { return Vec::new(); };
+            let Some(index) = self.index.as_ref().filter(|i| i.root == root && context.scope_known(i, &ownership)) else {
+                return Vec::new();
+            };
+            let candidates = context.declarations(index, &text[context.span.clone()]);
+            if candidates.len() > 128 {
+                return Vec::new();
+            }
+            return candidates.into_iter().map(|d| d.location.clone()).collect();
+        }
+        if doc.language != "properties" {
+            if !matches!(doc.language.as_str(), "html" | "jsp") {
+                return Vec::new();
+            }
+            let Some(u) = markup_uses(text, &doc.path).into_iter().find(|u| (u.span.start..=u.span.end).contains(&at)) else {
+                return Vec::new();
+            };
+            let Some(index) = self.key_index(&doc.path) else {
+                return Vec::new();
+            };
+            let Some(ownership) = usages::SourceOwnership::current(&index.root) else { return Vec::new(); };
+            return index.keys.get(&text[u.span]).into_iter().flatten().filter(|d| ownership.contains(&d.location.path)).map(|d| d.location.clone()).collect();
         }
 
-        let Some(prop) = parse(text).into_iter().find(|p| p.contains(at)) else { return Vec::new() };
-        let key = prop.unescaped_key(text);
-        let Ok(project) = project_for(&doc.path) else { return Vec::new() };
+        let Some(prop) = parse(text).into_iter().find(|p| p.contains(at)) else {
+            return Vec::new();
+        };
+        let Some(key) = prop.exact_key(text) else { return Vec::new(); };
+        let Ok(project) = project_for(&doc.path) else {
+            return Vec::new();
+        };
 
         let mut found: Vec<Location> = Vec::new();
         let (base, mut locale) = split_locale(stem(&doc.path));
@@ -551,9 +585,11 @@ impl Providers for Properties {
             locale = locale.rfind('_').map_or("", |i| &locale[..i]);
             let parent_stem = if locale.is_empty() { base.to_owned() } else { format!("{base}_{locale}") };
             let parent = format!("{}/{parent_stem}.properties", dir(&doc.path));
-            let Ok(parent_text) = project.read_file(&parent) else { continue };
+            let Ok(parent_text) = project.read_file(&parent) else {
+                continue;
+            };
 
-            if let Some(p) = parse(&parent_text).into_iter().find(|p| p.unescaped_key(&parent_text) == key) {
+            if let Some(p) = parse(&parent_text).into_iter().find(|p| p.exact_key(&parent_text).as_ref() == Some(&key)) {
                 found.push(Location { path: parent, range: range_of(&parent_text, &p.key) });
                 break;
             }
@@ -563,8 +599,10 @@ impl Providers for Properties {
             if found.iter().any(|l| l.path == other) {
                 continue;
             }
-            let Ok(other_text) = project.read_file(&other) else { continue };
-            if let Some(p) = parse(&other_text).into_iter().find(|p| p.unescaped_key(&other_text) == key) {
+            let Ok(other_text) = project.read_file(&other) else {
+                continue;
+            };
+            if let Some(p) = parse(&other_text).into_iter().find(|p| p.exact_key(&other_text).as_ref() == Some(&key)) {
                 found.push(Location { path: other, range: range_of(&other_text, &p.key) });
             }
         }
@@ -576,20 +614,65 @@ impl Providers for Properties {
     /// `PropertiesCompletionContributor` in the key argument of Java/Kotlin i18n calls.
     fn completion(&mut self, doc: &Document, at: Position, _trigger: Option<&str>) -> Vec<CompletionItem> {
         let text = &doc.text;
-        let Some(at) = offset(text, at) else { return Vec::new() };
+        let Some(at) = offset(text, at) else {
+            return Vec::new();
+        };
 
         if doc.language != "properties" {
-            let Some(literal) = literal_at(text, at).filter(|l| is_i18n_argument(text, l)) else { return Vec::new() };
-            let Some(index) = self.key_index(&doc.path) else { return Vec::new() };
-            return index
-                .keys
-                .keys()
-                .map(|key| {
-                    let mut item = CompletionItem::new(key, CompletionKind::Property);
-                    item.replace = Some(range_of(text, &literal));
-                    item.detail = index.value(key).map(|v| format!("={v}"));
-                    item
+            let Some(context) = source::context(doc, at) else {
+                return Vec::new();
+            };
+            let Some(root) = host::project_of(&doc.path).and_then(|p| p.root().ok()) else {
+                return Vec::new();
+            };
+            let Some(ownership) = usages::SourceOwnership::current(&root) else { return Vec::new(); };
+            let Some(index) = self.index.as_ref().filter(|i| i.root == root && context.scope_known(i, &ownership)) else {
+                return Vec::new();
+            };
+            let prefix = &text[context.span.start..at.min(context.span.end)];
+            let Some(keys) = context.keys(index) else {
+                return Vec::new();
+            };
+            let replace = range_of(text, &context.span);
+            let mut bytes = 0usize;
+            return keys
+                .into_iter()
+                .filter(|key| {
+                    key.starts_with(prefix)
+                        && key.len() <= 4096
+                        && !key.contains(['\\', '"'])
+                        && !key.chars().any(char::is_control)
+                        && (doc.language != "kotlin" || !key.contains('$'))
                 })
+                .filter_map(|key| {
+                    let candidates = context.declarations(index, key);
+                    if candidates.is_empty() || candidates.len() > 128 {
+                        return None;
+                    }
+                    let d = candidates.iter().find(|d| context.is_default(&d.location.path)).unwrap_or(&candidates[0]);
+                    let mut item = CompletionItem::new(key, CompletionKind::Property);
+                    item.replace = Some(replace);
+                    let value: String = d
+                        .value
+                        .chars()
+                        .take(512)
+                        .flat_map(|c| if c.is_control() { c.escape_default().collect::<Vec<_>>() } else { vec![c] })
+                        .collect();
+                    let detail = format!(
+                        "Bundle {} · cached value: {}{}",
+                        context.bundle,
+                        value,
+                        if d.value.chars().count() > 512 { "…" } else { "" }
+                    );
+                    let size = key.len() + detail.len();
+                    if bytes + size > 64 << 10 {
+                        return None;
+                    }
+                    bytes += size;
+                    item.detail = Some(detail);
+                    Some(item)
+                })
+                .take(512)
                 .collect();
         }
 
@@ -608,11 +691,13 @@ impl Providers for Properties {
     }
 }
 
-register_plugin!(Properties, providers, views);
+register_plugin!(Properties, providers, views, file_actions, hover, diagnostics);
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
+    use openidea_plugin::diagnostics::DiagnosticsProvider;
+    use openidea_plugin::file_actions::FileActions;
     use openidea_plugin::mock::MockHost;
 
     fn doc(path: &str, language: &str, text: &str) -> Document {
@@ -633,11 +718,7 @@ mod tests {
         let section = template_section("properties");
 
         assert!(section.contains("extension = \"properties\""));
-        let path = section
-            .lines()
-            .find_map(|line| line.strip_prefix("path = \""))
-            .and_then(|rest| rest.strip_suffix('"'))
-            .expect("a path");
+        let path = section.lines().find_map(|line| line.strip_prefix("path = \"")).and_then(|rest| rest.strip_suffix('"')).expect("a path");
         assert!(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(path).is_file());
     }
 
@@ -660,7 +741,7 @@ mod tests {
         let doc = doc("/project/m.properties", "properties", "a=1\na=2\nb:3\n");
 
         let actions = Properties::default().code_actions(&doc, caret(1, 0));
-        assert_eq!(titles(&actions), ["Remove property", "Remove property from all locales"]);
+        assert_eq!(titles(&actions), ["Remove property"]);
 
         let delimiter = Properties::default().code_actions(&doc, caret(2, 0)).remove(0);
         assert_eq!(delimiter.edits[0].1[0].text, "=");
@@ -679,15 +760,17 @@ mod tests {
         let path = "/project/i18n/messages.properties";
         plugin.handle_events(&[Event::FileOpened(path.into())], &host.invocation());
 
-        let diagnostics = &host.diagnostics()[path];
+        let live = plugin.diagnostics(&doc(path, "properties", "hello=Hello\nbye=Bye\n"));
+        let diagnostics = &live;
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].message, "Property 'bye' has no translation in fr.");
 
         let doc = doc(path, "properties", "hello=Hello\nbye=Bye\n");
-        let action = plugin.code_actions(&doc, caret(1, 1)).remove(0);
+        let action = plugin.file_actions(&doc, caret(1, 1)).remove(0);
         assert_eq!(action.title, "Add translation for fr");
 
-        let resolved = plugin.resolve_code_action(&doc, action).unwrap();
+        host.answer_next_prompt(Some(&[]));
+        let resolved = plugin.resolve_file_action(&doc, action).unwrap();
         let (target, edits) = &resolved.edits[0];
         assert_eq!(target, "/project/i18n/messages_fr.properties");
         assert_eq!(edits[0].text, "\nbye=Bye\n");
@@ -703,9 +786,10 @@ mod tests {
 
         let mut plugin = Properties::default();
         plugin.handle_events(&[Event::FileOpened(doc.path.clone())], &host.invocation());
-        let action = plugin.code_actions(&doc, caret(0, 0)).into_iter().find(|a| a.title.contains("all")).unwrap();
+        let action = plugin.file_actions(&doc, caret(0, 0)).into_iter().find(|a| a.title.contains("all")).unwrap();
         assert_eq!(action.title, "Remove property from all 2 locales");
-        let resolved = plugin.resolve_code_action(&doc, action).unwrap();
+        host.answer_next_prompt(Some(&[]));
+        let resolved = plugin.resolve_file_action(&doc, action).unwrap();
 
         let files: Vec<&str> = resolved.edits.iter().map(|(path, _)| path.as_str()).collect();
         assert_eq!(files, ["/project/messages.properties", "/project/messages_fr.properties"]);
@@ -724,8 +808,10 @@ mod tests {
         let sort = actions.iter().find(|a| a.title == "Sort properties file").unwrap();
         assert_eq!(sort.edits[0].1[0].text, "a=y\nb=x\n");
 
-        let bundle = actions.into_iter().find(|a| a.title == "Sort resource bundle files").unwrap();
-        let resolved = plugin.resolve_code_action(&doc, bundle).unwrap();
+        host.open_editor(&doc.path, "properties", &doc.text, &[]);
+        let bundle = plugin.file_actions(&doc, caret(0, 0)).into_iter().find(|a| a.title == "Sort resource bundle files").unwrap();
+        host.answer_next_prompt(Some(&[]));
+        let resolved = plugin.resolve_file_action(&doc, bundle).unwrap();
         let files: Vec<&str> = resolved.edits.iter().map(|(path, _)| path.as_str()).collect();
         assert_eq!(files, ["/project/messages.properties", "/project/messages_fr.properties"]);
     }
@@ -755,24 +841,33 @@ mod tests {
     }
 
     #[test]
-    fn completes_and_resolves_keys_in_java_strings() {
+    fn completes_and_resolves_only_explicit_jdk_bundle_contexts() {
         let host = MockHost::install();
-        host.add_file("/project/src/messages.properties", "app.title=Title\n");
-        host.add_file("/project/src/messages_fr.properties", "app.title=Titre\n");
+        host.add_file("src/main/resources/messages.properties", "app.title=Title\n");
+        host.add_file("src/main/resources/messages_fr.properties", "app.title=Titre\n");
+        host.add_file("src/main/resources/application.properties", "app.title=Wrong framework key\n");
         let mut plugin = Properties::default();
-
-        let java = doc("/project/src/App.java", "java", "label(bundle.getString(\"app.ti\"));\n");
-        let items = plugin.completion(&java, Position::new(0, 30), None);
+        let text = "java.util.ResourceBundle.getBundle(\"messages\").getString(\"app.ti\");";
+        let java = doc("/project/src/main/java/App.java", "java", text);
+        let at = openidea_plugin::text::position(text, text.find("app.ti").unwrap() + 6);
+        assert!(plugin.completion(&java, at, None).is_empty(), "cold requests do not discover all properties");
+        plugin.key_index(&java.path).unwrap();
+        let items = plugin.completion(&java, at, None);
         assert_eq!(items.len(), 1);
-        assert_eq!(items[0].detail.as_deref(), Some("=Title"));
-        assert_eq!(items[0].replace, Some(Range::new(Position::new(0, 24), Position::new(0, 30))));
-
-        let java = doc("/project/src/App.java", "java", "x = \"app.title\";\n");
-        assert_eq!(plugin.definition(&java, Position::new(0, 7)).len(), 2);
+        assert_eq!(items[0].detail.as_deref(), Some("Bundle messages · cached value: Title"));
+        let span = items[0].replace.unwrap();
+        assert_eq!(&text[offset(text, span.start).unwrap()..offset(text, span.end).unwrap()], "app.ti");
+        let full = text.replace("app.ti", "app.title");
+        let java = doc(&java.path, "java", &full);
+        let found = plugin.definition(&java, openidea_plugin::text::position(&full, full.find("app.title").unwrap() + 2));
+        assert_eq!(found.len(), 2);
+        assert!(found.iter().all(|l| l.path.contains("/messages")));
+        let arbitrary = doc(&java.path, "java", "x=\"app.title\";");
+        assert!(plugin.definition(&arbitrary, Position::new(0, 5)).is_empty());
     }
 
     #[test]
-    fn go_to_definition_from_message_source_getmessage() {
+    fn unresolved_source_receivers_are_quiet_while_legacy_markup_navigation_is_preserved() {
         let host = MockHost::install();
         host.add_file("/project/src/messages.properties", "a.b=Value\n");
         host.add_file("/project/src/messages_fr.properties", "a.b=Valeur\n");
@@ -796,7 +891,7 @@ mod tests {
         for (language, path, text) in cases {
             let character = text.rfind("a.b").unwrap() as u32 + 1;
             let found = plugin.definition(&doc(path, language, text), Position::new(0, character));
-            assert_eq!(found.len(), 2, "{text}");
+            assert_eq!(found.len(), if matches!(language, "java" | "kotlin") { 0 } else { 2 }, "{text}");
         }
 
         let off = doc("/project/t.html", "html", "<p th:text=\"#{a.b}\">x</p>\n");
@@ -807,51 +902,53 @@ mod tests {
         host.add_file(path, text);
         let mut plugin = Properties::default();
         plugin.handle_events(&[Event::FileOpened(path.into())], &host.invocation());
-        host.diagnostics().get(path).map(|d| d.iter().map(|d| d.message.clone()).collect()).unwrap_or_default()
+        let language = if path.ends_with(".java") { "java" } else { "html" };
+        plugin.diagnostics(&doc(path, language, text)).into_iter().map(|d| d.message).collect()
     }
 
     #[test]
-    fn missing_key_in_code_warns() {
+    fn source_key_absence_is_suppressed_without_resolved_owner() {
         let host = MockHost::install();
         host.add_file("/project/src/messages.properties", "a.b=Value\n");
         host.add_file("/project/src/messages_fr.properties", "a.b=Valeur\n");
 
         let java = "x = messageSource.getMessage(\"a.b\", null, locale);\ny = messageSource.getMessage(\"no.such\", null, locale);\n";
         let found = diagnostics_for(&host, "/project/A.java", java);
-        assert_eq!(found, ["Property 'no.such' isn't declared in any resource bundle."]);
+        assert!(found.is_empty(), "unknown bundle ownership cannot prove absence");
 
         let html = "<p th:text=\"#{a.b}\"></p><p th:text=\"#{gone.key}\"></p>";
-        assert_eq!(diagnostics_for(&host, "/project/t.html", html).len(), 1);
+        assert_eq!(diagnostics_for(&host, "/project/t.html", html).len(), 0);
 
         let jsp = "<spring:message code=\"a.b\"/><spring:message code=\"gone\"/><fmt:message key=\"gone2\"/>";
-        assert_eq!(diagnostics_for(&host, "/project/t.jsp", jsp).len(), 2);
+        assert_eq!(diagnostics_for(&host, "/project/t.jsp", jsp).len(), 0);
 
         let bundle = "ResourceBundle.getBundle(\"messages\").getString(\"missing.k\");";
-        assert_eq!(diagnostics_for(&host, "/project/B.java", bundle).len(), 1);
+        assert_eq!(diagnostics_for(&host, "/project/B.java", bundle).len(), 0);
     }
 
     #[test]
-    fn missing_key_in_code_needs_a_message_source_receiver() {
+    fn unresolved_call_shapes_cannot_prove_missing_keys() {
         let host = MockHost::install();
         host.add_file("/project/src/messages.properties", "a.b=Value\n");
 
-        let warns = ["messageSource.getMessage(\"no.such\", null, Locale.ENGLISH);", "this.messages.getMessage(\"no.such\", null, locale);"];
+        let warns =
+            ["messageSource.getMessage(\"no.such\", null, Locale.ENGLISH);", "this.messages.getMessage(\"no.such\", null, locale);"];
         let quiet = [
             "Foo.getMessage(\"no.such\");",
             "getMessage(\"no.such\");",
             "messageSource.getMessage(\"no.such\", null, dflt);",
             "messageSource.getMessage(\"no.such\", args, \"dflt\");",
         ];
-        assert_eq!(diagnostics_for(&host, "/project/W.java", warns[0]).len(), 1);
-        assert_eq!(diagnostics_for(&host, "/project/W.java", warns[1]).len(), 1);
-        assert_eq!(diagnostics_for(&host, "/project/W.java", "messageAccessor.getMessage(\"no.such\")").len(), 1);
+        assert_eq!(diagnostics_for(&host, "/project/W.java", warns[0]).len(), 0);
+        assert_eq!(diagnostics_for(&host, "/project/W.java", warns[1]).len(), 0);
+        assert_eq!(diagnostics_for(&host, "/project/W.java", "messageAccessor.getMessage(\"no.such\")").len(), 0);
         for text in quiet {
             assert!(diagnostics_for(&host, "/project/W.java", text).is_empty(), "{text}");
         }
     }
 
     #[test]
-    fn missing_key_setting_off_clears_warnings() {
+    fn legacy_missing_key_preference_never_publishes_guesses() {
         let host = MockHost::install();
         host.add_file("/project/src/messages.properties", "a.b=Value\n");
         let path = "/project/A.java";
@@ -860,7 +957,7 @@ mod tests {
         let event = [Event::FileSaved(path.into())];
 
         plugin.handle_events(&event, &host.invocation());
-        assert_eq!(host.diagnostics()[path].len(), 1);
+        assert!(host.diagnostics().is_empty(), "events do not publish missing-key absence guesses");
 
         host.set_setting("reportMissingKeysInCode", "false");
         plugin.handle_events(&event, &host.invocation());
@@ -893,12 +990,19 @@ mod tests {
             assert!(diagnostics_for(&host, "/project/Q.java", text).is_empty(), "{text}");
         }
 
-        let html = ["<p th:text=\"#{${key}}\"></p>", "<spring:message code=\"no.such\" text=\"d\"/>", "<fmt:message key=\"no.such\" bundle=\"${b}\"/>"];
+        let html = [
+            "<p th:text=\"#{${key}}\"></p>",
+            "<spring:message code=\"no.such\" text=\"d\"/>",
+            "<fmt:message key=\"no.such\" bundle=\"${b}\"/>",
+        ];
         for text in html {
             assert!(diagnostics_for(&host, "/project/q.html", text).is_empty(), "{text}");
         }
         assert!(diagnostics_for(&host, "/project/q.xhtml", "<h:outputText value=\"#{msg.no}\"/>").is_empty());
-        assert!(diagnostics_for(&host, "/project/q.jsp", "<fmt:message key=\"no.such\"/><fmt:setBundle basename=\"com.lib.Other\"/>").is_empty());
+        assert!(
+            diagnostics_for(&host, "/project/q.jsp", "<fmt:message key=\"no.such\"/><fmt:setBundle basename=\"com.lib.Other\"/>")
+                .is_empty()
+        );
     }
 
     #[test]
@@ -929,17 +1033,16 @@ mod tests {
         host.add_file("/project/src/messages.properties", text);
         host.open_editor("/project/src/messages.properties", "properties", text, &[]);
 
-        Properties::default().run_command("find-unused", &host.invocation(), None).unwrap();
-
-        let diagnostics = host.diagnostics();
-        let unused: Vec<&Diagnostic> = diagnostics["/project/src/messages.properties"].iter().filter(|d| d.unnecessary).collect();
-        assert_eq!(unused.len(), 1);
-        assert_eq!(unused[0].range.start, Position::new(1, 0));
-        assert_eq!(host.notifications()[0].body, "1 unused property in messages.properties, marked as a warning in the file.");
+        let mut plugin = Properties::default();
+        plugin.run_command("find-unused", &host.invocation(), None).unwrap();
+        assert_eq!(plugin.unused["/project/src/messages.properties"], HashSet::from(["unused.key".into()]));
+        assert!(host.diagnostics().is_empty(), "commands never publish editor diagnostics");
+        assert!(host.notifications()[0].body.starts_with("1 potentially unused property in messages.properties"));
+        assert!(host.notifications()[0].body.contains("Potential candidates (not proof of absence):\nunused.key"));
     }
 
     #[test]
-    fn live_unused_keys_are_hints_and_follow_the_setting() {
+    fn live_unused_candidate_cache_follows_setting_without_publishing() {
         let host = MockHost::install();
         host.add_file("/project/src/App.java", "bundle.getString(\"used.key\");");
         let path = "/project/src/messages.properties";
@@ -952,9 +1055,9 @@ mod tests {
 
         host.set_setting("unusedProperties.live", "true");
         plugin.handle_events(&event, &host.invocation());
-        let marked: Vec<(Severity, Position)> =
-            host.diagnostics()[path].iter().filter(|d| d.unnecessary).map(|d| (d.severity, d.range.start)).collect();
-        assert_eq!(marked, [(Severity::Hint, Position::new(1, 0))]);
+        assert!(plugin.unused[path].contains("unused.key"));
+        assert!(plugin.diagnostics(&doc(path, "properties", "used.key=1\nunused.key=2\n")).iter().all(|d| !d.unnecessary));
+        assert!(host.diagnostics().is_empty());
 
         host.set_setting("unusedProperties.live", "false");
         plugin.handle_events(&event, &host.invocation());
@@ -1003,5 +1106,30 @@ mod tests {
 
         let bodies: Vec<String> = host.notifications().into_iter().map(|n| n.body).collect();
         assert_eq!(bodies, ["Key 'my key' copied to the clipboard.", "Value of 'my key' copied to the clipboard."]);
+    }
+    #[test]
+    fn clipboard_operations_do_not_silently_replace_utf16_units() {
+        let host = MockHost::install();
+        let mut plugin = Properties::default();
+        host::copy_to_clipboard("retained").unwrap();
+        host.open_editor("/project/a.properties", "properties", "bad\\uD800=Value\n", &[(0,1,0,1)]);
+        assert!(plugin.run_command("copy-key", &host.invocation(), None).is_err());
+        assert_eq!(host.clipboard().as_deref(), Some("retained"));
+        plugin.run_command("copy-value", &host.invocation(), None).unwrap();
+        assert_eq!(host.clipboard().as_deref(), Some("Value"));
+        host.open_editor("/project/a.properties", "properties", "key=\\uD801\n", &[(0,1,0,1)]);
+        assert!(plugin.run_command("copy-value", &host.invocation(), None).is_err());
+        assert_eq!(host.clipboard().as_deref(), Some("Value"));
+        plugin.run_command("copy-key", &host.invocation(), None).unwrap();
+        assert_eq!(host.clipboard().as_deref(), Some("key"));
+        host.open_editor("/project/a.properties", "properties", "\\uD83D\\uDE00=\\uD83D\\uDE00\n", &[(0,1,0,1)]);
+        for id in ["copy-key", "copy-value"] {
+            plugin.run_command(id, &host.invocation(), None).unwrap();
+            assert_eq!(host.clipboard().as_deref(), Some("😀"));
+        }
+        host.open_editor("/project/a.properties", "properties", "key=\\u12\n", &[(0,1,0,1)]);
+        assert!(plugin.run_command("copy-value", &host.invocation(), None).is_err());
+        assert_eq!(host.clipboard().as_deref(), Some("😀"));
+        assert!(host.requests().is_empty() && host.process_runs().is_empty());
     }
 }

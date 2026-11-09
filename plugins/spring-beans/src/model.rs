@@ -1,6 +1,7 @@
 //! What one source file says about beans: the beans it declares, the
 //! injection points it has, its types' supertypes and its named pointcuts.
 
+use crate::xml_namespace::CoreAttributes;
 use crate::kotlin;
 use openidea_plugin::Range;
 use spring_text::constants::Constants;
@@ -13,23 +14,23 @@ const C_NAMESPACE: &str = "http://www.springframework.org/schema/c";
 /// Whether the attribute of `els[i]` names a bean: `ref=`-style attributes, and
 /// `p:x-ref` / `c:x-ref` when the prefix is bound to the `p`/`c` namespaces.
 pub fn is_xml_ref(els: &[xml::Element], i: usize, a: &xml::Attr) -> bool {
-    let e = &els[i];
-    if XML_REFS.contains(&a.local()) || a.local() == "bean" && matches!(e.local(), "ref" | "idref") {
-        return true;
-    }
-    let Some((prefix, local)) = a.name.split_once(':') else { return false };
-    if !local.ends_with("-ref") || local.len() == "-ref".len() {
-        return false;
-    }
-    let decl = format!("xmlns:{prefix}");
-    let mut at = Some(i);
-    while let Some(k) = at {
-        if let Some(d) = els[k].attrs.iter().find(|d| d.name == decl) {
-            return d.value == P_NAMESPACE || d.value == C_NAMESPACE;
-        }
-        at = els[k].parent;
-    }
-    false
+    let e=&els[i];
+    if e.local()=="aspect" && a.name=="ref" && xml::namespace(els,i)==Some("http://www.springframework.org/schema/aop")
+        && e.parent.is_some_and(|p|els[p].local()=="config"&&xml::namespace(els,p)==Some("http://www.springframework.org/schema/aop")){return true;}
+    if !crate::xml_namespace::beans_element(els,i){return false;}
+    if match e.local() {
+        "bean"=>matches!(a.name.as_str(),"parent"|"depends-on"|"factory-bean"),
+        "property"|"constructor-arg"=>a.name=="ref",
+        "ref"|"idref"=>a.name=="bean",
+        "entry"=>matches!(a.name.as_str(),"key-ref"|"value-ref"),
+        _=>false,
+    } {return true;}
+    is_xml_shortcut(els,i,a) && a.local().strip_suffix("-ref").is_some_and(|local|!local.is_empty())
+}
+/// A p/c attribute on a source-owned bean; namespace aliases are resolved.
+pub(crate) fn is_xml_shortcut(els:&[xml::Element],i:usize,a:&xml::Attr)->bool {
+    if els[i].local()!="bean" || !crate::xml_namespace::beans_element(els,i){return false;}
+    matches!(crate::xml_namespace::attribute_namespace(els,i,a),Some(P_NAMESPACE|C_NAMESPACE))
 }
 
 /// The names of a `name`, `ref` or `profile` style list, with their byte offsets in `value`:
@@ -46,8 +47,6 @@ pub const INJECT: [&str; 3] = ["Autowired", "Inject", "Resource"];
 const SINGLE_WRAPPERS: [&str; 4] = ["Optional", "ObjectProvider", "Provider", "Lazy"];
 /// Hold every bean of their last type argument: `List<Handler>`.
 const MULTI_WRAPPERS: [&str; 5] = ["List", "Set", "Collection", "Iterable", "Map"];
-/// XML attributes naming another bean.
-const XML_REFS: [&str; 6] = ["ref", "parent", "depends-on", "factory-bean", "key-ref", "value-ref"];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Bean {
@@ -129,6 +128,7 @@ pub struct Pointcut {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct FileModel {
+    pub navigation: ui_kit::navigation::Graph,
     pub beans: Vec<Bean>,
     pub injections: Vec<Injection>,
     pub types: Vec<TypeInfo>,
@@ -141,15 +141,25 @@ pub struct FileModel {
 
 /// The model of a Java, Kotlin or Spring XML file (`None`: nothing to keep).
 pub fn parse(path: &str, text: &str) -> Option<FileModel> {
-    let model = if path.ends_with(".java") {
+    let mut model = if path.ends_with(".java") {
         java_model(text)
     } else if path.ends_with(".kt") {
         kotlin::model(text)
     } else if path.ends_with(".xml") {
-        xml_model(text)
+        if !crate::xml_namespace::namespace_document(text){return None;}
+        if crate::xml_namespace::beans_document(text){xml_model(text)}else{FileModel::default()}
+    } else if matches!(path.rsplit('.').next(), Some("properties" | "yaml" | "yml" | "sql")) {
+        FileModel::default()
     } else {
         return None;
     };
+    model.navigation = crate::indexer::navigation_of(path, text, &model).into();
+    // Bean references and injection candidates already have a more precise
+    // provider (profiles/qualifiers/primary). Never bypass it with graph aliases.
+    let supplemental = |key: &str| !key.starts_with("type:") && !key.starts_with("bean#");
+    model.navigation.definitions.retain(|(key, _)| supplemental(key));
+    model.navigation.references.retain(|(key, _)| supplemental(key));
+    model.navigation.markers.retain(|(key, _)| supplemental(key));
     (model != FileModel::default()).then_some(model)
 }
 
@@ -265,8 +275,18 @@ pub fn is_repository<'a>(kind: &str, mut supers: impl Iterator<Item = &'a str>) 
     kind == "interface" && supers.any(|s| s.ends_with("Repository"))
 }
 
-const LOMBOK: [&str; 10] =
-    ["Data", "Value", "Getter", "Setter", "Builder", "SuperBuilder", "AllArgsConstructor", "NoArgsConstructor", "RequiredArgsConstructor", "With"];
+const LOMBOK: [&str; 10] = [
+    "Data",
+    "Value",
+    "Getter",
+    "Setter",
+    "Builder",
+    "SuperBuilder",
+    "AllArgsConstructor",
+    "NoArgsConstructor",
+    "RequiredArgsConstructor",
+    "With",
+];
 
 fn type_info(file: &java::JavaFile, index: usize, text: &str) -> TypeInfo {
     let t = &file.types[index];
@@ -285,7 +305,8 @@ fn type_info(file: &java::JavaFile, index: usize, text: &str) -> TypeInfo {
         })
         .collect();
     let ctors = t.members.iter().filter(|m| m.kind == MemberKind::Constructor).map(|m| m.params.len()).collect();
-    let ctor_names = t.members.iter().filter(|m| m.kind == MemberKind::Constructor).map(|m| m.params.iter().map(|p| p.name.clone()).collect()).collect();
+    let ctor_names =
+        t.members.iter().filter(|m| m.kind == MemberKind::Constructor).map(|m| m.params.iter().map(|p| p.name.clone()).collect()).collect();
     TypeInfo {
         name: t.name.clone(),
         qualified: file.qualified(index),
@@ -315,7 +336,8 @@ fn constants_of(file: &java::JavaFile, text: &str) -> Vec<(String, String)> {
 }
 
 fn java_model(text: &str) -> FileModel {
-    let file = java::parse(text);
+    let mut file = java::parse(text);
+    crate::annotation_owners::Owners::new(&file,text,false).filter_definitions(&mut file,text);
     let mut out = FileModel::default();
     out.constants = constants_of(&file, text);
     out.auto_configuration = file.types.iter().any(|t| t.has(&["SpringBootApplication", "EnableAutoConfiguration"]));
@@ -323,7 +345,8 @@ fn java_model(text: &str) -> FileModel {
         let supers: Vec<String> = t.supers().map(|s| s.name.clone()).collect();
         out.types.push(type_info(&file, index, text));
         let repository = is_repository(&t.kind, supers.iter().map(String::as_str));
-        let bean = if t.kind == "@interface" { None } else { class_bean(text, &t.name, &short_name(&file, t), t.at, &t.annotations, repository) };
+        let bean =
+            if t.kind == "@interface" { None } else { class_bean(text, &t.name, &short_name(&file, t), t.at, &t.annotations, repository) };
         let class_profiles = bean.as_ref().map(|b| b.profiles.clone()).unwrap_or_default();
         let class_conditional = bean.as_ref().is_some_and(|b| b.conditional);
         let owner = bean.map(|b| {
@@ -369,8 +392,7 @@ fn java_model(text: &str) -> FileModel {
                     let modifier = |s: &str| m.modifiers.iter().any(|x| x == s);
                     let constructor_field = owner.is_some() && lombok && modifier("final") && !modifier("static");
                     if injected.is_some() || constructor_field {
-                        let annotation =
-                            injected.filter(|a| a.name != "Resource").map(|a| range(text, a.at, a.end));
+                        let annotation = injected.filter(|a| a.name != "Resource").map(|a| range(text, a.at, a.end));
                         push_injection(text, &mut out, ty, &m.name, &m.annotations, owner, annotation);
                     }
                 }
@@ -398,15 +420,15 @@ fn xml_model(text: &str) -> FileModel {
         let parent = e.parent.and_then(|p| owners[p]);
         owners[i] = parent;
         if e.local() == "alias" {
-            if let (Some(name), Some(alias)) = (e.value("name"), e.value("alias")) {
+            if let (Some(name), Some(alias)) = (e.core_value("name"), e.core_value("alias")) {
                 aliases.push((name.to_owned(), alias.to_owned()));
             }
             continue;
         }
         let top = e.parent.is_some_and(|p| els[p].local() == "beans");
-        let id = e.attr("id");
-        let names: Vec<String> = name_tokens(e.value("name").unwrap_or("")).map(|(_, n)| n.to_owned()).collect();
-        let class = e.value("class").unwrap_or("");
+        let id = e.core_attr("id");
+        let names: Vec<String> = name_tokens(e.core_value("name").unwrap_or("")).map(|(_, n)| n.to_owned()).collect();
+        let class = e.core_value("class").unwrap_or("");
         let is_bean = e.local() == "bean" && (id.is_some() || !names.is_empty() || !class.is_empty());
         if is_bean || top && id.is_some() {
             let mut all: Vec<String> = id.map(|a| a.value.clone()).into_iter().chain(names).collect();
@@ -416,22 +438,22 @@ fn xml_model(text: &str) -> FileModel {
             let mut profiles = Vec::new();
             let mut up = e.parent;
             while let Some(p) = up {
-                if let Some(profile) = els[p].value("profile") {
+                if let Some(profile) = els[p].core_value("profile") {
                     profiles.extend(name_tokens(profile).map(|(_, p)| p.to_owned()));
                 }
                 up = els[p].parent;
             }
-            let at = id.or(e.attr("name")).or(e.attr("class")).map_or(range(text, e.at, e.at + e.name.len()), attr_range);
+            let at = id.or(e.core_attr("name")).or(e.core_attr("class")).map_or(range(text, e.at, e.at + e.name.len()), attr_range);
             out.beans.push(Bean {
                 name: all.remove(0),
                 aliases: all,
                 kind: format!("<{}>", e.name),
                 ty: simple(class).to_owned(),
-                primary: e.value("primary") == Some("true"),
+                primary: e.core_value("primary") == Some("true"),
                 profiles,
                 qualifiers: Vec::new(),
                 conditional: false,
-                is_abstract: e.value("abstract") == Some("true"),
+                is_abstract: e.core_value("abstract") == Some("true"),
                 range: at,
             });
             owners[i] = Some(out.beans.len() - 1);

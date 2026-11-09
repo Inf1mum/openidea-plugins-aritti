@@ -12,6 +12,12 @@ authors = ["Arnaud Ritti <arnaud.ritti@gmail.com>", "JetBrains s.r.o. and contri
 homepage = "https://github.com/JetBrains/intellij-community/tree/master/plugins/gitlab"
 license = "Apache-2.0"
 change-notes = """\
+Pipeline effect controls bind exact source target and cancel-confirm phase before retry, browser or trace actions. \
+Files row and bulk viewed controls carry source context to reject stale MR callbacks. \
+Diff rendering uses checked line counters and withholds guessed malformed-hunk positions. \
+Changes comments/replies/resolution validate displayed row membership; empty discussions no longer panic rendering. \
+Changes callbacks echo the rendered repository/MR/head/commit context and refuse stale or unbound pages. \
+Changes Open/Viewed callbacks validate listed source rows and local project ownership before navigation/state changes. \
 Unreleased: GitLab: Create Merge Request asks for source and target branch, title, description and draft instead of opening a form window, and offers Open on GitLab when the request fails. The Merge Request window has Overview, Changes, Commits, Files and Pipelines buttons; Merge Request Changes, Commits, Files and Pipelines are sections of it now; the separate Files, Commits and Pipelines tool windows are gone. Merge Request Files view (Tree or List, double-click toggles Viewed, Mark All Viewed, Clear Viewed; no page scripts needed). Create Snippet asks for title, visibility and more project files, and Share Project asks for name and visibility, instead of opening form windows; the `forms` setting is gone. CI value completion (when, stage, extends, needs, dependencies, booleans, !reference job and key) and a warning for !reference naming a missing job. Open on GitLab in the Project view menu (a file or folder). Completion of CI keywords and CI_* variables in .gitlab-ci.yml, and `include: local:` files count for job and stage checks. Edit labels, assignees, reviewers, milestone and title of a merge request from the Details button or GitLab: Edit Merge Request, choosing from the project's labels, members and milestones. The list Filter button picks a quick filter or an author, reviewer, label or text filter. The three tool windows have distinct icons. \
 0.3.0: Create Snippet from the files selected in the Project view, with a title prompt; the status item and Create Merge Request bring their views to the front. Needs OpenIDEA API 1.2. \
 0.2.0: Merge Request Changes tool window (diff, comments on lines, pending review, viewed files), Submit Review, \
@@ -22,7 +28,7 @@ gitlab.com with a personal access token: merge request list, threads and review 
 for files, Create Snippet."""
 categories = ["vcs"]
 icon = "icon.svg"
-engines.openidea = "^1.2"
+engines.openidea = "^1.4"
 wasm = "dist/plugin.wasm"
 activation = [
     "on-view:merge-requests", "on-view:merge-request", "on-view:gitlab-projects",
@@ -58,18 +64,21 @@ id = "merge-requests"
 title = "Merge Requests"
 icon = "icons/merge-requests.svg"
 location = "left"
+web = "web/resources/hub.html"
 
 [[contributes.views]]
 id = "merge-request"
 title = "Merge Request"
 icon = "icons/merge-request.svg"
 location = "right"
+web = "web/resources/hub.html"
 
 [[contributes.views]]
 id = "gitlab-projects"
 title = "GitLab Projects"
 icon = "icons/projects.svg"
 location = "left"
+web = "web/resources/hub.html"
 
 [[contributes.commands]]
 id = "open-in-browser"
@@ -109,6 +118,11 @@ category = "GitLab"
 [[contributes.commands]]
 id = "open-merge-request-in-worktree"
 title = "GitLab: Open Merge Request in Worktree"
+category = "GitLab"
+
+[[contributes.commands]]
+id = "open-existing-merge-request-worktree"
+title = "GitLab: Open Existing Merge Request Worktree"
 category = "GitLab"
 
 [[contributes.commands]]

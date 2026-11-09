@@ -1,29 +1,70 @@
 //! OpenAPI: editing support for OpenAPI 3 and Swagger 2 files.
 
 mod checks;
+mod structure;
+mod try_http;
 mod diff;
 mod http;
+mod hover;
 mod json;
 mod keys;
 mod refs;
 mod spec;
+mod yaml_pointer;
+mod yaml_hover;
+mod pointer_status;
+mod component_occurrences;
+mod yaml_scan;
 
 use checks::Fetched;
-use ui_kit::routes::{self, Handler, Route, RouteEvent, RouteList};
 use openidea_plugin::providers::{CodeAction, CompletionItem, CompletionKind, Document, LineMarker, Providers};
 use openidea_plugin::text::{offset, position};
 use openidea_plugin::views::{Body, Button, ListItem, View, ViewEvent, Viewport, Views};
 use openidea_plugin::{
-    Diagnostic, Error, Event, Invocation, Location, LogLevel, NotificationLevel, PickItem, Plugin, Position, Project, Range,
-    TextEdit, host, register_plugin,
+    Diagnostic, Error, Event, Invocation, Location, LogLevel, NotificationLevel, PickItem, Plugin, Position, Project, Range, TextEdit,
+    host, register_plugin,
 };
+use ui_kit::routes::{self, Handler, Route, RouteEvent, RouteList};
 
 #[derive(Default)]
 pub struct OpenApi {
+    try_http: try_http::State,
     project_files: Vec<String>,
     /// Status line and changes of the last comparison.
-    comparison: Option<(String, Vec<ListItem>)>,
+    comparison: Option<Comparison>,
     routes: Option<RouteList>,
+}
+
+struct Comparison {
+    root: String,
+    path: String,
+    revision: String,
+    version: u64,
+    base_path: String,
+    base: String,
+    status: String,
+    items: Vec<ListItem>,
+}
+fn refresh_comparison() {
+    host::refresh_view(COMPARE);
+    let _ = host::post_view_message(COMPARE, r#"{"channel":"ui-kit-refresh"}"#);
+}
+fn comparison_owner(ctx: &Invocation, path: &str) -> Result<String, Error> {
+    let root = ctx.project().ok_or(Error::Stale)?.root()?;
+    if !root.starts_with('/') || root.chars().any(char::is_control) || root.split('/').any(|part| matches!(part, "." | ".."))
+        || !path.starts_with(&format!("{}/", root.trim_end_matches('/')))
+        || path.split('/').any(|part| matches!(part, "." | ".."))
+        || host::project_of(path).and_then(|project| project.root().ok()).as_deref() != Some(root.as_str())
+        || !host::projects()?.iter().any(|project| project.root().ok().as_deref() == Some(root.as_str()))
+    { return Err(Error::Stale); }
+    Ok(root)
+}
+impl Comparison {
+    fn current(&self, ctx: &Invocation) -> bool {
+        if comparison_owner(ctx, &self.path).ok().as_deref() != Some(self.root.as_str()) { return false; }
+        if !self.base_path.starts_with("HEAD:") && comparison_owner(ctx, &self.base_path).ok().as_deref() != Some(self.root.as_str()) {return false;}
+        ctx.editor().is_some_and(|editor| editor.path() == self.path && editor.document().is_ok_and(|doc| doc.version == self.version && doc.text == self.revision))
+    }
 }
 
 fn project_for(path: &str) -> Result<Project, Error> {
@@ -165,13 +206,15 @@ fn spec_candidate_hint(text: &str) -> Vec<Diagnostic> {
 }
 
 fn problems(path: &str) -> Result<Vec<Diagnostic>, Error> {
-    let project = project_for(path)?;
+    let project = host::project_of(path).ok_or_else(|| Error::NotFound("No source project".into()))?;
     let text = project.read_file(path)?;
+    if !canonical_reference_path(path) || text.len()>MAX_SCANNED_FILE_BYTES || bounded_reference_keys(&text).is_none() { return Ok(Vec::new()); }
     let Some(spec) = spec_or_fragment(path, &text) else {
         return Ok(spec_candidate_hint(&text));
     };
 
-    let read = |file: &str| fetch(project.read_file(&resolve_path(path, file)));
+    let doc=Document {path:path.into(),language:if spec::is_json(&text) {"json"} else {"yaml"}.into(),text:text.clone(),version:0};
+    let read = |file: &str| read_sibling_result(&doc,file);
     let mut found = checks::check(&text, &spec, &read);
     if spec.version.is_empty() {
         found.retain(|d| !d.message.starts_with("Cannot find `#"));
@@ -190,6 +233,7 @@ fn spec_or_fragment(path: &str, text: &str) -> Option<spec::Spec> {
 
 impl OpenApi {
     fn refresh_project_files(&mut self, project: &Project) {
+        let Ok(root)=project.root() else { self.project_files.clear(); return; };
         let mut files = Vec::new();
         for pattern in ["**/*.yaml", "**/*.yml", "**/*.json"] {
             match project.find_files(pattern, 500) {
@@ -198,16 +242,23 @@ impl OpenApi {
             }
         }
 
-        files.sort();
+        files.retain(|path| canonical_reference_path(path) && host::project_of(path).and_then(|p|p.root().ok()).as_deref()==Some(root.as_str()));
+        files.sort();files.dedup();
         self.project_files = files;
     }
 
     fn ref_file_items(&self, doc: &Document, typed_file: &str) -> Vec<String> {
-        if typed_file.starts_with("http://") || typed_file.starts_with("https://") {
+        if typed_file.starts_with("http://") || typed_file.starts_with("https://")
+            || !canonical_reference_path(&doc.path) || doc.text.len()>MAX_SCANNED_FILE_BYTES {
             return Vec::new();
         }
 
-        self.project_files.iter().filter(|path| **path != doc.path).map(|path| relative_path(&doc.path, path)).collect()
+        let Some(project)=host::project_of(&doc.path) else { return Vec::new(); };
+        let Ok(root)=project.root() else { return Vec::new(); };
+        self.project_files.iter().filter(|path| **path != doc.path && canonical_reference_path(path)
+            && host::project_of(path).and_then(|p|p.root().ok()).as_deref()==Some(root.as_str())
+            && project.stat(path).is_ok_and(|s|s.kind==openidea_plugin::FileKind::File && s.size<=MAX_SCANNED_FILE_BYTES as u64))
+            .map(|path| relative_path(&doc.path, path)).collect()
     }
 }
 
@@ -221,36 +272,49 @@ fn copy_or_explain(text: &str, done: &str, denied: &str) -> Result<Option<String
     Ok(None)
 }
 
-const TEE: &str = "tee";
-
 fn sibling_file(path: &str, suffix: &str) -> String {
     let (stem, extension) = path.rsplit_once('.').unwrap_or((path, ""));
 
     suffix.replace("{stem}", stem).replace("{ext}", extension)
 }
 
-/// Writes `text` to a file beside the spec through `tee`, or copies it to the clipboard when `tee` is not granted.
+/// Writes generated text through the owning project's native file API, with clipboard fallback.
 fn save_or_copy(target: &str, text: &str, what: &str) -> Result<Option<String>, Error> {
     let name = target.rsplit('/').next().unwrap_or(target);
-    let exists = project_for(target).is_ok_and(|project| project.read_file(target).is_ok());
-    if exists && !host::confirm("Overwrite file", &format!("{name} already exists and is replaced."))? {
-        return Ok(None);
-    }
-
-    let written = host::run_process(TEE, &[target.to_owned()], Some(text)).and_then(|out| match out.status {
-        Some(0) => Ok(()),
-        _ => Err(Error::Invalid(format!("tee failed: {}", out.stderr.trim()))),
-    });
+    let written = (|| {
+        if !canonical_reference_path(target) { return Err(Error::Invalid("The output path is not canonical.".into())); }
+        let project = project_for(target)?;
+        let root = project.root()?;
+        if host::project_of(target).and_then(|p| p.root().ok()).as_deref() != Some(root.as_str()) { return Err(Error::Stale); }
+        let snapshot = |project: &Project| -> Result<Option<String>, Error> {
+            match project.read_file(target) {
+                Ok(text) => Ok(Some(text)),
+                Err(Error::NotFound(_)) => Ok(None),
+                Err(error) => Err(error),
+            }
+        };
+        let before = snapshot(&project)?;
+        if before.is_some() && !host::confirm("Overwrite file", &format!("{name} already exists and is replaced."))? {
+            return Err(Error::Cancelled);
+        }
+        // Prompts may outlive a project switch or a target edit. Never overwrite
+        // a different owner or content than the user just reviewed.
+        if project.root()? != root
+            || host::project_of(target).and_then(|p| p.root().ok()).as_deref() != Some(root.as_str())
+            || snapshot(&project)? != before { return Err(Error::Stale); }
+        project.write_file(target, text)
+    })();
     match written {
         Ok(()) => {
             host::notify(NotificationLevel::Info, "OpenAPI", &format!("{what} written to {name}."));
             host::open_location(target, 0, 0)?;
             Ok(None)
         }
+        Err(Error::Cancelled) => Ok(None),
         Err(Error::Denied(_)) => copy_or_explain(
             text,
             &format!("{what} copied to the clipboard."),
-            "Allow writing files (tee) or the clipboard for OpenAPI in Settings › Plugins.",
+            "Allow project file writing or the clipboard for OpenAPI in Settings › Plugins.",
         ),
         Err(error) => Err(error),
     }
@@ -260,16 +324,21 @@ impl OpenApi {
     fn compare_specs(&mut self, ctx: &Invocation) -> Result<Option<String>, Error> {
         let editor = ctx.editor().ok_or("No file is open.")?;
         let path = editor.path();
-        let revision = editor.document()?.text;
+        let buffer = editor.document()?;
+        let version = buffer.version;
+        let revision = buffer.text;
         if spec::parse(&revision).is_none() {
             return Err("The current file is not an OpenAPI document.".into());
         }
-        let project = project_for(&path)?;
+        comparison_owner(ctx, &path)?;
+        let project = ctx.project().ok_or(Error::Stale)?;
         self.refresh_project_files(&project);
         let root = project.root()?;
         let mut candidates = Vec::new();
         for file in self.project_files.iter().filter(|file| **file != path) {
-            let Ok(text) = project.read_file(file) else { continue };
+            let Ok(text) = project.read_file(file) else {
+                continue;
+            };
             if text.len() <= MAX_SCANNED_FILE_BYTES && spec::parse(&text).is_some() {
                 let relative = file.strip_prefix(root.trim_end_matches('/')).unwrap_or(file).trim_start_matches('/');
                 candidates.push(PickItem::new(file, relative));
@@ -279,9 +348,13 @@ impl OpenApi {
             host::notify(NotificationLevel::Info, "OpenAPI", "No other OpenAPI file in this project to compare with.");
             return Ok(None);
         }
-        let Some(base_path) = host::pick("Compare the current spec with (base)", &candidates)? else { return Ok(None) };
+        let Some(base_path) = host::pick("Compare the current spec with (base)", &candidates)? else {
+            return Ok(None);
+        };
+        if !candidates.iter().any(|item| item.key == base_path) { return Err(Error::Stale); }
+        comparison_owner(ctx, &base_path)?;
         let base = project.read_file(&base_path)?;
-        self.show_comparison(&base_path, &base, &path, &revision);
+        self.show_comparison(ctx, &base_path, &base, &path, &revision, version)?;
         host::reveal_view(COMPARE)?;
         Ok(None)
     }
@@ -289,11 +362,14 @@ impl OpenApi {
     fn compare_last_revision(&mut self, ctx: &Invocation) -> Result<Option<String>, Error> {
         let editor = ctx.editor().ok_or("No file is open.")?;
         let path = editor.path();
-        let revision = editor.document()?.text;
+        let buffer = editor.document()?;
+        let version = buffer.version;
+        let revision = buffer.text;
         if spec::parse(&revision).is_none() {
             return Err("The current file is not an OpenAPI document.".into());
         }
-        let project = project_for(&path)?;
+        comparison_owner(ctx, &path)?;
+        let project = ctx.project().ok_or(Error::Stale)?;
         let root = project.root()?;
         let relative = path.strip_prefix(root.trim_end_matches('/')).unwrap_or(&path).trim_start_matches('/');
         let args = ["show".to_owned(), format!("HEAD:./{relative}")];
@@ -304,12 +380,16 @@ impl OpenApi {
                 return Ok(None);
             }
             Err(Error::Denied(_)) => {
-                host::notify(NotificationLevel::Warning, "OpenAPI", "Allow git for OpenAPI in Settings › Plugins to compare with the last revision.");
+                host::notify(
+                    NotificationLevel::Warning,
+                    "OpenAPI",
+                    "Allow git for OpenAPI in Settings › Plugins to compare with the last revision.",
+                );
                 return Ok(None);
             }
             Err(error) => return Err(error),
         };
-        self.show_comparison(&format!("HEAD:{relative}"), &committed, &path, &revision);
+        self.show_comparison(ctx, &format!("HEAD:{relative}"), &committed, &path, &revision, version)?;
         host::reveal_view(COMPARE)?;
         Ok(None)
     }
@@ -326,7 +406,11 @@ impl OpenApi {
         let bundled = match refs::bundle(&text, &path, &read) {
             Ok(Some(bundled)) => bundled,
             Ok(None) => {
-                host::notify(NotificationLevel::Info, "OpenAPI", "This file has no references to other files; it is already self-contained.");
+                host::notify(
+                    NotificationLevel::Info,
+                    "OpenAPI",
+                    "This file has no references to other files; it is already self-contained.",
+                );
                 return Ok(None);
             }
             Err(message) => return Err(message.into()),
@@ -338,29 +422,65 @@ impl OpenApi {
     fn copy_reference(&mut self, ctx: &Invocation) -> Result<Option<String>, Error> {
         let editor = ctx.editor().ok_or("No file is open.")?;
         let text = editor.document()?.text;
-        let spec = spec::parse(&text).ok_or("The current file is not an OpenAPI document.")?;
-        let caret = editor.selections()?.first().map(|range| range.start.line).ok_or("There is no caret.")?;
-        let pointer = refs::pointer_at(&text, &spec.keys, caret).ok_or("There is no key on the caret's line.")?;
+        let caret = editor.selections()?.first().map(|range| range.start).ok_or("There is no caret.")?;
+        let pointer = refs::pointer_at(&text, caret).ok_or("There is no unambiguous source key at the caret in a supported complete OpenAPI document.")?;
         let reference = match spec::is_json(&text) {
-            true => format!("\"$ref\": \"{pointer}\""),
-            false => format!("$ref: '{pointer}'"),
+            true => format!("\"$ref\": {}", serde_json::to_string(&pointer).map_err(|_|Error::Invalid("Could not serialize the source pointer.".into()))?),
+            false => format!("$ref: '{}'", pointer.replace('\'',"''")),
         };
 
-        copy_or_explain(&reference, &format!("Copied {reference}"), "Allow the clipboard for OpenAPI in Settings › Plugins to copy the reference.")
+        copy_or_explain(
+            &reference,
+            &format!("Copied {reference}"),
+            "Allow the clipboard for OpenAPI in Settings › Plugins to copy the reference.",
+        )
     }
 
-    fn show_comparison(&mut self, base_path: &str, base: &str, path: &str, revision: &str) {
+    fn show_comparison(&mut self, ctx: &Invocation, base_path: &str, base: &str, path: &str, revision: &str, version: u64) -> Result<(), Error> {
+        if base.len() > MAX_SCANNED_FILE_BYTES || revision.len() > MAX_SCANNED_FILE_BYTES {return Err(Error::Invalid("Comparison sources exceed the 1 MiB per-file bound.".into()));}
+        let root = comparison_owner(ctx, path)?;
+        if !base_path.starts_with("HEAD:") {comparison_owner(ctx, base_path)?;}
+        let current = ctx.editor().ok_or(Error::Stale)?;
+        let doc = current.document()?;
+        if current.path() != path || doc.version != version || doc.text != revision {return Err(Error::Stale);}
         let changes = diff::compare(base_path, base, path, revision);
         let name = |p: &str| p.rsplit('/').next().unwrap_or(p).to_owned();
         let status = format!("{} to {}: {} changes", name(base_path), name(path), changes.len());
-        let items = changes.iter().map(|c| ListItem::new(&c.location, &c.label).detail(&c.detail)).collect();
-        self.comparison = Some((status, items));
-        host::refresh_view(COMPARE);
+        let items = changes.iter().take(1000).map(|c| ListItem::new(&c.location, &c.label).detail(&c.detail)).collect();
+        let status = if changes.len() > 1000 {format!("{status} · first 1,000 changes shown")} else {status};
+        self.comparison = Some(Comparison {root,path:path.into(),revision:revision.into(),version,base_path:base_path.into(),base:base.into(),status:format!("{status} · captured comparison; recompute after source changes"),items});
+        refresh_comparison();
+        Ok(())
     }
 }
 
 impl Plugin for OpenApi {
+    fn activate(&mut self, context: &openidea_plugin::Context) -> Result<(), Error> {
+        self.try_http.activate(context);
+        // Only comparison cache retirement consumes filesystem events here.
+        let _ = host::subscribe(openidea_plugin::EventKind::FilesChanged);
+        let _ = host::subscribe(openidea_plugin::EventKind::EditorFocused);
+        Ok(())
+    }
+
     fn handle_events(&mut self, events: &[Event], _ctx: &Invocation) {
+        if self.comparison.as_ref().is_some_and(|comparison| events.iter().any(|event| {
+            let changed = |path: &str| !path.is_empty() && (path == comparison.path || path == comparison.base_path
+                || comparison.path.starts_with(&format!("{}/", path.trim_end_matches('/')))
+                || comparison.base_path.starts_with(&format!("{}/", path.trim_end_matches('/'))));
+            match event {
+                Event::FileSaved(path) => changed(path),
+                Event::FilesChanged(batch) => batch.created.iter().chain(&batch.modified).chain(&batch.removed).any(|path| changed(path)),
+                _ => false,
+            }
+        })) {
+            self.comparison = None;
+            refresh_comparison();
+        } else if self.comparison.is_some() && events.iter().any(|event| matches!(event, Event::EditorFocused(_))) {
+            // Each receiving frame rechecks its own active source; retain another
+            // owning window's captured comparison instead of deleting on focus.
+            refresh_comparison();
+        }
         let mut paths: Vec<&str> = events
             .iter()
             .filter_map(|event| match event {
@@ -372,7 +492,7 @@ impl Plugin for OpenApi {
         paths.sort();
         paths.dedup();
 
-        if let Some(project) = paths.first().and_then(|path| project_for(path).ok()) {
+        if let Some(project) = paths.first().and_then(|path| host::project_of(path)) {
             self.refresh_project_files(&project);
         }
 
@@ -385,18 +505,19 @@ impl Plugin for OpenApi {
     }
 
     fn run_command(&mut self, id: &str, ctx: &Invocation, arg: Option<&str>) -> Result<Option<String>, Error> {
+        if id == "try-local-read" {
+            return match self.try_local(ctx) {
+                Err(Error::Cancelled) => Ok(None),
+                result => result,
+            };
+        }
         if id == "copy-route-curl" || id == "create-route-http" {
-            let route = arg
-                .and_then(|key| self.route_list().route(key).cloned())
-                .ok_or_else(|| Error::Invalid("select an endpoint row".into()))?;
+            let route =
+                arg.and_then(|key| self.route_list().route(key).cloned()).ok_or_else(|| Error::Invalid("select an endpoint row".into()))?;
             if id == "copy-route-curl" {
                 routes::copy_as_curl(&route, DEFAULT_BASE)?;
             } else {
-                let directory = route
-                    .location
-                    .as_ref()
-                    .and_then(|location| location.path.rsplit_once('/'))
-                    .map(|(directory, _)| directory);
+                let directory = route.location.as_ref().and_then(|location| location.path.rsplit_once('/')).map(|(directory, _)| directory);
                 routes::create_http_file(&route, DEFAULT_BASE, directory)?;
             }
             return Ok(None);
@@ -407,6 +528,7 @@ impl Plugin for OpenApi {
         if id == "export-self-contained" {
             return self.export_self_contained(ctx);
         }
+        if id == "component-occurrences" { return component_occurrences::run(ctx); }
         if id == "copy-reference" {
             return self.copy_reference(ctx);
         }
@@ -420,9 +542,7 @@ impl Plugin for OpenApi {
         let editor = ctx.editor().ok_or("No file is open.")?;
         let document = editor.document()?;
         let text = document.text;
-        let spec = spec::parse(&text)
-            .filter(|_| is_spec_file(&editor.path()))
-            .ok_or("The current file is not an OpenAPI document.")?;
+        let spec = spec::parse(&text).filter(|_| is_spec_file(&editor.path())).ok_or("The current file is not an OpenAPI document.")?;
         let count = spec::operations(&text, &spec.keys).len();
         if count == 0 {
             return Err("The current file has no operations.".into());
@@ -519,9 +639,7 @@ fn skeleton_items(doc: &Document) -> Vec<CompletionItem> {
 }
 
 fn parse_or_fragment(doc: &Document) -> Option<spec::Spec> {
-    spec::parse(&doc.text).or_else(|| {
-        is_spec_name(&doc.path).then(|| spec::Spec { version: String::new(), keys: spec::scan(&doc.text) })
-    })
+    spec::parse(&doc.text).or_else(|| is_spec_name(&doc.path).then(|| spec::Spec { version: String::new(), keys: spec::scan(&doc.text) }))
 }
 
 fn keyword_items(doc: &Document, at: Position) -> Vec<CompletionItem> {
@@ -594,8 +712,159 @@ fn ref_at(text: &str, at: Position) -> Option<spec::Ref> {
     spec::refs(text).into_iter().find(|r| r.at <= at && at <= r.end)
 }
 
+fn bounded_reference_keys(text:&str)->Option<Vec<spec::Key>> {
+    if text.len()>MAX_SCANNED_FILE_BYTES {return None;}
+    if spec::is_json(text) {json::partial_bounded_keys(text,8192,4<<20)}
+    else {yaml_scan::keys(text,8192,4<<20,48)}
+}
+fn canonical_reference_path(path: &str) -> bool {
+        path.starts_with('/') && path.len()<=4096 && !path.chars().any(char::is_control)
+            && !path.contains('\\') && !path[1..].split('/').any(|p| matches!(p,""|"."|".."))
+}
+fn try_read_sibling(doc: &Document, file: &str) -> Result<String,Fetched> {
+    fn rebased(text: &str) -> Option<bool> {
+        Some(bounded_reference_keys(text)?.iter().any(|k| {
+            let raw=&text[k.at..k.end];
+            if spec::is_json(text) { json::unescape(raw)=="$id" } else { raw.trim_matches(['\'', '"'])=="$id" }
+        }))
+    }
+    // These locations represent physical source siblings, not arbitrary URI,
+    // classpath or JSON Schema base-URI resolution.
+    if file.is_empty() || file.len()>4096 || file.starts_with('/') || file.trim()!=file
+        || file.chars().any(char::is_control) || file.contains([':', '\\', '%', '?', '#'])
+        || doc.text.len()>MAX_SCANNED_FILE_BYTES || !canonical_reference_path(&doc.path) || rebased(&doc.text)!=Some(false) { return Err(Fetched::Unreadable); }
+    let project=host::project_of(&doc.path).ok_or(Fetched::Unreadable)?;
+    let root=project.root().map_err(|_|Fetched::Unreadable)?;
+    let path=resolve_path(&doc.path,file);
+    if !canonical_reference_path(&path) || !path.strip_prefix(root.trim_end_matches('/')).is_some_and(|tail|tail.starts_with('/'))
+        || host::project_of(&path).and_then(|p|p.root().ok()).as_deref()!=Some(root.as_str()) { return Err(Fetched::Unreadable); }
+    let metadata=project.stat(&path).map_err(|error|match error { Error::NotFound(_)=>Fetched::Missing,_=>Fetched::Unreadable })?;
+    if metadata.kind!=openidea_plugin::FileKind::File || metadata.size>MAX_SCANNED_FILE_BYTES as u64 { return Err(Fetched::Unreadable); }
+    // read_file prefers unsaved editor text; the second bound covers that text
+    // and growth after stat. Never assume disk metadata bounds the editor copy.
+    let content=project.read_file(&path).map_err(|_|Fetched::Unreadable)?;
+    if content.len()>MAX_SCANNED_FILE_BYTES || rebased(&content)!=Some(false) { return Err(Fetched::Unreadable); }
+    Ok(content)
+}
+fn read_sibling_result(doc: &Document, file: &str) -> Fetched {
+    match try_read_sibling(doc,file) { Ok(content)=>Fetched::Text(content),Err(result)=>result }
+}
 fn read_sibling(doc: &Document, file: &str) -> Option<String> {
-    project_for(&doc.path).ok()?.read_file(&resolve_path(&doc.path, file)).ok()
+    match read_sibling_result(doc,file) { Fetched::Text(content)=>Some(content),_=>None }
+}
+
+#[cfg(test)]
+mod sibling_ownership_tests {
+    use super::*;
+    use openidea_plugin::mock::MockHost;
+    fn source(target: &str) -> Document {
+        Document {path:"/project/spec/openapi.json".into(),language:"json".into(),version:3,
+            text:format!(r##"{{"openapi":"3.1.1","x":{{"$ref":"{target}#/Pet"}}}}"##)}
+    }
+    #[test]
+    fn sibling_read_rejects_nested_project_target_and_oversize_source() {
+        let h=MockHost::install().with_capabilities(&["project.read"]);
+        h.add_file("spec/nested/schema.json",r#"{"Pet":{"type":"string"}}"#);
+        h.add_project("/project/spec/nested");
+        let doc=source("nested/schema.json");
+        assert!(read_sibling(&doc,"nested/schema.json").is_none());
+        h.add_file("spec/large.json",&format!("{{\"Pet\":{{}}}}{}"," ".repeat(MAX_SCANNED_FILE_BYTES)));
+        assert!(read_sibling(&doc,"large.json").is_none());
+    }
+    #[test]
+    fn sibling_definition_and_completion_preserve_same_owner_unsaved_targets_and_denied_reads() {
+        for caps in [vec![],vec!["project.read","editor.read"]] {
+            let h=MockHost::install().with_capabilities(&caps);
+            h.add_file("spec/common.json",r#"{"Pet":{"type":"string"}}"#);
+            h.open_editor("/project/spec/common.json","json",r#"{"Unsaved":{"type":"integer"}}"#,&[]);
+            let doc=source("common.json");
+            let read=read_sibling(&doc,"common.json");
+            if caps.is_empty() { assert!(read.is_none()); } else {
+                assert!(read.unwrap().contains("Unsaved"));
+                let changed=source("common.json");
+                let changed=Document {text:changed.text.replace("#/Pet","#/Unsaved"),..changed};
+                let caret=position(&changed.text,changed.text.find("common.json").unwrap());
+                let found=OpenApi::default().definition(&changed,caret);
+                assert_eq!(found.len(),1);assert_eq!(found[0].path,"/project/spec/common.json");
+                assert!(!OpenApi::default().completion(&changed,caret,None).is_empty());
+            }
+        }
+    }
+    #[test]
+    fn physical_sibling_navigation_refuses_uri_aliases_rebased_documents_and_unsaved_growth() {
+        let h=MockHost::install().with_capabilities(&["project.read","editor.read"]);
+        h.add_file("spec/common.json",r#"{"Pet":{}}"#);
+        let doc=source("common.json");
+        for path in ["/project/spec/common.json","../other/missing.json","file:common.json","common%2ejson","common.json?x"," common.json","common\\.json"] {
+            assert!(read_sibling(&doc,path).is_none(),"{path}");
+        }
+        let rebased=Document {text:doc.text.replace("\"openapi\":",r#""$id":"https://example.test/root/","openapi":"#),..doc.clone()};
+        assert!(read_sibling(&rebased,"common.json").is_none());
+        h.open_editor("/project/spec/common.json","json",r#"{"$id":"other.json","Pet":{}}"#,&[]);
+        assert!(read_sibling(&doc,"common.json").is_none());
+        h.open_editor("/project/spec/common.json","json",&" ".repeat(MAX_SCANNED_FILE_BYTES+1),&[]);
+        assert!(read_sibling(&doc,"common.json").is_none());
+        assert!(h.requests().is_empty());assert!(h.process_runs().is_empty());
+    }
+    #[test]
+    fn cross_file_diagnostics_keep_unknown_ownership_quiet_but_report_known_missing_files() {
+        let h=MockHost::install().with_capabilities(&["project.read"]);
+        let doc=source("nested/schema.json");
+        h.add_file("spec/openapi.json",&doc.text);
+        h.add_file("spec/nested/schema.json",r#"{"Other":{}}"#);
+        h.add_project("/project/spec/nested");
+        assert!(problems(&doc.path).unwrap().iter().all(|d|d.code.as_deref()!=Some("unresolved-ref")));
+        h.add_file("spec/openapi.json",&source("missing.json").text);
+        assert!(problems(&doc.path).unwrap().iter().any(|d|d.message.contains("Cannot find file `missing.json`")));
+        h.add_file("spec/large.json",&" ".repeat(MAX_SCANNED_FILE_BYTES+1));
+        h.add_file("spec/openapi.json",&source("large.json").text);
+        assert!(problems(&doc.path).unwrap().iter().all(|d|d.code.as_deref()!=Some("unresolved-ref")));
+    }
+    #[test]
+    fn discovered_reference_files_are_owned_and_revalidated_after_nested_project_open() {
+        let h=MockHost::install().with_capabilities(&["project.read"]);
+        h.add_file("spec/common.json",r#"{"Pet":{}}"#);
+        h.add_file("spec/nested/child.yaml","Pet: {}\n");
+        let doc=source("common.json");
+        let project=host::project_of(&doc.path).unwrap();
+        let mut plugin=OpenApi::default();plugin.refresh_project_files(&project);
+        assert!(plugin.ref_file_items(&doc,"").iter().any(|p|p=="./nested/child.yaml"));
+        h.add_project("/project/spec/nested");
+        assert!(!plugin.ref_file_items(&doc,"").iter().any(|p|p.contains("nested/")));
+        plugin.refresh_project_files(&project);
+        assert!(!plugin.project_files.iter().any(|p|p.contains("nested/")));
+        assert!(plugin.ref_file_items(&doc,"").iter().any(|p|p=="./common.json"));
+        let _h=h.with_capabilities(&[]);
+        assert!(plugin.ref_file_items(&doc,"").is_empty());
+    }
+    #[test]
+    fn file_open_events_discover_the_innermost_source_project_inventory() {
+        let h=MockHost::install().with_capabilities(&["project.read","events"]);
+        h.add_file("/project/spec/nested/openapi.json",r#"{"openapi":"3.1.1","paths":{}}"#);
+        h.add_file("/project/spec/nested/common.json",r#"{"Pet":{}}"#);
+        h.add_file("/project/spec/parent.json",r#"{"Parent":{}}"#);
+        h.add_project("/project/spec/nested");
+        let mut plugin=OpenApi::default();
+        plugin.handle_events(&[Event::FileOpened("/project/spec/nested/openapi.json".into())],&h.invocation());
+        assert!(plugin.project_files.iter().any(|p|p=="/project/spec/nested/common.json"));
+        assert!(!plugin.project_files.iter().any(|p|p=="/project/spec/parent.json"));
+    }
+    #[test]
+    fn incomplete_json_completion_remains_available_but_amplified_sibling_metadata_is_unknown() {
+        let h=MockHost::install().with_capabilities(&["project.read"]);
+        h.add_file("spec/common.yaml","Pet: {}\n");
+        let text=r##"{"openapi":"3.1.1","x":{"$ref":"common.yaml#/Pe""##;
+        let doc=Document {path:"/project/spec/openapi.json".into(),language:"json".into(),text:text.into(),version:1};
+        let items=OpenApi::default().completion(&doc,position(text,text.rfind("Pe").unwrap()+2),None);
+        assert!(items.iter().any(|item|item.label=="common.yaml#/Pet"));
+        let mut amplified=String::from("Pet: {}\n");
+        for depth in 0..30 {amplified.push_str(&format!("{}{}:\n"," ".repeat(depth*2),"x".repeat(512)));}
+        for n in 0..800 {amplified.push_str(&format!("{}n{n}: value\n"," ".repeat(60)));}
+        h.add_file("spec/common.yaml",&amplified);
+        assert!(read_sibling(&doc,"common.yaml").is_none());
+        assert!(OpenApi::default().completion(&doc,position(text,text.rfind("Pe").unwrap()+2),None).is_empty());
+        assert!(h.requests().is_empty());assert!(h.process_runs().is_empty());
+    }
 }
 
 impl Providers for OpenApi {
@@ -604,9 +873,16 @@ impl Providers for OpenApi {
             return Vec::new();
         }
 
+        if bounded_reference_keys(&doc.text).is_none() {return Vec::new();}
         let Some(typed) = ref_at(&doc.text, at) else {
             return keyword_items(doc, at);
         };
+        let source_proof=pointer_status::Proof::parse(&doc.text);
+        // An empty YAML scalar, including an unquoted # prefix interpreted as
+        // a comment by the semantic parser, is an intentional typing context.
+        let partial_yaml_value=!spec::is_json(&doc.text) && (typed.at==typed.end ||
+            (typed.target.starts_with('#') && typed.at.checked_sub(1).and_then(|index|doc.text.as_bytes().get(index)).is_some_and(|byte|!matches!(byte,b'\''|b'"'))));
+        if !partial_yaml_value && source_proof.as_ref().is_some_and(|proof| offset(&doc.text,at).and_then(|caret|proof.navigation_ref_at(caret)).is_none()) {return Vec::new();}
         let Some((file, _)) = spec::split_ref(&typed.target) else {
             return Vec::new();
         };
@@ -615,11 +891,16 @@ impl Providers for OpenApi {
         };
 
         let mut labels: Vec<String> = if file.is_empty() {
-            spec::ref_targets(&doc.text, &spec.keys)
+            spec::ref_targets(&doc.text, &spec.keys).into_iter()
+                .filter(|target| source_proof.as_ref().is_none_or(|proof| target.strip_prefix('#').and_then(|pointer|proof.pointer_location(pointer)).is_some()))
+                .collect()
         } else {
             read_sibling(doc, file)
                 .map(|content| {
-                    spec::ref_targets(&content, &spec::scan(&content)).into_iter().map(|t| format!("{file}{t}")).collect()
+                    let Some(proof)=pointer_status::Proof::parse(&content) else {return Vec::new();};
+                    spec::ref_targets(&content, &spec::scan(&content)).into_iter()
+                        .filter(|target| target.strip_prefix('#').and_then(|pointer|proof.pointer_location(pointer)).is_some())
+                        .map(|target| format!("{file}{target}")).collect()
                 })
                 .unwrap_or_default()
         };
@@ -648,50 +929,50 @@ impl Providers for OpenApi {
             return Vec::new();
         }
 
-        let Some(typed) = ref_at(&doc.text, at) else {
+        if spec::is_json(&doc.text) && (doc.text.len()>512<<10 || json::bounded_keys(&doc.text,8192,4<<20).is_none()) {return Vec::new();}
+        if !spec::is_json(&doc.text) && bounded_reference_keys(&doc.text).is_none() {return Vec::new();}
+        let Some(typed) = pointer_status::Proof::parse(&doc.text).and_then(|proof| proof.navigation_ref_at(offset(&doc.text,at)?)) else {
             return Vec::new();
         };
         let Some((file, fragment)) = spec::split_ref(&typed.target) else {
             return Vec::new();
         };
-        let Some(spec) = parse_or_fragment(doc) else {
+        let Some(_) = parse_or_fragment(doc) else {
             return Vec::new();
         };
 
-        let (path, content, keys) = if file.is_empty() {
-            (doc.path.clone(), doc.text.clone(), spec.keys)
+        let (path, content) = if file.is_empty() {
+            (doc.path.clone(), doc.text.clone())
         } else {
             let Some(content) = read_sibling(doc, file) else {
                 return Vec::new();
             };
-            let keys = spec::scan(&content);
-            (resolve_path(&doc.path, file), content, keys)
+            (resolve_path(&doc.path, file), content)
         };
 
         if fragment.is_empty() {
             return vec![Location { path, range: Range::default() }];
         }
 
-        spec::target(&keys, fragment)
-            .map(|key| Location { path, range: spring_text::range(&content, key.at, key.end) })
+        let range=if spec::is_json(&content) { hover::pointer_definition(&content,fragment) }
+            else { yaml_pointer::definition(&content,fragment) };
+        range.map(|range| Location { path, range })
             .into_iter()
             .collect()
     }
 
     fn line_markers(&mut self, doc: &Document) -> Vec<LineMarker> {
-        let Some(spec) = spec::parse(&doc.text) else {
-            return Vec::new();
-        };
-
-        spec::operation_schema_refs(&doc.text, &spec.keys)
-            .into_iter()
-            .map(|(operation, schema, target)| LineMarker {
-                line: position(&doc.text, operation.at).line,
-                icon: Some("navigate".into()),
-                tooltip: format!("{} {}: {schema}", operation.method, operation.path),
-                target: Some(Location { path: doc.path.clone(), range: spring_text::range(&doc.text, target.at, target.end) }),
+        let Some(model)=pointer_status::Proof::parse(&doc.text) else {return Vec::new();};
+        let Some(spec) = spec::parse(&doc.text) else {return Vec::new();};
+        spec::operations(&doc.text,&spec.keys).into_iter().filter_map(|operation| {
+            let (reference,range)=model.operation_reference(&operation)?;
+            Some(LineMarker {
+                line:position(&doc.text,operation.at).line,
+                icon:Some("navigate".into()),
+                tooltip:format!("{} {}: {reference}",operation.method,operation.path),
+                target:Some(Location {path:doc.path.clone(),range}),
             })
-            .collect()
+        }).take(256).collect()
     }
 
     fn code_actions(&mut self, doc: &Document, selection: Range) -> Vec<CodeAction> {
@@ -726,6 +1007,218 @@ impl Providers for OpenApi {
     }
 }
 
+#[cfg(test)]
+mod json_definition_integrity_tests {
+    use super::*;
+    use openidea_plugin::mock::MockHost;
+    fn go(text: &str) -> Vec<Location> {
+        let doc=Document {path:"/project/openapi.json".into(),language:"json".into(),text:text.into(),version:5};
+        OpenApi::default().definition(&doc,position(text,text.rfind("#/").unwrap()))
+    }
+    #[test]
+    fn duplicate_json_ancestors_and_dotted_impostors_do_not_establish_definition_owners() {
+        let _h=MockHost::install().with_capabilities(&[]);
+        for text in [
+            r##"{"openapi":"3.1.1","components":{},"components":{"schemas":{"Pet":{}}},"x":{"$ref":"#/components/schemas/Pet"}}"##,
+            r##"{"openapi":"3.1.1","components.schemas.Pet":{},"x":{"$ref":"#/components/schemas/Pet"}}"##,
+            r##"{"openapi":"3.1.1","components":{"schemas":{"Pet":{},"Pet":{}}},"x":{"$ref":"#/components/schemas/Pet"}}"##,
+        ] { assert!(go(text).is_empty(),"{text}"); }
+    }
+    #[test]
+    fn source_backed_json_pointer_definition_preserves_escaped_names_and_utf16_ranges() {
+        let _h=MockHost::install().with_capabilities(&[]);
+        let text=r##"{"openapi":"3.1.1","info":{"title":"😀"},"components":{"schemas":{"A/B":{"properties":{"~id":{"type":"integer"}}}}},"x":{"$ref":"#/components/schemas/A~1B/properties/~0id"}}"##;
+        let found=go(text);assert_eq!(found.len(),1);
+        let r=found[0].range;
+        assert_eq!(offset(text,r.start).map(|a|&text[a..offset(text,r.end).unwrap()]),Some("~id"));
+        assert_eq!(r.start.character as usize,text[..text.find("~id").unwrap()].encode_utf16().count());
+    }
+    #[test]
+    fn sibling_json_targets_need_unique_valid_object_key_source_chains() {
+        let h=MockHost::install().with_capabilities(&["project.read","editor.read"]);
+        let text=r##"{"openapi":"3.1.1","x":{"$ref":"common.json#/Pet"}}"##;
+        h.add_file("common.json",r#"{"Pet":{"description":"old"}}"#);
+        let doc=Document {path:"/project/openapi.json".into(),language:"json".into(),text:text.into(),version:1};
+        let caret=position(text,text.find("common.json").unwrap());
+        assert_eq!(OpenApi::default().definition(&doc,caret).len(),1);
+        for target in [r#"{"Pet":{},"Pet":{}}"#,r#"{"Pet":{"type":"string"}"#,r#"{"Pet.type":"string"}"#] {
+            h.open_editor("/project/common.json","json",target,&[]);
+            assert!(OpenApi::default().definition(&doc,caret).is_empty(),"{target}");
+        }
+        assert!(h.requests().is_empty());assert!(h.process_runs().is_empty());
+    }
+    #[test]
+    fn unsupported_json_encoded_array_and_malformed_pointer_owners_are_withheld() {
+        let _h=MockHost::install().with_capabilities(&[]);
+        for text in [
+            r##"{"openapi":"3.1.1","components":{"schemas":{"Pet":{}}},"x":{"$ref":"#/components/schemas/P%65t"}}"##,
+            r##"{"openapi":"3.1.1","components":{"schemas":{"P~2t":{}}},"x":{"$ref":"#/components/schemas/P~2t"}}"##,
+            r##"{"openapi":"3.1.1","components":{"schemas":{"Pet":{"allOf":[{"type":"string"}]}}},"x":{"$ref":"#/components/schemas/Pet/allOf/0/type"}}"##,
+            r##"{"openapi":"3.1.1","$id":"other.json","Pet":{},"x":{"$ref":"#/Pet"}}"##,
+        ] { assert!(go(text).is_empty(),"{text}"); }
+        let oversized=format!(r##"{{"openapi":"3.1.1","Pet":{{}},"description":"{}","x":{{"$ref":"#/Pet"}}}}"##,"a".repeat(512<<10));
+        assert!(go(&oversized).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod yaml_definition_integrity_tests {
+    use super::*;
+    use openidea_plugin::mock::MockHost;
+    fn go(text: &str) -> Vec<Location> {
+        let doc=Document {path:"/project/openapi.yaml".into(),language:"yaml".into(),text:text.into(),version:5};
+        OpenApi::default().definition(&doc,position(text,text.rfind("#/").unwrap()))
+    }
+    #[test]
+    fn duplicate_yaml_owners_and_flattened_impostors_do_not_establish_definition_locations() {
+        let _h=MockHost::install().with_capabilities(&[]);
+        for text in [
+            "openapi: 3.1.1\ncomponents: {}\ncomponents:\n  schemas:\n    Pet: {}\nx:\n  $ref: '#/components/schemas/Pet'\n",
+            "openapi: 3.1.1\ncomponents.schemas.Pet: {}\nx:\n  $ref: '#/components/schemas/Pet'\n",
+            "openapi: 3.1.1\ncomponents:\n  schemas:\n    Pet: {}\n    Pet: {}\nx:\n  $ref: '#/components/schemas/Pet'\n",
+        ] { assert!(go(text).is_empty(),"{text}"); }
+    }
+    #[test]
+    fn literal_yaml_key_chain_has_exact_utf16_location_and_canonical_pointer_escaping() {
+        let _h=MockHost::install().with_capabilities(&[]);
+        let text="openapi: 3.1.1\ninfo:\n  title: 😀\ncomponents:\n  schemas:\n    'A/B':\n      properties:\n        '~id':\n          type: integer\nx:\n  $ref: '#/components/schemas/A~1B/properties/~0id'\n";
+        let found=go(text);assert_eq!(found.len(),1);
+        let range=found[0].range;
+        assert_eq!(offset(text,range.start).map(|a|&text[a..offset(text,range.end).unwrap()]),Some("~id"));
+    }
+    #[test]
+    fn json_and_yaml_sources_use_current_same_owner_yaml_fragment_locations() {
+        let h=MockHost::install().with_capabilities(&["project.read","editor.read"]);
+        h.add_file("common.yaml","Pet: {}\n");
+        for (extension,text) in [
+            ("yaml","openapi: 3.1.1\nx:\n  $ref: 'common.yaml#/Pet'\n"),
+            ("json",r##"{"openapi":"3.1.1","x":{"$ref":"common.yaml#/Pet"}}"##),
+        ] {
+            h.open_editor("/project/common.yaml","yaml","Pet:\n  description: Current unsaved\n",&[]);
+            let doc=Document {path:format!("/project/openapi.{extension}"),language:extension.into(),text:text.into(),version:2};
+            let caret=position(text,text.find("common.yaml").unwrap());
+            let found=OpenApi::default().definition(&doc,caret);assert_eq!(found.len(),1);
+            assert_eq!(found[0].path,"/project/common.yaml");assert_eq!(found[0].range,Range::new(Position::new(0,0),Position::new(0,3)));
+            h.open_editor("/project/common.yaml","yaml","Pet: {}\nPet: {}\n",&[]);
+            assert!(OpenApi::default().definition(&doc,caret).is_empty());
+        }
+        assert!(h.requests().is_empty());assert!(h.process_runs().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod marker_integrity_tests {
+    use super::*;
+    use openidea_plugin::mock::MockHost;
+    #[test]
+    fn duplicate_or_dotted_target_owners_do_not_create_operation_navigation_markers() {
+        let _host=MockHost::install().with_capabilities(&[]);
+        for text in [
+            r##"{"openapi":"3.1.1","paths":{"/p":{"get":{"responses":{"200":{"$ref":"#/components/schemas/Pet"}}}}},"components":{"schemas":{"Pet":{}}},"components":{"schemas":{"Other":{}}}}"##,
+            r##"{"openapi":"3.1.1","paths":{"/p":{"get":{"responses":{"200":{"$ref":"#/components/schemas/Pet"}}}}},"components.schemas.Pet":{}}"##,
+        ] {
+            let doc=Document {path:"/project/openapi.json".into(),language:"json".into(),text:text.into(),version:1};
+            assert!(OpenApi::default().line_markers(&doc).is_empty(),"{text}");
+        }
+    }
+    #[test]
+    fn markers_keep_actual_source_order_current_text_and_exact_utf16_target_ranges_without_io() {
+        let host=MockHost::install().with_capabilities(&[]);
+        let text=r##"{"openapi":"3.1.1","paths":{"/😀pets":{"get":{"z":{"$ref":"#/components/schemas/😀A~1B"},"a":{"$ref":"#/components/schemas/Later"}}}},"components":{"schemas":{"😀A/B":{"type":"object"},"Later":{}}}}"##;
+        let doc=Document {path:"/project/openapi.json".into(),language:"json".into(),text:text.into(),version:1};
+        let mut plugin=OpenApi::default();let markers=plugin.line_markers(&doc);assert_eq!(markers.len(),1);
+        assert!(markers[0].tooltip.contains("😀A~1B"));
+        let range=markers[0].target.as_ref().unwrap().range;
+        assert_eq!(&text[offset(text,range.start).unwrap()..offset(text,range.end).unwrap()],"😀A/B");
+        assert_eq!(range.end.character-range.start.character,5);
+        let changed=Document {text:text.replace("#/components/schemas/😀A~1B","#/Missing"),version:2,..doc};
+        assert!(plugin.line_markers(&changed)[0].tooltip.contains("Later"));
+        assert!(host.requests().is_empty());assert!(host.process_runs().is_empty());assert!(host.opened_locations().is_empty());
+    }
+    #[test]
+    fn singleton_yaml_flow_refs_keep_owned_markers_but_unproved_flow_children_do_not() {
+        let _host=MockHost::install().with_capabilities(&[]);
+        let text="openapi: 3.1.1\npaths:\n  /p:\n    get:\n      responses:\n        '200':\n          schema: { $ref: '#/components/schemas/Pet' }\ncomponents:\n  schemas:\n    Pet: {}\n";
+        let doc=Document {path:"/project/openapi.yaml".into(),language:"yaml".into(),text:text.into(),version:1};
+        assert_eq!(OpenApi::default().line_markers(&doc).len(),1);
+        let complex=Document {text:text.replace("schemas/Pet' }","schemas/Pet', title: extra }"),..doc};
+        assert!(OpenApi::default().line_markers(&complex).is_empty());
+    }
+    #[test]
+    fn unknown_marker_contexts_and_marker_result_budget_stay_quiet_and_bounded() {
+        let _host=MockHost::install().with_capabilities(&[]);
+        for text in [
+            "openapi: 3.1.1\npaths:\n  /p:\n    get:\n      description: |\n        $ref: '#/components/schemas/Pet'\ncomponents:\n  schemas:\n    Pet: {}\n",
+            "openapi: 3.1.1\npaths:\n  /p:\n    $ref: 'other.yaml#/Path'\n    get:\n      x:\n        $ref: '#/components/schemas/Pet'\ncomponents:\n  schemas:\n    Pet: {}\n",
+            "openapi: 3.1.1\npaths:\n  /p:\n    get:\n      x:\n        $ref: 'common.yaml#/Pet'\ncomponents:\n  schemas:\n    Pet: {}\n",
+            "openapi: 3.1.1\npaths:\n  /p:\n    get:\n      x:\n        $ref: '#/components/schemas/P%65t'\ncomponents:\n  schemas:\n    Pet: {}\n",
+        ] {
+            let doc=Document {path:"/project/openapi.yaml".into(),language:"yaml".into(),text:text.into(),version:1};
+            assert!(OpenApi::default().line_markers(&doc).is_empty(),"{text}");
+        }
+        let paths=(0..300).map(|n|(format!("/p{n}"),serde_json::json!({"get":{"x":{"$ref":"#/components/schemas/Pet"}}}))).collect::<serde_json::Map<_,_>>();
+        let text=serde_json::json!({"openapi":"3.1.1","paths":paths,"components":{"schemas":{"Pet":{}}}}).to_string();
+        let doc=Document {path:"/project/openapi.json".into(),language:"json".into(),text,version:1};
+        assert_eq!(OpenApi::default().line_markers(&doc).len(),256);
+    }
+}
+
+#[cfg(test)]
+mod reference_provenance_tests {
+    use super::*;
+    use openidea_plugin::mock::MockHost;
+    #[test]
+    fn descriptions_and_dotted_source_keys_are_not_definition_reference_fields() {
+        let _host=MockHost::install().with_capabilities(&[]);
+        for (language,text) in [
+            ("yaml","openapi: 3.1.1\ndescription: |\n  $ref: '#/components/schemas/Pet'\ncomponents:\n  schemas:\n    Pet: {}\n"),
+            ("yaml","openapi: 3.1.1\nx.$ref: '#/components/schemas/Pet'\ncomponents:\n  schemas:\n    Pet: {}\n"),
+            ("json",r##"{"openapi":"3.1.1","description":"$ref: '#/components/schemas/Pet'","components":{"schemas":{"Pet":{}}}}"##),
+        ] {
+            let doc=Document {path:format!("/project/openapi.{language}"),language:language.into(),text:text.into(),version:1};
+            assert!(OpenApi::default().definition(&doc,position(text,text.find("#/components").unwrap())).is_empty(),"{text}");
+        }
+    }
+    #[test]
+    fn complete_source_completion_requires_reference_and_target_owners() {
+        let _host=MockHost::install().with_capabilities(&[]);
+        for text in [
+            "openapi: 3.1.1\ndescription: |\n  $ref: '#/components/schemas/Pe'\ncomponents:\n  schemas:\n    Pet: {}\n",
+            "openapi: 3.1.1\nx.$ref: '#/components/schemas/Pe'\ncomponents:\n  schemas:\n    Pet: {}\n",
+            "openapi: 3.1.1\nx:\n  $ref: '#/components/schemas/Pe'\ncomponents.schemas:\n  Pet: {}\n",
+        ] {
+            let doc=Document {path:"/project/openapi.yaml".into(),language:"yaml".into(),text:text.into(),version:1};
+            assert!(OpenApi::default().completion(&doc,position(text,text.find("#/components").unwrap()),None).is_empty(),"{text}");
+        }
+    }
+    #[test]
+    fn actual_array_flow_and_escaped_reference_fields_keep_definition_navigation() {
+        let _host=MockHost::install().with_capabilities(&[]);
+        for (language,text) in [
+            ("json",r##"{"openapi":"3.1.1","x":[{"\u0024ref":"#/components/schemas/Pet"}],"components":{"schemas":{"Pet":{}}}}"##),
+            ("yaml","openapi: 3.1.1\nx:\n  - $ref: '#/components/schemas/Pet'\ncomponents:\n  schemas:\n    Pet: {}\n"),
+            ("yaml","openapi: 3.1.1\nx: {$ref: '#/components/schemas/Pet'}\ncomponents:\n  schemas:\n    Pet: {}\n"),
+        ] {
+            let doc=Document {path:format!("/project/openapi.{language}"),language:language.into(),text:text.into(),version:1};
+            let locations=OpenApi::default().definition(&doc,position(text,text.find("#/components").unwrap()));
+            assert_eq!(locations.len(),1,"{text}");
+            let range=locations[0].range;
+            assert_eq!(&text[offset(text,range.start).unwrap()..offset(text,range.end).unwrap()],"Pet");
+        }
+    }
+    #[test]
+    fn complete_external_target_completion_does_not_invent_a_dotted_namespace_owner() {
+        let h=MockHost::install().with_capabilities(&["project.read"]);
+        h.add_file("common.yaml","components.schemas:\n  Pet: {}\n");
+        let text=r##"{"openapi":"3.1.1","x":{"$ref":"common.yaml#/comp""##;
+        let doc=Document {path:"/project/openapi.json".into(),language:"json".into(),text:text.into(),version:1};
+        assert!(OpenApi::default().completion(&doc,position(text,text.rfind("comp").unwrap()+4),None).is_empty());
+        h.add_file("common.yaml","components:\n  schemas:\n    Pet: {}\n");
+        let items=OpenApi::default().completion(&doc,position(text,text.rfind("comp").unwrap()+4),None);
+        assert!(items.iter().any(|item|item.label=="common.yaml#/components/schemas/Pet"));
+    }
+}
+
 const MAX_SCANNED_FILE_BYTES: usize = 1 << 20;
 
 pub const ENDPOINTS: &str = "endpoints";
@@ -739,14 +1232,11 @@ fn routes(path: &str, text: &str, spec: &spec::Spec) -> Vec<Route> {
     spec::operations(text, &spec.keys)
         .into_iter()
         .map(|operation| {
-            let tag = by_key
-                .get(format!("{}.tags[0]", operation.key).as_str())
-                .map(|k| k.value.clone())
-                .or_else(|| {
-                    let flow = &by_key.get(format!("{}.tags", operation.key).as_str())?.value;
-                    let first = flow.trim().strip_prefix('[')?.split([',', ']']).next()?;
-                    Some(first.trim().trim_matches(['"', '\'']).to_owned())
-                });
+            let tag = by_key.get(format!("{}.tags[0]", operation.key).as_str()).map(|k| k.value.clone()).or_else(|| {
+                let flow = &by_key.get(format!("{}.tags", operation.key).as_str())?.value;
+                let first = flow.trim().strip_prefix('[')?.split([',', ']']).next()?;
+                Some(first.trim().trim_matches(['"', '\'']).to_owned())
+            });
             let at = position(text, operation.at);
             Route {
                 method: operation.method,
@@ -795,11 +1285,15 @@ impl OpenApi {
 
 impl Views for OpenApi {
     fn render(&mut self, view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
+        if view == "try-response" {
+            return Ok(self.try_http.view(ctx));
+        }
         if view == COMPARE {
             return Ok(match &self.comparison {
                 None => View::message("Run OpenAPI: Compare With Another Spec…"),
-                Some((status, items)) if items.is_empty() => View::message("No differences.").status(status),
-                Some((status, items)) => View::new(Body::List(items.clone())).status(status),
+                Some(comparison) if !comparison.current(ctx) => View::message("Comparison owner or source is no longer current. Focus its original document and compare again; cached rows withheld."),
+                Some(comparison) if comparison.items.is_empty() => View::message("No differences.").status(&comparison.status),
+                Some(comparison) => View::new(Body::List(comparison.items.clone())).status(&comparison.status),
             });
         }
         let Some(project) = ctx.project() else {
@@ -813,6 +1307,17 @@ impl Views for OpenApi {
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {
+        if view == "try-response" {
+            return match event {
+                ViewEvent::Button(key) => self.send_prepared(ctx, &key),
+                _ => Err(Error::Invalid("Response/request fields are read-only.".into())),
+            };
+        }
+
+        if ui_kit::web::handle(self, view, &event, ctx, include_str!("ui_config.json"))? {
+            return Ok(());
+        }
+
         if PREVIEWS.contains(&view) {
             let ViewEvent::Message(request) = event else {
                 return Ok(());
@@ -832,6 +1337,8 @@ impl Views for OpenApi {
 
         match event {
             ViewEvent::Activate(key) if view == COMPARE => {
+                let comparison = self.comparison.as_ref().ok_or(Error::Stale)?;
+                if !comparison.current(ctx) || !comparison.items.iter().any(|item| item.key == key) {refresh_comparison();return Err(Error::Stale);}
                 let mut parts = key.splitn(3, ':');
                 let (Some(line), Some(column), Some(path)) = (parts.next(), parts.next(), parts.next()) else {
                     return Ok(());
@@ -839,6 +1346,10 @@ impl Views for OpenApi {
                 let (Ok(line), Ok(column)) = (line.parse(), column.parse()) else {
                     return Ok(());
                 };
+                comparison_owner(ctx, path)?;
+                if path != comparison.path && (path != comparison.base_path || ctx.project().ok_or(Error::Stale)?.read_file(path)? != comparison.base) {
+                    refresh_comparison();return Err(Error::Stale);
+                }
                 host::open_location(path, line, column)
             }
             ViewEvent::Button(button) if button == "refresh" => {
@@ -863,7 +1374,20 @@ impl Views for OpenApi {
     }
 }
 
-register_plugin!(OpenApi, providers, views);
+impl openidea_plugin::diagnostics::DiagnosticsProvider for OpenApi {
+    fn diagnostics(&mut self, doc: &Document) -> Vec<Diagnostic> {
+        if doc.language != "json" { return Vec::new(); }
+        structure::diagnostics(&doc.text)
+    }
+}
+
+impl openidea_plugin::hover::HoverProvider for OpenApi {
+    fn hover(&mut self, doc: &Document, at: Position) -> Option<openidea_plugin::hover::Hover> {
+        hover::hover(doc, at)
+    }
+}
+
+register_plugin!(OpenApi, providers, views, endpoints, diagnostics, hover);
 
 #[cfg(test)]
 mod tests {
@@ -882,50 +1406,39 @@ mod tests {
         position(text, text.find(needle).unwrap() + plus)
     }
 
-    fn tee_host() -> MockHost {
-        MockHost::install().with_capabilities(&["editor.read", "project.read", "clipboard", "process:tee"])
+    fn writing_host() -> MockHost {
+        MockHost::install().with_capabilities(&["editor.read", "project.read", "project.write", "clipboard"])
     }
 
-    fn recording_tee(host: &MockHost) -> std::rc::Rc<std::cell::RefCell<Vec<(String, String)>>> {
-        let written = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
-        let sink = written.clone();
-        host.on_process("tee", move |args, stdin| {
-            sink.borrow_mut().push((args[0].clone(), stdin.unwrap_or_default().to_owned()));
-            Ok(ProcessOutput { status: Some(0), stdout: String::new(), stderr: String::new() })
-        });
-
-        written
-    }
+    fn generated(path: &str) -> String { project_for(path).unwrap().read_file(path).unwrap() }
 
     #[test]
     fn writes_the_requests_beside_the_spec_and_opens_them() {
-        let host = tee_host();
-        let written = recording_tee(&host);
+        let host = writing_host();
         host.open_editor("/project/api.yaml", "yaml", PETSTORE, &[(0, 0, 0, 0)]);
         OpenApi::default().run_command("copy-http-requests", &host.invocation(), None).unwrap();
 
-        assert_eq!(written.borrow()[0].0, "/project/api.http");
-        assert!(written.borrow()[0].1.starts_with("### listPets\n"));
+        assert!(generated("/project/api.http").starts_with("### listPets\n"));
+        assert!(host.process_runs().is_empty());
         assert_eq!(host.opened_locations()[0].0, "/project/api.http");
         assert!(host.clipboard().is_none());
     }
 
     #[test]
     fn an_existing_http_file_is_replaced_only_after_confirming() {
-        let host = tee_host();
-        let written = recording_tee(&host);
+        let host = writing_host();
         host.add_file("/project/api.http", "old");
         host.open_editor("/project/api.yaml", "yaml", PETSTORE, &[(0, 0, 0, 0)]);
         OpenApi::default().run_command("copy-http-requests", &host.invocation(), None).unwrap();
-        assert!(written.borrow().is_empty());
+        assert_eq!(generated("/project/api.http"), "old");
 
         host.answer_next_prompt(Some(&[]));
         OpenApi::default().run_command("copy-http-requests", &host.invocation(), None).unwrap();
-        assert_eq!(written.borrow().len(), 1);
+        assert!(generated("/project/api.http").starts_with("### listPets\n"));
     }
 
     #[test]
-    fn copies_the_requests_when_tee_is_denied_and_explains_without_clipboard() {
+    fn copies_the_requests_when_project_write_is_denied_and_explains_without_clipboard() {
         let host = MockHost::install().with_capabilities(&["editor.read", "project.read", "clipboard"]);
         host.open_editor("/project/api.yaml", "yaml", PETSTORE, &[(0, 0, 0, 0)]);
         OpenApi::default().run_command("copy-http-requests", &host.invocation(), None).unwrap();
@@ -938,6 +1451,18 @@ mod tests {
 
         host.open_editor("/project/k8s.yaml", "yaml", "kind: Pod\n", &[(0, 0, 0, 0)]);
         assert!(OpenApi::default().run_command("copy-http-requests", &host.invocation(), None).is_err());
+    }
+
+    #[test]
+    fn native_export_refuses_dirty_or_noncanonical_targets_without_fallback() {
+        let host = writing_host();
+        host.add_file("/project/api.http", "saved");
+        host.open_editor("/project/api.http", "http", "unsaved", &[(0, 0, 0, 0)]);
+        host.answer_next_prompt(Some(&[]));
+        assert!(matches!(save_or_copy("/project/api.http", "replacement", "Requests"), Err(Error::Invalid(_))));
+        assert!(host.clipboard().is_none());
+        assert!(host.process_runs().is_empty());
+        assert!(matches!(save_or_copy("/project/../outside.http", "replacement", "Requests"), Err(Error::Invalid(_))));
     }
 
     #[test]
@@ -1020,10 +1545,7 @@ mod tests {
     fn offers_the_schema_modeline_once() {
         let _host = MockHost::install();
         let actions = OpenApi::default().code_actions(&doc(PETSTORE), Range::default());
-        assert_eq!(
-            actions[0].edits[0].1[0].text,
-            "# yaml-language-server: $schema=https://spec.openapis.org/oas/3.0/schema/2024-10-18\n"
-        );
+        assert_eq!(actions[0].edits[0].1[0].text, "# yaml-language-server: $schema=https://spec.openapis.org/oas/3.0/schema/2024-10-18\n");
         let with = format!("{}{PETSTORE}", actions[0].edits[0].1[0].text);
         assert!(OpenApi::default().code_actions(&doc(&with), Range::default()).is_empty());
         assert_eq!(spec::schema_url("2.0"), Some("https://spec.openapis.org/oas/2.0/schema/2017-08-27"));
@@ -1040,10 +1562,7 @@ mod tests {
         host.add_file("/project/k8s.yml", "kind: Pod\n");
         let view = OpenApi::default().render(ENDPOINTS, None, &host.invocation()).unwrap();
         let Body::List(items) = view.body else { panic!("expected a list") };
-        assert_eq!(
-            items.iter().map(|i| i.label.as_str()).collect::<Vec<_>>(),
-            ["/pets", "/pets/{petId}", "/pets/{petId}"]
-        );
+        assert_eq!(items.iter().map(|i| i.label.as_str()).collect::<Vec<_>>(), ["/pets", "/pets/{petId}", "/pets/{petId}"]);
         assert_eq!(items[0].detail.as_deref(), Some("[GET] Pets"));
         assert_eq!(items[0].icon.as_deref(), Some("ext:fileIcon/aritti.openapi/route-get"));
         assert_eq!(items[2].icon.as_deref(), Some("ext:fileIcon/aritti.openapi/route-delete"));
@@ -1051,16 +1570,15 @@ mod tests {
 
     #[test]
     fn create_route_http_writes_beside_the_spec() {
-        let host = MockHost::install().with_capabilities(&["project.read", "process:tee", "clipboard"]);
-        host.on_process("tee", |_, _| Ok(openidea_plugin::ProcessOutput { status: Some(0), stdout: String::new(), stderr: String::new() }));
+        let host = MockHost::install().with_capabilities(&["project.read", "project.write", "clipboard"]);
         host.add_file("/project/api/openapi.yaml", PETSTORE);
         let mut openapi = OpenApi::default();
         let view = openapi.render(ENDPOINTS, None, &host.invocation()).unwrap();
         let Body::List(items) = view.body else { panic!("expected a list") };
         host.answer_next_prompt(Some(&["http://localhost:8080"]));
         openapi.run_command("create-route-http", &host.invocation(), Some(&items[0].key)).unwrap();
-        let run = host.process_runs().into_iter().find(|r| r.program == "tee").unwrap();
-        assert_eq!(run.args, ["/project/api/get-pets.http"]);
+        assert_eq!(host::projects().unwrap()[0].read_file("api/get-pets.http").unwrap(), "### GET /pets\nGET http://localhost:8080/pets\n");
+        assert!(host.process_runs().is_empty());
     }
 
     #[test]
@@ -1117,6 +1635,127 @@ mod tests {
         assert_eq!(host.refreshed_views(), [ENDPOINTS]);
     }
 
+    fn prepared_comparison() -> (MockHost, OpenApi) {
+        let host=MockHost::install();
+        let revision=PETSTORE.replace("listPets","changedPets");
+        host.add_file("/project/spec/base.yaml",PETSTORE);
+        host.add_file("/project/spec/api.yaml",&revision);
+        host.open_editor("/project/spec/api.yaml","yaml",&revision,&[(0,0,0,0)]);
+        host.answer_next_prompt(Some(&["/project/spec/base.yaml"]));
+        let mut plugin=OpenApi::default();plugin.run_command("compare-specs",&host.invocation(),None).unwrap();
+        (host,plugin)
+    }
+    fn comparison_messages(host: &MockHost) -> usize {
+        host.view_messages().iter().filter(|(view,raw)| view==COMPARE && raw==r#"{"channel":"ui-kit-refresh"}"#).count()
+    }
+    #[test]
+    fn external_comparison_replacement_notifies_page_and_render_never_notifies_or_fetches() {
+        let (host,mut plugin)=prepared_comparison();
+        assert_eq!(comparison_messages(&host),1);
+        host.on_fetch(|_|panic!("comparison render cannot fetch"));
+        for _ in 0..3 {assert!(matches!(plugin.render(COMPARE,None,&host.invocation()).unwrap().body,Body::List(_)));}
+        assert_eq!(comparison_messages(&host),1);
+        host.answer_next_prompt(Some(&["/project/spec/base.yaml"]));
+        plugin.run_command("compare-specs",&host.invocation(),None).unwrap();
+        assert_eq!(comparison_messages(&host),2);
+        assert!(host.requests().is_empty());
+    }
+    #[test]
+    fn foreign_missing_denied_nested_owner_and_unsaved_revision_replace_rows_with_quiet_model() {
+        for case in 0..5 {
+            let (host,mut plugin)=prepared_comparison();
+            let host=match case {
+                0=>{host.add_project("/project");host.set_project_root(Some("/foreign"));host},
+                1=>{host.set_project_root(None);host},
+                2=>host.with_capabilities(&["editor.read"]),
+                3=>{host.add_project("/project/spec");host},
+                _=>{host.open_editor("/project/spec/api.yaml","yaml","openapi: 3.0.0\n#unsaved",&[(0,0,0,0)]);host},
+            };
+            assert!(matches!(plugin.render(COMPARE,None,&host.invocation()).unwrap().body,Body::Message(_)),"case{case}");
+            assert!(host.opened_locations().is_empty());
+            assert_eq!(comparison_messages(&host),1,"render must not invalidate itself");
+        }
+    }
+    #[test]
+    fn source_save_clears_comparison_and_invalidates_but_unrelated_save_does_not() {
+        let (host,mut plugin)=prepared_comparison();
+        plugin.handle_events(&[Event::FileSaved("/project/unrelated.yaml".into())],&host.invocation());
+        assert!(plugin.comparison.is_some());assert_eq!(comparison_messages(&host),1);
+        plugin.handle_events(&[Event::FileSaved("/project/spec/base.yaml".into())],&host.invocation());
+        assert!(plugin.comparison.is_none());assert_eq!(comparison_messages(&host),2);
+        assert!(matches!(plugin.render(COMPARE,None,&host.invocation()).unwrap().body,Body::Message(_)));
+        assert!(host.requests().is_empty());
+    }
+    #[test]
+    fn comparison_actions_require_owned_current_member_and_reject_forged_location() {
+        let (host,mut plugin)=prepared_comparison();
+        for key in ["0:0:/project/other.yaml","0:0:/foreign/secret.yaml"] {
+            assert!(plugin.handle(COMPARE,ViewEvent::Activate(key.into()),&host.invocation()).is_err());
+        }
+        assert!(host.opened_locations().is_empty());
+        let key=plugin.comparison.as_ref().unwrap().items[0].key.clone();
+        host.open_editor("/project/spec/api.yaml","yaml","openapi: 3.0.0\n#changed",&[(0,0,0,0)]);
+        assert!(plugin.handle(COMPARE,ViewEvent::Activate(key),&host.invocation()).is_err());
+        assert!(host.opened_locations().is_empty());
+    }
+    #[test]
+    fn comparison_focus_event_refreshes_current_frame_and_version_only_change_withholds_rows() {
+        let (host,mut plugin)=prepared_comparison();
+        host.type_in_editor(""); // Same bytes, new version still invalidates the captured source.
+        plugin.handle_events(&[Event::EditorFocused(Some("/project/spec/api.yaml".into()))],&host.invocation());
+        assert_eq!(comparison_messages(&host),2);
+        assert!(matches!(plugin.render(COMPARE,None,&host.invocation()).unwrap().body,Body::Message(_)));
+        assert!(plugin.comparison.is_some(),"focus in one window must not delete another window's owned snapshot");
+    }
+    #[test]
+    fn removed_source_event_retires_comparison_and_unrelated_paths_do_not() {
+        let (host,mut plugin)=prepared_comparison();
+        plugin.handle_events(&[Event::FilesChanged(openidea_plugin::FilesChanged {removed:vec!["/project/spec/api.yaml".into()],..Default::default()})],&host.invocation());
+        assert!(plugin.comparison.is_none());assert_eq!(comparison_messages(&host),2);
+    }
+    #[test]
+    fn source_parent_directory_removal_retires_capture_without_reading_old_editor_bytes() {
+        let (host,mut plugin)=prepared_comparison();
+        plugin.handle_events(&[Event::FilesChanged(openidea_plugin::FilesChanged {removed:vec!["/project/spec".into()],..Default::default()})],&host.invocation());
+        assert!(plugin.comparison.is_none());assert_eq!(comparison_messages(&host),2);
+        assert!(matches!(plugin.render(COMPARE,None,&host.invocation()).unwrap().body,Body::Message(_)));
+    }
+    #[test]
+    fn stale_local_base_cannot_navigate_removed_row_to_changed_document() {
+        let (host,mut plugin)=prepared_comparison();
+        let revision=PETSTORE.replace("listPets","changedPets");
+        let base=format!("{PETSTORE}\ncomponents:\n  schemas:\n    Removed:\n      type: string\n");
+        host.add_file("/project/spec/base.yaml",&base);
+        plugin.show_comparison(&host.invocation(),"/project/spec/base.yaml",&base,"/project/spec/api.yaml",&revision,host.editor_version()).unwrap();
+        let key=plugin.comparison.as_ref().unwrap().items.iter().find(|item|item.label.starts_with("- ")).unwrap().key.clone();
+        host.add_file("/project/spec/base.yaml",PETSTORE);
+        assert!(plugin.handle(COMPARE,ViewEvent::Activate(key),&host.invocation()).is_err());
+        assert!(host.opened_locations().is_empty());
+    }
+    #[test]
+    fn comparison_source_and_visible_row_bounds_are_explicit_and_overflow_preserves_old_capture() {
+        let (host,mut plugin)=prepared_comparison();
+        let revision=PETSTORE.replace("listPets","changedPets");
+        let oversized="x".repeat(MAX_SCANNED_FILE_BYTES+1);
+        assert!(plugin.show_comparison(&host.invocation(),"/project/spec/base.yaml",&oversized,"/project/spec/api.yaml",&revision,host.editor_version()).is_err());
+        assert_eq!(comparison_messages(&host),1);
+        let mut many=PETSTORE.to_owned();
+        for index in 0..1200 {many.push_str(&format!("x-extra-{index}: added\n"));}
+        host.open_editor("/project/spec/api.yaml","yaml",&many,&[(0,0,0,0)]);
+        plugin.show_comparison(&host.invocation(),"/project/spec/base.yaml",PETSTORE,"/project/spec/api.yaml",&many,host.editor_version()).unwrap();
+        let shown=plugin.render(COMPARE,None,&host.invocation()).unwrap();
+        let Body::List(items)=shown.body else {panic!("expected bounded rows")};
+        assert_eq!(items.len(),1000);assert!(shown.status.unwrap().contains("first 1,000"));
+    }
+    #[test]
+    fn forged_picker_cannot_replace_owned_comparison_with_foreign_source() {
+        let (host,mut plugin)=prepared_comparison();
+        host.add_file("/foreign/secret.yaml",PETSTORE);
+        host.answer_next_prompt(Some(&["/foreign/secret.yaml"]));
+        assert!(plugin.run_command("compare-specs",&host.invocation(),None).is_err());
+        assert_eq!(plugin.comparison.as_ref().unwrap().base_path,"/project/spec/base.yaml");
+        assert_eq!(comparison_messages(&host),1);
+    }
     #[test]
     fn compares_with_the_picked_spec_and_opens_a_change() {
         let host = MockHost::install();
@@ -1227,10 +1866,7 @@ mod tests {
         let invalid = |m: &str| Err(Error::Invalid(m.into()));
         assert!(matches!(fetch(invalid("/p/x.yaml: no such file")), Fetched::Missing));
         assert!(matches!(fetch(Err(Error::NotFound("x".into()))), Fetched::Missing));
-        assert!(matches!(
-            fetch(invalid("/etc/x.yaml: access outside the project root is not allowed")),
-            Fetched::Unreadable
-        ));
+        assert!(matches!(fetch(invalid("/etc/x.yaml: access outside the project root is not allowed")), Fetched::Unreadable));
         assert!(matches!(fetch(Err(Error::Failed("boom".into()))), Fetched::Unreadable));
         assert!(matches!(fetch(Ok("a: 1".into())), Fetched::Text(_)));
     }
@@ -1270,12 +1906,15 @@ mod tests {
             host.diagnostics()["/project/api.json"].iter().map(|d| (d.range.start.line, d.code.clone().unwrap())).collect();
         found.sort();
         let (dup, unresolved) = ("duplicate-operation-id".to_owned(), "unresolved-ref".to_owned());
-        assert_eq!(found, [
-            (line_of(JSON_SPEC, "\"operationId\": \"a\",\n"), dup.clone()),
-            (line_of(JSON_SPEC, "Nope"), unresolved.clone()),
-            (line_of(JSON_SPEC, "pet.json#/Missing"), unresolved),
-            (line_of(JSON_SPEC, "\"post\""), dup),
-        ]);
+        assert_eq!(
+            found,
+            [
+                (line_of(JSON_SPEC, "\"operationId\": \"a\",\n"), dup.clone()),
+                (line_of(JSON_SPEC, "Nope"), unresolved.clone()),
+                (line_of(JSON_SPEC, "pet.json#/Missing"), unresolved),
+                (line_of(JSON_SPEC, "\"post\""), dup),
+            ]
+        );
 
         let json_doc = Document { path: "/project/api.json".into(), language: "json".into(), version: 1, text: JSON_SPEC.into() };
         let target = OpenApi::default().definition(&json_doc, at(JSON_SPEC, "#/components/schemas/Pet", 5));
@@ -1428,7 +2067,10 @@ mod tests {
     fn non_spec_json_is_ignored() {
         let host = MockHost::install();
         let documents = [
-            ("/project/package.json", "{\n  \"name\": \"x\",\n  \"dependencies\": { \"a\": \"1\" },\n  \"r\": { \"$ref\": \"#/nope\" }\n}\n"),
+            (
+                "/project/package.json",
+                "{\n  \"name\": \"x\",\n  \"dependencies\": { \"a\": \"1\" },\n  \"r\": { \"$ref\": \"#/nope\" }\n}\n",
+            ),
             ("/project/tsconfig.json", "{ \"compilerOptions\": { \"strict\": true } }"),
             ("/project/nested.json", "{ \"info\": { \"openapi\": \"3.0.0\" }, \"r\": { \"$ref\": \"#/nope\" } }"),
         ];
@@ -1510,7 +2152,10 @@ mod tests {
             ("/project/b.yaml", "paths:\n  src:\n    get: x\n"),
             ("/project/c.yaml", "paths:\n  /x:\n    summary: no method\n"),
             ("/project/d.yaml", "paths:\n  /x: {}\n"),
-            ("/project/package.json", "{\n  \"name\": \"x\",\n  \"paths\": [\"a\"],\n  \"compilerOptions\": { \"paths\": { \"/x\": { \"get\": 1 } } }\n}\n"),
+            (
+                "/project/package.json",
+                "{\n  \"name\": \"x\",\n  \"paths\": [\"a\"],\n  \"compilerOptions\": { \"paths\": { \"/x\": { \"get\": 1 } } }\n}\n",
+            ),
         ];
         for (path, text) in quiet {
             assert!(published(&host, path, text).is_empty(), "{path}");
@@ -1659,9 +2304,18 @@ mod tests {
         let paths: Vec<_> = crate::json::keys(&plain).into_iter().map(|k| k.key).collect();
         assert!(["swagger", "info", "info.title", "info.version", "paths"].iter().all(|k| paths.iter().any(|p| p == k)), "{paths:?}");
         let root = json.iter().find(|i| i.label == "oas3").unwrap();
-        let plain = root.insert_text.replace("$0", "").replace("${1:API}", "API").replace("${2:1.0.0}", "1.0.0").replace("${3:path}", "path").replace("${4:OK}", "OK");
+        let plain = root
+            .insert_text
+            .replace("$0", "")
+            .replace("${1:API}", "API")
+            .replace("${2:1.0.0}", "1.0.0")
+            .replace("${3:path}", "path")
+            .replace("${4:OK}", "OK");
         let paths: Vec<_> = crate::json::keys(&plain).into_iter().map(|k| k.key).collect();
-        assert!(["openapi", "info.title", "paths./path.get.responses.200.description"].iter().all(|k| paths.iter().any(|p| p == k)), "{paths:?}");
+        assert!(
+            ["openapi", "info.title", "paths./path.get.responses.200.description"].iter().all(|k| paths.iter().any(|p| p == k)),
+            "{paths:?}"
+        );
         assert!(json.iter().find(|i| i.label == "opnp").unwrap().insert_text.contains("\"get\": {"));
     }
 
@@ -1772,7 +2426,8 @@ mod tests {
         let _host = MockHost::install();
         let text = "openapi: 3.0.0\ncomponents:\n  schemas:\n    Pet:\n      properties:\n        owner:\n          type: object\n";
         let line = 5;
-        let actions = OpenApi::default().code_actions(&named("/p/openapi.yaml", text), Range::new(Position::new(line, 4), Position::new(line, 4)));
+        let actions =
+            OpenApi::default().code_actions(&named("/p/openapi.yaml", text), Range::new(Position::new(line, 4), Position::new(line, 4)));
         let titles: Vec<_> = actions.iter().map(|a| a.title.as_str()).collect();
         assert_eq!(titles, ["Extract inline schema to components/schemas", "Add the OpenAPI schema for the YAML language server"]);
         assert_eq!(actions[0].edits[0].1.len(), 1);
@@ -1782,26 +2437,24 @@ mod tests {
 
     #[test]
     fn writes_a_self_contained_spec_or_says_there_is_nothing_to_bundle() {
-        let host = tee_host();
-        let written = recording_tee(&host);
+        let host = writing_host();
         host.add_file("/project/common.yaml", "Pet:\n  type: object\n");
         let text = "openapi: 3.0.0\nx:\n  $ref: './common.yaml#/Pet'\n";
         host.open_editor("/project/api.yaml", "yaml", text, &[(0, 0, 0, 0)]);
         OpenApi::default().run_command("export-self-contained", &host.invocation(), None).unwrap();
-        let (target, bundled) = written.borrow()[0].clone();
-        assert_eq!(target, "/project/api.bundled.yaml");
+        let bundled = generated("/project/api.bundled.yaml");
         assert!(bundled.contains("$ref: '#/components/schemas/Pet'") && bundled.ends_with("    Pet:\n      type: object\n"), "{bundled}");
 
         host.open_editor("/project/api.yaml", "yaml", "openapi: 3.0.0\n", &[(0, 0, 0, 0)]);
         OpenApi::default().run_command("export-self-contained", &host.invocation(), None).unwrap();
-        assert_eq!(written.borrow().len(), 1);
+        assert_eq!(generated("/project/api.bundled.yaml"), bundled);
 
         host.open_editor("/project/api.yaml", "yaml", "openapi: 3.0.0\nx:\n  $ref: './gone.yaml#/Pet'\n", &[(0, 0, 0, 0)]);
         assert!(OpenApi::default().run_command("export-self-contained", &host.invocation(), None).is_err());
     }
 
     #[test]
-    fn bundles_a_json_spec_to_the_clipboard_when_tee_is_denied() {
+    fn bundles_a_json_spec_to_the_clipboard_when_project_write_is_denied() {
         let host = MockHost::install().with_capabilities(&["editor.read", "project.read", "clipboard"]);
         host.add_file("/project/common.json", "{\"Pet\": {\"type\": \"object\"}}");
         let text = "{\"openapi\": \"3.0.0\", \"x\": {\"$ref\": \"./common.json#/Pet\"}}";
@@ -1824,6 +2477,44 @@ mod tests {
         assert_eq!(host.clipboard().unwrap(), "\"$ref\": \"#/components\"");
     }
 
+    #[test]
+    fn copy_reference_uses_the_actual_caret_key_and_literal_array_ancestry() {
+        let host=MockHost::install();
+        for (language,text,needle,expected) in [
+            ("json",r#"{"openapi":"3.1.1","first":{},"second":{}}"#,"second",r##""$ref": "#/second""##),
+            ("json",r#"{"openapi":"3.1.1","x":[{"a.b[0]/~":1}]}"#,"a.b",r##""$ref": "#/x/0/a.b%5B0%5D~1~0""##),
+            ("yaml","openapi: 3.1.1\nx:\n  - a.b[0]/~: 1\n","a.b","$ref: '#/x/0/a.b%5B0%5D~1~0'"),
+            ("json",r#"{"openapi":"3.1.1","a\"b%2F#":1}"#,"a\\",r##""$ref": "#/a%22b%252F%23""##),
+            ("yaml","openapi: 3.1.1\nowner's key: 1\n","owner","$ref: '#/owner%27s%20key'"),
+            ("json",r#"{"openapi":"3.1.1","😀":[{"é":1}]}"#,"é",r##""$ref": "#/%F0%9F%98%80/0/%C3%A9""##),
+        ] {
+            let caret=position(text,text.find(needle).unwrap());
+            host.open_editor(&format!("/project/api.{language}"),language,text,&[(caret.line,caret.character,caret.line,caret.character)]);
+            OpenApi::default().run_command("copy-reference",&host.invocation(),None).unwrap();
+            assert_eq!(host.clipboard().as_deref(),Some(expected),"{text}");
+        }
+        assert!(host.requests().is_empty());assert!(host.process_runs().is_empty());
+    }
+    #[test]
+    fn copy_reference_unknown_source_preserves_clipboard_and_uses_current_text() {
+        let host=MockHost::install();
+        let original=r#"{"openapi":"3.1.1","a":{"b":1}}"#;
+        let caret=position(original,original.find("b\"").unwrap());
+        host.open_editor("/project/api.json","json",original,&[(caret.line,caret.character,caret.line,caret.character)]);
+        OpenApi::default().run_command("copy-reference",&host.invocation(),None).unwrap();
+        assert_eq!(host.clipboard().as_deref(),Some("\"$ref\": \"#/a/b\""));
+        let ambiguous=r#"{"openapi":"3.1.1","a.b":1,"a":{"b":2}}"#;
+        let caret=position(ambiguous,ambiguous.find("a.b").unwrap());
+        host.open_editor("/project/api.json","json",ambiguous,&[(caret.line,caret.character,caret.line,caret.character)]);
+        assert!(OpenApi::default().run_command("copy-reference",&host.invocation(),None).is_err());
+        assert_eq!(host.clipboard().as_deref(),Some("\"$ref\": \"#/a/b\""));
+        let changed=r#"{"openapi":"3.1.1","a.b":1}"#;
+        let caret=position(changed,changed.find("a.b").unwrap());
+        host.open_editor("/project/api.json","json",changed,&[(caret.line,caret.character,caret.line,caret.character)]);
+        OpenApi::default().run_command("copy-reference",&host.invocation(),None).unwrap();
+        assert_eq!(host.clipboard().as_deref(),Some("\"$ref\": \"#/a.b\""));
+        assert!(host.requests().is_empty());assert!(host.process_runs().is_empty());
+    }
     #[test]
     fn skeletons_are_offered_in_an_empty_openapi_named_file() {
         let _host = MockHost::install();
@@ -1951,5 +2642,39 @@ mod tests {
         assert!(redoc.contains("exports.Redoc="));
         assert!(include_str!("../web/vendor/redoc-LICENSE").starts_with("The MIT License"));
         assert!(include_str!("../NOTICE.md").contains("Redoc"));
+    }
+}
+
+impl openidea_plugin::endpoints::EndpointsProvider for OpenApi {
+    fn endpoints(&mut self, ctx: &Invocation) -> Result<Vec<openidea_plugin::endpoints::Endpoint>, Error> {
+        let Some(project) = ctx.project() else {
+            return Ok(Vec::new());
+        };
+        Ok(ui_kit::routes::endpoints(&project_routes(&project)?, "OpenAPI"))
+    }
+}
+
+#[cfg(test)]
+mod try_it_out_boundary_tests {
+    use super::*;
+    use openidea_plugin::{diagnostics::DiagnosticsProvider, hover::HoverProvider, mock::MockHost};
+    #[test]
+    fn rendered_and_unsaved_specs_do_not_execute_requests_even_with_network_grants() {
+        let host = MockHost::install().with_capabilities(&["project.read", "editor.read", "events", "storage", "net:localhost", "net:127.0.0.1", "net:example.test"]);
+        let text = r#"{"openapi":"3.0.4","info":{"title":"Test","version":"1"},"servers":[{"url":"http://localhost:8080"}],"paths":{"/test":{"get":{"summary":"Local","responses":{}}}}}"#;
+        host.add_file("api.json", text);
+        host.open_editor("/project/api.json", "json", text, &[]);
+        let mut plugin = OpenApi::default();
+        plugin.render("endpoints", None, &host.invocation()).unwrap();
+        let doc = Document { path: "/project/api.json".into(), language: "json".into(), version: 2, text: text.replace("Local", "Unsaved") };
+        plugin.diagnostics(&doc);
+        plugin.hover(&doc, position(&doc.text, doc.text.find("Unsaved").unwrap()));
+        plugin.completion(&doc, Position::new(0, 1), None);
+        plugin.line_markers(&doc);
+        assert!(matches!(plugin.run_command("try-it-out", &host.invocation(), None), Err(Error::NotFound(_))));
+        assert!(host.requests().is_empty(), "source/render/provider work must never execute a spec request");
+        assert!(host.terminals().is_empty());
+        assert!(!include_str!("../plugin.toml").contains("net:*"));
+        assert!(!include_str!("../plugin.toml").contains("net:localhost"));
     }
 }

@@ -6,16 +6,19 @@
 //! tag pycharm/263.7307.101).
 
 mod log;
+mod pattern_editor;
 mod patterns;
+mod semantic;
 mod source;
+mod viewer;
 
 use log::{Config, Event, Format, Parsed, Severity};
-use openidea_plugin::syntax::{Fold, FoldKind, Highlight, Symbol, SymbolKind, SyntaxProvider, Token};
 use openidea_plugin::providers::{Document, Providers};
+use openidea_plugin::syntax::{Fold, FoldKind, Highlight, Symbol, SymbolKind, SyntaxProvider, Token};
 use openidea_plugin::views::{View, ViewEvent, Viewport, Views};
 use openidea_plugin::{
-    Error, Event as HostEvent, Invocation, Location, LogLevel, NotificationLevel, Plugin, Position, Project, StatusItem,
-    TextEditor, host, text,
+    Error, Event as HostEvent, Invocation, Location, LogLevel, NotificationLevel, Plugin, Position, Project, StatusItem, TextEditor, host,
+    text,
 };
 use std::ops::Range;
 use std::rc::Rc;
@@ -29,6 +32,8 @@ const MAX_DOCUMENT_BYTES: usize = 512 << 10;
 
 #[derive(Default)]
 pub struct Ideolog {
+    pattern_editor: pattern_editor::Editor,
+    viewer: viewer::Viewer,
     /// The `customPatterns` setting it was built from, and the config.
     config: Option<(String, Rc<Config>)>,
 }
@@ -57,7 +62,9 @@ impl Ideolog {
             host::remove_status_item(FORMAT_STATUS);
             return;
         };
-        let Ok(document) = editor.document() else { return };
+        let Ok(document) = editor.document() else {
+            return;
+        };
 
         let config = self.config();
         let (text, tooltip) = match config.detect(head(&document.text)) {
@@ -68,22 +75,45 @@ impl Ideolog {
     }
 }
 
+/// Persistent patterns are intentional global settings; no model/sample is sent.
+fn refresh_changed_patterns(before: &str) {
+    if patterns::stored() != before {
+        host::refresh_view(patterns::VIEW);
+        let _ = host::post_view_message(patterns::VIEW, r#"{"channel":"ui-kit-refresh"}"#);
+    }
+}
+
 impl Plugin for Ideolog {
+    fn activate(&mut self, _ctx: &openidea_plugin::Context) -> Result<(), Error> {
+        // Compile bounded stored regex configuration outside editor requests.
+        self.config();
+        Ok(())
+    }
+    fn deactivate(&mut self) {
+        let _ = host::clear_decorations(semantic::DECORATION_SET);
+    }
     fn handle_events(&mut self, events: &[HostEvent], ctx: &Invocation) {
+        if !events.is_empty() { let _ = host::clear_decorations(semantic::DECORATION_SET); }
         if events.iter().any(|e| matches!(e, HostEvent::EditorFocused(_) | HostEvent::FileOpened(_))) {
             self.show_format(ctx);
         }
     }
 
     fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
+        if id == "mark-log-source" { semantic::mark(self, ctx)?; return Ok(None); }
+        if id == "clear-log-source" { host::clear_decorations(semantic::DECORATION_SET)?; return Ok(None); }
+        if id == "capture-log" {self.capture_log(ctx)?;return Ok(None);}
+        if id == "log-snapshot" {host::reveal_view(viewer::VIEW)?;return Ok(None);}
         if id == "patterns" {
             host::reveal_view(patterns::VIEW)?;
             return Ok(None);
         }
 
         if id == "remove-highlightings" {
+            let before = patterns::stored();
             let removed = patterns::remove_highlightings()?;
-            host::refresh_view(patterns::VIEW);
+            self.config();
+            refresh_changed_patterns(&before);
             host::notify(NotificationLevel::Info, "Ideolog", &format!("Removed {removed} highlighting pattern(s)."));
             return Ok(None);
         }
@@ -94,9 +124,11 @@ impl Plugin for Ideolog {
         }
 
         if id == "highlight-selection" {
+            let before = patterns::stored();
             let text = selected_text(&editor)?;
             patterns::highlight_text(&text)?;
-            host::refresh_view(patterns::VIEW);
+            self.config();
+            refresh_changed_patterns(&before);
             return Ok(None);
         }
 
@@ -113,23 +145,28 @@ impl Plugin for Ideolog {
                 events.iter().skip(at + 1).find(|(_, _, exception)| *exception)
             }),
             "next-entry" => go_to(&config, &editor, "Already at the last log entry.", |events, at| events.get(at + 1)),
-            "previous-entry" => go_to(&config, &editor, "Already at the first log entry.", |events, at| at.checked_sub(1).map(|i| &events[i])),
+            "previous-entry" => {
+                go_to(&config, &editor, "Already at the first log entry.", |events, at| at.checked_sub(1).map(|i| &events[i]))
+            }
             _ => Err(Error::NotFound(format!("command {id}"))),
         }
     }
 }
 
 impl SyntaxProvider for Ideolog {
-    fn highlights(&mut self, _language: &str, text: &str) -> Vec<Token> {
+    fn highlights(&mut self, language: &str, text: &str) -> Vec<Token> {
+        if language!="ideolog" {return Vec::new();}
         let gap = host::setting_number(TIME_GAP).unwrap_or(0.0);
         highlights_with_gaps(&self.config(), head(text), gap)
     }
 
-    fn outline(&mut self, _language: &str, text: &str) -> Vec<Symbol> {
+    fn outline(&mut self, language: &str, text: &str) -> Vec<Symbol> {
+        if language!="ideolog" {return Vec::new();}
         outline(&self.config(), head(text))
     }
 
-    fn folding(&mut self, _language: &str, text: &str) -> Vec<Fold> {
+    fn folding(&mut self, language: &str, text: &str) -> Vec<Fold> {
+        if language!="ideolog" {return Vec::new();}
         folding(&self.config(), head(text))
     }
 }
@@ -137,15 +174,23 @@ impl SyntaxProvider for Ideolog {
 impl Providers for Ideolog {
     /// Cmd+click on a stack frame opens its file and line.
     fn definition(&mut self, doc: &Document, at: Position) -> Vec<Location> {
-        let Some(offset) = text::offset(&doc.text, at) else { return Vec::new() };
+        if !matches!(doc.language.as_str(), "log" | "ideolog") || doc.text.len()>MAX_DOCUMENT_BYTES {return Vec::new();}
+        let Some(offset) = text::offset(&doc.text, at) else {
+            return Vec::new();
+        };
+        if text::position(&doc.text,offset)!=at {return Vec::new();}
         let line_start = doc.text[..offset].rfind('\n').map_or(0, |i| i + 1);
         let line = log::lines(&doc.text[line_start..]).next().map_or("", |(_, l)| l);
         let column = offset - line_start;
         let Some(frame) = source::frames(line).into_iter().find(|f| f.span.contains(&column)) else {
             return Vec::new();
         };
-        let Some(project) = project_of(&doc.path) else { return Vec::new() };
-        let Ok(Some(path)) = source::resolve(&project, &frame) else { return Vec::new() };
+        let Some(project) = project_of(&doc.path) else {
+            return Vec::new();
+        };
+        let Ok(Some(path)) = source::resolve(&project, &frame) else {
+            return Vec::new();
+        };
 
         let target = Position::new(frame.line.saturating_sub(1), 0);
         vec![Location { path, range: openidea_plugin::Range { start: target, end: target } }]
@@ -155,57 +200,39 @@ impl Providers for Ideolog {
 impl Views for Ideolog {
     fn render(&mut self, view: &str, _viewport: Option<Viewport>, _ctx: &Invocation) -> Result<View, Error> {
         match view {
-            patterns::VIEW => Ok(patterns::render()),
+            viewer::VIEW => self.render_log(_viewport,_ctx),
+            patterns::VIEW => Ok(patterns::render(&self.pattern_editor)),
             _ => Err(Error::NotFound(view.into())),
         }
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, _ctx: &Invocation) -> Result<(), Error> {
-        match view {
-            patterns::VIEW => patterns::handle(event),
-            _ => Err(Error::NotFound(view.into())),
+        if view==viewer::VIEW {return self.handle_log(event,_ctx);}
+        if ui_kit::web::handle(self, view, &event, _ctx, include_str!("ui_config.json"))? {
+            return Ok(());
         }
+
+        let result = match view {
+            patterns::VIEW => patterns::handle(&mut self.pattern_editor, event),
+            _ => Err(Error::NotFound(view.into())),
+        };
+        if result.is_ok() {
+            self.config();
+        }
+        result
     }
 }
 
 /// The open project holding `path` (providers get no window context).
 fn project_of(path: &str) -> Option<Project> {
-    let projects = host::projects().ok()?;
-    let root_of = |p: &Project| p.root().ok().filter(|root| path.starts_with(root.as_str()));
-    let index = projects.iter().position(|p| root_of(p).is_some()).unwrap_or(0);
-    projects.into_iter().nth(index)
+    if !path.starts_with('/') || path.contains('\\') || path.chars().any(char::is_control) || path.split('/').skip(1).any(|p|p.is_empty() || matches!(p,"."|"..")) {return None;}
+    let project=host::project_of(path)?;
+    let root=project.root().ok()?;
+    path.strip_prefix(&format!("{}/",root.trim_end_matches('/')))?;
+    Some(project)
 }
 
-// ponytail: the SDK's `register_plugin!` has no `syntax, providers, views` arm. This is
-// its `syntax` arm plus its (doc(hidden)) `__providers_exports!` and `__views_exports!`.
-#[cfg(not(target_arch = "wasm32"))]
-const _: fn() -> Ideolog = <Ideolog as ::core::default::Default>::default;
-#[cfg(target_arch = "wasm32")]
-const _: () = {
-    use openidea_plugin::syntax_bindings::exports::openidea::plugin::syntax_provider as wit;
-
-    struct __OpenideaComponent;
-    openidea_plugin::__plugin_exports!(Ideolog, __OpenideaComponent, openidea_plugin::bindings);
-    openidea_plugin::__providers_exports!(Ideolog, __OpenideaComponent);
-    openidea_plugin::__views_exports!(Ideolog, __OpenideaComponent);
-
-    impl wit::Guest for __OpenideaComponent {
-        fn highlights(language: String, text: String) -> Vec<wit::Token> {
-            openidea_plugin::__rt::highlights::<Ideolog>(&language, &text)
-        }
-
-        fn outline(language: String, text: String) -> Vec<wit::Symbol> {
-            openidea_plugin::__rt::outline::<Ideolog>(&language, &text)
-        }
-
-        fn folding(language: String, text: String) -> Vec<wit::Fold> {
-            openidea_plugin::__rt::folding::<Ideolog>(&language, &text)
-        }
-    }
-
-    openidea_plugin::bindings::__export_plugin_world!(__OpenideaComponent with_types_in openidea_plugin::bindings);
-    openidea_plugin::syntax_bindings::__export_syntax_world!(__OpenideaComponent with_types_in openidea_plugin::syntax_bindings);
-};
+openidea_plugin::register_plugin!(Ideolog, providers, views, syntax, semantic_tokens);
 
 /// The document up to the last line break within [`MAX_DOCUMENT_BYTES`].
 fn head(text: &str) -> &str {
@@ -214,7 +241,7 @@ fn head(text: &str) -> &str {
     }
 
     let cut = log::floor_char_boundary(text, MAX_DOCUMENT_BYTES);
-    text[..cut].rfind('\n').map_or(&text[..cut], |end| &text[..=end])
+    text[..cut].rfind('\n').map_or("", |end| &text[..=end])
 }
 
 fn parsed_events<'a>(config: &'a Config, text: &'a str) -> (Option<&'a Format>, Vec<(Event<'a>, Parsed<'a>)>) {
@@ -234,10 +261,26 @@ fn highlights(config: &Config, text: &str) -> Vec<Token> {
 /// With `gap_seconds` above zero, the time of an event that comes at least
 /// that long after the previous timed one gets the `Constant` colour.
 fn highlights_with_gaps(config: &Config, text: &str, gap_seconds: f64) -> Vec<Token> {
-    let (format, events) = parsed_events(config, text);
+    highlights_limited(config, text, gap_seconds, usize::MAX, None)
+}
+
+/// Semantic tokens share the original highlighting rules, with tighter live
+/// request limits. The custom language keeps its existing lexical path.
+fn highlights_limited(config: &Config, text: &str, gap_seconds: f64, cap: usize, deadline: Option<std::time::Instant>) -> Vec<Token> {
+    highlights_checked(config,text,gap_seconds,cap,||deadline.is_some_and(|end|std::time::Instant::now()>=end))
+}
+fn highlights_checked(config: &Config, text: &str, gap_seconds: f64, cap: usize, mut expired: impl FnMut() -> bool) -> Vec<Token> {
+    if cap==0 { return Vec::new(); }
+    let mut checkpoint=||if expired() {Err(())} else {Ok(())};
+    if checkpoint().is_err() { return Vec::new(); }
+    let Ok(format)=config.detect_checked(text,&mut checkpoint) else { return Vec::new(); };
+    let Ok(events)=log::events_checked(format,text,&mut checkpoint) else { return Vec::new(); };
     let mut out = Vec::new();
     let mut previous: Option<f64> = None;
-    for (event, parsed) in &events {
+    for event in &events {
+        if out.len() >= cap || checkpoint().is_err() { break; }
+        let parsed=Parsed::new(format,event.text);
+        if checkpoint().is_err() { break; }
         let now = parsed.time(format).and_then(log::seconds);
         let gap_range = match (gap_seconds > 0.0, previous, now) {
             (true, Some(before), Some(now)) if now - before >= gap_seconds => parsed.time_range(format),
@@ -245,7 +288,9 @@ fn highlights_with_gaps(config: &Config, text: &str, gap_seconds: f64) -> Vec<To
         };
         previous = now.or(previous);
 
-        for (range, kind) in config.highlight(format, parsed) {
+        let highlighted=config.highlight(format, &parsed);
+        if checkpoint().is_err() { break; }
+        for (range, kind) in highlighted {
             match &gap_range {
                 Some(gap) if range.start < gap.end && gap.start < range.end => {}
                 _ => push_by_line(&mut out, event.text, event.offset, range, kind),
@@ -255,6 +300,7 @@ fn highlights_with_gaps(config: &Config, text: &str, gap_seconds: f64) -> Vec<To
             push_by_line(&mut out, event.text, event.offset, gap, Highlight::Constant);
         }
     }
+    out.truncate(cap);
     out
 }
 
@@ -284,7 +330,9 @@ fn outline(config: &Config, text: &str) -> Vec<Symbol> {
     let (format, events) = parsed_events(config, text);
     let mut symbols = Vec::new();
     for (event, parsed) in &events {
-        let Some(severity) = parsed.severity(format) else { continue };
+        let Some(severity) = parsed.severity(format) else {
+            continue;
+        };
 
         let first_line = event.text.lines().next().unwrap_or_default().trim_end();
         let name = Some(parsed.message()).filter(|m| !m.is_empty()).unwrap_or(first_line);
@@ -309,7 +357,8 @@ fn outline(config: &Config, text: &str) -> Vec<Symbol> {
 /// The caret line (0-based) and byte offset in that line.
 fn caret(editor: &TextEditor, text: &str) -> Result<(u32, usize), Error> {
     let selection = editor.selections()?.first().copied().unwrap_or_default();
-    let at = text::offset(text, selection.start).unwrap_or(0);
+    let at = text::offset(text, selection.start).ok_or(Error::Stale)?;
+    if text::position(text,at)!=selection.start {return Err(Error::Stale);}
     let line_start = text[..at].rfind('\n').map_or(0, |i| i + 1);
     Ok((selection.start.line, at - line_start))
 }
@@ -327,7 +376,10 @@ fn go_to(
     let text = editor.document()?.text;
     let (line, _) = caret(editor, &text)?;
     let (format, events) = parsed_events(config, &text);
-    let entries: Vec<_> = events.iter().map(|(e, p)| (e.lines.clone(), p.severity(format), log::has_exception(e.text, p.severity(format) == Some(Severity::Error)))).collect();
+    let entries: Vec<_> = events
+        .iter()
+        .map(|(e, p)| (e.lines.clone(), p.severity(format), log::has_exception(e.text, p.severity(format) == Some(Severity::Error))))
+        .collect();
     let at = entries.iter().position(|(lines, ..)| lines.contains(&line)).unwrap_or(entries.len().saturating_sub(1));
 
     let Some((lines, ..)) = pick(&entries, at) else {
@@ -353,7 +405,9 @@ fn selected_text(editor: &TextEditor) -> Result<String, Error> {
 }
 
 fn jump_to_source(config: &Config, ctx: &Invocation, editor: &TextEditor) -> Result<Option<String>, Error> {
-    let project = ctx.project().ok_or("No project is open.")?;
+    let invoking = ctx.project().ok_or("No project is open.")?;
+    let project=project_of(&editor.path()).ok_or(Error::Stale)?;
+    if invoking.root()?!=project.root()? {return Err(Error::Stale);}
     let text = editor.document()?.text;
     let (line, column) = caret(editor, &text)?;
     let line_text = log::lines(&text).nth(line as usize).map(|(_, l)| l).unwrap_or_default();
@@ -368,7 +422,9 @@ fn jump_to_source(config: &Config, ctx: &Invocation, editor: &TextEditor) -> Res
     }
 
     let (format, events) = parsed_events(config, &text);
-    let Some((event, parsed)) = events.iter().find(|(e, _)| e.lines.contains(&line)) else { return Ok(None) };
+    let Some((event, parsed)) = events.iter().find(|(e, _)| e.lines.contains(&line)) else {
+        return Ok(None);
+    };
     let message = parsed.message();
     if message.is_empty() {
         return Err("This event has no message to search for.".into());
@@ -376,7 +432,9 @@ fn jump_to_source(config: &Config, ctx: &Invocation, editor: &TextEditor) -> Res
 
     match source::find_logging_line(&project, message, parsed.category(format), event.text)? {
         Some((path, line)) => host::open_location(&path, line, 0)?,
-        None => host::notify(NotificationLevel::Info, "Ideolog", "No source line found for this event. Open the project that produced the log."),
+        None => {
+            host::notify(NotificationLevel::Info, "Ideolog", "No source line found for this event. Open the project that produced the log.")
+        }
     }
     Ok(None)
 }
@@ -449,21 +507,21 @@ java.lang.IllegalStateException: boom
         let host = MockHost::install();
         let mut plugin = Ideolog::default();
         let ctx = host.invocation();
-        let click = |plugin: &mut Ideolog, id: &str| plugin.handle("patterns", ViewEvent::Button(id.into()), &ctx).unwrap();
+        let click = |plugin: &mut Ideolog, id: &str| { let id = if id.starts_with("pattern-") { plugin.pattern_editor.control_key(id) } else { id.into() }; plugin.handle("patterns", ViewEvent::Button(id), &ctx).unwrap(); };
 
-        for answer in ["Mine", r"^(\d+) \[(\w+)\] (.*)$", "^\\d", "0", "1", "-1"] {
-            host.answer_next_prompt(Some(&[answer]));
-        }
         click(&mut plugin, "add-format");
+        for (key, value) in [("name", "Mine"), ("pattern", r"^(\d+) \[(\w+)\] (.*)$"), ("linePattern", r"^\d")] {
+            plugin.handle("patterns", ViewEvent::Field(plugin.pattern_editor.control_key(&format!("pattern-{key}")), value.into()), &ctx).unwrap();
+        }
+        click(&mut plugin, "pattern-save");
 
         let text = "12 [WARN] careful\n";
         let format_name = |plugin: &mut Ideolog| plugin.config().detect(text).map(|f| f.name.clone());
         assert_eq!(format_name(&mut plugin).as_deref(), Some("Mine"));
 
-        host.answer_next_prompt(Some(&["^x"]));
-        host.answer_next_prompt(Some(&["HIGHLIGHT_LINE"]));
-        host.answer_next_prompt(Some(&["red"]));
         click(&mut plugin, "add-highlight");
+        plugin.handle("patterns", ViewEvent::Field(plugin.pattern_editor.control_key("pattern-pattern"), "^x".into()), &ctx).unwrap();
+        click(&mut plugin, "pattern-save");
         let Body::Table(table) = plugin.render("patterns", None, &ctx).unwrap().body else { panic!("a table") };
         assert_eq!(table.rows.len(), 2);
 
@@ -476,13 +534,13 @@ java.lang.IllegalStateException: boom
     fn a_broken_pattern_is_not_stored() {
         let host = MockHost::install();
         let ctx = host.invocation();
-        for answer in ["Bad", "^(unclosed", "^", "0", "1", "-1"] {
-            host.answer_next_prompt(Some(&[answer]));
-        }
-        Ideolog::default().handle("patterns", ViewEvent::Button("add-format".into()), &ctx).unwrap();
-
+        let mut plugin = Ideolog::default();
+        plugin.handle("patterns", ViewEvent::Button("add-format".into()), &ctx).unwrap();
+        plugin.handle("patterns", ViewEvent::Field(plugin.pattern_editor.control_key("pattern-pattern"), "^(unclosed".into()), &ctx).unwrap();
+        plugin.handle("patterns", ViewEvent::Button(plugin.pattern_editor.control_key("pattern-save")), &ctx).unwrap();
         assert!(patterns::stored().is_empty());
-        assert_eq!(host.notifications().len(), 1);
+        let Body::Form(fields) = plugin.render("patterns", None, &ctx).unwrap().body else { panic!("keep invalid draft open") };
+        assert!(fields.iter().any(|field| field.key.starts_with("pattern-preview-output@") && format!("{:?}", field.value).contains("Invalid regex")));
     }
 
     #[test]
@@ -563,10 +621,7 @@ java.lang.IllegalStateException: boom
             classify("[2026-11-06T10:00:00.123456+00:00] app.ERROR: boom {\"ctx\":1} []"),
             (error, Some("2026-11-06T10:00:00.123456+00:00".to_owned()))
         );
-        assert_eq!(
-            classify("2026-11-06 10:00:00.123 +00:00 [ERR] boom"),
-            (error, Some("2026-11-06 10:00:00.123 +00:00".to_owned()))
-        );
+        assert_eq!(classify("2026-11-06 10:00:00.123 +00:00 [ERR] boom"), (error, Some("2026-11-06 10:00:00.123 +00:00".to_owned())));
         assert_eq!(classify("2026-11-06 10:00:00.123 +00:00 [WRN] hm").0, warning);
         assert_eq!(classify("2026-11-06 10:00:00.123 +00:00 [FTL] dead").0, error);
     }
@@ -621,10 +676,7 @@ java.lang.IllegalStateException: boom
         let names: Vec<_> = symbols.iter().map(|s| (s.name.as_str(), s.detail.as_deref().unwrap())).collect();
         assert_eq!(
             names,
-            [
-                ("slow indexing", "WARN 2024-05-01 10:00:01,000"),
-                ("card declined for user 42", "ERROR 2024-05-01 10:00:02,000")
-            ]
+            [("slow indexing", "WARN 2024-05-01 10:00:01,000"), ("card declined for user 42", "ERROR 2024-05-01 10:00:02,000")]
         );
         for symbol in &symbols {
             assert_eq!(&IDEA[symbol.name_range.clone()], symbol.name);
@@ -644,6 +696,15 @@ java.lang.IllegalStateException: boom
         assert!(cut.ends_with('\n'));
     }
 
+    #[test]
+    fn registered_custom_syntax_refuses_wrong_language_and_truncated_first_line() {
+        let _h=MockHost::install().with_capabilities(&[]);let mut plugin=Ideolog::default();
+        assert!(plugin.highlights("rust",IDEA).is_empty());assert!(plugin.outline("log",IDEA).is_empty());assert!(plugin.folding("rust",IDEA).is_empty());assert!(plugin.config.is_none(),"wrong language performs no configuration preparation");
+        let source=format!("ERROR {}","😀".repeat(MAX_DOCUMENT_BYTES));
+        assert!(plugin.highlights("ideolog",&source).is_empty(),"partial source line must not become event");assert!(plugin.outline("ideolog",&source).is_empty());assert!(plugin.folding("ideolog",&source).is_empty());
+        assert_eq!(head("ERROR complete final line"),"ERROR complete final line");
+        let source=format!("ERROR complete\r\n{}","😀".repeat(MAX_DOCUMENT_BYTES));assert_eq!(head(&source),"ERROR complete\r\n");
+    }
     #[test]
     fn custom_patterns_come_from_the_setting() {
         let host = MockHost::install();
@@ -727,12 +788,24 @@ java.lang.IllegalStateException: boom
     }
 
     #[test]
+    fn activation_warms_config_without_editor_or_project_grants() {
+        let host = MockHost::install().with_capabilities(&["storage"]);
+        let mut plugin = Ideolog::default();
+        plugin.activate(&host.context("aritti.ideolog")).unwrap();
+        assert!(plugin.config.is_some());
+        assert!(host.process_runs().is_empty());
+        assert!(host.requests().is_empty());
+    }
+    #[test]
     fn highlight_selection_adds_the_escaped_text_as_a_pattern() {
         let host = MockHost::install().with_capabilities(&["editor.read", "storage"]);
         host.open_editor("/p/a.log", "ideolog", "x a.b(1) y\n", &[(0, 2, 0, 8)]);
         host.answer_next_prompt(Some(&["HIGHLIGHT_MATCH"]));
         host.answer_next_prompt(Some(&["green"]));
-        Ideolog::default().run_command("highlight-selection", &host.invocation(), None).unwrap();
+        let mut plugin = Ideolog::default();
+        plugin.activate(&host.context("aritti.ideolog")).unwrap();
+        plugin.run_command("highlight-selection", &host.invocation(), None).unwrap();
+        assert_eq!(plugin.config.as_ref().unwrap().0, patterns::combined(""));
         let stored = patterns::stored();
         assert!(stored.contains("pattern=\"a\\.b\\(1\\)\""), "{stored}");
         assert!(stored.contains("HIGHLIGHT_MATCH"));
@@ -771,6 +844,64 @@ java.lang.IllegalStateException: boom
     }
 
     #[test]
+    fn registered_frame_navigation_refuses_unowned_prefix_collision_and_ambiguous_sources() {
+        let h=MockHost::install().with_capabilities(&["project.read"]);h.set_project_root(Some("/p"));
+        h.add_file("src/Foo.java","class Foo {}\n");h.add_file("longer/other/Foo.java","class Foo {}\n");
+        let source="😀 at demo.Foo.run(Foo.java:7)\r\n";
+        let mut d=Document {path:"/outside/log.txt".into(),language:"log".into(),version:1,text:source.into()};
+        let at=text::position(source,source.find("Foo.java").unwrap());
+        assert!(Ideolog::default().definition(&d,at).is_empty(),"unowned log must not borrow first project");
+        d.path="/prefix/log.txt".into();assert!(Ideolog::default().definition(&d,at).is_empty(),"root prefix is not owner");
+        d.path="/p/log.txt".into();assert!(Ideolog::default().definition(&d,at).is_empty(),"ambiguous suffix score must not pick shorter source");
+    }
+    #[test]
+    fn registered_definition_keeps_utf16_nested_owner_and_request_bounds() {
+        let h=MockHost::install().with_capabilities(&["project.read"]);h.set_project_root(Some("/p"));h.add_project("/p/nested");
+        h.add_file("/p/src/demo/Foo.java","outer");h.add_file("/p/nested/src/demo/Foo.java","inner");
+        let source="😀 preface\r\n😀 at demo.Foo.run(Foo.java:7)\r\n";
+        let mut d=Document {path:"/p/nested/log.txt".into(),language:"log".into(),version:1,text:source.into()};
+        let at=text::position(source,source.find("Foo.java").unwrap());
+        let found=Ideolog::default().definition(&d,at);assert_eq!(found.len(),1);assert_eq!(found[0].path,"/p/nested/src/demo/Foo.java");assert_eq!(found[0].range.start,Position::new(6,0));
+        assert!(Ideolog::default().definition(&d,Position::new(1,1)).is_empty(),"surrogate midpoint is invalid");
+        d.language="rust".into();assert!(Ideolog::default().definition(&d,at).is_empty());d.language="log".into();
+        d.text=format!("{}at demo.Foo.run(Foo.java:7)"," ".repeat(8193));assert!(Ideolog::default().definition(&d,Position::new(0,8200)).is_empty());
+        d.text=format!("{source}{}","x".repeat(MAX_DOCUMENT_BYTES));assert!(Ideolog::default().definition(&d,at).is_empty());
+    }
+    #[test]
+    fn registered_frame_navigation_refuses_capped_source_inventory_and_invalid_lines() {
+        let h=MockHost::install().with_capabilities(&["project.read"]);h.set_project_root(Some("/p"));
+        for n in 0..200 {h.add_file(&format!("/p/f{n}/Foo.java"),"class Foo {}\n");}
+        let source="at f0.Foo.run(Foo.java:3)";
+        let mut d=Document {path:"/p/log.txt".into(),language:"log".into(),version:1,text:source.into()};
+        assert!(Ideolog::default().definition(&d,Position::new(0,15)).is_empty(),"capped list cannot establish unique best");
+        for number in ["0","99999999999999999999999"] {d.text=format!("at f0.Foo.run(Foo.java:{number})");assert!(Ideolog::default().definition(&d,Position::new(0,15)).is_empty());}
+    }
+    #[test]
+    fn source_command_refuses_foreign_editor_owner_and_invalid_utf16_caret() {
+        let h=MockHost::install().with_capabilities(&["project.read","editor.read"]);h.set_project_root(Some("/p"));h.add_project("/other");
+        h.add_file("/p/demo/Foo.java","class Foo {}\n");
+        h.open_editor("/other/log.txt","log","at demo.Foo.run(Foo.java:3)",&[(0,16,0,16)]);
+        assert!(Ideolog::default().run_command("jump-to-source",&h.invocation(),None).is_err(),"foreign editor must not search invoking project");assert!(h.opened_locations().is_empty());
+        h.open_editor("/p/log.txt","log","😀 at demo.Foo.run(Foo.java:3)",&[(0,1,0,1)]);
+        assert!(Ideolog::default().run_command("jump-to-source",&h.invocation(),None).is_err(),"invalid UTF16 caret must not become byte zero");assert!(h.opened_locations().is_empty());
+    }
+    #[test]
+    fn fallback_source_command_excludes_foreign_owners_and_refuses_equal_message_rank() {
+        let h=MockHost::install().with_capabilities(&["project.read","editor.read"]);h.set_project_root(Some("/p"));h.add_project("/p/aaa");
+        h.add_file("/p/aaa/Pay.kt","log.error(\"application startup failed\")");h.add_file("/p/src/Pay.kt","log.error(\"application startup failed\")");
+        h.open_editor("/p/log.txt","log","ERROR application startup failed\n",&[(0,0,0,0)]);
+        Ideolog::default().run_command("jump-to-source",&h.invocation(),None).unwrap();assert_eq!(h.opened_locations(),[("/p/src/Pay.kt".into(),0,0)]);
+        h.add_file("/p/second/Pay.kt","log.error(\"application startup failed\")");
+        Ideolog::default().run_command("jump-to-source",&h.invocation(),None).unwrap();assert_eq!(h.opened_locations().len(),1,"equal rank must not create another attributed source jump");
+    }
+    #[test]
+    fn registered_outline_and_next_error_keep_numeric_level_suffixes_unclassified() {
+        let h=MockHost::install().with_capabilities(&["project.read","editor.read"]);h.set_project_root(Some("/p"));
+        let source="2024/05/01 10:00:00 [info] 1#2: start\n2024/05/01 10:00:01 [error2] 1#2: ordinary custom level\n2024/05/01 10:00:02 [error] 1#2: actual error\n";
+        let symbols=Ideolog::default().outline("ideolog",source);assert_eq!(symbols.len(),1,"error2 is not ERROR");assert!(symbols[0].name.contains("actual error"));
+        h.open_editor("/p/log.txt","log",source,&[(0,0,0,0)]);Ideolog::default().run_command("next-error",&h.invocation(),None).unwrap();assert_eq!(h.opened_locations(),[("/p/log.txt".into(),2,0)]);
+    }
+    #[test]
     fn commands_refuse_other_files() {
         let host = MockHost::install().with_capabilities(&["editor.read", "project.read"]);
         host.open_editor("/p/a.rs", "rust", "fn main() {}", &[(0, 0, 0, 0)]);
@@ -779,3 +910,67 @@ java.lang.IllegalStateException: boom
     }
 }
 
+#[cfg(test)]
+mod external_patterns_refresh_tests {
+    use super::*;
+    use openidea_plugin::{mock::MockHost, views::{Body,FieldValue}};
+    fn notices(host:&MockHost,after:usize)->Vec<String>{
+        host.view_messages()[after..].iter().filter(|(_,text)|text==r#"{"channel":"ui-kit-refresh"}"#).map(|(view,_)|view.clone()).collect()
+    }
+    fn select(host:&MockHost){
+        host.open_editor("/project/private.log","ideolog","selected_literal",&[(0,0,0,16)]);
+        host.answer_next_prompt(Some(&["HIGHLIGHT_MATCH"]));host.answer_next_prompt(Some(&["green"]));
+    }
+    #[test]
+    fn selected_editor_text_becomes_global_definition_not_a_preview_sample(){
+        let host=MockHost::install();let mut plugin=Ideolog::default();select(&host);
+        plugin.run_command("highlight-selection",&host.invocation(),None).unwrap();
+        assert!(patterns::stored().contains("selected_literal"));
+        assert_eq!(notices(&host,0),[patterns::VIEW.to_owned()]);
+        assert!(host.view_messages().iter().all(|(_,text)|!text.contains("selected_literal")));
+        host.set_project_root(None);
+        let global=plugin.render(patterns::VIEW,None,&host.invocation()).unwrap();assert!(format!("{:?}",global.body).contains("selected_literal"));
+        plugin.handle(patterns::VIEW,ViewEvent::Button("add-highlight".into()),&host.invocation()).unwrap();
+        let Body::Form(fields)=plugin.render(patterns::VIEW,None,&host.invocation()).unwrap().body else {panic!("draft expected")};
+        let sample=fields.iter().find(|f|f.key.starts_with("pattern-sample@")).unwrap();
+        assert!(matches!(&sample.value,FieldValue::Multiline(text) if text.contains("Example failure") && !text.contains("selected_literal")));
+    }
+    #[test]
+    fn changed_remove_notifies_patterns_but_empty_cancel_and_error_do_not(){
+        let host=MockHost::install();let mut plugin=Ideolog::default();
+        plugin.run_command("remove-highlightings",&host.invocation(),None).unwrap();assert!(host.view_messages().is_empty());
+        host.open_editor("/project/a.log","ideolog","selected_literal",&[(0,0,0,16)]);
+        host.answer_next_prompt(None);plugin.run_command("highlight-selection",&host.invocation(),None).unwrap();assert!(host.view_messages().is_empty());
+        host.open_editor("/project/a.log","ideolog","selected_literal",&[(0,0,0,0)]);
+        assert!(plugin.run_command("highlight-selection",&host.invocation(),None).is_err());assert!(host.view_messages().is_empty());
+        patterns::save(&[patterns::highlight_element("seed","HIGHLIGHT_LINE",-39836)]).unwrap();
+        plugin.run_command("remove-highlightings",&host.invocation(),None).unwrap();
+        assert_eq!(notices(&host,0),[patterns::VIEW.to_owned()]);assert!(host.refreshed_views().iter().all(|view|view==patterns::VIEW));
+    }
+    #[test]
+    fn global_manual_draft_survives_external_change_and_save_conflict(){
+        let host=MockHost::install();let mut plugin=Ideolog::default();
+        patterns::save(&[patterns::highlight_element("seed","HIGHLIGHT_LINE",-39836)]).unwrap();
+        plugin.handle(patterns::VIEW,ViewEvent::Button("add-highlight".into()),&host.invocation()).unwrap();
+        let sample=plugin.pattern_editor.control_key("pattern-sample");
+        plugin.handle(patterns::VIEW,ViewEvent::Field(sample,"manual-global-settings-sample".into()),&host.invocation()).unwrap();
+        plugin.run_command("remove-highlightings",&host.invocation(),None).unwrap();
+        host.set_project_root(Some("/other"));
+        assert!(format!("{:?}",plugin.render(patterns::VIEW,None,&host.invocation()).unwrap().body).contains("manual-global-settings-sample"));
+        let save=plugin.pattern_editor.control_key("pattern-save");plugin.handle(patterns::VIEW,ViewEvent::Button(save),&host.invocation()).unwrap();
+        let model=format!("{:?}",plugin.render(patterns::VIEW,None,&host.invocation()).unwrap().body);
+        assert!(model.contains("changed elsewhere"));assert!(model.contains("manual-global-settings-sample"));assert!(patterns::stored().is_empty());
+    }
+    #[test]
+    fn stable_global_ui_kit_render_only_replies_without_invalidation_loop(){
+        let host=MockHost::install();host.set_project_root(None);let mut plugin=Ideolog::default();
+        for sequence in [1,2]{
+            let before=host.view_messages().len();
+            let request=format!(r#"{{"channel":"ui-kit","frameId":"0123456789abcdef0123456789abcdef","sequence":{sequence},"project":null,"op":"render"}}"#);
+            plugin.handle(patterns::VIEW,ViewEvent::Message(request.to_string()),&host.invocation()).unwrap();
+            let messages=host.view_messages();assert_eq!(messages.len(),before+1);
+            let reply=&messages[before].1;assert!(reply.contains(r#""channel":"ui-kit""#));assert!(reply.contains(r#""model":"#));
+        }
+        assert!(host.requests().is_empty());assert!(host.process_runs().is_empty());
+    }
+}

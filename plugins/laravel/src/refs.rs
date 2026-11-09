@@ -103,8 +103,9 @@ impl Site {
     }
 
     fn is_function(&self, names: &[&str]) -> bool {
-        let plain = !self.callee.contains("->") && !self.callee.contains("::") && !self.callee.starts_with(['$', '@']);
-        plain && names.contains(&self.last_segment())
+        // A final namespace segment is not proof of the global Laravel helper.
+        // Keep explicit \helper; refuse Vendor\helper and namespace\helper.
+        names.iter().any(|name| self.callee == *name || self.callee.strip_prefix('\\') == Some(*name))
     }
 
     fn is_method(&self, names: &[&str]) -> bool {
@@ -113,7 +114,22 @@ impl Site {
 
     fn is_static(&self, classes: &[&str], names: &[&str]) -> bool {
         let Some((class, method)) = self.callee.rsplit_once("::") else { return false };
-        let class = class.rsplit('\\').next().unwrap_or_default();
+        // Preserve conventional short aliases, but a foreign qualified class
+        // is not a Laravel facade merely because its last segment matches.
+        let class = match class.strip_prefix('\\') {
+            Some(global) if !global.contains('\\') => global,
+            Some("Illuminate\\Support\\Env") => "Env",
+            Some("Inertia\\Inertia") => "Inertia",
+            Some(global) => {
+                let Some(short) = global.strip_prefix("Illuminate\\Support\\Facades\\") else { return false };
+                if !["App", "Config", "Gate", "Lang", "Mail", "Redirect", "Route", "URL", "Validator", "View", "Vite"].contains(&short) {
+                    return false;
+                }
+                short
+            }
+            None if !class.contains('\\') => class,
+            _ => return false,
+        };
         classes.contains(&class) && names.contains(&method)
     }
 
@@ -450,11 +466,21 @@ fn assigned_chain<'a>(text: &'a str, site: &Site, statement: &str) -> Option<&'a
     let from = text.floor_char_boundary(site.callee_start.saturating_sub(4000));
     let before = &text[from..site.callee_start];
     let needle = format!("${variable}");
+    // A nearer non-dereference occurrence may be a parameter, destructuring/
+    // foreach binding, unset or unknown mutation: never skip it for an older
+    // assignment. Ordinary earlier $query-> calls keep the binding hint.
+    // Never carry this bounded heuristic across a brace boundary. Branches,
+    // captures and other uses need a separate lexical/data-flow model.
     let at = before.rmatch_indices(&needle).find_map(|(at, _)| {
-        let preceded = before[..at].bytes().next_back().is_none_or(|b| !is_identifier(b));
-        let rest = before[at + needle.len()..].trim_start();
-        (preceded && rest.starts_with('=') && !rest.starts_with("==") && !rest.starts_with("=>")).then_some(at)
+        let preceded = before[..at].bytes().next_back().is_none_or(|b| !is_identifier(b) && b != b'$');
+        let followed = before.as_bytes().get(at + needle.len()).is_none_or(|b| !is_identifier(*b));
+        let dereference = before[at + needle.len()..].trim_start().starts_with("->");
+        (preceded && followed && !dereference).then_some(at)
     })?;
+    let rest = before[at + needle.len()..].trim_start();
+    if !rest.starts_with('=') || rest.starts_with("==") || rest.starts_with("=>") || before[at..].contains(['{', '}']) {
+        return None;
+    }
     let rhs = &before[at + needle.len()..];
     let rhs = rhs.trim_start().strip_prefix('=')?;
     Some(&rhs[..rhs.find(';').unwrap_or(rhs.len())])
@@ -671,13 +697,10 @@ fn reference(text: &str, language: &str, literal: &Literal, site: &Site, at: Opt
 
 /// Where to start reading to know the context of `at`.
 fn window_start(language: &str, text: &str, at: usize) -> Option<usize> {
-    let line_start = text[..at].rfind('\n').map_or(0, |i| i + 1);
-
     if language == "blade" {
-        let line = &text[line_start..at];
-        let echo = line.rfind("{{").into_iter().chain(line.rfind("{!!")).max();
-        let directive = line.match_indices('@').map(|(i, _)| i).filter(|&i| i == 0 || !is_identifier(line.as_bytes()[i - 1])).max();
-        return echo.into_iter().chain(directive).max().map(|i| line_start + i);
+        // Enter the actual outer literal region, not a directive-looking
+        // substring inside an echo/PHP string or opaque source block.
+        return blade_regions(text).into_iter().find(|r| r.start <= at && at <= r.end).map(|r| r.start);
     }
 
     let lower = text.floor_char_boundary(at.saturating_sub(4000));
@@ -687,6 +710,7 @@ fn window_start(language: &str, text: &str, at: usize) -> Option<usize> {
 
 /// What the name at byte offset `at` refers to, if anything.
 pub fn reference_at(language: &str, text: &str, at: usize) -> Option<Reference> {
+    if language == "blade" && crate::blade_php::opaque_at(text, at) { return None; }
     if language == "blade"
         && let Some(tag) = tag_reference(text, at)
     {
@@ -696,7 +720,7 @@ pub fn reference_at(language: &str, text: &str, at: usize) -> Option<Reference> 
     let from = window_start(language, text, at)?;
     let mut found = None;
 
-    walk(text, from, text.len(), language != "blade", false, |literal, site| {
+    walk(text, from, text.len(), true, false, |literal, site| {
         if literal.start > at {
             return false;
         }
@@ -715,7 +739,7 @@ pub fn literal_at(language: &str, text: &str, at: usize) -> Option<(Kind, Range<
     let from = window_start(language, text, at)?;
     let mut found = None;
 
-    walk(text, from, text.len(), language != "blade", false, |literal, site| {
+    walk(text, from, text.len(), true, false, |literal, site| {
         if literal.start > at {
             return false;
         }
@@ -738,7 +762,7 @@ pub fn rule_list_at(language: &str, text: &str, at: usize) -> Option<usize> {
     let from = window_start(language, text, at)?;
     let mut found = None;
 
-    walk(text, from, text.len(), language != "blade", false, |literal, site| {
+    walk(text, from, text.len(), true, false, |literal, site| {
         if literal.start > at {
             return false;
         }
@@ -784,12 +808,13 @@ fn tag_reference(text: &str, at: usize) -> Option<Reference> {
 
 /// Blade and HTML comments blanked out, so the byte offsets stay the same.
 fn without_comments(text: &str) -> String {
-    let mut out = text.as_bytes().to_vec();
+    let Some(visible) = crate::blade_php::masked(text) else { return String::new(); };
+    let mut out = visible.as_bytes().to_vec();
 
     for (open, close) in [("{{--", "--}}"), ("<!--", "-->")] {
         let mut from = 0;
-        while let Some(start) = text[from..].find(open).map(|n| from + n) {
-            let end = text[start..].find(close).map_or(text.len(), |n| start + n + close.len());
+        while let Some(start) = visible[from..].find(open).map(|n| from + n) {
+            let end = visible[start..].find(close).map_or(text.len(), |n| start + n + close.len());
             for b in &mut out[start..end] {
                 if *b != b'\n' {
                     *b = b' ';
@@ -850,8 +875,12 @@ pub fn blade_regions(text: &str) -> Vec<Range<usize>> {
     let bytes = text.as_bytes();
     let mut regions = Vec::new();
     let mut i = 0;
+    let Some(opaque) = crate::blade_php::ranges(text) else { return Vec::new(); };
+    let mut span = 0;
 
     while i < bytes.len() {
+        while opaque.get(span).is_some_and(|r| r.end <= i) { span += 1; }
+        if let Some(range) = opaque.get(span).filter(|r| r.contains(&i)) { i = range.end; continue; }
         let end = match bytes[i] {
             b'{' if bytes[i..].starts_with(b"{{--") => text[i + 4..].find("--}}").map_or(bytes.len(), |n| i + 4 + n + 4),
             b'{' if bytes[i..].starts_with(b"{{") => text[i..].find("}}").map_or(bytes.len(), |n| i + n + 2),
@@ -888,7 +917,7 @@ pub fn references(language: &str, text: &str) -> Vec<Reference> {
 
     if language == "blade" {
         for region in blade_regions(text) {
-            walk(text, region.start, region.end, false, false, &mut collect);
+            walk(text, region.start, region.end, true, false, &mut collect);
         }
     } else {
         walk(text, 0, text.len(), true, true, &mut collect);
@@ -1062,4 +1091,41 @@ mod tests {
             }
         }
     }
+    #[test]
+    fn helper_references_require_unqualified_or_explicit_global_function_names() {
+        for (helper,kind) in [("view",Kind::View),("route",Kind::Route),("config",Kind::Config),("__",Kind::Translation),("env",Kind::Env),("asset",Kind::Asset)] {
+            for prefix in ["","\\"] {assert_eq!(kind_at("php",&format!("{prefix}{helper}('ex|ample');")),some(kind,"example"));}
+            for prefix in ["Vendor\\","\\Vendor\\","namespace\\"] {assert!(kind_at("php",&format!("{prefix}{helper}('ex|ample');")).is_none(),"{prefix}{helper}");}
+        }
+    }
+
+    #[test]
+    fn query_assignment_hint_stays_local_to_nearest_occurrence_and_brace_free_segment() {
+        let target=|marked:&str|{let at=marked.find('|').unwrap();let text=marked.replacen('|',"",1);reference_at("php",&text,at).filter(|r|r.kind==Kind::Column).and_then(|r|r.class)};
+        for marked in ["<?php function first(){ $query=Post::query(); } function second(){ $query->where('ti|tle'); }", "<?php $query=Post::query(); $f=fn($query)=>$query->where('ti|tle');", "<?php $query=Post::query(); foreach($queries as $query) $query->where('ti|tle');", "<?php $query=Post::query(); [$query]=unknown(); $query->where('ti|tle');", "<?php $query=Post::query(); unset($query); $query->where('ti|tle');", "<?php $$query=Post::query(); $query->where('ti|tle');"] {assert_eq!(target(marked),None,"{marked}");}
+        for marked in ["<?php function run(){ $query=Post::query(); $query->where('ti|tle'); }", "<?php $query=Post::query(); $querySuffix=unknown(); $query->where('ti|tle');", "<?php $query=Post::query(); $query->where('active',1); $query->orderBy('ti|tle');"] {assert_eq!(target(marked),Some("Post".into()),"{marked}");}
+    }
+
+    #[test]
+    fn static_reference_class_ownership_preserves_exact_global_framework_paths_and_short_aliases() {
+        for (class,method,kind) in [("View","make",Kind::View),("Config","get",Kind::Config),("Route","has",Kind::Route),("Lang","get",Kind::Translation)] {
+            for prefix in ["","\\","\\Illuminate\\Support\\Facades\\"] {assert_eq!(kind_at("php",&format!("{prefix}{class}::{method}('ex|ample');")),some(kind,"example"));}
+            for prefix in ["Vendor\\","\\Vendor\\","namespace\\","Illuminate\\Support\\Facades\\"] {assert!(kind_at("php",&format!("{prefix}{class}::{method}('ex|ample');")).is_none(),"{prefix}{class}");}
+        }
+        assert_eq!(kind_at("php","\\Illuminate\\Support\\Env::get('EX|AMPLE');"),some(Kind::Env,"EXAMPLE"));
+        assert_eq!(kind_at("php","\\Inertia\\Inertia::render('Posts/In|dex');"),some(Kind::Inertia,"Posts/Index"));
+        assert!(kind_at("php","\\Illuminate\\Support\\Facades\\Env::get('EX|AMPLE');").is_none());
+    }
+
+    #[test]
+    fn blade_literal_entry_uses_outer_region_and_excludes_php_data_tags_and_block_facts() {
+        let text=r#"<?php $x="?> @include('fake') <x-fake>"; ?> 😀 @include('real') <x-real>"#;
+        let facts=references("blade",text);assert_eq!(facts.iter().map(|r|&text[r.start..r.end]).collect::<Vec<_>>(),["real"]);
+        assert!(reference_at("blade",text,text.find("fake").unwrap()+1).is_none());
+        let real=text.find("'real'").unwrap()+2;assert_eq!(reference_at("blade",text,real).map(|r|r.kind),Some(Kind::View));
+        let tags=tag_references(text);assert_eq!(tags.iter().map(|r|&text[r.start..r.end]).collect::<Vec<_>>(),["real"]);
+        assert!(kind_at("blade",r#"{{ "@include('fa|ke')" }}"#).is_none());
+        assert_eq!(kind_at("blade","@php($x = view('re|al'))"),some(Kind::View,"real"));
+    }
+
 }

@@ -6,7 +6,6 @@ use spring_text::java;
 use spring_text::{parse_source, range};
 
 const MAPPING_ANNOTATIONS: [&str; 6] = ["RequestMapping", "GetMapping", "PostMapping", "PutMapping", "DeleteMapping", "PatchMapping"];
-const VERBS: [&str; 7] = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Mapping {
@@ -28,12 +27,6 @@ pub fn mappings(path: &str, text: &str) -> Option<Vec<Mapping>> {
         }
     }
     (!out.is_empty()).then_some(out)
-}
-
-/// The HTTP method of a matcher argument such as `HttpMethod.GET`.
-pub fn verb_of(argument: &str) -> Option<&str> {
-    let name = argument.rsplit('.').next()?.trim();
-    VERBS.contains(&name).then_some(name)
 }
 
 /// Whether an Ant pattern covers a mapping's URI template; a `{variable}` of the mapping stands for any segment.
@@ -82,12 +75,10 @@ mod tests {
     }
 
     #[test]
-    fn reads_controller_mappings_and_matcher_verbs() {
+    fn reads_controller_mappings() {
         let src = "@RestController @RequestMapping(\"/u\") class U { @GetMapping(\"/{id}\") void a() {} void plain() {} }";
         let found = mappings("U.java", src).unwrap();
         assert_eq!((found[0].verb.as_str(), found[0].path.as_str()), ("GET", "/u/{id}"));
         assert_eq!(found.len(), 1);
-        assert_eq!(verb_of("HttpMethod.GET"), Some("GET"));
-        assert_eq!(verb_of("\"/x\""), None);
     }
 }

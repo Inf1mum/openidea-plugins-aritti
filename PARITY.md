@@ -1,5 +1,13 @@
 # Parity with IntelliJ IDEA plugins
 
+**API 1.4 released (v0.1.40, 2026-11-09):** [Current blocker requalification](docs/parity-2026-11-08-refresh/api14-release-requalification/README.md). Canonical packages now target SDK v0.1.40 / API1.4; see the [native migration record](docs/native-api-migration-implementation-2026-11-09.md). Historical parity counters and dated validation receipts have not been promoted by this source migration.
+
+**2026-11-08 plan:** [code and UI parity improvements for all 29 maintained packages](docs/superpowers/plans/2026-11-08-all-plugin-parity.md),
+with [per-plugin work and acceptance journeys](docs/parity-2026-11-08/plugin-matrix.md)
+and [original code/screenshot evidence](docs/parity-2026-11-08/evidence.md).
+The ratings and implementation notes below are historical; API 1.3 feasibility
+and a plan do not establish verified runtime parity.
+
 How far each plugin in `plugins/` reaches the feature set of the IntelliJ plugin it stands in for.
 
 Method: derived from each `plugin.toml` and from [LIMITATIONS.md](LIMITATIONS.md), which records the gaps found while porting (last checked 2026-11-05 against OpenIDEA v0.1.37; the parity-improvement pass of 2026-11-06 is recorded in "Status 2026-11-06" below, the feasible-parity pass in "Audit update 2026-11-06"). Nothing here was measured by running the original plugins side by side, so the ratings are judgement calls, not test results. Closed-source originals were judged from their Marketplace descriptions only.

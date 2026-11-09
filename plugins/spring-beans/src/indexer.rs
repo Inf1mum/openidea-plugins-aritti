@@ -1,10 +1,10 @@
 //! Project-wide bean navigation for the host's document index: the model and
 //! the string sites of a file, published as keys (`bean#name`, `type#Simple`).
 
+use crate::Navigator;
 use crate::lib_hits;
 use crate::model::{self, FileModel};
 use crate::sites::Site;
-use crate::Navigator;
 use openidea_plugin::indexing::{Alias, Anchor, Document, DocumentIndexer, Edges};
 use spring_text::java::{Annotation, JavaFile};
 use spring_text::{config, range, xml};
@@ -102,7 +102,12 @@ fn events(path: &str, text: &str) -> (Vec<Anchor>, Vec<Anchor>) {
     for ty in &file.types {
         for method in ty.methods() {
             let Some(annotation) = method.annotations.iter().find(|a| LISTENER_ANNOTATIONS.contains(&a.name.as_str())) else { continue };
-            let literals: Vec<String> = annotation.args.iter().filter(|a| a.name == "value" || a.name == "classes").map(|a| a.text.replace("::class", ".class")).collect();
+            let literals: Vec<String> = annotation
+                .args
+                .iter()
+                .filter(|a| a.name == "value" || a.name == "classes")
+                .map(|a| a.text.replace("::class", ".class"))
+                .collect();
             let declared: Vec<&str> = literals.iter().flat_map(|text| class_literals(text)).collect();
             let from_parameter = method.params.first().map(|p| p.ty.name.as_str());
             let events = if declared.is_empty() { from_parameter.into_iter().collect() } else { declared };
@@ -116,7 +121,8 @@ fn events(path: &str, text: &str) -> (Vec<Anchor>, Vec<Anchor>) {
     }
     for call in spring_text::source_calls(path, text).iter().filter(|c| c.name == "publishEvent") {
         let Some(first) = call.args.first() else { continue };
-        let created = if kotlin { Some(first.text.as_str()).filter(|t| t.starts_with(char::is_uppercase)) } else { first.text.strip_prefix("new ") };
+        let created =
+            if kotlin { Some(first.text.as_str()).filter(|t| t.starts_with(char::is_uppercase)) } else { first.text.strip_prefix("new ") };
         let Some(created) = created else { continue };
         let name: String = created.trim_start().chars().take_while(|c| c.is_alphanumeric() || matches!(c, '_' | '.' | '$')).collect();
         let Some(event) = name.rsplit('.').next().filter(|e| !e.is_empty()) else { continue };
@@ -251,13 +257,14 @@ fn word_spans(expression: &str) -> impl Iterator<Item = (usize, &str)> {
         .map(move |w| (w.as_ptr() as usize - expression.as_ptr() as usize, w))
 }
 
-fn code_references(file: &JavaFile, text: &str) -> Vec<Anchor> {
+fn code_references(file: &JavaFile, text: &str, kotlin: bool) -> Vec<Anchor> {
     let mut out = Vec::new();
+    let owners = crate::annotation_owners::Owners::new(file,text,kotlin);
     for ty in &file.types {
         let on_members = ty.members.iter().flat_map(|m| m.annotations.iter().chain(m.params.iter().flat_map(|p| p.annotations.iter())));
         let on_components = ty.components.iter().flat_map(|p| p.annotations.iter());
         for annotation in ty.annotations.iter().chain(on_members).chain(on_components) {
-            annotation_references(text, annotation, &mut out);
+            if owners.keep_definition(text,annotation) { annotation_references(text, annotation, &mut out); }
         }
     }
     out
@@ -265,21 +272,31 @@ fn code_references(file: &JavaFile, text: &str) -> Vec<Anchor> {
 
 fn xml_references(text: &str) -> Vec<Anchor> {
     let els = xml::elements(text);
-    if xml::root(&els) != Some("beans") {
+    if !crate::xml_namespace::beans_document(text) {
         return Vec::new();
     }
     let mut out = Vec::new();
-    for e in &els {
+    for (i,e) in els.iter().enumerate() {
+        let beans = crate::xml_namespace::beans_element(&els,i);
+        let context = xml::namespace(&els,i)==Some("http://www.springframework.org/schema/context");
         for attr in e.attrs.iter().filter(|a| !a.name.starts_with("xmlns")) {
             let mut push = |key: String, from: usize, len: usize| out.push(Anchor { key, range: range(text, from, from + len) });
-            match (e.local(), attr.local()) {
-                ("beans", "profile") => model::name_tokens(&attr.value).for_each(|(at, n)| push(profile_key(n.trim_start_matches('!')), attr.value_at + at, n.len())),
-                ("component-scan", "base-package") => {
+            match (e.local(), attr.name.as_str()) {
+                ("beans", "profile") if beans => model::name_tokens(&attr.value)
+                    .for_each(|(at, n)| push(profile_key(n.trim_start_matches('!')), attr.value_at + at, n.len())),
+                ("component-scan", "base-package") if context => {
                     for (at, n) in model::name_tokens(&attr.value).filter(|(_, n)| !n.contains(['$', '*', '{'])) {
                         push(package_key(n), attr.value_at + at, n.len());
                     }
                 }
-                ("import", "resource") | ("property-placeholder", "location") => {
+                ("import", "resource") if beans => {
+                    for (at, n) in model::name_tokens(&attr.value) {
+                        if let Some(file) = resource_file(n) {
+                            push(resource_key(file), attr.value_at + at + n.len() - file.len(), file.len());
+                        }
+                    }
+                }
+                ("property-placeholder", "location") if context => {
                     for (at, n) in model::name_tokens(&attr.value) {
                         if let Some(file) = resource_file(n) {
                             push(resource_key(file), attr.value_at + at + n.len() - file.len(), file.len());
@@ -307,7 +324,8 @@ fn link_keys(path: &str, text: &str) -> (Vec<Anchor>, Vec<Anchor>, Vec<Alias>) {
         if let Some((_, profile)) = stem.split_once('-') {
             definitions.push(Anchor { key: profile_key(profile), range: range(text, 0, 0) });
         }
-        definitions.extend(config::keys(path, text).into_iter().map(|k| Anchor { key: placeholder_key(&k.key), range: range(text, k.at, k.end) }));
+        definitions
+            .extend(config::keys(path, text).into_iter().map(|k| Anchor { key: placeholder_key(&k.key), range: range(text, k.at, k.end) }));
     }
     if matches!(extension, "java" | "kt") {
         let file = spring_text::parse_source(path, text);
@@ -322,7 +340,7 @@ fn link_keys(path: &str, text: &str) -> (Vec<Anchor>, Vec<Anchor>, Vec<Alias>) {
                 ancestor = parent;
             }
         }
-        references.extend(code_references(&file, text));
+        references.extend(code_references(&file, text, extension == "kt"));
     }
     if extension == "xml" {
         references.extend(xml_references(text));
@@ -330,30 +348,42 @@ fn link_keys(path: &str, text: &str) -> (Vec<Anchor>, Vec<Anchor>, Vec<Alias>) {
     (definitions, references, aliases)
 }
 
+pub(crate) fn navigation_of(path: &str, text: &str, model: &FileModel) -> Edges {
+    let mut references = named_references(path, text);
+    let markers = injections(&model);
+    references.extend(markers.iter().cloned());
+    let mut definitions = definitions(&model);
+    let (event_definitions, event_markers) = events(path, text);
+    definitions.extend(event_definitions);
+    let mut markers = markers;
+    markers.extend(event_markers);
+    markers.extend(class_xml_markers(&model));
+    markers.extend(
+        model
+            .beans
+            .iter()
+            .filter(|b| b.kind == "@Bean" && !b.name.is_empty())
+            .map(|b| Anchor { key: override_key(&b.name), range: b.range }),
+    );
+    let (linked, linked_references, linked_aliases) = link_keys(path, text);
+    definitions.extend(linked);
+    markers.extend(linked_references.iter().filter(|a| a.key.starts_with("package:")).cloned());
+    references.extend(linked_references);
+    definitions.truncate(MAX_ANCHORS);
+    references.truncate(MAX_ANCHORS);
+    markers.truncate(MAX_ANCHORS);
+    let mut aliases = aliases(&model);
+    aliases.extend(linked_aliases);
+    aliases.truncate(MAX_ALIASES);
+    Edges { definitions, references, aliases, markers }
+}
+
 impl DocumentIndexer for Navigator {
-    fn index(&mut self, doc: &Document) -> Edges {
-        let model = model::parse(&doc.path, &doc.text).unwrap_or_default();
-        let mut references = named_references(&doc.path, &doc.text);
-        let markers = injections(&model);
-        references.extend(markers.iter().cloned());
-        let mut definitions = definitions(&model);
-        let (event_definitions, event_markers) = events(&doc.path, &doc.text);
-        definitions.extend(event_definitions);
-        let mut markers = markers;
-        markers.extend(event_markers);
-        markers.extend(class_xml_markers(&model));
-        markers.extend(model.beans.iter().filter(|b| b.kind == "@Bean" && !b.name.is_empty()).map(|b| Anchor { key: override_key(&b.name), range: b.range }));
-        let (linked, linked_references, linked_aliases) = link_keys(&doc.path, &doc.text);
-        definitions.extend(linked);
-        markers.extend(linked_references.iter().filter(|a| a.key.starts_with("package:")).cloned());
-        references.extend(linked_references);
-        definitions.truncate(MAX_ANCHORS);
-        references.truncate(MAX_ANCHORS);
-        markers.truncate(MAX_ANCHORS);
-        let mut aliases = aliases(&model);
-        aliases.extend(linked_aliases);
-        aliases.truncate(MAX_ALIASES);
-        Edges { definitions, references, aliases, markers }
+    fn index(&mut self, _doc: &Document) -> Edges {
+        // Type/bean/event/filename links do not all cover interchangeable names.
+        // Providers resolve them from the project-owned model instead. Native
+        // language-server Rename remains available for actual source symbols.
+        Edges::default()
     }
 }
 
@@ -363,14 +393,15 @@ mod tests {
 
     fn index(path: &str, text: &str) -> Edges {
         let _host = openidea_plugin::mock::MockHost::install();
-        Navigator::default().index(&Document { path: path.into(), text: text.into(), symbols: Vec::new() })
+        let model = model::parse(path, text).unwrap_or_default();
+        navigation_of(path, text, &model)
     }
 
     fn keys(anchors: &[Anchor]) -> Vec<&str> {
         anchors.iter().map(|a| a.key.as_str()).collect()
     }
 
-    const SERVICE: &str = "@Service(\"users\")\nclass UserServiceImpl implements UserService {\n    UserServiceImpl(UserRepository repo, @Qualifier(\"sms\") Notifier n) {}\n}\n";
+    const SERVICE: &str = "@org.springframework.stereotype.Service(\"users\")\nclass UserServiceImpl implements UserService {\n    UserServiceImpl(UserRepository repo, @org.springframework.beans.factory.annotation.Qualifier(\"sms\") Notifier n) {}\n}\n";
 
     #[test]
     fn stereotype_class_defines_its_name_and_types() {
@@ -394,7 +425,7 @@ mod tests {
 
     #[test]
     fn bean_method_defines_by_method_name() {
-        let edges = index("C.java", "@Configuration\nclass C {\n    @Bean\n    Clock clock() { return null; }\n}\n");
+        let edges = index("C.java", "@org.springframework.context.annotation.Configuration\nclass C {\n    @org.springframework.context.annotation.Bean\n    Clock clock() { return null; }\n}\n");
         assert!(keys(&edges.definitions).contains(&"bean#clock"));
         assert!(keys(&edges.definitions).contains(&"type:Clock#bean"));
     }
@@ -439,7 +470,11 @@ mod tests {
 
     #[test]
     fn unknown_event_payloads_are_ignored() {
-        assert!(!keys(&index("A.kt", "class A { fun f(o: Any) { publisher.publishEvent(o) } }").markers).iter().any(|k| k.starts_with("event:")));
+        assert!(
+            !keys(&index("A.kt", "class A { fun f(o: Any) { publisher.publishEvent(o) } }").markers)
+                .iter()
+                .any(|k| k.starts_with("event:"))
+        );
         let edges = index("B.java", "class B { void f(Object o) { events.publishEvent(o); events.publishEvent(\"x\"); } }");
         assert!(!keys(&edges.markers).iter().any(|k| k.starts_with("event:")));
     }
@@ -458,7 +493,8 @@ mod tests {
         let java = index("A.java", "class A {}\n");
         assert_eq!(keys(&java.markers), ["xml:A#bean"]);
 
-        let xml = index("beans.xml", "<beans>\n  <bean id=\"a\" class=\"com.acme.A\"/>\n  <bean id=\"b\" class=\"com.acme.A\"/>\n</beans>\n");
+        let xml =
+            index("beans.xml", "<beans>\n  <bean id=\"a\" class=\"com.acme.A\"/>\n  <bean id=\"b\" class=\"com.acme.A\"/>\n</beans>\n");
         assert_eq!(keys(&xml.markers), ["class:A#decl", "class:A#decl"]);
         assert_eq!(keys(&xml.definitions).iter().filter(|k| **k == "xml:A#bean").count(), 2);
     }
@@ -473,7 +509,7 @@ mod tests {
 
     #[test]
     fn profiles_packages_resources_and_placeholders_link_code_to_files() {
-        let java = "package com.acme.web;\n@Profile({\"dev\", \"!cloud & test\"})\n@ComponentScan(basePackages = \"com.acme.billing\")\n@PropertySource(\"classpath:conf/app.properties\")\nclass A {\n    @Value(\"${app.name:x}-${app.port}\") String n;\n}\n";
+        let java = "package com.acme.web;\n@org.springframework.context.annotation.Profile({\"dev\", \"!cloud & test\"})\n@ComponentScan(basePackages = \"com.acme.billing\")\n@PropertySource(\"classpath:conf/app.properties\")\nclass A {\n    @org.springframework.beans.factory.annotation.Value(\"${app.name:x}-${app.port}\") String n;\n}\n";
         let edges = index("A.java", java);
         for (key, covers) in [
             ("profile#dev", "dev"),
@@ -506,9 +542,15 @@ mod tests {
 
     #[test]
     fn xml_links_profiles_packages_and_resources() {
-        let xml = "<beans profile=\"a, b\">\n  <import resource=\"classpath:x/other.xml\"/>\n  <context:component-scan base-package=\"com.acme, com.beta\"/>\n  <import resource=\"${p}.xml\"/>\n</beans>\n";
+        let xml = "<beans xmlns=\"http://www.springframework.org/schema/beans\" xmlns:context=\"http://www.springframework.org/schema/context\" profile=\"a, b\">\n  <import resource=\"classpath:x/other.xml\"/>\n  <context:component-scan base-package=\"com.acme, com.beta\"/>\n  <import resource=\"${p}.xml\"/>\n</beans>\n";
         let edges = index("beans.xml", xml);
-        for (key, covers) in [("profile#a", "a"), ("profile#b", "b"), ("resource#other.xml", "other.xml"), ("package:com.acme#decl", "com.acme"), ("package:com.beta#decl", "com.beta")] {
+        for (key, covers) in [
+            ("profile#a", "a"),
+            ("profile#b", "b"),
+            ("resource#other.xml", "other.xml"),
+            ("package:com.acme#decl", "com.acme"),
+            ("package:com.beta#decl", "com.beta"),
+        ] {
             assert!(has(&edges.references, key, covers, xml), "{key}");
         }
         assert!(!keys(&edges.references).iter().any(|k| k.contains("${")));
@@ -518,16 +560,21 @@ mod tests {
     fn component_scan_and_bean_overrides_are_markers() {
         let scan = index("A.java", "@ComponentScan(\"com.acme\")\nclass A {}\n");
         assert!(keys(&scan.markers).contains(&"package:com.acme#decl"));
-        let beans = index("C.java", "@Configuration\nclass C {\n    @Bean\n    Clock clock() { return null; }\n}\n");
+        let beans = index("C.java", "@org.springframework.context.annotation.Configuration\nclass C {\n    @org.springframework.context.annotation.Bean\n    Clock clock() { return null; }\n}\n");
         assert!(keys(&beans.markers).contains(&"override#clock"));
         assert!(keys(&beans.definitions).contains(&"override#clock"));
-        let same = |key: &str| beans.markers.iter().find(|a| a.key == key).map(|a| a.range) == beans.definitions.iter().find(|a| a.key == key).map(|a| a.range);
+        let same = |key: &str| {
+            beans.markers.iter().find(|a| a.key == key).map(|a| a.range) == beans.definitions.iter().find(|a| a.key == key).map(|a| a.range)
+        };
         assert!(same("override#clock"), "the host drops a marker whose target is itself");
     }
 
     #[test]
     fn kotlin_publishers_and_listeners_are_linked() {
-        let listener = index("L.kt", "class L {\n    @EventListener\n    fun on(e: OrderPlaced) {}\n    @EventListener(classes = [Gone::class])\n    fun gone() {}\n}\n");
+        let listener = index(
+            "L.kt",
+            "class L {\n    @EventListener\n    fun on(e: OrderPlaced) {}\n    @EventListener(classes = [Gone::class])\n    fun gone() {}\n}\n",
+        );
         assert!(keys(&listener.definitions).contains(&"event:OrderPlaced#listener"));
         assert!(keys(&listener.definitions).contains(&"event:Gone#listener"));
         let publisher = index("P.kt", "class P {\n    fun place() {\n        events.publishEvent(OrderPlaced(this))\n    }\n}\n");

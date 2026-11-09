@@ -538,47 +538,11 @@ pub fn bundle(text: &str, path: &str, read: &dyn Fn(&str) -> Fetched) -> Result<
     Ok(Some(result))
 }
 
-fn escape_pointer(segment: &str) -> String {
-    segment.replace('~', "~0").replace('/', "~1")
-}
-
-/// The JSON pointer (`#/components/schemas/Pet`) of the first key on `line`.
-pub fn pointer_at(text: &str, keys: &[Key], line: u32) -> Option<String> {
-    let lines = Lines::new(text);
-    let i = line as usize;
-    if i >= lines.len() {
-        return None;
-    }
-
-    let start = lines.starts[i];
-    let key = keys.iter().find(|k| k.at >= start && k.at < lines.after(i))?;
-    let json = spec::is_json(text);
-    let by_key = spec::exact(keys);
-    let path = key.key.as_str();
-    let mut segments = Vec::new();
-    let mut at = 0;
-    while at < path.len() {
-        match path.as_bytes()[at] {
-            b'.' => at += 1,
-            b'[' => {
-                let close = path[at..].find(']')? + at;
-                segments.push(path[at + 1..close].to_owned());
-                at = close + 1;
-            }
-            _ => {
-                let end = (at + 1..=path.len())
-                    .filter(|e| *e == path.len() || matches!(path.as_bytes()[*e], b'.' | b'['))
-                    .find(|e| by_key.contains_key(&path[..*e]))?;
-                let own = by_key[&path[..end]];
-                let raw = &text[own.at..own.end];
-                let raw = if json { crate::json::unescape(raw) } else { raw.to_owned() };
-                segments.push(escape_pointer(&raw));
-                at = end;
-            }
-        }
-    }
-
-    Some(format!("#/{}", segments.join("/")))
+/// The canonical pointer of the actual source key token at the caret.
+/// Complete bounded ownership is required; this is not a usages/Rename graph.
+pub fn pointer_at(text:&str,at:openidea_plugin::Position)->Option<String> {
+    let caret=openidea_plugin::text::offset(text,at)?;
+    crate::pointer_status::Proof::parse(text)?.copy_pointer_at(caret)
 }
 
 #[cfg(test)]
@@ -758,15 +722,35 @@ components:
     }
 
     #[test]
-    fn pointer_of_the_key_on_a_line() {
-        let keys = spec::scan(SPEC);
-        let line = |needle: &str| SPEC[..SPEC.find(needle).unwrap()].matches('\n').count() as u32;
-        assert_eq!(pointer_at(SPEC, &keys, line("    Pet:")).unwrap(), "#/components/schemas/Pet");
-        assert_eq!(pointer_at(SPEC, &keys, line("  /pets")).unwrap(), "#/paths/~1pets");
-        assert_eq!(pointer_at(SPEC, &keys, line("        '200'")).unwrap(), "#/paths/~1pets/get/responses/200");
+    fn pointer_of_the_actual_key_at_the_caret() {
+        let at=|text:&str,needle:&str| openidea_plugin::text::position(text,text.find(needle).unwrap());
+        assert_eq!(pointer_at(SPEC, at(SPEC,"Pet:")).unwrap(), "#/components/schemas/Pet");
+        assert_eq!(pointer_at(SPEC, at(SPEC,"/pets")).unwrap(), "#/paths/~1pets");
+        assert_eq!(pointer_at(SPEC, at(SPEC,"200")).unwrap(), "#/paths/~1pets/get/responses/200");
         let list = "openapi: 3.0.0\nx:\n  - name: a\n  - name: b\n";
-        assert_eq!(pointer_at(list, &spec::scan(list), 3).unwrap(), "#/x/1/name");
+        assert_eq!(pointer_at(list, openidea_plugin::text::position(list,list.rfind("name").unwrap())).unwrap(), "#/x/1/name");
         let json = "{\"openapi\": \"3.0.0\",\n \"a/b\": {\"c\": 1}}";
-        assert_eq!(pointer_at(json, &spec::scan(json), 1).unwrap(), "#/a~1b");
+        assert_eq!(pointer_at(json, at(json,"a/b")).unwrap(), "#/a~1b");
     }
+    #[test]
+    fn copied_pointer_withholds_unowned_ambiguous_or_unsupported_source() {
+        let point=|text:&str,needle:&str| openidea_plugin::text::position(text,text.find(needle).unwrap());
+        for (text,needle) in [
+            (r#"{"openapi":"3.1.1","name":"value"}"#,"value"),
+            (r#"{"openapi":"3.1.1",  "name":1}"#,"  "),
+            (r#"{"openapi":"3.1.1","name":1,"name":2}"#,"name"),
+            (r#"{"openapi":"3.1.1","x[0]":{"name":1},"x":[{"name":2}]}"#,"name"),
+            (r#"{"openapi":"3.1.1","x":{"name":1},"$id":"other"}"#,"name"),
+            ("openapi: 3.1.1\ndescription: |\n  name: fake\n","name"),
+            ("openapi: 3.1.1\nx: &owned\n  name: value\ny: *owned\n","name"),
+            ("openapi: 3.1.1\nx: {name: value}\n","name"),
+            (r#"{"openapi":"3.1.1","name":1"#,"name"),
+        ] {assert!(pointer_at(text,point(text,needle)).is_none(),"{text}");}
+        assert!(pointer_at(r#"{"openapi":"3.1.1"}"#,openidea_plugin::Position{line:9,character:0}).is_none());
+        let long=format!("{{\"openapi\":\"3.1.1\",\"{}\":1}}","a".repeat(4096));
+        assert!(pointer_at(&long,point(&long,"aaa")).is_none());
+        let oversized=format!("{{\"openapi\":\"3.1.1\",\"name\":\"{}\"}}","a".repeat(512<<10));
+        assert!(pointer_at(&oversized,point(&oversized,"name")).is_none());
+    }
+
 }

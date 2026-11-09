@@ -5,8 +5,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, Instant};
 
-use openidea_plugin::{Error, Position};
 use openidea_plugin::host::{self, Project};
+use openidea_plugin::{Error, Position};
 
 use crate::refs::{self, Kind};
 use crate::{blade, controllers, migrations, php, routes};
@@ -42,8 +42,11 @@ impl AddName for Names {
 #[derive(Clone, Debug)]
 pub struct RouteEntry {
     pub def: routes::RouteDef,
+    pub endpoint_uri: Option<String>,
     pub path: String,
     pub at: Position,
+    /// Source token width in UTF-16 units; RouteDef.width remains a byte length.
+    pub width: u32,
 }
 
 /// A controller rendering a view: `return view('posts.index')`.
@@ -58,6 +61,7 @@ pub struct Render {
 
 #[derive(Default, Debug)]
 pub struct Index {
+    pub navigation: BTreeMap<String, ui_kit::navigation::Graph>,
     pub routes: Names,
     pub route_defs: Vec<RouteEntry>,
     pub views: Names,
@@ -126,17 +130,112 @@ const ROUTE_FILES: &[&str] = &["routes/**/*.php", "app/Http/routes.php", "app/ro
 
 /// Rules of Laravel's validator (the "Available Validation Rules" of the documentation).
 const VALIDATION_RULES: &[&str] = &[
-    "accepted", "accepted_if", "active_url", "after", "after_or_equal", "alpha", "alpha_dash", "alpha_num", "array", "ascii", "bail",
-    "before", "before_or_equal", "between", "boolean", "confirmed", "contains", "current_password", "date", "date_equals",
-    "date_format", "decimal", "declined", "declined_if", "different", "digits", "digits_between", "dimensions", "distinct",
-    "doesnt_end_with", "doesnt_start_with", "email", "ends_with", "enum", "exclude", "exclude_if", "exclude_unless", "exclude_with",
-    "exclude_without", "exists", "extensions", "file", "filled", "gt", "gte", "hex_color", "image", "in", "in_array", "integer", "ip",
-    "ipv4", "ipv6", "json", "list", "lowercase", "lt", "lte", "mac_address", "max", "max_digits", "mimetypes", "mimes", "min",
-    "min_digits", "missing", "missing_if", "missing_unless", "missing_with", "missing_with_all", "multiple_of", "not_in", "not_regex",
-    "nullable", "numeric", "present", "present_if", "present_unless", "present_with", "present_with_all", "prohibited", "prohibited_if",
-    "prohibited_unless", "prohibits", "regex", "required", "required_array_keys", "required_if", "required_if_accepted",
-    "required_if_declined", "required_unless", "required_with", "required_with_all", "required_without", "required_without_all", "same",
-    "size", "sometimes", "starts_with", "string", "timezone", "ulid", "unique", "uppercase", "url", "uuid",
+    "accepted",
+    "accepted_if",
+    "active_url",
+    "after",
+    "after_or_equal",
+    "alpha",
+    "alpha_dash",
+    "alpha_num",
+    "array",
+    "ascii",
+    "bail",
+    "before",
+    "before_or_equal",
+    "between",
+    "boolean",
+    "confirmed",
+    "contains",
+    "current_password",
+    "date",
+    "date_equals",
+    "date_format",
+    "decimal",
+    "declined",
+    "declined_if",
+    "different",
+    "digits",
+    "digits_between",
+    "dimensions",
+    "distinct",
+    "doesnt_end_with",
+    "doesnt_start_with",
+    "email",
+    "ends_with",
+    "enum",
+    "exclude",
+    "exclude_if",
+    "exclude_unless",
+    "exclude_with",
+    "exclude_without",
+    "exists",
+    "extensions",
+    "file",
+    "filled",
+    "gt",
+    "gte",
+    "hex_color",
+    "image",
+    "in",
+    "in_array",
+    "integer",
+    "ip",
+    "ipv4",
+    "ipv6",
+    "json",
+    "list",
+    "lowercase",
+    "lt",
+    "lte",
+    "mac_address",
+    "max",
+    "max_digits",
+    "mimetypes",
+    "mimes",
+    "min",
+    "min_digits",
+    "missing",
+    "missing_if",
+    "missing_unless",
+    "missing_with",
+    "missing_with_all",
+    "multiple_of",
+    "not_in",
+    "not_regex",
+    "nullable",
+    "numeric",
+    "present",
+    "present_if",
+    "present_unless",
+    "present_with",
+    "present_with_all",
+    "prohibited",
+    "prohibited_if",
+    "prohibited_unless",
+    "prohibits",
+    "regex",
+    "required",
+    "required_array_keys",
+    "required_if",
+    "required_if_accepted",
+    "required_if_declined",
+    "required_unless",
+    "required_with",
+    "required_with_all",
+    "required_without",
+    "required_without_all",
+    "same",
+    "size",
+    "sometimes",
+    "starts_with",
+    "string",
+    "timezone",
+    "ulid",
+    "unique",
+    "uppercase",
+    "url",
+    "uuid",
 ];
 
 /// Route middleware the framework registers (Laravel's `Middleware::defaultAliases()` and groups).
@@ -181,6 +280,13 @@ impl<'a> Lines<'a> {
         let start = self.starts[line];
         let character = self.text[start..at].chars().map(|c| c.len_utf16() as u32).sum();
         Position::new(line as u32, character)
+    }
+
+    /// Navigation uses the recorded source token, not the composed effective key.
+    pub(super) fn width(&self, at: usize, bytes: usize) -> usize {
+        at.checked_add(bytes).and_then(|end| self.text.get(at..end))
+            .filter(|source| !source.contains(['\r', '\n']))
+            .map_or(0, |source| source.encode_utf16().count())
     }
 }
 
@@ -367,9 +473,35 @@ pub fn table_name(class: &str) -> String {
 
 /// Aliases the framework registers in the container (the "Facade Class Reference" and the container's core aliases).
 const CORE_BINDINGS: &[&str] = &[
-    "app", "auth", "auth.driver", "blade.compiler", "cache", "cache.store", "config", "cookie", "db", "db.connection", "encrypter", "events",
-    "files", "filesystem", "filesystem.disk", "hash", "log", "mailer", "queue", "queue.connection", "redirect", "request", "router",
-    "session", "session.store", "translator", "url", "validator", "view",
+    "app",
+    "auth",
+    "auth.driver",
+    "blade.compiler",
+    "cache",
+    "cache.store",
+    "config",
+    "cookie",
+    "db",
+    "db.connection",
+    "encrypter",
+    "events",
+    "files",
+    "filesystem",
+    "filesystem.disk",
+    "hash",
+    "log",
+    "mailer",
+    "queue",
+    "queue.connection",
+    "redirect",
+    "request",
+    "router",
+    "session",
+    "session.store",
+    "translator",
+    "url",
+    "validator",
+    "view",
 ];
 
 /// `namespace X; class Stem`: the fully qualified name and the offset of the name.
@@ -382,7 +514,8 @@ fn declared_class(masked: &str, stem: &str) -> Option<(String, usize)> {
             let before = masked[line_start..at].trim();
             let start = at + keyword.len();
             let declares = before.split_whitespace().all(|word| matches!(word, "final" | "abstract" | "readonly"));
-            let named = masked[start..].starts_with(stem) && !masked.as_bytes().get(start + stem.len()).is_some_and(|b| php::is_identifier(*b));
+            let named =
+                masked[start..].starts_with(stem) && !masked.as_bytes().get(start + stem.len()).is_some_and(|b| php::is_identifier(*b));
             (declares && named).then_some(start)
         })
     })?;
@@ -415,14 +548,20 @@ fn model_members(masked: &str) -> (BTreeMap<String, String>, BTreeSet<String>) {
             scopes.insert(name.clone());
         }
 
-        let Some(brace) = php::closing(masked, open).and_then(|close| masked[close..].find(['{', ';']).map(|i| close + i)).filter(|i| masked.as_bytes()[*i] == b'{') else { continue };
+        let Some(brace) = php::closing(masked, open)
+            .and_then(|close| masked[close..].find(['{', ';']).map(|i| close + i))
+            .filter(|i| masked.as_bytes()[*i] == b'{')
+        else {
+            continue;
+        };
         let Some(end) = php::closing(masked, brace) else { continue };
         let body = &masked[brace..end];
 
         for call in RELATION_CALLS {
             let needle = format!("$this->{call}(");
             let Some(found) = body.find(&needle) else { continue };
-            let first = php::arguments(body, found + needle.len() - 1).into_iter().next().and_then(|range| php::class_constant(body, range));
+            let first =
+                php::arguments(body, found + needle.len() - 1).into_iter().next().and_then(|range| php::class_constant(body, range));
             if let Some(target) = first {
                 relations.insert(name.clone(), target.rsplit('\\').next().unwrap_or(target).to_owned());
             }
@@ -470,7 +609,11 @@ impl Index {
                 index.partial = true;
                 return None;
             }
-            project.read_file(path).ok()
+            let text = project.read_file(path).ok()?;
+            if path.ends_with(".php") {
+                index.navigation.insert(path.into(), crate::indexer::edges_of(path, &text, &|_| true).into());
+            }
+            Some(text)
         };
 
         let mut view_roots: Vec<(Option<String>, String)> = VIEW_ROOTS.iter().map(|r| (None, (*r).to_owned())).collect();
@@ -494,6 +637,10 @@ impl Index {
             }
         }
 
+        let mounts = routes::application_mounts(
+            &project.read_file("bootstrap/app.php").unwrap_or_default(),
+            &project.read_file("app/Providers/RouteServiceProvider.php").unwrap_or_default(),
+        );
         for path in files(&globs(ROUTE_FILES)) {
             let Some(text) = read(&path, &mut index) else { continue };
             let masked = php::mask_comments(&text);
@@ -501,11 +648,16 @@ impl Index {
 
             for def in routes::parse(&masked) {
                 let at = lines.position(def.offset);
+                let width = lines.width(def.offset, def.width);
                 if let Some(name) = &def.name {
                     let detail = format!("{} {} → {}", def.methods, def.uri, def.action);
-                    index.routes.add(name, Some(detail), &path, at, def.width);
+                    index.routes.add(name, Some(detail), &path, at, width);
                 }
-                index.route_defs.push(RouteEntry { def, path: path.clone(), at });
+                let endpoint_uri = match &mounts {
+                    Some(mounts) => mounts.get(&relative(&path)).map(|prefix| format!("/{}", [prefix.as_str(), def.uri.trim_matches('/')].into_iter().filter(|p| !p.is_empty()).collect::<Vec<_>>().join("/"))),
+                    None => (!relative(&path).ends_with("/api.php")).then(|| def.uri.clone()),
+                };
+                index.route_defs.push(RouteEntry { def, endpoint_uri, path: path.clone(), at, width: width as u32 });
             }
 
             index.renders.extend(renders(&path, &text));
@@ -541,7 +693,8 @@ impl Index {
         for path in files(&globs(&["config/**/*.php"])) {
             let Some(text) = read(&path, &mut index) else { continue };
             let relative_path = relative(&path);
-            let Some(file_key) = relative_path.strip_prefix("config/").and_then(|p| p.strip_suffix(".php")).map(|p| p.replace('/', ".")) else {
+            let Some(file_key) = relative_path.strip_prefix("config/").and_then(|p| p.strip_suffix(".php")).map(|p| p.replace('/', "."))
+            else {
                 continue;
             };
 
@@ -554,7 +707,7 @@ impl Index {
             php::array_paths(&masked, open, &file_key, &mut leaves, 0);
             for leaf in leaves {
                 let detail = if leaf.array { Some("array".to_owned()) } else { leaf.value };
-                index.config.add(&leaf.path, detail, &path, lines.position(leaf.offset), leaf.width);
+                index.config.add(&leaf.path, detail, &path, lines.position(leaf.offset), lines.width(leaf.offset, leaf.width));
             }
         }
 
@@ -628,13 +781,18 @@ impl Index {
         for root in INERTIA_PAGE_ROOTS {
             for extension in INERTIA_PAGE_EXTENSIONS {
                 for path in files(&[format!("{root}/**/*.{extension}")]) {
-                    let name = relative(&path).trim_start_matches(&format!("{root}/")).trim_end_matches(&format!(".{extension}")).to_owned();
+                    let name =
+                        relative(&path).trim_start_matches(&format!("{root}/")).trim_end_matches(&format!(".{extension}")).to_owned();
                     index.inertia_pages.add(&name, None, &path, Position::new(0, 0), 0);
                 }
             }
         }
 
-        for path in files(&globs(&["database/factories/**/*.php"])) {
+        for path in files(&globs(&["database/factories/**/*.php", "database/seeders/**/*.php"])) {
+            let _ = read(&path, &mut index);
+            if !relative(&path).starts_with("database/factories/") {
+                continue;
+            }
             if let Some(stem) = file_name(&path).strip_suffix(".php") {
                 index.factories.insert(stem.to_owned());
             }
@@ -653,9 +811,10 @@ impl Index {
             let Some(text) = read(&path, &mut index) else { continue };
             let masked = php::mask_comments(&text);
             let lines = Lines::new(&text);
-            index.open_components |= ["anonymousComponentPath(", "anonymousComponentNamespace(", "componentNamespace(", "Blade::components("]
-                .iter()
-                .any(|call| masked.contains(call));
+            index.open_components |=
+                ["anonymousComponentPath(", "anonymousComponentNamespace(", "componentNamespace(", "Blade::components("]
+                    .iter()
+                    .any(|call| masked.contains(call));
             for (at, _) in masked.match_indices("Blade::component(") {
                 let arguments = php::arguments(&masked, at + "Blade::component".len());
                 let literals: Vec<_> = arguments.iter().take(2).filter_map(|range| php::literal(&masked, range.clone())).collect();
@@ -667,7 +826,8 @@ impl Index {
                     continue;
                 }
 
-                let class = arguments.first().filter(|_| arguments.len() == 1).and_then(|range| php::class_constant(&masked, range.clone()));
+                let class =
+                    arguments.first().filter(|_| arguments.len() == 1).and_then(|range| php::class_constant(&masked, range.clone()));
                 match class {
                     Some(class) => {
                         let basename = class.rsplit('\\').next().unwrap_or(class);
@@ -676,13 +836,14 @@ impl Index {
                     None => index.open_components = true,
                 }
             }
-            index.open_livewire |= ["Livewire::component(", "Livewire::componentNamespace(", "Livewire::addNamespace(", "Livewire::addLocation("]
-                .iter()
-                .any(|call| masked.contains(call));
+            index.open_livewire |=
+                ["Livewire::component(", "Livewire::componentNamespace(", "Livewire::addNamespace(", "Livewire::addLocation("]
+                    .iter()
+                    .any(|call| masked.contains(call));
             for (at, _) in masked.match_indices("Gate::define(") {
                 let first = php::arguments(&masked, at + "Gate::define".len()).into_iter().next();
                 if let Some((ability, offset)) = first.and_then(|range| php::literal(&masked, range)) {
-                    index.abilities.add(ability, Some("Gate::define".into()), &path, lines.position(offset), ability.len());
+                    index.abilities.add(ability, Some("Gate::define".into()), &path, lines.position(offset), lines.width(offset, ability.len()));
                 }
             }
         }
@@ -709,7 +870,13 @@ impl Index {
                 for (at, _) in masked.match_indices(call) {
                     let first = php::arguments(&masked, at + call.len() - 1).into_iter().next();
                     if let Some((name, offset)) = first.and_then(|range| php::literal(&masked, range)) {
-                        index.bindings.add(&name.replace("\\\\", "\\"), Some(call.trim_matches(['-', '>', ':', '(']).to_owned()), &path, lines.position(offset), name.len());
+                        index.bindings.add(
+                            &name.replace("\\\\", "\\"),
+                            Some(call.trim_matches(['-', '>', ':', '(']).to_owned()),
+                            &path,
+                            lines.position(offset),
+                            lines.width(offset, name.len()),
+                        );
                     }
                 }
             }
@@ -738,12 +905,17 @@ impl Index {
             let lines = Lines::new(&text);
             for column in migrations::parse(&masked) {
                 let names = index.columns.entry(column.table).or_default();
-                names.add(&column.name, Some(column.kind), &path, lines.position(column.offset), column.name.len());
+                names.add(&column.name, Some(column.kind), &path, lines.position(column.offset), lines.width(column.offset, column.name.len()));
             }
         }
 
         let mut model_globs = globs(&["app/Models/**/*.php", "app/*.php"]);
-        model_globs.extend(comma_separated("modelDirectories").into_iter().filter(|d| !d.contains("..") && !d.starts_with('/')).map(|d| format!("{d}/**/*.php")));
+        model_globs.extend(
+            comma_separated("modelDirectories")
+                .into_iter()
+                .filter(|d| !d.contains("..") && !d.starts_with('/'))
+                .map(|d| format!("{d}/**/*.php")),
+        );
         for path in files(&model_globs) {
             let Some(text) = read(&path, &mut index) else { continue };
             let relative_path = relative(&path);
@@ -798,10 +970,7 @@ impl Index {
                 };
                 let (locale, key) = match rest.as_slice() {
                     [json] if json.ends_with(".json") => (json.trim_end_matches(".json").to_owned(), String::new()),
-                    [locale, file @ ..] if !file.is_empty() => (
-                        (*locale).to_owned(),
-                        file.join("/").trim_end_matches(".php").to_owned(),
-                    ),
+                    [locale, file @ ..] if !file.is_empty() => ((*locale).to_owned(), file.join("/").trim_end_matches(".php").to_owned()),
                     _ => continue,
                 };
 
@@ -818,7 +987,9 @@ impl Index {
             if json {
                 for (name, offset) in json_keys(&text) {
                     let value = format!("[{locale}]");
-                    self.translations.add(&name, Some(value), &path, lines.position(offset), name.len());
+                    let end = php::string_end(text.as_bytes(), offset - 1);
+                    let width = lines.width(offset, end.saturating_sub(offset + 1));
+                    self.translations.add(&name, Some(value), &path, lines.position(offset), width);
                 }
                 continue;
             }
@@ -831,7 +1002,7 @@ impl Index {
             php::array_paths(&masked, open, &key, &mut leaves, 0);
             for leaf in leaves {
                 let detail = leaf.value.map(|v| format!("{v} [{locale}]"));
-                self.translations.add(&leaf.path, detail, &path, lines.position(leaf.offset), leaf.width);
+                self.translations.add(&leaf.path, detail, &path, lines.position(leaf.offset), lines.width(leaf.offset, leaf.width));
             }
         }
     }
@@ -890,7 +1061,12 @@ fn renders(path: &str, text: &str) -> Vec<Render> {
                 None => stem.to_owned(),
             };
 
-            Render { view: text[reference.start..reference.end].to_owned(), caller, path: path.to_owned(), at: lines.position(reference.start) }
+            Render {
+                view: text[reference.start..reference.end].to_owned(),
+                caller,
+                path: path.to_owned(),
+                at: lines.position(reference.start),
+            }
         })
         .collect()
 }
@@ -1017,15 +1193,15 @@ mod tests {
         let mut names = Names::new();
         let app = "->withMiddleware(function (Middleware $middleware) {\n    $middleware->alias([\n        'admin' => AdminMiddleware::class,\n        'role' => \\Spatie\\Role::class,\n    ]);\n})";
         middleware_aliases("/p/bootstrap/app.php", app, &mut names);
-        middleware_aliases("/p/app/Http/Kernel.php", "protected $routeMiddleware = [\n 'auth' => \\App\\Http\\Middleware\\Authenticate::class,\n];", &mut names);
+        middleware_aliases(
+            "/p/app/Http/Kernel.php",
+            "protected $routeMiddleware = [\n 'auth' => \\App\\Http\\Middleware\\Authenticate::class,\n];",
+            &mut names,
+        );
         let found: Vec<_> = names.iter().map(|(k, e)| (k.as_str(), e.detail.as_deref())).collect();
         assert_eq!(
             found,
-            [
-                ("admin", Some("AdminMiddleware")),
-                ("auth", Some("App\\Http\\Middleware\\Authenticate")),
-                ("role", Some("Spatie\\Role"))
-            ]
+            [("admin", Some("AdminMiddleware")), ("auth", Some("App\\Http\\Middleware\\Authenticate")), ("role", Some("Spatie\\Role"))]
         );
     }
 
@@ -1041,6 +1217,14 @@ mod tests {
         let text = "<?php\nclass PostController {\n    public function index()\n    {\n        return view('posts.index');\n    }\n}\n";
         let found = renders("/p/app/Http/Controllers/PostController.php", text);
         assert_eq!(found.len(), 1);
-        assert_eq!((found[0].view.as_str(), found[0].caller.as_str(), found[0].at), ("posts.index", "PostController::index", Position::new(4, 21)));
+        assert_eq!(
+            (found[0].view.as_str(), found[0].caller.as_str(), found[0].at),
+            ("posts.index", "PostController::index", Position::new(4, 21))
+        );
     }
+    #[test]
+    fn dynamic_source_token_widths_count_utf16_and_never_make_multiline_same_line_spans() {
+        let source="😀 prefix hé😀\r\nnext";let at=source.find("hé😀").unwrap();let lines=Lines::new(source);assert_eq!(lines.width(at,"hé😀".len()),4);assert_eq!(lines.width(at,source.len()-at),0);assert_eq!(lines.width(at+1,1),0);assert_eq!(lines.width(source.len()+1,1),0);
+    }
+
 }

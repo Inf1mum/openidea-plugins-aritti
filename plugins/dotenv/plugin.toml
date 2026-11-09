@@ -1,13 +1,13 @@
 id = "aritti.dotenv"
 name = ".env files"
 version = "0.2.0" # x-release-please-version
-description = ".env file support: highlighting, inspections with quick fixes and ${VARIABLE} completion. Environment variables in code (getenv, os.environ, process.env, ENV[…], env::var, PHPUnit <env>, …) get completion and go to declaration in .env files, Dockerfiles and docker-compose files. Go to declaration on a key in a .env file lists its usages, and after you rename a key a quick fix updates them. Port of the \".env files\" plugin by Adel Fayzrakhmanov and JetBrains."
+description = ".env file support: highlighting, inspections with quick fixes and ${VARIABLE} completion. Environment variables in code (getenv, os.environ, process.env, ENV[…], env::var, PHPUnit <env>, …) get completion and go to declaration in .env files, Dockerfiles and docker-compose files. Go to declaration on a key in a .env file lists its usages, and a confirmed source-only action can update current-file interpolation tokens after a key edit. Port of the \".env files\" plugin by Adel Fayzrakhmanov and JetBrains."
 authors = ["Arnaud RITTI", "Adel Fayzrakhmanov (original plugin)", "JetBrains s.r.o. (original plugin)"]
 license = "MIT"
-change-notes = "0.1.0: first release. Port of ru.adelf.idea.dotenv 263.7307.209 (github.com/JetBrains/idea-php-dotenv-plugin, revision a1e60501; Docker, PHP, PHPUnit, Go, Ruby and Rust support from revision c1484553, before it was removed upstream). Includes highlighting, the 11 inspections and their quick fixes, ${VARIABLE} completion and navigation, environment variable completion, go to declaration and usages in code, keys from Dockerfiles and docker-compose files, and renaming the usages of an edited key."
+change-notes = "Unreleased: bounded cached-source hover for env declarations and existing code/reference forms; values obey showValues, ambiguity and incomplete caches are labelled. Hover performs no discovery or file reads. 0.1.0: first release. Port of ru.adelf.idea.dotenv 263.7307.209 (github.com/JetBrains/idea-php-dotenv-plugin, revision a1e60501; Docker, PHP, PHPUnit, Go, Ruby and Rust support from revision c1484553, before it was removed upstream). Includes highlighting, the 11 inspections and their quick fixes, ${VARIABLE} completion and navigation, environment variable completion, go to declaration and usages in code, keys from Dockerfiles and docker-compose files, and source-only current-file interpolation updates after an edited key."
 categories = ["languages", "linters"]
 icon = "icon.svg"
-engines.openidea = "^1.2"
+engines.openidea = "^1.4"
 wasm = "dist/plugin.wasm"
 activation = ["on-language:dotenv"]
 
@@ -21,13 +21,21 @@ required = ["project.read", "events"]
 path = "languages/dotenv.toml"
 
 [[contributes.providers]]
-kinds = ["completion", "definition", "code-actions"]
+kinds = ["completion", "definition", "code-actions", "hover"]
 languages = ["dotenv"]
 
 [[contributes.providers]]
-kinds = ["completion", "definition"]
+kinds = ["completion", "definition", "hover"]
 languages = ["php", "python", "java", "kotlin", "scala", "groovy", "javascript", "typescript", "javascriptreact", "typescriptreact", "vue", "svelte", "go", "ruby", "rust", "csharp", "xml"]
 
 [contributes.settings]
 schema = "settings.schema.json"
 title = ".env files"
+
+[[contributes.providers]]
+kinds = ["diagnostics"]
+languages = ["dotenv"]
+
+[[contributes.providers]]
+kinds = ["semantic-tokens"]
+languages = ["dotenv"]

@@ -2,12 +2,12 @@
   "properties": {
     "springSecurity.checkMatchers": {
       "type": "boolean",
-      "title": "Warn about request matchers placed after anyRequest() and narrower matchers shadowed by an earlier broader one",
+      "title": "Warn about Java/Kotlin matcher ordering and duplicate/unreachable Security XML patterns",
       "default": true
     },
     "springSecurity.checkPathPatterns": {
       "type": "boolean",
-      "title": "Warn about a ** before the last segment of request matcher path patterns (rejected by PathPatternParser)",
+      "title": "Check explicit PathPatternRequestMatcher factory path syntax (implicit matcher strategy stays unresolved)",
       "default": true
     },
     "springSecurity.checkDebug": {
@@ -24,6 +24,41 @@
       "type": "boolean",
       "title": "Warn when a method protected by @PreAuthorize, @PostAuthorize, @PreFilter or @PostFilter is called from the same class (skips the proxy; wrong when method security uses AspectJ mode)",
       "default": false
+    },
+    "springSecurity.matcherHover": {
+      "type": "boolean",
+      "title": "Show source hover for explicit known matcher declarations",
+      "default": true
+    },
+    "springSecurity.matcherInlays": {
+      "type": "boolean",
+      "title": "Show source inlays for explicit known matcher declarations",
+      "default": true
+    },
+    "springSecurity.checkMigration": {
+      "type": "boolean",
+      "title": "Warn about source declarations of removed or deprecated Security configuration APIs (source advisories, framework version unresolved)",
+      "default": true
+    },
+    "springSecurity.checkRolePrefixes": {
+      "type": "boolean",
+      "title": "Warn about explicit ROLE_ prefixes in role-check literals (receiver and custom prefix semantics unresolved)",
+      "default": true
+    },
+    "springSecurity.checkPasswords": {
+      "type": "boolean",
+      "title": "Warn about source declarations of NoOpPasswordEncoder and {noop} passwords",
+      "default": true
+    },
+    "springSecurity.checkExpressions": {
+      "type": "boolean",
+      "title": "Check source-local Security XML access expression syntax and known function names (custom expression roots unresolved)",
+      "default": true
+    },
+    "springSecurity.checkXmlAttributes": {
+      "type": "boolean",
+      "title": "Check supported Security XML required attributes and known enumerated values",
+      "default": true
     }
   }
 }

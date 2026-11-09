@@ -3,11 +3,25 @@
 //! files and schemas embedded in `.wsdl`) and checks the classpath resources
 //! given to `ClassPathResource`. Text-based, Java and Kotlin.
 
+mod generate;
+mod indexing;
+mod resource_completion;
+mod namespace_values;
+mod resource_paths;
+mod annotation_owners;
+mod schema_qnames;
+mod xml_refs;
+mod xml_resources;
+
+use openidea_plugin::diagnostics::DiagnosticsProvider;
+use std::collections::BTreeSet;
+use std::time::{Duration, Instant};
+
 use openidea_plugin::providers::{CompletionItem, CompletionKind, Document, LineMarker, Providers};
 use openidea_plugin::{
-    Diagnostic, Error, Invocation, Location, Plugin, Position, Range, Severity, host, register_plugin,
+    Context, Diagnostic, Error, Event, EventKind, Invocation, Location, Plugin, Position, Range, Severity, host, register_plugin,
 };
-use spring_text::index::{Index, Indexes, PROVIDER_BUDGET, project_of};
+use spring_text::index::{COMMAND_BUDGET, Index, Indexes, PROVIDER_BUDGET, project_of};
 use spring_text::java::{self, Arg, JavaFile, Str};
 use spring_text::{SOURCE_GLOBS, contains, parse_source, range, source_calls, xml};
 
@@ -31,33 +45,231 @@ pub struct Schema {
     pub elements: Vec<(String, Range)>,
 }
 
-/// The value of an annotation argument that is a string literal or a string
-/// constant of the same file (`NAMESPACE_URI`, `Ns.URI`).
-fn constant(f: &JavaFile, text: &str, arg: &Arg) -> Option<String> {
+/// Literal namespace or uniquely owned source compile-time constant. Unknown
+/// expressions/owners are not a known namespace merely because a field shares a name.
+fn constant(f: &JavaFile, text: &str, arg: &Arg, owner: usize, kotlin: bool) -> Option<String> {
     let literal = |code: &str| {
         let toks = java::tokens(code);
-        match toks.as_slice() {
-            [t] => t.string().map(|s| s.value),
-            _ => None,
-        }
+        let [token] = toks.as_slice() else {
+            return None;
+        };
+        let value = token.string()?;
+        let raw = code.get(value.at..value.end)?;
+        (raw == value.value
+            && !raw.contains(['\\', '$'])
+            && raw.len() <= 1024
+            && !raw.chars().any(|c| c.is_control() || c.is_whitespace())
+            && !raw.contains("${")
+            && !raw.contains("#{"))
+        .then_some(value.value)
     };
     if let Some(value) = literal(&arg.text) {
         return Some(value);
     }
-    let name = arg.text.rsplit('.').next()?.trim();
-    let field = f.types.iter().flat_map(|t| t.fields()).find(|m| m.name == name)?;
+    let tokens = java::tokens(&arg.text);
+    let (owners, name): (Vec<usize>, &str) = match tokens.as_slice() {
+        [name] if name.is_ident() => {
+            let mut owners = vec![owner];
+            if kotlin {
+                owners.extend(
+                    f.types
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, t)| {
+                            t.outer == Some(owner)
+                                && t.kind == "object"
+                                && t.modifiers.iter().any(|m| m == "companion")
+                        })
+                        .map(|(i, _)| i),
+                );
+            }
+            (owners, name.s)
+        }
+        [ty, dot, name] if ty.is_ident() && dot.s == "." && name.is_ident() => {
+            let owners: Vec<_> = f
+                .types
+                .iter()
+                .enumerate()
+                .filter(|(_, t)| t.name == ty.s && t.outer.is_none())
+                .map(|(i, _)| i)
+                .collect();
+            if owners.len() != 1
+                // A nested declaration can hide the top-level written owner.
+                // Without a lexical type resolver, withhold this namespace.
+                || f.types.iter().filter(|t| t.name == ty.s).count() != 1
+                || annotation_owners::constant_owner_shadowed(f, text, ty.s, kotlin)
+                || f.imports
+                    .iter()
+                    .any(|i| i.path.rsplit('.').next() == Some(ty.s))
+            {
+                return None;
+            }
+            (owners, name.s)
+        }
+        _ => return None,
+    };
+    let found: Vec<_> = owners
+        .iter()
+        .flat_map(|index| f.types[*index].fields().map(move |field| (*index, field)))
+        .filter(|(_, field)| field.name == name)
+        .collect();
+    let [(index, field)] = found.as_slice() else {
+        return None;
+    };
+    if kotlin {
+        if f.types[*index].kind != "object" || !field.modifiers.iter().any(|m| m == "const") {
+            return None;
+        }
+    } else {
+        if !field.modifiers.iter().any(|m| m == "static")
+            || !field.modifiers.iter().any(|m| m == "final")
+            || field.ty.as_ref().is_none_or(|t| {
+                t.name != "String" || !matches!(t.text.as_str(), "String" | "java.lang.String")
+                    || (t.text == "String" && annotation_owners::constant_owner_shadowed(f, text, "String", false))
+                    || (t.text == "java.lang.String" && (
+                        annotation_owners::constant_owner_shadowed(f, text, "java", false)
+                        || f.types.iter().any(|ty| ty.name == "java")
+                        || f.imports.iter().any(|i| i.path.rsplit('.').next() == Some("java"))))
+            })
+            || f.types.iter().any(|t| t.name == "String")
+            || f.imports
+                .iter()
+                .any(|i| i.path.ends_with(".String") && i.path != "java.lang.String")
+        {
+            return None;
+        }
+    }
     let (from, to) = field.body?;
-    literal(&text[from..to])
+    literal(text.get(from..to)?)
+}
+
+// Container members are parsed at their original byte offsets. Never collect
+// arbitrary nested strings: each entry must be a complete PayloadRoot annotation.
+fn payload_annotations(annotation: &java::Annotation, text: &str, kotlin: bool) -> Vec<java::Annotation> {
+    if annotation.name == "PayloadRoot" {
+        return if balanced_annotation(&text[annotation.at..annotation.end]) { vec![annotation.clone()] } else { Vec::new() };
+    }
+    if annotation.name != "PayloadRoots" || annotation.args.is_empty() || annotation.args.iter().any(|arg| arg.name != "value") {
+        return Vec::new();
+    }
+    if annotation.args.len() > 1
+        && (!kotlin
+            || annotation.args.iter().any(|arg| java::tokens(&text[annotation.at..arg.at]).last().is_some_and(|token| token.s == "=")))
+    {
+        return Vec::new();
+    }
+    let source = &text[annotation.at..annotation.end];
+    if !balanced_annotation(source) {
+        return Vec::new();
+    }
+    let mut found = Vec::new();
+    for arg in &annotation.args {
+        let mut tokens = java::tokens(&arg.text);
+        for token in &mut tokens {
+            token.at += arg.at;
+        }
+        let mut entries = tokens.as_slice();
+        if entries.first().is_some_and(|token| matches!(token.s, "{" | "[")) {
+            if entries.len() < 2 {
+                return Vec::new();
+            }
+            entries = &entries[1..entries.len() - 1];
+        }
+        for entry in java::split_commas(entries, false) {
+            if entry.is_empty() {
+                continue;
+            }
+            let mut entry = entry.to_vec();
+            if entry[0].s != "@" {
+                if !kotlin {
+                    return Vec::new();
+                }
+                entry.insert(0, java::Tok { s: "@", at: entry[0].at });
+            }
+            let mut parsed = Vec::new();
+            let end = java::annotation(text, &entry, 0, &mut parsed);
+            if end != entry.len()
+                || parsed.len() != 1
+                || parsed[0].name != "PayloadRoot"
+                || !balanced_annotation(&text[parsed[0].name_at..parsed[0].end])
+            {
+                return Vec::new();
+            }
+            found.extend(parsed);
+        }
+    }
+    found
+}
+
+fn balanced_annotation(source: &str) -> bool {
+    let tokens = java::tokens(source);
+    if tokens.last().is_none_or(|token| token.s != ")") {
+        return false;
+    }
+    let mut stack = Vec::new();
+    for token in tokens {
+        match token.s {
+            "(" => stack.push(")"),
+            "{" => stack.push("}"),
+            "[" => stack.push("]"),
+            ")" | "}" | "]" => {
+                if stack.pop() != Some(token.s) {
+                    return false;
+                }
+            }
+            _ => {}
+        }
+    }
+    stack.is_empty()
 }
 
 pub fn endpoints(f: &JavaFile, text: &str) -> Vec<Endpoint> {
+    endpoints_with_syntax(f, text, false)
+}
+
+fn endpoints_with_syntax(f: &JavaFile, text: &str, kotlin: bool) -> Vec<Endpoint> {
     let mut out = Vec::new();
-    for t in f.types.iter().filter(|t| t.has(&["Endpoint"])) {
+    let ownership = annotation_owners::Owners::new(f, text, kotlin);
+    for (owner, t) in f
+        .types
+        .iter()
+        .enumerate()
+        .filter(|(_, t)| ownership.endpoint(text, t))
+    {
         for m in t.methods() {
-            for a in m.annotations.iter().filter(|a| a.name == "PayloadRoot") {
-                let Some(local) = a.strings(&["localPart"]).first().copied() else { continue };
+            for a in m
+                .annotations
+                .iter()
+                .filter(|a| ownership.payload(text, a))
+                .flat_map(|a| payload_annotations(a, text, kotlin))
+                .filter(|a| ownership.payload(text, a))
+            {
+                if a.args.iter().filter(|arg| arg.name == "namespace").count() > 1 {
+                    continue;
+                }
+                let Some(arg) = a.arg("localPart") else {
+                    continue;
+                };
+                let tokens = java::tokens(&arg.text);
+                if tokens.len() != 1
+                    || !tokens[0].s.ends_with('"')
+                    || a.args.iter().filter(|arg| arg.name == "localPart").count() != 1
+                {
+                    continue;
+                }
+                let Some(local) = arg.strings.first() else {
+                    continue;
+                };
+                if text.get(local.at..local.end) != Some(local.value.as_str())
+                    || !schema_qnames::local(&local.value)
+                {
+                    continue;
+                }
                 out.push(Endpoint {
-                    namespace: a.arg("namespace").and_then(|arg| constant(f, text, arg)),
+                    namespace: a.arg("namespace").map_or_else(
+                        || Some(String::new()),
+                        |arg| constant(f, text, arg, owner, kotlin),
+                    ),
                     local: local.value.clone(),
                     local_range: range(text, local.at, local.end),
                     label: format!("{}.{}", t.name, m.name),
@@ -70,53 +282,134 @@ pub fn endpoints(f: &JavaFile, text: &str) -> Vec<Endpoint> {
 }
 
 pub fn schemas(text: &str) -> Vec<Schema> {
-    let elements = xml::elements(text);
-    elements
-        .iter()
-        .enumerate()
-        .filter(|(_, e)| e.local() == "schema")
-        .map(|(i, e)| Schema {
-            namespace: e.value("targetNamespace").unwrap_or_default().to_owned(),
-            elements: elements
-                .iter()
-                .filter(|c| c.parent == Some(i) && c.local() == "element")
-                .filter_map(|c| c.attr("name"))
-                .map(|a| (a.value.clone(), range(text, a.value_at, a.value_end)))
-                .collect(),
-        })
-        .collect()
+    schema_qnames::read(text).0
 }
 
 fn scan_java(path: &str, text: &str) -> Option<Vec<Endpoint>> {
-    let found = endpoints(&parse_source(path, text), text);
+    let found = endpoints_with_syntax(&parse_source(path, text), text, path.ends_with(".kt"));
     (!found.is_empty()).then_some(found)
 }
 
 /// Every schema file is kept, even without a schema: it tells resources exist.
-fn scan_schemas(_path: &str, text: &str) -> Option<Vec<Schema>> {
-    Some(schemas(text))
+const MAX_DOCUMENT_BYTES: usize = 256 * 1024;
+const MAX_SCHEMA_BYTES: usize = 128 * 1024;
+const SCHEMA_GLOBS: &[&str] = &["**/*.xsd", "**/*.wsdl"];
+const SOURCE_WATCH_GLOBS: &[&str] = &["**/*.java", "**/*.kt", "**/*.xsd", "**/*.wsdl"];
+const WATCH_GLOBS: &[&str] = &["**/*.java", "**/*.kt", "**/*.xsd", "**/*.wsdl", "**/*.xslt", "**/*.xml"];
+
+#[derive(Clone)]
+struct SchemaFile {
+    schemas: Vec<Schema>,
+    complete: bool,
+    qnames_complete: bool,
+}
+
+fn scan_schemas(_path: &str, text: &str) -> Option<SchemaFile> {
+    let complete = text.len() <= MAX_SCHEMA_BYTES;
+    let (schemas, qnames_complete) = if complete { schema_qnames::read(text) } else { (Vec::new(), false) };
+    Some(SchemaFile { schemas, complete, qnames_complete })
+}
+
+fn complete_schemas(index: &Index<SchemaFile>) -> bool {
+    index.complete() && index.iter().all(|(_, file)| file.complete)
 }
 
 /// The `ClassPathResource` paths of a file, `classpath:` and leading `/` removed.
 fn resources(path: &str, text: &str) -> Vec<(String, Str)> {
+    let file=parse_source(path,text);
+    let ownership=annotation_owners::Owners::new(&file,text,path.ends_with(".kt"));
+    let tokens=java::tokens(text);
     source_calls(path, text)
         .into_iter()
-        .filter(|c| c.is_new && c.name == "ClassPathResource")
+        .filter(|c| c.is_new && c.name == "ClassPathResource" && c.args.len()==1)
+        .filter(|c| {
+            let Some(mut first)=tokens.iter().position(|t| t.at==c.at) else {return false;};
+            let last=first;
+            while first>=2 && tokens[first-1].s=="." && tokens[first-2].is_ident(){first-=2;}
+            let written:String=tokens[first..=last].iter().map(|t|t.s).collect();
+            ownership.resource_constructor(&written)
+        })
         .filter_map(|c| c.args.into_iter().next()?.string)
-        .map(|s| (s.value.trim_start_matches("classpath:").trim_start_matches('/').to_owned(), s))
-        .filter(|(path, _)| !path.is_empty() && !path.contains("${"))
+        .filter(|s| text.get(s.at..s.end)==Some(s.value.as_str()) && !s.value.contains(['\\','$']))
+        .filter_map(|s| {
+            let value=s.value.strip_prefix("classpath:").unwrap_or(&s.value);
+            let value=value.strip_prefix('/').unwrap_or(value);
+            let literal=format!("classpath:{value}");
+            let extension=value.rsplit_once('.')?.1;
+            xml_resources::literal_path(&literal,extension).map(|p|(p.to_owned(),s))
+        })
+        .collect()
+}
+
+const SWS_NAMESPACE: &str = "http://www.springframework.org/schema/web-services";
+
+fn xml_namespace<'a>(elements: &'a [xml::Element], mut index: usize) -> Option<&'a str> {
+    let prefix = elements[index].name.split_once(':').map(|(prefix, _)| prefix);
+    let declaration = prefix.map_or_else(|| "xmlns".to_owned(), |prefix| format!("xmlns:{prefix}"));
+    loop {
+        let mut attrs = elements[index].attrs.iter().filter(|attr| attr.name == declaration);
+        if let Some(attr) = attrs.next() {
+            return attrs.next().is_none().then_some(attr.value.as_str());
+        }
+        index = elements[index].parent?;
+    }
+}
+
+/// Only explicit classpath resources have a project-local meaning here.
+/// Relative servlet-context paths, URLs, patterns and placeholders stay unknown.
+fn sws_resources(text: &str) -> Vec<(String, Range)> {
+    if text.len() > MAX_DOCUMENT_BYTES || !generate::xml_valid(text) {
+        return Vec::new();
+    }
+    let elements = xml::elements(text);
+    elements
+        .iter()
+        .enumerate()
+        .filter_map(|(index, element)| {
+            if xml_namespace(&elements, index) != Some(SWS_NAMESPACE) || !text[..element.tag_end].ends_with('>') {
+                return None;
+            }
+            let extension = match element.local() {
+                "static-wsdl" => ".wsdl",
+                "xsd"
+                    if element.parent.is_some_and(|parent| {
+                        elements[parent].local() == "dynamic-wsdl" && xml_namespace(&elements, parent) == Some(SWS_NAMESPACE)
+                    }) =>
+                {
+                    ".xsd"
+                }
+                _ => return None,
+            };
+            let mut attrs = element.attrs.iter().filter(|attr| attr.name == "location");
+            let attr = attrs.next()?;
+            if attrs.next().is_some() {
+                return None;
+            }
+            let quote = text.as_bytes().get(attr.value_at.checked_sub(1)?)?;
+            if !matches!(quote, b'\'' | b'"') || text.as_bytes().get(attr.value_end) != Some(quote) {
+                return None;
+            }
+            let path = attr.value.strip_prefix("classpath:")?.trim_start_matches('/');
+            if !path.ends_with(extension)
+                || path.contains(['$', '#', '&', '*', '?', ':', '\\'])
+                || path.split('/').any(|part| part.is_empty() || part == "." || part == "..")
+            {
+                return None;
+            }
+            Some((path.to_owned(), range(text, attr.value_at, attr.value_end)))
+        })
         .collect()
 }
 
 const RESOURCE_DIRS: [&str; 2] = ["src/main/resources", "src/test/resources"];
 
-/// The schema elements `e` may name: in the schemas of its namespace, or in
-/// every schema when the namespace is unknown or has no schema.
-fn elements_for<'a>(schemas: &'a Index<Vec<Schema>>, namespace: Option<&str>) -> Vec<(&'a str, &'a str, Range)> {
-    let all: Vec<(&str, &Schema)> = schemas.iter().flat_map(|(p, s)| s.iter().map(move |s| (p, s))).collect();
-    let of_namespace: Vec<_> = all.iter().filter(|(_, s)| Some(s.namespace.as_str()) == namespace).copied().collect();
-    let chosen = if of_namespace.is_empty() { all } else { of_namespace };
-    chosen.into_iter().flat_map(|(p, s)| s.elements.iter().map(move |(n, r)| (p, n.as_str(), *r))).collect()
+/// Only an established exact namespace/local pair supplies QName authority.
+fn elements_for<'a>(schemas: &'a Index<SchemaFile>, namespace: Option<&str>) -> Vec<(&'a str, &'a str, Range)> {
+    let Some(namespace) = namespace else { return Vec::new(); };
+    schemas.iter().flat_map(|(p, file)| file.schemas.iter()
+        .filter(move |schema| schema.namespace == namespace)
+        .flat_map(move |schema| schema.elements.iter().map(move |(n, r)| (p, n.as_str(), *r))))
+        .collect()
 }
 
 fn file_name(path: &str) -> &str {
@@ -125,23 +418,49 @@ fn file_name(path: &str) -> &str {
 
 pub struct WsTools {
     java: Indexes<Vec<Endpoint>>,
-    schemas: Indexes<Vec<Schema>>,
+    generation: generate::Generation,
+    schemas: Indexes<SchemaFile>,
+    resource_paths: resource_paths::Paths,
+    watching: bool,
+    unreadable_schemas: BTreeSet<String>,
 }
 
 impl Default for WsTools {
     fn default() -> Self {
-        Self { java: Indexes::new(SOURCE_GLOBS, scan_java), schemas: Indexes::new(&["**/*.xsd", "**/*.wsdl"], scan_schemas) }
+        Self {
+            java: Indexes::new(SOURCE_GLOBS, scan_java),
+            generation:generate::Generation::default(),
+            schemas: Indexes::new(SCHEMA_GLOBS, scan_schemas),
+            resource_paths: resource_paths::Paths::default(),
+            watching: false,
+            unreadable_schemas: BTreeSet::new(),
+        }
     }
 }
 
 impl WsTools {
+    fn cached_resource_definition(&self, doc: &Document, path: &str) -> Vec<Location> {
+        // Shared scalar source/XML navigation never discovers/reads project files.
+        // A complete fresh watched inventory is needed to rule out collisions.
+        if !self.watching || doc.path.contains('\\') || doc.path.split('/').any(|p| matches!(p, "." | "..")) { return vec![]; }
+        let Some(root) = project_of(&doc.path).and_then(|p| p.root().ok()) else { return vec![]; };
+        if root.is_empty() || root.chars().any(char::is_control) || !doc.path.starts_with(&format!("{}/",root.trim_end_matches('/'))) { return vec![]; }
+        let Some(paths) = self.resource_paths.paths(&root, path) else { return vec![]; };
+        let suffixes = RESOURCE_DIRS.map(|directory|format!("/{directory}/{path}"));
+        let candidates: Vec<_> = paths.iter().filter(|file| suffixes.iter().any(|suffix|file.ends_with(suffix))).collect();
+        let [target] = candidates.as_slice() else { return vec![]; };
+        if !target.starts_with(&format!("{}/", root.trim_end_matches('/'))) || project_of(target).and_then(|p| p.root().ok()).as_deref() != Some(&root) { return vec![]; }
+        return vec![Location { path: (*target).clone(), range: Range::default() }];
+    }
+
     fn java_markers(&mut self, doc: &Document) -> Vec<LineMarker> {
         let text = &doc.text;
         let f = parse_source(&doc.path, text);
-        let Some(schemas) = self.schemas.for_document(&doc.path, text, PROVIDER_BUDGET) else { return Vec::new() };
+        let Some(schemas) = self.schemas.for_document(&doc.path, text, PROVIDER_BUDGET) else {
+            return Vec::new();
+        };
         let mut markers = Vec::new();
-        let mut problems = Vec::new();
-        for e in endpoints(&f, text) {
+        for e in endpoints_with_syntax(&f, text, doc.path.ends_with(".kt")) {
             let found = elements_for(schemas, e.namespace.as_deref());
             match found.iter().find(|(_, n, _)| *n == e.local) {
                 Some((path, _, r)) => markers.push(LineMarker {
@@ -150,31 +469,13 @@ impl WsTools {
                     tooltip: format!("Payload element <{}> in {}", e.local, file_name(path)),
                     target: Some(Location { path: (*path).into(), range: *r }),
                 }),
-                None if schemas.complete()
-                    && let Some(ns) = &e.namespace
-                    && schemas.iter().flat_map(|(_, s)| s).any(|s| &s.namespace == ns) =>
-                {
-                    let message = format!("No schema of namespace {ns} has a top-level element `{}`.", e.local);
-                    problems.push(Diagnostic::new(e.local_range, Severity::Warning, message).code("unknown-payload-element"));
-                }
                 None => {}
-            }
-        }
-        if schemas.complete() {
-            for (path, s) in resources(&doc.path, text) {
-                let schema_file = path.ends_with(".xsd") || path.ends_with(".wsdl");
-                let exists = schemas.files().keys().any(|p| RESOURCE_DIRS.iter().any(|d| p.ends_with(&format!("{d}/{path}"))));
-                if schema_file && !exists {
-                    let message = format!("`{path}` is not in src/main/resources or src/test/resources.");
-                    problems.push(Diagnostic::new(range(text, s.at, s.end), Severity::Warning, message).code("missing-resource"));
-                }
             }
         }
         for b in java::bean_names(&f).into_iter().filter(|b| b.ty == "DefaultWsdl11Definition") {
             let line = openidea_plugin::text::position(text, b.at).line;
             markers.push(LineMarker { line, icon: None, tooltip: format!("Published as /{}.wsdl", b.name), target: None });
         }
-        let _ = host::publish_diagnostics(&doc.path, &problems);
         markers
     }
 
@@ -183,7 +484,9 @@ impl WsTools {
         if found.iter().all(|s| s.elements.is_empty()) {
             return Vec::new();
         }
-        let Some(java) = self.java.for_document(&doc.path, &doc.text, PROVIDER_BUDGET) else { return Vec::new() };
+        let Some(java) = self.java.for_document(&doc.path, &doc.text, PROVIDER_BUDGET) else {
+            return Vec::new();
+        };
         let mut markers = Vec::new();
         for s in &found {
             for (name, r) in &s.elements {
@@ -213,10 +516,34 @@ impl Providers for WsTools {
     }
 
     fn definition(&mut self, doc: &Document, at: Position) -> Vec<Location> {
+        if doc.language == "xml" {
+            if let Some((path, _)) = xml_resources::references(doc).into_iter().find(|(_, r)| r.start <= at && at < r.end) {
+                return self.cached_resource_definition(doc, &path);
+            }
+            if let Some(locations)=namespace_values::definition(self,doc,at){return locations;}
+            let local = xml_refs::definition(doc, at);
+            if !local.is_empty() { return local; }
+            let Some((path, _)) = sws_resources(&doc.text).into_iter().find(|(_, location)| contains(*location, at)) else {
+                return Vec::new();
+            };
+            let Some(index) = self.schemas.for_document(&doc.path, &doc.text, PROVIDER_BUDGET) else {
+                return Vec::new();
+            };
+            return index
+                .files()
+                .keys()
+                .filter(|file| RESOURCE_DIRS.iter().any(|dir| file.ends_with(&format!("{dir}/{path}"))))
+                .map(|file| Location { path: file.clone(), range: Range::default() })
+                .collect();
+        }
         let text = &doc.text;
-        let endpoint = endpoints(&parse_source(&doc.path, text), text).into_iter().find(|e| contains(e.local_range, at));
+        let endpoint = endpoints_with_syntax(&parse_source(&doc.path, text), text, doc.path.ends_with(".kt"))
+            .into_iter()
+            .find(|e| contains(e.local_range, at));
         if let Some(e) = endpoint {
-            let Some(schemas) = self.schemas.for_document(&doc.path, text, PROVIDER_BUDGET) else { return Vec::new() };
+            let Some(schemas) = self.schemas.for_document(&doc.path, text, PROVIDER_BUDGET) else {
+                return Vec::new();
+            };
             return elements_for(schemas, e.namespace.as_deref())
                 .into_iter()
                 .filter(|(_, n, _)| *n == e.local)
@@ -226,20 +553,25 @@ impl Providers for WsTools {
         let Some((path, _)) = resources(&doc.path, text).into_iter().find(|(_, s)| contains(range(text, s.at, s.end), at)) else {
             return Vec::new();
         };
-        let Some(project) = project_of(&doc.path) else { return Vec::new() };
-        RESOURCE_DIRS
-            .iter()
-            .flat_map(|d| project.find_files(&format!("**/{d}/{path}"), 1).unwrap_or_default())
-            .map(|p| Location { path: p, range: Range::default() })
-            .collect()
+        self.cached_resource_definition(doc, &path)
     }
 
     fn completion(&mut self, doc: &Document, at: Position, _trigger: Option<&str>) -> Vec<CompletionItem> {
+        if doc.language == "xml" {
+            if let Some(items)=resource_completion::completion(self,doc,at){return items;}
+            if let Some(items)=namespace_values::completion(self,doc,at){return items;}
+            return xml_refs::completion(doc, at);
+        }
         let text = &doc.text;
-        let Some(e) = endpoints(&parse_source(&doc.path, text), text).into_iter().find(|e| contains(e.local_range, at)) else {
+        let Some(e) = endpoints_with_syntax(&parse_source(&doc.path, text), text, doc.path.ends_with(".kt"))
+            .into_iter()
+            .find(|e| contains(e.local_range, at))
+        else {
             return Vec::new();
         };
-        let Some(schemas) = self.schemas.for_document(&doc.path, text, PROVIDER_BUDGET) else { return Vec::new() };
+        let Some(schemas) = self.schemas.for_document(&doc.path, text, PROVIDER_BUDGET) else {
+            return Vec::new();
+        };
         let mut out: Vec<CompletionItem> = elements_for(schemas, e.namespace.as_deref())
             .into_iter()
             .map(|(p, n, _)| CompletionItem {
@@ -254,13 +586,153 @@ impl Providers for WsTools {
     }
 }
 
+impl DiagnosticsProvider for WsTools {
+    fn diagnostics(&mut self, doc: &Document) -> Vec<Diagnostic> {
+        if doc.language == "xml" {
+            // Current unsaved schema facts update only this cached file; no scan.
+            let Some(index) = self.schemas.for_cached_document(&doc.path, &doc.text) else {
+                return Vec::new();
+            };
+            if !self.watching || !complete_schemas(index) || !self.unreadable_schemas.is_empty() {
+                return Vec::new();
+            }
+            return sws_resources(&doc.text)
+                .into_iter()
+                .filter(|(path, _)| {
+                    !index.files().keys().any(|file| RESOURCE_DIRS.iter().any(|dir| file.ends_with(&format!("{dir}/{path}"))))
+                })
+                .map(|(path, location)| {
+                    Diagnostic::new(location, Severity::Warning, format!("`{path}` is not in src/main/resources or src/test/resources."))
+                        .code("missing-resource")
+                })
+                .collect();
+        }
+        if !matches!(doc.language.as_str(), "java" | "kotlin") || doc.text.len() > MAX_DOCUMENT_BYTES || !self.watching {
+            return Vec::new();
+        }
+        let Some(index) = self.schemas.for_cached_document(&doc.path, &doc.text) else { return Vec::new() };
+        if !complete_schemas(index) || !self.unreadable_schemas.is_empty() {
+            return Vec::new();
+        }
+        let mut problems = Vec::new();
+        if index.iter().all(|(_, file)| file.qnames_complete) {
+            for endpoint in endpoints_with_syntax(&parse_source(&doc.path, &doc.text), &doc.text, doc.path.ends_with(".kt")) {
+                let Some(namespace) = endpoint.namespace else { continue };
+                let mut known = index.iter().flat_map(|(_, file)| &file.schemas).filter(|schema| schema.namespace == namespace).peekable();
+                // No matching project schema means unknown/external, not missing.
+                if known.peek().is_some() && !known.any(|schema| schema.elements.iter().any(|(name, _)| name == &endpoint.local)) {
+                    problems.push(
+                        Diagnostic::new(
+                            endpoint.local_range,
+                            Severity::Warning,
+                            format!("No schema of namespace {namespace} has a top-level element `{}`.", endpoint.local),
+                        )
+                        .code("unknown-payload-element"),
+                    );
+                }
+            }
+        }
+        for (path, source) in resources(&doc.path, &doc.text) {
+            let schema_file = path.ends_with(".xsd") || path.ends_with(".wsdl");
+            let exists =
+                index.files().keys().any(|file| RESOURCE_DIRS.iter().any(|directory| file.ends_with(&format!("{directory}/{path}"))));
+            if schema_file && !exists {
+                problems.push(
+                    Diagnostic::new(
+                        range(&doc.text, source.at, source.end),
+                        Severity::Warning,
+                        format!("`{path}` is not in src/main/resources or src/test/resources."),
+                    )
+                    .code("missing-resource"),
+                );
+            }
+        }
+        problems
+    }
+}
+
 impl Plugin for WsTools {
-    fn run_command(&mut self, id: &str, _ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
+    fn activate(&mut self, _ctx: &Context) -> Result<(), Error> {
+        self.watching = host::subscribe_paths("files-changed", WATCH_GLOBS).is_ok();
+        let _ = host::subscribe(EventKind::FileOpened);
+        let _ = host::subscribe(EventKind::FileSaved);
+        // Cross-file facts are warmed outside editor diagnostic requests.
+        let deadline = Instant::now() + COMMAND_BUDGET;
+        for project in host::projects().unwrap_or_default() {
+            let budget = deadline.saturating_duration_since(Instant::now());
+            if budget.is_zero() {
+                break;
+            }
+            self.schemas.get(&project, budget.min(Duration::from_millis(250)));
+            self.resource_paths.warm(&project, deadline.saturating_duration_since(Instant::now()).min(Duration::from_millis(250)));
+        }
+        Ok(())
+    }
+
+    fn handle_events(&mut self, events: &[Event], _ctx: &Invocation) {
+        let deadline = Instant::now() + COMMAND_BUDGET;
+        for event in events {
+            let mut changed = Vec::new();
+            match event {
+                Event::FileOpened(path) | Event::FileSaved(path) => changed.push((path.as_str(), false)),
+                Event::FilesChanged(files) => {
+                    changed.extend(files.removed.iter().map(|path| (path.as_str(), true)));
+                    changed.extend(files.created.iter().chain(&files.modified).map(|path| (path.as_str(), false)));
+                }
+                _ => {}
+            }
+            let resource_overflow = changed.iter().filter(|(path, _)| resource_paths::relevant(path)).count() > 256;
+            if resource_overflow { self.resource_paths.reset(); }
+            for (path, removed) in changed {
+                if !WATCH_GLOBS.iter().any(|glob| spring_text::index::glob_matches(glob, path)) {
+                    continue;
+                }
+                let Some(project) = project_of(path) else { continue };
+                let resource_budget = deadline.saturating_duration_since(Instant::now());
+                if resource_budget.is_zero() { self.resource_paths.reset(); return; }
+                if !resource_overflow {
+                    if resource_paths::relevant(path) { self.resource_paths.observe(&project, path, removed); }
+                    self.resource_paths.warm(&project, resource_budget.min(Duration::from_millis(250)));
+                }
+                if !SOURCE_WATCH_GLOBS.iter().any(|glob| spring_text::index::glob_matches(glob, path)) { continue; }
+                if removed {
+                    self.unreadable_schemas.remove(path);
+                    self.schemas.update_existing(&project, path, None);
+                    self.java.update_existing(&project, path, None);
+                } else {
+                    match project.read_file(path) {
+                        Ok(text) => {
+                            self.unreadable_schemas.remove(path);
+                            self.schemas.update_existing(&project, path, Some(&text));
+                            self.java.update_existing(&project, path, Some(&text));
+                        }
+                        Err(_) => {
+                            if SCHEMA_GLOBS.iter().any(|glob| spring_text::index::glob_matches(glob, path)) {
+                                self.unreadable_schemas.insert(path.to_owned());
+                            }
+                            self.schemas.reset();
+                            self.java.reset();
+                            continue;
+                        }
+                    }
+                }
+                let budget = deadline.saturating_duration_since(Instant::now());
+                if budget.is_zero() {
+                    self.resource_paths.reset();
+                    return;
+                }
+                self.schemas.get(&project, budget.min(Duration::from_millis(250)));
+            }
+        }
+    }
+
+    fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
+        if id == "qname-occurrences" { return indexing::occurrences(ctx); }
         Err(Error::NotFound(format!("command {id}")))
     }
 }
 
-register_plugin!(WsTools, providers);
+register_plugin!(WsTools, providers, diagnostics, file_actions);
 
 #[cfg(test)]
 mod tests {
@@ -270,18 +742,18 @@ mod tests {
 
     const ENDPOINT: &str = r#"package com.acme.ws;
 
-@Endpoint
+@org.springframework.ws.server.endpoint.annotation.Endpoint
 public class CountryEndpoint {
     private static final String NAMESPACE_URI = "http://acme.com/countries";
 
-    @PayloadRoot(namespace = NAMESPACE_URI, localPart = "getCountryRequest")
+    @org.springframework.ws.server.endpoint.annotation.PayloadRoot(namespace = NAMESPACE_URI, localPart = "getCountryRequest")
     @ResponsePayload
     public GetCountryResponse getCountry(@RequestPayload GetCountryRequest request) { return null; }
 
-    @PayloadRoot(namespace = NAMESPACE_URI, localPart = "deleteCountryRequest")
+    @org.springframework.ws.server.endpoint.annotation.PayloadRoot(namespace = NAMESPACE_URI, localPart = "deleteCountryRequest")
     public void delete(@RequestPayload Object request) {}
 
-    @PayloadRoot(namespace = "http://acme.com/orders", localPart = "placeOrder")
+    @org.springframework.ws.server.endpoint.annotation.PayloadRoot(namespace = "http://acme.com/orders", localPart = "placeOrder")
     public void order(@RequestPayload Object request) {}
 }
 
@@ -291,10 +763,10 @@ class WsConfig {
     public DefaultWsdl11Definition defaultWsdl11Definition(XsdSchema countriesSchema) { return null; }
 
     @Bean
-    public XsdSchema countriesSchema() { return new SimpleXsdSchema(new ClassPathResource("countries.xsd")); }
+    public XsdSchema countriesSchema() { return new SimpleXsdSchema(new org.springframework.core.io.ClassPathResource("countries.xsd")); }
 
     @Bean
-    public XsdSchema missing() { return new SimpleXsdSchema(new ClassPathResource("/xsd/missing.xsd")); }
+    public XsdSchema missing() { return new SimpleXsdSchema(new org.springframework.core.io.ClassPathResource("/xsd/missing.xsd")); }
 }
 "#;
 
@@ -337,13 +809,13 @@ class WsConfig {
 
     const KOTLIN_ENDPOINT: &str = r#"package com.acme.ws
 
-@Endpoint
+@org.springframework.ws.server.endpoint.annotation.Endpoint
 class KtCountryEndpoint {
-    @PayloadRoot(namespace = NAMESPACE_URI, localPart = "getCountryRequest")
+    @org.springframework.ws.server.endpoint.annotation.PayloadRoot(namespace = NAMESPACE_URI, localPart = "getCountryRequest")
     @ResponsePayload
     suspend fun getCountry(@RequestPayload request: GetCountryRequest): GetCountryResponse = TODO()
 
-    @PayloadRoot(namespace = NAMESPACE_URI, localPart = "ghostRequest")
+    @org.springframework.ws.server.endpoint.annotation.PayloadRoot(namespace = NAMESPACE_URI, localPart = "ghostRequest")
     fun ghost(@RequestPayload request: Any) {}
 
     companion object {
@@ -355,7 +827,7 @@ class KtCountryEndpoint {
     #[test]
     fn kotlin_payload_root_is_indexed() {
         let kt = parse_source("K.kt", KOTLIN_ENDPOINT);
-        let found = endpoints(&kt, KOTLIN_ENDPOINT);
+        let found = endpoints_with_syntax(&kt, KOTLIN_ENDPOINT, true);
         let names: Vec<_> = found.iter().map(|e| (e.namespace.as_deref().unwrap(), e.local.as_str())).collect();
         assert_eq!(names, [("http://acme.com/countries", "getCountryRequest"), ("http://acme.com/countries", "ghostRequest")]);
         assert_eq!(scan_java("K.kt", KOTLIN_ENDPOINT).unwrap().len(), 2);
@@ -365,10 +837,12 @@ class KtCountryEndpoint {
         let path = "/project/src/main/kotlin/com/acme/ws/KtCountryEndpoint.kt";
         host.add_file("src/main/kotlin/com/acme/ws/KtCountryEndpoint.kt", KOTLIN_ENDPOINT);
         let mut ws = WsTools::default();
+        ws.activate(&host.context("aritti.spring-ws")).unwrap();
         let doc = Document { path: path.into(), language: "kotlin".into(), version: 1, text: KOTLIN_ENDPOINT.into() };
         let tips: Vec<_> = ws.line_markers(&doc).into_iter().map(|m| m.tooltip).collect();
         assert_eq!(tips, ["Payload element <getCountryRequest> in countries.xsd"]);
-        let problems = &host.diagnostics()[path];
+        let problems = ws.diagnostics(&doc);
+        assert!(host.diagnostics().is_empty(), "markers must not duplicate provider diagnostics");
         assert_eq!(problems.len(), 1);
         assert_eq!(problems[0].code.as_deref(), Some("unknown-payload-element"));
         let xsd_tips: Vec<_> = ws
@@ -383,11 +857,14 @@ class KtCountryEndpoint {
     fn reads_endpoints_and_schemas() {
         let found = endpoints(&java::parse(ENDPOINT), ENDPOINT);
         let names: Vec<_> = found.iter().map(|e| (e.namespace.as_deref().unwrap(), e.local.as_str())).collect();
-        assert_eq!(names, [
-            ("http://acme.com/countries", "getCountryRequest"),
-            ("http://acme.com/countries", "deleteCountryRequest"),
-            ("http://acme.com/orders", "placeOrder")
-        ]);
+        assert_eq!(
+            names,
+            [
+                ("http://acme.com/countries", "getCountryRequest"),
+                ("http://acme.com/countries", "deleteCountryRequest"),
+                ("http://acme.com/orders", "placeOrder")
+            ]
+        );
         let s = schemas(XSD);
         assert_eq!(s[0].namespace, "http://acme.com/countries");
         assert_eq!(s[0].elements.iter().map(|e| e.0.as_str()).collect::<Vec<_>>(), ["getCountryRequest", "getCountryResponse"]);
@@ -398,22 +875,27 @@ class KtCountryEndpoint {
     fn links_endpoints_to_schema_elements_and_checks_them() {
         let host = setup();
         let mut ws = WsTools::default();
+        ws.activate(&host.context("aritti.spring-ws")).unwrap();
         let markers = ws.line_markers(&java());
         let tips: Vec<_> = markers.iter().map(|m| (m.line, m.tooltip.as_str())).collect();
-        assert_eq!(tips, [
-            (8, "Payload element <getCountryRequest> in countries.xsd"),
-            (14, "Payload element <placeOrder> in orders.wsdl"),
-            (20, "Published as /countries.wsdl"),
-        ]);
+        assert_eq!(
+            tips,
+            [
+                (8, "Payload element <getCountryRequest> in countries.xsd"),
+                (14, "Payload element <placeOrder> in orders.wsdl"),
+                (20, "Published as /countries.wsdl"),
+            ]
+        );
         assert_eq!(markers[0].target.as_ref().unwrap().path, XSD_PATH);
         assert_eq!(markers[0].target.as_ref().unwrap().range.start, pos(XSD, "getCountryRequest\""));
 
-        let problems = &host.diagnostics()[JAVA_PATH];
+        let problems = ws.diagnostics(&java());
+        assert!(host.diagnostics().is_empty(), "markers must not duplicate provider diagnostics");
         let codes: Vec<_> = problems.iter().map(|p| (p.code.as_deref().unwrap(), p.range.start)).collect();
-        assert_eq!(codes, [
-            ("unknown-payload-element", pos(ENDPOINT, "deleteCountryRequest")),
-            ("missing-resource", pos(ENDPOINT, "/xsd/missing.xsd"))
-        ]);
+        assert_eq!(
+            codes,
+            [("unknown-payload-element", pos(ENDPOINT, "deleteCountryRequest")), ("missing-resource", pos(ENDPOINT, "/xsd/missing.xsd"))]
+        );
     }
 
     #[test]
@@ -430,8 +912,9 @@ class KtCountryEndpoint {
 
     #[test]
     fn navigates_to_classpath_resources() {
-        let _host = setup();
+        let host = setup();
         let mut ws = WsTools::default();
+        ws.activate(&host.context("aritti.spring-ws")).unwrap();
         let found = ws.definition(&java(), pos(ENDPOINT, "ountries.xsd"));
         assert_eq!(found, [Location { path: XSD_PATH.into(), range: Range::default() }]);
         assert!(ws.definition(&java(), pos(ENDPOINT, "sd/missing.xsd")).is_empty());
@@ -448,4 +931,775 @@ class KtCountryEndpoint {
         assert_eq!(markers[0].tooltip, "Handled by CountryEndpoint.getCountry");
         assert_eq!(markers[0].target.as_ref().unwrap().range.start, pos(ENDPOINT, "getCountry("));
     }
+
+    fn endpoint_doc(namespace: &str, local: &str) -> Document {
+        Document {
+            text: format!(r#"@org.springframework.ws.server.endpoint.annotation.Endpoint class E {{ @org.springframework.ws.server.endpoint.annotation.PayloadRoot(namespace = {namespace}, localPart = "{local}") void handle() {{}} }}"#),
+            ..java()
+        }
+    }
+
+    #[test]
+    fn cold_provider_does_not_discover_project_schemas() {
+        let _host = setup();
+        let mut ws = WsTools { watching: true, ..WsTools::default() };
+        assert!(ws.diagnostics(&java()).is_empty());
+        let cache = ws.schemas.for_cached_document(JAVA_PATH, ENDPOINT).unwrap();
+        assert!(!cache.complete());
+        assert!(cache.files().is_empty(), "diagnostics must not discover disk schemas");
+    }
+
+    #[test]
+    fn unsaved_endpoint_changes_and_fixes_replace_diagnostics() {
+        let host = setup();
+        let mut ws = WsTools::default();
+        ws.activate(&host.context("aritti.spring-ws")).unwrap();
+        let broken = endpoint_doc(r#""http://acme.com/countries""#, "ghostRequest");
+        host.open_editor(JAVA_PATH, "java", &broken.text, &[]);
+        host.refresh_diagnostics(&mut ws);
+        assert_eq!(host.provider_diagnostics()[JAVA_PATH].len(), 1);
+        let fixed = endpoint_doc(r#""http://acme.com/countries""#, "getCountryRequest");
+        host.open_editor(JAVA_PATH, "java", &fixed.text, &[]);
+        host.type_in_editor(" // unsaved version two");
+        host.refresh_diagnostics(&mut ws);
+        assert_eq!(host.editor_version(), 2);
+        assert!(host.provider_diagnostics().is_empty());
+        assert!(host.diagnostics().is_empty());
+    }
+
+    #[test]
+    fn diagnostic_namespace_matching_stays_exact_and_unknown_stays_quiet() {
+        let host = setup();
+        let mut ws = WsTools::default();
+        ws.activate(&host.context("aritti.spring-ws")).unwrap();
+        // placeOrder exists, but only in the orders schema.
+        assert_eq!(ws.diagnostics(&endpoint_doc(r#""http://acme.com/countries""#, "placeOrder")).len(), 1);
+        assert!(ws.diagnostics(&endpoint_doc(r#""http://external/schema""#, "ghost")).is_empty());
+        assert!(ws.diagnostics(&endpoint_doc("Runtime.namespace()", "ghost")).is_empty());
+    }
+
+    #[test]
+    fn unsaved_schema_snapshot_updates_facts_without_disk_reread() {
+        let host = setup();
+        let mut ws = WsTools::default();
+        ws.activate(&host.context("aritti.spring-ws")).unwrap();
+        let doc = endpoint_doc(r#""http://acme.com/countries""#, "newRequest");
+        assert_eq!(ws.diagnostics(&doc).len(), 1);
+        let xml =
+            Document { path: XSD_PATH.into(), language: "xml".into(), version: 2, text: XSD.replace("getCountryRequest", "newRequest") };
+        assert!(ws.diagnostics(&xml).is_empty());
+        assert!(ws.diagnostics(&doc).is_empty());
+        assert_eq!(ws.diagnostics(&endpoint_doc(r#""http://acme.com/countries""#, "getCountryRequest")).len(), 1);
+    }
+
+    #[test]
+    fn oversized_schema_and_denied_events_suppress_absence_warnings() {
+        let host = setup();
+        host.add_file("src/main/resources/large.xsd", &"x".repeat(MAX_SCHEMA_BYTES + 1));
+        let mut ws = WsTools::default();
+        ws.activate(&host.context("aritti.spring-ws")).unwrap();
+        assert!(ws.diagnostics(&java()).is_empty());
+        let host = host.with_capabilities(&["project.read"]);
+        let mut ws = WsTools::default();
+        ws.activate(&host.context("aritti.spring-ws")).unwrap();
+        assert!(!ws.watching);
+        assert!(ws.diagnostics(&java()).is_empty());
+        assert!(!ws.definition(&java(), pos(ENDPOINT, "etCountryRequest")).is_empty());
+    }
+
+    #[test]
+    fn unreadable_schema_events_stay_quiet_until_facts_recover() {
+        let host = setup();
+        let mut ws = WsTools::default();
+        ws.activate(&host.context("aritti.spring-ws")).unwrap();
+        let path = "/project/src/main/resources/new.xsd";
+        let event = Event::FileSaved(path.into());
+        ws.handle_events(&[event.clone()], &host.invocation());
+        // Even a later navigation scan must not restore absence assertions.
+        ws.line_markers(&java());
+        assert!(ws.diagnostics(&java()).is_empty());
+        host.add_file("src/main/resources/new.xsd", XSD);
+        ws.handle_events(&[event], &host.invocation());
+        assert_eq!(ws.diagnostics(&java()).len(), 2);
+    }
+
+    const ROOTS_JAVA: &str = r#"@org.springframework.ws.server.endpoint.annotation.Endpoint class E {
+        static final String NS = "http://acme.com/countries";
+        @org.springframework.ws.server.endpoint.annotation.PayloadRoots(value = {
+            @org.springframework.ws.server.endpoint.annotation.PayloadRoot(namespace = NS, localPart = "getCountryRequest"),
+            @org.springframework.ws.server.endpoint.annotation.PayloadRoot(namespace = "http://acme.com/orders", localPart = "placeOrder"),
+            @org.springframework.ws.server.endpoint.annotation.PayloadRoot(namespace = NS, localPart = "ghostRequest")
+        })
+        void handle() {}
+    }"#;
+
+    #[test]
+    fn java_payload_roots_share_endpoint_navigation_completion_and_diagnostics() {
+        let host = setup();
+        host.add_file("src/main/java/com/acme/ws/CountryEndpoint.java", ROOTS_JAVA);
+        let mut ws = WsTools::default();
+        ws.activate(&host.context("aritti.spring-ws")).unwrap();
+        let doc = Document { text: ROOTS_JAVA.into(), ..java() };
+        let found = endpoints(&java::parse(ROOTS_JAVA), ROOTS_JAVA);
+        assert_eq!(found.iter().map(|e| e.local.as_str()).collect::<Vec<_>>(), ["getCountryRequest", "placeOrder", "ghostRequest"]);
+        assert!(found.iter().all(|e| e.label == "E.handle"));
+        let markers = ws.line_markers(&doc);
+        assert_eq!(markers.len(), 2);
+        assert_eq!(ws.definition(&doc, pos(ROOTS_JAVA, "placeOrder")).len(), 1);
+        let labels: Vec<_> = ws.completion(&doc, pos(ROOTS_JAVA, "ghostRequest"), None).into_iter().map(|item| item.label).collect();
+        assert_eq!(labels, ["getCountryRequest", "getCountryResponse"]);
+        let problems = ws.diagnostics(&doc);
+        assert_eq!(problems.len(), 1);
+        assert_eq!(problems[0].range.start, pos(ROOTS_JAVA, "ghostRequest"));
+        let fixed = Document { text: ROOTS_JAVA.replace("ghostRequest", "getCountryResponse"), version: 2, ..doc };
+        assert!(ws.diagnostics(&fixed).is_empty());
+        let reverse = ws.line_markers(&Document { path: XSD_PATH.into(), language: "xml".into(), text: XSD.into(), version: 1 });
+        assert_eq!(reverse.len(), 1);
+        assert_eq!(reverse[0].tooltip, "Handled by E.handle");
+    }
+
+    #[test]
+    fn kotlin_payload_roots_support_array_and_vararg_annotation_constructors() {
+        for args in [
+            r#"value = [org.springframework.ws.server.endpoint.annotation.PayloadRoot(namespace = "http://acme.com/countries", localPart = "getCountryRequest"), org.springframework.ws.server.endpoint.annotation.PayloadRoot(namespace = runtime(), localPart = "ghost")]"#,
+            r#"org.springframework.ws.server.endpoint.annotation.PayloadRoot(namespace = "http://acme.com/countries", localPart = "getCountryRequest"), org.springframework.ws.server.endpoint.annotation.PayloadRoot(namespace = runtime(), localPart = "ghost")"#,
+        ] {
+            let host = setup();
+            let text = format!("@org.springframework.ws.server.endpoint.annotation.Endpoint class E {{ @org.springframework.ws.server.endpoint.annotation.PayloadRoots({args}) fun handle() {{}} }}");
+            let path = "/project/src/main/kotlin/E.kt";
+            let doc = Document { path: path.into(), language: "kotlin".into(), text, version: 1 };
+            let mut ws = WsTools::default();
+            ws.activate(&host.context("aritti.spring-ws")).unwrap();
+            let roots = scan_java(path, &doc.text).unwrap();
+            assert_eq!(roots.len(), 2);
+            assert_eq!(roots[0].namespace.as_deref(), Some("http://acme.com/countries"));
+            assert_eq!(roots[1].namespace, None);
+            assert_eq!(ws.line_markers(&doc).len(), 1);
+            assert!(ws.diagnostics(&doc).is_empty(), "dynamic namespace has no absence assertion");
+        }
+    }
+
+    #[test]
+    fn malformed_or_dynamic_container_values_do_not_invent_endpoints() {
+        for args in [
+            r#"value = roots()"#,
+            r#"value = {@Other(localPart = "ghost", namespace = "urn:test")}"#,
+            r#"value = {@org.springframework.ws.server.endpoint.annotation.PayloadRoot(localPart = "ghost")}, value = {@org.springframework.ws.server.endpoint.annotation.PayloadRoot(localPart = "other")}"#,
+            r#"value = {@org.springframework.ws.server.endpoint.annotation.PayloadRoot(localPart = "ghost") + extra}"#,
+            r#"value = {@org.springframework.ws.server.endpoint.annotation.PayloadRoot(localPart = "ghost")]"#,
+            r#"value = {org.springframework.ws.server.endpoint.annotation.PayloadRoot(localPart = "ghost")}"#,
+            r#"value = {@org.springframework.ws.server.endpoint.annotation.PayloadRoot(localPart = "ghost" + suffix)}"#,
+            r#"value = {@org.springframework.ws.server.endpoint.annotation.PayloadRoot(localPart = "ghost", localPart = "other")}"#,
+            r#"value = {@org.springframework.ws.server.endpoint.annotation.PayloadRoot(namespace = "a", namespace = "b", localPart = "ghost")}"#,
+        ] {
+            let text = format!("@org.springframework.ws.server.endpoint.annotation.Endpoint class E {{ @org.springframework.ws.server.endpoint.annotation.PayloadRoots({args}) void handle() {{}} }}");
+            assert!(endpoints(&java::parse(&text), &text).is_empty(), "{args}");
+        }
+    }
+
+    #[test]
+    fn container_ranges_use_utf16_and_omitted_namespace_is_empty_namespace() {
+        let host = setup();
+        host.add_file("src/main/resources/no-namespace.xsd", r#"<schema xmlns="http://www.w3.org/2001/XMLSchema"><element name="known"/></schema>"#);
+        let mut ws = WsTools::default();
+        ws.activate(&host.context("aritti.spring-ws")).unwrap();
+        let text = r#"@org.springframework.ws.server.endpoint.annotation.Endpoint class E { @org.springframework.ws.server.endpoint.annotation.PayloadRoots({@org.springframework.ws.server.endpoint.annotation.PayloadRoot(namespace = "urn:🦀", localPart = "external"), @org.springframework.ws.server.endpoint.annotation.PayloadRoot(localPart = "ghost")}) void handle() {} }"#;
+        let doc = Document { text: text.into(), ..java() };
+        let found = endpoints(&java::parse(text), text);
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[1].namespace.as_deref(), Some(""));
+        let problems = ws.diagnostics(&doc);
+        assert_eq!(problems.len(), 1);
+        assert_eq!(problems[0].range.start, pos(text, "ghost"));
+        assert_eq!(problems[0].range.start.character as usize, text[..text.find("ghost").unwrap()].encode_utf16().count());
+        let fixed = Document { text: text.replace("ghost", "known"), version: 2, ..doc };
+        assert!(ws.diagnostics(&fixed).is_empty());
+    }
+
+    fn xml_doc(text: &str) -> Document {
+        Document { path: "/project/src/main/resources/services.xml".into(), language: "xml".into(), text: text.into(), version: 1 }
+    }
+
+    #[test]
+    fn sws_classpath_locations_navigate_and_unsaved_fixes_clear_warnings() {
+        let host = setup();
+        let text = r#"<!-- 🦀 --><beans xmlns:s="http://www.springframework.org/schema/web-services"><s:static-wsdl location="classpath:wsdl/orders.wsdl"/><s:dynamic-wsdl id="x" portTypeName="P"><s:xsd location="classpath:/countries.xsd"/><s:xsd location="classpath:missing.xsd"/></s:dynamic-wsdl></beans>"#;
+        let doc = xml_doc(text);
+        let mut ws = WsTools::default();
+        ws.activate(&host.context("aritti.spring-ws")).unwrap();
+        let resources = sws_resources(text);
+        assert_eq!(
+            resources.iter().map(|(path, _)| path.as_str()).collect::<Vec<_>>(),
+            ["wsdl/orders.wsdl", "countries.xsd", "missing.xsd"]
+        );
+        assert_eq!(ws.definition(&doc, pos(text, "classpath:/countries")).first().unwrap().path, XSD_PATH);
+        assert_eq!(ws.definition(&doc, pos(text, "classpath:wsdl")).first().unwrap().path, "/project/src/main/resources/wsdl/orders.wsdl");
+        let problems = ws.diagnostics(&doc);
+        assert_eq!(problems.len(), 1);
+        assert_eq!(problems[0].code.as_deref(), Some("missing-resource"));
+        assert_eq!(problems[0].range.start, pos(text, "classpath:missing"));
+        assert_eq!(problems[0].range.start.character as usize, text[..text.find("classpath:missing").unwrap()].encode_utf16().count());
+        let fixed = Document { text: text.replace("missing.xsd", "countries.xsd"), version: 2, ..doc };
+        assert!(ws.diagnostics(&fixed).is_empty());
+        assert!(host.diagnostics().is_empty());
+    }
+
+    #[test]
+    fn sws_locations_require_bound_namespace_valid_parent_and_unqualified_attribute() {
+        let accepted =
+            r#"<dynamic-wsdl xmlns="http://www.springframework.org/schema/web-services"><xsd location="classpath:a.xsd"/></dynamic-wsdl>"#;
+        assert_eq!(sws_resources(accepted).len(), 1);
+        for text in [
+            r#"<s:static-wsdl location="classpath:a.wsdl"/>"#,
+            r#"<static-wsdl location="classpath:a.wsdl"/>"#,
+            r#"<s:static-wsdl xmlns:s="urn:other" location="classpath:a.wsdl"/>"#,
+            r#"<beans xmlns:s="http://www.springframework.org/schema/web-services"><s:static-wsdl xmlns:s="urn:other" location="classpath:a.wsdl"/></beans>"#,
+            r#"<s:xsd xmlns:s="http://www.springframework.org/schema/web-services" location="classpath:a.xsd"/>"#,
+            r#"<other xmlns:s="http://www.springframework.org/schema/web-services"><s:xsd location="classpath:a.xsd"/></other>"#,
+            r#"<s:static-wsdl xmlns:s="http://www.springframework.org/schema/web-services" s:location="classpath:a.wsdl"/>"#,
+            r#"<s:static-wsdl xmlns:s="http://www.springframework.org/schema/web-services" location="classpath:a.wsdl" location="classpath:b.wsdl"/>"#,
+            r#"<s:static-wsdl xmlns:s="http://www.springframework.org/schema/web-services" location="classpath:a.wsdl""#,
+            r#"<s:static-wsdl xmlns:s="http://www.springframework.org/schema/web-services" location="classpath:a.wsdl/>"#,
+        ] {
+            assert!(sws_resources(text).is_empty(), "{text}");
+        }
+    }
+
+    #[test]
+    fn sws_external_dynamic_and_ambiguous_resource_locations_stay_unknown() {
+        for location in [
+            "https://example.org/a.wsdl",
+            "file:/tmp/a.wsdl",
+            "a.wsdl",
+            "classpath*:a.wsdl",
+            "classpath:${name}.wsdl",
+            "classpath:#{name}.wsdl",
+            "classpath:../a.wsdl",
+            "classpath:a&amp;b.wsdl",
+            "classpath:*.wsdl",
+            "classpath:a.xsd",
+        ] {
+            let doc =
+                xml_doc(&format!(r#"<s:static-wsdl xmlns:s="http://www.springframework.org/schema/web-services" location="{location}"/>"#));
+            assert!(sws_resources(&doc.text).is_empty(), "{location}");
+        }
+        let _host = setup();
+        let mut ws = WsTools { watching: true, ..WsTools::default() };
+        let doc =
+            xml_doc(r#"<s:static-wsdl xmlns:s="http://www.springframework.org/schema/web-services" location="classpath:missing.wsdl"/>"#);
+        assert!(ws.diagnostics(&doc).is_empty());
+        assert!(
+            ws.schemas.for_cached_document(&doc.path, &doc.text).unwrap().files().is_empty(),
+            "cold XML diagnostics do not discover schemas"
+        );
+    }
+}
+
+#[cfg(test)]
+mod namespace_source_ownership {
+    use super::*;
+    use openidea_plugin::mock::MockHost;
+    fn source(field: &str, expression: &str) -> String {
+        format!(
+            "@org.springframework.ws.server.endpoint.annotation.Endpoint class E {{ {field} @org.springframework.ws.server.endpoint.annotation.PayloadRoot(namespace={expression},localPart=\"owned\") void handle(){{}} }}"
+        )
+    }
+    fn namespace(text: &str) -> Option<String> {
+        endpoints(&java::parse(text), text)[0].namespace.clone()
+    }
+    #[test]
+    fn java_namespace_constants_require_unique_lexical_or_explicit_owned_compile_time_field() {
+        let local = source("private static final String URI=\"urn:owned\";", "URI");
+        assert_eq!(namespace(&local).as_deref(), Some("urn:owned"));
+        let qualified = source("private static final String URI=\"urn:owned\";", "E.URI");
+        assert_eq!(namespace(&qualified).as_deref(), Some("urn:owned"));
+        let external = format!(
+            "{} class Ns {{ static final java.lang.String URI=\"urn:other\"; }}",
+            source("", "Ns.URI")
+        );
+        assert_eq!(namespace(&external).as_deref(), Some("urn:other"));
+        let literal = source("", "\"urn:literal#fragment\"");
+        assert_eq!(namespace(&literal).as_deref(), Some("urn:literal#fragment"));
+    }
+    #[test]
+    fn mutable_unrelated_foreign_shadowed_duplicate_and_runtime_constants_remain_unknown() {
+        for text in [
+            source("String URI=\"urn:wrong\";", "URI"),
+            source("static String URI=\"urn:wrong\";", "URI"),
+            source("final String URI=\"urn:wrong\";", "URI"),
+            source("static final String URI=runtime();", "URI"),
+            source("static final String URI=\"urn:wrong\";", "Missing.URI"),
+            format!(
+                "{} class Other {{ static final String URI=\"urn:wrong\"; }}",
+                source("", "URI")
+            ),
+            format!(
+                "{} class Ns {{static final String URI=\"urn:a\";}} class Ns {{static final String URI=\"urn:b\";}}",
+                source("", "Ns.URI")
+            ),
+            source(
+                "static final String URI=\"urn:a\"; static final String URI=\"urn:b\";",
+                "URI",
+            ),
+            format!(
+                "import foreign.String; {}",
+                source("static final String URI=\"urn:wrong\";", "URI")
+            ),
+            format!(
+                "class String {{}} {}",
+                source("static final String URI=\"urn:wrong\";", "URI")
+            ),
+            format!(
+                "import foreign.Ns; {} class Ns {{static final String URI=\"urn:wrong\";}}",
+                source("", "Ns.URI")
+            ),
+            source("static final String URI=\"urn:wrong\";", "app.E.URI"),
+        ] {
+            assert_eq!(namespace(&text), None, "{text}");
+        }
+    }
+    #[test]
+    fn kotlin_constants_are_owned_const_object_or_companion_facts_not_arbitrary_vals() {
+        for (field, expression, expected) in [
+            (
+                "companion object { const val URI=\"urn:owned\" }",
+                "URI",
+                Some("urn:owned"),
+            ),
+            ("companion object { val URI=\"urn:wrong\" }", "URI", None),
+            ("val URI=\"urn:wrong\"", "URI", None),
+        ] {
+            let text = format!(
+                "@org.springframework.ws.server.endpoint.annotation.Endpoint class E {{ {field}\n @org.springframework.ws.server.endpoint.annotation.PayloadRoot(namespace={expression},localPart=\"owned\") fun handle(){{}} }}"
+            );
+            let found = endpoints_with_syntax(&parse_source("E.kt", &text), &text, true);
+            assert_eq!(found[0].namespace.as_deref(), expected, "{text}");
+        }
+        let text = "object Ns { const val URI=\"urn:explicit\" } @org.springframework.ws.server.endpoint.annotation.Endpoint class E { @org.springframework.ws.server.endpoint.annotation.PayloadRoot(namespace=Ns.URI,localPart=\"owned\") fun handle(){} }";
+        assert_eq!(
+            endpoints_with_syntax(&parse_source("E.kt", text), text, true)[0]
+                .namespace
+                .as_deref(),
+            Some("urn:explicit")
+        );
+    }
+    #[test]
+    fn escaped_interpolated_dynamic_or_unsupported_local_qnames_do_not_become_known_facts() {
+        for expression in [
+            "\"urn:\\u0061\"",
+            "\"${namespace}\"",
+            "\"$NAMESPACE\"",
+            "\"urn:bad space\"",
+            "\"#{namespace}\"",
+        ] {
+            assert_eq!(namespace(&source("", expression)), None, "{expression}");
+        }
+        for local in ["bad:name", "bad name", "${local}", "\\u006fwned", ""] {
+            let text = source("", "\"urn:owned\"")
+                .replace("localPart=\"owned\"", &format!("localPart=\"{local}\""));
+            assert!(endpoints(&java::parse(&text), &text).is_empty(), "{local}");
+        }
+    }
+    #[test]
+    fn unknown_constant_namespace_suppresses_false_missing_element_warning_and_unsaved_fix_recovers()
+     {
+        let h = MockHost::install();
+        h.add_file("src/main/resources/schema.xsd","<schema xmlns='http://www.w3.org/2001/XMLSchema' targetNamespace='urn:owned'><element name='other'/></schema>");
+        let mut p = WsTools::default();
+        p.activate(&h.context("aritti.spring-ws")).unwrap();
+        let known = source("static final String URI=\"urn:owned\";", "URI");
+        let doc = Document {
+            path: "/project/E.java".into(),
+            language: "java".into(),
+            version: 1,
+            text: known.clone(),
+        };
+        assert_eq!(p.diagnostics(&doc).len(), 1);
+        let unknown = Document {
+            version: 2,
+            text: known.replace("static final String", "String"),
+            ..doc.clone()
+        };
+        assert!(p.diagnostics(&unknown).is_empty());
+        let fixed = Document {
+            version: 3,
+            text: known.replace("localPart=\"owned\"", "localPart=\"other\""),
+            ..doc
+        };
+        assert!(p.diagnostics(&fixed).is_empty());
+        assert!(h.requests().is_empty() && h.process_runs().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod sws_xml_context_safety {
+    use super::*;
+    use openidea_plugin::mock::MockHost;
+    #[test]
+    fn reserved_or_malformed_xml_cannot_own_sws_resource_locations() {
+        for text in [
+            format!(
+                "<beans xmlns:xml='{SWS_NAMESPACE}'><xml:static-wsdl location='classpath:missing.wsdl'/></beans>"
+            ),
+            format!(
+                "<beans xmlns:s='{SWS_NAMESPACE}'><s:static-wsdl location='classpath:missing.wsdl'/></wrong>"
+            ),
+            format!(
+                "<beans xmlns:s='{SWS_NAMESPACE}' xmlns:xml='urn:foreign'><s:static-wsdl location='classpath:missing.wsdl'/></beans>"
+            ),
+            format!(
+                "<!DOCTYPE beans []><beans xmlns:s='{SWS_NAMESPACE}'><s:static-wsdl location='classpath:missing.wsdl'/></beans>"
+            ),
+        ] {
+            assert!(sws_resources(&text).is_empty(), "{text}");
+        }
+    }
+    #[test]
+    fn invalid_current_sws_xml_stays_quiet_and_exact_valid_unsaved_context_recovers() {
+        let h = MockHost::install();
+        let mut p = WsTools::default();
+        p.activate(&h.context("aritti.spring-ws")).unwrap();
+        let valid = format!(
+            "<beans xmlns:s='{SWS_NAMESPACE}'><!-- 😀 --><s:static-wsdl location='classpath:missing.wsdl'/></beans>"
+        );
+        let mut d = Document {
+            path: "/project/services.xml".into(),
+            language: "xml".into(),
+            version: 1,
+            text: valid.clone(),
+        };
+        assert_eq!(p.diagnostics(&d).len(), 1);
+        d.text = valid.replace("<beans ", "<beans xmlns:xml='urn:foreign' ");
+        d.version = 2;
+        assert!(p.diagnostics(&d).is_empty());
+        d.text = valid;
+        d.version = 3;
+        assert_eq!(p.diagnostics(&d).len(), 1);
+        assert!(h.requests().is_empty() && h.process_runs().is_empty());
+    }
+    #[test]
+    fn public_navigation_requires_valid_namespace_context_and_keeps_legal_xml_binding() {
+        let h = MockHost::install();
+        h.add_file(
+            "src/main/resources/orders.wsdl",
+            "<definitions xmlns='http://schemas.xmlsoap.org/wsdl/'/>",
+        );
+        let mut p = WsTools::default();
+        p.activate(&h.context("aritti.spring-ws")).unwrap();
+        let valid = format!(
+            "<static-wsdl xmlns='{SWS_NAMESPACE}' xmlns:xml='http://www.w3.org/XML/1998/namespace' xml:lang='en' location='classpath:orders.wsdl'/>"
+        );
+        let doc = Document {
+            path: "/project/services.xml".into(),
+            language: "xml".into(),
+            version: 1,
+            text: valid,
+        };
+        let at =
+            openidea_plugin::text::position(&doc.text, doc.text.find("classpath:").unwrap() + 12);
+        assert_eq!(p.definition(&doc, at).len(), 1);
+        let bad = Document {
+            text: format!(
+                "<xml:static-wsdl xmlns:xml='{SWS_NAMESPACE}' location='classpath:orders.wsdl'/>"
+            ),
+            ..doc.clone()
+        };
+        let at =
+            openidea_plugin::text::position(&bad.text, bad.text.find("classpath:").unwrap() + 12);
+        assert!(p.definition(&bad, at).is_empty());
+        let huge = format!("{}{}", doc.text, " ".repeat(MAX_SCHEMA_BYTES));
+        assert!(sws_resources(&huge).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod endpoint_annotation_source_ownership {
+    use super::*;
+    use openidea_plugin::mock::MockHost;
+    const PACKAGE: &str = "org.springframework.ws.server.endpoint.annotation";
+    fn owned() -> String {
+        format!(
+            "import {PACKAGE}.Endpoint; import {PACKAGE}.PayloadRoot; @Endpoint class E {{ @PayloadRoot(namespace=\"urn:owned\",localPart=\"missing\") void handle(){{}} }}"
+        )
+    }
+    #[test]
+    fn foreign_unimported_or_mixed_annotation_owners_do_not_create_endpoint_qnames() {
+        for source in [
+            owned().replace(PACKAGE, "foreign"),
+            owned().replace(&format!("import {PACKAGE}.Endpoint; "), ""),
+            owned().replace(&format!("import {PACKAGE}.PayloadRoot; "), ""),
+            owned().replace(
+                &format!("import {PACKAGE}.Endpoint;"),
+                "import foreign.Endpoint;",
+            ),
+            owned().replace(
+                &format!("import {PACKAGE}.PayloadRoot;"),
+                "import foreign.PayloadRoot;",
+            ),
+        ] {
+            assert!(
+                endpoints(&java::parse(&source), &source).is_empty(),
+                "{source}"
+            );
+        }
+    }
+    #[test]
+    fn foreign_annotation_current_source_never_emits_missing_payload_diagnostic() {
+        let h = MockHost::install();
+        h.add_file("src/main/resources/schema.xsd","<schema xmlns='http://www.w3.org/2001/XMLSchema' targetNamespace='urn:owned'><element name='other'/></schema>");
+        let mut p = WsTools::default();
+        p.activate(&h.context("aritti.spring-ws")).unwrap();
+        let d = Document {
+            path: "/project/E.java".into(),
+            language: "java".into(),
+            version: 1,
+            text: owned().replace(PACKAGE, "foreign"),
+        };
+        assert!(p.diagnostics(&d).is_empty());
+        let known = Document {
+            text: owned(),
+            version: 2,
+            ..d.clone()
+        };
+        assert_eq!(p.diagnostics(&known).len(), 1);
+        let foreign = Document { version: 3, ..d };
+        assert!(p.diagnostics(&foreign).is_empty());
+    }
+    #[test]
+    fn explicit_java_kotlin_imports_and_fully_qualified_written_owners_are_supported() {
+        assert_eq!(endpoints(&java::parse(&owned()), &owned()).len(), 1);
+        let qualified = owned()
+            .replace("@Endpoint", &format!("@{PACKAGE}.Endpoint"))
+            .replace("@PayloadRoot", &format!("@{PACKAGE}.PayloadRoot"))
+            .replace(&format!("import {PACKAGE}.Endpoint; "), "")
+            .replace(&format!("import {PACKAGE}.PayloadRoot; "), "");
+        assert_eq!(endpoints(&java::parse(&qualified), &qualified).len(), 1);
+        let kotlin = format!(
+            "import {PACKAGE}.Endpoint\nimport {PACKAGE}.PayloadRoot\n@Endpoint class E {{ @PayloadRoot(namespace=\"urn:owned\",localPart=\"owned\") fun handle(){{}} }}"
+        );
+        assert_eq!(
+            endpoints_with_syntax(&parse_source("E.kt", &kotlin), &kotlin, true).len(),
+            1
+        );
+    }
+    #[test]
+    fn local_generic_typealias_and_aliased_or_conflicting_import_owners_stay_unknown() {
+        for source in [
+            format!("{} @interface Endpoint {{}}", owned()),
+            format!("{} @interface PayloadRoot {{}}", owned()),
+            owned().replace("class E", "class E<PayloadRoot>"),
+            format!("import foreign.PayloadRoot; {}", owned()),
+            owned().replace(
+                &format!("import {PACKAGE}.PayloadRoot;"),
+                &format!("import {PACKAGE}.*;"),
+            ),
+        ] {
+            assert!(
+                endpoints(&java::parse(&source), &source).is_empty(),
+                "{source}"
+            );
+        }
+        let kotlin = format!(
+            "import {PACKAGE}.Endpoint\nimport {PACKAGE}.PayloadRoot\n@Endpoint class E {{ @PayloadRoot(namespace=\"urn:owned\",localPart=\"owned\") fun handle(){{}} }}"
+        );
+        for source in [
+            kotlin.replace(".Endpoint\n", ".Endpoint as Alias\n"),
+            format!("{}\ntypealias Endpoint = foreign.Endpoint", kotlin),
+            format!("import foreign.Other as PayloadRoot\n{kotlin}"),
+        ] {
+            assert!(
+                endpoints_with_syntax(&parse_source("E.kt", &source), &source, true).is_empty(),
+                "{source}"
+            );
+        }
+        let qualified = owned()
+            .replace("@Endpoint", &format!("@{PACKAGE}.Endpoint"))
+            .replace("@PayloadRoot", &format!("@{PACKAGE}.PayloadRoot"));
+        let local_short = format!("{qualified} @interface PayloadRoot {{}}");
+        assert_eq!(endpoints(&java::parse(&local_short), &local_short).len(), 1);
+        let root_shadow = format!("class org {{}} {qualified}");
+        assert!(endpoints(&java::parse(&root_shadow), &root_shadow).is_empty());
+    }
+    #[test]
+    fn payload_roots_container_and_each_nested_member_require_their_own_written_owner() {
+        let source = format!(
+            "@{PACKAGE}.Endpoint class E {{ @{PACKAGE}.PayloadRoots({{ @{PACKAGE}.PayloadRoot(namespace=\"urn:a\",localPart=\"owned\"), @foreign.PayloadRoot(namespace=\"urn:b\",localPart=\"foreign\") }}) void handle(){{}} }}"
+        );
+        let facts = endpoints(&java::parse(&source), &source);
+        assert_eq!(facts.len(), 1);
+        assert_eq!(facts[0].local, "owned");
+        let foreign_container =
+            source.replace(&format!("@{PACKAGE}.PayloadRoots"), "@foreign.PayloadRoots");
+        assert!(endpoints(&java::parse(&foreign_container), &foreign_container).is_empty());
+        let unimported_inner = source.replace(&format!("@{PACKAGE}.PayloadRoot("), "@PayloadRoot(");
+        assert!(endpoints(&java::parse(&unimported_inner), &unimported_inner).is_empty());
+        let kotlin = format!(
+            "import {PACKAGE}.Endpoint\nimport {PACKAGE}.PayloadRoot\nimport {PACKAGE}.PayloadRoots\n@Endpoint class E {{ @PayloadRoots(PayloadRoot(namespace=\"urn:a\",localPart=\"owned\"), foreign.PayloadRoot(namespace=\"urn:b\",localPart=\"foreign\")) fun handle(){{}} }}"
+        );
+        let facts = endpoints_with_syntax(&parse_source("E.kt", &kotlin), &kotlin, true);
+        assert_eq!(facts.len(), 1);
+        assert_eq!(facts[0].local, "owned");
+    }
+}
+
+#[cfg(test)]
+mod qualified_namespace_shadow_regression {
+    use super::*;
+    use openidea_plugin::mock::MockHost;
+    #[test]
+    fn generic_namespace_owner_is_not_the_same_named_top_level_type() {
+        let text="class Ns { static final String URI=\"urn:outer\"; } @org.springframework.ws.server.endpoint.annotation.Endpoint class E<Ns> { @org.springframework.ws.server.endpoint.annotation.PayloadRoot(namespace=Ns.URI, localPart=\"missing\") void handle(){} }";
+        assert_eq!(endpoints(&java::parse(text),text)[0].namespace,None);
+        let host=MockHost::install();
+        host.add_file("src/main/resources/schema.xsd", "<schema xmlns='http://www.w3.org/2001/XMLSchema' targetNamespace='urn:outer'><element name='other'/></schema>");
+        let mut tools=WsTools::default();
+        tools.activate(&host.context("aritti.spring-ws")).unwrap();
+        let doc=Document { path:"/project/E.java".into(),language:"java".into(),version:1,text:text.into() };
+        assert!(tools.diagnostics(&doc).is_empty());
+    }
+    #[test]
+    fn nested_namespace_owner_shadow_does_not_emit_a_false_live_qname_warning() {
+        let host=MockHost::install();
+        host.add_file("src/main/resources/schema.xsd", "<schema xmlns='http://www.w3.org/2001/XMLSchema' targetNamespace='urn:outer'><element name='other'/></schema>");
+        let mut tools=WsTools::default();
+        tools.activate(&host.context("aritti.spring-ws")).unwrap();
+        let text="class Ns { static final String URI=\"urn:outer\"; } @org.springframework.ws.server.endpoint.annotation.Endpoint class E { static class Ns { static final String URI=\"urn:inner\"; } @org.springframework.ws.server.endpoint.annotation.PayloadRoot(namespace=Ns.URI, localPart=\"missing\") void handle(){} }";
+        let doc=Document { path:"/project/E.java".into(),language:"java".into(),version:1,text:text.into() };
+        assert!(tools.diagnostics(&doc).is_empty(), "{:?}",tools.diagnostics(&doc));
+        assert_eq!(endpoints(&java::parse(text),text)[0].namespace,None);
+    }
+}
+
+#[cfg(test)]
+mod exact_namespace_provider_regression {
+    use super::*;
+    use openidea_plugin::mock::MockHost;
+    #[test]
+    fn registered_definition_never_links_an_unmatched_namespace_to_other_schema() {
+        let host=MockHost::install();
+        host.add_file("src/main/resources/schema.xsd","<schema xmlns='http://www.w3.org/2001/XMLSchema' targetNamespace='urn:other'><element name='missing'/></schema>");
+        let mut tools=WsTools::default();tools.activate(&host.context("aritti.spring-ws")).unwrap();
+        for ns in ["\"urn:external\"", "runtime()"] {
+            let text=format!("@org.springframework.ws.server.endpoint.annotation.Endpoint class E {{ @org.springframework.ws.server.endpoint.annotation.PayloadRoot(namespace={ns},localPart=\"missing\") void handle(){{}} }}");
+            let at=range(&text,text.find("missing").unwrap(),text.find("missing").unwrap()+7).start;
+            let doc=Document{path:"/project/E.java".into(),language:"java".into(),version:1,text};
+            assert!(tools.definition(&doc,at).is_empty(),"{ns}");
+            assert!(tools.completion(&doc,at,None).is_empty(),"{ns}");
+            assert!(tools.line_markers(&doc).is_empty(),"{ns}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod resource_owner_regression {
+    use super::*;
+    use openidea_plugin::mock::MockHost;
+    #[test]
+    fn foreign_classpath_constructor_does_not_publish_spring_resource_diagnostics() {
+        let host=MockHost::install();host.add_file("src/main/resources/known.xsd","<schema xmlns='http://www.w3.org/2001/XMLSchema'/>");
+        let mut tools=WsTools::default();tools.activate(&host.context("aritti.spring-ws")).unwrap();
+        let doc=Document{path:"/project/E.java".into(),language:"java".into(),version:1,text:"import foreign.ClassPathResource; class E { Object value=new ClassPathResource(\"missing.xsd\"); }".into()};
+        assert!(tools.diagnostics(&doc).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod source_resource_cache_regression {
+    use super::*;
+    use openidea_plugin::mock::MockHost;
+    #[test]
+    fn source_resource_navigation_is_quiet_without_fresh_watched_inventory() {
+        let host=MockHost::install();host.add_file("src/main/resources/a.xsd","<schema xmlns='http://www.w3.org/2001/XMLSchema'/>");
+        let text="class E { Object x=new org.springframework.core.io.ClassPathResource(\"a.xsd\"); }";
+        let doc=Document{path:"/project/E.java".into(),language:"java".into(),version:1,text:text.into()};
+        let at=range(text,text.find("a.xsd").unwrap(),text.find("a.xsd").unwrap()+5).start;
+        assert!(WsTools::default().definition(&doc,at).is_empty());
+        let mut tools=WsTools::default();tools.activate(&host.context("aritti.spring-ws")).unwrap();
+        assert_eq!(tools.definition(&doc,at).len(),1);
+        host.add_file("src/test/resources/a.xsd","<schema xmlns='http://www.w3.org/2001/XMLSchema'/>");
+        // Unobserved files cannot alter a cached request; lifecycle warming can.
+        let mut tools=WsTools::default();tools.activate(&host.context("aritti.spring-ws")).unwrap();
+        assert!(tools.definition(&doc,at).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod constant_string_type_regression {
+    use super::*;
+    #[test]
+    fn generic_string_field_type_does_not_establish_java_lang_string_constant() {
+        let text="@org.springframework.ws.server.endpoint.annotation.Endpoint class E<String> { static final String URI=\"urn:wrong\"; @org.springframework.ws.server.endpoint.annotation.PayloadRoot(namespace=URI,localPart=\"missing\") void handle(){} }";
+        assert_eq!(endpoints(&java::parse(text),text)[0].namespace,None);
+        let host=openidea_plugin::mock::MockHost::install();
+        host.add_file("src/main/resources/schema.xsd","<schema xmlns='http://www.w3.org/2001/XMLSchema' targetNamespace='urn:wrong'><element name='other'/></schema>");
+        let mut tools=WsTools::default();tools.activate(&host.context("aritti.spring-ws")).unwrap();
+        let doc=Document{path:"/project/E.java".into(),language:"java".into(),version:1,text:text.into()};
+        assert!(tools.diagnostics(&doc).is_empty());
+        let exact=text.replace("final String", "final java.lang.String");
+        assert_eq!(endpoints(&java::parse(&exact),&exact)[0].namespace.as_deref(),Some("urn:wrong"));
+    }
+}
+
+#[cfg(test)]
+mod qualified_string_root_regression {
+ use super::*;
+ #[test]
+ fn generic_java_package_root_does_not_prove_java_lang_string() {
+  let text="@org.springframework.ws.server.endpoint.annotation.Endpoint class E<java> { static final java.lang.String URI=\"urn:wrong\"; @org.springframework.ws.server.endpoint.annotation.PayloadRoot(namespace=URI,localPart=\"missing\") void handle(){} }";
+  assert_eq!(endpoints(&java::parse(text),text)[0].namespace,None);
+ }
+}
+
+#[cfg(test)]
+mod namespace_property_provider_tests {
+ use super::*;
+ use openidea_plugin::mock::MockHost;
+ fn source(class:&str,value:&str)->String {format!("<b:beans xmlns:b='http://www.springframework.org/schema/beans'><b:bean class='{class}'><b:property name='namespaces'><b:props><b:prop key='p'>{value}</b:prop></b:props></b:property></b:bean></b:beans>")}
+ const ADAPTER:&str="org.springframework.ws.server.endpoint.adapter.XPathParamAnnotationMethodEndpointAdapter";
+ fn document(text:String)->Document {Document{path:"/project/context.xml".into(),language:"xml".into(),version:1,text}}
+ #[test]
+ fn exact_xpath_adapter_namespace_property_completes_and_navigates_cached_uri() {
+  let host=MockHost::install();host.add_file("src/main/resources/schema.xsd","<schema xmlns='http://www.w3.org/2001/XMLSchema' targetNamespace='urn:owned'><element name='a'/></schema>");
+  let mut tools=WsTools::default();tools.activate(&host.context("aritti.spring-ws")).unwrap();
+  let doc=document(source(ADAPTER,"urn:owned"));let at=range(&doc.text,doc.text.find("urn:owned").unwrap(),doc.text.find("urn:owned").unwrap()+9).start;
+  assert_eq!(tools.definition(&doc,at).len(),1);
+  assert_eq!(tools.completion(&doc,at,None).iter().map(|x|x.label.as_str()).collect::<Vec<_>>(),["urn:owned"]);
+ }
+ #[test]
+ fn namespace_property_owners_and_duplicate_prefixes_are_conservative() {
+  let host=MockHost::install();host.add_file("src/main/resources/schema.xsd","<schema xmlns='http://www.w3.org/2001/XMLSchema' targetNamespace='urn:owned'><element name='a'/></schema>");
+  let mut tools=WsTools::default();tools.activate(&host.context("aritti.spring-ws")).unwrap();
+  for text in [source("foreign.XPathParamAnnotationMethodEndpointAdapter","urn:owned"),source(ADAPTER,"${uri}"),source(ADAPTER,"urn:owned").replace("</b:props>","<b:prop key='p'>urn:other</b:prop></b:props>"),source(ADAPTER,"urn:owned").replace("name='namespaces'","name='other'"),source(ADAPTER,"urn:owned").replace("<b:props>","<b:props merge='true'>"),source(ADAPTER,"urn:owned").replace("<b:bean class=","<b:bean parent='x' class=")] {
+   let doc=document(text);let at=range(&doc.text,doc.text.find('>').unwrap()+1,doc.text.find('>').unwrap()+1).start;
+   assert!(tools.definition(&doc,at).is_empty());
+   // Every value caret must stay quiet, including unknown ownership.
+   for needle in ["urn:owned","${uri}"] {if let Some(n)=doc.text.find(needle){let at=range(&doc.text,n,n+needle.len()).start;assert!(tools.completion(&doc,at,None).is_empty(),"{}",doc.text);}}
+  }
+ }
+ #[test]
+ fn namespace_property_completion_replaces_unsaved_text_with_utf16_ranges() {
+  let host=MockHost::install();host.add_file("src/main/resources/schema.xsd","<schema xmlns='http://www.w3.org/2001/XMLSchema' targetNamespace='urn:owned'/>");
+  let mut tools=WsTools::default();tools.activate(&host.context("aritti.spring-ws")).unwrap();
+  let text=source(ADAPTER,"urn:ow").replace("<b:bean", "<!--🦀-->\r\n<b:bean");let doc=document(text);
+  let n=doc.text.find("urn:ow").unwrap();let at=range(&doc.text,n,n+6).end;
+  let items=tools.completion(&doc,at,None);assert_eq!(items.len(),1);assert_eq!(items[0].label,"urn:owned");assert_eq!(items[0].replace,Some(range(&doc.text,n,n+6)));
+ }
+ #[test]
+ fn namespace_property_contexts_and_malformed_inputs_are_quiet() {
+  let host=MockHost::install();host.add_file("src/main/resources/schema.xsd","<schema xmlns='http://www.w3.org/2001/XMLSchema' targetNamespace='urn:owned'/>");
+  let mut tools=WsTools::default();tools.activate(&host.context("aritti.spring-ws")).unwrap();
+  for text in [source(ADAPTER,"urn:owned").replace("<b:bean", "<b:import resource='other.xml'/><b:bean"),source(ADAPTER,"urn:owned").replace("<b:beans ","<b:beans profile='dev' "),source(ADAPTER,"urn:owned").replace("</b:prop>","</bad:prop>"),source(ADAPTER,"urn:owned").replace("key='p'","key='xmlns'"),source(ADAPTER,"urn:owned").replace("</b:prop>","<!--hidden--></b:prop>"),source(ADAPTER,"urn:owned").replace("http://www.springframework.org/schema/beans","urn:foreign")] {
+   let doc=document(text);let n=doc.text.find("urn:owned").unwrap();let at=range(&doc.text,n,n+9).start;
+   assert!(tools.definition(&doc,at).is_empty(),"{}",doc.text);assert!(tools.completion(&doc,at,None).is_empty(),"{}",doc.text);
+  }
+ }
+ #[test]
+ fn namespace_property_cold_ambiguous_and_external_roots_withhold_targets() {
+  let host=MockHost::install();host.add_file("src/main/resources/schema.xsd","<schema xmlns='http://www.w3.org/2001/XMLSchema' targetNamespace='urn:owned'/>");
+  let doc=document(source(ADAPTER,"urn:owned"));let at=range(&doc.text,doc.text.find("urn:owned").unwrap(),doc.text.find("urn:owned").unwrap()+9).start;
+  assert!(WsTools::default().completion(&doc,at,None).is_empty());
+  host.add_file("src/test/resources/schema.xsd","<schema xmlns='http://www.w3.org/2001/XMLSchema' targetNamespace='urn:owned'/>");
+  let mut tools=WsTools::default();tools.activate(&host.context("aritti.spring-ws")).unwrap();
+  assert!(tools.definition(&doc,at).is_empty());assert!(tools.completion(&doc,at,None).is_empty());
+ }
 }

@@ -1,0 +1,14 @@
+[
+  {
+    "menu": "viewItem.context",
+    "view": "endpoints",
+    "command": "copy-endpoint-curl",
+    "when": "viewItemKind == route"
+  },
+  {
+    "menu": "viewItem.context",
+    "view": "endpoints",
+    "command": "create-endpoint-http",
+    "when": "viewItemKind == route"
+  }
+]

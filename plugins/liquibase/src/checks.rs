@@ -4,7 +4,7 @@
 use crate::catalog::is_change_type;
 use crate::changelog::{Changelog, Format, Include, Target};
 use openidea_plugin::{Diagnostic, Location, RelatedInformation, Severity};
-use spring_text::range;
+use openidea_plugin::{Position, Range};
 use std::collections::HashMap;
 
 /// The problems of `log` (parsed from `text`), sorted by where they start.
@@ -16,6 +16,21 @@ pub fn problems(
     target: &dyn Fn(&Include) -> Target,
     defined: Option<&dyn Fn(&str) -> bool>,
 ) -> Vec<Diagnostic> {
+    // Compute UTF-16 coordinates once: repeated prefix scans become quadratic
+    // for large same-line changelogs with many changesets.
+    let mut coordinates = vec![Position::new(0, 0); text.len() + 1];
+    let mut at = Position::new(0, 0);
+    for (byte, ch) in text.char_indices() {
+        coordinates[byte] = at;
+        if ch == '\n' {
+            at.line += 1;
+            at.character = 0;
+        } else {
+            at.character += ch.len_utf16() as u32;
+        }
+        coordinates[byte + ch.len_utf8()] = at;
+    }
+    let range = |_: &str, a: usize, b: usize| Range::new(coordinates[a.min(text.len())], coordinates[b.min(text.len())]);
     let mut out: Vec<(usize, Diagnostic)> = Vec::new();
 
     if log.format == Format::Sql && !log.header {
@@ -67,11 +82,8 @@ pub fn problems(
         if include.optional || target(include) != Target::Missing {
             continue;
         }
-        let message = if include.dir {
-            format!("Cannot find directory `{}`.", include.path)
-        } else {
-            format!("Cannot find `{}`.", include.path)
-        };
+        let message =
+            if include.dir { format!("Cannot find directory `{}`.", include.path) } else { format!("Cannot find `{}`.", include.path) };
         let diagnostic = Diagnostic::new(range(text, include.at, include.end), Severity::Error, message);
         out.push((include.at, diagnostic.code("unresolved-include")));
     }
@@ -81,7 +93,9 @@ pub fn problems(
             if name.starts_with("database.") || log.properties.iter().any(|p| p == name) || defined(name) {
                 continue;
             }
-            let message = format!("Property `{name}` is not declared in this changelog or the changelogs it includes, nor set as a parameter in the project's Liquibase configuration.");
+            let message = format!(
+                "Property `{name}` is not declared in this changelog or the changelogs it includes, nor set as a parameter in the project's Liquibase configuration."
+            );
             out.push((start, Diagnostic::new(range(text, start, end), Severity::Warning, message).code("unresolved-property")));
         }
     }
@@ -92,7 +106,7 @@ pub fn problems(
 
 /// `${name}` placeholders as `(start, end, name)`. Skipped: names that are not plain identifiers (`${:name}`, `${1}`),
 /// escaped ones (`$${name}`, `\${name}`), and text in XML comments, YAML `#` lines and SQL `--` lines (but not `--property`).
-fn placeholders(text: &str, format: Format) -> Vec<(usize, usize, &str)> {
+pub(crate) fn placeholders(text: &str, format: Format) -> Vec<(usize, usize, &str)> {
     let comments = if format == Format::Xml { xml_comments(text) } else { Vec::new() };
     let mut out = Vec::new();
     for (at, _) in text.match_indices("${") {
@@ -107,9 +121,7 @@ fn placeholders(text: &str, format: Format) -> Vec<(usize, usize, &str)> {
         let commented = match format {
             Format::Yaml => before_on_line.starts_with('#'),
             Format::Json => false,
-            Format::Sql => {
-                before_on_line.starts_with("--") && !before_on_line[2..].trim_start().to_lowercase().starts_with("property")
-            }
+            Format::Sql => before_on_line.starts_with("--") && !before_on_line[2..].trim_start().to_lowercase().starts_with("property"),
             Format::Xml => comments.iter().any(|&(from, to)| from <= at && at < to),
         };
         let escaped = text[..at].ends_with(['$', '\\']);

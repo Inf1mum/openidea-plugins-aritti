@@ -2,60 +2,88 @@
 //! `devcontainer` CLI (https://containers.dev).
 
 mod checks;
+mod configs;
+mod compose;
+mod create;
 mod dashboard;
+mod dockerfile;
 mod features;
+mod feature_options;
+mod launch;
+mod operations;
+mod run_target;
 
 use std::path::Path;
 
 use openidea_plugin::providers::{CompletionItem, CompletionKind, Document, Providers};
 use openidea_plugin::text::{offset, position};
-use openidea_plugin::{
-    Context as PluginContext, Diagnostic, Error, Event, EventKind, Invocation, LogLevel, NotificationLevel, PickItem, Plugin, Position, Project, Range, host, register_plugin,
-};
+use openidea_plugin::{Diagnostic, Error, Invocation, NotificationLevel, Plugin, Position, Project, Range, host, register_plugin};
 
 use checks::{Context, FEATURES_MALFORMED, UNKNOWN_PROPERTY};
 
 const MAX_BYTES: usize = 256 * 1024;
 
-/// Where the CLI looks for a configuration, in order. The host's `find_files`
-/// skips hidden directories, so these are probed with `read_file`; configs in
-/// `.devcontainer/<folder>/` are picked with the `configFile` setting.
-const DEFAULT_CONFIGS: [&str; 2] = [".devcontainer/devcontainer.json", ".devcontainer.json"];
-
 const LOGIN_SHELL: &str = "command -v bash >/dev/null && exec bash -l; exec sh -l";
 
 #[derive(Default)]
 pub struct Main {
+    run_target: run_target::State,
     /// Container id picked in the Dev Containers view.
     selected: Option<String>,
+    selection_project: Option<String>,
     running: std::collections::BTreeSet<String>,
+    operations: operations::Operations,
 }
 
 impl Plugin for Main {
-    fn activate(&mut self, _ctx: &PluginContext) -> Result<(), Error> {
-        for kind in [EventKind::FileOpened, EventKind::FileSaved] {
-            if let Err(error) = host::subscribe(kind) {
-                host::log(LogLevel::Warn, &format!("Dev Container inspections need the {} event: {error}", kind.name()));
-            }
-        }
-
+    fn activate(&mut self, _ctx: &openidea_plugin::Context) -> Result<(), Error> {
+        self.run_target.clear();
         Ok(())
     }
-
-    fn handle_events(&mut self, events: &[Event], _ctx: &Invocation) {
-        for event in events {
-            let (Event::FileOpened(path) | Event::FileSaved(path)) = event else { continue };
-            if is_devcontainer_file(path) {
-                inspect(path);
-            }
-        }
-    }
-
     fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
+        if id == "managed-output" {
+            host::reveal_view(operations::VIEW)?;
+            return Ok(None);
+        }
         let project = ctx.project().ok_or("No project is open.")?;
         let root = project.root()?;
 
+        if id == "register-run-target" { return run_target::prepare(&mut self.run_target, ctx); }
+        if id == "register-mapped-tooling-target" { return run_target::prepare_mapped(&mut self.run_target, ctx); }
+        if matches!(id, "unregister-run-target" | "unregister-mapped-tooling-target") {
+            self.run_target.clear_for(&root);
+            host::unregister_run_target(&project, if id == "unregister-run-target" { run_target::ID } else { run_target::MAPPED_ID });
+            return Ok(None);
+        }
+
+        if matches!(id, "up-managed" | "rebuild-managed") {
+            self.operations.idle()?;
+            let Some(config) = configs::choose(&project, false)? else { return Ok(None); };
+            let plan = launch::Plan::prepare(&project, if id == "up-managed" { "up" } else { "rebuild" }, &config)?;
+            if !ui_kit::prompts::confirm_exact(plan.title(), &format!("{}\n\nFinite managed mode: one CLI client is retained only while this plugin instance lives (normally about300seconds idle). Refresh Status reads bounded progress; Cancel closes that client handle. CLI exit/cancellation does not establish container or Docker-build termination, rollback or IDE ownership. Output stays in memory, latest64KiB only. Existing Start/Rebuild terminal commands remain available.", plan.preview()))? {
+                return Ok(None);
+            }
+            plan.launch_managed(ctx, &mut self.operations)?;
+            self.run_target.clear_for(&root);
+            host::reveal_view(operations::VIEW)?;
+            return Ok(None);
+        }
+
+        if id == "choose-configuration" {
+            if let Some(path) = configs::choose(&project, true)? {
+                self.run_target.clear_for(&root);
+                host::unregister_run_target(&project, run_target::ID);
+                host::unregister_run_target(&project, run_target::MAPPED_ID);
+                host::notify(NotificationLevel::Info, "Dev Container configuration", &format!("Using {path} for this project."));
+                return Ok(None);
+            }
+            return Ok(None);
+        }
+
         if id == "stop" {
+            self.run_target.clear_for(&root);
+            host::unregister_run_target(&project, run_target::ID);
+            host::unregister_run_target(&project, run_target::MAPPED_ID);
             return stop(&project, &root);
         }
 
@@ -71,22 +99,23 @@ impl Plugin for Main {
             return clone(&project, &root);
         }
 
-        if id == "rebuild" && !host::confirm("Rebuild Dev Container", "The existing container is removed and built again.").unwrap_or(true) {
-            return Ok(None);
+        if !matches!(id, "up" | "rebuild" | "shell") {
+            return Err(Error::NotFound(format!("command {id}")));
         }
-
-        let mut args = vec!["--workspace-folder".to_owned(), root.clone(), "--config".to_owned(), config_file(&project)?];
-
-        let (title, command, extra): (&str, &str, &[&str]) = match id {
-            "up" => ("Dev Container: Start Container", "up", &[]),
-            "rebuild" => ("Dev Container: Rebuild Container", "up", &["--remove-existing-container"]),
-            "shell" => ("Dev Container: Open Shell in Container", "exec", &["sh", "-c", LOGIN_SHELL]),
-            _ => return Err(Error::NotFound(format!("command {id}"))),
+        let Some(config) = configs::choose(&project, false)? else {
+            return Ok(None);
         };
-
-        args.insert(0, command.to_owned());
-        args.extend(extra.iter().map(|a| a.to_string()));
-        host::open_terminal(title, "devcontainer", &args)?;
+        if matches!(id, "up" | "rebuild") {
+            let plan = launch::Plan::prepare(&project, id, &config)?;
+            if !ui_kit::prompts::confirm_exact(plan.title(), &plan.preview())? {
+                return Ok(None);
+            }
+            self.run_target.clear_for(&root);
+            plan.launch(ctx)?;
+        } else {
+            let args = ["exec", "--workspace-folder", &root, "--config", &config, "sh", "-c", LOGIN_SHELL].map(str::to_owned);
+            host::open_terminal("Dev Container: Open Shell in Container", "devcontainer", &args)?;
+        }
 
         Ok(None)
     }
@@ -98,32 +127,28 @@ fn is_devcontainer_file(path: &str) -> bool {
     matches!(path.rsplit('/').next(), Some("devcontainer.json" | ".devcontainer.json"))
 }
 
-fn inspect(path: &str) {
-    let Some(project) = host::projects()
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|p| Some((p.root().ok()?, p)))
-        .filter(|(root, _)| Path::new(path).starts_with(root))
-        .max_by_key(|(root, _)| root.len())
-        .map(|(_, project)| project)
-    else {
-        return;
-    };
+impl openidea_plugin::diagnostics::DiagnosticsProvider for Main {
+    fn diagnostics(&mut self, doc: &openidea_plugin::providers::Document) -> Vec<Diagnostic> {
+        if !is_devcontainer_file(&doc.path) {
+            return Vec::new();
+        }
+        let path = doc.path.as_str();
 
-    let Ok(text) = project.read_file(path) else { return };
-    let findings = match text.len() > MAX_BYTES {
-        true => vec![],
-        false => enabled_findings(path, &text),
-    };
-    let diagnostics: Vec<Diagnostic> = findings
-        .iter()
-        .map(|f| Diagnostic {
-            code: Some(f.code.into()),
-            ..Diagnostic::new(Range::new(position(&text, f.start), position(&text, f.end)), f.severity, &f.message)
-        })
-        .collect();
+        let text = doc.text.as_str();
+        let findings = match text.len() > MAX_BYTES {
+            true => vec![],
+            false => enabled_findings(path, text),
+        };
+        let diagnostics: Vec<Diagnostic> = findings
+            .iter()
+            .map(|f| Diagnostic {
+                code: Some(f.code.into()),
+                ..Diagnostic::new(Range::new(position(text, f.start), position(text, f.end)), f.severity, &f.message)
+            })
+            .collect();
 
-    let _ = host::publish_diagnostics(path, &diagnostics);
+        diagnostics
+    }
 }
 
 fn enabled_findings(path: &str, text: &str) -> Vec<checks::Finding> {
@@ -148,38 +173,11 @@ fn enabled_findings(path: &str, text: &str) -> Vec<checks::Finding> {
         .collect()
 }
 
-fn config_file(project: &Project) -> Result<String, Error> {
-    let configured = host::setting_string("configFile").unwrap_or_default();
-
-    if !configured.trim().is_empty() {
-        return Ok(configured.trim().to_owned());
-    }
-
-    let mut found = Vec::new();
-    for path in DEFAULT_CONFIGS {
-        match project.read_file(path) {
-            Ok(_) => found.push(path.to_owned()),
-            Err(Error::Denied(cap)) => return Err(Error::Denied(cap)),
-            Err(_) => continue,
-        }
-    }
-
-    if found.len() > 1 {
-        let items: Vec<PickItem> = found.iter().map(|path| PickItem::new(path, path)).collect();
-        if let Ok(Some(chosen)) = host::pick("Dev Container configuration", &items) {
-            return Ok(chosen);
-        }
-    }
-
-    if let Some(path) = found.into_iter().next() {
-        return Ok(path);
-    }
-
-    Err("No .devcontainer/devcontainer.json or .devcontainer.json found in this project. To use another file, set it in Settings › Plugins › Dev Container CLI › Configuration file.".into())
-}
-
 fn info(project: &Project, root: &str) -> Result<Option<String>, Error> {
-    let args = vec!["read-configuration".to_owned(), "--workspace-folder".to_owned(), root.to_owned(), "--config".to_owned(), config_file(project)?];
+    let Some(config) = configs::choose(project, false)? else {
+        return Ok(None);
+    };
+    let args = vec!["read-configuration".to_owned(), "--workspace-folder".to_owned(), root.to_owned(), "--config".to_owned(), config];
     let _task = host::begin_task("Reading the Dev Container configuration", false);
     let output = project.run_process("devcontainer", &args, None)?;
 
@@ -244,7 +242,9 @@ fn repository_name(url: &str) -> &str {
 }
 
 fn clone(project: &Project, root: &str) -> Result<Option<String>, Error> {
-    let Some(url) = host::input("Repository URL to clone", None)? else { return Ok(None) };
+    let Some(url) = host::input("Repository URL to clone", None)? else {
+        return Ok(None);
+    };
     let url = url.trim();
     let name = repository_name(url);
     if url.starts_with('-') || url.contains(char::is_whitespace) || name.is_empty() {
@@ -254,7 +254,9 @@ fn clone(project: &Project, root: &str) -> Result<Option<String>, Error> {
 
     let parent = Path::new(root).parent().map_or(root.to_owned(), |p| p.to_string_lossy().into_owned());
     let suggested = format!("{}/{name}", parent.trim_end_matches('/'));
-    let Some(target) = host::input("Clone into (a new folder)", Some(&suggested))? else { return Ok(None) };
+    let Some(target) = host::input("Clone into (a new folder)", Some(&suggested))? else {
+        return Ok(None);
+    };
     let target = target.trim();
     if target.is_empty() {
         return Ok(None);
@@ -311,11 +313,15 @@ impl Providers for Main {
             return vec![];
         }
 
-        let Some(offset) = offset(&doc.text, at) else { return vec![] };
+        let Some(offset) = offset(&doc.text, at) else {
+            return vec![];
+        };
         if let Some(key) = checks::feature_key_at(&doc.text, offset) {
             return feature_items(&doc.text, key);
         }
-        let Some(context) = checks::context_at(&doc.text, offset) else { return vec![] };
+        let Some(context) = checks::context_at(&doc.text, offset) else {
+            return vec![];
+        };
         let replace = checks::word_range(&doc.text, offset);
         let replace = Range::new(position(&doc.text, replace.start), position(&doc.text, replace.end));
 
@@ -367,11 +373,12 @@ fn feature_items(text: &str, key: std::ops::Range<usize>) -> Vec<CompletionItem>
         .collect()
 }
 
-register_plugin!(Main, providers, views);
+register_plugin!(Main, providers, views, diagnostics, details, file_actions);
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use openidea_plugin::Event;
     use openidea_plugin::ProcessOutput;
     use openidea_plugin::mock::MockHost;
     use openidea_plugin::views::{Body, ViewEvent, Views};
@@ -387,10 +394,48 @@ mod tests {
     }
 
     #[test]
+    fn cancelling_configuration_choice_starts_no_terminal_or_process() {
+        let host = host();
+        host.add_file(".devcontainer/a/devcontainer.json", "{}");
+        host.add_file(".devcontainer/b/devcontainer.json", "{}");
+        host.answer_next_prompt(None);
+        Main::default().run_command("up", &host.invocation(), None).unwrap();
+        assert!(host.terminals().is_empty() && host.process_runs().is_empty());
+    }
+
+    #[test]
+    fn cancelling_start_preview_preserves_remembered_configuration_without_launch() {
+        let host = host().with_capabilities(&["project.read", "process:devcontainer", "storage"]);
+        host.add_file(".devcontainer/a/devcontainer.json", "{}");
+        host.add_file(".devcontainer/b/devcontainer.json", "{}");
+        host.answer_next_prompt(Some(&[".devcontainer/b/devcontainer.json"]));
+        host.answer_next_prompt(None);
+        Main::default().run_command("up", &host.invocation(), None).unwrap();
+        assert!(host.terminals().is_empty() && host.process_runs().is_empty());
+        host.answer_next_prompt(Some(&[]));
+        Main::default().run_command("up", &host.invocation(), None).unwrap();
+        assert_eq!(host.terminals()[0].args[4], ".devcontainer/b/devcontainer.json");
+    }
+
+    #[test]
+    fn chooser_command_persists_for_later_cli_commands_and_new_instances() {
+        let host = host().with_capabilities(&["project.read", "process:devcontainer", "storage"]);
+        host.add_file(".devcontainer/a/devcontainer.json", "{}");
+        host.add_file(".devcontainer/b/devcontainer.json", "{}");
+        host.answer_next_prompt(Some(&[".devcontainer/b/devcontainer.json"]));
+        Main::default().run_command("choose-configuration", &host.invocation(), None).unwrap();
+        assert!(host.terminals().is_empty() && host.process_runs().is_empty());
+        assert!(host.notifications().iter().any(|n| n.body.contains(".devcontainer/b/devcontainer.json")));
+        host.answer_next_prompt(Some(&[]));
+        Main::default().run_command("up", &host.invocation(), None).unwrap();
+        assert_eq!(host.terminals()[0].args[4], ".devcontainer/b/devcontainer.json");
+    }
+
+    #[test]
     fn up_uses_the_default_config() {
         let host = host();
         host.add_file(".devcontainer/devcontainer.json", "{}");
-        host.add_file(".devcontainer.json", "{}");
+        host.answer_next_prompt(Some(&[]));
 
         Main::default().run_command("up", &host.invocation(), None).unwrap();
 
@@ -431,6 +476,7 @@ mod tests {
         host.add_file(".devcontainer/devcontainer.json", "{}");
         host.add_file(".devcontainer.json", "{}");
         host.answer_next_prompt(Some(&[".devcontainer.json"]));
+        host.answer_next_prompt(Some(&[]));
 
         Main::default().run_command("up", &host.invocation(), None).unwrap();
 
@@ -441,6 +487,7 @@ mod tests {
     fn shell_uses_the_configured_file() {
         let host = host();
         host.set_setting("configFile", "\".devcontainer/python/devcontainer.json\"");
+        host.add_file(".devcontainer/python/devcontainer.json", "{}");
 
         Main::default().run_command("shell", &host.invocation(), None).unwrap();
 
@@ -533,10 +580,12 @@ mod tests {
     fn open(host: &MockHost, path: &str, text: &str) {
         host.add_file(path, text);
         Main::default().handle_events(&[Event::FileOpened(format!("/work/app/{path}"))], &host.invocation());
+        host.open_editor(&format!("/work/app/{path}"), "jsonc", text, &[]);
+        host.refresh_diagnostics(&mut Main::default());
     }
 
     fn published(host: &MockHost, path: &str) -> Vec<Diagnostic> {
-        host.diagnostics().get(&format!("/work/app/{path}")).cloned().unwrap_or_default()
+        host.provider_diagnostics().get(&format!("/work/app/{path}")).cloned().unwrap_or_default()
     }
 
     fn codes(diagnostics: &[Diagnostic]) -> Vec<&str> {
@@ -560,7 +609,11 @@ mod tests {
     #[test]
     fn unknown_property_is_quiet_for_vendor_and_unrelated_names() {
         let host = host();
-        open(&host, FILE, "{\"$schema\": \"s\", \"x-vendor\": 1, \"completelyDifferent\": 2, \"image\": \"i\", \"customizations\": {\"vscode\": {\"extensons\": []}}}");
+        open(
+            &host,
+            FILE,
+            "{\"$schema\": \"s\", \"x-vendor\": 1, \"completelyDifferent\": 2, \"image\": \"i\", \"customizations\": {\"vscode\": {\"extensons\": []}}}",
+        );
 
         assert!(published(&host, FILE).is_empty());
     }
@@ -584,11 +637,7 @@ mod tests {
     #[test]
     fn jsonc_comments_and_trailing_commas_are_read() {
         let host = host();
-        open(
-            &host,
-            FILE,
-            "{\n // \"fake\": 1,\n /* \"imagee\": */ \"features\": { \"a b\": {}, /* c */ },\n \"imge\": \"x\", // end\n}",
-        );
+        open(&host, FILE, "{\n // \"fake\": 1,\n /* \"imagee\": */ \"features\": { \"a b\": {}, /* c */ },\n \"imge\": \"x\", // end\n}");
 
         let found = published(&host, FILE);
 
@@ -625,17 +674,19 @@ mod tests {
     fn fixed_file_publishes_empty_list() {
         let host = host();
         open(&host, ".devcontainer.json", "{\"imge\": 1}");
-        assert_eq!(host.diagnostics().len(), 1);
+        assert_eq!(host.provider_diagnostics().len(), 1);
 
         open(&host, ".devcontainer.json", "{\"image\": \"x\"}");
-        assert!(host.diagnostics().is_empty());
+        assert!(host.provider_diagnostics().is_empty());
     }
 
     #[test]
     fn manifest_activates_on_file_events() {
         let manifest = include_str!("../plugin.toml");
 
-        assert!(manifest.contains("activation = [\"on-event:file-opened\", \"on-event:file-saved\", \"on-view:containers\"]"));
+        for activation in ["on-event:file-opened", "on-event:file-saved", "on-view:containers", "on-view:run-target-review"] {
+            assert!(manifest.contains(&format!("\"{activation}\"")));
+        }
     }
 
     #[test]
@@ -651,7 +702,7 @@ mod tests {
         let host = host();
         open(&host, FILE, &format!("{{\"imge\": \"{}\"}}", "x".repeat(MAX_BYTES)));
 
-        assert!(host.diagnostics().is_empty());
+        assert!(host.provider_diagnostics().is_empty());
     }
 
     #[test]
@@ -659,7 +710,7 @@ mod tests {
         let host = host();
         open(&host, "package.json", "{\"imge\": 1}");
 
-        assert!(host.diagnostics().is_empty());
+        assert!(host.provider_diagnostics().is_empty());
     }
 
     #[test]
@@ -695,7 +746,7 @@ mod tests {
         let host = host();
         open(&host, ".devcontainer/python/devcontainer.json", "{}");
 
-        assert!(host.diagnostics().is_empty());
+        assert!(host.provider_diagnostics().is_empty());
     }
 
     #[test]
@@ -704,7 +755,7 @@ mod tests {
         open(&host, ".devcontainer.json", "{}");
         open(&host, "sub/.devcontainer.json", "{}");
 
-        assert!(host.diagnostics().is_empty());
+        assert!(host.provider_diagnostics().is_empty());
     }
 
     #[test]
@@ -724,7 +775,7 @@ mod tests {
     fn moving_the_file_clears_the_hint() {
         let host = host();
         open(&host, "devcontainer.json", "{}");
-        assert_eq!(host.diagnostics().len(), 1);
+        assert_eq!(host.provider_diagnostics().len(), 1);
 
         open(&host, ".devcontainer/devcontainer.json", "{}");
         assert!(published(&host, ".devcontainer/devcontainer.json").is_empty());
@@ -736,7 +787,7 @@ mod tests {
         host.set_setting("checkFolderStructure", "false");
         open(&host, "devcontainer.json", "{}");
 
-        assert!(host.diagnostics().is_empty());
+        assert!(host.provider_diagnostics().is_empty());
     }
 
     #[test]
@@ -752,7 +803,7 @@ mod tests {
         let host = host();
         open(&host, ".devcontainer/python/devcontainer.json", "{\"imge\": 1}");
 
-        assert_eq!(host.diagnostics().len(), 1);
+        assert_eq!(host.provider_diagnostics().len(), 1);
     }
 
     #[test]
@@ -764,15 +815,23 @@ mod tests {
 
         host.set_setting("checkFeatures", "false");
         open(&host, FILE, "{\"imge\": 1, \"features\": 3}");
-        assert!(host.diagnostics().is_empty());
+        assert!(host.provider_diagnostics().is_empty());
     }
 
     #[test]
-    fn denied_events_log_a_warning_and_still_activate() {
+    fn current_document_diagnostics_work_without_file_events() {
         let host = MockHost::install().with_capabilities(&["project.read"]);
-
-        assert!(Main::default().activate(&host.context("aritti.devcontainer")).is_ok());
-        assert!(host.logs().iter().any(|(level, _)| *level == LogLevel::Warn));
+        let mut plugin = Main::default();
+        assert!(plugin.activate(&host.context("aritti.devcontainer")).is_ok());
+        let doc = openidea_plugin::providers::Document {
+            path: "/p/.devcontainer/devcontainer.json".into(),
+            language: "jsonc".into(),
+            version: 7,
+            text: "{\"imge\": 1}".into(),
+        };
+        assert!(!openidea_plugin::diagnostics::DiagnosticsProvider::diagnostics(&mut plugin, &doc).is_empty());
+        let fixed = openidea_plugin::providers::Document { text: String::new(), version: 8, ..doc };
+        assert!(openidea_plugin::diagnostics::DiagnosticsProvider::diagnostics(&mut plugin, &fixed).is_empty());
     }
 
     #[test]
@@ -1044,7 +1103,7 @@ mod tests {
     fn manifest_registers_the_completion_provider() {
         let manifest = include_str!("../plugin.toml");
 
-        assert!(manifest.contains("kinds = [\"completion\"]"));
+        assert!(manifest.contains("kinds = [\"completion\", \"code-actions\"]"));
         assert!(manifest.contains("languages = [\"json\", \"jsonc\"]"));
     }
 
@@ -1068,7 +1127,10 @@ mod tests {
         Main::default().run_command("refresh-features", &host.invocation(), None).unwrap();
 
         let items = complete("{\n  \"features\": {\n    \"ghcr|\n  }\n}");
-        assert_eq!(items.iter().map(|i| i.label.as_str()).collect::<Vec<_>>(), ["ghcr.io/devcontainers/features/node:1", "ghcr.io/x/features/plain"]);
+        assert_eq!(
+            items.iter().map(|i| i.label.as_str()).collect::<Vec<_>>(),
+            ["ghcr.io/devcontainers/features/node:1", "ghcr.io/x/features/plain"]
+        );
         assert_eq!(items[0].insert_text, "\"ghcr.io/devcontainers/features/node:1\": {$0}");
         assert_eq!(items[0].detail.as_deref(), Some("Node.js"));
 
@@ -1117,13 +1179,17 @@ mod tests {
         host
     }
 
-    const PS: &str = "{\"ID\":\"abc123\",\"Image\":\"node:20\",\"Names\":\"happy_fox\",\"Status\":\"Up 2 minutes\"}\nnot json\n{\"Names\":\"no id\"}\n";
+    const PS: &str =
+        "{\"ID\":\"abc123\",\"Image\":\"node:20\",\"Names\":\"happy_fox\",\"Status\":\"Up 2 minutes\"}\nnot json\n{\"Names\":\"no id\"}\n";
 
     #[test]
     fn parses_docker_ps_json_lines() {
         let containers = dashboard::parse_containers(PS);
         assert_eq!(containers.len(), 1);
-        assert_eq!((containers[0].id.as_str(), containers[0].name.as_str(), containers[0].image.as_str()), ("abc123", "happy_fox", "node:20"));
+        assert_eq!(
+            (containers[0].id.as_str(), containers[0].name.as_str(), containers[0].image.as_str()),
+            ("abc123", "happy_fox", "node:20")
+        );
     }
 
     #[test]
@@ -1173,8 +1239,8 @@ mod tests {
     fn view_explains_empty_denied_and_failed_listings() {
         let host = docker_host("");
         let message = |host: &MockHost| match Main::default().render("containers", None, &host.invocation()).unwrap().body {
-            Body::Message(text) => text,
-            _ => panic!("a message"),
+            Body::List(rows) if rows.len() == 1 && rows[0].key == "devcontainer:status" => rows[0].detail.clone().unwrap(),
+            _ => panic!("a status row visible in Services"),
         };
         assert!(message(&host).starts_with("No dev container"));
 

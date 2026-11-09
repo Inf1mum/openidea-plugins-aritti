@@ -6,3 +6,46 @@ dist/
 .claude/worktrees/
 .superpowers/
 .publish.key
+
+# Local documentation and audit evidence
+docs/
+audit/
+audits/
+.audit/
+audit-*.md
+
+# Screenshots (keep plugin icons and other image assets trackable)
+screenshots/
+screenshot/
+[Ss]creenshot*.png
+[Ss]creenshot*.jpg
+[Ss]creenshot*.jpeg
+[Ss]creenshot*.webp
+*-screenshot.png
+
+# Agent configuration, workspaces and sessions
+.claude/
+.codex/
+.agents/
+.agent-sessions/
+agent-sessions/
+.sessions/
+AGENTS.md
+CLAUDE.md
+
+# Generated caches and local output
+__pycache__/
+*.pyc
+*.log
+*.tmp
+*.bak
+
+# Captured UI references and personal IDE deployment settings
+/crates/ui-kit/reference/
+/.openidea/settings.toml
+
+# Local API 1.4 experiments
+/api14/
+
+# Audit-gap reports and evidence directories
+audit-gaps-*

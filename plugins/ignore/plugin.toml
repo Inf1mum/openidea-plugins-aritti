@@ -5,16 +5,16 @@ description = "Support for ignore files (.gitignore, .dockerignore, .npmignore, 
 authors = ["Arnaud RITTI <arnaud.ritti@gmail.com>", "Jakub Chrzanowski (original .ignore plugin)", "JetBrains s.r.o. (original .ignore plugin)"]
 homepage = "https://github.com/JetBrains/idea-gitignore"
 license = "Apache-2.0"
-change-notes = "Unreleased: New Ignore File command (Project view, Tools) that creates a dot-named ignore file of the chosen type through tee (clipboard fallback when denied); Unignore Selected Paths command; both commands also in the editor context menu (the current file when nothing is selected); results are notifications instead of dropped return strings. path completion of entries in glob-syntax ignore files (visible files and folders only). Add Selected Paths asks which ignore file (the open one or a root .gitignore, .dockerignore…) to add to; a file that is not open is opened first and the command run again. 0.2.0: Add Selected Paths to the Open Ignore File in the Project view menu. Needs OpenIDEA API 1.2. 0.1.0: first release, ported from .ignore 4.5.7 (JetBrains/idea-gitignore commit 860a6855) with github/gitignore templates at 53cf2971. Not ported because the plugin API has no equivalent: directory gutter markers, path completion, Close Ignored Editors, hiding ignored files in the Project view."
+change-notes = "Unreleased: retain bounded literal-directory observations across unchanged save/watcher echoes and irrelevant events without extending TTL; source/owner/target/preference guards remain. Unreleased: bounded event-cached literal project directory markers, source/ownership checks and expiry; no marker filesystem lookup. compact per-file editor-assistance/check/Create controls and shared additional-file colouring switch; separate v2 preferences preserve legacy data and revalidate owned mutation paths. explicit cached Git review revalidates successful historical source proof without collecting new paths; duplicate decoded preference keys are refused and preserved. explicitly reviewed bounded native-task Git ignored-file observations, partial/stale source-scoped cache and read-only sample coverage review; optional Git/VCS grants, no renderer/provider process or absence inference. exact dotfile New-menu templates and confirmed native FileActions for creation, bundled/user-template append and literal Add/Unignore entries; target/source conflict guards and LF/CRLF preservation. The tee writer and permission are removed. Legacy New Ignore File now guides to native creation. Existing selected-path and tool-window append commands keep version-checked editor edits. Ported from .ignore 4.5.7 (JetBrains/idea-gitignore commit 860a6855); github/gitignore templates at 53cf2971."
 categories = ["vcs", "linters"]
 icon = "icon.svg"
-engines.openidea = "^1.2"
+engines.openidea = "^1.4"
 wasm = "dist/plugin.wasm"
-activation = ["on-event:file-opened", "on-event:file-saved", "on-event:editor-focused"]
+activation = ["on-view:ignore-settings", "on-event:file-opened", "on-event:file-saved", "on-event:editor-focused"]
 
 [capabilities]
 required = ["project.read", "editor.read", "editor.write", "events", "storage"]
-optional = ["process:tee", "clipboard"]
+optional = ["clipboard", "process:git", "vcs.read"]
 
 # Ignore files the IDE doesn't know yet; .gitignore, .dockerignore, .npmignore…
 # are the built-in `ignore` language.
@@ -22,7 +22,7 @@ optional = ["process:tee", "clipboard"]
 path = "languages/dotignore.toml"
 
 [[contributes.providers]]
-kinds = ["completion", "definition"]
+kinds = ["completion", "definition", "line-markers"]
 languages = ["ignore", "dotignore"]
 
 # Quick fixes in ignore files, Add to .gitignore in every other file.
@@ -74,6 +74,7 @@ id = "templates"
 title = "Ignore Templates"
 icon = "file-ignored"
 location = "right"
+web = "web/resources/hub.html"
 
 [contributes.settings]
 title = ".ignore"
@@ -94,6 +95,169 @@ iconDark = "icons/ignored_dark.svg"
 
 [[contributes.fileTemplates]]
 id = "gitignore"
-name = "Ignore File"
-extension = "ignore"
+name = ".gitignore File"
+fileName = ".gitignore"
 path = "file-templates/gitignore"
+
+[[contributes.fileTemplates]]
+id = "dockerignore"
+name = ".dockerignore File"
+fileName = ".dockerignore"
+path = "file-templates/dockerignore"
+
+[[contributes.fileTemplates]]
+id = "npmignore"
+name = ".npmignore File"
+fileName = ".npmignore"
+path = "file-templates/npmignore"
+
+[[contributes.fileTemplates]]
+id = "hgignore"
+name = ".hgignore File"
+fileName = ".hgignore"
+path = "file-templates/hgignore"
+
+[[contributes.fileTemplates]]
+id = "prettierignore"
+name = ".prettierignore File"
+fileName = ".prettierignore"
+path = "file-templates/prettierignore"
+
+[[contributes.fileTemplates]]
+id = "eslintignore"
+name = ".eslintignore File"
+fileName = ".eslintignore"
+path = "file-templates/eslintignore"
+
+[[contributes.fileTemplates]]
+id = "stylelintignore"
+name = ".stylelintignore File"
+fileName = ".stylelintignore"
+path = "file-templates/stylelintignore"
+
+[[contributes.fileTemplates]]
+id = "gcloudignore"
+name = ".gcloudignore File"
+fileName = ".gcloudignore"
+path = "file-templates/gcloudignore"
+
+[[contributes.fileTemplates]]
+id = "slugignore"
+name = ".slugignore File"
+fileName = ".slugignore"
+path = "file-templates/slugignore"
+
+[[contributes.fileTemplates]]
+id = "helmignore"
+name = ".helmignore File"
+fileName = ".helmignore"
+path = "file-templates/helmignore"
+
+[[contributes.fileTemplates]]
+id = "vercelignore"
+name = ".vercelignore File"
+fileName = ".vercelignore"
+path = "file-templates/vercelignore"
+
+[[contributes.fileTemplates]]
+id = "terraformignore"
+name = ".terraformignore File"
+fileName = ".terraformignore"
+path = "file-templates/terraformignore"
+
+[[contributes.fileTemplates]]
+id = "yarnignore"
+name = ".yarnignore File"
+fileName = ".yarnignore"
+path = "file-templates/yarnignore"
+
+[[contributes.fileTemplates]]
+id = "nodemonignore"
+name = ".nodemonignore File"
+fileName = ".nodemonignore"
+path = "file-templates/nodemonignore"
+
+[[contributes.fileTemplates]]
+id = "jshintignore"
+name = ".jshintignore File"
+fileName = ".jshintignore"
+path = "file-templates/jshintignore"
+
+[[contributes.fileTemplates]]
+id = "cfignore"
+name = ".cfignore File"
+fileName = ".cfignore"
+path = "file-templates/cfignore"
+
+[[contributes.fileTemplates]]
+id = "bzrignore"
+name = ".bzrignore File"
+fileName = ".bzrignore"
+path = "file-templates/bzrignore"
+
+[[contributes.fileTemplates]]
+id = "cvsignore"
+name = ".cvsignore File"
+fileName = ".cvsignore"
+path = "file-templates/cvsignore"
+
+[[contributes.fileTemplates]]
+id = "p4ignore"
+name = ".p4ignore File"
+fileName = ".p4ignore"
+path = "file-templates/p4ignore"
+
+[[contributes.fileTemplates]]
+id = "chefignore"
+name = ".chefignore File"
+fileName = ".chefignore"
+path = "file-templates/chefignore"
+
+[[contributes.commands]]
+id = "preferences"
+title = "Ignore: Dialect Checks and Preferences"
+category = "Ignore"
+
+[[contributes.menus]]
+menu = "tools"
+command = "preferences"
+
+[[contributes.views]]
+id = "ignore-settings"
+title = "Ignore Preferences"
+icon = "settings"
+location = "right"
+
+
+[[contributes.commands]]
+id = "git-inventory-start"
+title = "Ignore: Start Git Ignored-File Observations (Asks First)…"
+category = "Ignore"
+[[contributes.commands]]
+id = "git-inventory-review"
+title = "Ignore: Review Cached Partial Git Observations"
+category = "Ignore"
+[[contributes.commands]]
+id = "git-inventory-clear"
+title = "Ignore: Clear This Project’s Cached Git Observations"
+category = "Ignore"
+
+
+[[contributes.providers]]
+kinds = ["semantic-tokens"]
+languages = ["ignore"]
+
+[[contributes.markerIcons]]
+id = "directory-pattern"
+icon = "icons/directory-pattern.svg"
+iconDark = "icons/directory-pattern_dark.svg"
+
+
+[[contributes.commands]]
+id = "publish-git-sample-hints"
+title = "Ignore: Publish Cached Partial Git Sample Hints (API 1.4)"
+category = "Ignore"
+[[contributes.commands]]
+id = "clear-git-sample-hints"
+title = "Ignore: Clear Partial Git Sample Hints"
+category = "Ignore"

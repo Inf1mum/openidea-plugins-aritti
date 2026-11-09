@@ -1,0 +1,339 @@
+//! Reviewed scalar SQL drafts. A draft never executes or claims an effective schema.
+use super::*;
+pub(super) const TITLE: &str = "Create scalar SQL table draft with preview…";
+fn sql_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 63
+        && name
+            .bytes()
+            .next()
+            .is_some_and(|b| b.is_ascii_alphabetic() || b == b'_')
+        && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+}
+pub(super) fn source(doc: &Document) -> Option<Class> {
+    if doc.language != "java" {
+        return None;
+    }
+    let class = dto_action::source(doc)?;
+    let ns = namespace(&doc.text, &class)?;
+    let masked = mask(&doc.text);
+    let anns = annotations(&masked);
+    // This action only supports plain field access and explicit manual IDs.
+    if anns.iter().any(|a| {
+        !matches!(a.name, "Entity" | "Id")
+            || a.args.is_some()
+            || !annotation_is(&doc.text, &class, a.name, ns)
+    }) || anns.iter().filter(|a| a.name == "Entity").count() != 1
+        || anns.iter().filter(|a| a.name == "Id").count() != 1
+        || masked.contains(['(', '=', '<', '>'])
+        || masked.matches('{').count() != 1
+        || masked.matches('}').count() != 1
+        || class.imports.iter().any(|import| {
+            import.ends_with(".*") && import != &format!("{ns}.*") && import != "java.lang.*"
+        })
+        || class.attributes.is_empty()
+        || class.attributes.len() > 32
+        || class.attributes.iter().filter(|a| a.id).count() != 1
+    {
+        return None;
+    }
+    let mut names = HashSet::new();
+    for attribute in &class.attributes {
+        let column = snake_case(&attribute.name);
+        if attribute.relation != Relation::None
+            || attribute.generated.is_some()
+            || attribute.ty.rsplit('.').next() == Some(class.name.as_str())
+            || !dto_action::supported(&class, &attribute.ty)
+            || !sql_name(&column)
+            || !names.insert(column)
+            || crate::generate::sql_type(attribute, Dialect::PostgreSql).is_none()
+            || crate::generate::sql_type(attribute, Dialect::MySql).is_none()
+        {
+            return None;
+        }
+    }
+    Some(class)
+}
+pub(super) fn eligible(doc: &Document) -> bool {
+    source(doc).is_some()
+}
+fn absent(project: &Project, root: &str, target: &str) -> Result<(), Error> {
+    if host::project_of(target)
+        .and_then(|p| p.root().ok())
+        .as_deref()
+        != Some(root)
+    {
+        return Err(Error::Stale);
+    }
+    match project.read_file(target) {
+        Ok(_) => {
+            return Err(
+                "SQL draft target exists or has a current buffer; choose another file stem.".into(),
+            );
+        }
+        Err(Error::NotFound(_)) => {}
+        Err(error) => return Err(error),
+    }
+    let (directory, filename) = target.rsplit_once('/').ok_or(Error::Stale)?;
+    let relative = directory
+        .strip_prefix(&format!("{}/", root.trim_end_matches('/')))
+        .ok_or(Error::Stale)?;
+    let files = project.find_files(&format!("{relative}/*"), 129)?;
+    if files.len() >= 129 {
+        return Err("Target folder exceeds bounded SQL draft collision discovery.".into());
+    }
+    if files.iter().any(|file| {
+        file.rsplit('/')
+            .next()
+            .is_some_and(|name| name.eq_ignore_ascii_case(filename))
+    }) {
+        return Err("A case-insensitive SQL draft filename collision exists.".into());
+    }
+    Ok(())
+}
+fn sql(class: &Class, table: &str, dialect: Dialect) -> Option<String> {
+    let quote = if dialect == Dialect::MySql { '`' } else { '"' };
+    let quoted = |name: &str| format!("{quote}{name}{quote}");
+    let mut fields = Vec::new();
+    let mut key = None;
+    for attribute in &class.attributes {
+        let name = quoted(&snake_case(&attribute.name));
+        let ty = crate::generate::sql_type(attribute, dialect)?;
+        fields.push(format!(
+            "    {name} {ty}{}",
+            if attribute.id { " NOT NULL" } else { "" }
+        ));
+        if attribute.id {
+            key = Some(name);
+        }
+    }
+    fields.push(format!("    PRIMARY KEY ({})", key?));
+    Some(format!(
+        "-- Source-derived scalar draft; review before external use.\n-- Snake-case column names and nullable non-ID columns are draft choices.\n-- No database, naming strategy, converter, schema or deployment validation.\nCREATE TABLE {} (\n{}\n);\n",
+        quoted(table),
+        fields.join(",\n")
+    ))
+}
+pub(super) fn resolve(
+    pending: &Pending,
+    doc: &Document,
+    project: &Project,
+) -> Result<FileAction, Error> {
+    current(pending, doc)?;
+    let class = source(doc)
+        .ok_or("This source is outside the plain Java scalar field-access SQL draft subset.")?;
+    let choices = [
+        PickItem::new("postgresql", "PostgreSQL scalar draft"),
+        PickItem::new("mysql", "MySQL scalar draft"),
+    ];
+    let selected = host::pick("SQL draft dialect (no database connection)", &choices)?
+        .ok_or(Error::Cancelled)?;
+    let dialect = match selected.as_str() {
+        "postgresql" => Dialect::PostgreSql,
+        "mysql" => Dialect::MySql,
+        _ => return Err(Error::Stale),
+    };
+    let table = host::input(
+        "Draft table name (one unqualified ASCII identifier)",
+        Some(&table_name(&class)),
+    )?
+    .ok_or(Error::Cancelled)?;
+    if !sql_name(&table) {
+        return Err("Use an unqualified ASCII SQL identifier of at most 63 bytes.".into());
+    }
+    let stem = host::input(
+        "SQL draft filename stem (beside this entity)",
+        Some(&format!("{}Schema", class.name)),
+    )?
+    .ok_or(Error::Cancelled)?;
+    if !identifier(&stem) {
+        return Err(
+            "Use a Java-style ASCII filename stem of at most 128 bytes; .sql is appended.".into(),
+        );
+    }
+    let directory = doc.path.rsplit_once('/').ok_or(Error::Stale)?.0;
+    let target = format!("{directory}/{stem}.sql");
+    if path(&target).as_deref() != Some(target.as_str()) || !inside(&pending.root, &target) {
+        return Err(Error::Stale);
+    }
+    let generated = sql(&class, &table, dialect).ok_or(Error::Stale)?;
+    current(pending, doc)?;
+    absent(project, &pending.root, &target)?;
+    let preview = format!(
+        "Source: {}\nSource version: {}\nPackage: {}\nDialect: {selected}\nTable: {table}\nTarget: {target}\n\nAll {} parsed scalar fields, one manual primary key. Non-ID columns are nullable draft choices. No DB/schema diff, physical naming strategy, generated IDs, converters, relationships or deployment check.\n\nExact new SQL file:\n{generated}\nOne atomic non-overwriting Create. This action never executes SQL.",
+        doc.path,
+        doc.version,
+        package(doc).ok_or(Error::Stale)?,
+        class.attributes.len()
+    );
+    if !ui_kit::prompts::confirm_exact("Create reviewed scalar SQL draft?", &preview)? {
+        return Err(Error::Cancelled);
+    }
+    current(pending, doc)?;
+    absent(project, &pending.root, &target)?;
+    Ok(FileAction {
+        title: format!("Create scalar SQL draft {stem}.sql"),
+        kind: Some("refactor.rewrite".into()),
+        operations: vec![FileOperation::Create {
+            path: target.clone(),
+            text: generated,
+            overwrite: false,
+        }],
+        open: Some(target),
+        ..Default::default()
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use openidea_plugin::mock::MockHost;
+    const JAVA: &str = "package shop;\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n@Entity\nclass Customer {\n@Id Long id;\nString displayName;\nboolean active;\n}\n";
+    fn setup() -> (MockHost, JpaAssist, Document) {
+        let h = MockHost::install().with_capabilities(&["project.read", "editor.read"]);
+        let path = "/project/src/main/java/shop/Customer.java";
+        h.open_editor(path, "java", JAVA, &[]);
+        (
+            h,
+            JpaAssist::default(),
+            Document {
+                path: path.into(),
+                language: "java".into(),
+                version: 1,
+                text: JAVA.into(),
+            },
+        )
+    }
+    fn action(p: &mut JpaAssist, d: &Document) -> FileAction {
+        p.file_actions(d, Range::default())
+            .into_iter()
+            .find(|a| a.title == TITLE)
+            .unwrap()
+    }
+    fn answer(h: &MockHost, dialect: &str, table: &str, stem: &str, confirm: bool) {
+        for value in [dialect, table, stem] {
+            h.answer_next_prompt(Some(&[value]));
+        }
+        h.answer_next_prompt(confirm.then_some(&[]));
+    }
+    #[test]
+    fn scalar_sql_draft_is_exact_quoted_nonoverwriting_create_without_writes_or_processes() {
+        for (dialect, quote, boolean) in [("postgresql", '"', "BOOLEAN"), ("mysql", '`', "BIT(1)")]
+        {
+            let (h, mut p, d) = setup();
+            let pending = action(&mut p, &d);
+            assert!(pending.operations.is_empty());
+            answer(&h, dialect, "order", "CustomerDraft", true);
+            let resolved = p.resolve_file_action(&d, pending).unwrap();
+            let [
+                FileOperation::Create {
+                    path,
+                    text,
+                    overwrite: false,
+                },
+            ] = resolved.operations.as_slice()
+            else {
+                panic!("one create")
+            };
+            assert_eq!(path, "/project/src/main/java/shop/CustomerDraft.sql");
+            assert_eq!(resolved.open.as_ref(), Some(path));
+            assert!(text.contains(&format!("CREATE TABLE {quote}order{quote}")));
+            assert!(text.contains(&format!("{quote}display_name{quote} VARCHAR(255)")));
+            assert!(text.contains(&format!("{quote}active{quote} {boolean}")));
+            assert!(text.contains(&format!("PRIMARY KEY ({quote}id{quote})")));
+            assert!(resolved.edits.is_empty());
+            assert_eq!(h.editor_text(), JAVA);
+            assert!(h.invocation().project().unwrap().read_file(path).is_err());
+            assert!(h.requests().is_empty() && h.process_runs().is_empty());
+        }
+    }
+    #[test]
+    fn unsupported_mapping_types_and_ambiguous_columns_do_not_offer_draft() {
+        let (_h, mut p, d) = setup();
+        for text in [
+            JAVA.replace("@Id Long id;", "@Id @GeneratedValue Long id;"),
+            JAVA.replace(
+                "String displayName;",
+                "@Column(name=\"name\") String displayName;",
+            ),
+            JAVA.replace("String displayName;", "Other displayName;"),
+            JAVA.replace(
+                "String displayName;",
+                "String displayName; String display_name;",
+            ),
+            JAVA.replace("class Customer {", "class Customer extends Base {"),
+            JAVA.replace("String displayName;", "String displayName = call();"),
+            JAVA.replace("class Customer {", "class Customer<T> {"),
+            format!("{JAVA}}}"),
+            JAVA.replace(
+                "import jakarta.persistence.Id;",
+                "import jakarta.persistence.Id;\nimport foreign.*;",
+            ),
+            JAVA.replace("@Id Long id;", "@Id @foreign.Id Long id;"),
+            JAVA.replace(
+                "String displayName;",
+                "String displayName; void custom() {}",
+            ),
+        ] {
+            let d = Document { text, ..d.clone() };
+            assert!(
+                !p.file_actions(&d, Range::default())
+                    .iter()
+                    .any(|a| a.title == TITLE),
+                "{}",
+                d.text
+            );
+        }
+    }
+    #[test]
+    fn cancellation_invalid_inputs_collisions_and_stale_or_foreign_source_return_no_operations() {
+        let (h, mut p, d) = setup();
+        let a = action(&mut p, &d);
+        answer(&h, "postgresql", "customers", "Draft", false);
+        assert!(matches!(
+            p.resolve_file_action(&d, a),
+            Err(Error::Cancelled)
+        ));
+        for (table, stem) in [
+            ("public.customers", "Draft"),
+            ("a;drop", "Draft"),
+            ("good", "../Draft"),
+        ] {
+            let (h, mut p, d) = setup();
+            let a = action(&mut p, &d);
+            answer(&h, "postgresql", table, stem, true);
+            assert!(p.resolve_file_action(&d, a).is_err());
+        }
+        for path in ["Draft.sql", "draft.sql"] {
+            let (h, mut p, d) = setup();
+            h.add_file(&format!("src/main/java/shop/{path}"), "old");
+            let a = action(&mut p, &d);
+            answer(&h, "postgresql", "customers", "Draft", true);
+            assert!(p.resolve_file_action(&d, a).is_err());
+        }
+        let (h, mut p, d) = setup();
+        let a = action(&mut p, &d);
+        h.open_editor(
+            "/project/src/main/java/shop/Draft.sql",
+            "sql",
+            "unsaved",
+            &[],
+        );
+        answer(&h, "mysql", "customers", "Draft", true);
+        assert!(p.resolve_file_action(&d, a).is_err());
+        let (_h, mut p, d) = setup();
+        let a = action(&mut p, &d);
+        let changed = Document {
+            version: 2,
+            ..d.clone()
+        };
+        assert!(matches!(
+            p.resolve_file_action(&changed, a),
+            Err(Error::Stale)
+        ));
+        let (h, mut p, d) = setup();
+        let a = action(&mut p, &d);
+        h.add_project("/project/src/main/java/shop");
+        assert!(matches!(p.resolve_file_action(&d, a), Err(Error::Stale)));
+    }
+}

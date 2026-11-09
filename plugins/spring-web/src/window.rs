@@ -4,7 +4,7 @@ use graphql::GraphQlTools;
 use messaging::Messaging;
 use openidea_plugin::providers::{CodeAction, CompletionItem, Document, LineMarker, Providers};
 use openidea_plugin::views::{View, ViewEvent, Viewport, Views};
-use openidea_plugin::{Diagnostic, Error, Event, Invocation, Location, Plugin, Position, Range, host};
+use openidea_plugin::{Error, Event, Invocation, Location, Plugin, Position, Range, host};
 use spring_text::index::project_of;
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
@@ -40,7 +40,12 @@ struct Applies {
     cloud: bool,
 }
 
+mod live;
+mod path_actions;
+
 pub struct Endpoints {
+    live: live::Live,
+    path_actions:path_actions::State,
     web: WebTools,
     websocket: WebSocketTools,
     messaging: Messaging,
@@ -54,6 +59,8 @@ pub struct Endpoints {
 impl Default for Endpoints {
     fn default() -> Self {
         Self {
+            live: live::Live::default(),
+            path_actions:path_actions::State::default(),
             web: WebTools::default(),
             websocket: WebSocketTools::default(),
             messaging: Messaging::default(),
@@ -68,7 +75,9 @@ impl Default for Endpoints {
 
 impl Endpoints {
     fn applicable(&mut self, doc: &Document) -> Applies {
-        let Some(project) = project_of(&doc.path) else { return Applies::default() };
+        let Some(project) = project_of(&doc.path) else {
+            return Applies::default();
+        };
         let root = project.root().unwrap_or_default();
         if let Some((at, applies)) = self.applies.get(&root)
             && at.elapsed() < APPLIES_TTL
@@ -173,8 +182,12 @@ impl Providers for Endpoints {
     }
 
     fn resolve_code_action(&mut self, doc: &Document, action: CodeAction) -> Result<CodeAction, Error> {
-        let Some(data) = action.data.as_deref() else { return Ok(action) };
-        let Some((module, rest)) = data.split_once(':') else { return Err(Error::Invalid(format!("code action {data}"))) };
+        let Some(data) = action.data.as_deref() else {
+            return Ok(action);
+        };
+        let Some((module, rest)) = data.split_once(':') else {
+            return Err(Error::Invalid(format!("code action {data}")));
+        };
         let routed = CodeAction { data: Some(rest.to_owned()), ..action };
         match module {
             WINDOW_SECTION => self.web.resolve_code_action(doc, routed).map(|resolved| module_data(module, resolved)),
@@ -184,40 +197,23 @@ impl Providers for Endpoints {
 
     fn line_markers(&mut self, doc: &Document) -> Vec<LineMarker> {
         let mut markers = Vec::new();
-        let mut problems: Vec<Diagnostic> = Vec::new();
-        let mut ran = false;
         if self.wants_web(doc) {
             markers.extend(self.web.line_markers(doc));
-            problems.extend(crate::take_problems());
-            ran = true;
         }
         if self.wants_websocket(doc) {
             markers.extend(self.websocket.line_markers(doc));
-            problems.extend(websocket::take_problems());
-            ran = true;
         }
         if self.wants_messaging(doc) {
             markers.extend(self.messaging.line_markers(doc));
-            problems.extend(messaging::take_problems());
-            ran = true;
         }
         if self.wants_graphql(doc) {
             markers.extend(self.graphql.line_markers(doc));
-            problems.extend(graphql::take_problems());
-            ran = true;
         }
         if self.wants_webflow(doc) {
             markers.extend(self.webflow.line_markers(doc));
-            problems.extend(webflow::take_problems());
-            ran = true;
         }
         if self.wants_cloud(doc) {
             markers.extend(self.cloud.line_markers(doc));
-            problems.extend(cloud::take_problems());
-            ran = true;
-        }
-        if ran {
-            let _ = host::publish_diagnostics(&doc.path, &problems);
         }
         markers
     }
@@ -241,6 +237,10 @@ impl Views for Endpoints {
     }
 
     fn handle(&mut self, _view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {
+        if ui_kit::web::handle(self, _view, &event, ctx, include_str!("ui_config.json"))? {
+            return Ok(());
+        }
+
         if self.sections.handle(&event) {
             host::refresh_view(OWNER_WINDOW);
             return Ok(());
@@ -258,11 +258,16 @@ impl Views for Endpoints {
 }
 
 impl Plugin for Endpoints {
+    fn activate(&mut self, _ctx: &openidea_plugin::Context) -> Result<(), Error> {
+        self.activate_live();
+        Ok(())
+    }
     fn run_command(&mut self, id: &str, ctx: &Invocation, arg: Option<&str>) -> Result<Option<String>, Error> {
         self.web.run_command(id, ctx, arg)
     }
 
     fn handle_events(&mut self, events: &[Event], ctx: &Invocation) {
+        self.live_events(events);
         if self.sections.active() == "webflow" {
             self.webflow.handle_events(events, ctx);
         }
@@ -275,11 +280,20 @@ mod tests {
     use openidea_plugin::mock::MockHost;
     use openidea_plugin::views::Body;
 
+    fn inspect(host: &MockHost, endpoints: &mut Endpoints, doc: &Document) -> Vec<LineMarker> {
+        endpoints.activate_live();
+        host.open_editor(&doc.path, &doc.language, &doc.text, &[]);
+        host.refresh_diagnostics(endpoints);
+        assert!(host.diagnostics().is_empty());
+        endpoints.line_markers(doc)
+    }
+
     const JAVA_PATH: &str = "/project/src/main/java/com/acme/C.java";
     const JAVA: &str = "package com.acme;\n\n@Controller\nclass C {\n    @GetMapping(\"/u/{id}\")\n    String get(@PathVariable(\"uid\") Long id) { return \"\"; }\n\n    @QueryMapping\n    String nope() { return \"\"; }\n}\n";
     const SCHEMA: &str = "type Query {\n  books: [String]\n}\n";
     const WEB_POM: &str = "<project><artifactId>spring-boot-starter-web</artifactId></project>";
-    const GRAPHQL_POM: &str = "<project><artifactId>spring-boot-starter-web</artifactId><artifactId>spring-boot-starter-graphql</artifactId></project>";
+    const GRAPHQL_POM: &str =
+        "<project><artifactId>spring-boot-starter-web</artifactId><artifactId>spring-boot-starter-graphql</artifactId></project>";
     const NO_SPRING_POM: &str = "<project><artifactId>commons-lang3</artifactId></project>";
 
     fn setup(pom: &str) -> MockHost {
@@ -295,20 +309,20 @@ mod tests {
     }
 
     fn codes(host: &MockHost) -> Vec<String> {
-        host.diagnostics().get(JAVA_PATH).into_iter().flatten().filter_map(|d| d.code.clone()).collect()
+        host.provider_diagnostics().get(JAVA_PATH).into_iter().flatten().filter_map(|d| d.code.clone()).collect()
     }
 
     #[test]
     fn providers_skip_modules_that_do_not_apply() {
         let host = setup(NO_SPRING_POM);
         let mut endpoints = Endpoints::default();
-        endpoints.line_markers(&doc(JAVA_PATH, "java", JAVA));
-        assert!(host.diagnostics().is_empty());
+        inspect(&host, &mut endpoints, &doc(JAVA_PATH, "java", JAVA));
+        assert!(host.provider_diagnostics().is_empty());
 
         let host = setup(GRAPHQL_POM);
         let mut endpoints = Endpoints::default();
-        endpoints.line_markers(&doc(JAVA_PATH, "java", JAVA));
-        assert!(!host.diagnostics().is_empty());
+        inspect(&host, &mut endpoints, &doc(JAVA_PATH, "java", JAVA));
+        assert!(!host.provider_diagnostics().is_empty());
     }
 
     #[test]
@@ -318,11 +332,11 @@ mod tests {
         host.add_file("src/Thing.java", "class Thing {}");
         let mut endpoints = Endpoints::default();
         let thing = doc("/project/src/Thing.java", "java", "class Thing {}");
-        assert!(endpoints.line_markers(&thing).is_empty());
+        assert!(inspect(&host, &mut endpoints, &thing).is_empty());
         assert!(endpoints.completion(&thing, Position::new(0, 0), None).is_empty());
         assert!(endpoints.definition(&thing, Position::new(0, 0)).is_empty());
         assert!(endpoints.code_actions(&thing, Range::default()).is_empty());
-        assert!(host.diagnostics().is_empty());
+        assert!(host.provider_diagnostics().is_empty());
     }
 
     #[test]
@@ -330,7 +344,7 @@ mod tests {
         let host = setup(GRAPHQL_POM);
         host.add_file("src/main/resources/graphql/schema.graphqls", "{ not sdl");
         let mut endpoints = Endpoints::default();
-        endpoints.line_markers(&doc(JAVA_PATH, "java", JAVA));
+        inspect(&host, &mut endpoints, &doc(JAVA_PATH, "java", JAVA));
         assert!(codes(&host).contains(&"unknown-path-variable".to_owned()), "{:?}", codes(&host));
     }
 
@@ -338,7 +352,7 @@ mod tests {
     fn diagnostics_of_every_module_are_published_together() {
         let host = setup(GRAPHQL_POM);
         let mut endpoints = Endpoints::default();
-        endpoints.line_markers(&doc(JAVA_PATH, "java", JAVA));
+        inspect(&host, &mut endpoints, &doc(JAVA_PATH, "java", JAVA));
         let found = codes(&host);
         assert!(found.contains(&"unknown-path-variable".to_owned()), "{found:?}");
         assert!(found.contains(&"unknown-schema-field".to_owned()), "{found:?}");
@@ -365,7 +379,10 @@ mod tests {
         let mut endpoints = Endpoints::default();
         let view = endpoints.render("endpoints", None, &host.invocation()).unwrap();
         let ids: Vec<_> = view.toolbar.iter().map(|b| b.id.as_str()).collect();
-        assert_eq!(&ids[..6], ["section:http", "section:websocket", "section:messaging", "section:graphql", "section:webflow", "section:feign"]);
+        assert_eq!(
+            &ids[..6],
+            ["section:http", "section:websocket", "section:messaging", "section:graphql", "section:webflow", "section:feign"]
+        );
 
         endpoints.handle("endpoints", ViewEvent::Button("section:graphql".into()), &host.invocation()).unwrap();
         assert_eq!(host.refreshed_views(), ["endpoints"]);
@@ -394,7 +411,8 @@ mod tests {
     #[test]
     fn ids_are_unique_across_modules() {
         let manifest = include_str!("../plugin.toml");
-        let ids: Vec<&str> = manifest.lines().filter_map(|line| line.strip_prefix("id = \"")).filter_map(|rest| rest.strip_suffix('"')).collect();
+        let ids: Vec<&str> =
+            manifest.lines().filter_map(|line| line.strip_prefix("id = \"")).filter_map(|rest| rest.strip_suffix('"')).collect();
         let mut unique = ids.clone();
         unique.sort();
         unique.dedup();
@@ -404,7 +422,12 @@ mod tests {
         let mut endpoints = Endpoints::default();
         assert!(endpoints.run_command("nowhere.run", &host.invocation(), None).is_err());
 
-        let keys: Vec<&str> = include_str!("../settings.schema.json").lines().filter_map(|line| line.trim().strip_suffix("\": {")).map(|key| key.trim_start_matches('"')).filter(|key| key.starts_with("spring")).collect();
+        let keys: Vec<&str> = include_str!("../settings.schema.json")
+            .lines()
+            .filter_map(|line| line.trim().strip_suffix("\": {"))
+            .map(|key| key.trim_start_matches('"'))
+            .filter(|key| key.starts_with("spring"))
+            .collect();
         let mut unique = keys.clone();
         unique.sort();
         unique.dedup();
@@ -416,9 +439,10 @@ mod tests {
     fn endpoints_item_menu_still_targets_the_endpoints_view() {
         let manifest = include_str!("../plugin.toml");
         assert!(manifest.contains("[[contributes.views]]\nid = \"endpoints\""));
+        let actions = include_str!("ui_actions.json");
         for command in ["copy-endpoint-curl", "create-endpoint-http"] {
-            let menu = format!("menu = \"viewItem.context\"\nview = \"endpoints\"\ncommand = \"{command}\"\nwhen = \"viewItemKind == route\"");
-            assert!(manifest.contains(&menu), "{command}");
+            assert!(actions.contains(command), "{command}");
+            assert!(actions.contains("viewItemKind == route"));
         }
 
         let host = setup(WEB_POM);
@@ -433,18 +457,65 @@ mod tests {
         let host = MockHost::install();
         host.add_file("pom.xml", GRAPHQL_POM);
         for n in 0..40 {
-            host.add_file(&format!("src/main/java/com/acme/m{n}/Service{n}.java"), &format!("package com.acme.m{n};\n\npublic class Service{n} {{}}\n"));
+            host.add_file(
+                &format!("src/main/java/com/acme/m{n}/Service{n}.java"),
+                &format!("package com.acme.m{n};\n\npublic class Service{n} {{}}\n"),
+            );
         }
         host.add_file("src/main/resources/graphql/schema.graphqls", SCHEMA);
         let mut endpoints = Endpoints::default();
         let java = doc(JAVA_PATH, "java", JAVA);
-        endpoints.line_markers(&java);
+        inspect(&host, &mut endpoints, &java);
 
         let started = Instant::now();
         endpoints.completion(&java, Position::new(4, 20), None);
         endpoints.definition(&java, Position::new(4, 20));
         endpoints.code_actions(&java, Range::default());
-        endpoints.line_markers(&java);
+        inspect(&host, &mut endpoints, &java);
         assert!(started.elapsed() < Duration::from_millis(10), "{:?}", started.elapsed());
+    }
+}
+
+impl openidea_plugin::endpoints::EndpointsProvider for Endpoints {
+    fn endpoints(&mut self, ctx: &Invocation) -> Result<Vec<openidea_plugin::endpoints::Endpoint>, Error> {
+        let Some(project) = ctx.project() else {
+            return Ok(Vec::new());
+        };
+        let (routes, complete) = self.web.routes(&project, spring_text::index::COMMAND_BUDGET);
+        if !complete {
+            return Err(Error::Failed("Spring route index is incomplete; refresh after indexing.".into()));
+        }
+        Ok(ui_kit::routes::endpoints(&routes, "Spring"))
+    }
+}
+
+impl openidea_plugin::file_actions::FileActions for Endpoints {
+    fn file_actions(&mut self,doc:&Document,selection:Range)->Vec<openidea_plugin::file_actions::FileAction>{
+        let mut actions=self.path_actions.list(doc,selection);
+        actions.extend(openidea_plugin::file_actions::FileActions::file_actions(&mut self.webflow,doc,selection));actions
+    }
+    fn resolve_file_action(&mut self,doc:&Document,action:openidea_plugin::file_actions::FileAction)->Result<openidea_plugin::file_actions::FileAction,Error>{
+        if action.data.as_deref().is_some_and(|key|key.starts_with("spring-path-variable:")){return self.path_actions.resolve(doc,action);}
+        openidea_plugin::file_actions::FileActions::resolve_file_action(&mut self.webflow,doc,action)
+    }
+}
+
+#[cfg(test)]
+mod transition_owner_tests {
+    use super::*;
+    use openidea_plugin::{file_actions::FileActions,mock::MockHost,text::position};
+    #[test]
+    fn merged_owner_routes_xml_fileactions_without_duplicate_source_writes(){
+        let h=MockHost::install();let text="<flow xmlns='http://www.springframework.org/schema/webflow'><view-state id='edit'/><end-state id='done'/></flow>";
+        h.add_file("flow.xml",text);let d=Document{path:"/project/flow.xml".into(),language:"xml".into(),version:4,text:text.into()};
+        let p=position(text,text.find("view-state").unwrap());let mut owner=Endpoints::default();let a=owner.file_actions(&d,Range::new(p,p)).remove(0);
+        for answer in ["done","next","yes"] {h.answer_next_prompt(Some(&[answer]));}
+        let resolved=owner.resolve_file_action(&d,a).unwrap();assert_eq!(resolved.edits.len(),1);assert!(resolved.operations.is_empty());
+        assert_eq!(h.invocation().project().unwrap().read_file("flow.xml").unwrap(),text);assert!(h.process_runs().is_empty());
+        h.open_editor(&d.path,"xml",text,&[]);
+        owner.handle("endpoints",ViewEvent::Button("section:webflow".into()),&h.invocation()).unwrap();
+        let view=owner.render("endpoints",None,&h.invocation()).unwrap();
+        let openidea_plugin::views::Body::Html(html)=view.body else{panic!("packaged graph")};
+        assert!(html.contains("webflow-graph.css"));assert!(!html.contains("<script>"));assert!(!html.contains("<style>"));
     }
 }

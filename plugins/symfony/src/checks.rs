@@ -77,7 +77,7 @@ impl<'a> Context<'a> {
     }
 }
 
-fn is_route_file(path: &str) -> bool {
+pub(crate) fn is_route_file(path: &str) -> bool {
     path.contains("/config/routes") || path.contains("/config/routing") || path.contains("/Resources/config/routing")
 }
 
@@ -253,6 +253,11 @@ fn yaml_routes(ctx: &Context, text: &str, out: &mut Vec<Finding>) {
 }
 
 fn xml_routes(ctx: &Context, text: &str, out: &mut Vec<Finding>) {
+    if let Some(requirements) = crate::source_xml::requirements(text) {
+        for (key, range) in requirements {
+            out.push(Finding::warn(range, "deprecated-route-setting", format!("The \"{key}\" requirement was removed in Symfony 3.0; use the \"methods\" or \"schemes\" route settings.")));
+        }
+    }
     for (tag, at) in index::xml_tags(text, "route") {
         if let Some((spec, offset)) = index::xml_attribute(tag, "controller") {
             check_route_setting_controller(ctx, spec, at + offset..at + offset + spec.len(), out);
@@ -271,27 +276,57 @@ fn xml_routes(ctx: &Context, text: &str, out: &mut Vec<Finding>) {
 }
 
 /// A class-level `#[Route]` with neither an `__invoke` nor routed methods.
-fn php_route_class(text: &str, out: &mut Vec<Finding>) {
-    let Some(declaration) = index::class_declaration(text) else { return };
-    let header = text[..declaration].rsplit([';', '}']).next().unwrap_or_default();
-    if !header.contains("#[Route") && !header.contains("@Route") {
+pub(crate) fn php_route_class(text: &str, out: &mut Vec<Finding>) {
+    let (masked, docs) = crate::php_text::mask_with_doc_comments(text);
+    let Some(declaration) = index::class_declaration(&masked) else { return };
+    let header_start = masked[..declaration].rfind([';', '}']).map_or(0, |at| at + 1);
+    let header = &masked[header_start..declaration];
+    let doc_route = |range: &Range<usize>| text[range.clone()].contains("@Route");
+    if !header.contains("#[Route")
+        && !docs.iter().any(|range| range.start >= header_start && range.end <= declaration && doc_route(range)) {
         return;
     }
-
-    let line_start = text[..declaration].rfind('\n').map_or(0, |i| i + 1);
-    if text[line_start..declaration].contains("abstract") {
-        return;
-    }
-
-    let body = &text[declaration..];
-    if body.contains("#[Route") || body.contains("@Route") || method_state(body, "__invoke") == Method::Public || !is_plain_class(text) {
-        return;
-    }
-
+    let line_start = masked[..declaration].rfind('\n').map_or(0, |at| at + 1);
+    if masked[line_start..declaration].contains("abstract") { return; }
+    let body = &masked[declaration..];
+    if body.contains("#[Route") || docs.iter().any(|range| range.start >= declaration && doc_route(range))
+        || method_state(body, "__invoke") == Method::Public || !is_plain_class(&masked) { return; }
     let start = declaration + "class ".len();
-    let name = text[start..].bytes().take_while(|b| refs::is_identifier(*b)).count();
+    let name = text[start..].bytes().take_while(|byte| refs::is_identifier(*byte)).count();
     let message = format!("Route class \"{}\" has no public __invoke() and none of its methods has a #[Route].", &text[start..start + name]);
     out.push(Finding::warn(start..start + name, "controller-method-missing", message));
+}
+
+/// Route text facts only. Optional cached constraint evidence is advisory, not runtime truth.
+pub(crate) fn source_route_deprecations(path: &str, language: &str, text: &str, evidence: Option<&index::VersionEvidence>) -> Option<Vec<Finding>> {
+    if !matches!(language, "yaml" | "xml") || !is_route_file(path) { return Some(Vec::new()); }
+    let facts = Index { framework_version: evidence.map(|e| e.floor), ..Index::default() };
+    let read = |_: &str| None;
+    let findings=if language=="xml" {
+        let mut out=Vec::new();
+        for (_,value) in crate::source_xml::route_attributes(text,"route","pattern")? {
+            let range=crate::source_xml::attribute_name_anchor(text,&value,"pattern")?;
+            out.push(Finding::warn(range,"deprecated-route-setting",PATTERN_MESSAGE.into()));
+        }
+        for (spec,range) in crate::source_xml::route_attributes(text,"route","controller")? {
+            if is_bundle_notation(&spec) {check_route_setting_controller(&Context::new(&facts,&read),&spec,range,&mut out);}
+        }
+        for (key,range) in crate::source_xml::requirements(text)? {
+            out.push(Finding::warn(range,"deprecated-route-setting",format!("The \"{key}\" requirement was removed in Symfony 3.0; use the \"methods\" or \"schemes\" route settings.")));
+        }
+        for (kind,range) in crate::source_xml::route_attributes(text,"import","type")? {
+            if kind=="annotation" && annotation_deprecated(&Context::new(&facts,&read)) {out.push(Finding::warn(range,"deprecated-route-setting",ANNOTATION_MESSAGE.into()));}
+        }
+        out.sort_by_key(|finding|finding.start);out
+    } else {check_routes(&Context::new(&facts, &read), path, language, text)};
+    Some(findings.into_iter().filter(|finding| finding.code == "deprecated-route-setting").map(|mut finding| {
+        if finding.message == ANNOTATION_MESSAGE {
+            if let Some(evidence) = evidence {
+                finding.message.push_str(&format!(" [Advisory: cached composer.json requires symfony/framework-bundle {}; installed/runtime version is unknown.]", evidence.constraint));
+            }
+        }
+        finding
+    }).collect())
 }
 
 /// `controller-method-missing` and `deprecated-route-setting`.
@@ -438,6 +473,15 @@ fn constructor_parameters(source: &str) -> Option<Vec<String>> {
     Some(names.collect())
 }
 
+/// Source-only service-config duplicates; keeps the existing file/format admission.
+pub(crate) fn source_parameter_duplicates(path: &str, language: &str, text: &str) -> Vec<Finding> {
+    let mut out = Vec::new();
+    if is_service_file(path) && (language == "yaml" || language == "xml" && text.contains("<container")) {
+        duplicate_parameters(language, text, &mut out);
+    }
+    out
+}
+
 fn duplicate_parameters(language: &str, text: &str, out: &mut Vec<Finding>) {
     let mut names: Vec<String> = Vec::new();
     let mut report = |name: &str, range: Range<usize>, names: &mut Vec<String>| {
@@ -547,6 +591,23 @@ pub fn check_services(ctx: &Context, path: &str, language: &str, text: &str) -> 
     out
 }
 
+/// Current-source service class values only; no declaration source reader.
+pub(crate) fn source_service_classes(path: &str, language: &str, text: &str) -> Option<Vec<(String,Range<usize>)>> {
+    if text.len()>128<<10 || !is_service_file(path) { return None; }
+    match language {
+        "yaml" => Some(yaml_definitions(text).into_iter().filter_map(|definition|definition.class).collect()),
+        "xml" => Some(crate::source_xml::service_classes(text)?.into_iter().map(|(class,range)|(clean_class(&class),range)).collect()),
+        _ => None,
+    }
+}
+pub(crate) fn service_class_advisories(index: &Index, path: &str, language: &str, text: &str) -> Vec<Finding> {
+    if index.partial || !index.psr4_source_verified { return Vec::new(); }
+    let read=|_: &str|None;let ctx=Context::new(index,&read);
+    source_service_classes(path,language,text).unwrap_or_default().into_iter().filter_map(|(class,range)| {
+        class_is_missing(&ctx,&class).then(|| Finding::warn(range,"service-class-missing",format!("Advisory: class \"{class}\" is absent from the cached project-source index; runtime autoloading is unverified.")))
+    }).collect()
+}
+
 /// A class in one of the project's own PSR-4 namespaces that has no file.
 /// `Tests` namespaces are skipped: composer maps them from `autoload-dev`.
 pub(crate) fn class_is_missing(ctx: &Context, class: &str) -> bool {
@@ -613,8 +674,18 @@ pub(crate) fn literal(text: &str, argument: &str) -> Option<Range<usize>> {
     let argument = argument.trim();
     let quote = argument.chars().next().filter(|c| matches!(c, '\'' | '"'))?;
     let inner = argument.strip_prefix(quote)?.strip_suffix(quote)?;
-    let start = offset_in(text, inner);
-    Some(start..start + inner.len())
+    // A quoted expression is not necessarily a single literal (concatenation, ternary, etc.).
+    let mut escaped = false;
+    for (at, byte) in argument.as_bytes().iter().enumerate().skip(1) {
+        if escaped { escaped = false; continue; }
+        if *byte == b'\\' { escaped = true; continue; }
+        if *byte == quote as u8 {
+            if at != argument.len()-1 { return None; }
+            let start = offset_in(text, inner);
+            return Some(start..start + inner.len());
+        }
+    }
+    None
 }
 
 pub(crate) fn is_dynamic(name: &str) -> bool {
@@ -624,12 +695,13 @@ pub(crate) fn is_dynamic(name: &str) -> bool {
 /// Literal aliases in the second argument of `->add()` calls of a form type,
 /// with the alias and the class that replaced it.
 pub(crate) fn form_type_literals(text: &str) -> Vec<(Range<usize>, &'static str, &'static str)> {
-    if !text.contains("FormBuilderInterface") && !text.contains("AbstractType") && !text.contains("$builder") {
+    let masked = crate::php_text::mask(text);
+    if !masked.contains("FormBuilderInterface") && !masked.contains("AbstractType") && !masked.contains("$builder") {
         return Vec::new();
     }
 
     let mut found = Vec::new();
-    for open in call_opens(text, "->add(") {
+    for open in call_opens(&masked, "->add(") {
         let arguments = refs::arguments(text, open);
         let Some(range) = arguments.get(1).and_then(|argument| literal(text, argument)) else { continue };
         let Some((alias, class)) = FORM_TYPES.iter().find(|(alias, _)| *alias == &text[range.clone()]) else { continue };
@@ -640,7 +712,7 @@ pub(crate) fn form_type_literals(text: &str) -> Vec<(Range<usize>, &'static str,
     found
 }
 
-fn form_type_strings(text: &str, out: &mut Vec<Finding>) {
+pub(crate) fn form_type_strings(text: &str, out: &mut Vec<Finding>) {
     for (range, alias, class) in form_type_literals(text) {
         let message = format!("Form type \"{alias}\" was removed in Symfony 3; use {class}::class.");
         out.push(Finding::warn(range, "form-type-string", message));
@@ -695,10 +767,11 @@ fn missing_assets(ctx: &Context, text: &str, out: &mut Vec<Finding>) {
         return;
     }
 
-    let uses_asset_component = text.contains("Packages") || text.contains("Symfony\\Component\\Asset");
-    let get_url = call_opens(text, "->getUrl(").filter(|_| uses_asset_component);
+    let masked = crate::php_text::mask(text);
+    let uses_asset_component = masked.contains("Packages") || masked.contains("Symfony\\Component\\Asset");
+    let get_url = call_opens(&masked, "->getUrl(").filter(|_| uses_asset_component);
 
-    for open in get_url.chain(call_opens(text, "asset(")) {
+    for open in get_url.chain(call_opens(&masked, "asset(")) {
         let arguments = refs::arguments(text, open);
         if arguments.len() != 1 {
             continue;
@@ -743,7 +816,8 @@ fn missing_translation_domains(ctx: &Context, text: &str, out: &mut Vec<Finding>
         return;
     }
 
-    for open in call_opens(text, "->trans(").chain(call_opens(text, "t(")) {
+    let masked = crate::php_text::mask(text);
+    for open in call_opens(&masked, "->trans(").chain(call_opens(&masked, "t(")) {
         let arguments = refs::arguments(text, open);
         let named = arguments.iter().find_map(|argument| argument.trim().strip_prefix("domain:"));
         let Some(range) = named.or_else(|| arguments.get(2).copied()).and_then(|argument| literal(text, argument)) else { continue };
@@ -755,6 +829,20 @@ fn missing_translation_domains(ctx: &Context, text: &str, out: &mut Vec<Finding>
 
         out.push(Finding::warn(range, "missing-translation-domain", format!("Translation domain \"{domain}\" has no translation files.")));
     }
+}
+
+/// Cached project-source resource facts only; never consult a source reader here.
+pub(crate) fn source_php_resources(index: &Index, text: &str) -> Vec<Finding> {
+    if index.partial { return Vec::new(); }
+    let read = |_: &str| None;
+    let ctx = Context::new(index, &read);
+    let mut out = Vec::new();
+    missing_assets(&ctx, text, &mut out);
+    missing_translation_domains(&ctx, text, &mut out);
+    for finding in &mut out {
+        finding.message.push_str(" [Cached project-source index; runtime configuration and receiver types are unverified.]");
+    }
+    out
 }
 
 /// `form-type-string`, `missing-asset` and `missing-translation-domain` in PHP.
@@ -793,7 +881,7 @@ pub fn check_twig(ctx: &Context, language: &str, text: &str) -> Vec<Finding> {
             refs::Kind::Route if ctx.index.compiled_routes && !name.starts_with('_') && !ctx.index.routes.contains_key(name) => {
                 out.push(Finding::warn(range, "twig-missing-route", format!("Route \"{name}\" is not defined.")));
             }
-            refs::Kind::Asset if !ctx.index.assets.is_empty() && asset_is_missing(ctx, name) => {
+            refs::Kind::Asset if !rest.starts_with(',') && !ctx.index.assets.is_empty() && asset_is_missing(ctx, name) => {
                 out.push(Finding::warn(range, "twig-missing-asset", format!("Asset \"{name}\" does not exist in the public directory.")));
             }
             _ => {}
@@ -980,7 +1068,9 @@ mod tests {
         let path = "/project/config/routes.yaml";
 
         host.add_file("config/routes.yaml", "blog:\n    pattern: /blog\n");
-        assert_eq!(codes(&opened(&host, &mut plugin, path)), ["deprecated-route-setting"]);
+        assert!(opened(&host, &mut plugin, path).is_empty());
+        let document = crate::Document { path: path.into(), language: "yaml".into(), version: 1, text: "blog:\n    pattern: /blog\n".into() };
+        assert_eq!(codes(&openidea_plugin::diagnostics::DiagnosticsProvider::diagnostics(&mut plugin, &document)), ["deprecated-route-setting"]);
 
         host.add_file("config/routes.yaml", "blog:\n    path: /blog\n");
         plugin.handle_events(&[Event::FileSaved(path.into())], &host.invocation());
@@ -1092,7 +1182,9 @@ mod tests {
         let path = "/project/config/services.yaml";
 
         host.add_file("config/services.yaml", "parameters:\n    a: 1\n    a: 2\n");
-        assert_eq!(codes(&opened(&host, &mut plugin, path)), ["duplicate-parameter-key"]);
+        assert!(opened(&host, &mut plugin, path).is_empty());
+        let document = crate::Document { path: path.into(), language: "yaml".into(), version: 1, text: "parameters:\n    a: 1\n    a: 2\n".into() };
+        assert_eq!(codes(&openidea_plugin::diagnostics::DiagnosticsProvider::diagnostics(&mut plugin, &document)), ["duplicate-parameter-key"]);
 
         host.add_file("config/services.yaml", "parameters:\n    a: 1\n");
         plugin.handle_events(&[Event::FileSaved(path.into())], &host.invocation());
@@ -1154,8 +1246,18 @@ mod tests {
     }
 
     #[test]
+    fn scalar_literal_admission_rejects_compound_and_unterminated_expressions() {
+        for value in ["'simple'", "\"double\"", r"'with\'quote'", r"'with\\slash'"] {
+            let range=literal(value,value).unwrap();assert_eq!(&value[range],&value[1..value.len()-1]);
+        }
+        for value in ["'img/' . 'logo.png'", "'a' ? 'b' : 'c'", "'a' ?? 'b'", "'a' 'b'", r"'escaped last\'", "'missing"] {
+            assert!(literal(value,value).is_none(),"{value}");
+        }
+    }
+
+    #[test]
     fn missing_asset_warns() {
-        let text = "<?php // Packages\nclass A\n{\n    public function url($packages)\n    {\n        $packages->getUrl('img/missing.png');\n        return asset(\"css/none.css\");\n    }\n}\n";
+        let text = "<?php use Symfony\\Component\\Asset\\Packages;\nclass A\n{\n    public function url($packages)\n    {\n        $packages->getUrl('img/missing.png');\n        return asset(\"css/none.css\");\n    }\n}\n";
         let found = run_php(text);
         assert_eq!(codes(&found), ["missing-asset"; 2]);
         assert_eq!(found[0].message, "Asset \"img/missing.png\" does not exist in the public directory.");
@@ -1218,7 +1320,7 @@ mod tests {
 
     #[test]
     fn php_group_ranges_use_utf16_columns_with_multibyte_text() {
-        let text = "<?php /* é😀 */ $packages->getUrl('img/missing.png');\n// Packages\n";
+        let text = "<?php /* é😀 */ $packages->getUrl('img/missing.png');\nnew Packages;\n";
         let found = run_php(text);
         assert_eq!(found[0].range.start, Position::new(0, 15 + 20));
         assert_eq!(found[0].range.end.character, 15 + 20 + 15);
@@ -1237,7 +1339,9 @@ mod tests {
         let mut plugin = project(&host);
 
         host.add_file("src/Form/F.php", &php("        $builder->add('name', 'text');"));
-        assert_eq!(codes(&opened(&host, &mut plugin, FORM)), ["form-type-string"]);
+        assert!(opened(&host, &mut plugin, FORM).is_empty());
+        let document = crate::Document { path: FORM.into(), language: "php".into(), version: 1, text: php("        $builder->add('name', 'text');") };
+        assert_eq!(codes(&openidea_plugin::diagnostics::DiagnosticsProvider::diagnostics(&mut plugin, &document)), ["form-type-string"]);
 
         host.add_file("src/Form/F.php", &php("        $builder->add('name', TextType::class);"));
         plugin.handle_events(&[Event::FileSaved(FORM.into())], &host.invocation());
@@ -1382,7 +1486,7 @@ mod tests {
     #[test]
     fn twig_missing_asset_warns() {
         let found = run_twig("<img src=\"{{ asset('img/missing.png') }}\"><link href=\"{{ asset('css/app.css?v=1') }}\">{{ asset('css/none.css', 'cdn') }}");
-        assert_eq!(codes(&found), ["twig-missing-asset", "twig-missing-asset"]);
+        assert_eq!(codes(&found), ["twig-missing-asset"]);
         assert_eq!(found[0].message, "Asset \"img/missing.png\" does not exist in the public directory.");
     }
 
@@ -1431,7 +1535,9 @@ mod tests {
 
         let template = "/project/templates/a.html.twig";
         host.add_file("templates/a.html.twig", "{{ path('nope') }}{{ asset('img/missing.png') }}{{ path('app_home') }}");
-        assert_eq!(codes(&opened(&host, &mut plugin, template)), ["twig-missing-route", "twig-missing-asset"]);
+        assert!(opened(&host, &mut plugin, template).is_empty());
+        let document = crate::Document { path:template.into(), language:"twig".into(), version:1, text:"{{ path('nope') }}{{ asset('img/missing.png') }}{{ path('app_home') }}".into() };
+        assert_eq!(codes(&openidea_plugin::diagnostics::DiagnosticsProvider::diagnostics(&mut plugin,&document)), ["twig-missing-route", "twig-missing-asset"]);
     }
 
     #[test]
@@ -1442,7 +1548,9 @@ mod tests {
 
         let template = "/project/templates/a.html.twig";
         host.add_file("templates/a.html.twig", "{% block a %}{{ path('nope') }}{{ include('gone.html.twig') }}");
-        assert_eq!(codes(&opened(&host, &mut plugin, template)), ["missing-template", "twig-missing-route"]);
+        assert!(opened(&host, &mut plugin, template).is_empty());
+        let document = crate::Document {path:template.into(),language:"twig".into(),version:1,text:"{% block a %}{{ path('nope') }}{{ include('gone.html.twig') }}".into()};
+        assert_eq!(codes(&openidea_plugin::diagnostics::DiagnosticsProvider::diagnostics(&mut plugin,&document)),["twig-missing-route","missing-template"]);
 
         host.add_file("templates/a.html.twig", "{% block a %}{{ path('app_home') }}{% endblock %}");
         plugin.handle_events(&[Event::FileSaved(template.into())], &host.invocation());
@@ -1523,7 +1631,9 @@ mod tests {
 
         host.add_file("config/services.yaml", "services:\n    a:\n        arguments: ['%nope%']\n");
         plugin.handle_events(&[Event::FileSaved(SERVICES.into())], &host.invocation());
-        assert_eq!(codes(&host.diagnostics()[SERVICES]), ["unknown-parameter"]);
+        assert!(host.diagnostics().get(SERVICES).is_none_or(Vec::is_empty));
+        let document = crate::Document { path: SERVICES.into(), language: "yaml".into(), version: 2, text: "services:\n    a:\n        arguments: ['%nope%']\n".into() };
+        assert_eq!(codes(&openidea_plugin::diagnostics::DiagnosticsProvider::diagnostics(&mut plugin, &document)), ["unknown-parameter"]);
     }
 
     #[test]

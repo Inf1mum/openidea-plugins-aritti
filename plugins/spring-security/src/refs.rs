@@ -274,3 +274,8 @@ mod tests {
         );
     }
 }
+
+/// Existing source-verified Security XML bean-reference attributes.
+pub(crate) fn xml_reference_attributes(element: &str) -> &'static [&'static str] {
+    RULES.iter().find(|rule| rule.element == element).map_or(&[], |rule|rule.refs)
+}

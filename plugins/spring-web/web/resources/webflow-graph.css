@@ -1,0 +1,20 @@
+:host{--openidea-bg:Canvas;--openidea-bg-elevated:color-mix(in srgb,CanvasText 6%,Canvas);--openidea-bg-hover:color-mix(in srgb,CanvasText 12%,Canvas);--openidea-bg-selected:color-mix(in srgb,Highlight 35%,Canvas);--openidea-bg-input:Field;--openidea-fg:CanvasText;--openidea-fg-strong:CanvasText;--openidea-fg-muted:GrayText;--openidea-border:color-mix(in srgb,CanvasText 25%,Canvas);--openidea-focus-ring:Highlight;--openidea-link:LinkText;--openidea-accent:Highlight;--openidea-fg-on-accent:HighlightText;--openidea-danger:color-mix(in srgb,#db5c5c 75%,CanvasText);--openidea-warning:color-mix(in srgb,#d6ae58 75%,CanvasText);--openidea-success:color-mix(in srgb,#5fad65 75%,CanvasText);--openidea-info:color-mix(in srgb,#548af7 75%,CanvasText);--openidea-font-ui:system-ui,sans-serif;--openidea-font-mono:ui-monospace,Menlo,monospace;--openidea-font-size:13px}
+:host{display:block;min-height:0}
+.wrap{overflow:auto;width:100%;max-height:65vh;min-height:160px}
+.n{cursor:pointer}
+.n:focus{outline:none}
+.n rect{fill:var(--openidea-bg-elevated);stroke:var(--openidea-border);rx:6}
+.n.a rect{stroke:var(--openidea-accent);stroke-width:1.5}
+.n:hover rect{fill:var(--openidea-bg-hover)}
+.n:focus-visible rect{stroke:var(--openidea-focus-ring);stroke-width:2}
+.n text{fill:var(--openidea-fg);font:12px var(--openidea-font-ui);pointer-events:none}
+.n text.d{fill:var(--openidea-fg-muted);font-size:10px}
+.e{fill:none;stroke:var(--openidea-fg-muted);stroke-width:1.2}
+.e.w{stroke:var(--openidea-warning)}
+.ah{fill:var(--openidea-fg-muted)}
+.ah.w{fill:var(--openidea-warning)}
+.l{fill:var(--openidea-fg-muted);font:10px var(--openidea-font-ui);paint-order:stroke;stroke:var(--openidea-bg);stroke-width:3px}
+.empty{padding:16px;color:var(--openidea-fg-muted);font-family:var(--openidea-font-ui)}
+
+
+path.n.e{pointer-events:stroke;stroke-width:2;cursor:pointer}path.n.e:hover,path.n.e:focus-visible{stroke:var(--openidea-accent);stroke-width:4}

@@ -48,8 +48,10 @@ fn site(annotation: &str, arg: &str, value: &str, params: &[String]) -> Option<S
     }
 }
 
-fn annotations(out: &mut Vec<Hit>, anns: &[java::Annotation], params: &[String]) {
+fn annotations(out: &mut Vec<Hit>, anns: &[java::Annotation], params: &[String], text: &str, owners: &crate::annotation_owners::Owners) {
     for a in anns {
+        if matches!(a.name.as_str(), "Resource" | "Named" | "Value" | "Profile") && !owners.keep_definition(text,a) { continue; }
+        if a.name == "Qualifier" && !owners.known(text, a, "org.springframework.beans.factory.annotation.Qualifier") { continue; }
         for arg in &a.args {
             for s in &arg.strings {
                 if let Some(site) = site(&a.name, &arg.name, &s.value, params) {
@@ -62,17 +64,18 @@ fn annotations(out: &mut Vec<Hit>, anns: &[java::Annotation], params: &[String])
 
 pub fn java(text: &str) -> Vec<Hit> {
     let file = java::parse(text);
+    let owners = crate::annotation_owners::Owners::new(&file, text, false);
     let mut out = Vec::new();
     for t in &file.types {
-        annotations(&mut out, &t.annotations, &[]);
+        annotations(&mut out, &t.annotations, &[], text, &owners);
         for p in &t.components {
-            annotations(&mut out, &p.annotations, &[]);
+            annotations(&mut out, &p.annotations, &[], text, &owners);
         }
         for m in &t.members {
             let params: Vec<String> = m.params.iter().map(|p| p.name.clone()).collect();
-            annotations(&mut out, &m.annotations, &params);
+            annotations(&mut out, &m.annotations, &params, text, &owners);
             for p in &m.params {
-                annotations(&mut out, &p.annotations, &[]);
+                annotations(&mut out, &p.annotations, &[], text, &owners);
             }
         }
     }
@@ -91,16 +94,21 @@ pub fn xml(text: &str) -> Vec<Hit> {
     }
     let mut out = Vec::new();
     for (i, e) in els.iter().enumerate() {
+        let owned=crate::xml_namespace::beans_element(&els,i);
         for a in &e.attrs {
+            let expression_value=owned && (
+                (matches!(e.local(),"property"|"constructor-arg")&&a.name=="value")
+                || (e.local()=="entry"&&matches!(a.name.as_str(),"key"|"value"))
+                || crate::model::is_xml_shortcut(&els,i,a));
             let site = if crate::model::is_xml_ref(&els, i, a) {
                 Site::BeanRef
-            } else if a.local() == "class" {
+            } else if owned && e.local()=="bean" && a.name == "class" {
                 Site::Class
-            } else if a.name == "scope" && e.local() == "bean" {
+            } else if owned && a.name == "scope" && e.local() == "bean" {
                 Site::Scope
-            } else if a.name == "profile" && e.local() == "beans" {
+            } else if owned && a.name == "profile" && e.local() == "beans" {
                 Site::Profile
-            } else if a.value.contains("#{") {
+            } else if expression_value && a.value.contains("#{") {
                 Site::Spel(Vec::new())
             } else {
                 continue;

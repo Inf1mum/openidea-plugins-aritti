@@ -1,5 +1,8 @@
 # A2: Spring plugins (rest), gap audit
 
+API 1.3 review (2026-11-08): every originally B row below has been reassessed; [the complete decision ledger](reclass-api-1.3.md) preserves its old basis and gives current row totals. Existing F/F* rows and the Ours column were not re-audited for implementation status. Original prose counts and group summaries below are historical and may count features rather than rows.
+
+
 Inventories list only a handful of named features per plugin; the long tail of extension points (indexes, usage providers, statistics, MCP toolsets) is not a user feature and is not counted. Ours evidence: `plugins/<name>/README.md`, problem codes in `src/*.rs`, `plugin.toml` (no plugin here contributes `fileTemplates`, snippets or `fileIcons`: grep of `plugins/spring-*/plugin.toml`).
 
 ## Spring Boot -> spring-boot
@@ -8,7 +11,7 @@ Original: 10 inspections, 8 intentions (4 named), 5 actions, 0 templates, about 
 | # | Original feature | What it does | Ours | Class | Basis |
 |---|---|---|---|---|---|
 | 1 | Invalid properties/YAML config (2 inspections), value part | Besides unknown/deprecated keys, flags values that cannot convert to the key's type (port=invalid, bad enum, duration) | Partial: `unknown-property`, `deprecated-property` only; README: values are completed, never validated | F* | Metadata types are bundled text; false positives for custom converters and keys without metadata |
-| 2 | Same, library/starter keys | Keys of every dependency on the classpath | Partial: bundled Boot 3.5.16 + Cloud 2025.0.3 only; third-party starters unknown | B | No classpath/jar read API (LIMITATIONS.md Spring section); not in Track U list |
+| 2 | Same, library/starter keys | Keys of every dependency on the classpath | Partial: bundled Boot 3.5.16 + Cloud 2025.0.3 only; third-party starters unknown | F* | API 1.3: Scoped fs.read_dir/read_bytes can discover and parse dependency JAR configuration metadata; byte reads are capped at 16 MiB. Requires explicit filesystem grants, archive parsing and build-layout discovery; this does not provide a resolved classpath. |
 | 3 | `@ConfigurationProperties` validity | Missing/empty prefix, prefix not kebab-case, bad constructor binding | Missing: classes only indexed for key completion | F | Annotation text on project sources; the binding part is F* |
 | 4 | Early application events with `@EventListener` | Warns on listeners for events fired before the context exists (never delivered) | Missing: `event-listener-signature` is a different check (arity, return) | F | Event class simple names in the listener parameter |
 | 5 | Invalid application setup | `@SpringBootApplication` in the default package; redundant `@EnableAutoConfiguration`/`@ComponentScan`, quick fix removes them | Missing | F | Package declaration and annotation text; code action edits existing file |
@@ -16,19 +19,19 @@ Original: 10 inspections, 8 intentions (4 named), 5 actions, 0 templates, about 
 | 7 | additional-spring-configuration-metadata.json check | Missing/deprecated properties, unresolved classes, bad values in that JSON | Missing (file only read as a key source) | F* | JSON text check via `publish_diagnostics`; class resolution is project-sources-only, so library types risk false positives |
 | 8 | Driver class availability (2 inspections) | Reports a datasource URL/driver whose driver is not a dependency | Missing | F* | Build file text; transitive dependencies invisible, so false positives |
 | 9 | Define key in local metadata (2 intentions) | Adds the key to `META-INF/additional-spring-configuration-metadata.json` | Missing | F* | Caret code action; works only if the JSON file exists, otherwise U2 (file creation) |
-| 10 | Open/create datasource from config (2 intentions) + datasource detectors | Opens a database connection dialog filled from the file | Missing | B | No database/dialog API (U5, database APIs) |
-| 11 | Add Starters action | Dialog to add starter dependencies to the build file | Missing | B | U5 (dialogs/quick-pick); the catalogue also needs the Initializr server |
-| 12 | Edit Default Path, Show/Hide Values (3 actions) | Run-config level endpoint path and environment value exposure | Missing | B | No run-configuration or input-dialog API (U5) |
+| 10 | Open/create datasource from config (2 intentions) + datasource detectors | Opens a database connection dialog filled from the file | Missing | B | API 1.3: Prompts are available, but opening/configuring the IDE database connection model remains unavailable. |
+| 11 | Add Starters action | Dialog to add starter dependencies to the build file | Missing | F* | API 1.3: Pick/input plus existing-file edits can add starters using the fixed Initializr host. Preserve build syntax/BOM/repository rules. The command path was already feasible in 1.2; current plugin implementation is tracked separately. |
+| 12 | Edit Default Path, Show/Hide Values (3 actions) | Run-config level endpoint path and environment value exposure | Missing | B | API 1.3: Input is available, but the row requires changing native run-configuration path/environment exposure. No run-configuration editing API. |
 | 13 | Spring Boot Diagnostics action | Diagnostic helper for Boot projects | Missing; content of the original unverified | F* | A command plus view is possible; scope unknown |
-| 14 | Run configuration, update policy, run endpoints (live beans/env/health) | Boot-aware run/debug with live data | Partial: `spring-runtime` Actuator tool window, localhost only | B | No run-configuration contribution (only runDetectors) |
+| 14 | Run configuration, update policy, run endpoints (live beans/env/health) | Boot-aware run/debug with live data | Partial: `spring-runtime` Actuator tool window, localhost only | B | API 1.3: Still blocked: No run-configuration contribution (only runDetectors). No API 1.3 replacement for this required integration was found. |
 | 15 | Completion beyond keys/values | Logger/package names, profiles, class and resource names in values, `${}` placeholders | Partial: only metadata hints and booleans | F* | Project-source text; library classes unknown |
 | 16 | Value references | Go to class/file/bean from a value (`spring.mvc.view.prefix`, class-valued keys) | Missing | F* | Definition provider on properties/yaml, project classes by text |
 | 17 | Config file set detection | `spring.config.import`, additional locations, profile files, meta-annotations | Partial: name patterns `application*`/`bootstrap*` | F* | Text reads; imports can be placeholders |
-| 18 | Hover docs, rename/find-usages handlers for keys | Docs popup, rename a key across Java and files | Missing (README: no hover docs; IDE gives Go to Definition/usages) | B | U1 |
-| 19 | Inlay providers (10) | Inline values/defaults in config and code | Missing | B | No inlay hint API |
-| 20 | Injection (6) | SpEL, placeholders, JSON in values | Missing | B | No injection API |
-| 21 | Logical structure (10) | Structure view of config/classes | Missing | B | No outline provider for built-in languages |
-| 22 | Auto-configuration bean model (conditional contributors 20, run/test implicit contexts) | Beans created by starters and conditions | Missing | B | Jars unreadable, no type resolution (U4) |
+| 18 | Hover docs, rename/find-usages handlers for keys | Docs popup, rename a key across Java and files | Missing (README: no hover docs; IDE gives Go to Definition/usages) | F* | API 1.3: HoverProvider supplies key docs; indexed exact key anchors provide Find Usages/Rename. Keep bundle/profile/context identity and escaped key spellings correct; unknown/library references remain incomplete. |
+| 19 | Inlay providers (10) | Inline values/defaults in config and code | Missing | F* | API 1.3: InlayHintsProvider can show known metadata/config values. Effective runtime/environment values still need an explicit source and provenance; do not invent resolved defaults. |
+| 20 | Injection (6) | SpEL, placeholders, JSON in values | Missing | B | API 1.3: Still blocked: No injection API. No API 1.3 replacement for this required integration was found. |
+| 21 | Logical structure (10) | Structure view of config/classes | Missing | B | API 1.3: Still blocked: No outline provider for built-in languages. No API 1.3 replacement for this required integration was found. |
+| 22 | Auto-configuration bean model (conditional contributors 20, run/test implicit contexts) | Beans created by starters and conditions | Missing | B | API 1.3: Scoped archive bytes are readable, but evaluating conditional auto-configuration and deriving its effective bean types still needs a semantic classpath/type model (U4). |
 | 23 | Icons for config files | Icon for `application*` files | Missing | F | `fileIcons` contribution |
 
 Ours beyond the original: bundled Spring Cloud metadata, `unknown-property` with maps/lists safety rules, deprecation quick fix.
@@ -45,16 +48,16 @@ Original: 10 inspections, 2 intentions (1 named), 2 actions, 2 file templates (J
 | 5 | JDBC empty sequence name | Blank `@Sequence`/sequence attribute | Missing | F | Annotation text |
 | 6 | JDBC `@MappedCollection` key column | List/Map without explicit `keyColumn` | Missing | F | Annotation and field type text |
 | 7 | JDBC entity in several aggregates | Reference to an entity of another aggregate | Missing | F* | Needs aggregate-root detection by simple name |
-| 8 | JDBC associated DB elements | `@Table`/`@Column` names checked against the datasource | Missing | B | No database API |
+| 8 | JDBC associated DB elements | `@Table`/`@Column` names checked against the datasource | Missing | B | API 1.3: Still blocked: No database API. No API 1.3 replacement for this required integration was found. |
 | 9 | MongoDB `@Query` JSON fields + sort-properties intention | Unresolved fields in JSON queries; intention sorts keys | Missing: JSON queries skipped | F* | JSON in a string literal, nested/dotted paths risk false positives |
 | 10 | Show Inherited Members | Lists members inherited from CrudRepository etc. | Missing | F* | Static list of well-known parents in a view; custom parents invisible |
-| 11 | Run Query in Console | Runs the query in the database console | Missing | B | Database APIs |
+| 11 | Run Query in Console | Runs the query in the database console | Missing | B | API 1.3: Still blocked: Database APIs. No API 1.3 replacement for this required integration was found. |
 | 12 | File templates Spring Repository (Java/Kotlin) | New-file repository from the New menu | Missing | F* | `fileTemplates`; placeholder support unverified |
 | 13 | Live template `repository` | Interface skeleton | Missing | F* | Completion item with insert text; no caret control |
 | 14 | Resolved query preview | Shows the query a derived method produces | Missing | F* | Line-marker tooltip text only |
-| 15 | Language injection/highlighting in `@Query` | JPQL/SQL/Mongo highlighting | Missing | B | No injection API |
-| 16 | Repository generator | Creates a repository for an entity | Missing | B | U2 |
-| 17 | Folding, surround descriptors | Folding of repository/query constructs | Missing | B | No folding control |
+| 15 | Language injection/highlighting in `@Query` | JPQL/SQL/Mongo highlighting | Missing | B | API 1.3: Still blocked: No injection API. No API 1.3 replacement for this required integration was found. |
+| 16 | Repository generator | Creates a repository for an entity | Missing | F* | API 1.3: FileActions creates a repository with import and package handling, optionally prompting during resolve. Project-source entity detection is sufficient for a conservative generator; library/generic inference remains limited. |
+| 17 | Folding, surround descriptors | Folding of repository/query constructs | Missing | B | API 1.3: Still blocked: No folding control. No API 1.3 replacement for this required integration was found. |
 
 Ours beyond the original: JPQL entity and alias-property checks and completion (original does it via the JPA plugin), `unbound-query-parameter`, Kotlin support.
 
@@ -70,15 +73,15 @@ Original: 6 inspections, 4 actions, 6 file templates (Java/Kotlin pairs), about 
 | 5 | File templates Controller, REST Controller, Controller Advice | New-file skeletons | Missing | F* | `fileTemplates`; placeholders unverified |
 | 6 | Live templates (getm, postm, reqm, controller, router DSL) | Mapping snippets | Missing | F* | Completion insert text; no caret control |
 | 7 | Endpoints tool window (22 endpoint providers) | Lists all endpoints of the project | Missing (README: not ported); the index exists for routes and test URLs | F | Tree/Table view over the existing mapping scan |
-| 8 | Open endpoint in HTTP client, URL inlay actions | Generate and run requests | Missing | B | U5 (open a view from a command) |
+| 8 | Open endpoint in HTTP client, URL inlay actions | Generate and run requests | Missing | F* | API 1.3: EndpointsProvider feeds .http completion and Open in HTTP Client; reveal_view and generated .http files also work. InlayHintsProvider supplies labels, but arbitrary clickable inlay actions are not exposed; use the HTTP gutter/code action for execution. |
 | 9 | URL completion in tests/HTTP clients | Completes known mapping URLs | Missing | F* | Completion in string literals; path templates only |
 | 10 | Kotlin controllers | Controller checks in Kotlin | Partial: Kotlin indexed for functional routes only | F* | Same text scan with Kotlin syntax |
 | 11 | Handler gutter marker | Mapping icon with URL on each handler | Missing: gutters only on view names, tests, routes | F* | One target per marker; icon allowlist |
-| 12 | Template model variables (JSP, Thymeleaf, bundle/resolver providers) | Resolves model attributes in templates | Missing | B | U4 (types), U1 (references) |
+| 12 | Template model variables (JSP, Thymeleaf, bundle/resolver providers) | Resolves model attributes in templates | Missing | B | API 1.3: Indexed references are available, but typed template model attributes and resolver semantics still require U4. Literal known model-name navigation is a feasible subtask. |
 | 13 | Static resource and path references | Resolves paths to resources | Missing | F* | Definition on literals only |
 | 14 | MVC XML namespace model (28 DOM classes) | Checks `<mvc:...>` configuration | Missing | F* | XML text checks; no XSD available |
-| 15 | Injection (EL, multi-host) | Language injection in literals | Missing | B | No injection API |
-| 16 | Documentation, rename handler | Hover docs, rename of path variables | Missing (quick fix renames the parameter only) | B | U1 |
+| 15 | Injection (EL, multi-host) | Language injection in literals | Missing | B | API 1.3: Still blocked: No injection API. No API 1.3 replacement for this required integration was found. |
+| 16 | Documentation, rename handler | Hover docs, rename of path variables | Missing (quick fix renames the parameter only) | F* | API 1.3: HoverProvider plus scoped path-variable definition/reference anchors enables docs and indexed rename. Anchor only literal, unambiguous variable names; exclude composed mappings that cannot be represented safely. |
 
 Ours beyond the original: functional routes (Java and Kotlin DSL) as endpoints, test URL linking, `@PathVariable` rename quick fix, view completion.
 
@@ -91,8 +94,8 @@ Original: 7 inspections, 4 intentions (2 named), 0 actions. 7 gap rows + 4 Done 
 | 2 | Unresolved beans in security annotations | `@WithUserDetails(userDetailsServiceBeanName=...)` etc. | Missing | F* | Needs the bean index (a spring-beans concern); library beans false positives |
 | 3 | Security XML context model | Bean refs, required tags/attributes, property types, enums, `<https>` configuration | Partial: `intercept-url`, `duplicate-pattern`, `use-expressions-false`, `unknown-security-function` | F* | Hard-coded schema tables; library XSDs unreadable |
 | 4 | Self-invocation of `@PreAuthorize`/`@PostFilter` | Internal call bypasses the proxy | Missing | F* | Call-to-annotated-sibling by text; aspect mode unknown |
-| 5 | Matcher inlay hints (+ enable/disable intentions, 6 inlay providers) | Inline matcher meaning | Missing | B | No inlay API |
-| 6 | SpEL language support | Highlighting, navigation inside expressions | Partial: completion only | B | No injection API, U1 |
+| 5 | Matcher inlay hints (+ enable/disable intentions, 6 inlay providers) | Inline matcher meaning | Missing | F* | API 1.3: InlayHintsProvider and settings/code actions can show and toggle matcher explanations. Handle framework-version and matcher semantics conservatively. |
+| 6 | SpEL language support | Highlighting, navigation inside expressions | Partial: completion only | B | API 1.3: Hover/indexed names are available, but embedded SpEL language support still requires injection and semantic expression resolution. |
 | 7 | Matcher to endpoint navigation | Links matchers to controllers | Missing | F* | Needs the mapping scan of spring-web duplicated here |
 
 Ours beyond the original: Security 6 migration fixes (`web-security-configurer-adapter`, `enable-global-method-security`, `authorize-requests`), `role-prefix`, plain-text password checks, Kotlin support.
@@ -106,7 +109,7 @@ Original: 3 inspections, no intentions/actions, about 17 extension-point groups.
 | 2 | Stream handler method errors | Constraint violations on handler signatures | Missing | F* | Signature text |
 | 3 | Bootstrap configuration included by component scan | Flags `@BootstrapConfiguration` classes in scanned packages | Missing; `bootstrap-config-missing-dependency` is a different check | F* | Component-scan resolution by package text |
 | 4 | Endpoints provider (Feign, URL resolver) | Feign requests appear as endpoints | Missing | F* | Tree view over the Feign scan |
-| 5 | Cloud auto-configured model (model extender, autodetected models) | Cloud beans and bootstrap contexts | Missing | B | Jars unreadable, no classpath API |
+| 5 | Cloud auto-configured model (model extender, autodetected models) | Cloud beans and bootstrap contexts | Missing | B | API 1.3: Scoped archive reads are available; automatic Cloud bean/bootstrap context construction still needs effective dependency, condition and type models that the host does not expose. |
 | 6 | Custom property hint references | Value hints for Cloud keys | Partial: from `spring-boot` metadata, none from this plugin | F* | Bundled metadata text |
 
 Ours beyond the original: gateway predicate/filter checks and completion, `stream-channel-unbound`, `feign-method-without-mapping`, bootstrap dependency check. Not in the original inventory: Gateway DSL.
@@ -140,7 +143,7 @@ Original: 1 inspection (XML model), 11 DOM classes, job/step scope contributors.
 |---|---|---|---|---|---|
 | 1 | Remaining XML model checks | Required tags/attributes, enum values, property types | Partial: `chunk-missing-commit-interval`, transitions, bean names | F* | Hard-coded schema tables |
 | 2 | Job/step scope and late binding | `#{jobParameters[...]}` and scope beans | Missing (README) | F* | Parameter-key completion by text; SpEL itself needs injection (B) |
-| 3 | Typed bean references | Reader/writer ref must have the right type | Missing: names only | B | U4 (type resolution) |
+| 3 | Typed bean references | Reader/writer ref must have the right type | Missing: names only | B | API 1.3: Still blocked: U4 (type resolution). No API 1.3 replacement for this required integration was found. |
 
 Ours beyond the original: Batch Jobs diagram tool window, `unknown-job` for `spring.batch.job.name`, `deprecated-builder-factory`, `enable-batch-processing-with-boot`.
 
@@ -159,13 +162,13 @@ Original: 1 action, 0 inspections, about 100 extension points (session listeners
 
 | # | Original feature | What it does | Ours | Class | Basis |
 |---|---|---|---|---|---|
-| 1 | Debug-session integration (session listeners, extra nodes, context providers, renderers, code fragments) | Beans/watches/evaluation at a breakpoint | Missing | B | No debugger API (LIMITATIONS.md) |
-| 2 | Inlay hints of effective values | Value next to `@Value`/config | Partial: gutter tooltips from the snapshot | B | No inlay hint API |
-| 3 | Code vision on config | Actionable lenses | Partial: gutter markers | B | No code vision |
-| 4 | Project view node decorators | Badges in the Project view | Missing | B | No decoration API |
-| 5 | Run configuration extender | Adds the debug agent to Boot runs | Missing | B | No run-configuration API |
-| 6 | Clone and Persist datasource, active connection info | Saves the run's datasource | Missing | B | Database APIs |
-| 7 | Runtime application provider | Finds running apps incl. remote | Partial: one localhost Actuator URL | B | `net:` hosts fixed (LIMITATIONS.md `net:user`) |
+| 1 | Debug-session integration (session listeners, extra nodes, context providers, renderers, code fragments) | Beans/watches/evaluation at a breakpoint | Missing | B | API 1.3: Still blocked: No debugger API (LIMITATIONS.md). No API 1.3 replacement for this required integration was found. |
+| 2 | Inlay hints of effective values | Value next to `@Value`/config | Partial: gutter tooltips from the snapshot | F* | API 1.3: InlayHintsProvider can present values already captured by the runtime snapshot. Label snapshot freshness and unavailable values; this does not add debugger evaluation. |
+| 3 | Code vision on config | Actionable lenses | Partial: gutter markers | B | API 1.3: Still blocked: No code vision. No API 1.3 replacement for this required integration was found. |
+| 4 | Project view node decorators | Badges in the Project view | Missing | B | API 1.3: Still blocked: No decoration API. No API 1.3 replacement for this required integration was found. |
+| 5 | Run configuration extender | Adds the debug agent to Boot runs | Missing | B | API 1.3: Still blocked: No run-configuration API. No API 1.3 replacement for this required integration was found. |
+| 6 | Clone and Persist datasource, active connection info | Saves the run's datasource | Missing | B | API 1.3: Still blocked: Database APIs. No API 1.3 replacement for this required integration was found. |
+| 7 | Runtime application provider | Finds running apps incl. remote | Partial: one localhost Actuator URL | B | API 1.3: Still blocked: `net:` hosts fixed (LIMITATIONS.md `net:user`). No API 1.3 replacement for this required integration was found. |
 | 8 | Completion (2) | Unverified purpose | Missing | F* | Unverified |
 
 Ours beyond the original: tool window for beans, health, env, conditions, mappings, configprops, scheduled tasks, loggers, caches; bearer/Basic secret.
@@ -175,7 +178,7 @@ Original: nothing user-facing in the descriptor extraction (a settings provider 
 
 | # | Original feature | What it does | Ours | Class | Basis |
 |---|---|---|---|---|---|
-| 1 | New Project wizard creating and importing the project | Generates, extracts, opens | Partial: tool window opens the zip in the browser or runs `spring init` | B | U2 (file creation), no open-project API |
+| 1 | New Project wizard creating and importing the project | Generates, extracts, opens | Partial: tool window opens the zip in the browser or runs `spring init` | F* | API 1.3: pick_directory, project.write/scoped fs writes, open_project and an approved spring CLI or ZIP handling enable a wizard. Outside-project extraction needs a matching filesystem grant; test local/remote paths and archive handling. |
 | 2 | Dependency and version pick lists from the server | Metadata catalogue selection | Missing (ids typed by hand) | F* | `net:start.spring.io` fixed host; custom server URLs cannot be fetched; no multi-select UI beyond a form |
 
 ## Ours beyond the original

@@ -49,14 +49,14 @@ fn laravel_project(host: &MockHost) {
     );
 }
 
-fn activated(host: &MockHost) -> Main {
+pub(super) fn activated(host: &MockHost) -> Main {
     laravel_project(host);
     let mut plugin = Main::default();
     plugin.activate(&host.context("aritti.laravel")).unwrap();
     plugin
 }
 
-fn doc(path: &str, language: &str, text: &str) -> Document {
+pub(super) fn doc(path: &str, language: &str, text: &str) -> Document {
     Document { path: path.into(), language: language.into(), version: 1, text: text.into() }
 }
 
@@ -65,7 +65,7 @@ fn labels(items: Vec<CompletionItem>) -> Vec<String> {
 }
 
 /// The text without its `|` and the position the `|` marked.
-fn cursor(marked: &str) -> (String, Position) {
+pub(super) fn cursor(marked: &str) -> (String, Position) {
     let marker = if marked.contains('^') { '^' } else { '|' };
     let at = marked.find(marker).unwrap();
     let text = marked.replacen(marker, "", 1);
@@ -267,12 +267,15 @@ fn reports_missing_names_but_not_unknown_ones() {
 }
 
 #[test]
-fn publishes_problems_of_opened_files() {
+fn live_inventory_problems_are_separate_from_manual_opened_file_checks() {
     let host = MockHost::install();
     let mut plugin = activated(&host);
     host.add_file("resources/views/broken.blade.php", "@include('missing.partial')\n");
     plugin.handle_events(&[Event::FileOpened("/project/resources/views/broken.blade.php".into())], &host.invocation());
-    assert_eq!(host.diagnostics()["/project/resources/views/broken.blade.php"].len(), 1);
+    assert!(host.diagnostics().get("/project/resources/views/broken.blade.php").is_none_or(Vec::is_empty));
+    host.open_editor("/project/resources/views/broken.blade.php", "blade", "@include('missing.partial')\n", &[]);
+    host.refresh_diagnostics(&mut plugin);
+    assert_eq!(host.provider_diagnostics()["/project/resources/views/broken.blade.php"].len(), 1);
 }
 
 #[test]
@@ -283,7 +286,10 @@ fn marks_routes_views_and_layouts() {
     let controller = host_text(&host, "app/Http/Controllers/PostController.php");
     let markers = plugin.line_markers(&doc("/project/app/Http/Controllers/PostController.php", "php", &controller));
     let tooltips: Vec<_> = markers.iter().map(|m| (m.line, m.tooltip.as_str())).collect();
-    assert_eq!(tooltips, [(7, "View posts.index"), (5, "Route GET|HEAD /posts"), (10, "Route GET|HEAD /posts/{post}")]);
+    assert_eq!(tooltips[..3], [(7, "View posts.index"), (5, "Route GET|HEAD /posts"), (10, "Route GET|HEAD /posts/{post}")]);
+    let related: Vec<_> = markers.iter().filter(|m| m.tooltip == "Related route#PostController").collect();
+    assert_eq!(related.len(), 2, "retain the class-level route links formerly supplied by the host index");
+    assert!(related.iter().all(|m| m.line == 3 && m.target.as_ref().is_some_and(|l| l.path.ends_with("routes/web.php"))));
 
     let child = host_text(&host, "resources/views/posts/index.blade.php");
     let markers = plugin.line_markers(&doc("/project/resources/views/posts/index.blade.php", "blade", &child));
@@ -1932,8 +1938,8 @@ fn forelse_snippet_has_an_empty_branch_before_its_closing_directive() {
     assert!(body.find("@empty").unwrap() < body.find("@endforelse").unwrap());
 }
 
-fn terminal_args(host: &MockHost) -> Vec<Vec<String>> {
-    host.terminals().into_iter().map(|t| t.args).collect()
+fn terminal_args(_host: &MockHost, plugin: &Main) -> Vec<Vec<String>> {
+    plugin.artisan_terminals.commands()
 }
 
 #[test]
@@ -1946,7 +1952,7 @@ fn make_asks_then_runs_artisan_in_a_terminal() {
     host.answer_next_prompt(Some(&["Post"]));
     plugin.run_command("make", &host.invocation(), None).unwrap();
     assert_eq!(
-        terminal_args(&host),
+        terminal_args(&host, &plugin),
         [["artisan", "make:controller", "Admin/ReportController", "--model=Post", "--resource", "--api"]]
     );
 }
@@ -1958,7 +1964,7 @@ fn new_model_passes_the_flags() {
     host.answer_next_prompt(Some(&["Tag"]));
     host.answer_next_prompt(Some(&["-m", "-f"]));
     plugin.run_command("new-model", &host.invocation(), None).unwrap();
-    assert_eq!(terminal_args(&host), [["artisan", "make:model", "Tag", "-m", "-f"]]);
+    assert_eq!(terminal_args(&host, &plugin), [["artisan", "make:model", "Tag", "-m", "-f"]]);
 }
 
 #[test]
@@ -1983,14 +1989,14 @@ fn generates_for_a_model_with_a_default_name() {
     host.answer_next_prompt(Some(&["policy"]));
     host.answer_next_prompt(Some(&["PostPolicy"]));
     plugin.run_command("generate-for-model", &host.invocation(), None).unwrap();
-    assert_eq!(terminal_args(&host), [["artisan", "make:policy", "PostPolicy", "--model=Post"]]);
+    assert_eq!(terminal_args(&host, &plugin), [["artisan", "make:policy", "PostPolicy", "--model=Post"]]);
 
     host.answer_next_prompt(Some(&["Nope"]));
     assert!(plugin.run_command("generate-for-model", &host.invocation(), None).is_err());
 }
 
 #[test]
-fn run_artisan_picks_a_listed_command_and_splits_arguments() {
+fn run_artisan_uses_static_choices_without_implicit_discovery_and_splits_arguments() {
     let host = MockHost::install().with_capabilities(&["project.read", "events", "process:php", "editor.read", "editor.write"]);
     let mut plugin = activated(&host);
     host.on_process("php", |_, _| {
@@ -1999,7 +2005,8 @@ fn run_artisan_picks_a_listed_command_and_splits_arguments() {
     host.answer_next_prompt(Some(&["migrate:status"]));
     host.answer_next_prompt(Some(&["--pending  --no-ansi"]));
     plugin.run_command("artisan-run", &host.invocation(), None).unwrap();
-    assert_eq!(terminal_args(&host), [["artisan", "migrate:status", "--pending", "--no-ansi"]]);
+    assert_eq!(terminal_args(&host, &plugin), [["artisan", "migrate:status", "--pending", "--no-ansi"]]);
+    assert!(host.process_runs().is_empty(), "opening the command picker must not execute discovery");
 
     host.answer_next_prompt(Some(&["rm"]));
     assert!(plugin.run_command("artisan-run", &host.invocation(), None).is_err());
@@ -2007,14 +2014,15 @@ fn run_artisan_picks_a_listed_command_and_splits_arguments() {
 }
 
 #[test]
-fn creates_the_missing_view_under_the_cursor() {
+fn missing_view_command_guides_atomic_intention_without_artisan() {
     let host = MockHost::install().with_capabilities(&["project.read", "events", "process:php", "editor.read", "editor.write"]);
     let mut plugin = activated(&host);
     let text = "<?php\nreturn view('posts.create');\n";
     host.open_editor("/project/app/Http/Controllers/A.php", "php", text, &[(1, 17, 1, 17)]);
     host.answer_next_prompt(Some(&[]));
     plugin.run_command("create-missing", &host.invocation(), None).unwrap();
-    assert_eq!(terminal_args(&host), [["artisan", "make:view", "posts.create"]]);
+    assert!(host.terminals().is_empty());
+    assert!(host.notifications().iter().any(|n| n.body.contains("undoable file creation")));
 
     let existing = "<?php\nreturn view('welcome');\n";
     host.open_editor("/project/app/Http/Controllers/A.php", "php", existing, &[(1, 17, 1, 17)]);
@@ -2022,7 +2030,7 @@ fn creates_the_missing_view_under_the_cursor() {
 
     host.open_editor("/project/app/Http/Controllers/A.php", "php", text, &[(1, 17, 1, 17)]);
     plugin.run_command("create-missing", &host.invocation(), None).unwrap();
-    assert_eq!(host.terminals().len(), 1);
+    assert!(host.terminals().is_empty());
 }
 
 #[test]
@@ -2123,16 +2131,18 @@ fn route_files_with_controller_groups_and_invokables_stay_silent() {
 }
 
 #[test]
-fn indexer_links_a_model_to_the_factory_the_project_has() {
+fn related_model_files_use_provider_navigation_without_rename_anchors() {
     use openidea_plugin::indexing::{Document as IndexDocument, DocumentIndexer};
     let host = MockHost::install();
     host.add_file("database/factories/PostFactory.php", "<?php\nclass PostFactory extends Factory {}\n");
     let mut plugin = activated(&host);
     let text = host_text(&host, "/project/app/Models/Post.php");
-    let edges = plugin.index(&IndexDocument { path: "/project/app/Models/Post.php".into(), text, symbols: Vec::new() });
-    let markers: Vec<&str> = edges.markers.iter().map(|m| m.key.as_str()).collect();
-    assert!(markers.contains(&"factory#Post"), "{markers:?}");
-    assert!(markers.contains(&"policy#Post") && !markers.contains(&"observer#Post"), "{markers:?}");
+    let edges = plugin.index(&IndexDocument { path: "/project/app/Models/Post.php".into(), text: text.clone(), symbols: Vec::new() });
+    assert!(edges.definitions.is_empty() && edges.references.is_empty() && edges.markers.is_empty());
+    let markers = plugin.line_markers(&doc("/project/app/Models/Post.php", "php", &text));
+    assert!(markers.iter().any(|m| m.target.as_ref().is_some_and(|l| l.path.ends_with("PostFactory.php"))), "{markers:?}");
+    assert!(markers.iter().any(|m| m.target.as_ref().is_some_and(|l| l.path.ends_with("PostPolicy.php"))), "{markers:?}");
+    assert!(!markers.iter().any(|m| m.target.as_ref().is_some_and(|l| l.path.ends_with("PostObserver.php"))));
 }
 
 fn selection_actions(plugin: &mut Main, path: &str, language: &str, text: &str, selected: &str) -> Vec<CodeAction> {
@@ -2307,44 +2317,31 @@ fn config_app_providers_complete_project_providers() {
     assert_eq!(plugin.definition(&doc(path, "php", &text), at).len(), 1);
 }
 
-type Written = std::rc::Rc<std::cell::RefCell<Vec<(Vec<String>, String)>>>;
-
-fn tee_host() -> (MockHost, Written) {
-    let host = MockHost::install().with_capabilities(&["project.read", "events", "process:php", "process:tee", "editor.read"]);
-    let written: Written = Written::default();
-    let sink = written.clone();
-    host.on_process("tee", move |args, stdin| {
-        sink.borrow_mut().push((args.to_vec(), stdin.unwrap_or_default().to_owned()));
-        Ok(openidea_plugin::ProcessOutput { status: Some(0), stdout: String::new(), stderr: String::new() })
-    });
-    (host, written)
-}
-
 #[test]
 fn generate_for_a_selected_model_writes_a_factory_with_its_columns() {
-    let (host, written) = tee_host();
+    let host = MockHost::install().with_capabilities(&["project.read", "project.write", "events", "process:php", "editor.read"]);
     let mut plugin = activated(&host);
     host.select_paths(&["/project/app/Models/Post.php"]);
     host.answer_next_prompt(Some(&["factory"]));
     host.answer_next_prompt(Some(&["PostFactory"]));
     plugin.run_command("generate-for-model", &host.invocation(), None).unwrap();
 
-    let (args, body) = written.borrow()[0].clone();
-    assert_eq!(args, ["/project/database/factories/PostFactory.php"]);
+    let body = host.invocation().project().unwrap().read_file("database/factories/PostFactory.php").unwrap();
+    assert!(host.process_runs().is_empty());
     assert!(body.contains("'title' => fake()->sentence(),") && body.contains("'body' => fake()->paragraph(),"), "{body}");
     assert!(!body.contains("created_at"), "{body}");
     assert!(host.terminals().is_empty());
 }
 
 #[test]
-fn resource_body_lists_columns_and_falls_back_to_artisan_without_tee() {
+fn resource_body_lists_columns_and_falls_back_to_artisan_without_project_write() {
     let host = MockHost::install().with_capabilities(&["project.read", "events", "process:php", "editor.read"]);
     let mut plugin = activated(&host);
     host.select_paths(&["/project/app/Models/Post.php"]);
     host.answer_next_prompt(Some(&["resource"]));
     host.answer_next_prompt(Some(&["PostResource"]));
     plugin.run_command("generate-for-model", &host.invocation(), None).unwrap();
-    assert_eq!(terminal_args(&host), [["artisan", "make:resource", "PostResource"]]);
+    assert_eq!(terminal_args(&host, &plugin), [["artisan", "make:resource", "PostResource"]]);
 
     let index = plugin.indexes.values().next().unwrap();
     let source = bulk::resource_source(index, "Post", "PostResource");
@@ -2353,16 +2350,19 @@ fn resource_body_lists_columns_and_falls_back_to_artisan_without_tee() {
 
 #[test]
 fn remove_phpdocs_rewrites_every_model_that_has_helper_tags() {
-    let (host, written) = tee_host();
+    let host = MockHost::install().with_capabilities(&["project.read", "project.write", "events", "process:php", "editor.read"]);
     host.add_file("app/Models/Tag.php", "<?php\n/**\n * @property int $id\n */\nclass Tag extends Model {}\n");
     let mut plugin = activated(&host);
+    use openidea_plugin::file_actions::FileActions;
+    let text = host.invocation().project().unwrap().read_file("app/Models/Tag.php").unwrap();
+    let doc = openidea_plugin::providers::Document { path:"/project/app/Models/Tag.php".into(), language:"php".into(), text, version:1 };
+    let action = plugin.file_actions(&doc,Range::new(Position::new(0,0),Position::new(0,0))).into_iter().find(|a|a.data.as_deref().is_some_and(|d|d.starts_with("bulk-phpdocs:"))).unwrap();
     host.answer_next_prompt(Some(&[]));
-    plugin.run_command("remove-phpdocs", &host.invocation(), None).unwrap();
-
-    let runs = written.borrow();
-    assert_eq!(runs.len(), 1);
-    assert_eq!(runs[0].0, ["/project/app/Models/Tag.php"]);
-    assert_eq!(runs[0].1, "<?php\nclass Tag extends Model {}\n");
+    let resolved = plugin.resolve_file_action(&doc,action).unwrap();
+    assert_eq!(resolved.edits.len(),1);
+    assert_eq!(resolved.edits[0].0,"/project/app/Models/Tag.php");
+    assert_eq!(resolved.edits[0].1[0].text,"<?php\nclass Tag extends Model {}\n");
+    assert!(host.process_runs().is_empty());
 }
 
 #[test]
@@ -2374,7 +2374,7 @@ fn new_generators_run_their_own_artisan_commands_when_the_package_is_installed()
     host.answer_next_prompt(Some(&["nova:resource"]));
     host.answer_next_prompt(Some(&["Post"]));
     plugin.run_command("make", &host.invocation(), None).unwrap();
-    assert_eq!(terminal_args(&host), [["artisan", "nova:resource", "Post"]]);
+    assert_eq!(terminal_args(&host, &plugin), [["artisan", "nova:resource", "Post"]]);
 }
 
 #[test]
@@ -2414,7 +2414,7 @@ fn create_missing_makes_the_class_named_by_new_and_refuses_existing_ones() {
     host.open_editor("/project/app/Http/X.php", "php", text, &[(1, 18, 1, 18)]);
     host.answer_next_prompt(Some(&[]));
     plugin.run_command("create-missing", &host.invocation(), None).unwrap();
-    assert_eq!(terminal_args(&host), [["artisan", "make:job", "SendReportJob"]]);
+    assert_eq!(terminal_args(&host, &plugin), [["artisan", "make:job", "SendReportJob"]]);
 
     host.open_editor("/project/app/Http/X.php", "php", text, &[(2, 18, 2, 18)]);
     assert!(plugin.run_command("create-missing", &host.invocation(), None).is_err());
@@ -2501,4 +2501,350 @@ fn curl_row_action_copies_the_route() {
     host.answer_next_prompt(Some(&["http://localhost:8000"]));
     plugin.run_command("route-copy-curl", &host.invocation(), Some("route:1")).unwrap();
     assert_eq!(host.clipboard().as_deref(), Some("curl -X GET 'http://localhost:8000/posts'"));
+}
+
+#[test]
+fn factory_navigation_does_not_rename_the_model_or_factory_declarations() {
+    use openidea_plugin::indexing::{Document as IndexDocument,DocumentIndexer};
+    let host = MockHost::install();
+    host.add_file("database/factories/PostFactory.php","<?php class PostFactory extends Factory {}");
+    let mut plugin = activated(&host);
+    let usage = "<?php class FactoryUsage { function run() { Post::factory(); } }";
+    let current = doc("/project/app/Http/Controllers/FactoryUsage.php","php",usage);
+    let target = plugin.definition(&current, text::position(usage,usage.find("Post::").unwrap()+2));
+    assert!(target.iter().any(|t| t.path.ends_with("PostFactory.php")), "{target:?}");
+    let exported = plugin.index(&IndexDocument { path:current.path.clone(),text:usage.into(),symbols:Vec::new() });
+    assert!(exported.definitions.is_empty() && exported.references.is_empty());
+    host.add_file("database/factories/PostFactory.php","");
+    plugin.handle_events(&[Event::FilesChanged(openidea_plugin::FilesChanged { removed:vec!["/project/database/factories/PostFactory.php".into()], ..Default::default() })],&host.invocation());
+    assert!(plugin.definition(&current,text::position(usage,usage.find("Post::").unwrap()+2)).is_empty());
+}
+
+#[test]
+fn unsaved_related_target_changes_refresh_ranges_and_remove_stale_links() {
+    let host = MockHost::install();
+    host.add_file("database/factories/PostFactory.php","<?php class PostFactory extends Factory {}");
+    let mut plugin = activated(&host);
+    let usage = "<?php class FactoryUsage { function run() { Post::factory(); } }";
+    let source = doc("/project/app/Http/Controllers/FactoryUsage.php","php",usage);
+    let at = text::position(usage,usage.find("Post::").unwrap()+1);
+    assert!(!plugin.definition(&source,at).is_empty());
+    host.open_editor("/project/database/factories/PostFactory.php","php","<?php\n\nclass PostFactory extends Factory {}",&[]);
+    assert_eq!(plugin.definition(&source,at)[0].range.start.line,2);
+    host.open_editor("/project/database/factories/PostFactory.php","php","<?php class RenamedFactory extends Factory {}",&[]);
+    assert!(plugin.definition(&source,at).is_empty());
+}
+
+#[test]
+fn watched_listener_and_observer_changes_refresh_related_navigation() {
+    let host = MockHost::install();
+    host.add_file("app/Observers/PostObserver.php","<?php class PostObserver {}");
+    host.add_file("app/Events/Ready.php","<?php class Ready {}");
+    host.add_file("app/Listeners/ListenReady.php","<?php class ListenReady { function handle(Ready $event) {} }");
+    let mut plugin = activated(&host);
+    let event = doc("/project/app/Events/Ready.php","php","<?php class Ready {}");
+    assert!(plugin.line_markers(&event).iter().any(|m|m.target.as_ref().is_some_and(|l|l.path.ends_with("ListenReady.php"))));
+    host.add_file("app/Listeners/ListenReady.php","<?php class ListenReady { function handle(Other $event) {} }");
+    plugin.handle_events(&[Event::FilesChanged(openidea_plugin::FilesChanged { modified:vec![event.path.replace("Events/Ready","Listeners/ListenReady")], ..Default::default() })],&host.invocation());
+    assert!(!plugin.line_markers(&event).iter().any(|m|m.target.as_ref().is_some_and(|l|l.path.ends_with("ListenReady.php"))));
+    host.add_file("app/Listeners/ListenReady.php","<?php class ListenReady { function handle(Ready $event) {} }");
+    plugin.handle_events(&[Event::FilesChanged(openidea_plugin::FilesChanged { modified:vec!["/project/app/Listeners/ListenReady.php".into()], ..Default::default() })],&host.invocation());
+    assert!(plugin.line_markers(&event).iter().any(|m|m.target.as_ref().is_some_and(|l|l.path.ends_with("ListenReady.php"))));
+    for relative in ["app/Events/Ready.php","app/Observers/PostObserver.php","database/seeders/PostSeeder.php","app/Post.php"] { assert!(affects_index(relative),"{relative}"); }
+}
+
+
+fn packaged_invalidations(host: &MockHost) -> usize {
+    host.view_messages().iter().filter(|(view,raw)|view==VIEW && raw==r#"{"channel":"ui-kit-refresh"}"#).count()
+}
+#[test]
+fn observed_route_reindex_refreshes_mounted_cache_without_render_cli_or_loop() {
+    let host=MockHost::install();let mut plugin=activated(&host);
+    assert_eq!(packaged_invalidations(&host),1);
+    host.on_process("php",|_,_|panic!("cached render/reindex must not invoke Artisan"));
+    host.add_file("routes/web.php","<?php Route::get('/observed', fn()=>1)->name('observed');");
+    plugin.handle_events(&[Event::FileSaved("/project/routes/web.php".into())],&host.invocation());
+    assert_eq!(packaged_invalidations(&host),2);
+    for _ in 0..3 {
+        let view=plugin.render(VIEW,None,&host.invocation()).unwrap();
+        assert!(route_rows(&view).iter().any(|(_,path,_)|path=="/observed"));
+    }
+    assert_eq!(packaged_invalidations(&host),2);assert!(host.process_runs().is_empty());assert!(host.requests().is_empty());
+}
+#[test]
+fn loss_of_laravel_marker_retires_old_index_and_notifies_once() {
+    let host=MockHost::install();let mut plugin=activated(&host);
+    host.add_file("composer.json","{}");
+    plugin.handle_events(&[Event::FilesChanged(openidea_plugin::FilesChanged {modified:vec!["/project/composer.json".into()],..Default::default()})],&host.invocation());
+    assert!(!plugin.indexes.contains_key("/project"));assert_eq!(packaged_invalidations(&host),2);
+    assert!(matches!(plugin.render(VIEW,None,&host.invocation()).unwrap().body,Body::Message(_)));
+    plugin.index_project(&host.invocation().project().unwrap());
+    assert_eq!(packaged_invalidations(&host),2,"no existing cache, no further removal notification");
+}
+#[test]
+fn missing_foreign_or_denied_owner_render_withholds_but_preserves_another_root_cache() {
+    for case in 0..3 {
+        let host=MockHost::install();let mut plugin=activated(&host);
+        let host=match case {
+            0=>{host.add_project("/project");host.set_project_root(Some("/foreign"));host},
+            1=>{host.set_project_root(None);host},
+            _=>host.with_capabilities(&[]),
+        };
+        assert!(matches!(plugin.render(VIEW,None,&host.invocation()).unwrap().body,Body::Message(_)));
+        assert!(plugin.indexes.contains_key("/project"));assert_eq!(packaged_invalidations(&host),1);
+        assert!(host.opened_locations().is_empty());
+    }
+}
+#[test]
+fn exact_selected_root_has_no_implicit_nested_app_fallback() {
+    let host=MockHost::install();let mut plugin=activated(&host);
+    host.add_project("/project");host.set_project_root(Some("/project/nested"));laravel_project(&host);
+    host.add_file("routes/web.php","<?php Route::get('/nested-only', fn()=>1)->name('nested');");
+    plugin.index_project(&host.invocation().project().unwrap());
+    assert!(route_rows(&plugin.render(VIEW,None,&host.invocation()).unwrap()).iter().any(|(_,path,_)|path=="/nested-only"));
+    host.add_project("/project/nested");host.set_project_root(Some("/project"));
+    let outer=plugin.render(VIEW,None,&host.invocation()).unwrap();assert!(!route_rows(&outer).iter().any(|(_,path,_)|path=="/nested-only"));
+    host.add_file("composer.json","{}");plugin.index_project(&host.invocation().project().unwrap());
+    assert!(matches!(plugin.render(VIEW,None,&host.invocation()).unwrap().body,Body::Message(_)));
+    assert!(plugin.indexes.contains_key("/project/nested"),"outer render/removal must preserve explicit nested app cache");
+}
+#[test]
+fn direct_old_route_event_after_source_reindex_cannot_open_removed_route() {
+    let host=MockHost::install();let mut plugin=activated(&host);
+    plugin.render(VIEW,None,&host.invocation()).unwrap();
+    host.add_file("routes/web.php","<?php // all routes removed");
+    plugin.handle_events(&[Event::FileSaved("/project/routes/web.php".into())],&host.invocation());
+    assert!(plugin.handle(VIEW,ViewEvent::Activate("route:0".into()),&host.invocation()).is_err());
+    assert!(host.opened_locations().is_empty());
+}
+#[test]
+fn explicit_reindex_command_updates_hub_and_keeps_source_native_endpoint_exports() {
+    use openidea_plugin::endpoints::EndpointsProvider;
+    let host=MockHost::install();let mut plugin=activated(&host);
+    host.add_file("routes/web.php","<?php Route::post('/new-endpoint', fn()=>1)->name('new');");
+    plugin.run_command("reindex",&host.invocation(),None).unwrap();
+    assert_eq!(packaged_invalidations(&host),2);
+    let endpoints=plugin.endpoints(&host.invocation()).unwrap();
+    assert!(endpoints.iter().any(|endpoint|endpoint.path=="/new-endpoint"));
+    assert!(host.process_runs().is_empty());assert!(host.requests().is_empty());
+}
+
+#[test]
+fn framework_navigation_selects_exact_utf16_source_tokens_without_composed_rename_anchors() {
+    use openidea_plugin::indexing::{Document as IndexDocument, DocumentIndexer};
+    let host = MockHost::install();
+    laravel_project(&host);
+    host.add_file("routes/web.php", "<?php\r\n// 😀\r\nRoute::name('admin.')->group(function () { Route::get('/x', 'PostController@index')->name('é😀'); });\r\n");
+    host.add_file("config/app.php", "<?php\r\nreturn ['parent' => ['é😀' => 'value']];\r\n");
+    host.add_file("lang/en/messages.php", "<?php\r\nreturn ['é😀' => 'Hello'];\r\n");
+    host.add_file("lang/en.json", "{\r\n  \"say \\\"hi\\\" 😀\": \"Hi\"\r\n}\r\n");
+    let mut plugin = Main::default();
+    plugin.activate(&host.context("aritti.laravel")).unwrap();
+    let selected = |target: &Location| {
+        let source = host_text(&host, &target.path);
+        let start = text::offset(&source, target.range.start).unwrap();
+        let end = text::offset(&source, target.range.end).expect("navigation end must remain within UTF16 source");
+        source[start..end].to_owned()
+    };
+    for (marked, target_path) in [
+        ("<?php route('admin.é|😀');", "/project/routes/web.php"),
+        ("<?php config('app.parent.é|😀');", "/project/config/app.php"),
+        ("<?php __('messages.é|😀');", "/project/lang/en/messages.php"),
+    ] {
+        let (source, at) = cursor(marked);
+        let targets = plugin.definition(&doc("/project/app/Test.php", "php", &source), at);
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].path, target_path);
+        assert_eq!(selected(&targets[0]), "é😀", "{marked}");
+    }
+    let index = plugin.index_for("/project/app/Test.php").unwrap();
+    assert_eq!(selected(&route_list_of(index)[0].location.clone().unwrap()), "é😀");
+    let (path, at, width) = entry_for(index, "route:0").unwrap();
+    assert_eq!(selected(&Location { path: path.into(), range: Range::new(at, Position::new(at.line, at.character + width)) }), "é😀");
+    let json = location(&index.translations["say \"hi\" 😀"]).unwrap();
+    assert_eq!(selected(&json), "say \\\"hi\\\" 😀", "decoded JSON key must select its full raw spelling");
+    let controller = host_text(&host, "app/Http/Controllers/PostController.php");
+    let markers = plugin.line_markers(&doc("/project/app/Http/Controllers/PostController.php", "php", &controller));
+    let route = markers.iter().find(|m| m.tooltip == "Route GET|HEAD /x").unwrap();
+    assert_eq!(selected(route.target.as_ref().unwrap()), "é😀");
+    for path in ["/project/routes/web.php", "/project/config/app.php", "/project/lang/en/messages.php", "/project/lang/en.json"] {
+        let edges = plugin.index(&IndexDocument { path:path.into(), text:host_text(&host,path), symbols:Vec::new() });
+        assert!(edges.definitions.is_empty() && edges.references.is_empty() && edges.markers.is_empty());
+    }
+}
+
+#[test]
+fn registered_column_completion_does_not_reuse_another_function_or_shadowed_variable_assignment() {
+    let host=MockHost::install();let mut plugin=activated(&host);let path="/project/app/Http/Controllers/X.php";
+    let observations:Vec<_>=[
+        "<?php function first(){ $query = Post::query(); } function second(){ $query->where('|'); }",
+        "<?php function first(){ $query = Post::query(); } function second($query){ $query->where('|'); }",
+        "<?php $query = Post::query(); $callback = fn($query) => $query->where('|');",
+        "<?php $query = Post::query(); [$query] = getUnknown(); $query->where('|');",
+        "<?php $query = Post::query(); unset($query); $query->where('|');",
+    ].into_iter().map(|marked|{let (text,at)=cursor(marked);(marked,labels(plugin.completion(&doc(path,"php",&text),at,None)))}).collect();
+    assert!(observations.iter().all(|(_,items)|items.is_empty()),"{observations:?}");
+}
+
+#[test]
+fn registered_providers_do_not_inherit_outer_cache_when_current_nested_owner_is_cold() {
+    let host=MockHost::install();let mut plugin=activated(&host);host.add_project("/project/nested");
+    let observed:Vec<_>=[("/project/nested/test.php","php","<?php view('posts.in|dex');"),("/project/nested/resources/views/test.blade.php","blade","{{ view('posts.in|dex') }}"),("/project/nested/main.ts","typescript","route('ho|me')")].into_iter().map(|(path,language,marked)|{let(text,at)=cursor(marked);let d=doc(path,language,&text);(language,plugin.completion(&d,at,None).len(),plugin.definition(&d,at).len())}).collect();
+    assert!(observed.iter().all(|(_,completions,definitions)|*completions==0 && *definitions==0),"{observed:?}");
+    assert!(plugin.indexes.contains_key("/project") && !plugin.indexes.contains_key("/project/nested"));assert!(host.process_runs().is_empty() && host.requests().is_empty());
+}
+#[test]
+fn registered_provider_unknown_or_denied_owner_withholds_cached_php_and_script_inventory_without_clearing_it() {
+    for denied in [false,true] {
+        let host=MockHost::install();let mut plugin=activated(&host);let host=if denied{host.with_capabilities(&[])}else{host.set_project_root(None);host};
+        let observed:Vec<_>=[("/project/test.php","php","<?php view('posts.in|dex');"),("/project/main.ts","typescript","route('ho|me')")].into_iter().map(|(path,language,marked)|{let(text,at)=cursor(marked);let d=doc(path,language,&text);(language,plugin.completion(&d,at,None).len(),plugin.definition(&d,at).len())}).collect();
+        assert!(observed.iter().all(|(_,c,d)|*c==0 && *d==0),"denied={denied} {observed:?}");assert!(plugin.indexes.contains_key("/project"));assert!(host.process_runs().is_empty());
+    }
+}
+
+#[test]
+fn current_document_owner_selects_exact_warm_cache_across_projects_not_invoking_window() {
+    let host=MockHost::install();let mut plugin=activated(&host);host.add_project("/project");host.set_project_root(Some("/project/nested"));laravel_project(&host);
+    host.add_file("routes/web.php","<?php Route::get('/nested-only',fn()=>1)->name('nested-only');");plugin.index_project(&host.invocation().project().unwrap());
+    for (path,present,absent) in [("/project/main.ts","home","nested-only"),("/project/nested/main.ts","nested-only","home")] {
+        let(text,at)=cursor("route('ho|me')");let found=labels(plugin.completion(&doc(path,"typescript",&text),at,None));assert!(found.iter().any(|v|v==present) && !found.iter().any(|v|v==absent),"{path}: {found:?}");
+    }
+    assert!(plugin.indexes.contains_key("/project") && plugin.indexes.contains_key("/project/nested"));assert!(host.requests().is_empty() && host.process_runs().is_empty());
+}
+
+#[test]
+fn registered_blade_usage_markers_do_not_index_raw_php_string_directives() {
+    let host=MockHost::install();laravel_project(&host);host.add_file("resources/views/fake-source.blade.php",r#"<?php $x="?> @include('posts.index')"; ?>"#);
+    let mut plugin=Main::default();plugin.activate(&host.context("aritti.laravel")).unwrap();
+    let d=doc("/project/resources/views/posts/index.blade.php","blade","<div>Post</div>");let found=plugin.line_markers(&d);
+    assert!(!found.iter().any(|m|m.tooltip.starts_with("Used by") && m.tooltip.contains("fake-source")),"{found:?}");
+}
+
+#[test]
+fn registered_layout_definition_and_marker_ranges_select_unicode_source_token_only() {
+    let host=MockHost::install();laravel_project(&host);let layout="😀\r\n@yield('hé😀')\r\n";host.add_file("resources/views/layouts/unicode.blade.php",layout);
+    let mut plugin=Main::default();plugin.activate(&host.context("aritti.laravel")).unwrap();let (source,at)=cursor("@extends('layouts.unicode')\n@section('hé|😀')");let d=doc("/project/resources/views/new.blade.php","blade",&source);
+    let definition=plugin.definition(&d,at).remove(0);let marker=plugin.line_markers(&d).into_iter().find(|m|m.tooltip.starts_with("Parent section")).unwrap().target.unwrap();let start=layout.find("hé😀").unwrap();let expected=range_of(layout,start,start+"hé😀".len());
+    assert_eq!((definition.range,marker.range),(expected,expected));
+}
+#[test]
+fn registered_layout_requests_with_stale_short_or_mid_utf8_target_offsets_do_not_panic_or_emit_old_names() {
+    let mut observed=Vec::new();
+    for mid_utf8 in [false,true] {
+        let host=MockHost::install();let mut plugin=activated(&host);let old=host_text(&host,"resources/views/layouts/app.blade.php");let offset=old.find("content").unwrap();let edited=if mid_utf8{format!("{}😀"," ".repeat(offset-1))}else{"x".into()};host.open_editor("/project/resources/views/layouts/app.blade.php","blade",&edited,&[]);
+        let (source,at)=cursor("@extends('layouts.app')\n@section('co|ntent')");let d=doc("/project/resources/views/new.blade.php","blade",&source);
+        let completion=std::panic::catch_unwind(std::panic::AssertUnwindSafe(||plugin.completion(&d,at,None)));
+        let markers=std::panic::catch_unwind(std::panic::AssertUnwindSafe(||plugin.line_markers(&d)));
+        observed.push((mid_utf8,completion.as_ref().map(|v|v.len()).ok(),markers.as_ref().map(|v|v.iter().filter(|m|m.tooltip.starts_with("Parent section")).count()).ok()));
+    }
+    assert!(observed.iter().all(|(_,c,m)|*c==Some(0) && *m==Some(0)),"{observed:?}");
+}
+#[test]
+fn registered_layout_locations_follow_current_unsaved_declarations_not_old_offsets() {
+    let host=MockHost::install();let mut plugin=activated(&host);let edited=format!("{}\r\n😀 @yield('content')\r\n@stack('scripts')"," ".repeat(120));host.open_editor("/project/resources/views/layouts/app.blade.php","blade",&edited,&[]);
+    let (source,at)=cursor("@extends('layouts.app')\n@section('con|tent')");let d=doc("/project/resources/views/new.blade.php","blade",&source);let definition=plugin.definition(&d,at).remove(0);let marker=plugin.line_markers(&d).into_iter().find(|m|m.tooltip.starts_with("Parent section")).unwrap().target.unwrap();let start=edited.find("content").unwrap();let expected=range_of(&edited,start,start+"content".len());assert_eq!((definition.range,marker.range),(expected,expected));
+}
+#[test]
+fn registered_layout_members_do_not_read_or_navigate_separately_owned_target_source() {
+    let host=MockHost::install();let mut plugin=activated(&host);host.add_project("/project/resources/views/layouts");let (source,at)=cursor("@extends('layouts.app')\n@section('con|tent')");let d=doc("/project/resources/views/new.blade.php","blade",&source);
+    let observed=(plugin.completion(&d,at,None).len(),plugin.definition(&d,at).len(),plugin.line_markers(&d).into_iter().filter(|m|m.tooltip.starts_with("Parent section")).count());assert_eq!(observed,(0,0,0));assert!(host.requests().is_empty() && host.process_runs().is_empty());
+}
+
+#[test]
+fn registered_blade_associations_skip_comment_data_but_accept_literal_argument_trivia() {
+    let host=MockHost::install();laravel_project(&host);host.add_file("resources/views/fake-comment.blade.php","@if(/* ) @include('posts.index') */ $real) @endif");host.add_file("resources/views/commented-real.blade.php","@include(/* 'fake', ) => */ 'posts.index' /* , */)");let mut plugin=Main::default();plugin.activate(&host.context("aritti.laravel")).unwrap();let found=plugin.line_markers(&doc("/project/resources/views/posts/index.blade.php","blade","<div>Post</div>"));let used=found.iter().find(|m|m.tooltip.starts_with("Used by")).map(|m|m.tooltip.as_str()).unwrap_or("");assert!(used.contains("commented-real") && !used.contains("fake-comment"),"{found:?}");
+}
+#[test]
+fn registered_layout_definition_accepts_literal_comments_with_exact_utf16_source_range() {
+    let host=MockHost::install();laravel_project(&host);let target="😀 @yield(/* 'fake' , ) */ 'hé😀' /* , */)";host.add_file("resources/views/layouts/comments.blade.php",target);let mut plugin=Main::default();plugin.activate(&host.context("aritti.laravel")).unwrap();let(source,at)=cursor("@extends('layouts.comments')\n@section('hé|😀')");let result=plugin.definition(&doc("/project/resources/views/new.blade.php","blade",&source),at);let start=target.find("hé😀").unwrap();assert_eq!(result.len(),1,"{result:?}");assert_eq!(result[0].range,range_of(target,start,start+"hé😀".len()));
+}
+
+#[test]
+fn registered_dynamic_ability_binding_and_column_definitions_select_utf16_source_tokens() {
+    let host=MockHost::install();laravel_project(&host);
+    let provider="<?php\r\n/* 😀 */ Gate::define('can-café😀',fn()=>true);\r\n$this->app->bind('service-café😀',fn()=>null);\r\n";let migration="<?php\r\nSchema::table('posts',function(Blueprint $t){ $t->string('café😀'); });\r\n";
+    host.add_file("app/Providers/UnicodeServiceProvider.php",provider);host.add_file("database/migrations/2024_01_05_unicode_posts.php",migration);let mut plugin=Main::default();plugin.activate(&host.context("aritti.laravel")).unwrap();
+    let observed:Vec<_>=[("ability","<?php Gate::allows('can-caf|é😀');",provider,"can-café😀"),("binding","<?php app('service-caf|é😀');",provider,"service-café😀"),("column","<?php Post::where('caf|é😀',1);",migration,"café😀")].into_iter().map(|(kind,marked,target,name)|{let(source,at)=cursor(marked);let found=plugin.definition(&doc("/project/test.php","php",&source),at);assert_eq!(found.len(),1,"{kind}: {found:?}");let start=target.find(name).unwrap();(kind,found[0].range,range_of(target,start,start+name.len()))}).collect();
+    assert!(observed.iter().all(|(_,actual,expected)|actual==expected),"{observed:?}");assert!(host.requests().is_empty() && host.process_runs().is_empty());
+}
+
+#[test]
+fn registered_literal_definition_locations_refuse_new_foreign_target_owners() {
+    let observed:Vec<_>=[("resources/views","php","<?php view('posts.in|dex');"),("config","php","<?php config('app.na|me');"),("lang","php","<?php __('messages.wel|come');"),("routes","php","<?php route('ho|me');"),("routes","typescript","route('ho|me')")].into_iter().map(|(target,language,marked)|{let host=MockHost::install();let mut plugin=activated(&host);let path=if language=="php"{"/project/test.php"}else{"/project/main.ts"};let(source,at)=cursor(marked);let d=doc(path,language,&source);assert!(!plugin.definition(&d,at).is_empty(),"positive {marked}");host.add_project(&format!("/project/{target}"));(target,language,plugin.definition(&d,at).len())}).collect();assert!(observed.iter().all(|(_,_,n)|*n==0),"{observed:?}");
+}
+#[test]
+fn registered_gutter_targets_do_not_cross_current_owners_but_keep_unaffected_links() {
+    let host=MockHost::install();let mut plugin=activated(&host);let source=host_text(&host,"app/Http/Controllers/PostController.php");let d=doc("/project/app/Http/Controllers/PostController.php","php",&source);assert!(plugin.line_markers(&d).iter().any(|m|m.target.as_ref().is_some_and(|t|t.path.contains("/routes/"))));host.add_project("/project/routes");let markers=plugin.line_markers(&d);assert!(!markers.iter().any(|m|m.target.as_ref().is_some_and(|t|t.path.contains("/routes/"))),"{markers:?}");assert!(markers.iter().any(|m|m.tooltip=="View posts.index"));
+    let host=MockHost::install();let mut plugin=activated(&host);host.add_project("/project/app/Http/Controllers");let d=doc("/project/resources/views/posts/index.blade.php","blade","<div>Post</div>");assert!(!plugin.line_markers(&d).iter().any(|m|m.tooltip.starts_with("Rendered by")));
+}
+#[test]
+fn registered_checked_related_navigation_refuses_new_foreign_factory_owner() {
+    let host=MockHost::install();host.add_file("database/factories/PostFactory.php","<?php class PostFactory extends Factory {}");let mut plugin=activated(&host);let usage="<?php class FactoryUsage { function run() { Post::factory(); } }";let d=doc("/project/app/Http/Controllers/FactoryUsage.php","php",usage);let at=text::position(usage,usage.find("Post::").unwrap()+1);assert!(!plugin.definition(&d,at).is_empty());host.add_project("/project/database/factories");assert!(plugin.definition(&d,at).is_empty());assert!(host.requests().is_empty() && host.process_runs().is_empty());
+}
+
+#[test]
+fn registered_component_props_slots_and_livewire_members_refuse_new_foreign_source_owners() {
+    let observed:Vec<_>=[("anonymous","<x-banner |","/project/resources/views/components"),("slot","<x-banner><x-slot:fo|","/project/resources/views/components"),("class","<x-alert |","/project/app/View/Components"),("livewire","<livewire:tally |","/project/app/Livewire")].into_iter().map(|(kind,marked,child)|{let host=MockHost::install();laravel_project(&host);host.add_file("resources/views/components/banner.blade.php","@props(['tone' => 'info']) <div>{{ $footer }}</div>");host.add_file("app/View/Components/Alert.php","<?php\nclass Alert extends Component\n{\n public function __construct(public string $tone = 'info'){}\n}\n");host.add_file("app/Livewire/Tally.php","<?php\nclass Tally extends Component\n{\n public int $count = 0;\n}\n");let mut plugin=Main::default();plugin.activate(&host.context("aritti.laravel")).unwrap();let(source,at)=cursor(marked);let d=doc("/project/resources/views/x.blade.php","blade",&source);assert!(!plugin.completion(&d,at,None).is_empty(),"positive {kind}");host.add_project(child);(kind,labels(plugin.completion(&d,at,None)))}).collect();assert!(observed.iter().all(|(_,names)|names.is_empty()),"{observed:?}");
+}
+#[test]
+fn owned_component_source_refreshes_current_properties_without_replacing_root_cache() {
+    let host=MockHost::install();host.add_file("resources/views/components/banner.blade.php","@props(['tone'])");let mut plugin=activated(&host);let(source,at)=cursor("<x-banner |");let d=doc("/project/resources/views/x.blade.php","blade",&source);assert_eq!(labels(plugin.completion(&d,at,None)),["tone"]);host.open_editor("/project/resources/views/components/banner.blade.php","blade","@props(['fresh'])",&[]);assert_eq!(labels(plugin.completion(&d,at,None)),["fresh"]);assert!(plugin.indexes.contains_key("/project"));assert!(host.requests().is_empty() && host.process_runs().is_empty());
+}
+
+#[test]
+fn endpoints_resolve_application_mounts_and_refresh_configuration() {
+    use openidea_plugin::endpoints::EndpointsProvider;
+    let host = MockHost::install();
+    let mut plugin = activated(&host);
+    host.add_file("routes/api.php", "<?php Route::post('/snatch/edit', [SnatchController::class, 'edit']); Route::prefix('admin')->group(function(){ Route::apiResource('posts', PostController::class)->only(['index']); });");
+    for (prefix, expected) in [("'api'", Some("/api/snatch/edit")), ("'v2'", Some("/v2/snatch/edit")), ("''", Some("/snatch/edit")), ("$dynamic", None)] {
+        host.add_file("bootstrap/app.php", &format!("<?php return Application::configure()->withRouting(web: __DIR__.'/../routes/web.php', api: __DIR__.'/../routes/api.php', apiPrefix: {prefix});"));
+        plugin.handle_events(&[Event::FileSaved("/project/bootstrap/app.php".into())], &host.invocation());
+        let endpoints = plugin.endpoints(&host.invocation()).unwrap();
+        let api: Vec<_> = endpoints.iter().filter(|e| e.location.path.ends_with("/routes/api.php")).collect();
+        match expected {
+            Some(expected) => {
+                let e = api.iter().find(|e| e.path == expected).expect("mounted issue411 route");
+                assert_eq!(e.handler.as_deref(), Some("SnatchController@edit"));
+                assert_eq!(e.method.as_deref(), Some("POST"));
+                let base = expected.strip_suffix("/snatch/edit").unwrap();
+                assert!(api.iter().any(|e| e.path == format!("{base}/admin/posts")));
+            }
+            None => assert!(api.is_empty()),
+        }
+    }
+    host.add_file("bootstrap/app.php", "<?php return Application::configure()->withRouting(web: __DIR__.'/../routes/web.php');");
+    plugin.handle_events(&[Event::FileSaved("/project/bootstrap/app.php".into())], &host.invocation());
+    assert!(plugin.endpoints(&host.invocation()).unwrap().iter().all(|e| !e.location.path.ends_with("/routes/api.php")));
+}
+
+#[test]
+fn endpoints_watch_legacy_provider_prefix_changes() {
+    use openidea_plugin::endpoints::EndpointsProvider;
+    let h=MockHost::install();let mut plugin=activated(&h);
+    h.add_file("routes/api.php","<?php Route::post('/snatch/edit', 'SnatchController@edit');");
+    for prefix in ["api","v3"] {
+        h.add_file("app/Providers/RouteServiceProvider.php",&format!("<?php Route::middleware('api')->prefix('{prefix}')->group(base_path('routes/api.php'));"));
+        plugin.handle_events(&[Event::FileSaved("/project/app/Providers/RouteServiceProvider.php".into())],&h.invocation());
+        assert!(plugin.endpoints(&h.invocation()).unwrap().iter().any(|e|e.path==format!("/{prefix}/snatch/edit")));
+    }
+    assert!(h.requests().is_empty() && h.process_runs().is_empty());
+}
+
+#[test]
+fn native_bulk_phpdoc_action_refuses_changed_source_and_generators_refuse_collisions() {
+    use openidea_plugin::file_actions::FileActions;
+    let host=MockHost::install().with_capabilities(&["project.read","project.write","events"]);
+    let text="<?php\n/**\n * @property int $id\n */\nclass Tag extends Model {}\n";
+    host.add_file("app/Models/Tag.php",text);
+    let mut plugin=activated(&host);
+    let doc=openidea_plugin::providers::Document { path:"/project/app/Models/Tag.php".into(),language:"php".into(),text:text.into(),version:1 };
+    let action=plugin.file_actions(&doc,Range::new(Position::new(0,0),Position::new(0,0))).remove(0);
+    host.add_file("app/Models/Tag.php","<?php class Tag extends Model { /* changed */ }");
+    assert!(plugin.resolve_file_action(&doc,action).is_err());
+    host.add_file("database/factories/PostFactory.php","existing");
+    let index=plugin.indexes.get("/project").unwrap();
+    assert!(bulk::model_file(&host.invocation().project().unwrap(),index,"factory","Post","PostFactory").is_err());
+    assert_eq!(host.invocation().project().unwrap().read_file("database/factories/PostFactory.php").unwrap(),"existing");
+    assert!(host.process_runs().is_empty());
 }

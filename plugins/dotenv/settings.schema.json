@@ -3,12 +3,16 @@
     "completion": {
       "type": "boolean",
       "title": "Complete environment variables in code",
-      "default": true
+      "default": true,
+      "group": "Completion",
+      "description": "Complete known environment keys in supported code references; .env file completion remains enabled."
     },
     "showValues": {
       "type": "boolean",
-      "title": "Show each key's value in completion",
-      "default": true
+      "title": "Show each key's value in completion and hover",
+      "default": true,
+      "group": "Value visibility",
+      "description": "Show cached/current source values in completion and hover. Turning this off hides those outputs; it does not erase cached values or hide file contents."
     }
   }
 }

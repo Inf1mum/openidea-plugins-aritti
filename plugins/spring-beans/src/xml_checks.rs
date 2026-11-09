@@ -1,6 +1,7 @@
 //! Checks on Spring XML configuration files. Quiet on anything that is not a
 //! beans file, on other namespaces and on `${...}` placeholders.
 
+use crate::xml_namespace::CoreAttributes;
 use crate::aop;
 use crate::checks::{Groups, capitalised, coexist, names_of, same_scope, weaving_plugin_in_build};
 use crate::model::{is_xml_ref, name_tokens};
@@ -20,6 +21,14 @@ pub const KNOWN_SCOPES: [&str; 7] = ["singleton", "prototype", "request", "sessi
 const ADVICE: [&str; 5] = ["before", "after", "after-returning", "after-throwing", "around"];
 
 pub fn check_xml(path: &str, text: &str, world: &World, groups: Groups) -> Vec<Finding> {
+    check_xml_mode(path, text, world, groups, true)
+}
+
+pub fn check_xml_cached(path: &str, text: &str, world: &World, groups: Groups) -> Vec<Finding> {
+    check_xml_mode(path, text, world, groups, false)
+}
+
+fn check_xml_mode(path: &str, text: &str, world: &World, groups: Groups, external: bool) -> Vec<Finding> {
     let els = xml::elements(text);
     if !is_beans_file(&els) {
         return Vec::new();
@@ -29,7 +38,9 @@ pub fn check_xml(path: &str, text: &str, world: &World, groups: Groups) -> Vec<F
     let children = children_of(&els);
     if groups.aop {
         aop_structure(&els, &mut out);
-        pointcut_designators(path, &els, &mut out);
+        if external {
+            pointcut_designators(path, &els, &mut out);
+        }
     }
     if groups.naming {
         name_conventions(&els, &mut out);
@@ -38,10 +49,12 @@ pub fn check_xml(path: &str, text: &str, world: &World, groups: Groups) -> Vec<F
         duplicate_names(path, &els, &by_name, &mut out);
     }
     if groups.xml {
-        out.extend(xml_check::check(&els, SCAN_RULES, |_| true));
+        out.extend(xml_check::check(&crate::xml_namespace::plain_attributes(&els), SCAN_RULES, |_| true));
         scan_filters(&els, &children, &mut out);
         filter_expressions(&els, world, &mut out);
-        import_resources(path, &els, groups, &mut out);
+        if external {
+            import_resources(path, &els, groups, &mut out);
+        }
         inactive_profiles(&els, &mut out);
     }
     if groups.unresolved_references && world.complete {
@@ -75,7 +88,8 @@ const REF_RULES: &[Rule] = &[
     Rule { refs: &["key-ref", "value-ref"], ..Rule::new("entry") },
     Rule { refs: &["name"], ..Rule::new("alias") },
 ];
-const CONTAINER_BEANS: [&str; 6] = ["environment", "systemProperties", "systemEnvironment", "messageSource", "applicationEventMulticaster", "lifecycleProcessor"];
+const CONTAINER_BEANS: [&str; 6] =
+    ["environment", "systemProperties", "systemEnvironment", "messageSource", "applicationEventMulticaster", "lifecycleProcessor"];
 
 /// The project's beans under every name they answer to, as `World::named` finds them.
 type ByName<'a> = BTreeMap<&'a str, Vec<Found<'a>>>;
@@ -130,7 +144,7 @@ fn aop_structure(els: &[xml::Element], out: &mut Vec<Finding>) {
         if !in_namespace(els, i, AOP_NS) || !inside_aop_config(els, i) {
             continue;
         }
-        let missing = |attr: &str| e.attr(attr).is_none();
+        let missing = |attr: &str| e.core_attr(attr).is_none();
         let problem = match e.local() {
             "pointcut" if missing("id") || missing("expression") => "An aop:pointcut needs both an id and an expression.",
             "aspect" if missing("ref") => "An aop:aspect needs a ref naming the bean that holds the advice methods.",
@@ -146,13 +160,15 @@ fn aop_structure(els: &[xml::Element], out: &mut Vec<Finding>) {
 }
 
 fn advice_problem(e: &xml::Element) -> &'static str {
-    if e.attr("method").is_none() {
+    if e.core_attr("method").is_none() {
         return "An advice element needs a method naming the aspect method to call.";
     }
-    let (pointcut, reference) = (e.attr("pointcut"), e.attr("pointcut-ref"));
+    let (pointcut, reference) = (e.core_attr("pointcut"), e.core_attr("pointcut-ref"));
     match (pointcut, reference) {
         (None, None) => "An advice element needs a pointcut expression or a pointcut-ref.",
-        (Some(a), Some(b)) if !dynamic(&a.value) && !dynamic(&b.value) => "An advice element takes either pointcut or pointcut-ref, not both.",
+        (Some(a), Some(b)) if !dynamic(&a.value) && !dynamic(&b.value) => {
+            "An advice element takes either pointcut or pointcut-ref, not both."
+        }
         _ => "",
     }
 }
@@ -164,8 +180,8 @@ fn pointcut_designators(path: &str, els: &[xml::Element], out: &mut Vec<Finding>
             continue;
         }
         let attr = match e.local() {
-            "pointcut" => e.attr("expression"),
-            name if ADVICE.contains(&name) => e.attr("pointcut"),
+            "pointcut" => e.core_attr("expression"),
+            name if ADVICE.contains(&name) => e.core_attr("pointcut"),
             _ => None,
         };
         let Some(attr) = attr.filter(|a| !dynamic(&a.value)) else { continue };
@@ -215,7 +231,7 @@ fn profiles_of(els: &[xml::Element], i: usize) -> Vec<String> {
     let mut profiles = Vec::new();
     let mut up = els[i].parent;
     while let Some(p) = up {
-        if let Some(profile) = els[p].value("profile") {
+        if let Some(profile) = els[p].core_value("profile") {
             profiles.extend(name_tokens(profile).map(|(_, p)| p.to_owned()));
         }
         up = els[p].parent;
@@ -231,7 +247,8 @@ fn duplicate_names(path: &str, els: &[xml::Element], by_name: &ByName, out: &mut
         let mut own = BTreeSet::new();
         for (name, from, to) in bean_names(e).into_iter().filter(|(n, _, _)| own.insert(*n)) {
             if seen.contains(&(e.parent, name)) {
-                let message = format!("Another bean in this file is already named \"{name}\": a second definition in one beans element is rejected.");
+                let message =
+                    format!("Another bean in this file is already named \"{name}\": a second definition in one beans element is rejected.");
                 out.push(Finding::new(from, to, "duplicate-bean-name", message));
                 continue;
             }
@@ -263,7 +280,8 @@ fn abstract_references(els: &[xml::Element], by_name: &ByName, out: &mut Vec<Fin
                 if !defined.iter().all(|(_, b)| b.is_abstract) {
                     continue;
                 }
-                let message = format!("\"{name}\" is an abstract bean and cannot be injected or depended on; reference it as a parent instead.");
+                let message =
+                    format!("\"{name}\" is an abstract bean and cannot be injected or depended on; reference it as a parent instead.");
                 out.push(error(start, start + name.len(), "xml-abstract-reference", &message));
             }
         }
@@ -275,16 +293,29 @@ fn bean_attributes(els: &[xml::Element], out: &mut Vec<Finding>) {
         if e.attrs.iter().any(|a| dynamic(&a.value)) {
             continue;
         }
-        let factory_bean = e.attr("factory-bean");
-        if let (Some(_), Some(factory)) = (e.attr("class"), factory_bean) {
-            let message = "A bean with a factory-bean should leave class out: Spring ignores it and takes the type from the factory method.";
-            out.push(Finding::new(factory.at, factory.at + factory.name.len(), "xml-bean-attributes", message).with_severity(Severity::Warning));
-        } else if let (Some(factory), None) = (factory_bean, e.attr("factory-method")) {
-            out.push(error(factory.at, factory.at + factory.name.len(), "xml-bean-attributes", "A factory-bean needs a factory-method naming the method to call."));
+        let factory_bean = e.core_attr("factory-bean");
+        if let (Some(_), Some(factory)) = (e.core_attr("class"), factory_bean) {
+            let message =
+                "A bean with a factory-bean should leave class out: Spring ignores it and takes the type from the factory method.";
+            out.push(
+                Finding::new(factory.at, factory.at + factory.name.len(), "xml-bean-attributes", message).with_severity(Severity::Warning),
+            );
+        } else if let (Some(factory), None) = (factory_bean, e.core_attr("factory-method")) {
+            out.push(error(
+                factory.at,
+                factory.at + factory.name.len(),
+                "xml-bean-attributes",
+                "A factory-bean needs a factory-method naming the method to call.",
+            ));
         }
-        let defines_type = ["class", "parent", "factory-bean"].iter().any(|n| e.attr(n).is_some());
-        if !defines_type && e.value("abstract") != Some("true") {
-            out.push(error(e.at, e.at + e.name.len(), "xml-bean-attributes", "A bean needs a class, a parent or a factory-bean, unless it is abstract."));
+        let defines_type = ["class", "parent", "factory-bean"].iter().any(|n| e.core_attr(n).is_some());
+        if !defines_type && e.core_value("abstract") != Some("true") {
+            out.push(error(
+                e.at,
+                e.at + e.name.len(),
+                "xml-bean-attributes",
+                "A bean needs a class, a parent or a factory-bean, unless it is abstract.",
+            ));
         }
     }
 }
@@ -292,7 +323,7 @@ fn bean_attributes(els: &[xml::Element], out: &mut Vec<Finding>) {
 fn injection_values(els: &[xml::Element], children: &[Vec<usize>], out: &mut Vec<Finding>) {
     for name in ["property", "constructor-arg"] {
         for (i, e) in beans_elements(els, name) {
-            let (reference, value) = (e.attr("ref"), e.attr("value"));
+            let (reference, value) = (e.core_attr("ref"), e.core_attr("value"));
             if [reference, value].iter().flatten().any(|a| dynamic(&a.value)) {
                 continue;
             }
@@ -310,7 +341,7 @@ fn injection_values(els: &[xml::Element], children: &[Vec<usize>], out: &mut Vec
 
 fn bean_scopes(els: &[xml::Element], out: &mut Vec<Finding>) {
     for (_, e) in beans_elements(els, "bean") {
-        let Some(scope) = e.attr("scope").filter(|a| !dynamic(&a.value)) else { continue };
+        let Some(scope) = e.core_attr("scope").filter(|a| !dynamic(&a.value)) else { continue };
         if !misspelled_scope(&scope.value) {
             continue;
         }
@@ -350,7 +381,7 @@ fn style_candidates(text: &str, els: &[xml::Element], children: &[Vec<usize>]) -
     let mut found = Vec::new();
     for name in ["property", "constructor-arg"] {
         for (i, parent) in beans_elements(els, name) {
-            if parent.attr("value").is_some() || parent.attr("ref").is_some() || text[..parent.tag_end].ends_with("/>") {
+            if parent.core_attr("value").is_some() || parent.core_attr("ref").is_some() || text[..parent.tag_end].ends_with("/>") {
                 continue;
             }
             let &[child] = children[i].as_slice() else { continue };
@@ -379,7 +410,7 @@ fn style_attribute(text: &str, els: &[xml::Element], child: usize, parent: &xml:
             (plain && c.tag_end < c.end).then(|| format!(" value=\"{literal}\"/>"))
         }
         "ref" if c.tag_end == c.end && c.attrs.len() == 1 => {
-            let bean = c.attr("bean")?;
+            let bean = c.core_attr("bean")?;
             (!bean.value.contains('"') && !dynamic(&bean.value)).then(|| format!(" ref=\"{}\"/>", bean.value))
         }
         _ => None,
@@ -411,9 +442,8 @@ pub fn style_fix(text: &str, cursor: Position) -> Option<(&'static str, TextEdit
         return None;
     }
     let children = children_of(&els);
-    let (parent, child) = style_candidates(text, &els, &children)
-        .into_iter()
-        .find(|(_, c)| els[*c].at <= at && at <= els[*c].at + els[*c].name.len())?;
+    let (parent, child) =
+        style_candidates(text, &els, &children).into_iter().find(|(_, c)| els[*c].at <= at && at <= els[*c].at + els[*c].name.len())?;
     let title = if els[child].local() == "value" { "Use the value attribute" } else { "Use the ref attribute" };
     Some((title, style_edit(text, &els, parent, child)?))
 }
@@ -421,7 +451,7 @@ pub fn style_fix(text: &str, cursor: Position) -> Option<(&'static str, TextEdit
 fn scan_filters(els: &[xml::Element], children: &[Vec<usize>], out: &mut Vec<Finding>) {
     for (i, e) in els.iter().enumerate().filter(|(_, e)| e.local() == "component-scan") {
         let filtered = children[i].iter().any(|&c| els[c].local() == "include-filter");
-        if e.value("use-default-filters") == Some("false") && !filtered {
+        if e.core_value("use-default-filters") == Some("false") && !filtered {
             let message = "use-default-filters=\"false\" without an include-filter: this scan registers no component.";
             out.push(Finding::new(e.at, e.at + e.name.len(), "xml-component-scan-filters", message));
         }
@@ -434,9 +464,9 @@ fn unresolved_references(els: &[xml::Element], by_name: &ByName, out: &mut Vec<F
         return;
     }
     let known = |name: &str| by_name.contains_key(name) || CONTAINER_BEANS.contains(&name);
-    out.extend(xml_check::check(els, REF_RULES, known).into_iter().map(|f| f.with_severity(Severity::Info)));
+    out.extend(xml_check::check(&crate::xml_namespace::plain_attributes(els), REF_RULES, known).into_iter().map(|f| f.with_severity(Severity::Info)));
     for (_, e) in beans_elements(els, "bean") {
-        let Some(attr) = e.attr("depends-on").filter(|a| !dynamic(&a.value)) else { continue };
+        let Some(attr) = e.core_attr("depends-on").filter(|a| !dynamic(&a.value)) else { continue };
         for (at, name) in name_tokens(&attr.value).filter(|(_, n)| !known(n)) {
             let start = attr.value_at + at;
             let message = format!("No bean named \"{name}\" is defined in the project.");
@@ -447,7 +477,7 @@ fn unresolved_references(els: &[xml::Element], by_name: &ByName, out: &mut Vec<F
 
 fn import_resources(path: &str, els: &[xml::Element], groups: Groups, out: &mut Vec<Finding>) {
     for (_, e) in beans_elements(els, "import") {
-        let Some(attr) = e.attr("resource").filter(|a| !dynamic(&a.value) && !a.value.contains(['*', '?'])) else { continue };
+        let Some(attr) = e.core_attr("resource").filter(|a| !dynamic(&a.value) && !a.value.contains(['*', '?'])) else { continue };
         let location = attr.value.trim();
         let found = if let Some(rest) = location.strip_prefix("classpath:") {
             groups.unresolved_references.then(|| crate::target_checks::read_classpath(path, rest.trim_start_matches('/'))).flatten()
@@ -459,7 +489,9 @@ fn import_resources(path: &str, els: &[xml::Element], groups: Groups, out: &mut 
         if let Some(Some(text)) = &found {
             let imported = xml::elements(text);
             if location.ends_with(".xml") && xml::root(&imported) != Some("beans") {
-                let message = format!("\"{location}\" is not a Spring beans file (its root element is not <beans>), so the import registers nothing.");
+                let message = format!(
+                    "\"{location}\" is not a Spring beans file (its root element is not <beans>), so the import registers nothing."
+                );
                 out.push(Finding::new(attr.value_at, attr.value_end, "xml-import-not-beans", message).with_severity(Severity::Info));
             }
         }
@@ -501,19 +533,20 @@ fn owns_package_root(world: &World, qualified: &str) -> bool {
 
 fn unresolved_classes(els: &[xml::Element], world: &World, out: &mut Vec<Finding>) {
     for (_, e) in beans_elements(els, "bean") {
-        let Some(class) = e.attr("class").filter(|a| !dynamic(&a.value)) else { continue };
+        let Some(class) = e.core_attr("class").filter(|a| !dynamic(&a.value)) else { continue };
         let qualified = class.value.trim().replace('$', ".");
         if !owns_package_root(world, &qualified) || world.project_type(&qualified).is_some() {
             continue;
         }
-        let message = format!("No class {qualified} in the project's sources, although the project declares other classes under this package root.");
+        let message =
+            format!("No class {qualified} in the project's sources, although the project declares other classes under this package root.");
         out.push(Finding::new(class.value_at, class.value_end, "unresolved-class", message).with_severity(Severity::Info));
     }
 }
 
 fn filter_expressions(els: &[xml::Element], world: &World, out: &mut Vec<Finding>) {
     for e in els.iter().filter(|e| matches!(e.local(), "include-filter" | "exclude-filter")) {
-        let (Some(kind), Some(expression)) = (e.attr("type"), e.attr("expression")) else { continue };
+        let (Some(kind), Some(expression)) = (e.core_attr("type"), e.core_attr("expression")) else { continue };
         if dynamic(&expression.value) || dynamic(&kind.value) {
             continue;
         }
@@ -521,13 +554,16 @@ fn filter_expressions(els: &[xml::Element], world: &World, out: &mut Vec<Finding
         let problem = match kind.value.as_str() {
             "annotation" | "assignable" | "custom" => {
                 let qualified = value.replace('$', ".");
-                (owns_package_root(world, &qualified) && world.project_type(&qualified).is_none()).then(|| format!("No class {qualified} in the project's sources."))
+                (world.complete && owns_package_root(world, &qualified) && world.project_type(&qualified).is_none())
+                    .then(|| format!("No class {qualified} in the project's sources."))
             }
             "regex" => regex_problem(value).map(str::to_owned),
             _ => None,
         };
         if let Some(message) = problem {
-            out.push(Finding::new(expression.value_at, expression.value_end, "xml-filter-expression", message).with_severity(Severity::Info));
+            out.push(
+                Finding::new(expression.value_at, expression.value_end, "xml-filter-expression", message).with_severity(Severity::Info),
+            );
         }
     }
 }
@@ -556,7 +592,7 @@ fn inactive_profiles(els: &[xml::Element], out: &mut Vec<Finding>) {
         return;
     }
     for (_, e) in beans_elements(els, "beans").filter(|(_, e)| e.parent.is_some()) {
-        let Some(attr) = e.attr("profile").filter(|a| !dynamic(&a.value)) else { continue };
+        let Some(attr) = e.core_attr("profile").filter(|a| !dynamic(&a.value)) else { continue };
         let profiles: Vec<String> = name_tokens(&attr.value).map(|(_, p)| p.to_owned()).collect();
         if profiles.is_empty() || crate::checks::enabled(&profiles, &active) {
             continue;
@@ -571,9 +607,10 @@ fn inactive_profiles(els: &[xml::Element], out: &mut Vec<Finding>) {
 fn unresolved_placeholders(path: &str, els: &[xml::Element], out: &mut Vec<Finding>) {
     let mut holders = els.iter().filter(|e| e.local() == "property-placeholder");
     let (Some(holder), None) = (holders.next(), holders.next()) else { return };
-    let configurer = els.iter().any(|e| e.value("class").is_some_and(|c| c.ends_with("PlaceholderConfigurer")));
-    let unusual = ["properties-ref", "ignore-unresolvable", "local-override", "system-properties-mode"].iter().any(|a| holder.attr(a).is_some());
-    let Some(location) = holder.value("location").filter(|l| !dynamic(l)) else { return };
+    let configurer = els.iter().any(|e| e.core_value("class").is_some_and(|c| c.ends_with("PlaceholderConfigurer")));
+    let unusual =
+        ["properties-ref", "ignore-unresolvable", "local-override", "system-properties-mode"].iter().any(|a| holder.core_attr(a).is_some());
+    let Some(location) = holder.core_value("location").filter(|l| !dynamic(l)) else { return };
     if configurer || unusual {
         return;
     }

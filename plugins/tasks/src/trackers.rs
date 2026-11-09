@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use openidea_plugin::{Error, HttpRequest, host};
 use serde_json::{Value, json};
 
-use crate::model::Task;
+use crate::model::{Task,SourceReference};
 
 const LIMIT: u32 = 50;
 
@@ -18,6 +18,7 @@ type Remotes = [(String, String)];
 pub struct Scope<'a> {
     pub remotes: &'a Remotes,
     pub query: Option<&'a str>,
+    pub page: u32,
     pub repositories: &'a BTreeMap<String, Vec<String>>,
 }
 
@@ -73,10 +74,7 @@ const TRACKERS: [Tracker; 6] = [
         id: "trello",
         name: "Trello",
         secrets: &["trello-key", "trello-token"],
-        headers: &[(
-            "Authorization",
-            "OAuth oauth_consumer_key=\"{{secret:trello-key}}\", oauth_token=\"{{secret:trello-token}}\"",
-        )],
+        headers: &[("Authorization", "OAuth oauth_consumer_key=\"{{secret:trello-key}}\", oauth_token=\"{{secret:trello-token}}\"")],
         fetch: trello,
     },
 ];
@@ -211,7 +209,7 @@ fn github(tracker: &Tracker, scope: &Scope) -> Result<Vec<Task>, Error> {
         query = format!("{query} {text}");
     }
 
-    let url = format!("https://api.github.com/search/issues?q={}&sort=updated&per_page={LIMIT}", encode(&query));
+    let url = format!("https://api.github.com/search/issues?q={}&sort=updated&per_page={LIMIT}&page={}", encode(&query), scope.page);
     let first_name = repos[0].rsplit('/').next().unwrap_or(&repos[0]).to_owned();
 
     Ok(items(&send(tracker, "GET", &url, None)?["items"], |issue| {
@@ -238,7 +236,7 @@ fn gitlab(tracker: &Tracker, scope: &Scope) -> Result<Vec<Task>, Error> {
     let mut found = Vec::new();
 
     for base in bases {
-        let url = format!("{base}?state=opened&order_by=updated_at&per_page={LIMIT}{search}");
+        let url = format!("{base}?state=opened&order_by=updated_at&per_page={LIMIT}{search}&page={}", scope.page);
 
         found.extend(items(&send(tracker, "GET", &url, None)?, |issue| {
             let id = match single {
@@ -246,7 +244,17 @@ fn gitlab(tracker: &Tracker, scope: &Scope) -> Result<Vec<Task>, Error> {
                 false => issue["references"]["full"].as_str()?.to_owned(),
             };
 
-            Some(Task::issue("gitlab", &id, issue["title"].as_str()?, issue["web_url"].as_str()?, issue["_links"]["self"].as_str()?))
+            let mut task=Task::issue("gitlab", &id, issue["title"].as_str()?, issue["web_url"].as_str()?, issue["_links"]["self"].as_str()?);
+            if let (Some(full),Some(project_id),Some(iid))=(issue["references"]["full"].as_str(),issue["project_id"].as_u64(),issue["iid"].as_u64()) {
+                if let Some((path,suffix))=full.rsplit_once('#') {
+                    if path.len()<=100 && path.split('/').count()>=2 && path.split('/').all(|p|!p.is_empty()&&!matches!(p,"."|"..")&&p.bytes().all(|b|b.is_ascii_alphanumeric()||b"_-.".contains(&b))) && suffix==iid.to_string() && project_id>0 && iid>0
+                        && task.api.as_deref()==Some(format!("https://gitlab.com/api/v4/projects/{project_id}/issues/{iid}").as_str())
+                        && task.url.as_deref()==Some(format!("https://gitlab.com/{path}/-/issues/{iid}").as_str()) {
+                        task.source_reference=Some(SourceReference::GitLab{project_path:path.into(),project_id,iid});
+                    }
+                }
+            }
+            Some(task)
         }));
     }
 
@@ -264,7 +272,10 @@ fn forgejo(tracker: &Tracker, scope: &Scope) -> Result<Vec<Task>, Error> {
     let mut found = Vec::new();
 
     for repo in &repos {
-        let url = format!("https://codeberg.org/api/v1/repos/{repo}/issues?type=issues&state=open&sort=updated&limit={LIMIT}{search}");
+        let url = format!(
+            "https://codeberg.org/api/v1/repos/{repo}/issues?type=issues&state=open&sort=updated&limit={LIMIT}{search}&page={}",
+            scope.page
+        );
         let prefix = if repos.len() > 1 { repo.as_str() } else { "" };
 
         found.extend(items(&send(tracker, "GET", &url, None)?, |issue| {
@@ -285,8 +296,9 @@ fn youtrack(tracker: &Tracker, scope: &Scope) -> Result<Vec<Task>, Error> {
     let site = site("youtrackHost", "YouTrack")?;
     let query = scope.query.map(str::to_owned).or_else(|| setting("youtrackQuery")).unwrap_or_default();
     let url = format!(
-        "https://{site}/api/issues?query={}&fields=idReadable,summary&$top={LIMIT}",
-        encode(&query)
+        "https://{site}/api/issues?query={}&fields=idReadable,summary&$top={LIMIT}&$skip={}",
+        encode(&query),
+        (scope.page.saturating_sub(1)) * LIMIT
     );
 
     Ok(items(&send(tracker, "GET", &url, None)?, |issue| {
@@ -303,17 +315,54 @@ fn youtrack(tracker: &Tracker, scope: &Scope) -> Result<Vec<Task>, Error> {
 }
 
 fn jira(tracker: &Tracker, scope: &Scope) -> Result<Vec<Task>, Error> {
+    Ok(jira_page(tracker, scope, None)?.issues)
+}
+fn jira_page(tracker: &Tracker, scope: &Scope, cursor: Option<&str>) -> Result<SearchPage, Error> {
+    if cursor.is_some_and(|c| c.is_empty() || c.len() > 4096 || c.chars().any(char::is_control)) {
+        return Err("Invalid Jira continuation token.".into());
+    }
     let site = site("jiraHost", "Jira")?;
     let jql = match scope.query {
-        Some(text) => format!("text ~ \"{}\" order by updated DESC", text.replace('\\', "\\\\").replace('"', "\\\"")),
+        Some(text) => format!(
+            "text ~ \"{}\" order by updated DESC",
+            text.replace('\\', "\\\\").replace('"', "\\\"")
+        ),
         None => setting("jiraQuery").unwrap_or_default(),
     };
-    let url = format!(
+    let mut url = format!(
         "https://{site}/rest/api/3/search/jql?jql={}&maxResults={LIMIT}&fields=summary",
         encode(&jql)
     );
 
-    Ok(items(&send(tracker, "GET", &url, None)?["issues"], |issue| {
+    if let Some(cursor) = cursor {
+        url.push_str(&format!("&nextPageToken={}", encode(cursor)));
+    }
+    let response = send(tracker, "GET", &url, None).map_err(|error|match error {Error::Denied(_)=>Error::Denied("Jira search permission denied.".into()),_=>Error::Failed("Jira search failed. Retry the page or start a new query.".into())})?;
+    let raw = response["issues"]
+        .as_array()
+        .ok_or("Jira search response lacks an issues array.")?;
+    if raw.len() > LIMIT as usize {
+        return Err("Jira returned more than the requested page limit.".into());
+    }
+    let next = match response.get("nextPageToken") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(token))
+            if !token.is_empty() && token.len() <= 4096 && !token.chars().any(char::is_control) =>
+        {
+            Some(token.clone())
+        }
+        _ => return Err("Invalid Jira continuation token.".into()),
+    };
+    if next.as_deref().is_some_and(|n| Some(n) == cursor) {
+        return Err("Jira repeated its continuation token.".into());
+    }
+    if response.get("isLast").is_some_and(|v| !v.is_boolean())
+        || (response["isLast"] == true && next.is_some())
+        || (response["isLast"] == false && next.is_none())
+    {
+        return Err("Inconsistent Jira pagination metadata.".into());
+    }
+    let issues = items(&response["issues"], |issue| {
         let key = issue["key"].as_str()?;
 
         Some(Task::issue(
@@ -323,32 +372,41 @@ fn jira(tracker: &Tracker, scope: &Scope) -> Result<Vec<Task>, Error> {
             &format!("https://{site}/browse/{key}"),
             &format!("https://{site}/rest/api/3/issue/{key}"),
         ))
-    }))
+    });
+    if issues.len() != raw.len() {
+        return Err("Jira returned an incomplete issue record.".into());
+    }
+    Ok(SearchPage { issues, next })
 }
 
 /// The cards the user is a member of (TrelloRepository without a board), or the cards matching a search.
 fn trello(tracker: &Tracker, scope: &Scope) -> Result<Vec<Task>, Error> {
     let (url, cards_at) = match scope.query {
         Some(text) => (
-            format!("https://api.trello.com/1/search?query={}&modelTypes=cards&cards_limit={LIMIT}&card_fields=name,url", encode(text)),
+            format!("https://api.trello.com/1/search?query={}&modelTypes=cards&cards_limit={LIMIT}&cards_page={}&card_fields=name,url,shortLink", encode(text),scope.page.saturating_sub(1)),
             "cards",
         ),
-        None => ("https://api.trello.com/1/members/me/cards?filter=visible&fields=name,url".to_owned(), ""),
+        None => ("https://api.trello.com/1/members/me/cards?filter=visible&fields=name,url,shortLink".to_owned(), ""),
     };
     let response = send(tracker, "GET", &url, None)?;
     let cards = if cards_at.is_empty() { &response } else { &response[cards_at] };
 
-    Ok(items(cards, |card| {
+    let raw=cards.as_array().ok_or("Trello response lacks a cards array.")?;
+    if scope.query.is_some() && raw.len()>LIMIT as usize {return Err("Trello returned more than the requested page limit.".into());}
+    let parsed=items(cards, |card| {
         let id = card["id"].as_str()?;
 
-        Some(Task::issue(
-            "trello",
-            id,
-            card["name"].as_str()?,
-            card["url"].as_str()?,
-            &format!("https://api.trello.com/1/cards/{id}"),
-        ))
-    }))
+        let mut task=Task::issue("trello",id,card["name"].as_str()?,card["url"].as_str()?,&format!("https://api.trello.com/1/cards/{id}"));
+        if let Some(link)=card["shortLink"].as_str().filter(|s|s.len()==8&&s.bytes().all(|b|b.is_ascii_alphanumeric())) {
+            let canonical=format!("https://trello.com/c/{link}");
+            if id.len()==24 && id.bytes().all(|b|b.is_ascii_hexdigit()) && task.url.as_deref().is_some_and(|u|u==canonical||u.strip_prefix(&format!("{canonical}/")).is_some_and(|tail|!tail.is_empty()&&!tail.contains(['?','#','\\'])&&!tail.chars().any(char::is_control))) {
+                task.url=Some(canonical);task.source_reference=Some(SourceReference::Trello{short_link:link.into()});
+            }
+        }
+        Some(task)
+    });
+    if parsed.len()!=raw.len() {return Err("Trello returned an incomplete card record.".into());}
+    Ok(parsed)
 }
 
 fn send(tracker: &Tracker, method: &str, url: &str, body: Option<Value>) -> Result<Value, Error> {
@@ -365,6 +423,9 @@ fn send(tracker: &Tracker, method: &str, url: &str, body: Option<Value>) -> Resu
 
     let response = host::fetch(&request)?;
 
+    if response.body.len() > 1 << 20 {
+        return Err("Tracker response exceeds the 1 MiB limit.".into());
+    }
     if response.status >= 400 {
         return Err(format!("HTTP {}: {}", response.status, response.text().chars().take(200).collect::<String>()).into());
     }
@@ -425,6 +486,245 @@ fn encode(s: &str) -> String {
         .collect()
 }
 
+/// A concrete server/repository selection. Search never fans a page out to
+/// every repository or follows a server-supplied pagination URL.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SearchTarget {
+    pub tracker: &'static str,
+    pub server: String,
+    pub repository: Option<String>,
+    pub label: String,
+}
+impl SearchTarget {
+    pub fn paginated(&self) -> bool {
+        matches!(
+            self.tracker,
+            "github" | "gitlab" | "forgejo" | "youtrack" | "jira" | "trello"
+        )
+    }
+}
+pub fn search_targets(scope: &Scope) -> Result<Vec<SearchTarget>, Error> {
+    let mut targets = Vec::new();
+    for tracker in &TRACKERS {
+        if !tracker.secrets.iter().all(|secret| host::secret_is_set(secret)) {
+            continue;
+        }
+        let (server, repos) = match tracker.id {
+            "github" => ("api.github.com".into(), repositories(scope, "github", "githubRepository", "github.com")),
+            "gitlab" => ("gitlab.com".into(), repositories(scope, "gitlab", "gitlabProject", "gitlab.com")),
+            "forgejo" => ("codeberg.org".into(), repositories(scope, "forgejo", "forgejoRepository", "codeberg.org")),
+            "youtrack" => {
+                let Ok(server) = site("youtrackHost", "YouTrack") else {
+                    continue;
+                };
+                (server, Vec::new())
+            }
+            "jira" => {
+                let Ok(server) = site("jiraHost", "Jira") else {
+                    continue;
+                };
+                (server, Vec::new())
+            }
+            "trello" => ("api.trello.com".into(), Vec::new()),
+            _ => continue,
+        };
+        let allowed = match tracker.id {
+            "youtrack" => cloud_host(&server, ".youtrack.cloud"),
+            "jira" => cloud_host(&server, ".atlassian.net"),
+            _ => true,
+        };
+        if !allowed {
+            continue;
+        }
+        let repos: Vec<Option<String>> = if repos.is_empty() { vec![None] } else { repos.into_iter().map(Some).collect() };
+        for repository in repos {
+            if let Some(repo) = &repository {
+                if repo.len() > 256
+                    || repo.split('/').any(|part| {
+                        part.is_empty()
+                            || part == "."
+                            || part == ".."
+                            || !part.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+                    })
+                {
+                    return Err("Invalid tracker repository path.".into());
+                }
+                if matches!(tracker.id, "github" | "forgejo") && repo.split('/').count() != 2 {
+                    return Err("GitHub/Codeberg repositories use owner/name.".into());
+                }
+            }
+            let label =
+                format!("{} · {}{}", tracker.name, server, repository.as_ref().map(|repo| format!(" / {repo}")).unwrap_or_default());
+            targets.push(SearchTarget { tracker: tracker.id, server: server.clone(), repository, label });
+            if targets.len() > 16 {
+                return Err("Issue search supports at most 16 configured server/repository selections.".into());
+            }
+        }
+    }
+    Ok(targets)
+}
+fn cloud_host(host: &str, suffix: &str) -> bool {
+    host.strip_suffix(suffix)
+        .is_some_and(|tenant| !tenant.is_empty() && tenant.len() <= 128 && tenant.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'))
+}
+/// Exact relevant configuration, without retaining authentication values or
+/// credential-bearing remote URLs. Presence of a secret is not its identity.
+pub fn search_signature(scope: &Scope) -> Result<String, Error> {
+    let targets = search_targets(scope)?;
+    let settings = ["githubQuery", "youtrackQuery", "jiraQuery"].map(|key| setting(key).unwrap_or_default());
+    if settings.iter().any(|value| value.len() > 4096) {
+        return Err("Tracker query setting exceeds 4096 bytes.".into());
+    }
+    let identities: Vec<_> = targets.iter().map(|target| (target.tracker, &target.server, &target.repository)).collect();
+    Ok(json!([identities, settings, host::setting_bool("githubAssignedOnly")]).to_string())
+}
+#[derive(Clone)]
+pub struct SearchPage {
+    pub issues: Vec<Task>,
+    pub next: Option<String>,
+}
+#[cfg(test)]
+pub fn search_page(scope: &Scope, target: &SearchTarget, page: u32) -> Result<Vec<Task>, Error> {
+    search_page_cursor(scope, target, page, None).map(|p| p.issues)
+}
+pub fn search_page_cursor(
+    scope: &Scope,
+    target: &SearchTarget,
+    page: u32,
+    cursor: Option<&str>,
+) -> Result<SearchPage, Error> {
+    if !(1..=5).contains(&page) || (!target.paginated() && page != 1) {
+        return Err("Unsupported search page.".into());
+    }
+    if (target.tracker == "jira" && (page == 1) != cursor.is_none())
+        || (target.tracker != "jira" && cursor.is_some())
+    {
+        return Err("Search continuation does not match its page.".into());
+    }
+    if target.tracker=="trello" && scope.query.is_none() {return Err("Trello paging requires an explicit search query.".into());}
+    if !search_targets(scope)?.contains(target) {
+        return Err("Tracker/server configuration changed. Search again.".into());
+    }
+    let tracker = TRACKERS
+        .iter()
+        .find(|tracker| tracker.id == target.tracker)
+        .ok_or("Unknown tracker")?;
+    let mut repos = scope.repositories.clone();
+    if let Some(repo) = &target.repository {
+        repos.insert(target.tracker.into(), vec![repo.clone()]);
+    }
+    let selected = Scope {
+        remotes: scope.remotes,
+        query: scope.query,
+        repositories: &repos,
+        page,
+    };
+    let fetched = if target.tracker == "jira" {
+        jira_page(tracker, &selected, cursor)?
+    } else {
+        SearchPage {
+            issues: (tracker.fetch)(tracker, &selected)?,
+            next: None,
+        }
+    };
+    let issues = fetched.issues;
+    let mut seen = std::collections::BTreeSet::new();
+    let mut safe = Vec::new();
+    for issue in issues {
+        let api = issue.api.as_deref().unwrap_or_default();
+        let web = issue.url.as_deref().unwrap_or_default();
+        let web_host = match target.tracker {
+            "github" => "github.com",
+            "trello" => "trello.com",
+            _ => target.server.as_str(),
+        };
+        if let Some(SourceReference::GitLab{project_path,project_id,..})=&issue.source_reference {
+            if target.repository.as_ref().is_some_and(|repo|repo!=project_path&&repo!=&project_id.to_string()) {return Err("GitLab reference is outside the selected repository.".into());}
+        }
+        if issue.id.is_empty()
+            || issue.id.len() > 128
+            || issue.summary.len() > 4096
+            || api.len() > 2048
+            || web.len() > 2048
+            || !api.starts_with(&format!("https://{}/", target.server))
+            || !web.starts_with(&format!("https://{web_host}/"))
+            || [issue.id.as_str(), issue.summary.as_str(), api, web]
+                .iter()
+                .any(|value| value.chars().any(char::is_control))
+        {
+            return Err("Tracker returned an invalid or foreign-server issue. Search results were not cached.".into());
+        }
+        if target.tracker == "github" {
+            if let Some(repo) = &target.repository {
+                if !api.to_ascii_lowercase().starts_with(&format!(
+                    "https://api.github.com/repos/{}/issues/",
+                    repo.to_ascii_lowercase()
+                )) {
+                    return Err("GitHub returned an issue outside the selected repository.".into());
+                }
+            }
+        }
+        let path = api
+            .strip_prefix(&format!("https://{}/", target.server))
+            .unwrap_or_default();
+        let numeric_tail = |prefix: &str| {
+            path.strip_prefix(prefix)
+                .is_some_and(|tail| !tail.is_empty() && tail.bytes().all(|b| b.is_ascii_digit()))
+        };
+        let endpoint = match target.tracker {
+            "github" => path.rsplit_once("/issues/").is_some_and(|(base, tail)| {
+                base.starts_with("repos/")
+                    && !tail.is_empty()
+                    && tail.bytes().all(|b| b.is_ascii_digit())
+            }),
+            "gitlab" => path.rsplit_once("/issues/").is_some_and(|(base, tail)| {
+                base.starts_with("api/v4/projects/")
+                    && !tail.is_empty()
+                    && tail.bytes().all(|b| b.is_ascii_digit())
+            }),
+            "forgejo" => target
+                .repository
+                .as_ref()
+                .is_some_and(|repo| numeric_tail(&format!("api/v1/repos/{repo}/issues/"))),
+            "youtrack" => {
+                path == format!("api/issues/{}", issue.id)
+                    && issue
+                        .id
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b))
+            }
+            "jira" => {
+                path == format!("rest/api/3/issue/{}", issue.id)
+                    && issue
+                        .id
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b))
+            }
+            "trello" => {
+                path == format!("1/cards/{}", issue.id)
+                    && issue
+                        .id
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b))
+            }
+            _ => false,
+        };
+        if !endpoint {
+            return Err("Tracker returned an unsupported issue API endpoint. Search results were not cached.".into());
+        }
+        if seen.insert(api.to_string()) {
+            safe.push(issue);
+        }
+        if safe.len() == 50 {
+            break;
+        }
+    }
+    Ok(SearchPage {
+        issues: safe,
+        next: fetched.next,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -458,8 +758,17 @@ mod tests {
     fn closes_a_jira_issue_through_its_done_transition() {
         let host = MockHost::install().with_capabilities(&["secrets", "net:acme.atlassian.net"]);
         host.set_secret("jira-token", "Zm9v");
-        respond(&host, r#"{"transitions":[{"id":"11","to":{"statusCategory":{"key":"indeterminate"}}},{"id":"31","to":{"statusCategory":{"key":"done"}}}]}"#);
-        let task = Task::issue("jira", "PROJ-7", "Crash", "https://acme.atlassian.net/browse/PROJ-7", "https://acme.atlassian.net/rest/api/3/issue/PROJ-7");
+        respond(
+            &host,
+            r#"{"transitions":[{"id":"11","to":{"statusCategory":{"key":"indeterminate"}}},{"id":"31","to":{"statusCategory":{"key":"done"}}}]}"#,
+        );
+        let task = Task::issue(
+            "jira",
+            "PROJ-7",
+            "Crash",
+            "https://acme.atlassian.net/browse/PROJ-7",
+            "https://acme.atlassian.net/rest/api/3/issue/PROJ-7",
+        );
 
         close_issue(&task).unwrap();
 
@@ -475,7 +784,8 @@ mod tests {
         let host = MockHost::install().with_capabilities(&["secrets", "net:acme.youtrack.cloud"]);
         host.set_secret("youtrack-token", "perm:x");
         respond(&host, "");
-        let task = Task::issue("youtrack", "X-1", "Crash", "https://acme.youtrack.cloud/issue/X-1", "https://acme.youtrack.cloud/api/issues/X-1");
+        let task =
+            Task::issue("youtrack", "X-1", "Crash", "https://acme.youtrack.cloud/issue/X-1", "https://acme.youtrack.cloud/api/issues/X-1");
 
         post_time(&task, 3601).unwrap();
 
@@ -492,11 +802,88 @@ mod tests {
         host.set_secret("trello-token", "t");
         respond(&host, r#"[{"id":"5f3a","name":"Ship it","url":"https://trello.com/c/abc"}]"#);
 
-        let fetched = fetch_all(&Scope { remotes: &[], query: None, repositories: &BTreeMap::new() });
+        let fetched = fetch_all(&Scope { remotes: &[], query: None, page: 1, repositories: &BTreeMap::new() });
 
         assert_eq!(fetched.trackers, 1);
         assert_eq!(fetched.issues[0].label(), "5f3a: Ship it");
         let auth = &host.requests()[0].headers[0].1;
         assert_eq!(auth, r#"OAuth oauth_consumer_key="k", oauth_token="t""#);
+    }
+    #[test]
+    fn search_pagination_and_cloud_host_restrictions_are_explicit() {
+        let host = MockHost::install().with_capabilities(&["secrets", "net:*"]);
+        host.set_secret("youtrack-token", "token");
+        host.set_setting("youtrackHost", "\"tenant.youtrack.cloud\"");
+        respond(&host, "[]");
+        let repositories = BTreeMap::new();
+        let scope = Scope { remotes: &[], repositories: &repositories, query: Some("bug"), page: 2 };
+        let target = search_targets(&scope).unwrap().remove(0);
+        search_page(&scope, &target, 2).unwrap();
+        assert!(host.requests()[0].url.contains("$skip=50"));
+        assert!(search_page(&scope, &target, 6).is_err());
+        host.set_setting("youtrackHost", "\"evil.youtrack.cloud.evil.example\"");
+        assert!(search_targets(&scope).unwrap().is_empty());
+        assert!(!cloud_host("user@tenant.youtrack.cloud", ".youtrack.cloud"));
+    }
+    #[test]
+    fn page_parameters_are_tracker_specific_and_cursor_trackers_refuse_more() {
+        let host = MockHost::install().with_capabilities(&["secrets", "net:*"]);
+        for secret in ["github-token", "gitlab-token", "forgejo-token", "jira-token", "trello-key", "trello-token"] {
+            host.set_secret(secret, "token");
+        }
+        host.set_setting("jiraHost", "\"tenant.atlassian.net\"");
+        respond(&host, "[]");
+        let repositories = BTreeMap::from([
+            ("github".into(), vec!["acme/tool".into()]),
+            ("gitlab".into(), vec!["group/sub/tool".into()]),
+            ("forgejo".into(), vec!["acme/tool".into()]),
+        ]);
+        let scope = Scope { remotes: &[], repositories: &repositories, query: Some("bug & fix"), page: 2 };
+        let targets = search_targets(&scope).unwrap();
+        for target in &targets {
+            if target.tracker=="trello" {continue;} // Dedicated search-page shape is exercised below.
+            if target.paginated() && !matches!(target.tracker,"jira"|"trello") {
+                search_page(&scope, target, 2).unwrap();
+            } else {
+                assert!(search_page(&scope, target, 2).is_err());
+            }
+        }
+        let requests = host.requests();
+        assert_eq!(requests.len(), 3);
+        assert!(requests.iter().all(|request| request.url.contains("page=2")));
+        assert!(requests.iter().any(|request| request.url.contains("projects/group%2Fsub%2Ftool/issues")));
+        assert!(requests.iter().all(|request| request.url.contains("bug%20%26%20fix")));
+        assert!(targets.iter().find(|target| target.tracker == "jira").is_some_and(|target| target.paginated()));
+        assert!(targets.iter().find(|target| target.tracker == "trello").is_some_and(|target| target.paginated()));
+    }
+}
+
+#[cfg(test)]
+mod jira_cursor_contract_tests {
+    use super::*;
+    use openidea_plugin::{HttpResponse,mock::MockHost};
+    #[test]
+    fn jira_requires_valid_bounded_nonrepeated_metadata_and_explicit_page_cursor() {
+        let h=MockHost::install().with_capabilities(&["secrets","net:acme.atlassian.net"]);h.set_secret("jira-token","fixture");h.set_setting("jiraHost",r#""acme.atlassian.net""#);let repos=BTreeMap::new();let scope=Scope{remotes:&[],query:Some("bug"),page:1,repositories:&repos};let t=search_targets(&scope).unwrap().remove(0);
+        assert!(search_page_cursor(&scope,&t,2,None).is_err());assert!(h.requests().is_empty());
+        for value in [json!({"issues":[],"nextPageToken":17}),json!({"issues":[],"nextPageToken":""}),json!({"issues":[],"nextPageToken":"a\nb"}),json!({"issues":[],"isLast":false}),json!({"issues":[],"isLast":true,"nextPageToken":"A"}),json!({"issues":[],"nextPageToken":"A"}),json!({"issues":[{"key":"APP-1"}]})] {
+            h.on_fetch(move |_|Ok(HttpResponse{status:200,headers:vec![],body:value.to_string().into_bytes()}));assert!(search_page_cursor(&scope,&t,2,Some("A")).is_err());
+        }
+        let before=h.requests().len();assert!(search_page_cursor(&scope,&t,2,Some(&"x".repeat(4097))).is_err());assert_eq!(h.requests().len(),before);
+    }
+}
+
+#[cfg(test)]
+mod trello_page_contract_tests {
+    use super::*;
+    use openidea_plugin::mock::MockHost;
+    #[test]
+    fn trello_member_listing_cannot_be_mistaken_for_a_search_page() {
+        let h=MockHost::install().with_capabilities(&["secrets","net:api.trello.com"]);h.set_secret("trello-key","key");h.set_secret("trello-token","token");let repositories=BTreeMap::new();let scope=Scope{remotes:&[],repositories:&repositories,query:None,page:1};let target=search_targets(&scope).unwrap().remove(0);
+        assert!(search_page_cursor(&scope,&target,1,None).is_err());assert!(search_page_cursor(&scope,&target,6,None).is_err());assert!(h.requests().is_empty());
+        let query=Scope{query:Some("bug"),..scope};
+        for body in [serde_json::json!({}),serde_json::json!({"cards":[{"id":"broken"}]})] {
+            h.on_fetch(move |_|Ok(openidea_plugin::HttpResponse{status:200,headers:vec![],body:body.to_string().into_bytes()}));assert!(search_page_cursor(&query,&target,1,None).is_err());
+        }
     }
 }

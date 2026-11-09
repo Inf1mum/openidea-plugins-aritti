@@ -1,28 +1,60 @@
 id = "aritti.dependency-audit"
 name = "Dependency Audit"
 version = "0.2.0" # x-release-please-version
-description = "Checks Maven, Gradle, npm and Composer dependencies against the OSV.dev vulnerability database. Vulnerable dependencies are marked in pom.xml, build.gradle, build.gradle.kts, package.json, composer.json and their lockfiles when you open or save them, with a quick fix that upgrades to the nearest fixed version. Dependency Audit: Scan Project lists the project's vulnerable dependencies in the Vulnerable Dependencies tool window. Privacy: package names and versions (never source code) are sent to api.osv.dev, a free service run by Google. Turn off Check on open and save under Settings › Plugins › Dependency Audit to contact it only when you run a scan."
+description = "Checks Maven, Gradle, npm and Composer dependencies against the OSV.dev vulnerability database. Live editor diagnostics use cached results and show their query dates; fetching runs only on open/save or an explicit scan. Vulnerable dependencies are marked in pom.xml, build.gradle, build.gradle.kts, package.json, composer.json and their lockfiles when you open or save them, with a quick fix that upgrades to the nearest fixed version. Dependency Audit: Scan Project lists the project's vulnerable dependencies in the Vulnerable Dependencies tool window. Privacy: package names and versions (never source code) are sent to api.osv.dev, a free service run by Google. Turn off Check on open and save under Settings › Plugins › Dependency Audit to contact it only when you run a scan."
 authors = ["Arnaud Ritti <arnaud.ritti@gmail.com>"]
 license = "MIT"
-change-notes = "0.1.0: first release. OSV.dev checks of pom.xml, build.gradle, build.gradle.kts, package.json, package-lock.json, composer.json and composer.lock on open and save, an upgrade quick fix, and Scan Project with the Vulnerable Dependencies tool window. Unreleased: 12 manifest and lockfile formats are checked (also libs.versions.toml, yarn.lock, pnpm-lock.yaml, Cargo.lock, poetry.lock, requirements.txt) and the upgrade quick fix also works in libs.versions.toml and requirements.txt."
+change-notes = "Unreleased: Project/package/version/advisory scoped ignores with required reasons, confirmation and review/restore; retained evidence is filtered consistently across report/live fixes/commit review. Selected dependency upgrade previews require exact current source and confirmation before a versioned editor edit; selected advisories open validated OSV URLs. Versioned current-document diagnostics use dated cached OSV evidence without network calls; optional cached scan review in Commit Options. Typed dependency/advisory rows with filters and source/fix/severity details; persisted scan and failure provenance; failed rescans retain the previous report. 0.1.0: first release. OSV.dev checks of pom.xml, build.gradle, build.gradle.kts, package.json, package-lock.json, composer.json and composer.lock on open and save, an upgrade quick fix, and Scan Project with the Vulnerable Dependencies tool window. Unreleased: 12 manifest and lockfile formats are checked (also libs.versions.toml, yarn.lock, pnpm-lock.yaml, Cargo.lock, poetry.lock, requirements.txt) and the upgrade quick fix also works in libs.versions.toml and requirements.txt."
 categories = ["linters", "tools"]
 icon = "icon.svg"
-engines.openidea = "^1.2"
+engines.openidea = "^1.4"
 wasm = "dist/plugin.wasm"
 activation = ["on-event:file-opened", "on-event:file-saved", "on-view:vulnerabilities"]
 
 [capabilities]
-required = ["project.read", "storage", "net:api.osv.dev"]
-optional = ["events"]
+required = ["project.read", "storage"]
+optional = ["editor.read", "editor.write", "events", "vcs.read", "net:api.osv.dev"]
 
 [[contributes.providers]]
 kinds = ["code-actions"]
-languages = ["xml", "groovy", "kotlin", "json"]
+languages = ["xml", "groovy", "kotlin", "json", "toml", "yaml", "plaintext"]
+
+[[contributes.providers]]
+kinds = ["diagnostics"]
+languages = ["*"]
+
+[[contributes.commitChecks]]
+id = "cached-dependencies"
+title = "Review cached dependency scan"
 
 [[contributes.commands]]
 id = "scan"
 title = "Dependency Audit: Scan Project"
 category = "Dependency Audit"
+
+[[contributes.commands]]
+id = "preview-upgrade"
+title = "Preview upgrade in open declaration"
+category = "Dependency Audit"
+
+[[contributes.commands]]
+id = "open-advisory"
+title = "Open advisory on OSV.dev"
+category = "Dependency Audit"
+
+[[contributes.commands]]
+id = "ignore-finding"
+title = "Ignore this exact finding with reason"
+category = "Dependency Audit"
+
+[[contributes.commands]]
+id = "review-ignores"
+title = "Dependency Audit: Review scoped ignores"
+category = "Dependency Audit"
+
+[[contributes.menus]]
+menu = "tools"
+command = "review-ignores"
 
 [[contributes.menus]]
 menu = "tools"
@@ -33,6 +65,7 @@ id = "vulnerabilities"
 title = "Vulnerable Dependencies"
 icon = "warning"
 location = "bottom"
+web = "web/resources/hub.html"
 
 [contributes.settings]
 title = "Dependency Audit"

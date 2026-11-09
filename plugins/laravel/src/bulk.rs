@@ -1,6 +1,6 @@
 //! Work on many files at once, and generators that write their own files: models picked in the
 //! Project view, IDE helper PHPDoc removal for all models, and factory and resource bodies filled
-//! from the migration columns. Writing needs the optional `process:tee` capability.
+//! from the migration columns. Generators use native project writes; bulk edits use one undoable FileAction.
 
 use std::path::Path;
 
@@ -19,9 +19,10 @@ pub fn write_file(project: &Project, relative: &str, content: &str) -> Result<()
     }
 
     let path = format!("{}/{relative}", root.trim_end_matches('/'));
-    host::run_process("tee", &[path], Some(content)).and_then(|out| {
-        if out.status == Some(0) { Ok(()) } else { Err(Error::Invalid(out.stderr)) }
-    })
+    if host::project_of(&path).and_then(|p| p.root().ok()).as_deref() != Some(&root) {
+        return Err(Error::Stale);
+    }
+    project.write_file(relative, content)
 }
 
 /// Model class names of the model files among the selected Project view entries (a folder selects the models below it).
@@ -37,48 +38,50 @@ pub fn selected_models(index: &Index, selected: &[String]) -> Vec<(String, Strin
         .collect()
 }
 
-pub fn remove_phpdocs(ctx: &Invocation, index: Option<&Index>) -> Result<Option<String>, Error> {
-    let project = ctx.project().ok_or("No project is open.")?;
-    let index = index.ok_or("This project is not a Laravel application.")?;
-    let selected = ctx.selected_paths();
-    let models: Vec<(String, String)> = if selected.is_empty() {
-        index.model_files.keys().filter_map(|path| Some((Path::new(path).file_stem()?.to_str()?.to_owned(), path.clone()))).collect()
-    } else {
-        selected_models(index, &selected)
-    };
-
-    let root = project.root()?;
-    let mut edits: Vec<(String, String)> = Vec::new();
-    for (_, path) in &models {
-        let Some(relative) = path.strip_prefix(&format!("{root}/")) else { continue };
-        let Ok(text) = project.read_file(relative) else { continue };
-        let cleaned = text.match_indices("class ").find_map(|(at, _)| {
-            let (range, replacement) = unused::remove_model_phpdocs(&text, at)?;
-            let mut out = text.clone();
-            out.replace_range(range, &replacement);
-            Some(out)
-        });
-        if let Some(out) = cleaned {
-            edits.push((relative.to_owned(), out));
-        }
-    }
-
-    if edits.is_empty() {
-        host::notify(NotificationLevel::Info, SOURCE, "No model carries IDE helper PHPDoc.");
-        return Ok(None);
-    }
-    if !host::confirm("Remove IDE helper PHPDoc", &format!("Remove the @property, @method and @mixin lines from {} models?", edits.len()))? {
-        return Ok(None);
-    }
-
-    for (relative, content) in &edits {
-        match write_file(&project, relative, content) {
-            Err(Error::Denied(_)) => return Err("Allow running tee for Laravel in Settings › Plugins, or use the quick fix on each model.".into()),
-            result => result?,
-        }
-    }
-    host::notify(NotificationLevel::Info, SOURCE, &format!("Removed IDE helper PHPDoc from {} models.", edits.len()));
+pub fn remove_phpdocs(_ctx: &Invocation, _index: Option<&Index>) -> Result<Option<String>, Error> {
+    host::notify(NotificationLevel::Info, SOURCE, "Open a model and choose ‘Remove IDE helper PHPDoc from indexed models’ from editor actions. The native workspace edit is atomic and undoable.");
     Ok(None)
+}
+
+fn cleanup_plan(main: &crate::Main, doc: &openidea_plugin::providers::Document) -> Result<Vec<(String, String, String)>, Error> {
+    let (project, root) = crate::view_creation::owner(doc, None)?;
+    let index = main.indexes.get(&root).filter(|i| !i.partial).ok_or(Error::Stale)?;
+    if !index.model_files.contains_key(&doc.path) || project.read_file(&doc.path)? != doc.text || index.model_files.len() > 256 { return Err(Error::Stale); }
+    let mut plan = Vec::new();
+    let mut bytes = 0usize;
+    for path in index.model_files.keys() {
+        if host::project_of(path).and_then(|p|p.root().ok()).as_deref() != Some(&root) { return Err(Error::Stale); }
+        let text = project.read_file(path)?;
+        bytes += text.len();
+        if text.len() > 128 << 10 || bytes > 4 << 20 { return Err(Error::Stale); }
+        if let Some((range, replacement)) = text.match_indices("class ").find_map(|(at,_)| unused::remove_model_phpdocs(&text,at)) {
+            let mut cleaned = text.clone();
+            cleaned.replace_range(range, &replacement);
+            plan.push((path.clone(), text, cleaned));
+        }
+    }
+    Ok(plan)
+}
+
+pub fn actions(main: &crate::Main, doc: &openidea_plugin::providers::Document) -> Vec<openidea_plugin::file_actions::FileAction> {
+    let admitted = crate::view_creation::owner(doc,None).ok().and_then(|(_,root)| main.indexes.get(&root)).is_some_and(|index| !index.partial && index.model_files.len() <= 256 && index.model_files.contains_key(&doc.path));
+    if admitted && doc.text.len() <= 128 << 10 && doc.text.match_indices("class ").any(|(at,_)| unused::remove_model_phpdocs(&doc.text,at).is_some()) {
+        vec![openidea_plugin::file_actions::FileAction { title: "Remove IDE helper PHPDoc from indexed models".into(), kind: Some("refactor.rewrite".into()), data: Some(format!("bulk-phpdocs:{}",doc.version)), ..Default::default() }]
+    } else { Vec::new() }
+}
+
+pub fn resolve(main: &crate::Main, doc: &openidea_plugin::providers::Document, action: openidea_plugin::file_actions::FileAction) -> Result<openidea_plugin::file_actions::FileAction, Error> {
+    if action.data.as_deref() != Some(&format!("bulk-phpdocs:{}",doc.version)) { return Err(Error::Stale); }
+    let plan = cleanup_plan(main,doc)?;
+    if plan.is_empty() { return Err(Error::Stale); }
+    let preview = plan.iter().map(|(path,_,_)|path.as_str()).collect::<Vec<_>>().join("\n");
+    if !ui_kit::prompts::confirm_exact("Remove IDE helper PHPDoc?", &format!("Remove helper tags from these {} indexed model files in one undoable workspace edit:\n{preview}",plan.len()))? { return Err(Error::Cancelled); }
+    if cleanup_plan(main,doc)? != plan { return Err(Error::Stale); }
+    Ok(openidea_plugin::file_actions::FileAction {
+        title: action.title,
+        edits: plan.into_iter().map(|(path,text,cleaned)| (path,vec![openidea_plugin::TextEdit { range: openidea_plugin::Range::new(openidea_plugin::Position::new(0,0),openidea_plugin::text::position(&text,text.len())),text:cleaned }])).collect(),
+        ..Default::default()
+    })
 }
 
 fn faker(column: &str, kind: &str) -> Option<String> {
@@ -171,7 +174,7 @@ pub fn model_file(project: &Project, index: &Index, kind: &str, model: &str, nam
     }
 
     let relative = format!("{directory}/{name}.php");
-    if project.read_file(&relative).is_ok() {
+    if project.exists(&relative)? {
         return Err(Error::Invalid(format!("{relative} already exists.")));
     }
 

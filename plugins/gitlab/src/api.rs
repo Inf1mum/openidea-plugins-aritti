@@ -379,12 +379,13 @@ pub(crate) fn authorization() -> String {
 }
 
 fn send(method: &str, url: String, body: Option<Value>) -> Result<Value, Error> {
+    if CALLBACK_DEADLINE.get().is_some() && method!="GET" {return Err("Snapshot callbacks permit GET reads only.".into());}
     let mut request = HttpRequest {
         method: method.into(),
         url,
         headers: vec![("Authorization".into(), authorization())],
         body: None,
-        timeout_ms: Some(20_000),
+        timeout_ms: Some(callback_timeout_ms(20_000)?),
     };
 
     if let Some(body) = body {
@@ -393,6 +394,7 @@ fn send(method: &str, url: String, body: Option<Value>) -> Result<Value, Error> 
     }
 
     let response = host::fetch(&request)?;
+    require_callback_read_budget()?;
     let text = response.text();
 
     match response.status {
@@ -417,7 +419,26 @@ const PAGING_BUDGET_SECS: u64 = 35;
 
 thread_local! {
     static DEADLINE: Cell<Option<u64>> = const { Cell::new(None) };
+    static CALLBACK_DEADLINE: Cell<Option<std::time::Instant>> = const { Cell::new(None) };
 }
+
+/// Content-tab actions expire after15s in the pinned host. Limit their remote
+/// read portion to10s; this guard never broadens an already tighter scope.
+pub(crate) struct CallbackReadBudget { previous:Option<std::time::Instant> }
+impl CallbackReadBudget {
+    pub(crate) fn start()->Self {
+        let previous=CALLBACK_DEADLINE.get();let deadline=std::time::Instant::now()+std::time::Duration::from_secs(10);
+        CALLBACK_DEADLINE.set(Some(previous.map_or(deadline,|old|old.min(deadline))));Self{previous}
+    }
+}
+impl Drop for CallbackReadBudget {fn drop(&mut self){CALLBACK_DEADLINE.set(self.previous);}}
+fn callback_timeout_ms(limit:u32)->Result<u32,Error> {
+    let remaining=CALLBACK_DEADLINE.get().map(|d|d.saturating_duration_since(std::time::Instant::now()).as_millis().min(u128::from(limit)) as u32).unwrap_or(limit);
+    if remaining==0 {return Err("Snapshot callback read budget exhausted; retry explicitly.".into());}Ok(remaining)
+}
+pub(crate) fn require_callback_read_budget()->Result<(),Error> {callback_timeout_ms(20_000).map(|_|())}
+#[cfg(test)]
+pub(crate) fn expire_callback_read_budget(){CALLBACK_DEADLINE.set(Some(std::time::Instant::now()));}
 
 fn now_secs() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
@@ -430,6 +451,10 @@ pub fn begin_budget() {
 
 pub(crate) fn begin_budget_at(now: u64) {
     DEADLINE.set(Some(now + PAGING_BUDGET_SECS));
+}
+
+pub(crate) fn require_read_budget()->Result<(),Error> {
+    if DEADLINE.get().is_some_and(|deadline|now_secs()>=deadline) {return Err("Snapshot request budget exhausted; retry explicitly.".into());}require_callback_read_budget()
 }
 
 /// Every page of a list (a short page is the last one), up to [`MAX_PAGES`] and the task's deadline.
@@ -590,6 +615,19 @@ impl Project<'_> {
 
     pub fn pipeline_jobs(&self, pipeline_id: u64) -> Result<Vec<Job>, Error> {
         paged(&self.path(&format!("/pipelines/{pipeline_id}/jobs")), 100)
+    }
+
+    /// Explicit caller only; plain text, no process, headers or raw errors exposed.
+    pub fn job_trace(&self,job_id:u64)->Result<String,Error> {
+        if job_id==0||DEADLINE.get().is_some_and(|d|now_secs()>=d) {return Err("Job trace request budget exhausted or invalid job.".into());}
+        let timeout_ms=DEADLINE.get().map(|deadline|deadline.saturating_sub(now_secs()).saturating_mul(1000).min(20_000) as u32).unwrap_or(20_000);
+        if timeout_ms==0 {return Err("Job trace request budget exhausted; retry explicitly.".into());}
+        let timeout_ms=callback_timeout_ms(timeout_ms)?;
+        let response=host::fetch(&HttpRequest{method:"GET".into(),url:format!("{SERVER}/api/v4{}",self.path(&format!("/jobs/{job_id}/trace"))),headers:vec![("Authorization".into(),authorization())],body:None,timeout_ms:Some(timeout_ms)}).map_err(|e|match e {Error::Denied(_)=>Error::Denied("Job trace request denied.".into()),_=>Error::Failed("Job trace request failed. Retry explicitly.".into())})?;
+        require_read_budget()?;
+        if response.status!=200 {return Err(Error::Failed(format!("Job trace unavailable (HTTP {}). Retry explicitly or open on GitLab.",response.status)));}
+        if response.body.len()>1<<20 {return Err("Job trace exceeds the1MiB plugin acceptance limit; host transfer cap is8MiB.".into());}
+        String::from_utf8(response.body).map_err(|_|Error::from("Job trace is not UTF8 text. Open it on GitLab."))
     }
 
     pub fn retry_job(&self, job_id: u64) -> Result<(), Error> {
@@ -795,6 +833,42 @@ fn timeline_event(kind: &str, event: &Value) -> TimelineEvent {
 mod tests {
     use super::*;
 
+    #[test]
+    fn callback_read_scope_clamps_rest_reads_refuses_writes_and_restores_previous_scope() {
+        let h=openidea_plugin::mock::MockHost::install().with_capabilities(&["net:gitlab.com","secrets"]);h.set_secret(TOKEN,"offline-fixture");
+        h.on_fetch(|r| {if CALLBACK_DEADLINE.get().is_some(){assert!(r.timeout_ms.is_some_and(|ms|ms>0&&ms<=10_000));}else{assert_eq!(r.timeout_ms,Some(20_000));}Ok(openidea_plugin::HttpResponse{status:200,headers:vec![],body:b"{}".to_vec()})});
+        {
+            let _scope=CallbackReadBudget::start();assert!(send("GET",format!("{SERVER}/offline"),None).is_ok());
+            let count=h.requests().len();assert!(send("POST",format!("{SERVER}/offline"),None).is_err());assert_eq!(h.requests().len(),count);
+            let short=std::time::Instant::now()+std::time::Duration::from_secs(1);CALLBACK_DEADLINE.set(Some(short));
+            {let _nested=CallbackReadBudget::start();assert_eq!(CALLBACK_DEADLINE.get(),Some(short));assert!(callback_timeout_ms(20_000).unwrap()<=1000);}
+            assert_eq!(CALLBACK_DEADLINE.get(),Some(short));
+        }
+        assert!(CALLBACK_DEADLINE.get().is_none());assert!(send("GET",format!("{SERVER}/offline"),None).is_ok());
+    }
+    #[test]
+    fn callback_expiry_refuses_late_response_and_further_reads_without_fetching() {
+        let h=openidea_plugin::mock::MockHost::install().with_capabilities(&["net:gitlab.com","secrets"]);h.set_secret(TOKEN,"offline-fixture");let _scope=CallbackReadBudget::start();
+        h.on_fetch(|_| {expire_callback_read_budget();Ok(openidea_plugin::HttpResponse{status:200,headers:vec![],body:b"{}".to_vec()})});
+        assert!(send("GET",format!("{SERVER}/offline"),None).is_err());let count=h.requests().len();assert!(send("GET",format!("{SERVER}/offline"),None).is_err());assert_eq!(h.requests().len(),count);
+    }
+    #[test]
+    fn trace_request_timeout_never_exceeds_remaining_shared_read_budget() {
+        let h=openidea_plugin::mock::MockHost::install().with_capabilities(&["net:gitlab.com","secrets"]);
+        h.set_secret(TOKEN,"offline-fixture");
+        DEADLINE.set(Some(now_secs()+2));
+        h.on_fetch(|request| {assert!(request.timeout_ms.is_some_and(|ms|ms>0&&ms<=2000),"{:?}",request.timeout_ms);Ok(openidea_plugin::HttpResponse{status:200,headers:vec![],body:b"trace".to_vec()})});
+        assert_eq!(Project("g/p").job_trace(1).unwrap(),"trace");
+    }
+    #[test]
+    fn trace_response_arriving_after_budget_is_not_accepted() {
+        let h=openidea_plugin::mock::MockHost::install().with_capabilities(&["net:gitlab.com","secrets"]);
+        h.set_secret(TOKEN,"offline-fixture");
+        begin_budget();
+        h.on_fetch(|_| {DEADLINE.set(Some(0));Ok(openidea_plugin::HttpResponse{status:200,headers:vec![],body:b"late trace".to_vec()})});
+        assert!(Project("g/p").job_trace(1).is_err());
+        let count=h.requests().len();assert!(Project("g/p").job_trace(1).is_err());assert_eq!(h.requests().len(),count);
+    }
     #[test]
     fn timeline_events() {
         let label = json!({"created_at": "t1", "user": {"username": "ann"}, "action": "add", "label": {"name": "bug"}});

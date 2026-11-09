@@ -134,9 +134,14 @@ pub fn parse(text: &str) -> Vec<Element> {
 }
 
 /// What the project says about a class named in the XML.
+#[cfg_attr(not(test), allow(dead_code))] // Negative project facts require the legacy full-context fixture.
 pub enum Lookup {
+    /// No complete source/library mapping evidence is available.
+    Unknown,
     NotInProject,
-    Found { annotated: bool },
+    Found {
+        annotated: bool,
+    },
 }
 
 const TRANSACTION_TYPES: &[&str] = &["JTA", "RESOURCE_LOCAL"];
@@ -151,7 +156,8 @@ fn warning(start: usize, end: usize, code: &'static str, message: String) -> Fin
 fn class_name(name: &str) -> bool {
     !name.is_empty()
         && name.split('.').all(|part| {
-            part.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_' || c == '$') && part.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '$')
+            part.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_' || c == '$')
+                && part.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '$')
         })
 }
 
@@ -160,13 +166,28 @@ fn is_mapping_file(elements: &[Element]) -> bool {
 }
 
 /// `lookup`: the class with that fully qualified name in the project. `orm_present`: the project has mapping files that can make any class persistent.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn inspect(text: &str, orm_present: bool, lookup: &dyn Fn(&str) -> Lookup) -> Vec<Finding> {
-    let elements = parse(text);
+    inspect_elements(parse(text), orm_present, lookup)
+}
+pub fn inspect_owned(text: &str) -> Vec<Finding> {
+    let Some(model) = crate::xml_context::descriptor(text) else {
+        return vec![];
+    };
+    inspect_elements(parse(text).into_iter().filter(|element| model.elements.contains(&element.start)).collect(), false, &|_| {
+        Lookup::Unknown
+    })
+}
+fn inspect_elements(elements: Vec<Element>, orm_present: bool, lookup: &dyn Fn(&str) -> Lookup) -> Vec<Finding> {
     let mut findings = Vec::new();
     let mut units: Vec<&str> = Vec::new();
     let mut listed: Vec<&str> = Vec::new();
     let mapping = is_mapping_file(&elements);
-    let package = elements.iter().find(|e| e.name == "package" && e.parent.as_deref() == Some("entity-mappings")).and_then(|e| e.text.as_ref()).map_or("", |(_, t)| t.as_str());
+    let package = elements
+        .iter()
+        .find(|e| e.name == "package" && e.parent.as_deref() == Some("entity-mappings"))
+        .and_then(|e| e.text.as_ref())
+        .map_or("", |(_, t)| t.as_str());
 
     let expected = |attribute: Option<&Attribute>, allowed: &[&str], what: &str| -> Option<(usize, usize, String)> {
         let a = attribute?;
@@ -181,16 +202,21 @@ pub fn inspect(text: &str, orm_present: bool, lookup: &dyn Fn(&str) -> Lookup) -
 
         let checked = match (e.name.as_str(), parent) {
             ("persistence-unit", Some("persistence")) => expected(e.attribute("transaction-type"), TRANSACTION_TYPES, "transaction type"),
-            ("entity" | "mapped-superclass" | "embeddable", Some("entity-mappings")) => expected(e.attribute("access"), ACCESS_TYPES, "access type"),
+            ("entity" | "mapped-superclass" | "embeddable", Some("entity-mappings")) => {
+                expected(e.attribute("access"), ACCESS_TYPES, "access type")
+            }
             ("shared-cache-mode", _) => e.text.as_ref().and_then(|(at, t)| {
-                (!t.contains("${") && !SHARED_CACHE_MODES.contains(&t.as_str())).then(|| (*at, at + t.len(), format!("'{t}' is not a valid shared cache mode: use {}.", SHARED_CACHE_MODES.join(", ")))
-            )}),
+                (!t.contains("${") && !SHARED_CACHE_MODES.contains(&t.as_str()))
+                    .then(|| (*at, at + t.len(), format!("'{t}' is not a valid shared cache mode: use {}.", SHARED_CACHE_MODES.join(", "))))
+            }),
             ("validation-mode", _) => e.text.as_ref().and_then(|(at, t)| {
-                (!t.contains("${") && !VALIDATION_MODES.contains(&t.as_str())).then(|| (*at, at + t.len(), format!("'{t}' is not a valid validation mode: use {}.", VALIDATION_MODES.join(", ")))
-            )}),
+                (!t.contains("${") && !VALIDATION_MODES.contains(&t.as_str()))
+                    .then(|| (*at, at + t.len(), format!("'{t}' is not a valid validation mode: use {}.", VALIDATION_MODES.join(", "))))
+            }),
             ("exclude-unlisted-classes", _) => e.text.as_ref().and_then(|(at, t)| {
-                (!t.is_empty() && !t.contains("${") && !matches!(t.as_str(), "true" | "false")).then(|| (*at, at + t.len(), format!("'{t}' is not true or false."))
-            )}),
+                (!t.is_empty() && !t.contains("${") && !matches!(t.as_str(), "true" | "false"))
+                    .then(|| (*at, at + t.len(), format!("'{t}' is not true or false.")))
+            }),
             _ => None,
         };
 
@@ -200,9 +226,16 @@ pub fn inspect(text: &str, orm_present: bool, lookup: &dyn Fn(&str) -> Lookup) -
 
         match (e.name.as_str(), parent) {
             ("persistence-unit", Some("persistence")) => match e.attribute("name") {
-                None => findings.push(warning(e.start, e.name_end, "jpa-xml-unit-name", "A persistence unit needs a name attribute.".into())),
+                None => {
+                    findings.push(warning(e.start, e.name_end, "jpa-xml-unit-name", "A persistence unit needs a name attribute.".into()))
+                }
                 Some(name) if units.contains(&name.value.as_str()) => {
-                    findings.push(warning(name.start, name.start + name.value.len(), "jpa-xml-unit-name", format!("Another persistence unit is named '{}'.", name.value)));
+                    findings.push(warning(
+                        name.start,
+                        name.start + name.value.len(),
+                        "jpa-xml-unit-name",
+                        format!("Another persistence unit is named '{}'.", name.value),
+                    ));
                 }
                 Some(name) => units.push(&name.value),
             },
@@ -227,7 +260,13 @@ pub fn inspect(text: &str, orm_present: bool, lookup: &dyn Fn(&str) -> Lookup) -
                     continue;
                 }
                 if listed.contains(&value.as_str()) {
-                    findings.push(Finding::new(*at, at + value.len(), Severity::Info, "jpa-xml-class-duplicate", format!("{value} is already listed in this file.")));
+                    findings.push(Finding::new(
+                        *at,
+                        at + value.len(),
+                        Severity::Info,
+                        "jpa-xml-class-duplicate",
+                        format!("{value} is already listed in this file."),
+                    ));
                 }
                 listed.push(value);
 
@@ -246,12 +285,16 @@ pub fn inspect(text: &str, orm_present: bool, lookup: &dyn Fn(&str) -> Lookup) -
                         "jpa-xml-class-not-persistent",
                         format!("{value} carries none of @Entity, @MappedSuperclass, @Embeddable or @Converter."),
                     )),
-                    Lookup::Found { .. } => {}
+                    Lookup::Found { .. } | Lookup::Unknown => {}
                 }
             }
             ("entity" | "mapped-superclass" | "embeddable", Some("entity-mappings")) => {
                 let Some(class) = e.attribute("class").filter(|c| !c.value.contains("${") && class_name(&c.value)) else { continue };
-                let fqcn = if class.value.contains('.') || package.is_empty() { class.value.clone() } else { format!("{package}.{}", class.value) };
+                let fqcn = if class.value.contains('.') || package.is_empty() {
+                    class.value.clone()
+                } else {
+                    format!("{package}.{}", class.value)
+                };
 
                 if matches!(lookup(&fqcn), Lookup::NotInProject) {
                     findings.push(Finding::new(
@@ -307,14 +350,22 @@ const PROPERTY_VALUES: &[(&str, &[&str])] = &[
 ];
 
 /// Names for `name="` and values for `value="` inside the `<property` tag being typed (`tag` is the text from its `<`).
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn property_completion(tag: &str, file: &str) -> Vec<CompletionItem> {
+    let prefix = if file.contains("jakarta.persistence") || !file.contains("javax.persistence") {
+        "jakarta.persistence."
+    } else {
+        "javax.persistence."
+    };
+    property_completion_with_prefix(tag, prefix)
+}
+pub fn property_completion_with_prefix(tag: &str, prefix: &str) -> Vec<CompletionItem> {
     let open_quote = |attribute: &str| -> Option<(usize, &str)> {
         let at = tag.rfind(&format!("{attribute}=\""))? + attribute.len() + 2;
         (!tag[at..].contains('"')).then_some((at, &tag[at..]))
     };
 
     if let Some((_, typed)) = open_quote("name") {
-        let prefix = if file.contains("jakarta.persistence") || !file.contains("javax.persistence") { "jakarta.persistence." } else { "javax.persistence." };
         let jpa = PROPERTIES.iter().map(|(n, d)| (format!("{prefix}{n}"), *d));
         let hibernate = HIBERNATE_PROPERTIES.iter().map(|(n, d)| (n.to_string(), *d));
 
@@ -372,7 +423,16 @@ mod tests {
         let kinds: Vec<&str> = found.iter().map(|(c, _)| *c).collect();
         assert_eq!(
             kinds,
-            ["jpa-xml-value", "jpa-xml-provider", "jpa-xml-value", "jpa-xml-value", "jpa-xml-value", "jpa-xml-property", "jpa-xml-unit-name", "jpa-xml-unit-name"]
+            [
+                "jpa-xml-value",
+                "jpa-xml-provider",
+                "jpa-xml-value",
+                "jpa-xml-value",
+                "jpa-xml-value",
+                "jpa-xml-property",
+                "jpa-xml-unit-name",
+                "jpa-xml-unit-name"
+            ]
         );
         assert_eq!(found[0].1, "XA");
         assert_eq!(found[6].1, "a");
@@ -393,7 +453,10 @@ mod tests {
             _ => Lookup::NotInProject,
         };
         let kinds: Vec<&str> = codes(text, &lookup).iter().map(|(c, _)| *c).collect();
-        assert_eq!(kinds, ["jpa-xml-class-unknown", "jpa-xml-class-not-persistent", "jpa-xml-class-duplicate", "jpa-xml-class", "jpa-xml-class"]);
+        assert_eq!(
+            kinds,
+            ["jpa-xml-class-unknown", "jpa-xml-class-not-persistent", "jpa-xml-class-duplicate", "jpa-xml-class", "jpa-xml-class"]
+        );
 
         let quiet: Vec<_> = inspect(text, true, &lookup).iter().map(|f| f.code).collect();
         assert!(!quiet.contains(&"jpa-xml-class-not-persistent"));

@@ -179,6 +179,95 @@ pub fn checkout(project: &Project, remote: &str, mr: &MergeRequest) -> Result<St
     Ok(format!("Checked out {local}."))
 }
 
+/// A registered local worktree. `-z` avoids Git's quoted path ambiguity.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExistingWorktree {
+    pub path: String,
+    pub head: String,
+    pub branch: Option<String>,
+}
+
+fn object_id(value: &str) -> bool {
+    matches!(value.len(), 40 | 64) && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn absolute_worktree_path(path: &str) -> bool {
+    let absolute = path.starts_with('/')
+        || (path.as_bytes().get(1) == Some(&b':')
+            && path.as_bytes().first().is_some_and(u8::is_ascii_alphabetic)
+            && path.as_bytes().get(2).is_some_and(|byte| matches!(byte, b'/' | b'\\')));
+    absolute && !path.chars().any(char::is_control) && !path.split(['/', '\\']).any(|part| matches!(part, "." | ".."))
+}
+
+pub fn existing_worktrees(output: &str) -> Result<Vec<ExistingWorktree>, Error> {
+    if output.len() > 1024 * 1024 || !output.ends_with("\0\0") {
+        return Err("Git returned an incomplete or oversized worktree list.".into());
+    }
+    let mut result = Vec::new();
+    for (count, record) in output.split("\0\0").filter(|record| !record.is_empty()).enumerate() {
+        if count >= 256 {
+            return Err("Too many worktrees to inspect safely.".into());
+        }
+        let mut path = None;
+        let mut head = None;
+        let mut branch = None;
+        let mut detached = false;
+        let mut unavailable = false;
+        for field in record.split('\0') {
+            if let Some(value) = field.strip_prefix("worktree ") {
+                if path.replace(value).is_some() {
+                    return Err("Duplicate worktree path.".into());
+                }
+            } else if let Some(value) = field.strip_prefix("HEAD ") {
+                if head.replace(value).is_some() {
+                    return Err("Duplicate worktree HEAD.".into());
+                }
+            } else if let Some(value) = field.strip_prefix("branch ") {
+                if branch.replace(value.to_owned()).is_some() {
+                    return Err("Duplicate worktree branch.".into());
+                }
+            } else if field == "detached" {
+                detached = true;
+            } else if field == "bare"
+                || field == "locked"
+                || field.starts_with("locked ")
+                || field == "prunable"
+                || field.starts_with("prunable ")
+            {
+                unavailable = true;
+            } else {
+                return Err("Unrecognized worktree metadata; refresh using a supported Git version.".into());
+            }
+        }
+        let path = path.ok_or("Worktree path is missing.")?;
+        if !absolute_worktree_path(path) {
+            return Err("Worktree path is not an unambiguous absolute directory.".into());
+        }
+        if unavailable {
+            continue;
+        }
+        let head = head.filter(|value| object_id(value)).ok_or("Worktree HEAD is missing or invalid.")?;
+        if branch.is_some() == detached {
+            return Err("Worktree branch state is ambiguous.".into());
+        }
+        result.push(ExistingWorktree { path: path.to_owned(), head: head.to_owned(), branch });
+    }
+    Ok(result)
+}
+
+/// A checked out branch must belong to this MR; detached worktrees must have its exact head.
+pub fn matching_worktrees(output: &str, mr: &MergeRequest) -> Result<Vec<ExistingWorktree>, Error> {
+    let sha = mr.sha.as_deref().filter(|value| object_id(value)).ok_or("The merge request has no complete head commit; refresh it.")?;
+    let branch = format!("refs/heads/{}", local_branch(mr));
+    safe::ref_name(branch.strip_prefix("refs/heads/").unwrap())?;
+    let trees = existing_worktrees(output)?;
+    let mut paths = std::collections::BTreeSet::new();
+    if trees.iter().any(|tree| !paths.insert(tree.path.clone())) {
+        return Err("Duplicate registered worktree paths.".into());
+    }
+    Ok(trees.into_iter().filter(|tree| tree.head == sha && tree.branch.as_ref().is_none_or(|name| name == &branch)).collect())
+}
+
 /// The `git` calls that add a worktree for a merge request's branch.
 #[derive(Debug, PartialEq)]
 pub struct WorktreePlan {
@@ -204,7 +293,8 @@ pub fn worktree_plan(root: &str, remote: &str, mr: &MergeRequest) -> Result<Work
     let local = local_branch(mr);
     safe::ref_name(&local)?;
 
-    let path = worktree_path(root, &mr.source_branch).ok_or_else(|| Error::Failed(format!("`{}` is not a usable branch name.", mr.source_branch)))?;
+    let path = worktree_path(root, &mr.source_branch)
+        .ok_or_else(|| Error::Failed(format!("`{}` is not a usable branch name.", mr.source_branch)))?;
     let tracking = format!("{remote}/{local}");
     let source = match mr.source_project_id == mr.target_project_id {
         true => format!("refs/heads/{local}"),
@@ -250,9 +340,9 @@ impl GitLab {
         };
 
         let upstream = status.upstream.clone().unwrap_or_default();
-        let remote_url = upstream.split_once('/').and_then(|(remote, _)| {
-            project.vcs_remotes().ok()?.into_iter().find(|(name, _)| name == remote).map(|(_, url)| url)
-        });
+        let remote_url = upstream
+            .split_once('/')
+            .and_then(|(remote, _)| project.vcs_remotes().ok()?.into_iter().find(|(name, _)| name == remote).map(|(_, url)| url));
         let (Some((_, branch)), Some(path)) = (upstream.split_once('/'), remote_url.as_deref().and_then(api::project_path)) else {
             self.clear_branch();
             return Ok(());
@@ -269,11 +359,9 @@ impl GitLab {
         let mr = api.merge_requests(&query)?.into_iter().find(|mr| mr.source_project_id == mr.target_project_id);
 
         let threads = match &mr {
-            Some(mr) if status.behind == 0 && editor_review_enabled() => api
-                .discussions(mr.iid)?
-                .into_iter()
-                .filter(|d| !d.is_system() && !(d.resolvable() && d.resolved()))
-                .collect(),
+            Some(mr) if status.behind == 0 && editor_review_enabled() => {
+                api.discussions(mr.iid)?.into_iter().filter(|d| !d.is_system() && !(d.resolvable() && d.resolved())).collect()
+            }
             _ => Vec::new(),
         };
 

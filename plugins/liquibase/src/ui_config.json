@@ -1,0 +1,12 @@
+{
+  "title": "Liquibase Changelogs",
+  "views": {
+    "changesets": "Liquibase Changesets"
+  },
+  "actions": [],
+  "project_independent": false,
+  "project_bound_buttons": [
+    "choose-sources",
+    "clear-sources"
+  ]
+}

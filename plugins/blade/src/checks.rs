@@ -4,7 +4,7 @@
 
 use openidea_plugin::Severity;
 
-use super::{BLOCKS, Directive, argument_count, lex, opens};
+use super::{BLOCKS, Directive, directive_opens, lex};
 
 pub const UNPAIRED_DIRECTIVE: &str = "unpaired-directive";
 pub const UNPAIRED_PARENTHESIS: &str = "unpaired-parenthesis-in-string";
@@ -37,6 +37,7 @@ pub fn check(text: &str) -> Vec<Finding> {
 
     for directive in &lexed.directives {
         let name = directive.name.as_str();
+        if lexed.opaque_from==Some(directive.range.start) {continue;}
 
         if let Some(finding) = unbalanced_parenthesis(text, directive) {
             found.push(finding);
@@ -54,13 +55,13 @@ pub fn check(text: &str) -> Vec<Finding> {
             continue;
         }
 
-        let count = directive.arguments.as_ref().map_or(0, |a| argument_count(text, a));
-        if let Some(closers) = opens(name, directive.arguments.is_some(), count) {
+        let Ok(role)=directive_opens(text,directive) else {return found;};
+        if let Some(closers) = role {
             open.push(Open { name: name.to_owned(), start: directive.range.start, closers });
         }
     }
 
-    found.extend(open.into_iter().filter_map(unclosed));
+    if lexed.opaque_from.is_none() {found.extend(open.into_iter().filter_map(unclosed));}
     found.sort_by_key(|f| f.start);
 
     found

@@ -17,6 +17,60 @@ and `GitTaskHandler` from `plugins/git4idea`). Apache-2.0, © JetBrains s.r.o. (
   is set in Settings › Plugins › Tasks, and issues are updated every 20 minutes. Closing a task can resolve GitHub,
   GitLab, Codeberg, YouTrack and Jira issues; work time can be posted to YouTrack and Jira.
 
+## Search Issues
+
+**Tasks: Search Issues** asks for a query, then a configured server/repository when more than
+one is available. Each request searches that selection only. GitHub, gitlab.com and Codeberg
+use one repository at a time (GitLab also supports its existing all-visible-issues selection);
+YouTrack/Jira use a configured Cloud tenant, and Trello uses the configured account. Unsupported
+or missing Cloud hosts are excluded. Repository paths, returned issue hosts and issue API
+endpoints are validated before a result can be selected.
+
+The picker offers **Next page**, **Previous page**, **Retry this page from server**, **New search
+query** and, when relevant, **Choose another server / repository**. Empty results and request
+errors have separate states. Retry is explicit; there is no automatic retry or rate-limit loop.
+Cancel preserves the active task and its context. Picking a hit keeps the existing Open Task
+branch review, or activates it directly when Git integration is off. An existing task with the
+same ID can be reused only when tracker and issue API identity match.
+
+GitHub/GitLab/Codeberg use `page`; YouTrack uses `$skip`/`$top`. Each page contains at most 50
+issues, with a five-page limit per query/selection. Next is offered after a full page, so the
+following page may be empty; results are not claimed to be exhaustive. Jira enhanced-JQL
+search follows its opaque `nextPageToken` rather than offsets or full-page guesses,
+including short/empty pages with a continuation. Tokens are session-only, bounded
+to4096bytes and query/tenant/root/page scoped; malformed/repeated/cyclic or
+inconsistent terminal metadata is refused without caching that page. Previous
+uses the exact page/cursor cache; query/server changes reset the cursor, and
+Retry invalidates that query/selection lineage. Selection rechecks live cached
+membership/expiry. Trello query search uses zero-based `cards_page` with the same
+50-card/five-page picker bound. It does not claim pagination of the separate
+member-card Refresh listing; only an explicit search query can use these pages.
+The tracker protocol references are [GitHub pagination](https://docs.github.com/en/rest/using-the-rest-api/using-pagination-in-the-rest-api),
+[GitLab pagination](https://docs.gitlab.com/api/rest/#pagination),
+[Forgejo pagination](https://forgejo.org/docs/latest/user/api/usage/), and
+[YouTrack pagination](https://www.jetbrains.com/help/youtrack/devportal/api-concept-pagination.html), and
+[Jira enhanced JQL search](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-search/#api-rest-api-3-search-jql-get), and
+[Trello search](https://developer.atlassian.com/cloud/trello/rest/api-group-search/).
+Jira search errors show a bounded constant reason, without raw server bodies or
+continuation tokens. Five pages is a deliberate partial-results bound, not complete
+tracker search or snapshot consistency. No provider/render fetch is introduced.
+
+Previous pages use a memory cache keyed by project, relevant server/filter configuration,
+repository, query and page. Cached pages are labelled, expire after 120 seconds, and the cache
+holds at most 20 pages / 1000 issues. Retry invalidates that query/selection's pages. A new
+Search Issues invocation clears the cache, and caches are never persisted. The host exposes
+secret presence, not account/credential identity: a same-name credential rotation while a picker
+is open cannot be detected; Retry or restart search after changing accounts. Project/configuration
+membership is checked after each request and prompt, including immediately before accepting a hit.
+Queries are limited to 256 bytes, selections to 16, picker actions to 20 per invocation, and tracker
+response bodies to 1 MiB. Network timeouts/cancellation remain the host's responsibility.
+
+Original comparison: `TaskSearchSupport.getRepositoriesTasks` (pinned Issue Trackers source /
+decompiled `tasks-core/.../actions/TaskSearchSupport.java`) distinguishes local/cache hits from
+server requests and accepts offset/limit/force-request. This slice adapts that separation to native
+input/pick controls; it does not add the original live choose-by-name popup or closed-issue search.
+No live tracker requests or desktop acceptance are claimed by the deterministic tests.
+
 ## Permissions
 
 | Permission | Used for | Without it |
@@ -32,3 +86,169 @@ cargo test
 openidea-plugin build
 openidea-plugin link
 ```
+
+## Apply task text to the current commit draft (API 1.3)
+
+The explicit **Apply Active Task to Commit Message** command is also available above
+Commit's message field. Optional `vcs.read` and `vcs.write` grants are required. It
+uses the active task's configured message format and previews the current/replacement
+text, task, project and draft revision. Cancel preserves the draft. Changed task text
+or a changed commit revision refuses the write without retrying. It stages or commits
+nothing. The host may save included dirty files when reading the pending draft, as
+its Commit workflow does.
+
+The API has no separate draft repository identity: this action requires included
+changes, all within the task project. Empty drafts and mixed-project selection are
+refused. This is message-field integration, not the original task-close automatic
+commit workflow. Existing clipboard and commit.template flows remain available.
+
+Original comparison: pinned `/tmp/port/11545/dec/tasks-core/.../VcsCloseTaskPanel.java`
+exposes commit/merge choices and commits a task changelist; this implementation uses
+the supported host draft API for an explicitly reviewed message operation only.
+Native Cancel/Apply message-field acceptance previously passed; this state/callback
+slice still needs separate desktop acceptance.
+
+## Cached issue references (P28.3 supported subset)
+
+After an explicit **Tasks: Search Issues**, hovering an exact known issue ID in
+source shows its escaped summary, tracker and page URL, clearly labelled as a
+cached search snapshot. The provider uses only validated in-memory search pages
+and the document's verified project identity: no storage/file reads, source
+searches, git commands, tracker requests or credential lookups occur on hover.
+Exact browser/API/source identity proof supports GitHub, Codeberg, Jira Cloud and
+YouTrack Cloud directly. GitLab additionally requires the search response
+`references.full`, numeric project ID and IID to agree with the selected repository,
+exact API path and browser path. Trello requires a24hex card ID plus an8character
+shortLink agreeing with its response URL; contextual browser links use the canonical
+`https://trello.com/c/<shortLink>` form. Missing/conflicting mappings remain quiet.
+These typed reference facts are ephemeral and explicitly excluded from task
+serialization/deserialization, so local/stored tasks cannot mint this authority.
+Only this instance's last explicit search session is eligible; persisted/local
+tasks and ordinary background refresh results are not inferred into this cache.
+
+**Open Cached Issue at Caret in Browser** and **Activate Cached Issue at Caret
+Locally (No VCS Changes)** are available from the editor context menu/command
+palette with optional `editor.read`. They require one caret or one exact ID
+selection, current source text/version, the same owning project, an unexpired
+unambiguous search hit and unchanged server/repository/query configuration.
+Local activation previews the exact root, issue, tracker, web/API identity and
+scope, then rechecks ownership after confirmation. It updates local task/time
+tracking only; it bypasses the existing git/remote-state/context-reopening flow.
+Conflicting existing task identities are refused before review and before write.
+Cancellation and failures preserve the current task. Opening uses the previously
+validated HTTPS issue page, with no new plugin HTTP request.
+
+The source document is limited to 512 KiB and the exact ASCII issue token to
+128 bytes; UTF-16 ranges include only that token. Embedded Unicode identifiers,
+unknown IDs, expired results and same-ID/different-server/repository collisions
+are quiet. Search's existing 120-second lifetime, 20 cached pages, 50 hits/page
+and five-page request budget remain unchanged. Duplicate observations of the same
+identity coalesce. Starting a new explicit search discards old session metadata;
+authenticated account identity is not available, so snapshots are never presented
+as current authorization or live status. Explicit actions revalidate configuration;
+hover labels historical facts rather than fetching for account/configuration changes.
+
+Original comparison: decompiled `AbstractTaskSymbol`/`TaskSymbol` provide task
+summary/description/state documentation and browser navigation; `OpenTaskDialog`
+uses a task manager and VCS extension panels. The reviewed documentation screenshot
+`managing-tasks-and-context-0.png` shows explicit server URL and query ownership.
+This subset provides cached summaries and explicit actions, without the original
+full documentation/state resolution. **Review Cached Issue Activation and Branch Options
+at Caret** now opens the existing task/VCS options form for a not-yet-local cached
+issue when `process:git` is enabled. Preparing or cancelling this form changes no
+task state and runs no Git. Its retained ticket binds the exact source text/version,
+project, issue/server/API identity, search expiry/configuration and branch-name
+format; Open Task checks these again before importing/activating the issue or
+running the existing opt-in Git workflow. The form shows the derived branch name;
+users can disable branch creation or select shelving explicitly. Existing branches
+are switched to; otherwise Git creates from HEAD. This is a command-palette entry,
+not native inline links/gutter actions. Git failures retain the existing workflow's
+warning/local-activation behavior; it is not a transaction across Git and task storage.
+No new native branch API, tracker mutation, automatic branch creation or issue
+reference scanning/network provider is claimed.
+
+
+## Project task and recorded-context state (P28.4 source subset)
+
+Task lists, active task/clock fields, choices, repository overrides and named file
+contexts persist under the exact concrete project-root key. New writes use a
+schema/owner/revision envelope; malformed/foreign-owner/unsupported records never
+fall back silently to a new default task. Valid legacy records under that root's
+existing key are validated (including owned file paths) and upgraded on the next
+successful write. Empty task arrays, unknown active/default identity, duplicate IDs,
+foreign/prefix-sibling/traversal file paths and unsupported sizes fail without
+replacing the stored bytes. Storage denial does not create anonymous or volatile
+replacement state. Different project roots retain separate task counters and data;
+a renamed/moved root does not silently adopt another root's stored state.
+
+**Reset This Project’s Task State (Asks First)…** is explicit recovery for corrupt
+or unwanted records. It previews the exact project/key, byte count and deletion
+scope, checks the original bytes again after confirmation, then replaces only that
+key with a fresh owned default state. Cancel preserves it. Recovery changes no git,
+tracker, source files or other project's key. There is no implicit reset/migration
+when validation fails.
+
+Read and write share a 2 MiB serialized bound; record limits are 512 tasks, 1,000
+cached issues, 64 named contexts, ten recorded files per task/context and bounded
+names/descriptions/repository overrides. A rejected oversized write retains the
+last valid record. Writes recheck the original raw record before storage_set and
+advance a checked revision; stale writers fail instead of retrying. The SDK has no
+atomic storage compare-and-set, so a final read/write race remains. This is not a
+transaction across tracker, git and plugin storage operations; existing explicit
+optional git/tracker workflows retain their separate failure semantics.
+
+Rendered tree keys, field keys and button IDs carry opaque project/snapshot/form
+identity. Rendered data and its guard come from one storage read. Only an exact
+local write receipt can advance a callback binding; a non-writing field/selection
+callback cannot adopt an unrelated concurrent storage change. Backend task/issue
+IDs are unchanged. Old native or packaged callbacks
+cannot submit a previous project's form, target a replaced storage snapshot or
+reuse a previous form's buttons after another project renders. Project-free,
+denied and corrupt views discard their selection/form binding. UI drafts and
+selection are reset across projects; only submitted state is persistent. Multiple
+open projects/project-free contexts do not reuse a global active-task status from
+whichever project happened to load first/last. Active status uses the API 1.4 window override from commands and focus events, so opening another project no longer hides the invoking window's active task; each view reports its own root's active task separately.
+
+File-open events record only exact owning-project paths (including a longest-root
+check for nested projects), never raw string-prefix siblings. Save/Remove Context
+revalidate the source TaskList after prompts; reopening a saved context checks all
+recorded paths against the current owner before opening any. Changing context
+state during a picker or creating a nested project under recorded paths refuses
+reopening. Reopen errors report how many files opened rather than silently claiming
+restoration. Switching back to a task applies the same file-owner preflight.
+
+Named contexts now capture **up to ten currently open project editors in the invoking window** using API 1.4. Saving requires optional `editor.read`; foreign/nested-project editors are excluded and more than ten owned tabs refuse rather than truncate. The first selection of the active editor is saved and restored only while its coordinates still fit the current file. Legacy named contexts and automatic task-switch file history remain file-only and reopen at line/column zero. Tab/split order, folds, dirty buffer contents, bookmarks and debugger breakpoints are not captured/restored. No editor is closed,
+rewritten or silently saved by context reopening. Active clock fields survive
+restart as elapsed wall-clock task time (including time while the task/IDE is
+inactive), not measured focused coding time. No unavailable activity API is inferred.
+
+Original audit: `tasks-core/META-INF/plugin.xml` describes editor tabs, bookmarks
+and breakpoints as working context and registers `BreakpointsContextProvider`;
+that decompiled provider serializes and reloads debugger state and can clear
+breakpoints. This implementation persists owned file references only and performs
+no debugger/bookmark restoration. Native commit-message integration, scoped issue
+search/caret actions and existing task/git workflows remain separately implemented;
+source tests cover restart, legacy migration, corruption, denial, limits, stale
+writers/views/forms, project switches and nested-project context ownership.
+
+## External packaged-view invalidation
+
+External close/switch/reset commands and committed task/context/issue updates now
+retain native refresh and send only `{"channel":"ui-kit-refresh"}` to the Tasks
+packaged view. Its hub requests its own frame/project-correlated model. Even a
+cancelled switch refreshes the action tokens rotated by that command. Own hub
+requests keep their existing response path; stable direct and ui-kit renders emit
+no further invalidation, and no tracker or git request was added to rendering.
+
+Existing project-owned storage snapshots, schema/raw revision checks, task/server
+identity comparisons and opaque per-render action generations remain authoritative.
+A different project clears the previous form/selection; missing or revoked
+project.read also clears cached form data before render fails. Other projects'
+updates may notify the view, but the receiving page loads only its invoking
+project and old source tokens stay invalid. HTTP capability/auth and explicit
+network action contracts are unchanged. No atomic active-window, credential
+revocation, original tracker-runtime or native multiwindow acceptance is implied;
+validation uses mocks and pinned build/check only.
+
+
+API 1.4 migration validation: source MockHost tests cover current-tab capture replacing closed-file history, active selection restoration, and status with multiple open projects. Exact native window routing and multi-tab UI acceptance remain to be exercised.

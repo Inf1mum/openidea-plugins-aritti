@@ -5,13 +5,13 @@
 
 use openidea_plugin::providers::{CompletionItem, CompletionKind, Document, LineMarker, Providers};
 use openidea_plugin::views::{Body, Button, View, ViewEvent, Viewport, Views};
-use openidea_plugin::{
-    Diagnostic, Error, Event, EventKind, Invocation, Location, Plugin, Position, Range, Severity, host,
-};
+use openidea_plugin::{Diagnostic, Error, Event, EventKind, Invocation, Location, Plugin, Position, Range, Severity, host};
 use spring_text::diagram::{self, Edge, Node};
 use spring_text::index::{Index, Indexes, PROVIDER_BUDGET};
 use spring_text::{beans, contains, range, xml};
 use std::collections::{BTreeMap, BTreeSet};
+
+mod actions;
 
 const NAMESPACE: &str = "http://www.springframework.org/schema/webflow";
 const CONFIG_NAMESPACE: &str = "http://www.springframework.org/schema/webflow-config";
@@ -127,12 +127,8 @@ pub fn parse_flow(text: &str) -> Option<Flow> {
     }
     let els = xml::elements(text);
     let root = els.first().filter(|e| e.local() == "flow" && xml::namespace(&els, 0) == Some(NAMESPACE))?;
-    let link = |a: &xml::Attr, kind| Link {
-        value: a.value.trim().to_owned(),
-        kind,
-        range: range(text, a.value_at, a.value_end),
-        flow: None,
-    };
+    let link =
+        |a: &xml::Attr, kind| Link { value: a.value.trim().to_owned(), kind, range: range(text, a.value_at, a.value_end), flow: None };
     let piece = |(value, from, to): (&str, usize, usize), kind, flow: Option<&str>| Link {
         value: value.to_owned(),
         kind,
@@ -324,8 +320,7 @@ fn problems(path: &str, flow: &Flow, world: &World) -> Vec<Diagnostic> {
         }
     }
     let (parents, found_all) = world.ancestors(path, flow);
-    let known: BTreeSet<&str> =
-        flow.states.iter().chain(parents.iter().flat_map(|&(_, f)| &f.states)).map(|s| s.id.as_str()).collect();
+    let known: BTreeSet<&str> = flow.states.iter().chain(parents.iter().flat_map(|&(_, f)| &f.states)).map(|s| s.id.as_str()).collect();
     for l in flow.links.iter().filter(|l| !l.value.is_empty() && !beans::is_expression(&l.value)) {
         let unknown_state = found_all && !known.contains(l.value.as_str());
         let (severity, message, code) = match l.kind {
@@ -342,9 +337,7 @@ fn problems(path: &str, flow: &Flow, world: &World) -> Vec<Diagnostic> {
     }
     let ends = flow.states.iter().any(|s| s.kind == "end-state");
     if !ends && !flow.is_abstract && flow.parents.is_empty() && !flow.states.is_empty() {
-        out.push(
-            Diagnostic::new(flow.root, Severity::Info, "This flow has no end-state, so it never finishes.").code("no-end-state"),
-        );
+        out.push(Diagnostic::new(flow.root, Severity::Info, "This flow has no end-state, so it never finishes.").code("no-end-state"));
     }
     out
 }
@@ -373,16 +366,31 @@ fn diagram_view(flow: &Flow) -> View {
         })
         .collect();
     let status = format!("{} states · {} transitions", nodes.len(), edges.len());
-    View::new(Body::Html(diagram::html(&nodes, &edges, "This flow has no states."))).status(&status)
+    let mut generated=diagram::html(&nodes,&edges,"This flow has no states.");
+    if cfg!(feature="embedded") {
+        let known:BTreeSet<_>=flow.states.iter().map(|s|s.id.as_str()).collect();
+        let drawn=flow.transitions.iter().enumerate().filter(|(_,t)|t.from.as_deref().is_some_and(|from|known.contains(from)&&known.contains(t.to.as_str())&&from!=t.to));
+        let mut cursor=0;
+        for (index,_) in drawn {
+            let Some(at)=generated[cursor..].find("<path class=\"e\"").map(|n|cursor+n) else{break;};
+            let replacement=format!("<path class=\"n e\" tabindex=\"0\" role=\"button\" aria-label=\"Open transition declaration\" data-id=\"webflow-edge:{index}\"");
+            generated.replace_range(at..at+"<path class=\"e\"".len(),&replacement);cursor=at+replacement.len();
+        }
+    }
+    let content=generated.split_once("</style>").map_or(generated.as_str(),|(_,body)|body);
+    let content=content.split_once("<script>").map_or(content,|(body,_)|body);
+    let html=if cfg!(feature="embedded") {format!("<link rel=\"stylesheet\" href=\"./webflow-graph.css\">{content}")} else {generated};
+    View::new(Body::Html(html)).status(&status)
 }
 
 pub struct WebFlow {
     indexes: Indexes<FileInfo>,
+    actions: actions::Actions,
 }
 
 impl Default for WebFlow {
     fn default() -> Self {
-        Self { indexes: Indexes::new(GLOBS, index_file) }
+        Self { indexes: Indexes::new(GLOBS, index_file), actions: actions::Actions::default() }
     }
 }
 
@@ -398,12 +406,9 @@ impl Providers for WebFlow {
         let world = World::new(self.index(doc));
         let (parents, _) = world.ancestors(&doc.path, &flow);
         let items: BTreeMap<&str, &str> = match link.kind {
-            LinkKind::State | LinkKind::Start => flow
-                .states
-                .iter()
-                .chain(parents.iter().flat_map(|&(_, f)| &f.states))
-                .map(|s| (s.id.as_str(), s.kind.as_str()))
-                .collect(),
+            LinkKind::State | LinkKind::Start => {
+                flow.states.iter().chain(parents.iter().flat_map(|&(_, f)| &f.states)).map(|s| (s.id.as_str(), s.kind.as_str())).collect()
+            }
             LinkKind::Subflow | LinkKind::ParentFlow => world.ids.iter().map(|(id, _)| (id.as_str(), "flow")).collect(),
             LinkKind::ParentState => world
                 .flows(link.flow.as_deref().unwrap_or_default())
@@ -442,6 +447,11 @@ impl Providers for WebFlow {
     }
 
     fn line_markers(&mut self, doc: &Document) -> Vec<LineMarker> {
+        if cfg!(feature = "embedded") {
+            let _ = self.indexes.for_cached_document(&doc.path, &doc.text);
+            refresh(VIEW);
+            return Vec::new();
+        }
         let Some(flow) = parse_flow(&doc.text) else { return Vec::new() };
         let world = World::new(self.index(doc));
         publish(&doc.path, &problems(&doc.path, &flow, &world));
@@ -454,14 +464,33 @@ impl Views for WebFlow {
     fn render(&mut self, _view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
         let _ = host::subscribe(EventKind::EditorFocused);
         let refresh = Button::new("refresh", "Refresh").icon("refresh");
-        let flow = ctx.editor().and_then(|e| e.document().ok()).and_then(|d| parse_flow(&d.text));
+        let flow = ctx.editor().filter(|e|e.language()=="xml").and_then(|e|e.document().ok()).filter(|d|actions::valid(&d.text))
+            .and_then(|d|parse_flow(&d.text)).filter(|f|f.states.len()<=128 && f.transitions.len()<=256
+                && f.states.iter().map(|s|&s.id).collect::<BTreeSet<_>>().len()==f.states.len());
         let Some(flow) = flow else { return Ok(View::message(NO_FLOW).button(refresh)) };
         Ok(diagram_view(&flow).button(refresh))
     }
 
-    fn handle(&mut self, view: &str, event: ViewEvent, _ctx: &Invocation) -> Result<(), Error> {
-        if matches!(&event, ViewEvent::Button(b) if b == "refresh") {
-            refresh(view);
+    fn handle(&mut self, view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {
+        if matches!(&event,ViewEvent::Button(b) if b=="refresh") {refresh(view);}
+        if let ViewEvent::Message(id)=event {
+            let editor=ctx.editor().ok_or(Error::Stale)?;
+            let doc=editor.document()?;let path=editor.path();
+            if editor.language()!="xml" || !actions::valid(&doc.text) {return Err(Error::Stale);}
+            let flow=parse_flow(&doc.text).ok_or(Error::Stale)?;
+            if flow.states.len()>128 || flow.transitions.len()>256 || flow.states.iter().map(|s|&s.id).collect::<BTreeSet<_>>().len()!=flow.states.len() {return Err(Error::Stale);}
+            let target=if let Some(index)=id.strip_prefix("webflow-edge:").and_then(|n|n.parse::<usize>().ok()) {
+                if flow.states.iter().any(|s|s.id==id){return Err(Error::Stale);}
+                let edge=flow.transitions.get(index).ok_or(Error::Stale)?;
+                if !edge.from.as_deref().is_some_and(|from|from!=edge.to && flow.states.iter().any(|s|s.id==from)) || !flow.states.iter().any(|s|s.id==edge.to){return Err(Error::Stale);}
+                flow.links.iter().filter(|l|l.kind==LinkKind::State).nth(index).ok_or(Error::Stale)?.range
+            }else{
+                let matches:Vec<_>=flow.states.iter().filter(|s|s.id==id).collect();
+                if matches.len()!=1 {return Err(Error::Stale);}matches[0].range
+            };
+            let project=host::project_of(&path).ok_or(Error::Stale)?;let root=project.root()?;
+            if ctx.project().and_then(|p|p.root().ok()).as_deref()!=Some(root.as_str()){return Err(Error::Stale);}
+            host::open_location(&path,target.start.line,target.start.character)?;
         }
         Ok(())
     }
@@ -618,21 +647,27 @@ mod tests {
     fn reads_states_transitions_and_links() {
         let flow = parse_flow(FLOW).unwrap();
         let states: Vec<_> = flow.states.iter().map(|s| (s.id.as_str(), s.kind.as_str())).collect();
-        assert_eq!(states, [
-            ("enterDetails", "view-state"),
-            ("checkAvailability", "decision-state"),
-            ("payment", "subflow-state"),
-            ("soldOut", "action-state"),
-            ("audit", "subflow-state"),
-            ("confirmed", "end-state"),
-            ("confirmed", "end-state"),
-        ]);
+        assert_eq!(
+            states,
+            [
+                ("enterDetails", "view-state"),
+                ("checkAvailability", "decision-state"),
+                ("payment", "subflow-state"),
+                ("soldOut", "action-state"),
+                ("audit", "subflow-state"),
+                ("confirmed", "end-state"),
+                ("confirmed", "end-state"),
+            ]
+        );
         assert_eq!((flow.start_state(), flow.parents.as_slice()), (Some("enterDetails"), &["common".to_owned()][..]));
         let edges: Vec<_> = flow.transitions.iter().map(|t| (t.from.as_deref(), t.to.as_str(), t.label.as_deref())).collect();
-        assert_eq!(edges[2..4], [
-            (Some("checkAvailability"), "payment", Some("bookingService.isAvailable(booking)")),
-            (Some("checkAvailability"), "soldOut", Some("else")),
-        ]);
+        assert_eq!(
+            edges[2..4],
+            [
+                (Some("checkAvailability"), "payment", Some("bookingService.isAvailable(booking)")),
+                (Some("checkAvailability"), "soldOut", Some("else")),
+            ]
+        );
         assert_eq!(edges[6], (Some("soldOut"), "missing", None));
         assert_eq!(edges[7], (None, "errorPage", Some("error")));
         let parent: Vec<_> = flow.links.iter().filter(|l| l.flow.is_some()).map(|l| (l.value.as_str(), l.kind)).collect();
@@ -673,7 +708,9 @@ mod tests {
         let mut w = WebFlow::default();
         let d = doc(FLOW_PATH, FLOW);
         assert_eq!(found(w.definition(&d, at(FLOW, "subflow=\"payment\""))), [("checkout.xml".to_owned(), 0)]);
-        let caller = format!("<flow xmlns=\"{NAMESPACE}\"><subflow-state id=\"s\" subflow=\"common\"/><subflow-state id=\"t\" subflow=\"booking\"/></flow>");
+        let caller = format!(
+            "<flow xmlns=\"{NAMESPACE}\"><subflow-state id=\"s\" subflow=\"common\"/><subflow-state id=\"t\" subflow=\"booking\"/></flow>"
+        );
         let d = doc(&format!("{FLOWS}/caller.xml"), &caller);
         assert_eq!(found(w.definition(&d, at(&caller, "subflow=\"common\""))), [("common.xml".to_owned(), 0)]);
         assert_eq!(found(w.definition(&d, at(&caller, "subflow=\"booking\""))), [("booking-flow.xml".to_owned(), 1)]);
@@ -684,9 +721,10 @@ mod tests {
         let _host = setup();
         let mut w = WebFlow::default();
         let d = doc(FLOW_PATH, FLOW);
-        assert_eq!(labels(w.completion(&d, at(FLOW, "to=\"missing\""), None)), [
-            "audit", "cancelled", "checkAvailability", "confirmed", "enterDetails", "errorPage", "notify", "payment", "soldOut",
-        ]);
+        assert_eq!(
+            labels(w.completion(&d, at(FLOW, "to=\"missing\""), None)),
+            ["audit", "cancelled", "checkAvailability", "confirmed", "enterDetails", "errorPage", "notify", "payment", "soldOut",]
+        );
         let flows = ["booking", "booking-flow", "caller", "checkout", "common", "pay", "payment"].map(String::from);
         let caller = format!("<flow xmlns=\"{NAMESPACE}\"/>");
         w.line_markers(&doc(&format!("{FLOWS}/caller.xml"), &caller));
@@ -705,17 +743,23 @@ mod tests {
         w.line_markers(&doc(FLOW_PATH, FLOW));
         let problems: Vec<_> =
             host.diagnostics()[FLOW_PATH].iter().map(|d| (d.range.start.line, d.code.clone().unwrap(), d.severity)).collect();
-        assert_eq!(problems, [
-            (position(FLOW, FLOW.rfind("id=\"confirmed\"").unwrap()).line, "duplicate-state".into(), Severity::Error),
-            (line(FLOW, "to=\"missing\""), "unknown-state".into(), Severity::Error),
-            (line(FLOW, "subflow=\"nowhere\""), "unknown-subflow".into(), Severity::Warning),
-        ]);
+        assert_eq!(
+            problems,
+            [
+                (position(FLOW, FLOW.rfind("id=\"confirmed\"").unwrap()).line, "duplicate-state".into(), Severity::Error),
+                (line(FLOW, "to=\"missing\""), "unknown-state".into(), Severity::Error),
+                (line(FLOW, "subflow=\"nowhere\""), "unknown-subflow".into(), Severity::Warning),
+            ]
+        );
         let messages: Vec<_> = host.diagnostics()[FLOW_PATH].iter().map(|d| d.message.clone()).collect();
-        assert_eq!(messages, [
-            "Another state of this flow already has the id 'confirmed'.",
-            "This flow has no state 'missing'.",
-            "No flow with the id 'nowhere' is found in the project.",
-        ]);
+        assert_eq!(
+            messages,
+            [
+                "Another state of this flow already has the id 'confirmed'.",
+                "This flow has no state 'missing'.",
+                "No flow with the id 'nowhere' is found in the project.",
+            ]
+        );
     }
 
     #[cfg(not(feature = "embedded"))]
@@ -723,13 +767,16 @@ mod tests {
     fn reports_a_missing_start_state_and_end_state() {
         let host = setup();
         let mut w = WebFlow::default();
-        let text = format!("<flow xmlns=\"{NAMESPACE}\" start-state=\"begin\">\n<view-state id=\"a\"><transition on=\"x\" to=\"a\"/></view-state>\n</flow>\n");
+        let text = format!(
+            "<flow xmlns=\"{NAMESPACE}\" start-state=\"begin\">\n<view-state id=\"a\"><transition on=\"x\" to=\"a\"/></view-state>\n</flow>\n"
+        );
         let path = format!("{FLOWS}/loop.xml");
         w.line_markers(&doc(&path, &text));
         let codes: Vec<_> = host.diagnostics()[&path].iter().map(|d| (d.code.clone().unwrap(), d.severity)).collect();
         assert_eq!(codes, [("unknown-start-state".into(), Severity::Error), ("no-end-state".into(), Severity::Info)]);
 
-        let orphan = format!("<flow xmlns=\"{NAMESPACE}\" parent=\"ghost\"><view-state id=\"a\"><transition to=\"b\"/></view-state></flow>");
+        let orphan =
+            format!("<flow xmlns=\"{NAMESPACE}\" parent=\"ghost\"><view-state id=\"a\"><transition to=\"b\"/></view-state></flow>");
         let path = format!("{FLOWS}/orphan.xml");
         w.line_markers(&doc(&path, &orphan));
         assert!(!host.diagnostics().contains_key(&path), "states may come from a parent that isn't found");
@@ -740,13 +787,19 @@ mod tests {
     fn draws_the_active_flow() {
         let host = setup();
         let mut w = WebFlow::default();
-        host.open_editor(FLOW_PATH, "xml", FLOW, &[]);
+        host.open_editor(FLOW_PATH,"xml",FLOW,&[]);
+        assert!(matches!(w.render(VIEW,None,&host.invocation()).unwrap().body,Body::Message(_)),"duplicate state ids cannot silently collapse graph ownership");
+        let unique=FLOW.replacen("id=\"confirmed\"","id=\"otherConfirmed\"",1);
+        host.open_editor(FLOW_PATH,"xml",&unique,&[]);
         let view = w.render(VIEW, None, &host.invocation()).unwrap();
         let Body::Html(page) = view.body else { panic!("html expected") };
         assert!(page.contains(">enterDetails<") && page.contains(">soldOut<") && page.contains("view-state"), "{page}");
         assert!(page.contains("class=\"n a\" data-id=\"enterDetails\""), "the start state is accented");
         assert!(page.contains(">proceed<") && page.contains(">else<"));
-        assert!(page.contains("<title>bookingService.isAvailable(booking)</title>bookingService.isAvailable(…<"), "decisions show their test");
+        assert!(
+            page.contains("<title>bookingService.isAvailable(booking)</title>bookingService.isAvailable(…<"),
+            "decisions show their test"
+        );
         assert_eq!(view.status.as_deref(), Some("7 states · 7 transitions"));
         assert!(host.subscriptions().contains(&EventKind::EditorFocused));
 
@@ -780,3 +833,20 @@ mod tests {
         assert!(applies(project), "multi-module is unsure");
     }
 }
+
+impl WebFlow {
+    pub fn live_warm(&mut self, project: &openidea_plugin::Project, budget: std::time::Duration) {
+        if budget.is_zero() {
+            return;
+        }
+        self.indexes.get(project, budget / 1);
+    }
+    pub fn live_update(&mut self, project: &openidea_plugin::Project, path: &str, text: Option<&str>) {
+        self.indexes.update_existing(project, path, text);
+    }
+    pub fn live_reset(&mut self) {
+        self.indexes.reset();
+    }
+}
+
+mod live;

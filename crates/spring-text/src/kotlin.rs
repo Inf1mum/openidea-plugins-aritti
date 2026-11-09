@@ -114,7 +114,7 @@ fn params(src: &str, toks: &[Tok]) -> Vec<(Param, bool)> {
                         property = true;
                         k += 1;
                     }
-                    s if MODIFIERS.contains(&s) => k += 1,
+                    s if MODIFIERS.contains(&s) && p.get(k + 1).is_none_or(|next| next.s != ":") => k += 1,
                     _ => break,
                 }
             }
@@ -554,6 +554,20 @@ data class User(@Id val id: Long, var name: String)
 
 fun main(args: Array<String>) { runApplication<App>(*args) }
 "#;
+
+    #[test]
+    fn soft_keyword_parameter_names_are_not_modifiers_before_colon() {
+        let source = "value class Wrapped(val value: String)\nclass Commands(val value: String) { fun run(@Option(arityMin = 1) value: String, vararg inputs: String) {} }";
+        let file = parse(source);
+        let wrapped = file.types.iter().find(|t| t.name == "Wrapped").unwrap();
+        assert!(wrapped.modifiers.iter().any(|m| m == "value"));
+        let commands = file.types.iter().find(|t| t.name == "Commands").unwrap();
+        assert!(commands.members.iter().any(|m| m.kind == MemberKind::Field && m.name == "value"));
+        let run = commands.members.iter().find(|m| m.name == "run").unwrap();
+        assert_eq!(run.params.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(), ["value", "inputs"]);
+        assert!(run.params[0].annotation("Option").is_some());
+        assert_eq!(&source[run.params[0].at..run.params[0].at + 5], "value");
+    }
 
     #[test]
     fn parses_declarations() {

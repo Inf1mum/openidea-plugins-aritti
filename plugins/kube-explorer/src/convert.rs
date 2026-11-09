@@ -74,6 +74,71 @@ fn is_dash(line: &str) -> bool {
     content == "-" || content.starts_with("- ")
 }
 
+// Reparse only bounded, unambiguous values. The line copier preserves comments,
+// but must not offer a refactor when its whitespace edits change scalar data.
+enum ValueFrame { Map(bool,std::collections::BTreeSet<String>), Sequence }
+#[derive(Default)]
+struct ValueGuard {frames:Vec<ValueFrame>,nodes:usize,docs:usize,bad:bool}
+impl ValueGuard {
+    fn value(&mut self) {
+        if let Some(ValueFrame::Map(key,_))=self.frames.last_mut() {
+            if *key {self.bad=true;}else{*key=true;}
+        }
+    }
+}
+impl yaml_rust2::parser::EventReceiver for ValueGuard {
+    fn on_event(&mut self,event:yaml_rust2::parser::Event) {
+        use yaml_rust2::parser::Event;
+        if self.bad{return;}
+        self.nodes+=1;if self.nodes>8192||self.frames.len()>32 {self.bad=true;return;}
+        match event {
+            Event::DocumentStart=>{self.docs+=1;if self.docs>256{self.bad=true;}},
+            Event::Alias(_)=>self.bad=true,
+            Event::Scalar(value,_,anchor,tag)=>{
+                if anchor!=0||tag.is_some(){self.bad=true;return;}
+                if let Some(ValueFrame::Map(key,seen))=self.frames.last_mut() {
+                    if *key&&!seen.insert(value){self.bad=true;}
+                    *key=!*key;
+                }
+            },
+            Event::MappingStart(anchor,ref tag)|Event::SequenceStart(anchor,ref tag)=>{
+                if anchor!=0||tag.is_some(){self.bad=true;return;}
+                self.value();
+                self.frames.push(if matches!(event,Event::MappingStart(..)){ValueFrame::Map(true,Default::default())}else{ValueFrame::Sequence});
+            },
+            Event::MappingEnd|Event::SequenceEnd=>{self.frames.pop();},
+            _=>{},
+        }
+    }
+}
+pub(crate) fn source_documents(text:&str)->Option<Vec<yaml_rust2::Yaml>> {
+    if text.len()>crate::MAX_BYTES{return None;}
+    let mut guard=ValueGuard::default();
+    yaml_rust2::parser::Parser::new_from_str(text).load(&mut guard,true).ok()?;
+    if guard.bad{return None;}
+    yaml_rust2::YamlLoader::load_from_str(text).ok()
+}
+fn parsed_values(text:&str)->Option<Vec<yaml_rust2::Yaml>> {
+    Some(source_documents(text)?.into_iter().filter(|doc|!matches!(doc,yaml_rust2::Yaml::Null)).collect())
+}
+fn split_preserves_values(before:&str,after:&str)->Option<()> {
+    use yaml_rust2::Yaml;
+    let source=parsed_values(before)?;
+    if source.len()!=1||source[0]["apiVersion"].as_str()!=Some("v1")||source[0]["kind"].as_str()!=Some("List"){return None;}
+    match &source[0]["metadata"] {
+        Yaml::BadValue|Yaml::Null=>{},
+        Yaml::Hash(fields) if fields.is_empty()=>{},
+        _=>return None,
+    }
+    let expected=source[0]["items"].as_vec()?;
+    (expected==&parsed_values(after)?).then_some(())
+}
+fn join_preserves_values(before:&str,after:&str)->Option<()> {
+    let source=parsed_values(before)?;let result=parsed_values(after)?;
+    if result.len()!=1{return None;}
+    (result[0]["items"].as_vec()?==&source).then_some(())
+}
+
 /// A `kind: List` document body as one document per item, joined by `---`.
 fn list_to_documents(body: &str) -> Option<String> {
     let eol = eol_of(body);
@@ -145,6 +210,7 @@ fn list_to_documents(body: &str) -> Option<String> {
     if body.ends_with('\n') {
         result.push_str(eol);
     }
+    split_preserves_values(body,&result)?;
     Some(result)
 }
 
@@ -177,6 +243,7 @@ fn documents_to_list(text: &str, docs: &[Doc]) -> Option<String> {
     if !text.ends_with('\n') {
         result.truncate(result.len() - eol.len());
     }
+    join_preserves_values(text,&result)?;
     Some(result)
 }
 
@@ -221,6 +288,38 @@ mod tests {
 
     const LIST: &str = "# header\napiVersion: v1\nkind: List\nitems:\n  - apiVersion: v1\n    kind: ConfigMap # keep\n    metadata:\n      name: a\n    data:\n      k: |\n        line\n\n  # second\n  - apiVersion: v1\n    kind: Pod\n    metadata:\n      name: b\n";
     const SPLIT: &str = "# header\napiVersion: v1\nkind: ConfigMap # keep\nmetadata:\n  name: a\ndata:\n  k: |\n    line\n---\n# second\napiVersion: v1\nkind: Pod\nmetadata:\n  name: b\n";
+
+    #[test]
+    fn list_split_cannot_change_keep_chomp_scalar_payload() {
+        let source=LIST.replace("k: |\n","k: |+\n");
+        if let Some(changed)=convert(&source,LIST_TO_DOCUMENTS,4) {
+            let original=yaml_rust2::YamlLoader::load_from_str(&source).unwrap();
+            let converted=yaml_rust2::YamlLoader::load_from_str(&changed).unwrap();
+            assert_eq!(original[0]["items"][0]["data"]["k"],converted[0]["data"]["k"],"a refactor must not change ConfigMap value bytes");
+        }
+    }
+    #[test]
+    fn documents_join_cannot_change_final_keep_chomp_scalar_payload() {
+        let source="apiVersion: v1\nkind: Pod\n---\napiVersion: v1\nkind: ConfigMap\ndata:\n  k: |+\n    line\n\n";
+        if let Some(changed)=convert(source,DOCUMENTS_TO_LIST,0) {
+            let original=yaml_rust2::YamlLoader::load_from_str(source).unwrap();
+            let converted=yaml_rust2::YamlLoader::load_from_str(&changed).unwrap();
+            assert_eq!(original[1]["data"]["k"],converted[0]["items"][1]["data"]["k"],"a refactor must not change ConfigMap value bytes");
+        }
+    }
+
+    #[test]
+    fn conversions_refuse_ambiguous_or_discarded_data_but_keep_equivalent_keep_chomp_values() {
+        let metadata=LIST.replace("items:","metadata: {labels: {owner: team}}\nitems:");
+        let duplicate=LIST.replace("      k: |", "      k: discarded\n      k: |");
+        for source in [metadata.as_str(),duplicate.as_str()] {
+            assert!(convert(source,LIST_TO_DOCUMENTS,4).is_none());
+        }
+        let safe=LIST.replace("k: |\n","k: |+\n").replace("        line\n\n","        line\n");
+        assert!(convert(&safe,LIST_TO_DOCUMENTS,4).is_some());
+        let safe_join="apiVersion: v1\nkind: Pod\n---\napiVersion: v1\nkind: ConfigMap\ndata:\n  k: |+\n    line\n";
+        assert!(convert(safe_join,DOCUMENTS_TO_LIST,0).is_some());
+    }
 
     #[test]
     fn list_becomes_separate_documents() {

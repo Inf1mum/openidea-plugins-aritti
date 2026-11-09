@@ -1,0 +1,7 @@
+html,body{margin:0;overflow-x:clip;background:var(--ui-bg);color:var(--ui-fg);font:var(--ui-text)/var(--ui-leading) var(--ui-font)}
+.api-toolbar{position:sticky;top:0;z-index:10;display:flex;flex-wrap:wrap;align-items:center;gap:var(--ui-space-2);padding:var(--ui-space-2) var(--ui-space-3);border-bottom:1px solid var(--ui-border);background:var(--ui-panel);color:var(--ui-fg)}
+.api-toolbar strong{flex:1;min-width:100px}
+#redoc{display:none}
+/* Vendor renderers own their controls. Keep their compatibility filter scoped
+   to the vendor content so host colors on our toolbar are never inverted. */
+:root[data-theme="dark"] :is(#swagger,#redoc){filter:invert(.9) hue-rotate(180deg)}

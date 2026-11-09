@@ -1,0 +1,16 @@
+{
+  "id": "devcontainer-root-relative",
+  "name": "Dev Container (root-relative argv, aaaaaaaaaaaa)",
+  "program": "docker",
+  "args": [
+    "--host",
+    "unix:///var/run/docker.sock",
+    "exec",
+    "--workdir",
+    "/workspace/app",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  ],
+  "workdirArgs": [],
+  "containerRoot": null,
+  "commands": []
+}

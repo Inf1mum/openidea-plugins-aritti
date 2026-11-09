@@ -49,7 +49,7 @@ pub fn helm_release() -> Option<String> {
     stored_value("helm-release")
 }
 
-fn refuse_option_like(what: &str, value: &str) -> Result<(), Error> {
+pub(crate) fn refuse_option_like(what: &str, value: &str) -> Result<(), Error> {
     if value.starts_with('-') || value.chars().any(char::is_control) {
         return Err(format!("The {what} \"{value}\" starts with '-' or has control characters.").into());
     }
@@ -217,7 +217,8 @@ mod tests {
     }
 
     fn command(host: &MockHost, kube: &mut KubeExplorer, id: &str, arg: Option<&str>) -> Result<Option<String>, Error> {
-        kube.run_command(id, &host.invocation(), arg)
+        let captured=arg.filter(|key|key.starts_with("res:")).map(|key|kube.test_resource_key(key,&host.invocation()));
+        kube.run_command(id, &host.invocation(), captured.as_deref().or(arg))
     }
 
     #[test]

@@ -8,12 +8,65 @@ struct Scanner<'t> {
     text: &'t str,
     at: usize,
     keys: Vec<Key>,
+    budget:Option<Budget>,
 }
+struct Budget {keys:usize,paths:usize,max_keys:usize,max_paths:usize,exhausted:bool}
 
 pub fn keys(text: &str) -> Vec<Key> {
-    let mut scanner = Scanner { text, at: 0, keys: Vec::new() };
+    let mut scanner = Scanner { text, at: 0, keys: Vec::new(),budget:None };
     scanner.value("", 0);
     scanner.keys
+}
+
+/// Strict consumers must never mistake a budget-truncated scan for absence.
+/// Reserve aggregate path/key capacity before allocating each flattened path.
+pub(crate) fn bounded_keys(text:&str,max_keys:usize,max_path_bytes:usize)->Option<Vec<Key>> {
+    let mut scanner=Scanner {text,at:0,keys:Vec::new(),budget:Some(Budget {keys:0,paths:0,max_keys,max_paths:max_path_bytes,exhausted:false})};
+    scanner.value("",0)?;
+    if scanner.peek().is_some() {return None;}
+    Some(scanner.keys)
+}
+
+/// Completion/source preflight retains syntactic partial keys, but never a
+/// budget-truncated model. Strict fact consumers use bounded_keys instead.
+pub(crate) fn partial_bounded_keys(text:&str,max_keys:usize,max_path_bytes:usize)->Option<Vec<Key>> {
+    let mut scanner=Scanner {text,at:0,keys:Vec::new(),budget:Some(Budget {keys:0,paths:0,max_keys,max_paths:max_path_bytes,exhausted:false})};
+    let _=scanner.value("",0);
+    (!scanner.budget.as_ref()?.exhausted).then_some(scanner.keys)
+}
+
+#[cfg(test)]
+mod bounded_scan_tests {
+    use super::*;
+    #[test]
+    fn strict_budget_or_syntax_failure_never_returns_a_partial_key_model() {
+        let text=r#"{"a":{"b":1},"c":2}"#;
+        assert_eq!(keys(text).len(),3);
+        assert!(bounded_keys(text,2,100).is_none());
+        assert!(bounded_keys(text,3,4).is_none());
+        assert_eq!(bounded_keys(text,3,5).unwrap().len(),3);
+        assert!(bounded_keys(r#"{"a":"#,10,100).is_none());
+        assert!(bounded_keys(r#"{"a":1}{}"#,10,100).is_none());
+        assert_eq!(bounded_keys(r#"{"\uD83D\uDE00":1}"#,1,4).unwrap()[0].key,"😀");
+        assert!(bounded_keys(r#"{"\uD83D\uDE00":1}"#,1,3).is_none());
+    }
+    #[test]
+    fn long_prefix_and_discarded_duplicate_branches_are_bounded_before_flattened_allocation() {
+        let fields=(0..1000).map(|n|(format!("n{n}"),serde_json::Value::Null)).collect::<serde_json::Map<_,_>>();
+        let amplified=serde_json::json!({"x".repeat(4096):fields}).to_string();
+        assert!(amplified.len()<20000);
+        assert!(bounded_keys(&amplified,8192,32<<10).is_none());
+        let discarded=format!("{{\"x\":{amplified},\"x\":{{}}}}");
+        assert_eq!(serde_json::from_str::<serde_json::Value>(&discarded).unwrap()["x"],serde_json::json!({}));
+        assert!(bounded_keys(&discarded,8192,32<<10).is_none());
+    }
+    #[test]
+    fn partial_typing_is_preserved_but_exhausted_partial_contexts_are_not() {
+        let partial=r#"{"openapi":"3.1.1","x":{"$ref":"common.json#/Pe""#;
+        assert_eq!(partial_bounded_keys(partial,8192,4<<20).unwrap(),keys(partial));
+        assert!(bounded_keys(partial,8192,4<<20).is_none());
+        assert!(partial_bounded_keys(partial,1,4<<20).is_none());
+    }
 }
 
 pub fn unescape(raw: &str) -> String {
@@ -186,6 +239,15 @@ fn unicode(chars: &mut std::str::Chars) -> char {
 }
 
 impl Scanner<'_> {
+    fn reserve(&mut self,path_bytes:usize,key:bool)->Option<()> {
+        if let Some(budget)=&mut self.budget {
+            let Some(paths)=budget.paths.checked_add(path_bytes) else {budget.exhausted=true;return None;};
+            let Some(keys)=budget.keys.checked_add(usize::from(key)) else {budget.exhausted=true;return None;};
+            if paths>budget.max_paths || keys>budget.max_keys {budget.exhausted=true;return None;}
+            budget.paths=paths;budget.keys=keys;
+        }
+        Some(())
+    }
     fn peek(&mut self) -> Option<u8> {
         while self.text.as_bytes().get(self.at).is_some_and(u8::is_ascii_whitespace) {
             self.at += 1;
@@ -252,6 +314,7 @@ impl Scanner<'_> {
             }
             self.at += 1;
 
+            self.reserve(path.len().checked_add(usize::from(!path.is_empty()))?.checked_add(name.len())?,true)?;
             let key = if path.is_empty() { name } else { format!("{path}.{name}") };
             let slot = self.keys.len();
             self.keys.push(Key { key: key.clone(), at, end, ..Key::default() });
@@ -276,12 +339,14 @@ impl Scanner<'_> {
         }
 
         for index in 0.. {
+            self.reserve(path.len().checked_add(index.to_string().len())?.checked_add(2)?,false)?;
             let item = format!("{path}[{index}]");
             if matches!(self.peek()?, b'{' | b'[') {
                 self.value(&item, depth + 1)?;
             } else {
                 let (at, end, _) = self.value(&item, depth + 1)?;
                 let value = unescape(&self.text[at..end]);
+                self.reserve(0,true)?;
                 self.keys.push(Key { key: item, at, end, value, value_at: at, value_end: end });
             }
 

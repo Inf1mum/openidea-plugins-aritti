@@ -10,32 +10,48 @@
 mod chart_actions;
 mod checks;
 mod complete;
+mod cluster_completion;
+mod watch;
+mod process_scope;
+mod rich_controls;
+mod yaml_editor;
 mod config;
-mod helm;
-mod kinds;
-mod logs;
 mod convert;
+mod forward;
+mod helm;
 mod indexer;
+mod kinds;
+mod kubeconfig_import;
+mod logs;
 mod manifest;
+mod navigation;
 mod prompts;
 mod reload;
 mod schema;
 mod secrets;
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::hash::{BuildHasher, RandomState};
 use std::path::Path;
 
 use openidea_plugin::providers::{CodeAction, CompletionItem, Document, Providers};
 use openidea_plugin::views::{Body, Button, Field, FieldValue, TreeItem, View, ViewEvent, Viewport, Views};
-use openidea_plugin::{
-    Context, Error, Event, EventKind, Invocation, LogLevel, NotificationLevel, Plugin, Position, Range, host,
-};
+use openidea_plugin::{Context, Error, Event, EventKind, Invocation, LogLevel, NotificationLevel, Plugin, Position, Range, host};
 
 pub const TREE: &str = "kube";
+const PANEL: &str = "resource-details";
+/// Native typed views consume viewChanged; packaged pages consume this content-free
+/// invalidation and request their own frame/project-correlated ui-kit model.
+fn refresh_panel() {
+    host::refresh_view(PANEL);
+    let _ = host::post_view_message(PANEL, r#"{"channel":"ui-kit-refresh"}"#);
+}
+
+fn refresh_views() {
+    host::refresh_view(TREE);
+    refresh_panel();
+}
+
 const KUBECTL: &str = "kubectl";
-/// Writes the YAML to edit: the plugin API has no file writes.
-const TEE: &str = "tee";
 const HELM: &str = "helm";
 const DEFAULT_DEBUG_IMAGE: &str = "busybox:stable";
 /// Keeps reads under the 5 s call budget on an unreachable cluster.
@@ -44,7 +60,7 @@ const REQUEST_TIMEOUT: &str = "--request-timeout=4s";
 const PAGE: &str = include_str!("page.html");
 /// Shown in the YAML panel when the IDE blocks the page's script, which Apply and Save to File need.
 const NO_SCRIPTS: &str = "<p id=\"nojs\">Apply and Save to File don't work in this panel: this version of the IDE blocks scripts in plugin pages. \
-    To edit, allow tee for Kube Explorer in Settings &rsaquo; Plugins. The YAML then opens in an editor tab, and saving the file applies it.</p>";
+    For supported built-ins, enable YAML in Editor and use the explicit Review Private YAML Apply and Apply Reviewed Private YAML commands. Saving is local only.</p>";
 
 /// A Kubernetes icon of the package (a `fileIcons` entry of `plugin.toml`).
 macro_rules! k8s {
@@ -74,14 +90,30 @@ const KINDS: &[(&str, &str, &str)] = &[
 /// Exact API groups Kubernetes itself serves. Others, even `*.k8s.io` ones
 /// like `gateway.networking.k8s.io`, are custom resources.
 const BUILT_IN_GROUPS: &[&str] = &[
-    "apps", "batch", "autoscaling", "policy",
-    "networking.k8s.io", "events.k8s.io", "storage.k8s.io", "rbac.authorization.k8s.io",
-    "coordination.k8s.io", "discovery.k8s.io", "apiextensions.k8s.io",
+    "apps",
+    "batch",
+    "autoscaling",
+    "policy",
+    "networking.k8s.io",
+    "events.k8s.io",
+    "storage.k8s.io",
+    "rbac.authorization.k8s.io",
+    "coordination.k8s.io",
+    "discovery.k8s.io",
+    "apiextensions.k8s.io",
     // Served by the metrics-server add-on; read-only node and pod metrics, not user-managed.
     "metrics.k8s.io",
-    "scheduling.k8s.io", "node.k8s.io", "certificates.k8s.io", "admissionregistration.k8s.io",
-    "flowcontrol.apiserver.k8s.io", "apiregistration.k8s.io", "internal.apiserver.k8s.io",
-    "resource.k8s.io", "storagemigration.k8s.io", "authentication.k8s.io", "authorization.k8s.io",
+    "scheduling.k8s.io",
+    "node.k8s.io",
+    "certificates.k8s.io",
+    "admissionregistration.k8s.io",
+    "flowcontrol.apiserver.k8s.io",
+    "apiregistration.k8s.io",
+    "internal.apiserver.k8s.io",
+    "resource.k8s.io",
+    "storagemigration.k8s.io",
+    "authentication.k8s.io",
+    "authorization.k8s.io",
 ];
 
 /// Kinds whose pods `kubectl logs --all-pods` follows.
@@ -96,6 +128,12 @@ const FORWARDABLE: &[(&str, &str)] = &[
 
 #[derive(Default)]
 pub struct KubeExplorer {
+    process_scope: process_scope::Binding,
+    resource_scope: process_scope::Resources,
+    navigation: navigation::Cache,
+    cluster_completion: cluster_completion::Cache,
+    watch: watch::Watch,
+    yaml_editors: yaml_editor::Editors,
     /// `None`: the kubeconfig's current context / the context's namespace.
     context: Option<String>,
     namespace: Option<String>,
@@ -105,13 +143,25 @@ pub struct KubeExplorer {
     /// Children of the tree's expandable keys (`ctx`, `ns`, `kind:<kind>`).
     children: BTreeMap<String, Result<Vec<String>, String>>,
     expanded: BTreeSet<String>,
+    /// Synthetic Services parent only; no resource identity or discovery.
+    cluster_collapsed: bool,
     /// Kind and row of the selected resource: its name, or `ns/name` in all namespaces.
     selected: Option<(String, String)>,
     confirm_delete: bool,
     /// Shown instead of the tree.
     details: Option<Details>,
+    details_nonce: u64,
+    rich_callback: Option<String>,
+    rich_fields: std::cell::RefCell<BTreeMap<String,String>>,
+    /// Owner of cached rich details / Secret plaintext and drafts, never anonymous.
+    rich_owner: Option<String>,
+    rich_scope: (Option<String>, Option<String>, Option<String>),
     /// Port forward being set up (shown instead of the tree): namespace, target and ports.
-    forward: Option<(Option<String>, String, String)>,
+    forward: Option<forward::Draft>,
+    forward_session: Option<forward::Session>,
+    prepared_forward: Option<forward::Prepared>,
+    forward_nonce: u64,
+    show_forward_session: bool,
     /// The manifest whose resources the shown dry run would delete.
     pending_delete: Option<String>,
     /// A revealed Secret: name and decoded values. Dropped by Back.
@@ -136,6 +186,7 @@ pub struct Draft {
 
 /// `describe`, YAML or diff output.
 pub struct Details {
+    callback: String,
     title: String,
     text: String,
     /// `yaml`, `diff` or `text` (highlighting).
@@ -176,8 +227,8 @@ impl KubeExplorer {
     /// kubectl as an option or a path, and no row falls back to the kubeconfig's namespace.
     fn split_scope(&self, kind: &str, row: &str) -> Result<(Option<String>, String), Error> {
         if !self.all_namespaces() {
-            if row.is_empty() || row.starts_with('-') {
-                return Err(format!("Refusing the name \"{row}\": it is empty or starts with '-'.").into());
+            if row.is_empty() || row.starts_with('-') || matches!(row,"."|"..") || row.chars().any(|c|c.is_control()||c.is_whitespace()||matches!(c,'/'|'%'|',')) {
+                return Err(format!("Refusing the name \"{row}\": it is not one literal resource name.").into());
             }
             return Ok((self.namespace.clone(), row.to_owned()));
         }
@@ -202,9 +253,7 @@ impl KubeExplorer {
         let named = [("pod", pod), ("image", image)].into_iter().chain(target.map(|t| ("container", t)));
         for (what, value) in named {
             if value.is_empty() || value.starts_with('-') || value.chars().any(|c| c.is_whitespace() || c.is_control()) {
-                return Err(format!(
-                    "Refusing to debug: the {what} name \"{value}\" is empty, starts with '-' or has whitespace."
-                ));
+                return Err(format!("Refusing to debug: the {what} name \"{value}\" is empty, starts with '-' or has whitespace."));
             }
         }
         let image = format!("--image={image}");
@@ -233,7 +282,7 @@ impl KubeExplorer {
         host::setting_bool("allowRevealSecrets") == Some(true)
     }
 
-    /// Off by default: `tee` creates the temp file readable by every local user.
+    /// Off by default: private source-owned copy, with explicit reviewed apply.
     fn yaml_in_editor() -> bool {
         host::setting_bool("yamlInEditor") == Some(true)
     }
@@ -251,17 +300,66 @@ impl KubeExplorer {
         false
     }
 
+    fn expire_secret_visibility(&mut self)->bool {
+        if Self::reveal_allowed(){return false;}
+        let mut changed=self.revealed.take().is_some()|self.editing_secret.take().is_some();
+        if self.details.as_ref().is_some_and(|details|details.editing.as_ref().is_some_and(|(kind,_)|kind=="secrets")) {
+            self.details=None;changed=true;
+        }
+        if changed {crate::refresh_panel();}
+        changed
+    }
+
+    pub(crate) fn clear_panel_data(&mut self) {
+        self.details=None;self.pending_delete=None;self.revealed=None;
+        self.draft=None;self.log_view=None;self.editing_secret=None;
+    }
+    pub(crate) fn ensure_panel_replace(&self)->Result<(),Error> {
+        if self.editing_secret.as_ref().is_some_and(|edit|edit.is_dirty())
+            || self.draft.as_ref().is_some_and(|draft|!draft.name.is_empty()||!draft.key.is_empty()||!draft.value.is_empty()||!draft.entries.is_empty()) {
+            crate::refresh_panel();
+            return Err(Error::Invalid("Save or close the current Secret form first. Unsaved values were retained.".into()));
+        }
+        Ok(())
+    }
+    pub(crate) fn begin_panel(&mut self)->Result<String,Error> {
+        self.ensure_panel_replace()?;
+        self.clear_panel_data();self.forward=None;self.prepared_forward=None;
+        self.show_forward_session=false;Ok(self.new_rich_callback())
+    }
+
+    fn has_rich_cache(&self) -> bool {
+        self.details.is_some() || self.revealed.is_some() || self.editing_secret.is_some()
+            || self.draft.is_some() || self.pending_delete.is_some()
+    }
+
+    fn expire_rich_context(&mut self, ctx: Option<&Invocation>) -> bool {
+        let hidden=self.expire_secret_visibility();
+        let current = forward::owner(ctx).ok().map(|(_, root)| root);
+        let scope = (self.context.clone(), self.namespace.clone(), config::kubeconfig());
+        let stale = self.has_rich_cache() && (current.is_none() || self.rich_owner != current || self.rich_scope != scope);
+        if stale {
+            self.details = None; self.revealed = None; self.editing_secret = None;
+            self.draft = None; self.pending_delete = None;
+            crate::refresh_panel();
+        }
+        if !self.has_rich_cache() { self.rich_owner = current; self.rich_scope = scope; }
+        stale||hidden
+    }
+
     fn show_secret(&mut self, row: &str) -> Result<(), Error> {
         if !Self::secret_gate("secrets") {
             return Ok(());
         }
         let (namespace, name) = self.split_scope("secrets", row)?;
-        let json = self.kubectl_in(namespace.as_deref(), &["get", "secret", &name, "-o", "json", REQUEST_TIMEOUT], None)?;
+        let json = self.kubectl_in(namespace.as_deref(), &["get", "secret", &name, "-o", "json", REQUEST_TIMEOUT], None).map_err(|error|secrets::command_error("read",error))?;
+        secrets::validate_response(&json,&name,namespace.as_deref(),false)?;
         let entries = secrets::data_entries(&json)?;
         let values = entries.iter().map(|(key, bytes)| (key.clone(), secrets::display(bytes))).collect();
+        self.begin_panel()?;
         self.revealed = Some((row.to_owned(), values));
         self.details = None;
-        host::refresh_view(TREE);
+        crate::refresh_views();
         Ok(())
     }
 
@@ -286,13 +384,13 @@ impl KubeExplorer {
         let name = draft.name.clone();
         let manifest = secrets::manifest(&name, &entries)?;
         self.draft = None;
-        host::refresh_view(TREE);
-        let out = host::run_process(KUBECTL, &self.args(&["create", "-f", "-"]), Some(&manifest))?;
+        crate::refresh_views();
+        let out = self.process(KUBECTL, &self.args(&["create", "-f", "-"]), Some(&manifest)).map_err(|error|secrets::command_error("create",error))?;
         if out.status != Some(0) {
             if out.stderr.contains("AlreadyExists") || out.stderr.contains("already exists") {
                 return Err(format!("A secret named \"{name}\" already exists; Create Secret does not overwrite it.").into());
             }
-            return Err(failure(KUBECTL, &secrets::redact(&out.stderr, &entries), out.status));
+            return Err(secrets::command_failure("create",out.status));
         }
         config::notify_success("Secret created", &format!("{name} in {}", self.target()));
         self.reload();
@@ -300,14 +398,32 @@ impl KubeExplorer {
     }
 
     fn render_revealed(&self, name: &str, values: &[(String, String)]) -> View {
-        let body = match values.is_empty() {
-            true => Body::Message("This secret has no data.".into()),
-            false => Body::Form(
-                values.iter().map(|(key, value)| Field::new(key, key, FieldValue::Multiline(value.clone()))).collect(),
-            ),
+        // Pinned native Multiline fields clip at1MiB. Numbered parts preserve
+        // the whole shown value, including large binary base64 and Unicode.
+        let mut split=false;
+        let body = if values.is_empty() {Body::Message("This secret has no data.".into())}else{
+            let mut fields=Vec::new();
+            for (index,(key,value)) in values.iter().enumerate() {
+                let mut parts=Vec::new();let mut start=0;
+                while start<value.len() {
+                    let mut end=(start+(1<<20)).min(value.len());
+                    while !value.is_char_boundary(end){end-=1;}
+                    parts.push(&value[start..end]);start=end;
+                }
+                if parts.is_empty(){parts.push("");}
+                split|=parts.len()>1;
+                for (part,text) in parts.iter().enumerate() {
+                    let (id,label)=if parts.len()==1 {(format!("revealed-{index}"),key.clone())}else{
+                        (format!("revealed-{index}-{part}"),format!("{key} (part {} of {}; join without separators)",part+1,parts.len()))
+                    };
+                    fields.push(Field::new(&id,&label,FieldValue::Multiline((*text).into())));
+                }
+            }
+            Body::Form(fields)
         };
+        let note=if split {"; numbered parts contain one value: join each value's parts in order without separators"}else{""};
         View::new(body)
-            .status(&format!("Secret {name}: values are shown here only; Back clears them"))
+            .status(&format!("Secret {name}: values are shown here only{note}; Back clears them"))
             .button(Button::new("back", "Back").icon("arrow-left"))
     }
 
@@ -335,7 +451,7 @@ impl KubeExplorer {
     }
 
     fn run_kubectl(&self, args: Vec<String>, stdin: Option<&str>) -> Result<String, Error> {
-        let out = host::run_process(KUBECTL, &args, stdin)?;
+        let out = self.process(KUBECTL, &args, stdin)?;
         if out.status == Some(0) {
             return Ok(out.stdout);
         }
@@ -354,6 +470,7 @@ impl KubeExplorer {
             return Ok(Vec::new());
         }
         let kind = if parent == "ns" { "namespaces" } else { parent.trim_start_matches("kind:") };
+        if !resource_type_name(kind) {return Err("Unsupported resource type from discovery; lookup was not run.".into());}
         let label = KINDS.iter().find(|(k, ..)| *k == kind).map_or(kind.to_owned(), |(_, label, _)| label.to_lowercase());
         let _task = host::begin_task(&format!("Loading {label}"), false);
         if self.all_namespaces() && !CLUSTER_SCOPED.contains(&kind) {
@@ -369,11 +486,18 @@ impl KubeExplorer {
     fn custom_resources(&self) -> Result<Vec<String>, String> {
         let _task = host::begin_task("Loading custom resources", false);
         let out = self.kubectl(&["api-resources", "-o", "name", "--verbs=list", REQUEST_TIMEOUT], None)?;
-        Ok(custom_resource_names(out.lines().map(str::to_owned).collect()))
+        if out.len()>256<<10 {return Err("Resource discovery exceeds its 256 KiB bound; no inventory was accepted.".into());}
+        let names:Vec<_>=out.lines().filter(|line|!line.is_empty()).take(4097).map(str::to_owned).collect();
+        if names.len()>4096||names.iter().any(|name|!resource_type_name(name)) {
+            return Err("Unsupported or oversized resource discovery; no resource-type inventory was accepted.".into());
+        }
+        Ok(custom_resource_names(names))
     }
 
     /// Drops cached children and reloads those of expanded nodes.
     fn reload(&mut self) {
+        self.watch.settings_changed(&self.context,&self.namespace);
+        self.cluster_completion.clear();
         self.children.clear();
         self.current_context = None;
         self.kubectl_failed = false;
@@ -381,7 +505,7 @@ impl KubeExplorer {
             let loaded = self.load(&key);
             self.children.insert(key, loaded);
         }
-        host::refresh_view(TREE);
+        crate::refresh_views();
     }
 
     /// `context/namespace` the cluster calls go to, for messages.
@@ -406,67 +530,37 @@ impl KubeExplorer {
         }
     }
 
-    fn show(&mut self, title: String, text: String, lang: &'static str) {
-        self.details = Some(Details { title, text, lang, editing: None, note: None });
+    fn show(&mut self, title: String, text: String, lang: &'static str)->Result<(),Error> {
+        self.begin_panel()?;
+        self.details = Some(Details { title, text, lang, editing: None, note: None, callback:String::new() });
+        self.show_forward_session = false;
         self.forward = None;
         self.pending_delete = None;
-        host::refresh_view(TREE);
-    }
-
-    /// The YAML in an editor on a temp file (saving applies it), else in the panel.
-    /// A Secret never goes to a file: `tee` creates it readable by every local user.
-    fn edit_yaml(&mut self, kind: &str, row: &str) -> Result<(), Error> {
-        if !Self::secret_gate(kind) {
-            return Ok(());
-        }
-        let (namespace, name) = self.split_scope(kind, row)?;
-        let _task = host::begin_task(&format!("Loading {kind}/{row}"), false);
-        let text = self.kubectl_in(namespace.as_deref(), &["get", kind, &name, "-o", "yaml", REQUEST_TIMEOUT], None)?;
-        if kind == "secrets" || !Self::yaml_in_editor() {
-            self.show_yaml(kind, row, text, None);
-            return Ok(());
-        }
-
-        let yaml = without_resource_version(&text);
-        let yaml = format!("{}{yaml}", schema::modeline(&yaml).unwrap_or_default());
-        if let Err(e) = self.open_temp_file(namespace.as_deref(), kind, &name, &yaml) {
-            host::log(LogLevel::Info, &format!("editing {kind}/{row} in the panel: {e}"));
-            self.show_yaml(kind, row, text, None);
-        }
+        crate::refresh_views();
         Ok(())
     }
 
-    fn open_temp_file(&self, namespace: Option<&str>, kind: &str, name: &str, yaml: &str) -> Result<(), Error> {
-        // Unguessable, so another local user can't plant a symlink at it in /tmp.
-        let nonce = RandomState::new().hash_one(0u8) as u32;
-        let path = format!("/tmp/kube-explorer-{}-{}-{nonce:08x}.yaml", file_safe(kind), file_safe(name));
-        let out = host::run_process(TEE, &[path.clone()], Some(yaml))?;
-        if out.status != Some(0) {
-            return Err(failure(TEE, &out.stderr, out.status));
-        }
-        // ponytail: one storage entry per opened file, never pruned; prune by age if 1 MiB gets near.
-        let origin = [self.context.as_deref().unwrap_or(""), namespace.unwrap_or(""), kind, name];
-        host::storage::set(&format!("edit:{path}"), &origin.join("\n"))?;
-        host::subscribe(EventKind::FileSaved)?;
-        host::open_location(&path, 0, 0)
+    fn resource_yaml_text(&self,kind:&str,name:&str,namespace:Option<&str>)->Result<String,Error> {
+        let read=self.kubectl_in(namespace,&["get",kind,name,"-o","yaml",REQUEST_TIMEOUT],None);
+        if kind=="secrets" {read.map_err(|error|secrets::command_error("read",error))}else{read}
     }
 
-    /// Replaces the object a saved temp file was opened for, in the context it came from.
-    fn apply_saved(path: &str) {
-        let Ok(Some(origin)) = host::storage::get(&format!("edit:{path}")) else {
-            return;
-        };
-        let parts: Vec<&str> = origin.split('\n').collect();
-        let [context, namespace, kind, name] = parts[..] else {
-            return;
-        };
-        let given = |s: &str| (!s.is_empty()).then(|| s.to_owned());
-        let origin = KubeExplorer { context: given(context), namespace: given(namespace), ..KubeExplorer::default() };
-        let _task = host::begin_task(&format!("Applying {kind}/{name}"), false);
-        match origin.kubectl(&["replace", "-f", path], None) {
-            Ok(out) => config::notify_success(&format!("Applied {kind}/{name}"), out.trim()),
-            Err(e) => host::notify(NotificationLevel::Error, &format!("Could not apply {kind}/{name}"), &e.to_string()),
+    /// Private editor for supported source-owned built-ins; otherwise the panel.
+    /// Secrets never go to a file. Save alone never executes a cluster mutation.
+    fn edit_yaml(&mut self, kind: &str, row: &str) -> Result<(), Error> {
+        if !Self::secret_gate(kind) { return Ok(()); }
+        let (namespace, name) = self.split_scope(kind, row)?;
+        if kind != "secrets" && Self::yaml_in_editor() {
+            if let Some(root) = self.rich_owner.clone() {
+                match self.yaml_editors.open(&root,self.context.as_deref(),namespace.as_deref(),kind,&name) {
+                    Ok(()) => return Ok(()),
+                    Err(_) => host::notify(NotificationLevel::Info,"Private YAML editor","Private source-owned editor unavailable for this resource/scope; using the panel. No private copy was applied."),
+                }
+            }
         }
+        let _task = host::begin_task(&format!("Loading {kind}/{row}"), false);
+        let text = self.resource_yaml_text(kind,&name,namespace.as_deref())?;
+        self.show_yaml(kind,row,text,None)?; Ok(())
     }
 
     fn open_yaml(&mut self, kind: &str, row: &str, note: Option<String>) -> Result<(), Error> {
@@ -475,8 +569,8 @@ impl KubeExplorer {
         }
         let (namespace, name) = self.split_scope(kind, row)?;
         let _task = host::begin_task(&format!("Loading {kind}/{row}"), false);
-        let text = self.kubectl_in(namespace.as_deref(), &["get", kind, &name, "-o", "yaml", REQUEST_TIMEOUT], None)?;
-        self.show_yaml(kind, row, text, note);
+        let text = self.resource_yaml_text(kind,&name,namespace.as_deref())?;
+        self.show_yaml(kind, row, text, note)?;
         Ok(())
     }
 
@@ -484,14 +578,16 @@ impl KubeExplorer {
         let (namespace, name) = self.split_scope(kind, row)?;
         let _task = host::begin_task(&format!("Describing {kind}/{row}"), false);
         let text = self.kubectl_in(namespace.as_deref(), &["describe", kind, &name, REQUEST_TIMEOUT], None)?;
-        self.show(format!("{kind}/{row}"), text, "yaml");
+        self.show(format!("{kind}/{row}"), text, "yaml")?;
         Ok(())
     }
 
-    fn show_yaml(&mut self, kind: &str, name: &str, text: String, note: Option<String>) {
+    fn show_yaml(&mut self, kind: &str, name: &str, text: String, note: Option<String>)->Result<(),Error> {
         let editing = Some((kind.to_owned(), name.to_owned()));
-        self.details = Some(Details { title: format!("{kind}/{name}"), text, lang: "yaml", editing, note });
-        host::refresh_view(TREE);
+        let callback=self.begin_panel()?;
+        self.details = Some(Details { title: format!("{kind}/{name}"), text, lang: "yaml", editing, note, callback });
+        crate::refresh_views();
+        Ok(())
     }
 
     /// Replaces the edited object; on failure the page keeps the edits and shows why.
@@ -499,16 +595,20 @@ impl KubeExplorer {
         let Some((kind, row)) = self.details.as_ref().and_then(|d| d.editing.clone()) else {
             return Ok(());
         };
+        if kind=="secrets"&&!Self::reveal_allowed(){self.expire_secret_visibility();return Err(Error::Stale);}
         let (namespace, _) = self.split_scope(&kind, &row)?;
         let _task = host::begin_task(&format!("Applying {kind}/{row}"), false);
-        match self.kubectl_in(namespace.as_deref(), &["replace", "-f", "-"], Some(yaml)) {
+        let result=self.kubectl_in(namespace.as_deref(), &["replace", "-f", "-"], Some(yaml));
+        let result=if kind=="secrets" {result.map_err(|error|secrets::command_error("save",error))}else{result};
+        match result {
             Ok(out) => self.open_yaml(&kind, &row, Some(out.trim().to_owned())),
-            Err(e) => host::post_view_message(TREE, &format!("error:{e}")),
+            Err(e) => host::post_view_message(PANEL, &format!("error:{e}")),
         }
     }
 
     fn render_details(&self, details: &Details) -> View {
         let page = PAGE
+            .replace("{{callback}}", &details.callback)
             .replace("{{lang}}", details.lang)
             .replace("{{name}}", &escape_html(&details.title.replace('/', "-")))
             .replace("{{readonly}}", if details.editing.is_some() { "" } else { "readonly" })
@@ -532,13 +632,13 @@ impl KubeExplorer {
         self.actions(view)
     }
 
-    fn start_port_forward(&mut self, kind: &str, row: &str) -> Result<(), Error> {
+    fn start_port_forward(&mut self, kind: &str, row: &str, ctx: Option<&Invocation>) -> Result<(), Error> {
         let Some((_, ports_path)) = FORWARDABLE.iter().find(|(k, _)| *k == kind) else {
             return Ok(());
         };
-        let (namespace, name) = self.split_scope(kind, row)?;
+        let mut draft = self.prepare_forward(kind, row, ctx)?;
         let jsonpath = format!("jsonpath={ports_path}");
-        let found = self.kubectl_in(namespace.as_deref(), &["get", kind, &name, "-o", &jsonpath, REQUEST_TIMEOUT], None)?;
+        let found = self.forward_ports(&draft, &jsonpath)?;
         // A port served over TCP and UDP is listed twice; forwarding it twice fails.
         let mut ports: Vec<&str> = Vec::new();
         for port in found.split_whitespace() {
@@ -547,51 +647,73 @@ impl KubeExplorer {
             }
         }
         let ports = ports.iter().map(|p| format!("{p}:{p}")).collect::<Vec<_>>().join(" ");
-        self.forward = Some((namespace, format!("{kind}/{name}"), ports));
+        draft.ports = ports;
+        self.begin_panel()?;
+        self.forward = Some(draft);
+        self.show_forward_session = false;
         self.details = None;
-        host::refresh_view(TREE);
+        crate::refresh_views();
         Ok(())
     }
 
     fn render_forward(&self, target: &str, ports: &str) -> View {
         let field = Field::new("ports", "Ports (local:remote, separated by spaces)", FieldValue::Text(ports.into()));
-        View::new(Body::Form(vec![field]))
+        let owner = self.forward.as_ref().and_then(|draft| draft.owner_root.as_deref());
+        let lifetime = Field::new(
+            "forward-lifetime",
+            "Session lifetime",
+            FieldValue::readonly_text(
+                &format!("Managed project owner: {}. Start in Terminal is the durable option. Managed Stop/Restart needs an open project and project.read permission; project/scope/selection changes retire it. Idle reclamation (about five idle minutes), window close or plugin stop also ends it.", owner.unwrap_or("unavailable; grant project.read or open a project")),
+                true,
+            ),
+        );
+        View::new(Body::Form(vec![field, lifetime]))
             .status(&format!("Port forward to {target}"))
             .button(Button::new("back", "Back").icon("arrow-left"))
-            .button(Button::new("start-forward", "Start").icon("run"))
+            .button(Button::new("start-forward", "Start in Terminal").icon("run"))
+            .button(Button::new("start-managed-forward", "Start Managed Session").icon("run").enabled(owner.is_some()))
     }
 
-    fn render_tree(&mut self) -> Result<View, Error> {
-        if let Some((_, target, ports)) = &self.forward {
-            return Ok(self.render_forward(target, ports));
+    fn render_tree_in(&mut self, ctx: Option<&Invocation>) -> Result<View, Error> {
+        if let Some(view) = self.prepared_forward_view() { return Ok(self.protect_rich_view(view)); }
+        if self.show_forward_session {
+            let view=self.forward_status(ctx);return Ok(self.protect_rich_view(view));
+        }
+        if let Some(draft) = &self.forward {
+            return Ok(self.protect_rich_view(self.render_forward(&draft.target, &draft.ports)));
         }
         if let Some(draft) = &self.draft {
-            return Ok(self.render_draft(draft));
+            return Ok(self.protect_rich_view(self.render_draft(draft)));
         }
-        if !Self::reveal_allowed() {
-            self.revealed = None;
-            self.editing_secret = None;
-        }
+        self.expire_secret_visibility();
         if let Some(edit) = &self.editing_secret {
-            return Ok(self.render_secret_edit(edit));
+            return Ok(self.protect_rich_view(self.render_secret_edit(edit)));
         }
         if let Some(log_view) = &self.log_view {
-            return Ok(log_view.render());
+            return Ok(self.protect_rich_view(log_view.render()));
         }
         if let Some((name, values)) = &self.revealed {
-            return Ok(self.render_revealed(name, values));
+            return Ok(self.protect_rich_view(self.render_revealed(name, values)));
         }
         if let Some(details) = &self.details {
-            return Ok(self.render_details(details));
+            return Ok(self.protect_rich_view(self.render_details(details)));
         }
+        self.render_resources()
+    }
+
+    fn render_resources(&mut self) -> Result<View, Error> {
         if self.context.is_none() && self.current_context.is_none() {
             // A non-zero exit (no current context yet) means kubectl is installed: only a
             // failed spawn offers the install hint.
-            self.current_context = match host::run_process(KUBECTL, &self.args(&["config", "current-context"]), None) {
+            self.current_context = match self.process(KUBECTL, &self.args(&["config", "current-context"]), None) {
                 Ok(out) if out.status == Some(0) => Some(out.stdout.trim().to_owned()),
                 Ok(_) => Some("(kubectl unavailable)".into()),
                 Err(Error::Denied(_)) => {
-                    return Ok(View::message("Kube Explorer needs permission to run kubectl. Grant it in Settings › Plugins."));
+                    return Ok(View::new(Body::Tree(vec![
+                        TreeItem::new("kube:status", "Kubernetes — permission required")
+                            .icon(k8s!("cluster"))
+                            .detail("Allow kubectl in Settings › Plugins to browse. Private import/review needs no connection."),
+                    ])));
                 }
                 Err(_) => {
                     self.kubectl_failed = true;
@@ -611,7 +733,7 @@ impl KubeExplorer {
         let at = items.len();
         self.push_node(&mut items, "ns", &format!("Namespace: {namespace}"), k8s!("ns"), self.namespace.as_ref());
         if self.expanded.contains("ns") {
-            let all = TreeItem::new(&format!("ns/{ALL_NAMESPACES}"), "All namespaces").parent("ns").icon(k8s!("ns"));
+            let all = TreeItem::new(&self.choice_key("ns",ALL_NAMESPACES), "All namespaces").parent("ns").icon(k8s!("ns"));
             items.insert(at + 1, if self.all_namespaces() { all.detail("active") } else { all });
         }
         for (kind, label, icon) in KINDS {
@@ -620,7 +742,22 @@ impl KubeExplorer {
 
         self.push_custom_resources(&mut items);
 
+        // Group only former roots; keep all existing child/resource keys and owners.
+        let parent = TreeItem::new("kube:cluster", &format!("Kubernetes — {context}"))
+            .icon(k8s!("cluster")).detail(&format!("Selected context · namespace {namespace}; cached CLI view"))
+            .expandable(!self.cluster_collapsed);
+        if self.cluster_collapsed { items.clear(); }
+        else {
+            for item in &mut items {
+                if item.parent.is_none() { item.parent = Some("kube:cluster".into()); }
+            }
+        }
+        items.insert(0, parent);
+
         let mut view = View::new(Body::Tree(items)).status("Double-click a context or namespace to switch");
+        if self.forward_session.is_some() {
+            view = view.button(Button::new("forward-status", "Port Forward Status").icon("external-link"));
+        }
         view = view.button(Button::new("refresh", "Refresh").icon("refresh"));
         if self.kubectl_failed {
             view = view.button(Button::new("how-to-install-kubectl", "How to Install kubectl").icon("help"));
@@ -677,7 +814,7 @@ impl KubeExplorer {
             (Some((kind, name)), true) => format!("Confirm Delete {kind}/{name}"),
             _ => "Delete".into(),
         };
-        view.button(Button::new("describe", "Describe").icon("info").enabled(self.selected.is_some()))
+        self.protect_rich_view(view.button(Button::new("describe", "Describe").icon("info").enabled(self.selected.is_some()))
             .button(Button::new("yaml", "YAML").icon("file-yaml").enabled(self.selected.is_some()))
             .button(Button::new("logs", "Logs").icon("file-log").enabled(logs))
             .button(Button::new("log-view", "Log Viewer").icon("list-filter").enabled(logs))
@@ -688,7 +825,7 @@ impl KubeExplorer {
             .button(Button::new("create-secret", "Create Secret").icon("add").enabled(!self.all_namespaces()))
             .button(Button::new("debug", "Debug").icon("debug").enabled(pod_selected))
             .button(Button::new("port-forward", "Port Forward").icon("external-link").enabled(forwardable))
-            .button(Button::new("delete", &delete).icon("trash").enabled(self.selected.is_some()))
+            .button(Button::new("delete", &delete).icon("trash").enabled(self.selected.is_some())))
     }
 
     fn push_node(&self, items: &mut Vec<TreeItem>, key: &str, label: &str, icon: &str, active: Option<&String>) {
@@ -705,9 +842,13 @@ impl KubeExplorer {
             Some(Ok(names)) => {
                 for name in names {
                     let child_key = match key.strip_prefix("kind:") {
-                        Some(kind) => format!("res:{kind}/{name}"),
-                        None => format!("{key}/{name}"),
+                        Some(kind) => self.resource_key(kind,name),
+                        None => self.choice_key(key,name),
                     };
+                    if child_key.len()>1024 {
+                        items.push(TreeItem::new(&format!("unavailable:{}",items.len()),"Name is too long for this view").parent(key).icon("error").detail("No action is available because this name is too long."));
+                        continue;
+                    }
                     let child = TreeItem::new(&child_key, name).parent(key).icon(icon);
                     items.push(if Some(name) == active { child.detail("active") } else { child });
                 }
@@ -721,45 +862,60 @@ impl KubeExplorer {
         }
     }
 
-    fn handle_tree(&mut self, event: ViewEvent) -> Result<(), Error> {
+    fn handle_tree(&mut self, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {
         match event {
+            ViewEvent::Expand(key) if key == "kube:cluster" => {
+                self.cluster_collapsed = false;
+                crate::refresh_views();
+            }
+            ViewEvent::Collapse(key) if key == "kube:cluster" => {
+                self.cluster_collapsed = true;
+                crate::refresh_views();
+            }
             ViewEvent::Expand(key) => {
                 if !self.children.contains_key(&key) {
                     let loaded = self.load(&key);
                     self.children.insert(key.clone(), loaded);
                 }
                 self.expanded.insert(key);
-                host::refresh_view(TREE);
+                crate::refresh_views();
             }
             ViewEvent::Collapse(key) => {
                 self.expanded.remove(&key);
+                crate::refresh_views();
             }
             ViewEvent::Select(key) => {
-                self.selected = resource(&key);
+                let selected=if self.checked_choice(&key)?.is_some(){None}else{self.checked_resource(&key)?};
+                if self.selected != selected { self.retire_forward("Resource selection changed"); }
+                self.selected = selected;
+                self.new_rich_callback();
                 self.confirm_delete = false;
-                host::refresh_view(TREE);
+                crate::refresh_views();
             }
-            ViewEvent::Activate(key) => match key.split_once('/') {
-                Some(("ctx", name)) => {
+            ViewEvent::Activate(key) => match self.checked_choice(&key)? {
+                Some((parent,name)) if parent=="ctx" => {
+                    if self.context.as_deref() != Some(name.as_str()) { self.retire_forward("Kubernetes context changed"); }
                     self.context = Some(name.to_owned());
                     self.namespace = None;
                     self.selected = None;
                     self.save();
                     self.reload();
                 }
-                Some(("ns", name)) => {
+                Some((parent,name)) if parent=="ns" => {
+                    if self.namespace.as_deref() != Some(name.as_str()) { self.retire_forward("Kubernetes namespace changed"); }
                     self.namespace = Some(name.to_owned());
                     self.selected = None;
                     self.save();
                     self.reload();
                 }
                 _ => {
-                    if let Some((kind, name)) = resource(&key) {
+                    if let Some((kind, name)) = self.checked_resource(&key)? {
+                        if self.rich_owner.is_none() { return Err(Error::Denied("project.read: open a project and allow project.read for cached rich details.".into())); }
                         self.describe(&kind, &name)?;
                     }
                 }
             },
-            ViewEvent::Button(button) => self.button(&button)?,
+            ViewEvent::Button(button) => self.button_in(&button, Some(ctx))?,
             ViewEvent::Field(key, value) if key.starts_with("secret-") => {
                 if let Some(edit) = &mut self.editing_secret {
                     edit.set_field(&key, value);
@@ -770,14 +926,22 @@ impl KubeExplorer {
                         _ => draft.value = value,
                     }
                 }
+                crate::refresh_panel();
             }
             ViewEvent::Field(key, value) if key == "ports" => {
-                if let Some((_, _, ports)) = &mut self.forward {
-                    *ports = value;
+                self.prepared_forward = None;
+                if let Some(draft) = &mut self.forward {
+                    draft.ports = value;
                 }
+                crate::refresh_panel();
             }
             ViewEvent::Message(message) => {
-                if let Some(yaml) = message.strip_prefix("apply\n") {
+                if let Some(payload) = message.strip_prefix("apply\n") {
+                    let (callback,yaml)=payload.split_once('\n').ok_or(Error::Stale)?;
+                    let valid=self.details.as_ref().is_some_and(|d|d.editing.is_some()&&!d.callback.is_empty()&&d.callback==callback);
+                    if !valid || self.rich_owner.as_deref() != forward::owner(Some(ctx)).ok().as_ref().map(|(_, root)| root.as_str()) {
+                        return Err(Error::Stale);
+                    }
                     self.apply_yaml(yaml)?;
                 }
                 if let Some(problem) = message.strip_prefix("diag:") {
@@ -789,7 +953,37 @@ impl KubeExplorer {
         Ok(())
     }
 
-    fn button(&mut self, button: &str) -> Result<(), Error> {
+    #[cfg(test)]
+    fn test_apply_message(&self,yaml:&str)->String {format!("apply\n{}\n{yaml}",self.details.as_ref().expect("editable details").callback)}
+    #[cfg(test)]
+    fn button(&mut self, button: &str) -> Result<(), Error> { self.button_in(button, None) }
+    #[cfg(test)]
+    fn render_tree(&mut self) -> Result<View, Error> { self.render_tree_in(None) }
+
+    fn button_in(&mut self, button: &str, ctx: Option<&Invocation>) -> Result<(), Error> {
+        self.expire_forward_context(ctx);
+        self.expire_log_context(ctx);
+        if ctx.is_some() {
+            self.expire_rich_context(ctx);
+            if matches!(button, "show-secret" | "edit-secret" | "create-secret" | "describe" | "yaml") && self.rich_owner.is_none() {
+                return Err(Error::Denied("project.read: open a project and allow project.read to own cached rich details and Secret plaintext.".into()));
+            }
+            let missing = match button {
+                "add-secret-key" | "submit-secret" => self.draft.is_none(),
+                "submit-secret-edit" => self.editing_secret.is_none(),
+                "apply" | "save-file" | "reload-yaml" => self.details.is_none(),
+                "confirm-delete-manifest" => self.pending_delete.is_none(),
+                _ => false,
+            };
+            if missing { return Err(Error::Stale); }
+        }
+        if self.forward_button(button, ctx)? {
+            return Ok(());
+        }
+        self.prepared_forward = None;
+        if button != "refresh" {
+            self.show_forward_session = false;
+        }
         if button == "refresh" {
             self.reload();
             return Ok(());
@@ -799,10 +993,12 @@ impl KubeExplorer {
             return Ok(());
         }
         if button.starts_with("log-") && button != "log-view" {
-            return self.log_button(button);
+            return self.log_button(button, ctx);
         }
         match button {
             "back" => {
+                self.prepared_forward = None;
+                self.show_forward_session = false;
                 self.details = None;
                 self.forward = None;
                 self.pending_delete = None;
@@ -810,13 +1006,14 @@ impl KubeExplorer {
                 self.draft = None;
                 self.editing_secret = None;
                 self.log_view = None;
-                host::refresh_view(TREE);
+                crate::refresh_views();
                 return Ok(());
             }
             "create-secret" => {
                 self.single_namespace_gate("Create Secret")?;
+                self.begin_panel()?;
                 self.draft = Some(Draft::default());
-                host::refresh_view(TREE);
+                crate::refresh_views();
                 return Ok(());
             }
             "add-secret-key" => {
@@ -828,20 +1025,14 @@ impl KubeExplorer {
                         return Err("Enter a key (letters, digits, '-', '_' and '.') before adding it.".into());
                     }
                     draft.entries.push(entry);
-                    host::refresh_view(TREE);
+                    crate::refresh_views();
                 }
                 return Ok(());
             }
             "submit-secret" => return self.create_secret(),
             "submit-secret-edit" => return self.save_secret_edit(),
-            "start-forward" => {
-                let Some((namespace, target, ports)) = &self.forward else {
-                    return Ok(());
-                };
-                let mut args = vec!["port-forward", target.as_str()];
-                args.extend(ports.split_whitespace());
-                return host::open_terminal(&format!("Port Forward: {target}"), KUBECTL, &self.args_in(namespace.as_deref(), &args));
-            }
+            "start-forward" => return self.start_terminal_forward(ctx),
+            "start-managed-forward" => return self.start_managed_forward(ctx.ok_or_else(|| Error::Invalid("Managed forwarding needs a project invocation.".into()))?),
             "confirm-delete-manifest" => {
                 self.single_namespace_gate("Delete Manifest Resources")?;
                 let Some(manifest) = self.pending_delete.take() else {
@@ -849,12 +1040,12 @@ impl KubeExplorer {
                 };
                 let _task = host::begin_task("Deleting the manifest's resources", false);
                 let out = self.kubectl(&["delete", "-f", "-"], Some(&manifest))?;
-                self.show("Deleted".into(), out, "text");
+                self.show("Deleted".into(), out, "text")?;
                 self.reload();
                 return Ok(());
             }
-            "apply" => return host::post_view_message(TREE, "collect:apply"),
-            "save-file" => return host::post_view_message(TREE, "collect:save"),
+            "apply" => return host::post_view_message(PANEL, "collect:apply"),
+            "save-file" => return host::post_view_message(PANEL, "collect:save"),
             "reload-yaml" => {
                 if let Some((kind, name)) = self.details.as_ref().and_then(|d| d.editing.clone()) {
                     self.open_yaml(&kind, &name, None)?;
@@ -872,9 +1063,7 @@ impl KubeExplorer {
         match button {
             "describe" => self.describe(&kind, &row)?,
             "yaml" => self.edit_yaml(&kind, &row)?,
-            "logs" if kind == "pods" => {
-                host::open_terminal(&format!("Logs: {row}"), KUBECTL, &args(&["logs", "-f", "--tail=500", &name]))?
-            }
+            "logs" if kind == "pods" => host::open_terminal(&format!("Logs: {row}"), KUBECTL, &args(&["logs", "-f", "--tail=500", &name]))?,
             "logs" => host::open_terminal(
                 &format!("Logs: {kind}/{row}"),
                 KUBECTL,
@@ -884,16 +1073,17 @@ impl KubeExplorer {
             "debug" => self.debug_pod(&row)?,
             "show-secret" if kind == "secrets" => self.show_secret(&row)?,
             "edit-secret" if kind == "secrets" => self.edit_secret(&row)?,
-            "log-view" => self.open_log_view(&kind, &row)?,
-            "port-forward" => self.start_port_forward(&kind, &row)?,
+            "log-view" => self.open_log_view(&kind, &row, ctx)?,
+            "port-forward" => self.start_port_forward(&kind, &row, ctx)?,
             "shell" => host::open_terminal(
                 &format!("Shell: {row}"),
                 KUBECTL,
                 &args(&["exec", "-it", &name, "--", "sh", "-c", "command -v bash >/dev/null && exec bash || exec sh"]),
             )?,
             "delete" if !self.confirm_delete => {
+                self.new_rich_callback();
                 self.confirm_delete = true;
-                host::refresh_view(TREE);
+                crate::refresh_views();
             }
             "delete" => {
                 let _task = host::begin_task(&format!("Deleting {kind}/{row}"), false);
@@ -909,12 +1099,17 @@ impl KubeExplorer {
     }
 }
 
+/// Kubernetes API-resource arguments must be literal DNS plural/group names,
+/// never CLI options or output annotations.
+fn resource_type_name(value:&str)->bool {
+    let (plural,group)=value.split_once('.').map_or((value,None),|(plural,group)|(plural,Some(group)));
+    is_dns_label(plural)&&group.is_none_or(is_dns_subdomain)
+}
+
 /// Sorted `kind.group` names without the core and built-in groups, deduplicated.
 fn custom_resource_names(names: Vec<String>) -> Vec<String> {
-    let mut custom: Vec<String> = names
-        .into_iter()
-        .filter(|name| name.split_once('.').is_some_and(|(_, group)| !BUILT_IN_GROUPS.contains(&group)))
-        .collect();
+    let mut custom: Vec<String> = names.into_iter().filter(|name|resource_type_name(name)
+        && name.split_once('.').is_some_and(|(_,group)|!BUILT_IN_GROUPS.contains(&group))).collect();
     custom.sort();
     custom.dedup();
     custom
@@ -924,7 +1119,20 @@ fn custom_resource_names(names: Vec<String>) -> Vec<String> {
 fn resource(key: &str) -> Option<(String, String)> {
     let (parent, name) = key.split_once('/')?;
     let kind = parent.strip_prefix("res:")?;
-    Some((kind.to_owned(), name.to_owned()))
+    resource_type_name(kind).then(||(kind.to_owned(),name.to_owned()))
+}
+
+#[cfg(test)]
+fn test_tree_key(key:&str)->&str {
+    let key=key.strip_prefix("node:").or_else(||key.strip_prefix("choice:")).unwrap_or(key);
+    key.rsplit_once('~').filter(|(_,proof)|proof.len()==32&&proof.bytes().all(|byte|byte.is_ascii_hexdigit())).map_or(key,|(bare,_)|bare)
+}
+
+/// Presentation-only helper for tests inspecting emitted owned tree keys.
+#[cfg(test)]
+fn test_resource(key:&str)->Option<(String,String)> {
+    let bare=key.rsplit_once('~').filter(|(_,proof)|proof.len()==32&&proof.bytes().all(|byte|byte.is_ascii_hexdigit())).map_or(key,|(bare,_)|bare);
+    resource(bare)
 }
 
 /// The `namespace` storage value of the all-namespaces view.
@@ -1008,8 +1216,8 @@ fn failure(program: &str, stderr: &str, status: Option<i32>) -> Error {
     }
 }
 
-/// Drops `metadata.resourceVersion`, so each save of an edited object replaces
-/// it whatever changed in between (a kept one fails every save after the first).
+/// Existing Reload Manifest transformation; private resource-editor replacement
+/// deliberately retains resourceVersion and does not use this helper.
 fn without_resource_version(yaml: &str) -> String {
     let mut in_metadata = false;
     let mut out = String::with_capacity(yaml.len());
@@ -1070,7 +1278,11 @@ fn span(class: &str, text: &str) -> String {
 fn yaml_value(v: &str) -> String {
     let t = v.trim();
     let quoted = t.len() >= 2 && (t.starts_with('"') && t.ends_with('"') || t.starts_with('\'') && t.ends_with('\''));
-    let number = t.strip_prefix('-').unwrap_or(t).split_once('.').map_or(is_digits(t.strip_prefix('-').unwrap_or(t)), |(a, b)| is_digits(a) && is_digits(b));
+    let number = t
+        .strip_prefix('-')
+        .unwrap_or(t)
+        .split_once('.')
+        .map_or(is_digits(t.strip_prefix('-').unwrap_or(t)), |(a, b)| is_digits(a) && is_digits(b));
     match () {
         _ if t.starts_with('#') => span("m", v),
         _ if quoted => span("s", v),
@@ -1126,9 +1338,8 @@ fn diff_line(line: &str) -> String {
 /// The `Chart.yaml` above the nearest `templates` directory of `path`.
 fn chart_file(path: &str) -> Option<String> {
     let dir = path.rsplit_once('/')?.0;
-    let (at, _) = dir.rmatch_indices("templates").find(|(i, _)| {
-        dir[..*i].ends_with('/') && (dir.len() == i + 9 || dir[i + 9..].starts_with('/'))
-    })?;
+    let (at, _) =
+        dir.rmatch_indices("templates").find(|(i, _)| dir[..*i].ends_with('/') && (dir.len() == i + 9 || dir[i + 9..].starts_with('/')))?;
     Some(format!("{}/Chart.yaml", dir[..at].trim_end_matches('/')))
 }
 
@@ -1152,7 +1363,9 @@ fn inspect(path: &str) {
     let Some((root, project)) = project_of(path) else {
         return;
     };
-    let Ok(text) = project.read_file(path) else { return };
+    let Ok(text) = project.read_file(path) else {
+        return;
+    };
     if text.len() > MAX_BYTES {
         let _ = host::publish_diagnostics(path, &[]);
         return;
@@ -1171,11 +1384,7 @@ fn inspect(path: &str) {
         let chart_dir = chart_file(path).map(|chart| chart.trim_end_matches("/Chart.yaml").to_owned()).unwrap_or_default();
         findings.extend(helm::check(&text, &helm::Chart::load(&project, &root, &chart_dir, &text)));
     }
-    let diagnostics: Vec<_> = findings
-        .iter()
-        .filter(|finding| enabled(finding.code))
-        .map(|finding| finding.diagnostic(&text))
-        .collect();
+    let diagnostics: Vec<_> = findings.iter().filter(|finding| enabled(finding.code)).map(|finding| finding.diagnostic(&text)).collect();
     let _ = host::publish_diagnostics(path, &diagnostics);
 }
 
@@ -1185,7 +1394,7 @@ fn escape_html(text: &str) -> String {
 
 impl Plugin for KubeExplorer {
     fn activate(&mut self, _ctx: &Context) -> Result<(), Error> {
-        for kind in [EventKind::FileOpened, EventKind::FileSaved] {
+        for kind in [EventKind::FileOpened, EventKind::FileSaved, EventKind::FilesChanged] {
             if let Err(error) = host::subscribe(kind) {
                 host::log(LogLevel::Warn, &format!("Manifest inspections need the {} event: {error}", kind.name()));
             }
@@ -1195,21 +1404,47 @@ impl Plugin for KubeExplorer {
         Ok(())
     }
 
+    fn deactivate(&mut self) {
+        self.yaml_editors.clear();
+        self.watch.clear();
+        self.cluster_completion.clear();
+        self.retire_forward("Plugin instance deactivated"); self.log_view = None;
+        self.details = None; self.revealed = None; self.editing_secret = None; self.draft = None; self.pending_delete = None; self.rich_owner = None;
+    }
+
     fn handle_events(&mut self, events: &[Event], _ctx: &Invocation) {
+        self.watch.closed_roots();
         for event in events {
             match event {
+                Event::FilesChanged(_) => self.navigation.clear(),
                 Event::FileSaved(path) => {
-                    Self::apply_saved(path);
+                    self.navigation.warm_file(path);
                     inspect(path);
                 }
-                Event::FileOpened(path) => inspect(path),
+                Event::FileOpened(path) => {
+                    self.navigation.warm_file(path);
+                    inspect(path);
+                }
                 _ => {}
             }
         }
     }
 
     /// The IDE drops a command's result text: it is shown in a notification.
-    fn run_command(&mut self, id: &str, ctx: &Invocation, arg: Option<&str>) -> Result<Option<String>, Error> {
+    fn run_command(&mut self,id:&str,ctx:&Invocation,arg:Option<&str>)->Result<Option<String>,Error>{
+        // These explicit global/disconnected operations do not consume a project
+        // process binding or require a usable source/workspace identity.
+        if matches!(id,"helm-repo-update"|"helm-repo-cache"|"import-pasted-kubeconfig"|"review-imported-kubeconfigs"|"how-to-install-kubectl"|"helm-parameters"|"edit-debug-images"|"telepresence-connect"|"telepresence-quit"|"open-resource-watch") {
+            return self.with_global_process_scope(|this|this.run_command_in(id,ctx,arg));
+        }
+        self.with_process_scope(ctx,|this|this.run_command_in(id,ctx,arg))
+    }
+}
+impl KubeExplorer {
+    fn run_command_in(&mut self, id: &str, ctx: &Invocation, arg: Option<&str>) -> Result<Option<String>, Error> {
+        self.expire_forward_context(Some(ctx));
+        self.expire_log_context(Some(ctx));
+        self.expire_rich_context(Some(ctx));
         match id {
             "reload-from-cluster" => return self.reload_from_cluster(ctx).map(|()| None),
             "helm-repo-update" => return helm_repo_update().map(|()| None),
@@ -1218,6 +1453,23 @@ impl Plugin for KubeExplorer {
             "customize-namespaces" => return self.customize_namespaces().map(|()| None),
             "edit-debug-images" => return self.edit_debug_images().map(|()| None),
             "helm-repo-cache" => return self.cache_helm_repositories().map(|()| None),
+            "review-private-yaml" => return self.yaml_editors.review(ctx).map(|()|None),
+            "apply-reviewed-private-yaml" => return self.yaml_editors.apply(ctx).map(|()|None),
+            "retire-private-yaml" => return self.yaml_editors.retire(ctx).map(|()|None),
+            "watch-resources" => return self.watch.prepare(ctx,&self.context,&self.namespace,false).map(|()|None),
+            "open-resource-watch" => { host::reveal_view(watch::VIEW)?; return Ok(None); }
+            "cache-cluster-resources" => {
+                let count=self.cluster_completion.read_resources(ctx,self.context.as_deref(),self.namespace.as_deref())?;
+                host::notify(NotificationLevel::Info,"Resource completion snapshot",&format!("Captured {count} resource names for60 seconds. Providers do not query kubectl; source deployment target remains unresolved."));
+                return Ok(None);
+            }
+            "cache-cluster-namespaces" => {
+                let count = self.cluster_completion.read(ctx, self.context.as_deref(), self.namespace.as_deref())?;
+                host::notify(NotificationLevel::Info, "Namespace completion snapshot", &format!("Captured {count} namespace names for 60 seconds. Providers do not query kubectl; source deployment target is unresolved."));
+                return Ok(None);
+            }
+            "import-pasted-kubeconfig" => return kubeconfig_import::import().map(|()| None),
+            "review-imported-kubeconfigs" => return kubeconfig_import::review().map(|()| None),
             "choose-kubeconfig" => return self.choose_kubeconfig().map(|()| None),
             "telepresence-connect" => return self.telepresence("connect").map(|()| None),
             "telepresence-quit" => return self.telepresence("quit").map(|()| None),
@@ -1228,7 +1480,7 @@ impl Plugin for KubeExplorer {
             _ => {}
         }
         if let Some(action) = id.strip_prefix("resource-") {
-            return self.resource_command(action, arg).map(|()| None);
+            return self.resource_command(action, arg, ctx).map(|()| None);
         }
         let (working, done) = match id {
             "apply" => ("Applying manifest", "Manifest applied"),
@@ -1250,8 +1502,8 @@ impl Plugin for KubeExplorer {
 }
 
 impl KubeExplorer {
-    fn resource_command(&mut self, action: &str, key: Option<&str>) -> Result<(), Error> {
-        let (kind, row) = key.and_then(resource).ok_or("Right-click a resource in Kube Explorer.")?;
+    fn resource_command(&mut self, action: &str, key: Option<&str>, ctx: &Invocation) -> Result<(), Error> {
+        let (kind,row)=self.checked_resource(key.ok_or("Right-click a resource in Kube Explorer.")?)?.ok_or("Right-click a resource in Kube Explorer.")?;
         let applies = match action {
             "logs" | "log-sources" | "log-view" => kind == "pods" || WORKLOADS.contains(&kind.as_str()),
             "shell" | "attach" | "debug" => kind == "pods",
@@ -1270,20 +1522,30 @@ impl KubeExplorer {
             return self.select_log_sources(&kind, &row);
         }
         if action == "debug" {
-            let Some(image) = self.ask_debug_image()? else { return Ok(()) };
+            let Some(image) = self.ask_debug_image()? else {
+                return Ok(());
+            };
             self.debug_image = Some(image);
         }
         self.selected = Some((kind, row));
+        self.new_rich_callback();
         self.confirm_delete = action == "delete";
-        self.button(action)?;
-        if self.details.is_some() || self.forward.is_some() || self.revealed.is_some() || self.editing_secret.is_some() || self.log_view.is_some() {
-            host::reveal_view(TREE)?;
+        self.button_in(action, Some(ctx))?;
+        if self.details.is_some()
+            || self.forward.is_some()
+            || self.revealed.is_some()
+            || self.editing_secret.is_some()
+            || self.log_view.is_some()
+        {
+            host::reveal_view(PANEL)?;
+            crate::refresh_panel();
         }
-        host::refresh_view(TREE);
+        crate::refresh_views();
         Ok(())
     }
 
-    fn command(&mut self, id: &str, ctx: &Invocation) -> Result<String, Error> {
+    fn command(&mut self,id:&str,ctx:&Invocation)->Result<String,Error>{self.with_process_scope(ctx,|this|this.command_in(id,ctx))}
+    fn command_in(&mut self, id: &str, ctx: &Invocation) -> Result<String, Error> {
         match id {
             "apply" => self.single_namespace_gate("Apply Manifest")?,
             "kustomize-apply" => self.single_namespace_gate("Apply Kustomization")?,
@@ -1293,17 +1555,18 @@ impl KubeExplorer {
         let editor = ctx.editor().ok_or("No manifest is open.")?;
         let manifest = editor.document()?.text;
         let path = editor.path();
+        self.check_editor_owner(&path)?;
         match id {
             "delete-manifest" => {
                 let out = self.kubectl(&["delete", "--dry-run=server", "-f", "-"], Some(&manifest))?;
-                self.show("Delete these resources?".into(), out, "text");
+                self.show("Delete these resources?".into(), out, "text")?;
                 self.pending_delete = Some(manifest);
                 Ok("Review the resources in Kube Explorer, then click Confirm Delete.".into())
             }
             "kustomize-render" => {
                 let dir = parent(&path);
                 let out = self.kubectl(&["kustomize", dir], None)?;
-                self.show(format!("Kustomize: {dir}"), out, "yaml");
+                self.show(format!("Kustomize: {dir}"), out, "yaml")?;
                 Ok("The rendered YAML is shown in Kube Explorer.".into())
             }
             "kustomize-apply" => {
@@ -1316,6 +1579,7 @@ impl KubeExplorer {
                 let chart = chart_dir(ctx, &path)?;
                 let release = prompts::helm_release().unwrap_or_else(|| chart.rsplit('/').next().unwrap_or("release").to_owned());
                 let release = release.as_str();
+                if id=="helm-template" {prompts::refuse_option_like("release name",release)?;}
                 let args: &[&str] = match id {
                     "helm-template" => &["template", release, &chart],
                     "helm-lint" => &["lint", &chart],
@@ -1325,17 +1589,22 @@ impl KubeExplorer {
                 if id != "helm-dependency-update" {
                     args.extend(prompts::helm_flags());
                 }
-                let out = host::run_process(HELM, &args, None)?;
+                let out = self.process(HELM, &args, None)?;
                 // `helm lint` reports problems on stdout and fails; show them either way.
                 if id == "helm-lint" {
-                    self.show(format!("Helm lint: {release}"), format!("{}{}", out.stdout, out.stderr), "text");
-                    return Ok(if out.status == Some(0) { "The chart passed lint. The output is shown in Kube Explorer." } else { "The chart has lint errors. The output is shown in Kube Explorer." }.into());
+                    self.show(format!("Helm lint: {release}"), format!("{}{}", out.stdout, out.stderr), "text")?;
+                    return Ok(if out.status == Some(0) {
+                        "The chart passed lint. The output is shown in Kube Explorer."
+                    } else {
+                        "The chart has lint errors. The output is shown in Kube Explorer."
+                    }
+                    .into());
                 }
                 if out.status != Some(0) {
                     return Err(failure(HELM, &out.stderr, out.status));
                 }
                 if id == "helm-template" {
-                    self.show(format!("Helm template: {release}"), out.stdout, "yaml");
+                    self.show(format!("Helm template: {release}"), out.stdout, "yaml")?;
                     return Ok("The rendered YAML is shown in Kube Explorer.".into());
                 }
                 Ok(out.stdout.trim().to_owned())
@@ -1351,11 +1620,11 @@ impl KubeExplorer {
                 Ok(out.trim().to_owned())
             }
             "diff" => {
-                let out = host::run_process(KUBECTL, &self.args(&["diff", "-f", "-"]), Some(&manifest))?;
+                let out = self.process(KUBECTL, &self.args(&["diff", "-f", "-"]), Some(&manifest))?;
                 match out.status {
                     Some(0) => Ok("No differences with the cluster.".into()),
                     Some(1) => {
-                        self.show(format!("Diff: {}", editor.path()), out.stdout, "diff");
+                        self.show(format!("Diff: {}", editor.path()), out.stdout, "diff")?;
                         Ok("The differences are shown in Kube Explorer.".into())
                     }
                     status => Err(failure(KUBECTL, &out.stderr, status)),
@@ -1367,8 +1636,16 @@ impl KubeExplorer {
 }
 
 impl Providers for KubeExplorer {
+    fn definition(&mut self, doc: &Document, at: Position) -> Vec<openidea_plugin::Location> {
+        self.navigation.definition(doc, at)
+    }
+    fn line_markers(&mut self, doc: &Document) -> Vec<openidea_plugin::providers::LineMarker> {
+        self.navigation.markers(doc)
+    }
     fn completion(&mut self, doc: &Document, at: Position, _trigger: Option<&str>) -> Vec<CompletionItem> {
-        complete::items(doc, at)
+        let mut items = self.cluster_completion.items(doc, at, &self.context, &self.namespace);
+        items.extend(complete::items(doc, at));
+        items
     }
 
     fn code_actions(&mut self, doc: &Document, selection: Range) -> Vec<CodeAction> {
@@ -1380,27 +1657,102 @@ impl Providers for KubeExplorer {
 }
 
 impl Views for KubeExplorer {
-    fn render(&mut self, _view: &str, _viewport: Option<Viewport>, _ctx: &Invocation) -> Result<View, Error> {
-        self.render_tree()
+    fn render(&mut self,view:&str,viewport:Option<Viewport>,ctx:&Invocation)->Result<View,Error>{
+        self.with_process_scope(ctx,|this| {
+            let mut rendered=this.render_in(view,viewport,ctx)?;
+            rendered=this.protect_tree_view(rendered);
+            if view==TREE {
+                let scope=this.process_scope.root().map(|root|format!("Project: {root}")).unwrap_or_else(||"Global CLI mode (no invoking project)".into());
+                rendered.status=Some(match rendered.status.take(){Some(status) if !status.is_empty()=>format!("{status} · {scope}"),_=>scope});
+            }
+            Ok(rendered)
+        })
+    }
+    fn handle(&mut self,view:&str,event:ViewEvent,ctx:&Invocation)->Result<(),Error>{self.with_process_scope(ctx,|this|this.handle_in(view,event,ctx))}
+}
+impl KubeExplorer {
+    fn render_in(&mut self, _view: &str, _viewport: Option<Viewport>, _ctx: &Invocation) -> Result<View, Error> {
+        if _view == watch::VIEW { return self.watch.view(_ctx,&self.context,&self.namespace); }
+        if self.rich_callback.is_none(){self.new_rich_callback();}
+        self.expire_forward_context(Some(_ctx));
+        self.expire_log_context(Some(_ctx));
+        let cleared = self.expire_rich_context(Some(_ctx));
+        if cleared && _view == PANEL && self.rich_owner.is_none() {
+            return Ok(View::message("Cached details and Secret plaintext need an open project with project.read permission. The previous cache was cleared."));
+        }
+        if _view == TREE { self.render_resources() } else { self.render_tree_in(Some(_ctx)) }
     }
 
-    fn handle(&mut self, _view: &str, event: ViewEvent, _ctx: &Invocation) -> Result<(), Error> {
-        self.handle_tree(event)
+    fn handle_in(&mut self, _view: &str, event: ViewEvent, _ctx: &Invocation) -> Result<(), Error> {
+        if _view == watch::VIEW { return self.watch.handle(event,_ctx,&self.context,&self.namespace); }
+        self.expire_forward_context(Some(_ctx));
+        self.expire_log_context(Some(_ctx));
+        self.expire_rich_context(Some(_ctx));
+        if ui_kit::web::handle(self, _view, &event, _ctx, include_str!("ui_config.json"))? {
+            return Ok(());
+        }
+
+        let show_panel = _view == TREE && matches!(&event, ViewEvent::Activate(_) | ViewEvent::Button(_));
+        let event=self.checked_tree_event(event)?;
+        let event=self.checked_rich_event(event)?;
+        self.handle_tree(event, _ctx)?;
+        if show_panel {
+            crate::refresh_panel();
+        }
+        if show_panel
+            && (self.details.is_some()
+                || self.show_forward_session
+                || self.forward.is_some()
+                || self.revealed.is_some()
+                || self.editing_secret.is_some()
+                || self.log_view.is_some()
+                || self.draft.is_some())
+        {
+            host::reveal_view(PANEL)?;
+        }
+        Ok(())
     }
 }
 
-// `register_plugin!` has no arm for providers, views and indexing together.
-#[cfg(not(target_arch = "wasm32"))]
-const _: fn() -> KubeExplorer = <KubeExplorer as Default>::default;
-#[cfg(target_arch = "wasm32")]
-const _: () = {
-    struct Component;
-    openidea_plugin::__plugin_exports!(KubeExplorer, Component, openidea_plugin::bindings);
-    openidea_plugin::__providers_exports!(KubeExplorer, Component);
-    openidea_plugin::__views_exports!(KubeExplorer, Component);
-    openidea_plugin::__indexing_exports!(KubeExplorer, Component);
-    openidea_plugin::bindings::__export_plugin_world!(Component with_types_in openidea_plugin::bindings);
-};
+impl openidea_plugin::details::Details for KubeExplorer {
+    fn detail(&mut self,view:&str,key:&str,ctx:&Invocation)->Result<Vec<openidea_plugin::details::Tab>,Error>{self.with_process_scope(ctx,|this|this.detail_in(view,key,ctx))}
+}
+impl KubeExplorer {
+    fn detail_in(&mut self, view: &str, key: &str, _ctx: &Invocation) -> Result<Vec<openidea_plugin::details::Tab>, Error> {
+        use openidea_plugin::details::{Pane, ProcessLog, Tab};
+        if view != TREE {
+            return Ok(Vec::new());
+        }
+        let normalized=self.checked_tree_key(key)?;let key=normalized.as_str();
+        if key == "kube:status" {
+            return Ok(vec![Tab::new("status", "Kubernetes", Pane::Message(
+                "Allow kubectl in Settings › Plugins › Kube Explorer to browse clusters. Private kubeconfig import/review is available without a CLI or cluster connection; imported profiles are not activated automatically.".into(),
+            ))]);
+        }
+        let Some((kind, row)) = self.checked_resource(key)? else {
+            return Ok(vec![Tab::new("resource", "Resource", Pane::Message("Select a resource to see its details and actions.".into()))]);
+        };
+        let (namespace, name) = self.split_scope(&kind, &row)?;
+        let mut tabs = vec![Tab::new(
+            "resource",
+            "Resource",
+            Pane::Text(format!(
+                "{kind}/{name}\nContext: {}\nNamespace: {}",
+                self.context.as_deref().or(self.current_context.as_deref()).unwrap_or("current"),
+                namespace.as_deref().unwrap_or("current")
+            )),
+        )];
+        if kind == "pods" || WORKLOADS.contains(&kind.as_str()) {
+            let args = self.args_in(namespace.as_deref(), &["logs", "-f", &format!("{kind}/{name}"), "--tail=1000"]);
+            let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+            tabs.push(Tab::new("logs", "Logs", ProcessLog::new(KUBECTL, &refs).toggle("timestamps", "Timestamps", &["--timestamps"])));
+        }
+        Ok(tabs)
+    }
+}
+
+// API 1.3 registers the optional exports on the same component.
+openidea_plugin::register_plugin!(KubeExplorer, providers, views, indexing, details);
 
 #[cfg(test)]
 mod tests {
@@ -1414,9 +1766,10 @@ mod tests {
     }
 
     fn host() -> MockHost {
-        let host = MockHost::install().with_capabilities(&["process:kubectl", "editor.read", "storage"]);
+        let host = MockHost::install().with_capabilities(&["process:kubectl", "project.read", "editor.read", "storage"]);
         host.on_process(KUBECTL, |args, stdin| match args.iter().find(|a| !a.starts_with("--")).map(String::as_str) {
             Some("config") if args.contains(&"current-context".to_owned()) => ok("minikube\n"),
+            Some("config") if args.iter().any(|a|a=="view") => ok(r#"{"contexts":[{"name":"minikube","context":{"cluster":"minikube","namespace":"default"}}],"clusters":[{"name":"minikube","cluster":{"server":"https://minikube.invalid"}}]}"#),
             Some("config") => ok("minikube\narn:aws:eks:eu-west-1:1:cluster/prod\n"),
             Some("get") if args.iter().any(|a| a.starts_with("jsonpath=")) => ok("80 80 443"),
             Some("get") if args.contains(&"yaml".to_owned()) => ok("apiVersion: v1\nkind: Pod\nmetadata:\n  name: web-1\n"),
@@ -1436,7 +1789,7 @@ mod tests {
 
     fn keys(view: View) -> Vec<String> {
         match view.body {
-            Body::Tree(items) => items.into_iter().map(|i| i.key).collect(),
+            Body::Tree(items) => items.into_iter().map(|i| test_tree_key(&i.key).to_owned()).collect(),
             other => panic!("not a tree: {other:?}"),
         }
     }
@@ -1446,12 +1799,12 @@ mod tests {
         let host = host();
         let mut kube = KubeExplorer::default();
 
-        kube.handle(TREE, ViewEvent::Expand("kind:pods".into()), &host.invocation()).unwrap();
-        let tree = keys(kube.render(TREE, None, &host.invocation()).unwrap());
+        kube.handle(TREE, ViewEvent::Expand(kube.test_node_key("kind:pods",&host.invocation())), &host.invocation()).unwrap();
+        let tree = keys(kube.render(PANEL, None, &host.invocation()).unwrap());
         assert!(tree.contains(&"res:pods/web-1".to_owned()));
 
-        kube.handle(TREE, ViewEvent::Select("res:pods/web-1".into()), &host.invocation()).unwrap();
-        kube.handle(TREE, ViewEvent::Button("logs".into()), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Select(kube.test_resource_key("res:pods/web-1", &host.invocation())), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Button(kube.test_control_key("logs")), &host.invocation()).unwrap();
         assert_eq!(host.terminals()[0].args, ["logs", "-f", "--tail=500", "web-1"]);
     }
 
@@ -1460,9 +1813,10 @@ mod tests {
         let host = host();
         let mut kube = KubeExplorer::default();
 
-        kube.handle(TREE, ViewEvent::Expand("ctx".into()), &host.invocation()).unwrap();
-        kube.handle(TREE, ViewEvent::Activate("ctx/arn:aws:eks:eu-west-1:1:cluster/prod".into()), &host.invocation()).unwrap();
-        kube.handle(TREE, ViewEvent::Expand("kind:pods".into()), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Expand(kube.test_node_key("ctx",&host.invocation())), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Activate(kube.test_choice_key("ctx/arn:aws:eks:eu-west-1:1:cluster/prod",&host.invocation())), &host.invocation()).unwrap();
+        kube.render(TREE,None,&host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Expand(kube.test_node_key("kind:pods",&host.invocation())), &host.invocation()).unwrap();
 
         assert_eq!(host.storage()["context"], "arn:aws:eks:eu-west-1:1:cluster/prod");
         assert!(host.process_runs().last().unwrap().args.contains(&"--context=arn:aws:eks:eu-west-1:1:cluster/prod".to_owned()));
@@ -1472,12 +1826,12 @@ mod tests {
     fn describe_shows_its_output_in_the_tree_view_until_back() {
         let host = host();
         let mut kube = KubeExplorer::default();
-        kube.handle(TREE, ViewEvent::Select("res:pods/web-1".into()), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Select(kube.test_resource_key("res:pods/web-1", &host.invocation())), &host.invocation()).unwrap();
 
-        kube.handle(TREE, ViewEvent::Button("describe".into()), &host.invocation()).unwrap();
-        let shown = kube.render(TREE, None, &host.invocation()).unwrap().body;
-        kube.handle(TREE, ViewEvent::Button("back".into()), &host.invocation()).unwrap();
-        let back = kube.render(TREE, None, &host.invocation()).unwrap().body;
+        kube.handle(TREE, ViewEvent::Button(kube.test_control_key("describe")), &host.invocation()).unwrap();
+        let shown = kube.render(PANEL, None, &host.invocation()).unwrap().body;
+        kube.handle(TREE, ViewEvent::Button(kube.test_control_key("back")), &host.invocation()).unwrap();
+        let back = kube.render(PANEL, None, &host.invocation()).unwrap().body;
 
         assert!(matches!(shown, Body::Html(page) if page.contains("Name: web-1")));
         assert!(matches!(back, Body::Tree(_)));
@@ -1485,7 +1839,7 @@ mod tests {
     }
 
     fn page(kube: &mut KubeExplorer, host: &MockHost) -> String {
-        match kube.render(TREE, None, &host.invocation()).unwrap().body {
+        match kube.render(PANEL, None, &host.invocation()).unwrap().body {
             Body::Html(page) => page,
             other => panic!("not a page: {other:?}"),
         }
@@ -1494,7 +1848,10 @@ mod tests {
     #[test]
     fn highlights_yaml_and_diffs_like_the_page() {
         assert_eq!(yaml_line("  name: web # x"), r#"<span class="m">  </span><span class="k">name</span>: web # x"#);
-        assert_eq!(yaml_line(r#"- image: "nginx""#), r#"<span class="m">- </span><span class="k">image</span>:<span class="s"> &quot;nginx&quot;</span>"#);
+        assert_eq!(
+            yaml_line(r#"- image: "nginx""#),
+            r#"<span class="m">- </span><span class="k">image</span>:<span class="s"> &quot;nginx&quot;</span>"#
+        );
         assert_eq!(yaml_line("replicas: 3"), r#"<span class="k">replicas</span>:<span class="n"> 3</span>"#);
         assert_eq!(yaml_line("  - 10.0.0.1"), r#"<span class="m">  - </span>10.0.0.1"#);
         assert_eq!(yaml_line("url: http://x"), r#"<span class="k">url</span>: http://x"#);
@@ -1507,11 +1864,11 @@ mod tests {
     fn yaml_is_editable_and_describe_is_read_only() {
         let host = host();
         let mut kube = KubeExplorer::default();
-        kube.handle(TREE, ViewEvent::Select("res:pods/web-1".into()), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Select(kube.test_resource_key("res:pods/web-1", &host.invocation())), &host.invocation()).unwrap();
 
-        kube.handle(TREE, ViewEvent::Button("yaml".into()), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Button(kube.test_control_key("yaml")), &host.invocation()).unwrap();
         let yaml = page(&mut kube, &host);
-        kube.handle(TREE, ViewEvent::Button("describe".into()), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Button(kube.test_control_key("describe")), &host.invocation()).unwrap();
         let describe = page(&mut kube, &host);
 
         assert!(yaml.contains("name: web-1") && !yaml.contains("readonly"));
@@ -1524,10 +1881,10 @@ mod tests {
     fn applying_edited_yaml_replaces_the_object_and_shows_it_again() {
         let host = host();
         let mut kube = KubeExplorer::default();
-        kube.handle(TREE, ViewEvent::Select("res:pods/web-1".into()), &host.invocation()).unwrap();
-        kube.handle(TREE, ViewEvent::Button("yaml".into()), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Select(kube.test_resource_key("res:pods/web-1", &host.invocation())), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Button(kube.test_control_key("yaml")), &host.invocation()).unwrap();
 
-        kube.handle(TREE, ViewEvent::Message("apply\nkind: Pod # edited".into()), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Message(kube.test_apply_message("kind: Pod # edited")), &host.invocation()).unwrap();
 
         assert!(host.process_runs().iter().any(|r| r.args.ends_with(&["replace".into(), "-f".into(), "-".into()])));
         assert!(page(&mut kube, &host).contains("name: web-1"));
@@ -1537,11 +1894,11 @@ mod tests {
     fn a_rejected_apply_keeps_the_edits_and_reports_why() {
         let host = host();
         let mut kube = KubeExplorer::default();
-        kube.handle(TREE, ViewEvent::Select("res:pods/web-1".into()), &host.invocation()).unwrap();
-        kube.handle(TREE, ViewEvent::Button("yaml".into()), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Select(kube.test_resource_key("res:pods/web-1", &host.invocation())), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Button(kube.test_control_key("yaml")), &host.invocation()).unwrap();
         let refreshes = host.refreshed_views().len();
 
-        kube.handle(TREE, ViewEvent::Message("apply\nkind: Pod # conflict".into()), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Message(kube.test_apply_message("kind: Pod # conflict")), &host.invocation()).unwrap();
 
         assert_eq!(host.view_messages().last().unwrap().1, "error:the object has been modified");
         assert_eq!(host.refreshed_views().len(), refreshes);
@@ -1549,6 +1906,14 @@ mod tests {
 
     fn host_with_tee() -> (MockHost, std::rc::Rc<std::cell::RefCell<String>>) {
         let host = host().with_capabilities(&["process:kubectl", "process:tee", "editor.read", "storage", "events", "project.read"]);
+        host.on_process(KUBECTL, |args, _| {
+            if args.iter().any(|a| a=="config") {
+                let context=args.iter().find_map(|a|a.strip_prefix("--context=")).unwrap_or("minikube");
+                if args.iter().any(|a|a=="current-context") { return ok(context); }
+                return ok(&format!(r#"{{"contexts":[{{"name":"{context}","context":{{"cluster":"local","namespace":"default"}}}}],"clusters":[{{"name":"local","cluster":{{"server":"https://local.invalid"}}}}]}}"#));
+            }
+            ok("apiVersion: v1\nkind: Pod\nmetadata:\n  name: web-1\n  namespace: default\n  uid: uid-web\n  resourceVersion: \"7\"\n")
+        });
         host.set_setting("yamlInEditor", "true");
         let written = std::rc::Rc::new(std::cell::RefCell::new(String::new()));
         let sink = written.clone();
@@ -1560,8 +1925,8 @@ mod tests {
     }
 
     fn open_in_editor(kube: &mut KubeExplorer, host: &MockHost) -> String {
-        kube.handle(TREE, ViewEvent::Select("res:pods/web-1".into()), &host.invocation()).unwrap();
-        kube.handle(TREE, ViewEvent::Button("yaml".into()), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Select(kube.test_resource_key("res:pods/web-1", &host.invocation())), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Button(kube.test_control_key("yaml")), &host.invocation()).unwrap();
         host.opened_locations()[0].0.clone()
     }
 
@@ -1570,9 +1935,9 @@ mod tests {
         let (host, written) = host_with_tee();
         host.set_setting("allowRevealSecrets", "true");
         let mut kube = KubeExplorer::default();
-        kube.handle(TREE, ViewEvent::Select("res:secrets/web-1".into()), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Select(kube.test_resource_key("res:secrets/web-1", &host.invocation())), &host.invocation()).unwrap();
 
-        kube.handle(TREE, ViewEvent::Button("yaml".into()), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Button(kube.test_control_key("yaml")), &host.invocation()).unwrap();
 
         assert!(host.process_runs().iter().all(|r| r.program != "tee"), "tee must not run for a Secret");
         assert!(written.borrow().is_empty());
@@ -1585,9 +1950,9 @@ mod tests {
         let (host, written) = host_with_tee();
         host.set_setting("yamlInEditor", "false");
         let mut kube = KubeExplorer::default();
-        kube.handle(TREE, ViewEvent::Select("res:pods/web-1".into()), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Select(kube.test_resource_key("res:pods/web-1", &host.invocation())), &host.invocation()).unwrap();
 
-        kube.handle(TREE, ViewEvent::Button("yaml".into()), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Button(kube.test_control_key("yaml")), &host.invocation()).unwrap();
 
         assert!(host.process_runs().iter().all(|r| r.program != "tee"));
         assert!(written.borrow().is_empty());
@@ -1595,83 +1960,66 @@ mod tests {
     }
 
     #[test]
-    fn yaml_opens_in_an_editor_on_a_temp_file_when_tee_is_granted() {
+    fn private_editor_uses_sdk_storage_preserves_identity_and_never_tee() {
         let (host, written) = host_with_tee();
-        let mut kube = KubeExplorer::default();
-
-        let path = open_in_editor(&mut kube, &host);
-
-        assert!(path.starts_with("/tmp/kube-explorer-pods-web-1-") && path.ends_with(".yaml"));
-        let tee = host.process_runs().into_iter().find(|r| r.program == "tee").unwrap();
-        assert_eq!(tee.args, [path]);
-        assert!(written.borrow().contains("name: web-1"));
-        assert!(host.subscriptions().contains(&openidea_plugin::EventKind::FileSaved));
+        let path = open_in_editor(&mut KubeExplorer::default(), &host);
+        assert!(path.starts_with(&format!("{}/resource-editor-", host::fs::plugin_dir().unwrap())));
+        let bytes=host::fs::read_bytes(&path).unwrap(); let text=String::from_utf8(bytes).unwrap();
+        assert!(text.contains("resourceVersion: \"7\"") && text.contains("uid: uid-web"));
+        assert!(text.contains("# yaml-language-server: $schema="));
+        assert!(written.borrow().is_empty());
+        assert!(host.process_runs().iter().all(|r|r.program!="tee"));
+        assert!(!host.storage().keys().any(|k|k.starts_with("edit:")));
     }
 
     #[test]
-    fn saving_the_temp_file_replaces_the_object_in_the_context_it_came_from() {
+    fn saving_private_or_legacy_temp_files_never_applies() {
         let (host, _) = host_with_tee();
-        let mut kube = KubeExplorer { context: Some("prod".into()), ..KubeExplorer::default() };
+        let mut kube = KubeExplorer::default();
         let path = open_in_editor(&mut kube, &host);
-        kube.context = Some("dev".into());
-
-        KubeExplorer::default().handle_events(&[openidea_plugin::Event::FileSaved(path.clone())], &host.invocation());
-
-        let replace = host.process_runs().into_iter().find(|r| r.args.contains(&"replace".to_owned())).unwrap();
-        assert!(replace.args.contains(&"--context=prod".to_owned()));
-        assert!(replace.args.ends_with(&["replace".into(), "-f".into(), path]));
+        kube.handle_events(&[openidea_plugin::Event::FileSaved(path),openidea_plugin::Event::FileSaved("/tmp/legacy.yaml".into())], &host.invocation());
+        assert!(host.process_runs().iter().all(|r|!r.args.iter().any(|a|a=="replace")));
     }
 
     #[test]
     fn saving_another_file_does_nothing() {
         let (host, _) = host_with_tee();
-
         KubeExplorer::default().handle_events(&[openidea_plugin::Event::FileSaved("/project/a.yaml".into())], &host.invocation());
-
         assert!(host.process_runs().is_empty());
     }
 
     #[test]
-    fn only_the_objects_own_resource_version_is_dropped() {
-        let yaml = "kind: Event\ninvolvedObject:\n  resourceVersion: \"7\"\nmetadata:\n  name: x\n  resourceVersion: \"206\"\n  uid: u\nspec: {}\n";
+    fn a_manifest_offers_to_add_its_schema() {
+        let doc =
+            Document { path: "/project/pod.yaml".into(), language: "yaml".into(), version: 1, text: "apiVersion: v1\nkind: Pod\n".into() };
+
+        let actions = KubeExplorer::default().code_actions(&doc, Default::default());
 
         assert_eq!(
-            without_resource_version(yaml),
-            "kind: Event\ninvolvedObject:\n  resourceVersion: \"7\"\nmetadata:\n  name: x\n  uid: u\nspec: {}\n"
+            actions[0].edits[0].1[0].text.lines().next().unwrap(),
+            format!("# yaml-language-server: $schema={}", schema::url("v1", "Pod").unwrap())
         );
     }
 
     #[test]
-    fn the_temp_file_names_the_kubernetes_schema() {
-        let (host, written) = host_with_tee();
-
-        open_in_editor(&mut KubeExplorer::default(), &host);
-
-        assert!(written.borrow().starts_with("# yaml-language-server: $schema="));
-    }
-
-    #[test]
-    fn a_manifest_offers_to_add_its_schema() {
-        let doc = Document { path: "/project/pod.yaml".into(), language: "yaml".into(), version: 1, text: "apiVersion: v1\nkind: Pod\n".into() };
-
-        let actions = KubeExplorer::default().code_actions(&doc, Default::default());
-
-        assert_eq!(actions[0].edits[0].1[0].text.lines().next().unwrap(), format!("# yaml-language-server: $schema={}", schema::url("v1", "Pod").unwrap()));
-    }
-
-    #[test]
-    fn port_forward_asks_for_ports_then_opens_a_terminal() {
-        let host = host();
+    fn managed_port_forward_previews_ports_then_starts_an_owned_process() {
+        let host = host().with_capabilities(&["process:kubectl", "project.read", "editor.read", "storage"]);
         let mut kube = KubeExplorer::default();
-        kube.handle(TREE, ViewEvent::Select("res:pods/web-1".into()), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Select(kube.test_resource_key("res:pods/web-1", &host.invocation())), &host.invocation()).unwrap();
 
-        kube.handle(TREE, ViewEvent::Button("port-forward".into()), &host.invocation()).unwrap();
-        let form = kube.render(TREE, None, &host.invocation()).unwrap().body;
-        kube.handle(TREE, ViewEvent::Field("ports".into(), "8080:80".into()), &host.invocation()).unwrap();
-        kube.handle(TREE, ViewEvent::Button("start-forward".into()), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Button(kube.test_control_key("port-forward")), &host.invocation()).unwrap();
+        let form = kube.render(PANEL, None, &host.invocation()).unwrap().body;
+        kube.handle(TREE, ViewEvent::Field(kube.test_control_key("ports"), "8080:80".into()), &host.invocation()).unwrap();
+        host.answer_next_prompt(Some(&[]));
+        kube.handle(TREE, ViewEvent::Button(kube.test_control_key("start-managed-forward")), &host.invocation()).unwrap();
+        assert!(kube.forward_session.is_none(), "approval must return without spawning");
+        let prepared = kube.render(PANEL, None, &host.invocation()).unwrap();
+        let token = prepared.toolbar.iter().find(|b| b.id.starts_with("launch-reviewed-forward-")).unwrap().id.clone();
+        kube.handle(TREE, ViewEvent::Button(token), &host.invocation()).unwrap();
 
         assert!(matches!(form, Body::Form(fields) if fields[0].value == FieldValue::Text("80:80 443:443".into())));
-        assert_eq!(host.terminals()[0].args, ["port-forward", "pods/web-1", "8080:80"]);
+        assert!(host.terminals().is_empty());
+        assert!(kube.forward_session.as_ref().unwrap().running());
     }
 
     #[test]
@@ -1679,10 +2027,10 @@ mod tests {
         let host = host();
         let mut kube = KubeExplorer::default();
 
-        kube.handle(TREE, ViewEvent::Select("res:deployments/web".into()), &host.invocation()).unwrap();
-        kube.handle(TREE, ViewEvent::Button("logs".into()), &host.invocation()).unwrap();
-        kube.handle(TREE, ViewEvent::Select("res:pods/web-1".into()), &host.invocation()).unwrap();
-        kube.handle(TREE, ViewEvent::Button("attach".into()), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Select(kube.test_resource_key("res:deployments/web", &host.invocation())), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Button(kube.test_control_key("logs")), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Select(kube.test_resource_key("res:pods/web-1", &host.invocation())), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Button(kube.test_control_key("attach")), &host.invocation()).unwrap();
 
         assert!(host.terminals()[0].args.starts_with(&["logs".into(), "-f".into(), "deployments/web".into(), "--all-pods=true".into()]));
         assert_eq!(host.terminals()[1].args, ["attach", "-it", "web-1"]);
@@ -1698,7 +2046,7 @@ mod tests {
         let deletes = || host.process_runs().into_iter().filter(|r| r.args.contains(&"delete".to_owned())).collect::<Vec<_>>();
         assert!(deletes()[0].args.contains(&"--dry-run=server".to_owned()));
 
-        kube.handle(TREE, ViewEvent::Button("confirm-delete-manifest".into()), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Button(kube.test_control_key("confirm-delete-manifest")), &host.invocation()).unwrap();
         assert!(deletes()[1].args.ends_with(&["delete".into(), "-f".into(), "-".into()]));
     }
 
@@ -1841,7 +2189,13 @@ mod tests {
         kube.run_command("how-to-install-kubectl", &host.invocation(), None).unwrap();
 
         assert_eq!(host.notifications()[0].body, KUBECTL_INSTALL_HINT);
-        for expected in ["PATH", "https://kubernetes.io/docs/tasks/tools/", "brew install kubectl", "winget install -e --id Kubernetes.kubectl", "Linux"] {
+        for expected in [
+            "PATH",
+            "https://kubernetes.io/docs/tasks/tools/",
+            "brew install kubectl",
+            "winget install -e --id Kubernetes.kubectl",
+            "Linux",
+        ] {
             assert!(KUBECTL_INSTALL_HINT.contains(expected), "{expected}");
         }
         assert!(host.process_runs().is_empty());
@@ -1906,11 +2260,11 @@ mod tests {
         let host = host();
         let mut kube = KubeExplorer::default();
 
-        kube.handle(TREE, ViewEvent::Expand("kind:pods".into()), &host.invocation()).unwrap();
-        let Body::Tree(items) = kube.render(TREE, None, &host.invocation()).unwrap().body else {
+        kube.handle(TREE, ViewEvent::Expand(kube.test_node_key("kind:pods",&host.invocation())), &host.invocation()).unwrap();
+        let Body::Tree(items) = kube.render(PANEL, None, &host.invocation()).unwrap().body else {
             panic!("not a tree");
         };
-        let icon = |key: &str| items.iter().find(|i| i.key == key).and_then(|i| i.icon.clone());
+        let icon = |key: &str| items.iter().find(|i| test_tree_key(&i.key)==key).and_then(|i| i.icon.clone());
 
         assert_eq!(icon("ctx").as_deref(), Some(k8s!("cluster")));
         assert_eq!(icon("kind:pods").as_deref(), Some(k8s!("pod")));
@@ -1922,8 +2276,8 @@ mod tests {
         let host = host();
         let mut kube = KubeExplorer::default();
 
-        kube.handle(TREE, ViewEvent::Expand("kind:jobs".into()), &host.invocation()).unwrap();
-        let tree = keys(kube.render(TREE, None, &host.invocation()).unwrap());
+        kube.handle(TREE, ViewEvent::Expand(kube.test_node_key("kind:jobs",&host.invocation())), &host.invocation()).unwrap();
+        let tree = keys(kube.render(PANEL, None, &host.invocation()).unwrap());
 
         assert!(tree.contains(&"kind:jobs!".to_owned()));
     }
@@ -1932,12 +2286,12 @@ mod tests {
     fn delete_runs_only_after_confirmation() {
         let host = host();
         let mut kube = KubeExplorer::default();
-        kube.handle(TREE, ViewEvent::Select("res:pods/web-1".into()), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Select(kube.test_resource_key("res:pods/web-1", &host.invocation())), &host.invocation()).unwrap();
 
-        kube.handle(TREE, ViewEvent::Button("delete".into()), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Button(kube.test_control_key("delete")), &host.invocation()).unwrap();
         assert!(!host.process_runs().iter().any(|r| r.args.contains(&"delete".to_owned())));
 
-        kube.handle(TREE, ViewEvent::Button("delete".into()), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Button(kube.test_control_key("delete")), &host.invocation()).unwrap();
         assert!(host.process_runs().iter().any(|r| r.args.contains(&"delete".to_owned())));
     }
 
@@ -1945,19 +2299,19 @@ mod tests {
     fn the_context_menu_acts_on_the_right_clicked_resource() {
         let host = host();
         let mut kube = KubeExplorer::default();
-        kube.run_command("resource-logs", &host.invocation(), Some("res:pods/web-1")).unwrap();
-        kube.run_command("resource-describe", &host.invocation(), Some("res:pods/web-1")).unwrap();
+        kube.run_command("resource-logs", &host.invocation(), Some(&kube.test_resource_key("res:pods/web-1", &host.invocation()))).unwrap();
+        kube.run_command("resource-describe", &host.invocation(), Some(&kube.test_resource_key("res:pods/web-1", &host.invocation()))).unwrap();
         assert_eq!(host.terminals().len(), 1);
         assert_eq!(host.terminals()[0].args.last().map(String::as_str), Some("web-1"));
         assert!(kube.details.is_some());
-        assert_eq!(host.revealed_views(), [TREE]);
+        assert_eq!(host.revealed_views(), [PANEL]);
     }
 
     #[test]
     fn the_context_menu_refuses_actions_that_do_not_fit_the_kind() {
         let host = host();
         let mut kube = KubeExplorer::default();
-        assert!(kube.run_command("resource-shell", &host.invocation(), Some("res:services/web")).is_err());
+        assert!(kube.run_command("resource-shell", &host.invocation(), Some(&kube.test_resource_key("res:services/web", &host.invocation()))).is_err());
         assert!(kube.run_command("resource-logs", &host.invocation(), Some("kind:pods")).is_err());
         assert!(host.terminals().is_empty());
     }
@@ -1966,19 +2320,21 @@ mod tests {
     fn the_context_menu_delete_asks_first() {
         let host = host();
         let mut kube = KubeExplorer::default();
-        kube.run_command("resource-delete", &host.invocation(), Some("res:pods/web-1")).unwrap();
+        kube.run_command("resource-delete", &host.invocation(), Some(&kube.test_resource_key("res:pods/web-1", &host.invocation()))).unwrap();
         assert!(!host.process_runs().iter().any(|r| r.args.contains(&"delete".to_owned())));
 
         host.answer_next_prompt(Some(&[]));
-        kube.run_command("resource-delete", &host.invocation(), Some("res:pods/web-1")).unwrap();
+        kube.run_command("resource-delete", &host.invocation(), Some(&kube.test_resource_key("res:pods/web-1", &host.invocation()))).unwrap();
         assert!(host.process_runs().iter().any(|r| r.args.contains(&"delete".to_owned())));
     }
 
     #[test]
     fn every_context_menu_command_is_declared() {
-        let manifest = include_str!("../plugin.toml");
-        for action in ["describe", "yaml", "logs", "log-view", "shell", "attach", "debug", "port-forward", "show-secret", "edit-secret", "delete"] {
-            assert!(manifest.contains(&format!("command = \"resource-{action}\"")), "{action}");
+        let actions = include_str!("ui_actions.json");
+        for action in
+            ["describe", "yaml", "logs", "log-view", "shell", "attach", "debug", "port-forward", "show-secret", "edit-secret", "delete"]
+        {
+            assert!(actions.contains(&format!(r#""command": "resource-{action}""#)), "{action}");
         }
     }
 
@@ -1997,9 +2353,9 @@ mod tests {
         let mut kube = KubeExplorer::default();
         kube.current_context = Some("minikube".into());
 
-        kube.handle(TREE, ViewEvent::Expand("crds".into()), &host.invocation()).unwrap();
-        kube.handle(TREE, ViewEvent::Expand("crd:cert-manager.io".into()), &host.invocation()).unwrap();
-        let tree = keys(kube.render(TREE, None, &host.invocation()).unwrap());
+        kube.handle(TREE, ViewEvent::Expand(kube.test_node_key("crds",&host.invocation())), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Expand(kube.test_node_key("crd:cert-manager.io",&host.invocation())), &host.invocation()).unwrap();
+        let tree = keys(kube.render(PANEL, None, &host.invocation()).unwrap());
 
         assert!(tree.contains(&"crds".to_owned()));
         assert!(tree.contains(&"crd:cert-manager.io".to_owned()));
@@ -2019,33 +2375,45 @@ mod tests {
         let mut kube = KubeExplorer::default();
         kube.current_context = Some("minikube".into());
 
-        kube.handle(TREE, ViewEvent::Expand("crds".into()), &host.invocation()).unwrap();
-        kube.handle(TREE, ViewEvent::Expand("crd:cert-manager.io".into()), &host.invocation()).unwrap();
-        kube.handle(TREE, ViewEvent::Expand("kind:certificates.cert-manager.io".into()), &host.invocation()).unwrap();
-        let tree = keys(kube.render(TREE, None, &host.invocation()).unwrap());
+        kube.handle(TREE, ViewEvent::Expand(kube.test_node_key("crds",&host.invocation())), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Expand(kube.test_node_key("crd:cert-manager.io",&host.invocation())), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Expand(kube.test_node_key("kind:certificates.cert-manager.io",&host.invocation())), &host.invocation()).unwrap();
+        let tree = keys(kube.render(PANEL, None, &host.invocation()).unwrap());
         assert!(tree.contains(&"res:certificates.cert-manager.io/web-tls".to_owned()));
 
-        kube.handle(TREE, ViewEvent::Select("res:certificates.cert-manager.io/web-tls".into()), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Select(kube.test_resource_key("res:certificates.cert-manager.io/web-tls", &host.invocation())), &host.invocation()).unwrap();
         assert_eq!(kube.selected, Some(("certificates.cert-manager.io".into(), "web-tls".into())));
     }
 
     #[test]
     fn built_in_groups_are_not_custom_resources() {
         let names = [
-            "storageclasses.storage.k8s.io", "roles.rbac.authorization.k8s.io", "poddisruptionbudgets.policy",
-            "horizontalpodautoscalers.autoscaling", "leases.coordination.k8s.io", "customresourcedefinitions.apiextensions.k8s.io",
-            "pods.metrics.k8s.io", "storageversionmigrations.storagemigration.k8s.io", "gateways.gateway.networking.k8s.io", "certificates.cert-manager.io",
-            "clusters.cluster.x-k8s.io", "volumesnapshots.snapshot.storage.k8s.io", "pods",
+            "storageclasses.storage.k8s.io",
+            "roles.rbac.authorization.k8s.io",
+            "poddisruptionbudgets.policy",
+            "horizontalpodautoscalers.autoscaling",
+            "leases.coordination.k8s.io",
+            "customresourcedefinitions.apiextensions.k8s.io",
+            "pods.metrics.k8s.io",
+            "storageversionmigrations.storagemigration.k8s.io",
+            "gateways.gateway.networking.k8s.io",
+            "certificates.cert-manager.io",
+            "clusters.cluster.x-k8s.io",
+            "volumesnapshots.snapshot.storage.k8s.io",
+            "pods",
         ];
 
         let custom = custom_resource_names(names.iter().map(|n| (*n).to_owned()).collect());
 
-        assert_eq!(custom, [
-            "certificates.cert-manager.io",
-            "clusters.cluster.x-k8s.io",
-            "gateways.gateway.networking.k8s.io",
-            "volumesnapshots.snapshot.storage.k8s.io",
-        ]);
+        assert_eq!(
+            custom,
+            [
+                "certificates.cert-manager.io",
+                "clusters.cluster.x-k8s.io",
+                "gateways.gateway.networking.k8s.io",
+                "volumesnapshots.snapshot.storage.k8s.io",
+            ]
+        );
     }
 
     fn crd_tree(api_resources: Result<ProcessOutput, Error>) -> Vec<TreeItem> {
@@ -2059,12 +2427,13 @@ mod tests {
         let mut kube = KubeExplorer::default();
         kube.current_context = Some("minikube".into());
         for key in ["crds", "crd:b.io", "crd:a.io"] {
-            kube.handle(TREE, ViewEvent::Expand(key.into()), &host.invocation()).unwrap();
+            kube.handle(TREE, ViewEvent::Expand(kube.test_node_key(key,&host.invocation())), &host.invocation()).unwrap();
         }
         assert_eq!(calls.get(), 1);
-        let Body::Tree(items) = kube.render(TREE, None, &host.invocation()).unwrap().body else {
+        let Body::Tree(mut items) = kube.render(PANEL, None, &host.invocation()).unwrap().body else {
             panic!("not a tree");
         };
+        for item in &mut items {item.key=test_tree_key(&item.key).into();if let Some(parent)=&mut item.parent {*parent=test_tree_key(parent).into();}}
         items
     }
 
@@ -2073,19 +2442,23 @@ mod tests {
         let items = crd_tree(ok("zeta.b.io\nalpha.a.io\nbeta.a.io\n"));
         let nodes: Vec<(&str, &str)> = items.iter().skip_while(|i| i.key != "crds").map(|i| (i.key.as_str(), i.label.as_str())).collect();
 
-        assert_eq!(nodes, [
-            ("crds", "Custom Resources"),
-            ("crd:a.io", "a.io"),
-            ("kind:alpha.a.io", "alpha"),
-            ("kind:beta.a.io", "beta"),
-            ("crd:b.io", "b.io"),
-            ("kind:zeta.b.io", "zeta"),
-        ]);
+        assert_eq!(
+            nodes,
+            [
+                ("crds", "Custom Resources"),
+                ("crd:a.io", "a.io"),
+                ("kind:alpha.a.io", "alpha"),
+                ("kind:beta.a.io", "beta"),
+                ("crd:b.io", "b.io"),
+                ("kind:zeta.b.io", "zeta"),
+            ]
+        );
     }
 
     #[test]
     fn a_failing_api_resources_shows_an_error_node() {
-        let items = crd_tree(Ok(ProcessOutput { status: Some(1), stdout: String::new(), stderr: "Error from server (Forbidden): nope\n".into() }));
+        let items =
+            crd_tree(Ok(ProcessOutput { status: Some(1), stdout: String::new(), stderr: "Error from server (Forbidden): nope\n".into() }));
 
         let node = items.iter().find(|i| i.key == "crds!").unwrap();
         assert!(node.label.contains("Forbidden"));
@@ -2171,10 +2544,7 @@ mod tests {
         let _host = host();
         let kube = KubeExplorer { context: Some("prod".into()), namespace: Some("shop".into()), ..Default::default() };
         let args = kube.debug_args("web-1", "busybox:stable", Some("app")).unwrap();
-        assert_eq!(
-            args,
-            ["--context=prod", "--namespace=shop", "debug", "-it", "web-1", "--image=busybox:stable", "--target=app"]
-        );
+        assert_eq!(args, ["--context=prod", "--namespace=shop", "debug", "-it", "web-1", "--image=busybox:stable", "--target=app"]);
         let args = kube.debug_args("web-1", "busybox:stable", None).unwrap();
         assert!(!args.iter().any(|a| a.starts_with("--target")));
     }
@@ -2224,7 +2594,7 @@ mod tests {
     fn secret_json(entries: &[(&str, &[u8])]) -> String {
         let data: Vec<String> = entries.iter().map(|(k, v)| format!("\"{k}\":\"{}\"", secrets::b64_encode(v))).collect();
         format!(
-            "{{\"apiVersion\":\"v1\",\"data\":{{{}}},\"kind\":\"Secret\",\"metadata\":{{\"annotations\":{{\"a\":\"{{\\\"data\\\":{{\\\"x\\\":\\\"!\\\"}}}}\"}},\"name\":\"db\"}},\"type\":\"Opaque\"}}",
+            "{{\"apiVersion\":\"v1\",\"data\":{{{}}},\"kind\":\"Secret\",\"metadata\":{{\"annotations\":{{\"a\":\"{{\\\"data\\\":{{\\\"x\\\":\\\"!\\\"}}}}\"}},\"name\":\"db\",\"namespace\":\"default\"}},\"type\":\"Opaque\"}}",
             data.join(",")
         )
     }
@@ -2259,19 +2629,41 @@ mod tests {
     }
 
     #[test]
+    fn native_multiline_field_clip_cannot_silently_truncate_revealed_binary_secret() {
+        let bytes=vec![0xff;1<<20];
+        let (_host,_)=secret_host(true,secret_json(&[("blob",&bytes)]),"");let mut kube=selected_secret();
+        kube.button("show-secret").unwrap();
+        let Body::Form(fields)=kube.render_tree().unwrap().body else{panic!("revealed fields")};
+        // Exact pinned254 runtime converter clips Multiline text at1MiB bytes.
+        let mut visible=String::new();
+        for field in fields {
+            let FieldValue::Multiline(text)=field.value else{panic!("multiline")};
+            let mut end=text.len().min(1<<20);while !text.is_char_boundary(end){end-=1;}
+            visible.push_str(&text[..end]);
+        }
+        let expected=secrets::display(&bytes);
+        assert!(visible==expected,"native presentation lost binary display bytes: {} of {}",visible.len(),expected.len());
+        let unicode=format!("{}😀tail","x".repeat((1<<20)-1));
+        let view=kube.render_revealed("db",&[("unicode".into(),unicode.clone())]);
+        assert!(view.status.unwrap().contains("without separators"));
+        let Body::Form(fields)=view.body else{panic!("parts")};assert_eq!(fields.len(),2);
+        let mut joined=String::new();
+        for (part,field) in fields.into_iter().enumerate() {
+            assert!(field.label.contains(&format!("part {} of 2",part+1)));assert!(field.key.len()<=128);
+            let FieldValue::Multiline(text)=field.value else{panic!("multiline")};assert!(text.len()<=1<<20);joined.push_str(&text);
+        }
+        assert!(joined==unicode);
+
+    }
+
+    #[test]
     fn secret_values_are_base64_decoded() {
         let (_host, _) = secret_host(true, secret_json(&[("password", b"pa\"ss\nw\xc3\xa9"), ("user", b"admin")]), "");
         let mut kube = selected_secret();
         kube.button("show-secret").unwrap();
         let Body::Form(fields) = kube.render_tree().unwrap().body else { panic!("not a form") };
-        let shown: Vec<_> = fields.iter().map(|f| (f.key.as_str(), f.value.clone())).collect();
-        assert_eq!(
-            shown,
-            [
-                ("password", FieldValue::Multiline("pa\"ss\nwé".into())),
-                ("user", FieldValue::Multiline("admin".into())),
-            ]
-        );
+        let shown: Vec<_> = fields.iter().map(|f| (f.label.as_str(), f.value.clone())).collect();
+        assert_eq!(shown, [("password", FieldValue::Multiline("pa\"ss\nwé".into())), ("user", FieldValue::Multiline("admin".into())),]);
         kube.button("back").unwrap();
         assert!(kube.revealed.is_none());
         assert!(matches!(kube.render_tree().unwrap().body, Body::Tree(_)));
@@ -2317,7 +2709,7 @@ mod tests {
         let (failing, _) = secret_host(true, String::new(), "invalid: hunter2-top-secret rejected");
         let mut creating = drafting("db", "password", value);
         let error = format!("{:?}", creating.button("submit-secret").unwrap_err());
-        assert!(!error.contains(value) && !error.contains(&encoded) && error.contains("***"));
+        assert!(!error.contains(value) && !error.contains(&encoded) && error.contains("diagnostics withheld"));
         let mut creating = drafting("db", "password", value);
         let (ok_host, _) = secret_host(true, String::new(), "");
         creating.button("submit-secret").unwrap();
@@ -2436,12 +2828,13 @@ mod tests {
         host.on_process(KUBECTL, |args, _| {
             let has = |a: &str| args.iter().any(|x| x == a);
             match args.iter().find(|a| !a.starts_with("--")).map(String::as_str) {
+                Some("config") if has("view") => ok(r#"{"contexts":[{"name":"minikube","context":{"cluster":"minikube","namespace":"default"}}],"clusters":[{"name":"minikube","cluster":{"server":"https://minikube.invalid"}}]}"#),
                 Some("config") => ok("minikube\n"),
                 Some("get") if has("--all-namespaces") => ok("team-a/web\nteam-b/api\n"),
                 Some("get") if has("nodes") => ok("node/node-1\n"),
                 Some("get") if has("namespaces") => ok("namespace/team-a\nnamespace/team-b\n"),
                 Some("get") if has("yaml") => ok("apiVersion: v1\nkind: Pod\nmetadata:\n  name: web\n  namespace: team-a\n"),
-                Some("get") if has("json") => ok("{\"data\":{}}"),
+                Some("get") if has("json") => ok(r#"{"apiVersion":"v1","kind":"Secret","metadata":{"name":"web","namespace":"team-a","resourceVersion":"1"},"data":{}}"#),
                 Some("get") if args.iter().any(|a| a.starts_with("jsonpath=")) => ok("80"),
                 Some("describe") => ok("Name: web\n"),
                 _ => ok(""),
@@ -2454,14 +2847,14 @@ mod tests {
         KubeExplorer { namespace: Some(ALL_NAMESPACES.into()), current_context: Some("minikube".into()), ..Default::default() }
     }
 
-    fn press(kube: &mut KubeExplorer, kind: &str, row: &str, button: &str) -> Result<(), Error> {
+    fn press(kube: &mut KubeExplorer, kind: &str, row: &str, button: &str, host: &MockHost) -> Result<(), Error> {
         kube.selected = Some((kind.into(), row.into()));
         kube.confirm_delete = false;
         kube.forward = None;
-        kube.button(button)?;
+        kube.button_in(button, Some(&host.invocation()))?;
         match button {
-            "delete" => kube.button("delete"),
-            "port-forward" => kube.button("start-forward"),
+            "delete" => kube.button_in("delete", Some(&host.invocation())),
+            "port-forward" => kube.button_in("start-forward", Some(&host.invocation())),
             _ => Ok(()),
         }
     }
@@ -2492,7 +2885,7 @@ mod tests {
             for (kind, button) in ROW_ACTIONS {
                 let host = all_host();
                 let mut kube = all_mode();
-                assert!(press(&mut kube, kind, row, button).is_err(), "{kind} {row:?} {button}");
+                assert!(press(&mut kube, kind, row, button, &host).is_err(), "{kind} {row:?} {button}");
                 assert!(kubectl_calls(&host).is_empty(), "{kind} {row:?} {button}: {:?}", kubectl_calls(&host));
             }
         }
@@ -2503,14 +2896,14 @@ mod tests {
         let host = all_host();
         let mut kube = KubeExplorer::default();
 
-        kube.handle(TREE, ViewEvent::Expand("ns".into()), &host.invocation()).unwrap();
-        let Body::Tree(items) = kube.render(TREE, None, &host.invocation()).unwrap().body else { panic!("not a tree") };
+        kube.handle(TREE, ViewEvent::Expand(kube.test_node_key("ns",&host.invocation())), &host.invocation()).unwrap();
+        let Body::Tree(items) = kube.render(PANEL, None, &host.invocation()).unwrap().body else { panic!("not a tree") };
 
-        let at = items.iter().position(|i| i.key == "ns").unwrap();
-        assert_eq!(items[at + 1].key, "ns/*");
+        let at = items.iter().position(|i| test_tree_key(&i.key) == "ns").unwrap();
+        assert_eq!(items[at + 1].key, kube.test_choice_key("ns/*",&host.invocation()));
         assert_eq!(items[at + 1].label, "All namespaces");
-        assert_eq!(items[at + 1].parent.as_deref(), Some("ns"));
-        assert_eq!(items[at + 2].key, "ns/team-a");
+        assert_eq!(items[at + 1].parent.as_deref(), Some(kube.test_node_key("ns",&host.invocation()).as_str()));
+        assert_eq!(items[at + 2].key, kube.test_choice_key("ns/team-a",&host.invocation()));
     }
 
     #[test]
@@ -2518,8 +2911,9 @@ mod tests {
         let host = all_host();
         let mut kube = KubeExplorer { namespace: Some("shop".into()), ..Default::default() };
 
-        kube.handle(TREE, ViewEvent::Activate("ns/*".into()), &host.invocation()).unwrap();
-        kube.handle(TREE, ViewEvent::Expand("kind:pods".into()), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Activate(kube.test_choice_key("ns/*",&host.invocation())), &host.invocation()).unwrap();
+        kube.render(TREE,None,&host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Expand(kube.test_node_key("kind:pods",&host.invocation())), &host.invocation()).unwrap();
 
         assert_eq!(host.storage()["namespace"], "*");
         let runs = host.process_runs();
@@ -2535,12 +2929,12 @@ mod tests {
         let host = all_host();
         let mut kube = all_mode();
 
-        kube.handle(TREE, ViewEvent::Expand("kind:pods".into()), &host.invocation()).unwrap();
-        let Body::Tree(items) = kube.render(TREE, None, &host.invocation()).unwrap().body else { panic!("not a tree") };
+        kube.handle(TREE, ViewEvent::Expand(kube.test_node_key("kind:pods",&host.invocation())), &host.invocation()).unwrap();
+        let Body::Tree(items) = kube.render(PANEL, None, &host.invocation()).unwrap().body else { panic!("not a tree") };
 
-        let row = items.iter().find(|i| i.key == "res:pods/team-a/web").unwrap();
+        let row = items.iter().find(|i| i.key.split('~').next() == Some("res:pods/team-a/web")).unwrap();
         assert_eq!(row.label, "team-a/web");
-        assert!(items.iter().any(|i| i.key == "res:pods/team-b/api"));
+        assert!(items.iter().any(|i| i.key.split('~').next() == Some("res:pods/team-b/api")));
     }
 
     #[test]
@@ -2548,9 +2942,9 @@ mod tests {
         let host = all_host();
         let mut kube = all_mode();
 
-        kube.handle(TREE, ViewEvent::Expand("kind:nodes".into()), &host.invocation()).unwrap();
-        let tree = keys(kube.render(TREE, None, &host.invocation()).unwrap());
-        kube.handle(TREE, ViewEvent::Select("res:nodes/node-1".into()), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Expand(kube.test_node_key("kind:nodes",&host.invocation())), &host.invocation()).unwrap();
+        let tree = keys(kube.render(PANEL, None, &host.invocation()).unwrap());
+        kube.handle(TREE, ViewEvent::Select(kube.test_resource_key("res:nodes/node-1", &host.invocation())), &host.invocation()).unwrap();
         kube.button("describe").unwrap();
 
         assert!(tree.contains(&"res:nodes/node-1".to_owned()), "{tree:?}");
@@ -2561,32 +2955,26 @@ mod tests {
     }
 
     #[test]
-    fn describe_and_yaml_in_all_mode_pass_the_rows_namespace() {
-        let host = all_host();
+    fn describe_and_panel_yaml_in_all_mode_pass_the_rows_namespace() {
+        let host = all_host();host.set_setting("yamlInEditor","false");
         let mut kube = all_mode();
-
-        kube.handle(TREE, ViewEvent::Activate("res:pods/team-a/web".into()), &host.invocation()).unwrap();
-        press(&mut kube, "pods", "team-a/web", "yaml").unwrap();
-        let path = host.opened_locations()[0].0.clone();
-        KubeExplorer::default().handle_events(&[openidea_plugin::Event::FileSaved(path.clone())], &host.invocation());
-
+        kube.handle(TREE, ViewEvent::Activate(kube.test_resource_key("res:pods/team-a/web", &host.invocation())), &host.invocation()).unwrap();
+        press(&mut kube, "pods", "team-a/web", "yaml", &host).unwrap();
         let calls = kubectl_calls(&host);
-        assert!(calls[0].ends_with(&["describe".into(), "pods".into(), "web".into(), REQUEST_TIMEOUT.into()]), "{:?}", calls[0]);
+        assert!(calls[0].ends_with(&["describe".into(), "pods".into(), "web".into(), REQUEST_TIMEOUT.into()]));
         assert!(calls[1].ends_with(&["get".into(), "pods".into(), "web".into(), "-o".into(), "yaml".into(), REQUEST_TIMEOUT.into()]));
-        assert!(calls[2].ends_with(&["replace".into(), "-f".into(), path]));
-        for args in &calls {
-            assert!(args.contains(&"--namespace=team-a".to_owned()), "{args:?}");
-        }
-        assert!(host.opened_locations()[0].0.starts_with("/tmp/kube-explorer-pods-web-"));
+        assert!(calls.iter().all(|args| args.contains(&"--namespace=team-a".to_owned())));
+        assert!(host.opened_locations().is_empty());
     }
 
     #[test]
     fn yaml_applied_in_the_panel_keeps_the_rows_namespace() {
-        let host = all_host().with_capabilities(&["process:kubectl", "editor.read", "storage"]);
+        let host = all_host().with_capabilities(&["process:kubectl", "project.read", "editor.read", "storage"]);
+        host.set_setting("yamlInEditor","false");
         let mut kube = all_mode();
-        press(&mut kube, "pods", "team-a/web", "yaml").unwrap();
+        press(&mut kube, "pods", "team-a/web", "yaml", &host).unwrap();
 
-        kube.handle(TREE, ViewEvent::Message("apply\nkind: Pod".into()), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Message(kube.test_apply_message("kind: Pod")), &host.invocation()).unwrap();
         kube.button("reload-yaml").unwrap();
 
         let calls = kubectl_calls(&host);
@@ -2598,11 +2986,11 @@ mod tests {
     fn delete_in_all_namespaces_targets_the_rows_namespace() {
         let host = all_host();
         let mut kube = all_mode();
-        kube.handle(TREE, ViewEvent::Select("res:pods/team-a/web".into()), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Select(kube.test_resource_key("res:pods/team-a/web", &host.invocation())), &host.invocation()).unwrap();
 
-        kube.handle(TREE, ViewEvent::Button("delete".into()), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Button(kube.test_control_key("delete")), &host.invocation()).unwrap();
         assert!(kubectl_calls(&host).iter().all(|args| !args.contains(&"delete".to_owned())));
-        kube.handle(TREE, ViewEvent::Button("delete".into()), &host.invocation()).unwrap();
+        kube.handle(TREE, ViewEvent::Button(kube.test_control_key("delete")), &host.invocation()).unwrap();
 
         let calls = kubectl_calls(&host);
         let delete = calls.iter().find(|args| args.contains(&"delete".to_owned())).unwrap();
@@ -2649,12 +3037,14 @@ mod tests {
         let mut kube = all_mode();
 
         for (kind, button) in ROW_ACTIONS {
-            press(&mut kube, kind, "team-a/web", button).unwrap();
+            press(&mut kube, kind, "team-a/web", button, &host).unwrap();
         }
 
         let calls = kubectl_calls(&host);
         assert!(calls.len() >= ROW_ACTIONS.len(), "{calls:?}");
-        for args in &calls {
+        // Local kubeconfig discovery has no resource namespace. Resource reads
+        // and actions still use the namespace carried by the selected row.
+        for args in calls.iter().filter(|args| !args.iter().any(|arg| arg == "config")) {
             assert_eq!(args.iter().filter(|a| a.starts_with("--namespace")).collect::<Vec<_>>(), ["--namespace=team-a"], "{args:?}");
             assert!(!args.iter().any(|a| a == "-n" || a == "team-a" || a.contains("team-a/")), "{args:?}");
         }
@@ -2747,12 +3137,13 @@ mod tests {
                 true => ok(&shown.borrow().replace("pod/", "team-a/")),
                 false => ok(&shown.borrow()),
             });
-            let mut kube = KubeExplorer { namespace: namespace.map(str::to_owned), current_context: Some("minikube".into()), ..Default::default() };
-            kube.handle(TREE, ViewEvent::Expand("kind:pods".into()), &host.invocation()).unwrap();
+            let mut kube =
+                KubeExplorer { namespace: namespace.map(str::to_owned), current_context: Some("minikube".into()), ..Default::default() };
+            kube.handle(TREE, ViewEvent::Expand(kube.test_node_key("kind:pods",&host.invocation())), &host.invocation()).unwrap();
 
             *listing.borrow_mut() = "pod/new\n";
             kube.handle(TREE, ViewEvent::Button("refresh".into()), &host.invocation()).unwrap();
-            let tree = keys(kube.render(TREE, None, &host.invocation()).unwrap());
+            let tree = keys(kube.render(PANEL, None, &host.invocation()).unwrap());
 
             let new = if namespace.is_some() { "res:pods/team-a/new" } else { "res:pods/new" };
             assert!(tree.contains(&new.to_owned()), "{namespace:?}: {tree:?}");
@@ -2765,12 +3156,229 @@ mod tests {
         let host = all_host();
         let mut kube = KubeExplorer { namespace: Some("shop".into()), current_context: Some("minikube".into()), ..Default::default() };
 
-        kube.handle(TREE, ViewEvent::Expand("kind:pods".into()), &host.invocation()).unwrap();
-        press(&mut kube, "pods", "web-1", "delete").unwrap();
+        kube.handle(TREE, ViewEvent::Expand(kube.test_node_key("kind:pods",&host.invocation())), &host.invocation()).unwrap();
+        press(&mut kube, "pods", "web-1", "delete", &host).unwrap();
 
         let calls = kubectl_calls(&host);
         assert_eq!(calls[0], ["--namespace=shop", "get", "pods", "-o", "name", REQUEST_TIMEOUT]);
         assert_eq!(calls[1], ["--namespace=shop", "delete", "pods", "web-1", "--wait=false"]);
         assert!(kube.target().ends_with("/shop"));
+    }
+}
+
+#[cfg(test)]
+mod services_tests {
+    use super::*;
+    use openidea_plugin::details::{Details as DetailsProvider, Pane};
+    use openidea_plugin::mock::MockHost;
+
+    #[test]
+    fn services_keeps_the_tree_when_a_yaml_panel_is_open() {
+        let host = MockHost::install().with_capabilities(&["project.read"]);
+        let mut kube = KubeExplorer::default();
+        kube.current_context = Some("test".into());
+        kube.expire_rich_context(Some(&host.invocation()));
+        kube.show_yaml("pods", "web", "kind: Pod".into(), None).unwrap();
+        assert!(matches!(kube.render(TREE, None, &host.invocation()).unwrap().body, Body::Tree(_)));
+        assert!(matches!(kube.render(PANEL, None, &host.invocation()).unwrap().body, Body::Html(_)));
+    }
+
+    #[test]
+    fn service_log_preserves_context_and_all_namespace_row_scope() {
+        let host = MockHost::install();
+        let mut kube = KubeExplorer::default();
+        kube.context = Some("staging".into());
+        kube.namespace = Some(ALL_NAMESPACES.into());
+        let key=kube.test_resource_key("res:pods/team-a/web", &host.invocation());
+        let tabs = DetailsProvider::detail(&mut kube, TREE, &key, &host.invocation()).unwrap();
+        let Pane::Log(log) = &tabs[1].body else { panic!("a managed log") };
+        assert_eq!(log.program, KUBECTL);
+        assert!(log.args.contains(&"--context=staging".into()));
+        assert!(log.args.contains(&"--namespace=team-a".into()));
+        assert!(log.args.contains(&"pods/web".into()));
+        assert!(!log.args.iter().any(|a| a.contains(ALL_NAMESPACES)));
+    }
+}
+
+#[cfg(test)]
+mod services_status_regression {
+    use super::*;
+    use openidea_plugin::{
+        details::{Details, Pane},
+        mock::MockHost,
+    };
+    #[test]
+    fn denied_cli_stays_visible_as_a_non_resource_services_row() {
+        let host = MockHost::install().with_capabilities(&["project.read", "storage"]);
+        let mut plugin = KubeExplorer::default();
+        let view = plugin.render(TREE, None, &host.invocation()).unwrap();
+        assert!(matches!(view.body, Body::Tree(ref rows) if rows.len()==1 && test_tree_key(&rows[0].key)=="kube:status"));
+        let Body::Tree(rows)=view.body else{panic!("status row")};let key=rows[0].key.clone();
+        plugin.handle(TREE, ViewEvent::Select(key.clone()), &host.invocation()).unwrap();
+        let tabs = plugin.detail(TREE, &key, &host.invocation()).unwrap();
+        assert!(matches!(&tabs[0].body, Pane::Message(text) if text.contains("not activated automatically")));
+        assert!(plugin.selected.is_none());
+        assert!(host.process_runs().is_empty());
+        assert!(host.requests().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod services_cluster_group_tests {
+    use super::*;
+    use openidea_plugin::mock::MockHost;
+    fn setup() -> (MockHost, KubeExplorer) {
+        let host = MockHost::install().with_capabilities(&["project.read", "storage"]);
+        let mut kube = KubeExplorer { context: Some("qa-synthetic".into()), namespace: Some("qa-demo".into()), ..Default::default() };
+        kube.expanded.insert("kind:pods".into());
+        kube.children.insert("kind:pods".into(), Ok(vec!["qa-web".into()]));
+        (host, kube)
+    }
+    fn rows(view: View) -> Vec<TreeItem> { let Body::Tree(mut rows) = view.body else { panic!("tree expected") }; for row in &mut rows {row.key=test_tree_key(&row.key).into();if let Some(parent)=&mut row.parent {*parent=test_tree_key(parent).into();}} rows }
+
+    #[test]
+    fn one_selected_context_parent_keeps_resource_keys_and_owners() {
+        let (host, mut kube) = setup();
+        let items = rows(kube.render(TREE, None, &host.invocation()).unwrap());
+        let roots: Vec<_> = items.iter().filter(|r| r.parent.is_none()).collect();
+        assert_eq!(roots.len(), 1);
+        assert_eq!(roots[0].key, "kube:cluster");
+        assert!(roots[0].label.contains("qa-synthetic"));
+        for key in ["ctx", "ns", "kind:pods", "kind:services", "crds"] {
+            assert_eq!(items.iter().find(|r| r.key == key).unwrap().parent.as_deref(), Some("kube:cluster"));
+        }
+        assert_eq!(items.iter().find(|r| r.key.split('~').next() == Some("res:pods/qa-web")).unwrap().parent.as_deref(), Some("kind:pods"));
+        assert!(host.process_runs().is_empty());
+    }
+
+    #[test]
+    fn synthetic_parent_expansion_and_collapse_do_not_fetch_or_lose_cached_selection() {
+        let (host, mut kube) = setup();
+        kube.handle(TREE, ViewEvent::Select(kube.test_resource_key("res:pods/qa-web", &host.invocation())), &host.invocation()).unwrap();
+        let selected = kube.selected.clone();
+        kube.handle(TREE, ViewEvent::Collapse(kube.test_node_key("kube:cluster",&host.invocation())), &host.invocation()).unwrap();
+        let collapsed = rows(kube.render(TREE, None, &host.invocation()).unwrap());
+        assert_eq!(collapsed.len(), 1);
+        assert_eq!(kube.selected, selected);
+        kube.handle(TREE, ViewEvent::Expand(kube.test_node_key("kube:cluster",&host.invocation())), &host.invocation()).unwrap();
+        let expanded = rows(kube.render(TREE, None, &host.invocation()).unwrap());
+        assert!(expanded.iter().any(|r| r.key.split('~').next() == Some("res:pods/qa-web")));
+        assert_eq!(kube.selected, selected);
+        assert!(!kube.children.contains_key("kube:cluster"));
+        assert!(!kube.expanded.contains("kube:cluster"));
+        assert!(host.process_runs().is_empty());
+    }
+
+    #[test]
+    fn context_namespace_presentation_changes_without_changing_parent_identity() {
+        let (host, mut kube) = setup();
+        let first = rows(kube.render(TREE, None, &host.invocation()).unwrap()).remove(0);
+        kube.context = Some("other-context".into());
+        kube.namespace = Some(ALL_NAMESPACES.into());
+        let next = rows(kube.render(TREE, None, &host.invocation()).unwrap()).remove(0);
+        assert_eq!(first.key, next.key);
+        assert!(next.label.contains("other-context"));
+        assert!(next.detail.as_deref().unwrap().contains("All namespaces"));
+        assert!(host.process_runs().is_empty());
+    }
+
+    #[test]
+    fn root_is_not_a_resource_and_rbac_errors_remain_under_their_kind() {
+        let (host, mut kube) = setup();
+        kube.children.insert("kind:pods".into(), Err("Forbidden: synthetic RBAC".into()));
+        let items = rows(kube.render(TREE, None, &host.invocation()).unwrap());
+        let error = items.iter().find(|r| r.key == "kind:pods!").unwrap();
+        assert_eq!(error.parent.as_deref(), Some("kind:pods"));
+        assert!(error.label.contains("Forbidden"));
+        kube.handle(TREE, ViewEvent::Select(kube.test_node_key("kube:cluster",&host.invocation())), &host.invocation()).unwrap();
+        assert!(kube.selected.is_none());
+        assert!(resource("kube:cluster").is_none());
+        assert!(host.process_runs().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod rich_panel_owner_tests {
+    use super::*;
+    use openidea_plugin::mock::MockHost;
+    fn setup() -> (MockHost, KubeExplorer) {
+        let host=MockHost::install().with_capabilities(&["process:kubectl","project.read","storage"]);
+        host.set_setting("allowRevealSecrets","true");
+        host.on_process(KUBECTL,|_,_|Ok(openidea_plugin::ProcessOutput {status:Some(0),stdout:r#"{"apiVersion":"v1","kind":"Secret","metadata":{"name":"demo","namespace":"shop","resourceVersion":"1"},"data":{"password":"c3ludGhldGljLXByaXZhdGU="}}"#.into(),stderr:String::new()}));
+        let mut kube=KubeExplorer {context:Some("dev".into()),namespace:Some("shop".into()),current_context:Some("dev".into()),..Default::default()};
+        kube.new_rich_callback();(host,kube)
+    }
+    #[test]
+    fn reveal_is_owned_and_automatic_foreign_render_contains_no_plaintext() {
+        let (host,mut kube)=setup();
+        kube.handle(TREE,ViewEvent::Select(kube.test_resource_key("res:secrets/demo", &host.invocation())),&host.invocation()).unwrap();
+        kube.handle(TREE,ViewEvent::Button(kube.test_control_key("show-secret")),&host.invocation()).unwrap();
+        assert_eq!(kube.rich_owner.as_deref(),Some("/project"));
+        assert!(format!("{:?}",kube.render(PANEL,None,&host.invocation()).unwrap().body).contains("synthetic-private"));
+        let before=host.view_messages().len();host.set_project_root(Some("/foreign"));
+        let request=serde_json::json!({"channel":"ui-kit","frameId":"0123456789abcdef0123456789abcdef","sequence":1,"project":"/foreign","op":"render"});
+        kube.handle(PANEL,ViewEvent::Message(request.to_string()),&host.invocation()).unwrap();
+        assert!(kube.revealed.is_none());
+        assert!(host.view_messages()[before..].iter().all(|(_,text)|!text.contains("synthetic-private")));
+    }
+    #[test]
+    fn secret_draft_cannot_submit_from_a_different_project() {
+        let (host,mut kube)=setup();
+        kube.handle(TREE,ViewEvent::Button(kube.test_control_key("create-secret")),&host.invocation()).unwrap();
+        kube.handle(PANEL,ViewEvent::Field(kube.test_control_key("secret-value"),"synthetic-private".into()),&host.invocation()).unwrap();
+        let before=host.process_runs().len();host.set_project_root(Some("/foreign"));
+        assert!(matches!(kube.handle(PANEL,ViewEvent::Button("submit-secret".into()),&host.invocation()),Err(Error::Stale)));
+        assert!(kube.draft.is_none());assert_eq!(host.process_runs().len(),before);
+    }
+    #[test]
+    fn edit_cache_and_yaml_details_clear_before_stale_write_messages() {
+        let (host,mut kube)=setup();
+        kube.handle(TREE,ViewEvent::Select(kube.test_resource_key("res:secrets/demo", &host.invocation())),&host.invocation()).unwrap();
+        kube.handle(TREE,ViewEvent::Button(kube.test_control_key("edit-secret")),&host.invocation()).unwrap();
+        assert!(kube.editing_secret.is_some());
+        let before=host.process_runs().len();host.set_project_root(Some("/foreign"));
+        assert!(kube.handle(PANEL,ViewEvent::Button("submit-secret-edit".into()),&host.invocation()).is_err());
+        assert!(kube.editing_secret.is_none());assert_eq!(host.process_runs().len(),before);
+        kube.expire_rich_context(Some(&host.invocation()));
+        kube.show_yaml("pods","web","synthetic-private".into(),None).unwrap();
+        host.set_project_root(Some("/another"));
+        assert!(matches!(kube.handle(PANEL,ViewEvent::Message("apply\nkind: Pod".into()),&host.invocation()),Err(Error::Stale)));
+        assert!(kube.details.is_none());assert_eq!(host.process_runs().len(),before);
+    }
+    #[test]
+    fn absent_or_revoked_owner_refuses_plaintext_and_clears_existing_cache() {
+        let (host,mut kube)=setup();host.set_project_root(None);
+        kube.handle(TREE,ViewEvent::Select(kube.test_resource_key("res:secrets/demo", &host.invocation())),&host.invocation()).unwrap();
+        assert!(matches!(kube.handle(TREE,ViewEvent::Button(kube.test_control_key("show-secret")),&host.invocation()),Err(Error::Denied(_))));
+        assert!(host.process_runs().is_empty());
+        assert!(matches!(kube.handle(TREE,ViewEvent::Activate(kube.test_resource_key("res:pods/web", &host.invocation())),&host.invocation()),Err(Error::Denied(_))));
+        assert!(host.process_runs().is_empty());host.set_project_root(Some("/project"));
+        kube.render(TREE,None,&host.invocation()).unwrap();
+        kube.handle(TREE,ViewEvent::Select(kube.test_resource_key("res:secrets/demo",&host.invocation())),&host.invocation()).unwrap();
+        kube.handle(TREE,ViewEvent::Button(kube.test_control_key("show-secret")),&host.invocation()).unwrap();
+        let host=host.with_capabilities(&["process:kubectl","storage"]);
+        assert!(matches!(kube.render(PANEL,None,&host.invocation()),Err(Error::Denied(_))));
+        assert!(kube.revealed.is_none());
+    }
+    #[test]
+    fn kubeconfig_choice_change_drops_sensitive_details_without_discovery() {
+        let (host,mut kube)=setup();
+        kube.handle(TREE,ViewEvent::Select(kube.test_resource_key("res:secrets/demo", &host.invocation())),&host.invocation()).unwrap();
+        kube.handle(TREE,ViewEvent::Button(kube.test_control_key("show-secret")),&host.invocation()).unwrap();
+        let before=host.process_runs().len();
+        host.set_setting("kubeconfig","\"/other/config\"");
+        let panel=kube.render(PANEL,None,&host.invocation()).unwrap();
+        assert!(kube.revealed.is_none());assert!(!format!("{:?}",panel.body).contains("synthetic-private"));
+        assert_eq!(host.process_runs().len(),before);
+    }
+
+    #[test]
+    fn namespace_change_invalidates_sensitive_cache_before_panel_refresh_reply() {
+        let (host,mut kube)=setup();
+        kube.handle(TREE,ViewEvent::Button(kube.test_control_key("create-secret")),&host.invocation()).unwrap();
+        kube.handle(PANEL,ViewEvent::Field(kube.test_control_key("secret-value"),"synthetic-private".into()),&host.invocation()).unwrap();
+        kube.handle(TREE,ViewEvent::Activate(kube.test_choice_key("ns/other",&host.invocation())),&host.invocation()).unwrap();
+        let panel=kube.render(PANEL,None,&host.invocation()).unwrap();
+        assert!(kube.draft.is_none());assert!(!format!("{:?}",panel.body).contains("synthetic-private"));
     }
 }

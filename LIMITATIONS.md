@@ -1,5 +1,31 @@
 # Limitations of the OpenIDEA plugin API
 
+**API 1.4 released (v0.1.40, 2026-11-09):** [Current blocker requalification](docs/parity-2026-11-08-refresh/api14-release-requalification/README.md). Canonical packages now target SDK v0.1.40 / API1.4; see the [native migration record](docs/native-api-migration-implementation-2026-11-09.md). Historical parity counters and dated validation receipts have not been promoted by this source migration.
+
+**2026-11-09 later main recheck:** observed `eb72b78` adds configured embedded
+LSP routing, mapped target language servers, limited target debugging and plugin
+test selection. See the [source-backed follow-up](docs/parity-2026-11-08-refresh/implementation/upstream-live-eb72/README.md).
+Blanket absence claims for those subsets describe older snapshots. This does not
+upgrade our frozen958/native receipts, released SDK baseline or plugin parity.
+
+**2026-11-09 Log rendering finding:** API1.3 returns semantic literal kinds which the pinned/current-main builtin Log renderer drops. See the [layered source/native audit](docs/parity-2026-11-08-refresh/semantic-log-boundary.md). P07.2 remains partial; the manual custom Log file type and pattern editor remain available.
+
+
+**2026-11-09 API 1.4 update:** upstream main has merged per-hop HTTP permission checks and optional language injections in [PR #2207](https://github.com/l0ng-ai/openidea/pull/2207). Released v0.1.39/API 1.3 retains the HTTP limitation. New interfaces require separate adoption; the [532-record feasibility delta](docs/parity-2026-11-08-refresh/implementation/api14-delta/api14-delta.md) preserves the historical baseline and identifies newly feasible subsets. [Source and executed regression evidence](docs/parity-2026-11-08-refresh/implementation/api14-upstream/receipt.md).
+
+**API 1.3 reassessment (2026-11-08):** the released baseline is v0.1.39; main has since advanced to API 1.4. Several
+blockers below are historical; see the [current reassessment](docs/api-1.3-gap-reassessment-2026-11-08.md)
+for closed, partial and remaining gaps. Availability does not mean our plugins
+have adopted the new API.
+
+The [implementation record](docs/parity-2026-11-08/implementation/README.md) lists
+the API 1.3 features adopted in this branch and the work still pending.
+
+All 230 originally blocked audit rows now have a
+[row-by-row decision](docs/audit-gaps-2026-11-06/reclass-api-1.3.md):
+10 are F, 65 are F*, and 155 remain B. The original feature/implementation notes
+below have not been rewritten as completion claims.
+
 What ported plugins can't do because OpenIDEA (plugin API 1.1, `l0ng-ai/openidea`
 v0.1.37) has no API for it, and what such an API could look like. One section
 per port; append new findings to the matching section or add one. Upstream

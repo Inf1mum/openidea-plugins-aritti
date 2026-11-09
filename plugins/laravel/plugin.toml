@@ -11,21 +11,45 @@ documentation. Blade files need the aritti.blade plugin for highlighting."""
 authors = ["Arnaud Ritti <arnaud.ritti@gmail.com>", "Daniel Espendiller (original Laravel Plugin)"]
 homepage = "https://github.com/Haehnchen/idea-php-laravel-plugin"
 license = "MIT"
-change-notes = """Unreleased: Laravel: the tool window has Routes and Index sections; Routes is a flat list with method icons, a controller filter, a flat/tree toggle, and Copy as curl and Create HTTP Request File row actions. Laravel: 20 more file templates (Channel, Console Command, Http Exception, PHPUnit tests, Resource Collection, Class, Model, Dusk, Nova, Livewire Form, Fractal, Volt, Inertia pages, four Blade files); one problem listing the missing Route::resource methods; Use #[Scope] on all scope methods; column completion through `$query = Model::query()` variables; route and controller gutter links from the document indexer; Remove IDE Helper PHPDoc from Models; Generate for Model from the Project view with factory and resource bodies filled from migration columns (optional process:tee); Nova, Filament and Livewire form generators; Create Missing for Job, Mail, Event and similar classes; settings modelDirectories and reportMissingResourceMethods. Laravel: Livewire method, route controller and method problems, Find Unused Views, model/factory/policy/observer/event gutter links from a document indexer, component attribute and slot completion, relation-aware column completion, container name completion (app(), @inject, config providers), scope/constructor/facade/translation/rules intentions and 11 more file templates. Laravel: Run Artisan Command..., Generate with artisan make..., New Eloquent Model..., Generate for Model... and Create Missing View, Component or Controller ask for names and options, then run php artisan make:* in a terminal. 0.1.0: first release. Ported from the Laravel Plugin (de.espend.idea.laravel) 0.15.4, \
+change-notes = """Source-mounted Search Everywhere endpoints resolve literal modern/legacy API prefixes and refresh on routing configuration changes; unknown mounts stay unpublished. Unreleased: An explicit read-only literal source-match chooser scans supported project sources and rechecks current owned UTF-16 destinations without adding Rename anchors. A bounded single-method controller with direct or distinct-local array return can transfer authored literal validate rules into a reviewed FormRequest with an atomic create and parameter/call replacement. Reviewed missing FormRequest scaffolds accept one explicit unaliased class import in a bounded single-namespace controller header. Component props/slots and Livewire property source reads retain current project ownership. Definition and gutter destinations retain current project ownership; related graph reads refuse newly foreign scopes. Gate, container alias and migration-column navigation use UTF-16 source token widths. PHP argument comment trivia no longer produces fake Blade literal references or hides valid commented literals. Layout member navigation/completion uses bounded current owned declarations and UTF-16 ranges instead of stale cached byte offsets. Opaque PHP/Blade blocks and strings no longer create fake Laravel literal hover, inventory diagnostics or usage markers. Cached completion/navigation inventories follow the current innermost document owner without ancestor fallback. Explicit foreign facade namespaces no longer inherit Laravel literal-reference features by short-name suffix. Query-variable column hints no longer cross method/brace boundaries or skip nearer shadowing bindings. Missing-view creation/extraction refuse configuration inputs owned by a nested open project. Explicitly namespaced PHP helper calls no longer inherit global Laravel literal-reference features. Opt-in reviewed local Docker Artisan metadata discovery with exact container/bind ownership, separate bounded runtime cache and read-only argument/option browser; cached framework hover, current-text inventory diagnostics, UTF-16 framework target ranges and strict Composer-mapped FormRequest scaffolds. Laravel: the tool window has Routes and Index sections; Routes is a flat list with method icons, a controller filter, a flat/tree toggle, and Copy as curl and Create HTTP Request File row actions. Laravel: 20 more file templates (Channel, Console Command, Http Exception, PHPUnit tests, Resource Collection, Class, Model, Dusk, Nova, Livewire Form, Fractal, Volt, Inertia pages, four Blade files); one problem listing the missing Route::resource methods; Use #[Scope] on all scope methods; column completion through `$query = Model::query()` variables; route and controller gutter links from the document indexer; Remove IDE Helper PHPDoc from Models; Generate for Model from the Project view with factory and resource bodies filled from migration columns (optional project.write); Nova, Filament and Livewire form generators; Create Missing for Job, Mail, Event and similar classes; settings modelDirectories and reportMissingResourceMethods. Laravel: Livewire method, route controller and method problems, Find Unused Views, model/factory/policy/observer/event gutter links from a document indexer, component attribute and slot completion, relation-aware column completion, container name completion (app(), @inject, config providers), scope/constructor/facade/translation/rules intentions and 11 more file templates. Laravel: Run Artisan Command..., Generate with artisan make..., New Eloquent Model..., Generate for Model... and Create Missing View, Component or Controller ask for names and options, then run php artisan make:* in a terminal. 0.1.0: first release. Ported from the Laravel Plugin (de.espend.idea.laravel) 0.15.4, \
 source revision 3a07f4a5f67dc0aacbcd6fdb11a8b5c9814803b0 (tag 0.15.4): routes, controllers, views, config, translations, \
 assets and the Blade layout markers. Env keys, middleware, route groups, JSON translations, components, Vite entries, \
 validation rules, abilities, columns, problems, the tool window and artisan commands follow Laravel's documentation. This port works from a text index of the project, so the features that \
 need PhpStorm's PSI are missing (container types, Eloquent, facades)."""
 categories = ["frameworks"]
 icon = "icon.svg"
-engines.openidea = "^1.2"
+engines.openidea = "^1.4"
 wasm = "dist/plugin.wasm"
 activation = ["on-language:php", "on-language:blade", "on-file:resources/js/**"]
 
 [capabilities]
 required = ["project.read", "events"]
-# clipboard: Copy as curl, and the fallback of Create HTTP Request File. process:tee: bulk PHPDoc removal and factory/resource generators write files. Artisan commands run `php artisan`; editor.read: Create Missing Target reads the name under the cursor.
-optional = ["process:php", "process:tee", "editor.read", "clipboard", "storage"]
+# process:docker: explicit opt-in local container metadata inspection/discovery only. clipboard: Copy as curl, and the fallback of Create HTTP Request File. project.write: native factory/resource creation. Artisan commands run `php artisan`; editor.read: Create Missing Target reads the name under the cursor.
+optional = ["project.write", "process:php", "process:docker", "editor.read", "clipboard", "storage"]
+
+[[contributes.commands]]
+id = "artisan-refresh-docker-metadata"
+title = "Laravel: Refresh Docker Artisan Metadata (Executes Container PHP)"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "artisan-browse-docker-metadata"
+title = "Laravel: Browse Cached Docker Artisan Metadata (Read-only)"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "artisan-refresh-metadata"
+title = "Laravel: Refresh Artisan Command Metadata (Executes Project PHP)"
+category = "Laravel"
+
+[[contributes.menus]]
+menu = "tools"
+command = "artisan-refresh-metadata"
+
+[[contributes.commands]]
+id = "find-literal-source-matches"
+title = "Laravel: Find Literal Source Matches… (Read-only)"
+category = "Laravel"
 
 [[contributes.commands]]
 id = "reindex"
@@ -146,23 +170,8 @@ menu = "projectView.context"
 command = "remove-phpdocs"
 when = "plugin.aritti.laravel.indexed"
 
-[[contributes.menus]]
-menu = "viewItem.context"
-view = "laravel"
-command = "reindex"
-when = "viewItemKind == group"
 
-[[contributes.menus]]
-menu = "viewItem.context"
-view = "laravel"
-command = "route-copy-curl"
-when = "viewItemKind == route"
 
-[[contributes.menus]]
-menu = "viewItem.context"
-view = "laravel"
-command = "route-create-http"
-when = "viewItemKind == route"
 
 [[contributes.runDetectors]]
 id = "serve"
@@ -198,6 +207,14 @@ kinds = ["completion", "definition", "line-markers", "code-actions"]
 languages = ["php", "blade"]
 
 [[contributes.providers]]
+kinds = ["hover"]
+languages = ["php", "blade"]
+
+[[contributes.providers]]
+kinds = ["diagnostics"]
+languages = ["php", "blade"]
+
+[[contributes.providers]]
 kinds = ["completion", "definition"]
 languages = ["javascript", "typescript", "vue", "javascriptreact", "typescriptreact"]
 
@@ -209,6 +226,7 @@ id = "laravel"
 title = "Laravel"
 icon = "icons/laravel.svg"
 location = "right"
+web = "web/resources/hub.html"
 
 [contributes.settings]
 schema = "settings.schema.json"
@@ -525,3 +543,6 @@ icon = "icons/route-patch.svg"
 id = "route-other"
 patterns = ["*.laravel-route-other"]
 icon = "icons/route-other.svg"
+
+[[contributes.endpoints]]
+files = ["routes/**/*.php", "app/Http/routes.php", "app/routes.php", "app/Http/Controllers/**/*.php", "bootstrap/app.php", "app/Providers/RouteServiceProvider.php", "composer.json"]

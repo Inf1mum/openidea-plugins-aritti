@@ -15,6 +15,13 @@ use std::collections::BTreeSet;
 
 mod scope;
 mod xml_rules;
+// One admission policy for the merged owner and its embedded Batch cache.
+#[path = "../../../src/xml_namespaces.rs"]
+mod xml_namespaces;
+#[path = "../../../src/source_scope.rs"]
+mod source_scope;
+#[path = "../../../src/source_provenance.rs"]
+mod source_provenance;
 
 const NAMESPACE: &str = "http://www.springframework.org/schema/batch";
 /// Elements a transition can lead to.
@@ -39,7 +46,7 @@ const JOB_NAME_KEY: &str = "spring.batch.job.name";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
-    /// `<job id>`, `new JobBuilder("x", …)`, `jobBuilderFactory.get("x")`.
+    /// `<job id>` or an explicitly owned Spring JobBuilder constructor.
     Job,
     /// A step, flow, split or decision id (or a Java step name).
     State,
@@ -49,6 +56,9 @@ pub enum Kind {
     BootApp,
     /// A job parameter key: `#{jobParameters['key']}` or `addString("key", …)`.
     JobParam,
+    /// A builder/factory source context whose job-name identity is unproved.
+    UnresolvedJob,
+    UnresolvedBean,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -100,8 +110,17 @@ fn scope_of(els: &[xml::Element], i: usize) -> Option<usize> {
 }
 
 /// The names and references of a Spring XML file.
+fn owned_batch_context(elements:&[xml::Element], mut at:usize)->bool {
+    const BEANS:&str="http://www.springframework.org/schema/beans";
+    while let Some(parent)=elements[at].parent {
+        let element=&elements[parent];let namespace=xml::namespace(elements,parent);
+        if namespace!=Some(NAMESPACE) && !(element.local()=="beans" && matches!(namespace,None|Some(BEANS))) {return false;}
+        at=parent;
+    }
+    true
+}
 pub fn parse_xml(text: &str) -> (Vec<Name>, Vec<Link>) {
-    if !text.contains("www.springframework.org/schema/") {
+    if !text.contains("www.springframework.org/schema/") || !xml_namespaces::document_valid(text) {
         return Default::default();
     }
     let els = xml::elements(text);
@@ -116,7 +135,7 @@ pub fn parse_xml(text: &str) -> (Vec<Name>, Vec<Link>) {
     }
     let mut owners = std::collections::BTreeMap::new();
     let mut transitions: Vec<(usize, String, Option<String>)> = Vec::new();
-    for (i, e) in els.iter().enumerate().filter(|(i, _)| xml::namespace(&els, *i) == Some(NAMESPACE)) {
+    for (i, e) in els.iter().enumerate().filter(|(i, _)| xml::namespace(&els, *i) == Some(NAMESPACE) && owned_batch_context(&els,*i)) {
         let scope = scope_of(&els, i);
         if let Some(id) = e.attr("id") {
             let kind = match e.local() {
@@ -131,6 +150,7 @@ pub fn parse_xml(text: &str) -> (Vec<Name>, Vec<Link>) {
             }
         }
         for a in &e.attrs {
+            if a.name!=a.local() {continue;}
             let kind = match a.local() {
                 "next" | "to" | "restart" => LinkKind::Target,
                 "parent" => LinkKind::Parent,
@@ -164,26 +184,46 @@ pub fn parse_xml(text: &str) -> (Vec<Name>, Vec<Link>) {
 pub fn parse_source(path: &str, text: &str) -> Vec<Name> {
     let file = spring_text::parse_source(path, text);
     let name = |name: String, kind, from, to| Name { name, kind, range: range(text, from, to), scope: None, el: 0, detail: "", goes: Vec::new() };
-    let mut out: Vec<Name> =
-        java::bean_names(&file).into_iter().map(|b| name(b.name, Kind::Bean, b.at, b.at + b.len)).collect();
-    out.extend(file.types.iter().filter(|t| t.has(&["SpringBootApplication"])).map(|t| {
+    let kotlin=path.ends_with(".kt");
+    let tokens=java::tokens(text);
+    let supported=!(kotlin && tokens.iter().any(|t|matches!(t.s,"as"|"typealias")) || !kotlin && text.contains("\\u"))
+        && file.types.iter().all(|owner|owner.supers().next().is_none() && !text[owner.at+owner.name.len()..].trim_start().starts_with('<'));
+    let mut out: Vec<Name> = java::bean_names(&file).into_iter().map(|b| {
+        let kind=if supported && source_provenance::source_bean_owned(&file,text,&b,kotlin) {Kind::Bean}else{Kind::UnresolvedBean};
+        name(b.name,kind,b.at,b.at+b.len)
+    }).collect();
+    if !supported {out.push(name(String::new(),Kind::UnresolvedBean,0,0));}
+    out.extend(file.types.iter().filter(|t| supported && t.annotations.iter().any(|a|a.name=="SpringBootApplication" && text.get(a.at+1..a.name_at+a.name.len()).is_some_and(|written|source_provenance::source_type_owned(&file,written,"org.springframework.boot.autoconfigure.SpringBootApplication")))).map(|t| {
         name(t.name.clone(), Kind::BootApp, t.at, t.at + t.name.len())
     }));
     if !text.contains("Builder") {
         return out;
     }
+    let tokens=java::tokens(text);
+    let supported=!(path.ends_with(".java") && text.contains("\\u") || path.ends_with(".kt") && tokens.iter().any(|t|matches!(t.s,"as"|"typealias")))
+        && file.types.iter().all(|owner|owner.supers().next().is_none() && !text[owner.at+owner.name.len()..].trim_start().starts_with('<'));
+    let mut uncertain=false;
     for c in spring_text::source_calls(path, text) {
-        let Some(s) = c.args.first().and_then(|a| a.string.as_ref()) else { continue };
         let receiver = c.receiver.as_deref().unwrap_or_default().to_lowercase();
         let kind = match c.name.as_str() {
             "JobBuilder" if c.is_new => Kind::Job,
             "StepBuilder" if c.is_new => Kind::State,
-            "get" if receiver.contains("jobbuilder") => Kind::Job,
-            "get" if receiver.contains("stepbuilder") => Kind::State,
+            "get" if receiver.contains("jobbuilder") || receiver.contains("stepbuilder") || text.contains("JobBuilderFactory") || text.contains("StepBuilderFactory") => {uncertain=true;continue;},
             _ => continue,
         };
+        let Some(s)=c.args.first().and_then(|arg|arg.string.as_ref()) else{uncertain=true;continue;};
+        let qualified=if kind==Kind::Job {"org.springframework.batch.core.job.builder.JobBuilder"}else{"org.springframework.batch.core.step.builder.StepBuilder"};
+        let Some(at)=tokens.iter().position(|t|t.at==c.at) else{uncertain=true;continue;};
+        let mut start=at;while start>=2 && tokens[start-1].s=="." && tokens[start-2].is_ident(){start-=2;}
+        let written=tokens[start..=at].iter().map(|t|t.s).collect::<String>();
+        let owned=if written==qualified {!file.types.iter().any(|t|t.name=="org") && !file.imports.iter().any(|i|i.path.rsplit('.').next()==Some("org"))}else{
+            written==c.name && !file.types.iter().any(|t|t.name==c.name) && !file.imports.iter().any(|i|i.path.ends_with(".*"))
+                && file.imports.iter().filter(|i|!i.is_static && i.path.rsplit('.').next()==Some(c.name.as_str())).map(|i|i.path.as_str()).collect::<Vec<_>>()==[qualified]
+        };
+        if !supported || !owned || s.value.is_empty() || s.value.contains('\\') || path.ends_with(".kt") && s.value.contains('$') || c.args[0].text.starts_with("\"\"\"") || text.get(s.at..s.end)!=Some(s.value.as_str()) || tokens.iter().find(|t|t.at>=c.end).is_some_and(|t|t.s=="{") {uncertain=true;continue;}
         out.push(Name { detail: if kind == Kind::Job { "job" } else { "step" }, ..name(s.value.clone(), kind, s.at, s.end) });
     }
+    if uncertain {out.push(name(String::new(),Kind::UnresolvedJob,0,0));}
     out
 }
 
@@ -192,19 +232,50 @@ const PARAMETER_ADDERS: [&str; 5] = ["addString", "addLong", "addDouble", "addDa
 /// The job parameter keys a file reads in late-binding expressions or sets through `JobParametersBuilder`.
 fn job_parameters(path: &str, text: &str) -> Vec<Name> {
     let mut out = Vec::new();
-    let mut from = 0;
-    while let Some(found) = text[from..].find("jobParameters[") {
-        let open = from + found + "jobParameters[".len();
-        from = open;
-        let Some(quote) = text[open..].chars().next().filter(|c| matches!(c, '\'' | '"')) else { continue };
-        let start = open + 1;
-        let Some(len) = text[start..].find(quote) else { continue };
-        out.push((text[start..start + len].to_owned(), start, start + len));
+    if path.ends_with(".xml") {
+        if !xml_namespaces::document_valid(text) {return Vec::new();}
+        let elements=xml::elements(text);const BEANS:&str="http://www.springframework.org/schema/beans";
+        for (index,element) in elements.iter().enumerate() {
+            let batch=xml::namespace(&elements,index)==Some(NAMESPACE) && owned_batch_context(&elements,index);
+            let bean_value=xml::namespace(&elements,index)==Some(BEANS) && matches!(element.local(),"property"|"constructor-arg") && element.parent.is_some_and(|parent| {
+                elements[parent].local()=="bean" && xml::namespace(&elements,parent)==Some(BEANS) && elements[parent].parent.is_some_and(|root|elements[root].local()=="beans" && xml::namespace(&elements,root)==Some(BEANS) && elements[root].parent.is_none())
+            });
+            for attribute in element.attrs.iter().filter(|a|!a.name.contains(':') && (batch && BEAN_ATTRS.contains(&a.name.as_str()) || bean_value && a.name=="value")) {
+                if text.get(attribute.value_at..attribute.value_end)!=Some(attribute.value.as_str()) || attribute.value.contains('&') {continue;}
+                let prefix="#{jobParameters['";let Some(key)=attribute.value.strip_prefix(prefix).and_then(|v|v.strip_suffix("']}")) else{continue;};
+                if key.is_empty() || key.contains(['\'','[',']','\n','\r']) {continue;}
+                out.push((key.to_owned(),attribute.value_at+prefix.len(),attribute.value_at+prefix.len()+key.len()));
+            }
+        }
+    } else {
+        let file=spring_text::parse_source(path,text);let kotlin=path.ends_with(".kt");let tokens=java::tokens(text);
+        let supported=!(kotlin && tokens.iter().any(|t|matches!(t.s,"as"|"typealias")) || !kotlin && text.contains("\\u")) && file.types.iter().all(|t|t.supers().next().is_none());
+        for annotation in file.types.iter().flat_map(|t|t.members.iter()).flat_map(|m|m.annotations.iter().chain(m.params.iter().flat_map(|p|p.annotations.iter()))).filter(|a|a.name=="Value" && supported) {
+            let Some(written)=text.get(annotation.at+1..annotation.name_at+annotation.name.len()) else{continue;};
+            if !source_provenance::source_type_owned(&file,written,"org.springframework.beans.factory.annotation.Value") {continue;}
+            let [arg]=annotation.args.as_slice() else{continue;};if arg.name!="value" {continue;}
+            let [literal]=arg.strings.as_slice() else{continue;};
+            if java::tokens(&arg.text).len()!=1 || arg.text.trim_start().starts_with("\"\"\"") || literal.value.contains('\\') || kotlin && literal.value.contains('$') || text.get(literal.at..literal.end)!=Some(literal.value.as_str()) {continue;}
+            let prefix="#{jobParameters['";let Some(key)=literal.value.strip_prefix(prefix).and_then(|v|v.strip_suffix("']}")) else{continue;};
+            if key.is_empty() || key.contains(['\'','[',']','\n','\r']) {continue;}
+            out.push((key.to_owned(),literal.at+prefix.len(),literal.at+prefix.len()+key.len()));
+        }
     }
     if !path.ends_with(".xml") && text.contains("add") {
-        for c in spring_text::source_calls(path, text).iter().filter(|c| PARAMETER_ADDERS.contains(&c.name.as_str())) {
-            if let Some(s) = c.args.first().and_then(|a| a.string.as_ref()) {
-                out.push((s.value.clone(), s.at, s.end));
+        let file=spring_text::parse_source(path,text);let tokens=java::tokens(text);let kotlin=path.ends_with(".kt");
+        let supported=!(kotlin && tokens.iter().any(|t|matches!(t.s,"as"|"typealias")) || !kotlin && text.contains("\\u")) && file.types.iter().all(|t|t.supers().next().is_none());
+        let mut ends=Vec::new();
+        for c in spring_text::source_calls(path,text) {
+            if c.is_new && c.name=="JobParametersBuilder" && supported {
+                if let Some(at)=tokens.iter().position(|t|t.at==c.at) {
+                    let mut start=at;while start>=2 && tokens[start-1].s=="." && tokens[start-2].is_ident(){start-=2;}
+                    let written=tokens[start..=at].iter().map(|t|t.s).collect::<String>();
+                    if source_provenance::source_type_owned(&file,&written,"org.springframework.batch.core.JobParametersBuilder") && !tokens.iter().find(|t|t.at>=c.end).is_some_and(|t|t.s=="{") {ends.push(c.end);}
+                }
+            } else if PARAMETER_ADDERS.contains(&c.name.as_str()) && c.chained && ends.iter().any(|end|*end<=c.at && text[*end..c.at].trim()==".") {
+                if let Some(s)=c.args.first().filter(|a|!a.text.trim_start().starts_with("\"\"\"")).and_then(|a|a.string.as_ref()).filter(|s|!s.value.contains('\\') && !(kotlin && s.value.contains('$')) && text.get(s.at..s.end)==Some(s.value.as_str())) {
+                    out.push((s.value.clone(),s.at,s.end));ends.push(c.end);
+                }
             }
         }
     }
@@ -227,6 +298,15 @@ fn parameter_key_at(text: &str, caret: usize) -> Option<(usize, usize)> {
     let tail = &text[caret..];
     let end = caret + tail.find([quote, '\n']).filter(|&i| tail[i..].starts_with(quote)).unwrap_or(0);
     Some((start, end))
+}
+
+// Validate the completion destination with the same source/XML admission as
+// indexed facts. A local sentinel also admits an empty key without publishing it.
+fn parameter_context(path:&str,text:&str,from:usize,to:usize)->bool {
+    if text.len()>512*1024 || from>to || !text.is_char_boundary(from) || !text.is_char_boundary(to) {return false;}
+    let mut candidate=text.to_owned();candidate.replace_range(from..to,"openideaParameterContext");
+    let expected=range(&candidate,from,from+"openideaParameterContext".len());
+    job_parameters(path,&candidate).iter().any(|name|name.name=="openideaParameterContext" && name.range==expected)
 }
 
 fn index_file(path: &str, text: &str) -> Option<Vec<Name>> {
@@ -338,8 +418,41 @@ impl Default for Batch {
 }
 
 impl Batch {
+    pub fn warm_project(&mut self, project: &Project, budget: std::time::Duration) {
+        let index=self.indexes.get(project,budget);
+        if let Some(scope)=project.root().ok().and_then(|root|source_scope::Scope::current(&root)) {scope.prune(index);}
+    }
+    pub fn reset_live(&mut self) { self.indexes.reset(); }
+
+    /// Owner calls this for live results. It never discovers or reads project files.
+    pub fn live_diagnostics(&mut self, doc: &Document) -> Vec<Diagnostic> {
+        let Some(kind) = file_kind(doc) else { return Vec::new() };
+        let Some(scope)=source_scope::Scope::for_path(&doc.path) else{return Vec::new();};
+        let Some(index) = self.indexes.for_cached_document(&doc.path, &doc.text) else { return Vec::new() };
+        let Some(scope)=scope.refresh_for_path(&doc.path) else{return Vec::new();};
+        if !scope.prune(index) {return Vec::new();}
+        match kind {
+            "xml" => {
+                let mut found = xml_problems(&doc.text, index);
+                if host::setting_bool("springBatch.checkChunk").unwrap_or(true) { found.extend(chunk_problems(&doc.text)); }
+                found.extend(xml_rules::problems(&doc.text));
+                found.extend(scope::xml_problems(&doc.text));
+                found
+            }
+            "java" => {
+                let boot = index.fresh() && all(index).any(|(_, n)| n.kind == Kind::BootApp);
+                let mut found = java_problems(&doc.text, boot);
+                found.extend(scope::java_problems(&doc.text));
+                found
+            }
+            _ => config_problems(doc, index),
+        }
+    }
+
     fn index(&mut self, doc: &Document) -> Option<&Index<Vec<Name>>> {
-        self.indexes.for_document(&doc.path, &doc.text, PROVIDER_BUDGET).map(|i| &*i)
+        let scope=source_scope::Scope::for_path(&doc.path)?;
+        let index=self.indexes.for_document(&doc.path,&doc.text,PROVIDER_BUDGET)?;
+        let scope=scope.refresh_for_path(&doc.path)?;scope.prune(index).then_some(&*index)
     }
 }
 
@@ -355,7 +468,7 @@ fn elsewhere<'a>(index: &'a Index<Vec<Name>>, doc: &Document) -> Vec<(&'a str, &
     all(index).filter(|(p, _)| *p != doc.path).collect()
 }
 
-/// Where an XML link may lead: the same job first, then the file, then the project.
+/// Transition targets never fall through to another job/file/project. Parent/bean lookup retains its legacy model.
 fn targets(link: &Link, names: &[Name], project: &[(&str, &Name)], path: &str) -> Vec<Location> {
     let here = |n: &Name| Location { path: path.into(), range: n.range };
     let elsewhere = |kinds: &[Kind]| {
@@ -366,13 +479,13 @@ fn targets(link: &Link, names: &[Name], project: &[(&str, &Name)], path: &str) -
         found.extend(elsewhere(&[Kind::Bean]));
         return found;
     }
+    if link.kind==LinkKind::Target {
+        if link.scope.is_none(){return Vec::new();}
+        let found:Vec<_>=names.iter().filter(|n|n.kind==Kind::State && n.scope==link.scope && n.name==link.value).map(here).collect();
+        return if found.len()==1{found}else{Vec::new()};
+    }
     let kinds = [Kind::State, Kind::Job];
     let named = |n: &&Name| kinds.contains(&n.kind) && n.name == link.value;
-    let same_job: Vec<_> =
-        names.iter().filter(named).filter(|n| link.kind == LinkKind::Target && n.scope == link.scope).map(here).collect();
-    if !same_job.is_empty() {
-        return same_job;
-    }
     let in_file: Vec<_> = names.iter().filter(named).map(here).collect();
     if !in_file.is_empty() {
         return in_file;
@@ -393,12 +506,12 @@ fn xml_problems(text: &str, index: &Index<Vec<Name>>) -> Vec<Diagnostic> {
                     );
                 }
             }
-            LinkKind::Bean if index.complete() => {
+            LinkKind::Bean if index.fresh() && !all(index).any(|(_,n)|n.kind==Kind::UnresolvedBean) => {
                 let single = !l.value.contains([',', ' ']);
                 let known = all(index).any(|(_, n)| n.kind == Kind::Bean && n.name == l.value);
                 if single && !known && !beans::INFRASTRUCTURE.contains(&l.value.as_str()) {
                     out.push(
-                        Diagnostic::new(l.range, Severity::Warning, format!("No bean named '{}' is declared in the project.", l.value))
+                        Diagnostic::new(l.range, Severity::Warning, format!("No bean named '{}' appears in the supported literal source index; imported and runtime context remains unresolved.", l.value))
                             .code("unknown-bean"),
                     );
                 }
@@ -442,7 +555,7 @@ fn chunk_problems(text: &str) -> Vec<Diagnostic> {
 }
 
 fn config_problems(doc: &Document, index: &Index<Vec<Name>>) -> Vec<Diagnostic> {
-    if !index.complete() {
+    if !index.fresh() || all(index).any(|(_,name)|name.kind==Kind::UnresolvedJob) {
         return Vec::new();
     }
     job_name_items(&doc.path, &doc.text)
@@ -450,7 +563,7 @@ fn config_problems(doc: &Document, index: &Index<Vec<Name>>) -> Vec<Diagnostic> 
         .filter(|(n, _, _)| !n.is_empty() && !beans::is_expression(n))
         .filter(|(n, _, _)| !all(index).any(|(_, x)| x.kind == Kind::Job && x.name == *n))
         .map(|(n, from, to)| {
-            Diagnostic::new(range(&doc.text, from, to), Severity::Warning, format!("No job named '{n}' is declared in the project."))
+            Diagnostic::new(range(&doc.text, from, to), Severity::Warning, format!("No supported literal job named '{n}' was found in the source index; factory/imported/runtime contexts are unresolved."))
                 .code("unknown-job")
         })
         .collect()
@@ -462,6 +575,7 @@ impl Providers for Batch {
             && let Some((from, to)) = parameter_key_at(&doc.text, caret)
             && matches!(file_kind(doc), Some("xml" | "java"))
         {
+            if !parameter_context(&doc.path,&doc.text,from,to) {return Vec::new();}
             let Some(index) = self.index(doc) else { return Vec::new() };
             let typing = range(&doc.text, from, to);
             let keys = all(index).filter(|(p, n)| n.kind == Kind::JobParam && !(*p == doc.path && n.range == typing));
@@ -588,13 +702,32 @@ fn diagram_of(index: &Index<Vec<Name>>) -> (Vec<Node>, Vec<Edge>) {
     (nodes, edges.collect())
 }
 
+#[cfg(feature = "embedded")]
+impl Batch {
+    /// Typed source-model facts for the registered owner's packaged presentation.
+    pub fn diagram_snapshot(&mut self, ctx: &Invocation) -> Result<(Vec<Node>,Vec<Edge>,Vec<(String,Location)>,String),Error> {
+        let project=ctx.project().ok_or(Error::Stale)?;
+        if project.root()?.is_empty(){return Err(Error::Stale);}
+        let index=self.indexes.get(&project,COMMAND_BUDGET);
+        let scope=source_scope::Scope::current(&project.root()?).ok_or(Error::Stale)?;
+        if !scope.prune(index) {return Err(Error::Stale);}
+        if index.scanning(){refresh(&id(VIEW));}
+        let (nodes,edges)=diagram_of(index);
+        let sources=index.iter().flat_map(|(path,names)|names.iter().filter(|n|matches!(n.kind,Kind::Job|Kind::State)).map(move|name|(location_key(path,name.range),Location{path:path.into(),range:name.range}))).collect();
+        let status=format!("{} nodes · {} transitions{} · cached lexical Batch source model",nodes.len(),edges.len(),if index.complete(){""}else{" · scanning…"});
+        Ok((nodes,edges,sources,status))
+    }
+}
+
 impl Views for Batch {
     fn render(&mut self, _view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
         let refresh = Button::new("refresh", "Refresh").icon("refresh");
         let Some(project) = ctx.project() else { return Ok(View::message("Open a project to see its batch jobs.").button(refresh)) };
         let index = self.indexes.get(&project, COMMAND_BUDGET);
+        let Some(scope)=project.root().ok().and_then(|root|source_scope::Scope::current(&root)) else{return Ok(View::message("Current project source ownership is unavailable.").button(refresh));};
+        if !scope.prune(index) {return Ok(View::message("Current project source ownership is not ready; refresh this project.").button(refresh));}
         let complete = index.complete();
-        if !complete {
+        if index.scanning() {
             self::refresh(&id(VIEW));
         }
         let (nodes, edges) = diagram_of(index);
@@ -617,11 +750,28 @@ impl Views for Batch {
             ViewEvent::Activate(key) | ViewEvent::Message(key) => key,
             _ => return Ok(()),
         };
+        let project = ctx.project().ok_or(Error::Stale)?;
+        let root = project.root()?;
+        if root.is_empty() { return Err(Error::Stale); }
+        let index = self.indexes.get(&project, COMMAND_BUDGET);
+        let scope=source_scope::Scope::current(&root).ok_or(Error::Stale)?;
+        if !scope.prune(index) {return Err(Error::Stale);}
+        let (nodes, _) = diagram_of(index);
+        if nodes.iter().filter(|node| node.id == key).count() != 1 { return Err(Error::Stale); }
         let mut parts = key.splitn(4, ':');
-        if let (Some("b"), Some(line), Some(col), Some(path)) = (parts.next(), parts.next(), parts.next(), parts.next()) {
-            host::open_location(path, line.parse().unwrap_or(0), col.parse().unwrap_or(0))?;
-        }
-        Ok(())
+        let (Some("b"), Some(line), Some(col), Some(path)) = (parts.next(), parts.next(), parts.next(), parts.next()) else { return Err(Error::Stale); };
+        let (line, col) = (line.parse::<u32>().map_err(|_| Error::Stale)?, col.parse::<u32>().map_err(|_| Error::Stale)?);
+        if path.len() > 4096 || path.chars().any(char::is_control)
+            || !path.starts_with(&format!("{}/", root.trim_end_matches('/')))
+            || host::project_of(path).and_then(|p| p.root().ok()).as_deref() != Some(root.as_str()) { return Err(Error::Stale); }
+        let expected: Vec<_> = index.iter().filter(|(p,_)| *p == path).flat_map(|(_,names)| names)
+            .filter(|name| matches!(name.kind, Kind::Job | Kind::State) && location_key(path,name.range) == key).collect();
+        if expected.len() != 1 { return Err(Error::Stale); }
+        let text = project.read_file(path)?;
+        if text.len() > 512 * 1024 { return Err("Selected Batch source exceeds the navigation bound.".into()); }
+        if !index_file(path,&text).is_some_and(|names| names.contains(expected[0]))
+            || host::project_of(path).and_then(|p| p.root().ok()).as_deref() != Some(root.as_str()) { return Err(Error::Stale); }
+        host::open_location(path,line,col)
     }
 }
 
@@ -709,13 +859,13 @@ mod tests {
 "#;
     const JOB_CONFIG: &str = r#"package com.acme;
 
-import org.springframework.batch.core.configuration.annotation.EnableBatchProcessing;
-import org.springframework.batch.core.configuration.annotation.JobBuilderFactory;
+import org.springframework.batch.core.configuration.annotation.EnableBatchProcessing; import org.springframework.context.annotation.Bean; import org.springframework.context.annotation.Configuration;
+import org.springframework.batch.core.configuration.annotation.JobBuilderFactory; import org.springframework.batch.core.job.builder.JobBuilder;
 
 @Configuration
 @EnableBatchProcessing
 public class BatchConfig {
-    @Autowired private JobBuilderFactory jobs;
+    @Autowired private JobBuilderFactory jobBuilderFactory;
 
     @Bean
     public Job exportJob(JobRepository repo, Step step) {
@@ -723,8 +873,8 @@ public class BatchConfig {
     }
 
     @Bean
-    public Job legacyJob() {
-        return jobBuilderFactory.get("legacyJob").start(step()).build();
+    public Job legacyJob(JobRepository repo) {
+        return new JobBuilder("legacyJob", repo).start(step()).build();
     }
 
     @Bean ItemWriter<Row> dbWriter() { return null; }
@@ -732,7 +882,7 @@ public class BatchConfig {
     @Bean JobExecutionDecider importDecider() { return null; }
 }
 "#;
-    const APP: &str = "package com.acme;\n\n@SpringBootApplication\npublic class App {}\n";
+    const APP: &str = "package com.acme; import org.springframework.boot.autoconfigure.SpringBootApplication;\n\n@SpringBootApplication\npublic class App {}\n";
     const XML_PATH: &str = "/project/src/main/resources/jobs/import.xml";
     const JAVA_PATH: &str = "/project/src/main/java/com/acme/BatchConfig.java";
 
@@ -742,6 +892,25 @@ public class BatchConfig {
         host.add_file("src/main/java/com/acme/BatchConfig.java", JOB_CONFIG);
         host.add_file("src/main/java/com/acme/App.java", APP);
         host
+    }
+    #[test]
+    fn batch_xml_attributes_and_ancestors_require_source_namespace_ownership() {
+        let prefix="<beans xmlns='http://www.springframework.org/schema/beans' xmlns:b='http://www.springframework.org/schema/batch' xmlns:q='urn:foreign'>";
+        let (names,links)=parse_xml(&format!("{prefix}<b:job id='j'><b:step id='one' q:next='missing' q:parent='missing' q:ref='missing'/></b:job></beans>"));
+        assert!(links.is_empty());assert_eq!(names.iter().filter(|n|n.kind==Kind::State).count(),1);
+        let (names,links)=parse_xml(&format!("{prefix}<q:job id='foreign'><b:step id='one' next='missing'/></q:job></beans>"));
+        assert!(links.is_empty());assert!(names.iter().all(|n|n.kind!=Kind::State));
+        let (names,links)=parse_xml(&format!("{prefix}<b:job id='j'><b:step id='one' next='two'/><b:step id='two'/></b:job></beans>"));
+        assert_eq!(links.len(),1);assert_eq!(links[0].value,"two");assert_eq!(names.iter().filter(|n|n.kind==Kind::State).count(),2);
+    }
+    #[test]
+    fn cached_batch_xml_requires_the_same_complete_envelope_as_the_owner() {
+        let prefix="<beans xmlns='http://www.springframework.org/schema/beans' xmlns:b='http://www.springframework.org/schema/batch'>";
+        for text in [format!("{prefix}<b:job id='j'/>") ,format!("{prefix}<b:job id='j'/></beans><other/>"),format!("<!DOCTYPE beans>{prefix}<b:job id='j'/></beans>"),format!("{prefix}<b:job id='j&amp;k'/></beans>")] {
+            let (names,links)=parse_xml(&text);assert!(names.is_empty() && links.is_empty(),"{text}");
+        }
+        let (names,links)=parse_xml(&format!("{prefix}<b:job id='j'><b:step id='a' next='b'/><b:step id='b'/></b:job></beans>"));
+        assert!(names.iter().any(|name|name.kind==Kind::Job && name.name=="j"));assert_eq!(links.len(),1);
     }
 
     fn doc(path: &str, language: &str, text: &str) -> Document {
@@ -754,6 +923,41 @@ public class BatchConfig {
 
     fn after(text: &str, needle: &str) -> Position {
         position(text, text.find(needle).unwrap() + needle.len())
+    }
+
+    #[test]
+    fn batch_bean_and_boot_source_facts_require_owned_literal_annotations() {
+        let positive="import org.springframework.context.annotation.Bean; import org.springframework.boot.autoconfigure.SpringBootApplication; @SpringBootApplication class App { @Bean(name={\"one\",\"two\"}) Object make(){return null;} }";
+        let facts=parse_source(JAVA_PATH,positive);
+        assert_eq!(facts.iter().filter(|n|n.kind==Kind::Bean).map(|n|n.name.as_str()).collect::<Vec<_>>(),["app","one","two"]);
+        assert!(facts.iter().any(|n|n.kind==Kind::BootApp));
+        for source in ["import fake.Bean; import fake.SpringBootApplication; @SpringBootApplication class App { @Bean Object ghost(){return null;} }","import org.springframework.context.annotation.Bean; class Jobs { @Bean(name=\"ghost\"+suffix) Object make(){return null;} }"] {
+            let facts=parse_source(JAVA_PATH,source);
+            assert!(facts.iter().all(|n|!matches!(n.kind,Kind::Bean|Kind::BootApp)));
+            assert!(facts.iter().any(|n|n.kind==Kind::UnresolvedBean));
+        }
+    }
+
+    #[test]
+    fn builder_constructor_facts_require_exact_origin_and_literal_argument() {
+        for source in [
+            "import org.springframework.batch.core.job.builder.JobBuilder; class Jobs { Object job(){return new JobBuilder(\"actual\", repo);} }",
+            "class Jobs { Object job(){return new org.springframework.batch.core.job.builder.JobBuilder(\"actual\", repo);} }",
+        ] {
+            let facts=parse_source(JAVA_PATH,source);
+            let job=facts.iter().find(|n|n.kind==Kind::Job).expect("owned constructor");
+            assert_eq!(job.name,"actual");
+            assert_eq!(job.range,range(source,source.find("actual").unwrap(),source.find("actual").unwrap()+6));
+        }
+        for source in [
+            "import org.springframework.batch.core.job.builder.JobBuilder; class JobBuilder {} class Jobs { Object job(){return new JobBuilder(\"ghost\");} }",
+            "import org.springframework.batch.core.job.builder.JobBuilder; class Jobs { Object job(){return new JobBuilder(\"ghost\" + suffix, repo);} }",
+            "class Jobs { Object job(){return rogueJobBuilder.get(\"ghost\");} }",
+        ] {
+            let facts=parse_source(JAVA_PATH,source);
+            assert!(!facts.iter().any(|n|n.kind==Kind::Job));
+            assert!(facts.iter().any(|n|n.kind==Kind::UnresolvedJob));
+        }
     }
 
     #[test]
@@ -859,7 +1063,47 @@ public class BatchConfig {
         assert!(xml_rules::problems(&BROKEN.replace("http://www.springframework.org/schema/batch", "urn:other")).is_empty());
     }
 
-    const PARAMS_JAVA: &str = "package a;\nimport org.springframework.batch.core.JobParametersBuilder;\nclass P {\n  @Value(\"#{jobParameters['inputFile']}\") String f;\n  void go() { new JobParametersBuilder().addString(\"runId\", \"1\").addLong(\"size\", 2L); }\n}\n";
+    const PARAMS_JAVA: &str = "package a;\nimport org.springframework.batch.core.JobParametersBuilder; import org.springframework.beans.factory.annotation.Value;\nclass P {\n  @Value(\"#{jobParameters['inputFile']}\") String f;\n  void go() { new JobParametersBuilder().addString(\"runId\", \"1\").addLong(\"size\", 2L); }\n}\n";
+
+    #[test]
+    fn parameter_caret_context_reuses_fact_admission_and_accepts_empty_keys() {
+        for key in ["","é","in"] {
+            let source=format!("import org.springframework.beans.factory.annotation.Value; class P {{ @Value(\"#{{jobParameters['{key}']}}\") String value; }}");
+            let from=source.find("['").unwrap()+2;assert!(parameter_context(JAVA_PATH,&source,from,from+key.len()));
+            let xml=format!("<beans xmlns='http://www.springframework.org/schema/beans'><bean id='reader'><property name='file' value=\"#{{jobParameters['{key}']}}\"/></bean></beans>");
+            let from=xml.find("['").unwrap()+2;assert!(parameter_context(XML_PATH,&xml,from,from+key.len()));
+        }
+        let foreign="import fake.Value; class P { @Value(\"#{jobParameters['g']}\") String value; }";let from=foreign.find("['").unwrap()+2;
+        assert!(!parameter_context(JAVA_PATH,foreign,from,from+1));
+        assert!(!parameter_context(JAVA_PATH,"/* jobParameters['g'] */",18,19));
+    }
+
+    #[test]
+    fn xml_parameter_keys_require_complete_owned_attribute_context() {
+        let valid="<beans xmlns='http://www.springframework.org/schema/beans'><bean id='reader'><property name='file' value=\"#{jobParameters['input']}\"/></bean></beans>";
+        let facts=job_parameters(XML_PATH,valid);assert_eq!(facts.len(),1);assert_eq!(facts[0].name,"input");assert_eq!(facts[0].range,range(valid,valid.find("input").unwrap(),valid.find("input").unwrap()+5));
+        for invalid in [valid.replace("value=","q:value=").replace("<beans ","<beans xmlns:q='urn:foreign' "),valid.replace("schema/beans","schema/foreign"),valid.replace("['input']","['in&#112;ut']"),valid.replace("</beans>",""),"<beans xmlns='http://www.springframework.org/schema/beans'><!-- jobParameters['ghost'] --></beans>".into()] {
+            assert!(job_parameters(XML_PATH,&invalid).is_empty(),"{invalid}");
+        }
+    }
+
+    #[test]
+    fn parameter_value_facts_require_owned_complete_literal_expression() {
+        let source="class P { @org.springframework.beans.factory.annotation.Value(\"#{jobParameters['input']}\") String value; }";
+        let facts=job_parameters(JAVA_PATH,source);assert_eq!(facts.len(),1);assert_eq!(facts[0].name,"input");assert_eq!(facts[0].range,range(source,source.find("input").unwrap(),source.find("input").unwrap()+5));
+        for source in ["import fake.Value; class P { @Value(\"#{jobParameters['ghost']}\") String value; }","import org.springframework.beans.factory.annotation.Value; class P { @Value(\"#{jobParameters['ghost']}\"+suffix) String value; }","class P { /* jobParameters['ghost'] */ String value=\"jobParameters['ghost']\"; }"] {
+            assert!(job_parameters(JAVA_PATH,source).is_empty(),"{source}");
+        }
+    }
+
+    #[test]
+    fn parameter_adders_require_owned_contiguous_builder_chain() {
+        let valid="class P { void go(){new org.springframework.batch.core.JobParametersBuilder().addString(\"first\",\"v\").addLong(\"second\",1L);} }";
+        assert_eq!(job_parameters(JAVA_PATH,valid).iter().map(|n|n.name.as_str()).collect::<Vec<_>>(),["first","second"]);
+        for source in ["import fake.JobParametersBuilder; class P {void go(){new JobParametersBuilder().addString(\"ghost\",\"v\");}}","import org.springframework.batch.core.JobParametersBuilder; class P {void go(){other.addString(\"ghost\",\"v\");}}","import org.springframework.batch.core.JobParametersBuilder; class P {void go(){new JobParametersBuilder().other().addString(\"ghost\",\"v\");}}","import org.springframework.batch.core.JobParametersBuilder; class P {void go(){new JobParametersBuilder().addString(\"ghost\"+suffix,\"v\");}}"] {
+            assert!(job_parameters(JAVA_PATH,source).is_empty(),"{source}");
+        }
+    }
 
     #[test]
     fn completes_job_parameter_keys_in_java_and_xml() {
@@ -901,7 +1145,8 @@ public class BatchConfig {
     fn flags_spring_batch_5_migrations() {
         let host = setup();
         let mut b = Batch::default();
-        b.line_markers(&doc(JAVA_PATH, "java", JOB_CONFIG));
+        let legacy=JOB_CONFIG.replace("new JobBuilder(\"legacyJob\", repo)","jobBuilderFactory.get(\"legacyJob\")");
+        b.line_markers(&doc(JAVA_PATH, "java", &legacy));
         let found: Vec<_> = host.diagnostics()[JAVA_PATH]
             .iter()
             .map(|d| (d.range.start.line, d.code.clone().unwrap(), d.deprecated))
@@ -1031,6 +1276,35 @@ public class BatchConfig {
         let host = MockHost::install();
         refresh("diagram");
         assert_eq!(host.refreshed_views(), ["structure"]);
+    }
+
+    #[test]
+    fn diagram_callback_refuses_unlisted_foreign_and_drifted_source_targets() {
+        let host=setup();let mut batch=Batch::default();batch.render(VIEW,None,&host.invocation()).unwrap();
+        let job=position(JOB_XML,JOB_XML.find("importJob").unwrap());let valid=location_key(XML_PATH,Range::new(job,job));
+        for key in ["b:0:0:/private/secret.xml".to_owned(),format!("b:0:0:{XML_PATH}"),format!("b:no:0:{XML_PATH}")] {
+            assert!(batch.handle(VIEW,ViewEvent::Message(key),&host.invocation()).is_err());
+        }
+        host.add_file("src/main/resources/jobs/import.xml",&JOB_XML.replace("importJob","changedJob"));
+        assert!(batch.handle(VIEW,ViewEvent::Message(valid),&host.invocation()).is_err());
+        assert!(host.opened_locations().is_empty());
+    }
+    #[test]
+    fn diagram_callback_requires_current_project_source_owner_and_bounded_text() {
+        let host=setup();let mut batch=Batch::default();batch.render(VIEW,None,&host.invocation()).unwrap();
+        let job=position(JOB_XML,JOB_XML.find("importJob").unwrap());let valid=location_key(XML_PATH,Range::new(job,job));
+        host.add_file("src/main/resources/jobs/import.xml",&format!("{JOB_XML}{}"," ".repeat(512*1024)));
+        assert!(batch.handle(VIEW,ViewEvent::Message(valid.clone()),&host.invocation()).is_err());
+        host.add_file("src/main/resources/jobs/import.xml",JOB_XML);host.set_project_root(Some("/other"));
+        assert!(batch.handle(VIEW,ViewEvent::Message(valid),&host.invocation()).is_err());assert!(host.opened_locations().is_empty());
+    }
+
+    #[test]
+    fn unresolved_transition_never_uses_another_job_or_project_state() {
+        let text=format!("<beans xmlns='http://www.springframework.org/schema/beans' xmlns:b='{NAMESPACE}'><b:job id='one'><b:step id='a' next='finish'/></b:job><b:job id='two'><b:step id='finish'/></b:job></beans>");
+        let (names,links)=parse_xml(&text);let link=links.iter().find(|l|l.kind==LinkKind::Target).unwrap();
+        let unrelated=Name{name:"finish".into(),kind:Kind::State,range:Range::default(),scope:None,el:0,detail:"step",goes:vec![]};
+        assert!(targets(link,&names,&[("/project/other.xml",&unrelated)],"/project/jobs.xml").is_empty());
     }
 
 }

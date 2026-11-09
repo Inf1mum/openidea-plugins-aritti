@@ -4,12 +4,12 @@
 //! and saved files update it.
 
 use crate::{code, docker, parse};
-use openidea_plugin::{Location, Project, Range, text};
+use openidea_plugin::{Error, Location, Project, Range, text};
 use std::collections::BTreeSet;
 use std::time::Instant;
 
 /// Env files read in each folder that looks like a project: the walk
-/// (`find_files`) skips hidden files, so `.env*` can't be listed.
+/// discovers hidden paths in API 1.3, but normal ignore rules still apply.
 pub const ENV_FILES: &[&str] = &[
     ".env",
     ".env.local",
@@ -34,7 +34,7 @@ pub const ENV_FILES: &[&str] = &[
 ];
 
 /// Files whose folder gets [`ENV_FILES`] looked up, besides the root.
-// ponytail: `.env` elsewhere is only known once opened; the host can't list hidden files.
+// Ignored, nonstandard env files elsewhere may remain unknown until opened or explicitly referenced.
 const MARKERS: &[&str] = &[
     "package.json",
     "composer.json",
@@ -56,12 +56,14 @@ const MARKERS: &[&str] = &[
 ];
 
 const CODE: &[&str] = &[
-    "php", "py", "js", "jsx", "mjs", "cjs", "ts", "tsx", "mts", "cts", "vue", "svelte", "go", "rb", "rake", "rs", "java",
-    "kt", "kts", "scala", "groovy", "cs",
+    "php", "py", "js", "jsx", "mjs", "cjs", "ts", "tsx", "mts", "cts", "vue", "svelte", "go", "rb", "rake", "rs", "java", "kt", "kts",
+    "scala", "groovy", "cs",
 ];
 
 /// Paths the walk returns at most.
 const MAX_FILES: u32 = 50_000;
+pub(crate) const MAX_SOURCE_BYTES: usize = 256 << 10;
+const MAX_FACTS: usize = 50_000;
 
 #[derive(Clone, Debug)]
 pub struct Declaration {
@@ -142,10 +144,7 @@ pub fn nested_usages(path: &str, text: &str) -> Vec<Usage> {
     parse::lex(text)
         .into_iter()
         .filter(|t| t.kind == parse::Kind::NestedKey)
-        .map(|t| Usage {
-            key: text[t.range.clone()].to_owned(),
-            location: Location { path: path.to_owned(), range: range(text, t.range) },
-        })
+        .map(|t| Usage { key: text[t.range.clone()].to_owned(), location: Location { path: path.to_owned(), range: range(text, t.range) } })
         .collect()
 }
 
@@ -208,6 +207,10 @@ fn confined_path(root: &str, folder: &str, file: &str) -> Option<String> {
 
 impl Index {
     fn add(&mut self, path: &str, text: &str) {
+        if text.len() > MAX_SOURCE_BYTES {
+            self.complete = false;
+            return;
+        }
         match source(path) {
             Some(Source::Env) => {
                 self.declarations.extend(env_declarations(path, text));
@@ -218,24 +221,68 @@ impl Index {
             Some(Source::Code) => self.usages.extend(code_usages(path, text)),
             None => {}
         }
+        self.bound_facts();
+    }
+
+    fn bound_facts(&mut self) {
+        if self.declarations.len() > MAX_FACTS || self.usages.len() > MAX_FACTS {
+            self.complete = false;
+            self.declarations.truncate(MAX_FACTS);
+            self.usages.truncate(MAX_FACTS);
+        }
     }
 
     /// Reads the files a compose file names in `env_file:` and declares their
-    /// keys, unless the index already has that file. `read_file` fails for a
-    /// missing file (`NotFound` or `Invalid`): then there is nothing to add.
+    /// keys, unless the index already has that file. Missing or unreadable
+    /// explicitly referenced files leave discovery incomplete.
     pub fn add_compose_env_files(&mut self, project: &Project, root: &str, compose_path: &str, text: &str) {
+        self.compose_env_files_before(project, root, compose_path, text, Instant::now() + std::time::Duration::from_secs(1));
+    }
+
+    fn compose_env_files_before(&mut self, project: &Project, root: &str, compose_path: &str, text: &str, deadline: Instant) {
         if source(compose_path) != Some(Source::Compose) {
             return;
         }
+        // The line parser does not resolve aliases/merge keys. Conservatively
+        // mark such discovery unknown instead of proving missing declarations.
+        if text.lines().any(|line| {
+            let line = line.trim_start();
+            line.starts_with("<<:")
+                || ["env_file:", "environment:"]
+                    .iter()
+                    .any(|key| line.strip_prefix(key).is_some_and(|rest| rest.trim_start().starts_with(['*', '&'])))
+                || line.strip_prefix('-').is_some_and(|rest| rest.trim_start().starts_with(['*', '&']))
+        }) {
+            self.complete = false;
+        }
         let folder = compose_path.rsplit_once(['/', '\\']).map_or("", |(folder, _)| folder);
-        for file in docker::compose_env_files(text) {
-            let Some(path) = confined_path(root, folder, &file) else { continue };
+        let files = docker::compose_env_files(text);
+        if files.len() > 128 {
+            self.complete = false;
+        }
+        for file in files.into_iter().take(128) {
+            if Instant::now() >= deadline {
+                self.complete = false;
+                break;
+            }
+            if file.contains('$') || file.len() > 4096 {
+                self.complete = false;
+                continue;
+            }
+            let Some(path) = confined_path(root, folder, &file) else {
+                self.complete = false;
+                continue;
+            };
             if self.declarations.iter().any(|d| d.location.path == path) {
                 continue;
             }
-            if let Ok(env) = project.read_file(&path) {
-                self.declarations.extend(env_declarations(&path, &env).into_iter().map(|d| Declaration { primary: true, ..d }));
+            match project.read_file(&path) {
+                Ok(env) if env.len() <= MAX_SOURCE_BYTES => {
+                    self.declarations.extend(env_declarations(&path, &env).into_iter().map(|d| Declaration { primary: true, ..d }))
+                }
+                _ => self.complete = false,
             }
+            self.bound_facts();
         }
     }
 
@@ -267,7 +314,37 @@ impl Index {
     /// Every file that declares or reads keys, declarations first, until `deadline`.
     // ponytail: a huge project is cut at the deadline (usages first); persist the index if that bites.
     pub fn full(project: &Project, root: &str, deadline: Instant) -> Self {
-        let files = project.find_files("**/*", MAX_FILES).unwrap_or_default();
+        if Instant::now() >= deadline {
+            return Self::default();
+        }
+        let mut files = match project.find_files("**/*", MAX_FILES + 1) {
+            Ok(files) => files,
+            Err(_) => return Self::default(),
+        };
+        let discovery_complete = files.len() <= MAX_FILES as usize;
+        files.truncate(MAX_FILES as usize);
+        let discovered: BTreeSet<_> = files.iter().cloned().collect();
+        // Inventory obeys ignore rules. A configured ignore file means an
+        // unlisted nonstandard env source may exist, so absence is unknown.
+        // These probes run only during the warm project scan, never diagnostics.
+        let mut ignore_unknown = files.iter().any(|file| matches!(file_name(file), ".gitignore" | ".ignore"));
+        for name in [".gitignore", ".ignore", ".git/info/exclude"] {
+            if Instant::now() >= deadline {
+                return Self::default();
+            }
+            let path = format!("{}/{name}", root.trim_end_matches(['/', '\\']));
+            match project.read_file(&path) {
+                Ok(text) => {
+                    if text.len() > MAX_SOURCE_BYTES
+                        || text.lines().any(|line| !line.trim().is_empty() && !line.trim_start().starts_with('#'))
+                    {
+                        ignore_unknown = true;
+                    }
+                }
+                Err(Error::NotFound(_)) => {}
+                Err(_) => ignore_unknown = true,
+            }
+        }
         let mut folders = BTreeSet::from([root.trim_end_matches(['/', '\\']).to_owned()]);
         for file in &files {
             if MARKERS.contains(&file_name(file)) {
@@ -276,7 +353,8 @@ impl Index {
                 }
             }
         }
-
+        // Known root/marker env filenames are optional probes; disappearance of
+        // a file actually discovered by the walk is an incomplete/racing scan.
         let mut paths: Vec<(Source, String)> = folders
             .iter()
             .flat_map(|folder| ENV_FILES.iter().map(move |name| (Source::Env, format!("{folder}/{name}"))))
@@ -284,16 +362,33 @@ impl Index {
             .collect();
         paths.sort();
         paths.dedup();
-
-        let mut index = Self { complete: true, ..Self::default() };
+        let mut index = Self { complete: discovery_complete && !ignore_unknown, ..Self::default() };
         for (_, path) in paths {
-            if Instant::now() > deadline {
+            if Instant::now() >= deadline {
+                index.complete = false;
                 break;
             }
-            if let Ok(text) = project.read_file(&path) {
-                index.add(&path, &text);
-                index.add_compose_env_files(project, root, &path, &text);
+            match project.read_file(&path) {
+                Ok(text) => {
+                    if Instant::now() >= deadline {
+                        index.complete = false;
+                        break;
+                    }
+                    index.add(&path, &text);
+                    if text.len() <= MAX_SOURCE_BYTES {
+                        index.compose_env_files_before(project, root, &path, &text, deadline);
+                    }
+                }
+                Err(Error::NotFound(_)) if !discovered.contains(&path) => {}
+                Err(_) => index.complete = false,
             }
+            if index.declarations.len() >= MAX_FACTS || index.usages.len() >= MAX_FACTS {
+                index.complete = false;
+                break;
+            }
+        }
+        if Instant::now() >= deadline {
+            index.complete = false;
         }
         index
     }
@@ -314,7 +409,10 @@ mod tests {
         host.add_file("api/composer.json", "{}");
         host.add_file("api/.env.example", "C=3\n");
         host.add_file("Dockerfile", "ENV D=4\n");
-        host.add_file("deploy/docker-compose.yml", "services:\n  x:\n    env_file: [\"./conf/vars\", missing.env]\n    environment:\n      - E=5\n");
+        host.add_file(
+            "deploy/docker-compose.yml",
+            "services:\n  x:\n    env_file: [\"./conf/vars\", missing.env]\n    environment:\n      - E=5\n",
+        );
         host.add_file("deploy/conf/vars", "F=6\n");
         host.add_file("api/index.php", "<?php\necho getenv('A') . $_ENV['C'];\n");
         host.add_file("README.md", "getenv('NOPE')");
@@ -330,6 +428,57 @@ mod tests {
 
         let quick = Index::quick(&project, "/p");
         assert_eq!(quick.declarations.len(), 2, "only the root's .env");
+    }
+
+    #[test]
+    fn completeness_requires_discovery_budget_and_readable_supported_sources() {
+        let host = MockHost::install();
+        host.set_project_root(Some("/p"));
+        let project = host.invocation().project().unwrap();
+        assert!(
+            Index::full(&project, "/p", Instant::now() + Duration::from_secs(5)).complete,
+            "missing optional conventional files are normal"
+        );
+        assert!(!Index::full(&project, "/p", Instant::now() - Duration::from_secs(1)).complete);
+        host.add_file(".env", &"#".repeat(MAX_SOURCE_BYTES + 1));
+        assert!(!Index::full(&project, "/p", Instant::now() + Duration::from_secs(5)).complete);
+        let _denied = host.with_capabilities(&[]);
+        assert!(!Index::full(&project, "/p", Instant::now() + Duration::from_secs(5)).complete);
+    }
+
+    #[test]
+    fn ignored_inventory_does_not_prove_absence_but_keeps_known_declarations() {
+        let host = MockHost::install();
+        host.set_project_root(Some("/p"));
+        host.add_file(".env", "A=1\n");
+        host.add_file(".gitignore", "*.env\n");
+        let project = host.invocation().project().unwrap();
+        let index = Index::full(&project, "/p", Instant::now() + Duration::from_secs(5));
+        assert!(!index.complete);
+        assert!(index.declarations.iter().any(|d| d.key == "A"));
+    }
+
+    #[test]
+    fn truncated_inventory_never_proves_absence() {
+        let host = MockHost::install();
+        host.set_project_root(Some("/p"));
+        for n in 0..=MAX_FILES {
+            host.add_file(&format!("unrelated/{n}.txt"), "");
+        }
+        let project = host.invocation().project().unwrap();
+        let index = Index::full(&project, "/p", Instant::now() + Duration::from_secs(10));
+        assert!(!index.complete);
+    }
+
+    #[test]
+    fn unresolved_compose_inputs_leave_discovery_unknown() {
+        for name in ["missing.env", "${CONFIG}", "../../outside.env", "*shared"] {
+            let index = compose_index(name);
+            assert!(!index.complete, "{name}");
+            assert!(index.declarations.iter().any(|d| d.key == "A"), "retain known declarations");
+        }
+        let index = compose_index("../.env");
+        assert!(index.complete, "resolvable explicitly named files are complete");
     }
 
     #[test]

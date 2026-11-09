@@ -2,20 +2,21 @@
 //! declarations of Kafka topics, RabbitMQ queues and exchanges and JMS
 //! destinations in a Java project by destination name. Text-based.
 
+use openidea_plugin::Project;
 use openidea_plugin::providers::{CompletionItem, CompletionKind, Document, LineMarker, Providers};
 use openidea_plugin::text::offset;
 use openidea_plugin::views::{Body, Button, TreeItem, View, ViewEvent, Viewport, Views};
 use openidea_plugin::{Error, Invocation, Location, Plugin, Position, Range, host};
-use spring_text::index::{COMMAND_BUDGET, Indexes, PROVIDER_BUDGET, project_of};
-use openidea_plugin::Project;
 use spring_text::constants::Constants;
-use spring_text::{config, xml};
+use spring_text::index::{COMMAND_BUDGET, Indexes, PROVIDER_BUDGET, project_of};
 use spring_text::java::{self, Annotation, Arg, Call, CallArg, JavaFile, Str, Tok};
-use spring_text::{parse_source, range, source_calls};
 use spring_text::tree::Expansion;
+use spring_text::{config, xml};
+use spring_text::{parse_source, range, source_calls};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 mod listener_xml;
+mod destination_docs;
 use std::time::Duration;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -114,10 +115,7 @@ fn nested(text: &str, toks: &[Tok], arg: Option<&Arg>) -> Vec<Annotation> {
 
 /// A post processor or correlation data after the message (`convertAndSend(key, msg, m -> m)`).
 fn is_extra(a: &CallArg) -> bool {
-    a.text.contains("->")
-        || a.text.contains("::")
-        || a.text.to_lowercase().contains("correlation")
-        || a.text.contains("PostProcessor")
+    a.text.contains("->") || a.text.contains("::") || a.text.to_lowercase().contains("correlation") || a.text.contains("PostProcessor")
 }
 
 /// What a `RabbitTemplate` send names: `(routingKey, msg)` goes through the
@@ -141,7 +139,8 @@ const CONSTANT: char = '\u{1}';
 
 /// `Type.NAME` of a constant expression: the last two segments, or `own.NAME` for a bare name.
 fn constant_key(expr: &str, own: Option<&str>) -> Option<String> {
-    let ident = |p: &str| p.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_') && p.chars().all(|c| c.is_alphanumeric() || c == '_');
+    let ident =
+        |p: &str| p.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_') && p.chars().all(|c| c.is_alphanumeric() || c == '_');
     let parts: Vec<&str> = expr.split('.').collect();
     if !parts.iter().all(|p| ident(p)) {
         return None;
@@ -228,16 +227,7 @@ impl Collector<'_> {
             v.clone()
         };
         let range = range(self.text, s.at, s.end);
-        self.out.push(Endpoint {
-            broker,
-            space,
-            name,
-            role,
-            via: via.to_owned(),
-            at: s.at,
-            end: s.end,
-            range,
-        });
+        self.out.push(Endpoint { broker, space, name, role, via: via.to_owned(), at: s.at, end: s.end, range });
     }
 
     fn listener(&mut self, a: &Annotation) {
@@ -291,13 +281,7 @@ impl Collector<'_> {
             }
             Some((exchange, _)) => {
                 let end = s.at + exchange.len();
-                self.add(
-                    broker,
-                    "exchange",
-                    Role::Producer,
-                    "@SendTo",
-                    &Str { value: exchange.to_owned(), at: s.at, end },
-                );
+                self.add(broker, "exchange", Role::Producer, "@SendTo", &Str { value: exchange.to_owned(), at: s.at, end });
             }
             None => self.add(broker, "queue", Role::Producer, "@SendTo", s),
         }
@@ -322,26 +306,19 @@ impl Collector<'_> {
         let via = format!("{receiver}.{}", c.name);
         match (receiver, c.name.as_str()) {
             ("TopicBuilder", "name") => self.add(Broker::Kafka, "topic", Role::Declaration, &via, &first),
-            ("QueueBuilder", "durable" | "nonDurable") => {
-                self.add(Broker::Rabbit, "queue", Role::Declaration, &via, &first)
-            }
+            ("QueueBuilder", "durable" | "nonDurable") => self.add(Broker::Rabbit, "queue", Role::Declaration, &via, &first),
             ("ExchangeBuilder", "topicExchange" | "directExchange" | "fanoutExchange" | "headersExchange") => {
                 self.add(Broker::Rabbit, "exchange", Role::Declaration, &via, &first)
             }
             (_, "send" | "convertAndSend" | "convertSendAndReceive" | "sendAndReceive") => {
-                match Broker::hinted_by(receiver).or_else(|| declared_type(file, receiver).and_then(Broker::hinted_by))
-                {
-                    Some(Broker::Kafka) if c.name == "send" => {
-                        self.add(Broker::Kafka, "topic", Role::Producer, &c.name, &first)
-                    }
+                match Broker::hinted_by(receiver).or_else(|| declared_type(file, receiver).and_then(Broker::hinted_by)) {
+                    Some(Broker::Kafka) if c.name == "send" => self.add(Broker::Kafka, "topic", Role::Producer, &c.name, &first),
                     Some(Broker::Rabbit) => {
                         if let Some((space, s)) = rabbit_target(c) {
                             self.add(Broker::Rabbit, space, Role::Producer, &c.name, &s);
                         }
                     }
-                    Some(Broker::Jms) if c.args.len() >= 2 => {
-                        self.add(Broker::Jms, "destination", Role::Producer, &c.name, &first)
-                    }
+                    Some(Broker::Jms) if c.args.len() >= 2 => self.add(Broker::Jms, "destination", Role::Producer, &c.name, &first),
                     _ => {}
                 }
             }
@@ -449,11 +426,8 @@ fn parse_constants(path: &str, text: &str) -> Option<Vec<(String, String)>> {
 type Props = BTreeMap<String, String>;
 
 fn parse_config(path: &str, text: &str) -> Option<Vec<(String, String)>> {
-    let keys: Vec<_> = config::keys(path, text)
-        .into_iter()
-        .filter(|k| !k.value.is_empty())
-        .map(|k| (config::canonical(&k.key), k.value))
-        .collect();
+    let keys: Vec<_> =
+        config::keys(path, text).into_iter().filter(|k| !k.value.is_empty()).map(|k| (config::canonical(&k.key), k.value)).collect();
     (!keys.is_empty()).then_some(keys)
 }
 
@@ -566,7 +540,8 @@ impl Default for Messaging {
             config: Indexes::new(&CONFIG_GLOBS, parse_config),
             constants: Indexes::new(&["**/*.java", "**/*.kt"], parse_constants),
             listener_beans: Indexes::new(&["**/*.java", "**/*.kt", "**/*.xml"], listener_xml::parse),
-            expansion: Expansion::default() }
+            expansion: Expansion::default(),
+        }
     }
 }
 
@@ -593,8 +568,7 @@ fn links<'a>(doc: &Document, all: &'a [(String, Endpoint)]) -> Vec<(&'a Endpoint
     all.iter()
         .filter(|(p, _)| *p == doc.path)
         .map(|(_, e)| {
-            let mut others: Vec<_> =
-                all.iter().filter(|(p, o)| o.same_destination(e) && !(*p == doc.path && o.at == e.at)).collect();
+            let mut others: Vec<_> = all.iter().filter(|(p, o)| o.same_destination(e) && !(*p == doc.path && o.at == e.at)).collect();
             others.sort_by_key(|(p, o)| (o.role, p.clone(), o.at));
             (e, others)
         })
@@ -626,7 +600,7 @@ impl Messaging {
 
 impl Providers for Messaging {
     fn line_markers(&mut self, doc: &Document) -> Vec<LineMarker> {
-        if doc.language == "xml" {
+        if !cfg!(feature = "embedded") && doc.language == "xml" {
             let problems = match self.listener_beans.for_document(&doc.path, &doc.text, PROVIDER_BUDGET) {
                 Some(beans) => listener_xml::problems(&doc.text, beans),
                 None => Vec::new(),
@@ -644,10 +618,8 @@ impl Providers for Messaging {
                 };
                 let others: Vec<_> = others.into_iter().filter(|(_, o)| wanted(o)).collect();
                 let (path, first) = others.first()?;
-                let list: Vec<String> = others
-                    .iter()
-                    .map(|(p, o)| format!("{}:{} ({})", file_name(p), o.range.start.line + 1, o.via))
-                    .collect();
+                let list: Vec<String> =
+                    others.iter().map(|(p, o)| format!("{}:{} ({})", file_name(p), o.range.start.line + 1, o.via)).collect();
                 Some(LineMarker {
                     line: e.range.start.line,
                     icon: None,
@@ -687,10 +659,7 @@ impl Providers for Messaging {
         let mut seen = BTreeSet::new();
         all.iter()
             .filter(|(p, e)| {
-                e.broker == here.broker
-                    && e.space == here.space
-                    && !(*p == doc.path && e.at == here.at)
-                    && seen.insert(&e.name)
+                e.broker == here.broker && e.space == here.space && !(*p == doc.path && e.at == here.at) && seen.insert(&e.name)
             })
             .map(|(_, e)| CompletionItem {
                 detail: Some(format!("{} {}", e.broker.label(), e.space)),
@@ -710,7 +679,7 @@ impl Views for Messaging {
         let constants = self.constant_values(&project, COMMAND_BUDGET);
         let index = self.index.get(&project, COMMAND_BUDGET);
         let complete = index.complete();
-        if !complete {
+        if index.scanning() {
             refresh(view);
         }
         let refresh = Button::new("refresh", "Refresh").icon("refresh");
@@ -782,9 +751,7 @@ impl Views for Messaging {
             }
             ViewEvent::Activate(key) => {
                 let mut parts = key.splitn(4, ':');
-                if let (Some("e"), Some(line), Some(col), Some(path)) =
-                    (parts.next(), parts.next(), parts.next(), parts.next())
-                {
+                if let (Some("e"), Some(line), Some(col), Some(path)) = (parts.next(), parts.next(), parts.next(), parts.next()) {
                     host::open_location(path, line.parse().unwrap_or(0), col.parse().unwrap_or(0))?;
                 }
             }
@@ -830,7 +797,8 @@ pub fn take_problems() -> Vec<openidea_plugin::Diagnostic> {
 }
 
 const BUILD_FILES: [&str; 3] = ["pom.xml", "build.gradle", "build.gradle.kts"];
-const DEPENDENCY_MARKERS: [&str; 12] = ["kafka", "rabbit", "amqp", "jms", "activemq", "artemis", "<module>", "include(", "include '", "include \"", "(libs.", " libs."];
+const DEPENDENCY_MARKERS: [&str; 12] =
+    ["kafka", "rabbit", "amqp", "jms", "activemq", "artemis", "<module>", "include(", "include '", "include \"", "(libs.", " libs."];
 
 /// True when unsure: a multi-module build or a version catalog hides the dependency from the root build file.
 pub fn applies(project: &openidea_plugin::Project) -> bool {
@@ -848,8 +816,8 @@ openidea_plugin::register_plugin!(Messaging, providers, views);
 #[cfg_attr(feature = "embedded", allow(dead_code, unused_imports))]
 mod tests {
     use super::*;
-    use openidea_plugin::mock::MockHost;
     use openidea_plugin::Severity;
+    use openidea_plugin::mock::MockHost;
 
     const VIEW: &str = "messaging";
 
@@ -937,20 +905,19 @@ class KtEvents(private val kafkaTemplate: KafkaTemplate<String, String>, val rab
     #[test]
     fn kotlin_kafka_listener_is_indexed() {
         use Broker::{Jms, Kafka, Rabbit};
-        let found: Vec<_> = parse("K.kt", KOTLIN)
-            .unwrap()
-            .into_iter()
-            .map(|e| (e.broker, e.space, e.name, e.role, e.via))
-            .collect();
-        assert_eq!(found, [
-            (Kafka, "topic", "orders".into(), Role::Consumer, "@KafkaListener".into()),
-            (Kafka, "topic", "audit".into(), Role::Consumer, "@KafkaListener".into()),
-            (Kafka, "topic", "replies".into(), Role::Producer, "@SendTo".into()),
-            (Rabbit, "queue", format!("{CONSTANT}KtEvents.QUEUE"), Role::Consumer, "@RabbitListener".into()),
-            (Jms, "destination", "invoices".into(), Role::Consumer, "@JmsListener".into()),
-            (Kafka, "topic", "orders".into(), Role::Producer, "send".into()),
-            (Rabbit, "queue", "mails".into(), Role::Producer, "convertAndSend".into()),
-        ]);
+        let found: Vec<_> = parse("K.kt", KOTLIN).unwrap().into_iter().map(|e| (e.broker, e.space, e.name, e.role, e.via)).collect();
+        assert_eq!(
+            found,
+            [
+                (Kafka, "topic", "orders".into(), Role::Consumer, "@KafkaListener".into()),
+                (Kafka, "topic", "audit".into(), Role::Consumer, "@KafkaListener".into()),
+                (Kafka, "topic", "replies".into(), Role::Producer, "@SendTo".into()),
+                (Rabbit, "queue", format!("{CONSTANT}KtEvents.QUEUE"), Role::Consumer, "@RabbitListener".into()),
+                (Jms, "destination", "invoices".into(), Role::Consumer, "@JmsListener".into()),
+                (Kafka, "topic", "orders".into(), Role::Producer, "send".into()),
+                (Rabbit, "queue", "mails".into(), Role::Producer, "convertAndSend".into()),
+            ]
+        );
         assert_eq!(names(KAFKA).len(), 5);
 
         let host = setup();
@@ -964,7 +931,10 @@ class KtEvents(private val kafkaTemplate: KafkaTemplate<String, String>, val rab
         };
         let tips: Vec<_> = m.line_markers(&kt).into_iter().map(|x| (x.line, x.tooltip)).collect();
         assert!(tips.iter().any(|(l, t)| *l == 4 && t.contains("OrderEvents.java:8 (send), KtEvents.kt:15 (send)")), "{tips:?}");
-        assert!(tips.iter().any(|(l, t)| *l == 14 && t.contains("OrderEvents.java:13 (@KafkaListener), KtEvents.kt:5 (@KafkaListener)")), "{tips:?}");
+        assert!(
+            tips.iter().any(|(l, t)| *l == 14 && t.contains("OrderEvents.java:13 (@KafkaListener), KtEvents.kt:5 (@KafkaListener)")),
+            "{tips:?}"
+        );
     }
 
     #[test]
@@ -981,11 +951,10 @@ class KtEvents(private val kafkaTemplate: KafkaTemplate<String, String>, val rab
 }
 "#;
         let found: Vec<_> = parse("A.kt", src).unwrap().into_iter().map(|e| (e.broker, e.name)).collect();
-        assert_eq!(found, [
-            (Broker::Kafka, "typed-topic".to_owned()),
-            (Broker::Rabbit, "typed-queue".to_owned()),
-            (Broker::Jms, "typed-dest".to_owned()),
-        ]);
+        assert_eq!(
+            found,
+            [(Broker::Kafka, "typed-topic".to_owned()), (Broker::Rabbit, "typed-queue".to_owned()), (Broker::Jms, "typed-dest".to_owned()),]
+        );
     }
 
     #[test]
@@ -1033,12 +1002,7 @@ class KtEvents(private val kafkaTemplate: KafkaTemplate<String, String>, val rab
     }
 
     fn doc(path: &str, text: &str) -> Document {
-        Document {
-            path: format!("/project/src/main/java/com/acme/{path}"),
-            language: "java".into(),
-            version: 1,
-            text: text.into(),
-        }
+        Document { path: format!("/project/src/main/java/com/acme/{path}"), language: "java".into(), version: 1, text: text.into() }
     }
 
     #[test]
@@ -1088,11 +1052,10 @@ class KtEvents(private val kafkaTemplate: KafkaTemplate<String, String>, val rab
             orders.iter().map(|i| i.detail.as_deref().unwrap()).collect::<Vec<_>>(),
             ["consumer · @KafkaListener", "producer · send", "declaration · TopicBuilder.name"]
         );
-        assert_eq!(orders.iter().map(|i| i.icon.as_deref().unwrap()).collect::<Vec<_>>(), [
-            "vcs-incoming",
-            "vcs-outgoing",
-            "spring-config"
-        ]);
+        assert_eq!(
+            orders.iter().map(|i| i.icon.as_deref().unwrap()).collect::<Vec<_>>(),
+            ["vcs-incoming", "vcs-outgoing", "spring-config"]
+        );
         let destination = |key: &str| {
             let d = items.iter().find(|i| i.key == key).unwrap();
             (d.detail.as_deref().unwrap(), d.icon.as_deref().unwrap())
@@ -1102,10 +1065,7 @@ class KtEvents(private val kafkaTemplate: KafkaTemplate<String, String>, val rab
         assert_eq!(view.status.as_deref(), Some("11 destinations"));
         assert!(host.refreshed_views().is_empty(), "the scan is complete");
         m.handle(VIEW, ViewEvent::Activate(orders[1].key.clone()), &host.invocation()).unwrap();
-        assert_eq!(
-            host.opened_locations(),
-            [("/project/src/main/java/com/acme/orders/OrderEvents.java".into(), 7, 23)]
-        );
+        assert_eq!(host.opened_locations(), [("/project/src/main/java/com/acme/orders/OrderEvents.java".into(), 7, 23)]);
     }
 
     #[cfg(not(feature = "embedded"))]
@@ -1130,7 +1090,9 @@ class KtEvents(private val kafkaTemplate: KafkaTemplate<String, String>, val rab
         assert_eq!(spel_destination("#{'a' + \"-b\"}").as_deref(), Some("a-b"));
         assert_eq!(spel_destination("#{'${app.topic}'}").as_deref(), Some("${app.topic}"));
         assert_eq!(spel_destination("#{T(com.acme.Queues).ORDERS}"), Some(format!("{CONSTANT}Queues.ORDERS")));
-        for dynamic in ["#{@names.next()}", "#{'a'.concat(x)}", "#{T(Q).A + 'x'}", "#{x}", "pre#{'a'}", "#{'a' + b}", "#{}", "#{cond ? 'a' : 'b'}"] {
+        for dynamic in
+            ["#{@names.next()}", "#{'a'.concat(x)}", "#{T(Q).A + 'x'}", "#{x}", "pre#{'a'}", "#{'a' + b}", "#{}", "#{cond ? 'a' : 'b'}"]
+        {
             assert_eq!(spel_destination(dynamic), None, "{dynamic}");
         }
     }
@@ -1149,10 +1111,7 @@ class KtEvents(private val kafkaTemplate: KafkaTemplate<String, String>, val rab
         let lines: Vec<_> = m.line_markers(&l).iter().map(|k| (k.line, k.tooltip.clone())).collect();
         assert_eq!(
             lines,
-            [
-                (1, "Kafka topic events: P.java:3 (send)".to_owned()),
-                (2, "RabbitMQ queue orders.in: P.java:4 (convertAndSend)".to_owned()),
-            ]
+            [(1, "Kafka topic events: P.java:3 (send)".to_owned()), (2, "RabbitMQ queue orders.in: P.java:4 (convertAndSend)".to_owned()),]
         );
     }
 
@@ -1202,12 +1161,7 @@ class KtEvents(private val kafkaTemplate: KafkaTemplate<String, String>, val rab
             "app:\n  topicName: orders\n  dest: audit\n  reply: invoices\n  other: other-topic\n",
         );
         let mut m = Messaging::default();
-        let l = Document {
-            path: "/project/src/main/java/L.java".into(),
-            language: "java".into(),
-            version: 1,
-            text: listeners.into(),
-        };
+        let l = Document { path: "/project/src/main/java/L.java".into(), language: "java".into(), version: 1, text: listeners.into() };
         let lines: Vec<_> = m.line_markers(&l).iter().map(|k| (k.line, k.tooltip.clone())).collect();
         assert_eq!(
             lines,
@@ -1220,12 +1174,7 @@ class KtEvents(private val kafkaTemplate: KafkaTemplate<String, String>, val rab
             ],
             "the unresolvable `${{app.nope}}` has no marker; application.yml beats the dev profile"
         );
-        let p = Document {
-            path: "/project/src/main/java/P.java".into(),
-            language: "java".into(),
-            version: 1,
-            text: producers.into(),
-        };
+        let p = Document { path: "/project/src/main/java/P.java".into(), language: "java".into(), version: 1, text: producers.into() };
         let reply: Vec<_> = m.line_markers(&p).iter().map(|k| k.line).collect();
         assert_eq!(reply, [2, 3, 4, 5, 8], "producers to resolved consumers; `invoices` meets the resolved @SendTo");
     }
@@ -1255,12 +1204,7 @@ class KtEvents(private val kafkaTemplate: KafkaTemplate<String, String>, val rab
         host.add_file("src/main/resources/beans.xml", xml);
         host.add_file("src/main/java/P.java", &java);
         let mut m = Messaging::default();
-        let x = Document {
-            path: "/project/src/main/resources/beans.xml".into(),
-            language: "xml".into(),
-            version: 1,
-            text: xml.into(),
-        };
+        let x = Document { path: "/project/src/main/resources/beans.xml".into(), language: "xml".into(), version: 1, text: xml.into() };
         let markers = m.line_markers(&x);
         let found: Vec<_> = markers.iter().map(|k| (k.line, k.tooltip.clone())).collect();
         assert_eq!(
@@ -1301,7 +1245,10 @@ class Sender {
         let all: Vec<_> = m.endpoints(&d).into_iter().map(|(p, e)| (file_name(&p).to_owned(), e.name, e.role)).collect();
         assert!(all.contains(&("Sender.java".into(), "mails".into(), Role::Consumer)), "{all:?}");
         assert!(all.contains(&("Sender.java".into(), "mail-events".into(), Role::Producer)));
-        assert!(!all.iter().any(|(_, n, _)| n.contains("GHOST") || n.contains("UNKNOWN") || n.contains(CONSTANT)), "unresolved constants are dropped");
+        assert!(
+            !all.iter().any(|(_, n, _)| n.contains("GHOST") || n.contains("UNKNOWN") || n.contains(CONSTANT)),
+            "unresolved constants are dropped"
+        );
         let at = openidea_plugin::text::position(CONSTANT_USER, CONSTANT_USER.find("Queues.MAILS").unwrap() + 3);
         let linked: Vec<_> = m.definition(&d, at).iter().map(|l| file_name(&l.path).to_owned()).collect();
         assert_eq!(linked, ["Other.java"]);
@@ -1346,15 +1293,18 @@ class Sender {
             .iter()
             .map(|d| (d.range.start.line, d.code.clone().unwrap(), d.severity))
             .collect();
-        assert_eq!(found, [
-            (11, "missing-attribute".to_owned(), Severity::Warning),
-            (13, "missing-attribute".into(), Severity::Warning),
-            (13, "invalid-attribute-value".into(), Severity::Warning),
-            (4, "invalid-attribute-value".into(), Severity::Warning),
-            (5, "missing-attribute".into(), Severity::Warning),
-            (6, "unresolved-reference".into(), Severity::Info),
-            (5, "unresolved-listener-method".into(), Severity::Warning),
-        ]);
+        assert_eq!(
+            found,
+            [
+                (11, "missing-attribute".to_owned(), Severity::Warning),
+                (13, "missing-attribute".into(), Severity::Warning),
+                (13, "invalid-attribute-value".into(), Severity::Warning),
+                (4, "invalid-attribute-value".into(), Severity::Warning),
+                (5, "missing-attribute".into(), Severity::Warning),
+                (6, "unresolved-reference".into(), Severity::Info),
+                (5, "unresolved-listener-method".into(), Severity::Warning),
+            ]
+        );
     }
 
     #[test]
@@ -1411,3 +1361,29 @@ class Sender {
         assert!(applies(project), "multi-module is unsure");
     }
 }
+
+impl Messaging {
+    pub fn live_warm(&mut self, project: &openidea_plugin::Project, budget: std::time::Duration) {
+        if budget.is_zero() {
+            return;
+        }
+        self.index.get(project, budget / 4);
+        self.config.get(project, budget / 4);
+        self.constants.get(project, budget / 4);
+        self.listener_beans.get(project, budget / 4);
+    }
+    pub fn live_update(&mut self, project: &openidea_plugin::Project, path: &str, text: Option<&str>) {
+        self.index.update_existing(project, path, text);
+        self.config.update_existing(project, path, text);
+        self.constants.update_existing(project, path, text);
+        self.listener_beans.update_existing(project, path, text);
+    }
+    pub fn live_reset(&mut self) {
+        self.index.reset();
+        self.config.reset();
+        self.constants.reset();
+        self.listener_beans.reset();
+    }
+}
+
+mod live;

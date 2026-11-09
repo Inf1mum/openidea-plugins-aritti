@@ -3,8 +3,8 @@
 //! properties.
 
 use crate::model::{
-    Edit, annotations, capitalize, closing, decapitalize, has_word, import_edit, is_ident, mask, members,
-    split_top_level, without_annotations, words,
+    Edit, annotations, capitalize, closing, decapitalize, has_word, import_edit, is_ident, mask, members, split_top_level,
+    without_annotations, words,
 };
 
 /// A property a query path can name; `target` is the class a path continues into.
@@ -20,6 +20,7 @@ pub struct Prop {
 /// The properties of a class, `None` when it isn't known.
 pub type Props<'a> = &'a dyn Fn(&str) -> Option<Vec<Prop>>;
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub struct Method {
     pub name: String,
     pub start: usize,
@@ -28,6 +29,7 @@ pub struct Method {
     pub declared_query: bool,
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub struct Repository {
     pub name: String,
     /// Offset of the interface name.
@@ -90,9 +92,8 @@ pub fn parse_repository(text: &str, kotlin: bool) -> Option<Repository> {
             }
 
             let name_start = start + before.len() - name_len;
-            let declared_query = anns
-                .iter()
-                .any(|a| a.start >= start && a.start < end && matches!(a.name, "Query" | "NativeQuery" | "Procedure"));
+            let declared_query =
+                anns.iter().any(|a| a.start >= start && a.start < end && matches!(a.name, "Query" | "NativeQuery" | "Procedure"));
             methods.push(Method {
                 name: masked[name_start..name_start + name_len].to_owned(),
                 start: name_start,
@@ -120,24 +121,103 @@ pub fn parse_repository(text: &str, kotlin: bool) -> Option<Repository> {
 const VERBS: [&str; 10] = ["find", "read", "get", "query", "search", "stream", "count", "exists", "delete", "remove"];
 
 const OPERATORS: [&str; 59] = [
-    "IsBetween", "Between", "IsNotNull", "NotNull", "IsNull", "Null", "IsLessThanEqual", "LessThanEqual", "IsLessThan",
-    "LessThan", "IsGreaterThanEqual", "GreaterThanEqual", "IsGreaterThan", "GreaterThan", "IsBefore", "Before", "IsAfter",
-    "After", "IsNotLike", "NotLike", "IsLike", "Like", "IsStartingWith", "StartingWith", "StartsWith", "IsEndingWith",
-    "EndingWith", "EndsWith", "IsNotEmpty", "NotEmpty", "IsEmpty", "Empty", "IsNotContaining", "NotContaining",
-    "IsContaining", "Containing", "Contains", "IsNotIn", "NotIn", "IsIn", "In", "IsTrue", "True", "IsFalse", "False",
-    "IsNot", "Not", "Is", "Equals", "IgnoreCase", "IgnoringCase", "MatchesRegex", "Matches", "Regex", "Exists", "IsNear",
-    "Near", "IsWithin", "Within",
+    "IsBetween",
+    "Between",
+    "IsNotNull",
+    "NotNull",
+    "IsNull",
+    "Null",
+    "IsLessThanEqual",
+    "LessThanEqual",
+    "IsLessThan",
+    "LessThan",
+    "IsGreaterThanEqual",
+    "GreaterThanEqual",
+    "IsGreaterThan",
+    "GreaterThan",
+    "IsBefore",
+    "Before",
+    "IsAfter",
+    "After",
+    "IsNotLike",
+    "NotLike",
+    "IsLike",
+    "Like",
+    "IsStartingWith",
+    "StartingWith",
+    "StartsWith",
+    "IsEndingWith",
+    "EndingWith",
+    "EndsWith",
+    "IsNotEmpty",
+    "NotEmpty",
+    "IsEmpty",
+    "Empty",
+    "IsNotContaining",
+    "NotContaining",
+    "IsContaining",
+    "Containing",
+    "Contains",
+    "IsNotIn",
+    "NotIn",
+    "IsIn",
+    "In",
+    "IsTrue",
+    "True",
+    "IsFalse",
+    "False",
+    "IsNot",
+    "Not",
+    "Is",
+    "Equals",
+    "IgnoreCase",
+    "IgnoringCase",
+    "MatchesRegex",
+    "Matches",
+    "Regex",
+    "Exists",
+    "IsNear",
+    "Near",
+    "IsWithin",
+    "Within",
 ];
 
 /// The operators offered in completion.
 const SUGGESTED: [&str; 18] = [
-    "IgnoreCase", "Containing", "ContainingIgnoreCase", "StartingWith", "EndingWith", "Like", "Not", "In", "NotIn",
-    "Between", "LessThan", "LessThanEqual", "GreaterThan", "GreaterThanEqual", "Before", "After", "IsNull", "IsNotNull",
+    "IgnoreCase",
+    "Containing",
+    "ContainingIgnoreCase",
+    "StartingWith",
+    "EndingWith",
+    "Like",
+    "Not",
+    "In",
+    "NotIn",
+    "Between",
+    "LessThan",
+    "LessThanEqual",
+    "GreaterThan",
+    "GreaterThanEqual",
+    "Before",
+    "After",
+    "IsNull",
+    "IsNotNull",
 ];
 
 const NO_ARGUMENT: [&str; 13] = [
-    "IsNull", "Null", "IsNotNull", "NotNull", "IsEmpty", "Empty", "IsNotEmpty", "NotEmpty", "IsTrue", "True", "IsFalse",
-    "False", "Exists",
+    "IsNull",
+    "Null",
+    "IsNotNull",
+    "NotNull",
+    "IsEmpty",
+    "Empty",
+    "IsNotEmpty",
+    "NotEmpty",
+    "IsTrue",
+    "True",
+    "IsFalse",
+    "False",
+    "Exists",
 ];
 
 /// `s` starts with `keyword` followed by the end or a new word.
@@ -220,8 +300,7 @@ fn path(s: &str, class: &str, props: Props, depth: usize) -> Option<(Vec<Prop>, 
 }
 
 pub fn parse(predicate: &str, entity: &str, props: Props) -> Parsed {
-    let mut parsed =
-        Parsed { clauses: Vec::new(), ordered: false, consumed: 0, expect: Expect::Property, unverified: false };
+    let mut parsed = Parsed { clauses: Vec::new(), ordered: false, consumed: 0, expect: Expect::Property, unverified: false };
     let mut pos = 0;
 
     while pos < predicate.len() && !parsed.unverified {
@@ -502,6 +581,7 @@ fn method_item(text: &str, start: usize, word: &str, verb: &str, parsed: &Parsed
 }
 
 /// Why the derived query `method` doesn't parse, if it doesn't.
+#[cfg_attr(not(test), allow(dead_code))] // Legacy full-context fixture; not a live provider path.
 pub fn problem(method: &str, entity: &str, props: Props) -> Option<String> {
     let (_, predicate_start) = split_subject(method)?;
     let predicate = &method[predicate_start..];
@@ -516,8 +596,7 @@ pub fn problem(method: &str, entity: &str, props: Props) -> Option<String> {
         return Some(format!("'{method}' ends where a property of {entity} is expected."));
     }
 
-    let unknown: String =
-        rest.char_indices().take_while(|&(i, c)| i == 0 || !c.is_uppercase()).map(|(_, c)| c).collect();
+    let unknown: String = rest.char_indices().take_while(|&(i, c)| i == 0 || !c.is_uppercase()).map(|(_, c)| c).collect();
     Some(format!("{entity} has no property '{}' (at '{rest}').", decapitalize(&unknown)))
 }
 
@@ -566,7 +645,8 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
         let methods: Vec<(&str, bool)> = repo.methods.iter().map(|m| (m.name.as_str(), m.declared_query)).collect();
         assert_eq!(methods, [("findByCustomerName", false), ("everything", true)]);
 
-        let kotlin = parse_repository("interface R : CrudRepository<shop.Customer, Long?> {\n  fun countByName(n: String): Long\n}", true).unwrap();
+        let kotlin =
+            parse_repository("interface R : CrudRepository<shop.Customer, Long?> {\n  fun countByName(n: String): Long\n}", true).unwrap();
         assert_eq!((kotlin.entity.as_str(), kotlin.id_type.as_str(), kotlin.methods[0].name.as_str()), ("Customer", "Long", "countByName"));
         assert!(parse_repository("interface Foo { void x(); }", false).is_none());
     }

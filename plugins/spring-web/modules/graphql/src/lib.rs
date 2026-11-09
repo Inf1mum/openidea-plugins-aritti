@@ -3,11 +3,9 @@
 //! them both ways. Text-based: types and fields match by name, as written.
 
 use openidea_plugin::providers::{CompletionItem, CompletionKind, Document, LineMarker, Providers};
-use openidea_plugin::views::{Body, Button, TreeItem, View, ViewEvent, Viewport, Views};
 use openidea_plugin::text::offset;
-use openidea_plugin::{
-    Diagnostic, Error, Invocation, Location, Plugin, Position, Project, Range, Severity, host,
-};
+use openidea_plugin::views::{Body, Button, TreeItem, View, ViewEvent, Viewport, Views};
+use openidea_plugin::{Diagnostic, Error, Invocation, Location, Plugin, Position, Project, Range, Severity, host};
 use spring_text::index::{COMMAND_BUDGET, Index, Indexes, PROVIDER_BUDGET, project_of};
 use spring_text::java::{self, Annotation, Member, Str, TypeDecl};
 use spring_text::kotlin;
@@ -17,6 +15,7 @@ use std::collections::BTreeMap;
 use std::time::Duration;
 
 mod checks;
+mod mapping_docs;
 
 const SCHEMA_GLOBS: &[&str] = &["**/*.graphqls", "**/*.graphql"];
 const JAVA_GLOBS: &[&str] = &["**/*.java", "**/*.kt"];
@@ -31,8 +30,7 @@ const ROOTS: [(&str, &str, &str); 3] = [
     ("SubscriptionMapping", "subscription", "Subscription"),
 ];
 /// Handler parameters bound from the arguments or the environment, not the source object.
-const NOT_SOURCE_ANNOTATIONS: [&str; 5] =
-    ["Argument", "Arguments", "ContextValue", "LocalContextValue", "AuthenticationPrincipal"];
+const NOT_SOURCE_ANNOTATIONS: [&str; 5] = ["Argument", "Arguments", "ContextValue", "LocalContextValue", "AuthenticationPrincipal"];
 const NOT_SOURCE_TYPES: [&str; 10] = [
     "DataFetchingEnvironment",
     "GraphQLContext",
@@ -274,9 +272,7 @@ fn target(class: &TypeDecl, m: &Member, a: &Annotation) -> Option<(Option<&'stat
                 })
                 .map(|p| p.ty.name.clone())
         }),
-        "BatchMapping" => {
-            named(a).or_else(class_level).or_else(|| Some(m.params.first()?.ty.args.first()?.name.clone()))
-        }
+        "BatchMapping" => named(a).or_else(class_level).or_else(|| Some(m.params.first()?.ty.args.first()?.name.clone())),
         _ => None,
     }?;
     Some((None, ty))
@@ -589,11 +585,7 @@ impl GraphQlTools {
     fn client_document_definition(&mut self, doc: &Document, at: Position) -> Vec<Location> {
         let Some(project) = project_of(&doc.path) else { return Vec::new() };
         let Some(at) = offset(&doc.text, at) else { return Vec::new() };
-        let fields = if is_code(doc) {
-            inline_documents(&doc.text, doc.language == "kotlin")
-        } else {
-            document_fields(&doc.text)
-        };
+        let fields = if is_code(doc) { inline_documents(&doc.text, doc.language == "kotlin") } else { document_fields(&doc.text) };
         let Some(hit) = fields.into_iter().find(|f| f.at <= at && at <= f.end) else { return Vec::new() };
         let schemas = self.schemas.get(&project, PROVIDER_BUDGET / 2);
         let mut ty = match (&hit.on, &hit.op) {
@@ -605,10 +597,8 @@ impl GraphQlTools {
             let Some((_, parent)) = schema_fields(schemas, &ty, name).into_iter().next() else { return Vec::new() };
             ty = parent.ty;
         }
-        let mut found: Vec<Location> = schema_fields(schemas, &ty, &hit.name)
-            .into_iter()
-            .map(|(path, f)| Location { path, range: f.range })
-            .collect();
+        let mut found: Vec<Location> =
+            schema_fields(schemas, &ty, &hit.name).into_iter().map(|(path, f)| Location { path, range: f.range }).collect();
         if hit.path.is_empty() && hit.op.is_some() {
             let java = self.java.get(&project, PROVIDER_BUDGET / 2);
             found.extend(
@@ -633,6 +623,9 @@ impl GraphQlTools {
                 (h, ty, found)
             })
             .collect();
+        if cfg!(feature = "embedded") {
+            return links;
+        }
         let mut problems = Vec::new();
         let check_mappings = host::setting_bool("springGraphql.checkUnmatchedMapping").unwrap_or(true);
         for (h, ty, found) in &links {
@@ -682,14 +675,14 @@ impl GraphQlTools {
                     .map(|(path, h)| (Location { path: path.to_owned(), range: h.method }, h.label.clone()))
                     .collect();
                 let unmapped_root = found.is_empty() && t.kind == "type" && roots.contains(&t.name);
-                if unmapped_root && java.complete() && !java.files().is_empty() {
+                if !cfg!(feature = "embedded") && unmapped_root && java.complete() && !java.files().is_empty() {
                     let message = format!("No controller method handles `{}.{}`.", t.name, f.name);
                     problems.push(Diagnostic::new(f.range, Severity::Hint, message).code("unmapped-root-field"));
                 }
                 links.push((t.name.clone(), f, found));
             }
         }
-        if host::setting_bool("springGraphql.reportUnmappedFields").unwrap_or(true) {
+        if !cfg!(feature = "embedded") && host::setting_bool("springGraphql.reportUnmappedFields").unwrap_or(true) {
             let wired = self.wiring.get(&project, PROVIDER_BUDGET / 2);
             if java.complete() && wired.complete() && wired.files().is_empty() {
                 let objects: Vec<String> = parse_schema(&doc.text).types.into_iter().filter(|t| t.kind == "type").map(|t| t.name).collect();
@@ -719,10 +712,9 @@ impl Providers for GraphQlTools {
         let types = schemas.iter().flat_map(|(_, s)| &s.types);
         // Name → detail.
         let (names, kind): (BTreeMap<String, String>, _) = match slot {
-            Slot::TypeName => (
-                types.filter(|t| t.kind != "input").map(|t| (t.name.clone(), t.kind.clone())).collect(),
-                CompletionKind::Class,
-            ),
+            Slot::TypeName => {
+                (types.filter(|t| t.kind != "input").map(|t| (t.name.clone(), t.kind.clone())).collect(), CompletionKind::Class)
+            }
             Slot::Field(op, ty) => {
                 let ty = op.map_or(ty, |op| root_type(schemas, op));
                 let fields = types.filter(|t| t.name == ty).flat_map(|t| &t.fields);
@@ -732,11 +724,7 @@ impl Providers for GraphQlTools {
         let replace = range(&doc.text, s.at, s.end);
         names
             .into_iter()
-            .map(|(name, detail)| CompletionItem {
-                detail: Some(detail),
-                replace: Some(replace),
-                ..CompletionItem::new(&name, kind)
-            })
+            .map(|(name, detail)| CompletionItem { detail: Some(detail), replace: Some(replace), ..CompletionItem::new(&name, kind) })
             .collect()
     }
 
@@ -759,12 +747,7 @@ impl Providers for GraphQlTools {
         self.schema_links(doc)
             .into_iter()
             .filter_map(|(_, f, found)| {
-                Some(LineMarker {
-                    line: f.range.start.line,
-                    icon: None,
-                    tooltip: describe(&found),
-                    target: Some(found.first()?.0.clone()),
-                })
+                Some(LineMarker { line: f.range.start.line, icon: None, tooltip: describe(&found), target: Some(found.first()?.0.clone()) })
             })
             .collect()
     }
@@ -815,11 +798,19 @@ fn endpoint_rows(settings: &[Setting]) -> Vec<(String, String, Option<Range>)> {
     }
     if enabled("spring.graphql.graphiql.enabled") {
         let graphiql = find("spring.graphql.graphiql.path");
-        row(format!("GET {}", join_url(prefix, graphiql.map_or(DEFAULT_GRAPHIQL_PATH, |s| s.value.as_str()))), "spring.graphql.graphiql.path", graphiql);
+        row(
+            format!("GET {}", join_url(prefix, graphiql.map_or(DEFAULT_GRAPHIQL_PATH, |s| s.value.as_str()))),
+            "spring.graphql.graphiql.path",
+            graphiql,
+        );
     }
     if enabled("spring.graphql.schema.printer.enabled") {
         let base = http.map_or(DEFAULT_HTTP_PATH, |s| s.value.as_str());
-        row(format!("GET {}", join_url(prefix, &format!("{}/schema", base.trim_end_matches('/')))), "spring.graphql.schema.printer.enabled", find("spring.graphql.schema.printer.enabled"));
+        row(
+            format!("GET {}", join_url(prefix, &format!("{}/schema", base.trim_end_matches('/')))),
+            "spring.graphql.schema.printer.enabled",
+            find("spring.graphql.schema.printer.enabled"),
+        );
     }
     rows
 }
@@ -840,7 +831,7 @@ impl GraphQlTools {
         }
         let schemas = self.schemas.get(project, budget / 2);
         let schema_complete = schemas.complete();
-        if !complete || !schema_complete {
+        if settings_index.scanning() || schemas.scanning() {
             refresh(view);
         }
         let refresh = Button::new("refresh", "Refresh").icon("refresh");
@@ -862,7 +853,8 @@ impl GraphQlTools {
             items.push(TreeItem::new(&format!("c:0:0:{path}"), &name).parent("schemas").detail(&format!("{types} types")).icon("file"));
         }
         self.expansion.apply(&mut items);
-        let status = if complete && schema_complete { "GraphQL endpoints".to_owned() } else { "GraphQL endpoints · scanning…".to_owned() };
+        let status =
+            if complete && schema_complete { "GraphQL endpoints".to_owned() } else { "GraphQL endpoints · scanning…".to_owned() };
         View::new(Body::Tree(items)).button(refresh).status(&status)
     }
 }
@@ -1045,10 +1037,7 @@ class BookController {
 
     #[test]
     fn finds_handlers_and_their_types() {
-        let found: Vec<_> = handlers(CONTROLLER)
-            .into_iter()
-            .map(|h| (h.op.clone(), h.ty.clone(), h.field.clone(), h.args.len()))
-            .collect();
+        let found: Vec<_> = handlers(CONTROLLER).into_iter().map(|h| (h.op.clone(), h.ty.clone(), h.field.clone(), h.args.len())).collect();
         let root = |op: &str| Some(op.to_owned());
         assert_eq!(
             found,
@@ -1132,11 +1121,7 @@ class BookController {
             .collect();
         assert_eq!(
             problems,
-            [
-                ("unknown-graphql-argument", "sort"),
-                ("unknown-schema-field", "removeBook"),
-                ("unknown-schema-field", "isbn"),
-            ],
+            [("unknown-graphql-argument", "sort"), ("unknown-schema-field", "removeBook"), ("unknown-schema-field", "isbn"),],
             "Author is not in the schema: no warning for Author.books"
         );
     }
@@ -1157,7 +1142,11 @@ class BookController {
 
     fn batch_codes(host: &MockHost, text: &str) -> Vec<String> {
         problems_of(host, text);
-        host.diagnostics()["/project/src/main/java/com/acme/C.java"].iter().filter_map(|d| d.code.clone()).filter(|c| c.starts_with("batch")).collect()
+        host.diagnostics()["/project/src/main/java/com/acme/C.java"]
+            .iter()
+            .filter_map(|d| d.code.clone())
+            .filter(|c| c.starts_with("batch"))
+            .collect()
     }
 
     #[cfg(not(feature = "embedded"))]
@@ -1252,9 +1241,7 @@ class BookController {
         assert_eq!(complete(&mut tools, &text), ["authors", "bookById", "books", "stats"]);
         let text = CONTROLLER.replace("@BatchMapping", "@BatchMapping(field = \"|\")");
         assert_eq!(complete(&mut tools, &text), ["author", "id", "title"]);
-        assert!(
-            complete(&mut tools, &CONTROLLER.replace("@Argument String sort", "@Argument String so|rt")).is_empty()
-        );
+        assert!(complete(&mut tools, &CONTROLLER.replace("@Argument String sort", "@Argument String so|rt")).is_empty());
     }
 
     const DOCUMENT: &str = "query Find($id: ID!) { bookById(id: $id) { title author { name } } }\nmutation { addBook(input: {}) { id } }";
@@ -1456,7 +1443,8 @@ class BookController {
         let _host = setup();
         let mut tools = GraphQlTools::default();
         let project = project_of("/project/x").unwrap();
-        let labels: Vec<_> = tree(tools.endpoints_view("endpoints", &project, Duration::from_secs(5))).into_iter().map(|i| (i.label, i.detail)).collect();
+        let labels: Vec<_> =
+            tree(tools.endpoints_view("endpoints", &project, Duration::from_secs(5))).into_iter().map(|i| (i.label, i.detail)).collect();
         assert_eq!(labels[1], ("POST /graphql".to_owned(), Some("default".to_owned())));
     }
 
@@ -1502,3 +1490,29 @@ class BookController {
         assert!(applies(project), "multi-module is unsure");
     }
 }
+
+impl GraphQlTools {
+    pub fn live_warm(&mut self, project: &openidea_plugin::Project, budget: std::time::Duration) {
+        if budget.is_zero() {
+            return;
+        }
+        self.schemas.get(project, budget / 4);
+        self.java.get(project, budget / 4);
+        self.wiring.get(project, budget / 4);
+        self.settings.get(project, budget / 4);
+    }
+    pub fn live_update(&mut self, project: &openidea_plugin::Project, path: &str, text: Option<&str>) {
+        self.schemas.update_existing(project, path, text);
+        self.java.update_existing(project, path, text);
+        self.wiring.update_existing(project, path, text);
+        self.settings.update_existing(project, path, text);
+    }
+    pub fn live_reset(&mut self) {
+        self.schemas.reset();
+        self.java.reset();
+        self.wiring.reset();
+        self.settings.reset();
+    }
+}
+
+mod live;

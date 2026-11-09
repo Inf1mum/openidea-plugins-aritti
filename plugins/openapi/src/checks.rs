@@ -1,18 +1,11 @@
 //! Problems in an OpenAPI document: unresolved `$ref`s, duplicate operationIds
 //! and path parameters that disagree with their path template.
 
-use crate::spec::{Index, Key, Operation, Spec, exact, operations, refs, scan, split_ref};
+use crate::spec::{Operation, Spec, operations, refs, scan, split_ref};
 use openidea_plugin::{Diagnostic, Severity};
 use spring_text::range;
 use std::collections::{HashMap, HashSet};
 
-type Keys<'k> = HashMap<&'k str, &'k Key>;
-
-struct Parameter {
-    name: String,
-    location: String,
-    declared_at: Option<(usize, usize)>,
-}
 
 pub enum Fetched {
     Text(String),
@@ -22,18 +15,196 @@ pub enum Fetched {
 }
 
 enum Loaded {
-    Keys(Vec<Key>),
+    Model(crate::pointer_status::Proof),
     Missing,
     Unreadable,
 }
 
+#[cfg(test)]
+mod pointer_integrity_regressions {
+    use super::*;
+    fn unresolved(text:&str)->Vec<Diagnostic> {
+        check(text,&crate::spec::parse(text).unwrap(),&|_|Fetched::Unreadable).into_iter().filter(|d|d.code.as_deref()==Some("unresolved-ref")).collect()
+    }
+    #[test]
+    fn ambiguous_duplicate_dotted_escaped_and_base_owners_do_not_prove_missing_local_refs() {
+        for text in [
+            r##"{"openapi":"3.1.1","components":{},"components":{"schemas":{}},"x":{"$ref":"#/components/schemas/Missing"}}"##,
+            "openapi: 3.1.1\ncomponents: {}\ncomponents:\n  schemas: {}\nx:\n  $ref: '#/components/schemas/Missing'\n",
+            r##"{"openapi":"3.1.1","components.schemas.Pet":{},"x":{"$ref":"#/components/schemas/Pet/properties/Missing"}}"##,
+            "openapi: 3.1.1\ncomponents:\n  schemas:\n    \"P\\x65t\": {}\nx:\n  $ref: '#/components/schemas/Pet/properties/Missing'\n",
+            r##"{"openapi":"3.1.1","$id":"other.json","x":{"$ref":"#/components/schemas/Missing"}}"##,
+        ] {assert!(unresolved(text).is_empty(),"{text}");}
+    }
+    #[test]
+    fn ordinary_missing_json_yaml_and_escaped_string_keys_keep_exact_reference_diagnostics() {
+        for text in [
+            r##"{"openapi":"3.1.1","components":{"schemas":{"\u0050et":{"properties":{}}}},"x":{"$ref":"#/components/schemas/Pet/properties/Missing"}}"##,
+            r##"{"openapi":"3.1.1","paths":{"/pets.v1":{"get":{"responses":{"200":{"$ref":"#/Missing"}}}}}}"##,
+            "openapi: 3.1.1\ncomponents:\n  schemas:\n    'A/B':\n      properties:\n        '~id': {}\nx:\n  $ref: '#/components/schemas/A~1B/properties/~0id'\ny:\n  $ref: '#/components/schemas/A~1B/properties/Missing'\n",
+        ] {
+            let found=unresolved(text);assert_eq!(found.len(),1,"{text}");
+            assert!(found[0].message.contains("Missing"));
+            let range=found[0].range;
+            let start=openidea_plugin::text::offset(text,range.start).unwrap();
+            let end=openidea_plugin::text::offset(text,range.end).unwrap();
+            assert!(text[start..end].contains("Missing"));
+        }
+    }
+    #[test]
+    fn unsupported_pointer_or_non_reference_source_forms_do_not_manufacture_absence() {
+        for text in [
+            r##"{"openapi":"3.1.1","x":{"$ref":"#/Missing%41"}}"##,
+            r##"{"openapi":"3.1.1","x":{"$ref":"#/Missing~2"}}"##,
+            r##"{"openapi":"3.1.1","Pet":[{}],"x":{"$ref":"#/Pet/0/Missing"}}"##,
+            "openapi: 3.1.1\ndescription: |\n  $ref: '#/Missing'\n",
+            "openapi: 3.1.1\nx:\n  - $ref: '#/Missing'\n",
+        ] {assert!(unresolved(text).is_empty(),"{text}");}
+    }
+    #[test]
+    fn repeated_external_targets_are_captured_once_and_reference_file_limits_stay_unknown() {
+        use std::cell::Cell;
+        let mut root=serde_json::Map::new();root.insert("openapi".into(),serde_json::json!("3.1.1"));
+        for n in 0..1100 {root.insert(format!("x{n}"),serde_json::json!({"$ref":"common.json#/Missing"}));}
+        let text=serde_json::Value::Object(root).to_string();
+        let reads=Cell::new(0);
+        let found=check(&text,&crate::spec::parse(&text).unwrap(),&|_| {reads.set(reads.get()+1);Fetched::Text("{}".into())});
+        assert_eq!(reads.get(),1);assert_eq!(found.iter().filter(|d|d.code.as_deref()==Some("unresolved-ref")).count(),1024);
+        let mut root=serde_json::Map::new();root.insert("openapi".into(),serde_json::json!("3.1.1"));
+        for n in 0..40 {root.insert(format!("x{n}"),serde_json::json!({"$ref":format!("{n}.json#/Missing")}));}
+        let text=serde_json::Value::Object(root).to_string();reads.set(0);
+        let found=check(&text,&crate::spec::parse(&text).unwrap(),&|_| {reads.set(reads.get()+1);Fetched::Missing});
+        assert_eq!(reads.get(),32);assert_eq!(found.len(),32);
+        reads.set(0);
+        let content=format!("{{}}{}"," ".repeat((512<<10)-2));
+        let found=check(&text,&crate::spec::parse(&text).unwrap(),&|_| {reads.set(reads.get()+1);Fetched::Text(content.clone())});
+        assert_eq!(reads.get(),8);assert_eq!(found.len(),8);
+    }
+    #[test]
+    fn unreadable_or_ambiguous_external_models_are_unknown_instead_of_missing_pointers() {
+        let text=r##"{"openapi":"3.1.1","x":{"$ref":"common.json#/Missing"}}"##;
+        for content in [r#"{"Pet":{},"Pet":{}}"#,r#"{"$id":"other.json"}"#,r#"{"Pet":"#] {
+            let found=check(text,&crate::spec::parse(text).unwrap(),&|_|Fetched::Text(content.into()));
+            assert!(found.is_empty(),"{content}");
+        }
+        for text in [
+            r##"{"openapi":"3.1.1","$id":"other.json","x":{"$ref":"common.json#/Missing"}}"##,
+            r##"{"openapi":"3.1.1","x":{"$ref":"file:common.json#/Missing"}}"##,
+        ] {
+            assert!(check(text,&crate::spec::parse(text).unwrap(),&|_|panic!("unsupported physical source must not read a target")).is_empty());
+        }
+    }
+    #[test]
+    fn large_flattened_paths_hit_retained_model_budget_without_missing_claims_for_uncaptured_files() {
+        let mut members=serde_json::Map::new();
+        for n in 0..3000 {members.insert(format!("n{n}"),serde_json::json!({}));}
+        let content=serde_json::json!({"x".repeat(1024):serde_json::Value::Object(members)}).to_string();
+        let text=r##"{"openapi":"3.1.1","a":{"$ref":"a.json#/Missing"},"b":{"$ref":"b.json#/Missing"},"c":{"$ref":"c.json#/Missing"}}"##;
+        let found=check(text,&crate::spec::parse(text).unwrap(),&|_|Fetched::Text(content.clone()));
+        assert_eq!(found.len(),2);
+    }
+    #[test]
+    fn ambiguous_parameter_reference_and_fake_array_owners_do_not_prove_missing_path_parameters() {
+        for text in [
+            "openapi: 3.1.1\npaths:\n  /a/{id}:\n    get:\n      parameters:\n        - $ref: '#/components/parameters/P'\ncomponents:\n  parameters:\n    P:\n      name: wrong\n      in: path\ncomponents:\n  parameters:\n    P:\n      name: id\n      in: path\n",
+            "openapi: 3.1.1\npaths:\n  /a/{id}:\n    get:\n      parameters:\n        - $ref: '#/components/parameters/P'\ncomponents.parameters.P:\n  name: wrong\n  in: path\n",
+            "openapi: 3.1.1\npaths:\n  /a/{id}:\n    get:\n      'parameters[0].name': wrong\n      'parameters[0].in': path\n",
+        ] {
+            let found=check(text,&crate::spec::parse(text).unwrap(),&|_|Fetched::Unreadable);
+            assert!(found.iter().all(|d|d.code.as_deref()!=Some("path-parameter")),"{text}");
+        }
+    }
+    #[test]
+    fn actual_shared_and_local_reusable_parameter_facts_preserve_real_template_errors() {
+        let text="openapi: 3.1.1\npaths:\n  /a/{id}/{x}:\n    parameters:\n      - $ref: '#/components/parameters/I~1D'\n    get:\n      parameters:\n        - name: extra\n          in: path\ncomponents:\n  parameters:\n    'I/D':\n      name: id\n      in: path\n";
+        let found=check(text,&crate::spec::parse(text).unwrap(),&|_|Fetched::Unreadable);
+        let found:Vec<_>=found.iter().filter(|d|d.code.as_deref()==Some("path-parameter")).collect();
+        assert_eq!(found.len(),2);assert!(found.iter().any(|d|d.message.contains("`x` is not declared")));
+        let warning=found.iter().find(|d|d.severity==Severity::Warning).unwrap();
+        assert_eq!(&text[openidea_plugin::text::offset(text,warning.range.start).unwrap()..openidea_plugin::text::offset(text,warning.range.end).unwrap()],"extra");
+        let json=r##"{"openapi":"3.1.1","paths":{"/a/{id}":{"get":{"parameters":[{"$ref":"#/components/parameters/Id"}]}}},"components":{"parameters":{"Id":{"name":"\u0069d","in":"path"}}}}"##;
+        assert!(check(json,&crate::spec::parse(json).unwrap(),&|_|Fetched::Unreadable).iter().all(|d|d.code.as_deref()!=Some("path-parameter")));
+    }
+    #[test]
+    fn operation_parameter_override_owns_the_effective_warning_range() {
+        let text="openapi: 3.1.1\npaths:\n  /a/{id}:\n    parameters:\n      - name: other\n        in: path\n    get:\n      parameters:\n        - name: other\n          in: path\n";
+        let found=check(text,&crate::spec::parse(text).unwrap(),&|_|Fetched::Unreadable);
+        let found:Vec<_>=found.iter().filter(|d|d.code.as_deref()==Some("path-parameter")).collect();
+        assert_eq!(found.len(),2);
+        let warning=found.iter().find(|d|d.severity==Severity::Warning).unwrap();
+        assert_eq!(openidea_plugin::text::offset(text,warning.range.start),text.rfind("other"));
+    }
+    #[test]
+    fn incomplete_duplicate_external_rebased_or_excess_parameter_context_stays_unknown() {
+        for text in [
+            "openapi: 3.1.1\npaths:\n  /a/{id}:\n    $ref: 'common.yaml#/Path'\n    get: {}\n",
+            "openapi: 3.1.1\npaths:\n  /a/{id}:\n    get:\n      parameters:\n        - name: wrong\n",
+            "openapi: 3.1.1\npaths:\n  /a/{id}:\n    get:\n      parameters:\n        - name: wrong\n          in: path\n        - name: wrong\n          in: path\n",
+            "openapi: 3.1.1\npaths:\n  /a/{id}:\n    get:\n      parameters:\n        - $ref: '#/components/parameters/I%64'\n",
+            "openapi: 3.1.1\npaths:\n  /a/{id}:\n    get:\n      parameters:\n        - name: \"\\x69d\"\n          in: path\n",
+        ] {
+            assert!(check(text,&crate::spec::parse(text).unwrap(),&|_|Fetched::Unreadable).iter().all(|d|d.code.as_deref()!=Some("path-parameter")),"{text}");
+        }
+        let parameters=(0..1025).map(|n|serde_json::json!({"name":format!("q{n}"),"in":"query"})).collect::<Vec<_>>();
+        let text=serde_json::json!({"openapi":"3.1.1","paths":{"/a/{id}":{"get":{"parameters":parameters}}}}).to_string();
+        assert!(check(&text,&crate::spec::parse(&text).unwrap(),&|_|Fetched::Unreadable).iter().all(|d|d.code.as_deref()!=Some("path-parameter")));
+    }
+    #[test]
+    fn duplicate_or_dotted_operationid_owners_do_not_establish_duplicate_id_facts() {
+        for text in [
+            "openapi: 3.1.1\npaths:\n  /a:\n    get:\n      operationId: same\n  /a:\n    get:\n      operationId: same\n",
+            "openapi: 3.1.1\npaths:\n  /a:\n    get: {}\n  /b:\n    get:\n      operationId: same\npaths./a.get.operationId: same\n",
+            r#"{"openapi":"3.1.1","paths":{"/a":{"get":{"operationId":123}},"/b":{"get":{"operationId":123}}}}"#,
+        ] {
+            let found=check(text,&crate::spec::parse(text).unwrap(),&|_|Fetched::Unreadable);
+            assert!(found.iter().all(|d|d.code.as_deref()!=Some("duplicate-operation-id")),"{text}");
+        }
+    }
+    #[test]
+    fn genuine_escaped_json_duplicate_ids_keep_exact_utf16_value_ranges() {
+        let text=r#"{"openapi":"3.1.1","info":{"title":"😀"},"paths":{"/a":{"get":{"operationId":"dup\uD83D\uDE00"}},"/b":{"post":{"operationId":"dup😀"}}}}"#;
+        let found=check(text,&crate::spec::parse(text).unwrap(),&|_|Fetched::Unreadable);
+        let found:Vec<_>=found.iter().filter(|d|d.code.as_deref()==Some("duplicate-operation-id")).collect();
+        assert_eq!(found.len(),2);
+        for diagnostic in found {
+            assert!(diagnostic.message.contains("dup😀"));
+            let range=diagnostic.range;let at=openidea_plugin::text::offset(text,range.start).unwrap();let end=openidea_plugin::text::offset(text,range.end).unwrap();
+            assert!(matches!(&text[at..end],"dup\\uD83D\\uDE00"|"dup😀"));
+            assert_eq!(range.start.character as usize,text[..at].encode_utf16().count());
+        }
+    }
+    #[test]
+    fn unknown_composed_transformed_control_and_long_ids_are_quiet_and_results_are_bounded() {
+        for text in [
+            "openapi: 3.1.1\npaths:\n  /a:\n    $ref: 'common.yaml#/Path'\n    get:\n      operationId: same\n  /b:\n    get:\n      operationId: same\n",
+            "openapi: 3.1.1\npaths:\n  /a:\n    get:\n      operationId: \"\\x73ame\"\n  /b:\n    get:\n      operationId: same\n",
+            r#"{"openapi":"3.1.1","paths":{"/a":{"get":{"operationId":"bad\nid"}},"/b":{"get":{"operationId":"bad\nid"}}}}"#,
+        ] {
+            assert!(check(text,&crate::spec::parse(text).unwrap(),&|_|Fetched::Unreadable).iter().all(|d|d.code.as_deref()!=Some("duplicate-operation-id")),"{text}");
+        }
+        let long="a".repeat(4097);
+        let text=serde_json::json!({"openapi":"3.1.1","paths":{"/a":{"get":{"operationId":long}},"/b":{"get":{"operationId":long}}}}).to_string();
+        assert!(check(&text,&crate::spec::parse(&text).unwrap(),&|_|Fetched::Unreadable).iter().all(|d|d.code.as_deref()!=Some("duplicate-operation-id")));
+        let paths=(0..300).map(|n|(format!("/p{n}"),serde_json::json!({"get":{"operationId":"same"}}))).collect::<serde_json::Map<_,_>>();
+        let text=serde_json::json!({"openapi":"3.1.1","paths":paths}).to_string();
+        assert_eq!(check(&text,&crate::spec::parse(&text).unwrap(),&|_|Fetched::Unreadable).iter().filter(|d|d.code.as_deref()==Some("duplicate-operation-id")).count(),256);
+    }
+    #[test]
+    fn current_source_id_changes_remove_the_prior_duplicate_facts_without_io() {
+        let original="openapi: 3.1.1\npaths:\n  /a:\n    get:\n      operationId: same\n  /b:\n    get:\n      operationId: same\n";
+        let changed=original.replacen("operationId: same","operationId: changed",1);
+        for (text,count) in [(original,2),(changed.as_str(),0)] {
+            assert_eq!(check(text,&crate::spec::parse(text).unwrap(),&|_|panic!("ID facts must not read external files")).iter().filter(|d|d.code.as_deref()==Some("duplicate-operation-id")).count(),count);
+        }
+    }
+}
+
 pub fn check(text: &str, spec: &Spec, read: &dyn Fn(&str) -> Fetched) -> Vec<Diagnostic> {
     let ops = operations(text, &spec.keys);
-    let by_key = exact(&spec.keys);
-    let index = Index::new(&spec.keys);
-    let mut found = unresolved_refs(text, &index, read);
-    found.extend(duplicate_operation_ids(text, &by_key, &ops));
-    found.extend(path_parameters(text, &by_key, &index, &ops));
+    let model=crate::pointer_status::Proof::parse(text);
+    let mut found = unresolved_refs(text, model.as_ref(), read);
+    found.extend(duplicate_operation_ids(text, model.as_ref(), &ops));
+    found.extend(path_parameters(text, model.as_ref(), &ops));
     found
 }
 
@@ -67,135 +238,76 @@ fn problem(text: &str, (at, end): (usize, usize), severity: Severity, code: &str
     diagnostic
 }
 
-fn unresolved_refs(text: &str, local: &Index, read: &dyn Fn(&str) -> Fetched) -> Vec<Diagnostic> {
-    let found_refs = refs(text);
-    let mut files: HashMap<String, Loaded> = HashMap::new();
-    for r in &found_refs {
-        let Some((file, _)) = split_ref(&r.target) else {
-            continue;
-        };
-        if file.is_empty() {
-            continue;
-        }
-
-        files.entry(file.to_owned()).or_insert_with(|| match read(file) {
-            Fetched::Missing => Loaded::Missing,
-            Fetched::Unreadable => Loaded::Unreadable,
-            Fetched::Text(content) if content.trim_start().starts_with('[') => Loaded::Unreadable,
-            Fetched::Text(content) => Loaded::Keys(scan(&content)),
-        });
-    }
-
-    let indexes: HashMap<&str, Index> = files
-        .iter()
-        .filter_map(|(file, loaded)| match loaded {
-            Loaded::Keys(keys) => Some((file.as_str(), Index::new(keys))),
-            _ => None,
-        })
-        .collect();
-
-    let mut found = Vec::new();
-    for r in found_refs {
-        let Some((file, fragment)) = split_ref(&r.target) else {
-            continue;
-        };
-
-        let message = if file.is_empty() {
-            let resolves = fragment.is_empty() || local.target(fragment).is_some();
-            (!resolves).then(|| format!("Cannot find `{}`", r.target))
-        } else {
-            match (&files[file], indexes.get(file)) {
-                (Loaded::Missing, _) => Some(format!("Cannot find file `{file}`")),
-                (Loaded::Unreadable, _) => None,
-                (Loaded::Keys(_), _) if fragment.is_empty() => None,
-                (Loaded::Keys(_), index) => index
-                    .is_some_and(|i| i.target(fragment).is_none())
-                    .then(|| format!("Cannot find `{}`", r.target)),
+fn unresolved_refs(text: &str, local:Option<&crate::pointer_status::Proof>, read: &dyn Fn(&str) -> Fetched) -> Vec<Diagnostic> {
+    use crate::pointer_status::{Proof,Status};
+    const MAX_REFS:usize=1024;
+    const MAX_FILES:usize=32;
+    const MAX_CAPTURE:usize=4<<20;
+    const MAX_MODELS:usize=16<<20;
+    let found_refs=refs(text);
+    let Some(local)=local else {return Vec::new();};
+    let mut files:HashMap<String,Loaded>=HashMap::new();
+    let (mut reads,mut bytes,mut retained)=(0usize,0usize,0usize);
+    for r in found_refs.iter().take(MAX_REFS) {
+        if !local.reference(r) {continue;}
+        let Some((file,_))=split_ref(&r.target) else {continue;};
+        if file.is_empty() || files.contains_key(file) {continue;}
+        let loaded=if reads>=MAX_FILES || bytes>=MAX_CAPTURE || file.len()>4096 || file.starts_with('/') || file.chars().any(char::is_control) || file.contains([':', '\\', '%', '?', '#']) {Loaded::Unreadable} else {
+            reads+=1;
+            match read(file) {
+                Fetched::Missing=>Loaded::Missing,
+                Fetched::Unreadable=>Loaded::Unreadable,
+                Fetched::Text(content)=>{
+                    bytes=bytes.saturating_add(content.len());
+                    if bytes>MAX_CAPTURE {Loaded::Unreadable} else {
+                        match Proof::parse(&content) {
+                            Some(model) if retained.saturating_add(model.retained_bytes())<=MAX_MODELS=>{retained+=model.retained_bytes();Loaded::Model(model)},
+                            _=>Loaded::Unreadable,
+                        }
+                    }
+                },
             }
         };
-
-        if let Some(message) = message {
-            found.push(problem(text, (r.at, r.end), Severity::Error, "unresolved-ref", message));
-        }
+        files.insert(file.into(),loaded);
     }
-
+    let mut found=Vec::new();
+    for r in found_refs.into_iter().take(MAX_REFS) {
+        if !local.reference(&r) {continue;}
+        let Some((file,fragment))=split_ref(&r.target) else {continue;};
+        let message=if file.is_empty() {
+            (local.status(fragment)==Status::Missing).then(||format!("Cannot find `{}`",r.target))
+        } else {
+            match &files[file] {
+                Loaded::Missing=>Some(format!("Cannot find file `{file}`")),
+                Loaded::Unreadable=>None,
+                Loaded::Model(model)=>(model.status(fragment)==Status::Missing).then(||format!("Cannot find `{}`",r.target)),
+            }
+        };
+        if let Some(message)=message {found.push(problem(text,(r.at,r.end),Severity::Error,"unresolved-ref",message));}
+    }
     found
 }
 
-fn duplicate_operation_ids(text: &str, by_key: &Keys, ops: &[Operation]) -> Vec<Diagnostic> {
-    let mut counts: HashMap<&str, usize> = HashMap::new();
-    for id in ops.iter().filter_map(|op| op.operation_id.as_deref()).filter(|id| !id.is_empty()) {
-        *counts.entry(id).or_default() += 1;
-    }
-
-    ops.iter()
-        .filter_map(|op| {
-            let id = op.operation_id.as_deref().filter(|id| counts.get(id).is_some_and(|&n| n > 1))?;
-            let value = by_key.get(format!("{}.operationId", op.key).as_str())?;
-            let message = format!("operationId `{id}` is used by more than one operation");
-
-            Some(problem(text, (value.value_at, value.value_end), Severity::Error, "duplicate-operation-id", message))
-        })
-        .collect()
-}
-
-/// `None` when the parameters can't be read reliably: flow style, or a `$ref` that isn't local.
-fn parameters(index: &Index, by_key: &Keys, list: &str) -> Option<Vec<Parameter>> {
-    if by_key.get(list).is_some_and(|k| !k.value.is_empty()) {
-        return None;
-    }
-
-    let mut found = Vec::new();
-    for i in 0.. {
-        let item = format!("{list}[{i}]");
-        if !index.contains(&item) {
-            break;
-        }
-
-        if let Some(reference) = by_key.get(format!("{item}.$ref").as_str()) {
-            let (file, fragment) = split_ref(&reference.value)?;
-            if !file.is_empty() {
-                return None;
-            }
-
-            let referenced = &index.target(fragment)?.key;
-            let name = by_key.get(format!("{referenced}.name").as_str())?;
-            let location = by_key.get(format!("{referenced}.in").as_str())?;
-            found.push(Parameter { name: name.value.clone(), location: location.value.clone(), declared_at: None });
-            continue;
-        }
-
-        if let (Some(name), Some(location)) =
-            (by_key.get(format!("{item}.name").as_str()), by_key.get(format!("{item}.in").as_str()))
-        {
-            found.push(Parameter {
-                name: name.value.clone(),
-                location: location.value.clone(),
-                declared_at: Some((name.value_at, name.value_end)),
-            });
-        }
-    }
-
-    Some(found)
+fn duplicate_operation_ids(text: &str, model:Option<&crate::pointer_status::Proof>, ops: &[Operation]) -> Vec<Diagnostic> {
+    let Some(model)=model else {return Vec::new();};
+    let facts:Vec<_>=ops.iter().filter_map(|operation|model.operation_id(operation)).collect();
+    let mut counts:HashMap<&str,usize>=HashMap::new();
+    for (id,_) in &facts {*counts.entry(id).or_default()+=1;}
+    facts.into_iter().filter(|(id,_)|counts.get(id).is_some_and(|count|*count>1)).take(256)
+        .map(|(id,span)|problem(text,span,Severity::Error,"duplicate-operation-id",format!("operationId `{id}` is used by more than one operation"))).collect()
 }
 
 fn template_names(path: &str) -> Vec<&str> {
     path.split('{').skip(1).filter_map(|rest| rest.split_once('}').map(|(name, _)| name)).collect()
 }
 
-fn path_parameters(text: &str, by_key: &Keys, index: &Index, ops: &[Operation]) -> Vec<Diagnostic> {
+fn path_parameters(text: &str, model:Option<&crate::pointer_status::Proof>, ops: &[Operation]) -> Vec<Diagnostic> {
+    let Some(model)=model else {return Vec::new();};
     let mut found = Vec::new();
 
     for op in ops {
-        let path_item = &op.key[..op.key.len() - op.method.len() - 1];
-        let (Some(shared), Some(own)) = (
-            parameters(index, by_key, &format!("{path_item}.parameters")),
-            parameters(index, by_key, &format!("{}.parameters", op.key)),
-        ) else {
-            continue;
-        };
-
-        let declared: Vec<&Parameter> = shared.iter().chain(&own).filter(|p| p.location == "path").collect();
+        let Some(parameters)=model.operation_parameters(op) else {continue;};
+        let declared:Vec<_>=parameters.iter().filter(|parameter|parameter.location=="path").collect();
         let template = template_names(&op.path);
         let declared_names: HashSet<&str> = declared.iter().map(|p| p.name.as_str()).collect();
 

@@ -24,15 +24,13 @@ const CONFIG_GLOBS: &[&str] = &[
     "**/bootstrap*.properties",
 ];
 /// Words a Java file needs to hold anything this plugin indexes.
-const JAVA_HINTS: [&str; 9] =
-    ["FeignClient", "Controller", "Function", "Consumer", "Supplier", "send(", "Factory", "@Input", "@Output"];
+const JAVA_HINTS: [&str; 9] = ["FeignClient", "Controller", "Function", "Consumer", "Supplier", "send(", "Factory", "@Input", "@Output"];
 const FUNCTIONAL: [&str; 3] = ["Function", "Consumer", "Supplier"];
 const BINDINGS: &str = "spring.cloud.stream.bindings.";
 const FUNCTION_BINDINGS: &str = "spring.cloud.stream.function.bindings.";
 const DEFINITION: &str = "spring.cloud.function.definition";
 /// Bindings declared without a function (for `StreamBridge`): `foo` makes `foo-out-0`.
-const DECLARED: [&str; 3] =
-    ["spring.cloud.stream.output-bindings", "spring.cloud.stream.input-bindings", "spring.cloud.stream.source"];
+const DECLARED: [&str; 3] = ["spring.cloud.stream.output-bindings", "spring.cloud.stream.input-bindings", "spring.cloud.stream.source"];
 /// Route lists: (prefix, WebMVC server).
 const ROUTES: [(&str, bool); 4] = [
     ("spring.cloud.gateway.routes", false),
@@ -149,9 +147,8 @@ pub fn facts_in(path: &str, text: &str) -> JavaFacts {
     for c in &file.types {
         if let Some(feign) = c.annotation("FeignClient") {
             let prefix = feign.strings(&["path"]).first().map(|s| s.value.clone()).unwrap_or_default();
-            let abstract_methods = c.methods().filter(|m| {
-                m.body.is_none() && !m.modifiers.iter().any(|x| x == "static" || x == "default" || x == "private")
-            });
+            let abstract_methods =
+                c.methods().filter(|m| m.body.is_none() && !m.modifiers.iter().any(|x| x == "static" || x == "default" || x == "private"));
             for m in abstract_methods {
                 let mut found = java::mappings(c, m);
                 // Feign's own contract: `@RequestLine("GET /users/{id}?full={full}")`.
@@ -193,10 +190,12 @@ pub fn facts_in(path: &str, text: &str) -> JavaFacts {
             out.channels.extend(channels);
         }
         if let Some(binding) = c.annotation("EnableBinding") {
-            out.enable_bindings.extend(binding.args.iter().flat_map(|a| a.text.split(".class").filter_map(|t| {
-                let name = t.rsplit(|ch: char| !(ch.is_alphanumeric() || ch == '_')).next()?;
-                (!name.is_empty()).then(|| name.to_owned())
-            })));
+            out.enable_bindings.extend(binding.args.iter().flat_map(|a| {
+                a.text.split(".class").filter_map(|t| {
+                    let name = t.rsplit(|ch: char| !(ch.is_alphanumeric() || ch == '_')).next()?;
+                    (!name.is_empty()).then(|| name.to_owned())
+                })
+            }));
         }
         let factory = ["RoutePredicateFactory", "GatewayFilterFactory"].iter().find_map(|s| c.name.strip_suffix(s));
         let extends_factory = c.supers().any(|s| s.name.ends_with("PredicateFactory") || s.name.ends_with("FilterFactory"));
@@ -365,8 +364,7 @@ fn definitions(config: &Index<StreamConfig>) -> impl Iterator<Item = &Vec<Name>>
 
 /// The function beans a binding's function name stands for (each part of a composed definition).
 fn binding_targets(java: &Index<JavaFacts>, config: &Index<StreamConfig>, function: &str) -> Vec<Location> {
-    let direct: Vec<Location> =
-        functions(java, function).map(|(p, b)| Location { path: p.to_owned(), range: b.range }).collect();
+    let direct: Vec<Location> = functions(java, function).map(|(p, b)| Location { path: p.to_owned(), range: b.range }).collect();
     if !direct.is_empty() {
         return direct;
     }
@@ -496,6 +494,7 @@ impl CloudTools {
         let mut problems: Vec<Diagnostic> = facts
             .unmapped
             .iter()
+            .filter(|_| !cfg!(feature = "embedded"))
             .map(|&(range, custom)| {
                 let (severity, why) = if custom {
                     (Severity::Info, " (unless the client's configuration brings another contract)")
@@ -511,11 +510,11 @@ impl CloudTools {
             publish(&doc.path, &problems);
             return Vec::new();
         };
-        if groups.stream_bindings {
+        if !cfg!(feature = "embedded") && groups.stream_bindings {
             let unbound = checks::stream_channel_unbound(&doc.path, &doc.text, java, config);
             problems.extend(unbound.iter().map(|f| f.diagnostic(&doc.text)));
         }
-        if groups.legacy_stream {
+        if !cfg!(feature = "embedded") && groups.legacy_stream {
             problems.extend(checks::legacy_stream(&doc.path, &doc.text, java).iter().map(|f| f.diagnostic(&doc.text)));
         }
         publish(&doc.path, &problems);
@@ -563,7 +562,10 @@ impl CloudTools {
         };
         if groups.stream_bindings {
             for b in mine.binder_bindings.iter().filter(|b| checks::binder_binding_unbound(&b.name, java, config)) {
-                let message = format!("Binder properties for binding `{}`, which spring.cloud.stream.bindings and the project's functions do not declare", b.name);
+                let message = format!(
+                    "Binder properties for binding `{}`, which spring.cloud.stream.bindings and the project's functions do not declare",
+                    b.name
+                );
                 problems.push(Diagnostic::new(b.range, Severity::Info, message).code("stream-channel-unbound"));
             }
         }
@@ -659,7 +661,9 @@ impl Providers for CloudTools {
         if is_jvm(doc) {
             return self.java_markers(doc);
         }
-        self.config_problems(doc);
+        if !cfg!(feature = "embedded") {
+            self.config_problems(doc);
+        }
         Vec::new()
     }
 
@@ -701,7 +705,7 @@ impl CloudTools {
     fn feign_view(&mut self, view: &str, project: &openidea_plugin::Project, budget: std::time::Duration) -> View {
         let index = self.java.get(project, budget);
         let complete = index.complete();
-        if !complete {
+        if index.scanning() {
             refresh(view);
         }
         let refresh = Button::new("refresh", "Refresh").icon("refresh");
@@ -794,7 +798,18 @@ pub fn take_problems() -> Vec<openidea_plugin::Diagnostic> {
 }
 
 const BUILD_FILES: [&str; 3] = ["pom.xml", "build.gradle", "build.gradle.kts"];
-const DEPENDENCY_MARKERS: [&str; 10] = ["spring-cloud", "springframework.cloud", "springCloud", "feign", "<module>", "include(", "include '", "include \"", "(libs.", " libs."];
+const DEPENDENCY_MARKERS: [&str; 10] = [
+    "spring-cloud",
+    "springframework.cloud",
+    "springCloud",
+    "feign",
+    "<module>",
+    "include(",
+    "include '",
+    "include \"",
+    "(libs.",
+    " libs.",
+];
 
 /// True when unsure: a multi-module build or a version catalog hides the dependency from the root build file.
 pub fn applies(project: &openidea_plugin::Project) -> bool {
@@ -946,9 +961,7 @@ spring.cloud.gateway.routes[0].predicates[0]=Host=**.acme.com
         let client = java_facts(CLIENT);
         let ends: Vec<_> = client.clients.iter().map(|e| (e.verb.as_str(), e.path.as_str())).collect();
         assert_eq!(ends, [("GET", "/api/users/{id}"), ("POST", "/api/users"), ("DELETE", "/api/users/{id}")]);
-        assert_eq!(client.unmapped.iter().map(|(r, custom)| (written(CLIENT, *r), *custom)).collect::<Vec<_>>(), [(
-            "missing", false
-        )]);
+        assert_eq!(client.unmapped.iter().map(|(r, custom)| (written(CLIENT, *r), *custom)).collect::<Vec<_>>(), [("missing", false)]);
         let server = java_facts(CONTROLLER);
         let ends: Vec<_> = server.servers.iter().map(|e| (e.verb.as_str(), e.path.as_str())).collect();
         assert_eq!(ends, [("GET", "/api/users/{userId}"), ("POST", "/api/users"), ("GET", "/api/users")]);
@@ -1006,10 +1019,7 @@ class StreamFunctions {
         let mut tools = CloudTools::default();
         let kt = doc("src/main/kotlin/com/acme/client/UserClient.kt", "kotlin", KOTLIN_CLIENT);
         let tips: Vec<_> = tools.line_markers(&kt).into_iter().map(|m| m.tooltip).collect();
-        assert_eq!(tips, [
-            "Calls UserController.get() (GET /api/users/{userId})",
-            "Calls UserController.save() (POST /api/users)"
-        ]);
+        assert_eq!(tips, ["Calls UserController.get() (GET /api/users/{userId})", "Calls UserController.save() (POST /api/users)"]);
         let problems = &host.diagnostics()["/project/src/main/kotlin/com/acme/client/UserClient.kt"];
         assert_eq!(problems.len(), 1);
         assert_eq!(java_facts(CLIENT).clients.len(), 3);
@@ -1022,10 +1032,13 @@ class StreamFunctions {
         let mut tools = CloudTools::default();
         let client = doc("client/src/main/java/com/acme/client/UserClient.java", "java", CLIENT);
         let tips: Vec<_> = tools.line_markers(&client).into_iter().map(|m| (m.line, m.tooltip)).collect();
-        assert_eq!(tips, [
-            (5, "Calls UserController.get() (GET /api/users/{userId})".to_owned()),
-            (8, "Calls UserController.save() (POST /api/users)".into()),
-        ]);
+        assert_eq!(
+            tips,
+            [
+                (5, "Calls UserController.get() (GET /api/users/{userId})".to_owned()),
+                (8, "Calls UserController.save() (POST /api/users)".into()),
+            ]
+        );
         let found = tools.definition(&client, at(CLIENT, "find("));
         assert_eq!(found.len(), 1);
         assert!(found[0].path.ends_with("UserController.java"));
@@ -1036,10 +1049,13 @@ class StreamFunctions {
 
         let server = doc("users/src/main/java/com/acme/web/UserController.java", "java", CONTROLLER);
         let tips: Vec<_> = tools.line_markers(&server).into_iter().map(|m| (m.line, m.tooltip)).collect();
-        assert_eq!(tips, [
-            (6, "Called by Feign client UserClient.find() (GET /api/users/{id})".to_owned()),
-            (9, "Called by Feign client UserClient.create() (POST /api/users)".into()),
-        ]);
+        assert_eq!(
+            tips,
+            [
+                (6, "Called by Feign client UserClient.find() (GET /api/users/{id})".to_owned()),
+                (9, "Called by Feign client UserClient.create() (POST /api/users)".into()),
+            ]
+        );
     }
 
     #[test]
@@ -1049,12 +1065,15 @@ class StreamFunctions {
         let java = doc("src/main/java/com/acme/stream/StreamFunctions.java", "java", FUNCTIONS);
         let markers = tools.line_markers(&java);
         let tips: Vec<_> = markers.iter().map(|m| (m.line, m.tooltip.as_str())).collect();
-        assert_eq!(tips, [
-            (5, "Stream bindings: process-in-0, uppercaseprocess-in-0, spring.cloud.function.definition"),
-            (8, "Stream bindings: audit-in-0, spring.cloud.function.definition"),
-            (11, "Stream bindings: ticks-out-0"),
-            (17, "Stream bindings: uppercaseprocess-in-0, spring.cloud.function.definition"),
-        ]);
+        assert_eq!(
+            tips,
+            [
+                (5, "Stream bindings: process-in-0, uppercaseprocess-in-0, spring.cloud.function.definition"),
+                (8, "Stream bindings: audit-in-0, spring.cloud.function.definition"),
+                (11, "Stream bindings: ticks-out-0"),
+                (17, "Stream bindings: uppercaseprocess-in-0, spring.cloud.function.definition"),
+            ]
+        );
         let target = markers[1].target.as_ref().unwrap();
         assert!(target.path.ends_with("application.properties"), "binding keys come first");
 
@@ -1234,10 +1253,7 @@ class StreamFunctions {
     #[cfg(not(feature = "embedded"))]
     #[test]
     fn bootstrap_config_missing_dependency_warns() {
-        assert_eq!(
-            bootstrap_codes(&[("pom.xml", POM)]),
-            [("bootstrap-config-missing-dependency".to_owned(), Severity::Warning)]
-        );
+        assert_eq!(bootstrap_codes(&[("pom.xml", POM)]), [("bootstrap-config-missing-dependency".to_owned(), Severity::Warning)]);
         let gradle = "plugins {\n    id 'org.springframework.boot' version '3.1.0'\n}\n";
         assert_eq!(bootstrap_codes(&[("build.gradle", gradle)]).len(), 1);
         let kts = "plugins { id(\"org.springframework.boot\") version \"2.7.18\" }";
@@ -1248,11 +1264,20 @@ class StreamFunctions {
     fn bootstrap_config_missing_dependency_is_quiet_for_library_or_dynamic_name() {
         let starter = format!("{POM}<dependency><artifactId>spring-cloud-starter-bootstrap</artifactId></dependency>");
         assert!(bootstrap_codes(&[("pom.xml", &starter)]).is_empty());
-        assert!(bootstrap_codes(&[("pom.xml", POM), ("gradle/libs.versions.toml", "boot = { module = \"org.springframework.cloud:spring-cloud-starter-bootstrap\" }")]).is_empty());
+        assert!(
+            bootstrap_codes(&[
+                ("pom.xml", POM),
+                ("gradle/libs.versions.toml", "boot = { module = \"org.springframework.cloud:spring-cloud-starter-bootstrap\" }")
+            ])
+            .is_empty()
+        );
         assert!(bootstrap_codes(&[("pom.xml", &POM.replace("3.2.4", "${boot.version}"))]).is_empty());
         assert!(bootstrap_codes(&[("pom.xml", &POM.replace("3.2.4", "2.3.12.RELEASE"))]).is_empty());
         assert!(bootstrap_codes(&[]).is_empty());
-        assert!(bootstrap_codes(&[("pom.xml", POM), ("src/main/resources/application.properties", "spring.cloud.bootstrap.enabled=true")]).is_empty());
+        assert!(
+            bootstrap_codes(&[("pom.xml", POM), ("src/main/resources/application.properties", "spring.cloud.bootstrap.enabled=true")])
+                .is_empty()
+        );
     }
 
     #[cfg(not(feature = "embedded"))]
@@ -1282,12 +1307,19 @@ class StreamFunctions {
         let mut tools = CloudTools::default();
         tools.line_markers(&doc(LISTENERS_PATH, "java", LISTENERS));
         let found = codes(&host, LISTENERS_PATH);
-        assert_eq!(found, [
-            ("stream-listener-channel".to_owned(), Severity::Warning),
-            ("stream-listener-return".to_owned(), Severity::Info),
-            ("send-to-without-return".to_owned(), Severity::Info),
-        ]);
-        let channel = host.diagnostics()[&format!("/project/{LISTENERS_PATH}")].iter().find(|d| d.code.as_deref() == Some("stream-listener-channel")).unwrap().clone();
+        assert_eq!(
+            found,
+            [
+                ("stream-listener-channel".to_owned(), Severity::Warning),
+                ("stream-listener-return".to_owned(), Severity::Info),
+                ("send-to-without-return".to_owned(), Severity::Info),
+            ]
+        );
+        let channel = host.diagnostics()[&format!("/project/{LISTENERS_PATH}")]
+            .iter()
+            .find(|d| d.code.as_deref() == Some("stream-listener-channel"))
+            .unwrap()
+            .clone();
         assert_eq!(channel.range.start.line, 2);
     }
 
@@ -1300,7 +1332,13 @@ class StreamFunctions {
         let mut tools = CloudTools::default();
         tools.line_markers(&doc(LISTENERS_PATH, "java", source));
         let found: Vec<String> = codes(&host, LISTENERS_PATH).into_iter().map(|(c, _)| c).collect();
-        for expected in ["stream-listener-input-twice", "stream-listener-no-input", "stream-listener-output-twice", "stream-listener-output-param-return", "stream-listener-condition-reactive"] {
+        for expected in [
+            "stream-listener-input-twice",
+            "stream-listener-no-input",
+            "stream-listener-output-twice",
+            "stream-listener-output-param-return",
+            "stream-listener-condition-reactive",
+        ] {
             assert_eq!(found.iter().filter(|c| *c == expected).count(), 1, "{expected} in {found:?}");
         }
     }
@@ -1332,7 +1370,10 @@ class StreamFunctions {
     #[test]
     fn feign_view_lists_client_methods_by_file() {
         let host = MockHost::install();
-        host.add_file("src/main/java/com/acme/Users.java", "@FeignClient(name = \"users\")\ninterface Users {\n    @GetMapping(\"/users/{id}\") User get(@PathVariable long id);\n}\n");
+        host.add_file(
+            "src/main/java/com/acme/Users.java",
+            "@FeignClient(name = \"users\")\ninterface Users {\n    @GetMapping(\"/users/{id}\") User get(@PathVariable long id);\n}\n",
+        );
         let mut tools = CloudTools::default();
         let project = host.invocation().project().unwrap();
         let view = tools.feign_view("feign-clients", &project, std::time::Duration::from_secs(3));
@@ -1362,3 +1403,26 @@ class StreamFunctions {
         assert!(applies(project), "multi-module is unsure");
     }
 }
+
+impl CloudTools {
+    pub fn live_warm(&mut self, project: &openidea_plugin::Project, budget: std::time::Duration) {
+        if budget.is_zero() {
+            return;
+        }
+        self.java.get(project, budget / 3);
+        self.config.get(project, budget / 3);
+        self.builds.get(project, budget / 3);
+    }
+    pub fn live_update(&mut self, project: &openidea_plugin::Project, path: &str, text: Option<&str>) {
+        self.java.update_existing(project, path, text);
+        self.config.update_existing(project, path, text);
+        self.builds.update_existing(project, path, text);
+    }
+    pub fn live_reset(&mut self) {
+        self.java.reset();
+        self.config.reset();
+        self.builds.reset();
+    }
+}
+
+mod live;

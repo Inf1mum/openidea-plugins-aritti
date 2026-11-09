@@ -32,7 +32,10 @@ pub const GROUPS: &[&str] = &[
 /// The schema of `kind` in `apiVersion` (`apps/v1` → `deployment-apps-v1.json`).
 pub fn url(api_version: &str, kind: &str) -> Option<String> {
     let (group, version) = api_version.rsplit_once('/').unwrap_or(("", api_version));
-    if !GROUPS.contains(&group) || version.is_empty() || kind.is_empty() {
+    if !GROUPS.contains(&group) || version.is_empty() || kind.is_empty()
+        || !version.bytes().all(|byte|byte.is_ascii_lowercase()||byte.is_ascii_digit())
+        || !kind.bytes().all(|byte|byte.is_ascii_alphanumeric())
+        || !kind.as_bytes()[0].is_ascii_alphabetic() {
         return None;
     }
     let kind = kind.to_ascii_lowercase();
@@ -48,26 +51,11 @@ pub fn modeline(yaml: &str) -> Option<String> {
     if yaml.contains(MODELINE) {
         return None;
     }
-    let mut api_version = None;
-    let mut kind = None;
-    let mut documents = 0;
-    for line in yaml.lines() {
-        if line.starts_with("---") {
-            documents += 1;
-            continue;
-        }
-        if let Some(v) = line.strip_prefix("apiVersion:") {
-            api_version = Some(v.trim().trim_matches(['"', '\'']));
-        }
-        if let Some(v) = line.strip_prefix("kind:") {
-            kind = Some(v.trim().trim_matches(['"', '\'']));
-        }
-    }
-    // One schema per file: a second document separator means several kinds.
-    if documents > 1 || (documents == 1 && !yaml.trim_start().starts_with("---")) {
-        return None;
-    }
-    Some(format!("{MODELINE}{}\n", url(api_version?, kind?)?))
+    let docs=crate::convert::source_documents(yaml)?;
+    if docs.len()!=1 {return None;}
+    let api_version=docs[0]["apiVersion"].as_str()?;
+    let kind=docs[0]["kind"].as_str()?;
+    Some(format!("{MODELINE}{}\n", url(api_version, kind)?))
 }
 
 /// ⌥⏎ on a manifest: add the modeline at the top.
@@ -75,6 +63,7 @@ pub fn code_actions(doc: &Document) -> Vec<CodeAction> {
     let Some(line) = modeline(&doc.text) else {
         return Vec::new();
     };
+    let line=if doc.text.contains("\r\n"){line.replace('\n',"\r\n")}else{line};
     let top = Range::new(Position::new(0, 0), Position::new(0, 0));
     vec![CodeAction {
         title: "Add Kubernetes schema for completion and validation".into(),
@@ -88,6 +77,31 @@ pub fn code_actions(doc: &Document) -> Vec<CodeAction> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn schema_modeline_uses_real_yaml_scalars_without_trailing_comments() {
+        let source="apiVersion: 'v1' # stable\r\nkind: \"Pod\" # keep 🧭\r\nmetadata: {name: web}\r\n";
+        assert_eq!(modeline(source),Some(format!("{MODELINE}{SCHEMAS}/pod-v1.json\n")));
+    }
+    #[test]
+    fn schema_modeline_refuses_duplicate_or_tagged_mapping_ambiguity() {
+        for source in ["apiVersion: v1\nkind: Pod\nkind: Service\n", "apiVersion: v1\nkind: !!str Pod\n"] {
+            assert!(modeline(source).is_none(),"ambiguous source {source}");
+        }
+    }
+
+    #[test]
+    fn schema_action_retains_crlf_and_refuses_non_identifier_schema_path_values() {
+        let source="apiVersion: v1\r\nkind: Pod\r\n";
+        let doc=Document{path:"/p/pod.yaml".into(),language:"yaml".into(),version:1,text:source.into()};
+        let actions=code_actions(&doc);assert_eq!(actions.len(),1);
+        assert!(actions[0].edits[0].1[0].text.ends_with("\r\n"));
+        for kind in ["Pod # note", "Pod\nkind: Service", "../Pod", "Pod?other=true", ""] {
+            assert!(url("v1",kind).is_none());
+        }
+        assert!(url("v1#note","Pod").is_none());
+        assert!(modeline("apiVersion: v1\nkind: \"Pod\\nkind: Service\"\n").is_none());
+    }
 
     #[test]
     fn names_the_published_schema_file() {

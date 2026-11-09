@@ -14,6 +14,16 @@ use crate::twig::code_regions;
 const ROUTE_ATTRIBUTE: &str = "app.request.attributes.get(";
 const CURRENT_ROUTE: &str = "app.current_route";
 
+fn retain_literal_facts(text: &str, out: &mut Vec<Finding>) {
+    let literals=crate::twig::code_literals(text);
+    let known:std::collections::BTreeSet<_>=literals.iter().filter(|literal|literal.closed && literal.construct_closed).map(|literal|(literal.range.start,literal.range.end)).collect();
+    out.retain(|finding| {
+        if finding.code=="twig-path-replacement" {
+            !literals.iter().any(|literal|literal.range.start<=finding.start && finding.end<=literal.range.end)
+        }else {known.contains(&(finding.start,finding.end))}
+    });
+}
+
 /// `twig-route-compare`, `twig-missing-translation-domain`, `twig-assets-tag-missing`,
 /// `twig-enum-class` and `twig-path-replacement`.
 pub fn names(ctx: &Context, text: &str) -> Vec<Finding> {
@@ -25,6 +35,120 @@ pub fn names(ctx: &Context, text: &str) -> Vec<Finding> {
     assets_tags(ctx, text, &regions, &mut out);
     enum_classes(ctx, text, &regions, &mut out);
     path_replacements(ctx, text, &regions, &mut out);
+    retain_literal_facts(text,&mut out);
+    out.sort_by_key(|finding| finding.start);
+    out
+}
+
+fn literal_domain(text: &str, argument: &str) -> Option<String> {
+    let range=checks::literal(text,argument)?;
+    let domain=&text[range];
+    (!domain.is_empty() && !checks::is_dynamic(domain) && !domain.contains('\\') && !domain.chars().any(char::is_control)).then(||domain.to_owned())
+}
+pub(crate) fn prefix_domain(text: &str) -> Option<String> {
+    let mut at=0;let mut seen=0;let mut domain=None;
+    loop {
+        at=skip_space(text,at);
+        if text[at..].starts_with("{#") {at+=2;at+=text[at..].find("#}")?+2;continue;}
+        if !text[at..].starts_with("{%") {break;}
+        let (tag,end)=tag_at(text,at)?;
+        match &text[tag.name] {
+            "extends"=>at=end,
+            "trans_default_domain"=>{
+                if seen>0 {return None;}
+                let head=text[tag.head].trim().trim_end_matches(['-','~']).trim();
+                domain=Some(literal_domain(text,head)?);seen+=1;at=end;
+            }
+            _=>break,
+        }
+    }
+    // Unmodelled scoped/dynamic directives (or ambiguous occurrences) never become "messages".
+    if text.matches("trans_default_domain").count()!=seen {return None;}
+    Some(domain.unwrap_or_else(||"messages".into()))
+}
+fn domain_in_scope(text: &str, reference: &refs::Reference, default: Option<&str>) -> Option<String> {
+    if reference.kind!=refs::Kind::Translation {return None;}
+    let after=text.get(reference.end+1..)?.trim_start().strip_prefix('|')?.trim_start();
+    let length=after.bytes().take_while(|byte|is_identifier(*byte)).count();
+    let position=match &after[..length] {"trans"=>1,"transchoice"=>2,_=>return None};
+    if after.as_bytes().get(length).is_some_and(|byte|*byte>=0x80) {return None;}
+    let rest=after[length..].trim_start();
+    if rest.starts_with('(') {
+        let open=text.len()-rest.len();let args=refs::arguments(text,open);
+        for argument in &args {
+            let argument=argument.trim();
+            if let Some(rest)=argument.strip_prefix("domain") {
+                let rest=rest.trim_start();
+                if let Some(value)=rest.strip_prefix(':').or_else(||rest.strip_prefix('=')) {return literal_domain(text,value.trim());}
+            }
+        }
+        if let Some(argument)=args.get(position) {return literal_domain(text,argument);}
+    }
+    default.map(str::to_owned)
+}
+/// A known static Twig domain, not a fallback for an explicit dynamic argument.
+pub(crate) fn reference_domain(text: &str, reference: &refs::Reference) -> Option<String> {
+    if text.len()>128<<10 {return None;}
+    let literal=crate::twig::code_literals(text).into_iter().find(|literal|literal.closed && literal.construct_closed && literal.range.start==reference.start && literal.range.end==reference.end)?;
+    let default=prefix_domain(text);
+    domain_in_scope(&text[..literal.code_end],reference,default.as_deref())
+}
+/// Known logical domain catalogs include its ICU variant; absence stays unknown on partial cache.
+pub(crate) fn cached_translation_key(index: &crate::Index, domain: &str, key: &str) -> Option<bool> {
+    let base=domain.strip_suffix("+intl-icu").unwrap_or(domain);
+    let icu=format!("{base}+intl-icu");let mut known=false;
+    for domain in [base,icu.as_str()] {
+        if let Some(keys)=index.translations.get(domain) {known=true;if keys.contains_key(key) {return Some(true);}}
+    }
+    (known && !index.partial).then_some(false)
+}
+fn static_template_tail(text: &str, reference: &refs::Reference) -> bool {
+    let Some(tail)=text.get(reference.end+1..) else {return false;};let tail=tail.trim_start();
+    if tail.starts_with([')',',']) || ["%}","-%}","~%}"].iter().any(|end|tail.starts_with(end)) {return true;}
+    ["with","only","ignore","as","import"].iter().any(|word|tail.strip_prefix(word).is_some_and(|rest|rest.starts_with(char::is_whitespace) || rest.starts_with("%}")))
+}
+/// Base Twig references use current text and observable cached source facts only.
+pub(crate) fn source_references(index: &crate::Index, text: &str) -> Vec<Finding> {
+    if index.partial {return Vec::new();}
+    let regions=code_regions(text);let default=prefix_domain(text);let literals=crate::twig::code_literals(text);let mut out=Vec::new();
+    for reference in refs::references("twig",text) {
+        if !in_code(&regions,reference.start) {continue;}
+        let name=&text[reference.start..reference.end];
+        if checks::is_dynamic(name) || name.contains('\\') {continue;}
+        let range=reference.start..reference.end;
+        match reference.kind {
+            refs::Kind::Template if index.template_scan_observed && !index.template_paths_unknown
+                && !name.starts_with('@') && !name.contains(':') && !index.ambiguous_templates.contains(name)
+                && static_template_tail(text,&reference) && !index.templates.contains_key(name) => {
+                out.push(Finding::warn(range,"missing-template",format!("Template \"{name}\" is absent from the cached source template index; runtime overrides are unverified.")));
+            }
+            refs::Kind::Translation => {
+                let Some(literal)=literals.iter().find(|literal|literal.range.start==reference.start && literal.range.end==reference.end) else {continue;};
+                let Some(domain)=domain_in_scope(&text[..literal.code_end],&reference,default.as_deref()) else {continue;};
+                if cached_translation_key(index,&domain,name)==Some(false) {
+                    let mut finding=Finding::warn(range,"missing-translation",format!("Translation key \"{name}\" is absent from cached domain \"{domain}\"; locale/runtime catalogs are unverified."));
+                    finding.severity=openidea_plugin::Severity::Info;out.push(finding);
+                }
+            }
+            _=>{}
+        }
+    }
+    out
+}
+
+/// Current-document cached source facts only; enum declaration source reads stay outside.
+pub(crate) fn source_names(index: &crate::Index, text: &str) -> Vec<Finding> {
+    if index.partial { return Vec::new(); }
+    let read = |_: &str| None;
+    let ctx = Context::new(index, &read);
+    let regions = code_regions(text);
+    let mut out: Vec<_> = checks::check_twig(&ctx, "twig", text).into_iter().filter(|finding| in_code(&regions, finding.start)).collect();
+    route_compares(&ctx, text, &regions, &mut out);
+    translation_domains(&ctx, text, &regions, &mut out);
+    assets_tags(&ctx, text, &regions, &mut out);
+    path_replacements(&ctx, text, &regions, &mut out);
+    retain_literal_facts(text,&mut out);
+    for finding in &mut out { finding.message.push_str(" [Cached project-source index; runtime overrides are unverified.]"); }
     out.sort_by_key(|finding| finding.start);
     out
 }
@@ -38,6 +162,8 @@ pub fn syntax(text: &str) -> Vec<Finding> {
     for_conditions(text, &regions, &mut out);
     component_mistakes(text, &regions, &mut out);
     root_content(text, &regions, &mut out);
+    let literals=crate::twig::code_literals(text);
+    out.retain(|finding|!literals.iter().any(|literal|literal.range.start<=finding.start && finding.end<=literal.range.end));
     out.sort_by_key(|finding| finding.start);
     out
 }
@@ -571,6 +697,7 @@ mod tests {
 
     use openidea_plugin::mock::MockHost;
     use openidea_plugin::{Diagnostic, Event, Plugin, Position, Range as TextRange};
+    use openidea_plugin::diagnostics::{DiagnosticsProvider, Document};
 
     use crate::index::{Entry, Index};
     use crate::Main;
@@ -803,7 +930,9 @@ mod tests {
 
         host.add_file("templates/a.html.twig", "{% if app.current_route == 'nope' %}{{ 'k'|trans({}, 'ghost') }}{% endif %}");
         plugin.handle_events(&[Event::FileOpened(TEMPLATE.into())], &host.invocation());
-        assert_eq!(codes(&host.diagnostics()[TEMPLATE]), ["twig-route-compare", "twig-missing-translation-domain"]);
+        assert!(host.diagnostics().get(TEMPLATE).is_none_or(Vec::is_empty));
+        let document = Document { path:TEMPLATE.into(), language:"twig".into(), version:1, text:"{% if app.current_route == 'nope' %}{{ 'k'|trans({}, 'ghost') }}{% endif %}".into() };
+        assert_eq!(codes(&plugin.diagnostics(&document)), ["twig-route-compare", "twig-missing-translation-domain"]);
 
         host.add_file("templates/a.html.twig", "{% if app.current_route == 'app_home' %}{{ 'a'|trans({}, 'messages') }}{% endif %}");
         plugin.handle_events(&[Event::FileSaved(TEMPLATE.into())], &host.invocation());
@@ -841,11 +970,15 @@ mod tests {
 
         host.add_file("templates/a.html.twig", "{% for a in b if c %}{% endfor %}<twig:A>{% block x %}{% endblock %}</twig:A>");
         plugin.handle_events(&[Event::FileOpened(TEMPLATE.into())], &host.invocation());
-        assert_eq!(host.diagnostics()[TEMPLATE].len(), 2);
+        assert!(host.diagnostics().get(TEMPLATE).is_none_or(Vec::is_empty));
+        let document = Document { path: TEMPLATE.into(), language: "twig".into(), version: 1, text: "{% for a in b if c %}{% endfor %}<twig:A>{% block x %}{% endblock %}</twig:A>".into() };
+        assert_eq!(plugin.diagnostics(&document).len(), 2);
 
         host.add_file("templates/a.html.twig", "{% for a in b|filter(c) %}{% endfor %}<twig:A><twig:block name=\"x\"></twig:block></twig:A>");
         plugin.handle_events(&[Event::FileSaved(TEMPLATE.into())], &host.invocation());
         assert!(host.diagnostics().get(TEMPLATE).is_none_or(Vec::is_empty));
+        let fixed = Document { text: "{% for a in b|filter(c) %}{% endfor %}<twig:A><twig:block name=\"x\"></twig:block></twig:A>".into(), version: 2, ..document };
+        assert!(plugin.diagnostics(&fixed).is_empty());
     }
 
     #[test]
@@ -869,14 +1002,16 @@ mod tests {
     }
 
     #[test]
-    fn twig_checks_run_without_the_twig_language_provider() {
+    fn symfony_live_checks_run_independently_of_the_twig_plugin() {
         let host = MockHost::install();
         host.add_file("composer.json", r#"{"require": {"symfony/framework-bundle": "^7.0"}}"#);
         let mut plugin = Main::default();
         plugin.activate(&host.context("aritti.symfony")).unwrap();
         host.add_file("templates/a.html.twig", "{% for a in b if c %}{% endfor %}");
         plugin.handle_events(&[Event::FileOpened(TEMPLATE.into())], &host.invocation());
-        assert_eq!(codes(&host.diagnostics()[TEMPLATE]), ["twig-for-condition"]);
+        assert!(host.diagnostics().get(TEMPLATE).is_none_or(Vec::is_empty));
+        let document = Document { path: TEMPLATE.into(), language: "twig".into(), version: 1, text: "{% for a in b if c %}{% endfor %}".into() };
+        assert_eq!(codes(&plugin.diagnostics(&document)), ["twig-for-condition"]);
     }
 
     fn only_codes(found: &[Diagnostic], code: &str) -> usize {
@@ -983,7 +1118,9 @@ mod tests {
         host.add_file("templates/a.html.twig", "{% extends 'base.html.twig' %}stray{{ enum('App\\Foo') }}");
         plugin.handle_events(&[Event::FileOpened(TEMPLATE.into())], &host.invocation());
         let published = host.diagnostics()[TEMPLATE].clone();
-        assert_eq!(only_codes(&published, "twig-content-outside-block"), 2);
+        assert_eq!(only_codes(&published, "twig-content-outside-block"), 0);
+        let document = Document { path: TEMPLATE.into(), language: "twig".into(), version: 1, text: "{% extends 'base.html.twig' %}stray{{ enum('App\\Foo') }}".into() };
+        assert_eq!(only_codes(&plugin.diagnostics(&document), "twig-content-outside-block"), 2);
         assert_eq!(only_codes(&published, "twig-enum-class"), 1);
     }
 }

@@ -1,0 +1,9 @@
+{
+  "title": ".ignore",
+  "views": {
+    "templates": "Ignore Templates"
+  },
+  "actions": [],
+  "project_independent": false,
+  "project_bound_buttons": []
+}

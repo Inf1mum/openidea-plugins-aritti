@@ -279,8 +279,16 @@ fn value_span(m: &Member) -> (usize, usize) {
 
 /// The edit that adds a string property `key` to the metadata file `text`; `None` when the file is not the usual shape.
 pub fn define_key(text: &str, key: &str) -> Option<(usize, usize, String)> {
+    if text.len()>128<<10 || key.len()>256 {return None;}
+    let json:serde_json::Value=serde_json::from_str(text).ok()?;
+    if !json.is_object() {return None;}
     let top = parse(text)?;
-    let entry = format!("{{\n      \"name\": \"{key}\",\n      \"type\": \"java.lang.String\",\n      \"description\": \"\"\n    }}");
+    // The range scanner deliberately does not decode JSON escapes. Do not let
+    // an escaped/duplicate field hide another effective properties container.
+    let mut fields=BTreeSet::new();
+    if top.iter().any(|member|member.key.contains('\\') || !fields.insert(member.key.as_str())) {return None;}
+    let encoded=serde_json::to_string(key).ok()?;
+    let entry = format!("{{\n      \"name\": {encoded},\n      \"type\": \"java.lang.String\",\n      \"description\": \"\"\n    }}");
     let Some(list) = top.iter().find(|m| m.key == "properties") else {
         let close = text.rfind('}')?;
         let sep = if top.is_empty() { "" } else { "," };
@@ -310,6 +318,22 @@ mod tests {
         check(text, &Context { defined: &|_| true, facts: &facts }).iter().map(|f| f.code).collect()
     }
 
+    #[test]
+    fn define_key_serializes_literal_name_without_json_injection() {
+        let key="app.bad\"name\\tail\nline";let text="{\"properties\": []}";
+        let (from,to,insert)=define_key(text,key).unwrap();
+        let out=format!("{}{}{}",&text[..from],insert,&text[to..]);
+        let value:serde_json::Value=serde_json::from_str(&out).expect("generated edit must remain JSON");
+        assert_eq!(value["properties"][0]["name"].as_str(),Some(key));
+    }
+    #[test]
+    fn define_key_requires_complete_unambiguous_json_source() {
+        for text in ["{} trailing }","{\"properties\": [1,]}","{\"properties\": [1 2]}","{\"properties\": [],\"properties\": []}",r#"{"propert\u0069es": []}"#] {
+            assert!(define_key(text,"app.x").is_none(),"{text}");
+        }
+        assert!(define_key("{}",&"a".repeat(257)).is_none());
+        assert!(define_key(&format!("{}{{}}"," ".repeat(128<<10)),"app.x").is_none());
+    }
     #[test]
     fn reports_shape_problems_only() {
         let text = r#"{"properties": [

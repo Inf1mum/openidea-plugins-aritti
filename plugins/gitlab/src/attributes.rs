@@ -5,13 +5,8 @@ use serde_json::json;
 
 use crate::api::{MergeRequest, Project, User};
 
-const ATTRIBUTES: [(&str, &str); 5] = [
-    ("labels", "Labels"),
-    ("assignees", "Assignees"),
-    ("reviewers", "Reviewers"),
-    ("milestone", "Milestone"),
-    ("title", "Title"),
-];
+pub const ATTRIBUTES: [(&str, &str); 5] =
+    [("labels", "Labels"), ("assignees", "Assignees"), ("reviewers", "Reviewers"), ("milestone", "Milestone"), ("title", "Title")];
 
 /// Asks which attribute to change, then its new value, and applies it. `None` when dismissed.
 pub fn edit(api: &Project, mr: &MergeRequest) -> Result<Option<String>, Error> {
@@ -20,7 +15,17 @@ pub fn edit(api: &Project, mr: &MergeRequest) -> Result<Option<String>, Error> {
         return Ok(None);
     };
 
-    let (fields, message) = match attribute.as_str() {
+    edit_one(api, mr, &attribute, || Ok(()))
+}
+
+/// Contextual edit with a final owner/selection guard after the prompt.
+pub fn edit_one(
+    api: &Project,
+    mr: &MergeRequest,
+    attribute: &str,
+    before_update: impl FnOnce() -> Result<(), Error>,
+) -> Result<Option<String>, Error> {
+    let (fields, message) = match attribute {
         "labels" => {
             let Some(labels) = pick_labels(api, mr)? else { return Ok(None) };
             (json!({ "labels": labels.join(",") }), "Labels updated.")
@@ -50,6 +55,7 @@ pub fn edit(api: &Project, mr: &MergeRequest) -> Result<Option<String>, Error> {
         other => return Err(Error::NotFound(format!("attribute {other}"))),
     };
 
+    before_update()?;
     api.update_merge_request(mr.iid, fields)?;
 
     Ok(Some(message.to_owned()))

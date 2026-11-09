@@ -29,6 +29,11 @@ impl Prop {
     pub fn unescaped_key(&self, text: &str) -> String {
         unescape(&text[self.key.clone()])
     }
+
+    /// Keys crossing the UTF-8 guest boundary must preserve their Java identity.
+    pub fn exact_key(&self, text: &str) -> Option<String> {
+        unescape_exact(&text[self.key.clone()])
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -123,6 +128,21 @@ pub fn skip_escape(b: &[u8], i: usize) -> usize {
 
 /// `PropertyImpl.unescape`: the key or value as `java.util.Properties` reads it.
 pub fn unescape(s: &str) -> String {
+    String::from_utf16_lossy(&decoded_units(s, false).unwrap_or_default())
+}
+
+/// Java String equality is equality of UTF-16 units, including lone surrogates.
+/// Malformed Unicode escapes establish no key in a successfully loaded file.
+pub fn key_identity(s: &str) -> Option<Vec<u16>> {
+    decoded_units(s, true)
+}
+
+/// A Java property String only when its units cross the UTF-8 API losslessly.
+pub fn unescape_exact(s: &str) -> Option<String> {
+    String::from_utf16(&key_identity(s)?).ok()
+}
+
+fn decoded_units(s: &str, strict: bool) -> Option<Vec<u16>> {
     let mut out: Vec<u16> = Vec::with_capacity(s.len());
     let mut chars = s.chars().peekable();
 
@@ -137,6 +157,7 @@ pub fn unescape(s: &str) -> String {
                 let hex: String = (0..4).map_while(|_| chars.next_if(char::is_ascii_hexdigit)).collect();
                 match u16::from_str_radix(&hex, 16) {
                     Ok(unit) if hex.len() == 4 => out.push(unit),
+                    _ if strict => return None,
                     _ => out.extend(format!("\\u{hex}").encode_utf16()),
                 }
             }
@@ -153,7 +174,7 @@ pub fn unescape(s: &str) -> String {
         }
     }
 
-    String::from_utf16_lossy(&out)
+    Some(out)
 }
 
 /// `Properties.saveConvert` for a key: separators, whitespace and a leading

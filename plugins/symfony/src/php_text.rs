@@ -48,25 +48,62 @@ pub struct AttributeUse {
     pub target: Target,
 }
 
-/// Same length as `text`: comments and string contents become spaces, line breaks stay.
-pub(crate) fn mask(text: &str) -> String {
+/// End of an ASCII-label heredoc/nowdoc token; unfinished/unsupported headers consume EOF.
+fn heredoc_end(text: &str, start: usize) -> usize {
+    let bytes = text.as_bytes();
+    let mut at = start + 3;
+    while bytes.get(at).is_some_and(|byte| matches!(byte, b' ' | b'\t')) { at += 1; }
+    let quote = bytes.get(at).copied().filter(|byte| matches!(byte, b'\'' | b'"'));
+    if quote.is_some() { at += 1; }
+    let label_start = at;
+    if !bytes.get(at).is_some_and(|byte| byte.is_ascii_alphabetic() || *byte == b'_') { return bytes.len(); }
+    at += 1;
+    while bytes.get(at).is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_') { at += 1; }
+    if at - label_start > 128 { return bytes.len(); }
+    let label = &text[label_start..at];
+    if let Some(quote) = quote {
+        if bytes.get(at) != Some(&quote) { return bytes.len(); }
+        at += 1;
+    }
+    if bytes.get(at) == Some(&b'\r') { at += 1; }
+    if bytes.get(at) != Some(&b'\n') { return bytes.len(); }
+    let mut line = at + 1;
+    while line < bytes.len() {
+        let mut candidate = line;
+        while bytes.get(candidate).is_some_and(|byte| matches!(byte, b' ' | b'\t')) { candidate += 1; }
+        if text[candidate..].starts_with(label) {
+            let end = candidate + label.len();
+            let continued = bytes.get(end).is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_' || *byte >= 0x80);
+            if !continued { return end; }
+        }
+        let Some(end) = text[line..].find('\n') else { break };
+        line += end + 1;
+    }
+    bytes.len()
+}
+
+/// Same byte length as source: comments/literal contents blanked, line breaks retained.
+pub(crate) fn mask(text: &str) -> String { mask_with_doc_comments(text).0 }
+
+/// Lexical doc comments only; strings and heredoc bodies cannot manufacture annotations.
+pub(crate) fn mask_with_doc_comments(text: &str) -> (String, Vec<Range<usize>>) {
     let bytes = text.as_bytes();
     let mut out = bytes.to_vec();
+    let mut doc_comments = Vec::new();
     let blank = |out: &mut Vec<u8>, range: Range<usize>| {
         for byte in &mut out[range] {
-            if *byte != b'\n' && *byte != b'\r' {
-                *byte = b' ';
-            }
+            if *byte != b'\n' && *byte != b'\r' { *byte = b' '; }
         }
     };
-
     let mut i = 0;
     while i < bytes.len() {
         let byte = bytes[i];
         let next = bytes.get(i + 1).copied();
         match byte {
             b'/' if next == Some(b'*') => {
-                let end = text[i + 2..].find("*/").map_or(bytes.len(), |at| i + 2 + at + 2);
+                let closed = text[i + 2..].find("*/");
+                let end = closed.map_or(bytes.len(), |at| i + 2 + at + 2);
+                if closed.is_some() && text[i..].starts_with("/**") { doc_comments.push(i..end); }
                 blank(&mut out, i..end);
                 i = end;
             }
@@ -80,7 +117,12 @@ pub(crate) fn mask(text: &str) -> String {
                 blank(&mut out, i..end);
                 i = end;
             }
-            b'\'' | b'"' => {
+            b'<' if text[i..].starts_with("<<<") => {
+                let end = heredoc_end(text, i);
+                blank(&mut out, i..end);
+                i = end;
+            }
+            b'\'' | b'"' | b'`' => {
                 let mut end = i + 1;
                 while end < bytes.len() && bytes[end] != byte {
                     end += if bytes[end] == b'\\' { 2 } else { 1 };
@@ -92,8 +134,7 @@ pub(crate) fn mask(text: &str) -> String {
             _ => i += 1,
         }
     }
-
-    String::from_utf8(out).unwrap_or_default()
+    (String::from_utf8(out).unwrap_or_default(), doc_comments)
 }
 
 pub(crate) fn declares_enum(source: &str, short_name: &str) -> bool {
@@ -718,6 +759,36 @@ fn attribute_in(masked: &str, item: Range<usize>) -> Option<(String, Range<usize
     };
 
     Some((masked[name.clone()].to_owned(), start..end, arguments))
+}
+
+#[cfg(test)]
+mod heredoc_tests {
+    use super::*;
+    #[test]
+    fn heredoc_nowdoc_and_quoted_labels_mask_body_and_preserve_source_coordinates() {
+        for header in ["<<<TEXT","<<<'TEXT'","<<<\"TEXT\""] {
+            let text=format!("<?php\r\n$literal = {header}\r\n    /** @Route('/fake') */\r\n    class Ghost {{}}\r\n    TEXT_suffix\r\n    TEXT;\r\n/** real */\r\nclass Actual {{}}\r\n");
+            let (masked,docs)=mask_with_doc_comments(&text);
+            assert_eq!(masked.len(),text.len());assert!(!masked.contains("Ghost"));assert!(!masked.contains("TEXT_suffix"));
+            assert!(masked.contains("class Actual"));assert_eq!(docs.len(),1);assert_eq!(&text[docs[0].clone()],"/** real */");
+            for (at,byte) in text.bytes().enumerate().filter(|(_,byte)|matches!(byte,b'\r'|b'\n')) {assert_eq!(masked.as_bytes()[at],byte);}
+        }
+    }
+    #[test]
+    fn backtick_literal_data_is_masked_without_evaluating_commands() {
+        let tick=char::from(96);
+        let text=format!("<?php $literal = {tick}class Ghost {{}}; $builder->add('x', 'text');{tick}; class Actual {{}}");
+        let masked=mask(&text);assert!(!masked.contains("Ghost"));assert!(!masked.contains("$builder"));assert!(masked.contains("class Actual"));
+    }
+
+    #[test]
+    fn unfinished_or_unsupported_literal_headers_never_expose_following_fake_code() {
+        for suffix in ["<<<TEXT\nclass Ghost {}\nTEXT_suffix\n","<<<'UNFINISHED\nclass Ghost {}","<<<\nclass Ghost {}"] {
+            let text=format!("<?php $literal = {suffix}");assert!(!mask(&text).contains("Ghost"));
+        }
+        let text="<?php $marker='<<<TEXT'; /* <<<OTHER */ class Actual {}";
+        assert!(mask(text).contains("class Actual"),"markers inside ordinary comments/strings do not open literals");
+    }
 }
 
 #[cfg(test)]

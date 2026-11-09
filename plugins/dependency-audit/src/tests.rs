@@ -158,7 +158,8 @@ fn after_a_failed_advisory_fetch_the_rest_are_not_attempted() {
         "POST" => ok(json!({"results": [
             {"vulns": [{"id": "GHSA-aaaa-1", "modified": "m"}]},
             {"vulns": [{"id": "GHSA-aaaa-2", "modified": "m"}]},
-        ]}).to_string()),
+        ]})
+        .to_string()),
         _ => Err(Error::Failed("timed out".into())),
     });
     let deps = [jackson(), dep(Ecosystem::Maven, "com.example:other", "1.0")];
@@ -179,6 +180,10 @@ fn opened(host: &MockHost, path: &str) {
     DependencyAudit::default().handle_events(&[Event::FileOpened(path.into())], &host.invocation());
 }
 
+fn cached_problems(path: &str, text: &str) -> Vec<Diagnostic> {
+    DependencyAudit::default().diagnostics(&document(path, "xml", text))
+}
+
 #[test]
 fn opening_a_pom_publishes_a_diagnostic_on_the_dependency() {
     let host = MockHost::install().with_capabilities(CAPS);
@@ -187,12 +192,12 @@ fn opening_a_pom_publishes_a_diagnostic_on_the_dependency() {
 
     opened(&host, "/project/pom.xml");
 
-    let problems = &host.diagnostics()["/project/pom.xml"];
+    let problems = cached_problems("/project/pom.xml", POM);
     assert_eq!(problems.len(), 1);
     assert_eq!(problems[0].severity, Severity::Error);
     assert_eq!(problems[0].code.as_deref(), Some("GHSA-57j2-w4cx-62h2"));
     assert_eq!(problems[0].source.as_deref(), Some("OSV"));
-    assert!(problems[0].message.ends_with("Upgrade to 2.12.7.1."), "{}", problems[0].message);
+    assert!(problems[0].message.contains("Upgrade to 2.12.7.1."), "{}", problems[0].message);
 }
 
 #[test]
@@ -203,7 +208,7 @@ fn diagnostic_range_counts_utf16_columns() {
 
     opened(&host, "/project/pom.xml");
 
-    let range = host.diagnostics()["/project/pom.xml"][0].range;
+    let range = cached_problems("/project/pom.xml", POM)[0].range;
     assert_eq!((range.start.line, range.start.character, range.end.character), (3, 84, 100));
 }
 
@@ -214,9 +219,9 @@ fn package_json_uses_the_sibling_lockfile() {
     host.add_file("web/package.json", PACKAGE);
     host.add_file("web/package-lock.json", PACKAGE_LOCK);
 
-    opened(&host, "/project/web/package.json");
-
-    assert_eq!(host.diagnostics()["/project/web/package.json"][0].range.start.line, 2);
+    let mut plugin = DependencyAudit::default();
+    plugin.handle_events(&[Event::FileOpened("/project/web/package.json".into())], &host.invocation());
+    assert_eq!(plugin.diagnostics(&document("/project/web/package.json", "json", PACKAGE))[0].range.start.line, 2);
 }
 
 #[test]
@@ -280,6 +285,15 @@ fn line(n: u32) -> Range {
     Range::new(Position::new(n, 0), Position::new(n, 0))
 }
 
+fn reviewed_upgrades(host:&MockHost,doc:&Document,selection:Range)->Vec<CodeAction> {
+    let mut plugin=DependencyAudit::default();
+    plugin.code_actions(doc,selection).into_iter().filter(|a|a.title.starts_with("Upgrade ")).map(|action| {
+        assert!(action.edits.is_empty()&&action.data.is_some(),"listing must not return unreviewed edits");
+        host.answer_next_prompt(Some(&[]));
+        plugin.resolve_code_action(doc,action).unwrap()
+    }).collect()
+}
+
 #[test]
 fn quick_fix_upgrades_to_the_nearest_fixed_version() {
     let host = MockHost::install().with_capabilities(CAPS);
@@ -288,7 +302,7 @@ fn quick_fix_upgrades_to_the_nearest_fixed_version() {
     opened(&host, "/project/pom.xml");
     let sent = host.requests().len();
 
-    let actions = DependencyAudit::default().code_actions(&document("/project/pom.xml", "xml", POM), line(3));
+    let actions = reviewed_upgrades(&host,&document("/project/pom.xml", "xml", POM), line(3));
 
     assert_eq!(actions.len(), 1);
     assert_eq!(actions[0].title, "Upgrade jackson-databind to 2.12.7.1");
@@ -308,7 +322,7 @@ fn quick_fix_keeps_the_npm_range_operator() {
     host.add_file("package-lock.json", PACKAGE_LOCK);
     opened(&host, "/project/package.json");
 
-    let actions = DependencyAudit::default().code_actions(&document("/project/package.json", "json", PACKAGE), line(2));
+    let actions = reviewed_upgrades(&host,&document("/project/package.json", "json", PACKAGE), line(2));
 
     assert_eq!(actions[0].title, "Upgrade lodash to 4.17.21");
     assert_eq!(actions[0].edits[0].1[0].text, "^4.17.21");
@@ -323,7 +337,7 @@ fn no_quick_fix_for_a_compound_range() {
     host.add_file("package-lock.json", PACKAGE_LOCK);
     opened(&host, "/project/package.json");
 
-    let actions = DependencyAudit::default().code_actions(&document("/project/package.json", "json", &package), line(2));
+    let actions = reviewed_upgrades(&host,&document("/project/package.json", "json", &package), line(2));
 
     assert!(actions.is_empty());
 }
@@ -333,7 +347,7 @@ fn no_quick_fix_without_a_cached_result() {
     let host = MockHost::install().with_capabilities(CAPS);
     host.on_fetch(osv);
 
-    let actions = DependencyAudit::default().code_actions(&document("/project/pom.xml", "xml", POM), line(3));
+    let actions = reviewed_upgrades(&host,&document("/project/pom.xml", "xml", POM), line(3));
 
     assert!(actions.is_empty());
     assert!(host.requests().is_empty());
@@ -363,7 +377,8 @@ fn deps_sharing_a_property_get_one_quick_fix_with_the_highest_fix() {
         ("POST", _) => ok(json!({"results": [
             {"vulns": [{"id": "GHSA-57j2-w4cx-62h2", "modified": "2024-03-15T05:00:00Z"}]},
             {"vulns": [{"id": "GHSA-aaaa-bbbb-cccc", "modified": "2024-01-01T00:00:00Z"}]},
-        ]}).to_string()),
+        ]})
+        .to_string()),
         ("GET", "https://api.osv.dev/v1/vulns/GHSA-57j2-w4cx-62h2") => ok(JACKSON.into()),
         _ => ok(other.into()),
     });
@@ -371,7 +386,7 @@ fn deps_sharing_a_property_get_one_quick_fix_with_the_highest_fix() {
     opened(&host, "/project/pom.xml");
 
     let selection = Range::new(Position::new(3, 0), Position::new(4, 0));
-    let actions = DependencyAudit::default().code_actions(&document("/project/pom.xml", "xml", pom), selection);
+    let actions = reviewed_upgrades(&host,&document("/project/pom.xml", "xml", pom), selection);
 
     assert_eq!(actions.len(), 1);
     assert_eq!(actions[0].title, "Upgrade jackson-databind to 2.13.0");
@@ -386,7 +401,7 @@ fn code_actions_in_a_large_lockfile_return_fast() {
     host.add_file("package-lock.json", &lock);
     let started = std::time::Instant::now();
 
-    let actions = DependencyAudit::default().code_actions(&document("/project/package-lock.json", "json", &lock), line(1500));
+    let actions = reviewed_upgrades(&host,&document("/project/package-lock.json", "json", &lock), line(1500));
 
     assert!(actions.is_empty());
     assert!(started.elapsed() < std::time::Duration::from_millis(100), "{:?}", started.elapsed());
@@ -416,7 +431,9 @@ fn scan_lists_vulnerable_dependencies_in_the_view() {
 
     assert_eq!(host.notifications()[0].body, "Vulnerable dependencies: 2 of 3 (3 files). See the Vulnerable Dependencies tool window.");
     assert!(host.refreshed_views().contains(&"vulnerabilities".to_string()));
-    assert_eq!(host.diagnostics().keys().collect::<Vec<_>>(), ["/project/pom.xml", "/project/web/package-lock.json", "/project/web/package.json"]);
+    assert!(host.diagnostics().is_empty(), "scan does not publish a duplicate producer");
+    assert_eq!(plugin.diagnostics(&document("/project/pom.xml", "xml", POM)).len(), 1);
+    assert_eq!(plugin.diagnostics(&document("/project/web/package-lock.json", "json", PACKAGE_LOCK)).len(), 1);
 
     let labels: Vec<String> = tree(&mut plugin, &host).into_iter().map(|i| i.label).collect();
     assert_eq!(labels.iter().filter(|l| l.starts_with("lodash")).count(), 1, "the lockfile adds no duplicate");
@@ -441,7 +458,9 @@ fn activating_items_opens_the_line_or_osv_dev() {
     let key = |label: &str| items.iter().find(|i| i.label == label).unwrap().key.clone();
 
     plugin.handle("vulnerabilities", ViewEvent::Activate(key("GHSA-57j2-w4cx-62h2")), &host.invocation()).unwrap();
-    plugin.handle("vulnerabilities", ViewEvent::Activate(key("com.fasterxml.jackson.core:jackson-databind 2.12.3")), &host.invocation()).unwrap();
+    plugin
+        .handle("vulnerabilities", ViewEvent::Activate(key("com.fasterxml.jackson.core:jackson-databind 2.12.3")), &host.invocation())
+        .unwrap();
 
     assert_eq!(host.opened_urls(), ["https://osv.dev/vulnerability/GHSA-57j2-w4cx-62h2"]);
     assert_eq!(host.opened_locations(), [("/project/pom.xml".to_string(), 3, 0)]);
@@ -503,7 +522,9 @@ fn a_dependency_shared_by_two_manifests_is_marked_in_both_and_listed_once() {
     let mut plugin = DependencyAudit::default();
     plugin.run_command("scan", &host.invocation(), None).unwrap();
 
-    assert_eq!(host.diagnostics().keys().collect::<Vec<_>>(), ["/project/a/pom.xml", "/project/b/pom.xml"]);
+    assert_eq!(plugin.diagnostics(&document("/project/a/pom.xml", "xml", POM)).len(), 1);
+    assert_eq!(plugin.diagnostics(&document("/project/b/pom.xml", "xml", POM)).len(), 1);
+    assert!(host.diagnostics().is_empty());
     let jackson = tree(&mut plugin, &host).into_iter().filter(|i| i.label.starts_with("com.fasterxml")).count();
     assert_eq!(jackson, 1);
 }
@@ -559,7 +580,9 @@ fn ignored_cve_alias_is_not_reported() {
 
 fn cve_lodash_osv(req: &HttpRequest) -> Result<HttpResponse, Error> {
     match req.url.as_str() {
-        "https://api.osv.dev/v1/vulns/GHSA-35jh-r3h4-6jhm" => ok(LODASH.replacen(r#""summary""#, r#""aliases": ["CVE-2019-10744"], "summary""#, 1)),
+        "https://api.osv.dev/v1/vulns/GHSA-35jh-r3h4-6jhm" => {
+            ok(LODASH.replacen(r#""summary""#, r#""aliases": ["CVE-2019-10744"], "summary""#, 1))
+        }
         _ => osv(req),
     }
 }
@@ -582,7 +605,11 @@ fn old_cache_entry_without_aliases_is_refetched() {
     let host = MockHost::install().with_capabilities(CAPS);
     host.on_fetch(cve_lodash_osv);
     host.set_setting("ignoredAdvisories", r#""CVE-2019-10744""#);
-    host::storage::set("v:GHSA-35jh-r3h4-6jhm", r#"{"id":"GHSA-35jh-r3h4-6jhm","modified":"2024-01-01T00:00:00Z","summary":"old","severity":"HIGH","fixed":{}}"#).unwrap();
+    host::storage::set(
+        "v:GHSA-35jh-r3h4-6jhm",
+        r#"{"id":"GHSA-35jh-r3h4-6jhm","modified":"2024-01-01T00:00:00Z","summary":"old","severity":"HIGH","fixed":{}}"#,
+    )
+    .unwrap();
     let queries = json!({"npm:lodash@4.17.15": {"at": 0, "vulns": [["GHSA-35jh-r3h4-6jhm", "2024-01-01T00:00:00Z"]]}});
     host::storage::set("queries", &queries.to_string()).unwrap();
 
@@ -624,7 +651,7 @@ fn quick_fix_upgrades_version_catalog_entries() {
     let catalog = document("/project/gradle/libs.versions.toml", "toml", CATALOG);
 
     for (selected, edited) in [(4, 1), (5, 5)] {
-        let actions = DependencyAudit::default().code_actions(&catalog, line(selected));
+        let actions = reviewed_upgrades(&host,&catalog, line(selected));
 
         assert_eq!(actions.len(), 1);
         assert_eq!(actions[0].title, "Upgrade jackson-databind to 2.12.7.1");
@@ -649,7 +676,7 @@ fn quick_fix_audits_every_library_sharing_the_selected_version() {
     opened(&host, "/project/gradle/libs.versions.toml");
     let catalog = document("/project/gradle/libs.versions.toml", "toml", SHARED_CATALOG);
 
-    let actions = DependencyAudit::default().code_actions(&catalog, line(4));
+    let actions = reviewed_upgrades(&host,&catalog, line(4));
 
     assert_eq!(actions.len(), 1);
     assert_eq!(actions[0].title, "Upgrade jackson-databind to 2.12.7.1");
@@ -662,4 +689,697 @@ fn requirements_versions_are_replaceable() {
 
     let (from, to) = deps[0].version_at.unwrap();
     assert_eq!(&text[from..to], "2.0.0");
+}
+
+fn resource_model(plugin: &mut DependencyAudit, host: &MockHost) -> Value {
+    plugin
+        .handle(
+            "vulnerabilities",
+            ViewEvent::Message(json!({"channel":"ui-kit","sequence":41,"op":"render"}).to_string()),
+            &host.invocation(),
+        )
+        .unwrap();
+    let response: Value = serde_json::from_str(&host.view_messages().last().unwrap().1).unwrap();
+    assert!(response.get("error").is_none(), "{response}");
+    response["model"].clone()
+}
+
+fn detail_value<'a>(row: &'a Value, label: &str) -> &'a str {
+    row["details"].as_array().unwrap().iter().find(|d| d["label"] == label).unwrap()["value"].as_str().unwrap()
+}
+
+#[test]
+fn packaged_resources_expose_domain_columns_evidence_and_original_activate_keys() {
+    let host = MockHost::install().with_capabilities(CAPS);
+    let mut plugin = scanned(&host);
+    let requests = host.requests().len();
+    let model = resource_model(&mut plugin, &host);
+    assert_eq!(model["body"]["kind"], "resources");
+    assert_eq!(
+        model["body"]["columns"],
+        json!(["Type", "Dependency", "Ecosystem", "Installed", "Fixed", "Severity", "Advisory", "Manifest"])
+    );
+    assert_eq!(model["body"]["facets"], json!([0, 2, 5, 7]));
+    let items = model["body"]["items"].as_array().unwrap();
+    assert_eq!(items.len(), 4, "two dependency rows and their two advisory rows");
+    let dependency = items.iter().find(|r| r["cells"][0] == "Dependency" && r["cells"][1] == "lodash").unwrap();
+    assert_eq!(dependency["cells"][2], "npm");
+    assert_eq!(dependency["cells"][3], "4.17.15");
+    assert_eq!(dependency["cells"][4], "4.17.21");
+    assert_eq!(dependency["cells"][5], "HIGH");
+    let evidence = detail_value(dependency, "Declarations / lockfile evidence");
+    assert!(evidence.contains("web/package.json:3"), "{evidence}");
+    assert!(evidence.contains("web/package-lock.json:1") && evidence.contains("Lockfile entry"), "{evidence}");
+    assert!(detail_value(dependency, "Report scan").contains("Unix"));
+    assert!(detail_value(dependency, "Report coverage").contains("3 dependency files; 3 unique"));
+    assert!(detail_value(dependency, "Ignore scope").contains("0 configured"));
+    plugin.handle("vulnerabilities", ViewEvent::Activate(dependency["key"].as_str().unwrap().into()), &host.invocation()).unwrap();
+    assert!(host.opened_locations()[0].0.ends_with("web/package.json"));
+    let advisory = items.iter().find(|r| r["cells"][0] == "Advisory" && r["cells"][1] == "lodash").unwrap();
+    assert_eq!(detail_value(advisory, "Fixed versions reported for this package"), "4.17.21");
+    assert_eq!(detail_value(advisory, "Advisory modified"), "2024-01-01T00:00:00Z");
+    plugin.handle("vulnerabilities", ViewEvent::Activate(advisory["key"].as_str().unwrap().into()), &host.invocation()).unwrap();
+    assert_eq!(host.opened_urls(), ["https://osv.dev/vulnerability/GHSA-35jh-r3h4-6jhm"]);
+    assert_eq!(host.requests().len(), requests, "rendering and selection do not fetch OSV");
+}
+
+#[test]
+fn a_failed_rescan_keeps_snapshot_facts_and_marks_the_report_stale() {
+    let host = MockHost::install().with_capabilities(CAPS);
+    let mut plugin = scanned(&host);
+    let project = host.invocation().project().unwrap();
+    let previous = host::storage::get(&rows_key(&project).unwrap()).unwrap().unwrap();
+    host::storage::delete("queries").unwrap();
+    for key in host::storage::keys("adv:").unwrap() {
+        host::storage::delete(&key).unwrap();
+    }
+    host.on_fetch(|_| Err(Error::Failed("offline".into())));
+    assert!(plugin.run_command("scan", &host.invocation(), None).is_err());
+    assert_eq!(host::storage::get(&rows_key(&project).unwrap()).unwrap().unwrap(), previous);
+    let model = resource_model(&mut DependencyAudit::default(), &host);
+    assert!(model["status"].as_str().unwrap().contains("last rescan failed"));
+    assert!(model["status"].as_str().unwrap().contains("showing previous report"));
+    let row = model["body"]["items"].as_array().unwrap().iter().find(|r| r["cells"][0] == "Advisory" && r["cells"][1] == "lodash").unwrap();
+    assert_eq!(row["cells"][4], "4.17.21", "advisory facts survive separate cache eviction");
+    assert!(detail_value(row, "GHSA-35jh-r3h4-6jhm summary").contains("Command injection"));
+    assert!(detail_value(row, "Last rescan failed").contains("offline"));
+    host.on_fetch(osv);
+    plugin.run_command("scan", &host.invocation(), None).unwrap();
+    assert!(last_failure(&project).is_none());
+}
+
+#[test]
+fn legacy_scan_rows_render_with_honest_unknown_provenance_and_details() {
+    let host = MockHost::install().with_capabilities(CAPS);
+    let project = host.invocation().project().unwrap();
+    host::storage::set(
+        &rows_key(&project).unwrap(),
+        &json!([{"path":"/project/package.json","line":2,"name":"example","version":"1.0.0","fix":null,"advisories":["GHSA-example"]}])
+            .to_string(),
+    )
+    .unwrap();
+    let model = resource_model(&mut DependencyAudit::default(), &host);
+    let row = &model["body"]["items"][1];
+    assert_eq!(row["cells"][2], "npm");
+    assert_eq!(row["cells"][4], "Unknown (details unavailable)");
+    assert_eq!(row["cells"][5], "Unknown");
+    assert_eq!(detail_value(row, "Report scan"), "Not recorded (older report)");
+    assert!(detail_value(row, "GHSA-example summary").contains("Details unavailable"));
+    assert!(host.requests().is_empty());
+}
+
+#[test]
+fn changed_ignore_settings_apply_to_snapshots_even_without_advisory_cache() {
+    let host = MockHost::install().with_capabilities(CAPS);
+    host.on_fetch(cve_lodash_osv);
+    host.add_file("web/package.json", PACKAGE);
+    host.add_file("web/package-lock.json", PACKAGE_LOCK);
+    let mut plugin = DependencyAudit::default();
+    plugin.run_command("scan", &host.invocation(), None).unwrap();
+    for key in host::storage::keys("adv:").unwrap() {
+        host::storage::delete(&key).unwrap();
+    }
+    host.set_setting("ignoredAdvisories", r#""CVE-2019-10744""#);
+    assert!(stored_rows(&host.invocation().project().unwrap()).unwrap().unwrap().is_empty());
+    assert!(matches!(plugin.render("vulnerabilities", None, &host.invocation()).unwrap().body, Body::Message(_)));
+}
+
+#[test]
+fn activation_cannot_reuse_a_previous_projects_cached_targets() {
+    let host = MockHost::install().with_capabilities(CAPS);
+    let mut plugin = scanned(&host);
+    let old_key = tree(&mut plugin, &host).into_iter().find(|r| r.label == "GHSA-35jh-r3h4-6jhm").unwrap().key;
+    host.set_project_root(Some("/other"));
+    plugin.handle("vulnerabilities", ViewEvent::Activate(old_key), &host.invocation()).unwrap();
+    assert!(host.opened_urls().is_empty() && host.opened_locations().is_empty());
+}
+
+#[test]
+fn failure_to_store_new_results_does_not_delete_a_previous_report() {
+    let host = MockHost::install().with_capabilities(CAPS);
+    let mut plugin = scanned(&host);
+    let project = host.invocation().project().unwrap();
+    let key = rows_key(&project).unwrap();
+    let before = host.storage()[&key].clone();
+    let host = host.with_capabilities(&["project.read", "net:api.osv.dev"]);
+    let body = scan(&host.invocation().project().unwrap(), &mut live::Live::default()).unwrap();
+    assert!(body.contains("previous report remains"));
+    assert_eq!(host.storage()[&key], before);
+    let host = host.with_capabilities(CAPS);
+    let model = resource_model(&mut plugin, &host);
+    assert_eq!(model["body"]["items"].as_array().unwrap().len(), 4);
+}
+
+#[test]
+fn large_resource_reports_fit_the_bridge_and_keep_unshortened_action_keys() {
+    let host = MockHost::install().with_capabilities(CAPS);
+    let row = json!({"path":"/project/package.json","line":2,"name":"example","version":"1.0.0","fix":null,"advisories":["GHSA-example"],"details":[{"id":"GHSA-example","modified":"m","summary":"🦀".repeat(3000),"severity":null,"fixed":{}}]});
+    let rows: Vec<_> = (0..5001)
+        .map(|i| {
+            let mut row = row.clone();
+            row["name"] = json!(format!("example-{i}"));
+            row
+        })
+        .collect();
+    let report: Report = serde_json::from_value(json!({"rows":rows})).unwrap();
+    let Body::Other { data, .. } = resource_body("/project", &report, None) else { panic!("resources") };
+    let value: Value = serde_json::from_str(&data).unwrap();
+    assert!(data.len() < (4 << 20) + 4096, "leave room for the 8-MiB host message envelope");
+    assert_eq!(value["totalRows"], 10002);
+    let rows = value["items"].as_array().unwrap();
+    assert!(rows.len() < 10002);
+    assert_eq!(rows[0]["key"], "dep:/project/package.json|example-0 1.0.0");
+    assert!(detail_value(&rows[0], "GHSA-example summary").ends_with("… (truncated)"));
+    assert!(host.requests().is_empty());
+}
+
+#[test]
+fn live_diagnostics_follow_unsaved_versions_without_network_or_cache_writes() {
+    let host = MockHost::install().with_capabilities(CAPS);
+    host.on_fetch(osv);
+    host.add_file("pom.xml", POM);
+    let mut plugin = DependencyAudit::default();
+    plugin.handle_events(&[Event::FileOpened("/project/pom.xml".into())], &host.invocation());
+    let requests = host.requests().len();
+    let stored = host.storage();
+    let shifted = format!("\n{POM}");
+    let problems = plugin.diagnostics(&document("/project/pom.xml", "xml", &shifted));
+    assert_eq!(problems.len(), 1);
+    assert_eq!(problems[0].range.start.line, 4);
+    assert!(problems[0].message.contains("Cached OSV query: Unix"));
+    assert!(plugin.diagnostics(&document("/project/pom.xml", "xml", &POM.replace("2.12.3", "2.12.7.1"))).is_empty());
+    assert!(host.diagnostics().is_empty(), "no duplicate manual producer");
+    assert_eq!(host.requests().len(), requests);
+    assert_eq!(host.storage(), stored, "provider never migrates or mutates storage");
+}
+
+#[test]
+fn live_diagnostics_are_quiet_for_unknown_versions_and_dated_for_stale_positive_evidence() {
+    let host = MockHost::install().with_capabilities(CAPS);
+    host.on_fetch(osv);
+    osv::audit(&[jackson()], true, 1_000, soon()).unwrap();
+    host::storage::set("v:legacy", "untouched").unwrap();
+    let sent = host.requests().len();
+    let mut plugin = DependencyAudit::default();
+    let problems = plugin.diagnostics(&document("/project/pom.xml", "xml", POM));
+    assert_eq!(problems.len(), 1);
+    assert!(problems[0].message.contains("Unix 1000; stale, rescan recommended"));
+    assert!(plugin.diagnostics(&document("/project/pom.xml", "xml", &POM.replace("2.12.3", "2.13.0"))).is_empty());
+    assert_eq!(host.storage().get("v:legacy").map(String::as_str), Some("untouched"));
+    assert_eq!(host.requests().len(), sent);
+    host.set_setting("ignoredAdvisories", r#""GHSA-57j2-w4cx-62h2""#);
+    assert!(plugin.diagnostics(&document("/project/pom.xml", "xml", POM)).is_empty());
+}
+
+#[test]
+fn lock_dependent_live_facts_are_invalidated_by_manifest_edits_and_watched_changes() {
+    let host = MockHost::install().with_capabilities(CAPS);
+    host.on_fetch(osv);
+    host.add_file("package.json", PACKAGE);
+    host.add_file("package-lock.json", PACKAGE_LOCK);
+    let mut plugin = DependencyAudit::default();
+    plugin.handle_events(&[Event::FileOpened("/project/package.json".into())], &host.invocation());
+    assert_eq!(plugin.diagnostics(&document("/project/package.json", "json", PACKAGE)).len(), 1);
+    let changed = PACKAGE.replace("^4.17.15", "^4.17.21");
+    assert!(plugin.diagnostics(&document("/project/package.json", "json", &changed)).is_empty());
+    plugin.handle_events(&[Event::FilesChanged(openidea_plugin::FilesChanged { modified: vec!["/project/package-lock.json".into()], ..Default::default() })], &host.invocation());
+    assert!(plugin.diagnostics(&document("/project/package.json", "json", PACKAGE)).is_empty());
+    assert_eq!(plugin.diagnostics(&document("/project/package-lock.json", "json", PACKAGE_LOCK)).len(), 1);
+}
+
+#[test]
+fn unavailable_identity_oversized_documents_and_invalid_cache_are_quiet() {
+    let host = MockHost::install().with_capabilities(&[]);
+    assert!(cached_problems("/project/pom.xml", POM).is_empty());
+    assert!(host.requests().is_empty());
+    drop(host);
+    let host = MockHost::install().with_capabilities(CAPS);
+    host::storage::set("queries", "not JSON").unwrap();
+    assert!(cached_problems("/project/pom.xml", POM).is_empty());
+    let oversized = format!("{}{}", " ".repeat(512 << 10), POM);
+    assert!(cached_problems("/project/pom.xml", &oversized).is_empty());
+    assert!(host.requests().is_empty());
+}
+
+fn commit_draft(paths: &[&str]) -> openidea_plugin::CommitDraft {
+    openidea_plugin::CommitDraft {
+        changes: paths.iter().map(|path| openidea_plugin::CommitChange {
+            repository: "/project".into(), path: (*path).into(), status: "modified".into(), ..Default::default()
+        }).collect(), ..Default::default()
+    }
+}
+
+#[test]
+fn commit_review_uses_only_changed_files_and_explicitly_historical_scan_evidence() {
+    use openidea_plugin::commit::CommitChecks;
+    let host = MockHost::install().with_capabilities(CAPS);
+    let mut plugin = scanned(&host);
+    let requests = host.requests().len();
+    let storage = host.storage();
+    let problems = plugin.check("cached-dependencies", &commit_draft(&["/project/pom.xml"]), &host.invocation()).unwrap();
+    assert_eq!(problems.len(), 1);
+    assert!(problems[0].message.contains("Previous scan (Unix"));
+    assert!(problems[0].message.contains("Historical evidence may differ from the selected commit"));
+    assert_eq!(problems[0].location.as_ref().unwrap().path, "/project/pom.xml");
+    assert!(plugin.check("cached-dependencies", &commit_draft(&["/project/App.java", "/other/pom.xml"]), &host.invocation()).unwrap().is_empty());
+    assert_eq!(host.requests().len(), requests);
+    assert_eq!(host.storage(), storage);
+}
+
+#[test]
+fn commit_review_reports_missing_stale_and_uncovered_scan_evidence() {
+    use openidea_plugin::commit::CommitChecks;
+    let host = MockHost::install().with_capabilities(CAPS);
+    let mut plugin = DependencyAudit::default();
+    let draft = commit_draft(&["/project/pom.xml"]);
+    assert!(plugin.check("cached-dependencies", &draft, &host.invocation()).unwrap()[0].message.contains("No cached"));
+    let legacy = json!({"rows":[],"scanned_at":1000});
+    host::storage::set("scan:/project", &legacy.to_string()).unwrap();
+    assert!(plugin.check("cached-dependencies", &draft, &host.invocation()).unwrap()[0].message.contains("stale, incomplete"));
+    let fresh = json!({"rows":[],"scanned_at":now(),"checked_files":["/project/other/pom.xml"]});
+    host::storage::set("scan:/project", &fresh.to_string()).unwrap();
+    assert_eq!(plugin.check("cached-dependencies", &draft, &host.invocation()).unwrap().len(), 1);
+    let covered = json!({"rows":[],"scanned_at":now(),"checked_files":["/project/pom.xml"]});
+    host::storage::set("scan:/project", &covered.to_string()).unwrap();
+    assert!(plugin.check("cached-dependencies", &draft, &host.invocation()).unwrap().is_empty());
+    assert!(host.requests().is_empty());
+}
+
+#[test]
+fn paginated_batches_follow_only_pending_coordinates_and_keep_all_advisories() {
+    let host = MockHost::install().with_capabilities(CAPS);
+    host.on_fetch(|req| {
+        if req.method == "GET" { return osv(req); }
+        let body: Value = serde_json::from_slice(req.body.as_deref().unwrap()).unwrap();
+        let queries = body["queries"].as_array().unwrap();
+        let results: Vec<Value> = queries.iter().map(|q| match q["package"]["name"].as_str().unwrap() {
+            "com.fasterxml.jackson.core:jackson-databind" if q["page_token"].is_null() => json!({"next_page_token":"jackson-page-2"}),
+            "com.fasterxml.jackson.core:jackson-databind" => {
+                assert_eq!(q["page_token"],"jackson-page-2");
+                json!({"vulns":[{"id":"GHSA-57j2-w4cx-62h2","modified":"2024-03-15T05:00:00Z"}]})
+            },
+            "lodash" => {
+                assert!(q["page_token"].is_null(), "completed coordinate must not be requested again");
+                json!({"vulns":[{"id":"GHSA-35jh-r3h4-6jhm","modified":"2024-01-01T00:00:00Z"}]})
+            },
+            _ => json!({}),
+        }).collect();
+        ok(json!({"results":results}).to_string())
+    });
+    let deps = [jackson(), dep(Ecosystem::Npm,"lodash","4.17.15"), dep(Ecosystem::Npm,"clean","1.0.0")];
+    let findings = osv::audit(&deps,true,now(),soon()).unwrap();
+    assert_eq!(findings.len(),2);
+    assert_eq!(findings[0].fix().as_deref(),Some("2.12.7.1"));
+    assert_eq!(findings[1].fix().as_deref(),Some("4.17.21"));
+    let requests: Vec<_> = host.requests().into_iter().filter(|r|r.method=="POST").collect();
+    assert_eq!(requests.len(),2);
+    let second: Value = serde_json::from_slice(requests[1].body.as_deref().unwrap()).unwrap();
+    assert_eq!(second["queries"].as_array().unwrap().len(),1);
+}
+
+#[test]
+fn pagination_deduplicates_advisory_ids_and_retains_newer_modified_details() {
+    let host = MockHost::install().with_capabilities(CAPS);
+    host.on_fetch(|req| {
+        if req.method == "GET" { return osv(req); }
+        let body: Value = serde_json::from_slice(req.body.as_deref().unwrap()).unwrap();
+        if body["queries"][0]["page_token"].is_null() {
+            ok(json!({"results":[{"vulns":[{"id":"GHSA-57j2-w4cx-62h2","modified":"2020"}],"next_page_token":"again"}]}).to_string())
+        } else {
+            ok(json!({"results":[{"vulns":[{"id":"GHSA-57j2-w4cx-62h2","modified":"2024-03-15T05:00:00Z"}]}]}).to_string())
+        }
+    });
+    let findings=osv::audit(&[jackson()],true,now(),soon()).unwrap();
+    assert_eq!(findings[0].advisories.len(),1);
+    assert_eq!(findings[0].fix().as_deref(),Some("2.12.7.1"));
+}
+
+#[test]
+fn repeated_continuations_and_page_errors_do_not_replace_cached_queries_or_report() {
+    for fail_page in [false,true] {
+        let host = MockHost::install().with_capabilities(CAPS);
+        host.add_file("pom.xml",POM);
+        let previous=json!({"rows":[],"scanned_at":1,"checked_files":["/project/pom.xml"]}).to_string();
+        host::storage::set("scan:/project",&previous).unwrap();
+        host::storage::set("queries","{}").unwrap();
+        host.on_fetch(move |req| {
+            let body: Value = serde_json::from_slice(req.body.as_deref().unwrap()).unwrap();
+            if fail_page && !body["queries"][0]["page_token"].is_null() { return Err(Error::Failed("page unavailable".into())); }
+            let results: Vec<_> = body["queries"].as_array().unwrap().iter().map(|_| json!({"next_page_token":"repeated"})).collect();
+            ok(json!({"results":results}).to_string())
+        });
+        assert!(DependencyAudit::default().run_command("scan",&host.invocation(),None).is_err());
+        assert_eq!(host.storage()["queries"],"{}");
+        assert_eq!(host.storage()["scan:/project"],previous);
+        assert!(last_failure(&host.invocation().project().unwrap()).is_some());
+        assert_eq!(posts(&host),2);
+    }
+}
+
+#[test]
+fn discovery_caps_are_reported_as_partial_and_do_not_pass_commit_review() {
+    use openidea_plugin::commit::CommitChecks;
+    let host = MockHost::install().with_capabilities(CAPS);
+    host.on_fetch(osv);
+    for i in 0..201 { host.add_file(&format!("m{i:03}/pom.xml"),"<project/>"); }
+    let mut plugin=DependencyAudit::default();
+    plugin.run_command("scan",&host.invocation(),None).unwrap();
+    let report=stored_report(&host.invocation().project().unwrap()).unwrap().unwrap();
+    assert_eq!(report.checked_files.len(),200);
+    assert!(report.discovery_limited);
+    assert!(host.notifications()[0].body.contains("Partial report"));
+    assert!(report_status(&report,None).contains("discovery reached its limit"));
+    let problems=plugin.check("cached-dependencies",&commit_draft(&["/project/m000/pom.xml"]),&host.invocation()).unwrap();
+    assert_eq!(problems.len(),1);
+}
+
+#[test]
+fn endless_unique_continuations_stop_at_a_bound_without_saving_partial_answers() {
+    let host = MockHost::install().with_capabilities(CAPS);
+    host.on_fetch(|req| {
+        let body: Value = serde_json::from_slice(req.body.as_deref().unwrap()).unwrap();
+        let next = body["queries"][0]["page_token"].as_str().and_then(|s|s.parse::<u32>().ok()).unwrap_or(0)+1;
+        ok(json!({"results":[{"next_page_token":next.to_string()}]}).to_string())
+    });
+    let error=osv::audit(&[jackson()],true,now(),soon()).unwrap_err();
+    assert!(error.to_string().contains("page bound"));
+    assert_eq!(posts(&host),33);
+    assert!(!host.storage().contains_key("queries"));
+}
+
+#[test]
+fn packaged_selected_actions_validate_kind_membership_and_confirm_current_buffer() {
+    let caps:Vec<_> = CAPS.iter().copied().chain(["editor.read","editor.write"]).collect();
+    let host=MockHost::install().with_capabilities(&caps);
+    let mut plugin=scanned(&host);
+    host.open_editor("/project/pom.xml","xml",POM,&[]);
+    let model=resource_model(&mut plugin,&host);
+    let items=model["body"]["items"].as_array().unwrap();
+    let dep=items.iter().find(|r|r["cells"][0]=="Dependency" && r["cells"][2]=="Maven").unwrap()["key"].as_str().unwrap().to_owned();
+    let advisory=items.iter().find(|r|r["cells"][0]=="Advisory" && r["cells"][2]=="Maven").unwrap()["key"].as_str().unwrap().to_owned();
+    assert!(dep.starts_with("dep:") && advisory.starts_with("advisory:"));
+    let requests=host.requests().len();
+    let mut command=|id:&str,key:&str| {
+        plugin.handle("vulnerabilities",ViewEvent::Message(json!({"channel":"ui-kit","sequence":50,"project":"/project","op":"command","id":id,"key":key}).to_string()),&host.invocation()).unwrap();
+        serde_json::from_str::<Value>(&host.view_messages().last().unwrap().1).unwrap()
+    };
+    let denied=command("preview-upgrade",&advisory);
+    assert!(denied.get("error").is_some(),"{denied}");
+    assert_eq!(host.editor_text(),POM);
+    let result=command("preview-upgrade",&dep); // no confirmation response => cancel
+    assert!(result.get("error").is_none(),"{result}");
+    assert_eq!(host.editor_text(),POM);
+    host.answer_next_prompt(Some(&[]));
+    let result=command("preview-upgrade",&dep);
+    assert!(result.get("error").is_none(),"{result}");
+    assert_eq!(host.editor_text(),POM.replace("2.12.3","2.12.7.1"));
+    assert_eq!(host.editor_version(),2);
+    let stale=command("preview-upgrade",&dep);
+    assert!(stale.get("error").is_some(),"{stale}");
+    let result=command("open-advisory",&advisory);
+    assert!(result.get("error").is_none(),"{result}");
+    assert_eq!(host.opened_urls(),["https://osv.dev/vulnerability/GHSA-57j2-w4cx-62h2"]);
+    assert_eq!(host.requests().len(),requests);
+}
+
+fn selected_advisory(plugin:&mut DependencyAudit,host:&MockHost,name:&str)->String {
+    let model=resource_model(plugin,host);
+    model["body"]["items"].as_array().unwrap().iter().find(|r|r["cells"][0]=="Advisory" && r["cells"][1]==name).unwrap()["key"].as_str().unwrap().into()
+}
+
+#[test]
+fn scoped_ignore_filters_every_surface_and_restores_retained_evidence_without_rescan() {
+    use openidea_plugin::commit::CommitChecks;
+    let caps:Vec<_>=CAPS.iter().copied().chain(["vcs.read"]).collect();
+    let host=MockHost::install().with_capabilities(&caps);
+    let mut plugin=scanned(&host);
+    let selected=selected_advisory(&mut plugin,&host,"com.fasterxml.jackson.core:jackson-databind");
+    let before=host.storage()["scan:/project"].clone();
+    let requests=host.requests().len();
+    let doc=document("/project/pom.xml","xml",POM);
+    assert_eq!(plugin.diagnostics(&doc).len(),1);
+    assert_eq!(plugin.code_actions(&doc,line(3)).iter().filter(|a|a.title.starts_with("Upgrade ")).count(),1);
+    let draft=commit_draft(&["/project/pom.xml"]);
+    assert_eq!(plugin.check("cached-dependencies",&draft,&host.invocation()).unwrap().len(),1);
+    host.answer_next_prompt(Some(&["Temporarily accepted; tracked in SEC-42"]));
+    host.answer_next_prompt(Some(&[]));
+    plugin.run_command("ignore-finding",&host.invocation(),Some(&selected)).unwrap();
+    assert_eq!(host.storage()["scan:/project"],before,"suppression must not delete snapshot facts");
+    assert!(plugin.diagnostics(&doc).is_empty());
+    assert!(plugin.code_actions(&doc,line(3)).is_empty());
+    assert!(plugin.check("cached-dependencies",&draft,&host.invocation()).unwrap().is_empty());
+    assert!(!tree(&mut plugin,&host).iter().any(|r|r.label.starts_with("com.fasterxml.jackson")));
+    assert!(tree(&mut plugin,&host).iter().any(|r|r.label.starts_with("lodash")),"other package remains visible");
+    assert!(plugin.run_command("ignore-finding",&host.invocation(),Some(&selected)).is_err(),"hidden/stale selections cannot add another record");
+    let ignores=host.storage()["scoped-ignores:/project"].clone();
+    assert!(ignores.contains("SEC-42") && ignores.contains("2.12.3"));
+    // A new scan must retain ignored facts too, so restoring does not depend on an old instance.
+    plugin.run_command("scan",&host.invocation(),None).unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&host.storage()["scan:/project"]).unwrap()["rows"].as_array().unwrap().len(),2);
+    assert!(host.notifications().last().unwrap().body.contains("1 of 3"));
+    let requests_after_scan=host.requests().len();
+    let mut fresh=DependencyAudit::default();
+    assert!(fresh.diagnostics(&doc).is_empty());
+    host.answer_next_prompt(Some(&["0"]));
+    host.answer_next_prompt(Some(&[]));
+    fresh.run_command("review-ignores",&host.invocation(),None).unwrap();
+    assert_eq!(fresh.diagnostics(&doc).len(),1);
+    assert_eq!(fresh.code_actions(&doc,line(3)).iter().filter(|a|a.title.starts_with("Upgrade ")).count(),1);
+    assert_eq!(fresh.check("cached-dependencies",&draft,&host.invocation()).unwrap().len(),1);
+    assert!(tree(&mut fresh,&host).iter().any(|r|r.label.starts_with("com.fasterxml.jackson")));
+    assert_eq!(host.requests().len(),requests_after_scan);
+    assert!(host.requests().len()>=requests);
+    assert_eq!(host.storage()["scoped-ignores:/project"],"[]");
+}
+
+#[test]
+fn ignore_reason_confirmation_and_restore_cancellation_do_not_mutate_evidence() {
+    let host=MockHost::install().with_capabilities(CAPS);
+    let mut plugin=scanned(&host);
+    let selected=selected_advisory(&mut plugin,&host,"lodash");
+    let before=host.storage();
+    plugin.run_command("ignore-finding",&host.invocation(),Some(&selected)).unwrap(); // reason cancelled
+    assert_eq!(host.storage(),before);
+    host.answer_next_prompt(Some(&["reviewing"])); // confirmation dismissed
+    plugin.run_command("ignore-finding",&host.invocation(),Some(&selected)).unwrap();
+    assert_eq!(host.storage(),before);
+    for reason in ["  ".to_owned(),"x".repeat(513),"line\ncontrol".into()] {
+        host.answer_next_prompt(Some(&[&reason]));
+        assert!(plugin.run_command("ignore-finding",&host.invocation(),Some(&selected)).is_err());
+        assert_eq!(host.storage(),before);
+    }
+    host.answer_next_prompt(Some(&["accepted temporarily"]));host.answer_next_prompt(Some(&[]));
+    plugin.run_command("ignore-finding",&host.invocation(),Some(&selected)).unwrap();
+    let ignored=host.storage();
+    plugin.run_command("review-ignores",&host.invocation(),None).unwrap();
+    assert_eq!(host.storage(),ignored);
+    host.answer_next_prompt(Some(&["0"]));
+    plugin.run_command("review-ignores",&host.invocation(),None).unwrap();
+    assert_eq!(host.storage(),ignored);
+    host.answer_next_prompt(Some(&["9999"]));
+    assert!(plugin.run_command("review-ignores",&host.invocation(),None).is_err());
+    assert_eq!(host.storage(),ignored);
+}
+
+#[test]
+fn scoped_ignores_remain_separate_from_global_setting_and_project_identity() {
+    let host=MockHost::install().with_capabilities(CAPS);
+    let mut plugin=scanned(&host);
+    let selected=selected_advisory(&mut plugin,&host,"lodash");
+    host.answer_next_prompt(Some(&["accepted"]));host.answer_next_prompt(Some(&[]));
+    plugin.run_command("ignore-finding",&host.invocation(),Some(&selected)).unwrap();
+    let scopes=host.storage()["scoped-ignores:/project"].clone();
+    host.set_setting("ignoredAdvisories",r#""GHSA-57j2-w4cx-62h2""#);
+    assert!(stored_rows(&host.invocation().project().unwrap()).unwrap().unwrap().is_empty());
+    host.answer_next_prompt(Some(&["0"]));host.answer_next_prompt(Some(&[]));
+    plugin.run_command("review-ignores",&host.invocation(),None).unwrap();
+    assert!(tree(&mut plugin,&host).iter().all(|r|!r.label.starts_with("com.fasterxml.jackson")),"restoration cannot override global setting");
+    assert!(tree(&mut plugin,&host).iter().any(|r|r.label.starts_with("lodash")));
+    host::storage::set("scoped-ignores:/project",&scopes).unwrap();
+    host.set_project_root(Some("/another"));
+    assert!(scoped::load("/another").is_empty());
+    assert!(plugin.run_command("ignore-finding",&host.invocation(),Some(&selected)).is_err());
+    assert!(plugin.run_command("review-ignores",&host.invocation(),None).unwrap().unwrap().contains("No project-scoped"));
+    host.set_project_root(None);
+    assert!(plugin.run_command("review-ignores",&host.invocation(),None).is_err());
+    assert_eq!(host.storage()["scoped-ignores:/project"],scopes);
+}
+
+#[test]
+fn alias_scopes_survive_detail_cache_eviction_and_recompute_visible_fix_recommendations() {
+    let host=MockHost::install().with_capabilities(CAPS);
+    let mut plugin=scanned(&host);
+    let mut raw:Value=serde_json::from_str(&host.storage()["scan:/project"]).unwrap();
+    let row=raw["rows"].as_array_mut().unwrap().iter_mut().find(|r|r["name"]=="lodash").unwrap();
+    row["advisories"]=json!(["GHSA-35jh-r3h4-6jhm","GHSA-other"]);
+    row["fix"]=json!("99.0.0");
+    row["details"][0]["aliases"]=json!(["CVE-2026-1234"]);
+    row["details"].as_array_mut().unwrap().push(json!({"id":"GHSA-other","summary":"Other issue","modified":"x","severity":"LOW","fixed":{"npm:lodash":["4.17.20"]}}));
+    host::storage::set("scan:/project",&raw.to_string()).unwrap();
+    let selected=selected_advisory(&mut plugin,&host,"lodash");
+    host.answer_next_prompt(Some(&["accepted advisory only"]));host.answer_next_prompt(Some(&[]));
+    plugin.run_command("ignore-finding",&host.invocation(),Some(&selected)).unwrap();
+    for key in host::storage::keys("adv:").unwrap() {host::storage::delete(&key).unwrap();}
+    let report=stored_report(&host.invocation().project().unwrap()).unwrap().unwrap();
+    let row=report.rows.iter().find(|r|r.name=="lodash").unwrap();
+    assert_eq!(row.advisories,["GHSA-other"]);
+    assert_eq!(row.fix.as_deref(),Some("4.17.20"),"hidden advisory must not dictate visible upgrade action");
+    assert!(scoped::matches(&scoped::load("/project"),"npm","lodash","4.17.15","CVE-2026-1234",&[]));
+    // Restore works from retained snapshot details even after separate cache eviction.
+    host.answer_next_prompt(Some(&["0"]));host.answer_next_prompt(Some(&[]));
+    plugin.run_command("review-ignores",&host.invocation(),None).unwrap();
+    let report=stored_report(&host.invocation().project().unwrap()).unwrap().unwrap();
+    assert_eq!(report.rows.iter().find(|r|r.name=="lodash").unwrap().advisories.len(),2);
+}
+
+#[test]
+fn packaged_ignore_and_empty_report_review_restore_use_declared_controls() {
+    let host=MockHost::install().with_capabilities(CAPS);
+    host.set_setting("ignoredAdvisories",r#""GHSA-35jh-r3h4-6jhm""#);
+    let mut plugin=scanned(&host);
+    let selected=selected_advisory(&mut plugin,&host,"com.fasterxml.jackson.core:jackson-databind");
+    let requests=host.requests().len();
+    host.answer_next_prompt(Some(&["Accepted until patch evaluation"]));host.answer_next_prompt(Some(&[]));
+    plugin.handle("vulnerabilities",ViewEvent::Message(json!({"channel":"ui-kit","sequence":61,"project":"/project","op":"command","id":"ignore-finding","key":selected}).to_string()),&host.invocation()).unwrap();
+    let response:Value=serde_json::from_str(&host.view_messages().last().unwrap().1).unwrap();
+    assert!(response.get("error").is_none(),"{response}");
+    assert_eq!(response["model"]["body"]["kind"],"message");
+    assert!(response["model"]["toolbar"].as_array().unwrap().iter().any(|b|b["key"]=="review-ignores"),"{response}");
+    host.answer_next_prompt(Some(&["0"]));host.answer_next_prompt(Some(&[]));
+    plugin.handle("vulnerabilities",ViewEvent::Message(json!({"channel":"ui-kit","sequence":62,"project":"/project","op":"event","event":{"kind":"button","key":"review-ignores"}}).to_string()),&host.invocation()).unwrap();
+    let response:Value=serde_json::from_str(&host.view_messages().last().unwrap().1).unwrap();
+    assert!(response.get("error").is_none(),"{response}");
+    assert_eq!(response["model"]["body"]["kind"],"resources");
+    assert_eq!(response["model"]["body"]["items"].as_array().unwrap().len(),2);
+    assert_eq!(host.requests().len(),requests);
+}
+
+#[test]
+fn report_write_limit_preserves_a_real_last_good_report_and_reader_accepts_exact_boundary() {
+    let host=MockHost::install().with_capabilities(CAPS);
+    let mut plugin=scanned(&host);
+    let project=host.invocation().project().unwrap();
+    let requests=host.requests().len();
+    let previous=host.storage()["scan:/project"].clone();
+    let rows_before=tree(&mut plugin,&host).iter().map(|r|r.key.clone()).collect::<Vec<_>>();
+    let mut report:Report=serde_json::from_str(&previous).unwrap();
+    report.checked_files.push(String::new());
+    let empty_size=serde_json::to_string(&report).unwrap().len();
+    *report.checked_files.last_mut().unwrap()="x".repeat(MAX_REPORT_BYTES-empty_size+1);
+    assert_eq!(serde_json::to_string(&report).unwrap().len(),MAX_REPORT_BYTES+1);
+    assert!(persist_report(&project,&report).unwrap_err().to_string().contains("previous report retained"));
+    assert_eq!(host.storage()["scan:/project"],previous,"oversized replacement never reaches storage_set");
+    assert_eq!(tree(&mut plugin,&host).iter().map(|r|r.key.clone()).collect::<Vec<_>>(),rows_before);
+    report.checked_files.last_mut().unwrap().pop();
+    assert_eq!(serde_json::to_string(&report).unwrap().len(),MAX_REPORT_BYTES);
+    persist_report(&project,&report).unwrap();
+    assert_eq!(host.storage()["scan:/project"].len(),MAX_REPORT_BYTES);
+    assert_eq!(stored_report(&project).unwrap().unwrap().rows.len(),2,"writer boundary must remain readable");
+    assert_eq!(host.requests().len(),requests,"bounded persistence never queries OSV");
+}
+
+fn invalidations(host: &MockHost) -> Vec<(String,String)> {
+    host.view_messages().into_iter().filter(|(_,message)|message==r#"{"channel":"ui-kit-refresh"}"#).collect()
+}
+#[test]
+fn external_scan_success_and_failure_invalidate_report_but_cached_render_does_not() {
+    let host=MockHost::install().with_capabilities(CAPS);
+    let mut plugin=scanned(&host);
+    assert_eq!(invalidations(&host),[(REPORT_VIEW.to_owned(),r#"{"channel":"ui-kit-refresh"}"#.to_owned())]);
+    let before=host.storage()["scan:/project"].clone();let messages=invalidations(&host).len();let requests=host.requests().len();
+    resource_model(&mut plugin,&host);resource_model(&mut plugin,&host);
+    assert_eq!(invalidations(&host).len(),messages);assert_eq!(host.requests().len(),requests);
+    host.add_file("extra/package.json",r#"{"dependencies":{"previously-unseen":"0.1.0"}}"#);
+    host.on_fetch(|_|Err(Error::Failed("deterministic failure".into())));
+    assert!(plugin.run_command("scan",&host.invocation(),None).is_err());
+    assert_eq!(invalidations(&host).len(),messages+1);
+    assert_eq!(host.storage()["scan:/project"],before);
+    let model=resource_model(&mut plugin,&host);assert!(model["status"].as_str().unwrap().contains("rescan failed"));assert_eq!(model["body"]["items"].as_array().unwrap().len(),4);
+}
+#[test]
+fn scoped_ignore_restore_and_upgrade_notify_committed_state_only() {
+    let caps:Vec<_>=CAPS.iter().copied().chain(["editor.read","editor.write"]).collect();
+    let host=MockHost::install().with_capabilities(&caps);let mut plugin=scanned(&host);
+    let selected=selected_advisory(&mut plugin,&host,"com.fasterxml.jackson.core:jackson-databind");let before=invalidations(&host).len();
+    plugin.run_command("ignore-finding",&host.invocation(),Some(&selected)).unwrap();assert_eq!(invalidations(&host).len(),before,"cancel is not committed");
+    host.answer_next_prompt(Some(&["Tracked acceptance"]));host.answer_next_prompt(Some(&[]));plugin.run_command("ignore-finding",&host.invocation(),Some(&selected)).unwrap();assert_eq!(invalidations(&host).len(),before+1);
+    host.answer_next_prompt(Some(&["0"]));host.answer_next_prompt(Some(&[]));plugin.run_command("review-ignores",&host.invocation(),None).unwrap();assert_eq!(invalidations(&host).len(),before+2);
+    let model=resource_model(&mut plugin,&host);let key=model["body"]["items"].as_array().unwrap().iter().find(|row|row["cells"][0]=="Dependency"&&row["cells"][2]=="Maven").unwrap()["key"].as_str().unwrap();
+    host.open_editor("/project/pom.xml","xml",POM,&[]);host.answer_next_prompt(Some(&[]));plugin.run_command("preview-upgrade",&host.invocation(),Some(key)).unwrap();assert_eq!(invalidations(&host).len(),before+3);
+}
+#[test]
+fn missing_denied_and_foreign_report_owners_replace_old_packaged_body() {
+    let host=MockHost::install().with_capabilities(CAPS);let mut plugin=scanned(&host);let model=resource_model(&mut plugin,&host);
+    let key=model["body"]["items"][1]["key"].as_str().unwrap().to_owned();let original=host.storage()["scan:/project"].clone();
+    let mut corrupt:Value=serde_json::from_str(&original).unwrap();corrupt["rows"][0]["path"]=json!("/foreign/private/pom.xml");host::storage::set("scan:/project",&corrupt.to_string()).unwrap();
+    let model=resource_model(&mut plugin,&host);assert_eq!(model["body"]["kind"],"message");assert!(!model.to_string().contains("private"));assert!(plugin.targets.is_empty());
+    assert!(plugin.run_command("open-advisory",&host.invocation(),Some(&key)).is_err());assert!(host.opened_urls().is_empty());
+    host::storage::set("scan:/project",&original).unwrap();host.set_project_root(None);assert_eq!(resource_model(&mut plugin,&host)["body"]["kind"],"message");
+    host.set_project_root(Some("/project"));let host=host.with_capabilities(&["project.read"]);assert_eq!(resource_model(&mut plugin,&host)["body"]["kind"],"message");
+    assert!(plugin.targets.is_empty()&&plugin.display.is_empty());
+}
+#[test]
+fn nested_source_and_lock_owners_are_not_inherited_from_parent_root() {
+    let host=MockHost::install().with_capabilities(CAPS);let mut plugin=scanned(&host);let root=host.invocation().project().unwrap();
+    assert!(owned_lock(&root,"/project/web/package.json").is_some());
+    host.add_project("/project/web/package-lock.json");assert!(owned_lock(&root,"/project/web/package.json").is_none());
+    assert!(read_deps(&root,"/foreign/package.json").is_err());
+    host.add_project("/project/web");let model=resource_model(&mut plugin,&host);assert_eq!(model["body"]["kind"],"message");assert!(plugin.targets.is_empty());
+}
+#[test]
+fn report_owner_proof_deduplicates_and_bounds_source_checks() {
+    let host=MockHost::install().with_capabilities(CAPS);let _plugin=scanned(&host);
+    let report=stored_report(&host.invocation().project().unwrap()).unwrap().unwrap();
+    let mut paths=HashSet::new();for row in &report.rows {paths.insert(row.path.as_str());for source in &row.sources {paths.insert(source.path.as_str());}}
+    let mut checked=HashSet::new();validate_report_sources(&report,|path|{assert!(checked.insert(path.to_owned()),"duplicate host lookup");true}).unwrap();assert_eq!(checked.len(),paths.len());
+    let mut value:Value=serde_json::from_str(&host.storage()["scan:/project"]).unwrap();let mut rows=Vec::new();for n in 0..=MAX_REPORT_OWNER_PATHS {let mut row=value["rows"][0].clone();row["path"]=json!(format!("/project/{n}/pom.xml"));rows.push(row);}value["rows"]=json!(rows);let oversized:Report=serde_json::from_value(value).unwrap();let mut calls=0;assert!(validate_report_sources(&oversized,|_|{calls+=1;true}).is_err());assert_eq!(calls,0,"reject path-count overflow before VM imports");
+}
+#[test]
+fn saved_lock_cache_clear_and_observed_project_switch_emit_no_foreign_model() {
+    let host=MockHost::install().with_capabilities(CAPS);let mut plugin=scanned(&host);resource_model(&mut plugin,&host);host.set_setting("autoCheck","false");let before=invalidations(&host).len();let requests=host.requests().len();
+    plugin.handle_events(&[Event::FileSaved("/project/web/package-lock.json".into())],&host.invocation());assert_eq!(invalidations(&host).len(),before+1);assert_eq!(host.requests().len(),requests);assert!(plugin.targets.is_empty());
+    host.set_project_root(None);plugin.handle_events(&[Event::EditorFocused(None)],&host.invocation());assert_eq!(invalidations(&host).len(),before+2);assert_eq!(resource_model(&mut plugin,&host)["body"]["kind"],"message");
+    assert!(invalidations(&host).iter().all(|(view,text)|view==REPORT_VIEW&&text==r#"{"channel":"ui-kit-refresh"}"#));
+}
+#[test]
+fn existing_opted_in_open_check_invalidates_after_cache_commit_without_render_fetch() {
+    let host=MockHost::install().with_capabilities(CAPS);let mut plugin=scanned(&host);let before=invalidations(&host).len();
+    plugin.handle_events(&[Event::FileOpened("/project/pom.xml".into())],&host.invocation());assert_eq!(invalidations(&host).len(),before+1);
+    let requests=host.requests().len();resource_model(&mut plugin,&host);assert_eq!(host.requests().len(),requests);assert_eq!(invalidations(&host).len(),before+1);
+}
+
+#[test]
+fn editor_actions_are_lazy_and_upgrade_preview_is_exact_before_host_apply() {
+    let host=MockHost::install().with_capabilities(CAPS);let mut plugin=scanned(&host);let doc=document("/project/pom.xml","xml",POM);let requests=host.requests().len();let before=host.storage();
+    let actions=plugin.code_actions(&doc,line(3));assert!(actions.iter().any(|a|a.title.starts_with("Open OSV advisory")));assert!(actions.iter().any(|a|a.title.starts_with("Ignore ")));assert!(actions.iter().all(|a|a.edits.is_empty()&&a.data.is_some()));assert_eq!(host.storage(),before);assert!(host.opened_urls().is_empty());
+    let action=actions.into_iter().find(|a|a.title.starts_with("Upgrade ")).unwrap();
+    assert!(matches!(plugin.resolve_code_action(&doc,action.clone()),Err(Error::Cancelled)));
+    host.answer_next_prompt(Some(&[]));let resolved=plugin.resolve_code_action(&doc,action).unwrap();assert_eq!(resolved.edits[0].1[0].text,"2.12.7.1");assert!(resolved.data.is_none());
+    assert_eq!(host.requests().len(),requests);assert_eq!(host.storage(),before);
+}
+#[test]
+fn editor_advisory_and_exact_ignore_resolve_without_network_or_text_edits() {
+    let host=MockHost::install().with_capabilities(CAPS);let mut plugin=scanned(&host);let doc=document("/project/pom.xml","xml",POM);let requests=host.requests().len();
+    let offered=plugin.code_actions(&doc,line(3));let open=offered.iter().find(|a|a.title.starts_with("Open OSV advisory")).unwrap().clone();
+    host.answer_next_prompt(Some(&[]));let resolved=plugin.resolve_code_action(&doc,open).unwrap();assert!(resolved.edits.is_empty()&&resolved.data.is_none());assert_eq!(host.opened_urls(),["https://osv.dev/vulnerability/GHSA-57j2-w4cx-62h2"]);
+    let ignore=offered.iter().find(|a|a.title.starts_with("Ignore ")).unwrap().clone();host.answer_next_prompt(Some(&["Accepted for fixture review"]));host.answer_next_prompt(Some(&[]));assert!(plugin.resolve_code_action(&doc,ignore).unwrap().edits.is_empty());
+    assert!(plugin.code_actions(&doc,line(3)).is_empty());assert!(host.storage()["scoped-ignores:/project"].contains("Accepted for fixture review"));assert_eq!(host.requests().len(),requests);
+    host.answer_next_prompt(Some(&["0"]));host.answer_next_prompt(Some(&[]));plugin.run_command("review-ignores",&host.invocation(),None).unwrap();assert!(!plugin.code_actions(&doc,line(3)).is_empty());assert_eq!(host.requests().len(),requests);
+}
+#[test]
+fn stale_editor_version_source_and_forged_effect_cannot_return_an_edit() {
+    let host=MockHost::install().with_capabilities(CAPS);let mut plugin=scanned(&host);let doc=document("/project/pom.xml","xml",POM);let original=plugin.code_actions(&doc,line(3)).into_iter().find(|a|a.title.starts_with("Upgrade ")).unwrap();
+    let mut changed=doc.clone();changed.version+=1;assert!(plugin.resolve_code_action(&changed,original.clone()).is_err());
+    host.add_file("pom.xml",&POM.replace("2.12.3","2.13.0"));assert!(plugin.resolve_code_action(&doc,original.clone()).is_err());host.add_file("pom.xml",POM);
+    let mut forged=original.clone();let mut data:Value=serde_json::from_str(forged.data.as_ref().unwrap()).unwrap();data["effect"]=json!(["arbitrary"]);forged.data=Some(data.to_string());assert!(plugin.resolve_code_action(&doc,forged).is_err());
+    let mut foreign=original;let mut data:Value=serde_json::from_str(foreign.data.as_ref().unwrap()).unwrap();data["root"]=json!("/foreign");foreign.data=Some(data.to_string());assert!(plugin.resolve_code_action(&doc,foreign).is_err());assert!(host.opened_urls().is_empty());
+}
+#[test]
+fn editor_ignore_cancel_and_evicted_advice_leave_sources_and_scopes_untouched() {
+    let host=MockHost::install().with_capabilities(CAPS);let mut plugin=scanned(&host);let doc=document("/project/pom.xml","xml",POM);let before=host.storage();let requests=host.requests().len();
+    let actions=plugin.code_actions(&doc,line(3));let ignore=actions.iter().find(|a|a.title.starts_with("Ignore ")).unwrap().clone();
+    assert!(matches!(plugin.resolve_code_action(&doc,ignore.clone()),Err(Error::Cancelled)));assert_eq!(host.storage(),before);
+    host.answer_next_prompt(Some(&["reason without final approval"]));assert!(matches!(plugin.resolve_code_action(&doc,ignore),Err(Error::Cancelled)));assert_eq!(host.storage(),before);
+    let upgrade=actions.into_iter().find(|a|a.title.starts_with("Upgrade ")).unwrap();host::storage::delete("queries").unwrap();
+    assert!(matches!(plugin.resolve_code_action(&doc,upgrade),Err(Error::Stale)));assert_eq!(host.requests().len(),requests);assert!(host.opened_urls().is_empty());assert!(!host.storage().contains_key("scoped-ignores:/project"));
 }

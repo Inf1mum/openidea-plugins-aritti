@@ -242,11 +242,8 @@ pub(crate) fn translation_key(template: Option<&str>, value: &str) -> Option<Str
     })
 }
 
-pub(crate) fn default_domain(text: &str) -> String {
-    let Some(at) = text.find("trans_default_domain") else { return "messages".into() };
-    let rest = text[at + "trans_default_domain".len()..].trim_start();
-    let quote = rest.chars().next().filter(|c| matches!(c, '\'' | '"'));
-    quote.and_then(|quote| rest[1..].split(quote).next()).map(str::to_owned).unwrap_or_else(|| "messages".into())
+pub(crate) fn default_domain(text: &str) -> Option<String> {
+    crate::twig_checks::prefix_domain(text)
 }
 
 pub(crate) fn translation_line(file_text: &str, key: &str, value: &str) -> (usize, String) {
@@ -355,8 +352,8 @@ mod tests {
         assert_eq!(translation_key(None, "Où êtes-vous ?"), Some("où_êtes_vous".into()));
         assert_eq!(translation_key(None, "?!"), None);
         assert_eq!(translation_key(None, "one two three four five six seven"), Some("one_two_three_four_five_six".into()));
-        assert_eq!(default_domain("{% trans_default_domain 'admin' %}"), "admin");
-        assert_eq!(default_domain("x"), "messages");
+        assert_eq!(default_domain("{% trans_default_domain 'admin' %}"), Some("admin".into()));
+        assert_eq!(default_domain("x"), Some("messages".into()));
         assert_eq!(translation_line("a: b", "k", "it's").1, "\n'k': 'it''s'\n");
         assert_eq!(translation_line("a: b\r\n", "k", "v").1, "'k': 'v'\r\n");
     }

@@ -13,7 +13,7 @@ authors = ["Arnaud RITTI <arnaud.ritti@gmail.com>", "JetBrains s.r.o. and contri
 homepage = "https://github.com/JetBrains/intellij-community/tree/master/plugins/tasks"
 license = "Apache-2.0"
 change-notes = """\
-Unreleased: Tasks: Search Issues asks for a query, searches every set-up tracker and opens the picked issue. Save, Load and Remove Context keep named lists of the open files. Add and Remove Repository read issues from several GitHub, GitLab or Codeberg repositories. \
+Unreleased: native window-scoped task status and owned open-editor named contexts with bounded active selection restoration (API 1.4). task/context storage now carries concrete owner/schema/revision, validates legacy records and bounds without silent reset, rejects stale rendered callbacks and supports explicit project-only recovery. Tasks: Search Issues asks for a query, searches every set-up tracker and opens the picked issue. Save, Load and Remove Context keep named lists of the open files. Add and Remove Repository read issues from several GitHub, GitLab or Codeberg repositories. \
 0.2.0: Tasks: Switch Task picks a task from a list; Close Active Task brings the Tasks view to the front. Needs OpenIDEA API 1.2. \
 0.1.0: first release, ported from com.intellij.tasks 263.7307.108 (intellij-community idea/263.7307.112). \
 Local tasks, task switching and time tracking. Issues from GitHub, gitlab.com, codeberg.org, *.youtrack.cloud, \
@@ -22,17 +22,20 @@ Closing a task can update the issue state; work time can be posted to YouTrack a
 The active task's commit message goes to the clipboard or to commit.template."""
 categories = ["tools", "vcs"]
 icon = "icon.svg"
-engines.openidea = "^1.2"
+engines.openidea = "^1.4"
 wasm = "dist/plugin.wasm"
 activation = ["on-view:tasks", "on-startup-finished", "on-schedule:1200", "on-event:file-opened"]
 
 [capabilities]
 required = ["project.read", "storage"]
-# vcs.read: the GitHub / GitLab / Codeberg project from the origin remote. clipboard: Copy Commit Message.
+# vcs.read: tracker remotes/current commit draft. vcs.write: explicit reviewed commit-message replacement.
+# clipboard: Copy Commit Message.
 # process:git: a branch per task, shelving, merge on close, commit.template. events: the files of each task.
 # net + secrets: issue trackers, each one works on its own.
 optional = [
+    "editor.read",
     "vcs.read",
+    "vcs.write",
     "process:git",
     "events",
     "clipboard",
@@ -85,6 +88,7 @@ id = "tasks"
 title = "Tasks"
 icon = "icons/tasks.svg"
 location = "left"
+web = "web/resources/hub.html"
 
 [[contributes.statusBar]]
 id = "active-task"
@@ -166,3 +170,45 @@ command = "open-in-browser"
 [contributes.settings]
 title = "Tasks"
 schema = "settings.schema.json"
+
+[[contributes.commands]]
+id = "apply-commit-message"
+title = "Tasks: Apply Active Task to Commit Message"
+category = "Tasks"
+
+[[contributes.menus]]
+menu = "commit.message"
+command = "apply-commit-message"
+
+
+[[contributes.providers]]
+kinds = ["hover"]
+languages = ["*"]
+
+[[contributes.commands]]
+id = "open-issue-at-caret"
+title = "Tasks: Open Cached Issue at Caret in Browser"
+category = "Tasks"
+
+[[contributes.commands]]
+id = "activate-issue-at-caret"
+title = "Tasks: Activate Cached Issue at Caret Locally (No VCS Changes)"
+category = "Tasks"
+
+[[contributes.menus]]
+menu = "editor.context"
+command = "open-issue-at-caret"
+
+[[contributes.menus]]
+menu = "editor.context"
+command = "activate-issue-at-caret"
+
+[[contributes.commands]]
+id = "reset-project-state"
+title = "Tasks: Reset This Project’s Task State (Asks First)…"
+category = "Tasks"
+
+[[contributes.commands]]
+id = "review-issue-branch-at-caret"
+title = "Tasks: Review Cached Issue Activation and Branch Options at Caret"
+category = "Tasks"

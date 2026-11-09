@@ -7,8 +7,7 @@ use serde_json::Value;
 use spring_text::config::canonical;
 
 /// The endpoints read, in order; the first one tells whether the application is up.
-pub const ENDPOINTS: [&str; 9] =
-    ["beans", "env", "conditions", "health", "mappings", "configprops", "scheduledtasks", "loggers", "caches"];
+pub const ENDPOINTS: [&str; 9] = ["beans", "env", "conditions", "health", "mappings", "configprops", "scheduledtasks", "loggers", "caches"];
 /// What Actuator shows for a value it hides.
 pub const MASK: &str = "******";
 
@@ -19,7 +18,7 @@ pub struct Snapshot {
     pub fetched_at: u64,
     /// Endpoints that answered nothing usable, with why (`conditions (404)`).
     pub missing: Vec<String>,
-    /// Too big for storage: only beans and environment were kept.
+    /// Legacy subset flag; the current persistence writer never trims automatically.
     pub trimmed: bool,
     pub beans: Vec<Bean>,
     pub profiles: Vec<String>,
@@ -44,6 +43,9 @@ pub struct Bean {
     /// Fully qualified, `$` nesting as `.`, without the CGLIB suffix.
     pub ty: String,
     pub deps: Vec<String>,
+    /// True only when the fetched dependency JSON was an array of strings. Legacy caches cannot prove this.
+    #[serde(default)]
+    pub dependencies_verified: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -152,6 +154,9 @@ impl Snapshot {
                             scope: text(&b["scope"]),
                             ty: type_name(&text(&b["type"])),
                             deps: items(&b["dependencies"]).map(text).collect(),
+                            dependencies_verified: b["dependencies"]
+                                .as_array()
+                                .is_some_and(|dependencies| dependencies.iter().all(Value::is_string)),
                         });
                     }
                 }
@@ -192,9 +197,7 @@ impl Snapshot {
                                 group: group.clone(),
                                 predicate: text(&h["predicate"]),
                                 handler: text(&h["handler"]),
-                                method: method["className"]
-                                    .as_str()
-                                    .map(|class| (type_name(class), text(&method["name"]))),
+                                method: method["className"].as_str().map(|class| (type_name(class), text(&method["name"]))),
                             });
                         }
                     }
@@ -268,7 +271,7 @@ impl Snapshot {
         })
     }
 
-    /// What is kept in storage when the whole snapshot is too big.
+    /// Legacy conversion helper. Current persistence stores the full model or rejects it.
     pub fn trimmed(&self) -> Snapshot {
         Snapshot {
             url: self.url.clone(),
@@ -311,4 +314,63 @@ pub fn short_source(source: &str) -> &str {
         return &source[open + 1..open + close];
     }
     source
+}
+
+/// Known root/container shapes consumed by the retained adapters. Empty typed
+/// collections are observations; an absent/wrong container is not proof of absence.
+pub(crate) fn supported_shape(endpoint: &str, json: &Value) -> bool {
+    if !json.is_object() {
+        return false;
+    }
+    let contexts = |field: &str| {
+        json.get("contexts").and_then(Value::as_object).is_some_and(|contexts| {
+            contexts.values().all(|context| context.is_object() && context.get(field).is_some_and(Value::is_object))
+        })
+    };
+    match endpoint {
+        "beans" => {
+            contexts("beans")
+                && json["contexts"].as_object().is_some_and(|contexts| {
+                    contexts.values().all(|context| context["beans"].as_object().is_some_and(|beans| beans.values().all(Value::is_object)))
+                })
+        }
+        "env" => json.get("propertySources").and_then(Value::as_array).is_some_and(|sources| {
+            sources.iter().all(|source| {
+                source.is_object()
+                    && source.get("name").is_some_and(Value::is_string)
+                    && source.get("properties").is_some_and(Value::is_object)
+            })
+        }),
+        "health" => json.get("status").is_some_and(Value::is_string),
+        "conditions" => json.get("contexts").and_then(Value::as_object).is_some_and(|contexts| {
+            contexts.values().all(|context| {
+                context.is_object()
+                    && (context.get("positiveMatches").is_some() || context.get("negativeMatches").is_some())
+                    && ["positiveMatches", "negativeMatches"].iter().all(|key| context.get(*key).is_none_or(Value::is_object))
+            })
+        }),
+        "mappings" => contexts("mappings"),
+        "configprops" => {
+            contexts("beans")
+                && json["contexts"].as_object().is_some_and(|contexts| {
+                    contexts.values().all(|context| {
+                        context["beans"].as_object().is_some_and(|beans| {
+                            beans.values().all(|bean| bean.is_object() && bean.get("properties").is_some_and(Value::is_object))
+                        })
+                    })
+                })
+        }
+        "scheduledtasks" => {
+            let keys = ["cron", "fixedDelay", "fixedRate", "custom"];
+            keys.iter().any(|key| json.get(*key).is_some())
+                && keys
+                    .iter()
+                    .all(|key| json.get(*key).is_none_or(|value| value.as_array().is_some_and(|tasks| tasks.iter().all(Value::is_object))))
+        }
+        "loggers" => json.get("loggers").and_then(Value::as_object).is_some_and(|loggers| loggers.values().all(Value::is_object)),
+        "caches" => json.get("cacheManagers").and_then(Value::as_object).is_some_and(|managers| {
+            managers.values().all(|manager| manager.is_object() && manager.get("caches").is_some_and(Value::is_object))
+        }),
+        _ => false,
+    }
 }

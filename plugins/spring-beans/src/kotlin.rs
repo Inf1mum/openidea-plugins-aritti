@@ -34,7 +34,7 @@ struct Param {
 }
 
 /// `(@Qualifier("a") private val a: A, b: List<B> = listOf())`, the parentheses at `open`.
-fn params(text: &str, toks: &[Tok], open: usize) -> (Vec<Param>, usize) {
+fn params(text: &str, toks: &[Tok], open: usize, ownership: &crate::annotation_owners::Owners) -> (Vec<Param>, usize) {
     let close = closing(toks, open);
     let mut out = Vec::new();
     for part in split_commas(&toks[open + 1..close.max(open + 1)], true) {
@@ -53,6 +53,7 @@ fn params(text: &str, toks: &[Tok], open: usize) -> (Vec<Param>, usize) {
         }
         let end = type_end(part, k + 2);
         if let Some(ty) = type_ref(text, &part[k + 2..end]) {
+            annotations.retain(|a| ownership.keep_definition(text, a));
             out.push(Param { annotations, name: name.s.to_owned(), ty });
         }
     }
@@ -67,6 +68,8 @@ struct Class {
 }
 
 pub fn model(text: &str) -> FileModel {
+    let source=spring_text::kotlin::parse(text);
+    let ownership=crate::annotation_owners::Owners::new(&source,text,true);
     let toks = tokens(text);
     let mut out = FileModel::default();
     let package = toks
@@ -94,6 +97,7 @@ pub fn model(text: &str) -> FileModel {
                     anns.pop();
                     i = annotation(text, &toks, i, &mut anns);
                 }
+                anns.retain(|a|ownership.keep_definition(text,a));
                 continue;
             }
             "class" | "interface" | "object" if next_ident && prev != ":" && prev != "." => {
@@ -112,7 +116,7 @@ pub fn model(text: &str) -> FileModel {
                 }
                 let mut ctor = Vec::new();
                 if toks.get(j).is_some_and(|t| t.s == "(") {
-                    let (ps, close) = params(text, &toks, j);
+                    let (ps, close) = params(text, &toks, j, &ownership);
                     ctor = ps;
                     j = close + 1;
                 }
@@ -185,7 +189,7 @@ pub fn model(text: &str) -> FileModel {
                     continue;
                 }
                 let name = toks[j - 1];
-                let (ps, close) = params(text, &toks, j);
+                let (ps, close) = params(text, &toks, j, &ownership);
                 j = close + 1;
                 let mut ret = None;
                 if toks.get(j).is_some_and(|t| t.s == ":") {
@@ -217,7 +221,7 @@ pub fn model(text: &str) -> FileModel {
                 continue;
             }
             "constructor" if toks.get(i + 1).is_some_and(|t| t.s == "(") => {
-                let (ps, close) = params(text, &toks, i + 1);
+                let (ps, close) = params(text, &toks, i + 1, &ownership);
                 if let Some(owner) = classes.last().and_then(|c| c.owner) {
                     inject(&mut out, &ps, Some(owner));
                 }

@@ -3,27 +3,29 @@
 //! never from an editor provider), shows it in a tool window and marks the
 //! beans, `@Value` keys and configuration keys it knows about in the editor.
 
+mod panes;
 mod snapshot;
+mod graph;
+mod persistence;
+mod controls;
+use persistence::Scope;
 
 pub use snapshot::*;
 
 use openidea_plugin::providers::{Document, LineMarker, Providers};
 use openidea_plugin::text::position;
 use openidea_plugin::views::{Body, Button, TreeItem, View, ViewEvent, Viewport, Views};
-use openidea_plugin::{
-    Diagnostic, Error, Event, HttpRequest, Invocation, LogLevel, Plugin, Project, Severity, host, register_plugin,
-};
+use openidea_plugin::{Diagnostic, Error, Event, HttpRequest, Invocation, LogLevel, Plugin, Project, Severity, host, register_plugin};
 use serde_json::Value;
 use spring_text::config::{self, canonical};
 use spring_text::index::{COMMAND_BUDGET, Indexes};
 use spring_text::java;
 use std::collections::{BTreeMap, BTreeSet};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH, Instant, Duration};
 
 const VIEW: &str = "runtime";
-const STORAGE_KEY: &str = "snapshot";
-/// Storage holds 1 MiB per plugin.
-const STORAGE_MAX: usize = 900 * 1024;
+const MAX_ENDPOINT_BYTES: usize = 4 << 20;
+const MAX_FETCH_BYTES: usize = 16 << 20;
 const DEFAULT_URL: &str = "http://localhost:8080/actuator";
 const CONFIG_GLOBS: [&str; 6] = [
     "**/application*.properties",
@@ -44,7 +46,10 @@ struct JavaType {
 }
 
 fn index_java(_: &str, text: &str) -> Option<Vec<JavaType>> {
+    let incomplete = || Some(vec![JavaType {fqn:"\0incomplete".into(),line:0,column:0,methods:Vec::new()}]);
+    if text.len()>512<<10 {return incomplete();}
     let file = java::parse(text);
+    if file.types.len()>512 || file.types.iter().map(|t|t.members.len()).sum::<usize>()>4096 {return incomplete();}
     let at = |offset| {
         let p = position(text, offset);
         (p.line, p.character)
@@ -85,18 +90,29 @@ enum Target {
     File(String),
 }
 
+impl Target {
+    fn bounded(self)->Option<Self> {
+        let valid=match &self {
+            Self::Type(class,method)=>class.len()<=4096 && method.as_ref().is_none_or(|m|m.len()<=512),
+            Self::Key(key,file)=>key.len()<=4096 && file.as_ref().is_none_or(|f|f.len()<=1024),
+            Self::File(file)=>file.len()<=1024,
+        };
+        valid.then_some(self)
+    }
+}
+
 /// Checks the Actuator URL: plain HTTP is only allowed to this machine, and
 /// the plugin only asks for `net:localhost` and `net:127.0.0.1`.
 pub fn check_url(url: &str) -> Result<String, String> {
-    let url = url.trim().trim_end_matches('/');
-    let rest = url.strip_prefix("http://").or_else(|| url.strip_prefix("https://"));
-    let host = rest.and_then(|r| r.split(['/', ':', '?', '#']).next()).unwrap_or_default().to_ascii_lowercase();
-    if host == "localhost" || host == "127.0.0.1" {
-        return Ok(url.to_owned());
-    }
-    Err(format!(
-        "Spring Runtime only reads applications running on this machine, but the Actuator base URL is {url:?}. Set Settings › Plugins › Spring Runtime Insight › Actuator base URL to http://localhost:<port>/actuator."
-    ))
+    let url=url.trim().trim_end_matches('/');
+    let bad=||format!("Spring Runtime only reads applications running on this machine. Set Settings › Plugins › Spring Runtime Insight › Actuator base URL to http://localhost:<port>/actuator (without credentials, query or fragment).");
+    if url.len()>2048 || url.chars().any(|c|c.is_control() || c.is_whitespace()) || url.contains(['@','?','#','\\']) {return Err(bad());}
+    let (scheme,rest)=url.strip_prefix("http://").map(|r|("http",r)).or_else(||url.strip_prefix("https://").map(|r|("https",r))).ok_or_else(bad)?;
+    let (authority,path)=rest.split_once('/').map_or((rest,""),|(a,p)|(a,p));
+    let (host,port)=authority.split_once(':').map_or((authority,None),|(h,p)|(h,Some(p)));
+    let host=host.to_ascii_lowercase();if !matches!(host.as_str(),"localhost"|"127.0.0.1") {return Err(bad());}
+    let port=match port {Some(p)=>{if !p.bytes().all(|b|b.is_ascii_digit()) {return Err(bad());}let p=p.parse::<u16>().ok().filter(|p|*p>0).ok_or_else(bad)?;format!(":{p}")},None=>String::new()};
+    Ok(format!("{scheme}://{host}{port}{}",if path.is_empty(){String::new()}else{format!("/{path}")}))
 }
 
 fn now() -> u64 {
@@ -104,6 +120,8 @@ fn now() -> u64 {
 }
 
 fn age(at: u64) -> String {
+    if at==0 {return "at an unrecorded date".into();}
+    if at>now() {return format!("at a future timestamp (Unix {at})");}
     match now().saturating_sub(at) {
         0..60 => "just now".into(),
         s @ 60..3600 => format!("{} min ago", s / 60),
@@ -138,8 +156,18 @@ fn placeholders(s: &str) -> Vec<&str> {
         .collect()
 }
 
+fn presentation(text:&str,limit:usize)->String {
+    let mut result=String::new();
+    for ch in text.chars() {
+        let ch=if ch.is_control() && !matches!(ch,'\n'|'\t') {'\u{fffd}'} else {ch};
+        if result.len()+ch.len_utf8()>limit {result.push_str("… (truncated)");return result;}
+        result.push(ch);
+    }
+    result
+}
+
 fn marker(text: &str, at: usize, tooltip: String) -> LineMarker {
-    LineMarker { line: position(text, at).line, icon: None, tooltip, target: None }
+    LineMarker { line: position(text, at).line, icon: None, tooltip:presentation(&tooltip,4096), target: None }
 }
 
 /// The token is a secret the host substitutes into the header; the plugin never reads it.
@@ -160,37 +188,56 @@ pub fn auth_hint(missing: &[String]) -> Option<&'static str> {
         .then_some("needs authentication: check actuatorAuth and the actuator-token secret")
 }
 
+#[cfg(test)]
 fn fetch_snapshot() -> Result<Snapshot, Error> {
-    let url = check_url(&host::setting_string("actuatorUrl").unwrap_or_else(|| DEFAULT_URL.into()))?;
-    let timeout = host::setting_number("timeoutMs").unwrap_or(2000.0).clamp(100.0, 30_000.0) as u32;
-    let auth = host::setting_string("actuatorAuth").unwrap_or_default();
+    let url=check_url(&host::setting_string("actuatorUrl").unwrap_or_else(||DEFAULT_URL.into()))?;
+    let auth=host::setting_string("actuatorAuth").unwrap_or_default();
+    fetch_snapshot_for(&url,&auth)
+}
+
+#[cfg(test)]
+fn fetch_snapshot_for(url:&str,auth:&str)->Result<Snapshot,Error>{fetch_snapshot_guarded(url,auth,||Ok(()))}
+fn fetch_snapshot_guarded(url:&str,auth:&str,mut guard:impl FnMut()->Result<(),Error>) -> Result<Snapshot, Error> {
+    let timeout=controls::timeout();
+    let deadline=Instant::now()+Duration::from_millis(u64::from(controls::budget()));
     let task = host::begin_task("Reading Spring Boot Actuator endpoints", true);
-    let mut snap = Snapshot { url: url.clone(), fetched_at: now(), ..Snapshot::default() };
+    let mut snap = Snapshot { url: url.to_owned(), fetched_at: now(), ..Snapshot::default() };
+    let mut bytes=0usize;
     for (i, endpoint) in ENDPOINTS.iter().enumerate() {
+        guard()?;
+        let remaining=deadline.saturating_duration_since(Instant::now()).as_millis().min(u128::from(u32::MAX)) as u32;
+        if remaining<100 {return Err("Actuator refresh deadline reached; previous snapshot retained.".into());}
         if task.is_cancelled() {
             return Err(Error::Cancelled);
         }
         task.report(i as u32, Some(ENDPOINTS.len() as u32), Some(endpoint));
-        let request = actuator_request(&url, endpoint, timeout, &auth);
-        let response = match host::fetch(&request) {
+        let request = actuator_request(&url, endpoint, timeout.min(remaining), &auth);
+        let fetched=host::fetch(&request);
+        guard()?;
+        if task.is_cancelled(){return Err(Error::Cancelled);}
+        if Instant::now()>=deadline {return Err("Actuator refresh deadline reached; previous snapshot retained.".into());}
+        let response = match fetched {
             Ok(r) => r,
             Err(Error::Cancelled) => return Err(Error::Cancelled),
             Err(Error::Denied(cap)) if cap == "secrets" => {
-                return Err("The actuator-token secret needs the secrets permission. Allow it in Settings › Plugins, or set actuatorAuth to none."
-                    .into());
+                return Err(
+                    "The actuator-token secret needs the secrets permission. Allow it in Settings › Plugins, or set actuatorAuth to none."
+                        .into(),
+                );
             }
             Err(Error::Denied(cap)) => {
-                return Err(format!("{cap} is not granted. Allow it in Settings › Plugins, or use http://localhost.").into());
+                let cap=if matches!(cap.as_str(),"net:localhost"|"net:127.0.0.1"){cap.as_str()}else{"required network capability (possibly redirected request)"};
+                return Err(format!("{cap} is not granted. Review Settings › Plugins and the requested local URL; redirect peer identity is not established here.").into());
             }
-            Err(Error::NotFound(_)) if i == 0 && matches!(auth.as_str(), "bearer" | "basic") && !host::secret_is_set("actuator-token") => {
+            Err(Error::NotFound(_)) if i == 0 && matches!(auth, "bearer" | "basic") && !host::secret_is_set("actuator-token") => {
                 return Err("Set the actuator-token secret in Settings › Plugins, or set actuatorAuth to none.".into());
             }
             // The application isn't up: don't wait for every endpoint to time out.
-            Err(e) if i == 0 => {
-                return Err(format!("Could not reach {url} ({e}). Is the application running with Spring Boot Actuator?").into());
+            Err(_) if i == 0 => {
+                return Err(format!("Could not reach requested Actuator URL {url}. Transport failure details are omitted; verify the application and endpoint configuration.").into());
             }
-            Err(e) => {
-                snap.missing.push(format!("{endpoint} ({e})"));
+            Err(_) => {
+                snap.missing.push(format!("{endpoint} (transport failed; details omitted)"));
                 continue;
             }
         };
@@ -198,32 +245,25 @@ fn fetch_snapshot() -> Result<Snapshot, Error> {
             snap.missing.push(format!("{endpoint} ({})", response.status));
             continue;
         }
+        bytes=bytes.saturating_add(response.body.len());
+        if response.body.len()>MAX_ENDPOINT_BYTES || bytes>MAX_FETCH_BYTES {return Err("Actuator responses exceed the bounded refresh limit; previous snapshot retained.".into());}
         match serde_json::from_slice::<Value>(&response.body) {
-            Ok(json) => snap.read(endpoint, &json),
+            Ok(json) if snapshot::supported_shape(endpoint,&json) => snap.read(endpoint, &json),
+            Ok(_) => snap.missing.push(format!("{endpoint} (unsupported JSON shape)")),
             Err(_) => snap.missing.push(format!("{endpoint} (not JSON)")),
         }
     }
     if snap.missing.len() == ENDPOINTS.len() {
         return Err(format!(
-            "No Actuator endpoint answered at {url}. Expose the endpoints with management.endpoints.web.exposure.include."
+            "No supported Actuator endpoint payload at {url}. Verify exposure and the supported endpoint response shapes. {}",auth_hint(&snap.missing).unwrap_or("")
         )
         .into());
     }
+    guard()?;
+    if task.is_cancelled() {return Err(Error::Cancelled);}
+    if Instant::now()>=deadline {return Err("Actuator refresh deadline reached; previous snapshot retained.".into());}
+    task.report(ENDPOINTS.len() as u32,Some(ENDPOINTS.len() as u32),Some("Endpoint reads complete; scoped adoption still required"));
     Ok(snap)
-}
-
-/// Keeps the snapshot across instance reclaim; only beans and environment when it is too big.
-fn store(snap: &Snapshot) {
-    let mut json = serde_json::to_string(snap).unwrap_or_default();
-    if json.len() > STORAGE_MAX {
-        json = serde_json::to_string(&snap.trimmed()).unwrap_or_default();
-    }
-    if json.len() > STORAGE_MAX {
-        host::log(LogLevel::Warn, "runtime snapshot too big for storage; kept in memory only");
-        let _ = host::storage::delete(STORAGE_KEY);
-        return;
-    }
-    let _ = host::storage::set(STORAGE_KEY, &json);
 }
 
 /// Builds the tool window's tree; only expanded items get their children listed.
@@ -231,9 +271,19 @@ struct Tree<'a> {
     items: Vec<TreeItem>,
     expanded: &'a BTreeSet<String>,
     targets: &'a mut BTreeMap<String, Target>,
+    bytes: usize,
+    limited: bool,
 }
 
 impl Tree<'_> {
+    fn push(&mut self,mut item:TreeItem)->bool {
+        if item.key.len()>4096 || item.parent.as_ref().is_some_and(|p|p.len()>4096) || self.items.len()>=5000 {self.limited=true;return false;}
+        item.label=presentation(&item.label,1024);item.detail=item.detail.map(|s|presentation(&s,4096));
+        let bytes=serde_json::json!({"key":item.key,"parent":item.parent,"label":item.label,"detail":item.detail,"expanded":item.expanded,"expandable":item.expandable,"icon":item.icon}).to_string().len();
+        if self.bytes.saturating_add(bytes)>3<<20 {self.limited=true;return false;}
+        self.bytes+=bytes;self.items.push(item);true
+    }
+
     /// Adds an item; whether its children are to be listed.
     fn node(&mut self, key: &str, parent: Option<&str>, label: &str, detail: &str, children: bool) -> bool {
         let mut item = TreeItem::new(key, label);
@@ -247,47 +297,52 @@ impl Tree<'_> {
         if children {
             item = item.expandable(open);
         }
-        self.items.push(item);
+        if !self.push(item) {return false;}
         open
     }
 
     /// [`Tree::node`] with an icon.
     fn group(&mut self, icon: &str, key: &str, parent: Option<&str>, label: &str, detail: &str, children: bool) -> bool {
+        let before=self.items.len();
         let open = self.node(key, parent, label, detail, children);
-        if let Some(item) = self.items.last_mut() {
+        if self.items.len()>before {
+            let item=self.items.last_mut().expect("added");
             item.icon = Some(icon.into());
         }
         open
     }
 
     fn leaf(&mut self, key: &str, parent: &str, label: &str, detail: &str, target: Option<Target>) {
-        if let Some(t) = target {
-            self.targets.insert(key.into(), t);
-        }
+        let before=self.items.len();
         self.node(key, Some(parent), label, detail, false);
+        if self.items.len()>before {if let Some(t)=target.and_then(Target::bounded) {self.targets.insert(key.into(),t);}}
     }
 
     fn beans(&mut self, snap: &Snapshot) {
         if !snap.has("beans") || !self.group("spring-boot", "beans", None, "Beans", &snap.beans.len().to_string(), true) {
             return;
         }
-        let contexts: BTreeSet<&str> = snap.beans.iter().map(|b| b.context.as_str()).collect();
-        for context in contexts {
+        let mut contexts:BTreeMap<&str,Vec<(usize,&Bean)>>=BTreeMap::new();
+        for (i,b) in snap.beans.iter().enumerate() {contexts.entry(&b.context).or_default().push((i,b));}
+        for (context,beans) in contexts {
+            if self.limited {break;}
             let ck = format!("beans/{context}");
-            let count = snap.beans.iter().filter(|b| b.context == context).count();
+            let count = beans.len();
             if !self.node(&ck, Some("beans"), context, &count.to_string(), true) {
                 continue;
             }
-            for (i, b) in snap.beans.iter().enumerate().filter(|(_, b)| b.context == context) {
+            for (i, b) in beans {
+                if self.limited {break;}
                 let bk = format!("bean/{i}");
-                self.targets.insert(bk.clone(), Target::Type(b.ty.clone(), None));
                 let detail = format!("{} · {}", b.scope, simple(&b.ty));
-                if !self.node(&bk, Some(&ck), &b.name, &detail, !b.deps.is_empty()) {
+                let before=self.items.len();let open=self.node(&bk, Some(&ck), &b.name, &detail, !b.deps.is_empty());
+                if self.items.len()>before && b.ty.len()<=4096 {self.targets.insert(bk.clone(),Target::Type(b.ty.clone(),None));}
+                if !open {
                     continue;
                 }
                 for (j, dep) in b.deps.iter().enumerate() {
                     let ty = snap.beans.iter().find(|d| d.context == context && d.name == *dep).map(|d| d.ty.as_str());
-                    let target = ty.map(|t| Target::Type(t.into(), None));
+                    let target = ty.filter(|t|t.len()<=4096).map(|t| Target::Type(t.into(), None));
                     self.leaf(&format!("{bk}/{j}"), &bk, dep, ty.map(simple).unwrap_or_default(), target);
                 }
             }
@@ -296,23 +351,26 @@ impl Tree<'_> {
 
     /// Small: listed whole, every component open.
     fn health(&mut self, snap: &Snapshot) {
-        let Some((_, status)) = snap.health.first().filter(|_| snap.has("health")) else { return };
+        let Some((_, status)) = snap.health.first().filter(|_| snap.has("health")) else {
+            return;
+        };
         let mut root = TreeItem::new("health", "Health").detail(status).icon(health_icon(status));
         if snap.health.len() > 1 {
             root = root.expandable(self.expanded.contains("health"));
         }
         let open = root.expanded;
-        self.items.push(root);
+        if !self.push(root) {return;}
         if !open {
             return;
         }
         for (path, status) in &snap.health[1..] {
             let parent = path.rsplit_once('/').map_or("health".to_owned(), |(p, _)| format!("health/{p}"));
-            let mut item = TreeItem::new(&format!("health/{path}"), simple_path(path)).parent(&parent).detail(status).icon(health_icon(status));
+            let mut item =
+                TreeItem::new(&format!("health/{path}"), simple_path(path)).parent(&parent).detail(status).icon(health_icon(status));
             if snap.health.iter().any(|(p, _)| p.starts_with(&format!("{path}/"))) {
                 item = item.expandable(true);
             }
-            self.items.push(item);
+            if !self.push(item) {break;}
         }
     }
 
@@ -324,7 +382,10 @@ impl Tree<'_> {
         if !snap.has("env") || !self.group("settings", "env", None, "Configuration", &profiles, !snap.sources.is_empty()) {
             return;
         }
-        let file_of = |s: &Source| is_config_source(&s.name).then(|| short_source(&s.name).rsplit(['/', ':']).next().unwrap_or("").to_owned());
+        let file_of=|s:&Source| {
+            let value=short_source(&s.name).rsplit(['/',':']).next().unwrap_or("");
+            (is_config_source(&s.name) && value.len()<=1024).then(||value.to_owned())
+        };
         let files: Vec<&Source> = snap.sources.iter().filter(|s| is_config_source(&s.name)).collect();
         if !files.is_empty() && self.group("file-properties", "env/files", Some("env"), "Config files", &files.len().to_string(), true) {
             for (i, s) in files.iter().enumerate() {
@@ -334,11 +395,12 @@ impl Tree<'_> {
         }
         for (i, s) in snap.sources.iter().enumerate() {
             let sk = format!("env/{i}");
+            let file=file_of(s);
             if !self.node(&sk, Some("env"), short_source(&s.name), &format!("{} properties", s.props.len()), !s.props.is_empty()) {
                 continue;
             }
             for (j, (key, value)) in s.props.iter().enumerate() {
-                self.leaf(&format!("{sk}/{j}"), &sk, key, value, Some(Target::Key(key.clone(), file_of(s))));
+                self.leaf(&format!("{sk}/{j}"), &sk, key, value, (key.len()<=4096).then(||Target::Key(key.clone(),file.clone())));
             }
         }
     }
@@ -347,7 +409,8 @@ impl Tree<'_> {
         if !snap.has("conditions") || !self.group("spring-config", "auto", None, "Auto-configuration", "", !snap.conditions.is_empty()) {
             return;
         }
-        for (matched, key, label, icon) in [(true, "auto/+", "Positive matches", "success"), (false, "auto/-", "Negative matches", "error")] {
+        for (matched, key, label, icon) in [(true, "auto/+", "Positive matches", "success"), (false, "auto/-", "Negative matches", "error")]
+        {
             let list: Vec<(usize, &Condition)> = snap.conditions.iter().enumerate().filter(|(_, c)| c.matched == matched).collect();
             if !self.group(icon, key, Some("auto"), label, &list.len().to_string(), !list.is_empty()) {
                 continue;
@@ -358,8 +421,9 @@ impl Tree<'_> {
                     Some((class, method)) => Target::Type(class.into(), Some(method.into())),
                     None => Target::Type(c.key.clone(), None),
                 };
-                self.targets.insert(ck.clone(), target);
-                if self.node(&ck, Some(key), &c.key, "", !c.messages.is_empty()) {
+                let before=self.items.len();let open=self.node(&ck,Some(key),&c.key,"",!c.messages.is_empty());
+                if self.items.len()>before {if let Some(target)=target.bounded() {self.targets.insert(ck.clone(),target);}}
+                if open {
                     for (j, m) in c.messages.iter().enumerate() {
                         self.leaf(&format!("{ck}/{j}"), &ck, m, "", None);
                     }
@@ -372,14 +436,17 @@ impl Tree<'_> {
         if !snap.has("mappings") || !self.group("web", "mappings", None, "Mappings", &snap.mappings.len().to_string(), true) {
             return;
         }
-        let groups: BTreeSet<&str> = snap.mappings.iter().map(|m| m.group.as_str()).collect();
-        for group in groups {
+        let mut groups:BTreeMap<&str,Vec<(usize,&Mapping)>>=BTreeMap::new();
+        for (i,m) in snap.mappings.iter().enumerate() {groups.entry(&m.group).or_default().push((i,m));}
+        for (group,mappings) in groups {
+            if self.limited {break;}
             let gk = format!("mappings/{group}");
-            let count = snap.mappings.iter().filter(|m| m.group == group).count();
+            let count = mappings.len();
             if !self.node(&gk, Some("mappings"), group, &count.to_string(), true) {
                 continue;
             }
-            for (i, m) in snap.mappings.iter().enumerate().filter(|(_, m)| m.group == group) {
+            for (i, m) in mappings {
+                if self.limited {break;}
                 let target = m.method.clone().map(|(class, name)| Target::Type(class, Some(name))).or_else(|| {
                     let (class, rest) = m.handler.split_once('#')?;
                     let method = rest.split('(').next().unwrap_or(rest);
@@ -397,13 +464,14 @@ impl Tree<'_> {
         }
         for (i, p) in snap.configprops.iter().enumerate() {
             let pk = format!("props/{i}");
-            self.targets.insert(pk.clone(), Target::Type(p.ty.clone(), None));
-            if !self.node(&pk, Some("props"), &p.prefix, simple(&p.ty), !p.props.is_empty()) {
+            let before=self.items.len();let open=self.node(&pk,Some("props"),&p.prefix,simple(&p.ty),!p.props.is_empty());
+            if self.items.len()>before && p.ty.len()<=4096 {self.targets.insert(pk.clone(),Target::Type(p.ty.clone(),None));}
+            if !open {
                 continue;
             }
             for (j, (key, value)) in p.props.iter().enumerate() {
-                let target = Target::Key(format!("{}.{key}", p.prefix), None);
-                self.leaf(&format!("{pk}/{j}"), &pk, key, value, Some(target));
+                let target = (p.prefix.len()+key.len()+1<=4096).then(||Target::Key(format!("{}.{key}", p.prefix), None));
+                self.leaf(&format!("{pk}/{j}"), &pk, key, value, target);
             }
         }
     }
@@ -455,11 +523,16 @@ fn simple_path(path: &str) -> &str {
 }
 
 pub struct Runtime {
+    panes: panes::State,
+    graph: graph::State,
+    polling: controls::Polling,
     snapshot: Option<Snapshot>,
+    scope: Option<Scope>,
     /// Storage was read (the snapshot may survive instance reclaim).
     loaded: bool,
     /// Why the last refresh failed.
     error: Option<String>,
+    poll_status: Option<String>,
     expanded: BTreeSet<String>,
     /// Tree item key → what activating it opens, as last rendered.
     targets: BTreeMap<String, Target>,
@@ -470,9 +543,14 @@ pub struct Runtime {
 impl Default for Runtime {
     fn default() -> Self {
         Self {
+            panes: panes::State::default(),
+            graph: graph::State::default(),
+            polling: controls::Polling::default(),
             snapshot: None,
+            scope: None,
             loaded: false,
             error: None,
+            poll_status: None,
             expanded: BTreeSet::new(),
             targets: BTreeMap::new(),
             java: Indexes::new(&["**/*.java"], index_java),
@@ -481,42 +559,74 @@ impl Default for Runtime {
     }
 }
 
+// Payload-free invalidation only: each mounted page renders through its own
+// frame/project-correlated bridge. Never send a snapshot over this broadcast.
+fn invalidate_snapshot_views() {
+    for view in [VIEW, graph::VIEW] {
+        host::refresh_view(view);
+        let _ = host::post_view_message(view, r#"{"channel":"ui-kit-refresh"}"#);
+    }
+    host::refresh_view("runtime-snapshot"); // Native pane retains its revision path.
+}
+
 impl Runtime {
-    fn snapshot(&mut self) -> Option<&Snapshot> {
-        if !self.loaded {
-            self.loaded = true;
-            let stored = host::storage::get(STORAGE_KEY).ok().flatten();
-            self.snapshot = stored.and_then(|s| serde_json::from_str(&s).ok());
+    fn load_scope(&mut self, scope: Scope) {
+        if self.scope.as_ref()!=Some(&scope) {
+            self.panes.clear();self.graph.clear();self.snapshot=None;self.loaded=false;self.error=None;self.targets.clear();self.expanded.clear();self.polling.clear();self.poll_status=None;self.scope=Some(scope.clone());
         }
+        if !self.loaded {
+            self.loaded=true;
+            match persistence::read(&scope) {Ok(snapshot)=>{self.snapshot=snapshot;self.error=persistence::failure(&scope);},Err(error)=>self.error=Some(error.to_string())}
+        }
+    }
+    fn document_snapshot(&mut self,path:&str)->Option<&Snapshot> {
+        let scope=spring_text::index::project_of(path).and_then(|p|Scope::current(&p).ok());
+        match scope {Some(scope)=>self.load_scope(scope),None=>{self.snapshot=None;self.scope=None;self.targets.clear();self.loaded=false;return None;}}
         self.snapshot.as_ref()
     }
-
-    fn refresh(&mut self) -> Result<String, Error> {
-        let result = fetch_snapshot();
-        self.error = result.as_ref().err().filter(|e| **e != Error::Cancelled).map(Error::to_string);
-        host::refresh_view(VIEW);
-        let snap = result?;
-        store(&snap);
-        let mut summary = format!("Read {} beans and {} property sources from {}.", snap.beans.len(), snap.sources.len(), snap.url);
-        if !snap.missing.is_empty() {
-            summary.push_str(&format!(" Not available: {}.", snap.missing.join(", ")));
+    fn refresh(&mut self, project:&Project) -> Result<String, Error> {
+        let scope=Scope::current(project)?;
+        self.load_scope(scope.clone());
+        // Suspend future authorization before blocking host work: a host-level
+        // interruption/trap cannot leave an executable polling lease behind.
+        let mut suspended_polling=std::mem::take(&mut self.polling);
+        let result=(|| {
+            let snapshot=fetch_snapshot_guarded(&scope.url,&scope.auth,|| {
+                controls::verify(project,&scope)
+            })?;
+            let current=Scope::current(project)?;
+            if current!=scope {return Err(Error::Stale);}
+            if let Some(previous)=&self.snapshot {
+                let lost:Vec<_>=snapshot.missing.iter().filter(|m|m.split(' ').next().is_some_and(|e|previous.has(e))).cloned().collect();
+                if !lost.is_empty() {return Err(Error::Failed(format!("Refresh lost previously available endpoints: {}. Previous snapshot retained; Clear first if endpoint removal was intentional.",lost.join(", "))));}
+            }
+            persistence::write(&scope,&snapshot)?;
+            Ok(snapshot)
+        })();
+        if matches!(&result,Err(Error::Cancelled|Error::Stale)) {suspended_polling.clear();}
+        self.polling=suspended_polling;
+        match result {
+            Ok(snapshot)=> {
+                self.panes.clear();self.graph.clear();
+                persistence::success(&scope);self.error=None;self.poll_status=None;self.targets.clear();
+                let mut summary=format!("Read {} beans and {} property sources from {}.",snapshot.beans.len(),snapshot.sources.len(),snapshot.url);
+                if !snapshot.missing.is_empty() {summary.push_str(&format!(" Not available: {}.",snapshot.missing.join(", ")));}
+                self.snapshot=Some(snapshot);self.loaded=true;invalidate_snapshot_views();Ok(summary)
+            }
+            Err(error)=> {
+                let message=if error==Error::Cancelled {"Refresh cancelled; previous snapshot retained.".into()} else {error.to_string()};
+                self.error=Some(presentation(&message,1600));if error!=Error::Cancelled {persistence::failed(&scope,&message);}
+                invalidate_snapshot_views();Err(error)
+            }
         }
-        self.snapshot = Some(snap);
-        self.loaded = true;
-        Ok(summary)
     }
-
-    fn clear(&mut self) {
-        self.snapshot = None;
-        self.loaded = true;
-        self.error = None;
-        let _ = host::storage::delete(STORAGE_KEY);
-        host::refresh_view(VIEW);
+    fn clear(&mut self,project:&Project)->Result<(),Error> {
+        let scope=Scope::current(project)?;persistence::clear(&scope)?;self.panes.clear();self.graph.clear();self.polling.clear();self.scope=Some(scope);self.snapshot=None;self.loaded=true;self.error=None;self.poll_status=None;self.targets.clear();invalidate_snapshot_views();Ok(())
     }
 
     fn java_markers(&mut self, doc: &Document) -> Vec<LineMarker> {
         let text = doc.text.as_str();
-        let Some(snap) = self.snapshot() else {
+        let Some(snap) = self.document_snapshot(&doc.path) else {
             let _ = host::publish_diagnostics(&doc.path, &[]);
             return Vec::new();
         };
@@ -570,7 +680,8 @@ impl Runtime {
                     markers.push(marker(text, s.at, lines.join("\n")));
                 }
             }
-            let Some(prefix) = t.annotation("ConfigurationProperties").and_then(|a| a.strings(&["prefix", "value"]).first().map(|s| s.value.clone()))
+            let Some(prefix) =
+                t.annotation("ConfigurationProperties").and_then(|a| a.strings(&["prefix", "value"]).first().map(|s| s.value.clone()))
             else {
                 continue;
             };
@@ -581,9 +692,13 @@ impl Runtime {
             let fields = t.fields().filter(|f| !f.modifiers.iter().any(|m| m == "static")).map(|f| (&f.name, f.at));
             for (name, at) in fields.chain(t.components.iter().map(|c| (&c.name, c.at))) {
                 let tip = match snap.effective(&format!("{prefix}.{name}")) {
-                    Some((value, source)) => format!("Runtime: {value} from {}", short_source(source)),
+                    Some((value, source)) => {
+                        format!("Runtime: {value} from {}", short_source(source))
+                    }
                     None => match bound.and_then(|b| b.props.iter().find(|(k, _)| canonical(k) == canonical(name))) {
-                        Some((_, value)) => format!("Runtime: {value} (no property set, so the field's default)"),
+                        Some((_, value)) => {
+                            format!("Runtime: {value} (no property set, so the field's default)")
+                        }
                         None => continue,
                     },
                 };
@@ -595,7 +710,9 @@ impl Runtime {
     }
 
     fn config_markers(&mut self, doc: &Document) -> Vec<LineMarker> {
-        let Some(snap) = self.snapshot() else { return Vec::new() };
+        let Some(snap) = self.document_snapshot(&doc.path) else {
+            return Vec::new();
+        };
         let file = doc.path.rsplit(['/', '\\']).next().unwrap_or(&doc.path);
         config::keys(&doc.path, &doc.text)
             .into_iter()
@@ -625,10 +742,8 @@ impl Runtime {
             Target::Key(key, file) => {
                 let key = canonical(key);
                 let index = self.configs.get(project, COMMAND_BUDGET);
-                let hits: Vec<(&str, u32, u32)> = index
-                    .iter()
-                    .flat_map(|(path, keys)| keys.iter().filter(|k| k.0 == key).map(move |k| (path, k.1, k.2)))
-                    .collect();
+                let hits: Vec<(&str, u32, u32)> =
+                    index.iter().flat_map(|(path, keys)| keys.iter().filter(|k| k.0 == key).map(move |k| (path, k.1, k.2))).collect();
                 let in_file = hits.iter().find(|h| file.as_ref().is_some_and(|f| h.0.ends_with(&format!("/{f}"))));
                 in_file.or(hits.first()).map(|h| (h.0.to_owned(), h.1, h.2))
             }
@@ -658,17 +773,22 @@ impl Providers for Runtime {
 
 impl Views for Runtime {
     fn render(&mut self, _view: &str, _viewport: Option<Viewport>, _ctx: &Invocation) -> Result<View, Error> {
-        self.snapshot();
+        if _view == controls::VIEW {return self.render_controls(_ctx);}
+        if _view == graph::VIEW {return self.render_graph(_ctx);}
+        if _view == "runtime-snapshot" { return self.render_panes(_ctx); }
         let refresh = Button::new("refresh", "Refresh").icon("refresh");
+        let Some(project)=_ctx.project() else {self.snapshot=None;self.scope=None;self.loaded=false;self.targets.clear();return Ok(View::message("Open a project to load a scoped runtime snapshot. Scheduled refreshes without verified project ownership are skipped.").button(refresh));};
+        let scope=match Scope::current(&project).and_then(|scope| {controls::verify(&project,&scope)?;Ok(scope)}) {Ok(scope)=>scope,Err(error)=>{self.snapshot=None;self.scope=None;self.loaded=false;self.targets.clear();return Ok(View::message(&error.to_string()).button(refresh));}};
+        self.load_scope(scope.clone());
         let Some(snap) = &self.snapshot else {
             let text = self.error.clone().unwrap_or_else(|| {
                 let url = host::setting_string("actuatorUrl").unwrap_or_else(|| DEFAULT_URL.into());
                 format!("No runtime data yet. Start the application with Spring Boot Actuator, then click Refresh to read {url}.")
             });
-            return Ok(View::message(&text).button(refresh));
+            return Ok(View::message(&text).button(refresh).button(Button::new("clear","Clear").icon("trash")).button(Button::new("runtime-controls","Refresh / Poll Controls")));
         };
         self.targets.clear();
-        let mut tree = Tree { items: Vec::new(), expanded: &self.expanded, targets: &mut self.targets };
+        let mut tree = Tree { items: Vec::new(), expanded: &self.expanded, targets: &mut self.targets, bytes:0, limited:false };
         tree.beans(snap);
         tree.health(snap);
         tree.configuration(snap);
@@ -678,7 +798,7 @@ impl Views for Runtime {
         tree.scheduled(snap);
         tree.loggers(snap);
         tree.caches(snap);
-        let mut status = format!("Read {} from {}", age(snap.fetched_at), snap.url);
+        let mut status = format!("Read {} from {} · project {} · auth {} · cached Actuator snapshot (not debugger state)", age(snap.fetched_at), snap.url,scope.root,scope.auth);
         if !snap.missing.is_empty() {
             status.push_str(&format!(" · not available: {}", snap.missing.join(", ")));
         }
@@ -686,19 +806,36 @@ impl Views for Runtime {
             status.push_str(&format!(" · {hint}"));
         }
         if snap.trimmed {
-            status.push_str(" · only beans and environment kept (too large for storage)");
+            status.push_str(" · legacy partial snapshot: beans and environment only");
         }
+        if let Some(message)=&self.poll_status {status.push_str(&format!(" · {message}"));}
+        if tree.limited {status.push_str(" · partial view: row/message limit reached; saved snapshot remains complete");}
         if let Some(e) = &self.error {
             status = format!("Refresh failed: {e} · {status}");
         }
-        Ok(View::new(Body::Tree(tree.items)).button(refresh).button(Button::new("clear", "Clear").icon("trash")).status(&status))
+        Ok(View::new(Body::Tree(tree.items)).button(refresh).button(Button::new("clear", "Clear").icon("trash")).button(Button::new("snapshot-details", "Inspect cached snapshot")).button(Button::new("runtime-graph","Bean Dependency Graph")).button(Button::new("runtime-controls","Refresh / Poll Controls")).status(&status))
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {
+        if view == controls::VIEW {
+            if let ViewEvent::Message(ref raw) = event { return self.controls_message(raw, ctx); }
+        }
+        if ui_kit::web::handle(self, view, &event, ctx, include_str!("ui_config.json"))? {
+            return Ok(());
+        }
+
         match event {
+            ViewEvent::Button(b) if b == "runtime-controls"=>{ctx.project().ok_or(Error::Stale)?;host::reveal_view(controls::VIEW)?;},
+            ViewEvent::Button(b) if b == "poll-start"=>{host::reveal_view(controls::VIEW)?;},
+            ViewEvent::Button(b) if b == "poll-stop"=>{self.stop_polling(&ctx.project().ok_or(Error::Stale)?)?;},
+            ViewEvent::Button(b) if b == "runtime-graph"=>{ctx.project().ok_or(Error::Stale)?;host::reveal_view(graph::VIEW)?;},
+            ViewEvent::Button(b) if b == "graph-back" && view==graph::VIEW=>self.graph_back(),
+            ViewEvent::Button(b) if b == "graph-observations" && view==graph::VIEW=>{ctx.project().ok_or(Error::Stale)?;host::reveal_view("runtime-snapshot")?;},
+            ViewEvent::Activate(key)|ViewEvent::Message(key) if view==graph::VIEW=>self.graph_select(&key,ctx)?,
+            ViewEvent::Button(b) if b == "snapshot-details" => {ctx.project().ok_or("Open a project first.")?;host::reveal_view("runtime-snapshot")?;},
             // A failure is shown in the view.
-            ViewEvent::Button(b) if b == "refresh" => drop(self.refresh()),
-            ViewEvent::Button(b) if b == "clear" => self.clear(),
+            ViewEvent::Button(b) if b == "refresh" => {let project=ctx.project().ok_or("Open a project first.")?;drop(self.refresh(&project));},
+            ViewEvent::Button(b) if b == "clear" => {let project=ctx.project().ok_or("Open a project first.")?;self.clear(&project)?;},
             ViewEvent::Expand(key) => {
                 self.expanded.insert(key);
                 host::refresh_view(view);
@@ -707,9 +844,13 @@ impl Views for Runtime {
                 self.expanded.remove(&key);
                 host::refresh_view(view);
             }
+            ViewEvent::Activate(key) if view == "runtime-snapshot" => { self.activate_pane(&key,ctx)?; },
             ViewEvent::Activate(key) => {
-                if let (Some(target), Some(project)) = (self.targets.get(&key).cloned(), ctx.project()) {
+                if let Some(project)=ctx.project() {
+                    self.load_scope(Scope::current(&project)?);
+                    if let Some(target)=self.targets.get(&key).cloned() {
                     self.open(&target, &project)?;
+                    }
                 }
             }
             _ => {}
@@ -719,25 +860,29 @@ impl Views for Runtime {
 }
 
 impl Plugin for Runtime {
-    fn run_command(&mut self, id: &str, _ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
+    fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
         match id {
-            "refresh" => self.refresh().map(Some),
+            "runtime-controls"=>{ctx.project().ok_or(Error::Stale)?;host::reveal_view(controls::VIEW)?;Ok(None)},
+            "poll-start"=>{host::reveal_view(controls::VIEW)?;Ok(Some("Start polling explicitly in the visible Runtime controls view.".into()))},
+            "poll-stop"=>self.stop_polling(&ctx.project().ok_or(Error::Stale)?).map(Some),
+            "runtime-graph"=>{ctx.project().ok_or(Error::Stale)?;host::reveal_view(graph::VIEW)?;Ok(None)},
+            "snapshot-details" => {ctx.project().ok_or("Open a project first.")?;host::reveal_view("runtime-snapshot")?;Ok(None)},
+            "refresh" => self.refresh(&ctx.project().ok_or("Open a project first.")?).map(Some),
             "clear" => {
-                self.clear();
+                self.clear(&ctx.project().ok_or("Open a project first.")?)?;
                 Ok(Some("Spring Runtime snapshot cleared.".into()))
             }
             _ => Err(Error::NotFound(format!("command {id}"))),
         }
     }
 
-    fn handle_events(&mut self, events: &[Event], _ctx: &Invocation) {
-        if events.iter().any(|e| matches!(e, Event::Scheduled)) && host::setting_bool("autoRefresh") == Some(true) {
-            let _ = self.refresh();
-        }
+    fn handle_events(&mut self,events:&[Event],ctx:&Invocation) {
+        let _ = (events, ctx); // No scheduled HTTP: pinned host schedules only inactive instances without a project.
     }
+
 }
 
-register_plugin!(Runtime, providers, views);
+register_plugin!(Runtime, providers, views, details, inlay_hints);
 
 #[cfg(test)]
 mod tests {
@@ -755,29 +900,32 @@ mod tests {
             sources: vec![Source { name: "Config resource 'class path resource [application.yml]'".into(), props: vec![] }],
             ..Snapshot::default()
         };
-        let mut runtime = Runtime { snapshot: Some(snap), loaded: true, ..Runtime::default() };
+        let mut runtime = Runtime { snapshot: Some(snap), scope:Some(Scope::current(&host.invocation().project().unwrap()).unwrap()), loaded: true, ..Runtime::default() };
         runtime.expanded.extend(["health", "env", "auto"].map(String::from));
         let view = runtime.render(VIEW, None, &host.invocation()).unwrap();
         let Body::Tree(items) = view.body else { panic!("tree expected") };
         let icons: Vec<_> = items.iter().map(|i| (i.key.as_str(), i.icon.as_deref().unwrap_or_default())).collect();
-        assert_eq!(icons, [
-            ("beans", "spring-boot"),
-            ("health", "success"),
-            ("health/db", "error"),
-            ("health/disk", "error"),
-            ("health/mail", "warning"),
-            ("env", "settings"),
-            ("env/files", "file-properties"),
-            ("env/0", ""),
-            ("auto", "spring-config"),
-            ("auto/+", "success"),
-            ("auto/-", "error"),
-            ("mappings", "web"),
-            ("props", "property"),
-            ("sched", "clock"),
-            ("log", "settings"),
-            ("cache", "database"),
-        ]);
+        assert_eq!(
+            icons,
+            [
+                ("beans", "spring-boot"),
+                ("health", "success"),
+                ("health/db", "error"),
+                ("health/disk", "error"),
+                ("health/mail", "warning"),
+                ("env", "settings"),
+                ("env/files", "file-properties"),
+                ("env/0", ""),
+                ("auto", "spring-config"),
+                ("auto/+", "success"),
+                ("auto/-", "error"),
+                ("mappings", "web"),
+                ("props", "property"),
+                ("sched", "clock"),
+                ("log", "settings"),
+                ("cache", "database"),
+            ]
+        );
         assert_eq!(view.toolbar[1].icon.as_deref(), Some("trash"));
     }
 
@@ -810,30 +958,39 @@ mod tests {
     #[test]
     fn loggers_and_caches_endpoints_parse() {
         let mut snap = Snapshot::default();
-        snap.read("loggers", &serde_json::json!({"loggers": {
-            "ROOT": {"configuredLevel": "INFO", "effectiveLevel": "INFO"},
-            "com.acme": {"configuredLevel": "DEBUG", "effectiveLevel": "DEBUG"},
-            "com.acme.x": {"effectiveLevel": "DEBUG"}
-        }}));
+        snap.read(
+            "loggers",
+            &serde_json::json!({"loggers": {
+                "ROOT": {"configuredLevel": "INFO", "effectiveLevel": "INFO"},
+                "com.acme": {"configuredLevel": "DEBUG", "effectiveLevel": "DEBUG"},
+                "com.acme.x": {"effectiveLevel": "DEBUG"}
+            }}),
+        );
         let names: Vec<_> = snap.loggers.iter().map(|l| (l.name.as_str(), l.configured.as_str(), l.effective.as_str())).collect();
         assert_eq!(names, [("ROOT", "INFO", "INFO"), ("com.acme", "DEBUG", "DEBUG")]);
-        snap.read("caches", &serde_json::json!({"cacheManagers": {"cm": {"caches": {
-            "users": {"target": "java.util.concurrent.ConcurrentHashMap"}
-        }}}}));
-        assert_eq!(snap.caches, [Cache { manager: "cm".into(), name: "users".into(), target: "java.util.concurrent.ConcurrentHashMap".into() }]);
+        snap.read(
+            "caches",
+            &serde_json::json!({"cacheManagers": {"cm": {"caches": {
+                "users": {"target": "java.util.concurrent.ConcurrentHashMap"}
+            }}}}),
+        );
+        assert_eq!(
+            snap.caches,
+            [Cache { manager: "cm".into(), name: "users".into(), target: "java.util.concurrent.ConcurrentHashMap".into() }]
+        );
         assert!(snap.trimmed().loggers.is_empty());
     }
 
     #[test]
     fn authentication_failure_explains_itself() {
-        let host = MockHost::install().with_capabilities(&["net:localhost"]);
+        let host = MockHost::install().with_capabilities(&["net:localhost","project.read"]);
         host.on_fetch(|r| {
             let status = if r.url.ends_with("/beans") { 401 } else { 200 };
-            Ok(HttpResponse { status, headers: vec![], body: b"{}".to_vec() })
+            Ok(HttpResponse { status, headers: vec![], body: if r.url.ends_with("/health") {b"{\"status\":\"UP\"}".to_vec()}else{b"{}".to_vec()} })
         });
         let snap = fetch_snapshot().unwrap();
         assert!(snap.missing.iter().any(|m| m == "beans (401)"), "{:?}", snap.missing);
-        let mut runtime = Runtime { snapshot: Some(snap), loaded: true, ..Runtime::default() };
+        let mut runtime = Runtime { snapshot: Some(snap), scope:Some(Scope::current(&host.invocation().project().unwrap()).unwrap()), loaded: true, ..Runtime::default() };
         let view = runtime.render(VIEW, None, &host.invocation()).unwrap();
         let status = view.status.unwrap_or_default();
         assert!(status.contains("check actuatorAuth and the actuator-token secret"), "{status}");
@@ -858,5 +1015,154 @@ mod tests {
         let error = fetch_snapshot().unwrap_err().to_string();
         assert!(error.contains("actuator-token") && error.contains("none"), "{error}");
         assert!(!error.contains("http://localhost"), "{error}");
+    }
+}
+
+#[cfg(test)]
+mod persistence_flow_tests {
+    use super::*;
+    use openidea_plugin::{HttpResponse,mock::MockHost};
+    const CAPS:&[&str]=&["project.read","storage","net:localhost"];
+    fn response(request:&HttpRequest)->Result<HttpResponse,Error> {
+        let body=if request.url.ends_with("/beans") {r#"{"contexts":{"application":{"beans":{"demo":{"type":"com.acme.Demo","scope":"singleton","dependencies":[]}}}}}"#}
+            else if request.url.ends_with("/env") {r#"{"propertySources":[{"name":"Config resource 'class path resource [application.properties]'","properties":{"server.port":{"value":"8080"}}}]}"#}
+            else if request.url.ends_with("/loggers") {r#"{"loggers":{"ROOT":{"configuredLevel":"INFO","effectiveLevel":"INFO"}}}"#}
+            else if request.url.ends_with("/health") {r#"{"status":"UP"}"#} else {"{}"};
+        Ok(HttpResponse {status:200,headers:vec![],body:body.as_bytes().to_vec()})
+    }
+    fn refreshed()->(MockHost,Runtime,Scope) {
+        let host=MockHost::install().with_capabilities(CAPS);host.on_fetch(response);let mut runtime=Runtime::default();runtime.run_command("refresh",&host.invocation(),None).unwrap();let scope=Scope::current(&host.invocation().project().unwrap()).unwrap();(host,runtime,scope)
+    }
+    fn config_doc()->Document {Document {path:"/project/application.properties".into(),language:"properties".into(),version:1,text:"server.port=8080\n".into()}}
+    fn invalidations(host: &MockHost) -> Vec<String> {
+        host.view_messages().into_iter().filter_map(|(view, raw)| {
+            let value: serde_json::Value = serde_json::from_str(&raw).unwrap();
+            if value.get("channel").and_then(|v| v.as_str()) != Some("ui-kit-refresh") { return None; }
+            assert_eq!(value, serde_json::json!({"channel":"ui-kit-refresh"}), "broadcast must contain no cached model or owner data");
+            Some(view)
+        }).collect()
+    }
+    #[test]
+    fn external_refresh_failure_and_clear_notify_both_mounted_pages_without_render_loops() {
+        let (host, mut runtime, _) = refreshed();
+        assert_eq!(invalidations(&host), [VIEW, graph::VIEW]);
+        let requests = host.requests().len();
+        for view in [VIEW, graph::VIEW] { runtime.render(view, None, &host.invocation()).unwrap(); }
+        assert_eq!(invalidations(&host).len(), 2, "render must not invalidate itself");
+        assert_eq!(host.requests().len(), requests);
+        host.on_fetch(|_| Err(Error::Failed("offline".into())));
+        assert!(runtime.run_command("refresh", &host.invocation(), None).is_err());
+        assert!(runtime.snapshot.is_some(), "last-good retained");
+        assert_eq!(invalidations(&host), [VIEW, graph::VIEW, VIEW, graph::VIEW]);
+        runtime.run_command("clear", &host.invocation(), None).unwrap();
+        assert_eq!(invalidations(&host).len(), 6);
+        for view in [VIEW, graph::VIEW] {
+            assert!(matches!(runtime.render(view, None, &host.invocation()).unwrap().body, Body::Message(_)));
+        }
+        assert_eq!(invalidations(&host).len(), 6);
+    }
+    #[test]
+    fn receiving_pages_rebind_to_current_owner_and_never_fetch_or_reuse_foreign_snapshot() {
+        let (host, mut runtime, _) = refreshed();
+        let requests = host.requests().len();
+        host.on_fetch(|_| panic!("invalidated render must be cache only"));
+        host.set_project_root(Some("/foreign"));
+        for view in [VIEW, graph::VIEW] {
+            assert!(matches!(runtime.render(view, None, &host.invocation()).unwrap().body, Body::Message(_)));
+        }
+        assert!(runtime.snapshot.is_none());
+        host.set_project_root(None);
+        for view in [VIEW, graph::VIEW] {
+            assert!(matches!(runtime.render(view, None, &host.invocation()).unwrap().body, Body::Message(_)));
+        }
+        assert_eq!(host.requests().len(), requests);
+        assert_eq!(invalidations(&host).len(), 2);
+    }
+    #[test]
+    fn denied_or_invalid_scope_graph_render_returns_empty_state_instead_of_retained_model_error() {
+        let (host, mut runtime, _) = refreshed();
+        host.set_setting("actuatorAuth", "\"unsupported\"");
+        assert!(matches!(runtime.render(graph::VIEW, None, &host.invocation()).unwrap().body, Body::Message(_)));
+        assert!(matches!(runtime.render(VIEW, None, &host.invocation()).unwrap().body, Body::Message(_)));
+        let host = host.with_capabilities(&["storage"]);
+        for view in [VIEW, graph::VIEW] {
+            assert!(matches!(runtime.render(view, None, &host.invocation()).unwrap().body, Body::Message(_)));
+        }
+        assert_eq!(invalidations(&host).len(), 2);
+    }
+    #[test]
+    fn external_stop_control_notifies_changed_status_without_http() {
+        let (host, mut runtime, _) = refreshed();
+        let requests = host.requests().len();
+        runtime.run_command("poll-stop", &host.invocation(), None).unwrap();
+        assert_eq!(invalidations(&host).len(), 4);
+        let view = runtime.render(VIEW, None, &host.invocation()).unwrap();
+        assert!(view.status.unwrap().contains("No polling lease"));
+        assert_eq!(host.requests().len(), requests);
+    }
+    #[test]
+    fn rendering_markers_expansion_and_reclaim_are_cache_only_without_network_grants() {
+        let (host,_,scope)=refreshed();let requests=host.requests().len();let saved=host.storage();
+        let host=host.with_capabilities(&["project.read","storage"]);host.on_fetch(|_|panic!("read-only requests cannot fetch"));let mut runtime=Runtime::default();
+        let view=runtime.render(VIEW,None,&host.invocation()).unwrap();assert!(view.status.unwrap().contains("project /project"));assert_eq!(runtime.snapshot.as_ref().unwrap().loggers.len(),1);
+        assert_eq!(runtime.line_markers(&config_doc()).len(),1);runtime.handle(VIEW,ViewEvent::Expand("env".into()),&host.invocation()).unwrap();runtime.render(VIEW,None,&host.invocation()).unwrap();
+        assert_eq!(host.requests().len(),requests);assert_eq!(host.storage(),saved);assert_eq!(runtime.scope.as_ref(),Some(&scope));
+    }
+    #[test]
+    fn transport_auth_partial_and_oversized_failures_keep_last_good_memory_and_storage() {
+        let (host,mut runtime,scope)=refreshed();let saved=host.storage()[&scope.key()].clone();let snapshot=runtime.snapshot.clone().unwrap();
+        host.on_fetch(|_|Err(Error::Failed("application offline".into())));assert!(runtime.run_command("refresh",&host.invocation(),None).is_err());assert_eq!(runtime.snapshot.as_ref(),Some(&snapshot));assert_eq!(host.storage()[&scope.key()],saved);
+        host.on_fetch(|request|if request.url.ends_with("/env") {Ok(HttpResponse {status:503,headers:vec![],body:vec![]})} else {response(request)});
+        assert!(runtime.run_command("refresh",&host.invocation(),None).unwrap_err().to_string().contains("env (503)"));assert_eq!(runtime.snapshot.as_ref(),Some(&snapshot));assert_eq!(host.storage()[&scope.key()],saved);
+        host.on_fetch(|_|Ok(HttpResponse {status:200,headers:vec![],body:vec![b'x';MAX_ENDPOINT_BYTES+1]}));assert!(runtime.run_command("refresh",&host.invocation(),None).is_err());assert_eq!(host.storage()[&scope.key()],saved);
+        let host=host.with_capabilities(&["project.read","storage"]);assert!(runtime.run_command("refresh",&host.invocation(),None).is_err());assert_eq!(runtime.snapshot.as_ref(),Some(&snapshot));assert_eq!(host.storage()[&scope.key()],saved);
+        let mut fresh=Runtime::default();let view=fresh.render(VIEW,None,&host.invocation()).unwrap();assert!(view.status.unwrap().contains("Refresh failed"));assert_eq!(fresh.snapshot.as_ref(),Some(&snapshot));
+    }
+    #[test]
+    fn url_auth_and_project_switches_never_show_another_scope_and_clear_is_local() {
+        let (host,mut runtime,first)=refreshed();let requests=host.requests().len();
+        for (key,value) in [("actuatorUrl","http://localhost:9090/actuator"),("actuatorAuth","bearer")] {
+            host.set_setting(key,&serde_json::to_string(value).unwrap());let view=runtime.render(VIEW,None,&host.invocation()).unwrap();assert!(matches!(view.body,Body::Message(_)));assert!(runtime.line_markers(&config_doc()).is_empty());
+        }
+        host.set_setting("actuatorUrl",&serde_json::to_string(DEFAULT_URL).unwrap());host.set_setting("actuatorAuth","\"none\"");runtime.render(VIEW,None,&host.invocation()).unwrap();assert!(runtime.snapshot.is_some());
+        host.set_project_root(Some("/another"));let view=runtime.render(VIEW,None,&host.invocation()).unwrap();assert!(matches!(view.body,Body::Message(_)));runtime.run_command("clear",&host.invocation(),None).unwrap();assert!(host.storage().contains_key(&first.key()));
+        host.set_project_root(Some("/project"));runtime.render(VIEW,None,&host.invocation()).unwrap();assert!(runtime.snapshot.is_some());assert_eq!(host.requests().len(),requests);
+        runtime.run_command("clear",&host.invocation(),None).unwrap();assert!(!host.storage().contains_key(&first.key()));assert!(runtime.snapshot.is_none());
+    }
+    #[test]
+    fn opt_in_scheduled_refresh_requires_verified_project_and_legacy_global_data_is_not_adopted() {
+        let host=MockHost::install().with_capabilities(CAPS);host.on_fetch(response);host::storage::set("snapshot",&serde_json::to_string(&Snapshot {url:DEFAULT_URL.into(),..Snapshot::default()}).unwrap()).unwrap();
+        let mut runtime=Runtime::default();runtime.render(VIEW,None,&host.invocation()).unwrap();assert!(runtime.snapshot.is_none());assert!(host.requests().is_empty());
+        runtime.handle_events(&[Event::Scheduled],&host.invocation());assert!(host.requests().is_empty());
+        host.set_setting("autoRefresh","true");host.set_project_root(None);runtime.handle_events(&[Event::Scheduled],&host.invocation());assert!(host.requests().is_empty());
+        host.set_project_root(Some("/project"));runtime.start_polling(&host.invocation().project().unwrap()).unwrap();runtime.polling.due_now();runtime.handle_events(&[Event::Scheduled],&host.invocation());assert!(host.requests().is_empty());assert!(runtime.snapshot.is_none());assert!(host.storage().contains_key("snapshot"),"unowned legacy evidence is untouched");
+    }
+    #[test]
+    fn local_url_identity_rejects_ambiguous_authorities_and_output_is_bounded_without_trimming_cache() {
+        for url in ["http://localhost:80@evil.test/actuator","http://localhost:0/actuator","http://localhost:/actuator","http://localhost/actuator?q=x","http://localhost\\evil/actuator","http://localhost/#fragment","http://example.com/actuator"] {assert!(check_url(url).is_err(),"{url}");}
+        assert_eq!(check_url(" http://LOCALHOST:08080/actuator/ ").unwrap(),DEFAULT_URL);
+        let (host,mut runtime,scope)=refreshed();let snap=runtime.snapshot.as_mut().unwrap();snap.beans=(0..6000).map(|i|Bean {context:"app".into(),name:format!("bean{i}"),ty:"com.acme.Demo".into(),..Bean::default()}).collect();
+        persistence::write(&scope,snap).unwrap();runtime.expanded.extend(["beans".into(),"beans/app".into()]);let view=runtime.render(VIEW,None,&host.invocation()).unwrap();let Body::Tree(items)=view.body else {panic!()};assert!(items.len()<=5000);assert!(view.status.unwrap().contains("partial view"));assert!(runtime.targets.len()<=items.len());assert_eq!(persistence::read(&scope).unwrap().unwrap().beans.len(),6000);
+        assert!(presentation(&"🦀".repeat(3000),4096).ends_with("(truncated)"));
+    }
+}
+
+#[cfg(test)]
+mod failure_recovery_tests {
+    use super::*;
+    use openidea_plugin::{HttpResponse,mock::MockHost};
+    const CAPS:&[&str]=&["project.read","storage","net:localhost"];
+    #[test]
+    fn storage_write_failure_and_cancellation_do_not_adopt_new_memory_or_delete_saved_data() {
+        let host=MockHost::install().with_capabilities(CAPS);host.on_fetch(|request|Ok(HttpResponse {status:200,headers:vec![],body:if request.url.ends_with("/beans"){b"{\"contexts\":{}}".to_vec()}else{b"{}".to_vec()}}));
+        let mut runtime=Runtime::default();runtime.run_command("refresh",&host.invocation(),None).unwrap();let previous=runtime.snapshot.clone().unwrap();let storage=host.storage();
+        let host=host.with_capabilities(&["project.read","net:localhost"]);assert!(runtime.run_command("refresh",&host.invocation(),None).is_err());assert_eq!(runtime.snapshot,Some(previous.clone()));assert_eq!(host.storage(),storage);
+        let host=host.with_capabilities(CAPS);host.on_fetch(|_|Err(Error::Cancelled));assert!(matches!(runtime.run_command("refresh",&host.invocation(),None),Err(Error::Cancelled)));assert_eq!(runtime.snapshot,Some(previous));assert_eq!(host.storage(),storage);assert!(runtime.error.unwrap().contains("cancelled"));
+    }
+    #[test]
+    fn corrupt_cache_is_not_replaced_silently_and_clear_remains_available_for_recovery() {
+        let host=MockHost::install().with_capabilities(&["project.read","storage"]);let scope=Scope::current(&host.invocation().project().unwrap()).unwrap();host::storage::set(&scope.key(),"invalid json").unwrap();
+        let mut runtime=Runtime::default();let view=runtime.render(VIEW,None,&host.invocation()).unwrap();assert!(matches!(view.body,Body::Message(ref text) if text.contains("unreadable")));assert!(view.toolbar.iter().any(|b|b.id=="clear"));
+        runtime.handle(VIEW,ViewEvent::Button("clear".into()),&host.invocation()).unwrap();assert!(!host.storage().contains_key(&scope.key()));assert!(host.requests().is_empty());
     }
 }

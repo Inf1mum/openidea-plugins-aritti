@@ -1,0 +1,14 @@
+[
+  {
+    "menu": "viewItem.context",
+    "view": "symfony",
+    "command": "route-copy-curl",
+    "when": "viewItemKind == route"
+  },
+  {
+    "menu": "viewItem.context",
+    "view": "symfony",
+    "command": "route-create-http",
+    "when": "viewItemKind == route"
+  }
+]

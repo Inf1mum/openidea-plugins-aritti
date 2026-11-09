@@ -33,15 +33,28 @@ fn state(raw: &str) -> (&'static str, &'static str) {
 
 /// Flyway 10 and 11 print `{"migrations": [...]}` with more fields around it; `mvn` wraps it in log lines.
 pub fn parse(stdout: &str) -> Result<Vec<Migration>, String> {
-    let value: Value = stdout
-        .match_indices('{')
-        .find_map(|(from, _)| {
-            let first = serde_json::Deserializer::from_str(&stdout[from..]).into_iter::<Value>().next()?;
-            first.ok().filter(|value| value.get("migrations").is_some())
-        })
-        .ok_or_else(|| "Flyway info did not return JSON. Check the arguments setting and the Flyway version (10 or newer).".to_owned())?;
+    const INVALID: &str = "Flyway info requires one complete, unambiguous migrations JSON object; no result was accepted.";
+    if stdout.len()>1<<20 {return Err(INVALID.into());}
+    let mut value=None;let mut at=0;let mut attempts=0;
+    while let Some(relative)=stdout[at..].find('{') {
+        at+=relative;attempts+=1;
+        if attempts>256 {return Err(INVALID.into());}
+        let mut stream=serde_json::Deserializer::from_str(&stdout[at..]).into_iter::<Value>();
+        if let Some(Ok(candidate))=stream.next() {
+            let consumed=stream.byte_offset();
+            if candidate.get("migrations").is_some() {
+                if value.is_some() {return Err(INVALID.into());}
+                let crate::comparison::Unique(candidate)=serde_json::from_str::<crate::comparison::Unique>(&stdout[at..at+consumed]).map_err(|_|INVALID.to_owned())?;
+                if candidate.get("error").is_some_and(|error|!error.is_null()) {return Err(INVALID.into());}
+                value=Some(candidate);
+            }
+            at+=consumed;
+        } else {at+=1;}
+    }
+    let value=value.ok_or_else(||"Flyway info did not return JSON. Check the arguments setting and the Flyway version (10 or newer).".to_owned())?;
     let rows = value.get("migrations").and_then(Value::as_array).ok_or("Flyway info returned no migrations list.")?;
 
+    if rows.len()>10_000 || rows.iter().any(|row|!row.is_object()) {return Err(INVALID.into());}
     let text = |row: &Value, key: &str| row.get(key).and_then(Value::as_str).unwrap_or_default().to_owned();
     Ok(rows
         .iter()

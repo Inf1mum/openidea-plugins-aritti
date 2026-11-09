@@ -6,11 +6,12 @@
 //! assets, security), reduced to what can be read from the files without
 //! PHP/YAML/Twig PSI.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::cell::Cell;
 use std::time::{Duration, Instant};
 
-use openidea_plugin::host::{self, Project};
 use openidea_plugin::Position;
+use openidea_plugin::host::{self, Project};
 
 use crate::refs::TEMPLATE_CALLS;
 use crate::route_defs::{self, RouteDef};
@@ -47,10 +48,17 @@ pub struct TemplateInclude {
 
 #[derive(Default, Debug)]
 pub struct Index {
+    /// Captured global settings of a real build; None is an unbuilt synthetic index.
+    pub(crate) cache_settings: Option<Vec<Option<String>>>,
     pub routes: Names,
     /// Routes with their path, methods and controller, for the flat list.
     pub route_defs: Vec<RouteDef>,
     pub templates: Names,
+    /// Bounded build observations passed; not opaque host-index completeness proof.
+    pub template_scan_observed: bool,
+    pub template_directories: Vec<String>,
+    pub ambiguous_templates: std::collections::BTreeSet<String>,
+    pub template_paths_unknown: bool,
     pub services: Names,
     /// Keys by domain.
     pub translations: BTreeMap<String, Names>,
@@ -60,6 +68,8 @@ pub struct Index {
     pub classes: Names,
     /// PSR-4 namespace prefixes of the project's own code.
     pub psr4_prefixes: Vec<String>,
+    /// The exact source-reader pairs matched strict literal production Composer mappings.
+    pub psr4_source_verified: bool,
     pub assets: Names,
     /// Webpack Encore and AssetMapper entry points.
     pub entries: Names,
@@ -76,6 +86,8 @@ pub struct Index {
     pub includes: Vec<TemplateInclude>,
     /// `symfony/framework-bundle` constraint of composer.json as (major, minor).
     pub framework_version: Option<(u32, u32)>,
+    /// Strict cached Composer requirement evidence for advisory live deprecations only.
+    pub deprecation_version: Option<VersionEvidence>,
     /// The compiled routes / container were read: bundles' names are known, so
     /// a missing name is an error.
     pub compiled_routes: bool,
@@ -87,18 +99,17 @@ pub struct Index {
 /// Compiled files of `bin/console cache:warmup`, which also hold what bundles
 /// define (Settings.java and ServiceContainerUtil.java defaults).
 const COMPILED_ROUTES: &[&str] = &["var/cache/dev/url_generating_routes.php", "var/cache/dev/UrlGenerator.php"];
-const COMPILED_CONTAINERS: &[&str] =
-    &["var/cache/dev/App_KernelDevDebugContainer.xml", "var/cache/dev/srcApp_KernelDevDebugContainer.xml"];
+const COMPILED_CONTAINERS: &[&str] = &["var/cache/dev/App_KernelDevDebugContainer.xml", "var/cache/dev/srcApp_KernelDevDebugContainer.xml"];
+/// Only cache inputs this index actually reads, plus their directory ancestors.
+pub(crate) fn affects_compiled_index(relative: &str) -> bool {
+    !relative.is_empty() && COMPILED_ROUTES.iter().chain(COMPILED_CONTAINERS).any(|path|
+        *path == relative || path.strip_prefix(relative).is_some_and(|tail| tail.starts_with('/')))
+}
+
 
 /// Security attributes that are not roles (AuthenticatedVoter, Symfony's ExpressionLanguage).
-const BUILT_IN_ROLES: &[&str] = &[
-    "IS_AUTHENTICATED",
-    "IS_AUTHENTICATED_FULLY",
-    "IS_AUTHENTICATED_REMEMBERED",
-    "IS_IMPERSONATOR",
-    "IS_REMEMBERED",
-    "PUBLIC_ACCESS",
-];
+const BUILT_IN_ROLES: &[&str] =
+    &["IS_AUTHENTICATED", "IS_AUTHENTICATED_FULLY", "IS_AUTHENTICATED_REMEMBERED", "IS_IMPERSONATOR", "IS_REMEMBERED", "PUBLIC_ACCESS"];
 
 // ponytail: 3 s of reading per build, then the index is partial; incremental per-file updates if projects outgrow it.
 const BUDGET: Duration = Duration::from_secs(3);
@@ -111,6 +122,29 @@ pub fn framework_version(composer: &str) -> Option<(u32, u32)> {
     let mut numbers = constraint.split(|c: char| !c.is_ascii_digit()).filter(|n| !n.is_empty()).map(|n| n.parse::<u32>().ok());
     let major = numbers.next()??;
     Some((major, numbers.next().flatten().unwrap_or(0)))
+}
+
+/// A conservative lower bound from a single supported requirement, not installed/runtime truth.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VersionEvidence { pub constraint: String, pub floor: (u32,u32) }
+impl VersionEvidence {
+    pub fn from_composer(composer: &str) -> Option<Self> {
+        if composer.len() > 128 << 10 { return None; }
+        let json: serde_json::Value = serde_json::from_str(composer).ok()?;
+        let constraint = json.get("require")?.get("symfony/framework-bundle")?.as_str()?.trim();
+        if constraint.is_empty() || constraint.len()>128 || constraint.chars().any(char::is_whitespace) { return None; }
+        let (body,operator) = [">=", "^", "~"].into_iter().find_map(|op|constraint.strip_prefix(op).map(|s|(s,true))).unwrap_or((constraint,false));
+        let parts: Vec<_> = body.split('.').collect();
+        if parts.is_empty() || parts.len()>3 { return None; }
+        let mut numbers = Vec::new();
+        for (i,part) in parts.iter().enumerate() {
+            if matches!(*part,"*"|"x"|"X") && i+1==parts.len() && i>0 && !operator { break; }
+            if part.is_empty() || !part.bytes().all(|b|b.is_ascii_digit()) || part.len()>1 && part.starts_with('0') { return None; }
+            numbers.push(part.parse::<u32>().ok()?);
+        }
+        let floor = (*numbers.first()?,numbers.get(1).copied().unwrap_or(0));
+        Some(Self { constraint: constraint.to_owned(), floor })
+    }
 }
 
 /// Whether the project is a Symfony application (the plugin's auto-configuration check).
@@ -127,21 +161,75 @@ pub fn is_symfony(project: &Project) -> bool {
 /// Project-relative paths of a comma-separated setting.
 fn setting_paths(key: &str) -> Vec<String> {
     let value = host::setting_string(key).unwrap_or_default();
-    value.split(',').map(str::trim).filter(|p| !p.is_empty()).map(str::to_owned).collect()
+    if value.len() > 32 * 1024 { return Vec::new(); }
+    value.split(',').map(str::trim).filter(|p| {
+        !p.is_empty() && p.len() <= 4096 && !p.contains(['\\', ':'])
+            && !p.chars().any(char::is_control)
+            && p.split('/').all(|part| !matches!(part, "" | "." | ".."))
+    }).take(128).map(str::to_owned).collect()
 }
 
+/// Bounded inputs shared with explicit profiler source discovery; no IO.
+pub(crate) fn profiler_container_paths() -> Vec<String> {
+    COMPILED_CONTAINERS.iter().map(|p| (*p).to_owned()).chain(setting_paths("compiledContainers")).collect::<std::collections::BTreeSet<_>>().into_iter().collect()
+}
+
+/// The same project-relative inputs accepted by the reader, collected once per event batch.
+pub(crate) fn configured_input_paths() -> Vec<String> {
+    ["compiledRoutes", "compiledContainers", "extraServiceFiles", "extraRoutingFiles"]
+        .into_iter().flat_map(setting_paths).collect()
+}
+
+pub(crate) fn affects_configured_index(relative: &str, paths: &[String]) -> bool {
+    !relative.is_empty() && paths.iter().any(|path| path == relative
+        || path.strip_prefix(relative).is_some_and(|tail| tail.starts_with('/')))
+}
+
+/// Error/cap observations only; the SDK does not expose host walk/index completeness.
+fn discover(project: &Project, globs: &[&str], limit: u32) -> (Vec<String>, bool) {
+    let mut paths=Vec::new();let mut partial=false;
+    for glob in globs {
+        match project.find_files(glob,limit) {
+            Ok(found) => {partial |= found.len()>=limit as usize;paths.extend(found);}
+            Err(_) => partial=true,
+        }
+    }
+    paths.sort();paths.dedup();(paths,partial)
+}
+fn optional_text(project: &Project, path: &str, index: &mut Index) -> String {
+    match project.read_file(path) {
+        Ok(text)=>text,
+        Err(openidea_plugin::Error::NotFound(_))=>String::new(),
+        Err(_)=>{index.partial=true;String::new()}
+    }
+}
+fn production_psr4_matches(composer: &str, mappings: &[(String,String)]) -> bool {
+    let Ok(literal)=crate::psr4::mappings(composer) else {return false;};
+    mappings.len()==literal.len() && mappings.iter().all(|(prefix,directory)|literal.iter().any(|mapping| {
+        prefix==&format!("{}\\",mapping.namespace) && directory.trim_end_matches('/')==mapping.directory
+    }))
+}
+
+fn cache_settings() -> Option<Vec<Option<String>>> {
+    let values: Vec<_> = ["compiledRoutes","compiledContainers","extraServiceFiles","extraRoutingFiles","publicDirectory","twigNamespaces"]
+        .into_iter().map(host::setting_string).collect();
+    values.iter().all(|value|value.as_ref().is_none_or(|value|value.len()<=32<<10)).then_some(values)
+}
 impl Index {
+    pub(crate) fn settings_current(&self) -> bool {
+        self.cache_settings.as_ref().is_none_or(|expected|cache_settings().as_ref()==Some(expected))
+    }
     pub fn build(project: &Project) -> Index {
         let started = Instant::now();
         let mut index = Index::default();
+        index.cache_settings=Some(cache_settings().unwrap_or_default());
         let root = project.root().unwrap_or_default();
         let relative = |path: &str| path.strip_prefix(&format!("{root}/")).unwrap_or(path).to_owned();
 
+        let discovery_partial=Cell::new(root.is_empty());
         let files = |globs: &[&str]| -> Vec<String> {
-            let mut paths: Vec<String> =
-                globs.iter().flat_map(|glob| project.find_files(glob, MAX_FILES).unwrap_or_default()).collect();
-            paths.sort();
-            paths.dedup();
+            let (paths,partial)=discover(project,globs,MAX_FILES);
+            if partial {discovery_partial.set(true);}
             paths
         };
 
@@ -150,9 +238,10 @@ impl Index {
             index.templates.entry(name).or_insert(Entry { detail: None, path, at: Position::new(0, 0) });
         }
 
-        let twig_config = project.read_file("config/packages/twig.yaml").unwrap_or_default();
-        let extra_namespaces = twig_namespaces(&host::setting_string("twigNamespaces").unwrap_or_default());
-        for (directory, namespace) in twig_paths(&twig_config).into_iter().chain(extra_namespaces) {
+        let twig_config = optional_text(project,"config/packages/twig.yaml",&mut index);
+        let configured_paths = twig_paths(&twig_config);
+        index.template_directories.extend(configured_paths.iter().map(|(directory, _)| directory.clone()));
+        for (directory, namespace) in configured_paths {
             for path in files(&[&format!("{directory}/**/*.twig")]) {
                 let Some(file) = relative(&path).strip_prefix(&format!("{directory}/")).map(str::to_owned) else { continue };
                 let name = if namespace.is_empty() { file } else { format!("@{namespace}/{file}") };
@@ -161,6 +250,62 @@ impl Index {
         }
 
         let lines = Lines::new(&twig_config);
+        let (hints, unknown) = crate::namespace_paths::configured(project);
+        index.template_paths_unknown = unknown || !hints.is_empty();
+        let hint_started = Instant::now();
+        let mut hint_files = 0usize;
+        index.template_directories.extend(hints.iter().map(|hint| hint.directory.clone()));
+        for hint in hints {
+            if hint_started.elapsed() > Duration::from_millis(250) || hint_files >= 1024 {
+                index.template_paths_unknown = true;
+                break;
+            }
+            if crate::namespace_paths::directory(project, &root, &hint).is_err() {
+                index.template_paths_unknown = true;
+                continue;
+            }
+            let mut paths = match project.find_files(&format!("{}/**/*.twig", hint.directory), 129) {
+                Ok(paths) => paths,
+                Err(_) => {
+                    index.template_paths_unknown = true;
+                    continue;
+                }
+            };
+            if paths.len() > 128 {
+                index.template_paths_unknown = true;
+                paths.truncate(128);
+            }
+            for path in paths {
+                if hint_files >= 1024 {
+                    index.template_paths_unknown = true;
+                    break;
+                }
+                hint_files += 1;
+                let prefix = format!("{root}/{}/", hint.directory);
+                let Some(file) = path.strip_prefix(&prefix).filter(|file| !file.is_empty()) else {
+                    index.template_paths_unknown = true;
+                    continue;
+                };
+                let name = if hint.namespace.is_empty() { file.to_string() } else { format!("@{}/{file}", hint.namespace) };
+                if index.ambiguous_templates.contains(&name) {
+                    continue;
+                }
+                if let Some(existing) = index.templates.get(&name) {
+                    if existing.path != path {
+                        index.templates.remove(&name);
+                        index.ambiguous_templates.insert(name);
+                    }
+                    continue;
+                }
+                index.templates.insert(
+                    name,
+                    Entry { detail: Some("Plugin path hint · runtime loader unverified".into()), path, at: Position::new(0, 0) },
+                );
+            }
+        }
+        index.template_directories.sort();
+        index.template_directories.dedup();
+
         for key in yaml_keys(&twig_config).into_iter().filter(|key| key.parents == ["twig", "globals"]) {
             let at = lines.position(key.offset);
             index.twig_globals.add(key.key.trim_matches(['\'', '"']), Some("Twig global".into()), "config/packages/twig.yaml", at);
@@ -175,14 +320,16 @@ impl Index {
             }
         }
 
-        let composer = project.read_file("composer.json").unwrap_or_default();
+        let composer = optional_text(project,"composer.json",&mut index);
         index.framework_version = framework_version(&composer);
-        for (namespace, directory) in psr4(&composer) {
+        index.deprecation_version = VersionEvidence::from_composer(&composer);
+        let class_mappings=psr4(&composer);
+        index.psr4_source_verified=production_psr4_matches(&composer,&class_mappings);
+        for (namespace, directory) in class_mappings {
             index.psr4_prefixes.push(namespace.clone());
             let directory = format!("{}/", directory.trim_end_matches('/'));
             for path in files(&[&format!("{directory}**/*.php")]) {
-                let Some(class) = relative(&path).strip_prefix(&directory).and_then(|p| p.strip_suffix(".php")).map(str::to_owned)
-                else {
+                let Some(class) = relative(&path).strip_prefix(&directory).and_then(|p| p.strip_suffix(".php")).map(str::to_owned) else {
                     continue;
                 };
                 let entry = Entry { detail: None, path, at: Position::new(0, 0) };
@@ -190,13 +337,15 @@ impl Index {
             }
         }
 
-        let template_paths: Vec<(String, String)> = index.templates.iter().map(|(name, entry)| (name.clone(), entry.path.clone())).collect();
+        let template_paths: Vec<(String, String)> =
+            index.templates.iter().map(|(name, entry)| (name.clone(), entry.path.clone())).collect();
         for (caller, path) in template_paths {
             if started.elapsed() > BUDGET / 2 {
+                index.partial=true;
                 break;
             }
 
-            let Ok(text) = project.read_file(&path) else { continue };
+            let Ok(text) = project.read_file(&path) else { index.partial=true;continue };
             for (target, variables) in crate::twig::includes(&text).into_iter().filter(|(_, variables)| !variables.is_empty()) {
                 index.includes.push(TemplateInclude { target, variables, caller: caller.clone() });
             }
@@ -205,15 +354,20 @@ impl Index {
         let config = files(&["config/**/*.yaml", "config/**/*.yml", "config/**/*.xml"]);
         let controllers = files(&["src/**/*Controller.php", "src/Controller/**/*.php"]);
         let commands = files(&["src/Command/**/*.php", "src/**/*Command.php"]);
-        let translations =
-            files(&["translations/**/*.yaml", "translations/**/*.yml", "translations/**/*.xlf", "translations/**/*.xliff"]);
+        let translations = files(&["translations/**/*.yaml", "translations/**/*.yml", "translations/**/*.xlf", "translations/**/*.xliff"]);
 
+        let required_files: BTreeSet<_> = config.iter().chain(&controllers).chain(&commands).chain(&translations).cloned()
+            .chain(configured_input_paths().into_iter().map(|path|format!("{root}/{path}"))).collect();
         let read = |path: &str, index: &mut Index| -> Option<String> {
             if started.elapsed() > BUDGET {
                 index.partial = true;
                 return None;
             }
-            project.read_file(path).ok()
+            match project.read_file(path) {
+                Ok(text)=>Some(text),
+                Err(openidea_plugin::Error::NotFound(_)) if !required_files.contains(path)=>None,
+                Err(_)=>{index.partial=true;None}
+            }
         };
 
         for path in &config {
@@ -320,6 +474,8 @@ impl Index {
             index.roles.add(role, Some("built-in".into()), "", Position::new(0, 0));
         }
 
+        index.partial |= discovery_partial.get() || started.elapsed()>BUDGET;
+        index.template_scan_observed=!index.partial;
         index
     }
 
@@ -887,9 +1043,14 @@ pub fn twig_namespaces(value: &str) -> Vec<(String, String)> {
         .filter_map(|pair| {
             let (namespace, directory) = pair.split_once('=')?;
             let namespace = namespace.trim().trim_start_matches('@');
-            let directory = directory.trim().replace("%kernel.project_dir%", "");
-            let directory = directory.trim_start_matches("./").trim_matches('/').to_owned();
-            (!directory.is_empty() && !directory.contains("..")).then(|| (directory, namespace.to_owned()))
+            let raw = directory.trim();
+            let raw = raw.strip_prefix("%kernel.project_dir%/").unwrap_or(raw);
+            if raw.starts_with('/') || raw.starts_with('\\') {
+                return None;
+            }
+            let directory = raw.trim_start_matches("./").trim_end_matches('/').to_string();
+            let mapping = crate::namespace_paths::Mapping { namespace: namespace.into(), directory: directory.clone(), enabled: true };
+            crate::namespace_paths::valid(&mapping).then(|| (directory, namespace.into()))
         })
         .collect()
 }
@@ -1182,17 +1343,21 @@ pub fn xml_params(path: &str, text: &str, names: &mut impl Sink) {
 
 /// The fully qualified name of a PHP file's class and the offset of its name.
 pub fn php_class(text: &str) -> Option<(String, usize)> {
-    let at = class_declaration(text)? + "class ".len();
+    let masked = crate::php_text::mask(text);
+    let declaration = class_declaration(&masked)?;
+    let at = declaration + "class ".len();
     let name_len = text[at..].bytes().position(|b| !crate::refs::is_identifier(b))?;
-    let namespace = text
+    let namespace = masked[..declaration]
         .find("namespace ")
-        .and_then(|n| text[n + "namespace ".len()..].split_once(';'))
+        .and_then(|n| masked[n + "namespace ".len()..declaration].split_once(';'))
         .map(|(namespace, _)| format!("{}\\", namespace.trim()))
         .unwrap_or_default();
     Some((format!("{namespace}{}", &text[at..at + name_len]), at))
 }
 
 pub(crate) fn class_declaration(text: &str) -> Option<usize> {
+    let masked = crate::php_text::mask(text);
+    let text = masked.as_str();
     text.match_indices("class ").map(|(at, _)| at).find(|&at| {
         let line_start = text[..at].rfind('\n').map_or(0, |i| i + 1);
         let before = text[line_start..at].trim();
@@ -1267,8 +1432,106 @@ pub fn translation_keys(path: &str, text: &str, names: &mut impl Sink) {
 }
 
 #[cfg(test)]
+mod cache_observation_tests {
+    use super::*;
+    use openidea_plugin::mock::MockHost;
+    #[test]
+    fn built_cache_tracks_each_global_source_setting_without_reader_io() {
+        let host=MockHost::install();let project=host.invocation().project().unwrap();
+        let index=Index::build(&project);
+        assert!(index.settings_current());
+        host.set_setting("diagnostics","false");assert!(index.settings_current(),"diagnostic toggles are evaluated separately");
+        for key in ["compiledRoutes","compiledContainers","extraServiceFiles","extraRoutingFiles","publicDirectory","twigNamespaces"] {
+            host.set_setting(key,r#""changed""#);assert!(!index.settings_current(),"{key}");
+            host.set_setting(key,"null");assert!(index.settings_current(),"restored {key}");
+        }
+        host.set_setting("compiledRoutes",&serde_json::to_string(&"x".repeat(32*1024+1)).unwrap());
+        assert!(!index.settings_current());
+    }
+
+    #[test]
+    fn discovery_caps_and_errors_are_partial_without_discarding_retained_paths() {
+        let host=MockHost::install();host.add_file("templates/a.twig","");host.add_file("templates/b.twig","");
+        let project=host.invocation().project().unwrap();
+        let (files,partial)=discover(&project,&["templates/**/*.twig"],2);assert_eq!(files.len(),2);assert!(partial,"a cap-sized result cannot establish exhaustiveness");
+        let (files,partial)=discover(&project,&["templates/**/*.twig","templates/a.twig"],3);assert_eq!(files.len(),2);assert!(!partial,"overlapping successful lists deduplicate");
+        let denied=MockHost::install().with_capabilities(&[]);let project=denied.invocation().project().unwrap();
+        assert!(discover(&project,&["templates/**/*.twig"],3).1);
+        let mut index=Index::default();assert!(optional_text(&project,"optional.php",&mut index).is_empty());assert!(index.partial,"permission error is not optional-file absence");
+    }
+    #[test]
+    fn build_distinguishes_optional_defaults_from_declared_missing_inputs() {
+        let host=MockHost::install();host.add_file("composer.json",r#"{"require":{"symfony/framework-bundle":"^7.0"},"autoload":{"psr-4":{"App\\":"src/"}}}"#);
+        let project=host.invocation().project().unwrap();
+        let index=Index::build(&project);assert!(!index.partial);assert!(index.template_scan_observed);assert!(index.psr4_source_verified);
+        host.set_setting("compiledContainers",r#""custom/container.xml""#);
+        let index=Index::build(&project);assert!(index.partial);assert!(!index.template_scan_observed);
+        host.add_file("custom/container.xml","<container/>");
+        let index=Index::build(&project);assert!(!index.partial);assert!(index.compiled_container);
+    }
+    #[test]
+    fn class_mapping_provenance_requires_strict_production_pairs_used_by_reader() {
+        let good=r#"{"autoload":{"psr-4":{"App\\":"src/","Domain\\":"lib/domain"}}}"#;
+        assert!(production_psr4_matches(good,&psr4(good)));
+        for text in [
+            "{}",
+            r#"{"autoload":{"psr-4":{"App\\":["src/","other/"]}}}"#,
+            r#"{"autoload-dev":{"psr-4":{"Tests\\":"tests/"}},"autoload":{"psr-4":{"App\\":"src/"}}}"#,
+            r#"{"autoload":{"psr-4":{"App\\":"src/","App\\":"other/"}}}"#,
+            r#"{"autoload":{"psr-4":{"App\\":"../outside"}}}"#,
+        ] {assert!(!production_psr4_matches(text,&psr4(text)),"{text}");}
+    }
+}
+
+#[cfg(test)]
+mod php_literal_discovery_tests {
+    use super::*;
+    #[test]
+    fn class_and_namespace_discovery_ignore_php_looking_literal_bodies() {
+        let text="<?php\n$literal = <<<'TEXT'\nnamespace Ghost;\nclass Fake {}\nTEXT;\nclass Actual {}\n";
+        assert_eq!(php_class(text),Some(("Actual".into(),text.find("Actual").unwrap())));
+        let text="<?php\nnamespace App;\n$literal = <<<TEXT\nclass Fake {}\nTEXT;\nclass Actual {}\n";
+        assert_eq!(php_class(text),Some(("App\\Actual".into(),text.find("Actual").unwrap())));
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn live_deprecation_version_requires_supported_unambiguous_production_requirement() {
+        let composer=|constraint:&str|serde_json::json!({"require":{"symfony/framework-bundle":constraint}}).to_string();
+        for (value,floor) in [("^8.1",(8,1)),("~6.4.2",(6,4)),(">=7.3",(7,3)),("8.1.2",(8,1)),("7.*",(7,0)),("6.4.x",(6,4)),("8",(8,0))] {
+            let evidence=VersionEvidence::from_composer(&composer(value)).unwrap();
+            assert_eq!(evidence.floor,floor,"{value}");assert_eq!(evidence.constraint,value);
+        }
+        for value in ["*","dev-main","<8.1","<=8.1","!=8.1","^6.4 || ^8.1",">=6.4 <8.0","8.1-beta1","8.1@dev","^8.*","08.1","8..1","8.1.2.3",">= 8.1",""] {
+            assert!(VersionEvidence::from_composer(&composer(value)).is_none(),"{value}");
+        }
+        for json in [r#"{"require-dev":{"symfony/framework-bundle":"^8.1"}}"#,r#"{"description":"symfony/framework-bundle ^8.1"}"#,r#"{"require":{"symfony/framework-bundle":8.1}}"#,"{broken"] {
+            assert!(VersionEvidence::from_composer(json).is_none(),"{json}");
+        }
+    }
+
+    #[test]
+    fn configured_inputs_share_reader_validation_and_exact_directory_boundaries() {
+        let host = openidea_plugin::mock::MockHost::install();
+        host.set_setting("compiledRoutes", &serde_json::to_string("build/cache/routes.php,../outside.php,/absolute.php,./dot.php,C:/bad.php,build//bad.php,build/../bad.php,build/\\bad.php").unwrap());
+        host.set_setting("extraRoutingFiles", &serde_json::to_string(" custom/routes.yaml ").unwrap());
+        let paths = configured_input_paths();
+        assert_eq!(paths, ["build/cache/routes.php", "custom/routes.yaml"]);
+        for path in ["build", "build/cache", "build/cache/routes.php", "custom", "custom/routes.yaml"] {
+            assert!(affects_configured_index(path, &paths), "{path}");
+        }
+        for path in ["", "build/cach", "build/cache/routes.php.old", "custom/routes.yaml/child"] {
+            assert!(!affects_configured_index(path, &paths), "{path}");
+        }
+        host.set_setting("compiledRoutes", &serde_json::to_string(&"x".repeat(32 * 1024 + 1)).unwrap());
+        assert!(setting_paths("compiledRoutes").is_empty());
+        host.set_setting("compiledRoutes", &serde_json::to_string(&(0..130).map(|n|format!("build/{n}.php")).collect::<Vec<_>>().join(",")).unwrap());
+        assert_eq!(setting_paths("compiledRoutes").len(), 128);
+    }
 
     fn names(parse: fn(&str, &str, &mut Names), path: &str, text: &str) -> Vec<(String, Option<String>, u32, u32)> {
         let mut names = Names::new();
@@ -1286,12 +1549,7 @@ mod tests {
         let keys: Vec<_> = yaml_keys(text).into_iter().map(|k| (k.parents.join("."), k.key, k.offset)).collect();
         assert_eq!(
             keys,
-            [
-                ("".into(), "a".into(), 0),
-                ("a".into(), "b".into(), 5),
-                ("a".into(), "d e".into(), 23),
-                ("".into(), "f".into(), 35),
-            ]
+            [("".into(), "a".into(), 0), ("a".into(), "b".into(), 5), ("a".into(), "d e".into(), 23), ("".into(), "f".into(), 35),]
         );
     }
 
@@ -1413,7 +1671,8 @@ final class BlogController extends AbstractController
             [name("app", Some("./assets/app.js"), 1, 15), name("mail", Some("./assets/mail.scss"), 2, 20)]
         );
 
-        let importmap = "<?php\nreturn [\n    'app' => [\n        'path' => './assets/app.js',\n        'entrypoint' => true,\n    ],\n];\n";
+        let importmap =
+            "<?php\nreturn [\n    'app' => [\n        'path' => './assets/app.js',\n        'entrypoint' => true,\n    ],\n];\n";
         assert_eq!(names(importmap_entries, "/p/importmap.php", importmap), [name("app", None, 2, 5)]);
     }
 
@@ -1426,7 +1685,8 @@ final class BlogController extends AbstractController
             [("five.tag".into(), 7), ("four.tag".into(), 7), ("one.tag".into(), 3), ("three.tag".into(), 5), ("two.tag".into(), 4)]
         );
 
-        let xml = "<services>\n  <service id=\"a\">\n    <tag name=\"x.tag\"/>\n    <!-- <tag name=\"old.tag\"/> -->\n  </service>\n</services>";
+        let xml =
+            "<services>\n  <service id=\"a\">\n    <tag name=\"x.tag\"/>\n    <!-- <tag name=\"old.tag\"/> -->\n  </service>\n</services>";
         assert_eq!(names(xml_service_tags, "/p/config/s.xml", xml), [name("x.tag", None, 2, 15)]);
     }
 
@@ -1442,10 +1702,7 @@ final class BlogController extends AbstractController
     #[test]
     fn crlf_files_report_correct_lines() {
         let yaml = "services:\r\n    a:\r\n        tags:\r\n            - name: one.tag\r\n            - { name: two.tag }\r\n";
-        assert_eq!(
-            names(yaml_service_tags, "/p/config/s.yaml", yaml),
-            [name("one.tag", None, 3, 20), name("two.tag", None, 4, 22)]
-        );
+        assert_eq!(names(yaml_service_tags, "/p/config/s.yaml", yaml), [name("one.tag", None, 3, 20), name("two.tag", None, 4, 22)]);
 
         let xml = "<service id=\"a\">\r\n<tag name=\"x.tag\"/>\r\n</service>";
         assert_eq!(names(xml_service_tags, "/p/config/s.xml", xml), [name("x.tag", None, 1, 11)]);

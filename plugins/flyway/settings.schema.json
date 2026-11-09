@@ -8,13 +8,25 @@
     "runner": {
       "type": "string",
       "title": "Run Flyway commands with",
-      "enum": ["flyway", "mvn"],
+      "enum": [
+        "flyway",
+        "mvn"
+      ],
       "default": "flyway"
     },
     "arguments": {
       "type": "string",
-      "title": "Extra arguments for Flyway commands (-environment=dev, -Dflyway.user=…)",
+      "title": "Extra arguments for Flyway commands (-environment=dev, -Dflyway.user=\u2026)",
       "default": ""
+    },
+    "executionMode": {
+      "type": "string",
+      "title": "CLI command output ownership (managed is instance-lifetime, Refresh Status/Cancel; terminal uses native controls/raw output)",
+      "enum": [
+        "terminal",
+        "managed"
+      ],
+      "default": "terminal"
     }
   }
 }

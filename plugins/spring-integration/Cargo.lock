@@ -97,8 +97,10 @@ checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 [[package]]
 name = "openidea-plugin"
 version = "0.1.0"
-source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.38#9c5372c7ab44207f0d3ac3d01fcb62af224091b7"
+source = "git+https://github.com/l0ng-ai/openidea?tag=v0.1.40#37c2a6048eea89d4f6db645622612358b643862b"
 dependencies = [
+ "serde",
+ "serde_json",
  "wit-bindgen",
 ]
 
@@ -107,6 +109,7 @@ name = "openidea-plugin-aritti-spring-batch"
 version = "0.1.0"
 dependencies = [
  "openidea-plugin",
+ "quick-xml",
  "spring-text",
 ]
 
@@ -117,6 +120,7 @@ dependencies = [
  "openidea-plugin",
  "openidea-plugin-aritti-spring-batch",
  "openidea-plugin-aritti-spring-modulith",
+ "quick-xml",
  "spring-text",
  "ui-kit",
 ]
@@ -149,6 +153,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "quick-xml"
+version = "0.42.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41b1177fdf999d2321d3fb46ff47159d9c1fb9ad66a4879f8c50a0b504615e9b"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -170,6 +183,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4148590afebada386688f18773da617792bf2ef03ffc1e4cbd2b1d45b023e0ba"
 dependencies = [
  "serde_core",
+ "serde_derive",
 ]
 
 [[package]]
@@ -228,6 +242,8 @@ name = "ui-kit"
 version = "0.1.0"
 dependencies = [
  "openidea-plugin",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

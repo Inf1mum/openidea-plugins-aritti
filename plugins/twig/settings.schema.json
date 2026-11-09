@@ -14,6 +14,11 @@
       "type": "boolean",
       "title": "Report unclosed tags, unexpected end tags and unterminated delimiters",
       "default": true
+    },
+    "hover": {
+      "type": "boolean",
+      "title": "Show Twig language and unique current-template macro source documentation",
+      "default": true
     }
   }
 }
