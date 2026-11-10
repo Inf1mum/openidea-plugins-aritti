@@ -7,6 +7,8 @@
   const templates = new Map(), painted = new WeakMap();let instance = 0;
   const names = Object.freeze(Object.keys(data));
   function create(name, {size, label} = {}) {
+    const native=document.body?.classList.contains('ui-embedded-panel')?window.uiKitNativeIcons:null;
+    if(native?.resolve(name)) return native.create(name,{size:size??data[name]?.width??16,label});
     const icon=data[name];if(!Object.hasOwn(data,name))throw new RangeError(`Unknown JetBrains icon: ${name}`);
     if(size!=null&&(!Number.isFinite(size)||size<1||size>128))throw new RangeError('Icon size must be between 1 and 128 pixels');
     if(!templates.has(name)){const template=document.createElement('template');template.innerHTML=icon.svg;templates.set(name,template);}
@@ -23,9 +25,19 @@
     if(label){svg.setAttribute('role','img');svg.setAttribute('aria-label',label);}else svg.setAttribute('aria-hidden','true');
     return svg;
   }
+  function withinRaw(node) {
+    let owner = node?.nodeType === 11 ? node.host : node;
+    while(owner) {
+      if(owner.closest?.('[data-ui-raw]')) return true;
+      owner = owner.getRootNode?.().host;
+    }
+    return false;
+  }
   function enhance(root=document) {
     const hosts=[...(root.matches?.('[data-ui-icon]')?[root]:[]),...root.querySelectorAll?.('[data-ui-icon]')||[]];
     for(const host of hosts){const name=host.dataset.uiIcon,size=host.dataset.uiIconSize?Number(host.dataset.uiIconSize):undefined,label=host.dataset.uiIconLabel,key=JSON.stringify([name,size,label]);
+      // Vendor content and unknown attributes are not an instruction to paint.
+      if(withinRaw(host)||(!Object.hasOwn(data,name)&&!(document.body?.classList.contains("ui-embedded-panel")&&window.uiKitNativeIcons?.resolve(name))))continue;
       if(painted.get(host)===key)continue;
       host.replaceChildren(create(name,{size,label}));painted.set(host,key);
     }

@@ -1,19 +1,31 @@
 /* Private view driver: no HTTP, no credentials, no persistent timer authority. */
 (() => {
   "use strict";
+  function mount(mountRoot, openidea) {
+  const ownerDocument = mountRoot.ownerDocument || mountRoot;
+  const ownerWindow = ownerDocument.defaultView || window;
+  const observed = mountRoot.host || mountRoot.documentElement;
+  const document = ownerDocument;
+  let disposed = false;
   const random = () => { const b = new Uint8Array(16); crypto.getRandomValues(b); return Array.from(b, x => x.toString(16).padStart(2,"0")).join(""); };
   const frame = random(); let nonce = random(), sequence = 0, root = null, url = null, auth = null, timer = null, active = false, busy = false, enabled = false, intersecting = false, stopPending = false;
-  const visible = () => intersecting && !document.hidden;
-  const $ = id => document.getElementById(id);
+  const visible = () => !disposed && intersecting && !document.hidden && observed.isConnected;
+  const $ = id => mountRoot.getElementById(id);
   function clear() { if(timer !== null) clearTimeout(timer); timer = null; }
-  function buttons() { $("start").disabled = busy || active || !enabled || !root || !visible(); $("stop").disabled = busy || !active; $("refresh").disabled = busy || !root; $("refresh").setAttribute("aria-busy",String(busy)); }
+  function buttons() {
+    $("start").disabled = busy || active || !enabled || !root || !visible();
+    $("stop").disabled = busy || !active; $("refresh").disabled = busy || !root;
+    if(!busy) {$("start").hidden = active || !enabled || !root || !visible(); $("stop").hidden = !active; $("refresh").hidden = !root;}
+    $("refresh").setAttribute("aria-busy",String(busy));
+  }
   function send(op) {
-    if(!window.openidea) { $("status").textContent = "Open in OpenIDEA to use scoped controls."; return; }
+    if(!openidea) { $("status").textContent = "Open in OpenIDEA to use scoped controls."; return; }
     clear(); busy = true; buttons();
     openidea.postMessage(JSON.stringify({channel:"runtime-controls",frame,nonce,sequence:++sequence,root,url,auth,op}));
   }
   function arm() { clear(); if(active && !busy && visible()) timer = setTimeout(() => { timer=null; if(visible() && active) send("tick"); },60000); }
-  window.openidea?.onMessage(raw => {
+  openidea?.onMessage(raw => {
+    if(disposed) return;
     let reply; try { reply=typeof raw === "string" ? JSON.parse(raw) : raw; } catch { return; }
     if(reply.channel !== "runtime-controls" || reply.frame !== frame || reply.nonce !== nonce || reply.sequence !== sequence) return;
     const model=reply.model; if(!model || (root !== null && model.root && root !== model.root)) return;
@@ -43,10 +55,21 @@
   document.addEventListener("visibilitychange",visibilityChanged);
   // Dock hiding need not change document.hidden or unmount the iframe. Observe
   // actual intersection through the embedding viewport, including hidden docks.
-  if(typeof IntersectionObserver === "function") new IntersectionObserver(entries => {
+  const observer = typeof IntersectionObserver === "function" ? new IntersectionObserver(entries => {
     const next=entries.some(entry => entry.isIntersecting && entry.intersectionRatio > 0);
     if(next !== intersecting) {intersecting=next;visibilityChanged();}
-  }).observe(document.documentElement);
-  window.addEventListener("pagehide",() => { clear(); if(active && !busy) send("stop"); active=false; });
+  }) : null;
+  observer?.observe(observed);
+  const leave = () => { clear(); if((active || busy) && root) send("stop"); active=false; };
+  ownerWindow.addEventListener("pagehide",leave);
   send("hello");
+  return () => {
+    if(disposed) return;
+    leave(); disposed=true; observer?.disconnect();
+    document.removeEventListener("visibilitychange",visibilityChanged);
+    ownerWindow.removeEventListener("pagehide",leave);
+  };
+  }
+  window.uiKitRuntimeControls = Object.freeze({mount});
+  if(document.getElementById("poll") && document.getElementById("start")) mount(document,window.openidea);
 })();

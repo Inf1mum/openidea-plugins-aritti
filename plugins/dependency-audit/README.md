@@ -69,7 +69,7 @@ for its broader range/shared-property support, or use the package manager. The r
 fixed version and approximate comparator do not establish compatibility or complete
 remediation. Editor read/write permissions are requested only for this action.
 
-Selected Advisory rows offer **Ignore this exact finding with reason**. Enter a
+Dependency and Advisory rows offer **Open advisory on OSV.dev** and **Ignore this exact finding with reason**. A dependency with multiple advisories opens a picker so the action targets one exact finding. Dependency rows retain **Preview upgrade in open declaration**. Enter a
 nonempty reason, then review the project root, ecosystem/package, exact version,
 advisory ID, known aliases and reason before confirming. This suppresses only
 that finding in that project, including its known ID/alias identities. It applies

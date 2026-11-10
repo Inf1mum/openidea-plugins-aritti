@@ -426,8 +426,8 @@ impl Snapshot {
         else {
             return View::message("No project is open.").button(refresh);
         };
-        let choose = Button::new("choose-profiler-source", "Choose project CSV source");
-        let discover = Button::new("discover-profiler-source", "Find cached CSV source");
+        let choose = Button::new("choose-profiler-source", "Choose CSV Source…").icon("folder-open");
+        let discover = Button::new("discover-profiler-source", "Find Cached CSV Source").icon("search");
         let source = match project_source(&root) {
             Ok(source) => source,
             Err(reason) => return View::message(reason).button(refresh).button(choose).button(discover),

@@ -112,7 +112,7 @@ impl Liquibase {
         document.text = text;
         self.offline.generated_view = true;
         self.offline.visible = 0..0;
-        host::refresh_view(VIEW);
+        ui_kit::web::refresh_view(VIEW, include_str!("ui_config.json"));
         Ok(())
     }
 }
@@ -122,7 +122,7 @@ mod tests {
     use super::*;
     use openidea_plugin::{mock::MockHost, file_actions::{FileActions, FileOperation}, providers::Document as EditorDocument};
     fn setup() -> (MockHost, Liquibase) {
-        let host = MockHost::install().with_capabilities(&["project.read", "process:liquibase"]);
+        let host = MockHost::install().with_capabilities(&["project.read", "process:liquibase", "storage"]);
         for path in ["ref.json", "target.json"] { host.add_file(path, r#"{"snapshot":{"database":{"shortName":"h2","url":"PRIVATE-CONNECTION"},"objects":{}}}"#); }
         (host, Liquibase::default())
     }
@@ -162,7 +162,7 @@ mod tests {
         assert!(host::fs::read_bytes(&output).unwrap().is_empty());
         assert!(plugin.offline.running.is_none());
         assert!(format!("{:?}", plugin.render_offline_diff(None, &host.invocation()).unwrap().body).contains("createTable"));
-        let host = host.with_capabilities(&["project.read"]); // Save must work without any process grant.
+        let host = host.with_capabilities(&["project.read", "storage"]); // Save must work without any process grant.
         let doc = editor(&host); let action = action(&mut plugin, &doc);
         host.answer_next_prompt(Some(&["db/reviewed.xml"])); host.answer_next_prompt(Some(&[]));
         let resolved = plugin.resolve_file_action(&doc, action).unwrap();
@@ -175,7 +175,7 @@ mod tests {
     #[test]
     fn exact_subset_expires_old_actions_and_forged_or_cancelled_choices_preserve_the_candidate() {
         let (host, mut plugin) = setup(); answers(&host); plugin.start_offline_generation(&host.invocation()).unwrap(); finish(&host, &mut plugin, &sample());
-        let host = host.with_capabilities(&["project.read"]);
+        let host = host.with_capabilities(&["project.read", "storage"]);
         let doc = editor(&host); let old = action(&mut plugin, &doc);
         let base = plugin.offline.generated.as_ref().unwrap().base.clone();
         host.answer_next_prompt(Some(&[&format!("generated:{base}:1")])); plugin.choose_generated_changesets(&host.invocation()).unwrap();
@@ -294,7 +294,7 @@ mod tests {
     #[test]
     fn changed_snapshots_collisions_and_cancelled_save_refuse_without_source_writes() {
         let (host, mut plugin) = setup(); answers(&host); plugin.start_offline_generation(&host.invocation()).unwrap(); finish(&host, &mut plugin, &sample());
-        let host = host.with_capabilities(&["project.read"]);
+        let host = host.with_capabilities(&["project.read", "storage"]);
         let doc = editor(&host); let lazy = action(&mut plugin, &doc);
         host.answer_next_prompt(None); assert!(matches!(plugin.resolve_file_action(&doc, lazy), Err(Error::Cancelled)));
         let lazy = action(&mut plugin, &doc); host.add_file("db/existing.xml", "KEEP"); host.answer_next_prompt(Some(&["db/existing.xml"]));

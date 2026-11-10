@@ -5,5 +5,8 @@
   },
   "actions": [],
   "project_independent": false,
-  "project_bound_buttons": []
+  "project_bound_buttons": [],
+  "context_buttons": {
+    "beans": []
+  }
 }

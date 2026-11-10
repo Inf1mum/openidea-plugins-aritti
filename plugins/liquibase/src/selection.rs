@@ -395,19 +395,20 @@ mod tests {
     fn external_selection_and_clear_notify_only_browser_without_source_values() {
         let host=setup();let mut plugin=Liquibase::default();
         choose(&host,&mut plugin,"a.xml","liquibase.properties");
-        assert_eq!(host.view_messages(),[("changesets".into(),r#"{"channel":"ui-kit-refresh"}"#.into())]);
+        assert_eq!(host.refreshed_views(),["changesets"]);
+        assert!(host.view_messages().iter().all(|(_,text)| serde_json::from_str::<serde_json::Value>(text).ok().is_some_and(|value| value["channel"] == "ui-kit-refresh" && value.as_object().unwrap().len() <= 2)));
         plugin.clear_sources(&host.invocation()).unwrap();
-        assert_eq!(host.view_messages().len(),2);
-        assert!(host.view_messages().iter().all(|(view,text)|view=="changesets" && text==r#"{"channel":"ui-kit-refresh"}"#));
+        assert_eq!(host.refreshed_views(),["changesets","changesets"]);
+        assert!(host.view_messages().iter().all(|(_,text)| serde_json::from_str::<serde_json::Value>(text).ok().is_some_and(|value| value["channel"] == "ui-kit-refresh" && value.as_object().unwrap().len() <= 2)));
         assert!(host.requests().is_empty());assert!(host.process_runs().is_empty());
     }
     #[test]
     fn cancelled_identical_or_absent_selection_emits_no_false_change() {
         let host=setup();let mut plugin=Liquibase::default();
         host.answer_next_prompt(None);plugin.choose_sources(&host.invocation()).unwrap();
-        plugin.clear_sources(&host.invocation()).unwrap();assert!(host.view_messages().is_empty());
-        choose(&host,&mut plugin,"a.xml","none");let before=host.view_messages().len();
-        choose(&host,&mut plugin,"a.xml","none");assert_eq!(host.view_messages().len(),before);
+        plugin.clear_sources(&host.invocation()).unwrap();assert!(host.refreshed_views().is_empty());
+        choose(&host,&mut plugin,"a.xml","none");let before=host.refreshed_views().len();
+        choose(&host,&mut plugin,"a.xml","none");assert_eq!(host.refreshed_views().len(),before);
     }
     #[test]
     fn foreign_missing_and_revoked_owner_get_safe_replacement_model() {
@@ -421,15 +422,16 @@ mod tests {
         assert!(matches!(plugin.render("changesets",None,&host.invocation()).unwrap().body,Body::Message(text) if text.contains("Project identity is unavailable")));
     }
     #[test]
-    fn stable_ui_kit_render_does_not_emit_selection_refresh_feedback() {
+    fn native_render_needs_no_web_bridge_or_refresh_feedback() {
         let host=setup();let mut plugin=Liquibase::default();choose(&host,&mut plugin,"a.xml","none");
-        for sequence in [1,2] {
-            let before=host.view_messages().len();
-            let request=serde_json::json!({"channel":"ui-kit","frameId":"0123456789abcdef0123456789abcdef","sequence":sequence,"project":"/project","op":"render"});
-            plugin.handle("changesets",ViewEvent::Message(request.to_string()),&host.invocation()).unwrap();
-            let messages=host.view_messages();assert_eq!(messages.len(),before+1);
-            let reply:Value=serde_json::from_str(&messages[before].1).unwrap();assert_eq!(reply["channel"],"ui-kit");assert!(reply.get("model").is_some());
+        let before=host.refreshed_views().len();
+        for _ in 0..2 {
+            let rendered=plugin.render("changesets",None,&host.invocation()).unwrap();
+            assert!(matches!(rendered.body,Body::Tree(_)));
+            assert!(rendered.toolbar.iter().any(|button|button.id=="browser-filter"));
         }
+        assert_eq!(host.refreshed_views().len(),before);
+        assert!(host.view_messages().iter().all(|(_,text)| serde_json::from_str::<serde_json::Value>(text).ok().is_some_and(|value| value["channel"] == "ui-kit-refresh" && value.as_object().unwrap().len() <= 2)));
     }
     #[test]
     fn foreign_browser_render_invalidates_old_navigation_without_opening_source() {

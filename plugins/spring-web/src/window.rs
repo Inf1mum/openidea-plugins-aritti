@@ -225,15 +225,17 @@ fn module_view(module: &str, name: &str) -> String {
 
 impl Views for Endpoints {
     fn render(&mut self, _view: &str, viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
-        let inner = match self.sections.active() {
-            "websocket" => self.websocket.render(&module_view(websocket::WINDOW_SECTION, "destinations"), viewport, ctx)?,
-            "messaging" => self.messaging.render(&module_view(messaging::WINDOW_SECTION, "messaging"), viewport, ctx)?,
-            "graphql" => self.graphql.render(&module_view(graphql::WINDOW_SECTION, "endpoints"), viewport, ctx)?,
-            "webflow" => self.webflow.render(&module_view(webflow::WINDOW_SECTION, "flow"), viewport, ctx)?,
-            "feign" => self.cloud.render(&module_view(cloud::WINDOW_SECTION, "feign-clients"), viewport, ctx)?,
-            _ => self.web.render(&module_view(WINDOW_SECTION, "endpoints"), viewport, ctx)?,
-        };
-        Ok(self.sections.buttons(inner, &[]))
+        (|| -> Result<View, Error> {
+            let inner = match self.sections.active() {
+                "websocket" => self.websocket.render(&module_view(websocket::WINDOW_SECTION, "destinations"), viewport, ctx)?,
+                "messaging" => self.messaging.render(&module_view(messaging::WINDOW_SECTION, "messaging"), viewport, ctx)?,
+                "graphql" => self.graphql.render(&module_view(graphql::WINDOW_SECTION, "endpoints"), viewport, ctx)?,
+                "webflow" => self.webflow.render(&module_view(webflow::WINDOW_SECTION, "flow"), viewport, ctx)?,
+                "feign" => self.cloud.render(&module_view(cloud::WINDOW_SECTION, "feign-clients"), viewport, ctx)?,
+                _ => self.web.render(&module_view(WINDOW_SECTION, "endpoints"), viewport, ctx)?,
+            };
+            Ok(self.sections.buttons(inner, &[]))
+        })().map(ui_kit::actions::available)
     }
 
     fn handle(&mut self, _view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {

@@ -8,21 +8,42 @@
       "view": "vulnerabilities",
       "id": "preview-upgrade",
       "label": "Preview upgrade in open declaration",
-      "kind": "dep"
+      "kind": "dep",
+      "icon": "diff"
     },
     {
       "view": "vulnerabilities",
       "id": "open-advisory",
       "label": "Open advisory on OSV.dev",
-      "kind": "advisory"
+      "kind": "dep",
+      "icon": "external-link"
     },
     {
       "view": "vulnerabilities",
       "id": "ignore-finding",
       "label": "Ignore this exact finding with reason",
-      "kind": "advisory"
+      "kind": "dep",
+      "icon": "hide"
+    },
+    {
+      "view": "vulnerabilities",
+      "id": "open-advisory",
+      "label": "Open advisory on OSV.dev",
+      "kind": "advisory",
+      "replaces_open": true,
+      "icon": "external-link"
+    },
+    {
+      "view": "vulnerabilities",
+      "id": "ignore-finding",
+      "label": "Ignore this exact finding with reason",
+      "kind": "advisory",
+      "icon": "hide"
     }
   ],
   "project_independent": false,
-  "project_bound_buttons": []
+  "project_bound_buttons": [],
+  "context_buttons": {
+    "vulnerabilities": []
+  }
 }

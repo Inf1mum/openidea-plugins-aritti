@@ -42,7 +42,30 @@ for the original component library: all 32 source sections copied directly from
 the supplied document, including its variants and compositions.
 CSS does not automatically synchronize with the design file.
 
-## JetBrains icons
+## Native IDE icons
+
+Embedded panels now prefer the **same IntelliJ New UI (expui) and OpenIDEA glyphs
+as the released v0.1.40 host**, rather than using the JetBrains web-product set as
+lookalikes. The pinned registry contains 484 host icon names and 893 unchanged SVG
+files including theme/size variants. `vendor/openidea-icons/SOURCE.json` records
+the exact host revision and SHA-256 hashes; original SVG headers and licensing
+are retained. The procedural host quote icon is excluded from this SVG registry.
+
+Load `native-icons.js` before `icons.js` and the shared adapters. Native names are
+resolved first in custom panel actions/trees and embedded placeholders; the web
+registry remains a fallback. Monochrome normalization, colored light/dark variants,
+16/20 px source selection and unique SVG IDs follow the host renderer. Theme
+variant switches inherit into managed shadow roots and update live.
+
+```sh
+python3 scripts/build-native-ui-icons.py --check
+python3 scripts/build-ui-icons.py --check
+python3 scripts/sync-plugin-ui.py --check
+PLAYWRIGHT_MODULE=/absolute/path/to/@playwright/test/index.mjs node scripts/check-native-ui-icons.mjs
+# Repeat with --webkit for the desktop engine.
+```
+
+## JetBrains web icon fallback
 
 The complete [JetBrains/icons](https://github.com/JetBrains/icons) collection is
 vendored at revision `29dcfa6cc3196e5c0a8b218f2ac5e6ed7661ca51`: 770 original SVG
@@ -88,6 +111,19 @@ python3 scripts/sync-plugin-ui.py
 PLAYWRIGHT_MODULE=/absolute/path/to/@playwright/test/index.mjs node scripts/check-ui-icons.mjs
 ```
 ## Use in packaged plugin views
+
+All custom plugin panels must use this package and follow the native IDE spirit.
+The host's theme and configured UI/monospace fonts take priority; bundled design
+fonts and reference colors remain standalone fallbacks. Reuse shared controls,
+spacing, focus/disabled states and icons rather than private plugin skins.
+
+The sync command validates local kit dependencies for handwritten manifest pages
+and materializes assets even for standalone-only custom editors. Raw `html`/`body`
+shell opt-outs are rejected. Embedded legacy HTML is managed by the shared shadow
+adapter: its fallback styles stay below kit styles and inherit live kit/host
+colors and fonts. Raw syntax geometry is preserved. Vendor renderers may own
+only their marked inner subtree; the surrounding toolbar remains kit-owned.
+
 
 Existing adopters load `web/resources/hub.html`; synchronization includes
 `tokens.css` and `components.css` through `hub.css`, so they receive the shared
@@ -182,3 +218,58 @@ This kit does not change the upstream IDE renderer or add new host APIs.
 
 Browser checks cover theme overrides, responsive docks and interaction states.
 They do not establish acceptance in a running desktop IDE.
+
+Embedded tool-window pages rely on the native window/tab title. Do not repeat plugin branding or a view heading inside the content; place refresh and other actions in one shared toolbar. Keep descriptive guidance in contextual help or disclosures.
+
+The resource hub composes the actual `.ui-toolbar`, `.ui-tabs`, `.ui-field`, `.ui-table` and icon-button components. Section navigation occupies one horizontal strip; utility actions retain accessible names and tooltips in 26 px icon buttons. Forms use inline labels in wide docks and stack at narrow widths. Filters use accessible hidden captions, and resource rows keep the kit’s 24 px density. Run `scripts/check-hub-native-composition.mjs` (also with `--webkit`) for dock geometry and keyboard/interaction checks.
+
+Packaged panels resolve host-native names first in `web/hub.js`, so `branch`, `external-link`, pull-request state icons, folder/file icons and toolbar controls use the actual host drawings. Older names are translated only for registry compatibility or a web fallback. Preserve accessible action labels and use a text fallback when no faithful icon is available.
+
+Errors and warnings from packaged view actions belong to native IDE notifications (`host::notify`), never a persistent banner in panel content. The shared Rust bridge reports errors once, classifies stale/denied/invalid actions as warnings, and keeps cancellation silent. Client rendering/snapshot-tab failures use the bounded notification-only protocol; its sequence-zero acknowledgements cannot complete pending actions. Keep informational empty states and useful field guidance in the content.
+
+The global panel error reporter excludes only browser-generated ResizeObserver delivery diagnostics (the two standard messages, no exception object or source position). It does not call preventDefault or replace ResizeObserver, so developer logging remains available. A real exception with identical text is still reported. This does not alter the host IDE’s own observer scheduling.
+
+Use `.ui-embedded-panel` on custom tool-window/editor page bodies. Its `--ui-toolbar-bg` follows `--ui-bg` (the host’s native island/background surface), so action bars and section strips do not appear as elevated bands. `.ui-tool-window` uses the same surface for preview headers/toolbars. General controls, menus and dialogs retain their own surface tokens.
+
+HTTP methods use `.ui-badge.ui-http-method[data-method]` in resource tables, grouped route-tree details and selected endpoint facts. Producers send structured method data; the renderer never extracts methods from arbitrary detail text. Composite methods get individual badges. The method text remains present for accessibility, filtering and activation identity.
+
+Resource selection does not open a permanent inspector. Row actions live in the kit context menu (right-click or Shift+F10); double-click/Enter opens the resource. Additional facts are available through Show Details… in an on-demand kit dialog. Escape restores focus to the row. Keep actions contextual rather than repeating them in an automatic sidebar.
+
+Resource Type/Kind and Severity columns use shared badges, including their on-demand detail facts. Critical/High use red fills, Moderate/Medium amber fills, Low blue fills, and unknown values stay neutral. Severity labels keep the normal theme foreground. Original labels, including aggregate `+ unknown` qualifiers, are preserved for display, search, sorting and filtering.
+
+Embedded custom pages suppress the browser’s default context menu on backgrounds, controls and raw vendor subtrees. The shared adapter cancels the default only: propagation stays intact for kit context menus and Shift+F10/ContextMenu-key handlers. Clipboard shortcuts are unaffected. The rule is scoped to `.ui-embedded-panel` and does not disable browser menus in standalone kit examples.
+
+Toolbar Preferences/Settings actions use the bundled settings glyph, an icon-only control and tooltip, aligned with `.ui-toolbar-end`. Use them for on-demand settings instead of adding permanent tabs or extra tool-window entries.
+
+Tree models render by parent hierarchy, regardless of producer row order. Sorting applies within siblings; search retains ancestors. Trees use continuous scrolling rather than row pagination, aligned disclosure/icon gutters and 24 px rows. Single-column trees omit an empty Details column/header. Context menus are created only when invoked, avoiding thousands of unused popup nodes in expanded trees.
+
+The shared shell never injects a generic Refresh action. Toolbars contain only producer-declared actions, empty toolbars disappear, and normal view invalidation refreshes the model automatically. Empty states do not add a redundant refresh button. Explicit data-fetch/rescan/catalogue actions remain owned by their producers.
+
+Unavailable toolbar actions are omitted at the native view boundary with `actions::available`; the shared web shell also filters unavailable actions and context-menu entries. Request-busy controls stay visible and disabled until the response arrives.
+
+Icon buttons receive native hover tooltips from their accessible action labels through the shared controls adapter. The adapter supports dynamic controls and enhanced shadow roots, updates generated tooltips when labels change, and preserves explicit titles and custom tooltip widgets.
+
+Plugin resource icons (`ext:fileIcon/<plugin>/<id>`) resolve through a generated local asset registry from each manifest’s `contributes.fileIcons`. Synchronization copies the declared SVGs into `web/resources/plugin-icons`; the hub renders them as 16px images and preserves `iconDark` variants. Registry assets are restricted to packaged relative SVG paths.
+
+Context actions may declare an exact `keys` allowlist. Both the menu renderer and command bridge enforce it; an empty list exposes no rows. Plugins with dynamic menus can use `web::handle_with_actions` to derive actions from the final rendered view after a command changes scope or contents.
+
+Use `ui-scroll-area` on panel content and custom overflow containers. Kit dialogs, popups, tabs, textareas, code samples, notifications and embedded page scrollbars share the same themed scrollbar paint; WebKit uses the kit’s 10px thumb styling and transparent track/corner. Hidden tool-window tab scrollbars retain their own policy.
+
+Resource context menus use declared row commands when available. Otherwise, right-click/Shift+F10 selects the row through the plugin and mirrors its enabled toolbar actions (excluding section and settings/back navigation). The `item-button` operation validates the clicked row, reselects it, and checks action availability again; scoped callback IDs may rotate only through an unambiguous matching label/icon. Project-bound guards still apply. Pending menus respect dismissal and frame/project/sequence correlation.
+
+Route rows use the generic native `web` endpoint icon in both flat lists and grouped trees. HTTP methods remain available as method labels/badges rather than method-letter icons.
+
+Explicit context commands can set `replaces_open` in their source menu declaration to replace the generic Open entry for matching rows. Use this only when both actions have the same destination; opening a dependency declaration and opening its advisory remain distinct.
+
+Declare inline form buttons in a plugin’s `src/ui_form_actions.json`, keyed by field ID with `button` (an existing toolbar action ID) and optional `primary`. The hub moves the action beside that input, uses the kit’s primary style when requested, preserves accessible labels and typed drafts, and wraps within narrow panels. Button dispatch retains the existing server-side toolbar eligibility checks.
+
+Tree/resource rows can provide `activationLabel` and `activationIcon` to name their existing activation behavior accurately. Spring Initializr dependency rows use Select/Deselect instead of Open, derived from the current selection.
+
+Declare per-view row-toolbar actions in `src/ui_context_buttons.json`. The generated model’s `contextButtons` list limits the generic row menu; an empty list keeps view-wide commands in the toolbar. A trailing-colon entry permits a scoped action prefix (for example, `pipeline-action:`); producer and bridge checks still authorize execution. Explicit item commands may override their in-context `label` and `icon` through `src/ui_actions.json`.
+
+Custom panels may declare `src/ui_toolbar_icon_buttons.json` as a map of view IDs
+to toolbar button IDs. The synchronizer emits `toolbar_icon_buttons`; the bridge
+exposes the current view's `iconButtons` list. These existing buttons render as
+compact icon buttons with their original labels retained for accessibility and
+tooltips. Missing icons keep visible labels. The policy never changes dispatch or
+authorization.

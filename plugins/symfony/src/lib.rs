@@ -59,12 +59,10 @@ use ui_kit::sections::{SectionDef, Switcher};
 const VIEW: &str = "symfony";
 /// Main source index only; profiler/native editors keep their own protocols.
 fn refresh_profiler_view() {
-    host::refresh_view(PROFILER_VIEW);
-    let _ = host::post_view_message(PROFILER_VIEW, r#"{"channel":"ui-kit-refresh"}"#);
+    ui_kit::web::refresh_view(PROFILER_VIEW, include_str!("ui_config.json"));
 }
 fn refresh_main_view() {
-    host::refresh_view(VIEW);
-    let _ = host::post_view_message(VIEW, r#"{"channel":"ui-kit-refresh"}"#);
+    ui_kit::web::refresh_view(VIEW, include_str!("ui_config.json"));
 }
 
 const STATUS_ITEM: &str = "symfony";
@@ -968,7 +966,7 @@ impl Plugin for Main {
     fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
         match id {
             "twig-paths" => {
-                host::reveal_view(namespace_paths::VIEW)?;
+                ui_kit::web::reveal_view(namespace_paths::VIEW, include_str!("ui_config.json"))?;
                 Ok(None)
             }
             "reindex" => {
@@ -979,9 +977,8 @@ impl Plugin for Main {
             }
             "show-profiler" => {
                 self.profiler_snapshot.refresh(ctx);
-                host::refresh_view(PROFILER_VIEW);
-                let _ = host::post_view_message(PROFILER_VIEW, r#"{"channel":"ui-kit-refresh"}"#);
-                host::notify(NotificationLevel::Info, SOURCE, "The latest requests are in the Symfony Profiler tool window.");
+                ui_kit::web::reveal_view(PROFILER_VIEW, include_str!("ui_config.json"))?;
+                host::notify(NotificationLevel::Info, SOURCE, "The latest requests are in the Profiler tab.");
                 Ok(None)
             }
             "cache-warmup" => self.console(ctx, "cache:warmup"),
@@ -1712,57 +1709,59 @@ impl Main {
 
 impl Views for Main {
     fn render(&mut self, view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
-        if view == namespace_paths::VIEW {
-            return Ok(self.namespace_editor.render(ctx));
-        }
-        if view == PROFILER_VIEW {
-            return Ok(self.profiler_snapshot.render(ctx));
-        }
+        (|| -> Result<View, Error> {
+            if view == namespace_paths::VIEW {
+                return Ok(self.namespace_editor.render(ctx));
+            }
+            if view == PROFILER_VIEW {
+                return Ok(self.profiler_snapshot.render(ctx));
+            }
 
-        let routes_active = self.window.get_or_insert_with(Window::new).sections.active() == ROUTES_SECTION;
-        let reindex = Button::new("reindex", "Reindex").icon("refresh");
-        let stale_settings=ctx.project().and_then(|project|project.root().ok()).and_then(|root|self.indexes.get(&root)).is_some_and(|index|!index.settings_current());
-        let Some(index) = self.view_index(ctx) else {
-            self.route_owner = None; self.route_selection = None; self.selected = None;
-            let message=if stale_settings {"Symfony source settings changed. Reindex to refresh cached facts."} else {"This project is not a Symfony application."};
-            return Ok(View::message(message).button(reindex));
-        };
+            let routes_active = self.window.get_or_insert_with(Window::new).sections.active() == ROUTES_SECTION;
+            let reindex = Button::new("reindex", "Reindex").icon("refresh");
+            let stale_settings=ctx.project().and_then(|project|project.root().ok()).and_then(|root|self.indexes.get(&root)).is_some_and(|index|!index.settings_current());
+            let Some(index) = self.view_index(ctx) else {
+                self.route_owner = None; self.route_selection = None; self.selected = None;
+                let message=if stale_settings {"Symfony source settings changed. Reindex to refresh cached facts."} else {"This project is not a Symfony application."};
+                return Ok(View::message(message).button(reindex));
+            };
 
-        let mut status = if index.compiled_container {
-            String::from("Compiled container found")
-        } else {
-            String::from("No compiled container: run Warm Up Cache to index bundle services and routes")
-        };
-        if index.template_paths_unknown {
-            status.push_str(" · Twig plugin hints are incomplete or runtime-unverified");
-        }
-        if !index.ambiguous_templates.is_empty() {
-            status.push_str(" · ambiguous template hints suppressed");
-        }
-        if index.partial {
-            status.push_str(" · Index incomplete (discovery, read or time limit)");
-        }
+            let mut status = if index.compiled_container {
+                String::from("Compiled container found")
+            } else {
+                String::from("No compiled container: run Warm Up Cache to index bundle services and routes")
+            };
+            if index.template_paths_unknown {
+                status.push_str(" · Twig plugin hints are incomplete or runtime-unverified");
+            }
+            if !index.ambiguous_templates.is_empty() {
+                status.push_str(" · ambiguous template hints suppressed");
+            }
+            if index.partial {
+                status.push_str(" · Index incomplete (discovery, read or time limit)");
+            }
 
-        let base = View::new(Body::Tree(Vec::new()))
-            .button(reindex)
-            .button(Button::new("cache-warmup", "Warm Up Cache").icon("build-project"))
-            .status(&status);
-        let (routes, tree) = match routes_active {
-            true => (self.routes(index), Vec::new()),
-            false => (Vec::new(), self.tree(index)),
-        };
-        let root = ctx.project().and_then(|p| p.root().ok());
-        if self.route_owner != root { self.selected = None; self.route_selection = None; }
-        self.route_owner = root;
-        let window = self.window.get_or_insert_with(Window::new);
-        let view = if routes_active {
-            window.routes.set_routes(routes);
-            window.routes.render(base)
-        } else {
-            View { body: Body::Tree(tree), ..base }
-        };
-        let view = window.sections.buttons(view, &[]);
-        Ok(view)
+            let base = View::new(Body::Tree(Vec::new()))
+                .button(reindex)
+                .button(Button::new("cache-warmup", "Warm Up Cache").icon("build-project"))
+                .status(&status);
+            let (routes, tree) = match routes_active {
+                true => (self.routes(index), Vec::new()),
+                false => (Vec::new(), self.tree(index)),
+            };
+            let root = ctx.project().and_then(|p| p.root().ok());
+            if self.route_owner != root { self.selected = None; self.route_selection = None; }
+            self.route_owner = root;
+            let window = self.window.get_or_insert_with(Window::new);
+            let view = if routes_active {
+                window.routes.set_routes(routes);
+                window.routes.render(base)
+            } else {
+                View { body: Body::Tree(tree), ..base }
+            };
+            let view = window.sections.buttons(view, &[]);
+            Ok(view)
+        })().map(ui_kit::actions::available)
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {
@@ -1780,7 +1779,7 @@ impl Views for Main {
                 }
                 ViewEvent::Button(id) if id == "refresh-profiler" => {
                     self.profiler_snapshot.refresh(ctx);
-                    host::refresh_view(PROFILER_VIEW);
+                    ui_kit::web::refresh_view(PROFILER_VIEW, include_str!("ui_config.json"));
                 }
                 ViewEvent::Activate(key) => self.profiler_snapshot.open(&key, ctx)?,
                 _ => {}
@@ -1794,7 +1793,7 @@ impl Views for Main {
                     self.index_project(&project);
                 }
             }
-            host::refresh_view(view);
+            ui_kit::web::refresh_view(view, include_str!("ui_config.json"));
             return Ok(());
         }
         if view == VIEW {
@@ -1897,7 +1896,10 @@ mod tests {
     }
 
     fn main_notices(host:&MockHost,after:usize)->Vec<String>{
-        host.view_messages()[after..].iter().filter(|(_,text)|text==r#"{"channel":"ui-kit-refresh"}"#).map(|(view,_)|view.clone()).collect()
+        host.view_messages()[after..].iter().filter_map(|(view,text)| {
+            let value:serde_json::Value=serde_json::from_str(text).ok()?;
+            (value["channel"]=="ui-kit-refresh").then(||value["targetView"].as_str().unwrap_or(view).to_owned())
+        }).collect()
     }
 
     #[test]
@@ -2974,16 +2976,18 @@ mod tests {
         assert!(host.view_messages().iter().all(|(view,_)|view==VIEW));
         let before=host.view_messages().len();
         plugin.run_command("show-profiler", &ctx, None).unwrap();
-        assert_eq!(&host.view_messages()[before..], &[(PROFILER_VIEW.to_owned(), r#"{"channel":"ui-kit-refresh"}"#.to_owned())]);
+        assert_eq!(ui_kit::web::active_view(VIEW,include_str!("ui_config.json")).unwrap(),PROFILER_VIEW);
+        assert_eq!(host.revealed_views().last().map(String::as_str),Some(VIEW));
+        assert_eq!(&host.view_messages()[before..], &[(VIEW.to_owned(), r#"{"channel":"ui-kit-refresh"}"#.to_owned())]);
         let View { body: Body::Table(table), .. } = plugin.render(PROFILER_VIEW, None, &ctx).unwrap() else { panic!("not a table") };
         assert_eq!(table.rows[0], ["2023-11-14 22:21:40", "POST", "500", "/new", "1.1.1.1", "bbbbbb"]);
         assert_eq!(table.rows.len(), 2);
         assert_eq!(host.view_messages().len(), before + 1, "render must not send another invalidation");
 
         plugin.run_command("show-profiler", &ctx, None).unwrap();
-        assert!(host.refreshed_views().contains(&PROFILER_VIEW.to_owned()));
+        assert!(host.refreshed_views().contains(&VIEW.to_owned()));
         assert_eq!(host.view_messages().len(), before + 2);
-        assert!(host.view_messages()[before..].iter().all(|(view, message)| view == PROFILER_VIEW && message == r#"{"channel":"ui-kit-refresh"}"#));
+        assert!(host.view_messages()[before..].iter().all(|(view, message)| view == VIEW && message == r#"{"channel":"ui-kit-refresh"}"#));
     }
 
     #[test]
@@ -3003,7 +3007,7 @@ mod tests {
         plugin.handle_events(&[Event::FileOpened(format!("/project/{}", profiler::INDEX_FILE))], &ctx);
         assert_eq!(host.view_messages().len(), messages, "opening alone does not stale cached source");
         plugin.handle_events(&[Event::FileSaved("/project/var/cache/dev/profiler".into())], &ctx);
-        assert_eq!(&host.view_messages()[messages..], &[(PROFILER_VIEW.to_owned(), r#"{"channel":"ui-kit-refresh"}"#.to_owned())]);
+        assert_eq!(&host.view_messages()[messages..], &[(VIEW.to_owned(), r#"{"channel":"ui-kit-refresh","targetView":"symfony-profiler"}"#.to_owned())]);
         let view = plugin.render(PROFILER_VIEW, None, &ctx).unwrap();
         assert!(view.status.unwrap().contains("STALE filesystem change"));
         let Body::Table(table) = view.body else { panic!("cached rows") };
@@ -3839,5 +3843,40 @@ impl openidea_plugin::endpoints::EndpointsProvider for Main {
             return Err(Error::Failed("Symfony route index is incomplete; refresh after indexing.".into()));
         }
         Ok(ui_kit::routes::endpoints(&self.routes(index), "Symfony"))
+    }
+}
+
+
+#[cfg(test)]
+mod grouped_ui_parity_tests {
+    use super::*;
+    use openidea_plugin::mock::MockHost;
+    use serde_json::{Value, json};
+
+    fn send(plugin:&mut Main,host:&MockHost,active:&str,operation:Value)->Value {
+        let mut request=operation;
+        request["channel"]=json!("ui-kit");request["sequence"]=json!(1);
+        request["frameId"]=json!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        request["project"]=json!("/project");request["targetView"]=json!(active);
+        plugin.handle(VIEW,ViewEvent::Message(request.to_string()),&host.invocation()).unwrap();
+        serde_json::from_str(&host.view_messages().last().unwrap().1).unwrap()
+    }
+    #[test]
+    fn twig_path_draft_survives_custom_tabs_and_hidden_tab_fields_refuse() {
+        let host=MockHost::install();let mut plugin=Main::default();
+        let answer=send(&mut plugin,&host,VIEW,json!({"op":"select-view","target":namespace_paths::VIEW}));
+        assert_eq!(answer["model"]["activeView"],namespace_paths::VIEW);
+        assert_eq!(answer["model"]["viewTabs"].as_array().unwrap().len(),3);
+        let answer=send(&mut plugin,&host,namespace_paths::VIEW,json!({"op":"event","event":{"kind":"button","key":"twig-path-add"}}));
+        let fields=answer["model"]["body"]["fields"].as_array().unwrap();
+        let field=fields.iter().find(|field|field["label"]=="Existing project-relative directory").unwrap()["key"].as_str().unwrap().to_owned();
+        let answer=send(&mut plugin,&host,namespace_paths::VIEW,json!({"op":"event","event":{"kind":"field","key":field,"value":"templates/kept"}}));
+        assert!(answer.get("error").is_none(),"{answer}");
+        send(&mut plugin,&host,namespace_paths::VIEW,json!({"op":"select-view","target":PROFILER_VIEW}));
+        let stale=send(&mut plugin,&host,namespace_paths::VIEW,json!({"op":"event","event":{"kind":"field","key":field,"value":"templates/stale"}}));
+        assert!(stale["error"].is_string());
+        let answer=send(&mut plugin,&host,PROFILER_VIEW,json!({"op":"select-view","target":namespace_paths::VIEW}));
+        assert!(answer["model"]["body"]["fields"].as_array().unwrap().iter().any(|field|field["value"]["text"]=="templates/kept"));
+        assert!(host.view_messages().iter().all(|(view,_)|view==VIEW));
     }
 }

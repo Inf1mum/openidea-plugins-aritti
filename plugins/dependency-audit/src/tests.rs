@@ -1383,3 +1383,28 @@ fn editor_ignore_cancel_and_evicted_advice_leave_sources_and_scopes_untouched() 
     let upgrade=actions.into_iter().find(|a|a.title.starts_with("Upgrade ")).unwrap();host::storage::delete("queries").unwrap();
     assert!(matches!(plugin.resolve_code_action(&doc,upgrade),Err(Error::Stale)));assert_eq!(host.requests().len(),requests);assert!(host.opened_urls().is_empty());assert!(!host.storage().contains_key("scoped-ignores:/project"));
 }
+
+#[test]
+fn dependency_row_exposes_advisories_and_exact_ignores_without_losing_upgrade() {
+    let host=MockHost::install().with_capabilities(CAPS);let mut plugin=scanned(&host);
+    let model=resource_model(&mut plugin,&host);
+    let dep=model["body"]["items"].as_array().unwrap().iter().find(|row|row["cells"][0]=="Dependency"&&row["cells"][1]=="lodash").unwrap()["key"].as_str().unwrap().to_owned();
+    let actions=model["actions"].as_array().unwrap().iter().filter(|action|action["kind"]=="dep").map(|action|action["id"].as_str().unwrap()).collect::<Vec<_>>();
+    assert_eq!(actions,["preview-upgrade","open-advisory","ignore-finding"]);
+    let open=model["actions"].as_array().unwrap().iter().filter(|action|action["id"]=="open-advisory").collect::<Vec<_>>();
+    assert_eq!(open.iter().find(|action|action["kind"]=="advisory").unwrap()["replacesOpen"],true);
+    assert_eq!(open.iter().find(|action|action["kind"]=="dep").unwrap()["replacesOpen"],false);
+    let requests=host.requests().len();
+    let command=|plugin:&mut DependencyAudit,id:&str| {
+        plugin.handle("vulnerabilities",ViewEvent::Message(json!({"channel":"ui-kit","sequence":70,"project":"/project","op":"command","id":id,"key":dep}).to_string()),&host.invocation()).unwrap();
+        serde_json::from_str::<Value>(&host.view_messages().last().unwrap().1).unwrap()
+    };
+    assert!(command(&mut plugin,"open-advisory").get("error").is_none());
+    assert_eq!(host.opened_urls(),["https://osv.dev/vulnerability/GHSA-35jh-r3h4-6jhm"]);
+    assert!(command(&mut plugin,"ignore-finding").get("error").is_none()); // reason cancelled
+    assert!(scoped::load("/project").is_empty());
+    host.answer_next_prompt(Some(&["Accepted while evaluating patch"]));host.answer_next_prompt(Some(&[]));
+    assert!(command(&mut plugin,"ignore-finding").get("error").is_none());
+    let records=scoped::load("/project");assert_eq!(records.len(),1);assert!(host.storage()["scoped-ignores:/project"].contains("GHSA-35JH-R3H4-6JHM"));
+    assert_eq!(host.requests().len(),requests);assert!(host.process_runs().is_empty());
+}

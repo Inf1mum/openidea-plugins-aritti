@@ -669,7 +669,7 @@ impl GitLab {
         if self.active_commit().is_some() && message["type"] != "open" {
             let error =
                 serde_json::json!({ "type": "error", "message": "A commit's changes are read-only. Click All Changes to comment." });
-            return host::post_view_message(DETAILS, &error.to_string());
+            return ui_kit::web::post_view_message(DETAILS, &error.to_string(), include_str!("ui_config.json"));
         }
 
         let repo = gitlab_project(ctx)?;
@@ -769,7 +769,7 @@ impl GitLab {
 
         if let Err(e) = result {
             // Redrawing would reload the page and lose the open editor's text.
-            return host::post_view_message(DETAILS, &serde_json::json!({ "type": "error", "message": e.to_string() }).to_string());
+            return ui_kit::web::post_view_message(DETAILS, &serde_json::json!({ "type": "error", "message": e.to_string() }).to_string(), include_str!("ui_config.json"));
         }
 
         self.status = Some(

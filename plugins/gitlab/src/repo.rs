@@ -71,7 +71,7 @@ impl GitLab {
         let path = match event {
             ViewEvent::Button(id) if id == "refresh" => {
                 self.projects = None;
-                host::refresh_view(PROJECTS);
+                ui_kit::web::refresh_view(PROJECTS, include_str!("ui_config.json"));
                 return Ok(());
             }
             ViewEvent::Activate(path) => path,

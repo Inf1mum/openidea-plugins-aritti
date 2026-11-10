@@ -4,24 +4,12 @@ version = "0.2.0" # x-release-please-version
 description = "Reads the Actuator endpoints (beans, environment, conditions, health, mappings, configuration properties, scheduled tasks, loggers, caches) of a Spring Boot application running on localhost and shows them in a Spring Runtime tool window. Editor markers show which beans are loaded, and the runtime value and property source of @Value and configuration keys. Independent implementation, not affiliated with JetBrains or Broadcom."
 authors = ["Arnaud RITTI <arnaud.ritti@gmail.com>"]
 license = "MIT"
-change-notes = "Unreleased: Full 8 MiB project/URL/auth-mode snapshots; cache-only rendering/markers and last-good retention across failed/partial/oversized refreshes. Visible-view scoped opt-in polling; no native scheduled fetch. 0.1.0: first release, with the Actuator snapshot (refresh, clear and optional auto-refresh), the Spring Runtime tool window, runtime markers for beans, @Value and configuration keys, and hints for beans that aren't loaded."
+change-notes = "Unreleased: one shared-kit runtime window with Overview, bounded Observation/Provenance details, Bean Graph and frame-owned visible polling controls, retaining scoped source navigation and explicit lifecycle checks.  Full 8 MiB project/URL/auth-mode snapshots; cache-only rendering/markers and last-good retention across failed/partial/oversized refreshes. Visible-view scoped opt-in polling; no native scheduled fetch. 0.1.0: first release, with the Actuator snapshot (refresh, clear and optional auto-refresh), the Spring Runtime tool window, runtime markers for beans, @Value and configuration keys, and hints for beans that aren't loaded."
 categories = ["frameworks"]
 icon = "icon.svg"
 engines.openidea = "^1.4"
 wasm = "dist/plugin.wasm"
-activation = [
-    "on-view:runtime",
-    "on-view:runtime-snapshot",
-    "on-view:runtime-graph",
-    "on-view:runtime-controls",
-    "on-language:java",
-    "on-file:**/application*.properties",
-    "on-file:**/application*.yml",
-    "on-file:**/application*.yaml",
-    "on-file:**/bootstrap*.properties",
-    "on-file:**/bootstrap*.yml",
-    "on-file:**/bootstrap*.yaml",
-]
+activation = ["on-view:runtime", "on-language:java", "on-file:**/application*.properties", "on-file:**/application*.yml", "on-file:**/application*.yaml", "on-file:**/bootstrap*.properties", "on-file:**/bootstrap*.yml", "on-file:**/bootstrap*.yaml"]
 
 [capabilities]
 required = ["project.read", "storage"]
@@ -62,13 +50,6 @@ id = "snapshot-details"
 title = "Spring Runtime: Inspect Cached Snapshot"
 category = "Spring Runtime"
 
-[[contributes.views]]
-id = "runtime-snapshot"
-title = "Runtime Snapshot Details"
-icon = "icons/spring.svg"
-location = "bottom"
-detail = true
-
 [[contributes.providers]]
 kinds = ["inlay-hints"]
 languages = ["properties", "yaml"]
@@ -77,13 +58,6 @@ languages = ["properties", "yaml"]
 id = "runtime-graph"
 title = "Spring Runtime: Cached Bean Dependency Graph"
 category = "Spring Runtime"
-
-[[contributes.views]]
-id = "runtime-graph"
-title = "Runtime Bean Dependencies"
-icon = "icons/spring.svg"
-location = "bottom"
-web = "web/resources/hub.html"
 
 [[contributes.commands]]
 id = "runtime-controls"
@@ -99,10 +73,3 @@ category = "Spring Runtime"
 id = "poll-stop"
 title = "Spring Runtime: Stop Future Polls"
 category = "Spring Runtime"
-
-[[contributes.views]]
-id = "runtime-controls"
-title = "Runtime Refresh Controls"
-icon = "icons/spring.svg"
-location = "bottom"
-web = "web/resources/runtime-controls.html"

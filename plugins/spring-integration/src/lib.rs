@@ -538,7 +538,9 @@ fn diagram_of(index: &Index<Vec<Ref>>) -> (Vec<Node>, Vec<Edge>) {
 
 impl Views for Integration {
     fn render(&mut self, _view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
-        self.render_graph(ctx)
+        (|| -> Result<View, Error> {
+            self.render_graph(ctx)
+        })().map(ui_kit::actions::available)
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {

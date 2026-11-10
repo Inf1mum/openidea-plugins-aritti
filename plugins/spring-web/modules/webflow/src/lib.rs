@@ -462,13 +462,15 @@ impl Providers for WebFlow {
 
 impl Views for WebFlow {
     fn render(&mut self, _view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
-        let _ = host::subscribe(EventKind::EditorFocused);
-        let refresh = Button::new("refresh", "Refresh").icon("refresh");
-        let flow = ctx.editor().filter(|e|e.language()=="xml").and_then(|e|e.document().ok()).filter(|d|actions::valid(&d.text))
-            .and_then(|d|parse_flow(&d.text)).filter(|f|f.states.len()<=128 && f.transitions.len()<=256
-                && f.states.iter().map(|s|&s.id).collect::<BTreeSet<_>>().len()==f.states.len());
-        let Some(flow) = flow else { return Ok(View::message(NO_FLOW).button(refresh)) };
-        Ok(diagram_view(&flow).button(refresh))
+        (|| -> Result<View, Error> {
+            let _ = host::subscribe(EventKind::EditorFocused);
+            let refresh = Button::new("refresh", "Refresh").icon("refresh");
+            let flow = ctx.editor().filter(|e|e.language()=="xml").and_then(|e|e.document().ok()).filter(|d|actions::valid(&d.text))
+                .and_then(|d|parse_flow(&d.text)).filter(|f|f.states.len()<=128 && f.transitions.len()<=256
+                    && f.states.iter().map(|s|&s.id).collect::<BTreeSet<_>>().len()==f.states.len());
+            let Some(flow) = flow else { return Ok(View::message(NO_FLOW).button(refresh)) };
+            Ok(diagram_view(&flow).button(refresh))
+        })().map(ui_kit::actions::available)
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {

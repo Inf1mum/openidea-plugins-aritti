@@ -9,5 +9,14 @@
     "cli",
     "prepare-import",
     "open-reviewed-import"
-  ]
+  ],
+  "field_actions": {
+    "dependencies": {
+      "button": "choose-dependencies",
+      "primary": true
+    }
+  },
+  "context_buttons": {
+    "initializr": []
+  }
 }

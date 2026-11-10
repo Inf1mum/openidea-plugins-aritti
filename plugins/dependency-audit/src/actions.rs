@@ -40,6 +40,34 @@ pub(crate) fn current_report(project: &Project, before: &Option<String>) -> Resu
     stored_report(project)?.ok_or(Error::Stale)
 }
 
+/// Resolve a dependency menu action to one exact advisory, retaining all
+/// existing advisory ownership, reason and confirmation checks downstream.
+pub(crate) fn choose_advisory(ctx: &Invocation, key: &str, ignoring: bool) -> Result<Option<String>, Error> {
+    let project = ctx.project().ok_or(Error::Stale)?;
+    let root = project.root()?;
+    let before = host::storage::get(&rows_key(&project)?)?;
+    let report = stored_report(&project)?.ok_or(Error::Stale)?;
+    let row = dependency(&report, key)?;
+    let mut ids = row.advisories.iter().filter(|id|osv::is_safe_id(id)).collect::<Vec<_>>();
+    ids.sort();ids.dedup();
+    let id = match ids.as_slice() {
+        [] => return Err(Error::Stale),
+        [id] => (*id).to_owned(),
+        _ => {
+            let items = ids.iter().map(|id|openidea_plugin::PickItem::new(id, id)).collect::<Vec<_>>();
+            let title = format!("Choose advisory to {} — {} {}", if ignoring {"ignore"} else {"open"}, row.name, row.version);
+            let Some(id) = host::pick(&title, &items)? else { return Ok(None); };
+            if !ids.iter().any(|known|known.as_str() == id) { return Err(Error::Stale); }
+            id
+        }
+    };
+    if ctx.project().and_then(|project|project.root().ok()).as_deref() != Some(root.as_str()) { return Err(Error::Stale); }
+    let latest = current_report(&project, &before)?;
+    let latest_row = dependency(&latest, key)?;
+    if !latest_row.advisories.contains(&id) { return Err(Error::Stale); }
+    Ok(Some(format!("advisory:{}|{id}",base(latest_row))))
+}
+
 struct Upgrade {
     root: String,
     doc: Document,
@@ -426,4 +454,17 @@ mod tests {
         assert!(dependency(&report, &base).is_err(), "colliding persisted row identities are not guessed");
         assert_eq!(host.opened_urls().len(), 2);
     }
+    #[test]
+    fn dependency_advisory_picker_cancels_and_rejects_unlisted_answers() {
+        let host=MockHost::install().with_capabilities(CAPS);
+        let mut r=row();r.advisories.push("CVE-2026-1234".into());
+        let key=format!("dep:{}",saved(&host,r));
+        assert!(choose_advisory(&host.invocation(),&key,false).unwrap().is_none());
+        host.answer_next_prompt(Some(&["CVE-2026-9999"]));
+        assert!(choose_advisory(&host.invocation(),&key,false).is_err());
+        host.answer_next_prompt(Some(&["CVE-2026-1234"]));
+        assert_eq!(choose_advisory(&host.invocation(),&key,true).unwrap().unwrap(),format!("advisory:{}|CVE-2026-1234",key.strip_prefix("dep:").unwrap()));
+        assert!(host.opened_urls().is_empty()&&host.requests().is_empty()&&host.process_runs().is_empty());
+    }
+
 }

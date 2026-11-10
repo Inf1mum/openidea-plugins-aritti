@@ -1,5 +1,6 @@
 //! OpenAPI: editing support for OpenAPI 3 and Swagger 2 files.
 
+mod ui_group;
 mod checks;
 mod structure;
 mod try_http;
@@ -46,8 +47,7 @@ struct Comparison {
     items: Vec<ListItem>,
 }
 fn refresh_comparison() {
-    host::refresh_view(COMPARE);
-    let _ = host::post_view_message(COMPARE, r#"{"channel":"ui-kit-refresh"}"#);
+    crate::ui_group::refresh_view(COMPARE);
 }
 fn comparison_owner(ctx: &Invocation, path: &str) -> Result<String, Error> {
     let root = ctx.project().ok_or(Error::Stale)?.root()?;
@@ -355,7 +355,7 @@ impl OpenApi {
         comparison_owner(ctx, &base_path)?;
         let base = project.read_file(&base_path)?;
         self.show_comparison(ctx, &base_path, &base, &path, &revision, version)?;
-        host::reveal_view(COMPARE)?;
+        crate::ui_group::reveal_view(COMPARE)?;
         Ok(None)
     }
 
@@ -390,7 +390,7 @@ impl OpenApi {
             Err(error) => return Err(error),
         };
         self.show_comparison(ctx, &format!("HEAD:{relative}"), &committed, &path, &revision, version)?;
-        host::reveal_view(COMPARE)?;
+        crate::ui_group::reveal_view(COMPARE)?;
         Ok(None)
     }
 
@@ -1285,28 +1285,33 @@ impl OpenApi {
 
 impl Views for OpenApi {
     fn render(&mut self, view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
-        if view == "try-response" {
-            return Ok(self.try_http.view(ctx));
-        }
-        if view == COMPARE {
-            return Ok(match &self.comparison {
-                None => View::message("Run OpenAPI: Compare With Another Spec…"),
-                Some(comparison) if !comparison.current(ctx) => View::message("Comparison owner or source is no longer current. Focus its original document and compare again; cached rows withheld."),
-                Some(comparison) if comparison.items.is_empty() => View::message("No differences.").status(&comparison.status),
-                Some(comparison) => View::new(Body::List(comparison.items.clone())).status(&comparison.status),
-            });
-        }
-        let Some(project) = ctx.project() else {
-            return Ok(View::message("Open a project to list its endpoints."));
-        };
+        (|| -> Result<View, Error> {
+            if view == "try-response" {
+                return Ok(self.try_http.view(ctx));
+            }
+            if view == COMPARE {
+                return Ok(match &self.comparison {
+                    None => View::message("Run OpenAPI: Compare With Another Spec…"),
+                    Some(comparison) if !comparison.current(ctx) => View::message("Comparison owner or source is no longer current. Focus its original document and compare again; cached rows withheld."),
+                    Some(comparison) if comparison.items.is_empty() => View::message("No differences.").status(&comparison.status),
+                    Some(comparison) => View::new(Body::List(comparison.items.clone())).status(&comparison.status),
+                });
+            }
+            let Some(project) = ctx.project() else {
+                return Ok(View::message("Open a project to list its endpoints."));
+            };
 
-        let refresh = Button::new("refresh", "Refresh").icon("refresh");
-        let list = self.route_list();
-        list.set_routes(project_routes(&project)?);
-        Ok(list.render(View::new(Body::List(Vec::new())).button(refresh)))
+            let refresh = Button::new("refresh", "Refresh").icon("refresh");
+            let list = self.route_list();
+            list.set_routes(project_routes(&project)?);
+            Ok(list.render(View::new(Body::List(Vec::new())).button(refresh)))
+        })().map(ui_kit::actions::available)
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {
+        if ui_kit::web::handle(self, view, &event, ctx, include_str!("ui_config.json"))? {
+            return Ok(());
+        }
         if view == "try-response" {
             return match event {
                 ViewEvent::Button(key) => self.send_prepared(ctx, &key),
@@ -1314,9 +1319,6 @@ impl Views for OpenApi {
             };
         }
 
-        if ui_kit::web::handle(self, view, &event, ctx, include_str!("ui_config.json"))? {
-            return Ok(());
-        }
 
         if PREVIEWS.contains(&view) {
             let ViewEvent::Message(request) = event else {
@@ -1330,7 +1332,7 @@ impl Views for OpenApi {
             let path = editor.path();
             let project = project_for(&path)?;
             return match preview_files(&project, &path, &editor.document()?.text, id, known) {
-                Some(files) => host::post_view_message(view, &files),
+                Some(files) => crate::ui_group::post_view_message(view, &files),
                 None => Ok(()),
             };
         }
@@ -1353,12 +1355,12 @@ impl Views for OpenApi {
                 host::open_location(path, line, column)
             }
             ViewEvent::Button(button) if button == "refresh" => {
-                host::refresh_view(ENDPOINTS);
+                crate::ui_group::refresh_view(ENDPOINTS);
                 Ok(())
             }
             event => match self.route_list().handle(&event) {
                 RouteEvent::Changed => {
-                    host::refresh_view(ENDPOINTS);
+                    crate::ui_group::refresh_view(ENDPOINTS);
                     Ok(())
                 }
                 RouteEvent::Open(route) => {
@@ -1564,8 +1566,8 @@ mod tests {
         let Body::List(items) = view.body else { panic!("expected a list") };
         assert_eq!(items.iter().map(|i| i.label.as_str()).collect::<Vec<_>>(), ["/pets", "/pets/{petId}", "/pets/{petId}"]);
         assert_eq!(items[0].detail.as_deref(), Some("[GET] Pets"));
-        assert_eq!(items[0].icon.as_deref(), Some("ext:fileIcon/aritti.openapi/route-get"));
-        assert_eq!(items[2].icon.as_deref(), Some("ext:fileIcon/aritti.openapi/route-delete"));
+        assert_eq!(items[0].icon.as_deref(), Some("web"));
+        assert_eq!(items[2].icon.as_deref(), Some("web"));
     }
 
     #[test]
@@ -1646,7 +1648,7 @@ mod tests {
         (host,plugin)
     }
     fn comparison_messages(host: &MockHost) -> usize {
-        host.view_messages().iter().filter(|(view,raw)| view==COMPARE && raw==r#"{"channel":"ui-kit-refresh"}"#).count()
+        host.view_messages().iter().filter(|(view,raw)| view==ENDPOINTS && serde_json::from_str::<serde_json::Value>(raw).is_ok_and(|message| message["channel"]=="ui-kit-refresh" && message["targetView"]==COMPARE)).count()
     }
     #[test]
     fn external_comparison_replacement_notifies_page_and_render_never_notifies_or_fetches() {
@@ -1767,7 +1769,8 @@ mod tests {
 
         host.answer_next_prompt(Some(&["/project/old/openapi.yaml"]));
         openapi.run_command("compare-specs", &host.invocation(), None).unwrap();
-        assert_eq!(host.revealed_views(), [COMPARE]);
+        assert_eq!(host.revealed_views(), [ENDPOINTS]);
+        assert_eq!(ui_kit::web::active_view(ENDPOINTS,include_str!("ui_config.json")).unwrap(),COMPARE);
         let view = openapi.render(COMPARE, None, &host.invocation()).unwrap();
         let Body::List(items) = view.body else { panic!("expected a list") };
         assert_eq!(items[0].label, "~ GET /pets");

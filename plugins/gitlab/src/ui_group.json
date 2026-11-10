@@ -1,0 +1,17 @@
+{
+  "primary": "merge-requests",
+  "tabs": [
+    {
+      "id": "merge-requests",
+      "label": "GitLab"
+    },
+    {
+      "id": "merge-request",
+      "label": "Details"
+    },
+    {
+      "id": "gitlab-projects",
+      "label": "Projects"
+    }
+  ]
+}

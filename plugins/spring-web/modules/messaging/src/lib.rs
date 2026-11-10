@@ -672,62 +672,64 @@ impl Providers for Messaging {
 
 impl Views for Messaging {
     fn render(&mut self, view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
-        let Some(project) = ctx.project() else {
-            return Ok(View::message("Open a project to see its messaging destinations."));
-        };
-        let props = props_of(self.config.get(&project, COMMAND_BUDGET).iter());
-        let constants = self.constant_values(&project, COMMAND_BUDGET);
-        let index = self.index.get(&project, COMMAND_BUDGET);
-        let complete = index.complete();
-        if index.scanning() {
-            refresh(view);
-        }
-        let refresh = Button::new("refresh", "Refresh").icon("refresh");
-        let mut tree: BTreeMap<Broker, Destinations> = BTreeMap::new();
-        let all: Vec<(&str, Endpoint)> = index
-            .iter()
-            .flat_map(|(path, es)| es.iter().filter_map(|e| resolved(e.clone(), &props, &constants)).map(move |e| (path, e)))
-            .collect();
-        for (path, e) in &all {
-            tree.entry(e.broker).or_default().entry((e.name.as_str(), e.space)).or_default().push((*path, e));
-        }
-        if tree.is_empty() {
-            let text = if complete { "No Kafka, RabbitMQ or JMS destinations found." } else { "Scanning…" };
-            return Ok(View::message(text).button(refresh));
-        }
-        let mut items = Vec::new();
-        let mut total = 0;
-        for (broker, destinations) in tree {
-            let b = format!("b:{}", broker.label());
-            items.push(TreeItem::new(&b, broker.label()).detail(&destinations.len().to_string()).expandable(true));
-            total += destinations.len();
-            for ((name, space), mut uses) in destinations {
-                let d = format!("d:{}:{space}:{name}", broker.label());
-                let count = |role| uses.iter().filter(|(_, e)| e.role == role).count();
-                let (producers, consumers) = (count(Role::Producer), count(Role::Consumer));
-                let detail = format!("{space} · {} · {}", plural(producers, "producer"), plural(consumers, "consumer"));
-                let icon = if (producers > 0) != (consumers > 0) { "warning" } else { "send" };
-                items.push(TreeItem::new(&d, name).parent(&b).detail(&detail).icon(icon).expandable(false));
-                uses.sort_by_key(|(p, e)| (e.role, *p, e.at));
-                for (path, e) in uses {
-                    let key = format!("e:{}:{}:{path}", e.range.start.line, e.range.start.character);
-                    let label = format!("{}:{}", file_name(path), e.range.start.line + 1);
-                    let (role, icon) = match e.role {
-                        Role::Consumer => ("consumer", "vcs-incoming"),
-                        Role::Producer => ("producer", "vcs-outgoing"),
-                        Role::Declaration => ("declaration", "spring-config"),
-                    };
-                    let detail = format!("{role} · {}", e.via);
-                    items.push(TreeItem::new(&key, &label).parent(&d).detail(&detail).icon(icon));
+        (|| -> Result<View, Error> {
+            let Some(project) = ctx.project() else {
+                return Ok(View::message("Open a project to see its messaging destinations."));
+            };
+            let props = props_of(self.config.get(&project, COMMAND_BUDGET).iter());
+            let constants = self.constant_values(&project, COMMAND_BUDGET);
+            let index = self.index.get(&project, COMMAND_BUDGET);
+            let complete = index.complete();
+            if index.scanning() {
+                refresh(view);
+            }
+            let refresh = Button::new("refresh", "Refresh").icon("refresh");
+            let mut tree: BTreeMap<Broker, Destinations> = BTreeMap::new();
+            let all: Vec<(&str, Endpoint)> = index
+                .iter()
+                .flat_map(|(path, es)| es.iter().filter_map(|e| resolved(e.clone(), &props, &constants)).map(move |e| (path, e)))
+                .collect();
+            for (path, e) in &all {
+                tree.entry(e.broker).or_default().entry((e.name.as_str(), e.space)).or_default().push((*path, e));
+            }
+            if tree.is_empty() {
+                let text = if complete { "No Kafka, RabbitMQ or JMS destinations found." } else { "Scanning…" };
+                return Ok(View::message(text).button(refresh));
+            }
+            let mut items = Vec::new();
+            let mut total = 0;
+            for (broker, destinations) in tree {
+                let b = format!("b:{}", broker.label());
+                items.push(TreeItem::new(&b, broker.label()).detail(&destinations.len().to_string()).icon("folder").expandable(true));
+                total += destinations.len();
+                for ((name, space), mut uses) in destinations {
+                    let d = format!("d:{}:{space}:{name}", broker.label());
+                    let count = |role| uses.iter().filter(|(_, e)| e.role == role).count();
+                    let (producers, consumers) = (count(Role::Producer), count(Role::Consumer));
+                    let detail = format!("{space} · {} · {}", plural(producers, "producer"), plural(consumers, "consumer"));
+                    let icon = if (producers > 0) != (consumers > 0) { "warning" } else { "send" };
+                    items.push(TreeItem::new(&d, name).parent(&b).detail(&detail).icon(icon).expandable(false));
+                    uses.sort_by_key(|(p, e)| (e.role, *p, e.at));
+                    for (path, e) in uses {
+                        let key = format!("e:{}:{}:{path}", e.range.start.line, e.range.start.character);
+                        let label = format!("{}:{}", file_name(path), e.range.start.line + 1);
+                        let (role, icon) = match e.role {
+                            Role::Consumer => ("consumer", "vcs-incoming"),
+                            Role::Producer => ("producer", "vcs-outgoing"),
+                            Role::Declaration => ("declaration", "spring-config"),
+                        };
+                        let detail = format!("{role} · {}", e.via);
+                        items.push(TreeItem::new(&key, &label).parent(&d).detail(&detail).icon(icon));
+                    }
                 }
             }
-        }
-        self.expansion.apply(&mut items);
-        let mut status = plural(total, "destination");
-        if !complete {
-            status.push_str(" · scanning…");
-        }
-        Ok(View::new(Body::Tree(items)).button(refresh).status(&status))
+            self.expansion.apply(&mut items);
+            let mut status = plural(total, "destination");
+            if !complete {
+                status.push_str(" · scanning…");
+            }
+            Ok(View::new(Body::Tree(items)).button(refresh).status(&status))
+        })().map(ui_kit::actions::available)
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {

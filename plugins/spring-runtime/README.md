@@ -1,5 +1,7 @@
 # Spring Runtime Insight
 
+One shared UI-kit window contains the Overview, Observations, Bean Graph, Refresh Controls tabs. Commands select their corresponding custom tab; existing actions, drafts and ownership checks remain in their original handlers. See [tab migration and parity validation](../../docs/custom-plugin-groups-2026-11-10.md).
+
 Reads the Actuator endpoints of a Spring Boot application running on this machine and shows what it loaded, in a Spring Runtime tool window and as editor markers.
 
 ## Setup
@@ -317,7 +319,8 @@ Mounted **Runtime** and **Bean Dependency Graph** packaged pages now receive a
 model-free invalidation after snapshot Refresh/Clear/error and polling control
 changes, including refreshes performed by the separate controls page. Each page
 re-reads its own project/URL/auth-bound cached model; no snapshot or credential is
-included in the broadcast. Native snapshot panes retain native revision refresh.
+included in the broadcast. Invalidation names its logical destination, so updating
+Overview/Observations/Graph does not remount an active polling-controls driver.
 Render/hello do not invalidate, poll or fetch. Missing/denied/invalid current
 project scope returns an empty-state model instead of reusing another graph.
 This is covered by Rust mocks and the existing timer-driver tests; this follow-up
@@ -330,3 +333,40 @@ uses, and checks aria-busy and error/status transitions alongside the existing
 visibility/in-flight timer races. It has a fake bridge/clock and is not a browser,
 actual Actuator refresh or native acceptance. Current asset validation is dated
 separately from Runtime55 historical inputs; historical receipts are unchanged.
+
+## Shared-kit runtime window
+
+One native Spring Runtime container now hosts shared UI-kit tabs: **Overview**,
+**Observations**, **Bean Graph** and **Refresh Controls**. Existing commands and
+buttons select the appropriate logical tab; cached data and command IDs remain
+separate. Overview retains the scoped tree, category icons, source navigation,
+Refresh, Clear Snapshot and Collapse All. Rendering or navigation never fetches.
+
+Observations retains all bounded endpoint sections. Right-click a row and choose
+**Show Details…** for its full **Observation** and **Provenance** (project, URL,
+auth mode, endpoint, fetch time, last error and missing endpoints). These read-only
+facts are attached only to the authoritative selected row, avoiding a large eager
+payload for every observation. Activating a source-linked row still requires a
+unique exact current-project qualified source candidate. Credentials and omitted
+Actuator property values remain absent. Same-snapshot UI renders retain row keys;
+refresh, clear or scope changes retire them.
+
+The graph keeps its existing navigation and controls. Refresh Controls retains the
+private frame/nonce/sequence handshake and visible-only 60-second timer. It mounts
+inside the hub without remounting after each protocol reply. Leaving the tab
+clears its backend lease, including when Start was outstanding; driver disposal
+queues Stop before navigation. Hiding the pane stops future polls. Returning
+creates a fresh frame and sends Hello, requiring a new explicit Start.
+
+The layout follows the cached observation and source-navigation workflow from the
+[official Spring tool window documentation](https://www.jetbrains.com/help/idea/spring-tool-window.html).
+This is Actuator browsing, not the debugger's breakpoint/object identity model.
+
+Validation for this migration: 58 Rust tests pass, including real grouped-bridge
+observation selection/details/source activation/stale-key checks and private
+controls Start/navigation lease retirement. The Node timer harness preserves the
+existing cadence/visibility/late-reply cases and adds pending-Start disposal.
+Chromium and WebKit run the actual grouped hub and controls driver, covering
+pending Start navigation, a fresh frame on return, and hidden-pane Stop. These
+checks use deterministic transports; no new live Actuator or desktop acceptance
+is claimed.

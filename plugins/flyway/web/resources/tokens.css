@@ -39,8 +39,8 @@
   --ui-warning: var(--openidea-warning, var(--ui-ref-warning));
   --ui-success: var(--openidea-success, var(--ui-ref-success));
   --ui-info: var(--openidea-info, var(--ui-ref-info));
-  --ui-font: "Int UI Inter", var(--openidea-font-ui, system-ui, sans-serif);
-  --ui-mono: "Int UI Mono", var(--openidea-font-mono, ui-monospace, monospace);
+  --ui-font: var(--openidea-font-ui, "Int UI Inter"), "Int UI Inter", system-ui, sans-serif;
+  --ui-mono: var(--openidea-font-mono, "Int UI Mono"), "Int UI Mono", ui-monospace, monospace;
   --ui-text: var(--openidea-font-size, 13px);
   --ui-text-small: 12px;
   --ui-leading: 1.2307692308;
@@ -123,3 +123,8 @@
 :root{--ui-icon-color:#6C707E}
 :root[data-theme=dark]{--ui-icon-color:#CED0D6}
 @media(prefers-color-scheme:dark){:root:not([data-theme]){--ui-icon-color:#CED0D6}}
+
+/* Inherited variant switches also reach managed shadow-root panels. */
+:root{--ui-native-light-display:inline;--ui-native-dark-display:none}
+:root[data-theme=dark]{--ui-native-light-display:none;--ui-native-dark-display:inline}
+@media(prefers-color-scheme:dark){:root:not([data-theme]){--ui-native-light-display:none;--ui-native-dark-display:inline}}

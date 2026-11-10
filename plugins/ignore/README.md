@@ -358,3 +358,9 @@ Ignore115 event retention follow-up: cached literal-directory observations survi
 ## Native historical file hints (API 1.4)
 
 After an explicitly approved successful Partial Git observation collection, **Publish Cached Partial Git Sample Hints** can decorate at most16 existing owned files with a muted I badge and a historical tooltip. This starts no new plugin Git child. Samples must be younger than120seconds at publication and pass current scope checks; they are not effective Git status or a complete inventory. **Clear Partial Git Sample Hints** and observed source/project/preferences/lifecycle events withdraw the owned set. The host supplies no automatic decoration expiry.
+
+Ignore Templates has a right-aligned Preferences gear with a tooltip. It opens the existing guarded preferences draft in the same window using the shared UI kit, with Back to Templates; successful Save or Cancel returns to templates. The Tools Preferences command opens the same form. There is no permanent preferences tab or extra sidebar entry.
+
+Deleting a user template uses the native confirmation modal, leaving the list visible. Cancel changes nothing; confirmation rechecks the selected template and its stored content before deleting the template and favorite marker. The previous inline confirmation screen/event is retired.
+
+Create User Template uses a native input modal prefilled with the focused filename. Cancel leaves storage unchanged; empty/duplicate names are rejected. The captured document/version and editor identity are rechecked before saving its content, and the list remains visible. The old inline naming form and Save/Cancel event path are retired.

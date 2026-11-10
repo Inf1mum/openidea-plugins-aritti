@@ -238,7 +238,17 @@ impl Launcher {
             None => format!("{} selected. Double-click a dependency to add or remove it.", chosen.len()),
         };
 
-        let mut view = View::new(Body::Tree(items)).button(Button::new("search", "Search…").icon("search"));
+        let body = if ui_kit::web::is_rendering() {
+            Body::Other { kind:"tree".into(), data:serde_json::json!({"items":items.iter().map(|item| {
+                let dependency=item.key.strip_prefix(DEPENDENCY_PREFIX).or_else(||item.key.strip_prefix(CHOSEN_PREFIX));
+                let selected=dependency.is_some_and(|id|chosen.iter().any(|chosen|chosen == id));
+                serde_json::json!({"key":item.key,"parent":item.parent,"label":item.label,"icon":item.icon,"detail":item.detail,
+                    "expandable":item.expandable,"expanded":item.expanded,
+                    "activationLabel":dependency.map(|_|if selected {"Deselect"} else {"Select"}),
+                    "activationIcon":dependency.map(|_|if selected {"remove"} else {"add"})})
+            }).collect::<Vec<_>>()}).to_string() }
+        } else { Body::Tree(items) };
+        let mut view = View::new(body).button(Button::new("search", "Search…").icon("search"));
         if search.is_some() {
             view = view.button(Button::new("clearSearch", "Clear search").icon("close"));
         }

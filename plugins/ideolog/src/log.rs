@@ -9,6 +9,9 @@ use openidea_plugin::syntax::Highlight;
 use std::ops::Range;
 use std::sync::LazyLock;
 
+#[path = "timestamp.rs"]
+mod timestamp;
+
 const DETECTION_LINES: usize = 25;
 const MAX_PARSING_LENGTH: usize = 10_000;
 
@@ -54,6 +57,8 @@ pub struct Format {
     pattern: Regex,
     line_start: Regex,
     pub time_column: Option<usize>,
+    /// Explicit bounded Java-style pattern; absent means automatic timestamps.
+    pub time_pattern: Option<String>,
     pub severity_column: Option<usize>,
     pub category_column: Option<usize>,
     /// Formats without a level column (syslog): the level comes from keywords in the message.
@@ -171,6 +176,7 @@ impl Format {
             pattern: compile(pattern, "(?s)")?,
             line_start: compile(line_start, "")?,
             time_column: column(time),
+            time_pattern: None,
             severity_column: column(severity),
             category_column: column(category),
             level_from_message: false,
@@ -218,6 +224,12 @@ impl Config {
                 )
                 .map(|mut format| {
                     format.name = attr(&attrs, "name").filter(|n| !n.is_empty()).unwrap_or("Custom format").to_owned();
+                    format.time_pattern = attr(&attrs, "timePattern").filter(|p| !p.is_empty()).map(str::to_owned);
+                    if let Some(pattern) = &format.time_pattern {
+                        if let Err(error) = validate_time_pattern(pattern) {
+                            config.errors.push(format!("{}: timestamp gaps unavailable: {error}", format.name));
+                        }
+                    }
                     custom_formats.push(format);
                 }),
                 _ => custom_rule(&attrs).map(|rule| config.rules.extend(rule)),
@@ -242,6 +254,10 @@ impl Config {
             }
         }
         Ok(config)
+    }
+
+    pub(crate) fn format_names(&self) -> Vec<(String, String)> {
+        self.formats.iter().map(|f| (f.uuid.clone(), f.name.clone())).collect()
     }
 
     /// Exact format identity for settings preview; never substitute a detected
@@ -425,6 +441,19 @@ const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Au
 /// ISO numeric offsets and Z are normalized; naive timestamps share an
 /// assumed local scale and a missing year counts as 2000.
 // ponytail: handles ISO-like, Logcat, syslog and time-only stamps; other time columns get no gaps.
+/// Validate the supported numeric Java-style subset, not arbitrary SimpleDateFormat.
+pub fn validate_time_pattern(pattern: &str) -> Result<(), String> {
+    timestamp::validate(pattern)
+}
+
+/// Explicit formats never silently fall back to automatic parsing.
+pub fn time_seconds(time: &str, pattern: Option<&str>) -> Option<f64> {
+    match pattern.filter(|p| !p.is_empty()) {
+        Some(pattern) => timestamp::seconds(time, pattern),
+        None => seconds(time),
+    }
+}
+
 pub fn seconds(time: &str) -> Option<f64> {
     let time=time.trim();
     let c = TIMESTAMP.captures(time).ok()??;

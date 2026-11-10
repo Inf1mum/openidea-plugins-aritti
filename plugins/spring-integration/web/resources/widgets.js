@@ -5,7 +5,15 @@
   const enhanced = new WeakSet(), selects = new WeakMap(), openWidgets = new Set(), links = new WeakSet(), menuOrigins = new WeakMap(), openMenus = new Set();
   const node = (tag, className, text) => {const n=document.createElement(tag);if(className)n.className=className;if(text!=null)n.textContent=text;return n;};
   const announce = (target, type, detail) => target.dispatchEvent(new CustomEvent(`ui-${type}`,{bubbles:true,detail}));
-  const members = (root,selector) => [...(root.matches?.(selector)?[root]:[]),...root.querySelectorAll?.(selector)||[]];
+  function withinRaw(node) {
+    let owner = node?.nodeType === 11 ? node.host : node;
+    while(owner) {
+      if(owner.closest?.('[data-ui-raw]')) return true;
+      owner = owner.getRootNode?.().host;
+    }
+    return false;
+  }
+  const members = (root,selector) => [...(root.matches?.(selector)?[root]:[]),...root.querySelectorAll?.(selector)||[]].filter(node=>!withinRaw(node));
   function position(popup, anchor, point) {
     const rect=anchor.getBoundingClientRect(), margin=8;
     const tip=popup.classList.contains('ui-tooltip'), menu=popup.classList.contains('ui-menu'), arrow=tip&&popup.dataset.uiTip;
@@ -25,7 +33,7 @@
     popup.style.left=`${left}px`;popup.style.top=`${top}px`;
   }
   function customSelect(select) {
-    if(selects.has(select)||select.multiple||select.size>1||select.closest('[data-ui-raw]'))return;
+    if(selects.has(select)||select.multiple||select.size>1||withinRaw(select))return;
     const id=`ui-select-${++nextId}`, searchable=select.hasAttribute('data-ui-searchable');
     const labelCopy=select.labels?.[0]?.cloneNode(true);labelCopy?.querySelectorAll('select,input,textarea,button,output').forEach(n=>n.remove());
     const labelledBy=select.getAttribute('aria-labelledby')?.split(/\s+/).map(id=>select.getRootNode().getElementById(id)?.textContent||'').join(' ');
@@ -103,7 +111,7 @@
   }
   function tabs(root, segmented=false) {
     if(enhanced.has(root))return;enhanced.add(root);root.classList.add(segmented?'ui-segmented':'ui-tabs');
-    const items=()=>[...root.querySelectorAll(segmented?'button':'[role=tab]')].filter(n=>!n.disabled);
+    const items=()=>[...root.querySelectorAll(segmented?'button':'[role=tab]')].filter(n=>!n.disabled&&!withinRaw(n));
     if(segmented){root.setAttribute('role','radiogroup');for(const button of items()){button.setAttribute('role','radio');button.setAttribute('aria-checked',button.getAttribute('aria-checked')||'false');}}
     const activate=button=>{
       for(const item of items()) {
@@ -113,7 +121,7 @@
       announce(root,'change',{value:button.dataset.value||button.textContent.trim()});
     };
     const initial=items().find(n=>n.getAttribute(segmented?'aria-checked':'aria-selected')==='true')||items()[0];if(initial)activate(initial);
-    root.addEventListener('click',event=>{
+    root.addEventListener('click',event=>{if(withinRaw(event.target))return;
       const button=event.target.closest('button');
       if(!segmented&&button?.classList.contains('ui-tab-close')){
         const wrapper=button.closest('.ui-tab'),tab=wrapper?.querySelector('[role=tab]');if(!tab)return;
@@ -125,7 +133,7 @@
       }
       if(items().includes(button))activate(button);
     });
-    root.addEventListener('keydown',event=>{
+    root.addEventListener('keydown',event=>{if(withinRaw(event.target))return;
       const all=items(), index=all.indexOf(event.target);if(index<0)return;
       if(!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Home','End'].includes(event.key))return;
       event.preventDefault();const next=event.key==='Home'?all[0]:event.key==='End'?all.at(-1):all[(index+(['ArrowLeft','ArrowUp'].includes(event.key)?-1:1)+all.length)%all.length];next.focus();next.click();
@@ -140,7 +148,7 @@
     // gesture that opened them. Menus own dismissal instead; native invoker
     // buttons still toggle manual popovers normally.
     popup.setAttribute('popover','manual');
-    const items=()=>[...popup.querySelectorAll('button,a[href]')].filter(n=>!n.disabled);
+    const items=()=>[...popup.querySelectorAll('button,a[href]')].filter(n=>!n.disabled&&!withinRaw(n));
     for(const item of items())item.setAttribute('role','menuitem');
     const close=()=>{
       const origin=menuOrigins.get(popup);
@@ -166,7 +174,7 @@
         }
       }
     });
-    popup.addEventListener('keydown',event=>{
+    popup.addEventListener('keydown',event=>{if(withinRaw(event.target))return;
       if(event.key==='Escape'){
         event.preventDefault();
         event.stopPropagation();
@@ -175,15 +183,15 @@
       }
       if(['ArrowDown','ArrowUp','Home','End'].includes(event.key)){event.preventDefault();const all=items(),index=all.indexOf(event.target);(event.key==='Home'?all[0]:event.key==='End'?all.at(-1):all[(index+(event.key==='ArrowDown'?1:-1)+all.length)%all.length])?.focus();}
     });
-    popup.addEventListener('click',event=>{
+    popup.addEventListener('click',event=>{if(withinRaw(event.target))return;
       if(event.target.closest('[role=menuitem]'))close();
     });
   }
   function toolbar(root) {
     if(enhanced.has(root))return;enhanced.add(root);root.classList.add('ui-toolbar');
-    const items=()=>[...root.querySelectorAll('button,input,select,[tabindex="0"]')].filter(n=>!n.disabled&&n.getAttribute('aria-hidden')!=='true');
-    root.addEventListener('focusin',event=>{for(const item of items())item.tabIndex=item===event.target?0:-1;});
-    root.addEventListener('keydown',event=>{
+    const items=()=>[...root.querySelectorAll('button,input,select,[tabindex="0"]')].filter(n=>!n.disabled&&n.getAttribute('aria-hidden')!=='true'&&!n.closest('[hidden]')&&!withinRaw(n));
+    root.addEventListener('focusin',event=>{if(withinRaw(event.target))return;for(const item of items())item.tabIndex=item===event.target?0:-1;});
+    root.addEventListener('keydown',event=>{if(withinRaw(event.target))return;
       if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)||event.target.getAttribute('role')==='combobox')return;
       const all=items(),index=all.indexOf(event.target);if(index<0)return;event.preventDefault();
       (event.key==='Home'?all[0]:event.key==='End'?all.at(-1):all[(index+(event.key==='ArrowRight'?1:-1)+all.length)%all.length])?.focus();
@@ -191,8 +199,8 @@
   }
   function tree(root) {
     if(enhanced.has(root))return;enhanced.add(root);root.setAttribute('role','tree');root.classList.add('ui-tree');
-    const items=()=>[...root.querySelectorAll('[role=treeitem]')].filter(n=>!n.closest('[hidden]'));
-    const expand=(item,value)=>{item.setAttribute('aria-expanded',String(value));item.querySelector(':scope > .ui-tree-row > .ui-tree-chevron')?.setAttribute('aria-expanded',String(value));const group=[...item.children].find(n=>n.getAttribute('role')==='group');if(group)group.hidden=!value;announce(item,value?'expand':'collapse',{key:item.dataset.key});};
+    const items=()=>[...root.querySelectorAll('[role=treeitem]')].filter(n=>!n.closest('[hidden]')&&!withinRaw(n));
+    const expand=(item,value)=>{item.setAttribute('aria-expanded',String(value));const chevron=item.querySelector(':scope > .ui-tree-row > .ui-tree-chevron');if(chevron){chevron.setAttribute('aria-expanded',String(value));chevron.setAttribute('aria-label',`${value?'Collapse':'Expand'} ${item.querySelector(':scope > .ui-tree-row > .ui-tree-label')?.textContent.trim() || ''}`);}const group=[...item.children].find(n=>n.getAttribute('role')==='group');if(group)group.hidden=!value;announce(item,value?'expand':'collapse',{key:item.dataset.key});};
     const select=item=>{for(const n of items()){n.tabIndex=n===item?0:-1;n.setAttribute('aria-selected',String(n===item));}announce(item,'select',{key:item.dataset.key});};
     for(const [i,item] of items().entries()) {
       const row=node('span','ui-tree-row'),label=node('span','ui-tree-label');
@@ -206,15 +214,15 @@
       const icon=node('span','ui-tree-icon');icon.setAttribute('aria-hidden','true');row.append(icon,label);item.prepend(row);
       item.tabIndex=i===0?0:-1;if(item.hasAttribute('aria-expanded'))expand(item,item.getAttribute('aria-expanded')==='true');
     }
-    root.addEventListener('click',event=>{const item=event.target.closest('[role=treeitem]');if(item&&!event.target.closest('button,a,input')){select(item);item.focus();}});
-    root.addEventListener('keydown',event=>{
+    root.addEventListener('click',event=>{if(withinRaw(event.target))return;const item=event.target.closest('[role=treeitem]');if(item&&!event.target.closest('button,a,input')){select(item);item.focus();}});
+    root.addEventListener('keydown',event=>{if(withinRaw(event.target))return;
       const item=event.target.closest('[role=treeitem]');if(!item||event.target!==item)return;
       const all=items(),index=all.indexOf(item),key=event.key;let next;
       if(key==='ArrowDown')next=all[Math.min(index+1,all.length-1)];else if(key==='ArrowUp')next=all[Math.max(0,index-1)];else if(key==='Home')next=all[0];else if(key==='End')next=all.at(-1);
       else if(key==='ArrowRight'){if(item.getAttribute('aria-expanded')==='false')expand(item,true);else next=item.querySelector('[role=treeitem]');}
       else if(key==='ArrowLeft'){if(item.getAttribute('aria-expanded')==='true')expand(item,false);else next=item.parentElement.closest('[role=treeitem]');}
       else if(key===' '){select(item);}else if(key==='Enter'){announce(item,'activate',{key:item.dataset.key});}else return;
-      event.preventDefault();if(next){select(next);next.focus();}
+      event.preventDefault();if(next&&!withinRaw(next)){select(next);next.focus();}
     });
   }
   function tooltip(trigger) {
@@ -234,7 +242,7 @@
   function notify({title='Notification',message='',tone='info',root=document}={}) {
     let region=root.querySelector('.ui-notifications');if(!region){region=node('div','ui-notifications');(root.body||root).append(region);}
     const toast=node('section',`ui-notification ui-alert ui-alert--${tone}`);toast.setAttribute('role',tone==='error'?'alert':'status');
-    const close=node('button','ui-button ui-button--quiet','×');close.type='button';close.setAttribute('aria-label','Dismiss notification');close.addEventListener('click',()=>toast.remove());
+    const close=node('button','ui-button ui-button--quiet ui-icon-button');if(window.uiKitIcons)close.append(window.uiKitIcons.create('close',{size:16}));else close.textContent='×';close.type='button';close.setAttribute('aria-label','Dismiss notification');close.addEventListener('click',()=>toast.remove());
     toast.append(node('strong',null,title),node('p',null,message),close);region.append(toast);return toast;
   }
   function enhance(root=document) {

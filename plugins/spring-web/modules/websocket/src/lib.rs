@@ -462,11 +462,13 @@ fn file_name(path: &str) -> &str {
 
 impl Views for WebSocketTools {
     fn render(&mut self, view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
-        let Some(project) = ctx.project() else {
-            return Ok(View::message("Open a project to see its STOMP destinations."));
-        };
+        (|| -> Result<View, Error> {
+            let Some(project) = ctx.project() else {
+                return Ok(View::message("Open a project to see its STOMP destinations."));
+            };
 
-        Ok(self.destinations_view(view, &project, COMMAND_BUDGET))
+            Ok(self.destinations_view(view, &project, COMMAND_BUDGET))
+        })().map(ui_kit::actions::available)
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {

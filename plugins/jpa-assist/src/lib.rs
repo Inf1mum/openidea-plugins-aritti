@@ -9,7 +9,7 @@
 //! - On an entity's class line, actions generate `equals`/`hashCode` and
 //!   `toString`; commands copy its DDL or a DTO, or an entity for the
 //!   `CREATE TABLE` at the caret.
-//! - The JPA Structure tool window lists the project's entities.
+//! - The Persistence tool window lists the project's entities.
 
 mod attribute_info;
 mod build;
@@ -387,6 +387,9 @@ pub struct JpaAssist {
     missing: HashSet<String>,
     /// Every JPA class of the project is in `classes`.
     scanned: bool,
+    structure_root: Option<String>,
+    /// Exact editor snapshot located explicitly by the user; no native selection API is assumed.
+    structure_located: Option<Document>,
     /// Structure tree item → where it is declared.
     locations: HashMap<String, (String, Position)>,
     /// Expanded entities of the structure tree.
@@ -1008,15 +1011,19 @@ impl JpaAssist {
         entities
     }
 
-    /// The entity right-clicked in JPA Structure, else the one open in the editor.
+    /// The entity right-clicked in Persistence, else the one open in the editor.
     fn entity_of(&mut self, ctx: &Invocation, item: Option<&str>) -> Result<Class, Error> {
         let Some(path) = item.and_then(|key| key.strip_prefix(ENTITY_KEY_PREFIX)) else {
             return self.current_entity(ctx);
         };
         let project = ctx.project().ok_or("Open a project first.")?;
-        self.scan(&project)?;
-
-        self.entities().into_iter().find(|c| c.path == path).cloned().ok_or_else(|| "That entity is no longer in the project.".into())
+        if host::project_of(path).and_then(|owner| owner.root().ok()) != Some(project.root()?) {
+            return Err(Error::Stale);
+        }
+        let text = project.read_file(path)?;
+        let class = parse_class(&text, path).filter(|class| class.kind == Kind::Entity).ok_or(Error::Stale)?;
+        self.remember(class.clone());
+        Ok(class)
     }
 
     /// The entity open in the editor, with the classes it refers to loaded.
@@ -1072,6 +1079,7 @@ impl Plugin for JpaAssist {
 
     fn run_command(&mut self, id: &str, ctx: &Invocation, arg: Option<&str>) -> Result<Option<String>, Error> {
         match id {
+            "structure-source" => { self.navigate_structure(arg.ok_or(Error::Stale)?, ctx)?; Ok(None) }
             "find-attribute-usages" => {file_actions::find_attribute_usages(ctx)?; Ok(None)}
             "copy-ddl" => {
                 let class = self.entity_of(ctx, arg)?;
@@ -1129,6 +1137,11 @@ impl Plugin for JpaAssist {
     }
 
     fn handle_events(&mut self, events: &[Event], _ctx: &Invocation) {
+        if self.structure_located.is_some() && events.iter().any(|event| matches!(event,
+            Event::EditorFocused(_) | Event::FileOpened(_) | Event::FileSaved(_) | Event::FilesChanged(_))) {
+            self.structure_located = None;
+            host::refresh_view("structure");
+        }
         for event in events {
             if let Event::FilesChanged(batch) = event {
                 for path in batch.created.iter().chain(&batch.modified).chain(&batch.removed) {
@@ -1365,67 +1378,152 @@ impl Providers for JpaAssist {
     }
 }
 
+impl JpaAssist {
+    fn opened_structure_entity(ctx: &Invocation) -> Result<(Class, Document, String), Error> {
+        let project = ctx.project().ok_or(Error::Stale)?;
+        let root = project.root()?;
+        let editor = ctx.editor().ok_or("Open an entity source file first.")?;
+        let path = editor.path();
+        let language = editor.language();
+        if !matches!(language.as_str(), "java" | "kotlin")
+            || root.is_empty() || !path.starts_with(&format!("{}/", root.trim_end_matches('/')))
+            || host::project_of(&path).and_then(|owner| owner.root().ok()).as_deref() != Some(root.as_str()) {
+            return Err(Error::Stale);
+        }
+        let snapshot = editor.document()?;
+        if snapshot.text.len() > 512 * 1024 { return Err("The opened source exceeds the 512 KiB locate limit.".into()); }
+        let class = parse_class(&snapshot.text, &path).filter(|class| class.kind == Kind::Entity)
+            .ok_or("The opened file has no supported JPA entity.")?;
+        let fresh = editor.document()?;
+        if fresh.version != snapshot.version || fresh.text != snapshot.text
+            || ctx.project().and_then(|owner| owner.root().ok()).as_deref() != Some(root.as_str()) {
+            return Err(Error::Stale);
+        }
+        Ok((class, Document { path, language, version: snapshot.version, text: snapshot.text }, root))
+    }
+
+    fn locate_opened_structure_entity(&mut self, ctx: &Invocation) -> Result<(), Error> {
+        // Render establishes the same invoking project's scope before updating its tree.
+        let (class, doc, root) = Self::opened_structure_entity(ctx)?;
+        self.render("structure", None, ctx)?;
+        if self.structure_root.as_deref() != Some(root.as_str()) { return Err(Error::Stale); }
+        let (_, fresh, fresh_root) = Self::opened_structure_entity(ctx)?;
+        if fresh != doc || fresh_root != root { return Err(Error::Stale); }
+        self.classes.retain(|_, class| class.as_ref().is_none_or(|class| class.path != doc.path));
+        self.expanded.insert(format!("{ENTITY_KEY_PREFIX}{}", doc.path));
+        self.remember(class);
+        self.structure_located = Some(doc);
+        host::refresh_view("structure");
+        Ok(())
+    }
+
+    fn navigate_structure(&self, key: &str, ctx: &Invocation) -> Result<(), Error> {
+        let (path, _) = self.locations.get(key).ok_or(Error::Stale)?;
+        let project = ctx.project().ok_or(Error::Stale)?;
+        if self.structure_root.as_deref() != Some(project.root()?.as_str())
+            || host::project_of(path).and_then(|owner| owner.root().ok()) != self.structure_root {
+            return Err(Error::Stale);
+        }
+        let class = parse_class(&project.read_file(path)?, path).filter(|class| class.kind == Kind::Entity).ok_or(Error::Stale)?;
+        let pos = if key.starts_with(ENTITY_KEY_PREFIX) { class.pos } else {
+            let (_, attribute) = key.rsplit_once('#').ok_or(Error::Stale)?;
+            class.attributes.iter().find(|field| field.name == attribute).ok_or(Error::Stale)?.pos
+        };
+        host::open_location(path, pos.line, pos.character)
+    }
+}
+
 impl Views for JpaAssist {
     fn render(&mut self, _view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
-        let Some(project) = ctx.project() else {
-            return Ok(View::message("Open a project to see its JPA entities."));
-        };
-
-        if !self.scanned {
-            self.scan(&project)?;
-        }
-
-        let mut items = Vec::new();
-        let mut locations = HashMap::new();
-        let entities = self.entities();
-
-        for entity in &entities {
-            let key = format!("{ENTITY_KEY_PREFIX}{}", entity.path);
-            let item = TreeItem::new(&key, &entity.name).icon("db-table").detail(&table_name(entity));
-            items.push(if entity.attributes.is_empty() { item } else { item.expandable(self.expanded.contains(&key)) });
-            locations.insert(key.clone(), (entity.path.clone(), entity.pos));
-
-            for a in &entity.attributes {
-                let icon = match a.relation {
-                    _ if a.id => "db-column-key",
-                    r if r.to_one() => "db-column-fk",
-                    r if r.to_many() => "db-columns",
-                    _ => "db-column",
-                };
-                let attribute_key = format!("attribute:{}#{}", entity.path, a.name);
-                items.push(TreeItem::new(&attribute_key, &a.name).parent(&key).icon(icon).detail(&a.ty));
-                locations.insert(attribute_key, (entity.path.clone(), a.pos));
+        (|| -> Result<View, Error> {
+            if _view != "structure" { return Err(Error::NotFound(_view.into())); }
+            let Some(project) = ctx.project() else {
+                self.locations.clear();
+                self.structure_root = None;
+                self.structure_located = None;
+                return Ok(View::message("Open a project to browse its JPA source entities."));
+            };
+            let root = project.root()?;
+            if self.structure_root.as_deref() != Some(root.as_str()) {
+                self.classes.clear(); self.sources.clear(); self.missing.clear();
+                self.locations.clear(); self.expanded.clear(); self.scanned = false;
+                self.structure_root = Some(root.clone());
+                self.structure_located = None;
             }
-        }
+            let opened = Self::opened_structure_entity(ctx).ok();
+            if self.structure_located.as_ref().is_some_and(|located| opened.as_ref().is_none_or(|(_, doc, _)| doc != located)) {
+                self.structure_located = None;
+            }
+            if !self.scanned {
+                self.scan(&project)?;
+            }
+            let located = self.structure_located.as_ref();
+            let mut items = Vec::new();
+            let mut locations = HashMap::new();
+            let entities = self.entities();
 
-        let status = entities_count(entities.len());
-        self.locations = locations;
+            for entity in &entities {
+                if host::project_of(&entity.path).and_then(|owner| owner.root().ok()).as_deref() != Some(root.as_str()) { continue; }
+                let key = format!("{ENTITY_KEY_PREFIX}{}", entity.path);
+                let table = table_name(entity);
+                let detail = if located.is_some_and(|doc| doc.path == entity.path) { format!("{table} · Opened file") } else { table };
+                let item = TreeItem::new(&key, &entity.name).icon("db-table").detail(&detail);
+                items.push(if entity.attributes.is_empty() { item } else { item.expandable(self.expanded.contains(&key)) });
+                locations.insert(key.clone(), (entity.path.clone(), entity.pos));
 
-        if items.is_empty() {
-            return Ok(View::message("No JPA entities found in this project.").button(Button::new("refresh", "Refresh").icon("refresh")));
-        }
+                for a in &entity.attributes {
+                    let icon = match a.relation {
+                        _ if a.id => "db-column-key",
+                        r if r.to_one() => "db-column-fk",
+                        r if r.to_many() => "db-columns",
+                        _ => "db-column",
+                    };
+                    let attribute_key = format!("attribute:{}#{}", entity.path, a.name);
+                    let role = if a.id { "ID" } else { match a.relation {
+                        Relation::ManyToOne => "Many-to-one", Relation::OneToOne => "One-to-one",
+                        Relation::OneToMany => "One-to-many", Relation::ManyToMany => "Many-to-many",
+                        Relation::Embedded => "Embedded", Relation::ElementCollection => "Element collection", Relation::None => "",
+                    }};
+                    let detail = if role.is_empty() { a.ty.clone() } else { format!("{} · {role}", a.ty) };
+                    items.push(TreeItem::new(&attribute_key, &a.name).parent(&key).icon(icon).detail(&detail));
+                    locations.insert(attribute_key, (entity.path.clone(), a.pos));
+                }
+            }
 
-        Ok(View::new(Body::Tree(items)).button(Button::new("refresh", "Refresh").icon("refresh")).status(&status))
+            let mut status = entities_count(entities.len());
+            if let Some(located) = located { status.push_str(&format!(" · Located {}", file_stem(&located.path))); }
+            self.locations = locations;
+
+            if items.is_empty() {
+                return Ok(View::message("No JPA entities found in this project.").button(Button::new("refresh", "Refresh").icon("refresh")));
+            }
+
+            Ok(View::new(Body::Tree(items)).button(Button::new("refresh", "Refresh").icon("refresh"))
+                .button(Button::new("locate-open-file", "Locate Open File").icon("locate").enabled(opened.is_some()))
+                .button(Button::new("expand-all", "Expand All").icon("expand-all"))
+                .button(Button::new("collapse-all", "Collapse All").icon("collapse-all")).status(&status))
+        })().map(ui_kit::actions::available)
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, _ctx: &Invocation) -> Result<(), Error> {
-        if ui_kit::web::handle(self, view, &event, _ctx, include_str!("ui_config.json"))? {
-            return Ok(());
-        }
-
+        if view != "structure" { return Err(Error::NotFound(view.into())); }
         match event {
+            ViewEvent::Button(id) if id == "locate-open-file" => self.locate_opened_structure_entity(_ctx)?,
             ViewEvent::Button(id) if id == "refresh" => {
                 self.sources.clear();
                 self.classes.clear();
                 self.missing.clear();
                 self.scanned = false;
+                self.structure_located = None;
                 host::refresh_view(view);
             }
-            ViewEvent::Activate(key) => {
-                if let Some((path, pos)) = self.locations.get(&key) {
-                    host::open_location(path, pos.line, pos.character)?;
-                }
+            ViewEvent::Button(id) if id == "expand-all" || id == "collapse-all" => {
+                if id == "expand-all" {
+                    self.expanded.extend(self.locations.keys().filter(|key| key.starts_with(ENTITY_KEY_PREFIX)).cloned());
+                } else { self.expanded.clear(); }
+                host::refresh_view(view);
             }
+            ViewEvent::Activate(key) => self.navigate_structure(&key, _ctx)?,
             ViewEvent::Expand(key) => {
                 self.expanded.insert(key);
                 host::refresh_view(view);
@@ -1443,6 +1541,10 @@ impl Views for JpaAssist {
 
 impl DiagnosticsProvider for JpaAssist {
     fn diagnostics(&mut self, doc: &Document) -> Vec<Diagnostic> {
+        if self.structure_located.as_ref().is_some_and(|located| located.path == doc.path && located != doc) {
+            self.structure_located = None;
+            host::refresh_view("structure");
+        }
         if let Some(root) = host::project_of(&doc.path).and_then(|p| p.root().ok()) {
             self.repository_completion.observe(&root, &doc.path, &doc.text);
         }
@@ -2052,6 +2154,91 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
             .handle("structure", ViewEvent::Activate("attribute:/project/src/shop/Order.java#customer".into()), &host.invocation())
             .unwrap();
         assert_eq!(host.opened_locations(), [("/project/src/shop/Order.java".to_owned(), 12, 21)]);
+    }
+
+    #[test]
+    fn locate_open_file_expands_current_unsaved_entity_without_navigating() {
+        let host = host(); let mut plugin = JpaAssist::default();
+        plugin.render("structure", None, &host.invocation()).unwrap();
+        let source=ORDER.replace("private String number;", "private String number;\n    private String note;");
+        host.open_editor("/project/src/shop/Order.java", "java", &source, &[]);
+        plugin.handle("structure", ViewEvent::Button("locate-open-file".into()), &host.invocation()).unwrap();
+        let view = plugin.render("structure", None, &host.invocation()).unwrap();
+        let Body::Tree(items)=view.body else {panic!()};
+        let entity=items.iter().find(|item| item.key=="entity:/project/src/shop/Order.java").unwrap();
+        assert!(entity.expanded);
+        assert!(entity.detail.as_deref().unwrap().contains("Opened file"));
+        assert!(items.iter().any(|item|item.key=="attribute:/project/src/shop/Order.java#note"));
+        assert!(view.status.unwrap().contains("Located Order"));
+        assert!(host.opened_locations().is_empty(),"locating expands the tree; it does not move editor focus or pretend to select a node");
+        plugin.handle_events(&[Event::EditorFocused(Some("/project/src/shop/Customer.java".into()))], &host.invocation());
+        assert!(plugin.structure_located.is_none());
+        plugin.handle("structure", ViewEvent::Button("locate-open-file".into()), &host.invocation()).unwrap();
+        let changed=Document{path:"/project/src/shop/Order.java".into(),language:"java".into(),version:99,text:format!("{source}\n")};
+        plugin.diagnostics(&changed);
+        assert!(plugin.structure_located.is_none());
+        plugin.handle("structure", ViewEvent::Button("locate-open-file".into()), &host.invocation()).unwrap();
+        host.type_in_editor("\n");
+        let view=plugin.render("structure",None,&host.invocation()).unwrap();
+        assert!(!view.status.unwrap().contains("Located"));
+        let Body::Tree(items)=view.body else {panic!()};
+        assert!(items.iter().all(|item|!item.detail.as_deref().unwrap_or_default().contains("Opened file")));
+    }
+
+    #[test]
+    fn locate_open_file_refuses_foreign_nonentity_and_denied_editor_snapshots() {
+        let host=host(); let mut plugin=JpaAssist::default();
+        host.open_editor("/elsewhere/Order.java","java",ORDER,&[]);
+        let view=plugin.render("structure",None,&host.invocation()).unwrap();
+        assert!(!view.toolbar.iter().any(|button|button.id=="locate-open-file"));
+        assert!(plugin.handle("structure",ViewEvent::Button("locate-open-file".into()),&host.invocation()).is_err());
+        host.open_editor("/project/src/Plain.java","java","class Plain {}",&[]);
+        assert!(plugin.handle("structure",ViewEvent::Button("locate-open-file".into()),&host.invocation()).is_err());
+        assert!(plugin.structure_located.is_none());
+        let denied=openidea_plugin::mock::MockHost::install().with_capabilities(&["project.read"]);
+        denied.open_editor("/project/Order.java","java",ORDER,&[]);
+        assert!(JpaAssist::default().handle("structure",ViewEvent::Button("locate-open-file".into()),&denied.invocation()).is_err());
+    }
+
+    #[test]
+    fn persistence_members_show_declared_id_and_relationship_roles() {
+        let host=host(); let mut plugin=JpaAssist::default();
+        let Body::Tree(items)=plugin.render("structure",None,&host.invocation()).unwrap().body else {panic!()};
+        let id=items.iter().find(|item|item.key=="attribute:/project/src/shop/Order.java#id").unwrap();
+        assert_eq!(id.icon.as_deref(),Some("db-column-key"));
+        assert_eq!(id.detail.as_deref(),Some("Long · ID"));
+        let relation=items.iter().find(|item|item.key=="attribute:/project/src/shop/Order.java#customer").unwrap();
+        assert_eq!(relation.icon.as_deref(),Some("db-column-fk"));
+        assert_eq!(relation.detail.as_deref(),Some("Customer · Many-to-one"));
+    }
+
+    #[test]
+    fn native_structure_preserves_source_context_and_expansion_actions() {
+        let host = host(); let mut plugin = JpaAssist::default();
+        let view = plugin.render("structure", None, &host.invocation()).unwrap();
+        assert!(view.toolbar.iter().any(|button|button.id=="expand-all"));
+        plugin.handle("structure", ViewEvent::Button("expand-all".into()), &host.invocation()).unwrap();
+        let Body::Tree(items) = plugin.render("structure", None, &host.invocation()).unwrap().body else {panic!()};
+        assert!(items.iter().filter(|item| item.expandable).all(|item|item.expanded));
+        plugin.run_command("structure-source", &host.invocation(), Some("attribute:/project/src/shop/Order.java#customer")).unwrap();
+        assert_eq!(host.opened_locations()[0], ("/project/src/shop/Order.java".into(),12,21));
+        plugin.handle("structure", ViewEvent::Button("collapse-all".into()), &host.invocation()).unwrap();
+        assert!(plugin.expanded.is_empty());
+        host.set_project_root(Some("/other"));
+        assert!(plugin.run_command("structure-source", &host.invocation(), Some("entity:/project/src/shop/Order.java")).is_err());
+        assert!(plugin.run_command("copy-dto", &host.invocation(), Some("entity:/project/src/shop/Order.java")).is_err());
+    }
+
+    #[test]
+    fn native_structure_navigation_uses_current_source_and_rejects_removed_fields() {
+        let host = host(); let mut plugin = JpaAssist::default();
+        plugin.render("structure",None,&host.invocation()).unwrap();
+        let key="attribute:/project/src/shop/Order.java#customer";
+        host.add_file("src/shop/Order.java", &format!("\n{ORDER}"));
+        plugin.handle("structure",ViewEvent::Activate(key.into()),&host.invocation()).unwrap();
+        assert_eq!(host.opened_locations()[0].1,13);
+        host.add_file("src/shop/Order.java", &ORDER.replace("private Customer customer;", ""));
+        assert!(plugin.handle("structure",ViewEvent::Activate(key.into()),&host.invocation()).is_err());
     }
 
     #[test]

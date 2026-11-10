@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::hash::BuildHasher;
 const KEY: &str = "preferences:v1";
 const KEY2: &str = "preferences:v2";
-pub(crate) const VIEW: &str = "ignore-settings";
+pub(crate) const VIEW: &str = "templates";
 const FLAGS: [(&str, &str, bool); 5] = [
     ("missingGitignore", "Warn when a Git project has no .gitignore", true),
     ("ignoredEditing", "Show Ignored in the status bar", true),
@@ -120,10 +120,13 @@ impl State {
         }
         Ok(key)
     }
+    pub(crate) fn closes(&self, event: &ViewEvent) -> bool {
+        matches!(event, ViewEvent::Button(id) if matches!(self.scoped(id).ok(),Some("prefs-save" | "prefs-cancel")))
+    }
     fn render(&mut self) -> Result<View, Error> {
         if self.draft.is_none() {
             if let Err(error) = self.begin() {
-                return Ok(View::message(&error.to_string()).button(Button::new("prefs-reload", "Reload preserved settings")));
+                return Ok(View::message(&error.to_string()).button(Button::new("prefs-reload", "Reload Preserved Settings").icon("refresh")));
             }
         }
         let draft = self.draft.as_ref().unwrap();
@@ -159,9 +162,9 @@ impl State {
         fields.push(Field::new(&self.id(&format!("dialect:{i}")),&format!("Checks ({syntax}; requires editor assistance)"),FieldValue::Checkbox(!draft.model.disabled.contains(name))));
         fields.push(Field::new("colouring","Colouring scope",FieldValue::readonly_text("Turning off editor assistance removes its extra markers and highlighting where supported. Shared additional-file colouring has one family-wide switch. This does not hide or unregister any IDE file type, built-in grammar or native New menu item.",true)));
         Ok(View::new(Body::Form(fields))
-            .button(Button::new(&self.id("prefs-save"), "Save").icon("save"))
-            .button(Button::new(&self.id("prefs-cancel"), "Cancel"))
-            .button(Button::new(&self.id("prefs-reload"), "Reload / discard draft"))
+            .button(Button::new(&self.id("prefs-save"), "Save").icon("check"))
+            .button(Button::new(&self.id("prefs-cancel"), "Cancel").icon("close"))
+            .button(Button::new(&self.id("prefs-reload"), "Reload / discard draft").icon("refresh"))
             .status(self.message.as_deref().unwrap_or(
                 "Draft only. Save validates all fields and checks for external preference/scalar changes; Cancel discards edits.",
             )))
@@ -271,6 +274,34 @@ mod tests {
         let id = plugin.preferences.id(key);
         plugin.preferences_event(ViewEvent::Button(id), ctx)
     }
+    #[test]
+    fn toolbar_preferences_share_the_template_view_without_a_project() {
+        use openidea_plugin::views::Views;
+        fn send(plugin:&mut IgnorePlugin,host:&MockHost,event:serde_json::Value)->serde_json::Value {
+            let request=serde_json::json!({"channel":"ui-kit","sequence":1,"project":"@ui-kit:project-independent","op":"event","event":event});
+            plugin.handle(VIEW,ViewEvent::Message(request.to_string()),&host.invocation()).unwrap();
+            serde_json::from_str(&host.view_messages().last().unwrap().1).unwrap()
+        }
+        let host=MockHost::install();host.set_project_root(None);
+        let mut plugin=IgnorePlugin::default();
+        let opened=send(&mut plugin,&host,serde_json::json!({"kind":"button","key":"preferences"}));
+        assert_eq!(opened["model"]["body"]["kind"],"form");
+        let key=plugin.preferences.id("missingGitignore");
+        send(&mut plugin,&host,serde_json::json!({"kind":"field","key":key,"value":"Off"}));
+        send(&mut plugin,&host,serde_json::json!({"kind":"button","key":"preferences-back"}));
+        assert!(!plugin.show_preferences);assert!(host.storage().is_empty());
+        send(&mut plugin,&host,serde_json::json!({"kind":"button","key":"preferences"}));
+        assert_eq!(plugin.preferences.id("missingGitignore"),key,"Back retains the unsaved draft");
+        let save=plugin.preferences.id("prefs-save");
+        let saved=send(&mut plugin,&host,serde_json::json!({"kind":"button","key":save}));
+        assert!(saved.get("error").is_none(),"{saved}");assert!(!plugin.show_preferences);
+        assert!(!boolean("missingGitignore",true));
+        // Project-independent preferences must not authorize template creation.
+        let denied=send(&mut plugin,&host,serde_json::json!({"kind":"button","key":"new"}));
+        assert!(denied.get("error").is_some());
+        assert!(host.process_runs().is_empty());
+    }
+
     #[test]
     fn global_form_works_without_project_and_defaults_inherit_all_four_flags() {
         let host = MockHost::install();

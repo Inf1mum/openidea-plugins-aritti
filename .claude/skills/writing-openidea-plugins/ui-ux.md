@@ -31,7 +31,45 @@ does not authorize unrelated rewrites or the addition of every reference feature
   visible keyboard focus and labelled controls. Check narrow dock widths,
   keyboard navigation, light/dark themes and long identifiers.
 
+## Native adaptation of original workflows
+
+The user requested a closer adaptation of the originals' spirit on 2026-11-10:
+wording, icons, buttons, controls and layout. Preserve recognizable task flow,
+selection behavior and primary actions while using OpenIDEA's native primitives.
+
+- Embedded panels prefer the pinned OpenIDEA native/IntelliJ expui registry,
+  matching host glyphs, theme variants and 16/20 px selection. Keep the JetBrains
+  web-product registry as a fallback, not a native lookalike. Validate against the
+  active registry; unknown names retain their label rather than an invented glyph.
+- Keep dock toolbars compact. Prefer meaningful icon buttons with accessible
+  action labels and a single section/action picker over long rows of text buttons.
+- Bind Edit, Remove, Open and reorder actions to the selected source-backed row;
+  do not ask users to pick the same row again. Name active-task actions explicitly
+  when they differ from selected-task actions.
+- Native tables have table-wide editability. If some cells cannot apply edits,
+  use a read-only overview and explicit reviewed edit/open controls instead of
+  accepting and discarding typed values.
+- Expose functional controls only. A timestamp-format field must drive parsing
+  and validation; unsupported original widgets remain documented gaps rather
+  than cosmetic controls. Keep technical storage identifiers out of selectors
+  when a source-backed human name is available.
+
 ## Implementation choices
+
+**Required for custom panels (user preference, 2026-11-10):** use
+`crates/ui-kit`; the result must follow the native IDE's spirit. Do not introduce
+per-plugin button skins, independent typography/palettes or duplicate controls.
+Use shared tokens/components/widgets and preserve host theme/font preferences.
+Domain-specific diagrams/editors may keep their geometry, with shared colors and
+controls around them. Native views continue to use host styling directly.
+
+The generated hub is the default custom shell. Standalone pages must import the
+local kit CSS plus native-icons/icons/widgets/controls; the sync checker enforces this and
+supports standalone-only packages. Managed `Body::Html` content receives the kit
+through the shared shadow adapter. Keep raw markers limited to vendor internals
+or matched syntax overlays, never the panel shell. Swagger/Redoc internals stay
+isolated while their surrounding toolbar and layout use our kit.
+
 
 Choose native views for simple lists/forms. Use a packaged web view when
 inline filters, multiple panes or richer interactions materially improve the
@@ -78,8 +116,10 @@ require copying its code, branding or artwork.
 
 ## Shared implementation in this repository
 
+Native conversion (2026-11-09): JPA Structure, Properties Structure, Tasks, Ideolog Patterns, Flyway migrations, Liquibase changesets and the Spring Runtime main tree no longer use packaged hubs. Preserve source navigation, filter/actions pickers, editor forms and native selected-detail panes. `scripts/sync-plugin-ui.py` clears retired bridge allowlists and removes only byte-matching generated assets; handwritten custom pages remain. Regular native tree/list views can use `detail = true` in released v0.1.40 (uiPoints/PluginView); the older Services-only wording is not an API1.4 restriction.
+
 `crates/ui-kit/src/web.rs` adapts existing Rust views to the packaged assets in
-`crates/ui-kit/web/`. The 18 adopting packages materialize those assets with
+`crates/ui-kit/web/`. The 12 packaged-UI packages materialize those assets with
 `python3 scripts/sync-plugin-ui.py`; run `--check` after edits. Do not hand-edit
 copied `web/resources` files or `src/ui_config.json`. Per-package `src/ui_actions.json`
 retains resource action declarations for the generated bridge allowlist. Validate
@@ -180,3 +220,7 @@ Pinned native dock hiding can keep a packaged iframe mounted while its `document
 ### Error paths that clear review state
 
 After validating the owning project and session token, a handler may clear stale selection, preview or recipe state and then return an error. Refresh that owned view on the error path too: the native host can otherwise display the previous SQL/recipe alongside an error banner even though Rust has discarded it. Keep foreign/stale controls rejected before any mutation. Verify the actual native pane after changing source bytes, not only the internal cleared state in a mock. Native Form text inputs commit on blur/Enter; focus the intended input before editing and blur it before invoking a toolbar action.
+
+Hide unavailable actions in native and custom toolbars: map rendered views through `ui_kit::actions::available`. Keep execution eligibility checks in handlers. The web shell filters unavailable actions too; temporary transport busy states keep the existing controls visible and disabled.
+
+Custom views declare row-relevant fallback toolbar actions in `src/ui_context_buttons.json`; view-wide generation, scan, cache and search controls stay in their toolbars. Give every declared context command a native icon and concise in-context label. Name activation by its behavior (Select/Deselect, Add to Ignore File, Expand/Collapse) rather than using Open for every row. Use `activationEnabled` to hide known unavailable row activations; keep server eligibility checks authoritative.

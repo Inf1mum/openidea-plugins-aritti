@@ -836,21 +836,21 @@ impl GraphQlTools {
         }
         let refresh = Button::new("refresh", "Refresh").icon("refresh");
 
-        let mut items = vec![TreeItem::new("endpoints", "Endpoints").icon("globe")];
+        let mut items = vec![TreeItem::new("endpoints", "Endpoints").icon("web")];
         for (n, (label, detail, at)) in endpoint_rows(&settings).into_iter().enumerate() {
             let source = settings.iter().find(|s| Some(s.at) == at).and_then(|s| files.get(&s.key).map(|f| (f.clone(), s.at)));
             let key = match source {
                 Some((path, at)) => format!("c:{}:{}:{path}", at.start.line, at.start.character),
                 None => format!("d:{n}"),
             };
-            items.push(TreeItem::new(&key, &label).parent("endpoints").detail(&detail).icon("send"));
+            items.push(TreeItem::new(&key, &label).parent("endpoints").detail(&detail).icon("web"));
         }
         let mut schema_files: Vec<_> = schemas.iter().map(|(p, s)| (p.to_owned(), s.types.len())).collect();
         schema_files.sort();
-        items.push(TreeItem::new("schemas", "Schema files").detail(&schema_files.len().to_string()).icon("file"));
+        items.push(TreeItem::new("schemas", "Schema files").detail(&schema_files.len().to_string()).icon("folder"));
         for (path, types) in schema_files {
             let name = path.rsplit(['/', '\\']).next().unwrap_or(&path).to_owned();
-            items.push(TreeItem::new(&format!("c:0:0:{path}"), &name).parent("schemas").detail(&format!("{types} types")).icon("file"));
+            items.push(TreeItem::new(&format!("c:0:0:{path}"), &name).parent("schemas").detail(&format!("{types} types")).icon("file-graphql"));
         }
         self.expansion.apply(&mut items);
         let status =
@@ -861,10 +861,12 @@ impl GraphQlTools {
 
 impl Views for GraphQlTools {
     fn render(&mut self, view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
-        let Some(project) = ctx.project() else {
-            return Ok(View::message("Open a project to see its GraphQL endpoints."));
-        };
-        Ok(self.endpoints_view(view, &project, COMMAND_BUDGET))
+        (|| -> Result<View, Error> {
+            let Some(project) = ctx.project() else {
+                return Ok(View::message("Open a project to see its GraphQL endpoints."));
+            };
+            Ok(self.endpoints_view(view, &project, COMMAND_BUDGET))
+        })().map(ui_kit::actions::available)
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {

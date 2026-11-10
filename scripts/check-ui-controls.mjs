@@ -37,7 +37,7 @@ try {
   await page.getByLabel('Enabled',{exact:true}).check();
   assert.deepEqual(await page.evaluate(()=>window.sent.at(-1).event),{kind:'field',key:'check',value:'true'});
   await reply(form,'Permission denied');
-  assert.equal(await page.locator('#notice').evaluate(n=>n.classList.contains('ui-alert--error')),true);
+  assert.equal(await page.locator('#notice,.ui-alert').count(),0,'failure feedback is owned by native notifications');
   // Existing review scripts create controls after the shadow root mounts.
   const review={kind:'html',html:'<body><div class="file" data-new-path="src/a.rs" data-old-path="src/a.rs"><table><tr id="L1" data-new="1"><td class="ln" tabindex="0">1</td><td>code</td></tr></table></div></body>'};
   await reply(review);await page.locator('.ln').click();

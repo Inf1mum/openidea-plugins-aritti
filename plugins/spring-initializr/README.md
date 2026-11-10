@@ -7,14 +7,14 @@ Starts Spring Boot projects from OpenIDEA through a Spring Initializr server:
 - Generate with Spring Boot CLI opens an IDE terminal running `spring init` with the form's explicit service (`--target`), build, type, language, Boot and Java versions, packaging, group, artifact, name, description, package name and dependencies, plus `--extract` into a directory named after the artifact (in the terminal's working directory). It needs the optional `process:spring` and `project.read` capabilities, an identifiable open project, and the Spring Boot CLI on the PATH; without the capability, a notification says so and the browser download runs instead. Group, artifact, name, versions and package name are checked against letters, digits, `.`, `_` and `-`, and the button reports a refusal otherwise. Values reach `spring init` as separate program arguments, never through a shell line, so none can inject a command. The current launcher does not track the CLI result or open the generated project; managed CLI staging/completion remains implementation work; the separate source-only ZIP import below does not execute this CLI.
 - The Spring Initializr: Open start.spring.io command opens the site.
 
-- Pick Spring Boot Version (Project section) lists the server's Boot versions in a picker and fills the form.
+- Spring Boot version is a select in the Project form, populated from the server catalogue. Server default shows the advertised default; saved versions remain visible if no longer advertised and still undergo compatibility validation.
 - The Dependencies section (toolbar button "Dependencies (N)" next to "Project") browses the server's catalogue as a tree. The first node, Selected (N), lists the chosen ids (name and description from the catalogue, the raw id when unknown); below it come the catalogue categories, collapsed, with a check on chosen dependencies. Double-click or Enter on a dependency adds or removes it; the chosen ids stay in the form's `dependencies` field, which you can still edit in the Project section. Search... filters by name and description (case-insensitive, categories open, "N matches" in the status line) until Clear search; Clear all asks first; Refresh reloads the catalogue. Dependencies whose `compatibilityRange` excludes the current Spring Boot version (the form's version, or the server's default when blank) are hidden; a chosen one stays under Selected marked "(not compatible with <version>)". The Generate buttons work in both sections.
 - The catalogue comes from `https://start.spring.io/metadata/client`, needs the optional `net:start.spring.io` capability and is loaded from a saved snapshot when available, otherwise fetched once on first opening of the section; Refresh requests new metadata. For any other server, or without the capability, the tree shows a message and Selected keeps working; type the ids in the Project section.
 - Spring Initializr: Prepare Add Spring Boot Starters (Tools menu) prepares a version-bound metadata cache for a supported current Maven POM; its **Preview Add Spring Boot Starters…** source intention then picks and previews an atomic edit. The former immediate Maven/Gradle writer is removed; see the supported subset below.
 
 The form, dependency choices and browser download work without project access; CLI generation is a project-bound action.
 
-Generating the project is done by the browser or the CLI, not by the plugin; only the Dependencies section, Pick Spring Boot Version, Add Starters preparation and explicit source-only import preparation make requests, and only to start.spring.io.
+Generating the project is done by the browser or the CLI, not by the plugin; only the Project/Dependencies catalogue, Add Starters preparation and explicit source-only import preparation make requests, and only to start.spring.io.
 
 Not implemented: arbitrary/outside-project destination, complete archive/mode-preserving extraction or native New Project integration (the browser path still requires manual extraction/opening); the dependency list and Boot version picker for servers other than start.spring.io (the manifest allows one host).
 
@@ -395,3 +395,15 @@ A reusable native Run configuration is deliberately not published for `spring
 init`: Rerun would repeat extraction after the destination exists without the
 plugin's destination preflight. Every new generation continues through the
 current form and destination checks.
+
+### Compact tool-window actions
+
+Project and Dependencies keep Generate Project as the primary toolbar action.
+More Actions… opens the native action picker for the existing CLI launcher,
+browser exploration, source-only import preparation, reviewed-folder opening,
+Boot version selection, reset/reload, and catalogue refresh where applicable.
+Only currently enabled actions appear; each retains its existing review and
+capability checks. A changed form, project scope or saved-state snapshot while
+the picker is open refuses the selection. Project, Dependencies and CLI run
+remain separate sections; dependency search/selection and managed CLI controls
+stay directly accessible.

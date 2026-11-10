@@ -1,5 +1,7 @@
 # OpenAPI
 
+One shared UI-kit window contains the OpenAPI, Changes, Request / Response tabs. Commands select their corresponding custom tab; existing actions, drafts and ownership checks remain in their original handlers. See [tab migration and parity validation](../../docs/custom-plugin-groups-2026-11-10.md).
+
 Editing support for OpenAPI 3 and Swagger 2 files in YAML and JSON, with a
 Swagger UI preview. A file is an OpenAPI document when it has a top-level `openapi` or
 `swagger` key with a value. Every other YAML or JSON file gets no completion, no
@@ -65,7 +67,7 @@ The OpenAPI Endpoints view (right side) lists `METHOD /path` for every OpenAPI
 YAML or JSON file (up to 1 MiB) of the current window's project, with the operationId and file name as
 detail. Activating an entry opens the operation. Refresh re-scans the project.
 
-It is the shared route list: a flat list: a method icon (GET, POST, PUT, DELETE, PATCH, other), the path, and grey text with the operationId after it. *Filter* narrows the list to one tag (the status line says which), *Clear* restores it, and *Flat/Tree* groups the rows by tag. Row actions: *Copy as curl* and *Create HTTP Request File* (writes `http/<verb>-<path>.http`, needs `project.write`; without it the request is copied). Limits: the grey text follows the path rather than sitting in a column, there is no request panel beside the list, and no gutter icon on the handler; these wait on upstream OpenIDEA requests. The HTTP file is written beside the spec.
+It is the shared route list: a flat list: the generic native endpoint icon, the path, and grey text with the operationId after it. *Filter* narrows the list to one tag (the status line says which), *Clear* restores it, and *Flat/Tree* groups the rows by tag. Row actions: *Copy as curl* and *Create HTTP Request File* (writes `http/<verb>-<path>.http`, needs `project.write`; without it the request is copied). Limits: the grey text follows the path rather than sitting in a column, there is no request panel beside the list, and no gutter icon on the handler; these wait on upstream OpenIDEA requests. The HTTP file is written beside the spec.
 
 ## Preview
 
@@ -279,7 +281,7 @@ or capability declarations.
 
 ### Reviewed local requests on API 1.4 hosts
 
-`OpenAPI: Try Local GET/HEAD (API 1.4)…` prepares a read-only **OpenAPI Local Request / Response** preview. Preparation never sends. The native **Send once** button checks the fresh project/editor, exact source text/version and single-use 120-second ticket before sending, without a subsequent modal. Switching source/project or editing the specification invalidates the preview; responses remain scoped to the original source. API 1.3 hosts retain existing editing/preview workflows and refuse execution before any prompt or network operation. Execution is enabled only from native activation Context API 1.4 or later in major version 1, whose host checks redirect grants before connection. SDK and minimum engine remain 1.3.
+`OpenAPI: Try Local GET/HEAD Request…` prepares a read-only **OpenAPI Local Request / Response** preview. Preparation never sends. The native **Send once** button checks the fresh project/editor, exact source text/version and single-use 120-second ticket before sending, without a subsequent modal. Switching source/project or editing the specification invalidates the preview; responses remain scoped to the original source. The current package requires API 1.4; runtime context checks still refuse execution before any prompt or network operation on an unsupported or unknown host. Execution is enabled only from native activation Context API 1.4 or later in major version 1, whose host checks redirect grants before connection. The SDK and minimum engine are 1.4.
 
 This bounded subset supports JSON OpenAPI 3.0/3.1 (128 KiB maximum), one literal `127.0.0.1` server with explicit port, GET/HEAD and declared scalar path/query values. It requires the optional `net:127.0.0.1` grant and refuses additional network grants. Authentication/security requirements, header/cookie parameters, request bodies, arbitrary hosts, referenced/variable servers and Swagger 2/YAML execution are unsupported. No browser network, CLI or secret-store values are used.
 

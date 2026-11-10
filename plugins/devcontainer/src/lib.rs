@@ -1200,10 +1200,10 @@ mod tests {
         let Body::List(items) = view.body else { panic!("a list") };
         assert_eq!(items[0].key, "abc123");
         assert_eq!(items[0].detail.as_deref(), Some("node:20 - Up 2 minutes"));
-        assert!(!view.toolbar[1].enabled);
+        assert_eq!(view.toolbar.iter().map(|b| b.id.as_str()).collect::<Vec<_>>(), ["refresh", "configuration"]);
 
         plugin.handle("containers", ViewEvent::Select("abc123".into()), &host.invocation()).unwrap();
-        assert!(plugin.render("containers", None, &host.invocation()).unwrap().toolbar[2].enabled);
+        assert!(plugin.render("containers", None, &host.invocation()).unwrap().toolbar.iter().any(|b| b.id == "shell"));
         plugin.handle("containers", ViewEvent::Button("shell".into()), &host.invocation()).unwrap();
         assert_eq!(host.terminals()[0].args, ["exec", "-it", "abc123", "sh", "-c", LOGIN_SHELL]);
 
@@ -1226,7 +1226,7 @@ mod tests {
 
         plugin.handle("containers", ViewEvent::Select("def456".into()), &host.invocation()).unwrap();
         let toolbar = plugin.render("containers", None, &host.invocation()).unwrap().toolbar;
-        assert!(!toolbar[1].enabled && !toolbar[2].enabled && toolbar[3].enabled);
+        assert_eq!(toolbar.iter().map(|b| b.id.as_str()).collect::<Vec<_>>(), ["refresh", "start", "configuration"]);
 
         plugin.handle("containers", ViewEvent::Button("start".into()), &host.invocation()).unwrap();
         assert!(host.process_runs().iter().any(|run| run.args == ["start", "def456"]));

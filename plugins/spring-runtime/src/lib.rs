@@ -559,14 +559,22 @@ impl Default for Runtime {
     }
 }
 
+fn reveal_view(view: &str) -> Result<(), Error> {
+    ui_kit::web::reveal_view(view, include_str!("ui_config.json"))
+}
+fn refresh_view(view: &str) {
+    ui_kit::web::refresh_view(view, include_str!("ui_config.json"));
+}
+fn post_view_message(view: &str, message: &str) -> Result<(), Error> {
+    ui_kit::web::post_view_message(view, message, include_str!("ui_config.json"))
+}
+
 // Payload-free invalidation only: each mounted page renders through its own
 // frame/project-correlated bridge. Never send a snapshot over this broadcast.
 fn invalidate_snapshot_views() {
-    for view in [VIEW, graph::VIEW] {
-        host::refresh_view(view);
-        let _ = host::post_view_message(view, r#"{"channel":"ui-kit-refresh"}"#);
+    for view in [VIEW, graph::VIEW, "runtime-snapshot"] {
+        crate::refresh_view(view);
     }
-    host::refresh_view("runtime-snapshot"); // Native pane retains its revision path.
 }
 
 impl Runtime {
@@ -773,77 +781,101 @@ impl Providers for Runtime {
 
 impl Views for Runtime {
     fn render(&mut self, _view: &str, _viewport: Option<Viewport>, _ctx: &Invocation) -> Result<View, Error> {
-        if _view == controls::VIEW {return self.render_controls(_ctx);}
-        if _view == graph::VIEW {return self.render_graph(_ctx);}
-        if _view == "runtime-snapshot" { return self.render_panes(_ctx); }
-        let refresh = Button::new("refresh", "Refresh").icon("refresh");
-        let Some(project)=_ctx.project() else {self.snapshot=None;self.scope=None;self.loaded=false;self.targets.clear();return Ok(View::message("Open a project to load a scoped runtime snapshot. Scheduled refreshes without verified project ownership are skipped.").button(refresh));};
-        let scope=match Scope::current(&project).and_then(|scope| {controls::verify(&project,&scope)?;Ok(scope)}) {Ok(scope)=>scope,Err(error)=>{self.snapshot=None;self.scope=None;self.loaded=false;self.targets.clear();return Ok(View::message(&error.to_string()).button(refresh));}};
-        self.load_scope(scope.clone());
-        let Some(snap) = &self.snapshot else {
-            let text = self.error.clone().unwrap_or_else(|| {
-                let url = host::setting_string("actuatorUrl").unwrap_or_else(|| DEFAULT_URL.into());
-                format!("No runtime data yet. Start the application with Spring Boot Actuator, then click Refresh to read {url}.")
-            });
-            return Ok(View::message(&text).button(refresh).button(Button::new("clear","Clear").icon("trash")).button(Button::new("runtime-controls","Refresh / Poll Controls")));
-        };
-        self.targets.clear();
-        let mut tree = Tree { items: Vec::new(), expanded: &self.expanded, targets: &mut self.targets, bytes:0, limited:false };
-        tree.beans(snap);
-        tree.health(snap);
-        tree.configuration(snap);
-        tree.conditions(snap);
-        tree.mappings(snap);
-        tree.configprops(snap);
-        tree.scheduled(snap);
-        tree.loggers(snap);
-        tree.caches(snap);
-        let mut status = format!("Read {} from {} · project {} · auth {} · cached Actuator snapshot (not debugger state)", age(snap.fetched_at), snap.url,scope.root,scope.auth);
-        if !snap.missing.is_empty() {
-            status.push_str(&format!(" · not available: {}", snap.missing.join(", ")));
-        }
-        if let Some(hint) = auth_hint(&snap.missing) {
-            status.push_str(&format!(" · {hint}"));
-        }
-        if snap.trimmed {
-            status.push_str(" · legacy partial snapshot: beans and environment only");
-        }
-        if let Some(message)=&self.poll_status {status.push_str(&format!(" · {message}"));}
-        if tree.limited {status.push_str(" · partial view: row/message limit reached; saved snapshot remains complete");}
-        if let Some(e) = &self.error {
-            status = format!("Refresh failed: {e} · {status}");
-        }
-        Ok(View::new(Body::Tree(tree.items)).button(refresh).button(Button::new("clear", "Clear").icon("trash")).button(Button::new("snapshot-details", "Inspect cached snapshot")).button(Button::new("runtime-graph","Bean Dependency Graph")).button(Button::new("runtime-controls","Refresh / Poll Controls")).status(&status))
+        (|| -> Result<View, Error> {
+            if _view == controls::VIEW {return self.render_controls(_ctx);}
+            if _view == graph::VIEW {return self.render_graph(_ctx);}
+            if _view == "runtime-snapshot" { return self.render_panes(_ctx); }
+            let refresh = Button::new("refresh", "Refresh").icon("refresh");
+            let Some(project)=_ctx.project() else {self.snapshot=None;self.scope=None;self.loaded=false;self.targets.clear();return Ok(View::message("Open a project to load a scoped runtime snapshot. Scheduled refreshes without verified project ownership are skipped.").button(refresh));};
+            let scope=match Scope::current(&project).and_then(|scope| {controls::verify(&project,&scope)?;Ok(scope)}) {Ok(scope)=>scope,Err(error)=>{self.snapshot=None;self.scope=None;self.loaded=false;self.targets.clear();return Ok(View::message(&error.to_string()).button(refresh));}};
+            self.load_scope(scope.clone());
+            let Some(snap) = &self.snapshot else {
+                let text = self.error.clone().unwrap_or_else(|| {
+                    let url = host::setting_string("actuatorUrl").unwrap_or_else(|| DEFAULT_URL.into());
+                    format!("No runtime data yet. Start the application with Spring Boot Actuator, then click Refresh to read {url}.")
+                });
+                return Ok(View::message(&text).button(refresh).button(Button::new("clear","Clear Snapshot").icon("trash")).button(Button::new("runtime-controls","Refresh Controls").icon("settings")));
+            };
+            self.targets.clear();
+            let mut tree = Tree { items: Vec::new(), expanded: &self.expanded, targets: &mut self.targets, bytes:0, limited:false };
+            tree.beans(snap);
+            tree.health(snap);
+            tree.configuration(snap);
+            tree.conditions(snap);
+            tree.mappings(snap);
+            tree.configprops(snap);
+            tree.scheduled(snap);
+            tree.loggers(snap);
+            tree.caches(snap);
+            let mut status = format!("Read {} from {} · project {} · auth {} · cached Actuator snapshot (not debugger state)", age(snap.fetched_at), snap.url,scope.root,scope.auth);
+            if !snap.missing.is_empty() {
+                status.push_str(&format!(" · not available: {}", snap.missing.join(", ")));
+            }
+            if let Some(hint) = auth_hint(&snap.missing) {
+                status.push_str(&format!(" · {hint}"));
+            }
+            if snap.trimmed {
+                status.push_str(" · legacy partial snapshot: beans and environment only");
+            }
+            if let Some(message)=&self.poll_status {status.push_str(&format!(" · {message}"));}
+            if tree.limited {status.push_str(" · partial view: row/message limit reached; saved snapshot remains complete");}
+            if let Some(e) = &self.error {
+                status = format!("Refresh failed: {e} · {status}");
+            }
+            Ok(View::new(Body::Tree(tree.items)).button(refresh).button(Button::new("clear", "Clear Snapshot").icon("trash")).button(Button::new("snapshot-details", "Observations").icon("list")).button(Button::new("runtime-graph","Bean Graph").icon("hierarchy")).button(Button::new("runtime-controls","Refresh Controls").icon("settings")).button(Button::new("collapse-all", "Collapse All").icon("collapse-all").enabled(!self.expanded.is_empty())).status(&status))
+        })().map(ui_kit::actions::available)
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {
+        let before = ui_kit::web::active_view(view, include_str!("ui_config.json"))?;
+        if ui_kit::web::handle(self, view, &event, ctx, include_str!("ui_config.json"))? {
+            let after = ui_kit::web::active_view(view, include_str!("ui_config.json"))?;
+            if before == controls::VIEW && after != controls::VIEW {
+                // Leaving the owning tab retires the lease even if Start's private
+                // reply was still in flight when its driver was disposed.
+                self.polling.clear();
+            }
+            return Ok(());
+        }
         if view == controls::VIEW {
             if let ViewEvent::Message(ref raw) = event { return self.controls_message(raw, ctx); }
         }
-        if ui_kit::web::handle(self, view, &event, ctx, include_str!("ui_config.json"))? {
-            return Ok(());
-        }
 
         match event {
-            ViewEvent::Button(b) if b == "runtime-controls"=>{ctx.project().ok_or(Error::Stale)?;host::reveal_view(controls::VIEW)?;},
-            ViewEvent::Button(b) if b == "poll-start"=>{host::reveal_view(controls::VIEW)?;},
+            ViewEvent::Button(b) if b == "runtime-overview" && view == "runtime-snapshot" => {
+                let project = ctx.project().ok_or(Error::Stale)?;
+                let scope = Scope::current(&project)?;
+                controls::verify(&project, &scope)?;
+                crate::reveal_view(VIEW)?;
+            },
+            ViewEvent::Button(b) if b == "collapse-all" && view == VIEW => {
+                let project = ctx.project().ok_or(Error::Stale)?;
+                let scope = Scope::current(&project)?;
+                controls::verify(&project, &scope)?;
+                if self.scope.as_ref() != Some(&scope) { return Err(Error::Stale); }
+                self.expanded.clear();
+                crate::refresh_view(VIEW);
+            },
+            ViewEvent::Button(b) if b == "runtime-controls"=>{ctx.project().ok_or(Error::Stale)?;crate::reveal_view(controls::VIEW)?;},
+            ViewEvent::Button(b) if b == "poll-start"=>{crate::reveal_view(controls::VIEW)?;},
             ViewEvent::Button(b) if b == "poll-stop"=>{self.stop_polling(&ctx.project().ok_or(Error::Stale)?)?;},
-            ViewEvent::Button(b) if b == "runtime-graph"=>{ctx.project().ok_or(Error::Stale)?;host::reveal_view(graph::VIEW)?;},
+            ViewEvent::Button(b) if b == "runtime-graph"=>{ctx.project().ok_or(Error::Stale)?;crate::reveal_view(graph::VIEW)?;},
             ViewEvent::Button(b) if b == "graph-back" && view==graph::VIEW=>self.graph_back(),
-            ViewEvent::Button(b) if b == "graph-observations" && view==graph::VIEW=>{ctx.project().ok_or(Error::Stale)?;host::reveal_view("runtime-snapshot")?;},
+            ViewEvent::Button(b) if b == "graph-observations" && view==graph::VIEW=>{ctx.project().ok_or(Error::Stale)?;crate::reveal_view("runtime-snapshot")?;},
             ViewEvent::Activate(key)|ViewEvent::Message(key) if view==graph::VIEW=>self.graph_select(&key,ctx)?,
-            ViewEvent::Button(b) if b == "snapshot-details" => {ctx.project().ok_or("Open a project first.")?;host::reveal_view("runtime-snapshot")?;},
+            ViewEvent::Button(b) if b == "snapshot-details" => {ctx.project().ok_or("Open a project first.")?;crate::reveal_view("runtime-snapshot")?;},
             // A failure is shown in the view.
             ViewEvent::Button(b) if b == "refresh" => {let project=ctx.project().ok_or("Open a project first.")?;drop(self.refresh(&project));},
             ViewEvent::Button(b) if b == "clear" => {let project=ctx.project().ok_or("Open a project first.")?;self.clear(&project)?;},
             ViewEvent::Expand(key) => {
                 self.expanded.insert(key);
-                host::refresh_view(view);
+                crate::refresh_view(view);
             }
             ViewEvent::Collapse(key) => {
                 self.expanded.remove(&key);
-                host::refresh_view(view);
+                crate::refresh_view(view);
             }
+            ViewEvent::Select(key) if view == "runtime-snapshot" => { self.select_pane(&key,ctx)?; },
             ViewEvent::Activate(key) if view == "runtime-snapshot" => { self.activate_pane(&key,ctx)?; },
             ViewEvent::Activate(key) => {
                 if let Some(project)=ctx.project() {
@@ -862,11 +894,11 @@ impl Views for Runtime {
 impl Plugin for Runtime {
     fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
         match id {
-            "runtime-controls"=>{ctx.project().ok_or(Error::Stale)?;host::reveal_view(controls::VIEW)?;Ok(None)},
-            "poll-start"=>{host::reveal_view(controls::VIEW)?;Ok(Some("Start polling explicitly in the visible Runtime controls view.".into()))},
+            "runtime-controls"=>{ctx.project().ok_or(Error::Stale)?;crate::reveal_view(controls::VIEW)?;Ok(None)},
+            "poll-start"=>{crate::reveal_view(controls::VIEW)?;Ok(Some("Start polling explicitly in the visible Runtime controls view.".into()))},
             "poll-stop"=>self.stop_polling(&ctx.project().ok_or(Error::Stale)?).map(Some),
-            "runtime-graph"=>{ctx.project().ok_or(Error::Stale)?;host::reveal_view(graph::VIEW)?;Ok(None)},
-            "snapshot-details" => {ctx.project().ok_or("Open a project first.")?;host::reveal_view("runtime-snapshot")?;Ok(None)},
+            "runtime-graph"=>{ctx.project().ok_or(Error::Stale)?;crate::reveal_view(graph::VIEW)?;Ok(None)},
+            "snapshot-details" => {ctx.project().ok_or("Open a project first.")?;crate::reveal_view("runtime-snapshot")?;Ok(None)},
             "refresh" => self.refresh(&ctx.project().ok_or("Open a project first.")?).map(Some),
             "clear" => {
                 self.clear(&ctx.project().ok_or("Open a project first.")?)?;
@@ -1038,28 +1070,30 @@ mod persistence_flow_tests {
         host.view_messages().into_iter().filter_map(|(view, raw)| {
             let value: serde_json::Value = serde_json::from_str(&raw).unwrap();
             if value.get("channel").and_then(|v| v.as_str()) != Some("ui-kit-refresh") { return None; }
-            assert_eq!(value, serde_json::json!({"channel":"ui-kit-refresh"}), "broadcast must contain no cached model or owner data");
-            Some(view)
+            let target = value["targetView"].as_str().unwrap();
+            assert_eq!(view, VIEW, "all logical invalidations use the single container");
+            assert_eq!(value, serde_json::json!({"channel":"ui-kit-refresh","targetView":target}), "broadcast must contain only its logical destination, no cached model or owner data");
+            Some(target.to_owned())
         }).collect()
     }
     #[test]
     fn external_refresh_failure_and_clear_notify_both_mounted_pages_without_render_loops() {
         let (host, mut runtime, _) = refreshed();
-        assert_eq!(invalidations(&host), [VIEW, graph::VIEW]);
+        assert_eq!(invalidations(&host), [VIEW, graph::VIEW, "runtime-snapshot"]);
         let requests = host.requests().len();
-        for view in [VIEW, graph::VIEW] { runtime.render(view, None, &host.invocation()).unwrap(); }
-        assert_eq!(invalidations(&host).len(), 2, "render must not invalidate itself");
+        for view in [VIEW, graph::VIEW, "runtime-snapshot"] { runtime.render(view, None, &host.invocation()).unwrap(); }
+        assert_eq!(invalidations(&host).len(), 3, "render must not invalidate itself");
         assert_eq!(host.requests().len(), requests);
         host.on_fetch(|_| Err(Error::Failed("offline".into())));
         assert!(runtime.run_command("refresh", &host.invocation(), None).is_err());
         assert!(runtime.snapshot.is_some(), "last-good retained");
-        assert_eq!(invalidations(&host), [VIEW, graph::VIEW, VIEW, graph::VIEW]);
+        assert_eq!(invalidations(&host), [VIEW, graph::VIEW, "runtime-snapshot", VIEW, graph::VIEW, "runtime-snapshot"]);
         runtime.run_command("clear", &host.invocation(), None).unwrap();
-        assert_eq!(invalidations(&host).len(), 6);
-        for view in [VIEW, graph::VIEW] {
+        assert_eq!(invalidations(&host).len(), 9);
+        for view in [VIEW, graph::VIEW, "runtime-snapshot"] {
             assert!(matches!(runtime.render(view, None, &host.invocation()).unwrap().body, Body::Message(_)));
         }
-        assert_eq!(invalidations(&host).len(), 6);
+        assert_eq!(invalidations(&host).len(), 9);
     }
     #[test]
     fn receiving_pages_rebind_to_current_owner_and_never_fetch_or_reuse_foreign_snapshot() {
@@ -1067,16 +1101,16 @@ mod persistence_flow_tests {
         let requests = host.requests().len();
         host.on_fetch(|_| panic!("invalidated render must be cache only"));
         host.set_project_root(Some("/foreign"));
-        for view in [VIEW, graph::VIEW] {
+        for view in [VIEW, graph::VIEW, "runtime-snapshot"] {
             assert!(matches!(runtime.render(view, None, &host.invocation()).unwrap().body, Body::Message(_)));
         }
         assert!(runtime.snapshot.is_none());
         host.set_project_root(None);
-        for view in [VIEW, graph::VIEW] {
+        for view in [VIEW, graph::VIEW, "runtime-snapshot"] {
             assert!(matches!(runtime.render(view, None, &host.invocation()).unwrap().body, Body::Message(_)));
         }
         assert_eq!(host.requests().len(), requests);
-        assert_eq!(invalidations(&host).len(), 2);
+        assert_eq!(invalidations(&host).len(), 3);
     }
     #[test]
     fn denied_or_invalid_scope_graph_render_returns_empty_state_instead_of_retained_model_error() {
@@ -1085,20 +1119,40 @@ mod persistence_flow_tests {
         assert!(matches!(runtime.render(graph::VIEW, None, &host.invocation()).unwrap().body, Body::Message(_)));
         assert!(matches!(runtime.render(VIEW, None, &host.invocation()).unwrap().body, Body::Message(_)));
         let host = host.with_capabilities(&["storage"]);
-        for view in [VIEW, graph::VIEW] {
+        for view in [VIEW, graph::VIEW, "runtime-snapshot"] {
             assert!(matches!(runtime.render(view, None, &host.invocation()).unwrap().body, Body::Message(_)));
         }
-        assert_eq!(invalidations(&host).len(), 2);
+        assert_eq!(invalidations(&host).len(), 3);
     }
     #[test]
     fn external_stop_control_notifies_changed_status_without_http() {
         let (host, mut runtime, _) = refreshed();
         let requests = host.requests().len();
         runtime.run_command("poll-stop", &host.invocation(), None).unwrap();
-        assert_eq!(invalidations(&host).len(), 4);
+        assert_eq!(invalidations(&host).len(), 6);
         let view = runtime.render(VIEW, None, &host.invocation()).unwrap();
         assert!(view.status.unwrap().contains("No polling lease"));
         assert_eq!(host.requests().len(), requests);
+    }
+    #[test]
+    fn native_collapse_and_observation_navigation_are_scoped_and_cache_only() {
+        let (host, mut runtime, _) = refreshed();
+        let count = host.requests().len();
+        runtime.expanded.extend(["beans".into(), "env".into(), "health".into()]);
+        let ctx = host.invocation();
+        runtime.handle(VIEW, ViewEvent::Button("collapse-all".into()), &ctx).unwrap();
+        assert!(runtime.expanded.is_empty());
+        let view = runtime.render(VIEW, None, &ctx).unwrap();
+        assert!(!view.toolbar.iter().any(|button| button.id == "collapse-all"));
+        let Body::Tree(items) = view.body else { panic!("native resource tree") };
+        assert!(!items.iter().any(|item| item.parent.is_some()));
+        runtime.handle("runtime-snapshot", ViewEvent::Button("runtime-overview".into()), &ctx).unwrap();
+        assert_eq!(host.revealed_views(), vec![VIEW]);
+        runtime.expanded.insert("beans".into());
+        host.set_project_root(Some("/another"));
+        assert!(runtime.handle(VIEW, ViewEvent::Button("collapse-all".into()), &host.invocation()).is_err());
+        assert!(runtime.expanded.contains("beans"));
+        assert_eq!(host.requests().len(), count);
     }
     #[test]
     fn rendering_markers_expansion_and_reclaim_are_cache_only_without_network_grants() {

@@ -292,7 +292,7 @@ Java and Kotlin files, Copy Entity in SQL files.
 Without the `clipboard` permission, a notification asks you to allow it in
 Settings › Plugins.
 
-## JPA Structure
+## Persistence
 
 A tool window listing the project's entities and their attributes (id,
 associations, columns). Double-click an item to open its declaration. Refresh
@@ -341,7 +341,7 @@ have not been exercised; native tests verify returned operations and guards.
   being next to the file that uses them.
 - Clipboard generators remain available, but creating source files uses explicit
   FileActions; `process:tee` is no longer requested or used.
-- Only classes are read as entities: one on an interface or enum is missing from JPA Structure
+- Only classes are read as entities: one on an interface or enum is missing from Persistence
   and the generators.
 
 ```sh
@@ -674,3 +674,22 @@ private, non-ID, literal-Column, zero-method v0 grammar.
 ## Unreleased follow-up
 
 Live attribute diagnostics now flag a second `@Version` field on a proved source-local field-access entity. The warning clears on current-text edits; inherited, property-access, ambiguous annotation and external mapping cases remain unknown.
+
+## Native structure UI
+
+The **Persistence** tool window uses the IDE's native entity/attribute tree, with table/key/
+relationship icons, table and attribute type details, Expand All/Collapse All and
+Refresh. **Locate Open File** expands the current owned entity using its exact
+current editor snapshot (up to 512 KiB), including unsaved source. An Opened file
+detail and Located status identify it; the API does not provide programmatic tree
+selection or scrolling. This hint clears when the source/editor/project changes.
+Member details expose declared ID and relationship roles beside source types.
+Enter/double click and the Jump to Source context action navigate to the
+current declaration. Entity context actions retain Copy DDL and Copy DTO with the
+existing native prompts. Navigation checks current project ownership and resolves
+current source coordinates; removed attributes and foreign-project rows refuse.
+
+The reference is JetBrains' [Persistence tool window](https://www.jetbrains.com/help/idea/persistence-tool-window.html):
+source-linked entity/field browsing and navigation are preserved. Persistence-unit,
+converter and effective ORM grouping, database/runtime mappings and native screenshot
+parity are not claimed. The packaged structure HTML bridge is no longer used.

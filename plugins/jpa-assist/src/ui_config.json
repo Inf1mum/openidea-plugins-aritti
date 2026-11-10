@@ -1,22 +1,7 @@
 {
   "title": "JPA Assist",
-  "views": {
-    "structure": "JPA Structure"
-  },
-  "actions": [
-    {
-      "view": "structure",
-      "id": "copy-ddl",
-      "label": "JPA: Copy DDL of Current Entity",
-      "kind": "entity"
-    },
-    {
-      "view": "structure",
-      "id": "copy-dto",
-      "label": "JPA: Copy DTO of Current Entity",
-      "kind": "entity"
-    }
-  ],
+  "views": {},
+  "actions": [],
   "project_independent": false,
   "project_bound_buttons": []
 }

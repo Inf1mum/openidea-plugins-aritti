@@ -63,6 +63,9 @@ impl KubeExplorer {
         }
         Ok(())
     }
+    pub(crate) fn service_action_key(&self, payload:&str, action:&str)->String {
+        format!("service-action:{}:{action}", self.resource_scope.proof(&format!("{payload}:{action}")))
+    }
     pub(crate) fn resource_key(&self,kind:&str,row:&str)->String {
         let bare=format!("res:{kind}/{row}");
         if self.process_scope.root().is_some(){self.resource_scope.key(&bare)}else{bare}
@@ -83,6 +86,7 @@ impl KubeExplorer {
         view
     }
     pub(crate) fn checked_tree_key(&self,key:&str)->Result<String,Error> {
+        let key=self.service_payload(key)?;
         if key.len()>1024{return Err(Error::Stale);}
         if let Some(payload)=key.strip_prefix("node:"){return Ok(self.checked_owned_key(payload)?.into());}
         if key.starts_with("res:")||key.starts_with("choice:")||self.process_scope.root().is_none(){return Ok(key.into());}
@@ -109,6 +113,7 @@ impl KubeExplorer {
         Ok(bare)
     }
     pub(crate) fn checked_choice(&self,key:&str)->Result<Option<(String,String)>,Error> {
+        let key=self.service_payload(key)?;
         if key.len()>1024{return Err(Error::Stale);}
         let bare=if let Some(payload)=key.strip_prefix("choice:"){self.checked_owned_key(payload)?}else{
             if !key.starts_with("ctx/")&&!key.starts_with("ns/"){return Ok(None);}
@@ -122,6 +127,7 @@ impl KubeExplorer {
     }
     pub(crate) fn details_proof(&self,nonce:u64)->String {self.resource_scope.proof(&format!("details:{nonce}"))}
     pub(crate) fn checked_resource(&self,key:&str)->Result<Option<(String,String)>,Error> {
+        let key=self.service_payload(key)?;
         if !key.starts_with("res:"){return Ok(None);}
         if key.len()>1024{return Err(Error::Stale);}
         if self.process_scope.root().is_some() {
@@ -281,7 +287,7 @@ mod tests {
         assert!(matches!(kube.run_command("resource-delete",&h.invocation(),Some(&current)),Err(Error::Stale)));
         kube.handle(TREE,ViewEvent::Expand(kube.test_node_key("kind:pods",&h.invocation())),&h.invocation()).unwrap();
         let Body::Tree(items)=kube.render(TREE,None,&h.invocation()).unwrap().body else{panic!("global tree")};
-        assert!(items.iter().any(|i|i.key=="res:pods/web"));
+        assert!(items.iter().any(|i|i.key=="svc-pod:res:pods/web"));
         assert!(h.process_runs().last().unwrap().cwd.is_none());
     }
     #[test]
@@ -339,6 +345,9 @@ mod tests {
         assert!(matches!(kube.render_in(PANEL,None,&h.invocation()).unwrap().body,Body::Html(_)));assert!(kube.revealed.is_none());
         let pod=row(&mut kube,&h,"pods","web");kube.run_command("resource-log-view",&h.invocation(),Some(&pod)).unwrap();
         assert!(kube.details.is_none()&&kube.log_view.is_some());
+        let browser=kube.render(TREE,None,&h.invocation()).unwrap();
+        let Body::Tree(items)=browser.body else{panic!("browser tree")};
+        kube.handle(TREE,ViewEvent::Select(items[0].key.clone()),&h.invocation()).unwrap();
         let browser=kube.render(TREE,None,&h.invocation()).unwrap();let create=browser.toolbar.iter().find(|button|button.label=="Create Secret").unwrap().id.clone();
         kube.handle(TREE,ViewEvent::Button(create),&h.invocation()).unwrap();assert!(kube.draft.is_some()&&kube.log_view.is_none());
         kube.run_command("resource-describe",&h.invocation(),Some(&pod)).unwrap();
@@ -413,7 +422,7 @@ mod tests {
         kube.handle(TREE,ViewEvent::Expand(kube.test_node_key("ctx",&h.invocation())),&h.invocation()).unwrap();
         let Body::Tree(items)=kube.render(TREE,None,&h.invocation()).unwrap().body else{panic!("global choices")};
         let current=items.iter().find(|item|item.parent.as_deref().is_some_and(|key|test_tree_key(key)=="ctx")&&item.label==unusual).unwrap().key.clone();
-        assert_eq!(current,format!("ctx/{unusual}"));
+        assert_eq!(current,format!("svc-active-context:ctx/{unusual}"));
         kube.handle(TREE,ViewEvent::Activate(current),&h.invocation()).unwrap();assert_eq!(kube.context.as_deref(),Some(unusual));
         assert!(h.process_runs()[before..].iter().all(|run|run.cwd.is_none()));
     }
@@ -440,7 +449,7 @@ mod tests {
         let (h,mut kube)=setup();
         let browser=kube.render(TREE,None,&h.invocation()).unwrap();
         let old_create=browser.toolbar.iter().find(|button|button.label=="Create Secret").unwrap().id.clone();
-        kube.handle(PANEL,ViewEvent::Button(old_create.clone()),&h.invocation()).unwrap();
+        kube.handle(TREE,ViewEvent::Button(old_create.clone()),&h.invocation()).unwrap();
         let view=kube.render_in(PANEL,None,&h.invocation()).unwrap();
         let old=view.toolbar.iter().find(|button|button.label=="Back").unwrap().id.clone();
         h.set_project_root(Some("/other"));

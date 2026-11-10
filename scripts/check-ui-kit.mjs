@@ -19,8 +19,12 @@ try {
   await hub.getByRole('button',{name:'Reset filters',exact:true}).click();
   assert.equal(await hub.locator('tbody tr').count(),4);
   await hub.locator('tbody tr').first().click();
-  await hub.getByRole('button',{name:'Close details'}).click();
+  assert.equal(await hub.locator('#details').isVisible(),false,'selection does not open a sidebar');
+  await hub.locator('tbody tr').first().click({button:'right'});
+  await hub.getByRole('menuitem',{name:'Show Details…',exact:true}).click();
+  await hub.getByRole('button',{name:'Close',exact:true}).click();
   assert.equal(await hub.locator('#details').isVisible(),false);
+  await page.frames().find(frame=>frame.url().endsWith('/preview/hub.html')).waitForFunction(()=>document.activeElement?.matches('tbody tr[aria-selected=true]'));
   assert.equal(await hub.locator('tbody tr').first().evaluate(n=>n===document.activeElement),true);
   await hub.getByRole('searchbox').fill('orders');
   assert.equal(await hub.locator('tbody tr').count(),3);
@@ -82,9 +86,14 @@ try {
   await page.setViewportSize({width:900,height:240});
   await page.locator('tbody tr').first().click();
   await page.locator('#content[aria-busy=false]').waitFor();
-  await page.getByRole('button',{name:'Open',exact:true}).scrollIntoViewIfNeeded();
+  await page.locator('tbody tr').first().click({button:'right'});
+  await page.getByRole('menuitem',{name:'Open',exact:true}).scrollIntoViewIfNeeded();
   await page.screenshot({path:resolve(QA,'ui-kit-short-dock.png')});
-  assert.equal(await page.getByRole('button',{name:'Open',exact:true}).isVisible(),true);
+  assert.equal(await page.getByRole('menuitem',{name:'Open',exact:true}).isVisible(),true);
+  await page.keyboard.press('Escape');
+  await page.evaluate(()=>{const bar=document.createElement('div');bar.setAttribute('role','toolbar');bar.innerHTML='<button>First</button><button hidden>Hidden</button><button>Last</button>';document.body.append(bar);window.uiKitControls.enhance(bar);});
+  await page.getByRole('button',{name:'First',exact:true}).focus();await page.keyboard.press('ArrowRight');
+  assert.equal(await page.getByRole('button',{name:'Last',exact:true}).evaluate(button=>button===document.activeElement),true,'toolbar keyboard navigation skips hidden actions');
   assert.deepEqual(errors,[]);
   console.log('PASS UI kit: catalog, filters, detail dismissal/focus, keyboard tabs, light/dark widths and source paints, host tokens, reduced motion, short docks');
 } finally { await browser.close(); }

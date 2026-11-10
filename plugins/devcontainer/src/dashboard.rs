@@ -44,58 +44,60 @@ fn list(project: &Project, root: &str) -> Result<Vec<Container>, Error> {
 
 const STATUS_KEY: &str = "devcontainer:status";
 fn status_view(message: &str) -> View {
-    View::new(Body::List(vec![ListItem::new(STATUS_KEY, "Dev Containers").icon("database").detail(message)]))
+    View::new(Body::List(vec![ListItem::new(STATUS_KEY, "Dev Containers").icon("docker-devcontainer").detail(message)]))
 }
 
 impl Views for Main {
     fn render(&mut self, view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
-        if view == crate::run_target::REVIEW { return Ok(self.run_target.view(ctx)); }
-        if view == crate::operations::VIEW { return Ok(self.operations.render(ctx)); }
-        let project = match self.bind_project(ctx) {
-            Ok(project) => project,
-            Err(Error::NotFound(_)) => return Ok(status_view("Open a project to see its dev containers.").button(Button::new("refresh", "Refresh").icon("refresh"))),
-            Err(error) => return Ok(status_view(&format!("Cannot identify the project: {error}")).button(Button::new("refresh", "Refresh").icon("refresh"))),
-        };
-        let containers = match list(&project, &project.root()?) {
-            Ok(containers) => containers,
-            Err(error) => {
+        (|| -> Result<View, Error> {
+            if view == crate::run_target::REVIEW { return Ok(self.run_target.view(ctx)); }
+            if view == crate::operations::VIEW { return Ok(self.operations.render(ctx)); }
+            let project = match self.bind_project(ctx) {
+                Ok(project) => project,
+                Err(Error::NotFound(_)) => return Ok(status_view("Open a project to see its dev containers.").button(Button::new("refresh", "Refresh").icon("refresh"))),
+                Err(error) => return Ok(status_view(&format!("Cannot identify the project: {error}")).button(Button::new("refresh", "Refresh").icon("refresh"))),
+            };
+            let containers = match list(&project, &project.root()?) {
+                Ok(containers) => containers,
+                Err(error) => {
+                    self.selected = None;
+                    self.running.clear();
+                    return Ok(status_view(&match error {
+                        Error::Denied(_) => "Allow the docker permission in Settings > Plugins to list the containers.".into(),
+                        error => format!("Cannot list containers: {error}"),
+                    }).button(Button::new("refresh", "Refresh").icon("refresh")));
+                }
+            };
+            if self.selected.as_ref().is_some_and(|id| !containers.iter().any(|c| c.id == *id)) {
                 self.selected = None;
-                self.running.clear();
-                return Ok(status_view(&match error {
-                    Error::Denied(_) => "Allow the docker permission in Settings > Plugins to list the containers.".into(),
-                    error => format!("Cannot list containers: {error}"),
-                }).button(Button::new("refresh", "Refresh").icon("refresh")));
             }
-        };
-        if self.selected.as_ref().is_some_and(|id| !containers.iter().any(|c| c.id == *id)) {
-            self.selected = None;
-        }
-        let selected = self.selected.clone();
-        let toolbar = |view: View, running_ids: &std::collections::BTreeSet<String>| {
-            let selected = selected.as_ref();
-            let running = selected.is_some_and(|id| running_ids.contains(id));
-            view.button(Button::new("refresh", "Refresh").icon("refresh"))
-                .button(Button::new("shell", "Open Shell").icon("run").enabled(running))
-                .button(Button::new("stop", "Stop").icon("stop").enabled(running))
-                .button(Button::new("start", "Start").icon("run").enabled(selected.is_some() && !running))
-                .button(Button::new("configuration", "Choose Configuration").icon("settings"))
-        };
-        if containers.is_empty() {
-            self.running.clear();
-            return Ok(toolbar(status_view("No dev container for this project. Run Dev Container: Start Container."), &self.running));
-        }
+            let selected = self.selected.clone();
+            let toolbar = |view: View, running_ids: &std::collections::BTreeSet<String>| {
+                let selected = selected.as_ref();
+                let running = selected.is_some_and(|id| running_ids.contains(id));
+                view.button(Button::new("refresh", "Refresh").icon("refresh"))
+                    .button(Button::new("shell", "Open Shell").icon("terminal").enabled(running))
+                    .button(Button::new("stop", "Stop").icon("stop").enabled(running))
+                    .button(Button::new("start", "Start").icon("run").enabled(selected.is_some() && !running))
+                    .button(Button::new("configuration", "Choose Configuration").icon("settings"))
+            };
+            if containers.is_empty() {
+                self.running.clear();
+                return Ok(toolbar(status_view("No dev container for this project. Run Dev Container: Start Container."), &self.running));
+            }
 
-        let running: std::collections::BTreeSet<String> = containers.iter().filter(|c| c.running).map(|c| c.id.clone()).collect();
-        let items = containers
-            .iter()
-            .map(|c| ListItem::new(&c.id, &c.name).icon("database").detail(&format!("{} - {}", c.image, c.status)))
-            .collect();
+            let running: std::collections::BTreeSet<String> = containers.iter().filter(|c| c.running).map(|c| c.id.clone()).collect();
+            let items = containers
+                .iter()
+                .map(|c| ListItem::new(&c.id, &c.name).icon(if c.running { "docker-container-running" } else { "docker-container-stopped" }).detail(&format!("{} - {}", c.image, c.status)))
+                .collect();
 
-        let status = format!("{} running, {} stopped", running.len(), containers.len() - running.len());
-        let view = toolbar(View::new(Body::List(items)), &running).status(&status);
-        self.running = running;
+            let status = format!("{} running, {} stopped", running.len(), containers.len() - running.len());
+            let view = toolbar(View::new(Body::List(items)), &running).status(&status);
+            self.running = running;
 
-        Ok(view)
+            Ok(view)
+        })().map(ui_kit::actions::available)
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {

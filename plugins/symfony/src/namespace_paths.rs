@@ -197,8 +197,8 @@ impl Editor {
                 Field::new("twig-path-preview", "Project-owned hint target", FieldValue::readonly_text(&destination, false)),
                 Field::new("twig-path-error", "Validation / scope", FieldValue::readonly_text(&draft.error, true)),
             ]))
-            .button(Button::new(&self.control_key("twig-path-save"), "Save").icon("save"))
-            .button(Button::new(&self.control_key("twig-path-cancel"), "Cancel"))
+            .button(Button::new(&self.control_key("twig-path-save"), "Save").icon("check"))
+            .button(Button::new(&self.control_key("twig-path-cancel"), "Cancel").icon("close"))
             .status("Editor hint only · does not edit effective runtime loader paths");
         }
         let rows = match load(&root) {
@@ -225,9 +225,9 @@ impl Editor {
             editable: false,
         };
         View::new(Body::Table(table))
-            .button(Button::new("twig-path-add", "Add Path").icon("add").enabled(rows.len() < MAX_ROWS))
-            .button(Button::new("twig-path-edit", "Edit").enabled(!rows.is_empty()))
-            .button(Button::new("twig-path-remove", "Remove").enabled(!rows.is_empty()))
+            .button(Button::new("twig-path-add", "Add Path…").icon("plus").enabled(rows.len() < MAX_ROWS))
+            .button(Button::new("twig-path-edit", "Edit Path…").icon("edit").enabled(!rows.is_empty()))
+            .button(Button::new("twig-path-remove", "Remove Path…").icon("minus").enabled(!rows.is_empty()))
             .status(&format!("{} project hints · legacy scalar settings remain separate · runtime configuration unchanged", rows.len()))
     }
     pub fn handle(&mut self, event: &ViewEvent, ctx: &Invocation) -> Result<bool, Error> {

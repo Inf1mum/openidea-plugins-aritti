@@ -490,6 +490,11 @@ impl DependencyAudit {
 
 impl Plugin for DependencyAudit {
     fn run_command(&mut self, id: &str, ctx: &Invocation, arg: Option<&str>) -> Result<Option<String>, Error> {
+        let selected;
+        let arg = if matches!(id, "open-advisory" | "ignore-finding") && arg.is_some_and(|key|key.starts_with("dep:")) {
+            let Some(key) = actions::choose_advisory(ctx, arg.unwrap(), id == "ignore-finding")? else { return Ok(None); };
+            selected = key;Some(selected.as_str())
+        } else { arg };
         if matches!(id,"ignore-finding" | "review-ignores") { return self.scoped_command(id,ctx,arg); }
         if matches!(id,"preview-upgrade" | "open-advisory") { return self.resource_command(id,ctx,arg); }
         if id != "scan" {
@@ -612,44 +617,46 @@ impl DependencyAudit {
 
 impl Views for DependencyAudit {
     fn render(&mut self, _view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
-        self.targets.clear();
-        let Some(project) = ctx.project() else {
-            self.clear_presentation();self.display_owner=None;
-            return Ok(View::message("Open a project first."));
-        };
-        let Some(root)=project.root().ok().filter(|root|!root.is_empty()) else {
-            self.clear_presentation();self.display_owner=None;
-            return Ok(View::message("Project identity/access is unavailable. No cached report is displayed."));
-        };
-        if self.display_owner.as_deref()!=Some(root.as_str()) { self.clear_presentation();self.display_owner=Some(root.clone()); }
-        let failure = last_failure(&project);
-        let report=match stored_report(&project) {
-            Ok(report)=>report,
-            Err(_)=> { self.clear_presentation(); return Ok(View::message("Saved report access or bounded source ownership proof is unavailable. No cached report is displayed; restore access or rescan explicitly.")); }
-        };
-        let Some(report) = report else {
-            self.clear_presentation();
-            let message = match &failure {
-                Some(failure) => format!("The last scan failed: {}. Run Dependency Audit: Scan Project to retry.", failure.message),
-                None => "Run Dependency Audit: Scan Project to check this project's dependencies against OSV.dev.".into(),
-            };
-            return Ok(View::message(&message).button(scan_button("Scan")).button(Button::new("review-ignores","Review scoped ignores")));
-        };
-        let status = report_status(&report, failure.as_ref());
-        if report.rows.is_empty() {
-            self.clear_presentation();
-            return Ok(View::message("The last successful scan found no known vulnerabilities (after configured ignores).")
-                .button(scan_button("Rescan")).button(Button::new("review-ignores","Review scoped ignores"))
-                .status(&status));
-        }
-        if ui_kit::web::is_rendering() {
+        (|| -> Result<View, Error> {
             self.targets.clear();
-            return Ok(View::new(resource_body(&root, &report, failure.as_ref())).button(scan_button("Rescan")).button(Button::new("review-ignores","Review scoped ignores")).status(&status));
-        }
-        let (mut items, targets) = tree_of(&root, &report.rows, Some(&mut self.display));
-        self.targets = targets;
-        self.expansion.apply(&mut items);
-        Ok(View::new(Body::Tree(items)).button(scan_button("Rescan")).button(Button::new("review-ignores","Review scoped ignores")).status(&status))
+            let Some(project) = ctx.project() else {
+                self.clear_presentation();self.display_owner=None;
+                return Ok(View::message("Open a project first."));
+            };
+            let Some(root)=project.root().ok().filter(|root|!root.is_empty()) else {
+                self.clear_presentation();self.display_owner=None;
+                return Ok(View::message("Project identity/access is unavailable. No cached report is displayed."));
+            };
+            if self.display_owner.as_deref()!=Some(root.as_str()) { self.clear_presentation();self.display_owner=Some(root.clone()); }
+            let failure = last_failure(&project);
+            let report=match stored_report(&project) {
+                Ok(report)=>report,
+                Err(_)=> { self.clear_presentation(); return Ok(View::message("Saved report access or bounded source ownership proof is unavailable. No cached report is displayed; restore access or rescan explicitly.")); }
+            };
+            let Some(report) = report else {
+                self.clear_presentation();
+                let message = match &failure {
+                    Some(failure) => format!("The last scan failed: {}. Run Dependency Audit: Scan Project to retry.", failure.message),
+                    None => "Run Dependency Audit: Scan Project to check this project's dependencies against OSV.dev.".into(),
+                };
+                return Ok(View::message(&message).button(scan_button("Scan")).button(Button::new("review-ignores","Review Scoped Ignores").icon("list")));
+            };
+            let status = report_status(&report, failure.as_ref());
+            if report.rows.is_empty() {
+                self.clear_presentation();
+                return Ok(View::message("The last successful scan found no known vulnerabilities (after configured ignores).")
+                    .button(scan_button("Rescan")).button(Button::new("review-ignores","Review Scoped Ignores").icon("list"))
+                    .status(&status));
+            }
+            if ui_kit::web::is_rendering() {
+                self.targets.clear();
+                return Ok(View::new(resource_body(&root, &report, failure.as_ref())).button(scan_button("Rescan")).button(Button::new("review-ignores","Review Scoped Ignores").icon("list")).status(&status));
+            }
+            let (mut items, targets) = tree_of(&root, &report.rows, Some(&mut self.display));
+            self.targets = targets;
+            self.expansion.apply(&mut items);
+            Ok(View::new(Body::Tree(items)).button(scan_button("Rescan")).button(Button::new("review-ignores","Review Scoped Ignores").icon("list")).status(&status))
+        })().map(ui_kit::actions::available)
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {

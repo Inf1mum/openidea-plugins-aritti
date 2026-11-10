@@ -5,12 +5,12 @@ description = "Log file viewer. Detects the log format (IntelliJ IDEA, TeamCity 
 authors = ["Arnaud RITTI <arnaud.ritti@gmail.com>", "JetBrains (original Ideolog plugin)"]
 homepage = "https://github.com/JetBrains/ideolog"
 license = "MIT"
-change-notes = "Numeric custom level suffixes no longer become false error navigation/outline entries. ISO offsets normalized for time-gap calculations; malformed suffixes refused. Fallback source ranking excludes foreign project owners and refuses tied candidates. Jump source owner checks and strict UTF16 caret admission. Custom syntax language admission and complete-line cutoff safety. Owned bounded stack-frame definitions; ambiguous/capped candidates and invalid line numbers refuse navigation. Unreleased: semantic newline search is confined to a UTF8-safe64KiB source prefix, withholding partial cutoff lines.  built-in Log semantic requests reuse warmed configuration and check cooperative deadlines during detection/grouping and lazy event parsing.  optional paged snapshots now check cooperative Task cancellation/deadline between format regex attempts and physical event-grouping lines; no streaming or native semantic-renderer fix.  Ideolog: Highlight Selection (editor menu) adds the selected text as a highlighting pattern; Remove Custom Highlightings; the Patterns view edits a pattern in place (Edit) and reorders (Move Up). Ideolog Patterns view to add and remove custom formats and highlighting patterns without XML; status bar item naming the detected log format; timeGapSeconds setting colours the time of events that follow a long pause. 0.2.0: custom formats and highlighting patterns (Ideolog XML, lookaround supported); Jump to Source (F7) for stack frames and logging lines; Go to Next Error (Shift+F7), Go to Previous / Next Entry; Cmd+click on stack frames; Log (Ideolog) remains a manual lexical/fold/outline fallback; built-in Log owns *.log with the semantic overlay. 0.1.0: first release, ported from Ideolog 263.7307.101 (github.com/JetBrains/ideolog, tag pycharm/263.7307.101, 41beb53)."
+change-notes = "Native Patterns table and structured forms replace the packaged web panel; enabled-state column and bidirectional pattern ordering; existing draft identities, validation and preview remain. Numeric custom level suffixes no longer become false error navigation/outline entries. ISO offsets normalized for time-gap calculations; malformed suffixes refused. Fallback source ranking excludes foreign project owners and refuses tied candidates. Jump source owner checks and strict UTF16 caret admission. Custom syntax language admission and complete-line cutoff safety. Owned bounded stack-frame definitions; ambiguous/capped candidates and invalid line numbers refuse navigation. Unreleased: semantic newline search is confined to a UTF8-safe64KiB source prefix, withholding partial cutoff lines.  built-in Log semantic requests reuse warmed configuration and check cooperative deadlines during detection/grouping and lazy event parsing.  optional paged snapshots now check cooperative Task cancellation/deadline between format regex attempts and physical event-grouping lines; no streaming or native semantic-renderer fix.  Ideolog: Highlight Selection (editor menu) adds the selected text as a highlighting pattern; Remove Custom Highlightings; the Patterns view edits a pattern in place (Edit) and reorders (Move Up). Ideolog Patterns view to add and remove custom formats and highlighting patterns without XML; status bar item naming the detected log format; timeGapSeconds setting colours the time of events that follow a long pause. 0.2.0: custom formats and highlighting patterns (Ideolog XML, lookaround supported); Jump to Source (F7) for stack frames and logging lines; Go to Next Error (Shift+F7), Go to Previous / Next Entry; Cmd+click on stack frames; Log (Ideolog) remains a manual lexical/fold/outline fallback; built-in Log owns *.log with the semantic overlay. 0.1.0: first release, ported from Ideolog 263.7307.101 (github.com/JetBrains/ideolog, tag pycharm/263.7307.101, 41beb53)."
 categories = ["languages", "tools"]
 icon = "icon.svg"
 engines.openidea = "^1.4"
 wasm = "dist/plugin.wasm"
-activation = ["on-language:ideolog", "on-language:log", "on-event:editor-focused", "on-event:file-opened", "on-event:file-saved", "on-event:files-changed", "on-event:settings-changed", "on-event:file-closed"]
+activation = ["on-language:ideolog", "on-language:log", "on-event:editor-focused", "on-event:file-opened", "on-event:file-saved", "on-event:files-changed", "on-event:settings-changed", "on-event:file-closed", "on-view:patterns"]
 
 # Highlighting needs none; the navigation commands read the log and open files,
 # the status item follows the focused editor, the Patterns view keeps its patterns in storage.
@@ -36,9 +36,9 @@ title = "Ideolog"
 
 [[contributes.views]]
 id = "patterns"
-title = "Ideolog Patterns"
-icon = "settings"
-location = "right"
+title = "Ideolog"
+icon = "file-log"
+location = "bottom"
 web = "web/resources/hub.html"
 
 [[contributes.commands]]
@@ -104,12 +104,6 @@ key = "Shift+F7"
 [[contributes.menus]]
 menu = "editor.context"
 command = "highlight-selection"
-
-[[contributes.views]]
-id = "log-snapshot"
-title = "Log Snapshot"
-icon = "file-text"
-location = "bottom"
 
 [[contributes.commands]]
 id = "capture-log"

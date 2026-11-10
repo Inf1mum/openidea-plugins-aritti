@@ -721,18 +721,20 @@ impl Batch {
 
 impl Views for Batch {
     fn render(&mut self, _view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
-        let refresh = Button::new("refresh", "Refresh").icon("refresh");
-        let Some(project) = ctx.project() else { return Ok(View::message("Open a project to see its batch jobs.").button(refresh)) };
-        let index = self.indexes.get(&project, COMMAND_BUDGET);
-        let Some(scope)=project.root().ok().and_then(|root|source_scope::Scope::current(&root)) else{return Ok(View::message("Current project source ownership is unavailable.").button(refresh));};
-        if !scope.prune(index) {return Ok(View::message("Current project source ownership is not ready; refresh this project.").button(refresh));}
-        let complete = index.complete();
-        if index.scanning() {
-            self::refresh(&id(VIEW));
-        }
-        let (nodes, edges) = diagram_of(index);
-        let status = format!("{} nodes · {} transitions{}", nodes.len(), edges.len(), if complete { "" } else { " · scanning…" });
-        Ok(View::new(Body::Html(diagram::html(&nodes, &edges, "No batch jobs found."))).button(refresh).status(&status))
+        (|| -> Result<View, Error> {
+            let refresh = Button::new("refresh", "Refresh").icon("refresh");
+            let Some(project) = ctx.project() else { return Ok(View::message("Open a project to see its batch jobs.").button(refresh)) };
+            let index = self.indexes.get(&project, COMMAND_BUDGET);
+            let Some(scope)=project.root().ok().and_then(|root|source_scope::Scope::current(&root)) else{return Ok(View::message("Current project source ownership is unavailable.").button(refresh));};
+            if !scope.prune(index) {return Ok(View::message("Current project source ownership is not ready; refresh this project.").button(refresh));}
+            let complete = index.complete();
+            if index.scanning() {
+                self::refresh(&id(VIEW));
+            }
+            let (nodes, edges) = diagram_of(index);
+            let status = format!("{} nodes · {} transitions{}", nodes.len(), edges.len(), if complete { "" } else { " · scanning…" });
+            Ok(View::new(Body::Html(diagram::html(&nodes, &edges, "No batch jobs found."))).button(refresh).status(&status))
+        })().map(ui_kit::actions::available)
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {

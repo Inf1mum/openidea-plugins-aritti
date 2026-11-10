@@ -19,6 +19,7 @@ pub(super) fn replace_report(state: &mut State, report: Report) -> Result<(), Er
     state.selected = None;
     state.review = None;
     state.visible = 0..0;
+    state.page = 0;
     Ok(())
 }
 pub(super) fn body(state: &State, report: &Report) -> Option<Body> {
@@ -62,7 +63,7 @@ impl Liquibase {
         self.offline.selected = None;
         self.offline.visible = 0..0;
         self.offline.status = format!("{} report observations selected for read-only review; no CLI, SQL or workspace edit runs on selection.", indexes.len());
-        host::refresh_view(VIEW);
+        ui_kit::web::refresh_view(VIEW, include_str!("ui_config.json"));
         Ok(())
     }
 }

@@ -3,7 +3,7 @@ use openidea_plugin::views::ViewEvent;
 use openidea_plugin::{Error, Invocation, host};
 use serde_json::{Value, json};
 
-use crate::{DETAILS, GitLab, api, gitlab_project, sections::Section, selection_scope};
+use crate::{DETAILS, LIST, GitLab, api, gitlab_project, sections::Section, selection_scope};
 
 const MAX_SNAPSHOT_BYTES: usize = 384 * 1024;
 const MAX_SNAPSHOTS: usize = 4;
@@ -247,7 +247,7 @@ impl GitLab {
             "actions":[{"id":"reload","label":"Reload Cached Snapshot"},{"id":"refresh","label":"Refresh Snapshot","icon":"refresh"},
                 {"id":"review","label":"Return to Review"}]
         }});
-        host::post_view_message(DETAILS, &message.to_string())
+        ui_kit::web::post_view_message(DETAILS, &message.to_string(), include_str!("ui_config.json"))
     }
 
     pub(crate) fn open_content_snapshot(&mut self, ctx: &Invocation, kind: Kind) -> Result<(), Error> {
@@ -268,7 +268,8 @@ impl GitLab {
         let ViewEvent::Message(message) = event else {
             return Ok(false);
         };
-        if view != DETAILS || message.len() > 2 * 1024 * 1024 {
+        // Native content-tab callbacks name the one physical grouped window.
+        if !matches!(view, LIST | DETAILS) || message.len() > 2 * 1024 * 1024 {
             return Ok(false);
         }
         let Ok(value) = serde_json::from_str::<Value>(message) else {
@@ -315,7 +316,7 @@ impl GitLab {
                 }
                 Some("review") => {
                     self.set_section(match snapshot.kind {Kind::Diff=>Section::Changes,Kind::Job{..}=>Section::Pipelines,_=>Section::Overview})?;
-                    host::reveal_view(DETAILS)?;
+                    ui_kit::web::reveal_view(DETAILS, include_str!("ui_config.json"))?;
                     Ok(None)
                 }
                 _ => Err("This is a read-only snapshot. Use the review pane for edits and comments.".into()),
@@ -333,7 +334,7 @@ impl GitLab {
                 reply["saved"] = false.into();
             }
         }
-        host::post_view_message(DETAILS, &json!({"channel":"gitlab-content-reply","frameId":frame,"payload":reply}).to_string())?;
+        ui_kit::web::post_view_message(DETAILS, &json!({"channel":"gitlab-content-reply","frameId":frame,"payload":reply}).to_string(), include_str!("ui_config.json"))?;
         Ok(true)
     }
 }

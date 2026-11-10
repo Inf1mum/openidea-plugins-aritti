@@ -8,6 +8,7 @@ use fancy_regex::{Regex, RegexBuilder};
 use openidea_plugin::views::{Body, Button, Field, FieldValue, View, ViewEvent};
 use openidea_plugin::{Error, host};
 use std::collections::{BTreeMap, BTreeSet};
+use std::cell::RefCell;
 use std::hash::BuildHasher;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -35,11 +36,14 @@ struct Draft {
     sample: String,
     preview: String,
     rejected: BTreeSet<String>,
+    formats: Vec<(String, String)>,
 }
 #[derive(Default)]
 pub struct Editor {
     draft: Option<Draft>,
     next: u64,
+    pub(super) section: Option<bool>,
+    pub(super) browser: RefCell<(Vec<String>, Vec<usize>, Option<usize>)>,
 }
 
 fn invalid(message: impl Into<String>) -> Error {
@@ -123,6 +127,7 @@ impl Model {
                     return Err(invalid("Parsing regex needs at least one capture group (one per column)."));
                 }
                 regex(self.get("linePattern"), "")?;
+                if !self.get("timePattern").is_empty() {log::validate_time_pattern(self.get("timePattern")).map_err(invalid)?;}
                 for key in ["timeId", "severityId", "categoryId"] {
                     self.group(key, count)?;
                 }
@@ -147,6 +152,22 @@ impl Model {
 }
 
 impl Editor {
+    pub(super) fn selected(&self, all: &[String]) -> Result<Option<usize>, Error> {
+        let binding = self.browser.borrow();
+        if binding.2.is_some() && binding.0 != all { return Err(Error::Stale); }
+        Ok(binding.2)
+    }
+    pub(super) fn bind_rows(&self, all: Vec<String>, rows: Vec<usize>) {
+        let mut binding=self.browser.borrow_mut();
+        let selected=if binding.0==all { binding.2.filter(|n|rows.contains(n)) } else {None};
+        *binding=(all,rows,selected);
+    }
+    pub(super) fn select_row(&self, row: usize) -> Result<(),Error> {
+        let mut binding=self.browser.borrow_mut();
+        if binding.0 != patterns::entries() { return Err(Error::Stale); }
+        binding.2=Some(*binding.1.get(row).ok_or(Error::Stale)?);
+        Ok(())
+    }
     pub(crate) fn control_key(&self, key: &str) -> String {
         self.draft.as_ref().map_or_else(|| key.to_owned(), |draft| format!("{key}@{}", draft.token))
     }
@@ -165,7 +186,6 @@ impl Editor {
         let model = &draft.model;
         let mut fields = vec![
             Field::new("pattern-enabled", "Enabled", FieldValue::Checkbox(model.get("enabled") != "false")),
-            Field::new("pattern-identity", "Pattern UUID", FieldValue::readonly_text(model.get("uuid"), false)),
         ];
         let text = |key: &str, label: &str| Field::new(&format!("{PREFIX}{key}"), label, FieldValue::Text(model.get(key).into()));
         match model.kind {
@@ -173,6 +193,7 @@ impl Editor {
                 text("name", "Format name"),
                 text("pattern", "Event regex (one capture group per column)"),
                 text("linePattern", "Event start regex"),
+                text("timePattern", "Timestamp format (empty: automatic)"),
                 text("timeId", "Timestamp column (0 based; -1 none)"),
                 text("severityId", "Level column (0 based; -1 none)"),
                 text("categoryId", "Category column (0 based; -1 none)"),
@@ -201,7 +222,9 @@ impl Editor {
                     colours.push(selected.clone());
                 }
                 fields.push(Field::new("pattern-fg", "Colour", FieldValue::Choice(colours, selected)));
-                fields.push(text("formatId", "Only format UUID (empty: all formats)"));
+                let current=model.get("formatId");
+                let selected=draft.formats.iter().find(|(id,_)|id==current).map(|(_,label)|label.as_str()).unwrap_or("Any log format");
+                fields.push(Field::new("pattern-formatId", "Log format", FieldValue::Choice(draft.formats.iter().map(|(_,label)|label.clone()).collect(), selected.into())));
             }
         }
         fields.push(Field::new(
@@ -216,7 +239,7 @@ impl Editor {
         ));
         let mut view = View::new(Body::Form(fields))
             .button(Button::new("pattern-preview", "Preview"))
-            .button(Button::new("pattern-save", "Save").icon("save"))
+            .button(Button::new("pattern-save", "Save").icon("check"))
             .button(Button::new("pattern-cancel", "Cancel"))
             .status(match model.kind {
                 Kind::Format => "Log format settings · timestamp / level / message captures",
@@ -253,7 +276,7 @@ impl Editor {
                 },
             )
         } else {
-            let Some(at) = patterns::pick_entry("Edit pattern", &all)? else {
+            let Some(at) = self.selected(&all)?.or(patterns::pick_entry_if_unselected(self.selected(&all)?, "Edit pattern", &all)?) else {
                 return Ok(());
             };
             (Some(at), all[at].clone())
@@ -279,7 +302,22 @@ impl Editor {
             random.hash_one((now, self.next, "pattern draft")),
             random.hash_one((now, self.next, "pattern controls"))
         );
-        self.draft=Some(Draft{token,model,base,at,rejected:BTreeSet::new(),sample:"2024-05-01 10:00:00 ERROR Example failure\n    at demo.Foo.run(Foo.java:42)".into(),preview:"Enter a sample event, then Preview to inspect captures. Column numbers are 0 based; -1 means none. Changes are saved only by Save.".into()});
+        let setting=host::setting_string("customPatterns").unwrap_or_default();
+        if setting.len()>MAX_STORAGE { return Err(invalid("Custom formats exceed the 128 KiB limit.")); }
+        let config=Config::with_custom(&format!("{setting}\n{base}"));
+        let mut formats=vec![(String::new(),"Any log format".into())];
+        let options=config.format_names();
+        let mut counts=BTreeMap::<String,usize>::new();
+        for (_,name) in &options {*counts.entry(name.clone()).or_default()+=1;}
+        let mut names=BTreeSet::new();
+        for (id,name) in options {
+            if !names.insert(id.clone()) {continue;}
+            let label=if counts.get(&name)==Some(&1) && name!="Any log format" {name} else {format!("{name} · {id}")};
+            formats.push((id,label));
+        }
+        let current=model.get("formatId");
+        if !current.is_empty() && !formats.iter().any(|(id,_)|id==current) { formats.push((current.into(),format!("Unavailable format · {current}"))); }
+        self.draft=Some(Draft{token,model,base,at,formats,rejected:BTreeSet::new(),sample:"2024-05-01 10:00:00 ERROR Example failure\n    at demo.Foo.run(Foo.java:42)".into(),preview:"Enter a sample event, then Preview to inspect captures. Column numbers are 0 based; -1 means none. Changes are saved only by Save.".into()});
         Ok(())
     }
     pub fn handle(&mut self, event: &ViewEvent) -> Result<bool, Error> {
@@ -338,13 +376,15 @@ impl Editor {
                 draft.sample = value.clone();
             } else {
                 let allowed = match draft.model.kind {
-                    Kind::Format => ["enabled", "name", "pattern", "linePattern", "timeId", "severityId", "categoryId"].contains(&key),
+                    Kind::Format => ["enabled", "name", "pattern", "linePattern", "timePattern", "timeId", "severityId", "categoryId"].contains(&key),
                     Kind::Highlight => ["enabled", "pattern", "action", "captureGroup", "fg", "formatId"].contains(&key),
                 };
                 if !allowed {
                     return Err(invalid("Unknown pattern field."));
                 }
-                let value = if key == "action" {
+                let value = if key=="formatId" {
+                    draft.formats.iter().find(|(_,label)|label==value).map(|(id,_)|id.clone()).or_else(||draft.formats.iter().find(|(id,_)|id==value).map(|(id,_)|id.clone())).ok_or_else(||invalid("Select a listed log format."))?
+                } else if key == "action" {
                     patterns::ACTIONS.iter().find(|(_, label)| *label == value).map_or_else(|| value.clone(), |(id, _)| id.to_string())
                 } else if key == "fg" {
                     patterns::COLOURS
@@ -417,8 +457,12 @@ fn preview(draft: &Draft) -> Result<String, Error> {
         let parsed = Parsed::new(Some(format), &draft.sample);
         let values = parsed.values();
         let field = |id: Option<usize>| id.and_then(|n| values.get(n).copied()).unwrap_or("(none / not captured)");
+        let time_preview: String=match parsed.time(Some(format)).and_then(|time|log::time_seconds(time,format.time_pattern.as_deref())) {
+            Some(_)=>"Valid timestamp · matches the selected format".into(),
+            None=>"Not parsed by the selected timestamp format".into(),
+        };
         Ok(format!(
-            "Timestamp: {}\nLevel: {}\nCategory: {}\nMessage: {}\nColumns captured: {}\nContinuation lines: {}\nTimestamp format strings are preserved on edits; this preview shows raw captures, not Java date formatting.",
+            "Timestamp: {}\nLevel: {}\nCategory: {}\nMessage: {}\nColumns captured: {}\nContinuation lines: {}\nParsed timestamp: {time_preview}",
             field(format.time_column),
             field(format.severity_column),
             field(format.category_column),
@@ -465,6 +509,29 @@ mod tests {
     }
     fn output(editor: &Editor) -> &str {
         &editor.draft.as_ref().unwrap().preview
+    }
+
+
+    #[test]
+    fn named_format_choice_and_timestamp_fields_roundtrip_without_uuid_typing() {
+        let host=MockHost::install();
+        let format=patterns::format_element("Orders",r"^(.*)$","^","0","-1","-1");
+        patterns::save(&[format]).unwrap();
+        let mut editor=Editor::default();click(&mut editor,"add-highlight");
+        let Body::Form(fields)=editor.render().unwrap().body else {panic!("form")};
+        let choice=fields.iter().find(|f|f.label=="Log format").unwrap();
+        let FieldValue::Choice(options,selected)=&choice.value else {panic!("choice")};
+        assert_eq!(selected,"Any log format");
+        let name=options.iter().find(|name|name.as_str()=="Orders").unwrap().clone();
+        field(&mut editor,"formatId",&name);click(&mut editor,"pattern-save");
+        assert!(patterns::entries()[1].contains("formatId=\"c0570000"));
+        click(&mut editor,"add-format");field(&mut editor,"timePattern","yyyy-MM-dd HH:mm:ss");
+        field(&mut editor,"sample","2024-05-01 10:00:00 ERROR failure");click(&mut editor,"pattern-preview");
+        assert!(editor.draft.as_ref().unwrap().preview.contains("Parsed timestamp:"));
+        field(&mut editor,"timePattern","EEE yyyy");click(&mut editor,"pattern-save");
+        assert!(editor.draft.is_some(),"unsupported date patterns cannot be saved");
+        assert_eq!(patterns::entries().len(),2);
+        assert!(host.process_runs().is_empty());
     }
 
     #[test]

@@ -1,5 +1,7 @@
 # Symfony
 
+One shared UI-kit window contains the Symfony, Profiler, Twig Namespace Paths tabs. Commands select their corresponding custom tab; existing actions, drafts and ownership checks remain in their original handlers. See [tab migration and parity validation](../../docs/custom-plugin-groups-2026-11-10.md).
+
 Partial port of the [Symfony Plugin](https://github.com/Haehnchen/idea-php-symfony2-plugin)
 for IntelliJ (`fr.adrienbrault.idea.symfony2plugin` 2026.2.314, revision
 `b6c1034f`, MIT, by Daniel Espendiller and Adrien Brault). The port uses only
@@ -362,7 +364,7 @@ not a Symfony project.
 
 The _Symfony_ tool window has _Routes_ and _Index_ sections (the index lists templates, services and translations by domain); double-click opens the definition.
 
-The route list is a flat list: a method icon (GET, POST, PUT, DELETE, PATCH, other), the path, and grey text with `[METHOD] Controller` after it. *Filter* narrows the list to one controller (the status line says which), *Clear* restores it, and *Flat/Tree* groups the rows by controller. Row actions: *Copy as curl* and *Create HTTP Request File* (writes `http/<verb>-<path>.http`, needs `project.write`; without it the request is copied). Limits: the grey text follows the path rather than sitting in a column, there is no request panel beside the list, and no gutter icon on the handler; these wait on upstream OpenIDEA requests.
+The route list is a flat list: the generic native endpoint icon, the path, and grey text with `[METHOD] Controller` after it. *Filter* narrows the list to one controller (the status line says which), *Clear* restores it, and *Flat/Tree* groups the rows by controller. Row actions: *Copy as curl* and *Create HTTP Request File* (writes `http/<verb>-<path>.http`, needs `project.write`; without it the request is copied). Limits: the grey text follows the path rather than sitting in a column, there is no request panel beside the list, and no gutter icon on the handler; these wait on upstream OpenIDEA requests.
 
  _Symfony: Warm Up Cache_ and
 _Symfony: Clear Cache_ run `php bin/console cache:warmup` or `cache:clear`
@@ -843,3 +845,5 @@ Translation catalog resolution rejects existing parsed YAML key paths even when
 the current value is empty/null or a nested branch. This prevents duplicate
 appends missed by the value-bearing translation index; full YAML alias/merge
 semantics and an atomic apply lease remain unproved.
+
+Symfony now uses one UI-kit window with Symfony, Profiler and Twig Namespace Paths tabs. Existing route/service sections, profiler source checks and project-owned Twig path drafts remain in their original handlers.

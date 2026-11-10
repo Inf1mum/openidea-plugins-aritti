@@ -13,7 +13,7 @@ const errors=[];page.on('pageerror', e=>errors.push(e.message));
 await page.addInitScript(()=>{window.sent=[];const listeners=[];window.openidea={postMessage:s=>window.sent.push(JSON.parse(s)),onMessage:f=>listeners.push(f)};window.receive=text=>listeners.slice().forEach(f=>f(text));});
 await page.goto(pathToFileURL(resolve(ROOT,'plugins/laravel/web/resources/hub.html')).href);
 const model={title:'Routes',plugin:'Laravel',toolbar:[{key:'refresh',label:'Refresh',enabled:true}],actions:[{id:'copy',label:'Copy as curl',kind:'route'}],body:{kind:'resources',columns:['Method','Path','Controller','Handler','Name'],facets:[0,2],items:[{key:'route:0',cells:['GET','/orders','OrderController','index','orders']},{key:'route:1',cells:['POST','/orders','OrderController','store','orders.store']},{key:'route:2',cells:['GET','/<img src=x onerror=alert(1)>','OtherController','show','other']} ]}};
-async function reply(m=model,error=null){await page.evaluate(({m,error})=>window.receive(JSON.stringify({channel:'ui-kit',frameId:window.sent.findLast(m=>m.channel==='ui-kit').frameId,sequence:window.sent.findLast(m=>m.channel==='ui-kit').sequence,project:'/fixture',model:m,error})),{m,error});}
+async function reply(m=model,error=null){await page.evaluate(({m,error})=>window.receive(JSON.stringify({channel:'ui-kit',frameId:window.sent.findLast(m=>m.channel==='ui-kit' && m.op!=='notify').frameId,sequence:window.sent.findLast(m=>m.channel==='ui-kit' && m.op!=='notify').sequence,project:'/fixture',model:m,error})),{m,error});}
 await reply();assert.equal(await page.locator('tbody tr').count(),3);
 // Native packaged views need explicit invalidation. It carries no model and
 // must preserve frame/project correlation and wait for an outstanding action.
@@ -22,7 +22,10 @@ await page.evaluate(()=>window.receive(JSON.stringify({channel:'ui-kit-refresh',
 const refreshRequest=await page.evaluate(()=>window.sent.at(-1));
 assert.equal(refreshRequest.op,'render');assert.equal(refreshRequest.project,'/fixture');
 assert.equal(refreshRequest.frameId,await page.evaluate(()=>window.uiKitFrameId));
-assert.equal(await page.locator('#title').textContent(),'Routes');
+assert.equal(await page.title(),'Routes');
+assert.equal(await page.locator('main').getAttribute('aria-label'),'Routes');
+assert.equal(await page.locator('body > header').count(),0,'native tool window supplies the title');
+assert.equal(await page.getByRole('button',{name:'Refresh',exact:true}).count(),1,'refresh shares the action toolbar without duplication');
 await page.evaluate(()=>{window.receive(JSON.stringify({channel:'ui-kit-refresh'}));window.receive(JSON.stringify({channel:'ui-kit-refresh'}));});
 assert.equal(await page.evaluate(()=>window.sent.length),refreshBefore+1);
 await page.evaluate(()=>window.receive(JSON.stringify({channel:'ui-kit',frameId:'f'.repeat(32),sequence:window.sent.at(-1).sequence,project:'/fixture',model:{title:'Foreign'}})));
@@ -34,37 +37,37 @@ await reply();
 console.log('PASS model-free invalidation, busy coalescing and correlated refresh');
 assert.match(await page.evaluate(()=>window.uiKitFrameId),/^[0-9a-f]{32}$/);
 assert.equal(await page.evaluate(()=>Object.getOwnPropertyDescriptor(window,'uiKitFrameId').writable),false);
-await page.evaluate(()=>{const request=window.sent.findLast(m=>m.channel==='ui-kit');for(const frameId of ['f'.repeat(32),undefined])window.receive(JSON.stringify({channel:'ui-kit',frameId,sequence:request.sequence,project:'/fixture',error:'Wrong frame',model:{title:'Foreign window',body:{kind:'message',text:'wrong-frame content'}}}));});
-assert.equal(await page.locator('tbody tr').count(),3);assert.equal(await page.locator('#notice').textContent(),'');
+await page.evaluate(()=>{const request=window.sent.findLast(m=>m.channel==='ui-kit' && m.op!=='notify');for(const frameId of ['f'.repeat(32),undefined])window.receive(JSON.stringify({channel:'ui-kit',frameId,sequence:request.sequence,project:'/fixture',error:'Wrong frame',model:{title:'Foreign window',body:{kind:'message',text:'wrong-frame content'}}}));});
+assert.equal(await page.locator('tbody tr').count(),3);assert.equal(await page.locator('#notice').count(),0);
 
 await page.getByRole('searchbox').fill('store');assert.equal(await page.locator('tbody tr').count(),1);
 await page.getByRole('button',{name:'Clear filters',exact:true}).click();
 await page.getByRole('combobox',{name:'Method',exact:true}).click();await page.getByRole('option',{name:'POST',exact:true}).click();assert.equal(await page.locator('tbody tr').count(),1);
-await page.locator('tbody tr').click();await reply();await page.getByRole('button',{name:'Copy as curl',exact:true}).click();
+await page.locator('tbody tr').click();await reply();await page.locator('tbody tr').click({button:'right'});await page.getByRole('menuitem',{name:'Copy as curl',exact:true}).click();
 assert.equal(await page.evaluate(()=>window.sent.at(-1).op),'command');
-await reply(model,'Permission denied');assert.equal(await page.getByRole('button',{name:'Copy as curl',exact:true}).isEnabled(),true);
+await reply(model,'Permission denied');await page.locator('tbody tr').click({button:'right'});assert.equal(await page.getByRole('menuitem',{name:'Copy as curl',exact:true}).isEnabled(),true);await page.keyboard.press('Escape');
 await page.getByRole('button',{name:'Clear filters',exact:true}).click();assert.equal(await page.locator('#content img').count(),0);
 await page.screenshot({path:resolve(QA,'routes-wide.png')});
 await page.setViewportSize({width:380,height:750});await page.screenshot({path:resolve(QA,'routes-narrow.png')});
 await page.getByRole('button',{name:'Refresh',exact:true}).first().click();
 const advisory={...model,body:{kind:'resources',columns:['Dependency','Version','Severity'],facets:[2],items:[{key:'dep:1',cells:['example-lib','1.0','High'],details:[{label:'Fixed versions',value:'2.0'},{label:'Advisory',value:'<img src=x onerror=alert(1)>'}]}]}};
-await reply(advisory);await page.locator('tbody tr').click();await reply(advisory);
+await reply(advisory);await page.locator('tbody tr').click();await reply(advisory);await page.locator('tbody tr').click({button:'right'});await reply(advisory);await page.getByRole('menuitem',{name:'Show Details…',exact:true}).click();
 assert.equal(await page.locator('#details h2').textContent(),'example-lib');assert.equal(await page.locator('#details dd').last().textContent(),'<img src=x onerror=alert(1)>');assert.equal(await page.locator('#details img').count(),0);
-assert.equal(await page.locator('tbody .method').count(),0);assert.equal(await page.locator('#details dt').filter({hasText:'Fixed versions'}).count(),1);
+assert.equal(await page.locator('tbody .method').count(),0);assert.equal(await page.locator('#details dt').filter({hasText:'Fixed versions'}).count(),1);await page.getByRole('button',{name:'Close',exact:true}).click();
 // A bottom dock can be shorter than its header, toolbar and facets together.
 await page.setViewportSize({width:1100,height:260});
 await page.getByRole('button',{name:'Refresh',exact:true}).first().click();
 await reply(advisory);
 assert.ok(await page.locator('main').evaluate(n=>n.scrollHeight>n.clientHeight),'short docks scroll the workflow instead of clipping rows');
 await page.locator('tbody tr').scrollIntoViewIfNeeded();await page.locator('tbody tr').click();await reply(advisory);
-await page.getByRole('button',{name:'Open',exact:true}).scrollIntoViewIfNeeded();
-await page.getByRole('button',{name:'Open',exact:true}).click();
+await page.locator('tbody tr').click({button:'right'});
+await page.getByRole('menuitem',{name:'Open',exact:true}).click();
 assert.equal(await page.evaluate(()=>window.sent.at(-1).event.key),'dep:1');
 await reply(advisory);await page.screenshot({path:resolve(QA,'advisory-short-dock.png')});
 await page.setViewportSize({width:380,height:750});
 await page.getByRole('button',{name:'Refresh',exact:true}).first().click();
 const form={...model,body:{kind:'form',fields:[{key:'description',label:'Description',value:{kind:'readonly-text',data:{text:'<script>unsafe</script>',multiline:true}}},{key:'comment',label:'Comment',value:{kind:'multiline',text:'draft'}}]}};
-await page.getByRole('button',{name:'Refresh',exact:true}).first().click();await reply(form);
+await reply(form);
 assert.equal(await page.locator('output').textContent(),'<script>unsafe</script>');assert.equal(await page.locator('textarea').inputValue(),'draft');assert.equal(await page.locator('#content script').count(),0);
 // Short categorical labels stay readable in a narrow settings/resource pane.
 await page.getByRole('button',{name:'Refresh',exact:true}).first().click();
@@ -110,16 +113,18 @@ const beforeContentAction=await page.evaluate(()=>window.sent.length);
 await page.evaluate(()=>window.receive(JSON.stringify({op:'content-tab-action',key:'gl-fixture',action:'reload'})));
 assert.equal(await page.evaluate(()=>window.sent.length),beforeContentAction,'host content callbacks must not dispatch twice');
 await page.evaluate(()=>window.receive(JSON.stringify({op:'content-tab-error'})));
-assert.match(await page.locator('#notice').textContent(),/could not be opened/);
+assert.equal(await page.locator('#notice').count(),0);
+assert.equal(await page.evaluate(()=>window.sent.at(-1).op),'notify');
+assert.match(await page.evaluate(()=>window.sent.at(-1).message),/could not be opened/);
 
 const review={...model,body:{kind:'html',html:'<body><div id="error" hidden></div><div class="file" data-new-path="src/a.rs" data-old-path="src/a.rs"><table><tr id="L1" data-new="1"><td class="ln" tabindex="0">1</td><td>code</td></tr></table></div></body>'}};
 await reply(review);await page.locator('.ln').click();await page.getByLabel('Comment',{exact:true}).fill('retained draft');await page.getByRole('button',{name:'Add to Review',exact:true}).click();
 assert.equal(await page.evaluate(()=>JSON.parse(window.sent.at(-1).event.value).body),'retained draft');await reply(review);assert.equal(await page.getByLabel('Comment',{exact:true}).inputValue(),'retained draft');
 await page.goto(pathToFileURL(resolve(ROOT,'plugins/kube-explorer/web/resources/hub.html')).href);
 await page.evaluate(()=>window.openidea.saveFile=async options=>{window.saved=options;return '/tmp/export.yaml';});
-let html=readFileSync(resolve(ROOT,'plugins/kube-explorer/src/page.html'),'utf8').replaceAll('{{highlighted}}','kind: Pod').replaceAll('{{lang}}','yaml').replaceAll('{{name}}','pod').replaceAll('{{readonly}}','').replaceAll('{{text}}','kind: Pod').replaceAll('{{nojs}}','');
+let html=readFileSync(resolve(ROOT,'plugins/kube-explorer/src/page.html'),'utf8').replaceAll('{{highlighted}}','kind: Pod').replaceAll('{{lang}}','yaml').replaceAll('{{name}}','pod').replaceAll('{{readonly}}','').replaceAll('{{text}}','kind: Pod').replaceAll('{{nojs}}','').replaceAll('{{callback}}','qa-callback');
 await reply({...model,body:{kind:'html',html}});await page.locator('#src').fill('kind: Service');await page.evaluate(()=>window.receive('collect:apply'));
-assert.equal(await page.evaluate(()=>window.sent.at(-1).event.value),'apply\nkind: Service');await page.evaluate(()=>window.receive('collect:save'));assert.equal(await page.evaluate(()=>window.saved.data),'kind: Service');
+assert.equal(await page.evaluate(()=>window.sent.at(-1).event.value),'apply\nqa-callback\nkind: Service');await page.evaluate(()=>window.receive('collect:save'));assert.equal(await page.evaluate(()=>window.saved.data),'kind: Service');
 assert.deepEqual(errors,[]);console.log('PASS retained GitLab line-comment drafts; Kubernetes YAML apply and save bridge');
 // Real separate browser pages reproduce host fan-out with identical local sequences/request IDs.
 const peer=await browser.newPage();
@@ -129,7 +134,7 @@ const frames=await Promise.all([page.evaluate(()=>window.uiKitFrameId),peer.eval
 assert.notEqual(frames[0],frames[1]);
 for(let owner=0;owner<2;owner++){
   const target=[page,peer][owner];
-  const request=await target.evaluate(()=>window.sent.findLast(m=>m.channel==='ui-kit'));
+  const request=await target.evaluate(()=>window.sent.findLast(m=>m.channel==='ui-kit' && m.op!=='notify'));
   const message=JSON.stringify({channel:'ui-kit',frameId:frames[owner],sequence:request.sequence,project:'/fixture',model:{...model,title:`Window ${owner}`,body:{kind:'message',text:`Owned by ${owner}`}}});
   await Promise.all([page,peer].map(p=>p.evaluate(m=>window.receive(m),message)));
   assert.equal(await target.locator('#content').textContent(),`Owned by ${owner}`);

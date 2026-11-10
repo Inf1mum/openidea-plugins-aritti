@@ -110,6 +110,7 @@ version = "0.1.0"
 dependencies = [
  "openidea-plugin",
  "spring-text",
+ "ui-kit",
 ]
 
 [[package]]
@@ -118,6 +119,7 @@ version = "0.1.0"
 dependencies = [
  "openidea-plugin",
  "spring-text",
+ "ui-kit",
 ]
 
 [[package]]
@@ -126,6 +128,7 @@ version = "0.1.0"
 dependencies = [
  "openidea-plugin",
  "spring-text",
+ "ui-kit",
 ]
 
 [[package]]
@@ -158,6 +161,7 @@ version = "0.1.0"
 dependencies = [
  "openidea-plugin",
  "spring-text",
+ "ui-kit",
 ]
 
 [[package]]

@@ -161,6 +161,10 @@ impl Runtime {
         };
         let scope = Scope::current(&project)?;
         self.load_scope(scope.clone());
+        if ui_kit::web::is_rendering() {
+            return Ok(View::new(Body::Html(include_str!("controls.html").into()))
+                .status("Read-only scoped controls · global autoRefresh permission plus explicit instance Start required · no fetch during render"));
+        }
         let text = format!("Current: {}\nLast control outcome: {}", self.polling.status(&scope), self.poll_status.as_deref().unwrap_or(""));
         Ok(View::new(Body::Form(vec![
             Field::new("control-project","Owning project",FieldValue::readonly_text(&scope.root,false)),
@@ -262,7 +266,7 @@ impl Runtime {
                 serde_json::json!({"error":"Controls request rejected or refresh failed; previous snapshot retained. Reopen controls after a project/settings change.","active":false})
             }
         };
-        host::post_view_message(VIEW, &serde_json::json!({"channel":"runtime-controls","frame":request.frame,"nonce":request.nonce,"sequence":request.sequence,"model":answer}).to_string())?;
+        crate::post_view_message(VIEW, &serde_json::json!({"channel":"runtime-controls","frame":request.frame,"nonce":request.nonce,"sequence":request.sequence,"model":answer}).to_string())?;
         Ok(())
     }
     pub(crate) fn view_poll(&mut self, ctx: &Invocation) {
@@ -342,6 +346,37 @@ mod tests {
     const FRAME: &str = "11111111111111111111111111111111";
     const NONCE: &str = "22222222222222222222222222222222";
     #[test]
+    fn grouped_controls_keep_private_protocol_and_retire_a_lease_on_tab_departure() {
+        let host = MockHost::install().with_capabilities(CAPS);
+        host.set_setting("autoRefresh", "true");
+        let mut runtime = Runtime::default();
+        crate::reveal_view(VIEW).unwrap();
+        let request = |runtime: &mut Runtime, target: &str, operation: Value| -> Value {
+            let mut operation = operation;
+            operation["channel"] = serde_json::json!("ui-kit");
+            operation["sequence"] = serde_json::json!(1);
+            operation["project"] = serde_json::json!("/project");
+            operation["targetView"] = serde_json::json!(target);
+            runtime.handle(crate::VIEW, ViewEvent::Message(operation.to_string()), &host.invocation()).unwrap();
+            serde_json::from_str(&host.view_messages().last().unwrap().1).unwrap()
+        };
+        let render = request(&mut runtime, VIEW, serde_json::json!({"op":"render"}));
+        assert!(render["model"]["body"]["html"].as_str().unwrap().contains("data-runtime-controls"));
+        let start = serde_json::json!({"channel":"runtime-controls","op":"start","frame":FRAME,"nonce":NONCE,"sequence":1,"root":"/project","url":DEFAULT_URL,"auth":"none"});
+        let started = request(&mut runtime, VIEW, serde_json::json!({"op":"opaque-message","message":start.to_string()}));
+        assert_eq!(started["handled"], true);
+        assert!(started.get("model").is_none(), "private response cannot remount its driver");
+        assert!(runtime.polling.lease.is_some());
+        let selected = request(&mut runtime, VIEW, serde_json::json!({"op":"select-view","target":crate::VIEW}));
+        assert_eq!(selected["model"]["activeView"], crate::VIEW);
+        assert!(runtime.polling.lease.is_none(), "tab navigation retires even a pending Start response's lease");
+        let stale = request(&mut runtime, VIEW, serde_json::json!({"op":"opaque-message","message":start.to_string()}));
+        assert!(stale.get("error").is_some());
+        assert!(runtime.polling.lease.is_none());
+        assert!(host.requests().is_empty());
+    }
+
+    #[test]
     fn private_start_stop_updates_mounted_runtime_status_without_fetch_or_hello_invalidation() {
         let host = MockHost::install().with_capabilities(CAPS);
         host.set_setting("autoRefresh", "true");
@@ -352,8 +387,13 @@ mod tests {
         assert!(runtime.poll_status.as_ref().unwrap().contains("Instance lease"));
         message(&mut runtime, &host, "stop", FRAME, NONCE, 3, Some("/project"));
         assert!(runtime.poll_status.as_ref().unwrap().contains("not armed"));
-        let refreshes: Vec<_> = host.view_messages().into_iter().filter(|(_, raw)| raw == r#"{"channel":"ui-kit-refresh"}"#).collect();
-        assert_eq!(refreshes.iter().map(|(view, _)| view.as_str()).collect::<Vec<_>>(), [crate::VIEW, graph::VIEW, crate::VIEW, graph::VIEW]);
+        let refreshes: Vec<_> = host.view_messages().into_iter().filter_map(|(view, raw)| {
+            let value: Value = serde_json::from_str(&raw).unwrap();
+            if value["channel"] != "ui-kit-refresh" { return None; }
+            assert_eq!(view, crate::VIEW);
+            value["targetView"].as_str().map(str::to_owned)
+        }).collect();
+        assert_eq!(refreshes.iter().map(String::as_str).collect::<Vec<_>>(), [crate::VIEW, graph::VIEW, "runtime-snapshot", crate::VIEW, graph::VIEW, "runtime-snapshot"]);
         assert!(host.requests().is_empty());
     }
     #[test]
@@ -378,8 +418,13 @@ mod tests {
         }
         message(&mut runtime, &host, "tick", FRAME, NONCE, 3, Some("/project"));
         assert_eq!(host.requests().len(), ENDPOINTS.len());
-        let refreshes: Vec<_> = host.view_messages().into_iter().filter(|(_, raw)| raw == r#"{"channel":"ui-kit-refresh"}"#).collect();
-        assert_eq!(refreshes.iter().map(|(view, _)| view.as_str()).collect::<Vec<_>>(), [crate::VIEW, graph::VIEW, crate::VIEW, graph::VIEW], "Start and successful private tick each invalidate both other packaged pages");
+        let refreshes: Vec<_> = host.view_messages().into_iter().filter_map(|(view, raw)| {
+            let value: Value = serde_json::from_str(&raw).unwrap();
+            if value["channel"] != "ui-kit-refresh" { return None; }
+            assert_eq!(view, crate::VIEW);
+            value["targetView"].as_str().map(str::to_owned)
+        }).collect();
+        assert_eq!(refreshes.iter().map(String::as_str).collect::<Vec<_>>(), [crate::VIEW, graph::VIEW, "runtime-snapshot", crate::VIEW, graph::VIEW, "runtime-snapshot"], "Start and successful private tick each invalidate the three snapshot tabs");
         runtime.polling.due_now();
         message(&mut runtime, &host, "tick", FRAME, NONCE, 3, Some("/project"));
         assert_eq!(host.requests().len(), ENDPOINTS.len());

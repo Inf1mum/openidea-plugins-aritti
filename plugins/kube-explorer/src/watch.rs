@@ -288,7 +288,7 @@ impl Watch {
         }
         if changed {
             self.rotate();
-            host::refresh_view(VIEW);
+            crate::ui_group::refresh_view(VIEW);
         }
     }
     pub(crate) fn closed_roots(&mut self) {
@@ -297,7 +297,7 @@ impl Watch {
         }
         let Ok(projects) = host::projects() else {
             self.clear();
-            host::refresh_view(VIEW);
+            crate::ui_group::refresh_view(VIEW);
             return;
         };
         let open = |root: &str| projects.iter().any(|p| p.root().ok().as_deref() == Some(root));
@@ -312,7 +312,7 @@ impl Watch {
         }
         if changed {
             self.rotate();
-            host::refresh_view(VIEW);
+            crate::ui_group::refresh_view(VIEW);
         }
     }
     pub(crate) fn prepare(
@@ -362,7 +362,7 @@ impl Watch {
             spec.args()
         );
         if !ui_kit::prompts::confirm_exact("Review managed resource watch?", &preview)? {
-            host::refresh_view(VIEW);
+            crate::ui_group::refresh_view(VIEW);
             return Ok(());
         }
         if forward::owner(Some(ctx))?.1 != spec.root
@@ -373,8 +373,8 @@ impl Watch {
         }
         self.pending = Some(Pending { spec, at: Instant::now() });
         self.rotate();
-        host::refresh_view(VIEW);
-        host::reveal_view(VIEW)
+        crate::ui_group::refresh_view(VIEW);
+        crate::ui_group::reveal_view(VIEW)
     }
     pub(crate) fn view(&mut self, ctx: &Invocation, context: &Option<String>, namespace: &Option<String>) -> Result<View, Error> {
         self.closed_roots();
@@ -571,7 +571,7 @@ impl Watch {
             Ok(())
         })();
         self.rotate();
-        host::refresh_view(VIEW);
+        crate::ui_group::refresh_view(VIEW);
         result
     }
 }

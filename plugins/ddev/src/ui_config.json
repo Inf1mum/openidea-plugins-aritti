@@ -1,0 +1,23 @@
+{
+  "title": "DDEV Integration",
+  "views": {
+    "setup": "DDEV Setup"
+  },
+  "actions": [],
+  "project_independent": false,
+  "project_bound_buttons": [],
+  "toolbar_icon_buttons": {
+    "setup": [
+      "diagnose",
+      "config",
+      "show-services",
+      "save-settings",
+      "reset-settings",
+      "open-guide",
+      "report-issue"
+    ]
+  },
+  "context_buttons": {
+    "setup": []
+  }
+}

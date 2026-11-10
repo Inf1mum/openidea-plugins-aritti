@@ -1,0 +1,13 @@
+{
+  "primary": "resource-details",
+  "tabs": [
+    {
+      "id": "resource-details",
+      "label": "Kubernetes"
+    },
+    {
+      "id": "resource-watch",
+      "label": "Watch"
+    }
+  ]
+}

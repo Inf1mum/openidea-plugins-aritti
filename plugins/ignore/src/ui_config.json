@@ -4,6 +4,17 @@
     "templates": "Ignore Templates"
   },
   "actions": [],
-  "project_independent": false,
-  "project_bound_buttons": []
+  "project_independent": true,
+  "project_bound_buttons": [
+    "new",
+    "delete",
+    "star"
+  ],
+  "context_buttons": {
+    "templates": [
+      "new",
+      "delete",
+      "star"
+    ]
+  }
 }

@@ -1030,7 +1030,7 @@ impl Navigator {
             Report::Empty => View::message("Run Check Spring Configuration or Dump Spring Configuration from the Tools menu."),
             Report::Dump(text) => {
                 let escaped = text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
-                View::new(Body::Html(format!("<pre style=\"font-family: monospace; white-space: pre-wrap\">{escaped}</pre>")))
+                View::new(Body::Html(format!("<pre class=\"ui-code\" style=\"font-family: var(--ui-mono); white-space: pre-wrap\">{escaped}</pre>")))
             }
             Report::Problems(files) if files.is_empty() => View::message(if self.report_incomplete {
                 "Partial source check: no findings in checked sources; unavailable/capped facts cannot prove absence."
@@ -1102,40 +1102,42 @@ fn scanning(index: &Index<FileModel>) -> String {
 
 impl Views for Navigator {
     fn render(&mut self, _view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
-        let Some(project) = ctx.project() else {
-            return Ok(View::message("Open a project to see its Spring beans."));
-        };
-        let root = match project.root() {
-            Ok(root) if !root.is_empty() => root,
-            _ => return Ok(View::message("Project identity is unavailable. Allow project.read to see this project's Spring beans.")),
-        };
-        let section = self.sections.active();
-        let mut shown = if section == REPORT_SECTION {
-            if self.report_root.as_deref() != Some(root.as_str()) {
-                View::message("No configuration report for this project; run Check or Dump Spring Configuration.")
-            } else {
-                self.report_view()
-            }
-        } else {
-            let Some(index) = self.indexes.cached(&project) else {
-                return Ok(self.sections.buttons(
-                    View::message("Source cache cold; Refresh to index this project.")
-                        .button(Button::new("refresh", "Refresh").icon("refresh")),
-                    &[],
-                ));
+        (|| -> Result<View, Error> {
+            let Some(project) = ctx.project() else {
+                return Ok(View::message("Open a project to see its Spring beans."));
             };
-            if section == GRAPH_SECTION {
-                Self::graph(index)
-            } else if ui_kit::web::is_rendering() {
-                resources::view(index)
+            let root = match project.root() {
+                Ok(root) if !root.is_empty() => root,
+                _ => return Ok(View::message("Project identity is unavailable. Allow project.read to see this project's Spring beans.")),
+            };
+            let section = self.sections.active();
+            let mut shown = if section == REPORT_SECTION {
+                if self.report_root.as_deref() != Some(root.as_str()) {
+                    View::message("No configuration report for this project; run Check or Dump Spring Configuration.")
+                } else {
+                    self.report_view()
+                }
             } else {
-                Self::tree(index)
+                let Some(index) = self.indexes.cached(&project) else {
+                    return Ok(self.sections.buttons(
+                        View::message("Source cache cold; Refresh to index this project.")
+                            .button(Button::new("refresh", "Refresh").icon("refresh")),
+                        &[],
+                    ));
+                };
+                if section == GRAPH_SECTION {
+                    Self::graph(index)
+                } else if ui_kit::web::is_rendering() {
+                    resources::view(index)
+                } else {
+                    Self::tree(index)
+                }
+            };
+            if let Body::Tree(items) = &mut shown.body {
+                self.expansion.apply(items);
             }
-        };
-        if let Body::Tree(items) = &mut shown.body {
-            self.expansion.apply(items);
-        }
-        Ok(self.sections.buttons(shown, &[]))
+            Ok(self.sections.buttons(shown, &[]))
+        })().map(ui_kit::actions::available)
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {

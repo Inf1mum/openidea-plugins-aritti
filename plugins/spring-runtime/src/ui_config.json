@@ -1,8 +1,10 @@
 {
   "title": "Spring Runtime Insight",
   "views": {
-    "runtime": "Spring Runtime",
-    "runtime-graph": "Runtime Bean Dependencies"
+    "runtime": "Overview",
+    "runtime-snapshot": "Observations",
+    "runtime-graph": "Bean Graph",
+    "runtime-controls": "Refresh Controls"
   },
   "actions": [],
   "project_independent": false,
@@ -14,5 +16,35 @@
     "runtime-controls",
     "poll-start",
     "poll-stop"
-  ]
+  ],
+  "group": {
+    "primary": "runtime",
+    "tabs": [
+      {
+        "id": "runtime",
+        "label": "Overview"
+      },
+      {
+        "id": "runtime-snapshot",
+        "label": "Observations"
+      },
+      {
+        "id": "runtime-graph",
+        "label": "Bean Graph"
+      },
+      {
+        "id": "runtime-controls",
+        "label": "Refresh Controls"
+      }
+    ]
+  },
+  "opaque_views": [
+    "runtime-controls"
+  ],
+  "context_buttons": {
+    "runtime": [],
+    "runtime-snapshot": [],
+    "runtime-graph": [],
+    "runtime-controls": []
+  }
 }

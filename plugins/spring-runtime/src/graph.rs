@@ -273,13 +273,13 @@ impl Runtime {
         self.graph_record(key, ctx)?;
         self.graph.comparison = Some((key.into(), comparison));
         self.graph.selected = Some(key.into());
-        host::refresh_view(VIEW);
+        crate::refresh_view(VIEW);
         Ok(())
     }
     pub(crate) fn graph_back(&mut self) {
         self.graph.selected = None;
         self.graph.comparison = None;
-        host::refresh_view(VIEW);
+        crate::refresh_view(VIEW);
     }
     pub(crate) fn render_graph(&mut self, ctx: &Invocation) -> Result<View, Error> {
         let Some(project) = ctx.project() else {
@@ -354,7 +354,7 @@ impl Runtime {
                     Field::new("graph-source-comparison", "Source comparison at explicit selection", FieldValue::readonly_text(
                         self.graph.comparison.as_ref().filter(|(owner, _)| owner == &key).map_or("UNKNOWN: no explicit source comparison retained.", |(_, result)| result.as_str()), true)),
                 ]))
-                .button(Button::new("graph-back", "Back to Graph"))
+                .button(Button::new("graph-back", "Back to Graph").icon("arrow-left"))
                 .status(
                     "Read-only cached observation · source/project/build correspondence unverified · current runtime state may differ",
                 ));
@@ -391,7 +391,7 @@ impl Runtime {
             if snapshot.trimmed { " · legacy partial snapshot" } else { "" }
         );
         Ok(View::new(Body::Html(diagram::html(&result.nodes, &result.edges, "No unique valid bean identities in this cached snapshot.")))
-            .button(Button::new("graph-observations", "Inspect Snapshot List"))
+            .button(Button::new("graph-observations", "Inspect Snapshot List").icon("list"))
             .status(&status))
     }
 }

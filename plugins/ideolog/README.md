@@ -1,5 +1,9 @@
 # Ideolog
 
+One shared UI-kit window contains the Ideolog, Log Snapshot tabs. Commands select their corresponding custom tab; existing actions, drafts and ownership checks remain in their original handlers. See [tab migration and parity validation](../../docs/custom-plugin-groups-2026-11-10.md).
+
+One UI-kit tool window contains Patterns and Log Snapshot. Pattern forms keep their draft/save/conflict controls. The optional captured snapshot exposes Previous/Next Events in 100-row pages with exact source-line activation, off-page rejection and retained position across tab switches. Capturing remains explicit; changing tabs never reads or tails the log.
+
 OpenIDEA port of JetBrains' [Ideolog](https://github.com/JetBrains/ideolog) (MIT), from tag
 `pycharm/263.7307.101` (`41beb53`), the version on the JetBrains Marketplace.
 
@@ -31,20 +35,19 @@ Settings › Plugins › Ideolog › _Custom log formats and highlighting_: past
 or a file from Ideolog's [custom log formats](https://github.com/JetBrains/ideolog/wiki/Custom-Log-Formats)
 (Laravel, Symfony, Serilog, Xdebug…). Patterns use Java-like regular expressions, lookaround
 included. Highlighting colours map to the nearest theme colour; `HIDE` patterns are ignored.
-**Ideolog: Custom Formats and Highlighting** opens the Patterns view: a table of the patterns you
-added. Add Format and Edit open a structured settings form with name, Enabled, event regex,
-event-start regex and 0-based timestamp/level/category columns (`-1`: none). Add Highlighting
+**Ideolog: Custom Formats and Highlighting** opens the native Patterns view: a table of the patterns you
+added, with Log Formats / Highlighting section controls. Select a row before Edit, Enable / Disable, Move Up / Down or Remove; double-click opens Edit. Add Format and Edit open a structured settings form with name, Enabled, event regex,
+event-start regex, a bounded numeric timestamp format (empty: automatic) and 0-based timestamp/level/category columns (`-1`: none). Add Highlighting
 opens a form with line/field/captured-match action, optional column/format restriction and named
-colour choices. Pattern UUID is selectable for copying into a highlighting restriction. Move Up
-and Remove keep their existing ordering workflow.
+colour choices. Native text fields commit on blur or Enter; press Tab before Preview/Save after editing. Highlighting format restrictions use a named format selector with Any log format; unknown imported restrictions remain labelled unavailable. The table shows enabled state and explicit native Enable / Disable acts on the selected row. Controls revalidate the rendered storage/layout before mutation.
 
 A sample event and **Preview** show the timestamp, level, category and message captures, or the
 pieces coloured by the draft's highlighting rule. The preview tests the rule even when its Enabled
 checkbox is off. Sample text stays in the draft and is never written to pattern storage. **Save**
 validates regex syntax, capture-column bounds, actions and colour values; invalid input stays open
 with an explanation. **Cancel** discards the draft. Editing preserves the UUID and other exported
-attributes, including `timePattern` and `fullmatch`; the raw-capture preview does not implement
-Java `SimpleDateFormat` or change the parser's existing date handling. A changed storage snapshot
+attributes, including `timePattern` and `fullmatch`; the timestamp preview implements a documented numeric subset rather than
+full Java `SimpleDateFormat`. The selected supported format also drives actual timestamp-gap calculation. A changed storage snapshot
 blocks Save so another window's intervening edit is preserved. The SDK has no storage compare-and-swap,
 so this check cannot make concurrent writes atomic across plugin instances.
 
@@ -88,7 +91,7 @@ No OpenIDEA API for these yet:
 - Hiding, whitelisting or highlighting values and columns, hiding lines above/below or containing
   a substring: the editor has no API to fold, hide or re-colour on demand.
 - Extend selection: plugins can't set the selection.
-- Error stripe heat map: no editor decoration API.
+- Error stripe heat map: API1.4 source decorations do not expose the original scrollbar heatmap contract.
 - Large file editor, terminal and TextMate integrations.
 
 Stack frame links, syntax, views and semantic tokens come from one component registered with
@@ -156,7 +159,7 @@ Native follow-up (dated desktop30): the isolated pinned host captured120/121 own
 ## External global Patterns refresh
 
 Successful Highlight Selection and Remove Highlightings now notify only the
-packaged Patterns view with model-free `ui-kit-refresh` when persistent pattern
+Patterns view through native refresh when persistent pattern
 text actually changes. Native refresh is retained; cancelled/error/no-op commands
 emit no false change. The page obtains its own correlated model, and stable
 render/preview paths emit no invalidation loop. Native Log Snapshot/capture views
@@ -201,3 +204,19 @@ Time-gap parsing normalizes supported ISO `Z`, `±HH:MM` and `±HHMM` offsets, s
 Severity navigation and outlines keep numeric custom-level identifiers intact: `error2` is unclassified rather than silently normalized to `ERROR`. Existing recognized aliases and punctuation-wrapper handling remain; raw custom levels stay visible in the snapshot.
 
 API 1.4 adds optional **Ideolog: Mark Current Log Source** and **Clear Log Source Marks** commands. Mark paints a bounded snapshot of the focused built-in Log file using native error/warning/time-gap theme decorations. The log must belong to an open project and `editor.read`/`project.read`/`events` must be granted. It examines at most the first complete 64 KiB/512 lines (4096-byte line limit) and 4096 spans. Marks are cleared by the next semantic request (including edits), observed events, explicit Clear or plugin shutdown; run Mark again to refresh. The existing semantic provider remains active. These snapshot hints do not fix the semantic renderer, filter or redact log text, or provide arbitrary custom colors. Native theme/lifecycle visual acceptance remains pending.
+
+
+### Native pattern UI and original comparison
+
+The Patterns panel now uses the IDE's native table and form renderer, without a packaged web view. It preserves separate parsing/highlighting forms, regex validation, enabled state, named colour/action choices, sample preview and explicit Save/Cancel. Draft-bound controls and storage snapshots reject stale edits. Native fields commit on blur or Enter.
+
+Compared with JetBrains' public `LogParsingPatternSettingsDialog` and `LogHighlightingPatternSettingsDialog` in [Ideolog](https://github.com/JetBrains/ideolog/tree/master/src/main/kotlin/com/intellij/ideolog/highlighting/settings): existing capture/regex controls map to native fields rather than copying Swing layouts. Full Java `SimpleDateFormat` support, regex-aware editor widgets, full colour picking and screenshot parity are not claimed; the original Marketplace listing has no gallery in the retained audit. No filtering/tailing or semantic-renderer fix is implied. Native desktop keyboard/light/dark/dock-size acceptance remains pending.
+
+
+### Further original-dialog parity recheck
+
+The native Patterns table now exposes recognizable Log Formats and Highlighting sections, selected-row editing/removal/reordering, an explicit enabled toggle and named log-format restrictions. Format UUIDs remain internal identities; duplicate display names are disambiguated. The regex widgets remain native text fields, not IntelliJ regex editors.
+
+Timestamp formats support fixed numeric `yyyy`, `MM`, `dd`, `HH`, `mm`, `ss`, `SSS`, quoted literals and `Z`/`X`/`XX`/`XXX` offsets. A pattern requires hour/minute/second fields; absent/empty preserves automatic parsing. Preview confirms whether the sample timestamp matches the selected format; the same parser is used for actual gap computation. Unsupported tokens such as locale month/day names are rejected for new edits; imported unsupported formats remain readable but produce configuration errors and no computed gap. This is not full Java SimpleDateFormat support.
+
+Background/bold/italic/stripe widgets and arbitrary color semantics remain missing. Original MIT Ideolog parsing/highlighting dialog fields were rechecked against retained Marketplace263.7307.101 decompilation; supplementary public source is commit aa342f00d580c074c27ad32e67b46c7670df9b02. Native UI adaptation does not establish full visual or behavior parity.

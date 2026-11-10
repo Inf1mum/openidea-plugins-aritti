@@ -1,12 +1,32 @@
 {
   "title": "Liquibase Changelogs",
   "views": {
-    "changesets": "Liquibase Changesets"
+    "changesets": "Liquibase",
+    "offline-diff": "Offline Diff"
   },
   "actions": [],
   "project_independent": false,
   "project_bound_buttons": [
     "choose-sources",
     "clear-sources"
-  ]
+  ],
+  "group": {
+    "primary": "changesets",
+    "tabs": [
+      {
+        "id": "changesets",
+        "label": "Liquibase"
+      },
+      {
+        "id": "offline-diff",
+        "label": "Offline Diff"
+      }
+    ]
+  },
+  "context_buttons": {
+    "changesets": [
+      "browser-open"
+    ],
+    "offline-diff": []
+  }
 }

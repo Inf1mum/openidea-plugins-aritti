@@ -224,18 +224,30 @@ impl Flyway {
         });
         Ok(())
     }
+    pub(crate) fn begin_generation_from(&mut self, project: &Project, source: Option<&str>) -> Result<(), Error> {
+        self.begin_generation(project)?;
+        if let Some(source) = source {
+            let d = self.generation.as_mut().ok_or(Error::Stale)?;
+            if !supported_location(&d.root, source, &d.locations) || project.read_file(source).is_err() { self.generation = None; return Err(Error::Stale); }
+            let directory = source.rsplit_once('/').map(|(parent,_)|parent).ok_or(Error::Stale)?;
+            d.directory = relative(&d.root, directory)?;
+        }
+        refresh_migrations();
+        Ok(())
+    }
     pub(crate) fn generation_view(&self, project: &Project) -> Result<Option<View>, Error> {
         let Some(d) = self.generation.as_ref().filter(|d| project.root().ok().as_deref() == Some(d.root.as_str())) else { return Ok(None) };
         let preview = candidate(d).unwrap_or_else(|e| format!("Preview unavailable: {e}"));
+        let sql_preview = sql();
         Ok(Some(View::new(Body::Form(vec![
-            Field::new("generation-directory","Migration directory (inside configured locations)",FieldValue::Text(d.directory.clone())),
+            Field::new("generation-directory","Directory",FieldValue::Text(d.directory.clone())),
             Field::new("generation-category","Category",FieldValue::Choice(CATEGORIES.iter().map(|s|s.to_string()).collect(),d.category.clone())),
-            Field::new("generation-version","Version (unused for Repeatable)",FieldValue::Text(d.version.clone())),
+            Field::new("generation-version","Version",FieldValue::Text(d.version.clone())),
             Field::new("generation-description","Description",FieldValue::Text(d.description.clone())),
-            Field::new("generation-suffix","Configured suffix",FieldValue::Choice(d.naming.suffixes.clone(),d.suffix.clone())),
-            Field::new("generation-preview","File name / target preview",FieldValue::readonly_text(&preview,true)),
-            Field::new("generation-content","Bundled SQL template (JSON)",FieldValue::readonly_text(&serde_json::to_string(&sql()).unwrap_or_default(),false)),
-        ])).button(Button::new("prepare-generation","Prepare editor action")).button(Button::new("close-generation","Back to migrations"))
+            Field::new("generation-suffix","File extension",FieldValue::Choice(d.naming.suffixes.clone(),d.suffix.clone())),
+            Field::new("generation-preview","Target file",FieldValue::readonly_text(&preview,true)),
+            Field::new("generation-content","SQL preview",FieldValue::readonly_text(if sql_preview.trim().is_empty() {"No SQL statements (empty migration)"} else {&sql_preview},true)),
+        ])).button(Button::new("prepare-generation","Prepare…").icon("plus")).button(Button::new("close-generation","Cancel").icon("close"))
             .status(if d.ready {"Prepared. In a project SQL/config editor, choose Create Flyway migration from prepared form… from code actions. Confirmation comes before the atomic create."} else {"Naming preview only. Prepare it, then apply through the editor code action; no file has been written."})))
     }
     pub(crate) fn generation_event(&mut self, event: &ViewEvent, ctx: &Invocation) -> Result<bool, Error> {
@@ -273,7 +285,7 @@ impl Flyway {
             }
             _ => {}
         }
-        host::refresh_view("migrations");
+        ui_kit::web::refresh_view("migrations", include_str!("ui_config.json"));
         Ok(true)
     }
 }
@@ -411,7 +423,7 @@ mod tests {
     use openidea_plugin::mock::MockHost;
     const DIR: &str = "/project/src/main/resources/db/migration";
     fn setup() -> (MockHost, Flyway, Document) {
-        let host = MockHost::install().with_capabilities(&["project.read"]);
+        let host = MockHost::install().with_capabilities(&["project.read", "storage"]);
         host.add_file("src/main/resources/db/migration/V1__init.sql", "-- existing\n");
         host.open_editor(&format!("{DIR}/V1__init.sql"), "sql", "-- existing\n", &[]);
         (
@@ -467,7 +479,7 @@ mod tests {
         }
         let (host, mut plugin, doc) = setup();
         let action = action(&mut plugin, &doc, CREATE);
-        let host = host.with_capabilities(&[]);
+        let host = host.with_capabilities(&["storage"]);
         assert!(plugin.resolve_file_action(&doc, action).is_err());
         assert!(plugin.file_actions(&doc, Range::default()).is_empty());
         assert!(host.process_runs().is_empty());

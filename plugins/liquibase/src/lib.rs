@@ -7,6 +7,7 @@ mod execution_review;
 mod catalog;
 mod changelog;
 mod native_runs;
+mod native_browser;
 mod checks;
 mod complete;
 mod file_actions;
@@ -36,14 +37,15 @@ use std::time::{Duration, Instant};
 const MAX_FILES: usize = 2000;
 const DISCOVERY_BUDGET: Duration = Duration::from_secs(3);
 
-/// Only the packaged browser, never native CLI/output views.
+/// Refresh the native browser without touching CLI/output views.
 fn refresh_browser() {
-    host::refresh_view("changesets");
-    let _ = host::post_view_message("changesets", r#"{"channel":"ui-kit-refresh"}"#);
+    ui_kit::web::refresh_view("changesets", include_str!("ui_config.json"));
 }
 
 #[derive(Default)]
 pub struct Liquibase {
+    browser_filter: Option<(String, String)>,
+    browser_selection: Option<native_browser::Selection>,
     expansion: Expansion,
     offline: offline_diff::State,
     live: live::State,
@@ -86,7 +88,7 @@ impl Plugin for Liquibase {
 
     fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
         match id {
-            "offline-diff"=>{host::reveal_view(offline_diff::VIEW)?;Ok(None)},
+            "offline-diff"=>{ui_kit::web::reveal_view(offline_diff::VIEW, include_str!("ui_config.json"))?;Ok(None)},
             "offline-diff-run"=>{self.start_offline_diff(ctx)?;Ok(None)},
             "choose-sources" => self.choose_sources(ctx),
             "clear-sources" => self.clear_sources(ctx),
@@ -506,7 +508,7 @@ impl<'a> Walk<'a> {
             return;
         }
         if self.visited.contains(path) {
-            self.items.push(item.detail("already run"));
+            self.items.push(item.detail("already shown"));
             return;
         }
         self.items.push(item);
@@ -726,81 +728,85 @@ impl Liquibase {
 
 impl Views for Liquibase {
     fn render(&mut self, _view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
-        if _view==offline_diff::VIEW{return self.render_offline_diff(_viewport,ctx);}
-        self.targets.clear();
-        self.targets_root = None;
-        let refresh = Button::new("refresh", "Refresh").icon("refresh");
-        let choose = || Button::new("choose-sources", "Choose browser sources…");
-        let clear = || Button::new("clear-sources", "Browse all project changelogs");
-        let Some(project) = ctx.project() else {
-            return Ok(View::message("Open a project to see its Liquibase changesets."));
-        };
-        let Ok(root) = selection::project_root(&project) else {
-            return Ok(View::message("Project identity is unavailable. Open the owning project and allow project.read to browse its Liquibase changesets."));
-        };
-        let (selected, source_status) = match self.selection_state(&project) {
-            selection::State::All => (None, None),
-            selection::State::Selected { path, summary } => (Some(path), Some(summary)),
-            selection::State::Unavailable(message) => (None, Some(message)),
-            selection::State::Invalid(message) => return Ok(View::message(&message).button(choose()).button(clear())),
-        };
-        let mut walk = Walk::new(&project, &root, self.max_files.unwrap_or(MAX_FILES));
-        if let Some(selected) = &selected {
-            if walk.load(selected).is_none() {
-                return Ok(View::message("The selected changelog changed or became unavailable. Reselect the browser source.")
-                    .button(choose())
-                    .button(clear()));
+        (|| -> Result<View, Error> {
+            if _view==offline_diff::VIEW{return self.render_offline_diff(_viewport,ctx);}
+            self.targets.clear();
+            self.targets_root = None;
+            let refresh = Button::new("refresh", "Refresh").icon("refresh");
+            let choose = || Button::new("choose-sources", "Sources…").icon("folder");
+            let clear = || Button::new("clear-sources", "All Sources").icon("folder");
+            let Some(project) = ctx.project() else {
+                return Ok(View::message("Open a project to see its Liquibase changesets."));
+            };
+            let Ok(root) = selection::project_root(&project) else {
+                return Ok(View::message("Project identity is unavailable. Open the owning project and allow project.read to browse its Liquibase changesets."));
+            };
+            let (selected, source_status) = match self.selection_state(&project) {
+                selection::State::All => (None, None),
+                selection::State::Selected { path, summary } => (Some(path), Some(summary)),
+                selection::State::Unavailable(message) => (None, Some(message)),
+                selection::State::Invalid(message) => return Ok(View::message(&message).button(choose()).button(clear())),
+            };
+            let mut walk = Walk::new(&project, &root, self.max_files.unwrap_or(MAX_FILES));
+            if let Some(selected) = &selected {
+                if walk.load(selected).is_none() {
+                    return Ok(View::message("The selected changelog changed or became unavailable. Reselect the browser source.")
+                        .button(choose())
+                        .button(clear()));
+                }
             }
-        }
-        if selected.is_none() {
-            walk.discover();
-        }
-        if walk.found.is_empty() {
-            return Ok(View::message(if walk.partial {
-                "No Liquibase changelogs are available in this partial source discovery."
+            if selected.is_none() {
+                walk.discover();
+            }
+            if walk.found.is_empty() {
+                return Ok(View::message(if walk.partial {
+                    "No Liquibase changelogs are available in this partial source discovery."
+                } else {
+                    "No Liquibase changelogs found in this project."
+                })
+                .button(refresh)
+                .button(choose()));
+            }
+            if let Some(selected) = &selected {
+                walk.file(selected, None, &mut Vec::new());
             } else {
-                "No Liquibase changelogs found in this project."
-            })
-            .button(refresh)
-            .button(choose()));
-        }
-        if let Some(selected) = &selected {
-            walk.file(selected, None, &mut Vec::new());
-        } else {
-            walk.walk_all();
-        }
-
-        let warm_started = Instant::now();
-        let mut warm_bytes = 0usize;
-        for (path, fact) in walk.found.iter().take(128) {
-            warm_bytes = warm_bytes.saturating_add(fact.0.len());
-            if warm_bytes > 4 * 1024 * 1024 || warm_started.elapsed() > Duration::from_millis(30) {
-                break;
+                walk.walk_all();
             }
-            self.live.update(&root, path, &fact.0);
-        }
-        let partial = walk.partial;
-        let mut items = std::mem::take(&mut walk.items);
-        for item in items.iter_mut() {
-            item.expanded = true;
-        }
-        self.expansion.apply(&mut items);
-        self.targets = std::mem::take(&mut walk.targets);
-        self.targets_root = selection::project_root(&project).ok();
-        let sets = self.targets.keys().filter(|key| key.contains("/c")).count();
-        let mut status = format!("{sets} changesets");
-        if partial {
-            status = format!("{status}; partial: showing the first {} changelogs (time budget)", walk.found.len());
-        }
-        if let Some(source) = source_status {
-            status = format!("{status}; {source}");
-        }
-        Ok(View::new(Body::Tree(items)).button(refresh).button(choose()).button(clear()).status(&status))
+
+            let warm_started = Instant::now();
+            let mut warm_bytes = 0usize;
+            for (path, fact) in walk.found.iter().take(128) {
+                warm_bytes = warm_bytes.saturating_add(fact.0.len());
+                if warm_bytes > 4 * 1024 * 1024 || warm_started.elapsed() > Duration::from_millis(30) {
+                    break;
+                }
+                self.live.update(&root, path, &fact.0);
+            }
+            let partial = walk.partial;
+            let mut items = std::mem::take(&mut walk.items);
+            for item in items.iter_mut() {
+                item.expanded = true;
+            }
+            self.expansion.apply(&mut items);
+            self.targets = std::mem::take(&mut walk.targets);
+            self.targets_root = selection::project_root(&project).ok();
+            let sets = self.targets.keys().filter(|key| key.contains("/c")).count();
+            let mut status = format!("{sets} changesets");
+            if partial {
+                status = format!("{status}; partial: showing the first {} changelogs (time budget)", walk.found.len());
+            }
+            if let Some(source) = source_status {
+                status = format!("{status}; {source}");
+            }
+            let shown = View::new(Body::Tree(items)).button(refresh).button(choose()).status(&status);
+            Ok(self.native_browser_view(&project, shown))
+        })().map(ui_kit::actions::available)
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, _ctx: &Invocation) -> Result<(), Error> {
+        if ui_kit::web::handle(self, view, &event, _ctx, include_str!("ui_config.json"))? { return Ok(()); }
         if view==offline_diff::VIEW{return self.handle_offline_diff(event,_ctx);}
-        if ui_kit::web::handle(self, view, &event, _ctx, include_str!("ui_config.json"))? {
+        if view == "changesets" && self.native_browser_event(&event, _ctx)? {
             return Ok(());
         }
 
@@ -1051,7 +1057,7 @@ mod tests {
     }
 
     #[test]
-    fn a_changelog_reached_twice_is_already_run() {
+    fn a_changelog_reached_twice_is_already_shown() {
         let host = MockHost::install();
         let inc = |f: &str| format!("<include file=\"{f}\" relativeToChangelogFile=\"true\"/>");
         host.add_file("db/m.xml", &format!("<databaseChangeLog>{}{}</databaseChangeLog>", inc("a.xml"), inc("b.xml")));
@@ -1067,7 +1073,7 @@ mod tests {
                 ("db/c.xml".to_owned(), None),
                 ("1 (x)".to_owned(), None),
                 ("db/b.xml".to_owned(), None),
-                ("db/c.xml".to_owned(), Some("already run".to_owned())),
+                ("db/c.xml".to_owned(), Some("already shown".to_owned())),
             ]
         );
     }
@@ -1641,5 +1647,33 @@ mod tests {
             assert!(markers[0].target.as_ref().is_some_and(|t| t.path.starts_with("/project/db/a.")), "{path}");
         }
         assert!(Liquibase::default().checked_markers(&doc("/project/db/a.sql", "--liquibase formatted sql\n")).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod custom_group_tests {
+    use super::*;
+    use openidea_plugin::mock::MockHost;
+    use serde_json::{json,Value};
+    fn request(plugin: &mut Liquibase, host: &MockHost, mut value: Value) -> Value {
+        value["channel"]=json!("ui-kit");value["sequence"]=json!(1);value["project"]=json!("/project");
+        plugin.handle("changesets",ViewEvent::Message(value.to_string()),&host.invocation()).unwrap();
+        serde_json::from_str(&host.view_messages().last().unwrap().1).unwrap()
+    }
+    #[test]
+    fn one_custom_container_routes_tabs_and_rejects_hidden_tab_mutations_without_cli() {
+        let host=MockHost::install().with_capabilities(&["storage","project.read"]);
+        let mut plugin=Liquibase::default();
+        let first=request(&mut plugin,&host,json!({"op":"render"}));
+        assert_eq!(first["model"]["activeView"],"changesets");
+        assert_eq!(first["model"]["viewTabs"].as_array().unwrap().len(),2);
+        let second=request(&mut plugin,&host,json!({"op":"select-view","targetView":"changesets","target":"offline-diff"}));
+        assert_eq!(second["model"]["activeView"],"offline-diff");
+        let stale=request(&mut plugin,&host,json!({"op":"event","targetView":"changesets","event":{"kind":"button","key":"choose-sources"}}));
+        assert!(stale.get("error").is_some());
+        let active=request(&mut plugin,&host,json!({"op":"render"}));
+        assert_eq!(active["model"]["activeView"],"offline-diff");
+        assert!(host.process_runs().is_empty()&&host.terminals().is_empty()&&host.requests().is_empty());
+        assert!(host.view_messages().iter().all(|(view,_)|view=="changesets"));
     }
 }

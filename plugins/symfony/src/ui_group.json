@@ -1,0 +1,17 @@
+{
+  "primary": "symfony",
+  "tabs": [
+    {
+      "id": "symfony",
+      "label": "Symfony"
+    },
+    {
+      "id": "symfony-profiler",
+      "label": "Profiler"
+    },
+    {
+      "id": "twig-paths",
+      "label": "Twig Namespace Paths"
+    }
+  ]
+}

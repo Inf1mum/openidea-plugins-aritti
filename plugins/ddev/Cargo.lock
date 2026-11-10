@@ -564,6 +564,7 @@ dependencies = [
  "serde_json",
  "shell-words",
  "toml_edit",
+ "ui-kit",
  "url",
  "yaml-rust2",
 ]
@@ -900,6 +901,15 @@ name = "toml_writer"
 version = "1.2.0+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "009dbb7700f11c55ef83aebbe4c0e9cf1f1ac0844bd8d6f00dc38f302026e13a"
+
+[[package]]
+name = "ui-kit"
+version = "0.1.0"
+dependencies = [
+ "openidea-plugin",
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "unicode-general-category"

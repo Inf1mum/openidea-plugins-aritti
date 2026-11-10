@@ -1,15 +1,14 @@
 <!doctype html>
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Project resources</title><link rel="stylesheet" href="./hub.css"></head>
-<body>
-<header><div><span id="plugin"></span><h1 id="title">Project resources</h1></div><button id="reload" type="button" class="ui-button"><span data-ui-icon="update"></span>Refresh</button></header>
-<div id="notice" role="status" aria-live="polite"></div>
+<body class="ui-embedded-panel">
+
 <progress id="request-progress" class="ui-progress request-progress" aria-label="Loading resources" hidden></progress>
-<div class="shell"><nav id="sections" aria-label="Sections" hidden></nav><main>
-<div id="toolbar" class="toolbar" aria-label="Actions"></div>
-<div id="filters" class="filters"><label class="search">Search<input id="search" class="ui-input" type="search" placeholder="Filter resources…"></label><div id="facets"></div><button id="clear" type="button" class="ui-button ui-button--quiet">Clear filters</button></div>
-<div class="workspace"><section id="content" aria-label="Resources" tabindex="-1"></section><aside id="details" aria-label="Selected resource" hidden></aside></div>
+<div class="shell"><nav id="view-tabs" class="ui-tabs" role="tablist" aria-label="Plugin views" hidden></nav><nav id="sections" class="ui-tabs" aria-label="Sections" hidden></nav><main>
+<div id="toolbar" class="toolbar ui-toolbar" role="toolbar" aria-label="Actions"></div>
+<div id="filters" class="filters"><label class="search"><span class="ui-visually-hidden">Search</span><span class="search-icon" data-ui-icon="search" aria-hidden="true"></span><input id="search" class="ui-input" type="search" placeholder="Search…"></label><div id="facets"></div><button id="clear" type="button" hidden class="ui-button ui-icon-button" title="Clear filters"><span data-ui-icon="close"></span><span class="ui-visually-hidden">Clear filters</span></button></div>
+<div class="workspace"><section id="content" class="ui-scroll-area" aria-label="Resources" tabindex="-1"></section><dialog id="details" class="ui-dialog" aria-label="Resource details"></dialog></div>
 <footer id="status" role="status"></footer>
 </main></div>
-<script src="./icons.js"></script><script src="./widgets.js"></script><script src="./controls.js"></script><script src="./legacy.js"></script><script src="./hub.js"></script>
+<script src="./native-icons.js"></script><script src="./icons.js"></script><script src="./widgets.js"></script><script src="./controls.js"></script><script src="./legacy.js"></script><script src="./hub.js"></script>
 </body></html>

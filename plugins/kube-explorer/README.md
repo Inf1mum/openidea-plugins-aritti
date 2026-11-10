@@ -1,5 +1,7 @@
 # Kube Explorer
 
+One shared UI-kit window contains the Kubernetes, Watch tabs. Commands select their corresponding custom tab; existing actions, drafts and ownership checks remain in their original handlers. The native Kubernetes Services tree stays separate. See [tab migration and parity validation](../../docs/custom-plugin-groups-2026-11-10.md).
+
 Browse a Kubernetes cluster from OpenIDEA through `kubectl`.
 
 - **Kube Explorer** tool window (Services): double-click a context or namespace
@@ -9,7 +11,8 @@ Browse a Kubernetes cluster from OpenIDEA through `kubectl`.
   Shell, Attach, Debug (a pod: `kubectl debug -it` adds an ephemeral container on
   the image of the `debugImage` setting, `busybox:stable` by default, targeting the
   pod's first container), Port Forward (edit the `local:remote` ports, then Start) and
-  Delete (click twice to confirm). Output replaces the tree until you click Back.
+  Delete (confirmation required). Editing and terminal workflows open the existing
+  Kubernetes panel or terminal; native read-only details stay beside the Services tree.
   **Custom Resources** lists the cluster's CRD kinds (`kubectl api-resources`,
   without core and built-in groups) by API group; expanding a kind lists its
   instances, which take Describe, YAML and Delete like any resource.
@@ -407,8 +410,8 @@ path remains unverified; no complete original Rename or screenshot parity is cla
 The native Services tree now has one stable `kube:cluster` parent labelled
 **Kubernetes — selected context**, with the selected namespace in its detail.
 Context/namespace selectors, built-in kinds and Custom Resources sit below that
-parent. Existing selector, kind, CRD and resource keys remain unchanged, including
-all-namespace rows and native detail targets. Root expand/collapse only changes
+parent. Native presentation keys wrap the original scoped selector, kind, CRD and
+resource identities; all-namespace rows retain their exact namespace targets. Root expand/collapse only changes
 presentation; it does not discover resources, alter selection/scope, retire a
 managed session or issue kubectl calls. Existing child loading/Refresh behavior
 and the initial uncached current-context lookup remain unchanged. Permission
@@ -420,6 +423,35 @@ its bundled Services screenshot showing a context/namespace parent. It is a
 selected-context grouping subset, not the original multi-cluster connection tree,
 Workloads/Network category hierarchy, live connection state or visual desktop
 acceptance. No additional cluster request is made to invent a cluster name.
+
+## Native Services details and actions
+
+Selecting a resource offers native **Resource**, **Describe**, **YAML** and
+**Events** tabs where supported. Describe/YAML/Events run only when opened and use
+bounded request timeouts. Events target the exact built-in kind/name and row
+namespace; unknown custom kinds do not guess an event kind. Secrets omit the
+native YAML tab; explicit Show/Edit/YAML actions retain their existing reveal gate.
+
+Pods and supported workloads also offer streaming **Logs**, with Timestamps;
+pods add All Containers and Previous Container. Workloads aggregate their pods and
+containers with source prefixes and a bounded concurrent stream count. The native
+host cancels the active stream when its pane is hidden or its target changes.
+
+Right-click menus follow the row kind: common Describe/Edit YAML/Delete, pod
+Shell/Attach/Debug, workload logs, supported port forwarding and Secret actions.
+Logs and Container actions use native submenus; Open Shell, Port Forward and
+Secret actions stay directly accessible. Delete stays last. Inactive context
+and namespace choices offer Switch; groups offer Expand/Collapse and Refresh.
+The root exposes Watch and Kubeconfig submenus, and offline browsing still offers
+private kubeconfig import/review. Watch preparation requires an invoking project
+and a single namespace. Existing confirmation, permission and ownership checks
+remain in the original workflows.
+
+Native toolbar resource callbacks retain the exact scoped row identity across the
+host's reselect-before-button sequence. Changed-row, foreign-view and stale-scope
+callbacks refuse; mutable form callbacks continue to rotate independently.
+
+See [Services validation and feature scope](../../docs/kubernetes-services-2026-11-10.md).
 
 ## Rich log snapshot ownership
 
@@ -826,3 +858,12 @@ Providers never run kubectl. Suggestions show capture age/scope and unresolved
 deployment target; same-path configuration/auth changes require refresh or expiry.
 No runtime identity, authoritative inventory, graph edges or automatic Rename is
 created by this completion feature. Native acceptance remains separately dated.
+
+The resource panel’s context menu follows the clicked row: contexts and namespaces offer Switch when inactive; groups offer Expand/Collapse and Refresh; Secrets also offers Create Secret in a single namespace. Resource menus expose Describe/Edit YAML/Delete plus pod, workload, Secret and port-forward actions only for supported kinds. Menu actions use the current scoped row key, and command validation rejects stale keys and mismatched kinds. Delete retains its confirmation.
+
+The top Services toolbar shows applicable Describe, Edit YAML, Follow Logs, Open
+Shell, Secret actions, Port Forward and Delete as native icon buttons with
+tooltips. Secondary pod/log actions use the trailing More Resource Actions picker.
+Resource callbacks use fixed-size action/scope proofs within the host's 64-byte
+button-ID bound, including long resource names; host reselect does not invalidate
+them, while changed targets/scopes and altered actions refuse.

@@ -78,8 +78,7 @@ impl Ideolog {
 /// Persistent patterns are intentional global settings; no model/sample is sent.
 fn refresh_changed_patterns(before: &str) {
     if patterns::stored() != before {
-        host::refresh_view(patterns::VIEW);
-        let _ = host::post_view_message(patterns::VIEW, r#"{"channel":"ui-kit-refresh"}"#);
+        ui_kit::web::refresh_view(patterns::VIEW, include_str!("ui_config.json"));
     }
 }
 
@@ -103,9 +102,9 @@ impl Plugin for Ideolog {
         if id == "mark-log-source" { semantic::mark(self, ctx)?; return Ok(None); }
         if id == "clear-log-source" { host::clear_decorations(semantic::DECORATION_SET)?; return Ok(None); }
         if id == "capture-log" {self.capture_log(ctx)?;return Ok(None);}
-        if id == "log-snapshot" {host::reveal_view(viewer::VIEW)?;return Ok(None);}
+        if id == "log-snapshot" {ui_kit::web::reveal_view(viewer::VIEW, include_str!("ui_config.json"))?;return Ok(None);}
         if id == "patterns" {
-            host::reveal_view(patterns::VIEW)?;
+            ui_kit::web::reveal_view(patterns::VIEW, include_str!("ui_config.json"))?;
             return Ok(None);
         }
 
@@ -199,19 +198,18 @@ impl Providers for Ideolog {
 
 impl Views for Ideolog {
     fn render(&mut self, view: &str, _viewport: Option<Viewport>, _ctx: &Invocation) -> Result<View, Error> {
-        match view {
-            viewer::VIEW => self.render_log(_viewport,_ctx),
-            patterns::VIEW => Ok(patterns::render(&self.pattern_editor)),
-            _ => Err(Error::NotFound(view.into())),
-        }
+        (|| -> Result<View, Error> {
+            match view {
+                viewer::VIEW => self.render_log(_viewport,_ctx),
+                patterns::VIEW => Ok(patterns::render(&self.pattern_editor)),
+                _ => Err(Error::NotFound(view.into())),
+            }
+        })().map(ui_kit::actions::available)
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, _ctx: &Invocation) -> Result<(), Error> {
+        if ui_kit::web::handle(self, view, &event, _ctx, include_str!("ui_config.json"))? { return Ok(()); }
         if view==viewer::VIEW {return self.handle_log(event,_ctx);}
-        if ui_kit::web::handle(self, view, &event, _ctx, include_str!("ui_config.json"))? {
-            return Ok(());
-        }
-
         let result = match view {
             patterns::VIEW => patterns::handle(&mut self.pattern_editor, event),
             _ => Err(Error::NotFound(view.into())),
@@ -281,7 +279,7 @@ fn highlights_checked(config: &Config, text: &str, gap_seconds: f64, cap: usize,
         if out.len() >= cap || checkpoint().is_err() { break; }
         let parsed=Parsed::new(format,event.text);
         if checkpoint().is_err() { break; }
-        let now = parsed.time(format).and_then(log::seconds);
+        let now = parsed.time(format).and_then(|time| log::time_seconds(time, format.and_then(|f| f.time_pattern.as_deref())));
         let gap_range = match (gap_seconds > 0.0, previous, now) {
             (true, Some(before), Some(now)) if now - before >= gap_seconds => parsed.time_range(format),
             _ => None,
@@ -914,9 +912,6 @@ java.lang.IllegalStateException: boom
 mod external_patterns_refresh_tests {
     use super::*;
     use openidea_plugin::{mock::MockHost, views::{Body,FieldValue}};
-    fn notices(host:&MockHost,after:usize)->Vec<String>{
-        host.view_messages()[after..].iter().filter(|(_,text)|text==r#"{"channel":"ui-kit-refresh"}"#).map(|(view,_)|view.clone()).collect()
-    }
     fn select(host:&MockHost){
         host.open_editor("/project/private.log","ideolog","selected_literal",&[(0,0,0,16)]);
         host.answer_next_prompt(Some(&["HIGHLIGHT_MATCH"]));host.answer_next_prompt(Some(&["green"]));
@@ -926,7 +921,7 @@ mod external_patterns_refresh_tests {
         let host=MockHost::install();let mut plugin=Ideolog::default();select(&host);
         plugin.run_command("highlight-selection",&host.invocation(),None).unwrap();
         assert!(patterns::stored().contains("selected_literal"));
-        assert_eq!(notices(&host,0),[patterns::VIEW.to_owned()]);
+        assert_eq!(host.refreshed_views(),[patterns::VIEW.to_owned()]);assert!(host.view_messages().iter().all(|(_,text)| serde_json::from_str::<serde_json::Value>(text).ok().is_some_and(|value| value["channel"] == "ui-kit-refresh" && value.as_object().unwrap().len() <= 2)));
         assert!(host.view_messages().iter().all(|(_,text)|!text.contains("selected_literal")));
         host.set_project_root(None);
         let global=plugin.render(patterns::VIEW,None,&host.invocation()).unwrap();assert!(format!("{:?}",global.body).contains("selected_literal"));
@@ -945,7 +940,7 @@ mod external_patterns_refresh_tests {
         assert!(plugin.run_command("highlight-selection",&host.invocation(),None).is_err());assert!(host.view_messages().is_empty());
         patterns::save(&[patterns::highlight_element("seed","HIGHLIGHT_LINE",-39836)]).unwrap();
         plugin.run_command("remove-highlightings",&host.invocation(),None).unwrap();
-        assert_eq!(notices(&host,0),[patterns::VIEW.to_owned()]);assert!(host.refreshed_views().iter().all(|view|view==patterns::VIEW));
+        assert_eq!(host.refreshed_views(),[patterns::VIEW.to_owned()]);assert!(host.view_messages().iter().all(|(_,text)| serde_json::from_str::<serde_json::Value>(text).ok().is_some_and(|value| value["channel"] == "ui-kit-refresh" && value.as_object().unwrap().len() <= 2)));assert!(host.refreshed_views().iter().all(|view|view==patterns::VIEW));
     }
     #[test]
     fn global_manual_draft_survives_external_change_and_save_conflict(){
@@ -962,14 +957,17 @@ mod external_patterns_refresh_tests {
         assert!(model.contains("changed elsewhere"));assert!(model.contains("manual-global-settings-sample"));assert!(patterns::stored().is_empty());
     }
     #[test]
-    fn stable_global_ui_kit_render_only_replies_without_invalidation_loop(){
+    fn custom_global_render_uses_correlated_bridge_without_process_or_network(){
         let host=MockHost::install();host.set_project_root(None);let mut plugin=Ideolog::default();
         for sequence in [1,2]{
             let before=host.view_messages().len();
             let request=format!(r#"{{"channel":"ui-kit","frameId":"0123456789abcdef0123456789abcdef","sequence":{sequence},"project":null,"op":"render"}}"#);
             plugin.handle(patterns::VIEW,ViewEvent::Message(request.to_string()),&host.invocation()).unwrap();
-            let messages=host.view_messages();assert_eq!(messages.len(),before+1);
-            let reply=&messages[before].1;assert!(reply.contains(r#""channel":"ui-kit""#));assert!(reply.contains(r#""model":"#));
+            assert_eq!(host.view_messages().len(),before + 1);
+            let answer: serde_json::Value = serde_json::from_str(&host.view_messages().last().unwrap().1).unwrap();
+            assert_eq!(answer["model"]["activeView"], patterns::VIEW);
+            assert_eq!(answer["model"]["viewTabs"].as_array().unwrap().len(), 2);
+            assert!(matches!(plugin.render(patterns::VIEW,None,&host.invocation()).unwrap().body,Body::Message(_)));
         }
         assert!(host.requests().is_empty());assert!(host.process_runs().is_empty());
     }

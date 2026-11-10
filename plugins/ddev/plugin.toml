@@ -246,6 +246,7 @@ id = "setup"
 title = "DDEV Setup"
 icon = "icons/ddev.svg"
 location = "right"
+web = "web/resources/hub.html"
 
 [[contributes.commands]]
 id = "setup"

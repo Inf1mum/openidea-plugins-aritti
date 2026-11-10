@@ -21,9 +21,9 @@ for(const [,attributes,id] of html.matchAll(/<\w+\b([^>]*\bid="([^"]+)"[^>]*)>/g
   nodes.set(id,element);
 }
 const node=id=>{assert.ok(nodes.has(id),`missing packaged ID ${id}`);return nodes.get(id);};
-const document={documentElement:{},hidden:false,getElementById:id=>nodes.get(id)??null,addEventListener:(kind,fn)=>events[kind]=fn};
-const window={document,addEventListener:(kind,fn)=>events[kind]=fn,openidea:{postMessage:s=>messages.push(JSON.parse(s)),onMessage:fn=>receive=fn}};
-vm.runInNewContext(source,{IntersectionObserver:class{constructor(fn){intersection=fn;}observe(){}},window,document,openidea:window.openidea,crypto:{getRandomValues:b=>b.fill(++random)},Uint8Array,JSON,setTimeout:(fn,ms)=>{assert.equal(ms,60000);timers.set(++next,fn);return next;},clearTimeout:id=>timers.delete(id)});
+const document={documentElement:{isConnected:true},hidden:false,getElementById:id=>nodes.get(id)??null,addEventListener:(kind,fn)=>events[kind]=fn,removeEventListener:(kind,fn)=>{if(events[kind]===fn)delete events[kind];}};
+const window={document,addEventListener:(kind,fn)=>events[kind]=fn,removeEventListener:(kind,fn)=>{if(events[kind]===fn)delete events[kind];},openidea:{postMessage:s=>messages.push(JSON.parse(s)),onMessage:fn=>receive=fn}};
+vm.runInNewContext(source,{IntersectionObserver:class{constructor(fn){intersection=fn;}observe(){}disconnect(){}},window,document,openidea:window.openidea,crypto:{getRandomValues:b=>b.fill(++random)},Uint8Array,JSON,setTimeout:(fn,ms)=>{assert.equal(ms,60000);timers.set(++next,fn);return next;},clearTimeout:id=>timers.delete(id)});
 const last=()=>messages.at(-1);
 function reply(model,overrides={}) {receive(JSON.stringify({...last(),model,...overrides}));}
 const model={root:'/project',url:'http://localhost:8080/actuator',auth:'none',enabled:true,active:false};
@@ -93,3 +93,13 @@ events.refreshclick();reply({...model,status:'Current observation',poll:'Polling
 assert.equal(node('status').textContent,'Current observation');assert.equal(node('status').className,'');
 assert.equal(node('refresh').getAttribute('aria-busy'),'false');assert.equal(timers.size,0);
 console.log('current packaged controls: frame/sequence routing, 60s tick, hidden/busy/pagehide stop, brief hide during tick/start, explicit restart, aria-busy and literal error/status class transitions passed');
+
+// Grouped-view disposal revokes an outstanding Start before releasing listeners.
+const dispose=window.uiKitRuntimeControls.mount(document,window.openidea);
+intersection([{isIntersecting:true,intersectionRatio:1}]);reply(model);
+events.startclick();const unmountedStart={...last()};dispose();
+assert.equal(last().op,'stop');assert.ok(last().sequence>unmountedStart.sequence);
+assert.equal(timers.size,0);
+receive(JSON.stringify({...unmountedStart,model:{...model,active:true}}));
+assert.equal(timers.size,0,'retired Start reply cannot rearm an unmounted driver');
+console.log('grouped controls disposal: pending Start queues Stop, removes lifecycle listeners and ignores late reply');

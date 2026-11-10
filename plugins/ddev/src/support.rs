@@ -1,4 +1,4 @@
-//! Native setup/recovery UI and file-driven configuration follow-up.
+//! Shared-kit setup/recovery UI and file-driven configuration follow-up.
 use crate::{CONFIG, Main, database, model, runtime};
 use openidea_plugin::views::{Body, Button, Field, FieldValue, View, ViewEvent};
 use openidea_plugin::{
@@ -7,6 +7,12 @@ use openidea_plugin::{
 use toml_edit::{DocumentMut, Item, Table, value};
 
 pub const SETUP: &str = "setup";
+
+pub(crate) fn refresh_setup() {
+    host::refresh_view(SETUP);
+    let _ = host::post_view_message(SETUP, r#"{"channel":"ui-kit-refresh"}"#);
+}
+
 pub const GUIDE: &str = "https://docs.ddev.com/en/stable/users/install/";
 
 pub fn key(project: &Project, kind: &str) -> Result<String, Error> {
@@ -401,9 +407,9 @@ impl Main {
         Ok(View::new(Body::Form(fields))
             .button(Button::new("diagnose", "Check Environment").icon("refresh"))
             .button(Button::new("config", "Configure Project").icon("settings"))
-            .button(Button::new("show-services", "Services").icon("run"))
-            .button(Button::new("save-settings", "Save Preferences"))
-            .button(Button::new("reset-settings", "Reset Changes"))
+            .button(Button::new("show-services", "Show Services").icon("open-in-tool-window"))
+            .button(Button::new("save-settings", "Save Preferences").icon("check"))
+            .button(Button::new("reset-settings", "Reset Changes").icon("undo"))
             .button(Button::new("open-guide", "Installation Guide").icon("external-link"))
             .button(Button::new("report-issue", "Report Plugin Issue").icon("help"))
             .status("Preferences apply to this project after Save. Saving requires the optional project.write permission."))
@@ -484,7 +490,7 @@ impl Main {
             }
             _ => {}
         }
-        host::refresh_view(SETUP);
+        refresh_setup();
         Ok(())
     }
     pub(crate) fn diagnose(&mut self, project: &Project) -> Result<(), Error> {
@@ -519,7 +525,7 @@ impl Main {
             ),
         };
         self.diagnostics = Some((project.root()?, text));
-        host::refresh_view(SETUP);
+        refresh_setup();
         Ok(())
     }
 }

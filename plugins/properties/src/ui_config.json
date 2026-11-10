@@ -1,8 +1,6 @@
 {
   "title": "Properties",
-  "views": {
-    "structure": "Properties Structure"
-  },
+  "views": {},
   "actions": [],
   "project_independent": false,
   "project_bound_buttons": []

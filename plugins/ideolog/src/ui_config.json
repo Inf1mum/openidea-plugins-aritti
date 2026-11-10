@@ -1,9 +1,33 @@
 {
   "title": "Ideolog",
   "views": {
-    "patterns": "Ideolog Patterns"
+    "patterns": "Ideolog",
+    "log-snapshot": "Log Snapshot"
   },
   "actions": [],
   "project_independent": true,
-  "project_bound_buttons": []
+  "project_bound_buttons": [],
+  "group": {
+    "primary": "patterns",
+    "tabs": [
+      {
+        "id": "patterns",
+        "label": "Ideolog"
+      },
+      {
+        "id": "log-snapshot",
+        "label": "Log Snapshot"
+      }
+    ]
+  },
+  "context_buttons": {
+    "patterns": [
+      "edit",
+      "toggle-enabled",
+      "move-up",
+      "move-down",
+      "remove"
+    ],
+    "log-snapshot": []
+  }
 }

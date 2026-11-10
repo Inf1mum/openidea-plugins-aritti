@@ -1,5 +1,9 @@
 # Liquibase Changelogs
 
+One shared UI-kit window contains the Liquibase, Offline Diff tabs. Commands select their corresponding custom tab; existing actions, drafts and ownership checks remain in their original handlers. See [tab migration and parity validation](../../docs/custom-plugin-groups-2026-11-10.md).
+
+One UI-kit tool window contains Changesets and Offline Diff. Existing source selection, reviewed CLI/generation, stop/status and editor-action workflows keep their original handlers. Offline report tables expose Previous/Next Observations in 100-row pages, preserving absolute row identities and the selected page when returning from details. Rendering and tab navigation run no CLI.
+
 Liquibase changelog support for XML, YAML, JSON and formatted SQL in OpenIDEA. The
 plugin reads the source text only. A file is treated as a changelog when it is
 an XML file with a `databaseChangeLog` root, a YAML or JSON file with a
@@ -546,3 +550,28 @@ project ownership and source stamps. Ambiguous or oversized JSON owners are not
 adopted, replaced or cleared by selector commands. Explicit recovery of broken
 non-JSON legacy bytes remains available. These are browser-source ownership
 checks; they establish no effective database/runtime target.
+
+## Native migration browser
+
+The main migration browser now uses the IDE's native tree, toolbar and status
+line. **Filter…** searches the captured row labels/state (and retains include
+ancestors in Liquibase); **Clear** restores rows. Filters belong to the
+current project. **More…** exposes existing review and CLI
+workflows through a native picker, preserving their source checks and database
+write confirmations. Double-click or Enter opens the owned source location.
+The generation and offline review forms remain native; rendering does not start
+CLI work.
+
+Compared against [JetBrains' official liquibase workflow](https://www.jetbrains.com/help/idea/liquibase.html):
+source browsing, generation preview and reviewed execution remain connected.
+This is a native presentation of the supported workflow, not full datasource,
+entity-derived DDL/diff or screenshot parity. Filter uses a native input dialog
+rather than the former inline web search. Exact desktop light/dark, keyboard,
+narrow-dock and native prompt acceptance remain to be verified.
+
+The compact toolbar uses native Refresh, Sources, New, Open, Filter, Clear and
+More icons. Selecting a changelog or changeset enables Open and shows its source
+filename and line. New opens that exact source for the reviewed editor action,
+rather than reusing an unrelated active editor. Advanced source reset, execution
+and offline review stay under More. Repeated include nodes say “already shown”;
+this is browser traversal state, not a database execution result.

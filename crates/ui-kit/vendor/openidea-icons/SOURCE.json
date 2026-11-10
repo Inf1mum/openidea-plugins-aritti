@@ -1,0 +1,2834 @@
+{
+  "repository": "https://github.com/l0ng-ai/openidea",
+  "revision": "37c2a6048eea89d4f6db645622612358b643862b",
+  "release": "v0.1.40",
+  "directory": "src/ui",
+  "icons": {
+    "folder": {
+      "light": "expui/nodes/folder.svg",
+      "dark": "expui/nodes/folder_dark.svg"
+    },
+    "folder-open": {
+      "light": "expui/nodes/folder.svg",
+      "dark": "expui/nodes/folder_dark.svg"
+    },
+    "folder-source": {
+      "light": "expui/nodes/sourceRoot.svg",
+      "dark": "expui/nodes/sourceRoot_dark.svg"
+    },
+    "folder-test": {
+      "light": "expui/nodes/testRoot.svg",
+      "dark": "expui/nodes/testRoot_dark.svg"
+    },
+    "folder-resources": {
+      "light": "expui/nodes/resourcesRoot.svg",
+      "dark": "expui/nodes/resourcesRoot_dark.svg"
+    },
+    "folder-test-resources": {
+      "light": "openidea/nodes/testResourcesRoot.svg",
+      "dark": "openidea/nodes/testResourcesRoot_dark.svg"
+    },
+    "folder-excluded": {
+      "light": "expui/nodes/excludeRoot.svg",
+      "dark": "expui/nodes/excludeRoot_dark.svg"
+    },
+    "folder-library": {
+      "light": "expui/nodes/libraryFolder.svg",
+      "dark": "expui/nodes/libraryFolder_dark.svg"
+    },
+    "folder-github": {
+      "light": "expui/nodes/folderGithub.svg",
+      "dark": "expui/nodes/folderGithub_dark.svg"
+    },
+    "module": {
+      "light": "expui/nodes/module.svg",
+      "dark": "expui/nodes/module_dark.svg"
+    },
+    "folder-generated-source": {
+      "light": "expui/nodes/generatedSource.svg",
+      "dark": "expui/nodes/generatedSource_dark.svg"
+    },
+    "folder-generated-test": {
+      "light": "expui/nodes/generatedTestRoot.svg",
+      "dark": "expui/nodes/generatedTestRoot_dark.svg"
+    },
+    "folder-compiled": {
+      "light": "expui/nodes/compiledClassesFolder.svg",
+      "dark": "expui/nodes/compiledClassesFolder_dark.svg"
+    },
+    "folder-javadoc": {
+      "light": "expui/nodes/javaDocFolder.svg",
+      "dark": "expui/nodes/javaDocFolder_dark.svg"
+    },
+    "class-abstract": {
+      "light": "expui/nodes/classAbstract.svg",
+      "dark": "expui/nodes/classAbstract_dark.svg"
+    },
+    "record": {
+      "light": "expui/nodes/record.svg",
+      "dark": "expui/nodes/record_dark.svg"
+    },
+    "annotation": {
+      "light": "expui/nodes/annotation.svg",
+      "dark": "expui/nodes/annotation_dark.svg"
+    },
+    "exception": {
+      "light": "expui/nodes/exception.svg",
+      "dark": "expui/nodes/exception_dark.svg"
+    },
+    "jvm-test": {
+      "light": "expui/nodes/test.svg",
+      "dark": "expui/nodes/test_dark.svg"
+    },
+    "runnable-mark": {
+      "light": "expui/nodes/runnableMark.svg",
+      "dark": "expui/nodes/runnableMark_dark.svg"
+    },
+    "kotlin-object": {
+      "light": "expui/kotlin/objectKotlin.svg",
+      "dark": "expui/kotlin/objectKotlin_dark.svg"
+    },
+    "spring-config": {
+      "light": "openidea/runConfigurations/springBoot.svg",
+      "dark": "openidea/runConfigurations/springBoot_dark.svg"
+    },
+    "gradle-project": {
+      "light": "expui/gradle/gradle.svg",
+      "dark": "expui/gradle/gradle_dark.svg",
+      "large": "expui/gradle/gradle@20x20.svg",
+      "largeDark": "expui/gradle/gradle@20x20_dark.svg"
+    },
+    "gradle-module": {
+      "light": "expui/gradle/gradleSubproject.svg",
+      "dark": "expui/gradle/gradleSubproject_dark.svg"
+    },
+    "spring-boot": {
+      "light": "openidea/runConfigurations/springBoot.svg",
+      "dark": "openidea/runConfigurations/springBoot_dark.svg"
+    },
+    "tomcat": {
+      "light": "openidea/runConfigurations/tomcat.svg",
+      "dark": "openidea/runConfigurations/tomcat_dark.svg"
+    },
+    "server": {
+      "light": "openidea/runConfigurations/tomcat.svg",
+      "dark": "openidea/runConfigurations/tomcat_dark.svg"
+    },
+    "visualgc": {
+      "light": "openidea/runConfigurations/visualgc.svg",
+      "dark": "openidea/runConfigurations/visualgc_dark.svg"
+    },
+    "file": {
+      "light": "expui/fileTypes/text.svg",
+      "dark": "expui/fileTypes/text_dark.svg"
+    },
+    "file-unknown": {
+      "light": "expui/fileTypes/unknown.svg",
+      "dark": "expui/fileTypes/unknown_dark.svg"
+    },
+    "file-code": {
+      "light": "expui/fileTypes/anyType.svg",
+      "dark": "expui/fileTypes/anyType_dark.svg"
+    },
+    "file-text": {
+      "light": "expui/fileTypes/text.svg",
+      "dark": "expui/fileTypes/text_dark.svg"
+    },
+    "file-json": {
+      "light": "expui/fileTypes/json.svg",
+      "dark": "expui/fileTypes/json_dark.svg"
+    },
+    "file-md": {
+      "light": "expui/fileTypes/markdown.svg",
+      "dark": "expui/fileTypes/markdown_dark.svg"
+    },
+    "file-image": {
+      "light": "expui/fileTypes/image.svg",
+      "dark": "expui/fileTypes/image_dark.svg"
+    },
+    "paperclip": {
+      "light": "openidea/general/paperclip.svg"
+    },
+    "file-config": {
+      "light": "expui/fileTypes/config.svg",
+      "dark": "expui/fileTypes/config_dark.svg"
+    },
+    "file-python": {
+      "light": "expui/fileTypes/python.svg",
+      "dark": "expui/fileTypes/python_dark.svg"
+    },
+    "file-jupyter": {
+      "light": "expui/fileTypes/jupyter.svg",
+      "dark": "expui/fileTypes/jupyter_dark.svg"
+    },
+    "file-requirements": {
+      "light": "expui/fileTypes/requirements.svg",
+      "dark": "expui/fileTypes/requirements_dark.svg"
+    },
+    "file-pipenv": {
+      "light": "expui/fileTypes/pipenv.svg",
+      "dark": "expui/fileTypes/pipenv_dark.svg"
+    },
+    "file-pyproject": {
+      "light": "expui/fileTypes/pyprojectToml.svg",
+      "dark": "expui/fileTypes/pyprojectToml_dark.svg"
+    },
+    "file-js": {
+      "light": "expui/fileTypes/javaScript.svg",
+      "dark": "expui/fileTypes/javaScript_dark.svg"
+    },
+    "file-jsx": {
+      "light": "openidea/fileTypes/jsx.svg",
+      "dark": "openidea/fileTypes/jsx_dark.svg"
+    },
+    "file-ts": {
+      "light": "expui/fileTypes/typeScript.svg",
+      "dark": "expui/fileTypes/typeScript_dark.svg"
+    },
+    "file-tsx": {
+      "light": "openidea/fileTypes/tsx.svg",
+      "dark": "openidea/fileTypes/tsx_dark.svg"
+    },
+    "file-npm": {
+      "light": "openidea/fileTypes/npm.svg",
+      "dark": "openidea/fileTypes/npm_dark.svg"
+    },
+    "file-vue": {
+      "light": "expui/fileTypes/vue.svg"
+    },
+    "file-svelte": {
+      "light": "openidea/fileTypes/svelte.svg",
+      "dark": "openidea/fileTypes/svelte_dark.svg"
+    },
+    "file-jsp": {
+      "light": "openidea/fileTypes/jsp.svg",
+      "dark": "openidea/fileTypes/jsp_dark.svg"
+    },
+    "file-astro": {
+      "light": "expui/fileTypes/astro.svg",
+      "dark": "expui/fileTypes/astro_dark.svg"
+    },
+    "file-yaml": {
+      "light": "expui/fileTypes/yaml.svg",
+      "dark": "expui/fileTypes/yaml_dark.svg"
+    },
+    "file-toml": {
+      "light": "expui/fileTypes/toml.svg",
+      "dark": "expui/fileTypes/toml_dark.svg"
+    },
+    "file-html": {
+      "light": "expui/fileTypes/html.svg",
+      "dark": "expui/fileTypes/html_dark.svg"
+    },
+    "file-xhtml": {
+      "light": "expui/fileTypes/xhtml.svg",
+      "dark": "expui/fileTypes/xhtml_dark.svg"
+    },
+    "file-css": {
+      "light": "expui/fileTypes/css.svg",
+      "dark": "expui/fileTypes/css_dark.svg"
+    },
+    "file-less": {
+      "light": "openidea/fileTypes/less.svg",
+      "dark": "openidea/fileTypes/less_dark.svg"
+    },
+    "file-sass": {
+      "light": "openidea/fileTypes/sass.svg",
+      "dark": "openidea/fileTypes/sass_dark.svg"
+    },
+    "file-scss": {
+      "light": "openidea/fileTypes/scss.svg",
+      "dark": "openidea/fileTypes/scss_dark.svg"
+    },
+    "file-xml": {
+      "light": "expui/fileTypes/xml.svg",
+      "dark": "expui/fileTypes/xml_dark.svg"
+    },
+    "file-xsd": {
+      "light": "expui/fileTypes/xsd.svg",
+      "dark": "expui/fileTypes/xsd_dark.svg"
+    },
+    "file-shell": {
+      "light": "expui/fileTypes/shell.svg",
+      "dark": "expui/fileTypes/shell_dark.svg"
+    },
+    "file-powershell": {
+      "light": "openidea/fileTypes/powershell.svg",
+      "dark": "openidea/fileTypes/powershell_dark.svg"
+    },
+    "file-windows": {
+      "light": "expui/fileTypes/microsoftWindows.svg",
+      "dark": "expui/fileTypes/microsoftWindows_dark.svg"
+    },
+    "file-sql": {
+      "light": "expui/fileTypes/sql.svg",
+      "dark": "expui/fileTypes/sql_dark.svg"
+    },
+    "file-graphql": {
+      "light": "expui/fileTypes/graphql.svg",
+      "dark": "expui/fileTypes/graphql_dark.svg"
+    },
+    "file-proto": {
+      "light": "expui/fileTypes/protoFile.svg",
+      "dark": "expui/fileTypes/protoFile_dark.svg"
+    },
+    "file-csv": {
+      "light": "expui/fileTypes/csv.svg",
+      "dark": "expui/fileTypes/csv_dark.svg"
+    },
+    "file-properties": {
+      "light": "expui/fileTypes/properties.svg",
+      "dark": "expui/fileTypes/properties_dark.svg"
+    },
+    "file-ignored": {
+      "light": "expui/fileTypes/ignored.svg",
+      "dark": "expui/fileTypes/ignored_dark.svg"
+    },
+    "file-git": {
+      "light": "expui/fileTypes/gitignore.svg"
+    },
+    "file-archive": {
+      "light": "expui/fileTypes/archive.svg",
+      "dark": "expui/fileTypes/archive_dark.svg"
+    },
+    "file-binary": {
+      "light": "expui/fileTypes/binaryData.svg",
+      "dark": "expui/fileTypes/binaryData_dark.svg"
+    },
+    "file-font": {
+      "light": "expui/fileTypes/font.svg",
+      "dark": "expui/fileTypes/font_dark.svg"
+    },
+    "file-patch": {
+      "light": "expui/fileTypes/patch.svg",
+      "dark": "expui/fileTypes/patch_dark.svg"
+    },
+    "file-java": {
+      "light": "expui/fileTypes/java.svg",
+      "dark": "expui/fileTypes/java_dark.svg"
+    },
+    "file-kotlin": {
+      "light": "expui/fileTypes/kotlin.svg",
+      "dark": "expui/fileTypes/kotlin_dark.svg"
+    },
+    "file-kotlin-script": {
+      "light": "expui/fileTypes/kotlinScript.svg",
+      "dark": "expui/fileTypes/kotlinScript_dark.svg"
+    },
+    "file-groovy": {
+      "light": "expui/fileTypes/groovy.svg",
+      "dark": "expui/fileTypes/groovy_dark.svg"
+    },
+    "file-gradle": {
+      "light": "expui/fileTypes/gradle.svg",
+      "dark": "expui/fileTypes/gradle_dark.svg"
+    },
+    "file-gradle-kts": {
+      "light": "expui/fileTypes/kotlinGradleScript.svg",
+      "dark": "expui/fileTypes/kotlinGradleScript_dark.svg"
+    },
+    "file-maven": {
+      "light": "expui/fileTypes/maven.svg",
+      "dark": "expui/fileTypes/maven_dark.svg"
+    },
+    "file-scala": {
+      "light": "expui/language/scala.svg",
+      "dark": "expui/language/scala_dark.svg"
+    },
+    "file-php": {
+      "light": "expui/language/php.svg",
+      "dark": "expui/language/php_dark.svg"
+    },
+    "file-perl": {
+      "light": "expui/fileTypes/perl.svg",
+      "dark": "expui/fileTypes/perl_dark.svg"
+    },
+    "file-c": {
+      "light": "expui/fileTypes/c.svg",
+      "dark": "expui/fileTypes/c_dark.svg"
+    },
+    "file-cpp": {
+      "light": "expui/fileTypes/cpp.svg",
+      "dark": "expui/fileTypes/cpp_dark.svg"
+    },
+    "file-h": {
+      "light": "expui/fileTypes/h.svg",
+      "dark": "expui/fileTypes/h_dark.svg"
+    },
+    "file-objc": {
+      "light": "openidea/fileTypes/objectiveC.svg",
+      "dark": "openidea/fileTypes/objectiveC_dark.svg"
+    },
+    "file-objcpp": {
+      "light": "openidea/fileTypes/objectiveCpp.svg",
+      "dark": "openidea/fileTypes/objectiveCpp_dark.svg"
+    },
+    "file-csharp": {
+      "light": "expui/fileTypes/Csharp.svg",
+      "dark": "expui/fileTypes/Csharp_dark.svg"
+    },
+    "file-fsharp": {
+      "light": "openidea/fileTypes/fsharp.svg",
+      "dark": "openidea/fileTypes/fsharp_dark.svg"
+    },
+    "file-swift": {
+      "light": "expui/fileTypes/swiftLang.svg",
+      "dark": "expui/fileTypes/swiftLang_dark.svg"
+    },
+    "file-go": {
+      "light": "openidea/fileTypes/go.svg",
+      "dark": "openidea/fileTypes/go_dark.svg"
+    },
+    "file-gomod": {
+      "light": "openidea/fileTypes/goMod.svg",
+      "dark": "openidea/fileTypes/goMod_dark.svg"
+    },
+    "file-gowork": {
+      "light": "openidea/fileTypes/goWork.svg",
+      "dark": "openidea/fileTypes/goWork_dark.svg"
+    },
+    "file-rust": {
+      "light": "expui/fileTypes/rust.svg",
+      "dark": "expui/fileTypes/rust_dark.svg"
+    },
+    "file-cargo": {
+      "light": "expui/fileTypes/cargo.svg",
+      "dark": "expui/fileTypes/cargo_dark.svg"
+    },
+    "file-cargo-lock": {
+      "light": "expui/fileTypes/cargoLock.svg",
+      "dark": "expui/fileTypes/cargoLock_dark.svg"
+    },
+    "file-ruby": {
+      "light": "openidea/fileTypes/ruby.svg",
+      "dark": "openidea/fileTypes/ruby_dark.svg"
+    },
+    "file-lua": {
+      "light": "openidea/fileTypes/lua.svg",
+      "dark": "openidea/fileTypes/lua_dark.svg"
+    },
+    "file-zig": {
+      "light": "openidea/fileTypes/zig.svg",
+      "dark": "openidea/fileTypes/zig_dark.svg"
+    },
+    "file-gdscript": {
+      "light": "openidea/fileTypes/gdscript.svg",
+      "dark": "openidea/fileTypes/gdscript_dark.svg"
+    },
+    "file-godot": {
+      "light": "openidea/fileTypes/godot.svg",
+      "dark": "openidea/fileTypes/godot_dark.svg"
+    },
+    "file-gdshader": {
+      "light": "openidea/fileTypes/gdshader.svg",
+      "dark": "openidea/fileTypes/gdshader_dark.svg"
+    },
+    "file-asciidoc": {
+      "light": "openidea/fileTypes/asciidoc.svg",
+      "dark": "openidea/fileTypes/asciidoc_dark.svg"
+    },
+    "file-d": {
+      "light": "openidea/fileTypes/d.svg",
+      "dark": "openidea/fileTypes/d_dark.svg"
+    },
+    "file-dart": {
+      "light": "openidea/fileTypes/dart.svg",
+      "dark": "openidea/fileTypes/dart_dark.svg"
+    },
+    "file-elixir": {
+      "light": "openidea/fileTypes/elixir.svg",
+      "dark": "openidea/fileTypes/elixir_dark.svg"
+    },
+    "file-erlang": {
+      "light": "openidea/fileTypes/erlang.svg",
+      "dark": "openidea/fileTypes/erlang_dark.svg"
+    },
+    "file-haskell": {
+      "light": "openidea/fileTypes/haskell.svg",
+      "dark": "openidea/fileTypes/haskell_dark.svg"
+    },
+    "file-ocaml": {
+      "light": "openidea/fileTypes/ocaml.svg",
+      "dark": "openidea/fileTypes/ocaml_dark.svg"
+    },
+    "file-clojure": {
+      "light": "openidea/fileTypes/clojure.svg",
+      "dark": "openidea/fileTypes/clojure_dark.svg"
+    },
+    "file-julia": {
+      "light": "openidea/fileTypes/julia.svg",
+      "dark": "openidea/fileTypes/julia_dark.svg"
+    },
+    "file-r": {
+      "light": "openidea/fileTypes/r.svg",
+      "dark": "openidea/fileTypes/r_dark.svg"
+    },
+    "file-nix": {
+      "light": "openidea/fileTypes/nix.svg",
+      "dark": "openidea/fileTypes/nix_dark.svg"
+    },
+    "file-latex": {
+      "light": "openidea/fileTypes/latex.svg",
+      "dark": "openidea/fileTypes/latex_dark.svg"
+    },
+    "file-rst": {
+      "light": "expui/fileTypes/rst.svg",
+      "dark": "expui/fileTypes/rst_dark.svg"
+    },
+    "file-docker": {
+      "light": "expui/fileTypes/docker.svg",
+      "dark": "expui/fileTypes/docker_dark.svg"
+    },
+    "docker-connected": {
+      "light": "expui/docker/dockerConnected.svg",
+      "dark": "expui/docker/dockerConnected_dark.svg"
+    },
+    "docker-compose-running": {
+      "light": "expui/docker/containersRunning.svg",
+      "dark": "expui/docker/containersRunning_dark.svg"
+    },
+    "docker-compose-stopped": {
+      "light": "expui/docker/composeProjectStopped.svg",
+      "dark": "expui/docker/composeProjectStopped_dark.svg"
+    },
+    "docker-compose-service-running": {
+      "light": "expui/docker/dockerComposeServiceUp.svg",
+      "dark": "expui/docker/dockerComposeServiceUp_dark.svg"
+    },
+    "docker-compose-service-stopped": {
+      "light": "expui/docker/dockerComposeServiceStopped.svg",
+      "dark": "expui/docker/dockerComposeServiceStopped_dark.svg"
+    },
+    "docker-devcontainer": {
+      "light": "expui/docker/devContainers.svg",
+      "dark": "expui/docker/devContainers_dark.svg"
+    },
+    "docker-containers": {
+      "light": "expui/docker/containersList.svg",
+      "dark": "expui/docker/containersList_dark.svg"
+    },
+    "docker-images": {
+      "light": "expui/docker/imagesList.svg",
+      "dark": "expui/docker/imagesList_dark.svg"
+    },
+    "docker-networks": {
+      "light": "expui/docker/network.svg",
+      "dark": "expui/docker/network_dark.svg"
+    },
+    "docker-volumes": {
+      "light": "expui/docker/volume.svg",
+      "dark": "expui/docker/volume_dark.svg"
+    },
+    "docker-container-running": {
+      "light": "expui/docker/singleRunningContainer.svg",
+      "dark": "expui/docker/singleRunningContainer_dark.svg"
+    },
+    "docker-container-stopped": {
+      "light": "expui/docker/singleStoppedContainer.svg",
+      "dark": "expui/docker/singleStoppedContainer_dark.svg"
+    },
+    "docker-image": {
+      "light": "expui/docker/singleImage.svg",
+      "dark": "expui/docker/singleImage_dark.svg"
+    },
+    "docker-registry": {
+      "light": "expui/docker/dockerRegistry.svg",
+      "dark": "expui/docker/dockerRegistry_dark.svg"
+    },
+    "docker-pull": {
+      "light": "expui/docker/pullImage.svg",
+      "dark": "expui/docker/pullImage_dark.svg"
+    },
+    "docker-push": {
+      "light": "expui/docker/pushImage.svg",
+      "dark": "expui/docker/pushImage_dark.svg"
+    },
+    "file-makefile": {
+      "light": "expui/fileTypes/makefile.svg",
+      "dark": "expui/fileTypes/makefile_dark.svg"
+    },
+    "file-cmake": {
+      "light": "openidea/fileTypes/cmake.svg",
+      "dark": "openidea/fileTypes/cmake_dark.svg"
+    },
+    "file-bazel": {
+      "light": "expui/fileTypes/bazel.svg",
+      "dark": "expui/fileTypes/bazel_dark.svg"
+    },
+    "file-jenkins": {
+      "light": "expui/fileTypes/jenkins.svg"
+    },
+    "file-terraform": {
+      "light": "expui/fileTypes/terraform.svg",
+      "dark": "expui/fileTypes/terraform_dark.svg"
+    },
+    "file-hcl": {
+      "light": "expui/fileTypes/hashiCorp.svg",
+      "dark": "expui/fileTypes/hashiCorp_dark.svg"
+    },
+    "file-dotenv": {
+      "light": "openidea/fileTypes/dotenv.svg",
+      "dark": "openidea/fileTypes/dotenv_dark.svg"
+    },
+    "file-lock": {
+      "light": "openidea/fileTypes/lock.svg",
+      "dark": "openidea/fileTypes/lock_dark.svg"
+    },
+    "file-license": {
+      "light": "openidea/fileTypes/license.svg",
+      "dark": "openidea/fileTypes/license_dark.svg"
+    },
+    "file-readme": {
+      "light": "openidea/fileTypes/readme.svg",
+      "dark": "openidea/fileTypes/readme_dark.svg"
+    },
+    "file-log": {
+      "light": "openidea/fileTypes/log.svg",
+      "dark": "openidea/fileTypes/log_dark.svg"
+    },
+    "file-http": {
+      "light": "expui/fileTypes/http.svg"
+    },
+    "file-regexp": {
+      "light": "expui/fileTypes/regexp.svg",
+      "dark": "expui/fileTypes/regexp_dark.svg"
+    },
+    "file-manifest": {
+      "light": "expui/fileTypes/manifest.svg",
+      "dark": "expui/fileTypes/manifest_dark.svg"
+    },
+    "file-idl": {
+      "light": "expui/fileTypes/idl.svg",
+      "dark": "expui/fileTypes/idl_dark.svg"
+    },
+    "toolwindow-project": {
+      "light": "expui/toolwindows/project.svg",
+      "dark": "expui/toolwindows/project_dark.svg",
+      "large": "expui/toolwindows/project@20x20.svg",
+      "largeDark": "expui/toolwindows/project@20x20_dark.svg"
+    },
+    "toolwindow-structure": {
+      "light": "expui/toolwindows/structure.svg",
+      "dark": "expui/toolwindows/structure_dark.svg",
+      "large": "expui/toolwindows/structure@20x20.svg",
+      "largeDark": "expui/toolwindows/structure@20x20_dark.svg"
+    },
+    "toolwindow-hierarchy": {
+      "light": "expui/toolwindows/hierarchy.svg",
+      "dark": "expui/toolwindows/hierarchy_dark.svg",
+      "large": "expui/toolwindows/hierarchy@20x20.svg",
+      "largeDark": "expui/toolwindows/hierarchy@20x20_dark.svg"
+    },
+    "toolwindow-find": {
+      "light": "expui/toolwindows/find.svg",
+      "dark": "expui/toolwindows/find_dark.svg",
+      "large": "expui/toolwindows/find@20x20.svg",
+      "largeDark": "expui/toolwindows/find@20x20_dark.svg"
+    },
+    "toolwindow-usages": {
+      "light": "expui/actions/findEntireFile.svg",
+      "dark": "expui/actions/findEntireFile_dark.svg"
+    },
+    "toolwindow-bookmarks": {
+      "light": "expui/toolwindows/bookmarks.svg",
+      "dark": "expui/toolwindows/bookmarks_dark.svg",
+      "large": "expui/toolwindows/bookmarks@20x20.svg",
+      "largeDark": "expui/toolwindows/bookmarks@20x20_dark.svg"
+    },
+    "toolwindow-commit": {
+      "light": "expui/toolwindows/commit.svg",
+      "dark": "expui/toolwindows/commit_dark.svg",
+      "large": "expui/toolwindows/commit@20x20.svg",
+      "largeDark": "expui/toolwindows/commit@20x20_dark.svg"
+    },
+    "toolwindow-git": {
+      "light": "expui/toolwindows/vcs.svg",
+      "dark": "expui/toolwindows/vcs_dark.svg",
+      "large": "expui/toolwindows/vcs@20x20.svg",
+      "largeDark": "expui/toolwindows/vcs@20x20_dark.svg"
+    },
+    "toolwindow-terminal": {
+      "light": "expui/toolwindows/terminal.svg",
+      "dark": "expui/toolwindows/terminal_dark.svg",
+      "large": "expui/toolwindows/terminal@20x20.svg",
+      "largeDark": "expui/toolwindows/terminal@20x20_dark.svg"
+    },
+    "toolwindow-run": {
+      "light": "expui/toolwindows/run.svg",
+      "dark": "expui/toolwindows/run_dark.svg",
+      "large": "expui/toolwindows/run@20x20.svg",
+      "largeDark": "expui/toolwindows/run@20x20_dark.svg"
+    },
+    "toolwindow-debug": {
+      "light": "expui/toolwindows/debug.svg",
+      "dark": "expui/toolwindows/debug_dark.svg",
+      "large": "expui/toolwindows/debug@20x20.svg",
+      "largeDark": "expui/toolwindows/debug@20x20_dark.svg"
+    },
+    "toolwindow-problems": {
+      "light": "expui/toolwindows/problems.svg",
+      "dark": "expui/toolwindows/problems_dark.svg",
+      "large": "expui/toolwindows/problems@20x20.svg",
+      "largeDark": "expui/toolwindows/problems@20x20_dark.svg"
+    },
+    "toolwindow-todo": {
+      "light": "expui/toolwindows/todo.svg",
+      "dark": "expui/toolwindows/todo_dark.svg",
+      "large": "expui/toolwindows/todo@20x20.svg",
+      "largeDark": "expui/toolwindows/todo@20x20_dark.svg"
+    },
+    "toolwindow-notifications": {
+      "light": "expui/toolwindows/notifications.svg",
+      "dark": "expui/toolwindows/notifications_dark.svg",
+      "large": "expui/toolwindows/notifications@20x20.svg",
+      "largeDark": "expui/toolwindows/notifications@20x20_dark.svg"
+    },
+    "toolwindow-services": {
+      "light": "expui/toolwindows/services.svg",
+      "dark": "expui/toolwindows/services_dark.svg",
+      "large": "expui/toolwindows/services@20x20.svg",
+      "largeDark": "expui/toolwindows/services@20x20_dark.svg"
+    },
+    "toolwindow-pull-requests": {
+      "light": "expui/toolwindows/pullRequests.svg",
+      "dark": "expui/toolwindows/pullRequests_dark.svg"
+    },
+    "toolwindow-inspection": {
+      "light": "expui/toolwindows/toolWindowInspection.svg",
+      "dark": "expui/toolwindows/toolWindowInspection_dark.svg",
+      "large": "expui/toolwindows/toolWindowInspection@20x20.svg",
+      "largeDark": "expui/toolwindows/toolWindowInspection@20x20_dark.svg"
+    },
+    "toolwindow-duplicates": {
+      "light": "expui/toolwindows/toolWindowDuplicates.svg",
+      "dark": "expui/toolwindows/toolWindowDuplicates_dark.svg",
+      "large": "expui/toolwindows/toolWindowDuplicates@20x20.svg",
+      "largeDark": "expui/toolwindows/toolWindowDuplicates@20x20_dark.svg"
+    },
+    "toolwindow-changes": {
+      "light": "expui/toolwindows/changes.svg",
+      "dark": "expui/toolwindows/changes_dark.svg",
+      "large": "expui/toolwindows/changes@20x20.svg",
+      "largeDark": "expui/toolwindows/changes@20x20_dark.svg"
+    },
+    "toolwindow-database": {
+      "light": "openidea/toolwindows/database.svg",
+      "large": "openidea/toolwindows/database@20x20.svg"
+    },
+    "toolwindow-agents": {
+      "light": "openidea/toolwindows/agents.svg",
+      "large": "openidea/toolwindows/agents@20x20.svg"
+    },
+    "toolwindow-graphql": {
+      "light": "openidea/toolwindows/graphql.svg",
+      "large": "openidea/toolwindows/graphql@20x20.svg"
+    },
+    "agent-claude": {
+      "light": "openidea/agents/claude.svg"
+    },
+    "agent-codex": {
+      "light": "openidea/agents/codex.svg",
+      "dark": "openidea/agents/codex_dark.svg"
+    },
+    "agent-gemini": {
+      "light": "openidea/agents/gemini.svg"
+    },
+    "agent-copilot": {
+      "light": "openidea/agents/copilot.svg",
+      "dark": "openidea/agents/copilot_dark.svg"
+    },
+    "agent-cursor": {
+      "light": "openidea/agents/cursor.svg",
+      "dark": "openidea/agents/cursor_dark.svg"
+    },
+    "agent-opencode": {
+      "light": "openidea/agents/opencode.svg",
+      "dark": "openidea/agents/opencode_dark.svg"
+    },
+    "agent-qwen": {
+      "light": "openidea/agents/qwen.svg"
+    },
+    "agent-kimi": {
+      "light": "openidea/agents/kimi.svg",
+      "dark": "openidea/agents/kimi_dark.svg"
+    },
+    "agent-goose": {
+      "light": "openidea/agents/goose.svg",
+      "dark": "openidea/agents/goose_dark.svg"
+    },
+    "agent-auggie": {
+      "light": "openidea/agents/auggie.svg",
+      "dark": "openidea/agents/auggie_dark.svg"
+    },
+    "agent-kiro": {
+      "light": "openidea/agents/kiro.svg"
+    },
+    "agent-vibe": {
+      "light": "openidea/agents/vibe.svg"
+    },
+    "toolwindow-maven": {
+      "light": "expui/toolwindows/maven.svg",
+      "dark": "expui/toolwindows/maven_dark.svg",
+      "large": "expui/toolwindows/maven@20x20.svg",
+      "largeDark": "expui/toolwindows/maven@20x20_dark.svg"
+    },
+    "toolwindow-gradle": {
+      "light": "expui/toolwindows/gradle.svg",
+      "dark": "expui/toolwindows/gradle_dark.svg",
+      "large": "expui/toolwindows/gradle@20x20.svg",
+      "largeDark": "expui/toolwindows/gradle@20x20_dark.svg"
+    },
+    "toolwindow-build": {
+      "light": "expui/toolwindows/build.svg",
+      "dark": "expui/toolwindows/build_dark.svg",
+      "large": "expui/toolwindows/build@20x20.svg",
+      "largeDark": "expui/toolwindows/build@20x20_dark.svg"
+    },
+    "chevron-right": {
+      "light": "expui/general/chevronRight.svg",
+      "dark": "expui/general/chevronRight_dark.svg"
+    },
+    "chevron-down": {
+      "light": "expui/general/chevronDown.svg",
+      "dark": "expui/general/chevronDown_dark.svg"
+    },
+    "chevron-up": {
+      "light": "expui/general/chevronUp.svg",
+      "dark": "expui/general/chevronUp_dark.svg"
+    },
+    "chevron-left": {
+      "light": "expui/general/chevronLeft.svg",
+      "dark": "expui/general/chevronLeft_dark.svg"
+    },
+    "close": {
+      "light": "expui/general/close.svg",
+      "dark": "expui/general/close_dark.svg"
+    },
+    "plus": {
+      "light": "expui/general/add.svg",
+      "dark": "expui/general/add_dark.svg",
+      "large": "expui/general/add@20x20.svg",
+      "largeDark": "expui/general/add@20x20_dark.svg"
+    },
+    "minus": {
+      "light": "expui/general/remove.svg",
+      "dark": "expui/general/remove_dark.svg"
+    },
+    "check": {
+      "light": "expui/actions/checked.svg",
+      "dark": "expui/actions/checked_dark.svg"
+    },
+    "more": {
+      "light": "expui/general/moreVertical.svg",
+      "dark": "expui/general/moreVertical_dark.svg"
+    },
+    "more-horizontal": {
+      "light": "expui/general/moreHorizontal.svg",
+      "dark": "expui/general/moreHorizontal_dark.svg",
+      "large": "expui/general/moreHorizontal@20x20.svg",
+      "largeDark": "expui/general/moreHorizontal@20x20_dark.svg"
+    },
+    "search": {
+      "light": "expui/general/search.svg",
+      "dark": "expui/general/search_dark.svg",
+      "large": "expui/general/search@20x20.svg",
+      "largeDark": "expui/general/search@20x20_dark.svg"
+    },
+    "replace": {
+      "light": "expui/actions/replace.svg",
+      "dark": "expui/actions/replace_dark.svg"
+    },
+    "regex": {
+      "light": "expui/inline/regex.svg",
+      "dark": "expui/inline/regex_dark.svg"
+    },
+    "case": {
+      "light": "expui/inline/matchCase.svg",
+      "dark": "expui/inline/matchCase_dark.svg"
+    },
+    "word": {
+      "light": "expui/inline/exactWords.svg",
+      "dark": "expui/inline/exactWords_dark.svg"
+    },
+    "text-match": {
+      "light": "openidea/nodes/textMatch.svg"
+    },
+    "open-in-tool-window": {
+      "light": "expui/general/openInToolWindow.svg",
+      "dark": "expui/general/openInToolWindow_dark.svg"
+    },
+    "preserve-case": {
+      "light": "expui/inline/preserveCase.svg",
+      "dark": "expui/inline/preserveCase_dark.svg"
+    },
+    "new-line": {
+      "light": "expui/inline/newLine.svg",
+      "dark": "expui/inline/newLine_dark.svg"
+    },
+    "search-history": {
+      "light": "expui/inline/searchHistory.svg",
+      "dark": "expui/inline/searchHistory_dark.svg"
+    },
+    "filter": {
+      "light": "expui/general/filter.svg",
+      "dark": "expui/general/filter_dark.svg"
+    },
+    "refresh": {
+      "light": "expui/general/refresh.svg",
+      "dark": "expui/general/refresh_dark.svg"
+    },
+    "settings": {
+      "light": "expui/general/settings.svg",
+      "dark": "expui/general/settings_dark.svg",
+      "large": "expui/general/settings@20x20.svg",
+      "largeDark": "expui/general/settings@20x20_dark.svg"
+    },
+    "help": {
+      "light": "openidea/general/help.svg"
+    },
+    "page-first": {
+      "light": "openidea/general/pageFirst.svg"
+    },
+    "page-last": {
+      "light": "openidea/general/pageLast.svg"
+    },
+    "sliders": {
+      "light": "openidea/general/sliders.svg"
+    },
+    "graphql-variables": {
+      "light": "openidea/general/graphqlVariables.svg",
+      "dark": "openidea/general/graphqlVariables_dark.svg"
+    },
+    "layout": {
+      "light": "expui/general/layout.svg",
+      "dark": "expui/general/layout_dark.svg"
+    },
+    "split": {
+      "light": "expui/general/splitVertically.svg",
+      "dark": "expui/general/splitVertically_dark.svg"
+    },
+    "split-horizontal": {
+      "light": "expui/general/splitHorizontally.svg",
+      "dark": "expui/general/splitHorizontally_dark.svg"
+    },
+    "editor-only": {
+      "light": "expui/general/editorOnly.svg",
+      "dark": "expui/general/editorOnly_dark.svg"
+    },
+    "editor-preview": {
+      "light": "expui/general/editorPreview.svg",
+      "dark": "expui/general/editorPreview_dark.svg"
+    },
+    "preview-only": {
+      "light": "expui/general/previewOnly.svg",
+      "dark": "expui/general/previewOnly_dark.svg"
+    },
+    "maximize": {
+      "light": "expui/image/fitContent.svg",
+      "dark": "expui/image/fitContent_dark.svg"
+    },
+    "zoom-in": {
+      "light": "openidea/general/zoomIn.svg"
+    },
+    "zoom-out": {
+      "light": "openidea/general/zoomOut.svg"
+    },
+    "actual-size": {
+      "light": "openidea/general/actualZoom.svg"
+    },
+    "chessboard": {
+      "light": "openidea/general/chessboard.svg"
+    },
+    "minimize": {
+      "light": "expui/general/openInToolWindow.svg",
+      "dark": "expui/general/openInToolWindow_dark.svg"
+    },
+    "main-menu": {
+      "light": "openidea/general/mainMenu.svg"
+    },
+    "window-minimize": {
+      "light": "openidea/general/windowMinimize.svg"
+    },
+    "window-maximize": {
+      "light": "openidea/general/windowMaximize.svg"
+    },
+    "window-restore": {
+      "light": "openidea/general/windowRestore.svg"
+    },
+    "window-close": {
+      "light": "openidea/general/windowClose.svg"
+    },
+    "hide": {
+      "light": "expui/general/hide.svg",
+      "dark": "expui/general/hide_dark.svg"
+    },
+    "pin": {
+      "light": "expui/general/pin.svg",
+      "dark": "expui/general/pin_dark.svg"
+    },
+    "eye": {
+      "light": "expui/general/show.svg",
+      "dark": "expui/general/show_dark.svg"
+    },
+    "show-read-access": {
+      "light": "expui/actions/showReadAccess.svg",
+      "dark": "expui/actions/showReadAccess_dark.svg"
+    },
+    "show-write-access": {
+      "light": "expui/actions/showWriteAccess.svg",
+      "dark": "expui/actions/showWriteAccess_dark.svg"
+    },
+    "lock": {
+      "light": "expui/general/locked.svg",
+      "dark": "expui/general/locked_dark.svg"
+    },
+    "unlock": {
+      "light": "openidea/general/unlocked.svg"
+    },
+    "scratches": {
+      "light": "expui/fileTypes/scratches.svg",
+      "dark": "expui/fileTypes/scratches_dark.svg"
+    },
+    "external-link": {
+      "light": "expui/ide/externalLink.svg",
+      "dark": "expui/ide/externalLink_dark.svg"
+    },
+    "collapse-all": {
+      "light": "expui/general/collapseAll.svg",
+      "dark": "expui/general/collapseAll_dark.svg"
+    },
+    "expand-all": {
+      "light": "expui/general/expandAll.svg",
+      "dark": "expui/general/expandAll_dark.svg"
+    },
+    "locate": {
+      "light": "expui/general/locate.svg",
+      "dark": "expui/general/locate_dark.svg"
+    },
+    "autoscroll-to-source": {
+      "light": "expui/general/autoscrollToSource.svg",
+      "dark": "expui/general/autoscrollToSource_dark.svg"
+    },
+    "autoscroll-from-source": {
+      "light": "expui/general/autoscrollFromSource.svg",
+      "dark": "expui/general/autoscrollFromSource_dark.svg"
+    },
+    "sort": {
+      "light": "expui/objectBrowser/sortAlphabetically.svg",
+      "dark": "expui/objectBrowser/sortAlphabetically_dark.svg"
+    },
+    "copy": {
+      "light": "expui/general/copy.svg",
+      "dark": "expui/general/copy_dark.svg"
+    },
+    "paste": {
+      "light": "expui/general/paste.svg",
+      "dark": "expui/general/paste_dark.svg"
+    },
+    "cut": {
+      "light": "expui/general/cut.svg",
+      "dark": "expui/general/cut_dark.svg"
+    },
+    "trash": {
+      "light": "expui/general/delete.svg",
+      "dark": "expui/general/delete_dark.svg"
+    },
+    "edit": {
+      "light": "expui/general/edit.svg",
+      "dark": "expui/general/edit_dark.svg"
+    },
+    "arrow-left": {
+      "light": "expui/general/left.svg",
+      "dark": "expui/general/left_dark.svg"
+    },
+    "arrow-right": {
+      "light": "expui/general/right.svg",
+      "dark": "expui/general/right_dark.svg"
+    },
+    "arrow-up": {
+      "light": "expui/general/up.svg",
+      "dark": "expui/general/up_dark.svg"
+    },
+    "arrow-down": {
+      "light": "expui/general/down.svg",
+      "dark": "expui/general/down_dark.svg"
+    },
+    "undo": {
+      "light": "expui/general/undo.svg",
+      "dark": "expui/general/undo_dark.svg"
+    },
+    "redo": {
+      "light": "expui/general/redo.svg",
+      "dark": "expui/general/redo_dark.svg"
+    },
+    "sun": {
+      "light": "expui/meetNewUi/lightTheme.svg",
+      "dark": "expui/meetNewUi/lightTheme_dark.svg"
+    },
+    "moon": {
+      "light": "expui/meetNewUi/darkTheme.svg",
+      "dark": "expui/meetNewUi/darkTheme_dark.svg"
+    },
+    "list": {
+      "light": "expui/general/listFiles.svg",
+      "dark": "expui/general/listFiles_dark.svg"
+    },
+    "keyboard": {
+      "light": "expui/general/keyboard.svg",
+      "dark": "expui/general/keyboard_dark.svg"
+    },
+    "bulb": {
+      "light": "expui/codeInsight/intentionBulb.svg",
+      "dark": "expui/codeInsight/intentionBulb_dark.svg"
+    },
+    "bulb-fix": {
+      "light": "expui/codeInsight/quickfixBulb.svg",
+      "dark": "expui/codeInsight/quickfixBulb_dark.svg"
+    },
+    "package": {
+      "light": "expui/nodes/package.svg",
+      "dark": "expui/nodes/package_dark.svg"
+    },
+    "plugin": {
+      "light": "expui/nodes/plugin.svg",
+      "dark": "expui/nodes/plugin_dark.svg"
+    },
+    "soft-wrap": {
+      "light": "expui/general/softWrap.svg",
+      "dark": "expui/general/softWrap_dark.svg"
+    },
+    "history": {
+      "light": "expui/general/history.svg",
+      "dark": "expui/general/history_dark.svg"
+    },
+    "clock": {
+      "light": "expui/general/history.svg",
+      "dark": "expui/general/history_dark.svg"
+    },
+    "bell": {
+      "light": "expui/toolwindows/notifications.svg",
+      "dark": "expui/toolwindows/notifications_dark.svg",
+      "large": "expui/toolwindows/notifications@20x20.svg",
+      "largeDark": "expui/toolwindows/notifications@20x20_dark.svg"
+    },
+    "database": {
+      "light": "expui/nodes/dataTables.svg",
+      "dark": "expui/nodes/dataTables_dark.svg"
+    },
+    "db-table": {
+      "light": "openidea/database/table.svg"
+    },
+    "db-view": {
+      "light": "openidea/database/view.svg"
+    },
+    "db-column": {
+      "light": "openidea/database/column.svg"
+    },
+    "db-columns": {
+      "light": "openidea/database/columns.svg"
+    },
+    "db-column-key": {
+      "light": "openidea/database/columnKey.svg",
+      "dark": "openidea/database/columnKey_dark.svg"
+    },
+    "db-column-fk": {
+      "light": "openidea/database/columnForeignKey.svg",
+      "dark": "openidea/database/columnForeignKey_dark.svg"
+    },
+    "db-key": {
+      "light": "openidea/database/key.svg",
+      "dark": "openidea/database/key_dark.svg"
+    },
+    "db-foreign-key": {
+      "light": "openidea/database/foreignKey.svg",
+      "dark": "openidea/database/foreignKey_dark.svg"
+    },
+    "db-index": {
+      "light": "openidea/database/index.svg"
+    },
+    "db-schema": {
+      "light": "openidea/database/schema.svg"
+    },
+    "db-console": {
+      "light": "openidea/database/console.svg"
+    },
+    "db-matview": {
+      "light": "openidea/database/matview.svg"
+    },
+    "db-routine": {
+      "light": "openidea/database/routine.svg"
+    },
+    "db-trigger": {
+      "light": "openidea/database/trigger.svg"
+    },
+    "db-sequence": {
+      "light": "openidea/database/sequence.svg"
+    },
+    "db-plan": {
+      "light": "openidea/database/plan.svg"
+    },
+    "db-chart": {
+      "light": "openidea/database/chart.svg"
+    },
+    "db-sort": {
+      "light": "openidea/database/sort.svg"
+    },
+    "db-folder": {
+      "light": "openidea/database/folder.svg",
+      "dark": "openidea/database/folder_dark.svg"
+    },
+    "db-add": {
+      "light": "openidea/database/addDropdown.svg"
+    },
+    "db-properties": {
+      "light": "openidea/database/dataSourceProperties.svg",
+      "dark": "openidea/database/dataSourceProperties_dark.svg"
+    },
+    "db-disconnect": {
+      "light": "openidea/database/disconnect.svg",
+      "dark": "openidea/database/disconnect_dark.svg"
+    },
+    "db-sqlite": {
+      "light": "openidea/database/sqlite.svg",
+      "dark": "openidea/database/sqlite_dark.svg"
+    },
+    "db-postgres": {
+      "light": "openidea/database/postgres.svg",
+      "dark": "openidea/database/postgres_dark.svg"
+    },
+    "db-clickhouse": {
+      "light": "openidea/database/clickhouse.svg"
+    },
+    "db-mysql": {
+      "light": "openidea/database/mysql.svg",
+      "dark": "openidea/database/mysql_dark.svg"
+    },
+    "db-sqlserver": {
+      "light": "openidea/database/sqlserver.svg",
+      "dark": "openidea/database/sqlserver_dark.svg"
+    },
+    "db-oracle": {
+      "light": "openidea/database/oracle.svg"
+    },
+    "db-mariadb": {
+      "light": "openidea/database/mariadb.svg"
+    },
+    "db-aurora": {
+      "light": "openidea/database/aurora.svg"
+    },
+    "db-redshift": {
+      "light": "openidea/database/redshift.svg"
+    },
+    "db-cockroach": {
+      "light": "openidea/database/cockroach.svg"
+    },
+    "db-greenplum": {
+      "light": "openidea/database/greenplum.svg"
+    },
+    "db-neon": {
+      "light": "openidea/database/neon.svg"
+    },
+    "db-oceanbase": {
+      "light": "openidea/database/oceanbase.svg"
+    },
+    "db-singlestore": {
+      "light": "openidea/database/singlestore.svg"
+    },
+    "db-supabase": {
+      "light": "openidea/database/supabase.svg"
+    },
+    "db-tidb": {
+      "light": "openidea/database/tidb.svg"
+    },
+    "db-timescale": {
+      "light": "openidea/database/timescale.svg"
+    },
+    "db-yugabyte": {
+      "light": "openidea/database/yugabyte.svg"
+    },
+    "export": {
+      "light": "openidea/general/export.svg"
+    },
+    "web": {
+      "light": "openidea/general/web.svg",
+      "dark": "openidea/general/web_dark.svg"
+    },
+    "browser-chrome": {
+      "light": "openidea/browsers/chrome.svg"
+    },
+    "browser-chromium": {
+      "light": "openidea/browsers/chromium.svg"
+    },
+    "browser-firefox": {
+      "light": "openidea/browsers/firefox.svg"
+    },
+    "browser-safari": {
+      "light": "openidea/browsers/safari.svg"
+    },
+    "browser-edge": {
+      "light": "openidea/browsers/edge.svg"
+    },
+    "browser-brave": {
+      "light": "openidea/browsers/brave.svg"
+    },
+    "structure": {
+      "light": "expui/toolwindows/structure.svg",
+      "dark": "expui/toolwindows/structure_dark.svg",
+      "large": "expui/toolwindows/structure@20x20.svg",
+      "largeDark": "expui/toolwindows/structure@20x20_dark.svg"
+    },
+    "hierarchy": {
+      "light": "expui/toolwindows/hierarchy.svg",
+      "dark": "expui/toolwindows/hierarchy_dark.svg",
+      "large": "expui/toolwindows/hierarchy@20x20.svg",
+      "largeDark": "expui/toolwindows/hierarchy@20x20_dark.svg"
+    },
+    "terminal": {
+      "light": "expui/toolwindows/terminal.svg",
+      "dark": "expui/toolwindows/terminal_dark.svg",
+      "large": "expui/toolwindows/terminal@20x20.svg",
+      "largeDark": "expui/toolwindows/terminal@20x20_dark.svg"
+    },
+    "problems": {
+      "light": "expui/toolwindows/problems.svg",
+      "dark": "expui/toolwindows/problems_dark.svg",
+      "large": "expui/toolwindows/problems@20x20.svg",
+      "largeDark": "expui/toolwindows/problems@20x20_dark.svg"
+    },
+    "todo": {
+      "light": "expui/toolwindows/todo.svg",
+      "dark": "expui/toolwindows/todo_dark.svg",
+      "large": "expui/toolwindows/todo@20x20.svg",
+      "largeDark": "expui/toolwindows/todo@20x20_dark.svg"
+    },
+    "bookmark": {
+      "light": "expui/bookmarks/bookmark.svg",
+      "dark": "expui/bookmarks/bookmark_dark.svg"
+    },
+    "error": {
+      "light": "expui/status/error.svg",
+      "dark": "expui/status/error_dark.svg"
+    },
+    "warning": {
+      "light": "expui/status/warning.svg",
+      "dark": "expui/status/warning_dark.svg"
+    },
+    "info": {
+      "light": "expui/status/info.svg",
+      "dark": "expui/status/info_dark.svg"
+    },
+    "success": {
+      "light": "expui/status/success.svg",
+      "dark": "expui/status/success_dark.svg"
+    },
+    "run": {
+      "light": "expui/run/run.svg",
+      "dark": "expui/run/run_dark.svg"
+    },
+    "debug": {
+      "light": "expui/run/debug.svg",
+      "dark": "expui/run/debug_dark.svg"
+    },
+    "run-coverage": {
+      "light": "expui/run/runWithCoverage.svg",
+      "dark": "expui/run/runWithCoverage_dark.svg"
+    },
+    "profile": {
+      "light": "expui/run/profile.svg",
+      "dark": "expui/run/profile_dark.svg"
+    },
+    "toolwindow-coverage": {
+      "light": "expui/toolwindows/coverage.svg",
+      "dark": "expui/toolwindows/coverage_dark.svg",
+      "large": "expui/toolwindows/coverage@20x20.svg",
+      "largeDark": "expui/toolwindows/coverage@20x20_dark.svg"
+    },
+    "toolwindow-profiler": {
+      "light": "expui/toolwindows/profiler.svg",
+      "dark": "expui/toolwindows/profiler_dark.svg",
+      "large": "expui/toolwindows/profiler@20x20.svg",
+      "largeDark": "expui/toolwindows/profiler@20x20_dark.svg"
+    },
+    "toolwindow-logcat": {
+      "light": "openidea/fileTypes/log.svg",
+      "dark": "openidea/fileTypes/log_dark.svg"
+    },
+    "gutter-run": {
+      "light": "expui/gutter/run.svg",
+      "dark": "expui/gutter/run_dark.svg"
+    },
+    "gutter-run-all": {
+      "light": "expui/actions/runAll.svg",
+      "dark": "expui/actions/runAll_dark.svg"
+    },
+    "gutter-run-passed": {
+      "light": "expui/gutter/runSuccess.svg",
+      "dark": "expui/gutter/runSuccess_dark.svg"
+    },
+    "gutter-run-failed": {
+      "light": "expui/gutter/runError.svg",
+      "dark": "expui/gutter/runError_dark.svg"
+    },
+    "gutter-implemented": {
+      "light": "expui/gutter/implementedMethod.svg",
+      "dark": "expui/gutter/implementedMethod_dark.svg"
+    },
+    "gutter-implementing": {
+      "light": "expui/gutter/implementingMethod.svg",
+      "dark": "expui/gutter/implementingMethod_dark.svg"
+    },
+    "gutter-overridden": {
+      "light": "expui/gutter/overridenMethod.svg",
+      "dark": "expui/gutter/overridenMethod_dark.svg"
+    },
+    "gutter-overriding": {
+      "light": "expui/gutter/overridingMethod.svg",
+      "dark": "expui/gutter/overridingMethod_dark.svg"
+    },
+    "stop": {
+      "light": "expui/run/stop.svg",
+      "dark": "expui/run/stop_dark.svg"
+    },
+    "rerun": {
+      "light": "expui/run/rerun.svg",
+      "dark": "expui/run/rerun_dark.svg"
+    },
+    "hot-reload": {
+      "light": "openidea/general/hotReload.svg"
+    },
+    "rerun-filled": {
+      "light": "expui/run/rerun_stroke.svg"
+    },
+    "restart-debug": {
+      "light": "expui/run/restartDebug.svg",
+      "dark": "expui/run/restartDebug_dark.svg"
+    },
+    "restart-debug-filled": {
+      "light": "expui/run/restartDebug_stroke.svg"
+    },
+    "stop-filled": {
+      "light": "expui/run/stop_stroke.svg"
+    },
+    "resume": {
+      "light": "expui/run/resume.svg",
+      "dark": "expui/run/resume_dark.svg"
+    },
+    "pause": {
+      "light": "expui/run/pause.svg",
+      "dark": "expui/run/pause_dark.svg"
+    },
+    "step-over": {
+      "light": "expui/run/stepOver.svg",
+      "dark": "expui/run/stepOver_dark.svg"
+    },
+    "step-into": {
+      "light": "expui/run/stepInto.svg",
+      "dark": "expui/run/stepInto_dark.svg"
+    },
+    "step-out": {
+      "light": "expui/run/stepOut.svg",
+      "dark": "expui/run/stepOut_dark.svg"
+    },
+    "run-to-cursor": {
+      "light": "expui/run/runToCursor.svg",
+      "dark": "expui/run/runToCursor_dark.svg"
+    },
+    "force-run-to-cursor": {
+      "light": "expui/run/forceRunToCursor.svg",
+      "dark": "expui/run/forceRunToCursor_dark.svg"
+    },
+    "force-step-into": {
+      "light": "expui/run/forceStepInto.svg",
+      "dark": "expui/run/forceStepInto_dark.svg"
+    },
+    "force-step-over": {
+      "light": "expui/run/forceStepOver.svg",
+      "dark": "expui/run/forceStepOver_dark.svg"
+    },
+    "smart-step-into": {
+      "light": "expui/run/smartStepInto.svg",
+      "dark": "expui/run/smartStepInto_dark.svg"
+    },
+    "show-execution-point": {
+      "light": "expui/run/showCurrentFrame.svg",
+      "dark": "expui/run/showCurrentFrame_dark.svg"
+    },
+    "reset-frame": {
+      "light": "expui/run/restartFrame.svg",
+      "dark": "expui/run/restartFrame_dark.svg"
+    },
+    "attach-to-process": {
+      "light": "expui/run/attachToProcess.svg",
+      "dark": "expui/run/attachToProcess_dark.svg"
+    },
+    "evaluate-expression": {
+      "light": "expui/run/evaluateExpression.svg",
+      "dark": "expui/run/evaluateExpression_dark.svg"
+    },
+    "breakpoint": {
+      "light": "expui/breakpoints/breakpoint.svg",
+      "dark": "expui/breakpoints/breakpoint_dark.svg"
+    },
+    "breakpoint-disabled": {
+      "light": "expui/breakpoints/breakpointDisabled.svg",
+      "dark": "expui/breakpoints/breakpointDisabled_dark.svg"
+    },
+    "breakpoint-muted": {
+      "light": "expui/breakpoints/breakpointMuted.svg",
+      "dark": "expui/breakpoints/breakpointMuted_dark.svg"
+    },
+    "breakpoint-method": {
+      "light": "expui/breakpoints/breakpointMethod.svg",
+      "dark": "expui/breakpoints/breakpointMethod_dark.svg"
+    },
+    "breakpoint-field": {
+      "light": "expui/breakpoints/breakpointField.svg",
+      "dark": "expui/breakpoints/breakpointField_dark.svg"
+    },
+    "breakpoint-exception": {
+      "light": "expui/breakpoints/breakpointException.svg",
+      "dark": "expui/breakpoints/breakpointException_dark.svg"
+    },
+    "mute-breakpoint": {
+      "light": "expui/run/muteBreakpoints.svg",
+      "dark": "expui/run/muteBreakpoints_dark.svg"
+    },
+    "view-breakpoints": {
+      "light": "expui/run/viewBreakpoints.svg",
+      "dark": "expui/run/viewBreakpoints_dark.svg"
+    },
+    "maven-project": {
+      "light": "expui/maven/mavenProject.svg",
+      "dark": "expui/maven/mavenProject_dark.svg"
+    },
+    "maven-module": {
+      "light": "expui/maven/mavenModule.svg",
+      "dark": "expui/maven/mavenModule_dark.svg"
+    },
+    "maven-goal": {
+      "light": "expui/maven/mavenGoal.svg",
+      "dark": "expui/maven/mavenGoal_dark.svg"
+    },
+    "maven-plugin": {
+      "light": "expui/maven/mavenPlugin.svg",
+      "dark": "expui/maven/mavenPlugin_dark.svg"
+    },
+    "maven-plugin-goal": {
+      "light": "expui/maven/mavenPluginGoal.svg",
+      "dark": "expui/maven/mavenPluginGoal_dark.svg"
+    },
+    "maven-profiles": {
+      "light": "expui/maven/mavenProfiles.svg",
+      "dark": "expui/maven/mavenProfiles_dark.svg"
+    },
+    "maven-load-changes": {
+      "light": "expui/maven/mavenLoadChanges.svg",
+      "dark": "expui/maven/mavenLoadChanges_dark.svg"
+    },
+    "gradle-load-changes": {
+      "light": "expui/build/gradleLoadChanges.svg",
+      "dark": "expui/build/gradleLoadChanges_dark.svg"
+    },
+    "build-task": {
+      "light": "expui/externalSystem/task.svg",
+      "dark": "expui/externalSystem/task_dark.svg"
+    },
+    "build-task-group": {
+      "light": "expui/build/taskGroup.svg",
+      "dark": "expui/build/taskGroup_dark.svg"
+    },
+    "build-offline": {
+      "light": "expui/build/toggleOfflineMode.svg",
+      "dark": "expui/build/toggleOfflineMode_dark.svg"
+    },
+    "build-dependencies": {
+      "light": "expui/build/dependencyAnalyzer.svg",
+      "dark": "expui/build/dependencyAnalyzer_dark.svg"
+    },
+    "build-project": {
+      "light": "expui/build/build.svg",
+      "dark": "expui/build/build_dark.svg"
+    },
+    "build-rebuild": {
+      "light": "expui/build/rebuild.svg",
+      "dark": "expui/build/rebuild_dark.svg"
+    },
+    "skip-tests": {
+      "light": "expui/run/showIgnored.svg",
+      "dark": "expui/run/showIgnored_dark.svg"
+    },
+    "run-anything": {
+      "light": "expui/general/runAnything.svg",
+      "dark": "expui/general/runAnything_dark.svg"
+    },
+    "library": {
+      "light": "expui/nodes/library.svg",
+      "dark": "expui/nodes/library_dark.svg"
+    },
+    "commit": {
+      "light": "expui/vcs/commit.svg",
+      "dark": "expui/vcs/commit_dark.svg"
+    },
+    "resolve-continue": {
+      "light": "expui/vcs/resolveContinue.svg",
+      "dark": "expui/vcs/resolveContinue_dark.svg"
+    },
+    "vcs-abort": {
+      "light": "expui/vcs/abort.svg",
+      "dark": "expui/vcs/abort_dark.svg"
+    },
+    "branch": {
+      "light": "expui/general/vcs.svg",
+      "dark": "expui/general/vcs_dark.svg"
+    },
+    "git-pull": {
+      "light": "expui/vcs/update.svg",
+      "dark": "expui/vcs/update_dark.svg",
+      "large": "expui/vcs/update@20x20.svg",
+      "largeDark": "expui/vcs/update@20x20_dark.svg"
+    },
+    "git-push": {
+      "light": "expui/vcs/push.svg",
+      "dark": "expui/vcs/push_dark.svg",
+      "large": "expui/vcs/push@20x20.svg",
+      "largeDark": "expui/vcs/push@20x20_dark.svg"
+    },
+    "git-fetch": {
+      "light": "expui/vcs/fetch.svg",
+      "dark": "expui/vcs/fetch_dark.svg",
+      "large": "expui/vcs/fetch@20x20.svg",
+      "largeDark": "expui/vcs/fetch@20x20_dark.svg"
+    },
+    "vcs-incoming": {
+      "light": "expui/vcs/changesUpdate@12x12.svg",
+      "dark": "expui/vcs/changesUpdate@12x12_dark.svg"
+    },
+    "vcs-outgoing": {
+      "light": "expui/vcs/changesPush@12x12.svg",
+      "dark": "expui/vcs/changesPush@12x12_dark.svg"
+    },
+    "diff": {
+      "light": "expui/vcs/diff.svg",
+      "dark": "expui/vcs/diff_dark.svg"
+    },
+    "revert": {
+      "light": "expui/vcs/revert.svg",
+      "dark": "expui/vcs/revert_dark.svg"
+    },
+    "diff-apply-left": {
+      "light": "expui/diff/applyNotConflictsLeft.svg",
+      "dark": "expui/diff/applyNotConflictsLeft_dark.svg"
+    },
+    "diff-apply-all": {
+      "light": "expui/diff/applyNotConflicts.svg",
+      "dark": "expui/diff/applyNotConflicts_dark.svg"
+    },
+    "diff-apply-right": {
+      "light": "expui/diff/applyNotConflictsRight.svg",
+      "dark": "expui/diff/applyNotConflictsRight_dark.svg"
+    },
+    "diff-arrow-right": {
+      "light": "expui/diff/arrowRight@14x14.svg",
+      "dark": "expui/diff/arrowRight@14x14_dark.svg"
+    },
+    "diff-arrow-left": {
+      "light": "expui/diff/arrow@14x14.svg",
+      "dark": "expui/diff/arrow@14x14_dark.svg"
+    },
+    "diff-arrow-right-down": {
+      "light": "expui/diff/arrowRightDown@14x14.svg",
+      "dark": "expui/diff/arrowRightDown@14x14_dark.svg"
+    },
+    "diff-arrow-left-down": {
+      "light": "expui/diff/arrowLeftDown@14x14.svg",
+      "dark": "expui/diff/arrowLeftDown@14x14_dark.svg"
+    },
+    "diff-magic": {
+      "light": "expui/diff/magicResolve@14x14.svg",
+      "dark": "expui/diff/magicResolve@14x14_dark.svg"
+    },
+    "diff-magic-toolbar": {
+      "light": "expui/diff/magicResolveToolbar.svg",
+      "dark": "expui/diff/magicResolveToolbar_dark.svg"
+    },
+    "diff-remove": {
+      "light": "expui/diff/remove@14x14.svg",
+      "dark": "expui/diff/remove@14x14_dark.svg"
+    },
+    "diff-revert": {
+      "light": "expui/diff/revert@14x14.svg",
+      "dark": "expui/diff/revert@14x14_dark.svg"
+    },
+    "shelve": {
+      "light": "expui/vcs/shelve.svg",
+      "dark": "expui/vcs/shelve_dark.svg"
+    },
+    "unshelve": {
+      "light": "expui/vcs/unshelve.svg",
+      "dark": "expui/vcs/unshelve_dark.svg"
+    },
+    "changelist": {
+      "light": "expui/vcs/changelist.svg",
+      "dark": "expui/vcs/changelist_dark.svg"
+    },
+    "stash": {
+      "light": "openidea/vcs/stash.svg",
+      "dark": "openidea/vcs/stash_dark.svg"
+    },
+    "star": {
+      "light": "openidea/vcs/favorite.svg",
+      "dark": "openidea/vcs/favorite_dark.svg"
+    },
+    "star-outline": {
+      "light": "openidea/vcs/notFavorite.svg",
+      "dark": "openidea/vcs/notFavorite_dark.svg"
+    },
+    "tag": {
+      "light": "openidea/vcs/tag.svg",
+      "dark": "openidea/vcs/tag_dark.svg"
+    },
+    "current-branch": {
+      "light": "openidea/vcs/currentBranch.svg",
+      "dark": "openidea/vcs/currentBranch_dark.svg"
+    },
+    "branch-label": {
+      "light": "expui/vcs/branchLabel.svg",
+      "dark": "expui/vcs/branchLabel_dark.svg"
+    },
+    "current-branch-label": {
+      "light": "expui/vcs/currentBranchLabel.svg",
+      "dark": "expui/vcs/currentBranchLabel_dark.svg"
+    },
+    "github": {
+      "light": "expui/vcs/vendors/github.svg",
+      "dark": "expui/vcs/vendors/github_dark.svg"
+    },
+    "github-pr-open": {
+      "light": "expui/github/pullRequestOpen.svg",
+      "dark": "expui/github/pullRequestOpen_dark.svg"
+    },
+    "github-pr-closed": {
+      "light": "expui/github/pullRequestClosed.svg",
+      "dark": "expui/github/pullRequestClosed_dark.svg"
+    },
+    "github-pr-draft": {
+      "light": "expui/github/pullRequestDraft.svg"
+    },
+    "github-pr-merged": {
+      "light": "expui/github/pullRequestMerged.svg"
+    },
+    "github-review": {
+      "light": "expui/github/review.svg"
+    },
+    "github-review-accepted": {
+      "light": "expui/github/reviewAccepted.svg"
+    },
+    "github-review-rejected": {
+      "light": "expui/github/reviewRejected.svg"
+    },
+    "github-timeline": {
+      "light": "expui/github/timeline.svg"
+    },
+    "github-issue-open": {
+      "light": "expui/github/issueOpened.svg"
+    },
+    "github-issue-closed": {
+      "light": "expui/github/issueClosed.svg"
+    },
+    "github-local-branch": {
+      "light": "expui/github/localBranch.svg",
+      "dark": "expui/github/localBranch_dark.svg"
+    },
+    "github-warning": {
+      "light": "expui/github/githubWarning.svg",
+      "dark": "expui/github/githubWarning_dark.svg"
+    },
+    "add-emoji": {
+      "light": "expui/github/addEmoji.svg",
+      "dark": "expui/github/addEmoji_dark.svg"
+    },
+    "add-emoji-hovered": {
+      "light": "expui/github/addEmojiHovered.svg"
+    },
+    "send": {
+      "light": "expui/github/send.svg"
+    },
+    "send-hovered": {
+      "light": "expui/github/sendHovered.svg"
+    },
+    "review-comment": {
+      "light": "expui/github/comment.svg",
+      "dark": "expui/github/comment_dark.svg"
+    },
+    "review-comment-unread": {
+      "light": "expui/github/review/commentUnread.svg",
+      "dark": "expui/github/review/commentUnread_dark.svg"
+    },
+    "review-comment-hovered": {
+      "light": "expui/github/review/commentHovered.svg"
+    },
+    "review-comment-read-many": {
+      "light": "expui/github/review/commentReadMany.svg",
+      "dark": "expui/github/review/commentReadMany_dark.svg"
+    },
+    "review-comment-unread-many": {
+      "light": "expui/github/review/commentUnreadMany.svg",
+      "dark": "expui/github/review/commentUnreadMany_dark.svg"
+    },
+    "review-file-unread": {
+      "light": "expui/github/review/fileUnread.svg",
+      "dark": "expui/github/review/fileUnread_dark.svg"
+    },
+    "review-default-avatar": {
+      "light": "expui/github/review/defaultAvatar.svg",
+      "dark": "expui/github/review/defaultAvatar_dark.svg"
+    },
+    "review-non-mergeable": {
+      "light": "expui/github/review/nonMergeable.svg"
+    },
+    "review-branch-current": {
+      "light": "expui/github/review/branchCurrent.svg"
+    },
+    "inline-add": {
+      "light": "expui/inline/inlineAdd.svg",
+      "dark": "expui/inline/inlineAdd_dark.svg"
+    },
+    "inline-add-hover": {
+      "light": "expui/inline/inlineAddHover.svg"
+    },
+    "edit-source": {
+      "light": "expui/actions/editSource.svg",
+      "dark": "expui/actions/editSource_dark.svg"
+    },
+    "green-checkmark": {
+      "light": "expui/general/greenCheckmark.svg",
+      "dark": "expui/general/greenCheckmark_dark.svg"
+    },
+    "ci-pending": {
+      "light": "expui/run/testNotRunYet.svg",
+      "dark": "expui/run/testNotRunYet_dark.svg"
+    },
+    "ci-failed": {
+      "light": "expui/run/testError.svg",
+      "dark": "expui/run/testError_dark.svg"
+    },
+    "ci-skipped": {
+      "light": "expui/run/testSkipped.svg",
+      "dark": "expui/run/testSkipped_dark.svg"
+    },
+    "ci-failed-in-progress": {
+      "light": "expui/status/failedInProgress.svg",
+      "dark": "expui/status/failedInProgress_dark.svg"
+    },
+    "class": {
+      "light": "expui/nodes/class.svg",
+      "dark": "expui/nodes/class_dark.svg"
+    },
+    "interface": {
+      "light": "expui/nodes/interface.svg",
+      "dark": "expui/nodes/interface_dark.svg"
+    },
+    "enum": {
+      "light": "expui/nodes/enum.svg",
+      "dark": "expui/nodes/enum_dark.svg"
+    },
+    "method": {
+      "light": "expui/nodes/method.svg",
+      "dark": "expui/nodes/method_dark.svg"
+    },
+    "function": {
+      "light": "expui/nodes/function.svg",
+      "dark": "expui/nodes/function_dark.svg"
+    },
+    "field": {
+      "light": "expui/nodes/field.svg",
+      "dark": "expui/nodes/field_dark.svg"
+    },
+    "variable": {
+      "light": "expui/nodes/variable.svg",
+      "dark": "expui/nodes/variable_dark.svg"
+    },
+    "symbol-class": {
+      "light": "expui/nodes/class.svg",
+      "dark": "expui/nodes/class_dark.svg"
+    },
+    "symbol-interface": {
+      "light": "expui/nodes/interface.svg",
+      "dark": "expui/nodes/interface_dark.svg"
+    },
+    "symbol-enum": {
+      "light": "expui/nodes/enum.svg",
+      "dark": "expui/nodes/enum_dark.svg"
+    },
+    "symbol-struct": {
+      "light": "expui/nodes/record.svg",
+      "dark": "expui/nodes/record_dark.svg"
+    },
+    "symbol-trait": {
+      "light": "expui/nodes/interface.svg",
+      "dark": "expui/nodes/interface_dark.svg"
+    },
+    "symbol-method": {
+      "light": "expui/nodes/method.svg",
+      "dark": "expui/nodes/method_dark.svg"
+    },
+    "symbol-function": {
+      "light": "expui/nodes/function.svg",
+      "dark": "expui/nodes/function_dark.svg"
+    },
+    "symbol-constructor": {
+      "light": "expui/nodes/constructor.svg",
+      "dark": "expui/nodes/constructor_dark.svg"
+    },
+    "symbol-field": {
+      "light": "expui/nodes/field.svg",
+      "dark": "expui/nodes/field_dark.svg"
+    },
+    "symbol-property": {
+      "light": "expui/nodes/property.svg",
+      "dark": "expui/nodes/property_dark.svg"
+    },
+    "symbol-variable": {
+      "light": "expui/nodes/variable.svg",
+      "dark": "expui/nodes/variable_dark.svg"
+    },
+    "symbol-constant": {
+      "light": "expui/nodes/constant.svg",
+      "dark": "expui/nodes/constant_dark.svg"
+    },
+    "symbol-parameter": {
+      "light": "expui/nodes/parameter.svg",
+      "dark": "expui/nodes/parameter_dark.svg"
+    },
+    "symbol-module": {
+      "light": "expui/nodes/module.svg",
+      "dark": "expui/nodes/module_dark.svg"
+    },
+    "symbol-namespace": {
+      "light": "expui/nodes/package.svg",
+      "dark": "expui/nodes/package_dark.svg"
+    },
+    "symbol-package": {
+      "light": "expui/nodes/package.svg",
+      "dark": "expui/nodes/package_dark.svg"
+    },
+    "symbol-type": {
+      "light": "expui/nodes/type.svg",
+      "dark": "expui/nodes/type_dark.svg"
+    },
+    "symbol-annotation": {
+      "light": "expui/nodes/annotation.svg",
+      "dark": "expui/nodes/annotation_dark.svg"
+    },
+    "symbol-snippet": {
+      "light": "expui/nodes/template.svg",
+      "dark": "expui/nodes/template_dark.svg"
+    },
+    "symbol-file": {
+      "light": "expui/fileTypes/text.svg",
+      "dark": "expui/fileTypes/text_dark.svg"
+    },
+    "symbol-text": {
+      "light": "expui/fileTypes/text.svg",
+      "dark": "expui/fileTypes/text_dark.svg"
+    }
+  },
+  "files": {
+    "expui/actions/checked.svg": "32f1b1562a36f4d26e2a04c874e4cd13acdc1f2668a85d8a7d6cca130d3121cf",
+    "expui/actions/checked_dark.svg": "5b95a6eee80202ea3d97c6f84a1bce62fcabc4d3fa0e7c2f5f2356a8801a1fac",
+    "expui/actions/editSource.svg": "0706aea63699c8c88356d517107d91cd4f706d3109e9880808cac2741ae8190a",
+    "expui/actions/editSource_dark.svg": "7f52b734568fbb10da7dfebd1315b949905bb5e3aee30b7956bf87661395c2fd",
+    "expui/actions/findEntireFile.svg": "b2fcef042ab8d2d0f4145dd4b8621f76c5e6517c89292f514ca17faab897e3e6",
+    "expui/actions/findEntireFile_dark.svg": "bf171f868fd9ac79e957f078366a9761f0758715d786ce68d2b56b941de0ec38",
+    "expui/actions/replace.svg": "ebd606f6a8c0f3f25e0c66693795474e01a0ca31f9af49e4c465429996dbc812",
+    "expui/actions/replace_dark.svg": "3fc0e3d7cbf03ef7f1c488056c9d2a921d8190200f3b30e9fc9c55937d8fa880",
+    "expui/actions/runAll.svg": "9815aff08d64e5d685a6bda10e0afc056c6fd8e53033bf73b977d37a5de03fa8",
+    "expui/actions/runAll_dark.svg": "64b6ea9de5b7d84f491069d3a54333c0010a7d67bac9a372ed8961b54e451d01",
+    "expui/actions/showReadAccess.svg": "df7ae8e09d35e2dcf6203ca7b360d82ce4e7f77c5dd5d071eb68504c2cc96c25",
+    "expui/actions/showReadAccess_dark.svg": "e02cd01c446b5a312b66326ca3f7bd9d1979c31ef8ee38d739e5d47e57d76410",
+    "expui/actions/showWriteAccess.svg": "1f325e2fc23ebf37a1e60c5e7d61581a988800f4fcee8966cc2311af4f8900da",
+    "expui/actions/showWriteAccess_dark.svg": "09ba150c7405d3cce7552931d861042c8e8382f8f42241de26fbc88399a0f8bd",
+    "expui/bookmarks/bookmark.svg": "672f9aa96bb563d6e8434a26af7808b5b12d06d72aa6c7c0065e7cb39e21b72e",
+    "expui/bookmarks/bookmark_dark.svg": "369e8268af711c1766d972214a0def2a7ba9b5cb38941c76251b026b81dd6f8a",
+    "expui/breakpoints/breakpoint.svg": "322977a0919249f3dbb2d82af17327c6c4073f57cfc91c3c7ac1653487214684",
+    "expui/breakpoints/breakpointDisabled.svg": "1893f90235dd9a3b1e368c227af3f2e3167b158f54255012971ce22fcd201f1c",
+    "expui/breakpoints/breakpointDisabled_dark.svg": "5239176501da64174722828806d7234103cc593df0a0d585ea8ccfe53c9800fd",
+    "expui/breakpoints/breakpointException.svg": "d42322770c5fd0e1d4723d2cdb2304c9af347debab153c4543a600f4529619f3",
+    "expui/breakpoints/breakpointException_dark.svg": "b81c72d278654bb9e37cba1974c86a0837ad1458319417b0ba3d327aff3860c3",
+    "expui/breakpoints/breakpointField.svg": "70fca4566820e62efd73eeeb9890c9b39274abfdc1b532fdb8791c42c5a1c07a",
+    "expui/breakpoints/breakpointField_dark.svg": "7abcebfe43fba6767cc996e91dd9edaa84a1b6773e71da636c43bd8ae477480b",
+    "expui/breakpoints/breakpointMethod.svg": "d4cf7656692f77eb8209f1885a4011cc2d4b880cfa83d94a0ad30682f11e7831",
+    "expui/breakpoints/breakpointMethod_dark.svg": "d4cf7656692f77eb8209f1885a4011cc2d4b880cfa83d94a0ad30682f11e7831",
+    "expui/breakpoints/breakpointMuted.svg": "bf959de7439fa83f64beea014df87c385aa959cbe723c5e3fc25937f5537f0d2",
+    "expui/breakpoints/breakpointMuted_dark.svg": "d2e53cf3cb4fc73b2a884f241c668fc668be05c40da3bde899c18ed7c7743af8",
+    "expui/breakpoints/breakpoint_dark.svg": "0c91cd7dc08645c44a607419b34f87566073dceb26b2d965a9e8d848b17860d9",
+    "expui/build/build.svg": "a8d2349c5bee1ff7637ae56481cd24ef1db350ac4f8c30687c5b80df05e14101",
+    "expui/build/build_dark.svg": "5f9054dcaf3460523273465c4fffc789a85cdf924a233d70c1548c7dddba04da",
+    "expui/build/dependencyAnalyzer.svg": "dd09160a829e62bcc8b5031588b759080559c9a8888a725bd5df8e43ed74c7f2",
+    "expui/build/dependencyAnalyzer_dark.svg": "f6f6a101deed4121677213ed746b93dda1819aec8b9b8af1da9310aaeb4fd8d0",
+    "expui/build/gradleLoadChanges.svg": "c041a4e66bf11632f88acb372a608b7235c9a1f6de5c8118fdd4e21dcc65390a",
+    "expui/build/gradleLoadChanges_dark.svg": "09b95b0fcdb8d8af5ecb21c5169ee81dcef9e225b4090eed1e51712ac7ddc0f9",
+    "expui/build/rebuild.svg": "9e691c33847cb880055232e06610c814f951c6436b2f5af574c3743005824265",
+    "expui/build/rebuild_dark.svg": "2fe98208f94166fbdda555b6a876cf2661ef2e09d7b28a501937cae3640faa4f",
+    "expui/build/taskGroup.svg": "4afc83fb489d9786c76ff2ab3e2fa396a4467ab67b9e4fb19449aeba6de663d4",
+    "expui/build/taskGroup_dark.svg": "cd140590b45de936493e5f0227cb0d7c92ac556bef2916e9b7c23a4a6a127ff8",
+    "expui/build/toggleOfflineMode.svg": "9ea56188004e212eb45d21953032678feaa71c75f81571a7f8d7c662334d0ea2",
+    "expui/build/toggleOfflineMode_dark.svg": "e26bf93350328fc3ed74e6bed10d1959158389b70bccb0a39765add75866c2e3",
+    "expui/codeInsight/intentionBulb.svg": "eb7f57a2fd40559dd4cb1bb3c96a522544375e34b42add06f8e2fadbb894e89f",
+    "expui/codeInsight/intentionBulb_dark.svg": "e568892fc828e4b19223ce8004a9bbfdf4d40edd67d969a35542f29abccbd217",
+    "expui/codeInsight/quickfixBulb.svg": "b3542459faad0817f8e35900cfc8b188d99bfe000d5f1565d17a8a7b9e209800",
+    "expui/codeInsight/quickfixBulb_dark.svg": "94b20b47d53330ff32e69b16a41c774588b9003ea6041a642896423a7819c349",
+    "expui/diff/applyNotConflicts.svg": "979f683ecaae3451c9724e3937e8e164f260077fee11633283a5b48a65237065",
+    "expui/diff/applyNotConflictsLeft.svg": "5966faa1a3f8904b0753beefff60a56e4a83e2c3eb83f41cd6f94d4d18d0d35e",
+    "expui/diff/applyNotConflictsLeft_dark.svg": "8fe91052a47d8d630271aa952667a5f34f6f1c9c5df0c31a9cd9d1135a12a58d",
+    "expui/diff/applyNotConflictsRight.svg": "371af557616c691770d2689a0c9a3d2aa5423d7d13e4637d6d3c75ceab97ce34",
+    "expui/diff/applyNotConflictsRight_dark.svg": "4eae205466d5a2443a55aa9d90afacc85b01e3fc36c0d8b82e85e52108186d2a",
+    "expui/diff/applyNotConflicts_dark.svg": "5ded98fb6ff57b93774cc1a88bae76c997c6558e692ec5d23c78dec0ee8a56b8",
+    "expui/diff/arrow@14x14.svg": "fb85fea5f3a2333925f7ee4a79454dbaab6ec0c74c800549fb7382c7e95a7196",
+    "expui/diff/arrow@14x14_dark.svg": "9ebc9312472453e478c283ef4f6c1d199c716c15df35e7e746d32afab4a5561d",
+    "expui/diff/arrowLeftDown@14x14.svg": "69cf3f0aa9a24137013b9d9803b8ea02f3aa1f8da42cb87ba396ff5927133125",
+    "expui/diff/arrowLeftDown@14x14_dark.svg": "a20e3c88eef046a5752165a4cc38aca377fd5a964f47180477b9eccb33819c03",
+    "expui/diff/arrowRight@14x14.svg": "ef4346f773e7fb9fea93553f37ba9ac5b0631a29c78de0aa927a80a0dba000a5",
+    "expui/diff/arrowRight@14x14_dark.svg": "d91c8b5c7c8b8a74f336430eb1c4847cbf8f0ee6c75afd5feef64b993a6718d8",
+    "expui/diff/arrowRightDown@14x14.svg": "a540344530c779751cd32b824dc1039f825dbfeb0e78b0bc45ede36f8ba6593d",
+    "expui/diff/arrowRightDown@14x14_dark.svg": "2e38c3b9b2b32dcebf5b3dffae4d9fa3c9b959744a857de911f9984fa24b52a5",
+    "expui/diff/magicResolve@14x14.svg": "37d7adba5e61b88f477dd2ce6f786761b3d392bbf1917e21d020745619d7380f",
+    "expui/diff/magicResolve@14x14_dark.svg": "3e0fb96dc66fe86ef49fc2f22d04de0a693b7d90f28ceeb10fa0e3ab0d7afc7f",
+    "expui/diff/magicResolveToolbar.svg": "62aee779b6a52a4614bceee66439c5d5c6953fd3974eabc732dc6383a5fdda33",
+    "expui/diff/magicResolveToolbar_dark.svg": "043752c3ae2d3de29254cdeb07a4e27a9b1afd1796e3398d5b9b78b3ce5190bd",
+    "expui/diff/remove@14x14.svg": "73fc7b3da6ce04e684443f6f51103313d43bbd1d45d7e2dd76e6aeb7e549cef0",
+    "expui/diff/remove@14x14_dark.svg": "3740bea587a861ac88b5309c67282683299ae3266f1ba091b82ffcd63f28ec25",
+    "expui/diff/revert@14x14.svg": "bb160291ee797732cb29096aa6fc46b804f95956c670a9dbebcda75893851952",
+    "expui/diff/revert@14x14_dark.svg": "9fea6f2741fec92c99878d1522dffb969900d2d1b662fc121f3e2e00ec102f1d",
+    "expui/docker/composeProjectStopped.svg": "db6ba742f78177ad62dd3cec83c80697e235a4c4b886b2f7a979353934a7881d",
+    "expui/docker/composeProjectStopped_dark.svg": "bca9bed2a9fd6e98b6324884e0ce40f5b75f7f2a14e089e5393ce41194872640",
+    "expui/docker/containersList.svg": "82da907c891ca4762040e205051534b06746dd2f7a7a13c125e8e2ce09b5cc79",
+    "expui/docker/containersList_dark.svg": "c7f53f5342a53c2e5c02fcf4bd9e25eb1b7955e5ddad1ae58e2f72d50e037429",
+    "expui/docker/containersRunning.svg": "610fb4ee561eb81d4a003311523a0ceae0020c1d125da626c5d8f720662adc0b",
+    "expui/docker/containersRunning_dark.svg": "2daae6ffe5e2cb27773d92bbc846e7be340c6708c8dca73b3238cc7d2186eab0",
+    "expui/docker/devContainers.svg": "b336f48d863abf610956932250e3f3245cd6872442f4188bfec64d58bc9c1700",
+    "expui/docker/devContainers_dark.svg": "0ef39c68ba9c048709de401994138df02f5bbec867c0bdef25decbe6ecf2ed6e",
+    "expui/docker/dockerComposeServiceStopped.svg": "0229beecf194f0a05b73cdc3e9d5ebf61d8b826a3fd186b011930bf32ba4501c",
+    "expui/docker/dockerComposeServiceStopped_dark.svg": "5d44a2c925d625cf060295fbdd067c03c66d84853ac1cbfc45dfae31d2064fd3",
+    "expui/docker/dockerComposeServiceUp.svg": "d775e7f49c0921454a8647f911d1f2cc3ed12776c50710b5bc425a3c63a67c75",
+    "expui/docker/dockerComposeServiceUp_dark.svg": "e05acfcb6ebd14b721bbe91e693f578c1ade018e53c637d3e375c9abec636720",
+    "expui/docker/dockerConnected.svg": "d07fcc452ce40a101dbbe8d5000a6bc77262c11adc54aaa5eb0e8e44528458d4",
+    "expui/docker/dockerConnected_dark.svg": "a227894edb9e10155923625a449eabb10d5b3191359ee9485f9046d2f57cafec",
+    "expui/docker/dockerRegistry.svg": "6eca30d67304b1b96a43767245d5b95b72fc281e82cd300ffbc9e9cd76186d7e",
+    "expui/docker/dockerRegistry_dark.svg": "76bfd5b66ac25e61d17203784e08cca59fe35052c78ae15eebbf8ab601f15a3d",
+    "expui/docker/imagesList.svg": "4e768bdd5df0d691d69a775bc9c9215258ea2e62b4c18ce4dda1ddbb8166d122",
+    "expui/docker/imagesList_dark.svg": "9438b2db0a9c804f627f669db9f65e392bec9ed1ba27553244310999e7b0604e",
+    "expui/docker/network.svg": "8f0c86f1554694085ff6d6fd74d4e2115986e2cd1257eab299a65b0ef846c59c",
+    "expui/docker/network_dark.svg": "24ffc5e75b5c1da3f221f0b9d48c73f418aa778f2b15962dcd8f77bf2988ff16",
+    "expui/docker/pullImage.svg": "238b90d0713e07b6a53b5793631c2499df08595511afa00128d5bd4c0a5d5c93",
+    "expui/docker/pullImage_dark.svg": "d43c2b68c5b67d749a51cfcacca8f76bb8c2fe11da28dfbf0e8c313a41e0b785",
+    "expui/docker/pushImage.svg": "1738fb2e445e404f059eff1ba0a2efec2b36d6e1e1fb178f73b94c840473040c",
+    "expui/docker/pushImage_dark.svg": "a5696add59a8700fc3394b3e625190df5ae1be82ffe41725ca66bfa8c652b742",
+    "expui/docker/singleImage.svg": "1cda0ab0cdade083bfab9c7118f09f7082b0eefa3d8332ebb0d4f97030f302ed",
+    "expui/docker/singleImage_dark.svg": "2da58e9fc827f1abffaacb12324728b56fe0ef4432beb7d0e3ff344e3a8bd333",
+    "expui/docker/singleRunningContainer.svg": "04812308401c864470bc111e0f4098464e9ae10186dc06dad5cfe9245f4051d4",
+    "expui/docker/singleRunningContainer_dark.svg": "05eea32171eb0cd86dad8a1355e1e20bff0fd683edba58d2f37704a593142285",
+    "expui/docker/singleStoppedContainer.svg": "a27fa7f946f912a6fbcf1e8f0d15f11548b2f0b16dd27a24bc59697968c6f8ab",
+    "expui/docker/singleStoppedContainer_dark.svg": "d2753a0c02fb0a9f9b2d7d7756af8d95c49c0ccc261437ddb1d9c14d223d02aa",
+    "expui/docker/volume.svg": "236552a44e56eec1839b41f67fd1e9dda30ee2915ee5dfc89444ba421acfd5f2",
+    "expui/docker/volume_dark.svg": "45d959baa799b63606c996ca99a83ca9c737f30994768638e3934719e5925e9c",
+    "expui/externalSystem/task.svg": "7e4c0a0f624b59dcff248df9587832b8dd3473ef0fb096980b546a21be7d4050",
+    "expui/externalSystem/task_dark.svg": "648d865882fd668d5ff84c304b95b1dd41d73dfa5350fe0262c866bf3a029921",
+    "expui/fileTypes/Csharp.svg": "457df8d67369dbdec038a625ba587907571ecac9c358cc015ff84faf0ac2a520",
+    "expui/fileTypes/Csharp_dark.svg": "9a31e1dd7a922f836de8e86dc4140ca9bcc60f1aa0d239f32d6792c52ddeaf5b",
+    "expui/fileTypes/anyType.svg": "84f25ca0b95385a01398724de4961dea418ded296cb9b6057c8bc56c8395380e",
+    "expui/fileTypes/anyType_dark.svg": "a19eb0ff01f168437059c603b5aa3a100e7ad484a6bd9eb83a8a1d038127d256",
+    "expui/fileTypes/archive.svg": "702005c0379a659c1f800d53531d81687064b80448615a05370a42190f13d768",
+    "expui/fileTypes/archive_dark.svg": "634dd0d18e9d12645c2d95c008bcec8252c9a2abdc3a7ccb8a53cd3a8060977b",
+    "expui/fileTypes/astro.svg": "4f94014d36404af0935f9dfb9b23d12a284ce9e6bb7f536c5694b3883146666a",
+    "expui/fileTypes/astro_dark.svg": "deeeb87ffebd082d50bec97f5b80d0ed699721dbf850fe64e3064ae97a5eb19a",
+    "expui/fileTypes/bazel.svg": "888f51bf2c37faaa149e0afebca46bedd1bab358dedce7b549173eb32d1d9787",
+    "expui/fileTypes/bazel_dark.svg": "888f51bf2c37faaa149e0afebca46bedd1bab358dedce7b549173eb32d1d9787",
+    "expui/fileTypes/binaryData.svg": "c9e0fe6f37b587d792110a526162acff90f7f33f7fe48c1e5f17bc209af77211",
+    "expui/fileTypes/binaryData_dark.svg": "a3775627cd46630059454a3e7b8972c85c8672b64147f35e68699c208044e5ba",
+    "expui/fileTypes/c.svg": "ba02bfb94e13c0d8f9688a53276a3c0df09bbf95848596f1ca93af5c2efa3672",
+    "expui/fileTypes/c_dark.svg": "db11271fe28e554ac9f37a760392742de642bed827bd25413ec907f0ad023fb4",
+    "expui/fileTypes/cargo.svg": "405008b35272b219ef518a9ca361c57bc6082163fe534c99184c23e1b9d8155a",
+    "expui/fileTypes/cargoLock.svg": "18fe262d07b9d5f41aac64617084f57d1a9fb2b2c3820e8bdcfc1a150f83ee9a",
+    "expui/fileTypes/cargoLock_dark.svg": "44b02872cbe4648e563141380079974ef5d18a56b8ea03cdd46fd70994cb2e89",
+    "expui/fileTypes/cargo_dark.svg": "bcbb7d80bb8e1a058c895f295c4540452d454dae320e1ed085c9fe8684e9f1f8",
+    "expui/fileTypes/config.svg": "e7990632f5a4caa8258b1c97d8efe5e296fb162c209af712e725dfc876839395",
+    "expui/fileTypes/config_dark.svg": "da243a31cedd55334263086e17c1ee4264a93771e64c0e27b91b6c6daaa1bd46",
+    "expui/fileTypes/cpp.svg": "2565dd56819559e5f4e052f0d9e05e400b2def25509834408fb087e77e42e7b7",
+    "expui/fileTypes/cpp_dark.svg": "670c0c009b8990cbe1a835765d62d8549b8a1bb56948611e36338da4321b1370",
+    "expui/fileTypes/css.svg": "422c5512c70808e0f61191a4279749301a7296c6082a3f001d397f0e2ec93590",
+    "expui/fileTypes/css_dark.svg": "9faac1b6520d894b7473da2087300c18447e0268f7726e7d131976c76afe1a06",
+    "expui/fileTypes/csv.svg": "09f4c9e22a01f04a5783dfae8dc2d0bff1b661b4b159bca06572a01d006a1e43",
+    "expui/fileTypes/csv_dark.svg": "1cf9070785750032da988524e18fbe5001d86f279ca6a548804e982c1fa14eaf",
+    "expui/fileTypes/docker.svg": "76f8d25a1754ee4c59581656477e650edc241c86c6c841385eea03f52755f7bc",
+    "expui/fileTypes/docker_dark.svg": "a35a9f245da1960faa682394832cc21bafbb6aca420b30c4c7b96ea70dd2aac7",
+    "expui/fileTypes/font.svg": "049689bd55570a4bacda649b609b3fdf5019023673d344775b025097ea7cb268",
+    "expui/fileTypes/font_dark.svg": "6dd826b0e8b48f3a83445f915e1f76f54cd62b0000fe3015cb415a37c090a19a",
+    "expui/fileTypes/gitignore.svg": "9ea81291422a8574d1e1da1d0284d672d98b0e004918be3f2292f1f4fae77659",
+    "expui/fileTypes/gradle.svg": "9898cf8edd8ab790414c0fed9cba827d8940b487a597f55c61017e84912568c2",
+    "expui/fileTypes/gradle_dark.svg": "243bd5bd360895eb33da558a7e229b1139906e79cd2bc52770dabd01d2a87647",
+    "expui/fileTypes/graphql.svg": "8098357ebd83a5f6fdf3ef32051d222ff21e3cf24937451fa0ea16d8bec68d7f",
+    "expui/fileTypes/graphql_dark.svg": "5d5cdccba9d0f899d1ff48743f0cd9c37c1f7fca3321755deeb3a62d0018127e",
+    "expui/fileTypes/groovy.svg": "846538b4edbcfcbbf2a5790d565c5512c860cadfb2dc8fd82656799b4396fe2a",
+    "expui/fileTypes/groovy_dark.svg": "c8e3bd0afad30480b185bca802b57159fe63a03e9723fca0a2b7bce2afc3fa50",
+    "expui/fileTypes/h.svg": "76b5bc2dbef2fd2856206c0e3993a9d71816dd6627285f1c0e4d3264af9febe7",
+    "expui/fileTypes/h_dark.svg": "39b157b282241446d65927085ca1608cc440a65d4668f75bc897e20dfe2cfd91",
+    "expui/fileTypes/hashiCorp.svg": "9a4e916bc7f6ee4b0eabfaa636de751d355d22ba9a6837077261ea617292f9db",
+    "expui/fileTypes/hashiCorp_dark.svg": "879f479a472760b92e44a25f40ff205bc6d0e4707527d2cbdc9ef91de76674d1",
+    "expui/fileTypes/html.svg": "8cc1a59695de46025d34d8cb61a73419f50160c45b96a587e426f84d65c530f4",
+    "expui/fileTypes/html_dark.svg": "bfa377d13629063e50627053662bfe7d6d61b3e1044c3e2485536ef5e2b9a3cc",
+    "expui/fileTypes/http.svg": "1e2f45e7ff7eb68961e1e31b0008a3148964512ea4b89b62876e570a69db6087",
+    "expui/fileTypes/idl.svg": "6026c523e0d959e0a887c611d7752a826cefa0fbfb2f03c7fda0e85f26da193f",
+    "expui/fileTypes/idl_dark.svg": "62077d910d59ebbf591327c301dfcc2c923c376a0408b72fcf23d39ced7bebc2",
+    "expui/fileTypes/ignored.svg": "be8479fac4fca95e79cec08872269379c70337419c9869c0198a1109079605ee",
+    "expui/fileTypes/ignored_dark.svg": "8d5449d583b961790c2ec52c6f1e2b021eeabac856c48a53e1a1c3c6f776efac",
+    "expui/fileTypes/image.svg": "879b275fb4c2e263cac26ea6035cb5c99dd72858e8b5ec295d21c0b5636d9513",
+    "expui/fileTypes/image_dark.svg": "b7c8a22b2b1022a23f1a2a6b923ca52f59d5f9abaa4dcf1718fa9d50f2f710ef",
+    "expui/fileTypes/java.svg": "2056fcd754bc6a6e0ba13d5cf054b022f363f2f6839828b86c83a47f6ec8defc",
+    "expui/fileTypes/javaScript.svg": "e601f341c4c0b0c52f2abfbb6bb4132862d63c3d862f4c7eca86efdf90565dcc",
+    "expui/fileTypes/javaScript_dark.svg": "f5ff367bcfeaab33abdac467ce9f7122543f4da21bda76806e96017a1da55b7b",
+    "expui/fileTypes/java_dark.svg": "3166f1d9895bc63034e8f105672bb4db124350eb6ed0803e300d24e0fb9a14bc",
+    "expui/fileTypes/jenkins.svg": "826dce5332d8c30fc21b41c5f4ac944b3b87799f03d45f238aaab3e9fef27f86",
+    "expui/fileTypes/json.svg": "bbbc7e1e2b583e2b4cca3a0c4dd507ce41c914a66d7bad1e6599f3ea5395e61c",
+    "expui/fileTypes/json_dark.svg": "c4992ee9127e8685d5ec96570f48668d0be7aabfa4f0099ff6dbc5e51796a5f2",
+    "expui/fileTypes/jupyter.svg": "7e2542353a01f184889c127313b119fbc2ed7ba49839329fe678e493c6bd5299",
+    "expui/fileTypes/jupyter_dark.svg": "f4ca0c6dc4d11087882390e19600e6770c69c03b16c133ecb3224fae89c05afd",
+    "expui/fileTypes/kotlin.svg": "bcdbcb8ccc1312004a635477a1635e026196e37173dfd712415c212ce6851fc0",
+    "expui/fileTypes/kotlinGradleScript.svg": "0cb9ff26506b4c2ce9bea9a3daf816cf2444ee94159e4d5f2c5113d68a2d4066",
+    "expui/fileTypes/kotlinGradleScript_dark.svg": "1c31a5bbdcbcdb3147c9052b1828e5f37320af77b9bea7b4ce0efe4237fd1cdb",
+    "expui/fileTypes/kotlinScript.svg": "4e8c0c17a517a9be399c785429970d080d9f7b8d44f005a4e5e51eacbd44ac42",
+    "expui/fileTypes/kotlinScript_dark.svg": "9da2d741bcf78abf2a260866462642912a19067cba62567ed2480e3d378f7a94",
+    "expui/fileTypes/kotlin_dark.svg": "5ddc296ac90ee3c2551d88e15f1253d21412a5c7c8cfac7fae63a27cdcba8746",
+    "expui/fileTypes/makefile.svg": "5229ad28e762b1ab9d6cee7bff948813d35f6af7a51568c2c17d5e3ebd74d056",
+    "expui/fileTypes/makefile_dark.svg": "af79aaefb651e3c0ef31ac1d01c1fa2c7da06604031c1970f28a59e133f75797",
+    "expui/fileTypes/manifest.svg": "5162b0d873ed969b48ed6854b2d0cece8bccdcda394849516e759b2c9d0f9f83",
+    "expui/fileTypes/manifest_dark.svg": "980b6a182b990a06f2a14e031b4b733e6adb24d1d2ce36f73faf90b2c1989241",
+    "expui/fileTypes/markdown.svg": "bfe84e2ff52f22bf668cc614468f4798ec75786dd4e5674a464d63054beca67d",
+    "expui/fileTypes/markdown_dark.svg": "4a51e2e3aca13cf778539187ea22a60f0f9a83731e70d5b51ff79f34ba51a1e1",
+    "expui/fileTypes/maven.svg": "1c51d55f929091374a34d751a1ca641f3e794a9c0733319f222f989b2b59500d",
+    "expui/fileTypes/maven_dark.svg": "808e24732f6c3392c6a344924690cdbc1224cf7e47ae61bbf396fa6785cf4268",
+    "expui/fileTypes/microsoftWindows.svg": "d46e68171ab3aa7c446fe98b63790e3db1d392ae6b4a724285556ea2485fc169",
+    "expui/fileTypes/microsoftWindows_dark.svg": "98fae4715b137552e741e6323ea6935cc02611ba6e5cacce734bf89eb69472a1",
+    "expui/fileTypes/patch.svg": "5a13b4226356215881685426bbe5c93f407b06baf6c4a877808c3e4047e5d599",
+    "expui/fileTypes/patch_dark.svg": "beef0cad465c7c2ddb1b6126440384088ed7415e31d860ac0bbbc86d5d71f91a",
+    "expui/fileTypes/perl.svg": "ad36370a025fb176f8da49f8ae311df0623992227c8616f84b09c6a7a39acf0e",
+    "expui/fileTypes/perl_dark.svg": "b104ea087b1dbc4c2a37b75f3ebf983756e3d5d14f8a33cd209ce82f175505c5",
+    "expui/fileTypes/pipenv.svg": "b5c0da626f334cd21ed78ee39d48569fa925533fa1365c7c588f025e436207ae",
+    "expui/fileTypes/pipenv_dark.svg": "d46b52b711945890a58484b10339a382d5ecd6500814e8cd2de85f917315e410",
+    "expui/fileTypes/properties.svg": "2753f18580ef18634cf78650c88e5d957aecee1382041ff118c52e3f6dadbc81",
+    "expui/fileTypes/properties_dark.svg": "0b489a2fca2dfd51de0a85b300791c822fd08d077710b604cc65afce7fd8e2d6",
+    "expui/fileTypes/protoFile.svg": "b3ab755f49e21fa2fd1a0a8fb84501dc7fe0db2ef2efea6a9db004a484771f6b",
+    "expui/fileTypes/protoFile_dark.svg": "156e636e8dce43d554b345877df0c9a4dbd2f7dfe2f043e12e9b8bd85b69cf83",
+    "expui/fileTypes/pyprojectToml.svg": "e672867b7121dd4acc2405976f88f15f5d620b6399e64e2c4cea545d3135158a",
+    "expui/fileTypes/pyprojectToml_dark.svg": "46820c527de83b7de429c13dde6555bbe12b3586c55849c4b7ee95b45e8dc536",
+    "expui/fileTypes/python.svg": "05b9605efcf84c68d43086041416d55a021269628f348917fa2119a6b3187ebe",
+    "expui/fileTypes/python_dark.svg": "47a2d86326165488ddd995720d07fc8b61b59ea23cc23337739a5f94aebaf67f",
+    "expui/fileTypes/regexp.svg": "49d93c3eb676694d02e1d34ebd2d6bfefd986b8a94a9fdac982ab302f688743f",
+    "expui/fileTypes/regexp_dark.svg": "db3d37bfc057a122ce2422e29cd9ad476bc097507874c73a6a4dbce31328cc36",
+    "expui/fileTypes/requirements.svg": "f6f749c588d9d22fbb3c3c549988dca3e0a26c805c86d956a14675cebc5a4881",
+    "expui/fileTypes/requirements_dark.svg": "7a40897a4b3cd0cf8199aeffd20ef81a34a7fa859477d299515d3fcc76bf28e3",
+    "expui/fileTypes/rst.svg": "bf76db4be323491a1fd0892b43107e1330749d8bd7f2f3e021eb76eb57b100d4",
+    "expui/fileTypes/rst_dark.svg": "7fe657f37220d40bd1b5489918e5cd41f47ee4c65d6d338adf5631f2e718be5f",
+    "expui/fileTypes/rust.svg": "122c40f00dd3ce1da1b7466a9176f9d31da387eecd4a7abd88cfbfb88341073a",
+    "expui/fileTypes/rust_dark.svg": "92c1a931388d1db71c84d3fcf42c951287c225cf7cf844a42adb9613a1c45d85",
+    "expui/fileTypes/scratches.svg": "2b0cfd473cc49e9f19bac938b1b767f64a60824ec331d42730c4bf4b373c21ff",
+    "expui/fileTypes/scratches_dark.svg": "40eefffb6f27b88ef5890d654ae5f525719c2b54846ca32059e8407abb8eb1a3",
+    "expui/fileTypes/shell.svg": "4a8c336a8d0737df6ebee0b1006d03909f0ad5770a98d5ad28e746d3f95ae733",
+    "expui/fileTypes/shell_dark.svg": "09c58f2d69bedc5f3c518f9e42998f3bbb3ec5b7fd33b06cd24d1734c74d6cc7",
+    "expui/fileTypes/sql.svg": "56a74dc252d318ad5ab8e0859cffb0f2ff1ada2736dbff3abc18116ea900320f",
+    "expui/fileTypes/sql_dark.svg": "be2a690df00ada9e6bc43f841769f378c03e523a845617b21a6ff7f4323096c6",
+    "expui/fileTypes/swiftLang.svg": "3232d3a0090f9a77bead9e0a4b64c43dec07ef5f9bf3b2abcd966f38d981e971",
+    "expui/fileTypes/swiftLang_dark.svg": "3c1d700f37c43338df7f595d79476017f70a46923d6263b183b81a23193cb1dd",
+    "expui/fileTypes/terraform.svg": "65b88155129e3e45629e3011c5476b95085e95296f05485387626b0e2716a472",
+    "expui/fileTypes/terraform_dark.svg": "45a40c95d5fd99f811ea8bd260cfe852800280bfb49e41d98128b3ac24fdeffd",
+    "expui/fileTypes/text.svg": "d71666166da544ad42b13bb5af976eb6f0afb60cbaa636676d238c98383ee296",
+    "expui/fileTypes/text_dark.svg": "3391cc35837a4420fa9517f2297d8f6b07428db63f57f07dd5c2c29ef00cb489",
+    "expui/fileTypes/toml.svg": "d8dbdbada06151868dbcf791ea7a041c4ad438a499ba44bb672a76fc8abf6048",
+    "expui/fileTypes/toml_dark.svg": "4177347806efb6f5e31307e8427e8c9274bedfe8c8476b9ebb77c087b88027cc",
+    "expui/fileTypes/typeScript.svg": "6fc794f096ad1b506d42821049d200879bd0a0795b2110f99b726b91f14e8d5a",
+    "expui/fileTypes/typeScript_dark.svg": "18f56081e42916c7a3109062359ff41aeff6372d10bdb8942de6dce5e19f624e",
+    "expui/fileTypes/unknown.svg": "cd52e9c6e3bf865dac9297fbb494b7a92bd2eed84ff7d6aec6d77e22d80b5b22",
+    "expui/fileTypes/unknown_dark.svg": "960fbd613eb362d1dc14d4fe6e9e7d96f6948971678c84ba321008765f4389b0",
+    "expui/fileTypes/vue.svg": "5f0d4bb91ccaa5252a6a021cd731974fc2e9a0926354b17a7417b0ede373ece3",
+    "expui/fileTypes/xhtml.svg": "5adea5476cf972b503de4106be547dc0787a3261d5099d9607a202ed64853c54",
+    "expui/fileTypes/xhtml_dark.svg": "464eb3ef5e5cde5e385c64b360b90ed5ad0bf15456ad5211d7b9cf3a47fe8e06",
+    "expui/fileTypes/xml.svg": "ed18f7315e4dea5eb9298a66732968805c0ff9cda8f3ef0ca339f864e536d9ea",
+    "expui/fileTypes/xml_dark.svg": "fb39e44dd70fdda7a94c6074e5d3d58d30faef92bc6f91c1244b0320aee2486b",
+    "expui/fileTypes/xsd.svg": "91ba35f928a133e7fbd20dc9f3666eb4b76a33e3b36651b7829289cd0947bb84",
+    "expui/fileTypes/xsd_dark.svg": "dd71124671bd08f463cf6db54c071baf4e9174608fc2078938592f6e5d5d7f40",
+    "expui/fileTypes/yaml.svg": "f715bd90d921963fa9852ceff03d313e15cf1ef25a9a4ed609a6698a423f60ea",
+    "expui/fileTypes/yaml_dark.svg": "09e0df7109e8decf4a1eaba4887da88f5469a0a095fae9143f12bafe6418473f",
+    "expui/general/add.svg": "337388830262aeb22502d3954f2bc543c332f025c1fab16a7231acc1fd5254b8",
+    "expui/general/add@20x20.svg": "62f1814caa34bca0f32988fd1bc210d3bfaf80445b6e7fe3f6cd9e00f851f18d",
+    "expui/general/add@20x20_dark.svg": "b5bc5f8947e371bbc1fe5981c5367c9539465f0f80a9a0c80a2915a39902e4d0",
+    "expui/general/add_dark.svg": "1244cf1ce1320b2c95194230305c2e736bee457e96d6e431dda4240f18098756",
+    "expui/general/autoscrollFromSource.svg": "bdfb7eaffea51ad3265aa07c175a2fd5ff2ed19b67ba37e2fb26982816b701ff",
+    "expui/general/autoscrollFromSource_dark.svg": "09e45530f493b389101e897faa3a2ae1a9b005aa9f74685c7863c05b05b1c351",
+    "expui/general/autoscrollToSource.svg": "9cbec3f75afc7eb785d689b427c832f5239f8fac00e89df57e250fb35eea5825",
+    "expui/general/autoscrollToSource_dark.svg": "af1c1cc9ccd8099c2c3c703ae7c186e0f9fce678e6c36ccbc92d5e86792c45a9",
+    "expui/general/chevronDown.svg": "8cc414b79234c71b263f65b11fc71e429411ce13512862add9ccef60264c1c34",
+    "expui/general/chevronDown_dark.svg": "2002c988353dc8d3e4044ddc34ec062366c4c1b4307a5e135478ac44694ea30b",
+    "expui/general/chevronLeft.svg": "a1c21ca89e5f0f6263c4ef66b077c6d77dd8ba7dc021a35628456cba13de11c9",
+    "expui/general/chevronLeft_dark.svg": "aea8b1cb0e8d71a10b29171627a7b8f850096c6cc20bf2940054ffe07d5be88f",
+    "expui/general/chevronRight.svg": "6dc8f3b872ec8b3ce7037e9f2adc40a393449ab88820a7efa9c683fba78c1d98",
+    "expui/general/chevronRight_dark.svg": "bae1f68b729b1eab1ab2e6ce35033b71cdb52b3677fb90ac8aef286c7be68595",
+    "expui/general/chevronUp.svg": "14cf5aba194a708e7711f58b02912328dd8e8c8c30f88ed7ea006b9e0eb2baca",
+    "expui/general/chevronUp_dark.svg": "be7fb520811eb143b5ce65b509a314dafddc5bb719e1d158bfd0b14889ea21c7",
+    "expui/general/close.svg": "612c8b1ad85fe0174c29556f618ba0bc250f32c9a32df4e9c2f7289ec941c622",
+    "expui/general/close_dark.svg": "78eea1c673499f66efaf0a792eacaf1ab58add2cec5f40be53ec018a30ea2dc5",
+    "expui/general/collapseAll.svg": "19f4d4023e6621f998c0ccee8aec2b71b8fe2fb6f38a80b9bfe6c8ed4d451bcf",
+    "expui/general/collapseAll_dark.svg": "df75036a7433a78f21347e0732ab9e8b477aecb64e5880bf631e6af778a2dbed",
+    "expui/general/copy.svg": "e8fbcdf41aac27d2f719319acdfd4623b7623581dae62f03e6ca3d0d199a80cb",
+    "expui/general/copy_dark.svg": "618c0d7cbc1b4d4f24e159784df1221c3b9b5a9b718a4255bf16b7c014727b01",
+    "expui/general/cut.svg": "29077883e7214f29e68eb8cf2b84df319e5c5b0f2b4f8011551b80a2316f3c38",
+    "expui/general/cut_dark.svg": "1a4271ae0a92ed11436ccfd06b2ffafadedfa9f0206202bb3b082bb4bde39546",
+    "expui/general/delete.svg": "90ce02aac2a0ccf60e7d9470e192d72e7b1bbe046a17a5f4f5941c73c04e594d",
+    "expui/general/delete_dark.svg": "3e58be48794d8eddeae69c7f64cbd6aea390c193fa08645ba4f5546cbe839596",
+    "expui/general/down.svg": "fe152eea17f095a9566f3db4ef29afd4b347b899d255d5310c7e215aa32fdd5c",
+    "expui/general/down_dark.svg": "fdb7d6f1e336fd9fccd8db15e06bf7cd224cb01ef23b44d16dc2bf505d2e8ce2",
+    "expui/general/edit.svg": "1609c7d6fc56d19d27625f75a1b3113e74f49d782fd8d2abc42f8bda011f2cef",
+    "expui/general/edit_dark.svg": "1b638b75f08f7cd2ca386fcd0c6a15da3a2b29af456537882e6c0f9bde3ce87d",
+    "expui/general/editorOnly.svg": "7f79eed20e0384e24723179da30b6ef2b4e513187c0d4259f80014ad052d3888",
+    "expui/general/editorOnly_dark.svg": "802ab3dd4b91f79ebb891c1ef634777a3e4ba4a3f71afdbd57e87361be54486d",
+    "expui/general/editorPreview.svg": "8befccec20b553b4be8613c27ab34f0b9119fc3c028f2de4b2ea1687bab3d4a2",
+    "expui/general/editorPreview_dark.svg": "ed72447e201240fd78a15b2d380af9bbf776f0ccd370503a4db96bc6c84db02b",
+    "expui/general/expandAll.svg": "3ed66e8e641730be8e26ec22b108761e0249bf71d3110de9bb2379e294f12f91",
+    "expui/general/expandAll_dark.svg": "5d6f626ff67775c226daedcdbd93899c6efe4577910773d9682e3dab59305aa8",
+    "expui/general/filter.svg": "fee3a811567d5deabf6195792134c3c39a3a14096b3336c7cfb112f952dbaef1",
+    "expui/general/filter_dark.svg": "8f422f8531c0eb71e092f2b15c819cddf58b581650d926ee26d56f295b1e8467",
+    "expui/general/greenCheckmark.svg": "d4b7729c1265532fd1bf3b81fa3e4fa491c6cc3240ad3bdf2dc633950eeb2812",
+    "expui/general/greenCheckmark_dark.svg": "2e26669a360bc183786ba0f1e78288a2e873f9380e4be673136cdd868dbdbf50",
+    "expui/general/hide.svg": "c753f8efb68916bcedc3a2f06e3cfa2c15ed64fc51b53cae4206f27fa1656ab4",
+    "expui/general/hide_dark.svg": "1ae938bdf2aec06c65a5981b5b9fbbb1160a21945032fa6ba61579d15bbff415",
+    "expui/general/history.svg": "3687db5c7bc3938f72cbe387259ec26e6ce5de05b86ab5e2c57f2361bea59e0d",
+    "expui/general/history_dark.svg": "5ea7471acbc1951d8309be78160bd6fe8bb83c9929c81415789acadd1dacea63",
+    "expui/general/keyboard.svg": "736cfb1cabf4b5957a6c719e4f9b17d61cce8b443306d82a25f6c68dc2933a63",
+    "expui/general/keyboard_dark.svg": "5422c69531502c5391fc49c1d30d36b437307c3b8523ee0be3de6babe5bdfe07",
+    "expui/general/layout.svg": "ae79f179b8ef10280a8fa3db12cbac22b8fff91ef538195b38d3a99eda160a66",
+    "expui/general/layout_dark.svg": "2d99c28f69cd02732dc1a8565821b3770d905c4322cfc3f08829b98de254a744",
+    "expui/general/left.svg": "7bc892eabcb948d73ccd8974e9e16f64eeeb397a6fc02828431df6c62cc6ca01",
+    "expui/general/left_dark.svg": "669b7d5a90407e1a5d3a3ab0dbfa693360b507ec76c8f50781b018d56b897a6f",
+    "expui/general/listFiles.svg": "55819519cd456824233d5ad43acf7e41b5be538f37a5c86376e8c62f541edbc2",
+    "expui/general/listFiles_dark.svg": "ccaf51e87b6eec1d1422b6c3f93e0c5736927c28c5daa47fade02748b4d83ff3",
+    "expui/general/locate.svg": "748745835262882a67f079583b4a970f23ac41ff6ed4f7254769f39fb4fb05f0",
+    "expui/general/locate_dark.svg": "16178656e230c9fc5bee294bf3ef3a2fa95a30b4511b10593a6f1684765685cb",
+    "expui/general/locked.svg": "59c3f76a91e5939f1ac3e84b253e6c8f99600880b561c03af7503d3f20eb3706",
+    "expui/general/locked_dark.svg": "12b960b1c5139e32d0b695cd0a90f4b783965b07397f26d8f0980ea0f35f3339",
+    "expui/general/moreHorizontal.svg": "355ba9fddf1f50fd191d1ef3893ad78df8c22818cdff3be81153c99d6cf46a1b",
+    "expui/general/moreHorizontal@20x20.svg": "3b83ef643106a64ea79c624e0da06165dae66ef09c2ea166a5225441eedc2ca7",
+    "expui/general/moreHorizontal@20x20_dark.svg": "35d067f90731aeff3badc5866adc8b73b13f4a3d1525288443d71c93e92d0814",
+    "expui/general/moreHorizontal_dark.svg": "cc54a1969dd4fa65fa370a6f9ff28e2fb4dc9090280b09ab10d3061786f5548c",
+    "expui/general/moreVertical.svg": "58f3c28350fab059e373bcd04aaaa3a9f2c786e291ad3eafcfef18ee0c4bf2d4",
+    "expui/general/moreVertical_dark.svg": "e51930d3351036790c22068a813ca5e5c02d54b0a4b2203349ed5f80dc2862e0",
+    "expui/general/openInToolWindow.svg": "33a451ab5da9237a97d5d68f3d19e1b9e684ae00cfb43b213ab250fd624ee7f6",
+    "expui/general/openInToolWindow_dark.svg": "0a64ef4a10f4a18338473037306132a53346e2d50b73091932df925c7280bd9d",
+    "expui/general/paste.svg": "9046da288bc407bee186a52e192bdf672158d0acb15733c0c334460f3ae250b5",
+    "expui/general/paste_dark.svg": "93f23d0cad634db923b92351cb2b9c645897d2ab5014475238e308487eb0350b",
+    "expui/general/pin.svg": "99b16d998723509af9a068b06861a2099c11e9848a98d8f47a98015c0e4d3c4b",
+    "expui/general/pin_dark.svg": "2e9b2f614c6656a5bb8a266b5a6eb1b59cb501de032cb88d8806a6b525f448ec",
+    "expui/general/previewOnly.svg": "b5632fd1a57d675434c08886aaaac7a6f5472a1ea9faf024a7daf73f642ae35a",
+    "expui/general/previewOnly_dark.svg": "c8400bccd4077bf5cd49366125ca49f9011d7cd752a3415601102fcba3d9b940",
+    "expui/general/redo.svg": "82db9c35de86819888ff982ba268b55040e86ec67dc397cd26541d440fd778a6",
+    "expui/general/redo_dark.svg": "776903e948e7de5cb9cab3f6a4e4ee59531959d2a5c3f191bf794b03e1514834",
+    "expui/general/refresh.svg": "3efff615c01c60b9e1a30eabf31e4fe0fda1eec76c24fa1496aae4712165c816",
+    "expui/general/refresh_dark.svg": "3c089055a2edb69e0b19ee5884dfebb3a705ca82293d2b09ded08060f92da6d1",
+    "expui/general/remove.svg": "02a3716106c09c8049e64b1e0abbbdf11a05abd78ca16b477d5d1b60a785d09a",
+    "expui/general/remove_dark.svg": "004f8fd17f57a5c13d9e8009b48dcce4d29753bf516f500d73b4c635b62bb663",
+    "expui/general/right.svg": "b0bdbfbca13c58d87de5f9ad370b100644fe4d9514fc489be51128f172ce816a",
+    "expui/general/right_dark.svg": "9c7037705638f03fe26074dadf7ecd0899aefbce01357cdf99fad39db2797a7b",
+    "expui/general/runAnything.svg": "70b40163593247844006d7ec2459061af62ff0bc5806d63d23c36f8aa1c6200f",
+    "expui/general/runAnything_dark.svg": "a0b57b4f1e11987b560354e70427affe78711f2b950066543e6aa14438d72625",
+    "expui/general/search.svg": "81e8241e7b38407420c573dfa264cd6df5deac0e8d59b935ce4c02b607bbe342",
+    "expui/general/search@20x20.svg": "acc83e3984de25b4919498a9cbdcb826539174e15cbcafabbacd8bdbc4f9a3fd",
+    "expui/general/search@20x20_dark.svg": "2fc9dd2b77f5ef69bff28c5fd1c6b4c1c463343a48ffda668e45e4f11e157532",
+    "expui/general/search_dark.svg": "aa3c118be2522e16522422aaa2fc2453dfa1016156d5e6a0e1b3484ffac15d14",
+    "expui/general/settings.svg": "81d7bb2e91986a47e9e40287d4da9c4719905378ecac8b26234b7d2bf95127ed",
+    "expui/general/settings@20x20.svg": "3b6d3016959905b796deea1a0e9caa5874b79f1a5295f052b85cd021f317d2f1",
+    "expui/general/settings@20x20_dark.svg": "0c15ffcf90bedc093e903e77eed7add53bca88feb795a3b201f7b9c6b78d1b16",
+    "expui/general/settings_dark.svg": "d2c6e46b3788e7fed67d0d36d87f879a5394be0ab68d03b4aa40790de20e5222",
+    "expui/general/show.svg": "e3e70aa05e37501e4082f9840b4ed28bedfbc296d6ab499a9c6cac1aa33908e8",
+    "expui/general/show_dark.svg": "c67f3938ad43aa3eb9885ad1625ede324775a884e5b6805311c6ea88b3992527",
+    "expui/general/softWrap.svg": "00476430a0a19d053ea86ce377f78a2e46b84a303af07851daca07d1714e768f",
+    "expui/general/softWrap_dark.svg": "47c98d06436a370be8388640461552ccb5db304a580f067fd9a758155e422e20",
+    "expui/general/splitHorizontally.svg": "b9dc435479e76f703667ae95a0c403ab635b98877d0b9ebd5ad38f76a8360e7a",
+    "expui/general/splitHorizontally_dark.svg": "1c77f75978e5576975f71b8e3d74b4059b7435e8ba310e8e4e05cd188624a711",
+    "expui/general/splitVertically.svg": "27fd5aef3a90660daa3433373ffcc05c21e7d70de5f2f461d28888049137e87a",
+    "expui/general/splitVertically_dark.svg": "623c9f1ac268cf6fc96d1d237a3b24ff058265a3f89da6cf26f07fcc16d5b298",
+    "expui/general/undo.svg": "785ce6cd36860656ed0c65146cfb68167ffeeeeddcea0b76fde4a3d15a9df11a",
+    "expui/general/undo_dark.svg": "0eacc309fee568527b90ba79a9fc7d9bb358df770d59801817edc10c621f5299",
+    "expui/general/up.svg": "8a4c4a0f501c0abf4b236bfe18dead04411bae7283b46d9f8061c43dff4eca28",
+    "expui/general/up_dark.svg": "5ed91bcd7ef6c6e16e7d85225d8ad44012d9c8296b699343c8415d9cef2661a0",
+    "expui/general/vcs.svg": "7b04f37b0404b705f155b3e0bb7f34f96996ea308fa6c51bbbe63669cebbb691",
+    "expui/general/vcs_dark.svg": "7032ef8619375600e6beb5bb1c3857822d08b51a840eb2f63ac5329a51ed5c11",
+    "expui/github/addEmoji.svg": "9fd5ed3f175de6c5dea5acbe4aa335656f421a8fb401ced538c654ab711a83c2",
+    "expui/github/addEmojiHovered.svg": "42aa9d87a6b649f000d06efdf937c65c0573a8bb78a5143971dacc7aecbece82",
+    "expui/github/addEmoji_dark.svg": "76ed79116b07d4e32e15b33a4608003b3cc7df957bef4f4be7a5ed6ee0b9a018",
+    "expui/github/comment.svg": "067552733bdeb91ac7056c00f86ef0dc016fcbee4404bf96522a78aff89f034c",
+    "expui/github/comment_dark.svg": "ef1f6e8963fae3e427d264f98d4bfa7ea0f124af294c747365ebea5fb7308356",
+    "expui/github/githubWarning.svg": "ee5da71c18a46192c2d1bc48d5449c0233f8a9237678f6cb9eedfe67560c6817",
+    "expui/github/githubWarning_dark.svg": "e77867163b55bfc139e31a075735e6d1f6ee442fcae5cf4a0b196c422b9d7b4f",
+    "expui/github/issueClosed.svg": "2b830f462344371fa5664b8facaf7eb2c48d5e8ad12fda92a2428b8978df8848",
+    "expui/github/issueOpened.svg": "e5ecde4cebcf6be8fc1f56c5005395751e66794eaa857dbbc8a5dc40524c0a1b",
+    "expui/github/localBranch.svg": "cac96396b82c3e99926f4fe65f97f82f0541118007002c9dd07b467cccaeb613",
+    "expui/github/localBranch_dark.svg": "290a4dacd29f9c73ccebe18d8fc28a04f9fe828182eabade64d79be269b13365",
+    "expui/github/pullRequestClosed.svg": "9623541270bb4b1607cc498bc590538c9aec566ba6c7679f393c7cbddbfbb4d8",
+    "expui/github/pullRequestClosed_dark.svg": "99ef49c868b2c9142eed8366c44b793272cdea4b50bc31ba215f8c57baf74c90",
+    "expui/github/pullRequestDraft.svg": "c7ee723b445f960fed917ee9ff61a633b9e8b1bd71b15d4ea33265fd2b004b5d",
+    "expui/github/pullRequestMerged.svg": "59bd4e657b31d2d423efea6859190c6989b6d70c946c85a96e1e51644dc65b26",
+    "expui/github/pullRequestOpen.svg": "fb5bfce203bf2139e3600d9f111622a7c4aad43a04eaaa4654fe3aa2d0cfed74",
+    "expui/github/pullRequestOpen_dark.svg": "0509486253e33d33369f3d4bdebef9709fac99b769c5111b11f695ecb0ded7b9",
+    "expui/github/review.svg": "2c5f753d00cb621b676541c6c71c19c27d2b64b29d9f84096bf7214775f7207f",
+    "expui/github/review/branchCurrent.svg": "d3371623eb39a7b81ea785be63606d8716c5e2c2de5da7ff902aba17d0b69d07",
+    "expui/github/review/commentHovered.svg": "3ddb61795f74d675443c3a873a9f46c35f73461ba8c7fb760f6853fcaef8de53",
+    "expui/github/review/commentReadMany.svg": "4d80b0db4ab7088d7ef96323ed0a97e79f529bb9584eac525197dea0518da655",
+    "expui/github/review/commentReadMany_dark.svg": "56263c830a933030dda8a18e50f472fa91f92a6aea8aaee41f986cadd3d6dc5d",
+    "expui/github/review/commentUnread.svg": "e8f2a1e60d1677474725ac3877e5637bcc4ac96f7046f106e5e0716144c695b8",
+    "expui/github/review/commentUnreadMany.svg": "fa306a964ce4785acc0430afa1b74e8ba036db46cdc258ed8009ad4d559bc852",
+    "expui/github/review/commentUnreadMany_dark.svg": "07a971c13ed84711c1d7f9425452da4a8155d84c3a4dbab1ee163dacd30f1256",
+    "expui/github/review/commentUnread_dark.svg": "0141248a9f828b7b3d9865e923e22a08371af81f79c2c7853c882fae45e9249c",
+    "expui/github/review/defaultAvatar.svg": "5d4a078c0973b02c074668eb4b00a73324d30e33e220cdcfe6ec915b1282c224",
+    "expui/github/review/defaultAvatar_dark.svg": "2977c3f69c300a04ae18e13b5c0b47d3de9313beafaae3aa69363a5c1ec47e59",
+    "expui/github/review/fileUnread.svg": "f6f959c53b992a5eb2cad85a5688269ac0aad7faaa239d176341155ed7c8ab52",
+    "expui/github/review/fileUnread_dark.svg": "ecee860a9bfc98427ddd1d748e368cca7ca533b3dbb738efc8abea4504ca7f92",
+    "expui/github/review/nonMergeable.svg": "286898532b863703c892fe8db1ad000ee56d816d1ce7adfd17b68425ca2140f2",
+    "expui/github/reviewAccepted.svg": "76ab09040b6719d303adf8c1d3e18bd256ac03c554723a2e6d79b78ad6e876a5",
+    "expui/github/reviewRejected.svg": "e21fd187de7cebdde0a844b39f083ccc6f49050b3f97cc3de3b439fb88a0c897",
+    "expui/github/send.svg": "46b0ca36efb222f114f8a9fc7a7dc91a0a66ada90642096d4e0211710ead2ea7",
+    "expui/github/sendHovered.svg": "b669809557e272a05fd3eab9a7d6fb3cb0dc6095d5e59a5750cf108998081e9d",
+    "expui/github/timeline.svg": "8206376181774c2cf6cc4d33a46ade50342ae60d82de034d47fe5bb85560164c",
+    "expui/gradle/gradle.svg": "9898cf8edd8ab790414c0fed9cba827d8940b487a597f55c61017e84912568c2",
+    "expui/gradle/gradle@20x20.svg": "93e36ffd314538fea40c77ba6288cce04487f9893704724959c9b32f76be3530",
+    "expui/gradle/gradle@20x20_dark.svg": "7808f5ea5a8fc295e23b1a4ec2c0f5df36c7658548d2eb350d271f0d90841157",
+    "expui/gradle/gradleSubproject.svg": "d3671ca94844abe3bef473686748e7c55b7b4c2d8f51ba5ab965a50b83df9911",
+    "expui/gradle/gradleSubproject_dark.svg": "ec24871ab9d2d82decc7f2d78d7441f229b42ce5f598057b2b21314c8e697be2",
+    "expui/gradle/gradle_dark.svg": "243bd5bd360895eb33da558a7e229b1139906e79cd2bc52770dabd01d2a87647",
+    "expui/gutter/implementedMethod.svg": "23cf0dd27697f4570c599484fe384b4be986c04971e0002cb2ea1d2621510e05",
+    "expui/gutter/implementedMethod_dark.svg": "7bb9df1c824c8916c39e6b33ca0a82a0055597f798bb3e60a6fd7e9271a5befa",
+    "expui/gutter/implementingMethod.svg": "20321db5c8234a2b7c5a32ab30dc3baee846f13cb508764b629e015fcd478321",
+    "expui/gutter/implementingMethod_dark.svg": "11dc991aec9fe89b45826b4bbcbd638b521ed68f814c01540b29e98fb7739ffc",
+    "expui/gutter/overridenMethod.svg": "e21fda7449c710f25915f0c52ecf49577c30c211d349f11c7871bbca0bd20c65",
+    "expui/gutter/overridenMethod_dark.svg": "068544eedd1834f303430302b0277d8188c118eeb1e4d29400b2f1eeadb2de5a",
+    "expui/gutter/overridingMethod.svg": "9b4da096664f1929889018764f1ce0caa0bfc323f7b21135f5f3716eadae3120",
+    "expui/gutter/overridingMethod_dark.svg": "b7d7a20a910c842e59ccdb384e8eda11351a0733540c0da8da99b3827efe3dde",
+    "expui/gutter/run.svg": "c25dcce6100dec42e93fdbbd5b2d8732a8f69d00b6e7949ea65811aa191e5729",
+    "expui/gutter/runError.svg": "32fc2b1fe9c9b198df6e8be64d6fdf0e137efb08babd3b8d0251d1aab5049771",
+    "expui/gutter/runError_dark.svg": "6b2c4223bcb464feae6deca6030dce8a866ba95277d91ca688ba7f523fda73cf",
+    "expui/gutter/runSuccess.svg": "36ed53748842b0a9e6b396539d81a9f85531dfa8d60f266bfa3658500387c1cf",
+    "expui/gutter/runSuccess_dark.svg": "958eeb5c21d9e6259c97338290c7cdb1383e1bbc1a52ed59d227dbc3287aeb86",
+    "expui/gutter/run_dark.svg": "934561af9a3bc3cd3af556ef78fa64ab242bbb420238d7ce0dce04c879aa6fac",
+    "expui/ide/externalLink.svg": "d7417bdb9711e88d7706f7d7569af5160a1d728e0d399dca9c6ca6785b623abc",
+    "expui/ide/externalLink_dark.svg": "9ffe4fb59d27e39730a18c305ec6b720388b0426bfff98215b3589ec09906a4a",
+    "expui/image/fitContent.svg": "e64271a26a419d11450eaeb423ab15a89db4538470295b915f5608f49f6fc2ec",
+    "expui/image/fitContent_dark.svg": "483db9b17ff5d461fd259c31c6085ec8ea7cc118f38b4d72bfccc6ab82deccb6",
+    "expui/inline/exactWords.svg": "22457c72a6d1da95599c0f651c68cb7349aca87390d76de3025fa10f9963a3cb",
+    "expui/inline/exactWords_dark.svg": "5c294e34ebc43242c11b3f59866cf17578c7233f3b68712c913a2afc3bbf05fd",
+    "expui/inline/inlineAdd.svg": "861d3eab7f2e4225771d63c159c0ca5a731a349318e504b36589b96472d1b1e2",
+    "expui/inline/inlineAddHover.svg": "370b7ca6ebd0a385b1c81729fbcc88a7bde368bd1c7a4bf2d0641e7de07ae31f",
+    "expui/inline/inlineAdd_dark.svg": "2c46ffde210f72620497d9bce992dc833e6091a8ebd1bc01ccb59eabd134f3c2",
+    "expui/inline/matchCase.svg": "717bba78055f6d107befbb3b49654924c165b3f2fb53437db820bed6b45704b9",
+    "expui/inline/matchCase_dark.svg": "d28bbd3e9c56f8deccf8cb6312ada91f40831f3569b27e2358aa7ec15326025a",
+    "expui/inline/newLine.svg": "4ea98dbbaea2e9c9587375f3afe6b8cf86de4386fde0dbd6b04126113f15504d",
+    "expui/inline/newLine_dark.svg": "fa114a77b786a7e0516865854907e2af2da6ee5125e6f6b6f08a220202c366c2",
+    "expui/inline/preserveCase.svg": "48047175ccdf220714dc35fcd7afa945d17b4692ae3d039261262f1b9365eba8",
+    "expui/inline/preserveCase_dark.svg": "bcfad93aa3d0524336b6877c44242d8f5dda1a2bd56d096913bd8321a0bc827f",
+    "expui/inline/regex.svg": "613fe25fd83d63e3616d3182d126d524c7466766ba4c38acde1c6d00421828c9",
+    "expui/inline/regex_dark.svg": "9ded7a5f8b4c46b31ff7337e3e72d622731187b70b0dcc945e57110b76ba5307",
+    "expui/inline/searchHistory.svg": "40bf8e6f918cae076c4a40d56dc2c2681a27d6c9c5c7164e268c43bcf03ed22b",
+    "expui/inline/searchHistory_dark.svg": "bd4e741c23aebe1185d97ff6f806a51a0bf41653a32dada20f1e96d2012140c9",
+    "expui/kotlin/objectKotlin.svg": "4c3be5fed8bc651cd743db5c1e9a8cadb522716e5596139f8cbcbfedaff773a2",
+    "expui/kotlin/objectKotlin_dark.svg": "842d96c8e69557e613e1860a104c1095692bcf144fb3aea3ce50d512bd3f98b7",
+    "expui/language/php.svg": "0826d4db02e5bd95f5c211dac92de7ce3fa75c9ab428e921e316f7f0a6a48d0a",
+    "expui/language/php_dark.svg": "2ea27e0e07315aa1af1d7690f159cf7170734acfaad88bd9821ffcd37fb406d6",
+    "expui/language/scala.svg": "fe7a1dd0eac1cb53b8a70452daeea3f4cfa3430531f1f1013e6d96b566a12d44",
+    "expui/language/scala_dark.svg": "818f92e367502b3712be7b7ffa0c7b291aa1b9f005246e92ee67d6345c7e10e7",
+    "expui/maven/mavenGoal.svg": "612b412444234fd34402664d48fa442bc5086ecfac34ba65b9c9834248212505",
+    "expui/maven/mavenGoal_dark.svg": "a50cb1c53690933a16fdc2929670461a102c45af0424ceaddcaacf68bcdc58a7",
+    "expui/maven/mavenLoadChanges.svg": "c3b297278e6918f197a0b704d5edbc4c090e91ce55c377a317657b1c1df64345",
+    "expui/maven/mavenLoadChanges_dark.svg": "a673e7053f837b3915c9ebfac432ba89bdf13bdefb9fa381582b19551d733ec6",
+    "expui/maven/mavenModule.svg": "27b0339b7446b54f34fa07f7f16b8eee665c9193257e48ebfc3665b0459d11f8",
+    "expui/maven/mavenModule_dark.svg": "e1183db0dcc3c74ec2a89f0dafe300c0fb6fe54ef93b8d2ba133a25e49c1659f",
+    "expui/maven/mavenPlugin.svg": "57d4f5535fe7391f328f38a86cfc6ba5a5def19ea8a5cca96bd98dbdb17170d6",
+    "expui/maven/mavenPluginGoal.svg": "da2919d240448391f5f47b3366f15a6a7de787ad8dcdf3fc7106a6724e9792d3",
+    "expui/maven/mavenPluginGoal_dark.svg": "80ecca68612e285429b2ed88e6b2759bc098ac2beaf1cfe288e68c4c94c077f3",
+    "expui/maven/mavenPlugin_dark.svg": "690a494362b99f122550145d71533d5b64894590e2dae7e0a789427493bf3512",
+    "expui/maven/mavenProfiles.svg": "66513559672011499b7b106913872239519d346fc60c409bd90e94941ee80bb2",
+    "expui/maven/mavenProfiles_dark.svg": "82a868e53f24fc6f0efb658e31c75d718353ed9b3650185dfefd0db15ad9ef63",
+    "expui/maven/mavenProject.svg": "2e9633320124870c4d1bc8d15bd6372f137ce97272108be4ceec18a706b4f650",
+    "expui/maven/mavenProject_dark.svg": "3ba811b7001f7ffd75a97a38fd5f91a26ed567dc2dbf6676161acd7118c8ca09",
+    "expui/meetNewUi/darkTheme.svg": "2cf620fba2ea8f82cacfbeef92825c05d93b048aa861b6b1855c0433264ad70a",
+    "expui/meetNewUi/darkTheme_dark.svg": "5f764b52956e7b0351d50b340ec041ab64a53f92890d04bf78631de813a870d6",
+    "expui/meetNewUi/lightTheme.svg": "2318e23d9a7a30b4fc40876468d92685faba02ec1ac61b15cc92f190d1d4c684",
+    "expui/meetNewUi/lightTheme_dark.svg": "2fcbff70c8c4392567e74c5b58808b59ce715554847af37a692136caed8c9da5",
+    "expui/nodes/annotation.svg": "7d38056a498c57012bdf6f1940e5f9cacf0a0c814159b18a82517bc1bd96eebe",
+    "expui/nodes/annotation_dark.svg": "522e5e71321593ec818f44b2a65c6e8ed374e54e502c5dd60196fa2c6733c9a3",
+    "expui/nodes/class.svg": "7ee202d58f92bfab68c5f45abbc30afa04eee572ebcd163ceb1eab973f2cc5c5",
+    "expui/nodes/classAbstract.svg": "416877f0fcfa5eb83f47447e9fc9a35868284b3b93facadb7731a0d505a7e3a4",
+    "expui/nodes/classAbstract_dark.svg": "1749b3fd8033155c8f10b88212bf37f90bed0ece87a0b94491e384ab38e46bb4",
+    "expui/nodes/class_dark.svg": "b4d51084e4bce6f5c7385c4f80cdd46ca4c5c259bfec48776ef3a76224c235ed",
+    "expui/nodes/compiledClassesFolder.svg": "2af6ed7587adef46f5373064098a293d8eb0c166763c16520a76fb1188bd710b",
+    "expui/nodes/compiledClassesFolder_dark.svg": "d83c490079a1bf8ecd61a59a0273ec10f924c3364605fd2ee7b6abcd1188a46a",
+    "expui/nodes/constant.svg": "cc5edcbfe4c8a03476826f6f1f479e607221b651701b002fdb884d1ce7440e94",
+    "expui/nodes/constant_dark.svg": "b619370a0af6979e39d6970d8dd2165523af589f08233f19feba9b8b1d37eb77",
+    "expui/nodes/constructor.svg": "bf1787fac0a1d58dafbb8856f0fafa9100f2564d794c32da6ee1b9b54029cead",
+    "expui/nodes/constructor_dark.svg": "ebd0b14b148f1c96c622ea983bcbe91b306656d8dcc389d247f6aaa703006489",
+    "expui/nodes/dataTables.svg": "7aad910abbf58dd1e77e0ad2c576117f0991cb35d898c7a4df900893628b9586",
+    "expui/nodes/dataTables_dark.svg": "4494d86f45e609296994a7d7c435701e11e6c170caec8ff5989aa8f789e3df79",
+    "expui/nodes/enum.svg": "60684c4ec9bf5c41c746a0c7688bd6226eb27d64c11c301f06e5e821bc93672b",
+    "expui/nodes/enum_dark.svg": "7fbda67cf1996ccf08e6a4c3035c93bc709d28f720b80de2ff8e36f084bf109b",
+    "expui/nodes/exception.svg": "7f8be0f703e8a626013e2ec4fa8cc30e7b23114dd0b341dc04dec17ef31b9ddf",
+    "expui/nodes/exception_dark.svg": "86ce60a04dea92fbcf09d7c8a1321300addc55c3c45bd1da9d50c2ae93fa2b21",
+    "expui/nodes/excludeRoot.svg": "4bb4542d5fee54d87f8b792f871667b8698f04369d2f21e9c57e594eb55e9b58",
+    "expui/nodes/excludeRoot_dark.svg": "bc4266e56a3b209d517a4fcff989a5723280895aaf9974794b279b8b101b83fd",
+    "expui/nodes/field.svg": "017c32963bcd33930148dd29533395fd47ee886df9f4164668f54384abf56ff9",
+    "expui/nodes/field_dark.svg": "2ea6e4567f254e3ec3fc37312fad86240fe949e09e6a997e28dfaeae7bebc7b6",
+    "expui/nodes/folder.svg": "e78b061f701e39613936bc68751ed51e6cb2b1451dba322cd98ffdfd1a105065",
+    "expui/nodes/folderGithub.svg": "0ebb1390a4ccf23df6e0bf35917ef0dc318ba774cfa787da5cfac1f317bff233",
+    "expui/nodes/folderGithub_dark.svg": "201b65360873760d78e522f2e5ca1fd8e999c86a96366af91c8a391f411e8fe0",
+    "expui/nodes/folder_dark.svg": "4f08a99236e4b08632cafb159f31df27f238106d584ecf725be42b9702a0a02e",
+    "expui/nodes/function.svg": "e0bb3f8ca9f3b9e4a0eefe398df31fe8fd0b74caad740be0eead5af37b7999fc",
+    "expui/nodes/function_dark.svg": "5a0d42c862dd3ae1ef34cbf83055c3376d08d10fc0050fd4353e9a3336e73c0c",
+    "expui/nodes/generatedSource.svg": "af648c6b585e2b7928cd14969dd419cd41479f70a67c2b161864f9c273d49700",
+    "expui/nodes/generatedSource_dark.svg": "07ef745e326a737621f5053b54622957f4011286b8f16ac928a0e6b9294e452f",
+    "expui/nodes/generatedTestRoot.svg": "f305053a50910a4c10bb1cc296b3615d2ebeb74a7efcd26534cff0e016f00531",
+    "expui/nodes/generatedTestRoot_dark.svg": "e8c748c273ef8591508fd4a61b92011da7fdd50fdb218fcc0fdd2d659d57f559",
+    "expui/nodes/interface.svg": "feb74c0088d0b64b4485602257d1ed716a3835ca34c4472a26239d7d19fdd015",
+    "expui/nodes/interface_dark.svg": "652ed57fb62783699bd8ba830aae936f11858539807bf77a5a16ff79c089d35d",
+    "expui/nodes/javaDocFolder.svg": "88f981ec64f324f810498fd662881ab80f88f6e8b7c2532685edc356843607f4",
+    "expui/nodes/javaDocFolder_dark.svg": "a6913edcd4e419c24a84e5397077837380cd890eec2cacee43ef458286309b07",
+    "expui/nodes/library.svg": "ba5f3aa9049f2ca58c59826c12527ad315e3b41d2233eb6284d7cc6132d7a1c0",
+    "expui/nodes/libraryFolder.svg": "ab4babfb2460cae063eff4a18ae4924bab6c48055898878a3da827373f9a39de",
+    "expui/nodes/libraryFolder_dark.svg": "a12444e263fd38ffd828723f7b777364a03fc12acbea57136f8c7ed59d44a9bc",
+    "expui/nodes/library_dark.svg": "68d107edca1f77240e928c426722b8ed84b30a94926e07d2abce0d83218a05d5",
+    "expui/nodes/method.svg": "d947677a4aaf16fdd2d2aabdf3319736d454ae31e124414cd5bf11119284b0ed",
+    "expui/nodes/method_dark.svg": "9d6eaed820d2ffb99a17fcb1f9fdcd58aa2d1e07c8c5954deda2c19b4d75137a",
+    "expui/nodes/module.svg": "9925634a19778f96299342c1fa7d7682c6aea37f7e73c5f9bac49e0ae263bc32",
+    "expui/nodes/module_dark.svg": "8fdcb19620e42e41f10fd8a268cf455226bebf7546665168f986766a26f99256",
+    "expui/nodes/package.svg": "d303c7427141317c4aff4984b9a8acff6955cddd1ee1be8ce240e2d218be0db1",
+    "expui/nodes/package_dark.svg": "29c07415b462f761e3048fcf5da5236361c399a6d265749827011fcab13e0615",
+    "expui/nodes/parameter.svg": "41419d7e5960495b7ca48046a84fbfc8f8d1b2811de710227588014b14403ffb",
+    "expui/nodes/parameter_dark.svg": "9a3dfca4eae1761b85c5b9c1629046256469a9ba0a786cc49541b42fadfed1e6",
+    "expui/nodes/plugin.svg": "a8c066e1ce65a6bad285b39b2f48c89824a1d6e4b39143608fdd9aaeab104b10",
+    "expui/nodes/plugin_dark.svg": "95e354518927f17fb13456859d44873bfe843064078519f7a69b2621d1dcc557",
+    "expui/nodes/property.svg": "afe0a2ed498372fa0c75332cfa57c234ef27a8bbf1934b4cd7686bf3014293a2",
+    "expui/nodes/property_dark.svg": "5a647c9110d1e17a1a8005c42b30674fcf15459220ac4d965aadcd0636c73c07",
+    "expui/nodes/record.svg": "4a82b2a51cb91da312aebdebc9353f13a009d7427532d6baf46918a12e2ed101",
+    "expui/nodes/record_dark.svg": "42ccc722f7f045bb3ea7bd9cdc481d8f8ff01703320e86c090dc4f223e519f3b",
+    "expui/nodes/resourcesRoot.svg": "da6d9e0362c187fe52c4fcfbd0732a0779c10f21ace1387f81870469f7e7cad3",
+    "expui/nodes/resourcesRoot_dark.svg": "6c21b4a1b620fcd9e8d5552dd0a8a88f005f31a00eb2655094796f71a026f584",
+    "expui/nodes/runnableMark.svg": "39cc0314e30af11465fbf813a069d819a9512de6e9f63d2030d0efafbffc6a06",
+    "expui/nodes/runnableMark_dark.svg": "c990411dd36162c9ba09fda9eb66578e3214528821224d92413bda2a6dfbb1f9",
+    "expui/nodes/sourceRoot.svg": "b5a21176c95a0010dfcb52c9a15e1c6055a4e1a9e7fad71609e81824c4e15685",
+    "expui/nodes/sourceRoot_dark.svg": "cc92b0c0ec4cd0c635acc6776df96c0c8a97474cbb8de3b3d8b562eeab2e637b",
+    "expui/nodes/template.svg": "2c3dc162f5c094b161eb581d3ec0f175f5ae8806dcd4caf59ec2acfe466e9d75",
+    "expui/nodes/template_dark.svg": "b8f3641e39f727ff74f5e1368946e87efbbaf05ea5ed1fceb1649761076e1c81",
+    "expui/nodes/test.svg": "52f5eeb2e9ab0a6689b21f677f5139904fa887596517cc6543d454bc9052e490",
+    "expui/nodes/testRoot.svg": "ad090889a130caa62921a829b7fae982e5aeda67c7908409f34bfc2c1c108fee",
+    "expui/nodes/testRoot_dark.svg": "cd3803af06191f862b059f844c0a80808a4dd344aa20f6c78e930df06f9e0776",
+    "expui/nodes/test_dark.svg": "0a94f04c9f864a8eda5decb46e9b7f496003d5e946f1c4dd2538ad60ad8ae709",
+    "expui/nodes/type.svg": "74edc26ae6ff2f177242e6126eb1f277a68fb844e729bb5fbabc909f6daac3a1",
+    "expui/nodes/type_dark.svg": "4e11c5da844f0b349e7180282ec3b1fd4155d38a50e652ad0108daff1d49fa33",
+    "expui/nodes/variable.svg": "f52dcec6d2647a4f6187f9e3b4c75c5de40083475863e345a568dce914cef2e4",
+    "expui/nodes/variable_dark.svg": "f45e196162daa47e6b070c96b173b15acb7657b0d1764856df5bd6f94eed1505",
+    "expui/objectBrowser/sortAlphabetically.svg": "f1437c3a7c9bd463b3e3c9e33bbcd33e34b57f16268beacf1af2cdfcb5a16e8a",
+    "expui/objectBrowser/sortAlphabetically_dark.svg": "04344b645bb449692919737306266f5205cd992121402d68b5f4ef658205b3ea",
+    "expui/run/attachToProcess.svg": "3abd35d5311898066704e81047b59b7cf81c4257b17d0b204e267795518b06fb",
+    "expui/run/attachToProcess_dark.svg": "5fabd4b26400071ed56feb006e5cd2aa22c5955f5815b6b2dfa07f1dbb2673e7",
+    "expui/run/debug.svg": "d2cf3aeb22ac7132f9ec5db7e75108e040ca246949c498322c263bdb3f5a5b79",
+    "expui/run/debug_dark.svg": "03f959bcd591277fef659acd82582ac3a3e3a6eba0b57edd1972192af8b81e3b",
+    "expui/run/evaluateExpression.svg": "49dc2f6040056cb48adad4e7d255bc2efde74ab605dcce66959c0a85c45a9e60",
+    "expui/run/evaluateExpression_dark.svg": "c6a39e73102950b2d28eae0e000127dc8cf9543b129c12644d7a0132107f0764",
+    "expui/run/forceRunToCursor.svg": "ab074e474745161d926b80904f13a1fd5e383329e26a33fc5b4592b062027a51",
+    "expui/run/forceRunToCursor_dark.svg": "8b3eb78b91d446cedc5d1616f0cf4e99a85bbaf33186e4b90c56b20ebb0ca188",
+    "expui/run/forceStepInto.svg": "b8011acdc22b4a856e1691bf9de9b6428ccdd0c5dd65dfe9d5a60cb4a5670b09",
+    "expui/run/forceStepInto_dark.svg": "ce0a156ab988e7f8d274da109481b5c644f5f0c8c93feceefe91fe86e8eac4df",
+    "expui/run/forceStepOver.svg": "9b36762f7fdbc8b3ab030bb1df3484dc85ba61141b8e964ce89f529e38e40bfd",
+    "expui/run/forceStepOver_dark.svg": "f70c461ee20d91c0caeecbd61434353496fe5fa91ba0e2f13588d1e1552df354",
+    "expui/run/muteBreakpoints.svg": "1a83ba51203e2bbb43bd7018cda79c000006487e2692031804e15dfa207f7c76",
+    "expui/run/muteBreakpoints_dark.svg": "43a463a5a86b9407790094ff1cc58f6f85736c7136b420a1a6896f715cbc005c",
+    "expui/run/pause.svg": "1a3a7883b3902d08e7617b3d596ce733dc220a5f70549866e5c688a385dccd2b",
+    "expui/run/pause_dark.svg": "e54a6d9e445b1831717dd01599801e1d2199bde0aa4c6f0284ac809531062c69",
+    "expui/run/profile.svg": "d2b29be9f6567c200e93cca243547dd8b9d40387eab04f284f30b011ce602001",
+    "expui/run/profile_dark.svg": "50a33285696dd28201d7820c551f4c1f2b35fe28300c625ac58e0eed7756a1dd",
+    "expui/run/rerun.svg": "1c8992c689cd900fe7be27c14db6d42b4885149e0d11f53b92139821433fd264",
+    "expui/run/rerun_dark.svg": "e80ae8a1fdbd7ff17c401cc04cec2d8692b20f73d60f7837c4d6d2968c178c4b",
+    "expui/run/rerun_stroke.svg": "bfd91208489e2f2f00ecd4dfdcbcef0f4f6205862444b8715393fe528d62c7a8",
+    "expui/run/restartDebug.svg": "54e5364fee133bf1e738ab4372c95aedbbd177efd51cd3e71ffb599e9a064dde",
+    "expui/run/restartDebug_dark.svg": "c2e358d607ef8fb7e1e6b181bffe0e3ec81c6f64f8221a744c4f781583ef2069",
+    "expui/run/restartDebug_stroke.svg": "940a4b674e9a159c94d47963129051154f8db5911cf5a5979b72100bf478c593",
+    "expui/run/restartFrame.svg": "0a25b451dc43ba4f79ff92d2e2a64be21c85b1b696dde5ee6c38e5feace1b7bc",
+    "expui/run/restartFrame_dark.svg": "d6fa505b04a6a534f8e800cb0a6e3672bddc030c56a4dc20281fa9566f2af26e",
+    "expui/run/resume.svg": "7cd916b84e2c0cd924f257c5c6955c88d5fd0ff74f26393315b4dbae65fed722",
+    "expui/run/resume_dark.svg": "e350e98350fcc0efa502ad4f6585867af7cc59009045a71895430f6f5095daf7",
+    "expui/run/run.svg": "152f9b200bddd25b2ee3f0b03c2be710aa131891fc0e39e0d74f2532a626e6e9",
+    "expui/run/runToCursor.svg": "2fb0aec5cc24b378ee0ccd162600af2d98c9308774c809437e8403e96aecd04f",
+    "expui/run/runToCursor_dark.svg": "03a2edeebf00602763f7805c1b47efcac20e2dfa59fef250d5ea9decb1c34702",
+    "expui/run/runWithCoverage.svg": "eca80a14ceb2c8b77e339339fdd49a215805d5e3d75f81bb9e180d614b5e87b5",
+    "expui/run/runWithCoverage_dark.svg": "052a34b74bdf2e09d7a90fc5c4b169d18134bf6ee55a32d8ce63388fba10a14d",
+    "expui/run/run_dark.svg": "dcd7e6658108d94976a295dad27d1ae11ae66f8d524dffdb5a2e87a336756c8e",
+    "expui/run/showCurrentFrame.svg": "86c8a2e9ec2840bdaac0983464788bfcc39469690a21454100d3ec27bd8109df",
+    "expui/run/showCurrentFrame_dark.svg": "c9e8ade9b0cf4650c8bfdf6aec407ac2cba1e8fa8ea223a083de3884ce9d1b8b",
+    "expui/run/showIgnored.svg": "0446103e49b8d181c2529bce3c1e30f385ca92d2ba94190e2a5529f0b6c1d440",
+    "expui/run/showIgnored_dark.svg": "16b1eaa9456ecc04fe4f96ce598dd3f15cf0c6c57a67f4f451120b0f01634cf6",
+    "expui/run/smartStepInto.svg": "be1cd150789a38b00af503f4666ca0610b8e6f389d9e826739ed9b0109e68f35",
+    "expui/run/smartStepInto_dark.svg": "43c060dbbcd860c8fac20c5690acf7542442af14d146d4de130a74369d7dddd3",
+    "expui/run/stepInto.svg": "590f81fc5b2663e7f34c41c20e381db859d4c4c7d9e9befa70f8a4521d4284be",
+    "expui/run/stepInto_dark.svg": "5cbe7f6c19024d78b23f595c0f8b7e5f53ae05910dcea15521390c53a611a04b",
+    "expui/run/stepOut.svg": "29d7c6dcc41b7fbf73e4e4f38a5a62a6f5bfe0322f3045010c4224bb66d31237",
+    "expui/run/stepOut_dark.svg": "ffaf132ed3fd8c4618c216b9f8ee974b3979ea70318db962a0f5d73bbba3c8fe",
+    "expui/run/stepOver.svg": "f41d0e83cf19e6a470369c72df7539b4415263ac3112a526857a547b99256e9c",
+    "expui/run/stepOver_dark.svg": "b79a65b8d61b02c67fec180947a7f17496064551e022981f69ea5458360edcf6",
+    "expui/run/stop.svg": "fc3a56e4ddf219f4abab8830669eed422bf130f9ad8b086b3f52f75aa4aeac14",
+    "expui/run/stop_dark.svg": "849dacfc40b7c7efdfbfcd2a59b800659c8e6149bc3d850a7f5cbbe25dbf4f82",
+    "expui/run/stop_stroke.svg": "aea5e102b931e535ad304c54ab2ef5268798eb3ce26130823004fdd029e3d651",
+    "expui/run/testError.svg": "ce3bce22258784b46334af0012325be5ba25c0c65555ed8373630c781fa2e07b",
+    "expui/run/testError_dark.svg": "6b361dd6b2a8924b1e9a76ab1719a19aae1f9d144cd5ca13a84e48db5c9093c3",
+    "expui/run/testNotRunYet.svg": "fd176390650fda988da4eb4789c9067e3c0fabbf6015f3f58669bcf73b7e4e2b",
+    "expui/run/testNotRunYet_dark.svg": "b754a6f5583e9d963107cadf7b59568accef1dcea83ad2d707563f3471f3197f",
+    "expui/run/testSkipped.svg": "2c9f44e4ab75fe43b4e82c062b0dabb84e6b29d4a65a376f0fd296a3770502ac",
+    "expui/run/testSkipped_dark.svg": "e56ffa0a4eed954534a308bb115de61e18e2a35b47c2ac223e8b37e20ce2a32d",
+    "expui/run/viewBreakpoints.svg": "24cc9fe46522d80068d9e5172ceaec00c2bce085378f77e5fd9dd396f5573997",
+    "expui/run/viewBreakpoints_dark.svg": "7a47201e3bb357ffd88af7ea287f861025ba903bc51c71381b3d54b81656918c",
+    "expui/status/error.svg": "4f20bf06930a0f6b4e6572d7ba19051b31dd993e96a77ffff08d910246cb0bc6",
+    "expui/status/error_dark.svg": "687c702095397f79a902639b6da2e910ec8e9bb822dd8b5994afd39408a678fc",
+    "expui/status/failedInProgress.svg": "4153a5a421dd3f141e2072993464c6825a5ad9f99227da338fad849f443daa3f",
+    "expui/status/failedInProgress_dark.svg": "3f54b2298c2bfa8611b92b329984efc09491aec7c3b72d6c9be1eaad67694207",
+    "expui/status/info.svg": "911a8caac822d034692313014886194c922caf8dfb003566154b4d23d3ab866f",
+    "expui/status/info_dark.svg": "fe53b578033b97b848aea4549b84bcd56dbc3c6b7bff6772b96f0a9e5ab84287",
+    "expui/status/success.svg": "c1b98f0c5007004175f9677b99ff888823d9645b7be5c060d436788199258fdc",
+    "expui/status/success_dark.svg": "52fd619ba01b06e22948f5a558ff9e7531e9be79c88b7ebbc82b487b053b6bc9",
+    "expui/status/warning.svg": "b9109478271840e1d7f579863d7c4105ee954645cd37d876a7ec9544e1cb5d58",
+    "expui/status/warning_dark.svg": "8df931e3668409275758190dbc8d55bfbc5036fa3e3c1537002c7256164321c5",
+    "expui/toolwindows/bookmarks.svg": "9c8db98c5c151d93280c3c779dd305e3d7f1e92db395bc7f470313eefce55c39",
+    "expui/toolwindows/bookmarks@20x20.svg": "09698ba51fd97f11761786e8fa161e52ce90632d006f8234cd5644cf82a55c9a",
+    "expui/toolwindows/bookmarks@20x20_dark.svg": "501d9505ca40c53cfdfd2ad660d519b0ada083688b901cb4c5919e584ede4d1d",
+    "expui/toolwindows/bookmarks_dark.svg": "50ffa19d6dc3bfa2379cf36f67aea9bc928993159a05e724107391f96829c5e3",
+    "expui/toolwindows/build.svg": "a8d2349c5bee1ff7637ae56481cd24ef1db350ac4f8c30687c5b80df05e14101",
+    "expui/toolwindows/build@20x20.svg": "30af8939ce63c339247bf5d9b7f9f86552b17968153a1263ff944267dee04132",
+    "expui/toolwindows/build@20x20_dark.svg": "eae39ceb472fbd2c212c75641071e954abca70ace1f1f6d1bc48ef94fac39310",
+    "expui/toolwindows/build_dark.svg": "5f9054dcaf3460523273465c4fffc789a85cdf924a233d70c1548c7dddba04da",
+    "expui/toolwindows/changes.svg": "c3d1bfcf7741fb031db21449abe83218c78b80666056fb9ac1f671a443f23d77",
+    "expui/toolwindows/changes@20x20.svg": "3867535029d3e06ecff6dc115b962f29ac06c936bd9f6f964e9289adb939fc45",
+    "expui/toolwindows/changes@20x20_dark.svg": "c7b884a7960d322c96156dc7b4fd89a3dc28eae1a627083b4b9397a9fcfce5b7",
+    "expui/toolwindows/changes_dark.svg": "ca7817b505ed2b89640708b1853b16b2f6994ea88d5c003dc1dabcd5cab69fda",
+    "expui/toolwindows/commit.svg": "dce9c4a965ba915a2607eeca1c9c1ac29504ba85729510d8f2b711382dfc3758",
+    "expui/toolwindows/commit@20x20.svg": "55f74e1feba0920d2c89bf4e4bfe1aea4ed624d2905a4babc21f04fd09552c98",
+    "expui/toolwindows/commit@20x20_dark.svg": "8195aef4d11d594bd0ea43db96c09dde72758283e1cbb506545cd65893f7883a",
+    "expui/toolwindows/commit_dark.svg": "1d6e9c5f1a788ae730ef4e0180ff24dfc7ef80f91b9e1c4a66027275632801f2",
+    "expui/toolwindows/coverage.svg": "c6eaf8beee725078e03b4a9d652ed0875625cb5aad9575fa5c8f38c3145bc640",
+    "expui/toolwindows/coverage@20x20.svg": "7a3e509c61e425daabb7f1b7a6bccf25a5042fb8f1048024e30284c10081dc21",
+    "expui/toolwindows/coverage@20x20_dark.svg": "801eb4093899b3dc174cec0bb6e86d064271bba973870c9dafccc1c53f709f74",
+    "expui/toolwindows/coverage_dark.svg": "2842d3c95389008bd36de7be7dc69015231fea9c3b1ea101d2a6063ffc073ddc",
+    "expui/toolwindows/debug.svg": "b46b2d13a6a6fd662ae9d572dee908749005b33b096c405a52a4f95a839cef4c",
+    "expui/toolwindows/debug@20x20.svg": "3212257270cbbac6135f9ea8d87fd46b0c40c0ea5fd6a0217d1503c0fd1c2aec",
+    "expui/toolwindows/debug@20x20_dark.svg": "016281c5686f255fb1802007e5fc7ed3a2c9560da62d5ece82ee9c01554e6901",
+    "expui/toolwindows/debug_dark.svg": "c533c82b37f1bc647b7dbfa10379a58524b0e25e82c8d6104dece39d90294aa5",
+    "expui/toolwindows/find.svg": "cfed34eee676863f029f62765bcb6fdcf82cef511c05c7fc88650b2feaf8fe4c",
+    "expui/toolwindows/find@20x20.svg": "981c0ec61f93fc56d1d1ca0a97e0d1227665c619b2819de73e53f91fe393cb46",
+    "expui/toolwindows/find@20x20_dark.svg": "1cbfbb2fff277201426fa65e6b2d0ebf7f1837f97efb82d3d7024504bb11f5c1",
+    "expui/toolwindows/find_dark.svg": "aff2ba37c9d9548223e593221beb6a01252ad350a17f87293162b66625489d91",
+    "expui/toolwindows/gradle.svg": "9898cf8edd8ab790414c0fed9cba827d8940b487a597f55c61017e84912568c2",
+    "expui/toolwindows/gradle@20x20.svg": "93e36ffd314538fea40c77ba6288cce04487f9893704724959c9b32f76be3530",
+    "expui/toolwindows/gradle@20x20_dark.svg": "7808f5ea5a8fc295e23b1a4ec2c0f5df36c7658548d2eb350d271f0d90841157",
+    "expui/toolwindows/gradle_dark.svg": "243bd5bd360895eb33da558a7e229b1139906e79cd2bc52770dabd01d2a87647",
+    "expui/toolwindows/hierarchy.svg": "fcac4d1712005c3984d03b6a21d60752806abb1d48b75d066779aa7ed3ef92c9",
+    "expui/toolwindows/hierarchy@20x20.svg": "0c015742a3b7e6060b8633b00bbfc06c52b33855e74f24fd10ffcff1311062aa",
+    "expui/toolwindows/hierarchy@20x20_dark.svg": "6162065fb886f10224da794d8d3b6dea5e93fc79680da0a5c1b46bff6588035a",
+    "expui/toolwindows/hierarchy_dark.svg": "5a415b2e4e489ecebc97ac12dbd5072c7daef3b87e6ec9c512c4382a6e021b46",
+    "expui/toolwindows/maven.svg": "612b412444234fd34402664d48fa442bc5086ecfac34ba65b9c9834248212505",
+    "expui/toolwindows/maven@20x20.svg": "6abc2af87e85b71e15b38b5a296804d5dd82f8de7bf6a87d57baa096be7d4556",
+    "expui/toolwindows/maven@20x20_dark.svg": "ade253ae4e8e32004ba1b236ee53538ec2fae2a82e499a4498915f41ff399887",
+    "expui/toolwindows/maven_dark.svg": "a50cb1c53690933a16fdc2929670461a102c45af0424ceaddcaacf68bcdc58a7",
+    "expui/toolwindows/notifications.svg": "8c46c80c8cf0cf63433ba3a7edf6e69b687890d0defab09892c13d792282118e",
+    "expui/toolwindows/notifications@20x20.svg": "539c139f583893a67e5f6b09282bfceea792b6581073b13bed5d95568bb2710c",
+    "expui/toolwindows/notifications@20x20_dark.svg": "993a1bb973bd7a2a216754faf9eb89f4e6fb7a978c4043815e579359db5eb916",
+    "expui/toolwindows/notifications_dark.svg": "5a5df290c085f41c81b12e334d0de1275f6c131beecc5f8ea827114584ba946d",
+    "expui/toolwindows/problems.svg": "c9c3df04988d45f6e829738667464a46c4df6d935b94dcf910dd8d5ce4269dfe",
+    "expui/toolwindows/problems@20x20.svg": "585bb12c01b53e2df66211678f0111cb576fa0b05cd86305ce827f521bef2126",
+    "expui/toolwindows/problems@20x20_dark.svg": "e621118b089eee10b5ddc4b4e5fdd12caaace38ffaf89d1cb63a229ffe5ae294",
+    "expui/toolwindows/problems_dark.svg": "6f11d7eabbf0c2f3f68967d7e4faae2c84617c3f5c2e17e1e1befb416f1cc8ca",
+    "expui/toolwindows/profiler.svg": "4d91e0437c11416dc30e3010a92b19897b6e5ed9b962eae70ba72a41f812ca87",
+    "expui/toolwindows/profiler@20x20.svg": "dc38db84dba5815e5481722568cdbdd07b6011e416c0795229a3d6a91e6af963",
+    "expui/toolwindows/profiler@20x20_dark.svg": "e2868d027973592100d0ab289507458e54dd19ee7e1ec92393e25e8788b03a7b",
+    "expui/toolwindows/profiler_dark.svg": "131b552f4915f99c12f1ab67234f7f4eb292126239b3a302f8053215c401f9de",
+    "expui/toolwindows/project.svg": "9198a3888742424df3cba1579bd8566041af0e5e79ff81919adbad22310bcc32",
+    "expui/toolwindows/project@20x20.svg": "9e48146d248c18851e88dde338c719b68722f3ec5fa212f40d2a6168be13d51c",
+    "expui/toolwindows/project@20x20_dark.svg": "5abc973538fcf037194f1f2af576ba4eb8d621f6418c5df05d21e830f1b933e9",
+    "expui/toolwindows/project_dark.svg": "9b071b3976642d6018bc76adc632f33890997034f141b86ad1d8bdc7874e274a",
+    "expui/toolwindows/pullRequests.svg": "37fa1f2c54530ac725752ad9fc46aff7d18d30b0cfa6eb825c26cb181c74130e",
+    "expui/toolwindows/pullRequests_dark.svg": "c266db019875673b60c3c5287b445847aeefdd2c63a7d79936d1435cf01e2fdc",
+    "expui/toolwindows/run.svg": "afad32fd27e52d288a38ffe62b542f6d98cbab00400fe1930fe16ad37904558a",
+    "expui/toolwindows/run@20x20.svg": "f5a770534e588df50409157591e39dcc10f50c1ee57f81ffc98e3472838b3d92",
+    "expui/toolwindows/run@20x20_dark.svg": "167093a21b974f36922268c8ae187052d5c39237451259d7305e2ea33a8fdeb4",
+    "expui/toolwindows/run_dark.svg": "10c4cd14188fba5f6fc41a412353c6669acf4c26965c4c9d116e48baa8856f26",
+    "expui/toolwindows/services.svg": "ff46ffd1e4773ba74a7a9df10ec621fb701ae8f2b1499e2b6ea1c28efc66a455",
+    "expui/toolwindows/services@20x20.svg": "24b6f203288f621c2202dafec5a7d7d6cf3d44c429765c17cde7cec7cecfc1ef",
+    "expui/toolwindows/services@20x20_dark.svg": "4152ae5f19fffc54db41d44f898d5616ebc85e84fd2742855b7c488ae57f82e1",
+    "expui/toolwindows/services_dark.svg": "64ec6d30f860b8237710c9f6b572bacd62806ca45144ad0d09b14360dad060ba",
+    "expui/toolwindows/structure.svg": "ad3e94a39ca07eb262e081a85bf184b5b2a52c863a3e3f77bb6a28466dca339e",
+    "expui/toolwindows/structure@20x20.svg": "8ee7560973275ac1f6dba609b8f902cf7708936a375dda368715283b354e51b7",
+    "expui/toolwindows/structure@20x20_dark.svg": "169e0274503f716020fb8c085099c56db18097a3d64c1fba82a9f05284e01f9a",
+    "expui/toolwindows/structure_dark.svg": "5a617c2837b33a3d1d92548272a0451243248936c979b8f93a5cd13916200eb8",
+    "expui/toolwindows/terminal.svg": "dda2310753148637953a482a4a27369e86edd0715794c063820f2143b458f185",
+    "expui/toolwindows/terminal@20x20.svg": "a3d6e76b5d3fbe10864da049e78ed4f3f67a78cb8710ee83175968e775a6169f",
+    "expui/toolwindows/terminal@20x20_dark.svg": "e6b37e2946637f9c02797a5f84ea896066862355febcac6a85ec6adc0092db27",
+    "expui/toolwindows/terminal_dark.svg": "8ce85722cba6fde11027e63f1a3bbf196a1bde477e00fe2c3ab26c0031f442e7",
+    "expui/toolwindows/todo.svg": "dae19f4fa6621ea74cd40d7a353529f3e220f0211ab5de37224db17868546dbf",
+    "expui/toolwindows/todo@20x20.svg": "db8ab4b7b6c367ebdb837d0e81e1f36c380399cc3501611967b4b17388049076",
+    "expui/toolwindows/todo@20x20_dark.svg": "63c6644ff457e9fe8e5939b766cf2a0e6b5e645e0072e2a634c9b54a86c0de18",
+    "expui/toolwindows/todo_dark.svg": "671658c066bdcfd51fd3704bafe7077db7f233c9f423300cd774b7e5d28c848c",
+    "expui/toolwindows/toolWindowDuplicates.svg": "2b8af6e2386289582572b0c9d2b9fab2a4f93baf39542e82e516404b164418b0",
+    "expui/toolwindows/toolWindowDuplicates@20x20.svg": "9da75536b521a589755fd8ad26a7b95e465ae0e025592caf45723e0ecc11888d",
+    "expui/toolwindows/toolWindowDuplicates@20x20_dark.svg": "292644e5cca679ef2d6b31f43f9f285bfd444f337cdcfe7109545c2ee67001a7",
+    "expui/toolwindows/toolWindowDuplicates_dark.svg": "21255ee6fa356e0f7ac9b53e758ed3360891c9800f2cb97d9c1b3001ce001786",
+    "expui/toolwindows/toolWindowInspection.svg": "d747120efad2aba13e45b910239f680a69377602ca8b72d80b7d799ddf7ee861",
+    "expui/toolwindows/toolWindowInspection@20x20.svg": "74bb910ffaf62f2ea1f33ca5d5b730ca1c2e9e12428b6920fba56020a6e2deac",
+    "expui/toolwindows/toolWindowInspection@20x20_dark.svg": "3760de869ecdb68c0e1eae195102e87dfa3b1951d806a90c17e0217a1d2951d9",
+    "expui/toolwindows/toolWindowInspection_dark.svg": "affcad38c8784b2ce4bc441fcf0e5a662dd6d42d2a39772e1a0a39c4efe12c78",
+    "expui/toolwindows/vcs.svg": "7b04f37b0404b705f155b3e0bb7f34f96996ea308fa6c51bbbe63669cebbb691",
+    "expui/toolwindows/vcs@20x20.svg": "a17d9cf1e7e0817927705ccfc61c78866b4462bbea4210fcbda2ba774acf604f",
+    "expui/toolwindows/vcs@20x20_dark.svg": "eba2794deb2a47586d3ce9899c18b1d29e18e718cdccbb29bfddc52a0119a113",
+    "expui/toolwindows/vcs_dark.svg": "5ec774fa24434d4eb28e5a22bb324b48531456204d5052593e77ab6f581ad8f2",
+    "expui/vcs/abort.svg": "0dd510c965f11bd46bdcbc078d0d7c89654b5dbf45c8e0e34723ac2e6a61e01a",
+    "expui/vcs/abort_dark.svg": "1c3018b3416c7e9839b71c98d89d0715186a975903900d5daf4b79a46f675edd",
+    "expui/vcs/branchLabel.svg": "b15e9a973134e7b805c7a24e20ca574ad30b4254a977f139541a66de4ed1957e",
+    "expui/vcs/branchLabel_dark.svg": "733d2937cb874f5303a8bd04bdb0c3451f88099bfeff67ff697396db5f6fa99f",
+    "expui/vcs/changelist.svg": "84e0ba53bf381acf0ead261105d8b769b889b9c391917d00fc934cb125e6a05f",
+    "expui/vcs/changelist_dark.svg": "ed380523a9b78fbae14b0869a5a1bb35d246794ab18fbda2278e9e683b04487f",
+    "expui/vcs/changesPush@12x12.svg": "002e29451d94f59d41f49aea39f333df932ded58680a924f2acc6c67cc95e6ff",
+    "expui/vcs/changesPush@12x12_dark.svg": "8fe97ee1ed14d82f38184c228bfccd1f1278d48309fa4ac1734d328e80425c28",
+    "expui/vcs/changesUpdate@12x12.svg": "5e549a84d0c6442a2795504e3e9d0eda397ce99ef6a98f6c5a561f51154e1b77",
+    "expui/vcs/changesUpdate@12x12_dark.svg": "f03bafaabeef0a0eb16a9d4bb3375aa80a5144a0bc141a1ed25bd5c70c8c1b77",
+    "expui/vcs/commit.svg": "3fac983347607a99adf75e2d88937fac14f6e4a5303cbb6b729e4894c79f86b9",
+    "expui/vcs/commit_dark.svg": "91cee062791cf72e12280a94f245077656ebf118a0b2b3a1ef947bb396a3695a",
+    "expui/vcs/currentBranchLabel.svg": "6aebaafc775c8bfc513b85dd3e62b7918eef7b96347c1e4ddef2f89f1b5c2b2d",
+    "expui/vcs/currentBranchLabel_dark.svg": "f8532d5cad09fd1c8db46cfb3a42cd11afad4ec874e00b17e08d06a9f7ae102a",
+    "expui/vcs/diff.svg": "ecb05ff153d5b29c07332f2a1b0b933acd8432ba98a4b19c36ce67551681cc76",
+    "expui/vcs/diff_dark.svg": "b3a255544bbd5d5412d84d66b16ca56e5b5a4de41a602ae58e0bdd6604a47ceb",
+    "expui/vcs/fetch.svg": "411a6dd826c234e09c2fc673b3252dc1b37f501c99278ea4860b9c7cc19df4f0",
+    "expui/vcs/fetch@20x20.svg": "66cc3a859617aa20cfbe51899ef72e4a9c3fa06409bb57b1281ded0ec2092c25",
+    "expui/vcs/fetch@20x20_dark.svg": "1db0e79caa54f4eacf49c30517450577935213c4dc070b8f9ab515c922c8f9b8",
+    "expui/vcs/fetch_dark.svg": "b91116a1f8e70bc53350c3617b218a7525808eb4dcf724022460d0387196d02c",
+    "expui/vcs/push.svg": "1ed9ba763c172f4d28939c7fdceb462168fd8b7ddedbbc122486e81ce97066ad",
+    "expui/vcs/push@20x20.svg": "3aa36b57423889ed17fae3957bcbeef400a1863e85270a4baf13d2008cade7b6",
+    "expui/vcs/push@20x20_dark.svg": "6335d95a91486ae9a49865589878fa6f217619a0a64da2093bd4e7fdfa93d732",
+    "expui/vcs/push_dark.svg": "8b818435e4600c55b969f2426666b9c345259afdd9816d0831d9af8c584b55f7",
+    "expui/vcs/resolveContinue.svg": "559ea7e6c2cada24fc647f12719d8eb4155e1c1de8130d1736c0adf2e4c6a69f",
+    "expui/vcs/resolveContinue_dark.svg": "5487aa72ae2cd35c11779c85fa09dac103a97f4d067d79149e97f34e041a85b6",
+    "expui/vcs/revert.svg": "39c353087d43ee3d91992fd1cd848cd19e6e01d92687c47f0b7ffa7280af4902",
+    "expui/vcs/revert_dark.svg": "6821edf449ea5086e6ff37ce24c1cd4a7b7f4ddfef339df61b5f157e703988b2",
+    "expui/vcs/shelve.svg": "7b8d87a928b85f944a1bbe80e49404feb0bbb90becc05040fff74bab19b382a8",
+    "expui/vcs/shelve_dark.svg": "f22913485365483366a63426678591ae1e294f3133be3167942044284e709d78",
+    "expui/vcs/unshelve.svg": "191ce135ff68a24bc046c617498e4913896dad27dae38c7d87a63061bcd39bc8",
+    "expui/vcs/unshelve_dark.svg": "5f38a60f0cf9e7c2bdcfb022ba011bad93f6febc74d4449fcdd2fe1af6addc97",
+    "expui/vcs/update.svg": "8d76f2b5fafd489ac5f53eaadaf15907d0be5de388d92ea81169e8590a89f513",
+    "expui/vcs/update@20x20.svg": "bf93bc47ae9752fe017694c2aa231620088fd3173901814f5a1cd6e81bb65796",
+    "expui/vcs/update@20x20_dark.svg": "20e0cf749eaa567a9cad2b1de9904871fdbc194de925c827f0f8d93807d7fe90",
+    "expui/vcs/update_dark.svg": "0e69655c490466ae61ae796f17f9e16e9962efdc3a0f5c4e2d4f7ccc98dcc354",
+    "expui/vcs/vendors/github.svg": "1089d411a896714576cc0ed7118914281a2fd44abe16886e5c24d1d36524a38f",
+    "expui/vcs/vendors/github_dark.svg": "9f690cd36901f53b3a4ad98ea58d32e72e813599c4d96bdf46fed3e5dbf9b8a3",
+    "openidea/agents/auggie.svg": "d933ed7648cc1b613858e9df0ab87693c649a09e9fba4b91823ac7cb2997e01c",
+    "openidea/agents/auggie_dark.svg": "10eb0d67c23c1e6d9cc36c23951447b7256c18ab66ae57821a754b3c87f6146c",
+    "openidea/agents/claude.svg": "b6917fe84390634815171dc1cb0952ba62318b0832fd95495e6fdcee467a0a98",
+    "openidea/agents/codex.svg": "9142d159d3a8234ad2e942d6f5f3bb94562f393782ddfee57fd6ffb2d784f353",
+    "openidea/agents/codex_dark.svg": "e9e0f72173fc2e7b96fa027856cab1ab4992bf10fe0cf61a73471158f8fbb059",
+    "openidea/agents/copilot.svg": "e9dedb1169beb719332b70c802abd64b56c68ca79ecdc06b42c13e27a83e38ca",
+    "openidea/agents/copilot_dark.svg": "21f6d1f2e35cd4b9b5cc4c7b59055728bd65e721cf4c44f6a86aa5e8145f96f8",
+    "openidea/agents/cursor.svg": "08ab82f07540c79f052d6e13f9e7a3b120da6ab2953461d05a6e36c3ad5eac38",
+    "openidea/agents/cursor_dark.svg": "c9f4cbef76183ad60157e8c480b857098625dcc5b4c2deb3d8540b5e5698453c",
+    "openidea/agents/gemini.svg": "5c6295a4d9692896d47b496d54bd8d9d26dfd27b4e6a4d5c26a1fb6a68704f3f",
+    "openidea/agents/goose.svg": "4a99ef1a7050f1c56c3b90fe603f83a2ded2ea76f8dcce2095af041e816f96ee",
+    "openidea/agents/goose_dark.svg": "cebf0147398fc29a4d7eb26812e35e7ac8dbb6380a1061852c47eccb7277639f",
+    "openidea/agents/kimi.svg": "8b280842455d8ea5e44fe5859e62187bef53aafb820ec44af7383af767895aef",
+    "openidea/agents/kimi_dark.svg": "40f8ed4d3d5fc216c2bde6ac16a0bcb033ab8a357de29e300ccf64204f6bb3bc",
+    "openidea/agents/kiro.svg": "fcd49682d8108a65ce76f211bc595ce63c16edf111727f1db530bc316c8544f4",
+    "openidea/agents/opencode.svg": "e1a9a012d3e1f9b117a0d0000ec6bc1ba62224ee3fd1ac5e3189a712b1bed656",
+    "openidea/agents/opencode_dark.svg": "69188e9f076fe82f89422e81bca69022c82bc4077e6c29d189befb96e3d96545",
+    "openidea/agents/qwen.svg": "96210a065de777cbbad736df800a0d0b5e0ebe7d0bad7e75c053a783519b53a0",
+    "openidea/agents/vibe.svg": "fdf43d7337d018cb5d39975fef23c931e727b01934d03dd245b1fabbfe47cbeb",
+    "openidea/browsers/brave.svg": "178d74836b607ebed4f967b5d33d8f2e64d14a3efd7a53628ad28cae476e8d03",
+    "openidea/browsers/chrome.svg": "d4f8b714fa01489133f5437161365773d2f1b3a729bb791dd7582020dc008e3f",
+    "openidea/browsers/chromium.svg": "ec89a35b307cfc64c3d65e3f304be4e17d4fa5c730e2c52e385480c3c89bf461",
+    "openidea/browsers/edge.svg": "c2b730b84db13bfad4a031ea56a432d2e7ece7582c1eb926078f21e0ba27f514",
+    "openidea/browsers/firefox.svg": "90df882d1cab6332e81ce2404c5ff03ba4ffe8148b588660cb000e8730f03a7d",
+    "openidea/browsers/safari.svg": "1a1fe3649fb36607ad8834ea107460178e7ad15ee4e98067e2750bbdd10f9fd1",
+    "openidea/database/addDropdown.svg": "78ede2996b445e70a3b60179f12a12bd5965b45989161c65808ba5381d900ff5",
+    "openidea/database/aurora.svg": "83323cfc2ca05b9c510c1db4c917295b94bb145e468b5a895f22e51211d71503",
+    "openidea/database/chart.svg": "372e2e2cbb7dd8bf7848a8bf4d6844a5551dcf1febe287ca9600c03d384258bc",
+    "openidea/database/clickhouse.svg": "97e3c3f37814cf2cecd452d7d425f6d26dcedc7230a555327d797d370a01261c",
+    "openidea/database/cockroach.svg": "d82d21600c4d38e0e569df83af62340e38515e9569c1d55993ea99f28b3cefbb",
+    "openidea/database/column.svg": "2a66350a4d1e9dcdc645090170f68bd8a2e269eab2e3d6ebfaf48d48c40e7e50",
+    "openidea/database/columnForeignKey.svg": "a0b4fb174cdac245dbe7424b5b0a7418c456b4059a0f8300d143b70018131f4a",
+    "openidea/database/columnForeignKey_dark.svg": "618ccc0e892989060735841bc8b32b59af04922fa39ac9b124b73d384311d899",
+    "openidea/database/columnKey.svg": "22b5cd7591d8fea8826816b5f2459a22368eb73b6e7ffd11e68dd602e48a65d0",
+    "openidea/database/columnKey_dark.svg": "780a9671b6a677295fd4bc0e0410bd262be61e3f22ba307b850679889387ad57",
+    "openidea/database/columns.svg": "3c3b4ba4fb6781bf9b40b17d272c6139989d0c1675eab23b90fa4b903393d1ea",
+    "openidea/database/console.svg": "4e299b26e3f978c0bdff57d875126717983bdc6ea27da2adf1da1a2a09be3c64",
+    "openidea/database/dataSourceProperties.svg": "5fc4b23392cc757ea0559ec1eb98c7cda361c539b2eeef8675b607e3a1b9e80c",
+    "openidea/database/dataSourceProperties_dark.svg": "3bdb694d0d9eec70c49b9510799b46bd9272b0e5a04488835083b8e8d8b8740e",
+    "openidea/database/disconnect.svg": "8aa0a1aaa0e941d8b67de990335751a7ce00bb3ebb7b053d5ca1a71971079bae",
+    "openidea/database/disconnect_dark.svg": "fa81f809671c232da67bde0ce7506f726cfea7039171ec8c951127edcb2daf55",
+    "openidea/database/folder.svg": "0555e0ce06f52893a6ae73ea5ef296361b80ce266b8477db0a8ffba20c5a1547",
+    "openidea/database/folder_dark.svg": "c7ac7f8af66cfd3f6a20448f63c9ad5a4a4382caab03d89d32e9301b9b5d446e",
+    "openidea/database/foreignKey.svg": "60d59ed6595bcc4b7894124759e6b22d94fd1ef007f0bc9d37221c3290ae24f8",
+    "openidea/database/foreignKey_dark.svg": "f9beea6f1ebd55e92ca1d3b4e1a78d7c0a9168fd2296ee9f359b93f32583f01f",
+    "openidea/database/greenplum.svg": "aadab77ab2ec7b856080d2d9dd9c185e655d2aed436c253cdbe39068085bd88b",
+    "openidea/database/index.svg": "c5c3926204bda477578238d960b64366ad1c94bab720e0b5e628a2a01b96e90c",
+    "openidea/database/key.svg": "3dffc027ca5ba694d4cdac5aaa8d631e173a9683dccb59efc361f8dc6e7120a0",
+    "openidea/database/key_dark.svg": "429db71510e2ec37fa4481066ddddad4db80063a24fa87bc83d5c3bc7a069191",
+    "openidea/database/mariadb.svg": "72540bd3e42b5c84ec1faaffb7f55a8e692340429d1e6c1a9b9252e1b88f54dc",
+    "openidea/database/matview.svg": "c9454c9fbbc1bb14985428d8b58c34125c1557a7f3300eabac1260b9c03c6d73",
+    "openidea/database/mysql.svg": "ccd874acd9b2faaa581660705a8298ba48ed6c406bf1e35d263d1238beaed7e9",
+    "openidea/database/mysql_dark.svg": "65b8533fd2667094882138ad6bcdb61084e9887f22c4de54746204152772b678",
+    "openidea/database/neon.svg": "84ce5d4454cdfa29457489343277f5f8a90efe75ebf215687767185cc74dc4f2",
+    "openidea/database/oceanbase.svg": "44b9cab5e90c43489f094463c2f32b94e51e4d40809c8b69ec468ee3cd09c1f0",
+    "openidea/database/oracle.svg": "a40ec6a96650470b0f0cb34ebe11940909f40b9d1a546dc1d7bbd950f8aabac5",
+    "openidea/database/plan.svg": "dbfd20ef34f508af8671014629da609156601c0db77d968fc8472686535a7845",
+    "openidea/database/postgres.svg": "9b2dc361e5435b3f507ff3f0049c9328378c73b4e7001d7b93a2b57be0ad2c4c",
+    "openidea/database/postgres_dark.svg": "c246c215ea79a9fb4beda0407826acd030cccbb0f2459bcdfc1a9275068d730a",
+    "openidea/database/redshift.svg": "30f8fc1e2149eb6077f60637992f4ad7cf65c09f051858b44608fe08dcccb7ed",
+    "openidea/database/routine.svg": "bbe82210b1c8e77c3f7282f1f0d01a9736f458049c53814dd9d714235c49b3c1",
+    "openidea/database/schema.svg": "6d9fc86f279abbbf70fbf6aeb279a77f23a8d1cf6e7dfa17bf593baf617a1351",
+    "openidea/database/sequence.svg": "b04e3a35e565db658eec7e7ef978d0843ce8794723087e9baa1d8cc16367baac",
+    "openidea/database/singlestore.svg": "c9028a4d3f19d49061b68ec8bf425b1c242284ef17e221aea942857b3d346c95",
+    "openidea/database/sort.svg": "0635dc9900fc7ec372c07cbc592f1fc5f5329cc5a09ea74a65b253e345768951",
+    "openidea/database/sqlite.svg": "d7084a7e7f1e0381731305dab86659c293d34f0ba6d9c9ed5cffd735525415dd",
+    "openidea/database/sqlite_dark.svg": "e1eab8c157c7a37f3b33fb2b040eafde5ff0d0bca9951dcd583e3ac50553a77c",
+    "openidea/database/sqlserver.svg": "4f67030fa27b92251b7bc43354b516af063e7042ce20d93a1bc16bce880dc1d9",
+    "openidea/database/sqlserver_dark.svg": "9887dff28372361f139e9e96f896ce0aa94537a967df88d1ad5ed6cf3c5b2938",
+    "openidea/database/supabase.svg": "bf881f94535c9b629d0891ddba7a8a36efa233972455a31a8055e933085c41be",
+    "openidea/database/table.svg": "d9fe72e1252814287185a06abf793931114c32bf85db0018e2c2b01e8f803330",
+    "openidea/database/tidb.svg": "91903d498e7081474c9fd1647e329e8972ce1292d93e57f83614738720322d1f",
+    "openidea/database/timescale.svg": "48f68a31e98f80bad7192760f8961114c552e1280a988cd5fe5de30f7e2a25a0",
+    "openidea/database/trigger.svg": "2594cf5fae1b8edfb60740ea85e0113cd219173558e15d2863946340ab1449fb",
+    "openidea/database/view.svg": "fee594277fb0e18c8d367818a80c1f3156f60e7f8a8dcac0a694eb59f387435b",
+    "openidea/database/yugabyte.svg": "c6c6d66f83a4756a9b68a608b1db3c431cdf0df9484f0d835c5bd0070ad12d4c",
+    "openidea/fileTypes/asciidoc.svg": "cec201df7573cdbf9c44de658cb8113781487a45543aeeb769302ee800b938f3",
+    "openidea/fileTypes/asciidoc_dark.svg": "ca8c84926a1bd8252d144424eb9925c1912f2878d50000193da1e9ce0d8327c4",
+    "openidea/fileTypes/clojure.svg": "13c4fd9bf62acbd9d1983c1252af23dd773ba7d56485638251e907ddbdc839cf",
+    "openidea/fileTypes/clojure_dark.svg": "7950e751e3d208793cd679b8f381b0d18dfe5a372182b91bc07edd6dfae414cb",
+    "openidea/fileTypes/cmake.svg": "da59d198cfb141cb235c35d3f3bad3e3099b5465d668aef0b3522a305d2efd4b",
+    "openidea/fileTypes/cmake_dark.svg": "ce4f9d52dca26eb239d8688ba89f9259904cdc7d1773b97f88b82f96143c8fc5",
+    "openidea/fileTypes/d.svg": "ca1c809bbf20e60735f9cfa36f47555ec36fe16b4b50c4cb7a10d09c98480ae0",
+    "openidea/fileTypes/d_dark.svg": "aa5be012cfb8417d09659015d226324f21fc5cd28b66585b1b2a50761862cc2c",
+    "openidea/fileTypes/dart.svg": "7a3d1c70d03c533791dd7352b8a57d73098e382c1b2d4140663644eba4013e53",
+    "openidea/fileTypes/dart_dark.svg": "49445670187d324aba3eb3799e1edaef66af101ae7e0617b3a8fe2462e5aac5d",
+    "openidea/fileTypes/dotenv.svg": "dc75f74cbb4d9c7cdad64125a9d539010198a98525f2ce61a1a1bf7c55e36dc3",
+    "openidea/fileTypes/dotenv_dark.svg": "764d00106df117627c3bb9c86563aa83e18cd3a20a710acf735c0cc1a5040792",
+    "openidea/fileTypes/elixir.svg": "54a92baedd3eba0e9c75137888e50a5eca0fad5079a39da252b5c100ffe93825",
+    "openidea/fileTypes/elixir_dark.svg": "1adc7437273fea57e34179099e4968f817d86879d1b6859fd7a99394c059bbb6",
+    "openidea/fileTypes/erlang.svg": "e88c23de1ec9f9631b258b30662aecf596ce08323bbbd75f1f09e8d0c48d7c06",
+    "openidea/fileTypes/erlang_dark.svg": "1560bf48ff0857a2cecd90dbd35122004debf3d107d5ed95b3855a204ea7a4ae",
+    "openidea/fileTypes/fsharp.svg": "65bcedfa573438edd18b8bba2e359c1082235bbb044053868502249df72d5737",
+    "openidea/fileTypes/fsharp_dark.svg": "0874815f75f9fb875940e413e1fe1c3060fc3b841b1ab9b785e6867200dcb5b4",
+    "openidea/fileTypes/gdscript.svg": "0572fc178cf7fde277076ff86003f1dc31d940f94250b1be2f3976111753994e",
+    "openidea/fileTypes/gdscript_dark.svg": "dc40c5305e9ca630b99a74fb627e48cc92e00a28313f1b31ac44731a9b9be698",
+    "openidea/fileTypes/gdshader.svg": "a55e07eed8e2c25781a10ffec14d264f2a5e638ce5b6a62c91abeb25219926a9",
+    "openidea/fileTypes/gdshader_dark.svg": "b9f014da0eac9b2861afa5520661208a7f296c89f418ebacb994472fbf84bff7",
+    "openidea/fileTypes/go.svg": "4df5d79db16a61cb8fc1e3b16133c859d2a4dd7d76e05142c9db2b0df52a432c",
+    "openidea/fileTypes/goMod.svg": "dbc7065493b00c8827e7aae64bee0f171119e92e14641a4ed706791b82b0b1ee",
+    "openidea/fileTypes/goMod_dark.svg": "5f55e249e3e947589b9ead53e53f24f7571c4ea07104a8fc66185442ba5bd7b1",
+    "openidea/fileTypes/goWork.svg": "7ad8c9a6c39490465b48dada020983c23cf2bab8d1e1b97d904eb27ac5b08f5a",
+    "openidea/fileTypes/goWork_dark.svg": "b75ad0f97b882c42c3720824251533e9fe23a67e0d44beece4574eb518771fe9",
+    "openidea/fileTypes/go_dark.svg": "550229c40956729b0dd7d95a73c5105a67deed3ed017af021d89a648f923248d",
+    "openidea/fileTypes/godot.svg": "3bb85e6695ce8dce783f369a0e24872b769de6207baaaa36a9abc5d954f2564b",
+    "openidea/fileTypes/godot_dark.svg": "6023a062aa42fac24479b4f3894d944156238a60d91a273d778ae493af36e35f",
+    "openidea/fileTypes/haskell.svg": "6b28f55218f46ca94feb8f1ac68e4e8ec824b59927e4d7b70d22c9911c1164d5",
+    "openidea/fileTypes/haskell_dark.svg": "1ae0753561a68f9141ea5730bd8b4f1d33536b351e9dd92fc8b6978ff3aa7dcc",
+    "openidea/fileTypes/jsp.svg": "b85de3ad38a58a2f02153b0a827ada92ae2b669e3a4b8e8f249271a6f34c8b08",
+    "openidea/fileTypes/jsp_dark.svg": "9fb998c647d8bfa2c23f891822b47774be29160b39b6ae4b41c1e068839443af",
+    "openidea/fileTypes/jsx.svg": "28515e184a682757b12f08102abaf7aa7dba51f4b73d37ba10bc43e25cf7bd2f",
+    "openidea/fileTypes/jsx_dark.svg": "3a2a72dc61798af301b70b386e73d4dfb8f90f1ea18a936e74ed21280ed405c4",
+    "openidea/fileTypes/julia.svg": "73d5ea90d14d5cbc82f1eb7faf2c88142db9a2d7b2cb136c56a6b9456599f217",
+    "openidea/fileTypes/julia_dark.svg": "a063320f7f415369e1918c89abe76cea4690db9f6888551d85d24062df6ce613",
+    "openidea/fileTypes/latex.svg": "ab6eecb0f43a08879fdfa39c256108ca684f96ec8f0aae32a4c510cc1ab492ed",
+    "openidea/fileTypes/latex_dark.svg": "62a6317a28b427b492c1dfa6e0ffcdb11b310c98c3bce198057d203ba7736106",
+    "openidea/fileTypes/less.svg": "ea0ad07020c8f6ba1a87f501c0cfa797a07f482cded7e895ba68675687d4f6b8",
+    "openidea/fileTypes/less_dark.svg": "b65d9f46cc932511ce573064cc900aead81ea65901eeacc09d9bceabdb643f57",
+    "openidea/fileTypes/license.svg": "08a11fa4d284e9d3ec4de4035bba2620fa8d531c206bcdaf1d4062814bf3ca2f",
+    "openidea/fileTypes/license_dark.svg": "18ba7655d7850c26b642e5cfb9872961984ff6f8d437a06e9b694888ab2da8a4",
+    "openidea/fileTypes/lock.svg": "936436e51a8db4cea1696c25d1d29ef12a9955ca204136111be2ddab86493fa2",
+    "openidea/fileTypes/lock_dark.svg": "623fe3622b58180c14f872291f0224a4fb0a5e8ca2532337b640926104f344c5",
+    "openidea/fileTypes/log.svg": "6957639f5a3a96f81589785bfcda139da321b3f3277e546ef05374a056aadf29",
+    "openidea/fileTypes/log_dark.svg": "85a1fcb393de315de172057633c0fe4d34c98ace0953d5811411f8b6e087ee8a",
+    "openidea/fileTypes/lua.svg": "3c3e4215f2cbe5e42c05e859b27e4156c9aed5908c89977c5edf0609d13f0e77",
+    "openidea/fileTypes/lua_dark.svg": "2f0861d7ef4170a71c5cb4c95f18eab10ad96bdf119bf1fdee49749bc553ad62",
+    "openidea/fileTypes/nix.svg": "443cbe3be3599f527af13e11a8064c5c4f6ea9e1f01acb636846782be39ea1bc",
+    "openidea/fileTypes/nix_dark.svg": "f765d4b99b3da477d79d776cd648d9ea5ba742a705d0ed259d35bfe4cc04e98d",
+    "openidea/fileTypes/npm.svg": "b97d8c8b5de98845b031474daf4279ebd5a340b61dbf915c8dee4ea61cb6985b",
+    "openidea/fileTypes/npm_dark.svg": "a4265cb5e78981786a1cd1e5f06f5440df854770e0e26c82d051da04d9b16b77",
+    "openidea/fileTypes/objectiveC.svg": "cd7b2019a2463164d1d55eb8ec5977e61b17cb5d3879be575d088e00c039f98f",
+    "openidea/fileTypes/objectiveC_dark.svg": "805be358ce271500c489981f6aad03fd50f5b6edfdfe3767524f19cc76fcb916",
+    "openidea/fileTypes/objectiveCpp.svg": "c8bfa9e467a158dc548dc553d77f824f5a965e47776e7f607d6d1cda748e403f",
+    "openidea/fileTypes/objectiveCpp_dark.svg": "57016c955807bac5a30f1094004209485749a76240b8c7be0637feefb972c8b2",
+    "openidea/fileTypes/ocaml.svg": "94476715a8308c767e52394973460adda2fd6a326ff080cbedc346fed4919068",
+    "openidea/fileTypes/ocaml_dark.svg": "fd166bc75eaef9c2e4b42707fcb7cdfb302a46f145813a92e078ad19bddb6556",
+    "openidea/fileTypes/powershell.svg": "b7c5b1545c5a8cb857c63c93efffca8eb60d8bd868775d8f624fa5bffdea530a",
+    "openidea/fileTypes/powershell_dark.svg": "a2113eecafb7197d2f4594c8fa8e3712a4095b2d1a7a90422274e984af7cde81",
+    "openidea/fileTypes/r.svg": "5461b5a4f0d39c18213f0d4852cd04318d5e2e1a90169ecfbf282786227bd8b4",
+    "openidea/fileTypes/r_dark.svg": "0d912fa971aabb7b4434126e9ead4e1d2577b326772320f86b465f890e97f7a7",
+    "openidea/fileTypes/readme.svg": "b810bc8ac9d4bdee25feaafcecfd4659b4ef227a3d6082e9bdf188f47d05dd72",
+    "openidea/fileTypes/readme_dark.svg": "e44c0543f961fa5cb6044d8e9d42cf557f93e9a25bb32316d903526fac7dbc5c",
+    "openidea/fileTypes/ruby.svg": "4c8083b6755073630714b8ff739773f09f5d540845a921e8b69009f65aec691a",
+    "openidea/fileTypes/ruby_dark.svg": "87b5643d0dabebac9a9c17d1e04aded6eee3e9649b6f25ce7ae7fd68311ce41f",
+    "openidea/fileTypes/sass.svg": "60ed5bc4de228d9f0add037b9265aa817e6bc044aff5d32fce53d424b50594e0",
+    "openidea/fileTypes/sass_dark.svg": "7b757658728ff1c622114d9f26e29cedd98b700a816f187286739fd894ecfb24",
+    "openidea/fileTypes/scss.svg": "90ed655e6e4d522ff73aa5dccf01208caa6174d25971d87139da6dccd78a59b4",
+    "openidea/fileTypes/scss_dark.svg": "93bcc5a3a83f7a2a2a3ad14aedeb7fcee67447da6803bd57227a2aead5500f3c",
+    "openidea/fileTypes/svelte.svg": "3f8b555f65aef280281265590860342f29b3e2b3f2d29bb97b000317c1c01587",
+    "openidea/fileTypes/svelte_dark.svg": "a3c6cb6347091daf25d2d71d70987310b1b79a8c3b04c57c4c78306f49de4fc4",
+    "openidea/fileTypes/tsx.svg": "5eb4f5e2b6343118e8112f35ae70617ada853a5c94d5c4d46756291abe685123",
+    "openidea/fileTypes/tsx_dark.svg": "b2319cc756f52ad4e5cc95b785a05447cf80f3c174dbc83ed17d32d4413a7611",
+    "openidea/fileTypes/zig.svg": "ee790291bf839010b7012bfe091873f19693a9ad186d3e5c8c8bcc958cc4be34",
+    "openidea/fileTypes/zig_dark.svg": "8c0f19f4f2efe092c30a56b0475a11840cc7b513d94cb398cb6dfe78d00a6dd7",
+    "openidea/general/actualZoom.svg": "a7598217c37c0848831e91fa72d1645c70caba62321fb07e0203ba425cf298a0",
+    "openidea/general/chessboard.svg": "9c6e5ab94e51d3faed9aa3b1b7be21fadfc37727076694c026ab18dee41d2259",
+    "openidea/general/export.svg": "f0e8f0693b76991d2fd9100e0379f2fa34a7609e98c7c399b1f332078c5f4995",
+    "openidea/general/graphqlVariables.svg": "5ac9cd6fda4c44e1c9bbb06c72185c8c1460334970d5dc1fec13ae7e56fe64b2",
+    "openidea/general/graphqlVariables_dark.svg": "87248bbb4245b5b78cc7f20dd9446b00ed18fd69e4adc1120900e606de424eee",
+    "openidea/general/help.svg": "034fae832564691f37c8abe9a0bf53c3eccfd69ae4e03efff6b0f7cbddc3d4c5",
+    "openidea/general/hotReload.svg": "2d7e9aea0b775865a6ed31f17a3d365e1bccbb584e5f4dda5d4c2b6ed73816aa",
+    "openidea/general/mainMenu.svg": "e093b39d9a7c3ec4f3d461d068762c2d2bd2bd852326aeeecd2b468ecd0cacea",
+    "openidea/general/pageFirst.svg": "8df72c8999a0a4b2be894ff5b65d565d6ceaf6179f419ee24f8850f5d2f6a704",
+    "openidea/general/pageLast.svg": "860b0b703fcc7a542c92da04f49f81a872d91423e7f1f5c5c15b6ad5adbf6851",
+    "openidea/general/paperclip.svg": "f073cfea719040938c72f0e520df1e107d59cc028e2b2f57b3a1e1d4c7be4f21",
+    "openidea/general/quote.svg": "75b12e8a069146ae228a423be9905fbf7ea7eee29cd7476bb9faa7b36508b547",
+    "openidea/general/sliders.svg": "31ae5bc3a8b81b0da5daae7a96e144d489a17d81c98a4e1cf0dc02a796d4400f",
+    "openidea/general/unlocked.svg": "50831870555da63f7aa6e4ba4f3f87301657d890252349537d1de0f66792f012",
+    "openidea/general/web.svg": "18c7f2f578d23fdffe4c191f27dc9aee30fffbe8cb4ca90280f8530f932b9390",
+    "openidea/general/web_dark.svg": "e1494d6a2837b4d2801efcb807198741d7bfca6e1fcf0200eb23ddc264a7a4de",
+    "openidea/general/windowClose.svg": "28164e08204b976a55a40e60eae444c733db0b43483747bf7b6e56101af22308",
+    "openidea/general/windowMaximize.svg": "daec546406d34f4ff33b49e9370bf18f55f51aece6f387d7865297c59df918ce",
+    "openidea/general/windowMinimize.svg": "903c11a055f70759e96a32c266e7e020659e2b4a0f3925a3cec8af76049fb367",
+    "openidea/general/windowRestore.svg": "bf6ffc1f9d4d23e97e789fab99a816a75af1f5873ed77c52bc2ad8c0a14ab954",
+    "openidea/general/zoomIn.svg": "6d0d42942d5fd8fb47feb73eda39116e4cbe6957ac62472e9353a1f72ab3d118",
+    "openidea/general/zoomOut.svg": "f55852ac7c9d964900c92f609f434836ab9a6dde3bb3c051647b66002511bdaa",
+    "openidea/nodes/testResourcesRoot.svg": "d2ec7ff39e0dd7a22ab28fdc75757aa8f6fc00639d7b66f75f27b20b2913c383",
+    "openidea/nodes/testResourcesRoot_dark.svg": "f3d59616fdf4d992ed69e58d8cbb766d1eafc4c415c1d8f33be4f33a37acdb18",
+    "openidea/nodes/textMatch.svg": "a92b62a596d1e545c368f8742f2f9aed9fd941bfc6be0d31122e2c932e04a407",
+    "openidea/runConfigurations/springBoot.svg": "8bb913332096b4e2447d628144adf1d2179dc191eda336af9ea74a70c3370d53",
+    "openidea/runConfigurations/springBoot_dark.svg": "d0f2c6048bb463cdc3e071b95f70ca07110b6b5b96f08bf4765c3849d511490a",
+    "openidea/runConfigurations/tomcat.svg": "174f75628599b93d0395c6b7553b227cc4f506536d2e0ab18f2021d980655be9",
+    "openidea/runConfigurations/tomcat_dark.svg": "317053c031782226feb11cd03d9a03f8ee91b91e817bb30cc26a801488ecc7f3",
+    "openidea/runConfigurations/visualgc.svg": "a0dc7d4b629faf7fb05c15fafbe82345db9f480b259776f343e74c9ce045a14c",
+    "openidea/runConfigurations/visualgc_dark.svg": "11dc9056fbbfd94e51a65b7346fa49194405d2e5943b903168f44bc3e5bed1d1",
+    "openidea/toolwindows/agents.svg": "47f4fbcc3f6fbb2204dc537a8713496c6fe78724a75368fcd57995324495485e",
+    "openidea/toolwindows/agents@20x20.svg": "ce947bda42ecc5e12817d653116f971d6adfb045f1b9219036c07eb560497627",
+    "openidea/toolwindows/database.svg": "bc2884308567afb7168a5a2550eceb04f58d2f872881bd68a30659c6246a2a5f",
+    "openidea/toolwindows/database@20x20.svg": "a64c2b2435be148681af68a4c0348aa5392dfe7b9141be36693845aadb76f0ec",
+    "openidea/toolwindows/graphql.svg": "2b2d7582b1d42c00128bd53e208e9e8919d4aff7e773439356566e398c7bdc5f",
+    "openidea/toolwindows/graphql@20x20.svg": "39d23be714251b40ef06abf891cd15134c6bd2ca74267cb0c1abfa90eb0b33e2",
+    "openidea/vcs/currentBranch.svg": "d63f9e20b01583b078f867b58773aef1309ee3d7519e70fdea672d4ed7bcd70c",
+    "openidea/vcs/currentBranch_dark.svg": "aebebc0a5a6a316508e0065d43101b37e0c10a253bd485a54fc7ab1188424b88",
+    "openidea/vcs/favorite.svg": "5a1cfea41c57753b51e8b777fb719c765a47406c0a35a7038000ec1ada8d3259",
+    "openidea/vcs/favorite_dark.svg": "72186daac691176394806475b2a7b474c37d0ea86b1f284b7ac6c97af7a3c917",
+    "openidea/vcs/notFavorite.svg": "60ab936e6da4e35537ffaf39010d6eb37d50320ff0d593044995844e19ac09cd",
+    "openidea/vcs/notFavorite_dark.svg": "94500c52ad6d2bdf85dca332b63f1bb44354bcd84e021910dea268270ef5dfbd",
+    "openidea/vcs/stash.svg": "7d8e5321296bea5d9ae78ebe5fc41a8ac296b3550e9e598fff27430e1ee9ab61",
+    "openidea/vcs/stash_dark.svg": "d8cfd0e906cb5be695d27a8b23dedbb0e22d95b4f77886bebf4ff2f204b18c80",
+    "openidea/vcs/tag.svg": "368edb6ff20d4b47ad9f8dc767d711c53d7d5833093300fd3daa3fbaa6eb0d6e",
+    "openidea/vcs/tag_dark.svg": "e3878b992332ee2fa6c145b91b2567d62ea90054872e3ce491aec29723b27007"
+  },
+  "excludedSyntheticIcons": [
+    "quote (host renders a procedural glyph instead of the mapped SVG)"
+  ]
+}

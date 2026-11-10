@@ -9,7 +9,7 @@ categories = ["tools"]
 icon = "icon.svg"
 engines.openidea = "^1.4"
 wasm = "dist/plugin.wasm"
-activation = ["on-view:kube", "on-view:resource-details", "on-view:resource-watch", "on-event:file-opened", "on-event:file-saved", "on-event:files-changed"]
+activation = ["on-view:kube", "on-view:resource-details", "on-event:file-opened", "on-event:file-saved", "on-event:files-changed"]
 
 [capabilities]
 required = ["storage"]
@@ -26,7 +26,7 @@ location = "services"
 
 [[contributes.views]]
 id = "resource-details"
-title = "Kubernetes Resource"
+title = "Kubernetes"
 icon = "icons/kubernetes.svg"
 location = "right"
 web = "web/resources/hub.html"
@@ -151,62 +151,74 @@ category = "Kube Explorer"
 
 [[contributes.commands]]
 id = "resource-log-sources"
-title = "Kube Explorer: Select Log Sources"
+title = "Select Log Sources…"
+icon = "settings"
 category = "Kube Explorer"
 
 [[contributes.commands]]
 id = "resource-log-view"
-title = "Kube Explorer: Log Viewer Resource"
+title = "View Log Snapshot…"
+icon = "filter"
 category = "Kube Explorer"
 
 [[contributes.commands]]
 id = "resource-describe"
-title = "Kube Explorer: Describe Resource"
+title = "Describe"
+icon = "info"
 category = "Kube Explorer"
 
 [[contributes.commands]]
 id = "resource-yaml"
-title = "Kube Explorer: Edit YAML Resource"
+title = "Edit YAML…"
+icon = "file-yaml"
 category = "Kube Explorer"
 
 [[contributes.commands]]
 id = "resource-logs"
-title = "Kube Explorer: Logs Resource"
+title = "Follow Logs"
+icon = "file-log"
 category = "Kube Explorer"
 
 [[contributes.commands]]
 id = "resource-shell"
-title = "Kube Explorer: Shell Resource"
+title = "Open Shell"
+icon = "terminal"
 category = "Kube Explorer"
 
 [[contributes.commands]]
 id = "resource-attach"
-title = "Kube Explorer: Attach Resource"
+title = "Attach"
+icon = "attach-to-process"
 category = "Kube Explorer"
 
 [[contributes.commands]]
 id = "resource-debug"
-title = "Kube Explorer: Debug Resource"
+title = "Debug…"
+icon = "debug"
 category = "Kube Explorer"
 
 [[contributes.commands]]
 id = "resource-port-forward"
-title = "Kube Explorer: Port Forward Resource"
+title = "Port Forward…"
+icon = "external-link"
 category = "Kube Explorer"
 
 [[contributes.commands]]
 id = "resource-show-secret"
-title = "Kube Explorer: Show Secret Resource"
+title = "Show Secret…"
+icon = "eye"
 category = "Kube Explorer"
 
 [[contributes.commands]]
 id = "resource-edit-secret"
-title = "Kube Explorer: Edit Secret Resource"
+title = "Edit Secret…"
+icon = "edit"
 category = "Kube Explorer"
 
 [[contributes.commands]]
 id = "resource-delete"
-title = "Kube Explorer: Delete Resource"
+title = "Delete…"
+icon = "trash"
 category = "Kube Explorer"
 
 # ⌥⏎ on a manifest: add the Kubernetes schema for the YAML language server.
@@ -423,84 +435,92 @@ path = "templates/csr.yaml"
 menu = "viewItem.context"
 view = "kube"
 command = "resource-describe"
-when = "viewItemKind == res"
+when = "viewItemKind == svc-pod || viewItemKind == svc-workload || viewItemKind == svc-log-workload || viewItemKind == svc-service || viewItemKind == svc-secret || viewItemKind == svc-resource"
 
 [[contributes.menus]]
 menu = "viewItem.context"
 view = "kube"
 command = "resource-yaml"
-when = "viewItemKind == res"
+when = "viewItemKind == svc-pod || viewItemKind == svc-workload || viewItemKind == svc-log-workload || viewItemKind == svc-service || viewItemKind == svc-secret || viewItemKind == svc-resource"
 
 [[contributes.menus]]
 menu = "viewItem.context"
 view = "kube"
 command = "resource-logs"
-when = "viewItemKind == res"
+when = "viewItemKind == svc-pod || viewItemKind == svc-workload || viewItemKind == svc-log-workload"
+submenu = "Logs"
+
 
 [[contributes.menus]]
 menu = "viewItem.context"
 view = "kube"
 command = "resource-log-view"
-when = "viewItemKind == res"
+when = "viewItemKind == svc-pod || viewItemKind == svc-workload || viewItemKind == svc-log-workload"
+submenu = "Logs"
+
 
 [[contributes.menus]]
 menu = "viewItem.context"
 view = "kube"
 command = "resource-log-sources"
-when = "viewItemKind == res"
+when = "viewItemKind == svc-pod || viewItemKind == svc-workload || viewItemKind == svc-log-workload"
+submenu = "Logs"
+
 
 [[contributes.menus]]
 menu = "viewItem.context"
 view = "kube"
 command = "resource-shell"
-when = "viewItemKind == res"
+when = "viewItemKind == svc-pod"
+
 
 [[contributes.menus]]
 menu = "viewItem.context"
 view = "kube"
 command = "resource-attach"
-when = "viewItemKind == res"
+when = "viewItemKind == svc-pod"
+submenu = "Container"
+
 
 [[contributes.menus]]
 menu = "viewItem.context"
 view = "kube"
 command = "resource-debug"
-when = "viewItemKind == res"
+when = "viewItemKind == svc-pod"
+submenu = "Container"
+
 
 [[contributes.menus]]
 menu = "viewItem.context"
 view = "kube"
 command = "resource-port-forward"
-when = "viewItemKind == res"
+when = "viewItemKind == svc-pod || viewItemKind == svc-workload || viewItemKind == svc-service"
+
 
 [[contributes.menus]]
 menu = "viewItem.context"
 view = "kube"
 command = "resource-show-secret"
-when = "viewItemKind == res"
+when = "viewItemKind == svc-secret"
+
 
 [[contributes.menus]]
 menu = "viewItem.context"
 view = "kube"
 command = "resource-edit-secret"
-when = "viewItemKind == res"
+when = "viewItemKind == svc-secret"
+
 
 [[contributes.menus]]
 menu = "viewItem.context"
 view = "kube"
 command = "resource-delete"
-when = "viewItemKind == res"
+when = "viewItemKind == svc-pod || viewItemKind == svc-workload || viewItemKind == svc-log-workload || viewItemKind == svc-service || viewItemKind == svc-secret || viewItemKind == svc-resource"
 
 [[contributes.commands]]
 id = "cache-cluster-namespaces"
 title = "Kube Explorer: Read Cluster Namespaces for Completion"
 category = "Kubernetes"
-
-[[contributes.views]]
-id = "resource-watch"
-title = "Kubernetes Resource Watch"
-icon = "icons/kubernetes.svg"
-location = "right"
 
 [[contributes.commands]]
 id = "watch-resources"
@@ -531,3 +551,128 @@ category = "Kubernetes"
 id = "cache-cluster-resources"
 title = "Kube Explorer: Read Cluster Resource Names for Completion…"
 category = "Kubernetes"
+
+[[contributes.commands]]
+id = "tree-switch"
+title = "Switch"
+icon = "check"
+category = "Kube Explorer"
+
+[[contributes.menus]]
+menu = "viewItem.context"
+view = "kube"
+command = "tree-switch"
+when = "viewItemKind == svc-context || viewItemKind == svc-namespace"
+
+[[contributes.commands]]
+id = "tree-expand"
+title = "Expand"
+icon = "chevron-down"
+category = "Kube Explorer"
+
+[[contributes.menus]]
+menu = "viewItem.context"
+view = "kube"
+command = "tree-expand"
+when = "viewItemKind == svc-group || viewItemKind == svc-secrets || viewItemKind == svc-cluster || viewItemKind == svc-cluster-global || viewItemKind == svc-cluster-all"
+
+[[contributes.commands]]
+id = "tree-collapse"
+title = "Collapse"
+icon = "chevron-up"
+category = "Kube Explorer"
+
+[[contributes.menus]]
+menu = "viewItem.context"
+view = "kube"
+command = "tree-collapse"
+when = "viewItemKind == svc-group-open || viewItemKind == svc-secrets-open || viewItemKind == svc-cluster-open || viewItemKind == svc-cluster-global-open || viewItemKind == svc-cluster-all-open"
+
+[[contributes.commands]]
+id = "tree-refresh"
+title = "Refresh"
+icon = "refresh"
+category = "Kube Explorer"
+
+[[contributes.menus]]
+menu = "viewItem.context"
+view = "kube"
+command = "tree-refresh"
+when = "viewItemKind == svc-group || viewItemKind == svc-secrets || viewItemKind == svc-cluster || viewItemKind == svc-cluster-global || viewItemKind == svc-group-open || viewItemKind == svc-secrets-open || viewItemKind == svc-cluster-open || viewItemKind == svc-cluster-global-open || viewItemKind == svc-cluster-all || viewItemKind == svc-cluster-all-open"
+
+[[contributes.commands]]
+id = "tree-create-secret"
+title = "Create Secret…"
+icon = "plus"
+category = "Kube Explorer"
+
+[[contributes.menus]]
+menu = "viewItem.context"
+view = "kube"
+command = "tree-create-secret"
+when = "viewItemKind == svc-secrets || viewItemKind == svc-secrets-open"
+
+[[contributes.commands]]
+id = "tree-watch"
+title = "Watch Resources…"
+icon = "eye"
+category = "Kube Explorer"
+
+[[contributes.menus]]
+menu = "viewItem.context"
+view = "kube"
+command = "tree-watch"
+when = "viewItemKind == svc-cluster || viewItemKind == svc-cluster-open"
+submenu = "Watch"
+
+[[contributes.commands]]
+id = "tree-open-watch"
+title = "Open Resource Watch"
+icon = "list"
+category = "Kube Explorer"
+
+[[contributes.menus]]
+menu = "viewItem.context"
+view = "kube"
+command = "tree-open-watch"
+when = "viewItemKind == svc-cluster || viewItemKind == svc-cluster-open || viewItemKind == svc-cluster-global || viewItemKind == svc-cluster-global-open || viewItemKind == svc-cluster-all || viewItemKind == svc-cluster-all-open"
+submenu = "Watch"
+
+[[contributes.commands]]
+id = "tree-kubeconfig"
+title = "Choose Kubeconfig…"
+icon = "folder-open"
+category = "Kube Explorer"
+
+[[contributes.menus]]
+menu = "viewItem.context"
+view = "kube"
+command = "tree-kubeconfig"
+when = "viewItemKind == svc-cluster || viewItemKind == svc-cluster-open || viewItemKind == svc-cluster-global || viewItemKind == svc-cluster-global-open || viewItemKind == svc-cluster-all || viewItemKind == svc-cluster-all-open"
+submenu = "Kubeconfig"
+
+[[contributes.commands]]
+id = "tree-import-config"
+title = "Import Kubeconfig Privately…"
+icon = "paste"
+category = "Kube Explorer"
+
+[[contributes.menus]]
+menu = "viewItem.context"
+view = "kube"
+command = "tree-import-config"
+when = "viewItemKind == svc-cluster || viewItemKind == svc-cluster-open || viewItemKind == svc-cluster-global || viewItemKind == svc-cluster-global-open || viewItemKind == svc-offline || viewItemKind == svc-cluster-all || viewItemKind == svc-cluster-all-open"
+submenu = "Kubeconfig"
+
+[[contributes.commands]]
+id = "tree-review-config"
+title = "Review Imported Kubeconfigs…"
+icon = "list"
+category = "Kube Explorer"
+
+[[contributes.menus]]
+menu = "viewItem.context"
+view = "kube"
+command = "tree-review-config"
+when = "viewItemKind == svc-cluster || viewItemKind == svc-cluster-open || viewItemKind == svc-cluster-global || viewItemKind == svc-cluster-global-open || viewItemKind == svc-offline || viewItemKind == svc-cluster-all || viewItemKind == svc-cluster-all-open"
+submenu = "Kubeconfig"

@@ -3,18 +3,24 @@
     "menu": "viewItem.context",
     "view": "laravel",
     "command": "reindex",
-    "when": "viewItemKind == group"
+    "when": "viewItemKind == group",
+    "icon": "refresh",
+    "label": "Reindex"
   },
   {
     "menu": "viewItem.context",
     "view": "laravel",
     "command": "route-copy-curl",
-    "when": "viewItemKind == route"
+    "when": "viewItemKind == route",
+    "icon": "copy",
+    "label": "Copy as cURL"
   },
   {
     "menu": "viewItem.context",
     "view": "laravel",
     "command": "route-create-http",
-    "when": "viewItemKind == route"
+    "when": "viewItemKind == route",
+    "icon": "file-http",
+    "label": "Create HTTP Request File"
   }
 ]

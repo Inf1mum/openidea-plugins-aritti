@@ -205,7 +205,7 @@ impl GitLab {
             return Ok(View::message(
                 "No timeline snapshot. Refresh Timeline explicitly to load comments and activity.",
             )
-            .button(Button::new("refresh", "Refresh Timeline")));
+            .button(Button::new("refresh", "Refresh Timeline").icon("refresh")));
         };
         let items: Vec<Value> = capture
             .rows
@@ -232,9 +232,9 @@ impl GitLab {
         view.body = Body::Other{kind:"resources".into(),data:json!({"columns":["Kind","Author","When","Status","Summary"],"facets":[0,1,3],"items":items}).to_string()};
         view.status = Some(status);
         view.toolbar
-            .push(Button::new("refresh", "Refresh Timeline"));
+            .push(Button::new("refresh", "Refresh Timeline").icon("refresh"));
         view.toolbar.push(
-            Button::new("timeline-reply", "Reply in Overview").enabled(
+            Button::new("timeline-reply", "Reply in Overview").icon("review-comment").enabled(
                 self.timeline
                     .selected
                     .as_ref()

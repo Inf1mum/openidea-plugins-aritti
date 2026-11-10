@@ -28,6 +28,7 @@ pub(crate) struct BundleBinding {
     doc: Document,
     keys: Vec<String>,
     files: Vec<String>,
+    selected: Option<usize>,
 }
 
 /// One bounded, ephemeral inverse for the last reviewed native-table mutation.
@@ -78,10 +79,9 @@ fn revert_review(record: &BundleRevert) -> Result<String,Error> {
     Ok(body)
 }
 
-/// Broadcast only invalidation; the receiving page obtains its own current Invocation.
+/// Refresh the native structure view after source or bundle changes.
 pub(crate) fn refresh_structure() {
     host::refresh_view(STRUCTURE);
-    let _ = host::post_view_message(STRUCTURE, r#"{"channel":"ui-kit-refresh"}"#);
 }
 fn owned_editor(ctx: &Invocation) -> Result<(TextEditor, Document, String), Error> {
     let project = ctx.project().ok_or(Error::Stale)?;
@@ -118,10 +118,7 @@ fn bundle_edit_review(root: &str, doc: &Document, grid: &Grid, event: &ViewEvent
     Ok(body)
 }
 fn checked_key(key: &str, root: &str, doc: &Document) -> Result<String, Error> {
-    let Some(raw) = key.strip_prefix("doc:") else {
-        // Native structure views retain their established local key spelling.
-        return if ui_kit::web::is_rendering() { Err(Error::Stale) } else { Ok(key.into()) };
-    };
+    let raw = key.strip_prefix("doc:").ok_or(Error::Stale)?;
     let value: serde_json::Value = serde_json::from_str(raw).map_err(|_|Error::Stale)?;
     let parts = value.as_array().filter(|p|p.len()==4).ok_or(Error::Stale)?;
     if parts[0].as_str()!=Some(root) || parts[1].as_str()!=Some(doc.path.as_str()) || parts[2].as_u64()!=Some(doc.version) { return Err(Error::Stale); }
@@ -144,7 +141,7 @@ fn with_parent(item: TreeItem, parent: Option<&str>) -> TreeItem {
 }
 
 fn leaf(entry: &Entry, label: &str, parent: Option<&str>) -> TreeItem {
-    let item = TreeItem::new(&format!("p:{}:{}", entry.occurrence, entry.key), label).icon("property").detail(&entry.value);
+    let item = TreeItem::new(&format!("p:{}:{}", entry.occurrence, entry.key), label).icon("symbol-property").detail(&entry.value);
     with_parent(item, parent)
 }
 
@@ -399,11 +396,9 @@ impl Properties {
             group_by_prefix(&entries.iter().collect::<Vec<_>>(), 0, None, &self.structure_collapsed, &mut items);
         }
 
-        if ui_kit::web::is_rendering() {
-            for item in &mut items {
-                item.key = scoped_key(&root, &doc, &item.key);
-                item.parent = item.parent.as_ref().map(|key|scoped_key(&root,&doc,key));
-            }
+        for item in &mut items {
+            item.key = scoped_key(&root, &doc, &item.key);
+            item.parent = item.parent.as_ref().map(|key|scoped_key(&root,&doc,key));
         }
 
         let count = match entries.len() {
@@ -471,11 +466,12 @@ impl Properties {
     fn render_bundle(&mut self, viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
         let (editor,doc,root) = owned_editor(ctx)?;
         let path = editor.path();
-        self.bundle_bindings.remove(&path);
+        let previous = self.bundle_bindings.remove(&path);
         let grid = self.bundle_grid(&path, &doc.text)?;
         let can_revert=self.bundle_revert.as_ref().is_some_and(|record|record.root==root && record.after==doc);
         if self.bundle_bindings.len() >= 8 { self.bundle_bindings.clear(); }
-        self.bundle_bindings.insert(path.clone(), BundleBinding {root,doc,keys:grid.keys.clone(),files:grid.files.clone()});
+        let selected = previous.filter(|old| old.root==root && old.doc==doc && old.keys==grid.keys && old.files==grid.files).and_then(|old| old.selected);
+        self.bundle_bindings.insert(path.clone(), BundleBinding {root,doc,keys:grid.keys.clone(),files:grid.files.clone(),selected});
 
         let total = grid.keys.len() as u32;
         let shown = Viewport::range(viewport, total, 200);
@@ -484,27 +480,25 @@ impl Properties {
             total_rows: total,
             first_row: shown.start,
             rows: grid.rows[shown.start as usize..shown.end as usize].to_vec(),
-            editable: true,
+            editable: false,
         };
 
         let filter = if self.bundle_incomplete_only { "Show All Keys" } else { "Show Incomplete Only" };
         let mut status = format!("{total} keys · {} locales · {} missing translations", grid.files.len(), grid.missing);
         if grid.files.len() > 1 {
-            status.push_str(" · Other locale cells open their file; use native intentions for atomic bundle edits");
+            status.push_str(" · Select a property to edit this file or open a translation");
         }
         let mut view=View::new(Body::Table(table))
             .button(Button::new("reload", "Reload Locales").icon("refresh"))
             .button(Button::new("incomplete", filter).icon("filter"))
+            .button(Button::new("bundle-edit-value", "Edit Value…").icon("edit").enabled(selected.is_some()))
+            .button(Button::new("bundle-edit-key", "Rename Key in This File…").icon("edit").enabled(selected.is_some()))
+            .button(Button::new("bundle-open-translation", "Open Translation…").icon("external-link").enabled(selected.is_some()))
+            .button(Button::new("bundle-add", "Add Property…").icon("plus"))
+            .button(Button::new("bundle-remove", "Remove from This File…").icon("minus").enabled(selected.is_some()))
             .status(&status);
-        if can_revert { view=view.button(Button::new("revert-reviewed", "Revert last reviewed bundle edit…")); }
+        if can_revert { view=view.button(Button::new("revert-reviewed", "Revert last reviewed bundle edit…").icon("undo")); }
         Ok(view)
-    }
-
-    fn write_locale(&mut self, grid: &Grid, event: &ViewEvent, row: u32, column: u32) -> Result<(), Error> {
-        let _ = event;
-        // A view callback cannot return a native workspace action. Navigate to
-        // the selected locale instead of silently replacing a sibling file.
-        self.open_locale(grid, row, column)
     }
 
     fn open_locale(&self, grid: &Grid, row: u32, column: u32) -> Result<(), Error> {
@@ -568,11 +562,68 @@ impl Properties {
             _ => true,
         };
         if !valid { return Err(Error::Stale); }
+        if let Some(row) = event.table_select().or_else(||event.table_activate()) {
+            if row as usize >= rows { return Err(Error::Stale); }
+            self.bundle_bindings.get_mut(&path).ok_or(Error::Stale)?.selected=Some(row as usize);
+            if event.table_activate().is_some() {
+                return self.handle_bundle(ViewEvent::Button("bundle-open-translation".into()),ctx);
+            }
+            host::refresh_view(BUNDLE);
+            return Ok(());
+        }
+        if let ViewEvent::Button(id)=&event {
+            if matches!(id.as_str(),"bundle-edit-value"|"bundle-edit-key"|"bundle-open-translation"|"bundle-add"|"bundle-remove") {
+                let row=binding.selected;
+                let key=row.and_then(|row|binding.keys.get(row));
+                let prepared=match id.as_str() {
+                    "bundle-edit-value"|"bundle-edit-key" => {
+                        let row=row.ok_or("Select a property first.")?;
+                        let key=key.ok_or(Error::Stale)?;
+                        let initial=if id=="bundle-edit-key" {key.clone()} else {
+                            parse(&doc.text).into_iter().find(|p|p.unescaped_key(&doc.text)==*key).map(|p|unescape(&doc.text[p.value])).unwrap_or_default()
+                        };
+                        let Some(value)=host::input(if id=="bundle-edit-key" {"Rename key in this file"} else {"Edit value in this file"},Some(&initial))? else {return Ok(())};
+                        if value.len()>16384 {return Err("Property input exceeds 16 KiB.".into());}
+                        ViewEvent::Cell{row:row as u32,column:if id=="bundle-edit-key"{0}else{1},value}
+                    }
+                    "bundle-remove" => ViewEvent::DeleteRows(vec![row.ok_or("Select a property first.")? as u32]),
+                    "bundle-add" => {
+                        let Some(key)=host::input("New property key",None)? else {return Ok(())};
+                        if rows>=MAX_BUNDLE_KEYS || key.trim().is_empty()||key.len()>512||key.chars().any(char::is_control)||binding.keys.contains(&key) {return Err("Use a new non-empty property key of at most 512 bytes.".into());}
+                        let Some(value)=host::input("New property value",None)? else {return Ok(())};
+                        if value.len()>16384 {return Err("Property input exceeds 16 KiB.".into());}
+                        let (_,current,current_root)=owned_editor(ctx)?;
+                        if current!=doc||current_root!=root {return Err(Error::Stale);}
+                        // Extend only the trusted, exact source binding for this explicit
+                        // prompted operation, never a raw native numeric callback.
+                        self.bundle_bindings.get_mut(&path).ok_or(Error::Stale)?.keys.push(key);
+                        let result=self.handle_bundle(ViewEvent::Cell{row:rows as u32,column:1,value},ctx);
+                        self.bundle_bindings.remove(&path);
+                        host::refresh_view(BUNDLE);
+                        return result;
+                    }
+                    "bundle-open-translation" => {
+                        let row=row.ok_or("Select a property first.")?;
+                        let choices: Vec<_>=binding.files.iter().enumerate().map(|(i,path)|openidea_plugin::PickItem::new(&i.to_string(),&format!("{} — {}",locale_name(suffix(path)),file_name(path)))).collect();
+                        let Some(chosen)=host::pick("Open translation source",&choices)? else {return Ok(())};
+                        let column=chosen.parse::<usize>().ok().filter(|i|*i<binding.files.len()).ok_or(Error::Stale)?;
+                        let (_,current,current_root)=owned_editor(ctx)?;
+                        if current!=doc||current_root!=root {return Err(Error::Stale);}
+                        let grid=Grid{keys:binding.keys,files:binding.files,columns:Vec::new(),rows:Vec::new(),gaps:Vec::new(),missing:0,exact_keys:true};
+                        return self.open_locale(&grid,row as u32,column as u32+1);
+                    }
+                    _=>unreachable!(),
+                };
+                let (_,current,current_root)=owned_editor(ctx)?;
+                if current!=doc||current_root!=root {return Err(Error::Stale);}
+                return self.handle_bundle(prepared,ctx);
+            }
+        }
         let grid = Grid {keys:binding.keys,files:binding.files,columns:Vec::new(),rows:Vec::new(),gaps:Vec::new(),missing:0,exact_keys:true};
 
-        if let ViewEvent::Cell { row, column, .. } = &event {
+        if let ViewEvent::Cell { column, .. } = &event {
             if *column >= 2 {
-                return self.write_locale(&grid, &event, *row, *column);
+                return Err("Translations are read-only in this overview. Use Open Translation to edit its source, or the Set property value across selected locales intention.".into());
             }
         }
 
@@ -615,18 +666,16 @@ impl Properties {
 
 impl Views for Properties {
     fn render(&mut self, view: &str, viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
-        match view {
-            STRUCTURE => self.render_structure(ctx),
-            BUNDLE => self.render_bundle(viewport, ctx),
-            _ => Err(Error::NotFound(view.into())),
-        }
+        (|| -> Result<View, Error> {
+            match view {
+                STRUCTURE => self.render_structure(ctx),
+                BUNDLE => self.render_bundle(viewport, ctx),
+                _ => Err(Error::NotFound(view.into())),
+            }
+        })().map(ui_kit::actions::available)
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {
-        if ui_kit::web::handle(self, view, &event, ctx, include_str!("ui_config.json"))? {
-            return Ok(());
-        }
-
         match view {
             STRUCTURE => self.handle_structure(event, ctx),
             BUNDLE => self.handle_bundle(event, ctx),
@@ -906,7 +955,8 @@ mod tests {
 
         let view = Properties::default().render(STRUCTURE, None, &host.invocation()).unwrap();
         let Body::Tree(items) = view.body else { panic!("a tree") };
-        let shape: Vec<(String, Option<String>)> = items.iter().map(|i| (i.label.clone(), i.parent.clone())).collect();
+        let (_, doc, root) = owned_editor(&host.invocation()).unwrap();
+        let shape: Vec<(String, Option<String>)> = items.iter().map(|i| (i.label.clone(), i.parent.as_ref().map(|key| checked_key(key, &root, &doc).unwrap()))).collect();
         let g = |s: &str| Some(s.to_owned());
 
         assert_eq!(
@@ -928,9 +978,11 @@ mod tests {
         let host = MockHost::install();
         host.open_editor("/project/m.properties", "properties", "a=1\nb=2\n", &[]);
 
-        Properties::default().handle(STRUCTURE, ViewEvent::Activate("p:0:b".into()), &host.invocation()).unwrap();
+        let (_, doc, root) = owned_editor(&host.invocation()).unwrap();
+        Properties::default().handle(STRUCTURE, ViewEvent::Activate(scoped_key(&root, &doc, "p:0:b")), &host.invocation()).unwrap();
         host.open_editor("/project/m.properties", "properties", "b=2\na=1\na=3\n", &[]);
-        Properties::default().handle(STRUCTURE, ViewEvent::Activate("p:1:a".into()), &host.invocation()).unwrap();
+        let (_, doc, root) = owned_editor(&host.invocation()).unwrap();
+        Properties::default().handle(STRUCTURE, ViewEvent::Activate(scoped_key(&root, &doc, "p:1:a")), &host.invocation()).unwrap();
         assert_eq!(host.opened_locations(), [("/project/m.properties".to_owned(), 1, 0), ("/project/m.properties".to_owned(), 2, 0)]);
     }
 
@@ -942,14 +994,17 @@ mod tests {
         let ctx = host.invocation();
         let expanded = |plugin: &mut Properties| -> Vec<(String, bool)> {
             let Body::Tree(items) = plugin.render(STRUCTURE, None, &ctx).unwrap().body else { panic!("a tree") };
-            items.into_iter().filter(|i| i.expandable).map(|i| (i.key, i.expanded)).collect()
+            let (_, doc, root) = owned_editor(&ctx).unwrap();
+            items.into_iter().filter(|i| i.expandable).map(|i| (checked_key(&i.key, &root, &doc).unwrap(), i.expanded)).collect()
         };
         let state = |app, menu| vec![("g:app".to_owned(), app), ("g:app.menu".to_owned(), menu)];
         assert_eq!(expanded(&mut plugin), state(true, true));
 
-        plugin.handle(STRUCTURE, ViewEvent::Collapse("g:app.menu".into()), &ctx).unwrap();
+        let (_, doc, root) = owned_editor(&ctx).unwrap();
+        let menu_key = scoped_key(&root, &doc, "g:app.menu");
+        plugin.handle(STRUCTURE, ViewEvent::Collapse(menu_key.clone()), &ctx).unwrap();
         assert_eq!(expanded(&mut plugin), state(true, false));
-        plugin.handle(STRUCTURE, ViewEvent::Expand("g:app.menu".into()), &ctx).unwrap();
+        plugin.handle(STRUCTURE, ViewEvent::Expand(menu_key), &ctx).unwrap();
         assert_eq!(expanded(&mut plugin), state(true, true));
         plugin.handle(STRUCTURE, ViewEvent::Button("collapse-all".into()), &ctx).unwrap();
         assert_eq!(expanded(&mut plugin), state(false, false));
@@ -984,7 +1039,7 @@ mod tests {
         assert_eq!(table.rows[2], ["extra", "", "En plus"]);
         assert_eq!(
             view.status.as_deref(),
-            Some("3 keys · 2 locales · 2 missing translations · Other locale cells open their file; use native intentions for atomic bundle edits")
+            Some("3 keys · 2 locales · 2 missing translations · Select a property to edit this file or open a translation")
         );
 
         let cell = |row, column, value: &str| ViewEvent::Cell { row, column, value: value.into() };
@@ -998,8 +1053,13 @@ mod tests {
         shown(&mut plugin, cell(0, 0, "greeting"));
         assert_eq!(host.editor_text(), "greeting=Hello\nbye=Goodbye\nextra=Extra\n");
 
-        shown(&mut plugin, cell(2, 2, "x"));
-        assert_eq!(host.opened_locations(), [("/project/messages_fr.properties".to_owned(), 1, 0)], "other-locale edits navigate without writing");
+        plugin.render(BUNDLE, None, &host.invocation()).unwrap();
+        assert!(plugin.handle(BUNDLE, cell(2,2,"x"), &host.invocation()).is_err(),"foreign edits must never discard typed text while pretending to save");
+        assert!(host.opened_locations().is_empty());
+        plugin.handle(BUNDLE,ViewEvent::Other{kind:"table-select".into(),data:r#"{"row":2}"#.into()},&host.invocation()).unwrap();
+        host.answer_next_prompt(Some(&["1"]));
+        plugin.handle(BUNDLE,ViewEvent::Button("bundle-open-translation".into()),&host.invocation()).unwrap();
+        assert_eq!(host.opened_locations(), [("/project/messages_fr.properties".to_owned(), 1, 0)]);
 
         shown(&mut plugin, ViewEvent::InsertRow(1));
         shown(&mut plugin, ViewEvent::DeleteRows(vec![0, 3]));
@@ -1053,13 +1113,61 @@ mod tests {
     }
 
     #[test]
+    fn readonly_bundle_overview_has_complete_reviewed_current_file_workflow() {
+        let host=locale_host();
+        let mut plugin=Properties::default();
+        let ctx=host.invocation();
+        let view=plugin.render(BUNDLE,None,&ctx).unwrap();
+        let Body::Table(table)=view.body else {panic!("table")};
+        assert!(!table.editable,"overview must never present sibling translations as editable");
+        assert!(!view.toolbar.iter().any(|b|b.id=="bundle-edit-value"));
+        plugin.handle(BUNDLE,ViewEvent::Other{kind:"table-select".into(),data:r#"{"row":0}"#.into()},&ctx).unwrap();
+        let view=plugin.render(BUNDLE,None,&ctx).unwrap();
+        assert!(view.toolbar.iter().find(|b|b.id=="bundle-edit-value").unwrap().enabled);
+        host.answer_next_prompt(Some(&["Welcome"]));host.answer_next_prompt(Some(&[]));
+        plugin.handle(BUNDLE,ViewEvent::Button("bundle-edit-value".into()),&ctx).unwrap();
+        assert!(host.editor_text().starts_with("hello=Welcome"));
+        assert_eq!(ctx.project().unwrap().read_file("/project/messages_fr.properties").unwrap(),"hello=Bonjour\n");
+        plugin.render(BUNDLE,None,&ctx).unwrap();
+        host.answer_next_prompt(Some(&["fresh"]));host.answer_next_prompt(Some(&["New value"]));host.answer_next_prompt(Some(&[]));
+        plugin.handle(BUNDLE,ViewEvent::Button("bundle-add".into()),&ctx).unwrap();
+        assert!(host.editor_text().contains("fresh=New value"));
+        assert!(host.process_runs().is_empty());
+    }
+
+    #[test]
+    fn bundle_control_cancellation_and_stale_source_leave_text_untouched() {
+        let host=locale_host();let mut plugin=Properties::default();let ctx=host.invocation();
+        plugin.render(BUNDLE,None,&ctx).unwrap();
+        plugin.handle(BUNDLE,ViewEvent::Other{kind:"table-select".into(),data:r#"{"row":0}"#.into()},&ctx).unwrap();
+        let before=host.editor_text();
+        host.answer_next_prompt(None);
+        plugin.handle(BUNDLE,ViewEvent::Button("bundle-edit-value".into()),&ctx).unwrap();
+        assert_eq!(host.editor_text(),before);
+        host.open_editor("/project/messages.properties","properties","hello=external\n",&[]);
+        assert!(plugin.handle(BUNDLE,ViewEvent::Button("bundle-remove".into()),&host.invocation()).is_err());
+        assert_eq!(host.editor_text(),"hello=external\n");
+    }
+
+    #[test]
+    fn cancelled_add_revokes_prompt_only_row_identity() {
+        let host=locale_host();let mut plugin=Properties::default();let ctx=host.invocation();
+        plugin.render(BUNDLE,None,&ctx).unwrap();let before=host.editor_text();
+        host.answer_next_prompt(Some(&["fresh"]));host.answer_next_prompt(Some(&["value"]));host.answer_next_prompt(None);
+        plugin.handle(BUNDLE,ViewEvent::Button("bundle-add".into()),&ctx).unwrap();
+        assert_eq!(host.editor_text(),before);
+        assert!(plugin.handle(BUNDLE,ViewEvent::Cell{row:2,column:1,value:"unreviewed".into()},&ctx).is_err());
+        assert_eq!(host.editor_text(),before);
+    }
+
+    #[test]
     fn editing_another_locale_never_runs_a_process_or_overwrites_it() {
         let host = locale_host();
         let mut plugin = Properties::default();
         plugin.render(BUNDLE, None, &host.invocation()).unwrap();
-        plugin.handle(BUNDLE, ViewEvent::Cell { row: 0, column: 2, value: "Salut".into() }, &host.invocation()).unwrap();
+        assert!(plugin.handle(BUNDLE, ViewEvent::Cell { row: 0, column: 2, value: "Salut".into() }, &host.invocation()).is_err());
         assert!(host.process_runs().is_empty());
-        assert_eq!(host.opened_locations().len(), 1);
+        assert!(host.opened_locations().is_empty());
         assert_eq!(host.invocation().project().unwrap().read_file("/project/messages_fr.properties").unwrap(), "hello=Bonjour\n");
     }
 
@@ -1069,8 +1177,8 @@ mod tests {
         host.set_setting("bundle.writeOtherLocales", "false");
         let mut plugin = Properties::default();
         plugin.render(BUNDLE, None, &host.invocation()).unwrap();
-        plugin.handle(BUNDLE, ViewEvent::Cell { row: 1, column: 2, value: "x".into() }, &host.invocation()).unwrap();
-        assert_eq!(host.opened_locations().len(), 1);
+        assert!(plugin.handle(BUNDLE, ViewEvent::Cell { row: 1, column: 2, value: "x".into() }, &host.invocation()).is_err());
+        assert!(host.opened_locations().is_empty());
     }
 }
 
@@ -1078,49 +1186,31 @@ mod tests {
 mod refresh_tests {
     use super::*;
     use openidea_plugin::{Event, FilesChanged, Plugin, mock::MockHost};
-    use serde_json::{Value, json};
-    fn request(plugin: &mut Properties, host: &MockHost, operation: Value) -> Value {
-        let mut value=json!({"channel":"ui-kit","sequence":1,"project":"/project"});
-        value.as_object_mut().unwrap().extend(operation.as_object().unwrap().clone());
-        plugin.handle(STRUCTURE,ViewEvent::Message(value.to_string()),&host.invocation()).unwrap();
-        serde_json::from_str(&host.view_messages().last().unwrap().1).unwrap()
-    }
     #[test]
-    fn external_focus_save_and_file_batches_send_only_targeted_invalidation() {
+    fn external_focus_save_and_file_batches_refresh_native_view() {
         let host=MockHost::install();host.add_file("/project/m.properties","a=1\n");
         host.open_editor("/project/m.properties","properties","a=1\n",&[]);
         let mut plugin=Properties::default();
-        for event in [Event::EditorFocused(Some("/project/m.properties".into())),Event::FileSaved("/project/m.properties".into()),Event::FilesChanged(FilesChanged{created:vec!["/project/m_fr.properties".into()],..Default::default()}),Event::FilesChanged(FilesChanged{removed:vec!["/project/m_fr.properties".into()],..Default::default()})] {
-            let before=host.view_messages().len();plugin.handle_events(&[event],&host.invocation());
-            assert_eq!(&host.view_messages()[before..],[(STRUCTURE.to_owned(),r#"{"channel":"ui-kit-refresh"}"#.to_owned())]);
+        for event in [Event::EditorFocused(Some("/project/m.properties".into())),Event::FileSaved("/project/m.properties".into()),Event::FilesChanged(FilesChanged{created:vec!["/project/m_fr.properties".into()],..Default::default()})] {
+            let before=host.refreshed_views().len();plugin.handle_events(&[event],&host.invocation());
+            assert!(host.refreshed_views()[before..].contains(&STRUCTURE.to_owned()));
         }
-        let before=host.view_messages().len();plugin.handle_events(&[Event::FileSaved("/project/unrelated.txt".into())],&host.invocation());
-        assert_eq!(host.view_messages().len(),before);
-        plugin.render(STRUCTURE,None,&host.invocation()).unwrap();assert_eq!(host.view_messages().len(),before,"render must not invalidate itself");
+        assert!(host.view_messages().is_empty(),"native views need no web transport");
     }
     #[test]
-    fn packaged_keys_reject_foreign_editor_and_source_version_drift() {
+    fn native_keys_reject_foreign_editor_and_source_version_drift() {
         let host=MockHost::install();host.open_editor("/project/a.properties","properties","same=one\n",&[]);
         let mut plugin=Properties::default();
-        let first=request(&mut plugin,&host,json!({"op":"render"}));
-        let key=first["model"]["body"]["items"][0]["key"].as_str().unwrap().to_owned();assert!(key.starts_with("doc:"));
+        let Body::Tree(items)=plugin.render(STRUCTURE,None,&host.invocation()).unwrap().body else {panic!()};
+        let key=items[0].key.clone();assert!(key.starts_with("doc:"));
         host.open_editor("/project/b.properties","properties","same=two\n",&[]);
-        assert!(request(&mut plugin,&host,json!({"op":"event","event":{"kind":"activate","key":key}}))["error"].is_string());
+        assert!(plugin.handle(STRUCTURE,ViewEvent::Activate(key.clone()),&host.invocation()).is_err());
         host.open_editor("/project/a.properties","properties","same=one\n",&[]);host.type_in_editor("other=three\n");
-        assert!(request(&mut plugin,&host,json!({"op":"event","event":{"kind":"activate","key":key}}))["error"].is_string());
+        assert!(plugin.handle(STRUCTURE,ViewEvent::Activate(key),&host.invocation()).is_err());
         assert!(host.opened_locations().is_empty());
-        let current=request(&mut plugin,&host,json!({"op":"render"}));let fresh=current["model"]["body"]["items"][0]["key"].as_str().unwrap();
-        assert!(request(&mut plugin,&host,json!({"op":"event","event":{"kind":"activate","key":fresh}}))["error"].is_null());
+        let Body::Tree(items)=plugin.render(STRUCTURE,None,&host.invocation()).unwrap().body else {panic!()};
+        plugin.handle(STRUCTURE,ViewEvent::Activate(items[0].key.clone()),&host.invocation()).unwrap();
         assert_eq!(host.opened_locations(),[("/project/a.properties".into(),0,0)]);
-    }
-    #[test]
-    fn packaged_groups_keep_parent_identity_and_collapse_without_refresh_feedback() {
-        let host=MockHost::install();host.open_editor("/project/a.properties","properties","app.a=1\napp.b=2\n",&[]);
-        let mut plugin=Properties::default();let first=request(&mut plugin,&host,json!({"op":"render"}));
-        let items=first["model"]["body"]["items"].as_array().unwrap();let group=items[0]["key"].as_str().unwrap();assert_eq!(items[1]["parent"],group);
-        let response=request(&mut plugin,&host,json!({"op":"event","event":{"kind":"button","key":"collapse-all"}}));
-        assert_eq!(response["model"]["body"]["items"][0]["expanded"],false);
-        assert!(host.view_messages().iter().all(|(_,v)|serde_json::from_str::<Value>(v).unwrap()["channel"]=="ui-kit"),"own packaged events already receive a correlated model; no invalidation feedback");
     }
     #[test]
     fn structure_and_bundle_refuse_mismatched_project_editor_and_unknown_owners() {
@@ -1136,10 +1226,12 @@ mod refresh_tests {
     fn native_locale_and_reformat_mutations_invalidate_only_structure_after_success() {
         let host=MockHost::install();host.open_editor("/project/m.properties","properties","a=1\n",&[]);
         let mut plugin=Properties::default();plugin.render(BUNDLE,None,&host.invocation()).unwrap();host.answer_next_prompt(Some(&[]));plugin.handle(BUNDLE,ViewEvent::Cell{row:0,column:1,value:"two".into()},&host.invocation()).unwrap();
-        assert_eq!(host.editor_text(),"a=two\n");assert_eq!(host.view_messages(),[(STRUCTURE.to_owned(),r#"{"channel":"ui-kit-refresh"}"#.to_owned())]);
+        assert_eq!(host.editor_text(),"a=two\n");assert!(host.refreshed_views().contains(&STRUCTURE.to_owned()));
         host.open_editor("/project/m.properties","properties","a   =  one\n",&[]);
-        plugin.run_command("reformat",&host.invocation(),None).unwrap();assert_eq!(host.view_messages().len(),2);
-        assert!(host.view_messages().iter().all(|(view,_)|view==STRUCTURE));
+        let before=host.refreshed_views().len();
+        plugin.run_command("reformat",&host.invocation(),None).unwrap();
+        assert!(host.refreshed_views()[before..].contains(&STRUCTURE.to_owned()));
+        assert!(host.view_messages().is_empty());
     }
     #[test]
     fn bundle_cache_rechecks_member_project_ownership_before_render_or_open() {

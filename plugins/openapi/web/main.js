@@ -32,6 +32,9 @@ const showRedoc = () => {
   const stale = document.getElementById("redoc");
   const fresh = document.createElement("div");
   fresh.id = "redoc";
+  fresh.setAttribute("data-ui-raw", "");
+  fresh.setAttribute("role", "region");
+  fresh.setAttribute("aria-label", "Redoc API preview");
   fresh.style.display = "block";
   stale.replaceWith(fresh);
   loadRedoc()
@@ -74,8 +77,9 @@ document.getElementById("reload").addEventListener("click", () => {
 });
 document.getElementById("switch").addEventListener("click", (event) => {
   mode = mode === "swagger" ? "redoc" : "swagger";
-  event.target.textContent = mode === "swagger" ? "Redoc" : "Swagger UI";
-  event.target.setAttribute("aria-label", `Switch API renderer to ${mode === "swagger" ? "Redoc" : "Swagger UI"}`);
+  const button = event.currentTarget;
+  button.querySelector("[data-renderer-label]").textContent = mode === "swagger" ? "Redoc" : "Swagger UI";
+  button.setAttribute("aria-label", `Switch API renderer to ${mode === "swagger" ? "Redoc" : "Swagger UI"}`);
   document.getElementById("swagger").style.display = mode === "swagger" ? "" : "none";
   document.getElementById("redoc").style.display = mode === "redoc" ? "block" : "none";
   show(latest);

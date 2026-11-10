@@ -280,14 +280,15 @@ fn refresh_reloads_cli_and_project_switch_discards_cache() {
 fn no_project_no_config_denied_and_failed_process_have_useful_states() {
     let host = mock();
     host.set_project_root(None);
-    let Body::Message(msg) = Main::default()
+    let Body::Tree(items) = Main::default()
         .render(VIEW, None, &host.invocation())
         .unwrap()
         .body
     else {
         panic!()
     };
-    assert!(msg.contains("Open a project"));
+    assert!(items[0].label.contains("Open a project"));
+    assert!(host.process_runs().is_empty());
     assert!(
         Main::default()
             .run_command("start", &host.invocation(), None)
@@ -318,6 +319,67 @@ fn no_project_no_config_denied_and_failed_process_have_useful_states() {
         .render(VIEW, None, &host.invocation())
         .unwrap();
     assert!(view.status.unwrap().contains("Docker is not running"));
+}
+
+#[test]
+fn native_services_status_is_inert_and_toolbar_icons_are_explicit() {
+    let host = mock();
+    host.set_project_root(None);
+    let mut plugin = Main::default();
+    let view = plugin.render(VIEW, None, &host.invocation()).unwrap();
+    let Body::Tree(items) = view.body else { panic!("Services needs tree rows") };
+    let key = items[0].key.clone();
+    assert_eq!(key, "status:no-project");
+    for event in [ViewEvent::Select(key.clone()), ViewEvent::Activate(key.clone())] {
+        plugin.handle(VIEW, event, &host.invocation()).unwrap();
+    }
+    assert!(plugin.selected.is_none());
+    assert!(matches!(plugin.detail(VIEW, &key, &host.invocation()).unwrap()[0].body, Pane::Message(_)));
+    assert!(host.process_runs().is_empty() && host.terminals().is_empty());
+
+    host.set_project_root(Some("/work/my project"));
+    let view = plugin.render(VIEW, None, &host.invocation()).unwrap();
+    assert_eq!(view.toolbar.len(), 8);
+    assert!(!view.toolbar.iter().any(|button| button.id == "start"));
+    assert!(view.toolbar.iter().all(|button| button.icon.is_some()));
+    for (id, icon) in [("shell", "terminal"), ("logs", "list"), ("open-service", "external-link"), ("actions", "more")] {
+        assert_eq!(view.toolbar.iter().find(|button| button.id == id).unwrap().icon.as_deref(), Some(icon));
+    }
+    assert!(plugin.selected.as_deref() != Some("status:no-project"));
+    let setup = plugin.render(support::SETUP, None, &host.invocation()).unwrap();
+    assert!(setup.toolbar.iter().all(|button| button.icon.is_some()), "setup toolbar must stay compact too");
+}
+
+#[test]
+fn unavailable_status_navigation_never_retries_runtime_commands() {
+    for state in ["missing", "denied", "failed", "stale", "project-denied"] {
+        let host = if state == "missing" {
+            MockHost::install().with_capabilities(&["project.read"])
+        } else if state == "denied" {
+            mock().with_capabilities(&["project.read"])
+        } else if state == "project-denied" {
+            mock().with_capabilities(&[])
+        } else {
+            let host = mock();
+            host.on_process("ddev", move |_, _| {
+                if state == "stale" { Err(Error::Stale) }
+                else { Ok(ProcessOutput {status:Some(1),stdout:String::new(),stderr:"Docker unavailable".into()}) }
+            });
+            host
+        };
+        let mut plugin = Main::default();
+        let Body::Tree(items) = plugin.render(VIEW, None, &host.invocation()).unwrap().body else {panic!("Services status tree")};
+        assert_eq!(items[0].key, if state == "missing" {"status:not-configured"} else {"status:unavailable"}, "{state}");
+        let calls = host.process_runs().len();
+        for event in [ViewEvent::Select(items[0].key.clone()), ViewEvent::Activate(items[0].key.clone())] {
+            plugin.handle(VIEW,event,&host.invocation()).unwrap();
+        }
+        let tabs = plugin.detail(VIEW,&items[0].key,&host.invocation()).unwrap();
+        assert!(matches!(tabs[0].body,Pane::Message(_)));
+        assert_eq!(host.process_runs().len(),calls,"status navigation retried CLI in {state}");
+        assert!(host.terminals().is_empty());
+        assert!(plugin.selected.as_deref().is_none_or(|key|!key.starts_with("status:")));
+    }
 }
 
 #[test]
@@ -521,9 +583,9 @@ fn state_controls_match_original_and_reject_invalid_runtime_actions() {
     let mut plugin = Main::default();
     let view = plugin.render(VIEW, None, &host.invocation()).unwrap();
     let enabled = |view: &openidea_plugin::views::View, id: &str| {
-        view.toolbar.iter().find(|b| b.id == id).unwrap().enabled
+        view.toolbar.iter().any(|b| b.id == id)
     };
-    assert!(!enabled(&view, "start") && enabled(&view, "stop") && enabled(&view, "shell"));
+    assert!(!enabled(&view, "start") && enabled(&view, "restart") && enabled(&view, "stop") && enabled(&view, "shell"));
     assert!(
         plugin
             .run_command("start", &host.invocation(), None)
@@ -534,7 +596,7 @@ fn state_controls_match_original_and_reject_invalid_runtime_actions() {
         .run_command("refresh", &host.invocation(), None)
         .unwrap();
     let view = plugin.render(VIEW, None, &host.invocation()).unwrap();
-    assert!(enabled(&view, "start") && !enabled(&view, "stop") && !enabled(&view, "shell"));
+    assert!(enabled(&view, "start") && !enabled(&view, "restart") && !enabled(&view, "stop") && !enabled(&view, "shell"));
     assert!(
         plugin
             .run_command("stop", &host.invocation(), None)
@@ -586,12 +648,7 @@ fn configuration_and_help_work_without_process_permission() {
     let view = plugin.render(VIEW, None, &host.invocation()).unwrap();
     assert!(matches!(view.body, Body::Tree(_)));
     assert!(
-        !view
-            .toolbar
-            .iter()
-            .find(|b| b.id == "start")
-            .unwrap()
-            .enabled
+        !view.toolbar.iter().any(|b| b.id == "start")
     );
     let tabs = plugin.detail(VIEW, PROJECT, &host.invocation()).unwrap();
     assert!(tabs.iter().any(|t| t.id == "configuration"
@@ -1228,12 +1285,7 @@ fn removed_configuration_cannot_reuse_cached_runtime() {
     let view = plugin.render(VIEW, None, &host.invocation()).unwrap();
     assert!(view.status.unwrap().contains("Not configured"));
     assert!(
-        !view
-            .toolbar
-            .iter()
-            .find(|b| b.id == "stop")
-            .unwrap()
-            .enabled
+        !view.toolbar.iter().any(|b| b.id == "stop")
     );
     assert!(
         plugin
@@ -1641,7 +1693,7 @@ fn global_help_links_and_services_work_without_an_open_project() {
     assert!(host.revealed_views().iter().any(|id| id == VIEW));
     assert!(matches!(
         plugin.render(VIEW, None, &host.invocation()).unwrap().body,
-        Body::Message(_)
+        Body::Tree(ref items) if items.len() == 1 && items[0].key == "status:no-project"
     ));
     assert!(host.process_runs().is_empty());
 }
@@ -2767,4 +2819,42 @@ fn recheck_config_deadline_belongs_to_the_host_operation_not_its_reusable_key() 
             assert_eq!(saved["requested"].as_u64(), Some(old_deadline_start));
         }
     }
+}
+
+#[test]
+fn custom_setup_bridge_preserves_drafts_readonly_fields_and_project_authority() {
+    let host=mock().with_capabilities(&["project.read","project.write"]);
+    let saved="# Keep this\n[editor]\nfontSize=15\n[plugins.'aritti.ddev']\nphpVersion='8.1'\n";
+    host.add_file(".openidea/settings.toml",saved);
+    let mut plugin=Main::default();
+    let request=|plugin:&mut Main, mut request:serde_json::Value| {
+        request["channel"]=json!("ui-kit");request["sequence"]=json!(1);
+        if request.get("project").is_none(){request["project"]=json!("/work/my project");}
+        plugin.handle(support::SETUP,ViewEvent::Message(request.to_string()),&host.invocation()).unwrap();
+        serde_json::from_str::<serde_json::Value>(&host.view_messages().last().unwrap().1).unwrap()
+    };
+    let initial=request(&mut plugin,json!({"op":"render"}));
+    assert_eq!(initial["model"]["body"]["kind"],"form");
+    assert_eq!(initial["model"]["iconButtons"].as_array().unwrap().len(),7);
+    assert_eq!(initial["model"]["body"]["fields"].as_array().unwrap().len(),12);
+    assert_eq!(initial["model"]["body"]["fields"][0]["value"]["kind"],"readonly-text");
+    assert!(host.process_runs().is_empty());
+    let project=host.invocation().project().unwrap();assert_eq!(project.read_file(".openidea/settings.toml").unwrap(),saved);
+    let forged=request(&mut plugin,json!({"op":"event","event":{"kind":"field","key":"project","value":"/other"}}));
+    assert!(forged.get("error").is_some());
+    let edited=request(&mut plugin,json!({"op":"event","event":{"kind":"field","key":"phpVersion","value":"8.3"}}));
+    assert!(edited.get("error").is_none());assert_eq!(project.read_file(".openidea/settings.toml").unwrap(),saved);
+    let reset=request(&mut plugin,json!({"op":"event","event":{"kind":"button","key":"reset-settings"}}));
+    assert!(reset["model"]["body"]["fields"].as_array().unwrap().iter().any(|field|field["key"]=="phpVersion"&&field["value"]["text"]=="8.1"));
+    request(&mut plugin,json!({"op":"event","event":{"kind":"field","key":"phpVersion","value":"8.3"}}));
+    let saved_reply=request(&mut plugin,json!({"op":"event","event":{"kind":"button","key":"save-settings"}}));
+    assert!(saved_reply.get("error").is_none(),"{saved_reply}");
+    let text=project.read_file(".openidea/settings.toml").unwrap();assert!(text.contains("Keep this")&&text.contains("fontSize=15"));
+    assert_eq!(config_php_version(&project).unwrap().as_deref(),Some("8.3"));
+    let before=host.process_runs().len();host.set_project_root(Some("/work/other"));
+    let stale=request(&mut plugin,json!({"op":"event","event":{"kind":"button","key":"save-settings"}}));
+    assert!(stale.get("error").is_some());assert_eq!(host.process_runs().len(),before);
+    host.set_project_root(None);
+    let empty=request(&mut plugin,json!({"op":"render","project":null}));
+    assert_eq!(empty["model"]["body"]["kind"],"message");assert!(empty["model"]["toolbar"].as_array().unwrap().is_empty());
 }

@@ -1,0 +1,13 @@
+{
+  "primary": "patterns",
+  "tabs": [
+    {
+      "id": "patterns",
+      "label": "Ideolog"
+    },
+    {
+      "id": "log-snapshot",
+      "label": "Log Snapshot"
+    }
+  ]
+}

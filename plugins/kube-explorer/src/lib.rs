@@ -7,12 +7,15 @@
 //! Every cluster call is a `kubectl` run with the chosen context and
 //! namespace as flags, so the user's kubeconfig is never changed.
 
+mod ui_group;
 mod chart_actions;
 mod checks;
 mod complete;
 mod cluster_completion;
 mod watch;
 mod process_scope;
+mod context_actions;
+mod services;
 mod rich_controls;
 mod yaml_editor;
 mod config;
@@ -42,12 +45,11 @@ const PANEL: &str = "resource-details";
 /// Native typed views consume viewChanged; packaged pages consume this content-free
 /// invalidation and request their own frame/project-correlated ui-kit model.
 fn refresh_panel() {
-    host::refresh_view(PANEL);
-    let _ = host::post_view_message(PANEL, r#"{"channel":"ui-kit-refresh"}"#);
+    crate::ui_group::refresh_view(PANEL);
 }
 
 fn refresh_views() {
-    host::refresh_view(TREE);
+    crate::ui_group::refresh_view(TREE);
     refresh_panel();
 }
 
@@ -602,7 +604,7 @@ impl KubeExplorer {
         let result=if kind=="secrets" {result.map_err(|error|secrets::command_error("save",error))}else{result};
         match result {
             Ok(out) => self.open_yaml(&kind, &row, Some(out.trim().to_owned())),
-            Err(e) => host::post_view_message(PANEL, &format!("error:{e}")),
+            Err(e) => crate::ui_group::post_view_message(PANEL, &format!("error:{e}")),
         }
     }
 
@@ -1044,8 +1046,8 @@ impl KubeExplorer {
                 self.reload();
                 return Ok(());
             }
-            "apply" => return host::post_view_message(PANEL, "collect:apply"),
-            "save-file" => return host::post_view_message(PANEL, "collect:save"),
+            "apply" => return crate::ui_group::post_view_message(PANEL, "collect:apply"),
+            "save-file" => return crate::ui_group::post_view_message(PANEL, "collect:save"),
             "reload-yaml" => {
                 if let Some((kind, name)) = self.details.as_ref().and_then(|d| d.editing.clone()) {
                     self.open_yaml(&kind, &name, None)?;
@@ -1124,6 +1126,7 @@ fn resource(key: &str) -> Option<(String, String)> {
 
 #[cfg(test)]
 fn test_tree_key(key:&str)->&str {
+    let key=if key.starts_with("svc-"){key.split_once(':').map_or(key,|(_,key)|key)}else{key};
     let key=key.strip_prefix("node:").or_else(||key.strip_prefix("choice:")).unwrap_or(key);
     key.rsplit_once('~').filter(|(_,proof)|proof.len()==32&&proof.bytes().all(|byte|byte.is_ascii_hexdigit())).map_or(key,|(bare,_)|bare)
 }
@@ -1131,6 +1134,7 @@ fn test_tree_key(key:&str)->&str {
 /// Presentation-only helper for tests inspecting emitted owned tree keys.
 #[cfg(test)]
 fn test_resource(key:&str)->Option<(String,String)> {
+    let key=if key.starts_with("svc-"){key.split_once(':').map_or(key,|(_,key)|key)}else{key};
     let bare=key.rsplit_once('~').filter(|(_,proof)|proof.len()==32&&proof.bytes().all(|byte|byte.is_ascii_hexdigit())).map_or(key,|(bare,_)|bare);
     resource(bare)
 }
@@ -1445,6 +1449,7 @@ impl KubeExplorer {
         self.expire_forward_context(Some(ctx));
         self.expire_log_context(Some(ctx));
         self.expire_rich_context(Some(ctx));
+        if id.starts_with("tree-") { return self.tree_context_action(id, arg, ctx).map(|()|None); }
         match id {
             "reload-from-cluster" => return self.reload_from_cluster(ctx).map(|()| None),
             "helm-repo-update" => return helm_repo_update().map(|()| None),
@@ -1457,7 +1462,7 @@ impl KubeExplorer {
             "apply-reviewed-private-yaml" => return self.yaml_editors.apply(ctx).map(|()|None),
             "retire-private-yaml" => return self.yaml_editors.retire(ctx).map(|()|None),
             "watch-resources" => return self.watch.prepare(ctx,&self.context,&self.namespace,false).map(|()|None),
-            "open-resource-watch" => { host::reveal_view(watch::VIEW)?; return Ok(None); }
+            "open-resource-watch" => { crate::ui_group::reveal_view(watch::VIEW)?; return Ok(None); }
             "cache-cluster-resources" => {
                 let count=self.cluster_completion.read_resources(ctx,self.context.as_deref(),self.namespace.as_deref())?;
                 host::notify(NotificationLevel::Info,"Resource completion snapshot",&format!("Captured {count} resource names for60 seconds. Providers do not query kubectl; source deployment target remains unresolved."));
@@ -1537,7 +1542,7 @@ impl KubeExplorer {
             || self.editing_secret.is_some()
             || self.log_view.is_some()
         {
-            host::reveal_view(PANEL)?;
+            crate::ui_group::reveal_view(PANEL)?;
             crate::refresh_panel();
         }
         crate::refresh_views();
@@ -1658,15 +1663,18 @@ impl Providers for KubeExplorer {
 
 impl Views for KubeExplorer {
     fn render(&mut self,view:&str,viewport:Option<Viewport>,ctx:&Invocation)->Result<View,Error>{
-        self.with_process_scope(ctx,|this| {
-            let mut rendered=this.render_in(view,viewport,ctx)?;
-            rendered=this.protect_tree_view(rendered);
-            if view==TREE {
-                let scope=this.process_scope.root().map(|root|format!("Project: {root}")).unwrap_or_else(||"Global CLI mode (no invoking project)".into());
-                rendered.status=Some(match rendered.status.take(){Some(status) if !status.is_empty()=>format!("{status} · {scope}"),_=>scope});
-            }
-            Ok(rendered)
-        })
+        (|| -> Result<View, Error> {
+            self.with_process_scope(ctx,|this| {
+                let mut rendered=this.render_in(view,viewport,ctx)?;
+                rendered=this.protect_tree_view(rendered);
+                if view==TREE {
+                    rendered=this.service_tree(rendered);
+                    let scope=this.process_scope.root().map(|root|format!("Project: {root}")).unwrap_or_else(||"Global CLI mode (no invoking project)".into());
+                    rendered.status=Some(match rendered.status.take(){Some(status) if !status.is_empty()=>format!("{status} · {scope}"),_=>scope});
+                }
+                Ok(rendered)
+            })
+        })().map(ui_kit::actions::available)
     }
     fn handle(&mut self,view:&str,event:ViewEvent,ctx:&Invocation)->Result<(),Error>{self.with_process_scope(ctx,|this|this.handle_in(view,event,ctx))}
 }
@@ -1688,10 +1696,17 @@ impl KubeExplorer {
         self.expire_forward_context(Some(_ctx));
         self.expire_log_context(Some(_ctx));
         self.expire_rich_context(Some(_ctx));
-        if ui_kit::web::handle(self, _view, &event, _ctx, include_str!("ui_config.json"))? {
-            return Ok(());
+        if matches!(&event, ViewEvent::Message(message) if serde_json::from_str::<serde_json::Value>(message).ok().is_some_and(|value|value["channel"] == "ui-kit")) {
+            let config = self.context_menu_config(_view, _ctx)?;
+            if ui_kit::web::handle_with_actions(self, _view, &event, _ctx, &config, Self::menu_actions)? { return Ok(()); }
         }
 
+        if let ViewEvent::Button(key)=&event {
+            if key.starts_with("service-action:") {
+                if _view != TREE {return Err(Error::Stale);}
+                return self.service_action(key,_ctx);
+            }
+        }
         let show_panel = _view == TREE && matches!(&event, ViewEvent::Activate(_) | ViewEvent::Button(_));
         let event=self.checked_tree_event(event)?;
         let event=self.checked_rich_event(event)?;
@@ -1708,7 +1723,7 @@ impl KubeExplorer {
                 || self.log_view.is_some()
                 || self.draft.is_some())
         {
-            host::reveal_view(PANEL)?;
+            crate::ui_group::reveal_view(PANEL)?;
         }
         Ok(())
     }
@@ -1719,35 +1734,8 @@ impl openidea_plugin::details::Details for KubeExplorer {
 }
 impl KubeExplorer {
     fn detail_in(&mut self, view: &str, key: &str, _ctx: &Invocation) -> Result<Vec<openidea_plugin::details::Tab>, Error> {
-        use openidea_plugin::details::{Pane, ProcessLog, Tab};
-        if view != TREE {
-            return Ok(Vec::new());
-        }
-        let normalized=self.checked_tree_key(key)?;let key=normalized.as_str();
-        if key == "kube:status" {
-            return Ok(vec![Tab::new("status", "Kubernetes", Pane::Message(
-                "Allow kubectl in Settings › Plugins › Kube Explorer to browse clusters. Private kubeconfig import/review is available without a CLI or cluster connection; imported profiles are not activated automatically.".into(),
-            ))]);
-        }
-        let Some((kind, row)) = self.checked_resource(key)? else {
-            return Ok(vec![Tab::new("resource", "Resource", Pane::Message("Select a resource to see its details and actions.".into()))]);
-        };
-        let (namespace, name) = self.split_scope(&kind, &row)?;
-        let mut tabs = vec![Tab::new(
-            "resource",
-            "Resource",
-            Pane::Text(format!(
-                "{kind}/{name}\nContext: {}\nNamespace: {}",
-                self.context.as_deref().or(self.current_context.as_deref()).unwrap_or("current"),
-                namespace.as_deref().unwrap_or("current")
-            )),
-        )];
-        if kind == "pods" || WORKLOADS.contains(&kind.as_str()) {
-            let args = self.args_in(namespace.as_deref(), &["logs", "-f", &format!("{kind}/{name}"), "--tail=1000"]);
-            let refs: Vec<&str> = args.iter().map(String::as_str).collect();
-            tabs.push(Tab::new("logs", "Logs", ProcessLog::new(KUBECTL, &refs).toggle("timestamps", "Timestamps", &["--timestamps"])));
-        }
-        Ok(tabs)
+        if view != TREE { return Ok(Vec::new()); }
+        self.native_details(key)
     }
 }
 
@@ -1900,7 +1888,9 @@ mod tests {
 
         kube.handle(TREE, ViewEvent::Message(kube.test_apply_message("kind: Pod # conflict")), &host.invocation()).unwrap();
 
-        assert_eq!(host.view_messages().last().unwrap().1, "error:the object has been modified");
+        let reply:serde_json::Value=serde_json::from_str(&host.view_messages().last().unwrap().1).unwrap();
+        assert_eq!(reply["targetView"],PANEL);
+        assert_eq!(reply["message"], "error:the object has been modified");
         assert_eq!(host.refreshed_views().len(), refreshes);
     }
 

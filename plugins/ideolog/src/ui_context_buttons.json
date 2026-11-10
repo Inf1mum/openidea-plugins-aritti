@@ -1,0 +1,10 @@
+{
+  "patterns": [
+    "edit",
+    "toggle-enabled",
+    "move-up",
+    "move-down",
+    "remove"
+  ],
+  "log-snapshot": []
+}

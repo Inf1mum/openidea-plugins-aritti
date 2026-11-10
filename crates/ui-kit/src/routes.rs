@@ -78,14 +78,13 @@ pub fn endpoints(routes: &[Route], framework: &str) -> Vec<openidea_plugin::endp
 pub struct RouteList {
     mode_key: String,
     filter_key: String,
-    plugin_id: String,
     tree: bool,
     filter: BTreeSet<String>,
     routes: Vec<Route>,
 }
 
 impl RouteList {
-    pub fn new(storage_key: &str, plugin_id: &str) -> RouteList {
+    pub fn new(storage_key: &str, _plugin_id: &str) -> RouteList {
         let mode_key = format!("{storage_key}.mode");
         let filter_key = format!("{storage_key}.filter");
         let tree = storage::get(&mode_key).ok().flatten().as_deref() == Some("tree");
@@ -94,7 +93,7 @@ impl RouteList {
             .flatten()
             .map(|stored| stored.lines().filter(|line| !line.is_empty()).map(str::to_owned).collect())
             .unwrap_or_default();
-        RouteList { mode_key, filter_key, plugin_id: plugin_id.to_owned(), tree, filter, routes: Vec::new() }
+        RouteList { mode_key, filter_key, tree, filter, routes: Vec::new() }
     }
 
     pub fn set_routes(&mut self, routes: Vec<Route>) {
@@ -146,12 +145,28 @@ impl RouteList {
                 .to_string(),
             };
         }
+        if crate::web::is_rendering() && self.tree {
+            if let Body::Tree(items) = &view.body {
+                view.body = Body::Other {
+                    kind: "tree".into(),
+                    data: serde_json::json!({"items":items.iter().map(|item| {
+                        let route = self.route(&item.key);
+                        serde_json::json!({
+                            "key":item.key,"parent":item.parent,"label":item.label,"icon":item.icon,
+                            "expandable":item.expandable,"expanded":item.expanded,
+                            "method":route.map(|r|r.method.to_ascii_uppercase()),
+                            "detail":route.map(Self::handler_detail).or_else(||item.detail.clone())
+                        })
+                    }).collect::<Vec<_>>()}).to_string(),
+                };
+            }
+        }
         view.status = Some(self.status_line(capped.len(), total));
         view.toolbar.push(Button::new(FILTER_BUTTON, "Filter\u{2026}").icon("filter"));
         if !self.filter.is_empty() {
-            view.toolbar.push(Button::new(CLEAR_BUTTON, "Clear"));
+            view.toolbar.push(Button::new(CLEAR_BUTTON, "Clear Filter").icon("close"));
         }
-        view.toolbar.push(Button::new(MODE_BUTTON, if self.tree { "Flat" } else { "Tree" }));
+        view.toolbar.push(Button::new(MODE_BUTTON, if self.tree { "Flat" } else { "Tree" }).icon(if self.tree { "list" } else { "hierarchy" }));
         view
     }
 
@@ -209,23 +224,14 @@ impl RouteList {
         line
     }
 
-    fn icon(&self, method: &str) -> String {
-        let name = match method.to_ascii_uppercase().as_str() {
-            "GET" => "get",
-            "POST" => "post",
-            "PUT" => "put",
-            "DELETE" => "delete",
-            "PATCH" => "patch",
-            _ => "other",
-        };
-        format!("ext:fileIcon/{}/route-{name}", self.plugin_id)
+    fn detail(route: &Route) -> String {
+        format!("[{}] {}", route.method.to_ascii_uppercase(), Self::handler_detail(route))
     }
 
-    fn detail(route: &Route) -> String {
-        let method = route.method.to_ascii_uppercase();
+    fn handler_detail(route: &Route) -> String {
         match &route.name {
-            Some(name) => format!("[{method}] {} \u{b7} {name}", route.handler.class),
-            None => format!("[{method}] {}", route.handler.class),
+            Some(name) => format!("{} \u{b7} {name}", route.handler.class),
+            None => route.handler.class.clone(),
         }
     }
 
@@ -234,7 +240,7 @@ impl RouteList {
             rows.iter()
                 .map(|(index, route)| {
                     ListItem::new(&format!("{ROUTE_PREFIX}{index}"), &route.path)
-                        .icon(&self.icon(&route.method))
+                        .icon("web")
                         .detail(&Self::detail(route))
                 })
                 .collect(),
@@ -253,7 +259,7 @@ impl RouteList {
                 items.push(
                     TreeItem::new(&format!("{ROUTE_PREFIX}{index}"), &route.path)
                         .parent(&group)
-                        .icon(&self.icon(&route.method))
+                        .icon("web")
                         .detail(&Self::detail(route)),
                 );
             }
@@ -409,15 +415,13 @@ mod tests {
     }
 
     #[test]
-    fn rows_carry_one_icon_per_method() {
+    fn routes_share_the_native_endpoint_icon_across_methods() {
         let _host = MockHost::install();
         let methods = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD"];
         let routes = methods.iter().map(|m| route(m, "/x", "C")).collect();
         let view = list(routes).render(base_view());
         let icons: Vec<&str> = items(&view).iter().map(|i| i.icon.as_deref().unwrap()).collect();
-        let expected: Vec<String> =
-            ["get", "post", "put", "delete", "patch", "other"].iter().map(|n| format!("ext:fileIcon/{ID}/route-{n}")).collect();
-        assert_eq!(icons, expected.iter().map(String::as_str).collect::<Vec<_>>());
+        assert_eq!(icons, vec!["web"; methods.len()]);
     }
 
     #[test]

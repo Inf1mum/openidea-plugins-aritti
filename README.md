@@ -24,9 +24,12 @@ Active work: [post-migration feature and UI parity plan](docs/superpowers/plans/
 
 ## Unreleased API 1.4 migration
 
-All packages now target SDK v0.1.40 / plugin API 1.4. Tool-window packages share
-packaged resource UI components; route exports and four live diagnostic providers
-adopt the new APIs. See the [implementation and verification record](docs/parity-2026-11-08/implementation/README.md)
+All packages now target SDK v0.1.40 / plugin API 1.4. JPA, Tasks, Properties,
+Ideolog, Flyway/Liquibase lists and Spring Runtime observations use native views.
+Twelve packages retain shared packaged UI for richer workflows;
+[custom panels must use our UI kit and native conventions](docs/custom-panels-shared-kit-2026-11-10.md). See the
+[native UI parity record](docs/native-ui-parity-2026-11-09.md) and the
+[all-plugin UI adaptation review, including DDEV](docs/native-ui-adaptation-2026-11-10.md). See the [implementation and verification record](docs/parity-2026-11-08/implementation/README.md)
 for completed work, checks and remaining parity tasks. Desktop acceptance is pending.
 
 ## Upstream follow-up
@@ -81,3 +84,5 @@ and published to the community registry [`l0ng-ai/openidea-plugins`](https://git
 ## Licence
 
 MIT for original code (see [LICENSE](LICENSE)). Ports keep the original plugin's licence in their own `LICENSE`/`NOTICE`, which takes precedence for that directory.
+
+Related plugin views share native tabbed tool windows: GitLab, OpenAPI, Symfony, Flyway, Liquibase, Ideolog and Kubernetes. Spring Runtime already uses the same native grouping. Services integrations remain in Services. See [native window consolidation](docs/native-view-groups-2026-11-10.md) for tab membership and validation.

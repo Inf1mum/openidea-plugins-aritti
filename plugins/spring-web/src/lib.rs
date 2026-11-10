@@ -854,11 +854,13 @@ const DEFAULT_BASE_URL: &str = "http://localhost:8080";
 
 impl Views for WebTools {
     fn render(&mut self, view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
-        let Some(project) = ctx.project() else {
-            return Ok(View::message("Open a project to see its endpoints."));
-        };
+        (|| -> Result<View, Error> {
+            let Some(project) = ctx.project() else {
+                return Ok(View::message("Open a project to see its endpoints."));
+            };
 
-        Ok(self.endpoints_view(view, &project, COMMAND_BUDGET))
+            Ok(self.endpoints_view(view, &project, COMMAND_BUDGET))
+        })().map(ui_kit::actions::available)
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {
@@ -1493,7 +1495,7 @@ class Users {
                 ("/x", Some("[GET] Routes")),
             ]
         );
-        assert_eq!(rows[4].icon.as_deref(), Some("ext:fileIcon/aritti.spring-web/route-post"));
+        assert_eq!(rows[4].icon.as_deref(), Some("web"));
     }
 
     #[test]

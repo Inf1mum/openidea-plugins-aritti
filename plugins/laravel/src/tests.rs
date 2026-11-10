@@ -357,12 +357,31 @@ fn runs_artisan_then_reindexes() {
     let host = MockHost::install().with_capabilities(&["project.read", "events", "process:php"]);
     let mut plugin = activated(&host);
     host.on_process("php", |args, _| {
-        assert_eq!(args, ["artisan", "cache:clear", "--no-interaction"]);
+        assert_eq!(args, ["artisan", "cache:clear", "--no-interaction", "--no-ansi"]);
         Ok(openidea_plugin::ProcessOutput { status: Some(0), stdout: "ok".into(), stderr: String::new() })
     });
     assert_eq!(plugin.run_command("cache-clear", &host.invocation(), None).unwrap(), None);
     let notes: Vec<_> = host.notifications().into_iter().map(|n| (n.title, n.body)).collect();
     assert_eq!(notes, [("Laravel".into(), "Ran artisan cache:clear and reindexed the project.".into())]);
+}
+
+#[test]
+fn artisan_failure_keeps_the_cause_from_both_streams_without_terminal_formatting() {
+    let host = MockHost::install().with_capabilities(&["project.read", "events", "process:php"]);
+    let mut plugin = activated(&host);
+    host.on_process("php", |args, _| {
+        assert_eq!(args, ["artisan", "optimize:clear", "--no-interaction", "--no-ansi"]);
+        Ok(openidea_plugin::ProcessOutput {
+            status: Some(1),
+            stdout: "\x1b[31mSQLSTATE[HY000]: Connection refused\x1b[0m".into(),
+            stderr: "\x1b[2m+47 vendor frames\x1b[22m\n48 artisan:16".into(),
+        })
+    });
+    let error = plugin.run_command("optimize-clear", &host.invocation(), None).unwrap_err().to_string();
+    assert!(error.contains("SQLSTATE[HY000]: Connection refused"));
+    assert!(error.contains("exit 1"));
+    assert!(!error.contains('\x1b'));
+    assert!(host.notifications().is_empty(), "a failed command must not emit the success notification");
 }
 
 #[test]
@@ -767,7 +786,7 @@ fn migrate_fresh_runs_only_when_confirmed() {
     let host = MockHost::install().with_capabilities(&["project.read", "events", "process:php"]);
     let mut plugin = activated(&host);
     host.on_process("php", |args, _| {
-        assert_eq!(args, ["artisan", "migrate:fresh", "--no-interaction"]);
+        assert_eq!(args, ["artisan", "migrate:fresh", "--no-interaction", "--no-ansi"]);
         Ok(openidea_plugin::ProcessOutput { status: Some(0), stdout: "ok".into(), stderr: String::new() })
     });
     plugin.run_command("migrate-fresh", &host.invocation(), None).unwrap();

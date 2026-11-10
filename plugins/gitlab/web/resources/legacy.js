@@ -14,7 +14,7 @@ window.uiKitLegacy = {
 review(root, openidea) { const document = scoped(root);
 
 document.documentElement.classList.add("js");
-const send = (message) => openidea.postMessage(JSON.stringify(message));
+const send = (message) => openidea.postMessage(JSON.stringify({ ...message, reviewContext: document.body.dataset.reviewContext }));
 const fileOf = (el) => el.closest('.file');
 const anchorOf = (tr) => { while (tr && !tr.id) tr = tr.previousElementSibling; return tr ? tr.id : ''; };
 const lineOf = (tr) => ({ old: tr.dataset.old ? +tr.dataset.old : null, new: tr.dataset.new ? +tr.dataset.new : null });

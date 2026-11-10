@@ -19,9 +19,12 @@ from JetBrains' [Properties plugin](https://plugins.jetbrains.com/plugin/11594-p
   spacing, alignment, blank lines).
 - Properties Structure tool window: keys grouped by dotted prefix, flat or
   sorted. Double-click a key to go to it.
-- Open With › Resource Bundle: a table of keys × locales. Edit keys and this
-  file's values, and insert or delete rows. Editing another locale's cell
-  opens that locale at its key. Native intentions perform confirmed atomic
+- Open With › Resource Bundle: a read-only overview of keys × locales. Select a
+  property, then use Edit Value or Rename Key in This File; Add Property and
+  Remove from This File provide reviewed changes with the existing revert control.
+  Open Translation chooses a locale and opens its source at the selected key.
+  The overview never presents other locales as editable or discards typed cell submissions.
+  Native intentions perform confirmed atomic
   cross-locale updates; no process permission is required and unsaved buffers are
   not replaced by shell writes. Show Incomplete Only keeps the keys some locale lacks.
 - Go to Declaration on a key: the same key in the parent locale
@@ -381,3 +384,30 @@ New keys must be nonempty printable ASCII, at most512bytes, without double quote
 The scan admits at most400visible Java/Kotlin files,128KiB/file,8MiB total,128key mentions per file and128proven references, with a one-second budget checked between parsing calls. Every discovered admitted source must retain its current project owner and regular-file/byte admission; uncertainty, unreadable sources or exceeded limits abort instead of preparing a partial source update. Full source text/metadata, including nonmatching files, and exact admitted inventory are compared again after confirmation. Visible locale inventory/text/owners and the invoking document's request version/text are also rechecked. A complete preview over16KiB refuses without consuming an unshown approval.
 
 Ignored/unresolved framework/runtime references are explicit exclusions, so the action does not establish complete program-wide Rename. Per-target live editor version tokens and final check-to-host-apply CAS remain SDK/host boundaries; no native acceptance for this new action follows from the earlier bundle-only69/70 or Revert110 receipts. No safe-delete/move, source compilation/runtime, process, storage or network work is added.
+
+## Native structure and bundle UI
+
+Properties Structure now uses the IDE's native tree and toolbar: dotted-prefix
+or flat grouping, alphabetical/file order, Expand All/Collapse All, Refresh and
+Enter/double-click source navigation. Native row identities bind the current
+project, editor path and source version, so delayed actions from another file or
+an edited source refuse rather than navigating a different property.
+
+The Resource Bundle custom editor already uses a native editable key-by-locale
+table; it retains incomplete-key filtering, locale navigation and reviewed edits.
+No HTML structure bridge is required. These workflows follow the original
+PropertiesStructureViewModel/ResourceBundleEditor roles and the official
+[Properties files documentation](https://www.jetbrains.com/help/idea/properties-files.html).
+The documentation reference is not evidence of exact bundle-grid screenshot
+parity; final keyboard/theme/dock and native editor acceptance remains separate.
+
+## Native bundle controls (2026-11-10)
+
+The overview separates browsing from editing because the native table API cannot
+mark individual locale columns read-only. Current-file changes use explicit
+selected-property controls, exact review and current-source/project guards;
+other locale sources open only through Open Translation. The existing atomic
+Set property value across selected locales intention remains the cross-file
+editing path. This adapts the original key/value/destination-selection workflow
+without claiming the full original internationalization dialog or inline
+all-locale editor. Toolbar glyphs use the released native icon registry.

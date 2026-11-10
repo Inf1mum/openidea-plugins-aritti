@@ -30,11 +30,7 @@ categories = ["vcs"]
 icon = "icon.svg"
 engines.openidea = "^1.4"
 wasm = "dist/plugin.wasm"
-activation = [
-    "on-view:merge-requests", "on-view:merge-request", "on-view:gitlab-projects",
-    "on-event:vcs-changed", "on-event:file-opened", "on-event:file-saved",
-    "on-file:**/.gitlab-ci.yml", "on-file:**/*.gitlab-ci.yml",
-]
+activation = ["on-view:merge-requests", "on-event:vcs-changed", "on-event:file-opened", "on-event:file-saved", "on-file:**/.gitlab-ci.yml", "on-file:**/*.gitlab-ci.yml"]
 
 [capabilities]
 required = ["vcs.read", "editor.read", "net:gitlab.com", "secrets", "storage"]
@@ -61,22 +57,8 @@ description = "A gitlab.com token with the api and read_user scopes. Run GitLab:
 
 [[contributes.views]]
 id = "merge-requests"
-title = "Merge Requests"
+title = "GitLab"
 icon = "icons/merge-requests.svg"
-location = "left"
-web = "web/resources/hub.html"
-
-[[contributes.views]]
-id = "merge-request"
-title = "Merge Request"
-icon = "icons/merge-request.svg"
-location = "right"
-web = "web/resources/hub.html"
-
-[[contributes.views]]
-id = "gitlab-projects"
-title = "GitLab Projects"
-icon = "icons/projects.svg"
 location = "left"
 web = "web/resources/hub.html"
 

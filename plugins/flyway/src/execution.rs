@@ -421,7 +421,7 @@ impl Execution {
                 Err(error) => {
                     session.status = session.redactor.line(&format!("Command could not start: {error}"));
                     self.session = Some(session);
-                    host::refresh_view(VIEW);
+                    ui_kit::web::refresh_view(VIEW, include_str!("ui_config.json"));
                     refresh_migrations();
                     return match error {
                         Error::Denied(_) => Err(error),
@@ -430,7 +430,7 @@ impl Execution {
                 }
             }
             self.session = Some(session);
-            host::reveal_view(VIEW)?;
+            ui_kit::web::reveal_view(VIEW, include_str!("ui_config.json"))?;
         } else {
             let native = !json && matches!(goal, "info" | "validate")
                 && crate::native_runs::configurations(&prepared.proof.root).iter().any(|config|
@@ -447,7 +447,7 @@ impl Execution {
                 };
             }
         }
-        host::refresh_view(VIEW);
+        ui_kit::web::refresh_view(VIEW, include_str!("ui_config.json"));
         if managed { refresh_migrations(); }
         Ok(())
     }
@@ -573,7 +573,7 @@ impl Execution {
                     let status = "Project membership unavailable; owned process retained. Retry from its owning project; runtime outcome unknown.";
                     if session.status != status {
                         session.status = status.into();
-                        host::refresh_view(VIEW);
+                        ui_kit::web::refresh_view(VIEW, include_str!("ui_config.json"));
                         refresh_migrations();
                     }
                 }
@@ -587,7 +587,7 @@ impl Execution {
             if let Some(session) = &mut self.session {
                 if session.status.starts_with("Project membership unavailable;") {
                     session.status = "Project membership revalidated; Refresh Status to poll the owned process. Runtime outcome unknown.".into();
-                    host::refresh_view(VIEW);
+                    ui_kit::web::refresh_view(VIEW, include_str!("ui_config.json"));
                     refresh_migrations();
                 }
             }
@@ -610,7 +610,7 @@ mod tests {
     use super::*;
     use openidea_plugin::mock::MockHost;
     fn managed() -> MockHost {
-        let host = MockHost::install().with_capabilities(&["project.read", "events", "process:flyway"]);
+        let host = MockHost::install().with_capabilities(&["project.read", "events", "process:flyway", "storage"]);
         host.set_setting("executionMode", "\"managed\"");
         host
     }
@@ -620,7 +620,7 @@ mod tests {
     }
     #[test]
     fn interactive_readonly_launch_uses_native_run_after_review_without_terminal_fallback() {
-        let host = MockHost::install().with_capabilities(&["project.read", "events", "process:flyway"]);
+        let host = MockHost::install().with_capabilities(&["project.read", "events", "process:flyway", "storage"]);
         host.add_file("flyway.toml", "");
         host.set_run_configurations(crate::native_runs::configurations("/project"));
         let mut execution = Execution::default();
@@ -638,7 +638,7 @@ mod tests {
         assert!(host.terminals().is_empty());
     }
     fn invalidations(host: &MockHost) -> usize {
-        host.view_messages().iter().filter(|(view,raw)| view=="migrations" && raw==r#"{"channel":"ui-kit-refresh"}"#).count()
+        host.view_messages().iter().filter(|(_,text)| serde_json::from_str::<serde_json::Value>(text).ok().is_some_and(|value| value["channel"] == "ui-kit-refresh" && value["targetView"] == "migrations")).count()
     }
     fn finished_info(host: &MockHost) -> Finished {
         Finished {proof:info_scope(&host.invocation().project().unwrap()).unwrap(),root:"/project".into(),goal:"info".into(),
@@ -658,7 +658,7 @@ mod tests {
     }
 
     #[test]
-    fn accepted_info_and_managed_start_cancel_notify_mounted_page_without_render_loop() {
+    fn accepted_info_and_managed_start_cancel_refresh_native_view_without_render_loop() {
         let host=managed();let mut plugin=Flyway::default();
         plugin.accept_finished(&host.invocation().project().unwrap(),finished_info(&host)).unwrap();
         assert_eq!(invalidations(&host),1);
@@ -678,7 +678,7 @@ mod tests {
             let host=match case {
                 0=>{host.add_project("/project");host.set_project_root(Some("/foreign"));host},
                 1=>{host.add_project("/project");host.set_project_root(None);host},
-                _=>host.with_capabilities(&["events"]),
+                _=>host.with_capabilities(&["events", "storage"]),
             };
             let view=plugin.render("migrations",None,&host.invocation()).unwrap();
             assert!(matches!(view.body,Body::Message(_)));
@@ -734,11 +734,11 @@ mod tests {
         assert!(plugin.execution.migration_status("/project").unwrap().contains("Finished"));
         assert_eq!(invalidations(&host),3);
         plugin.run_command("status",&host.invocation(),None).unwrap();
-        assert_eq!(invalidations(&host),3,"no snapshot/status change, no redundant hub invalidation");
+        assert_eq!(invalidations(&host),3,"no snapshot/status change, no redundant native invalidation");
         assert!(plugin.info_cache.is_none());
     }
     #[test]
-    fn external_generation_command_refreshes_mounted_preview_without_cli_or_file_write() {
+    fn external_generation_command_refreshes_native_preview_without_cli_or_file_write() {
         let host=managed();let mut plugin=Flyway::default();
         plugin.run_command("new-migration",&host.invocation(),None).unwrap();
         assert_eq!(invalidations(&host),1);
@@ -925,13 +925,13 @@ mod tests {
         let host = managed();
         let mut execution = Execution::default();
         start(&mut execution, &host, false);
-        let host = host.with_capabilities(&["events", "process:flyway"]);
+        let host = host.with_capabilities(&["events", "process:flyway", "storage"]);
         execution.closed_roots();
         let session = execution.session.as_ref().unwrap();
         assert!(session.child.is_some(), "inventory failure is not evidence of project closure");
         assert!(session.status.contains("unavailable"));
         assert!(!session.status.contains("Project closed"));
-        let host = host.with_capabilities(&["project.read", "events", "process:flyway"]);
+        let host = host.with_capabilities(&["project.read", "events", "process:flyway", "storage"]);
         execution.closed_roots();
         assert!(execution.session.as_ref().unwrap().child.is_some());
         assert!(execution.session.as_ref().unwrap().status.contains("revalidated"));
@@ -940,7 +940,7 @@ mod tests {
     }
     #[test]
     fn failed_start_and_closed_project_remain_scoped_and_do_not_claim_database_success() {
-        let host = MockHost::install().with_capabilities(&["project.read", "events"]);
+        let host = MockHost::install().with_capabilities(&["project.read", "events", "storage"]);
         host.set_setting("executionMode", "\"managed\"");
         let mut execution = Execution::default();
         host.answer_next_prompt(Some(&["yes"]));

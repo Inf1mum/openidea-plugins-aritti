@@ -58,6 +58,7 @@ pub(crate) struct State {
     selected: Option<usize>,
     status: String,
     visible: std::ops::Range<u32>,
+    page: u32,
 }
 fn relative(root: &str, path: &str) -> Option<String> {
     let path = path.strip_prefix(&format!("{}/", root.trim_end_matches('/')))?;
@@ -444,8 +445,8 @@ impl Liquibase {
         }
         self.offline.running = Some(Running { plan, child, at: Instant::now(), output: String::new(), bytes: 0, status: None });
         self.offline.status = "Offline diff started; Poll Status to drain output. Installed CLI version is unverified.".into();
-        host::reveal_view(VIEW)?;
-        host::refresh_view(VIEW);
+        ui_kit::web::reveal_view(VIEW, include_str!("ui_config.json"))?;
+        ui_kit::web::refresh_view(VIEW, include_str!("ui_config.json"));
         Ok(())
     }
     pub(crate) fn poll_offline_diff(&mut self, ctx: &Invocation) -> Result<(), Error> {
@@ -458,7 +459,7 @@ impl Liquibase {
             let _ = run.child.kill();
             cleanup(&run.plan);
             self.offline.status = "Diff stopped after source/scope change or expired polling lease; previous report retained.".into();
-            host::refresh_view(VIEW);
+            ui_kit::web::refresh_view(VIEW, include_str!("ui_config.json"));
             return Err(Error::Stale);
         }
         for _ in 0..8 {
@@ -468,7 +469,7 @@ impl Liquibase {
                     let _ = run.child.kill();
                     cleanup(&run.plan);
                     self.offline.status = "Process output could not be read; previous report retained.".into();
-                    host::refresh_view(VIEW);
+                    ui_kit::web::refresh_view(VIEW, include_str!("ui_config.json"));
                     return Err(Error::Failed("Offline diff process read failed.".into()));
                 }
             };
@@ -478,7 +479,7 @@ impl Liquibase {
                 let _ = run.child.kill();
                 cleanup(&run.plan);
                 self.offline.status = "Diff output cap exceeded; output discarded and previous report retained.".into();
-                host::refresh_view(VIEW);
+                ui_kit::web::refresh_view(VIEW, include_str!("ui_config.json"));
                 return Ok(());
             }
             run.output.push_str(&chunk.stdout);
@@ -490,7 +491,7 @@ impl Liquibase {
                     let _ = run.child.kill();
                     cleanup(&run.plan);
                     self.offline.status = "Source changed before completed output could be accepted; previous report retained.".into();
-                    host::refresh_view(VIEW);
+                    ui_kit::web::refresh_view(VIEW, include_str!("ui_config.json"));
                     return Err(Error::Stale);
                 }
                 let status = run.status.unwrap();
@@ -518,13 +519,13 @@ impl Liquibase {
                         format!("CLI exited with status {status}; raw diagnostics withheld and previous report retained.");
                 }
                 cleanup(&run.plan);
-                host::refresh_view(VIEW);
+                ui_kit::web::refresh_view(VIEW, include_str!("ui_config.json"));
                 return Ok(());
             }
         }
         self.offline.running = Some(run);
         self.offline.status = "Diff running or output still draining; Poll Status or Stop. No automatic polling.".into();
-        host::refresh_view(VIEW);
+        ui_kit::web::refresh_view(VIEW, include_str!("ui_config.json"));
         Ok(())
     }
     pub(crate) fn render_offline_diff(&mut self, viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
@@ -554,11 +555,12 @@ impl Liquibase {
                     ),
                 ])
             } else {
-                let range = Viewport::range(
-                    viewport.map(|v| Viewport { first_row: v.first_row, rows: v.rows.clamp(1, 100) }),
-                    report.items.len() as u32,
-                    50,
-                );
+                let viewport = if ui_kit::web::is_rendering() {
+                    let last_page = (report.items.len() as u32).saturating_sub(1) / 100;
+                    self.offline.page = self.offline.page.min(last_page);
+                    Some(Viewport { first_row: self.offline.page * 100, rows: 100 })
+                } else { viewport.map(|v| Viewport { first_row: v.first_row, rows: v.rows.clamp(1, 100) }) };
+                let range = Viewport::range(viewport, report.items.len() as u32, 50);
                 self.offline.visible = range.clone();
                 Body::Table(Table {
                     columns: vec!["CLI category".into(), "Object (reported spelling)".into()],
@@ -582,7 +584,8 @@ impl Liquibase {
             .as_ref()
             .map(|r| format!("{} · {}s old · {} selectable observations", r.source, r.at.elapsed().as_secs(), r.items.len()))
             .unwrap_or_default() };
-        let view = View::new(body)
+        let table = matches!(&body, Body::Table(_));
+        let mut view = View::new(body)
             .button(Button::new("offline-run", "Run Reviewed Offline Diff").enabled(self.offline.running.is_none()))
             .button(Button::new("offline-generate", "Generate Reviewed Offline Changelog…").enabled(self.offline.running.is_none()))
             .button(Button::new("offline-poll", "Poll Status").enabled(self.offline.running.is_some()))
@@ -590,6 +593,13 @@ impl Liquibase {
             .button(Button::new("offline-choose", "Choose Observations to Preview…").enabled(self.offline.running.is_none() && self.offline.report.as_ref().is_some_and(|r| !r.items.is_empty())))
             .button(Button::new("offline-back", "Report List").enabled(self.offline.selected.is_some() || self.offline.review.is_some() || self.offline.generated_view))
             .status(&format!("{} · {provenance}", self.offline.status));
+        if table && ui_kit::web::is_rendering() {
+            let total = self.offline.report.as_ref().map_or(0, |report| report.items.len() as u32);
+            let visible = &self.offline.visible;
+            view = view.button(Button::new("offline-previous", "Previous Observations").icon("arrow-left").enabled(visible.start > 0))
+                .button(Button::new("offline-next", "Next Observations").icon("arrow-right").enabled(visible.end < total));
+            view.status = Some(format!("{} · Observations {}–{} of {total}", view.status.as_deref().unwrap_or_default(), if visible.is_empty() {0} else {visible.start + 1}, visible.end));
+        }
         Ok(if generated::owner(&self.offline) == Some(root.as_str()) {
             view.button(Button::new(if self.offline.generated_view { "offline-select-generated" } else { "offline-show-generated" }, if self.offline.generated_view { "Choose Generated Changesets…" } else { "Review Generated Source" }).enabled(self.offline.running.is_none()))
         } else { view })
@@ -605,6 +615,14 @@ impl Liquibase {
         }
         if let ViewEvent::Button(key) = &event {
             match key.as_str() {
+                "offline-previous" | "offline-next" => {
+                    let report = self.offline.report.as_ref().ok_or(Error::Stale)?;
+                    if report.root != current_root || self.offline.selected.is_some() || self.offline.review.is_some() || self.offline.generated_view { return Err(Error::Stale); }
+                    let last_page = (report.items.len() as u32).saturating_sub(1) / 100;
+                    self.offline.page = if key == "offline-next" { self.offline.page.saturating_add(1).min(last_page) }
+                        else { self.offline.page.saturating_sub(1) };
+                    self.offline.visible = 0..0;
+                }
                 "offline-run" => return self.start_offline_diff(ctx),
                 "offline-generate" => return self.start_offline_generation(ctx),
                 "offline-select-generated" => return self.choose_generated_changesets(ctx),
@@ -652,7 +670,7 @@ impl Liquibase {
             self.offline.review = None;
             self.offline.selected = Some(row as usize);
         }
-        host::refresh_view(VIEW);
+        ui_kit::web::refresh_view(VIEW, include_str!("ui_config.json"));
         Ok(())
     }
 }
@@ -665,7 +683,7 @@ mod tests {
         r#"{"snapshot":{"database":{"shortName":"h2","url":"private-jdbc-url","user":"private-user-value","password":"private-password-value"},"objects":{}}}"#.into()
     }
     fn setup() -> (MockHost, Liquibase) {
-        let host = MockHost::install().with_capabilities(&["project.read", "process:liquibase"]);
+        let host = MockHost::install().with_capabilities(&["project.read", "process:liquibase", "storage"]);
         host.add_file("ref.json", &snapshot());
         host.add_file("target.json", &snapshot());
         (host, Liquibase::default())
@@ -687,6 +705,30 @@ mod tests {
         }
         host.answer_next_prompt(Some(&[]));
     }
+    #[test]
+    fn custom_group_report_pages_keep_absolute_observation_identity_and_back_position() {
+        use serde_json::{json,Value};
+        fn request(plugin:&mut Liquibase,host:&MockHost,mut value:Value)->Value {
+            value["channel"]=json!("ui-kit");value["sequence"]=json!(1);value["project"]=json!("/project");
+            plugin.handle("changesets",ViewEvent::Message(value.to_string()),&host.invocation()).unwrap();
+            serde_json::from_str(&host.view_messages().last().unwrap().1).unwrap()
+        }
+        let host=MockHost::install().with_capabilities(&["storage","project.read"]);let mut plugin=Liquibase::default();
+        plugin.offline.report=Some(Report{root:"/project".into(),source:"captured fixture".into(),at:Instant::now(),
+            items:(0..250).map(|i|Item{kind:"Table".into(),object:format!("table_{i}"),detail:format!("observation_{i}")}).collect()});
+        ui_kit::web::reveal_view(VIEW,include_str!("ui_config.json")).unwrap();
+        assert_eq!(host.revealed_views(),["changesets"]);
+        let first=request(&mut plugin,&host,json!({"op":"render"}));assert_eq!(first["model"]["body"]["firstRow"],0);
+        let next=request(&mut plugin,&host,json!({"op":"event","targetView":VIEW,"event":{"kind":"button","key":"offline-next"}}));
+        assert_eq!(next["model"]["body"]["firstRow"],100);
+        let old=request(&mut plugin,&host,json!({"op":"event","targetView":VIEW,"event":{"kind":"table-activate","row":0}}));assert!(old.get("error").is_some());
+        let opened=request(&mut plugin,&host,json!({"op":"event","targetView":VIEW,"event":{"kind":"table-activate","row":100}}));
+        assert!(opened.get("error").is_none());assert!(opened["model"]["body"].to_string().contains("table_100"));
+        let back=request(&mut plugin,&host,json!({"op":"event","targetView":VIEW,"event":{"kind":"button","key":"offline-back"}}));
+        assert_eq!(back["model"]["body"]["firstRow"],100);
+        assert!(host.process_runs().is_empty()&&host.requests().is_empty());
+    }
+
     #[test]
     fn foreign_packaged_browser_render_does_not_destroy_owner_cli_lease() {
         let (host,mut plugin)=setup();answers(&host);plugin.start_offline_diff(&host.invocation()).unwrap();

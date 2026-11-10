@@ -1,0 +1,1 @@
+window.uiKitPluginIcons = Object.freeze({});

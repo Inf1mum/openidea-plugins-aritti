@@ -162,10 +162,9 @@ fn user_templates_are_created_listed_used_and_deleted() {
     host.open_editor("/project/.gitignore", "ignore", "/vendor/\n", &[(0, 0, 0, 0)]);
     let mut plugin = IgnorePlugin::default();
     let ctx = host.invocation();
+    host.answer_next_prompt(Some(&["PHP"]));
     plugin.handle("templates", ViewEvent::Button("new".into()), &ctx).unwrap();
-    assert_eq!(plugin.naming.as_deref(), Some(".gitignore"));
-    plugin.handle("templates", ViewEvent::Field("name".into(), "PHP".into()), &ctx).unwrap();
-    plugin.handle("templates", ViewEvent::Button("save".into()), &ctx).unwrap();
+    assert!(matches!(plugin.render("templates",None,&ctx).unwrap().body,Body::Tree(_)),"creation keeps the list visible");
     assert_eq!(host.storage().get("template:PHP").map(String::as_str), Some("/vendor/\n"));
 
     let View { body: Body::Tree(items), .. } = plugin.render("templates", None, &ctx).unwrap() else { panic!() };
@@ -176,10 +175,9 @@ fn user_templates_are_created_listed_used_and_deleted() {
     assert_eq!(host.editor_text(), "/vendor/\n\n### PHP template\n/vendor/\n");
 
     plugin.handle("templates", ViewEvent::Select("u:PHP".into()), &ctx).unwrap();
+    host.answer_next_prompt(Some(&["ok"]));
     plugin.handle("templates", ViewEvent::Button("delete".into()), &ctx).unwrap();
-    assert_eq!(plugin.render("templates", None, &ctx).unwrap().body, Body::Message("Delete user template PHP?".into()));
-    assert!(!host.storage().is_empty(), "nothing deleted before confirming");
-    plugin.handle("templates", ViewEvent::Button("confirm-delete".into()), &ctx).unwrap();
+    assert!(matches!(plugin.render("templates", None, &ctx).unwrap().body, Body::Tree(_)), "deletion never replaces the list with a confirmation page");
     assert!(host.storage().is_empty());
     assert_eq!(host.notifications().last().unwrap().body, "Deleted user template PHP.");
 }
@@ -194,8 +192,8 @@ fn deleting_a_user_template_drops_its_star() {
     let ctx = host.invocation();
     plugin.handle("templates", ViewEvent::Select("u:PHP".into()), &ctx).unwrap();
 
+    host.answer_next_prompt(Some(&["ok"]));
     plugin.handle("templates", ViewEvent::Button("delete".into()), &ctx).unwrap();
-    plugin.handle("templates", ViewEvent::Button("confirm-delete".into()), &ctx).unwrap();
 
     assert!(host.storage().get("starred:u:PHP").is_none());
     assert_eq!(host.storage().get("starred:t:Rust").map(String::as_str), Some("1"));
@@ -208,8 +206,9 @@ fn cancelling_a_deletion_keeps_the_template() {
     let mut plugin = IgnorePlugin::default();
     let ctx = host.invocation();
     plugin.handle("templates", ViewEvent::Select("u:PHP".into()), &ctx).unwrap();
+    host.answer_next_prompt(None);
     plugin.handle("templates", ViewEvent::Button("delete".into()), &ctx).unwrap();
-    plugin.handle("templates", ViewEvent::Button("cancel".into()), &ctx).unwrap();
+    plugin.handle("templates", ViewEvent::Button("confirm-delete".into()), &ctx).unwrap(); // old events cannot bypass the modal
     assert!(matches!(plugin.render("templates", None, &ctx).unwrap().body, Body::Tree(_)));
     assert_eq!(host.storage().len(), 1);
 }
@@ -219,10 +218,26 @@ fn refuses_to_overwrite_a_user_template() {
     let host = MockHost::install();
     host::storage::set("template:PHP", "old\n").unwrap();
     host.open_editor("/project/.gitignore", "ignore", "new\n", &[(0, 0, 0, 0)]);
-    let mut plugin = IgnorePlugin { naming: Some("PHP".into()), ..Default::default() };
-    let err = plugin.handle("templates", ViewEvent::Button("save".into()), &host.invocation()).unwrap_err();
+    let mut plugin = IgnorePlugin::default();
+    host.answer_next_prompt(Some(&["PHP"]));
+    let err = plugin.handle("templates", ViewEvent::Button("new".into()), &host.invocation()).unwrap_err();
     assert_eq!(err.to_string(), "A user template named PHP already exists.");
     assert_eq!(host.storage()["template:PHP"], "old\n");
+}
+
+#[test]
+fn native_template_name_dialog_cancel_and_empty_name_write_nothing() {
+    let host=MockHost::install();host.open_editor("/project/.gitignore","ignore","/vendor/\n",&[(0,0,0,0)]);
+    let mut plugin=IgnorePlugin::default();let ctx=host.invocation();
+    host.answer_next_prompt(None);
+    plugin.handle("templates",ViewEvent::Button("new".into()),&ctx).unwrap();
+    plugin.handle("templates",ViewEvent::Field("name".into(),"bypass".into()),&ctx).unwrap();
+    plugin.handle("templates",ViewEvent::Button("save".into()),&ctx).unwrap();
+    assert!(host.storage().is_empty());assert_eq!(host.editor_text(),"/vendor/\n");
+    assert!(matches!(plugin.render("templates",None,&ctx).unwrap().body,Body::Tree(_)));
+    host.answer_next_prompt(Some(&["   "]));
+    assert!(plugin.handle("templates",ViewEvent::Button("new".into()),&ctx).is_err());
+    assert!(host.storage().is_empty());assert!(host.notifications().is_empty());
 }
 
 #[test]
@@ -231,16 +246,16 @@ fn toolbar_buttons_follow_the_editor_and_selection() {
     host::storage::set("template:PHP", "/vendor/\n").unwrap();
     let mut plugin = IgnorePlugin::default();
     let ctx = host.invocation();
-    let enabled = |plugin: &mut IgnorePlugin| -> Vec<bool> {
-        plugin.render("templates", None, &ctx).unwrap().toolbar.iter().map(|b| b.enabled).collect()
+    let actions = |plugin: &mut IgnorePlugin| -> Vec<String> {
+        plugin.render("templates", None, &ctx).unwrap().toolbar.iter().map(|b| b.id.clone()).collect()
     };
-    assert_eq!(enabled(&mut plugin), [false, false, false]);
+    assert_eq!(actions(&mut plugin), ["preferences"]);
 
     host.open_editor("/project/.gitignore", "ignore", "", &[(0, 0, 0, 0)]);
     plugin.handle("templates", ViewEvent::Select("t:Rust".into()), &ctx).unwrap();
-    assert_eq!(enabled(&mut plugin), [true, false, true]);
+    assert_eq!(actions(&mut plugin), ["new", "star", "preferences"]);
     plugin.handle("templates", ViewEvent::Select("u:PHP".into()), &ctx).unwrap();
-    assert_eq!(enabled(&mut plugin), [true, true, true]);
+    assert_eq!(actions(&mut plugin), ["new", "delete", "star", "preferences"]);
     assert_eq!(host.refreshed_views(), ["templates", "templates"]);
 }
 
@@ -258,6 +273,15 @@ fn expanding_a_group_redraws_the_view() {
     plugin.handle("templates", ViewEvent::Collapse("g:Global".into()), &ctx).unwrap();
     assert!(!expanded(&mut plugin));
     assert_eq!(host.refreshed_views(), ["templates", "templates"]);
+}
+
+#[test]
+fn user_templates_keep_their_parent_and_only_favorites_use_stars() {
+    let items=template_tree(&[".gitignore".into(),"api.php".into()],&HashSet::from(["g:user".into()]),&HashSet::from(["u:api.php".into()]));
+    let first=items.iter().find(|item|item.key == "u:.gitignore").unwrap();
+    assert_eq!(first.parent.as_deref(),Some("g:user"));assert_eq!(first.icon.as_deref(),Some("file-ignored"));
+    let favorite=items.iter().find(|item|item.key == "u:api.php").unwrap();
+    assert_eq!(favorite.parent.as_deref(),Some("g:user"));assert_eq!(favorite.icon.as_deref(),Some("star"));
 }
 
 #[test]
@@ -324,7 +348,7 @@ fn star_button_toggles_and_persists_a_template() {
     plugin.handle("templates", ViewEvent::Select("t:Rust".into()), &ctx).unwrap();
     plugin.handle("templates", ViewEvent::Button("star".into()), &ctx).unwrap();
     assert_eq!(host.storage().get("starred:t:Rust").map(String::as_str), Some("1"));
-    let label = |plugin: &mut IgnorePlugin| plugin.render("templates", None, &ctx).unwrap().toolbar[2].label.clone();
+    let label = |plugin: &mut IgnorePlugin| plugin.render("templates", None, &ctx).unwrap().toolbar.into_iter().find(|b| b.id == "star").unwrap().label;
     assert_eq!(label(&mut plugin), "Unstar");
     plugin.handle("templates", ViewEvent::Button("star".into()), &ctx).unwrap();
     assert!(host.storage().get("starred:t:Rust").is_none());
@@ -347,12 +371,12 @@ fn starred_templates_are_listed_under_starred_and_marked() {
 }
 
 #[test]
-fn the_star_button_is_disabled_without_a_template_selected() {
+fn the_star_button_is_hidden_without_a_template_selected() {
     let host = MockHost::install();
     let mut plugin = IgnorePlugin::default();
     let ctx = host.invocation();
     plugin.handle("templates", ViewEvent::Select("g:Global".into()), &ctx).unwrap();
-    assert!(!plugin.render("templates", None, &ctx).unwrap().toolbar[2].enabled);
+    assert!(!plugin.render("templates", None, &ctx).unwrap().toolbar.iter().any(|b| b.id == "star"));
     assert!(plugin.handle("templates", ViewEvent::Button("star".into()), &ctx).is_err());
     assert!(host.storage().is_empty());
 }
@@ -533,4 +557,41 @@ fn legacy_new_file_command_guides_to_atomic_native_creation_without_process(){
     IgnorePlugin::default().run_command("new-file",&host.invocation(),None).unwrap();
     assert!(host.process_runs().is_empty());
     assert!(host.notifications()[0].body.contains("Create exact-name ignore file"));
+}
+
+#[test]
+fn shared_context_actions_use_the_clicked_template_and_reject_builtin_deletion() {
+    let host = MockHost::install();
+    host::storage::set("template:Mine", "/vendor/\n").unwrap();
+    let ctx=host.invocation();let mut plugin=IgnorePlugin::default();
+    plugin.handle("templates",ViewEvent::Select("t:Rust".into()),&ctx).unwrap();
+    let root=ctx.project().unwrap().root().unwrap();
+    let action=|plugin:&mut IgnorePlugin,key:&str,button:&str| {
+        let request=serde_json::json!({"channel":"ui-kit","sequence":1,"op":"item-button","project":root,"key":key,"button":button});
+        plugin.handle("templates",ViewEvent::Message(request.to_string()),&ctx).unwrap();
+        serde_json::from_str::<serde_json::Value>(&host.view_messages().last().unwrap().1).unwrap()
+    };
+    assert!(action(&mut plugin,"u:Mine","star").get("error").is_none());
+    assert_eq!(host.storage().get("starred:u:Mine").map(String::as_str),Some("1"));
+    assert!(!host.storage().contains_key("starred:t:Rust"));
+    assert!(action(&mut plugin,"s:u:Mine","star").get("error").is_none());
+    assert!(!host.storage().contains_key("starred:u:Mine"));
+    assert!(action(&mut plugin,"t:Rust","delete").get("error").is_some());
+    assert!(host.storage().contains_key("template:Mine"));
+}
+
+#[test]
+fn packaged_template_activation_describes_insertion_and_requires_an_owned_glob_editor() {
+    let host=MockHost::install();let mut plugin=IgnorePlugin::default();
+    let model=|plugin:&mut IgnorePlugin| {
+        plugin.handle("templates",ViewEvent::Message(serde_json::json!({"channel":"ui-kit","sequence":1,"op":"render"}).to_string()),&host.invocation()).unwrap();
+        serde_json::from_str::<serde_json::Value>(&host.view_messages().last().unwrap().1).unwrap()["model"].clone()
+    };
+    let activation=|model:&serde_json::Value|model["body"]["items"].as_array().unwrap().iter().find(|item|item["key"]=="t:Rust").unwrap().clone();
+    let no_editor=model(&mut plugin);let row=activation(&no_editor);
+    assert_eq!(row["activationLabel"],"Add to Ignore File");assert_eq!(row["activationEnabled"],false);
+    assert_eq!(no_editor["contextButtons"],serde_json::json!(["new","delete","star"]));
+    host.open_editor("/project/.gitignore","ignore","",&[]);assert_eq!(activation(&model(&mut plugin))["activationEnabled"],true);
+    host.open_editor("/project/source.rs","rust","",&[]);assert_eq!(activation(&model(&mut plugin))["activationEnabled"],false);
+    assert_eq!(host.editor_text(), "");
 }

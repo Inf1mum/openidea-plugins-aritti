@@ -2,22 +2,47 @@
   "title": "Symfony",
   "views": {
     "symfony": "Symfony",
-    "symfony-profiler": "Symfony Profiler"
+    "symfony-profiler": "Profiler",
+    "twig-paths": "Twig Namespace Paths"
   },
   "actions": [
     {
       "view": "symfony",
       "id": "route-copy-curl",
-      "label": "Symfony: Copy Route as curl",
-      "kind": "route"
+      "label": "Copy as cURL",
+      "kind": "route",
+      "icon": "copy"
     },
     {
       "view": "symfony",
       "id": "route-create-http",
-      "label": "Symfony: Create HTTP Request File for Route",
-      "kind": "route"
+      "label": "Create HTTP Request File",
+      "kind": "route",
+      "icon": "file-http"
     }
   ],
   "project_independent": false,
-  "project_bound_buttons": []
+  "project_bound_buttons": [],
+  "group": {
+    "primary": "symfony",
+    "tabs": [
+      {
+        "id": "symfony",
+        "label": "Symfony"
+      },
+      {
+        "id": "symfony-profiler",
+        "label": "Profiler"
+      },
+      {
+        "id": "twig-paths",
+        "label": "Twig Namespace Paths"
+      }
+    ]
+  },
+  "context_buttons": {
+    "symfony": [],
+    "symfony-profiler": [],
+    "twig-paths": []
+  }
 }

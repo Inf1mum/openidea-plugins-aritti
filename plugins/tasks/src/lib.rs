@@ -25,10 +25,9 @@ use git::Git;
 use model::{Choices, DEFAULT_TASK_ID, NamedContext, Task, TaskList, trimmed};
 
 const VIEW: &str = "tasks";
-/// Refresh only this packaged view; receiving pages fetch their own scoped model.
+/// Native view invalidation; no packaged frame or message bridge is involved.
 fn refresh_tasks_view() {
     host::refresh_view(VIEW);
-    let _ = host::post_view_message(VIEW, r#"{"channel":"ui-kit-refresh"}"#);
 }
 
 const STATUS_ITEM: &str = "active-task";
@@ -229,116 +228,113 @@ impl Plugin for Tasks {
 
 impl Views for Tasks {
     fn render(&mut self, _view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
-        let Some(project) = ctx.project() else {
-            self.scope.clear();
-            self.form = None;
-            self.selected = None;
-            self.collapsed.clear();
-            let _ = host::remove_window_status_item(STATUS_ITEM);
-            return Ok(View::message("Open a project to work on tasks."));
-        };
-
-        let root = match project.root() {
-            Ok(root) => root,
-            Err(error) => {
-                self.scope.clear(); self.form = None; self.selected = None; self.collapsed.clear();
-                let _ = host::remove_window_status_item(STATUS_ITEM);
-                return Err(error);
-            }
-        };
-        let (tasks, stamp) = match state::snapshot(&root) {
-            Ok(snapshot) => snapshot,
-            Err(error) => {
+        (|| -> Result<View, Error> {
+            let Some(project) = ctx.project() else {
                 self.scope.clear();
                 self.form = None;
                 self.selected = None;
                 self.collapsed.clear();
                 let _ = host::remove_window_status_item(STATUS_ITEM);
-                return Err(error);
-            }
-        };
-        show_status(&root, &tasks);
-        if self.scope.bind(&root, stamp) {
-            self.form = None;
-            self.selected = None;
-            self.collapsed.clear();
-        }
-        if let Some(form) = &self.form {
-            return Ok(self.scope.view(self.render_form(form, &tasks)));
-        }
-
-        let now = now();
-        let selected = self.selected.as_deref().and_then(|key| selected_task(&tasks, key));
-
-        let mut items = vec![self.group("open", "Tasks")];
-
-        for task in tasks.tasks.iter().filter(|t| !t.closed) {
-            let spent = duration(tasks.seconds_spent(task, now));
-            let detail = match (task.id == tasks.active, &task.branch) {
-                (true, Some(branch)) => format!("active · {spent} · {branch}"),
-                (true, None) => format!("active · {spent}"),
-                (false, Some(branch)) => format!("{spent} · {branch}"),
-                (false, None) => spent,
+                return Ok(View::message("Open a project to work on tasks."));
             };
 
-            let icon = match (task.id == tasks.active, task.is_issue()) {
-                (true, _) => "star",
-                (false, true) => "github-issue-open",
-                (false, false) => "todo",
+            let root = match project.root() {
+                Ok(root) => root,
+                Err(error) => {
+                    self.scope.clear(); self.form = None; self.selected = None; self.collapsed.clear();
+                    let _ = host::remove_window_status_item(STATUS_ITEM);
+                    return Err(error);
+                }
             };
-
-            items.push(TreeItem::new(&format!("task:{}", task.id), &task.label()).parent("open").icon(icon).detail(&detail));
-        }
-
-        if tasks.tasks.iter().any(|t| t.closed) {
-            items.push(self.group("closed", "Closed"));
-
-            for task in tasks.tasks.iter().filter(|t| t.closed) {
-                let detail = duration(task.seconds_spent);
-                let item = TreeItem::new(&format!("task:{}", task.id), &task.label()).parent("closed");
-                items.push(item.icon("github-issue-closed").detail(&detail));
+            let (tasks, stamp) = match state::snapshot(&root) {
+                Ok(snapshot) => snapshot,
+                Err(error) => {
+                    self.scope.clear();
+                    self.form = None;
+                    self.selected = None;
+                    self.collapsed.clear();
+                    let _ = host::remove_window_status_item(STATUS_ITEM);
+                    return Err(error);
+                }
+            };
+            show_status(&root, &tasks);
+            if self.scope.bind(&root, stamp) {
+                self.form = None;
+                self.selected = None;
+                self.collapsed.clear();
             }
-        }
+            if let Some(form) = &self.form {
+                return Ok(self.scope.view(self.render_form(form, &tasks)));
+            }
 
-        items.push(self.group("issues", "Issues"));
+            let now = now();
+            let selected = self.selected.as_deref().and_then(|key| selected_task(&tasks, key));
 
-        for issue in tasks.pending_issues() {
-            let item = TreeItem::new(&format!("issue:{}", issue.id), &issue.label()).parent("issues");
-            items.push(item.icon("github-issue-open").detail(trackers::name(issue)));
-        }
+            let mut items = vec![self.group("open", &format!("Tasks ({})", tasks.tasks.iter().filter(|t| !t.closed).count()))];
 
-        if tasks.pending_issues().next().is_none() {
-            let hint = "No issues (trackers are set up in Settings › Plugins › Tasks)";
-            items.push(TreeItem::new("no-issues", hint).parent("issues").icon("info"));
-        }
+            for task in tasks.tasks.iter().filter(|t| !t.closed) {
+                let spent = duration(tasks.seconds_spent(task, now));
+                let detail = match (task.id == tasks.active, &task.branch) {
+                    (true, Some(branch)) => format!("active · {spent} · {branch}"),
+                    (true, None) => format!("active · {spent}"),
+                    (false, Some(branch)) => format!("{spent} · {branch}"),
+                    (false, None) => spent,
+                };
 
-        let is_task = |t: &&Task| tasks.find(&t.id).is_some();
-        let can_switch = selected.is_some_and(|t| t.id != tasks.active);
-        let can_close = selected.filter(is_task).is_some_and(|t| !t.is_default() && !t.closed);
-        let can_edit = selected.is_some_and(|t| !t.is_default() && !t.is_issue());
-        let can_post = selected.filter(is_task).is_some_and(trackers::can_post_time);
-        let can_browse = selected.is_some_and(Task::is_issue);
-        let post_label = match selected.filter(|_| can_post) {
-            Some(task) => format!("Post Work Time ({})", duration(unposted(&tasks, task, now))),
-            None => "Post Work Time".to_owned(),
-        };
+                let icon = match (task.id == tasks.active, task.is_issue()) {
+                    (true, _) => "star",
+                    (false, true) => "github-issue-open",
+                    (false, false) => "todo",
+                };
 
-        Ok(self.scope.view(
-            View::new(Body::Tree(items))
-                .button(Button::new("new", "New Task").icon("plus"))
-                .button(Button::new("switch", "Switch to Task").icon("run").enabled(can_switch))
-                .button(Button::new("edit", "Edit Task").icon("edit").enabled(can_edit))
-                .button(Button::new("close", "Close Task").icon("check").enabled(can_close))
-                .button(Button::new("post-time", &post_label).icon("clock").enabled(can_post))
-                .button(Button::new("browse", "Open in Browser").icon("web").enabled(can_browse))
-                .button(Button::new("refresh", "Update Issues").icon("refresh"))
-                .status(&format!("Active: {}", tasks.active().label())),
-        ))
+                items.push(TreeItem::new(&format!("task:{}", task.id), &task.label()).parent("open").icon(icon).detail(&detail));
+            }
+
+            if tasks.tasks.iter().any(|t| t.closed) {
+                items.push(self.group("closed", &format!("Closed ({})", tasks.tasks.iter().filter(|t| t.closed).count())));
+
+                for task in tasks.tasks.iter().filter(|t| t.closed) {
+                    let detail = duration(task.seconds_spent);
+                    let item = TreeItem::new(&format!("task:{}", task.id), &task.label()).parent("closed");
+                    items.push(item.icon("github-issue-closed").detail(&detail));
+                }
+            }
+
+            items.push(self.group("issues", &format!("Issues ({})", tasks.pending_issues().count())));
+
+            for issue in tasks.pending_issues() {
+                let item = TreeItem::new(&format!("issue:{}", issue.id), &issue.label()).parent("issues");
+                items.push(item.icon("github-issue-open").detail(trackers::name(issue)));
+            }
+
+            if tasks.pending_issues().next().is_none() {
+                let hint = "No issues (trackers are set up in Settings › Plugins › Tasks)";
+                items.push(TreeItem::new("no-issues", hint).parent("issues").icon("info"));
+            }
+
+            let (open_label, open_enabled) = match selected {
+                Some(task) if task.id == tasks.active => ("Active Task", false),
+                Some(task) if task.closed => ("Reopen Task", true),
+                Some(task) if tasks.find(&task.id).is_some() => ("Switch Task", true),
+                _ => ("Open Task…", true),
+            };
+            Ok(self.scope.view(
+                View::new(Body::Tree(items))
+                    .button(Button::new("new", "New Task…").icon("plus"))
+                    .button(Button::new("find", open_label).icon("run").enabled(open_enabled))
+                    .button(Button::new("close-active", "Close Active Task…").icon("check").enabled(!tasks.active().is_default()))
+                    .button(Button::new("search-issues", "Search Issues…").icon("search"))
+                    .button(Button::new("contexts", "Contexts…").icon("layout"))
+                    .button(Button::new("actions", "Task Actions…").icon("more").enabled(selected.is_some()))
+                    .button(Button::new("refresh", "Update Issues").icon("refresh"))
+                    .status(&format!("Active: {} · {}", tasks.active().label(), selected.map(|task| format!("Selected: {}", task.label())).unwrap_or_else(|| "Select a task; Enter opens it".into()))),
+            ))
+        })().map(ui_kit::actions::available)
     }
 
     fn handle(&mut self, _view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {
-        if ui_kit::web::handle(self, _view, &event, ctx, include_str!("ui_config.json"))? {
-            return Ok(());
+        if _view != VIEW || matches!(&event, ViewEvent::Message(_) | ViewEvent::Other { .. }) {
+            return Err(Error::Invalid("Tasks accepts native view events only.".into()));
         }
 
         state::clear_receipt();
@@ -416,9 +412,9 @@ impl Tasks {
                     Field::new("summary", "Summary", FieldValue::Text(summary.clone())),
                     Field::new("description", "Description", FieldValue::Multiline(description.clone())),
                 ],
-                "Create",
+                "Create Task",
                 !summary.trim().is_empty(),
-                "New task".to_owned(),
+                "Create New Task".to_owned(),
             ),
             Form::Edit { summary, description, .. } => (
                 vec![
@@ -431,15 +427,15 @@ impl Tasks {
             ),
             Form::Open { id } => {
                 let label = tasks.find_any(id).map(Task::label).unwrap_or_default();
-                (Vec::new(), "Open Task", true, label)
+                (vec![Field::new("review-task", "Task", FieldValue::label(&label))], "Open Task", true, "Open Task · review VCS options".into())
             }
             Form::CachedOpen { review } => (
-                Vec::new(), "Open Task", true,
+                vec![Field::new("review-task", "Task", FieldValue::label(&review.issue.label()))], "Open Task", true,
                 format!("Review cached issue {} — {}. Branch: {} (create from HEAD or switch existing). Source/configuration rechecked on Open Task.", review.issue.id, review.issue.summary, git::branch_name(&review.issue, &review.branch_format)),
             ),
             Form::Close { id } => {
-                let mut fields = Vec::new();
                 let task = tasks.find(id);
+                let mut fields = vec![Field::new("review-task", "Task to close", FieldValue::label(&task.map(Task::label).unwrap_or_default()))];
 
                 if task.is_some_and(trackers::can_update_state) {
                     fields.push(checkbox("update_state", "Update issue state in the tracker", self.choices.update_state));
@@ -486,11 +482,18 @@ impl Tasks {
             "new" => self.show_form(Form::New { summary: String::new(), description: String::new() }, &tasks),
             "edit" => {
                 let task = self.selected_task(&tasks)?;
+                if task.is_default() || task.is_issue() { return Err("Select a local task to edit.".into()); }
                 let form = Form::Edit { id: task.id.clone(), summary: task.summary.clone(), description: task.description.clone() };
                 self.show_form(form, &tasks);
             }
+            "close-active" => {
+                if tasks.active().is_default() { return Err("The default task cannot be closed.".into()); }
+                self.show_form(Form::Close { id: tasks.active.clone() }, &tasks);
+            }
             "close" => {
-                let id = self.selected_task(&tasks)?.id.clone();
+                let task = self.selected_task(&tasks)?;
+                if task.is_default() || task.closed || tasks.find(&task.id).is_none() { return Err("Select an open local task to close.".into()); }
+                let id = task.id.clone();
                 self.show_form(Form::Close { id }, &tasks);
             }
             "switch" => self.start_selected(ctx)?,
@@ -514,6 +517,59 @@ impl Tasks {
             "browse" => {
                 let url = self.selected_task(&tasks)?.url.clone().ok_or("The task isn't an issue, so it has no page to open.")?;
                 host::open_url(&url)?;
+            }
+            "actions" => {
+                let task = self.selected_task(&tasks)?;
+                let mut actions = vec![PickItem::new("details", "Show Task Description")];
+                if task.id != tasks.active { actions.push(PickItem::new("switch", "Switch to Task")); }
+                if tasks.find(&task.id).is_some() && !task.is_default() && !task.closed { actions.push(PickItem::new("close", "Close Selected Task…")); }
+                if !task.is_default() && !task.is_issue() { actions.push(PickItem::new("edit", "Edit Task…")); }
+                if tasks.find(&task.id).is_some() && trackers::can_post_time(task) && unposted(&tasks, task, now()) >= 60 {
+                    actions.push(PickItem::new("post-time", &format!("Post Work Time ({})", duration(unposted(&tasks, task, now())))));
+                }
+                if task.is_issue() { actions.push(PickItem::new("browse", "Open in Browser")); }
+                if let Some(action) = host::pick("Task Actions", &actions)? {
+                    if load(&project.root()?)? != tasks || !actions.iter().any(|allowed| allowed.key == action) { return Err(Error::Stale); }
+                    self.button(&action, ctx)?;
+                }
+            }
+            "details" => {
+                let task = self.selected_task(&tasks)?;
+                let identity = format!("{}:{}", project.root()?, task.id);
+                let key = identity.bytes().fold(0xcbf29ce484222325u64, |h,b| (h ^ u64::from(b)).wrapping_mul(0x100000001b3));
+                host::open_content_tab(&openidea_plugin::ContentTab {
+                    key: format!("task-description:{key:016x}"), title: task.label().chars().scan(0usize, |bytes, c| { *bytes += c.len_utf8(); (*bytes <= 256).then_some(c) }).collect(),
+                    language: Some("plaintext".into()), content: format!("{}\n\n{}", task.label(), task.description), read_only: true,
+                    ..Default::default()
+                })?;
+            }
+            "find" => {
+                // Selection already identifies the target: Enter and Open share the same review.
+                if let Some(task) = self.selected.as_deref().and_then(|key| selected_task(&tasks, key)) {
+                    if task.id != tasks.active { self.start_selected(ctx)?; }
+                    return Ok(());
+                }
+                let candidates: Vec<_> = tasks.tasks.iter().filter(|t| !t.closed).map(|t| (format!("task:{}", t.id), t))
+                    .chain(tasks.pending_issues().map(|t| (format!("issue:{}", t.id), t))).collect();
+                let items: Vec<_> = candidates.iter().map(|(key, task)| PickItem::new(key, &task.label()).description(if task.id == tasks.active { "Active task" } else { &task.description })).collect();
+                if let Some(key) = host::pick("Open Task", &items)? {
+                    if load(&project.root()?)? != tasks || !candidates.iter().any(|(allowed, _)| allowed == &key) { return Err(Error::Stale); }
+                    self.selected = Some(key);
+                    self.start_selected(ctx)?;
+                }
+            }
+            "search-issues" => self.search_issues(&project, &tasks, ctx)?,
+            "contexts" => {
+                let choices = [PickItem::new("save", "Save Open Editor Context…"), PickItem::new("load", "Load Context…"), PickItem::new("remove", "Remove Context…")];
+                if let Some(action) = host::pick("Tasks and Contexts", &choices)? {
+                    if load(&project.root()?)? != tasks { return Err(Error::Stale); }
+                    match action.as_str() {
+                        "save" => save_context(&project, &tasks, ctx)?,
+                        "load" => load_context(&project, &tasks)?,
+                        "remove" => remove_context(&project, &tasks)?,
+                        _ => return Err(Error::Stale),
+                    }
+                }
             }
             "refresh" => refresh_issues(&project, false)?,
             "ok" => self.submit(&project, ctx)?,
@@ -1155,11 +1211,52 @@ mod tests {
         (host,Tasks::default())
     }
     fn notified(host:&MockHost, after:usize) -> bool {
-        host.view_messages()[after..].iter().any(|(view,text)|view==VIEW && text==r#"{"channel":"ui-kit-refresh"}"#)
+        host.refreshed_views()[after..].iter().any(|view| view == VIEW)
     }
     #[test]
-    fn external_close_form_refreshes_packaged_page_without_closing_task() {
-        let (host,mut plugin)=seeded();let before=host.view_messages().len();
+    fn native_primary_controls_distinguish_selection_from_active_task() {
+        let (host, mut plugin) = seeded();
+        update("/project", |tasks, _| { tasks.add_local("Selected next task", ""); Ok(()) }).unwrap();
+        press(&mut plugin, &host, ViewEvent::Select("task:LOCAL-00002".into()));
+        let view = plugin.render(VIEW, None, &host.invocation()).unwrap();
+        assert!(view.toolbar.iter().any(|b| b.label == "Switch Task" && b.enabled));
+        press(&mut plugin, &host, ViewEvent::Button("close-active".into()));
+        assert!(matches!(&plugin.form, Some(Form::Close { id }) if id == "LOCAL-00001"));
+        let form = plugin.render(VIEW, None, &host.invocation()).unwrap();
+        let Body::Form(fields) = form.body else { panic!("review form") };
+        assert!(fields.iter().any(|field| field.label == "Task to close" && field.value == FieldValue::label("Private project task")));
+        press(&mut plugin, &host, ViewEvent::Button("cancel".into()));
+        // No picker answer is supplied: a known selection opens directly.
+        press(&mut plugin, &host, ViewEvent::Button("find".into()));
+        assert_eq!(load("/project").unwrap().active, "LOCAL-00002");
+        let view = plugin.render(VIEW, None, &host.invocation()).unwrap();
+        assert!(!view.toolbar.iter().any(|b| b.label == "Active Task"));
+        assert!(view.status.unwrap().contains("Selected: Selected next task"));
+        assert!(host.process_runs().is_empty());
+        assert!(host.requests().is_empty());
+    }
+
+    #[test]
+    fn native_task_picker_and_action_review_preserve_activation_and_editing() {
+        let (host, mut plugin) = seeded();
+        update("/project", |tasks, _| { tasks.add_local("Second task", "Read the task description"); Ok(()) }).unwrap();
+        host.answer_next_prompt(Some(&["task:LOCAL-00002"]));
+        press(&mut plugin, &host, ViewEvent::Button("find".into()));
+        assert_eq!(load("/project").unwrap().active, "LOCAL-00002");
+        host.answer_next_prompt(Some(&["edit"]));
+        press(&mut plugin, &host, ViewEvent::Button("actions".into()));
+        assert!(matches!(plugin.form, Some(Form::Edit { .. })));
+        press(&mut plugin, &host, ViewEvent::Field("summary".into(), "Reviewed summary".into()));
+        press(&mut plugin, &host, ViewEvent::Button("ok".into()));
+        assert_eq!(load("/project").unwrap().find("LOCAL-00002").unwrap().summary, "Reviewed summary");
+        assert!(host.view_messages().is_empty());
+        assert!(host.process_runs().is_empty());
+        assert!(host.requests().is_empty());
+    }
+
+    #[test]
+    fn external_close_form_refreshes_native_view_without_closing_task() {
+        let (host,mut plugin)=seeded();let before=host.refreshed_views().len();
         plugin.run_command("close",&host.invocation(),None).unwrap();
         assert!(notified(&host,before));assert!(matches!(plugin.form,Some(Form::Close{..})));
         assert_eq!(load("/project").unwrap().active,"LOCAL-00001");assert!(host.requests().is_empty());
@@ -1167,37 +1264,33 @@ mod tests {
     #[test]
     fn external_switch_and_cancelled_switch_refresh_current_action_tokens() {
         let (host,mut plugin)=seeded();plugin.render(VIEW,None,&host.invocation()).unwrap();
-        let old=plugin.scope.key("new",true);let before=host.view_messages().len();
+        let old=plugin.scope.key("new",true);let before=host.refreshed_views().len();
         plugin.run_command("switch",&host.invocation(),None).unwrap();
         assert!(notified(&host,before));assert!(plugin.handle(VIEW,ViewEvent::Button(old),&host.invocation()).is_err());
-        host.answer_next_prompt(Some(&[DEFAULT_TASK_ID]));let before=host.view_messages().len();
+        host.answer_next_prompt(Some(&[DEFAULT_TASK_ID]));let before=host.refreshed_views().len();
         plugin.run_command("switch",&host.invocation(),None).unwrap();
         assert!(notified(&host,before));assert_eq!(load("/project").unwrap().active,DEFAULT_TASK_ID);
         assert!(host.requests().is_empty());assert!(host.process_runs().is_empty());
     }
     #[test]
     fn external_reset_and_committed_update_notify_only_tasks_view() {
-        let (host,mut plugin)=seeded();let before=host.view_messages().len();
+        let (host,mut plugin)=seeded();let before=host.refreshed_views().len();
         host.answer_next_prompt(Some(&[]));plugin.run_command("reset-project-state",&host.invocation(),None).unwrap();
         assert!(notified(&host,before));assert_eq!(load("/project").unwrap().tasks.len(),1);
-        let before=host.view_messages().len();update("/project",|tasks,_|{tasks.add_local("Updated","");Ok(())}).unwrap();
-        assert!(notified(&host,before));assert!(host.view_messages()[before..].iter().all(|(view,_)|view==VIEW));
+        let before=host.refreshed_views().len();update("/project",|tasks,_|{tasks.add_local("Updated","");Ok(())}).unwrap();
+        assert!(notified(&host,before));assert!(host.refreshed_views()[before..].iter().all(|view|view==VIEW));
     }
     #[test]
     fn failed_update_and_stable_render_do_not_create_refresh_loop() {
-        let (host,mut plugin)=seeded();let before=host.view_messages().len();
+        let (host,mut plugin)=seeded();let before=host.refreshed_views().len();
         plugin.render(VIEW,None,&host.invocation()).unwrap();plugin.render(VIEW,None,&host.invocation()).unwrap();
-        assert_eq!(host.view_messages().len(),before);
+        assert_eq!(host.refreshed_views().len(),before);
         let failed:Result<(),Error>=update("/project",|_,_|Err(Error::Stale));assert!(failed.is_err());
-        assert_eq!(host.view_messages().len(),before);
-        for sequence in [1,2] {
-            let previous=host.view_messages().len();
-            let request=serde_json::json!({"channel":"ui-kit","frameId":"0123456789abcdef0123456789abcdef","sequence":sequence,"project":"/project","op":"render"});
-            plugin.handle(VIEW,ViewEvent::Message(request.to_string()),&host.invocation()).unwrap();
-            let messages=host.view_messages();assert_eq!(messages.len(),previous+1);
-            let reply:serde_json::Value=serde_json::from_str(&messages[previous].1).unwrap();
-            assert_eq!(reply["channel"],"ui-kit");assert!(reply.get("model").is_some());
-        }
+        assert_eq!(host.refreshed_views().len(),before);
+        let before = host.view_messages().len();
+        let request = serde_json::json!({"channel":"ui-kit","op":"render"});
+        assert!(plugin.handle(VIEW,ViewEvent::Message(request.to_string()),&host.invocation()).is_err());
+        assert_eq!(host.view_messages().len(), before);
     }
     #[test]
     fn automatic_foreign_model_drops_private_form_and_old_callbacks() {

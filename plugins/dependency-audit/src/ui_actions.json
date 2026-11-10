@@ -3,18 +3,36 @@
     "menu": "viewItem.context",
     "view": "vulnerabilities",
     "command": "preview-upgrade",
-    "when": "viewItemKind == dep"
+    "when": "viewItemKind == dep",
+    "icon": "diff"
   },
   {
     "menu": "viewItem.context",
     "view": "vulnerabilities",
     "command": "open-advisory",
-    "when": "viewItemKind == advisory"
+    "when": "viewItemKind == dep",
+    "icon": "external-link"
   },
   {
     "menu": "viewItem.context",
     "view": "vulnerabilities",
     "command": "ignore-finding",
-    "when": "viewItemKind == advisory"
+    "when": "viewItemKind == dep",
+    "icon": "hide"
+  },
+  {
+    "menu": "viewItem.context",
+    "view": "vulnerabilities",
+    "command": "open-advisory",
+    "when": "viewItemKind == advisory",
+    "replaces_open": true,
+    "icon": "external-link"
+  },
+  {
+    "menu": "viewItem.context",
+    "view": "vulnerabilities",
+    "command": "ignore-finding",
+    "when": "viewItemKind == advisory",
+    "icon": "hide"
   }
 ]

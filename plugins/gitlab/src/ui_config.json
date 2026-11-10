@@ -1,11 +1,39 @@
 {
   "title": "GitLab",
   "views": {
-    "merge-requests": "Merge Requests",
-    "merge-request": "Merge Request",
-    "gitlab-projects": "GitLab Projects"
+    "merge-requests": "GitLab",
+    "merge-request": "Details",
+    "gitlab-projects": "Projects"
   },
   "actions": [],
   "project_independent": false,
-  "project_bound_buttons": []
+  "project_bound_buttons": [],
+  "group": {
+    "primary": "merge-requests",
+    "tabs": [
+      {
+        "id": "merge-requests",
+        "label": "GitLab"
+      },
+      {
+        "id": "merge-request",
+        "label": "Details"
+      },
+      {
+        "id": "gitlab-projects",
+        "label": "Projects"
+      }
+    ]
+  },
+  "project_free_buttons": [
+    "new-token"
+  ],
+  "context_buttons": {
+    "merge-requests": [],
+    "merge-request": [
+      "pipeline-action:",
+      "timeline-reply"
+    ],
+    "gitlab-projects": []
+  }
 }

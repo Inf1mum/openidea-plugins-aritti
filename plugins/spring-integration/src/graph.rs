@@ -262,16 +262,16 @@ impl External {
             Some((domain, &self.sources)),
             empty,
         )))
-        .button(Button::new("refresh", "Refresh"))
-        .button(Button::new("graph-zoom-out", "Zoom out").enabled(self.state.zoom > MIN_ZOOM))
-        .button(Button::new("graph-zoom-reset", "100%").enabled(self.state.zoom != 100))
-        .button(Button::new("graph-zoom-in", "Zoom in").enabled(self.state.zoom < MAX_ZOOM))
+        .button(Button::new("refresh", "Refresh").icon("refresh"))
+        .button(Button::new("graph-zoom-out", "Zoom Out").icon("zoom-out").enabled(self.state.zoom > MIN_ZOOM))
+        .button(Button::new("graph-zoom-reset", "Actual Size").icon("actual-size").enabled(self.state.zoom != 100))
+        .button(Button::new("graph-zoom-in", "Zoom In").icon("zoom-in").enabled(self.state.zoom < MAX_ZOOM))
         .button(
-            Button::new("graph-open-source", "Open selected source")
+            Button::new("graph-open-source", "Open Selected Source").icon("file-code")
                 .enabled(self.state.selected.is_some()),
         )
         .button(
-            Button::new("graph-clear-selection", "Clear selection")
+            Button::new("graph-clear-selection", "Clear Selection").icon("close")
                 .enabled(self.state.selected.is_some()),
         )
         .status(&status)
@@ -325,7 +325,7 @@ impl External {
 
 impl Integration {
     pub(crate) fn render_graph(&mut self, ctx: &Invocation) -> Result<View, Error> {
-        let refresh = Button::new("refresh", "Refresh").icon("refresh");
+        let refresh = Button::new("refresh", "Refresh").icon("refresh").icon("refresh");
         let Some(project) = ctx.project() else {
             self.graph = External::default();
             return Ok(View::message("Open a project to see its message channels.").button(refresh));

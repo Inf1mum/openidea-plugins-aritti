@@ -1,5 +1,9 @@
 # Flyway Migrations
 
+One shared UI-kit window contains the Flyway, Command Output, Comparison tabs. Commands select their corresponding custom tab; existing actions, drafts and ownership checks remain in their original handlers. See [tab migration and parity validation](../../docs/custom-plugin-groups-2026-11-10.md).
+
+One UI-kit tool window contains the Migrations, Command Output and Comparison tabs. Commands reveal the corresponding custom tab; CLI execution, cancellation, source previews, comparison controls and editor actions keep their existing handlers and ownership checks. Tab navigation itself starts no command or database connection.
+
 Flyway support for SQL migrations in OpenIDEA. There is no database to ask:
 the plugin reads migration file names and the project's Flyway configuration,
 and explicitly runs approved Flyway commands in a terminal or an instance-owned finite process.
@@ -400,3 +404,28 @@ cannot replace/remove inherited environment variables. Offline Enterprise
 licensing/startup and artifact formats remain unverified. The core does not
 work around those gaps with a shell, copied credentials, or user self-report.
 P05.4 remains partial; the offline imported-report workflow stays available.
+
+## Native migration browser
+
+The main migration browser now uses the IDE's native tree, toolbar and status
+line. **Filter…** searches the captured row labels/state (and retains include
+ancestors in Liquibase); **Clear** restores rows. Filters belong to the
+current project. **More…** exposes existing review and CLI
+workflows through a native picker, preserving their source checks and database
+write confirmations. Double-click or Enter opens the owned source location.
+The generation and offline review forms remain native; rendering does not start
+CLI work.
+
+Compared against [JetBrains' official flyway workflow](https://www.jetbrains.com/help/idea/flyway.html):
+source browsing, generation preview and reviewed execution remain connected.
+This is a native presentation of the supported workflow, not full datasource,
+entity-derived DDL/diff or screenshot parity. Filter uses a native input dialog
+rather than the former inline web search. Exact desktop light/dark, keyboard,
+narrow-dock and native prompt acceptance remain to be verified.
+
+The compact toolbar uses native Refresh, New, Open, Filter, Clear and More icons.
+Captured migration rows are grouped by status, with working expand/collapse.
+Selecting a source-linked migration enables Open and seeds New's directory from
+that migration's configured location. The generation form shows a target filename
+and readable SQL preview; empty templates are explicitly identified as empty.
+Stale or foreign selections cannot open or seed another source.

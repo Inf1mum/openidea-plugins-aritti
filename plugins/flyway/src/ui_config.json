@@ -1,7 +1,9 @@
 {
   "title": "Flyway Migrations",
   "views": {
-    "migrations": "Flyway Migrations"
+    "migrations": "Flyway",
+    "command-output": "Command Output",
+    "comparison-review": "Comparison"
   },
   "actions": [],
   "project_independent": false,
@@ -10,5 +12,29 @@
     "execution-output",
     "execution-status",
     "execution-cancel"
-  ]
+  ],
+  "group": {
+    "primary": "migrations",
+    "tabs": [
+      {
+        "id": "migrations",
+        "label": "Flyway"
+      },
+      {
+        "id": "command-output",
+        "label": "Command Output"
+      },
+      {
+        "id": "comparison-review",
+        "label": "Comparison"
+      }
+    ]
+  },
+  "context_buttons": {
+    "migrations": [
+      "browser-open"
+    ],
+    "command-output": [],
+    "comparison-review": []
+  }
 }

@@ -10,7 +10,7 @@ categories = ["vcs", "linters"]
 icon = "icon.svg"
 engines.openidea = "^1.4"
 wasm = "dist/plugin.wasm"
-activation = ["on-view:ignore-settings", "on-event:file-opened", "on-event:file-saved", "on-event:editor-focused"]
+activation = ["on-view:templates", "on-event:file-opened", "on-event:file-saved", "on-event:editor-focused"]
 
 [capabilities]
 required = ["project.read", "editor.read", "editor.write", "events", "storage"]
@@ -222,11 +222,6 @@ category = "Ignore"
 menu = "tools"
 command = "preferences"
 
-[[contributes.views]]
-id = "ignore-settings"
-title = "Ignore Preferences"
-icon = "settings"
-location = "right"
 
 
 [[contributes.commands]]

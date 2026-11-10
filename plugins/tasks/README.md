@@ -4,7 +4,7 @@ Port of the IntelliJ **Issue Trackers** plugin (`com.intellij.tasks` 263.7307.10
 `idea/263.7307.112`: `plugins/tasks`, `platform/tasks-platform-impl`, the GitHub tracker from `plugins/github`
 and `GitTaskHandler` from `plugins/git4idea`). Apache-2.0, © JetBrains s.r.o. (see `LICENSE`, `NOTICE`).
 
-- **Tasks** tool window: create, edit, switch and close tasks, see the time spent on each, post it, and update issues.
+- **Native Tasks** tool window: grouped task/closed/issue trees with counts, active-task and elapsed-time details. Open Task uses a native searchable picker; Search Issues keeps server queries separate. Task Actions offers description, edit, switch, close, browser and work-time actions for the selection; Contexts offers save/load/remove. The panel has no packaged web frame.
   IntelliJ's dialogs become the New, Open and Close forms, which remember their choices.
 - **Git** (`process:git`): each new task gets a branch (`branchNameFormat`), checked out when you switch to it.
   Changes are shelved as stashes. Closing a task can merge its branch into the base branch and delete it. The commit
@@ -252,3 +252,29 @@ validation uses mocks and pinned build/check only.
 
 
 API 1.4 migration validation: source MockHost tests cover current-tab capture replacing closed-file history, active selection restoration, and status with multiple open projects. Exact native window routing and multi-tab UI acceptance remain to be exercised.
+
+## Native UI parity checkpoint
+
+The native tree, native search/action pickers and lazy native New/Open/Close forms preserve
+the supported Issue Trackers workflow described in JetBrains’
+[Manage tasks documentation](https://www.jetbrains.com/help/idea/managing-tasks-and-context.html):
+local versus tracker tasks, explicit activation/branch review, closed-task grouping,
+task descriptions, and a distinct context workflow. Task descriptions open read-only native
+content tabs. Native toolbar actions retain project/storage/action identities, and obsolete
+packaged messages are rejected rather than served alongside native controls.
+
+This is supported interaction parity, not a pixel-for-pixel copy of IntelliJ's popup/dialogs.
+Generic server connectors, changelists, automatic context-on-commit, complete layout/bookmark/
+breakpoint restoration and original full time-tracking UI remain outside this panel.
+Mock tests and release Wasm checks are separate from actual native light/dark, narrow-dock,
+keyboard and multi-window acceptance. Native text fields commit on blur/Enter.
+
+The native toolbar follows the official Tasks & Contexts flow: **New Task…**,
+selection-aware **Open Task… / Switch Task / Reopen Task**, **Close Active Task…**,
+**Search Issues…**, **Contexts…**, selected **Task Actions…**, and **Update Issues**.
+Open operates directly on an existing row selection; it only opens a task picker when
+no task is selected. The active task disables Open, while Close Active always reviews
+the active task regardless of another row selection. Selected-task close remains explicitly
+labelled in Task Actions. Open/Close forms show the reviewed task as a read-only value
+above their branch/issue choices. This preserves the documented meaning of active versus
+selected tasks without adding a second picker before an already-known task.

@@ -1,5 +1,7 @@
 # GitLab
 
+One shared UI-kit window contains the GitLab, Details, Projects tabs. Commands select their corresponding custom tab; existing actions, drafts and ownership checks remain in their original handlers. See [tab migration and parity validation](../../docs/custom-plugin-groups-2026-11-10.md).
+
 gitlab.com merge requests in OpenIDEA. List them, follow their timeline,
 review the changes with comments on diff lines and pending reviews, and
 approve, merge, rebase, close or reopen them. The plugin also shows the
@@ -37,7 +39,7 @@ Optional permissions:
 
 ## Tool windows
 
-- **Merge Requests** (left): the project's merge requests (50 per page, up to 10 pages) as
+- **GitLab** (requests tab in the left GitLab window): the project's merge requests (50 per page, up to 10 pages) as
   `!iid title`, with author, branches and draft state. *Filter* cycles through
   the original's quick filters: Open, Include my changes, Need my review,
   Assigned to me (the default) and Closed. Expanding a merge request loads its
@@ -45,10 +47,11 @@ Optional permissions:
   `path:line`) with their replies, plus GitLab's system notes and state,
   label and milestone changes. *Hide Events* / *Show Events* toggles the
   system notes and changes. Selecting an item shows it in Merge Request (a
-  selected thread or reply is the one you reply to). Double-clicking a diff
-  thread opens its line in the local checkout; anything else opens its GitLab
-  page.
-- **Merge Request** (right): a form with the comment field, or a reply field
+  selected thread or reply is the one you reply to). Double-clicking a merge
+  request selects the custom Details tab. Diff threads open their local source
+  line when available; other discussion targets keep their GitLab links.
+  Open on GitLab remains available in Details.
+- **Details** (tab in the same GitLab window): a form with the comment field, or a reply field
   under the note you reply to when a thread is selected, the *Add to my review*
   checkbox (on by default) that keeps it as a pending review comment, the merge
   options and the read-only description. The status line sums up state, draft,
@@ -507,3 +510,7 @@ control cannot substitute for the newly rendered confirmation. Current controls
 retain status eligibility and API behavior. Historical trace controls use the
 same source binding and existing API1.4 transport checks; no managed glab process
 or alternate-server authority is introduced.
+
+Requests, Details and Projects share one UI-kit tabbed GitLab window. Logical view IDs and project ownership guards remain unchanged; revealing a specific view selects its custom tab.
+
+GitLab now uses one UI-kit window with GitLab, Details and Projects tabs. Logical view IDs and command workflows remain unchanged; navigation and scoped snapshot editor replies route through that one container.

@@ -1,0 +1,17 @@
+{
+  "primary": "migrations",
+  "tabs": [
+    {
+      "id": "migrations",
+      "label": "Flyway"
+    },
+    {
+      "id": "command-output",
+      "label": "Command Output"
+    },
+    {
+      "id": "comparison-review",
+      "label": "Comparison"
+    }
+  ]
+}

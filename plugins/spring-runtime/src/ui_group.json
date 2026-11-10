@@ -1,0 +1,21 @@
+{
+  "primary": "runtime",
+  "tabs": [
+    {
+      "id": "runtime",
+      "label": "Overview"
+    },
+    {
+      "id": "runtime-snapshot",
+      "label": "Observations"
+    },
+    {
+      "id": "runtime-graph",
+      "label": "Bean Graph"
+    },
+    {
+      "id": "runtime-controls",
+      "label": "Refresh Controls"
+    }
+  ]
+}

@@ -934,7 +934,7 @@ mod tests {
         use openidea_plugin::views::{Views,ViewEvent};
         let h=setup();let mut p=hints_plugin(&h,&["target/a"]);
         p.run_command("publish-git-sample-hints",&h.invocation(),None).unwrap();
-        let _=p.handle(crate::preferences::VIEW,ViewEvent::Select("foreign".into()),&h.invocation());
+        let _=p.handle(crate::preferences::VIEW,ViewEvent::Button("preferences".into()),&h.invocation());
         assert!(h.file_decorations().is_empty());
         p.run_command("publish-git-sample-hints",&h.invocation(),None).unwrap();
         p.handle_events(&[Event::Other{kind:"settings-changed".into(),data:"{}".into()}],&h.invocation());

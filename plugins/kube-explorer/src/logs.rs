@@ -431,7 +431,7 @@ impl KubeExplorer {
             }
             "log-time" => view.show_time = !view.show_time,
             "log-source" => view.show_source = !view.show_source,
-            "log-end" => return host::post_view_message(crate::PANEL, "end"),
+            "log-end" => return crate::ui_group::post_view_message(crate::PANEL, "end"),
             "log-clear" => view.lines.clear(),
             "log-download" => return self.download_log(ctx),
             "log-regex" => view.regex = !view.regex,
@@ -979,7 +979,11 @@ mod tests {
         kube.log_button("log-source", Some(&host.invocation())).unwrap();
         assert!(!kube.log_view.as_ref().unwrap().show_source);
         kube.log_button("log-end", Some(&host.invocation())).unwrap();
-        assert_eq!(host.view_messages().last(), Some(&("resource-details".to_owned(), "end".to_owned())));
+        let (physical,raw)=host.view_messages().last().unwrap().clone();
+        assert_eq!(physical,crate::PANEL);
+        let reply:serde_json::Value=serde_json::from_str(&raw).unwrap();
+        assert_eq!(reply["targetView"],crate::PANEL);
+        assert_eq!(reply["message"],"end");
         kube.log_button("log-clear", Some(&host.invocation())).unwrap();
         assert!(kube.log_view.as_ref().unwrap().lines.is_empty());
     }

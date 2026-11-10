@@ -106,7 +106,7 @@ mod tests {
         h.add_project("/other");
         let mut p = Tasks::default();
         let view = p.render("tasks", None, &h.invocation()).unwrap();
-        let old = view.toolbar.iter().find(|b| b.label == "New Task").unwrap().id.clone();
+        let old = view.toolbar.iter().find(|b| b.label == "New Task…").unwrap().id.clone();
         h.set_project_root(Some("/other"));
         assert!(p.handle("tasks", ViewEvent::Button(old.clone()), &h.invocation()).is_err());
         p.render("tasks", None, &h.invocation()).unwrap();

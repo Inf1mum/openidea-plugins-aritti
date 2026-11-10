@@ -10,8 +10,7 @@
       const expected = message.channel === "gitlab-content-open" ? "open-content-tab" : "content-tab-reply";
       if (message.payload?.op === expected) window.openidea.postMessage(JSON.stringify(message.payload));
     } else if (message.op === "content-tab-error") {
-      const notice = document.getElementById("notice");
-      if (notice) notice.textContent = "The snapshot tab could not be opened. Use the same Open Snapshot action (MR, diff or job trace) again to retry.";
+      window.dispatchEvent(new CustomEvent("ui-kit-notification", {detail:{message:"The snapshot tab could not be opened. Use the same Open Snapshot action (MR, diff or job trace) again to retry.",warning:false}}));
     }
     // content-tab-action goes directly to Rust via the host. Do not dispatch it twice.
   });

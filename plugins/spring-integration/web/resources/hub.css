@@ -1,50 +1,78 @@
 @import url("./tokens.css");
 @import url("./components.css");
-*{box-sizing:border-box}html,body{height:100%;margin:0;overflow-x:clip}body{display:flex;flex-direction:column;background:var(--bg);color:var(--fg);font:var(--openidea-font-size,13px)/1.45 var(--openidea-font-ui,system-ui,sans-serif)}button,input,select,textarea{font:inherit;color:inherit}button{border:1px solid var(--line);border-radius:4px;background:var(--input);padding:5px 9px;cursor:pointer;white-space:nowrap}button:hover:not(:disabled){background:var(--hover)}button:disabled{opacity:.5;cursor:default}:focus-visible{outline:2px solid var(--focus);outline-offset:2px}input,select,textarea{background:var(--input);border:1px solid var(--line);border-radius:4px;padding:6px;min-width:0}header{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--line)}header>div{flex:1;min-width:0}#plugin{font-size:.8em;color:var(--muted)}h1{font-size:1.1em;margin:0;overflow-wrap:anywhere}h2{font-size:1em;margin:0 0 10px}#notice:not(:empty){padding:8px 16px;border-bottom:1px solid var(--line);color:var(--openidea-warning,var(--fg))}.shell{display:flex;flex:1;min-height:0}nav{width:175px;flex-shrink:0;border-right:1px solid var(--line);overflow:auto;padding:8px}nav button{display:block;width:100%;text-align:left;margin-bottom:4px;border-color:transparent;background:none}nav button[aria-current=page]{background:var(--selected);font-weight:600}main{min-width:0;flex:1;display:flex;flex-direction:column}.toolbar{display:flex;flex-wrap:wrap;gap:6px;padding:8px 12px;border-bottom:1px solid var(--line)}.toolbar:empty{display:none}.filters{display:flex;gap:10px;align-items:end;padding:8px 12px;border-bottom:1px solid var(--line);flex-wrap:wrap}.search{display:flex;flex-direction:column;color:var(--muted);font-size:.85em;min-width:130px;flex:1}.search input{margin-top:3px;width:100%;color:var(--fg)}#facets{display:flex;gap:8px;flex-wrap:wrap}#facets label{font-size:.85em;color:var(--muted);display:flex;flex-direction:column;gap:3px}#facets select{max-width:180px;color:var(--fg)}.workspace{flex:1;display:flex;min-height:0;min-width:0}#content{flex:1;min-width:0;overflow:auto;position:relative}aside{width:290px;min-width:190px;max-width:42%;border-left:1px solid var(--line);padding:14px;overflow:auto;overflow-wrap:anywhere}aside p{white-space:pre-wrap}aside dl{margin:0}aside dt{color:var(--muted);margin-top:10px;font-size:.85em}aside dd{margin:2px 0;font-family:var(--mono);white-space:pre-wrap}aside .actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:14px}table{border-collapse:collapse;width:100%;font-size:1em}thead{position:sticky;top:0;z-index:1;background:var(--bg)}th{text-align:left;border-bottom:1px solid var(--line);font-weight:600;white-space:nowrap}th button{border:0;background:none;text-align:left;width:100%;padding:8px 10px}td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top;max-width:560px;overflow-wrap:anywhere}tr[tabindex]{cursor:pointer}tbody tr:hover{background:var(--hover)}tbody tr[aria-selected=true]{background:var(--selected)}.mono{font-family:var(--mono)}.method{display:inline-block;font-family:var(--mono);font-size:.85em;font-weight:600;padding:1px 6px;border-radius:3px;background:var(--hover);white-space:nowrap}.method[data-method=GET]{color:var(--openidea-success,var(--fg))}.method[data-method=POST]{color:var(--openidea-info,var(--fg))}.method[data-method=DELETE]{color:var(--openidea-danger,var(--fg))}.empty{padding:28px;color:var(--muted);white-space:pre-wrap}.pager{display:flex;gap:10px;align-items:center;justify-content:flex-end;padding:8px 12px;position:sticky;bottom:0;background:var(--bg);border-top:1px solid var(--line)}.form{padding:16px;display:grid;gap:14px;max-width:900px}.form label{display:flex;flex-direction:column;gap:5px}.form label.checkbox{flex-direction:row;align-items:center}.form textarea{min-height:110px;resize:vertical;font-family:var(--mono)}.form output{white-space:pre-wrap;overflow-wrap:anywhere;color:var(--muted)}.tree-toggle{border:0;background:none;padding:0 6px 0 0}.legacy{display:block;position:relative;min-height:100%;height:100%}footer{padding:6px 12px;border-top:1px solid var(--line);color:var(--muted);font-size:.85em}[hidden]{display:none!important}@media(max-width:700px){nav{width:130px}aside{width:240px;max-width:40%}}@media(max-width:480px){.shell{flex-direction:column}nav{width:100%;max-height:110px;display:flex;gap:5px;flex-wrap:wrap;border-right:0;border-bottom:1px solid var(--line)}nav button{width:auto;margin:0}.workspace{flex-direction:column}aside{width:100%;max-width:none;max-height:35%;border-left:0;border-top:1px solid var(--line)}header{padding:8px 12px}.filters{gap:6px}}
-
-/* Keep identifiers readable in narrow docks; scroll the table within its pane. */
+/* Embedded resource composition. Native window chrome belongs to the host.
+   Hallmark · pre-emit critique: P4 H4 E4 S5 R5 V3 */
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;overflow-x:clip}
+body{display:flex;flex-direction:column;background:var(--ui-bg);color:var(--ui-fg);font:var(--ui-text)/var(--ui-leading) var(--ui-font)}
+button,input,select,textarea{font:inherit}
+button{white-space:nowrap}
+[hidden]{display:none!important}
+.shell{display:flex;flex:1;flex-direction:column;min-height:0;min-width:0}
+/* Reuse kit tabs, toolbar and controls; only their composition lives here. */
+#view-tabs,#sections{flex:none;overflow-x:auto;overflow-y:hidden;border-bottom:1px solid var(--ui-separator);background:var(--ui-toolbar-bg,var(--ui-bg))}
+#view-tabs>button,#sections>button{flex:none}
+#view-tabs>button[aria-selected=true],#sections>button[aria-current=page]{border-bottom-color:var(--ui-accent)}
+main{display:flex;flex-direction:column;flex:1;min-width:0;min-height:0}
+.toolbar{flex:none;border-bottom:1px solid var(--ui-separator)}
+.toolbar:empty{display:none}
+.filters{display:flex;align-items:center;gap:var(--ui-space-2);flex-wrap:wrap;flex:none;padding:var(--ui-space-1) var(--ui-space-2);border-bottom:1px solid var(--ui-separator)}
+.search{position:relative;display:flex;align-items:center;flex:1;min-width:130px}
+.search input{width:100%;padding-left:28px}
+.search-icon{position:absolute;left:8px;display:flex;pointer-events:none;color:var(--ui-muted)}
+#facets{display:flex;flex-wrap:wrap;gap:var(--ui-space-1);min-width:0}
+#facets label{width:160px;min-width:0;max-width:100%;flex:0 1 160px}
+#facets .ui-select-shell{width:100%;max-width:100%}
+#clear{flex:none;color:var(--ui-muted)}
+.workspace{display:flex;flex:1;min-height:0;min-width:0}
+#content{flex:1;min-width:0;overflow:auto;position:relative}
+#details{width:min(560px,calc(100vw - 32px));max-height:calc(100vh - 32px);overflow:auto;padding:0}
+.resource-facts{margin:0;overflow-wrap:anywhere}
+.resource-facts dt{color:var(--ui-muted);margin-top:var(--ui-space-2);font-size:var(--ui-text-small)}
+.resource-facts dt:first-child{margin-top:0}
+.resource-facts dd{margin:2px 0;font-family:var(--ui-mono);white-space:pre-wrap}
+#details .ui-dialog-footer{display:flex;justify-content:flex-end;padding:var(--ui-space-3)}
+.ui-table{width:100%}
 table.resources{min-width:650px}
-
-/* Bottom tool windows need a scrollable workflow when chrome and facets alone
-   exceed the dock height. Keep both table and details usable inside that flow. */
+thead{position:sticky;top:0;z-index:1;background:var(--ui-bg)}
+th{white-space:nowrap}
+th .ui-button{border:0;border-radius:0;background:none;text-align:left;justify-content:flex-start;width:100%;height:24px;min-height:24px;padding:3px var(--ui-space-2)}
+.ui-table th:has(>button){padding:0}
+td{max-width:560px;vertical-align:top;overflow-wrap:anywhere}
+td.category{white-space:nowrap;overflow-wrap:normal;word-break:normal}
+tr[tabindex]{cursor:pointer}
+tbody tr:hover{background:var(--ui-hover)}
+.mono{font-family:var(--ui-mono)}
+.pager{display:flex;gap:var(--ui-space-2);align-items:center;justify-content:flex-end;padding:var(--ui-space-1) var(--ui-space-2);position:sticky;bottom:0;background:var(--ui-bg);border-top:1px solid var(--ui-separator)}
+.form{display:grid;gap:var(--ui-space-2);padding:var(--ui-space-3);max-width:760px}
+.form>.ui-field{grid-template-columns:minmax(110px,160px) minmax(0,1fr);align-items:center;gap:var(--ui-space-2)}
+.form .field-label{overflow-wrap:anywhere}
+.form input:not([type=checkbox]),.form textarea,.form .ui-select-shell{width:100%;min-width:0}
+.form textarea{min-height:96px;resize:vertical;font-family:var(--ui-mono)}
+.form output{white-space:pre-wrap;overflow-wrap:anywhere;color:var(--ui-muted)}
+.form label.checkbox{display:flex;align-items:center;gap:var(--ui-space-2)}
+.tree-cell{display:flex;align-items:center;gap:var(--ui-space-1);min-width:0;height:16px}
+.tree-node-slot,.tree-toggle.ui-button{flex:0 0 16px;width:16px;height:16px;min-width:16px;min-height:16px}
+.tree-toggle.ui-button{border:0;background:none;padding:0}
+.tree-cell>.view-icon{flex:0 0 16px}
+.tree-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.resource-tree--plain thead{display:none}
+.legacy{display:block;position:relative;min-height:100%;height:100%}
+footer{flex:none;padding:var(--ui-space-1) var(--ui-space-2);border-top:1px solid var(--ui-separator);color:var(--ui-muted);font-size:var(--ui-text-small);overflow-wrap:anywhere}
+footer:empty{display:none}
+.request-progress{position:absolute;top:0;left:0;z-index:3;margin:0;height:3px}
+.view-icon{width:16px;height:16px;flex-shrink:0;vertical-align:-3px}
+td>.view-icon{margin-right:6px}
+th .view-icon{width:12px;height:12px}
+@media(max-width:480px){
+  .form>.ui-field{grid-template-columns:minmax(0,1fr);gap:var(--ui-space-1)}
+}
+/* Preserve a reachable workflow in shallow bottom docks. */
 @media(max-height:420px){
-  header{flex-shrink:0;padding:6px 12px}
-  #plugin{display:none}
-  main{min-height:0;overflow-y:auto}
+  main{overflow-y:auto}
   .workspace{flex:0 0 180px;min-height:180px}
-  footer,.toolbar,.filters{flex-shrink:0}
 }
 
-/* Short category names must not split into fragments in narrow tool windows. */
-td.category{white-space:nowrap;overflow-wrap:normal;word-break:normal}
-
-/* Shared Int-style geometry; preserve the existing hub layout and bridge. */
-body{font:var(--ui-text)/var(--ui-leading) var(--ui-font)}
-button,input,select,textarea{min-height:var(--ui-control-height);border-radius:var(--ui-radius)}
-button{padding:var(--ui-space-1) var(--ui-space-3)}
-input,select,textarea{padding:var(--ui-space-1) var(--ui-space-2)}
-input[type=checkbox]{min-height:0;accent-color:var(--ui-accent)}
-header{background:var(--ui-panel);gap:var(--ui-space-3)}
-nav{background:var(--ui-panel)}
-nav button[aria-current=page]{box-shadow:inset 2px 0 var(--ui-accent)}
-thead{background:var(--ui-panel)}
-.method[data-method=GET]{color:var(--ui-success)}
-.method[data-method=POST]{color:var(--ui-info)}
-.method[data-method=DELETE]{color:var(--ui-danger)}
-.method[data-method=PUT],.method[data-method=PATCH]{color:var(--ui-warning)}
-#notice:not(:empty){color:var(--ui-fg);border-left:3px solid var(--ui-danger);background:var(--ui-panel)}
-.detail-heading{display:flex;gap:var(--ui-space-2);align-items:start;margin-bottom:var(--ui-space-3)}
-.detail-heading h2{flex:1;min-width:0;margin:0;overflow-wrap:anywhere}
-.detail-close{padding:0 var(--ui-space-2);flex-shrink:0}
-.tree-toggle{min-height:var(--ui-control-height);min-width:var(--ui-control-height)}
-th .ui-button{border:0;border-radius:0;background:none;text-align:left;justify-content:flex-start}
-.tree-toggle.ui-button{border:0;background:none;padding:0 var(--ui-space-1) 0 0}
-.request-progress{position:absolute;top:0;left:0;z-index:3;margin:0;height:3px}
-.ui-table th:has(>button){padding:0}
-/* The plugin shell uses the source UI type and the source separator hierarchy. */
-body{font-weight:500;font-family:var(--ui-font);line-height:16px;font-optical-sizing:none;font-variation-settings:"opsz" 14}
-#notice:not(:empty){background:var(--ui-error-bg);border:1px solid var(--ui-error-border);padding:12px;color:var(--ui-fg)}
-.toolbar,.filters,header,nav,footer,td,th{border-color:var(--ui-separator)}
-.ui-select-shell{max-width:100%}
-.detail-close{min-width:28px}
-@media(hover:hover){button:active:not(:disabled){background:var(--ui-selected)}}
+.form .field-controls{display:flex;align-items:center;flex-wrap:wrap;gap:var(--ui-space-2);min-width:0}
+.form .field-controls>input{flex:1 1 100px;width:0;min-width:0}
+.form .field-controls>.ui-button{flex:none}

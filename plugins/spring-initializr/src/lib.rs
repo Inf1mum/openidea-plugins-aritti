@@ -38,7 +38,7 @@ const FIELDS: [(&str, &str, &str, &[(&str, &str)]); 12] = [
         &[("maven-project", "Maven"), ("gradle-project", "Gradle - Groovy"), ("gradle-project-kotlin", "Gradle - Kotlin")],
     ),
     ("language", "Language", "java", &[("java", "Java"), ("kotlin", "Kotlin"), ("groovy", "Groovy")]),
-    ("bootVersion", "Spring Boot version (blank uses the catalogue default when loaded)", "", &[]),
+    ("bootVersion", "Spring Boot version", "", &[]),
     ("groupId", "Group", "com.example", &[]),
     ("artifactId", "Artifact", "demo", &[]),
     ("name", "Name", "", &[]),
@@ -203,13 +203,15 @@ impl Launcher {
 
     fn set(&mut self, key: &str, value: &str) {
         let _ = self.changed();
+        let default_boot = self.boot_default_label();
+        let value = if key == "bootVersion" && value == default_boot { "" } else { value };
         let dynamic = self
             .metadata
             .as_ref()
             .and_then(|metadata| metadata[key]["values"].as_array())
             .into_iter()
             .flatten()
-            .find(|option| option["name"].as_str() == Some(value.trim()))
+            .find(|option| key != "bootVersion" && option["name"].as_str() == Some(value.trim()))
             .and_then(|option| option["id"].as_str())
             .map(str::to_owned);
         let value = choice_id(key, dynamic.as_deref().unwrap_or(value.trim()));
@@ -269,6 +271,26 @@ impl Launcher {
             return Some("The artifact is required.".into());
         }
         self.compatibility_problem()
+    }
+
+    fn boot_default_label(&self) -> String {
+        self.metadata.as_ref().and_then(|metadata| metadata["bootVersion"]["default"].as_str())
+            .filter(|version| !version.is_empty())
+            .map_or_else(|| "Server default".into(), |version| format!("Server default ({version})"))
+    }
+
+    fn boot_version_choice(&self, selected: String) -> FieldValue {
+        let default = self.boot_default_label();
+        let mut options = vec![default.clone()];
+        for version in self.metadata.as_ref().and_then(|metadata| metadata["bootVersion"]["values"].as_array()).into_iter().flatten() {
+            if let Some(id) = version["id"].as_str().filter(|id| !id.is_empty()) {
+                if !options.iter().any(|option| option == id) { options.push(id.to_owned()); }
+            }
+        }
+        // Keep a saved/custom-server version visible; compatibility still rejects
+        // versions absent from a loaded catalogue instead of changing the draft.
+        if !selected.is_empty() && !options.contains(&selected) { options.push(selected.clone()); }
+        FieldValue::Choice(options, if selected.is_empty() { default } else { selected })
     }
 
     fn effective_boot(&mut self) -> String {
@@ -451,11 +473,11 @@ impl Launcher {
     }
 }
 
-impl Views for Launcher {
-    fn render(&mut self, _view: &str, _viewport: Option<Viewport>, _ctx: &Invocation) -> Result<View, Error> {
+impl Launcher {
+    fn render_expanded(&mut self, _view: &str, _viewport: Option<Viewport>, _ctx: &Invocation) -> Result<View, Error> {
         self.bind(_ctx)?;
         if self.sections.active()=="cli-run" {let can_start=_ctx.project().is_some()&&self.problem().is_none();return Ok(self.sections.buttons(self.cli.render(can_start),&[("cli-run",if self.cli.running(){"active".into()}else{String::new()})]));}
-        if self.sections.active() == DEPENDENCIES_SECTION && self.get("server") == START {
+        if matches!(self.sections.active(), PROJECT_SECTION | DEPENDENCIES_SECTION) && self.get("server") == START {
             self.ensure_catalogue();
         }
         let problem = self.problem();
@@ -482,7 +504,9 @@ impl Views for Launcher {
                 .iter()
                 .map(|(key, label, _, choices)| {
                     let value = self.get(key);
-                    let value = if choices.is_empty() {
+                    let value = if *key == "bootVersion" {
+                        self.boot_version_choice(value)
+                    } else if choices.is_empty() {
                         FieldValue::Text(value)
                     } else {
                         let dynamic: Vec<_> = self
@@ -519,13 +543,63 @@ impl Views for Launcher {
             .button(Button::new("open-reviewed-import", "Open reviewed source folder…").icon("folder-open").enabled(_ctx.project().is_some()&&self.import_issued()));
         if self.sections.active() == PROJECT_SECTION {
             view = view
-                .button(Button::new("pickBoot", "Pick Spring Boot Version").icon("list"))
+                .button(Button::new("choose-dependencies", "Dependencies").icon("package"))
                 .button(Button::new("reset", "Reset").icon("revert"))
                 .button(Button::new("reload-saved", "Reload saved form…").icon("refresh"));
         }
         let badges = [(DEPENDENCIES_SECTION, self.dependencies_badge()),("cli-run",if self.cli.running(){"active".into()}else{String::new()})];
 
         Ok(self.sections.buttons(view, &badges))
+    }
+
+    fn more_actions_snapshot(&mut self, view: &str, ctx: &Invocation) -> Result<MoreActions, Error> {
+        let expanded = self.render_expanded(view, None, ctx)?;
+        let saved = session::capture(&self.owner, &self.server).ok().map(|b| (b.state, b.selector));
+        Ok(MoreActions { expanded, owner: self.owner.clone(), server: self.server.clone(), saved })
+    }
+
+    fn dispatch_more_action(&mut self, view: &str, snapshot: MoreActions, selected: Option<String>, ctx: &Invocation) -> Result<(), Error> {
+        let Some(selected) = selected else { return Ok(()); };
+        // A picker reply is only a choice among the enabled actions shown when it opened.
+        if !snapshot.items().iter().any(|item| item.key == selected) { return Err(Error::Stale); }
+        let current = self.more_actions_snapshot(view, ctx)?;
+        if current != snapshot { return Err(Error::Stale); }
+        // Reuse each action's existing review, destination and capability checks.
+        self.handle(view, ViewEvent::Button(selected), ctx)
+    }
+}
+
+#[derive(PartialEq, Eq)]
+struct MoreActions {
+    expanded: View,
+    owner: String,
+    server: String,
+    saved: Option<(Option<String>, Option<String>)>,
+}
+
+fn secondary_action(id: &str) -> bool {
+    matches!(id, "cli" | "explore" | "prepare-import" | "open-reviewed-import" | "pickBoot" | "reset" | "reload-saved" | "refreshCatalogue")
+}
+
+impl MoreActions {
+    fn items(&self) -> Vec<PickItem> {
+        self.expanded.toolbar.iter().filter(|button| secondary_action(&button.id) && button.enabled)
+            .map(|button| PickItem::new(&button.id, &button.label)).collect()
+    }
+}
+
+impl Views for Launcher {
+    fn render(&mut self, view: &str, viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
+        (|| -> Result<View, Error> {
+            let mut expanded = self.render_expanded(view, viewport, ctx)?;
+            let has_more = expanded.toolbar.iter().any(|button| secondary_action(&button.id) && button.enabled);
+            let has_secondary = expanded.toolbar.iter().any(|button| secondary_action(&button.id));
+            expanded.toolbar.retain(|button| !secondary_action(&button.id));
+            if has_secondary {
+                expanded = expanded.button(Button::new("more-actions", "More Actions…").icon("more-horizontal").enabled(has_more));
+            }
+            Ok(expanded)
+        })().map(ui_kit::actions::available)
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, _ctx: &Invocation) -> Result<(), Error> {
@@ -535,12 +609,21 @@ impl Views for Launcher {
             return Ok(());
         }
 
+        let event = match event {
+            ViewEvent::Button(id) if id == "choose-dependencies" => ViewEvent::Button(format!("section:{DEPENDENCIES_SECTION}")),
+            other => other,
+        };
         if !self.sections.handle(&event) && !self.handle_dependencies(&event)? {
             match event {
                 ViewEvent::Field(key, value) if FIELDS.iter().any(|f| f.0 == key) => self.set(&key, &value),
                 ViewEvent::Button(b) if b=="managed-cli-start" => self.start_managed_cli(_ctx)?,
                 ViewEvent::Button(b) if b=="managed-cli-check" => self.check_managed_cli(_ctx)?,
                 ViewEvent::Button(b) if b=="managed-cli-cancel" => self.cli.cancel("Cancelled by user")?,
+                ViewEvent::Button(b) if b == "more-actions" => {
+                    let snapshot = self.more_actions_snapshot(view, _ctx)?;
+                    let selected = host::pick("Spring Initializr actions", &snapshot.items())?;
+                    self.dispatch_more_action(view, snapshot, selected, _ctx)?;
+                },
                 ViewEvent::Button(b) if b == "reset" => self.reset(),
                 ViewEvent::Button(b) if b == "reload-saved" => self.reload_saved()?,
                 ViewEvent::Button(b) if b == "pickBoot" => self.pick_boot_version()?,
@@ -673,13 +756,8 @@ mod tests {
             icons,
             [
                 ("Generate Project", "export"),
-                ("Generate with Spring Boot CLI", "terminal"),
-                ("Explore in Browser", "external-link"),
-                ("Prepare source-only import…", "import"),
-                ("Open reviewed source folder…", "folder-open"),
-                ("Pick Spring Boot Version", "list"),
-                ("Reset", "revert"),
-                ("Reload saved form…", "refresh")
+                ("Dependencies", "package"),
+                ("More Actions…", "more-horizontal")
             ]
         );
     }
@@ -694,7 +772,7 @@ mod tests {
         assert!(
             view.toolbar
                 .iter()
-                .filter(|b| b.id != "reset" && b.id != "reload-saved" && !b.id.starts_with("pick") && !b.id.starts_with("section:"))
+                .filter(|b| b.id != "choose-dependencies" && b.id != "more-actions" && b.id != "reset" && b.id != "reload-saved" && !b.id.starts_with("pick") && !b.id.starts_with("section:"))
                 .all(|b| !b.enabled)
         );
         click(&mut l, &host, "generate");
@@ -836,6 +914,31 @@ mod tests {
     }
 
     #[test]
+    fn boot_select_uses_catalogue_ids_and_preserves_default_and_saved_version() {
+        let host = MockHost::install().with_capabilities(NET);
+        host.on_fetch(|_| Ok(openidea_plugin::HttpResponse { status: 200,
+            body: br#"{"bootVersion":{"default":"3.5.16","values":[{"id":"3.5.16","name":"Stable"},{"id":"4.0.0","name":"Next"}]}}"#.to_vec(), ..Default::default() }));
+        let mut launcher = Launcher::default();
+        let body = launcher.render(VIEW, None, &host.invocation()).unwrap().body;
+        let Body::Form(fields) = body else { panic!("form expected") };
+        let boot = fields.iter().find(|field| field.key == "bootVersion").unwrap();
+        assert_eq!(boot.label, "Spring Boot version");
+        assert_eq!(boot.value, FieldValue::Choice(vec!["Server default (3.5.16)".into(), "3.5.16".into(), "4.0.0".into()], "Server default (3.5.16)".into()));
+        assert_eq!(host.requests().len(), 1);
+        field(&mut launcher, &host, "bootVersion", "4.0.0");
+        assert_eq!(launcher.effective_boot(), "4.0.0");
+        field(&mut launcher, &host, "bootVersion", "Server default (3.5.16)");
+        assert_eq!(launcher.get("bootVersion"), "");
+        assert_eq!(launcher.effective_boot(), "3.5.16");
+        field(&mut launcher, &host, "bootVersion", "3.4.0");
+        let selected = launcher.get("bootVersion");
+        assert!(matches!(launcher.boot_version_choice(selected), FieldValue::Choice(options, selected) if options.contains(&selected) && selected == "3.4.0"));
+        assert!(launcher.compatibility_problem().is_some());
+        launcher.metadata = None;
+        assert_eq!(launcher.boot_version_choice(String::new()), FieldValue::Choice(vec!["Server default".into()], "Server default".into()));
+    }
+
+    #[test]
     fn picks_the_boot_version() {
         let host = MockHost::install().with_capabilities(NET);
         serve(&host);
@@ -915,6 +1018,44 @@ mod tests {
         let view = l.render(VIEW, None, &host.invocation()).unwrap();
         let Body::Tree(items) = view.body.clone() else { panic!("tree expected") };
         (items, view)
+    }
+
+    #[test]
+    fn choose_dependencies_opens_selector_and_preserves_project_fields() {
+        let host = MockHost::install().with_capabilities(NET);
+        serve_catalogue(&host);
+        let mut launcher = Launcher::default();
+        field(&mut launcher, &host, "artifactId", "my-app");
+        field(&mut launcher, &host, "dependencies", "web,data-jpa");
+        let project = launcher.render(VIEW, None, &host.invocation()).unwrap();
+        assert!(project.toolbar.iter().any(|button|button.id == "choose-dependencies"));
+        launcher.handle(VIEW,ViewEvent::Message(serde_json::json!({"channel":"ui-kit","sequence":1,"op":"render"}).to_string()),&host.invocation()).unwrap();
+        let answer:serde_json::Value=serde_json::from_str(&host.view_messages().last().unwrap().1).unwrap();
+        assert_eq!(answer["model"]["fieldActions"]["dependencies"]["button"],"choose-dependencies");
+        assert_eq!(answer["model"]["fieldActions"]["dependencies"]["primary"],true);
+        click(&mut launcher, &host, "choose-dependencies");
+        let (_, dependencies) = tree(&mut launcher, &host);
+        assert!(!dependencies.toolbar.iter().any(|button|button.id == "choose-dependencies"));
+        assert_eq!(launcher.get("dependencies"), "web,data-jpa");
+        click(&mut launcher, &host, "section:project");
+        assert_eq!(launcher.get("artifactId"), "my-app");
+        assert!(matches!(launcher.render(VIEW, None, &host.invocation()).unwrap().body, Body::Form(_)));
+    }
+
+    #[test]
+    fn dependency_context_labels_follow_selection_state() {
+        let host=MockHost::install().with_capabilities(NET);serve_catalogue(&host);
+        let mut launcher=open_dependencies(&host);
+        let model=|launcher:&mut Launcher| {
+            launcher.handle(VIEW,ViewEvent::Message(serde_json::json!({"channel":"ui-kit","sequence":1,"op":"render"}).to_string()),&host.invocation()).unwrap();
+            serde_json::from_str::<serde_json::Value>(&host.view_messages().last().unwrap().1).unwrap()["model"].clone()
+        };
+        let label=|model:&serde_json::Value,key:&str|model["body"]["items"].as_array().unwrap().iter().find(|item|item["key"]==key).unwrap()["activationLabel"].as_str().unwrap().to_owned();
+        assert_eq!(label(&model(&mut launcher),"dep:web"),"Select");
+        launcher.handle(VIEW,ViewEvent::Activate("dep:web".into()),&host.invocation()).unwrap();
+        let selected=model(&mut launcher);assert_eq!(label(&selected,"dep:web"),"Deselect");assert_eq!(label(&selected,"sel:web"),"Deselect");
+        launcher.handle(VIEW,ViewEvent::Activate("sel:web".into()),&host.invocation()).unwrap();
+        assert_eq!(label(&model(&mut launcher),"dep:web"),"Select");
     }
 
     fn open_dependencies(host: &MockHost) -> Launcher {
@@ -1092,7 +1233,7 @@ mod tests {
         click(&mut l, &host, "section:dependencies");
         let view = l.render(VIEW, None, &host.invocation()).unwrap();
         assert_eq!(view.toolbar[1].label, "\u{25cf} Dependencies (3)");
-        for id in ["generate", "cli", "explore"] {
+        for id in ["generate", "more-actions"] {
             assert!(view.toolbar.iter().any(|b| b.id == id), "{id}");
         }
         assert!(!view.toolbar.iter().any(|b| b.id == "reset"));
@@ -1148,5 +1289,84 @@ mod cli_build_contract_tests {
                 assert!(l.cli_args().unwrap().iter().any(|arg|arg==&format!("--build={build}")));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod more_actions_tests {
+    use super::*;
+    use openidea_plugin::mock::MockHost;
+    const VIEW: &str = "initializr";
+
+    #[test]
+    fn options_are_exactly_enabled_secondary_buttons_and_sections_stay_compact() {
+        let host = MockHost::install();
+        let mut launcher = Launcher::default();
+        let snapshot = launcher.more_actions_snapshot(VIEW, &host.invocation()).unwrap();
+        let expected: Vec<_> = snapshot.expanded.toolbar.iter().filter(|b| b.enabled && secondary_action(&b.id)).map(|b| b.id.clone()).collect();
+        assert_eq!(snapshot.items().iter().map(|i| i.key.clone()).collect::<Vec<_>>(), expected);
+        assert!(expected.iter().any(|id| id == "prepare-import"));
+        assert!(!expected.iter().any(|id| id == "open-reviewed-import"));
+        let view = launcher.render(VIEW, None, &host.invocation()).unwrap();
+        assert_eq!(view.toolbar.iter().filter(|b| !b.id.starts_with("section:")).map(|b| b.id.as_str()).collect::<Vec<_>>(), ["generate", "choose-dependencies", "more-actions"]);
+        host.set_project_root(None);
+        launcher.bind(&host.invocation()).unwrap();
+        launcher.set("artifactId", "");
+        let snapshot = launcher.more_actions_snapshot(VIEW, &host.invocation()).unwrap();
+        let ids: Vec<_> = snapshot.items().into_iter().map(|i| i.key).collect();
+        for disabled in ["cli", "explore", "prepare-import", "open-reviewed-import"] { assert!(!ids.iter().any(|id| id == disabled)); }
+        assert!(ids.iter().any(|id| id == "reset"));
+    }
+
+    #[test]
+    fn cancel_changes_nothing_and_explore_dispatches_the_existing_action() {
+        let host = MockHost::install();
+        let mut launcher = Launcher::default();
+        launcher.bind(&host.invocation()).unwrap();
+        launcher.set("artifactId", "picker-demo");
+        let saved = host.storage();
+        host.answer_next_prompt(None);
+        launcher.handle(VIEW, ViewEvent::Button("more-actions".into()), &host.invocation()).unwrap();
+        assert_eq!(launcher.get("artifactId"), "picker-demo");
+        assert_eq!(host.storage(), saved);
+        assert!(host.opened_urls().is_empty());
+        host.answer_next_prompt(Some(&["explore"]));
+        launcher.handle(VIEW, ViewEvent::Button("more-actions".into()), &host.invocation()).unwrap();
+        assert_eq!(host.opened_urls(), [launcher.explore_url()]);
+    }
+
+    #[test]
+    fn picker_rejects_disabled_unknown_and_stale_form_scope_or_storage() {
+        for change in ["disabled", "unknown", "form", "scope", "storage"] {
+            let host = MockHost::install();
+            let mut launcher = Launcher::default();
+            let snapshot = launcher.more_actions_snapshot(VIEW, &host.invocation()).unwrap();
+            let selected = match change {
+                "disabled" => "open-reviewed-import",
+                "unknown" => "unreviewed-command",
+                "form" => { launcher.set("artifactId", "changed"); "explore" },
+                "scope" => { host.set_project_root(None); "explore" },
+                "storage" => { host::storage::set(&session::locator(&launcher.owner, &launcher.server), "changed externally").unwrap(); "explore" },
+                _ => unreachable!(),
+            };
+            assert!(matches!(launcher.dispatch_more_action(VIEW, snapshot, Some(selected.into()), &host.invocation()), Err(Error::Stale)), "{change}");
+            assert!(host.opened_urls().is_empty());
+            assert!(host.terminals().is_empty());
+        }
+    }
+
+    #[test]
+    fn dependencies_offer_refresh_and_cli_section_keeps_native_controls() {
+        let host = MockHost::install();
+        let mut launcher = Launcher::default();
+        launcher.handle(VIEW, ViewEvent::Button("section:dependencies".into()), &host.invocation()).unwrap();
+        let snapshot = launcher.more_actions_snapshot(VIEW, &host.invocation()).unwrap();
+        let ids: Vec<_> = snapshot.items().into_iter().map(|i| i.key).collect();
+        assert!(ids.iter().any(|id| id == "refreshCatalogue"));
+        assert!(!ids.iter().any(|id| id == "reset"));
+        launcher.handle(VIEW, ViewEvent::Button("section:cli-run".into()), &host.invocation()).unwrap();
+        let view = launcher.render(VIEW, None, &host.invocation()).unwrap();
+        assert!(view.toolbar.iter().any(|b| b.id == "managed-cli-start"));
+        assert!(!view.toolbar.iter().any(|b| b.id == "more-actions"));
     }
 }

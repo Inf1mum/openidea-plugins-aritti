@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """Materialize shared packaged UI assets/config without cross-package symlinks."""
 import argparse
+from html.parser import HTMLParser
 import json
 from pathlib import Path
+import posixpath
 import re
 import sys
 import tomllib
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE = ROOT / 'crates/ui-kit/web'
@@ -27,12 +30,35 @@ window.uiKitLegacy = {
 def assets(name):
     data = {p.relative_to(SOURCE).as_posix(): p.read_bytes() for p in SOURCE.rglob('*') if p.is_file() and p.suffix in ('.html','.css','.js','.svg','.woff2','.txt')}
     data = {name: (content.decode() if not name.endswith('.woff2') else content) for name,content in data.items()}
+    package = ROOT/'plugins'/name
+    manifest_path = package/'plugin.toml'
+    manifest = tomllib.loads(manifest_path.read_text()) if manifest_path.exists() else {}
+    plugin_icons = {}
+    for entry in manifest.get('contributes', {}).get('fileIcons', []):
+        variants = {}
+        for field in ('icon', 'iconDark'):
+            if not entry.get(field): continue
+            source = (package/entry[field]).resolve()
+            if not source.is_relative_to(package.resolve()) or source.suffix != '.svg':
+                raise ValueError(f'Invalid packaged icon: {entry[field]}')
+            target = 'plugin-icons/' + source.relative_to(package.resolve()).as_posix()
+            data[target] = source.read_text()
+            variants[field] = './' + target
+        if variants:
+            plugin_icons[f"ext:fileIcon/{manifest['id']}/{entry['id']}"] = variants
+    data['plugin-icons.js'] = 'window.uiKitPluginIcons = Object.freeze(' + json.dumps(plugin_icons, ensure_ascii=False) + ');\n'
+    data['hub.html'] = data['hub.html'].replace('<script src="./native-icons.js">', '<script src="./plugin-icons.js"></script><script src="./native-icons.js">')
     functions = []
     if name == 'kube-explorer':
         page = (ROOT/'plugins/kube-explorer/src/page.html').read_text()
         script = re.search(r'<script>([\s\S]*?)</script>',page)
         if script:
             functions.append('kube(root, openidea) { const document = scoped(root);\n'+script.group(1)+'\n}')
+    if name == 'spring-runtime':
+        driver = package/'src/runtime-controls.js'
+        if driver.exists():
+            data['runtime-controls.js'] = driver.read_text()
+            data['hub.html'] = data['hub.html'].replace('<script src="./legacy.js"></script>', '<script src="./runtime-controls.js"></script><script src="./legacy.js"></script>')
     if name == 'gitlab':
         data['content-tabs.js'] = (ROOT/'plugins/gitlab/src/content-tabs.js').read_text()
         data['hub.html'] = data['hub.html'].replace('<script src="./legacy.js"></script>', '<script src="./content-tabs.js"></script><script src="./legacy.js"></script>')
@@ -47,6 +73,14 @@ def config(manifest, package):
     contributions = manifest.get('contributes',{})
     commands = {c['id']:c['title'] for c in contributions.get('commands',[])}
     views = {v['id']:v['title'] for v in contributions.get('views',[]) if v.get('web') == 'web/resources/hub.html'}
+    group_path = package/'src/ui_group.json'
+    group = json.loads(group_path.read_text()) if group_path.exists() else None
+    if group:
+        tabs = group.get('tabs', [])
+        ids = [tab['id'] for tab in tabs]
+        if len(ids) < 2 or len(ids) != len(set(ids)) or group['primary'] not in views or group['primary'] not in ids:
+            raise ValueError(f'Invalid custom tab group: {group_path}')
+        views.update({tab['id']:tab['label'] for tab in tabs})
     actions = []
     for menu in (json.loads((package/'src/ui_actions.json').read_text()) if (package/'src/ui_actions.json').exists() else contributions.get('menus',[])):
         if menu.get('menu') != 'viewItem.context' or menu.get('view') not in views: continue
@@ -55,25 +89,110 @@ def config(manifest, package):
         if condition and not match: continue
         command = menu['command']
         if command not in commands: raise ValueError(f'Unknown command {command}')
-        actions.append(dict(view=menu['view'],id=command,label=commands[command],kind=match.group(1) if match else ''))
+        actions.append(dict(view=menu['view'],id=command,label=menu.get('label',commands[command]),kind=match.group(1) if match else ''))
+        if menu.get('replaces_open'): actions[-1]['replaces_open'] = True
+        if menu.get('icon'): actions[-1]['icon'] = menu['icon']
     scope_policy = {
         'aritti.spring-initializr': (True, ['cli', 'prepare-import', 'open-reviewed-import']),
         'aritti.ideolog': (True, []),
+        'aritti.ignore': (True, ['new', 'delete', 'star']),
         'aritti.liquibase': (False, ['choose-sources', 'clear-sources']),
         'aritti.spring-runtime': (False, ['snapshot-details', 'runtime-graph', 'graph-back', 'graph-observations', 'runtime-controls', 'poll-start', 'poll-stop']),
         'aritti.flyway': (False, ['refresh', 'execution-output', 'execution-status', 'execution-cancel']),
     }
     independent, bound_buttons = scope_policy.get(manifest['id'], (False, []))
-    return dict(title=manifest['name'],views=views,actions=actions,project_independent=independent,project_bound_buttons=bound_buttons)
+    result = dict(title=manifest['name'],views=views,actions=actions,project_independent=independent,project_bound_buttons=bound_buttons)
+    if group: result['group'] = group
+    free_buttons = package/'src/ui_project_free_buttons.json'
+    if free_buttons.exists(): result['project_free_buttons'] = json.loads(free_buttons.read_text())
+    opaque_views = package/'src/ui_opaque_views.json'
+    if opaque_views.exists(): result['opaque_views'] = json.loads(opaque_views.read_text())
+    field_actions = package/'src/ui_form_actions.json'
+    if field_actions.exists(): result['field_actions'] = json.loads(field_actions.read_text())
+    toolbar_icon_buttons = package/'src/ui_toolbar_icon_buttons.json'
+    if toolbar_icon_buttons.exists(): result['toolbar_icon_buttons'] = json.loads(toolbar_icon_buttons.read_text())
+    context_buttons = package/'src/ui_context_buttons.json'
+    if context_buttons.exists(): result['context_buttons'] = json.loads(context_buttons.read_text())
+    return result
+
+class PageAssets(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.styles = set()
+        self.scripts = set()
+        self.raw_shell = False
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag in ('html', 'body') and 'data-ui-raw' in attrs:
+            self.raw_shell = True
+        if tag == 'link' and 'stylesheet' in attrs.get('rel', '').lower().split():
+            self.styles.add(attrs.get('href', ''))
+        if tag == 'script':
+            self.scripts.add(attrs.get('src', ''))
+
+
+def web_pages(manifest):
+    return {view['web'] for kind in ('views', 'customEditors')
+            for view in manifest.get('contributes', {}).get(kind, []) if view.get('web')}
+
+
+def check_page_kit(package, page):
+    # This entry is generated from the shared kit itself, not handwritten.
+    if page == 'web/resources/hub.html':
+        return
+    entry = package / page
+    if Path(page).is_absolute() or '..' in Path(page).parts or not entry.is_file() or package.resolve() not in entry.resolve().parents:
+        raise ValueError(f'Invalid custom panel entry: {entry}')
+    parsed = PageAssets()
+    parsed.feed(entry.read_text())
+    if parsed.raw_shell:
+        raise ValueError(f'Custom panel shell cannot opt out of the shared UI kit: {entry}')
+
+    def local_paths(urls):
+        paths = set()
+        for url in urls:
+            parts = urlsplit(url)
+            if parts.scheme or parts.netloc or parts.query or parts.fragment:
+                continue
+            paths.add(posixpath.normpath(posixpath.join(posixpath.dirname(page), parts.path)))
+        return paths
+
+    styles, scripts = local_paths(parsed.styles), local_paths(parsed.scripts)
+    required_css = {'web/resources/tokens.css', 'web/resources/components.css'}
+    required_js = {f'web/resources/{name}.js' for name in ('native-icons', 'icons', 'widgets', 'controls')}
+    if not (required_css <= styles or 'web/resources/hub.css' in styles) or not required_js <= scripts:
+        raise ValueError(f'Custom panel must load the shared UI kit CSS and icons/widgets/controls: {entry}')
+
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--check',action='store_true');args=parser.parse_args();changed=[];count=0
     for manifest_path in sorted((ROOT/'plugins').glob('*/plugin.toml')):
         manifest=tomllib.loads(manifest_path.read_text());data=config(manifest, manifest_path.parent)
-        if not data['views']: continue
-        count+=1; package=manifest_path.parent
-        files={package/'src/ui_config.json':json.dumps(data,indent=2,ensure_ascii=False)+'\n'}
-        files.update({package/'web/resources'/name:text for name,text in assets(package.name).items()})
+        package=manifest_path.parent
+        pages=web_pages(manifest)
+        for page in pages:check_page_kit(package,page)
+        files={}
+        if not data['views']:
+            # Native views keep an empty bridge allowlist so an old packaged
+            # frame cannot continue dispatching actions after conversion.
+            config_path=package/'src/ui_config.json'
+            if config_path.exists():
+                files[config_path]=json.dumps(data,indent=2,ensure_ascii=False)+'\n'
+            if not pages:
+                for name,content in assets(package.name).items():
+                    path=package/'web/resources'/name
+                    if not path.is_file():continue
+                    expected=content if isinstance(content,bytes) else content.encode()
+                    if path.read_bytes()!=expected:
+                        raise ValueError(f'Refusing to remove modified generated asset: {path}')
+                    changed.append(str(path.relative_to(ROOT)))
+                    if not args.check:path.unlink()
+        else:
+            files[package/'src/ui_config.json']=json.dumps(data,indent=2,ensure_ascii=False)+'\n'
+        if pages:
+            count+=1
+            files.update({package/'web/resources'/name:text for name,text in assets(package.name).items()})
         for path,text in files.items():
             binary=isinstance(text,bytes)
             if path.exists() and (path.read_bytes() if binary else path.read_text())==text:continue

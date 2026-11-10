@@ -396,7 +396,7 @@ impl State {
                 value: FieldValue::readonly_text(&preview.review, true),
             }]))
             .status("Not sent. Send approves only this exact request.")
-            .button(Button::new(&format!("send:{}", preview.nonce), &format!("Send {} once", preview.operation.method)));
+            .button(Button::new(&format!("send:{}", preview.nonce), &format!("Send {} once", preview.operation.method)).icon("send"));
         }
         if let Some(outcome) = &self.outcome {
             if revalidate(ctx, &outcome.source).is_err() {
@@ -461,14 +461,14 @@ impl OpenApi {
             }
             self.try_http.preview =
                 Some(Prepared { source, operation: op.clone(), values, url: concrete, review, nonce, at: Instant::now() });
-            host::reveal_view("try-response")?;
+            crate::ui_group::reveal_view("try-response")?;
             Ok(None)
         })();
         if result.is_err() && self.try_http.pending == Some(nonce) {
             self.try_http.pending = None;
             self.try_http.preview = None;
         }
-        host::refresh_view("try-response");
+        crate::ui_group::refresh_view("try-response");
         result
     }
     /// A new native ViewEvent supplies current window project/editor context.
@@ -535,7 +535,7 @@ impl OpenApi {
         }
         // Only a fresh render may expose the captured reply/outcome in a matching scope.
         // Do not reveal/steal focus into a project the user switched to in flight.
-        host::refresh_view("try-response");
+        crate::ui_group::refresh_view("try-response");
         result
     }
 }
@@ -602,6 +602,34 @@ mod tests {
         assert!(data.contains("HTTP 404") && data.contains("<script>text only</script>"));
         assert!(!data.contains("hidden=test"));
     }
+    #[test]
+    fn grouped_request_response_preserves_readonly_review_exact_send_and_hidden_tab_guards() {
+        let (h, mut p) = setup();
+        h.on_fetch(|_| Ok(HttpResponse {status:200,body:b"response body".to_vec(),..Default::default()}));
+        let key = prepare(&h, &mut p);
+        assert_eq!(h.revealed_views().last().unwrap(), crate::ENDPOINTS);
+        let request = |p: &mut OpenApi, op: serde_json::Value| {
+            let mut op=op;op["channel"]=serde_json::json!("ui-kit");op["sequence"]=serde_json::json!(1);op["project"]=serde_json::json!("/project");
+            p.handle(crate::ENDPOINTS, ViewEvent::Message(op.to_string()), &h.invocation()).unwrap();
+            serde_json::from_str::<serde_json::Value>(&h.view_messages().last().unwrap().1).unwrap()
+        };
+        let initial=request(&mut p,serde_json::json!({"op":"render"}));
+        assert_eq!(initial["model"]["activeView"],"try-response");
+        assert_eq!(initial["model"]["viewTabs"].as_array().unwrap().len(),3);
+        assert!(initial["model"]["body"].to_string().contains("readonly-text"));
+        assert!(h.requests().is_empty());
+        let switched=request(&mut p,serde_json::json!({"op":"select-view","target":"endpoints","targetView":"try-response"}));
+        assert_eq!(switched["model"]["activeView"],"endpoints");
+        let stale=request(&mut p,serde_json::json!({"op":"event","targetView":"try-response","event":{"kind":"button","key":key}}));
+        assert!(stale.get("error").is_some());assert!(h.requests().is_empty());
+        request(&mut p,serde_json::json!({"op":"select-view","target":"try-response","targetView":"endpoints"}));
+        let sent=request(&mut p,serde_json::json!({"op":"event","targetView":"try-response","event":{"kind":"button","key":key}}));
+        assert!(sent.get("error").is_none(),"{sent}");
+        assert_eq!(h.requests().len(),1);assert!(sent["model"]["body"].to_string().contains("response body"));
+        let replay=request(&mut p,serde_json::json!({"op":"event","targetView":"try-response","event":{"kind":"button","key":key}}));
+        assert!(replay.get("error").is_some());assert_eq!(h.requests().len(),1);
+    }
+
     #[test]
     fn api13_default_denied_or_broader_grants_refuse_before_fetch() {
         let (h, mut p) = setup();

@@ -124,8 +124,7 @@ fn stat(project: &Project, value: &str) -> Result<openidea_plugin::FileStat, Err
     project.stat(&scoped_path(project, value)?)
 }
 pub(crate) fn refresh() {
-    host::refresh_view(VIEW);
-    let _ = host::post_view_message(VIEW, r#"{"channel":"ui-kit-refresh"}"#);
+    ui_kit::web::refresh_view(VIEW, include_str!("ui_config.json"));
 }
 fn vacant_output(project: &Project, p: &str) -> Result<(), Error> {
     match stat(project, p) {
@@ -653,7 +652,7 @@ impl Review {
             Ok(())
         })();
         // Error paths can invalidate selection/recipes; render that state too.
-        host::refresh_view(VIEW);
+        ui_kit::web::refresh_view(VIEW, include_str!("ui_config.json"));
         self.watch();
         result
     }
@@ -665,7 +664,7 @@ mod tests {
     use openidea_plugin::mock::MockHost;
     const REPORT: &str = r#"{"differences":[{"id":"add-1","differenceType":"Add","objectType":"Table","from":{"schema":"app","name":"notes","definition":"CREATE TABLE app.notes (body text);"},"to":null},{"id":"delete-2","differenceType":"Delete","objectType":"View","from":null,"to":{"schema":"app","name":"old_view","definition":"CREATE VIEW app.old_view AS SELECT 1;"}}]}"#;
     fn host() -> MockHost {
-        let h = MockHost::install().with_capabilities(&["project.read"]);
+        let h = MockHost::install().with_capabilities(&["project.read", "storage"]);
         h.add_dir("review");
         h.add_dir("schema-model");
         h.add_file("review/diff-text.json", REPORT);
@@ -840,7 +839,7 @@ mod tests {
         let mut plugin = Flyway::default();
         ready(&mut plugin.comparison, &h);
         let old = id(&plugin.comparison, "select");
-        let notifications = || h.view_messages().iter().filter(|(view,_)| view == VIEW).count();
+        let notifications = || h.view_messages().iter().filter(|(view,_)| view == "migrations").count();
         let before = notifications();
         plugin.handle_events(&[Event::FileSaved("/project/review/diff-text.json".into())], &h.invocation());
         assert_eq!(notifications(), before + 1);
@@ -888,7 +887,7 @@ mod tests {
     }
     #[test]
     fn bounded_draft_watches_keep_migration_filters_and_support_custom_report_extensions() {
-        let h = host().with_capabilities(&["project.read", "events"]);
+        let h = host().with_capabilities(&["project.read", "events", "storage"]);
         let mut r = Review::default();
         r.begin(&h.invocation()).unwrap();
         field(&mut r, &h, "report", "custom/deep/report.data").unwrap();
@@ -912,6 +911,6 @@ mod tests {
         assert!(matches!(view.body, Body::Form(_)));
         assert!(plugin.generation.is_none());
         assert!(h.process_runs().is_empty());
-        assert!(h.revealed_views().contains(&VIEW.to_owned()));
+        assert!(h.revealed_views().contains(&"migrations".to_owned()));
     }
 }

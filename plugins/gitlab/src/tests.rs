@@ -2,6 +2,11 @@ use super::*;
 use openidea_plugin::mock::MockHost;
 use openidea_plugin::{HttpRequest, HttpResponse, ProcessOutput};
 
+fn forwarded_message(message:&str)->String {
+    let value=serde_json::from_str::<serde_json::Value>(message).unwrap_or_default();
+    value["message"].as_str().unwrap_or(message).to_owned()
+}
+
 const CAPS: &[&str] =
     &["vcs.read", "editor.read", "net:gitlab.com", "secrets", "storage", "clipboard", "project.read", "events", "process:git"];
 
@@ -192,6 +197,22 @@ fn without_a_token_the_views_ask_for_one() {
 
     assert_eq!(view.body, Body::Message(NO_TOKEN.into()));
     assert!(host.requests().is_empty());
+}
+
+#[test]
+fn opening_a_listed_merge_request_selects_custom_details_and_keeps_browser_access() {
+    let host=setup();let mut plugin=GitLab::default();
+    plugin.render(LIST,None,&host.invocation()).unwrap();
+    plugin.handle(LIST,ViewEvent::Activate("mr:7".into()),&host.invocation()).unwrap();
+    assert_eq!(host.revealed_views(),[LIST]);assert_eq!(GitLab::selected(),Some(7));
+    assert_eq!(ui_kit::web::active_view(LIST,include_str!("ui_config.json")).unwrap(),DETAILS);
+    assert!(host.opened_urls().is_empty());
+    let requests=host.requests().len();
+    assert!(plugin.handle(LIST,ViewEvent::Activate("mr:999".into()),&host.invocation()).is_err());
+    assert_eq!(host.revealed_views(),[LIST]);assert_eq!(host.requests().len(),requests);
+    plugin.render(DETAILS,None,&host.invocation()).unwrap();
+    plugin.handle(DETAILS,ViewEvent::Button("browser".into()),&host.invocation()).unwrap();
+    assert_eq!(host.opened_urls(),["https://gitlab.com/g/p/-/merge_requests/7"]);
 }
 
 #[test]
@@ -462,7 +483,7 @@ fn merge_sends_the_head_sha_and_options() {
     assert_eq!(posted[0].0, "PUT");
     assert!(posted[0].1.ends_with("/merge_requests/7/merge"));
     assert_eq!(posted[0].2, r#"{"sha":"abc123","should_remove_source_branch":true,"squash":true}"#);
-    assert!(host.refreshed_views().ends_with(&[DETAILS.into(), LIST.into()]));
+    assert!(host.refreshed_views().ends_with(&[LIST.into(), LIST.into()]));
 }
 
 fn branch_on_merge_request_8() -> MockHost {
@@ -528,7 +549,7 @@ fn showing_the_branch_merge_request_resets_the_pipeline_view() {
 
     assert_eq!((plugin.pipeline_selection, plugin.pipeline_confirm, plugin.pipeline_status.as_deref()), (None, None, None));
     assert!(plugin.pipeline_open.is_empty());
-    assert!(host.refreshed_views()[before..].contains(&DETAILS.to_owned()));
+    assert!(host.refreshed_views()[before..].contains(&LIST.to_owned()));
 }
 
 #[test]
@@ -638,10 +659,11 @@ fn a_failed_diff_comment_reports_to_the_page_without_redrawing_it() {
     assert_eq!(plugin.status, None);
     assert_eq!(plugin.anchor, None);
     let messages = host.view_messages();
-    let (view, posted) = messages.iter().find(|(_, text)| text.contains(r#""type":"error""#)).unwrap();
-    assert_eq!(view, DETAILS);
+    let (view, posted) = messages.iter().find(|(_, text)| forwarded_message(text).contains(r#""type":"error""#)).unwrap();
+    let posted=forwarded_message(posted);
+    assert_eq!(view, LIST);
     assert!(posted.contains(r#""type":"error""#) && posted.contains("line_code is invalid"), "{posted}");
-    assert!(host.view_messages().iter().all(|(view, _)| view == DETAILS));
+    assert!(host.view_messages().iter().all(|(view, _)| view == LIST));
 }
 
 #[test]
@@ -2587,7 +2609,7 @@ mod commit_tests {
 
         assert_eq!(plugin.commit.as_deref(), Some(SHA1));
         assert_eq!(storage::get(sections::SECTION_KEY).unwrap().as_deref(), Some("changes"));
-        assert!(host.refreshed_views().contains(&DETAILS.to_owned()));
+        assert!(host.refreshed_views().contains(&LIST.to_owned()));
         let html = changes_html(&mut plugin, &host);
         assert!(html.contains("src/b.rs") && !html.contains("src/a.rs"), "{html}");
         assert!(!html.contains("Why?") && !html.contains("data-reply"), "no comment threads in commit mode");
@@ -2597,7 +2619,7 @@ mod commit_tests {
         let comment = r#"{"type":"comment","oldPath":"src/b.rs","newPath":"src/b.rs","old":null,"new":2,"body":"x","draft":false}"#;
         changes_message(&mut plugin, &host, ViewEvent::Message(comment.into())).unwrap();
         assert!(writes(&host).is_empty(), "commit diffs are read-only");
-        assert!(host.view_messages().iter().any(|(view, _)| view == DETAILS), "the error goes to the merge request view");
+        assert!(host.view_messages().iter().any(|(view, _)| view == LIST), "the error goes to the merge request view");
     }
 
     #[test]
@@ -2624,7 +2646,7 @@ mod commit_tests {
         plugin.handle(LIST, ViewEvent::Select("mr:8".into()), &host.invocation()).unwrap();
 
         assert_eq!(plugin.commit, None);
-        assert!(host.refreshed_views().contains(&DETAILS.to_owned()));
+        assert!(host.refreshed_views().contains(&LIST.to_owned()));
     }
 
     #[test]
@@ -2835,7 +2857,7 @@ mod pipeline_tests {
         let view = render_in(&mut plugin, Section::Pipelines, &host);
 
         assert!(rows(&view).contains(&("j:300", Some("s:40:test"), "unit", Some("error"))), "{view:?}");
-        assert!(host.refreshed_views().contains(&DETAILS.to_owned()));
+        assert!(host.refreshed_views().contains(&LIST.to_owned()));
     }
 
     #[test]
@@ -2937,15 +2959,14 @@ mod pipeline_tests {
     }
 
     #[test]
-    fn retry_is_disabled_for_a_running_job() {
+    fn retry_is_hidden_for_a_running_job() {
         let host = host();
         let mut plugin = on_mr(&host);
         pick(&mut plugin, &host, "j:302");
 
         let view = click(&mut plugin, &host, "retry");
 
-        let retry = view.toolbar.iter().find(|b| button_matches(&b.id,"retry")).unwrap();
-        assert_eq!(retry, &Button::new(&retry.id, "Retry Job").icon("rerun").enabled(false));
+        assert!(!view.toolbar.iter().any(|b| button_matches(&b.id,"retry")));
         assert!(writes(&host).is_empty());
     }
 
@@ -3055,7 +3076,7 @@ fn the_status_item_reveals_the_merge_request_view() {
 
     plugin.run_command("show-branch-merge-request", &host.invocation(), None).unwrap();
 
-    assert_eq!(host.revealed_views(), ["merge-request"]);
+    assert_eq!(host.revealed_views(), [LIST]);
 }
 
 #[test]
@@ -3297,7 +3318,7 @@ fn clicking_a_section_button_switches_the_view_and_stores_it() {
     plugin.handle(DETAILS, ViewEvent::Button("section:changes".into()), &host.invocation()).unwrap();
 
     assert_eq!(storage::get(sections::SECTION_KEY).unwrap().as_deref(), Some("changes"));
-    assert!(host.refreshed_views().contains(&DETAILS.to_owned()));
+    assert!(host.refreshed_views().contains(&LIST.to_owned()));
     let view = plugin.render(DETAILS, None, &host.invocation()).unwrap();
     assert!(matches!(view.body, Body::Html(_)), "{view:?}");
 }
@@ -3367,7 +3388,7 @@ fn files_section_toggles_viewed_and_refreshes_the_window() {
 
     handle_in(&mut plugin, Section::Files, ViewEvent::Button("clear".into()), &host);
 
-    assert!(host.refreshed_views()[before..].contains(&DETAILS.to_owned()));
+    assert!(host.refreshed_views()[before..].contains(&LIST.to_owned()));
 }
 
 mod existing_worktree_tests {
@@ -3600,10 +3621,11 @@ mod content_snapshot_tests {
         (host, plugin)
     }
     fn open_in_frame(host: &MockHost, plugin: &mut GitLab, button: &str, frame: &str) -> Result<(), Error> {
-        let message = serde_json::json!({"channel":"ui-kit","sequence":1,"frameId":frame,"project":"/project", "op":"event",
+        ui_kit::web::reveal_view(DETAILS, include_str!("ui_config.json"))?;
+        let message = serde_json::json!({"channel":"ui-kit","sequence":1,"targetView":DETAILS,"frameId":frame,"project":"/project", "op":"event",
             "event":{"kind":"button","key":button}})
         .to_string();
-        plugin.handle(DETAILS, ViewEvent::Message(message), &host.invocation())?;
+        plugin.handle(LIST, ViewEvent::Message(message), &host.invocation())?;
         let response: serde_json::Value = serde_json::from_str(&host.view_messages().last().unwrap().1).unwrap();
         if let Some(error) = response["error"].as_str() {
             return Err(Error::Failed(error.into()));
@@ -3622,7 +3644,7 @@ mod content_snapshot_tests {
         let message =
             serde_json::json!({"op":"content-tab-action","requestId":"ct-1","key":key,"action":action,"content":"FORGED EDITOR TEXT"})
                 .to_string();
-        plugin.handle(DETAILS, ViewEvent::Message(message), &host.invocation()).unwrap();
+        plugin.handle(LIST, ViewEvent::Message(message), &host.invocation()).unwrap();
         let envelope: serde_json::Value = serde_json::from_str(&host.view_messages().last().unwrap().1).unwrap();
         assert_eq!(envelope["channel"], "gitlab-content-reply");
         assert!(envelope.get("op").is_none(), "broadcast reply must not directly resolve a host pending request");
@@ -3681,7 +3703,7 @@ mod content_snapshot_tests {
         assert!(reply.get("error").is_none());
         assert_eq!(host.requests().len(), before);
         assert_eq!(Section::stored(), Section::Changes);
-        assert_eq!(host.revealed_views().last().map(String::as_str), Some(DETAILS));
+        assert_eq!(host.revealed_views().last().map(String::as_str), Some(LIST));
         assert_eq!(storage::get(COMMENT_KEY).unwrap().as_deref(), Some("my draft"));
     }
 
@@ -3852,7 +3874,7 @@ mod content_snapshot_tests {
         let (host, mut plugin) = prepared();
         let requests = host.requests().len();
         assert!(plugin.handle(DETAILS, ViewEvent::Button("open-overview-snapshot".into()), &host.invocation()).is_err());
-        assert!(host.view_messages().iter().all(|(_, text)| text == r#"{"channel":"ui-kit-refresh"}"#));
+        assert!(host.view_messages().iter().all(|(_, text)| serde_json::from_str::<serde_json::Value>(text).unwrap()["channel"] == "ui-kit-refresh"));
         assert_eq!(host.requests().len(), requests);
         open_in_frame(&host, &mut plugin, "open-overview-snapshot", FRAME).unwrap();
         assert!(plugin.content_origin_frame.is_none());
@@ -3923,7 +3945,10 @@ mod cross_pane_refresh_tests {
         plugin
     }
     fn notifications(host: &MockHost, after: usize) -> Vec<String> {
-        host.view_messages()[after..].iter().filter(|(_, text)|text==r#"{"channel":"ui-kit-refresh"}"#).map(|(view,_)|view.clone()).collect()
+        host.view_messages()[after..].iter().filter_map(|(view, text)| {
+            let value:serde_json::Value=serde_json::from_str(text).ok()?;
+            (value["channel"]=="ui-kit-refresh").then(||value["targetView"].as_str().unwrap_or(view).to_owned())
+        }).collect()
     }
     #[test]
     fn selection_notifies_the_other_packaged_pane_without_broadcasting_a_model() {
@@ -4018,8 +4043,9 @@ mod job_trace_snapshot_tests {
         (h,p,Fixture{response,member,retire_after_trace})
     }
     fn open(h:&MockHost,p:&mut GitLab)->serde_json::Value {
-        let view=render_in(p,Section::Pipelines,h);let key=view.toolbar.iter().find(|button|button.label=="Open Job Trace Snapshot (API1.4)").unwrap().id.clone();
-        let message=serde_json::json!({"channel":"ui-kit","sequence":1,"frameId":FRAME,"project":"/project","op":"event","event":{"kind":"button","key":key}}).to_string();p.handle(DETAILS,ViewEvent::Message(message),&h.invocation()).unwrap();serde_json::from_str::<serde_json::Value>(&h.view_messages().last().unwrap().1).unwrap()
+        let view=render_in(p,Section::Pipelines,h);let key=view.toolbar.iter().find(|button|button.label=="Open Job Trace Snapshot").unwrap().id.clone();
+        ui_kit::web::reveal_view(DETAILS, include_str!("ui_config.json")).unwrap();
+        let message=serde_json::json!({"channel":"ui-kit","sequence":1,"targetView":DETAILS,"frameId":FRAME,"project":"/project","op":"event","event":{"kind":"button","key":key}}).to_string();p.handle(LIST,ViewEvent::Message(message),&h.invocation()).unwrap();serde_json::from_str::<serde_json::Value>(&h.view_messages().last().unwrap().1).unwrap()
     }
     fn payload(h:&MockHost)->serde_json::Value {h.view_messages().iter().filter_map(|(_,m)|serde_json::from_str::<serde_json::Value>(m).ok()).find(|v|v["channel"]=="gitlab-content-open").unwrap()["payload"].clone()}
     fn action(h:&MockHost,p:&mut GitLab,key:&str,kind:&str)->serde_json::Value {let m=serde_json::json!({"op":"content-tab-action","requestId":"trace-1","key":key,"action":kind}).to_string();p.handle(DETAILS,ViewEvent::Message(m),&h.invocation()).unwrap();serde_json::from_str::<serde_json::Value>(&h.view_messages().last().unwrap().1).unwrap()["payload"].clone()}
@@ -4140,8 +4166,9 @@ mod timeline_snapshot_tests {
         let (host,mut plugin)=ready();refresh(&mut plugin,&host).unwrap();
         let key=comment_key(&model(&mut plugin,&host).0);
         let send=|plugin:&mut GitLab,event:serde_json::Value| {
-            let msg=serde_json::json!({"channel":"ui-kit","sequence":1,"frameId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","project":"/project","op":"event","event":event});
-            plugin.handle(DETAILS,ViewEvent::Message(msg.to_string()),&host.invocation()).unwrap();
+            ui_kit::web::reveal_view(DETAILS, include_str!("ui_config.json")).unwrap();
+            let msg=serde_json::json!({"channel":"ui-kit","sequence":1,"targetView":DETAILS,"frameId":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","project":"/project","op":"event","event":event});
+            plugin.handle(LIST,ViewEvent::Message(msg.to_string()),&host.invocation()).unwrap();
             serde_json::from_str::<serde_json::Value>(&host.view_messages().last().unwrap().1).unwrap()
         };
         assert!(send(&mut plugin,serde_json::json!({"kind":"button","key":"timeline-reply"}))["error"].is_string());
@@ -4330,5 +4357,52 @@ mod files_callback_context_receipts {
         let key=view.toolbar.iter().find(|button|button.label=="Clear Viewed").unwrap().id.clone();
         switch(&host,&mut plugin);storage::set("viewed:g/p:8",r#"{"src/a.rs":"abcdef1"}"#).unwrap();let before=host.storage();
         let _=plugin.handle(DETAILS,ViewEvent::Button(key),&host.invocation());assert_eq!(host.storage(),before);assert!(writes(&host).is_empty());
+    }
+}
+
+mod grouped_ui_parity_tests {
+    use super::*;
+    use serde_json::{Value, json};
+
+    fn send(plugin:&mut GitLab,host:&MockHost,active:&str,operation:Value)->Value {
+        let mut request=operation;
+        request["channel"]=json!("ui-kit");request["sequence"]=json!(1);
+        request["frameId"]=json!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        request["project"]=Value::Null;request["targetView"]=json!(active);
+        plugin.handle(LIST,ViewEvent::Message(request.to_string()),&host.invocation()).unwrap();
+        serde_json::from_str(&host.view_messages().last().unwrap().1).unwrap()
+    }
+    #[test]
+    fn initial_and_details_token_setup_do_not_need_project_ownership() {
+        let host=MockHost::install().with_capabilities(&["storage"]);host.set_project_root(None);
+        let mut plugin=GitLab::default();
+        let answer=send(&mut plugin,&host,LIST,json!({"op":"event","event":{"kind":"button","key":"new-token"}}));
+        assert!(answer.get("error").is_none(),"{answer}");
+        assert_eq!(host.opened_urls(),[api::new_token_url()]);
+        let answer=send(&mut plugin,&host,LIST,json!({"op":"select-view","target":DETAILS}));
+        assert_eq!(answer["model"]["activeView"],DETAILS);
+        let answer=send(&mut plugin,&host,DETAILS,json!({"op":"event","event":{"kind":"button","key":"new-token"}}));
+        assert!(answer.get("error").is_none(),"{answer}");
+        assert_eq!(host.opened_urls(),[api::new_token_url(),api::new_token_url()]);
+        // The early setup branch must not make any review operation project-free.
+        assert!(plugin.handle(LIST,ViewEvent::Button("refresh".into()),&host.invocation()).is_err());
+        assert!(plugin.handle(DETAILS,ViewEvent::Button("approve".into()),&host.invocation()).is_err());
+        assert!(host.requests().is_empty());
+    }
+
+    #[test]
+    fn custom_tabs_and_token_setup_work_without_a_project_and_old_tab_actions_refuse() {
+        let host=MockHost::install().with_capabilities(&["storage"]);host.set_project_root(None);
+        let mut plugin=GitLab::default();
+        let answer=send(&mut plugin,&host,LIST,json!({"op":"render"}));
+        assert_eq!(answer["model"]["viewTabs"].as_array().unwrap().len(),3);
+        let answer=send(&mut plugin,&host,LIST,json!({"op":"select-view","target":PROJECTS}));
+        assert_eq!(answer["model"]["activeView"],PROJECTS);
+        let answer=send(&mut plugin,&host,PROJECTS,json!({"op":"event","event":{"kind":"button","key":"new-token"}}));
+        assert!(answer.get("error").is_none(),"{answer}");
+        assert_eq!(host.opened_urls(),[api::new_token_url()]);
+        let stale=send(&mut plugin,&host,LIST,json!({"op":"event","event":{"kind":"button","key":"new-token"}}));
+        assert!(stale["error"].is_string());assert_eq!(host.opened_urls().len(),1);
+        assert!(host.view_messages().iter().all(|(view,_)|view==LIST));
     }
 }

@@ -37,8 +37,7 @@ const DETAILS: &str = "merge-request";
 /// Content-free invalidation; each page fetches its own correlated model.
 fn refresh_mr_view(view: &str) {
     debug_assert!(matches!(view, LIST | DETAILS));
-    host::refresh_view(view);
-    let _ = host::post_view_message(view, r#"{"channel":"ui-kit-refresh"}"#);
+    ui_kit::web::refresh_view(view, include_str!("ui_config.json"));
 }
 
 const PROJECTS: &str = "gitlab-projects";
@@ -790,7 +789,7 @@ impl GitLab {
         Ok(())
     }
 
-    /// Double click: a diff thread opens its line, anything else its GitLab page.
+    /// Open a listed merge request in the native Details tab; diff threads keep source navigation.
     fn activate(&mut self, key: &str, ctx: &Invocation) -> Result<(), Error> {
         let (iid, thread, note) = match Key::parse(key) {
             Some(Key::MergeRequest(iid)) => (iid, None, None),
@@ -799,6 +798,11 @@ impl GitLab {
             None => return Ok(()),
         };
 
+        if matches!(Key::parse(key), Some(Key::MergeRequest(_))) {
+            if !self.list.iter().any(|mr|mr.iid == iid) { return Err("The merge request is no longer in the list. Refresh it.".into()); }
+            self.handle_list(ViewEvent::Select(key.to_owned()), ctx)?;
+            return ui_kit::web::reveal_view(DETAILS, include_str!("ui_config.json"));
+        }
         let mr = self.list.iter().find(|mr| mr.iid == iid).ok_or("The merge request is no longer in the list. Refresh it.")?;
         let Some(thread) = thread.and_then(|d| self.threads.get(&iid)?.iter().find(|t| t.id == d)) else {
             return host::open_url(&mr.web_url);
@@ -949,7 +953,7 @@ impl GitLab {
             view = view.button(Button::new("merge", &merge).icon("github-pr-merged").enabled(can_merge && mergeable));
 
             if mr.detailed_merge_status.as_deref() == Some("need_rebase") {
-                view = view.button(Button::new("rebase", "Rebase"));
+                view = view.button(Button::new("rebase", "Rebase").icon("branch"));
             }
 
             if !mr.reviewers.iter().any(|u| u.id == me.id) {
@@ -1916,7 +1920,7 @@ impl GitLab {
 
         Ok(View::new(Body::Tree(items))
             .button(retry.icon("rerun"))
-            .button(Button::new(&self.pipeline_button_key(ctx, "open-job-trace-snapshot")?,"Open Job Trace Snapshot (API1.4)").icon("file").enabled(self.trace_transport&&job.is_some()))
+            .button(Button::new(&self.pipeline_button_key(ctx, "open-job-trace-snapshot")?,"Open Job Trace Snapshot").icon("file").enabled(self.trace_transport&&job.is_some()))
             .button(Button::new(&self.pipeline_button_key(ctx, "cancel")?, &cancel).icon("stop").enabled(cancellable))
             .button(Button::new(&self.pipeline_button_key(ctx, "browser")?, "Open on GitLab").icon("external-link").enabled(pipeline.is_some()))
             .button(refresh)
@@ -2174,30 +2178,31 @@ impl Providers for GitLab {
 
 impl Views for GitLab {
     fn render(&mut self, view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
-        api::begin_budget();
-        if !host::secret_is_set(api::TOKEN) {
-            return Ok(View::message(NO_TOKEN).button(Button::new("new-token", "Create Access Token")));
-        }
+        (|| -> Result<View, Error> {
+            api::begin_budget();
+            if !host::secret_is_set(api::TOKEN) {
+                return Ok(View::message(NO_TOKEN).button(Button::new("new-token", "Create Access Token").icon("external-link")));
+            }
 
-        if matches!(view, LIST | DETAILS) {
-            if let Err(error) = self.ensure_view_owner(ctx) { return Ok(View::message(&error.to_string())); }
-        }
+            if matches!(view, LIST | DETAILS) {
+                if let Err(error) = self.ensure_view_owner(ctx) { return Ok(View::message(&error.to_string())); }
+            }
 
-        let rendered = match view {
-            LIST => self.render_list(ctx),
-            DETAILS => self.render_section(ctx),
-            PROJECTS => self.render_projects(ctx),
-            _ => return Err(Error::NotFound(format!("view {view}"))),
-        };
+            let rendered = match view {
+                LIST => self.render_list(ctx),
+                DETAILS => self.render_section(ctx),
+                PROJECTS => self.render_projects(ctx),
+                _ => return Err(Error::NotFound(format!("view {view}"))),
+            };
 
-        Ok(rendered.unwrap_or_else(|e| View::message(&e.to_string()).button(Button::new("refresh", "Refresh").icon("refresh"))))
+            Ok(rendered.unwrap_or_else(|e| View::message(&e.to_string()).button(Button::new("refresh", "Refresh").icon("refresh"))))
+        })().map(ui_kit::actions::available)
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {
         if self.handle_content_action(view, &event, ctx)? {
             return Ok(());
         }
-        if matches!(view, LIST | DETAILS) { self.ensure_view_owner(ctx)?; }
         let incoming_frame = content_tabs::origin_frame(&event);
         let previous_frame = incoming_frame.map(|frame| self.content_origin_frame.replace(frame));
         let handled = ui_kit::web::handle(self, view, &event, ctx, include_str!("ui_config.json"));
@@ -2207,14 +2212,12 @@ impl Views for GitLab {
         if handled? {
             return Ok(());
         }
+        if matches!(&event, ViewEvent::Button(id) if id == "new-token") {
+            return host::open_url(&api::new_token_url());
+        }
+        if matches!(view, LIST | DETAILS) { self.ensure_view_owner(ctx)?; }
 
         api::begin_budget();
-        if let ViewEvent::Button(id) = &event {
-            if id == "new-token" {
-                return host::open_url(&api::new_token_url());
-            }
-        }
-
         match view {
             LIST => self.handle_list(event, ctx),
             DETAILS => self.handle_section(event, ctx),

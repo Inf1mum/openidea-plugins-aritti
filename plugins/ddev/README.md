@@ -1,5 +1,11 @@
 # DDEV Integration
 
+DDEV Setup uses the shared custom UI kit for its toolbar, project preferences,
+read-only setup help and environment diagnostics. Its existing commands, explicit
+Save/Reset behavior and project ownership checks are preserved. DDEV's Services
+tree and resource details remain native.
+
+
 An OpenIDEA source port of [DDEV Integration for IntelliJ](https://github.com/ddev/ddev-intellij-plugin),
 version **1.2.10+261**, source tag **1.2.10**, revision
 `7291f3ea58cf937ae8c6ac7973ed24876915e308`. Original authors: Nico Löber and
@@ -16,15 +22,20 @@ on PATH and a working container runtime. Open the folder containing
 Open **Services > DDEV**. The project node shows its status; children are the
 services reported by `ddev describe --json-output`, plus Mailpit/Mailhog links.
 
-- **Start / Stop**, **Shell** and **Browser** reflect project state; unavailable
+- **Start / Restart / Stop**, **Open Shell** and **Open in Browser** reflect project state; unavailable
   actions are disabled. Actions are checked again when dispatched.
-- **Actions…** and the **DDEV status-bar item** open a context-aware project menu
+- **More Actions…** and the **DDEV status-bar item** open a context-aware project menu
   for Restart, Share, Delete, Power Off, container tools and setup.
 - **Shell** uses the selected container (`ddev ssh --service …`); the project
   node and the status menu use `web`. Browser prefers HTTPS; double-click opens
   the node's URL. A service without a URL reports that it has none.
 - **Overview** summarizes the project/service. **Inspect** shows DDEV JSON with credential fields redacted; **Configuration** shows the project
   YAML and the toolbar opens it in an editor; **Help** explains setup and recovery.
+- The compact toolbar uses registered native IDE icons for all actions, with
+  descriptive accessible labels. Project-free, unconfigured and unavailable
+  states stay visible as read-only Services status rows. Selecting those rows
+  or opening their Overview does not retry DDEV commands; **Refresh Status** is
+  the explicit retry action. Recovery controls keep their state/permission checks.
 - **Logs** uses the host's native streaming pane with
   `ddev logs <project-name> --follow --tail=200 --service …`. Timestamps adds `--time`. The project
   node uses `web`; synthetic Mailpit/Mailhog links have no separate shell/log.
@@ -43,6 +54,13 @@ are preserved, including valid inline TOML tables. **Reset Changes** reloads the
 current project's saved values without writing or clearing other projects' drafts.
 Save applies enabled database maintenance immediately when runtime access is
 available, including with periodic watching disabled. The setup form remains useful without a DDEV execution grant.
+
+The UI comparison uses the BSD-licensed original source at the revision above:
+`META-INF/plugin.xml` Run actions, `ServicesActionGroup`,
+`ServiceActionManagerImpl` and the status-bar/settings classes. The original
+Services action group supplies dynamic browser-link actions, rather than the
+OpenIDEA Services tree used here. This is a native adaptation of its lifecycle,
+service links and setup workflow, not an assertion of identical tool-window layout.
 
 Every open configured project is initialized at startup. Status refreshes on a
 one-minute schedule when enabled, on base/override/Compose
@@ -294,3 +312,11 @@ now verifies real PHP/Node execution and mapped paths/argv, explicit Composer
 root/hooks, MariaDB SQL and Xdebug DBGp connect-back/source URI. Native Database
 connection/credential UI, full IDE debugging and remote/Windows behavior remain
 unverified.
+
+Setup custom-panel validation: 110 DDEV tests (one live test remains ignored),
+51 shared UI-kit tests, and Chromium/WebKit light/dark dock checks passed. The
+seven setup actions fit one toolbar row at320px and768px with accessible names
+and tooltips. Bridge tests cover read-only fields, unchanged settings until Save,
+Reset, unrelated TOML preservation, foreign-project refusal and no-project help.
+The release component passes API1.4 validation; browser fixtures are not fresh
+live-app acceptance. Reload the plugin to replace the native Setup renderer.

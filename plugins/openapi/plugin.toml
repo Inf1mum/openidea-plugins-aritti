@@ -30,16 +30,9 @@ languages = ["json", "yaml"]
 
 [[contributes.views]]
 id = "endpoints"
-title = "OpenAPI Endpoints"
+title = "OpenAPI"
 icon = "web"
 location = "right"
-web = "web/resources/hub.html"
-
-[[contributes.views]]
-id = "compare"
-title = "OpenAPI Changes"
-icon = "icons/openapiinitiative.svg"
-location = "bottom"
 web = "web/resources/hub.html"
 
 [[contributes.commands]]
@@ -168,14 +161,8 @@ files = ["**/*.yaml", "**/*.yml", "**/*.json"]
 
 [[contributes.commands]]
 id = "try-local-read"
-title = "OpenAPI: Try Local GET/HEAD (API 1.4)…"
+title = "OpenAPI: Try Local GET/HEAD Request…"
 category = "OpenAPI"
-
-[[contributes.views]]
-id = "try-response"
-title = "OpenAPI Local Request / Response"
-icon = "globe"
-location = "bottom"
 
 [[contributes.commands]]
 id = "component-occurrences"

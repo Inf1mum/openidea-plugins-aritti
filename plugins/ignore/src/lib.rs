@@ -389,7 +389,7 @@ fn template_tree(user: &[String], expanded: &HashSet<String>, starred: &HashSet<
         group("g:Global", "Global templates (OS, editors, tools)"),
         group("g:community", "Community templates"),
     ];
-    items.extend(user.iter().map(|name| TreeItem::new(&format!("u:{name}"), name).icon("star").parent("g:user")));
+    items.extend(user.iter().map(|name| TreeItem::new(&format!("u:{name}"), name).icon(if starred.contains(&format!("u:{name}")) {"star"} else {"file-ignored"}).parent("g:user")));
     let icon = |key: &str| {
         if starred.contains(key) { "star" } else { "file-ignored" }
     };
@@ -438,13 +438,10 @@ fn refresh_templates() {
 struct IgnorePlugin {
     file_hints: file_hints::State,
     preferences: preferences::State,
+    show_preferences: bool,
     inventory: git_inventory::State,
     directories: decorations::Directories,
     checked_paths: HashSet<String>,
-    /// The name typed for a new user template, while its form is shown.
-    naming: Option<String>,
-    /// The user template waiting for its deletion to be confirmed.
-    deleting: Option<String>,
     selected: Option<String>,
     expanded: HashSet<String>,
 }
@@ -494,18 +491,20 @@ impl IgnorePlugin {
         Ok(())
     }
 
-    fn save_user_template(&mut self, ctx: &Invocation) -> Result<(), Error> {
-        let name = self.naming.as_deref().unwrap_or("").trim().to_owned();
-        if name.is_empty() {
-            return Err("Enter a template name.".into());
-        }
+    fn create_user_template(&mut self, ctx: &Invocation) -> Result<(), Error> {
         let editor = ctx.editor().ok_or("Open the file to save as a template.")?;
+        let before = editor.document()?;
+        let path = editor.path();
+        let default_name = path.rsplit(['/', '\\']).next().unwrap_or("");
+        let Some(name) = host::input("Create User Template", Some(default_name))? else {return Ok(());};
+        let name = name.trim();
+        if name.is_empty() {return Err("Enter a template name.".into());}
         let key = format!("{USER_TEMPLATE}{name}");
-        if host::storage::get(&key)?.is_some() {
-            return Err(format!("A user template named {name} already exists.").into());
-        }
-        host::storage::set(&key, &editor.document()?.text)?;
-        self.naming = None;
+        if host::storage::get(&key)?.is_some() {return Err(format!("A user template named {name} already exists.").into());}
+        let current = editor.document()?;
+        if editor.path() != path || current.version != before.version || current.text != before.text
+            || ctx.editor().is_none_or(|current|current.path() != path) {return Err(Error::Stale);}
+        host::storage::set(&key, &before.text)?;
         self.expanded.insert("g:user".into());
         host::notify(NotificationLevel::Info, "User template created", &format!("Saved user template {name}."));
         Ok(())
@@ -533,6 +532,9 @@ impl openidea_plugin::Plugin for IgnorePlugin {
             "git-inventory-clear" => { self.file_hints.clear()?; self.inventory.clear(ctx) },
             "git-inventory-review" => self.inventory.review(ctx),
             "preferences" => {
+                self.file_hints.clear()?;
+                self.show_preferences = true;
+                refresh_templates();
                 host::reveal_view(preferences::VIEW)?;
                 Ok(None)
             }
@@ -653,43 +655,63 @@ impl SyntaxProvider for IgnorePlugin {
 
 impl Views for IgnorePlugin {
     fn render(&mut self, _view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
-        if _view == preferences::VIEW {
-            return self.preferences_render();
-        }
-        if let Some(name) = &self.naming {
-            return Ok(View::new(Body::Form(vec![Field::new("name", "Template name", FieldValue::Text(name.clone()))]))
-                .button(Button::new("save", "Create"))
-                .button(Button::new("cancel", "Cancel"))
-                .status("Saves the focused file as a user template."));
-        }
-
-        if let Some(name) = &self.deleting {
-            return Ok(View::message(&format!("Delete user template {name}?"))
-                .button(Button::new("confirm-delete", "Delete").icon("trash"))
-                .button(Button::new("cancel", "Cancel")));
-        }
-
-        let user = user_templates();
-        let user_selected = self.selected_user_template().is_some();
-        let starred = starred();
-        let selected = self.selected_template();
-        let star_label = if selected.is_some_and(|k| starred.contains(k)) { "Unstar" } else { "Star" };
-        Ok(View::new(Body::Tree(template_tree(&user, &self.expanded, &starred)))
-            .button(Button::new("new", "Create User Template").icon("plus").enabled(ctx.editor().is_some()))
-            .button(Button::new("delete", "Delete User Template").icon("trash").enabled(user_selected))
-            .button(Button::new("star", star_label).icon("star").enabled(selected.is_some()))
-            .status(&format!("Double-click a template to add it to the open ignore file. {}", self.inventory.summary(ctx))))
+        (|| -> Result<View, Error> {
+            if self.show_preferences {
+                return self.preferences_render().map(|view|view.button(Button::new("preferences-back","Back to Templates").icon("arrow-left")));
+            }
+            let user = user_templates();
+            let user_selected = self.selected_user_template().is_some();
+            let starred = starred();
+            let selected = self.selected_template();
+            let star_label = if selected.is_some_and(|k| starred.contains(k)) { "Unstar" } else { "Star" };
+            let items=template_tree(&user, &self.expanded, &starred);
+            let body=if ui_kit::web::is_rendering() {
+                let can_insert=ctx.editor().is_some_and(|editor| {
+                    let path=editor.path();
+                    preferences::can_edit(&path) && dialect(&path).is_some_and(|dialect|dialect.syntax == check::Syntax::Glob)
+                        && project_of(&path).is_some_and(|(_,root,_)|ctx.project().and_then(|project|project.root().ok()).is_some_and(|current|current.trim_end_matches('/') == root))
+                });
+                Body::Other {kind:"tree".into(),data:serde_json::json!({"items":items.iter().map(|item| {
+                    let key=item.key.strip_prefix("s:").unwrap_or(&item.key);
+                    let template=key.starts_with("t:") || key.starts_with("u:");
+                    serde_json::json!({"key":item.key,"parent":item.parent,"label":item.label,"icon":item.icon,"detail":item.detail,
+                        "expandable":item.expandable,"expanded":item.expanded,"activationLabel":template.then_some("Add to Ignore File"),
+                        "activationIcon":template.then_some("add"),"activationEnabled":if template {Some(can_insert)} else {None}})
+                }).collect::<Vec<_>>()}).to_string()}
+            } else {Body::Tree(items)};
+            Ok(View::new(body)
+                .button(Button::new("new", "Create User Template").icon("plus").enabled(ctx.editor().is_some()))
+                .button(Button::new("delete", "Delete User Template").icon("trash").enabled(user_selected))
+                .button(Button::new("star", star_label).icon("star").enabled(selected.is_some()))
+                .button(Button::new("preferences", "Preferences").icon("settings"))
+                .status(&format!("Double-click a template to add it to the open ignore file. {}", self.inventory.summary(ctx))))
+        })().map(ui_kit::actions::available)
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {
-        if view == preferences::VIEW {
-            self.file_hints.clear()?;
-            return self.preferences_event(event, ctx);
-        }
         if ui_kit::web::handle(self, view, &event, ctx, include_str!("ui_config.json"))? {
             return Ok(());
         }
 
+        if self.show_preferences {
+            if matches!(&event,ViewEvent::Button(id) if id == "preferences-back") {
+                self.show_preferences=false;
+            } else {
+                self.file_hints.clear()?;
+                let close=self.preferences.closes(&event);
+                self.preferences_event(event,ctx)?;
+                if close {self.show_preferences=false;}
+            }
+            refresh_templates();
+            return Ok(());
+        }
+        // Global preferences are available without a project, but anonymous
+        // packaged template actions must not gain mutation authority from that.
+        if ui_kit::web::is_rendering() && ctx.project().and_then(|p|p.root().ok()).filter(|root|!root.is_empty()).is_none()
+            && !matches!(&event,ViewEvent::Button(id) if id == "preferences")
+            && !matches!(&event,ViewEvent::Select(_) | ViewEvent::Expand(_) | ViewEvent::Collapse(_)) {
+            return Err(Error::Denied("Open an identifiable project before using template actions.".into()));
+        }
         match event {
             ViewEvent::Activate(key) if !key.starts_with("g:") => {
                 return self.add_template(key.strip_prefix("s:").unwrap_or(&key), ctx);
@@ -706,14 +728,10 @@ impl Views for IgnorePlugin {
                 self.expanded.remove(&key);
                 host::refresh_view(view);
             }
-            ViewEvent::Field(_, value) => self.naming = Some(value),
             ViewEvent::Button(button) => {
                 match button.as_str() {
-                    "new" => {
-                        let name = ctx.editor().map(|e| e.path().rsplit('/').next().unwrap_or("").to_owned());
-                        self.naming = Some(name.unwrap_or_default());
-                    }
-                    "save" => self.save_user_template(ctx)?,
+                    "preferences" => {self.file_hints.clear()?;self.show_preferences=true;refresh_templates();}
+                    "new" => self.create_user_template(ctx)?,
                     "star" => {
                         let key = self.selected_template().ok_or("Select a template to star.")?;
                         let storage_key = format!("{STARRED_PREFIX}{key}");
@@ -723,19 +741,18 @@ impl Views for IgnorePlugin {
                             host::storage::set(&storage_key, "1")?;
                         }
                     }
-                    "cancel" => {
-                        self.naming = None;
-                        self.deleting = None;
-                    }
                     "delete" => {
-                        let name = self.selected_user_template().ok_or("Select a user template to delete.")?;
-                        self.deleting = Some(name.to_owned());
-                    }
-                    "confirm-delete" => {
-                        let Some(name) = self.deleting.take() else {
+                        let name = self.selected_user_template().ok_or("Select a user template to delete.")?.to_owned();
+                        let key=format!("{USER_TEMPLATE}{name}");
+                        let content=host::storage::get(&key)?.ok_or_else(||Error::NotFound(format!("user template {name}")))?;
+                        let selected=self.selected.clone();
+                        if !ui_kit::prompts::confirm_exact("Delete User Template",&format!("Delete user template {name}?\n\nThis removes the saved template and its favorite marker. Existing ignore files are unchanged."))? {
                             return Ok(());
-                        };
-                        host::storage::delete(&format!("{USER_TEMPLATE}{name}"))?;
+                        }
+                        if self.selected != selected || host::storage::get(&key)?.as_ref() != Some(&content) {
+                            return Err(Error::Stale);
+                        }
+                        host::storage::delete(&key)?;
                         host::storage::delete(&format!("{STARRED_PREFIX}u:{name}"))?;
                         self.selected = None;
                         host::notify(NotificationLevel::Info, "User template deleted", &format!("Deleted user template {name}."));

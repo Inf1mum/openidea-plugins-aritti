@@ -1,0 +1,13 @@
+{
+  "primary": "changesets",
+  "tabs": [
+    {
+      "id": "changesets",
+      "label": "Liquibase"
+    },
+    {
+      "id": "offline-diff",
+      "label": "Offline Diff"
+    }
+  ]
+}

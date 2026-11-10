@@ -4,6 +4,7 @@
 //! - Migration file names are checked against the configured naming scheme.
 
 mod native_runs;
+mod native_browser;
 mod checks;
 mod comparison;
 mod complete;
@@ -32,6 +33,9 @@ const TITLE: &str = "Flyway";
 
 #[derive(Default)]
 pub struct Flyway {
+    browser_filter: Option<(String, String)>,
+    browser_selection: Option<native_browser::Selection>,
+    browser_expansion: spring_text::tree::Expansion,
     navigation: navigation::State,
     generation: Option<generate::Draft>,
     comparison: comparison::Review,
@@ -73,8 +77,7 @@ fn root_relative<'a>(path: &'a str, root: &str) -> &'a str {
 
 // No model/identity data in the broadcast; each frame renders its own scoped cache.
 fn refresh_migrations() {
-    host::refresh_view("migrations");
-    let _ = host::post_view_message("migrations", r#"{"channel":"ui-kit-refresh"}"#);
+    ui_kit::web::refresh_view("migrations", include_str!("ui_config.json"));
 }
 fn open_root(project: &Project) -> Option<String> {
     let root = project.root().ok()?;
@@ -226,7 +229,7 @@ impl Flyway {
             self.targets.clear();
             self.targets_root = Some(root.clone());
             let view = if let Some(error) = finished.info_error {
-                View::message(error).button(Button::new("refresh", "Refresh Info…").icon("refresh"))
+                View::message(error).button(Button::new("refresh", "Refresh…").icon("refresh"))
             } else {
                 self.accept_info(&project, finished.output, &finished.redactor)
             };
@@ -239,7 +242,7 @@ impl Flyway {
         let project = ctx.project().ok_or(Error::Stale)?;
         let root = project.root()?;
         if let Some(finished) = self.execution.poll(&root)? { self.accept_finished(&project, finished)?; }
-        host::refresh_view(execution::VIEW);
+        ui_kit::web::refresh_view(execution::VIEW, include_str!("ui_config.json"));
         Ok(())
     }
 }
@@ -255,7 +258,7 @@ impl Plugin for Flyway {
         match id {
             "review-comparison" => {
                 self.comparison.begin(ctx)?;
-                host::reveal_view(comparison::VIEW)?;
+                ui_kit::web::reveal_view(comparison::VIEW, include_str!("ui_config.json"))?;
                 comparison::refresh();
                 Ok(None)
             }
@@ -272,20 +275,20 @@ impl Plugin for Flyway {
             "new-migration" => {
                 let project = ctx.project().ok_or("Open a project first.")?;
                 self.begin_generation(&project)?;
-                host::reveal_view("migrations")?;
+                ui_kit::web::reveal_view("migrations", include_str!("ui_config.json"))?;
                 refresh_migrations();
                 Ok(None)
             }
             "info" | "validate" | "migrate" | "repair" | "clean" => self.run_flyway(id, ctx),
             "status" => {
                 self.poll_execution(ctx)?;
-                host::reveal_view(execution::VIEW)?;
+                ui_kit::web::reveal_view(execution::VIEW, include_str!("ui_config.json"))?;
                 Ok(None)
             }
             "cancel" => {
                 let root = ctx.project().ok_or(Error::Stale)?.root()?;
                 self.execution.cancel(&root)?;
-                host::refresh_view(execution::VIEW);
+                ui_kit::web::refresh_view(execution::VIEW, include_str!("ui_config.json"));
                 Ok(None)
             }
             _ => Err(Error::NotFound(format!("command {id}"))),
@@ -421,20 +424,20 @@ impl Flyway {
         let shown = match self.info_cache.as_ref().filter(|(owner, _)| owner == &root && self.info_scope.as_ref().is_some_and(|scope|scope.settings_current(&root))) {
             Some((_, cached)) => {
                 let mut shown = cached.clone();
-                shown.status = Some(format!("Captured explicit CLI Info result · {}s ago · {} · source snapshot at invocation; observed source changes retire it; effective configuration precedence unresolved", self.info_at.map(|at|at.elapsed().as_secs()).unwrap_or(0), shown.status.as_deref().unwrap_or("source-linked rows")));
+                shown.status = Some(format!("Captured Info · {}s ago · {}", self.info_at.map(|at|at.elapsed().as_secs()).unwrap_or(0), shown.status.as_deref().unwrap_or("source-linked rows")));
                 shown
             }
             None => View::message("No explicit Flyway info result for this project. Refresh Info starts an approved managed command; opening/rendering never connects to a database.")
-                .button(Button::new("refresh", "Refresh Info…").icon("refresh")),
+                .button(Button::new("refresh", "Refresh…").icon("refresh")),
         };
         let mut shown = shown;
         if let Some(status) = self.execution.migration_status(&root) {
             shown.status = Some(format!("{} · Captured instance command status: {status}",shown.status.as_deref().unwrap_or("No accepted Info snapshot")));
         }
-        shown.button(Button::new("execution-output", "Command Output").icon("terminal"))
+        shown.button(Button::new("execution-output", "Output").icon("terminal"))
     }
     fn accept_info(&mut self, project: &Project, output: openidea_plugin::ProcessOutput, redactor: &execution::Redactor) -> View {
-        let refresh = Button::new("refresh", "Refresh Info…").icon("refresh");
+        let refresh = Button::new("refresh", "Refresh…").icon("refresh");
         if output.status != Some(0) {
             let reason = output.stderr.trim();
             let reason = if reason.is_empty() { output.stdout.trim() } else { reason };
@@ -470,27 +473,31 @@ impl Flyway {
 
 impl Views for Flyway {
     fn render(&mut self, view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
-        if view == comparison::VIEW {
-            return self.comparison.view(ctx);
-        }
-        let Some(project) = ctx.project() else {
-            return Ok(View::message("Open a project to see its Flyway migrations."));
-        };
-        let Some(root) = open_root(&project) else {return Ok(View::message("Current project identity is unavailable; cached Flyway state withheld."));};
-        if view == execution::VIEW {
-            return Ok(self.execution.view(&root));
-        }
-        if let Some(view) = self.generation_view(&project)? {
-            return Ok(view);
-        }
-        Ok(self.migrations_view(&project))
+        (|| -> Result<View, Error> {
+            if view == comparison::VIEW {
+                return self.comparison.view(ctx);
+            }
+            let Some(project) = ctx.project() else {
+                return Ok(View::message("Open a project to see its Flyway migrations."));
+            };
+            let Some(root) = open_root(&project) else {return Ok(View::message("Current project identity is unavailable; cached Flyway state withheld."));};
+            if view == execution::VIEW {
+                return Ok(self.execution.view(&root));
+            }
+            if let Some(view) = self.generation_view(&project)? {
+                return Ok(view);
+            }
+            let shown = self.migrations_view(&project);
+            Ok(self.native_browser_view(&project, shown))
+        })().map(ui_kit::actions::available)
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, _ctx: &Invocation) -> Result<(), Error> {
+        if ui_kit::web::handle(self, view, &event, _ctx, include_str!("ui_config.json"))? { return Ok(()); }
         if view == comparison::VIEW {
             return self.comparison.handle(event, _ctx);
         }
-        if ui_kit::web::handle(self, view, &event, _ctx, include_str!("ui_config.json"))? {
+        if view == "migrations" && self.native_browser_event(&event, _ctx)? {
             return Ok(());
         }
 
@@ -506,14 +513,14 @@ impl Views for Flyway {
                     Err(Error::Cancelled) => {}
                     Err(error) => return Err(error),
                 }
-                host::refresh_view(view);
+                ui_kit::web::refresh_view(view, include_str!("ui_config.json"));
             }
-            ViewEvent::Button(button) if button == "execution-output" => host::reveal_view(execution::VIEW)?,
+            ViewEvent::Button(button) if button == "execution-output" => ui_kit::web::reveal_view(execution::VIEW, include_str!("ui_config.json"))?,
             ViewEvent::Button(button) if button == "execution-status" => self.poll_execution(_ctx)?,
             ViewEvent::Button(button) if button == "execution-cancel" => {
                 let root = _ctx.project().ok_or(Error::Stale)?.root()?;
                 self.execution.cancel(&root)?;
-                host::refresh_view(execution::VIEW);
+                ui_kit::web::refresh_view(execution::VIEW, include_str!("ui_config.json"));
             }
             ViewEvent::Activate(key) => {
                 if let Some(path) = self.targets.get(&key).filter(|path| {
@@ -775,7 +782,7 @@ mod tests {
         let view = completed_info_fixture(host, flyway);
         flyway.info_cache = Some((host.invocation().project().unwrap().root().unwrap(), view));
         let Body::Tree(items) = flyway.render("migrations", None, &host.invocation()).unwrap().body else { panic!("tree expected") };
-        items
+        items.into_iter().filter(|item|item.key.starts_with("m:")).collect()
     }
 
     #[test]
@@ -962,5 +969,33 @@ mod tests {
             let migration = info::parse(&json).unwrap().remove(0);
             assert!(plugin.migration_file(&project, &[], &migration, &naming::Naming::default()).is_none(), "{path}");
         }
+    }
+}
+
+#[cfg(test)]
+mod custom_group_tests {
+    use super::*;
+    use openidea_plugin::mock::MockHost;
+    use serde_json::{json,Value};
+    fn request(plugin: &mut Flyway, host: &MockHost, mut value: Value) -> Value {
+        value["channel"]=json!("ui-kit");value["sequence"]=json!(1);value["project"]=json!("/project");
+        plugin.handle("migrations",ViewEvent::Message(value.to_string()),&host.invocation()).unwrap();
+        serde_json::from_str(&host.view_messages().last().unwrap().1).unwrap()
+    }
+    #[test]
+    fn one_custom_container_routes_tabs_and_rejects_hidden_tab_mutations_without_cli() {
+        let host=MockHost::install().with_capabilities(&["storage","project.read"]);
+        let mut plugin=Flyway::default();
+        let first=request(&mut plugin,&host,json!({"op":"render"}));
+        assert_eq!(first["model"]["activeView"],"migrations");
+        assert_eq!(first["model"]["viewTabs"].as_array().unwrap().len(),3);
+        let second=request(&mut plugin,&host,json!({"op":"select-view","targetView":"migrations","target":"command-output"}));
+        assert_eq!(second["model"]["activeView"],"command-output");
+        let stale=request(&mut plugin,&host,json!({"op":"event","targetView":"migrations","event":{"kind":"button","key":"refresh"}}));
+        assert!(stale.get("error").is_some());
+        let active=request(&mut plugin,&host,json!({"op":"render"}));
+        assert_eq!(active["model"]["activeView"],"command-output");
+        assert!(host.process_runs().is_empty()&&host.terminals().is_empty()&&host.requests().is_empty());
+        assert!(host.view_messages().iter().all(|(view,_)|view=="migrations"));
     }
 }

@@ -167,23 +167,25 @@ fn module_view(module: &str, name: &str) -> String {
 
 impl Views for Structure {
     fn render(&mut self, _view: &str, viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
-        let active = self.sections.active();
-        if matches!(active,"batch"|"diagram") {
-            let Some(root)=ctx.project().and_then(|p|p.root().ok()).filter(|r|!r.is_empty()) else {
-                self.diagrams.clear();return Ok(self.sections.buttons(View::message("Open an owned project to view this source diagram."),&[]));
+        (|| -> Result<View, Error> {
+            let active = self.sections.active();
+            if matches!(active,"batch"|"diagram") {
+                let Some(root)=ctx.project().and_then(|p|p.root().ok()).filter(|r|!r.is_empty()) else {
+                    self.diagrams.clear();return Ok(self.sections.buttons(View::message("Open an owned project to view this source diagram."),&[]));
+                };
+                let data=if active=="batch"{self.batch.diagram_snapshot(ctx)}else{self.modulith.diagram_snapshot(ctx)};
+                let inner=match data {
+                    Ok(data)=>self.diagrams.entry(active.into()).or_default().render(&root,data,if active=="batch"{"Batch source candidate"}else{"Module source candidate"},if active=="batch"{"No source-owned batch nodes found."}else{"No source-owned application modules found."}),
+                    Err(_)=>{self.diagrams.remove(active);View::message("Diagram source data is unavailable; refresh in its project.")},
+                };
+                return Ok(self.source_status(self.sections.buttons(inner,&[])));
+            }
+            let inner = match active {
+                "modules" => self.modulith.render(&module_view(modulith::WINDOW_SECTION, active), viewport, ctx)?,
+                _ => self.integration.render(&module_view(crate::WINDOW_SECTION, "diagram"), viewport, ctx)?,
             };
-            let data=if active=="batch"{self.batch.diagram_snapshot(ctx)}else{self.modulith.diagram_snapshot(ctx)};
-            let inner=match data {
-                Ok(data)=>self.diagrams.entry(active.into()).or_default().render(&root,data,if active=="batch"{"Batch source candidate"}else{"Module source candidate"},if active=="batch"{"No source-owned batch nodes found."}else{"No source-owned application modules found."}),
-                Err(_)=>{self.diagrams.remove(active);View::message("Diagram source data is unavailable; refresh in its project.")},
-            };
-            return Ok(self.source_status(self.sections.buttons(inner,&[])));
-        }
-        let inner = match active {
-            "modules" => self.modulith.render(&module_view(modulith::WINDOW_SECTION, active), viewport, ctx)?,
-            _ => self.integration.render(&module_view(crate::WINDOW_SECTION, "diagram"), viewport, ctx)?,
-        };
-        Ok(self.source_status(self.sections.buttons(inner, &[])))
+            Ok(self.source_status(self.sections.buttons(inner, &[])))
+        })().map(ui_kit::actions::available)
     }
 
     fn handle(&mut self, _view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {

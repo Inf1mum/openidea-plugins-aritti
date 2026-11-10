@@ -9,11 +9,11 @@
     <link rel="stylesheet" href="./vendor/swagger-ui.css" />
     <link rel="stylesheet" href="./preview.css" />
   </head>
-  <body>
-    <header class="api-toolbar"><strong>API Preview</strong><button id="reload" type="button" class="ui-button">Reload</button><button id="switch" type="button" class="ui-button" aria-label="Switch API renderer to Redoc">Redoc</button></header>
-    <div id="swagger"></div>
-    <div id="redoc"></div>
-    <script src="./resources/icons.js"></script><script src="./resources/widgets.js"></script><script src="./resources/controls.js"></script>
+  <body class="ui-embedded-panel">
+    <header class="api-toolbar ui-toolbar" aria-label="API preview actions"><button id="reload" type="button" class="ui-button"><span data-ui-icon="update" data-ui-icon-size="16"></span>Reload</button><button id="switch" type="button" class="ui-button" aria-label="Switch API renderer to Redoc"><span data-ui-icon="eye" data-ui-icon-size="16"></span><span data-renderer-label>Redoc</span></button></header>
+    <div id="swagger" data-ui-raw role="region" aria-label="Swagger API preview"></div>
+    <div id="redoc" data-ui-raw role="region" aria-label="Redoc API preview"></div>
+    <script src="./resources/native-icons.js"></script><script src="./resources/icons.js"></script><script src="./resources/widgets.js"></script><script src="./resources/controls.js"></script>
     <script src="./vendor/swagger-ui-bundle.js"></script>
     <script src="./main.js"></script>
   </body>

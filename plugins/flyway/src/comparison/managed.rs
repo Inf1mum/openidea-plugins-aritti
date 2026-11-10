@@ -412,7 +412,7 @@ mod tests {
     use openidea_plugin::mock::MockHost;
     fn setup() -> (MockHost, Review) {
         let host =
-            MockHost::install().with_capabilities(&["project.read", "events", "process:flyway"]);
+            MockHost::install().with_capabilities(&["project.read", "events", "process:flyway", "storage"]);
         host.add_dir("schema-model");
         host.add_dir("review");
         host.add_file("schema-model/a.sql", "CREATE TABLE a(id int);");

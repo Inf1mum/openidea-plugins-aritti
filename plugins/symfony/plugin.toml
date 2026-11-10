@@ -20,7 +20,7 @@ categories = ["frameworks"]
 icon = "icon.svg"
 engines.openidea = "^1.4"
 wasm = "dist/plugin.wasm"
-activation = ["on-file:**/composer.json", "on-language:php", "on-language:twig", "on-language:yaml", "on-language:xml", "on-view:symfony-profiler", "on-view:twig-paths"]
+activation = ["on-view:symfony", "on-file:**/composer.json", "on-language:php", "on-language:twig", "on-language:yaml", "on-language:xml"]
 
 [capabilities]
 required = ["project.read"]
@@ -129,15 +129,8 @@ extensions = ["php", "yaml", "yml", "xml", "twig", "js", "ts"]
 [[contributes.views]]
 id = "symfony"
 title = "Symfony"
-icon = "file-php"
-location = "right"
-web = "web/resources/hub.html"
-
-[[contributes.views]]
-id = "symfony-profiler"
-title = "Symfony Profiler"
 icon = "icons/symfony.svg"
-location = "bottom"
+location = "right"
 web = "web/resources/hub.html"
 
 [[contributes.fileIcons]]
@@ -265,9 +258,3 @@ files = ["config/**/*.yaml", "config/**/*.yml", "config/**/*.xml", "config/**/*.
 id = "twig-paths"
 title = "Symfony: Configure Twig Namespace Paths"
 category = "Symfony"
-
-[[contributes.views]]
-id = "twig-paths"
-title = "Twig Namespace Paths"
-icon = "settings"
-location = "right"

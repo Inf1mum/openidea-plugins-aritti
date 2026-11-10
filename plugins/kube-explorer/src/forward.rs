@@ -1102,7 +1102,7 @@ mod tests {
         kube.handle(TREE, ViewEvent::Select(kube.test_node_key("ns",&host.invocation())), &host.invocation()).unwrap();
         assert!(kube.forward_session.as_ref().unwrap().retired);
         let emitted = host.view_messages();
-        assert!(emitted[before..].iter().any(|(view, text)| view == PANEL && text == r#"{"channel":"ui-kit-refresh"}"#));
+        assert!(emitted[before..].iter().any(|(view, text)| view == PANEL && serde_json::from_str::<serde_json::Value>(text).is_ok_and(|message|message["channel"]=="ui-kit-refresh" && message["targetView"]==PANEL)));
         assert!(emitted[before..].iter().all(|(view, _)| view == PANEL), "invalidate only the owned resource panel");
         assert!(host.refreshed_views().iter().any(|view| view == PANEL));
         let panel = kube.render(PANEL, None, &host.invocation()).unwrap();
@@ -1133,7 +1133,7 @@ mod tests {
         kube.handle(TREE,ViewEvent::Select(kube.test_resource_key("res:pods/web",&host.invocation())),&host.invocation()).unwrap();
         let before=host.view_messages().len();
         kube.handle(TREE,ViewEvent::Button(kube.test_control_key("port-forward")),&host.invocation()).unwrap();
-        assert!(host.view_messages()[before..].iter().any(|(view,text)|view==PANEL && text==r#"{"channel":"ui-kit-refresh"}"#));
+        assert!(host.view_messages()[before..].iter().any(|(view,text)|view==PANEL && serde_json::from_str::<serde_json::Value>(text).is_ok_and(|message|message["channel"]=="ui-kit-refresh" && message["targetView"]==PANEL)));
         assert!(matches!(kube.render(PANEL,None,&host.invocation()).unwrap().body,Body::Form(_)));
     }
 

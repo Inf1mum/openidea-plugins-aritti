@@ -71,30 +71,36 @@ pub(super) fn save(entries: &[String]) -> Result<(), Error> {
 }
 
 fn describe(entry: &str) -> Vec<String> {
-    let Some((kind, attrs)) = log::elements(entry).into_iter().next() else { return vec!["?".into(), entry.into(), String::new()] };
+    let Some((kind, attrs)) = log::elements(entry).into_iter().next() else { return vec!["?".into(), entry.into(), String::new(), "Unknown".into()] };
     let get = |name: &str| log::attr(&attrs, name).unwrap_or_default().to_owned();
     if kind == "LogParsingPattern" {
-        return vec!["Format".into(), get("name"), get("pattern")];
+        return vec!["Format".into(), get("name"), get("pattern"), if get("enabled") == "false" { "No" } else { "Yes" }.into()];
     }
     let how = ACTIONS.iter().find(|(id, _)| *id == get("action")).map_or("", |(_, label)| *label);
-    vec!["Highlighting".into(), how.into(), get("pattern")]
+    vec!["Highlighting".into(), how.into(), get("pattern"), if get("enabled") == "false" { "No" } else { "Yes" }.into()]
 }
 
 pub fn render(editor: &crate::pattern_editor::Editor) -> View {
     if let Some(view) = editor.render() {
         return view;
     }
-    let rows: Vec<Vec<String>> = entries().iter().map(|e| describe(e)).collect();
+    let all=entries();
+    let visible:Vec<usize>=all.iter().enumerate().filter(|(_,entry)|editor.section.is_none_or(|formats| entry.starts_with(if formats {"<LogParsingPattern"} else {"<LogHighlightingPattern"}))).map(|(n,_)|n).collect();
+    let rows:Vec<Vec<String>>=visible.iter().map(|n|describe(&all[*n])).collect();
+    let selected=editor.selected(&all).ok().flatten();
+    editor.bind_rows(all.clone(),visible);
+    let formats=all.iter().filter(|s|s.starts_with("<LogParsingPattern")).count();
+    let highlights=all.len()-formats;
     let status = match rows.len() {
         0 => "No patterns yet. The customPatterns setting takes pasted Ideolog XML too.".to_owned(),
         1 => "1 pattern".to_owned(),
         n => format!("{n} patterns"),
     };
     let body = if rows.is_empty() {
-        Body::Message("No custom formats or highlighting patterns yet.".into())
+        Body::Message(match editor.section {Some(true)=>"No custom log formats yet.",Some(false)=>"No custom highlighting rules yet.",None=>"No custom formats or highlighting patterns yet."}.into())
     } else {
         Body::Table(Table {
-            columns: vec!["Kind".into(), "Name or action".into(), "Pattern".into()],
+            columns: vec!["Kind".into(), "Name or action".into(), "Pattern".into(), "Enabled".into()],
             total_rows: rows.len() as u32,
             first_row: 0,
             rows,
@@ -102,12 +108,15 @@ pub fn render(editor: &crate::pattern_editor::Editor) -> View {
         })
     };
     View::new(body)
-        .button(Button::new("add-format", "Add Format").icon("add"))
-        .button(Button::new("add-highlight", "Add Highlighting").icon("add"))
-        .button(Button::new("edit", "Edit").icon("edit").enabled(!entries().is_empty()))
-        .button(Button::new("move-up", "Move Up").icon("arrow-up").enabled(entries().len() > 1))
-        .button(Button::new("remove", "Remove").icon("remove").enabled(!entries().is_empty()))
-        .status(&status)
+        .button(Button::new("choose-section", &format!("Log Formats ({formats}) / Highlighting ({highlights})…")).icon("list"))
+        .button(Button::new("add-format", "Add Format").icon("plus"))
+        .button(Button::new("add-highlight", "Add Highlighting").icon("plus"))
+        .button(Button::new("edit", "Edit").icon("edit").enabled(selected.is_some()))
+        .button(Button::new("toggle-enabled", "Enable / Disable Selected").icon("check").enabled(selected.is_some()))
+        .button(Button::new("move-up", "Move Up").icon("arrow-up").enabled(selected.is_some() && entries().len() > 1))
+        .button(Button::new("move-down", "Move Down").icon("arrow-down").enabled(selected.is_some() && entries().len() > 1))
+        .button(Button::new("remove", "Remove").icon("minus").enabled(selected.is_some()))
+        .status(&format!("{} · {status}",match editor.section {Some(true)=>"Log Formats",Some(false)=>"Highlighting",None=>"All Custom Patterns"}))
 }
 
 fn add(element: String) -> Result<(), Error> {
@@ -160,39 +169,98 @@ pub(super) fn pick_entry(title: &str, all: &[String]) -> Result<Option<usize>, E
     chosen.parse::<usize>().ok().filter(|at| *at < all.len()).map(Some).ok_or_else(|| Error::Invalid("Unknown pattern selection".into()))
 }
 
-fn move_up() -> Result<(), Error> {
-    let mut all = entries();
-    let Some(at) = pick_entry("Move pattern up", &all)? else { return Ok(()) };
-    if at > 0 {
-        all.swap(at, at - 1);
-    }
+fn reorder(down: bool, editor: Option<&crate::pattern_editor::Editor>) -> Result<(), Error> {
+    let base = stored();
+    let mut all: Vec<String> = base.lines().filter(|line| !line.trim().is_empty()).map(str::to_owned).collect();
+    let selected=editor.map(|e|e.selected(&all)).transpose()?.flatten();
+    let Some(at) = selected.or(pick_entry_if_unselected(selected,if down { "Move pattern down" } else { "Move pattern up" }, &all)?) else { return Ok(()) };
+    if stored() != base { return Err(Error::Stale); }
+    if down && at + 1 < all.len() { all.swap(at, at + 1); }
+    if !down && at > 0 { all.swap(at, at - 1); }
     save(&all)
 }
+#[cfg(test)]
+fn move_up() -> Result<(), Error> { reorder(false,None) }
 
-fn remove() -> Result<(), Error> {
-    let all = entries();
-    let Some(at) = pick_entry("Remove pattern", &all)? else { return Ok(()) };
+fn remove(editor: &crate::pattern_editor::Editor) -> Result<(), Error> {
+    let base = stored();
+    let all: Vec<String> = base.lines().filter(|line| !line.trim().is_empty()).map(str::to_owned).collect();
+    let selected=editor.selected(&all)?;
+    let Some(at) = selected.or(pick_entry_if_unselected(selected,"Remove pattern", &all)?) else { return Ok(()) };
+    if stored() != base { return Err(Error::Stale); }
     save(&all.iter().enumerate().filter(|(n, _)| *n != at).map(|(_, e)| e.clone()).collect::<Vec<_>>())
+}
+
+pub(super) fn pick_entry_if_unselected(selected:Option<usize>,title:&str,all:&[String])->Result<Option<usize>,Error> {
+    if selected.is_some() {Ok(None)} else {pick_entry(title,all)}
 }
 
 pub fn handle(editor: &mut crate::pattern_editor::Editor, event: ViewEvent) -> Result<(), Error> {
     if editor.handle(&event)? {
-        host::refresh_view(VIEW);
+        ui_kit::web::refresh_view(VIEW, include_str!("ui_config.json"));
         return Ok(());
+    }
+    if let Some(row)=event.table_select().or(event.table_activate()) {
+        editor.select_row(row as usize)?;
+        if event.table_activate().is_some() { editor.handle(&ViewEvent::Button("edit".into()))?; }
+        ui_kit::web::refresh_view(VIEW, include_str!("ui_config.json"));return Ok(());
     }
     let ViewEvent::Button(id) = event else { return Ok(()) };
     match id.as_str() {
-        "move-up" => move_up()?,
-        "remove" => remove()?,
+        "choose-section"=>{
+            let choices=[PickItem::new("formats","Log Formats"),PickItem::new("highlights","Highlighting"),PickItem::new("all","All Custom Patterns")];
+            let Some(chosen)=host::pick("Ideolog Settings Section",&choices)? else {return Ok(())};
+            editor.section=match chosen.as_str(){"formats"=>Some(true),"highlights"=>Some(false),"all"=>None,_=>return Err(Error::Stale)};
+            editor.bind_rows(Vec::new(),Vec::new());
+        },
+        "show-formats"=>{editor.section=Some(true);editor.bind_rows(Vec::new(),Vec::new());},
+        "show-highlights"=>{editor.section=Some(false);editor.bind_rows(Vec::new(),Vec::new());},
+        "show-all"=>{editor.section=None;editor.bind_rows(Vec::new(),Vec::new());},
+        "toggle-enabled"=>{
+            let mut all=entries();let at=editor.selected(&all)?.ok_or(Error::Stale)?;
+            let entry=all.get(at).ok_or(Error::Stale)?;
+            let Some((name,mut attrs))=log::elements(entry).into_iter().next() else {return Err(Error::Stale)};
+            let enabled=log::attr(&attrs,"enabled")!=Some("false");
+            attrs.retain(|(key,_)|key!="enabled");attrs.push(("enabled".into(),(!enabled).to_string()));
+            all[at]=format!("<{name}{} />",attrs.iter().map(|(key,value)|format!(" {key}=\"{}\"",escape(value))).collect::<String>());
+            save(&all)?;
+        },
+        "move-up" => reorder(false,Some(editor))?,
+        "move-down" => reorder(true,Some(editor))?,
+        "remove" => remove(editor)?,
         _ => return Ok(()),
     }
-    host::refresh_view(VIEW);
+    ui_kit::web::refresh_view(VIEW, include_str!("ui_config.json"));
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+
+    #[test]
+    fn selected_row_actions_respect_filtered_layout_and_storage_freshness() {
+        let host=openidea_plugin::mock::MockHost::install();
+        let format=format_element("App",r"^(.*)$","^","0","-1","-1");
+        let highlight=highlight_element("ERROR","HIGHLIGHT_LINE",COLOURS[0].2);
+        save(&[format.clone(),highlight.clone()]).unwrap();
+        let mut editor=crate::pattern_editor::Editor::default();
+        host.answer_next_prompt(Some(&["highlights"]));
+        handle(&mut editor,ViewEvent::Button("choose-section".into())).unwrap();
+        let Body::Table(table)=render(&editor).body else {panic!("table")};
+        assert_eq!(table.rows.len(),1);
+        handle(&mut editor,ViewEvent::Other{kind:"table-select".into(),data:r#"{"row":0}"#.into()}).unwrap();
+        handle(&mut editor,ViewEvent::Button("toggle-enabled".into())).unwrap();
+        assert_eq!(entries()[0],format);
+        assert!(entries()[1].contains("enabled=\"false\""));
+        assert!(handle(&mut editor,ViewEvent::Button("remove".into())).is_err(),"changed storage invalidates previous controls");
+        render(&editor);
+        handle(&mut editor,ViewEvent::Other{kind:"table-select".into(),data:r#"{"row":0}"#.into()}).unwrap();
+        handle(&mut editor,ViewEvent::Button("edit".into())).unwrap();
+        assert!(matches!(render(&editor).body,Body::Form(_)));
+        assert!(host.process_runs().is_empty());
+    }
 
     #[test]
     fn highlight_colours_map_back_to_their_kind() {
@@ -225,6 +293,29 @@ mod tests {
         host.answer_next_prompt(Some(&["1"]));
         move_up().unwrap();
         assert!(entries()[0].contains("three"));
+    }
+
+    #[test]
+    fn native_ordering_preserves_enabled_state_and_cannot_mutate_during_a_draft() {
+        let host = openidea_plugin::mock::MockHost::install();
+        let first = highlight_element("first", "HIGHLIGHT_LINE", COLOURS[0].2);
+        let second = highlight_element("second", "HIGHLIGHT_LINE", COLOURS[1].2).replace("enabled=\"true\"", "enabled=\"false\"");
+        save(&[first.clone(), second.clone()]).unwrap();
+        let mut editor = crate::pattern_editor::Editor::default();
+        let Body::Table(table) = render(&editor).body else { panic!("native table") };
+        assert_eq!(table.rows[0].last().unwrap(), "Yes");
+        assert_eq!(table.rows[1].last().unwrap(), "No");
+        host.answer_next_prompt(Some(&["0"]));
+        handle(&mut editor, ViewEvent::Button("move-down".into())).unwrap();
+        assert_eq!(entries(), vec![second, first]);
+        handle(&mut editor, ViewEvent::Button("add-format".into())).unwrap();
+        let stored_before = stored();
+        handle(&mut editor, ViewEvent::Button("move-down".into())).unwrap();
+        assert_eq!(stored(), stored_before);
+        assert!(matches!(render(&editor).body, Body::Form(_)));
+        let cancel = editor.control_key("pattern-cancel");
+        handle(&mut editor, ViewEvent::Button(cancel)).unwrap();
+        assert!(matches!(render(&editor).body, Body::Table(_)));
     }
 
     #[test]

@@ -3,12 +3,16 @@
     "menu": "viewItem.context",
     "view": "symfony",
     "command": "route-copy-curl",
-    "when": "viewItemKind == route"
+    "when": "viewItemKind == route",
+    "icon": "copy",
+    "label": "Copy as cURL"
   },
   {
     "menu": "viewItem.context",
     "view": "symfony",
     "command": "route-create-http",
-    "when": "viewItemKind == route"
+    "when": "viewItemKind == route",
+    "icon": "file-http",
+    "label": "Create HTTP Request File"
   }
 ]

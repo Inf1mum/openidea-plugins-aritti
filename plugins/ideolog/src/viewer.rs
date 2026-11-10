@@ -25,6 +25,7 @@ struct Snapshot {
 pub(crate) struct Viewer {
     snapshot: Option<Snapshot>,
     visible: std::ops::Range<u32>,
+    page: u32,
 }
 fn owner(ctx: &Invocation, path: &str) -> Result<(String, Project), Error> {
     let project = ctx.project().ok_or(Error::Stale)?;
@@ -129,8 +130,9 @@ impl Ideolog {
         }
         self.viewer.snapshot = Some(snapshot);
         self.viewer.visible = 0..0;
-        host::reveal_view(VIEW)?;
-        host::refresh_view(VIEW);
+        self.viewer.page = 0;
+        ui_kit::web::reveal_view(VIEW, include_str!("ui_config.json"))?;
+        ui_kit::web::refresh_view(VIEW, include_str!("ui_config.json"));
         Ok(())
     }
     pub(crate) fn render_log(&mut self, viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
@@ -142,18 +144,39 @@ impl Ideolog {
                 "This snapshot belongs to another project; return to its owning project or capture that project's log.",
             ));
         }
-        let viewport = viewport.map(|v| Viewport { first_row: v.first_row, rows: v.rows.clamp(1, PAGE) });
+        let custom = ui_kit::web::is_rendering();
+        let viewport = if custom {
+            let last_page = (snapshot.rows.len() as u32).saturating_sub(1) / PAGE;
+            self.viewer.page = self.viewer.page.min(last_page);
+            Some(Viewport { first_row: self.viewer.page * PAGE, rows: PAGE })
+        } else { viewport.map(|v| Viewport { first_row: v.first_row, rows: v.rows.clamp(1, PAGE) }) };
         let range = Viewport::range(viewport, snapshot.rows.len() as u32, 50);
         self.viewer.visible = range.clone();
         let rows = snapshot.rows[range.start as usize..range.end as usize].iter().map(|r| r.cells.clone()).collect();
-        Ok(View::new(Body::Table(Table{columns:vec!["Source line".into(),"Level".into(),"Timestamp".into(),"Category".into(),"Message (first line)".into()],total_rows:snapshot.rows.len()as u32,first_row:range.start,rows,editable:false}))
+        let mut view = View::new(Body::Table(Table{columns:vec!["Source line".into(),"Level".into(),"Timestamp".into(),"Category".into(),"Message (first line)".into()],total_rows:snapshot.rows.len()as u32,first_row:range.start,rows,editable:false}))
             .button(Button::new("capture-log","Capture Active Log")).button(Button::new("discard-log","Discard Snapshot"))
-            .status(&format!("{} · version {} · {} bytes · {} · {} of {} events · {}s old · snapshot only, no tail; messages limited to 512 characters; activate a row to open its log source",snapshot.path,snapshot.version,snapshot.text.len(),snapshot.format,snapshot.rows.len(),snapshot.total,snapshot.at.elapsed().as_secs())))
+            .status(&format!("{} · version {} · {} bytes · {} · {} of {} events · {}s old · snapshot only, no tail; messages limited to 512 characters; activate a row to open its log source",snapshot.path,snapshot.version,snapshot.text.len(),snapshot.format,snapshot.rows.len(),snapshot.total,snapshot.at.elapsed().as_secs()));
+        if custom {
+            view = view.button(Button::new("snapshot-previous", "Previous Events").icon("arrow-left").enabled(range.start > 0))
+                .button(Button::new("snapshot-next", "Next Events").icon("arrow-right").enabled(range.end < snapshot.rows.len() as u32));
+            view.status = Some(format!("{} · Events {}–{} of {}", view.status.as_deref().unwrap_or_default(), if range.is_empty() {0} else {range.start + 1}, range.end, snapshot.rows.len()));
+        }
+        Ok(view)
     }
     pub(crate) fn handle_log(&mut self, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {
         if let ViewEvent::Button(ref key) = event {
             match key.as_str() {
                 "capture-log" => return self.capture_log(ctx),
+                "snapshot-previous" | "snapshot-next" => {
+                    let snapshot = self.viewer.snapshot.as_ref().ok_or(Error::Stale)?;
+                    if owner(ctx, &snapshot.path)?.0 != snapshot.root { return Err(Error::Stale); }
+                    let last_page = (snapshot.rows.len() as u32).saturating_sub(1) / PAGE;
+                    self.viewer.page = if key == "snapshot-next" { self.viewer.page.saturating_add(1).min(last_page) }
+                        else { self.viewer.page.saturating_sub(1) };
+                    self.viewer.visible = 0..0;
+                    ui_kit::web::refresh_view(VIEW, include_str!("ui_config.json"));
+                    return Ok(());
+                }
                 "discard-log" => {
                     if let Some(s) = &self.viewer.snapshot {
                         if owner(ctx, &s.path)?.0 != s.root {
@@ -161,7 +184,7 @@ impl Ideolog {
                         }
                     }
                     self.viewer = Viewer::default();
-                    host::refresh_view(VIEW);
+                    ui_kit::web::refresh_view(VIEW, include_str!("ui_config.json"));
                     return Ok(());
                 }
                 _ => {}
@@ -194,7 +217,7 @@ mod tests {
     use super::*;
     use openidea_plugin::mock::MockHost;
     fn setup(text: &str) -> (MockHost, Ideolog) {
-        let host = MockHost::install().with_capabilities(&["project.read", "editor.read"]);
+        let host = MockHost::install().with_capabilities(&["project.read", "editor.read", "storage"]);
         host.add_file("app.log", text);
         host.open_editor("/project/app.log", "log", text, &[]);
         (host, Ideolog::default())
@@ -202,6 +225,35 @@ mod tests {
     fn activate(row: u32) -> ViewEvent {
         ViewEvent::Other { kind: "table-activate".into(), data: format!("{{\"row\":{row}}}") }
     }
+    #[test]
+    fn custom_group_snapshot_paging_preserves_absolute_row_navigation_and_hidden_tab_guards() {
+        use serde_json::{json,Value};
+        fn request(plugin:&mut Ideolog,host:&MockHost,mut value:Value)->Value {
+            value["channel"]=json!("ui-kit");value["sequence"]=json!(1);value["project"]=json!("/project");
+            plugin.handle("patterns",ViewEvent::Message(value.to_string()),&host.invocation()).unwrap();
+            serde_json::from_str(&host.view_messages().last().unwrap().1).unwrap()
+        }
+        let text="entry\n".repeat(250);
+        let (host,mut plugin)=setup(&text);plugin.capture_log(&host.invocation()).unwrap();
+        assert_eq!(host.revealed_views(),["patterns"]);
+        let first=request(&mut plugin,&host,json!({"op":"render"}));
+        assert_eq!(first["model"]["activeView"],VIEW);assert_eq!(first["model"]["body"]["firstRow"],0);
+        let next=request(&mut plugin,&host,json!({"op":"event","targetView":VIEW,"event":{"kind":"button","key":"snapshot-next"}}));
+        assert_eq!(next["model"]["body"]["firstRow"],100);
+        let opened=request(&mut plugin,&host,json!({"op":"event","targetView":VIEW,"event":{"kind":"table-activate","row":100}}));
+        assert!(opened.get("error").is_none());assert_eq!(host.opened_locations(),[("/project/app.log".into(),100,0)]);
+        let old=request(&mut plugin,&host,json!({"op":"event","targetView":VIEW,"event":{"kind":"table-activate","row":0}}));
+        assert!(old.get("error").is_some());
+        let last=request(&mut plugin,&host,json!({"op":"event","targetView":VIEW,"event":{"kind":"button","key":"snapshot-next"}}));
+        assert_eq!(last["model"]["body"]["firstRow"],200);assert_eq!(last["model"]["body"]["rows"].as_array().unwrap().len(),50);
+        request(&mut plugin,&host,json!({"op":"select-view","targetView":VIEW,"target":"patterns"}));
+        let stale=request(&mut plugin,&host,json!({"op":"event","targetView":VIEW,"event":{"kind":"button","key":"discard-log"}}));
+        assert!(stale.get("error").is_some());assert!(plugin.viewer.snapshot.is_some());
+        let restored=request(&mut plugin,&host,json!({"op":"select-view","targetView":"patterns","target":VIEW}));
+        assert_eq!(restored["model"]["body"]["firstRow"],200);
+        assert!(host.process_runs().is_empty()&&host.requests().is_empty());
+    }
+
     #[test]
     fn snapshot_retains_info_debug_and_custom_level_text() {
         let text = "2026-11-09|INFO|main|one\n2026-11-09|DEBUG|main|two\n2026-11-09|CUSTOM|main|three\n";

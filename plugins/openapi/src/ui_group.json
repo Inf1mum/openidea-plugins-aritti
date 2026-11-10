@@ -1,0 +1,17 @@
+{
+  "primary": "endpoints",
+  "tabs": [
+    {
+      "id": "endpoints",
+      "label": "OpenAPI"
+    },
+    {
+      "id": "compare",
+      "label": "Changes"
+    },
+    {
+      "id": "try-response",
+      "label": "Request / Response"
+    }
+  ]
+}

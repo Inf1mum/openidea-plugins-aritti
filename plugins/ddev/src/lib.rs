@@ -251,7 +251,7 @@ impl Plugin for Main {
     fn activate(&mut self, _ctx: &openidea_plugin::Context) -> Result<(), Error> {
         configuration::initialize();
         host::refresh_view(VIEW);
-        host::refresh_view(support::SETUP);
+        support::refresh_setup();
         for kind in [
             openidea_plugin::EventKind::FileSaved,
             openidea_plugin::EventKind::EditorFocused,
@@ -380,7 +380,7 @@ impl Plugin for Main {
                     &[("checkForUpdates", toml_edit::value(false))],
                 )?;
                 self.setup_drafts.remove(&project.root()?);
-                host::refresh_view(support::SETUP);
+                support::refresh_setup();
                 host::notify(
                     NotificationLevel::Info,
                     "DDEV updates",

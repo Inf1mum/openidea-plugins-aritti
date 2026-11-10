@@ -18,11 +18,13 @@ pub(crate) struct State {
     scope: Option<Scope>,
     at: u64,
     rows: BTreeMap<String, Record>,
+    selected: Option<String>,
 }
 impl State {
     pub(crate) fn clear(&mut self) {
         self.scope = None;
         self.rows.clear();
+        self.selected = None;
     }
 }
 fn qualified(name: &str) -> bool {
@@ -49,6 +51,20 @@ fn candidate(ty: &str, method: Option<String>) -> Option<Target> {
 }
 fn row(title: &str, endpoint: &'static str, body: String, target: Option<Target>) -> Record {
     Record { title: presentation(title, 256), endpoint, body: presentation(&body, 8192), target }
+}
+fn endpoint_presentation(endpoint: &str) -> (&str, &str) {
+    match endpoint {
+        "beans" => ("Beans", "spring-boot"),
+        "health" => ("Health", "info"),
+        "env" => ("Environment", "settings"),
+        "conditions" => ("Auto-configuration", "spring-config"),
+        "mappings" => ("Mappings", "web"),
+        "configprops" => ("Configuration Properties", "property"),
+        "scheduledtasks" => ("Scheduled Tasks", "clock"),
+        "loggers" => ("Loggers", "settings"),
+        "caches" => ("Caches", "database"),
+        _ => (endpoint, "info"),
+    }
 }
 fn records(s: &Snapshot) -> Vec<Record> {
     let mut out = Vec::new();
@@ -188,24 +204,61 @@ fn records(s: &Snapshot) -> Vec<Record> {
 }
 impl Runtime {
     pub(crate) fn render_panes(&mut self, ctx: &Invocation) -> Result<View, Error> {
-        self.panes.clear();
-        let project = ctx.project().ok_or("Open a project to inspect its cached snapshot.")?;
-        let scope = Scope::current(&project)?;
+        let custom = ui_kit::web::is_rendering();
+        if !custom { self.panes.clear(); }
+        let Some(project) = ctx.project() else {
+            self.panes.clear();
+            return Ok(View::message("Open a project to inspect its cached snapshot."));
+        };
+        let scope = match Scope::current(&project).and_then(|scope| { controls::verify(&project, &scope)?; Ok(scope) }) {
+            Ok(scope) => scope,
+            Err(error) => { self.panes.clear(); return Ok(View::message(&error.to_string())); }
+        };
         self.load_scope(scope.clone());
         let Some(snap) = &self.snapshot else {
             return Ok(View::message("No cached snapshot. Refresh in Spring Runtime first; this view never fetches."));
         };
-        self.panes.epoch = self.panes.epoch.checked_add(1).ok_or(Error::Stale)?;
-        self.panes.scope = Some(scope);
-        self.panes.at = snap.fetched_at;
-        let rows = records(snap);
-        let mut items = Vec::new();
-        for (i, record) in rows.into_iter().enumerate() {
-            let key = format!("snapshot:{}:{i}", self.panes.epoch);
-            items.push(TreeItem::new(&key, &record.title).detail(record.endpoint));
-            self.panes.rows.insert(key, record);
+        let at = snap.fetched_at;
+        if self.panes.scope.as_ref() != Some(&scope) || self.panes.at != at || self.panes.rows.is_empty() {
+            self.panes.clear();
+            self.panes.epoch = self.panes.epoch.checked_add(1).ok_or(Error::Stale)?;
+            self.panes.scope = Some(scope);
+            self.panes.at = at;
+            for (i, record) in records(snap).into_iter().enumerate() {
+                self.panes.rows.insert(format!("snapshot:{}:{i}", self.panes.epoch), record);
+            }
         }
-        Ok(View::new(Body::Tree(items)).status(&format!("Cached observations · {} · Unix {} · bounded sections (up to 64 rows each; health/env 32) · values omitted · activate a source-linked row for a unique current-project candidate",age(snap.fetched_at),snap.fetched_at)))
+        let mut items: Vec<_> = self.panes.rows.iter().map(|(key, record)| {
+            let (section, icon) = endpoint_presentation(record.endpoint);
+            TreeItem::new(key, &record.title).detail(section).icon(icon)
+        }).collect();
+        items.sort_by_key(|item| item.key.rsplit(':').next().and_then(|index|index.parse::<usize>().ok()).unwrap_or(usize::MAX));
+        let body = if custom {
+            let mut rows = Vec::new();
+            for item in items {
+                // Observation/provenance are lazy and bounded, as in the native
+                // detail provider: only the authoritative selected row gets them.
+                let details: Vec<_> = if self.panes.selected.as_deref() == Some(item.key.as_str()) {
+                    self.detail(VIEW, &item.key, ctx)?.into_iter().filter_map(|tab| {
+                        match tab.body { Pane::Text(value) => Some(serde_json::json!({"label":tab.label,"value":value})), _ => None }
+                    }).collect()
+                } else { Vec::new() };
+                let navigable = self.panes.rows.get(&item.key).is_some_and(|record|record.target.is_some());
+                rows.push(serde_json::json!({"key":item.key,"label":item.label,"detail":item.detail,"icon":item.icon,
+                    "details":details,"activationLabel":"Open Source","activationIcon":"file","activationEnabled":navigable}));
+            }
+            Body::Other { kind: "tree".into(), data: serde_json::json!({"items":rows}).to_string() }
+        } else { Body::Tree(items) };
+        Ok(View::new(body)
+            .button(Button::new("runtime-overview", "Overview").icon("spring-boot"))
+            .button(Button::new("runtime-graph", "Bean Graph").icon("hierarchy"))
+            .button(Button::new("runtime-controls", "Refresh Controls").icon("settings"))
+            .status(&format!("Cached observations · {} · Unix {} · bounded sections (up to 64 rows each; health/env 32) · values omitted · Show Details for Observation / Provenance; activate to navigate to a unique source candidate",age(at),at)))
+    }
+    pub(crate) fn select_pane(&mut self, key: &str, ctx: &Invocation) -> Result<(), Error> {
+        self.pane_record(key, ctx)?;
+        self.panes.selected = Some(key.to_owned());
+        Ok(())
     }
     fn pane_record(&self, key: &str, ctx: &Invocation) -> Result<&Record, Error> {
         let scope = Scope::current(&ctx.project().ok_or(Error::Stale)?)?;
@@ -375,11 +428,52 @@ mod tests {
         let ctx = host.invocation();
         runtime.run_command("snapshot-details", &ctx, None).unwrap();
         runtime.handle("runtime", ViewEvent::Button("snapshot-details".into()), &ctx).unwrap();
-        assert_eq!(host.revealed_views(), vec!["runtime-snapshot", "runtime-snapshot"]);
+        assert_eq!(host.revealed_views(), vec!["runtime", "runtime"]);
         assert_eq!(host.fetches(), 0);
         host.set_project_root(None);
         assert!(runtime.run_command("snapshot-details", &host.invocation(), None).is_err());
     }
+    #[test]
+    fn grouped_observations_keep_lazy_details_and_source_navigation_through_the_real_bridge() {
+        let (host, mut runtime) = setup();
+        host.add_file("src/Service.java", "package com.acme; class Service {}");
+        crate::reveal_view(VIEW).unwrap();
+        let request = |runtime: &mut Runtime, operation: Value| -> Value {
+            let mut operation = operation;
+            operation["channel"] = serde_json::json!("ui-kit");
+            operation["sequence"] = serde_json::json!(1);
+            operation["project"] = serde_json::json!("/project");
+            operation["targetView"] = serde_json::json!(VIEW);
+            runtime.handle(crate::VIEW, ViewEvent::Message(operation.to_string()), &host.invocation()).unwrap();
+            serde_json::from_str(&host.view_messages().last().unwrap().1).unwrap()
+        };
+        let rendered = request(&mut runtime, serde_json::json!({"op":"render"}));
+        assert_eq!(rendered["model"]["activeView"], VIEW);
+        let rows = rendered["model"]["body"]["items"].as_array().unwrap();
+        let key = rows[0]["key"].as_str().unwrap().to_owned();
+        assert!(rows.iter().all(|row|row["details"].as_array().unwrap().is_empty()), "no eager large per-row detail payload");
+        let selected = request(&mut runtime, serde_json::json!({"op":"event","event":{"kind":"select","key":key}}));
+        assert!(selected.get("error").is_none(), "{selected}");
+        let rows = selected["model"]["body"]["items"].as_array().unwrap();
+        assert_eq!(rows[0]["key"], key, "bridge validation render keeps the current row identity");
+        let details = rows[0]["details"].as_array().unwrap();
+        assert_eq!(details.len(), 2);
+        assert_eq!(details[0]["label"], "Observation");
+        assert!(details[0]["value"].as_str().unwrap().contains("com.acme.Service"));
+        assert_eq!(details[1]["label"], "Provenance");
+        assert!(details[1]["value"].as_str().unwrap().contains("Endpoint: beans"));
+        assert!(rows[1]["details"].as_array().unwrap().is_empty());
+        assert!(!selected.to_string().contains("private-value"));
+        let activated = request(&mut runtime, serde_json::json!({"op":"event","event":{"kind":"activate","key":key}}));
+        assert!(activated.get("error").is_none(), "{activated}");
+        assert_eq!(host.opened_locations().len(), 1);
+        runtime.panes.clear();
+        let stale = request(&mut runtime, serde_json::json!({"op":"event","event":{"kind":"activate","key":key}}));
+        assert!(stale.get("error").is_some());
+        assert_eq!(host.opened_locations().len(), 1);
+        assert_eq!(host.fetches(), 0);
+    }
+
     #[test]
     fn details_are_cached_bounded_and_explicit_about_provenance_unknowns() {
         let (host, mut runtime) = setup();

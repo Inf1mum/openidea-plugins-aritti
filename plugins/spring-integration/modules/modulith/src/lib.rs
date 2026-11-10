@@ -457,60 +457,62 @@ impl ModulithTools {
 
 impl Views for ModulithTools {
     fn render(&mut self, view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
-        let Some(project) = ctx.project() else { return Ok(View::message("Open a project to see its application modules.")) };
-        let index = self.indexes.get(&project, COMMAND_BUDGET);
-        let complete = index.complete();
-        if index.scanning() {
-            refresh(view);
-        }
-        let model = Model::build(index);
-        let refresh = Button::new("refresh", "Refresh").icon("refresh");
-        if model.modules.is_empty() {
-            let text = if !complete {
-                "Scanning…"
-            } else if model.roots.is_empty() {
-                "No @SpringBootApplication or @Modulithic class found."
-            } else {
-                "No application modules: the application package has no sub-packages."
-            };
-            return Ok(View::message(text).button(refresh));
-        }
-        if view == id(DIAGRAM_VIEW) {
-            let (nodes, edges) = diagram_of(&model, index);
-            let status = format!("{} modules · {} dependencies", nodes.len(), edges.len());
-            return Ok(View::new(Body::Html(diagram::html(&nodes, &edges, "No application modules."))).button(refresh).status(&status));
-        }
-        let dependencies = dependencies(&model, index);
-        let mut items = Vec::new();
-        for m in model.modules.values() {
-            let mut detail = if m.open { "open".to_owned() } else { "closed".to_owned() };
-            if let Some(d) = &m.display_name {
-                detail = format!("{detail} · {d}");
+        (|| -> Result<View, Error> {
+            let Some(project) = ctx.project() else { return Ok(View::message("Open a project to see its application modules.")) };
+            let index = self.indexes.get(&project, COMMAND_BUDGET);
+            let complete = index.complete();
+            if index.scanning() {
+                refresh(view);
             }
-            let parent = key(&model,&m.name, "");
-            items.push(TreeItem::new(&parent, &m.name).detail(&detail).icon("module").expandable(false));
-            for i in m.interface_names() {
-                items.push(TreeItem::new(&key(&model,&m.name, &format!("i:{i}")), i).parent(&parent).detail("named interface").icon("interface"));
-            }
-            for d in m.allowed.iter().flatten() {
-                items.push(TreeItem::new(&key(&model,&m.name, &format!("a:{d}")), d).parent(&parent).detail("allowed dependency").icon("module"));
-            }
-            for (b, v) in dependencies.get(m.name.as_str()).into_iter().flatten() {
-                let (detail, icon) = match v {
-                    None => ("dependency".to_owned(), "module"),
-                    Some(Violation::Internal) => ("dependency on internal types".to_owned(), "warning"),
-                    Some(Violation::NotAllowed(d)) => (format!("dependency on {d}, not in allowedDependencies"), "warning"),
+            let model = Model::build(index);
+            let refresh = Button::new("refresh", "Refresh").icon("refresh");
+            if model.modules.is_empty() {
+                let text = if !complete {
+                    "Scanning…"
+                } else if model.roots.is_empty() {
+                    "No @SpringBootApplication or @Modulithic class found."
+                } else {
+                    "No application modules: the application package has no sub-packages."
                 };
-                let item = TreeItem::new(&key(&model,b, &format!("d:{}", m.name)), b).parent(&parent).detail(&detail).icon(icon);
-                items.push(item);
+                return Ok(View::message(text).button(refresh));
             }
-        }
-        self.expansion.apply(&mut items);
-        let mut status = format!("{} modules in {}", model.modules.len(), model.roots.join(", "));
-        if !complete {
-            status.push_str(" · scanning…");
-        }
-        Ok(View::new(Body::Tree(items)).button(refresh).status(&status))
+            if view == id(DIAGRAM_VIEW) {
+                let (nodes, edges) = diagram_of(&model, index);
+                let status = format!("{} modules · {} dependencies", nodes.len(), edges.len());
+                return Ok(View::new(Body::Html(diagram::html(&nodes, &edges, "No application modules."))).button(refresh).status(&status));
+            }
+            let dependencies = dependencies(&model, index);
+            let mut items = Vec::new();
+            for m in model.modules.values() {
+                let mut detail = if m.open { "open".to_owned() } else { "closed".to_owned() };
+                if let Some(d) = &m.display_name {
+                    detail = format!("{detail} · {d}");
+                }
+                let parent = key(&model,&m.name, "");
+                items.push(TreeItem::new(&parent, &m.name).detail(&detail).icon("module").expandable(false));
+                for i in m.interface_names() {
+                    items.push(TreeItem::new(&key(&model,&m.name, &format!("i:{i}")), i).parent(&parent).detail("named interface").icon("interface"));
+                }
+                for d in m.allowed.iter().flatten() {
+                    items.push(TreeItem::new(&key(&model,&m.name, &format!("a:{d}")), d).parent(&parent).detail("allowed dependency").icon("module"));
+                }
+                for (b, v) in dependencies.get(m.name.as_str()).into_iter().flatten() {
+                    let (detail, icon) = match v {
+                        None => ("dependency".to_owned(), "module"),
+                        Some(Violation::Internal) => ("dependency on internal types".to_owned(), "warning"),
+                        Some(Violation::NotAllowed(d)) => (format!("dependency on {d}, not in allowedDependencies"), "warning"),
+                    };
+                    let item = TreeItem::new(&key(&model,b, &format!("d:{}", m.name)), b).parent(&parent).detail(&detail).icon(icon);
+                    items.push(item);
+                }
+            }
+            self.expansion.apply(&mut items);
+            let mut status = format!("{} modules in {}", model.modules.len(), model.roots.join(", "));
+            if !complete {
+                status.push_str(" · scanning…");
+            }
+            Ok(View::new(Body::Tree(items)).button(refresh).status(&status))
+        })().map(ui_kit::actions::available)
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {

@@ -8,6 +8,7 @@
 
 mod actions;
 mod artisan_metadata;
+mod artisan_output;
 mod artisan_docker;
 mod blade;
 mod blade_php;
@@ -688,7 +689,7 @@ impl Main {
     fn artisan(&mut self, ctx: &Invocation, command: &str) -> Result<Option<String>, Error> {
         let project = ctx.project().ok_or("No project is open.")?;
         let task = host::begin_task(&format!("artisan {command}"), false);
-        let args = ["artisan".to_owned(), command.to_owned(), "--no-interaction".to_owned()];
+        let args = ["artisan".to_owned(), command.to_owned(), "--no-interaction".to_owned(), "--no-ansi".to_owned()];
 
         let output = match project.run_process("php", &args, None) {
             Err(Error::Denied(_)) => {
@@ -698,10 +699,7 @@ impl Main {
         };
 
         if output.status != Some(0) {
-            let error = if output.stderr.trim().is_empty() { &output.stdout } else { &output.stderr };
-            let last: Vec<&str> = error.trim().lines().rev().take(5).collect();
-            let tail = last.into_iter().rev().collect::<Vec<_>>().join("\n");
-            return Err(format!("artisan {command} failed:\n{tail}").into());
+            return Err(artisan_output::failure(command, output.status, &output.stdout, &output.stderr).into());
         }
 
         task.report(1, Some(2), Some("Indexing"));
@@ -1628,31 +1626,33 @@ impl Main {
 
 impl Views for Main {
     fn render(&mut self, _view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
-        let reindex = Button::new("reindex", "Reindex").icon("refresh");
-        let routes_active = self.sections().active() == "routes";
-        let Some(index) = self.view_index(ctx) else {
-            return Ok(View::message("This project is not a Laravel application.").button(reindex));
-        };
+        (|| -> Result<View, Error> {
+            let reindex = Button::new("reindex", "Reindex").icon("refresh");
+            let routes_active = self.sections().active() == "routes";
+            let Some(index) = self.view_index(ctx) else {
+                return Ok(View::message("This project is not a Laravel application.").button(reindex));
+            };
 
-        let partial = index.partial;
-        let toolbar = |body| {
-            View::new(body)
-                .button(reindex)
-                .button(Button::new("route-list", "Route List").icon("terminal"))
-                .button(Button::new("optimize-clear", "Clear Caches").icon("build-project"))
-        };
-        let mut view = if routes_active {
-            let routes = route_list_of(index);
-            let list = self.route_list();
-            list.set_routes(routes);
-            list.render(toolbar(Body::Message(String::new())))
-        } else {
-            toolbar(Body::Tree(self.tree(index)))
-        };
-        if partial && view.status.is_none() {
-            view = view.status("Index incomplete (time limit reached)");
-        }
-        Ok(self.sections().buttons(view, &[]))
+            let partial = index.partial;
+            let toolbar = |body| {
+                View::new(body)
+                    .button(reindex)
+                    .button(Button::new("route-list", "Route List").icon("terminal"))
+                    .button(Button::new("optimize-clear", "Clear Caches").icon("build-project"))
+            };
+            let mut view = if routes_active {
+                let routes = route_list_of(index);
+                let list = self.route_list();
+                list.set_routes(routes);
+                list.render(toolbar(Body::Message(String::new())))
+            } else {
+                toolbar(Body::Tree(self.tree(index)))
+            };
+            if partial && view.status.is_none() {
+                view = view.status("Index incomplete (time limit reached)");
+            }
+            Ok(self.sections().buttons(view, &[]))
+        })().map(ui_kit::actions::available)
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {

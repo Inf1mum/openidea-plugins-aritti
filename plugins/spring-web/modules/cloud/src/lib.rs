@@ -736,8 +736,10 @@ impl CloudTools {
 
 impl Views for CloudTools {
     fn render(&mut self, view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
-        let Some(project) = ctx.project() else { return Ok(View::message("Open a project to see its Feign clients.")) };
-        Ok(self.feign_view(view, &project, spring_text::index::COMMAND_BUDGET))
+        (|| -> Result<View, Error> {
+            let Some(project) = ctx.project() else { return Ok(View::message("Open a project to see its Feign clients.")) };
+            Ok(self.feign_view(view, &project, spring_text::index::COMMAND_BUDGET))
+        })().map(ui_kit::actions::available)
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {

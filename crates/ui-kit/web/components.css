@@ -100,7 +100,7 @@ select.ui-select-native{position:absolute!important;opacity:0!important;width:1p
 .ui-menu hr{border:0;border-top:1px solid var(--ui-border);margin:var(--ui-space-1) 0}
 .ui-segmented{display:inline-flex;max-width:100%}
 .ui-segmented button{border-color:transparent}
-.ui-toolbar{display:flex;flex-wrap:wrap;align-items:center;background:var(--ui-panel);border-bottom:1px solid var(--ui-border)}
+.ui-toolbar{display:flex;flex-wrap:wrap;align-items:center;background:var(--ui-toolbar-bg,var(--ui-panel));border-bottom:1px solid var(--ui-border)}
 .ui-toolbar-separator{height:20px;border-left:1px solid var(--ui-border);margin:0 var(--ui-space-1)}
 .ui-banner{display:flex;align-items:center;background:var(--ui-selected);color:var(--ui-fg);border-bottom:1px solid var(--ui-border)}
 .ui-banner>span{flex:1;min-width:0;overflow-wrap:anywhere}
@@ -229,10 +229,11 @@ input.ui-switch,.ui-check input.ui-switch{appearance:none;width:53px!important;m
 .ui-dialog{background:var(--ui-panel);border:.5px solid var(--ui-separator);border-radius:8px;padding:20px;box-shadow:0 8px 40px #0000004d}
 .ui-table th,.ui-table td{height:24px;padding:4px 8px;font-weight:500;line-height:16px;border-color:var(--ui-separator);text-align:left}
 .ui-table th{background:var(--ui-bg);border-right:1px solid var(--ui-separator)}
-.ui-scroll-area{scrollbar-width:thin;scrollbar-color:var(--ui-scroll-thumb) transparent}
-.ui-scroll-area::-webkit-scrollbar{width:10px;height:10px}
-.ui-scroll-area::-webkit-scrollbar-thumb{background:var(--ui-scroll-thumb);border:1px solid transparent;background-clip:padding-box;border-radius:4px}
-.ui-scroll-area::-webkit-scrollbar-thumb:hover{background:var(--ui-scroll-hover)}
+:where(.ui-scroll-area,.ui-popup,.ui-dialog,.ui-tabs:not(.ui-tool-window-tabs),.ui-code-sample,.ui-notifications,textarea.ui-textarea,:root:has(body.ui-embedded-panel),body.ui-embedded-panel){scrollbar-width:thin;scrollbar-color:var(--ui-scroll-thumb) transparent}
+:where(.ui-scroll-area,.ui-popup,.ui-dialog,.ui-tabs:not(.ui-tool-window-tabs),.ui-code-sample,.ui-notifications,textarea.ui-textarea,:root:has(body.ui-embedded-panel),body.ui-embedded-panel)::-webkit-scrollbar{width:10px;height:10px}
+:where(.ui-scroll-area,.ui-popup,.ui-dialog,.ui-tabs:not(.ui-tool-window-tabs),.ui-code-sample,.ui-notifications,textarea.ui-textarea,:root:has(body.ui-embedded-panel),body.ui-embedded-panel)::-webkit-scrollbar-track,:where(.ui-scroll-area,.ui-popup,.ui-dialog,.ui-tabs:not(.ui-tool-window-tabs),.ui-code-sample,.ui-notifications,textarea.ui-textarea,:root:has(body.ui-embedded-panel),body.ui-embedded-panel)::-webkit-scrollbar-corner{background:transparent}
+:where(.ui-scroll-area,.ui-popup,.ui-dialog,.ui-tabs:not(.ui-tool-window-tabs),.ui-code-sample,.ui-notifications,textarea.ui-textarea,:root:has(body.ui-embedded-panel),body.ui-embedded-panel)::-webkit-scrollbar-thumb{background:var(--ui-scroll-thumb);border:1px solid transparent;background-clip:padding-box;border-radius:4px}
+:where(.ui-scroll-area,.ui-popup,.ui-dialog,.ui-tabs:not(.ui-tool-window-tabs),.ui-code-sample,.ui-notifications,textarea.ui-textarea,:root:has(body.ui-embedded-panel),body.ui-embedded-panel)::-webkit-scrollbar-thumb:hover{background:var(--ui-scroll-hover)}
 .ui-tree [role=treeitem]{border-radius:4px;font-weight:500}
 .ui-window{background:var(--ui-panel);border-color:var(--ui-separator)}
 .ui-window-header{padding:0 12px;border-color:var(--ui-separator);background:var(--ui-panel)}
@@ -342,7 +343,7 @@ input.ui-switch,.ui-check input.ui-switch{appearance:none;width:53px!important;m
 .ui-tree-chevron[aria-expanded=true]::before{transform:none}
 .ui-tree-icon{width:16px;height:16px;flex:0 0 16px;margin-right:4px;background:var(--ui-tree-node-icon) center/16px 16px no-repeat}
 .ui-tree-label{min-width:0;overflow-wrap:anywhere}
-@supports selector(::-webkit-scrollbar){.ui-scroll-area{scrollbar-width:auto;scrollbar-color:auto}}
+@supports selector(::-webkit-scrollbar){:where(.ui-scroll-area,.ui-popup,.ui-dialog,.ui-tabs:not(.ui-tool-window-tabs),.ui-code-sample,.ui-notifications,textarea.ui-textarea,:root:has(body.ui-embedded-panel),body.ui-embedded-panel){scrollbar-width:auto;scrollbar-color:auto}}
 .ui-badge{vertical-align:top}
 .ui-table{border-collapse:separate;border-spacing:0}
 .ui-toolbar{border:0}
@@ -389,7 +390,8 @@ input.ui-switch,.ui-check input.ui-switch{appearance:none;width:53px!important;m
 .ui-icon-button--more::before,.ui-icon-button--hide::before{content:"";display:block;width:16px;height:16px;background:center/16px 16px no-repeat}
 .ui-icon-button--more::before{background-image:var(--ui-more-icon)}
 .ui-icon-button--hide::before{background-image:var(--ui-hide-icon)}
-.ui-tool-window>.ui-window-header{gap:0;padding:0 8px 0 12px}
+.ui-embedded-panel,.ui-tool-window{--ui-toolbar-bg:var(--ui-bg)}
+.ui-tool-window>.ui-window-header{gap:0;padding:0 8px 0 12px;background:var(--ui-bg)}
 .ui-tool-window--label>.ui-window-header{border-bottom-color:transparent}
 .ui-tool-window--tabs>.ui-window-header>strong{flex:0 0 auto;margin-right:16px}
 .ui-window-actions{display:flex;flex:0 0 auto;margin-left:auto}
@@ -401,3 +403,61 @@ input.ui-switch,.ui-check input.ui-switch{appearance:none;width:53px!important;m
 
 .ui-menu-label{display:inline-flex;align-items:center;gap:8px;min-width:0}
 .ui-menu-label>[data-ui-icon]{color:var(--ui-icon-color)}
+
+/* Only the shared hub opts into these bindings. Standalone legacy pages keep
+   their own fallbacks. Inheritance stays live across host theme/font updates;
+   no computed-color snapshots or per-frame theme observers are needed. */
+:host([data-ui-managed="legacy"]) {
+  --ui-bg:inherit; --ui-panel:inherit; --ui-input:inherit;
+  --ui-fg:inherit; --ui-strong:inherit; --ui-muted:inherit;
+  --ui-border:inherit; --ui-hover:inherit; --ui-selected:inherit;
+  --ui-accent:inherit; --ui-on-accent:inherit; --ui-focus:inherit;
+  --ui-link:inherit; --ui-danger:inherit; --ui-warning:inherit;
+  --ui-success:inherit; --ui-info:inherit;
+  --ui-font:inherit; --ui-mono:inherit; --ui-text:inherit;
+  --openidea-bg:var(--ui-bg); --openidea-bg-elevated:var(--ui-panel);
+  --openidea-bg-input:var(--ui-input); --openidea-bg-hover:var(--ui-hover);
+  --openidea-bg-selected:var(--ui-selected); --openidea-fg:var(--ui-fg);
+  --openidea-fg-strong:var(--ui-strong); --openidea-fg-muted:var(--ui-muted);
+  --openidea-border:var(--ui-border); --openidea-focus-ring:var(--ui-focus);
+  --openidea-link:var(--ui-link); --openidea-accent:var(--ui-accent);
+  --openidea-fg-on-accent:var(--ui-on-accent); --openidea-danger:var(--ui-danger);
+  --openidea-warning:var(--ui-warning); --openidea-success:var(--ui-success);
+  --openidea-info:var(--ui-info); --openidea-font-ui:var(--ui-font);
+  --openidea-font-mono:var(--ui-mono); --openidea-font-size:var(--ui-text);
+  --bg:var(--ui-bg); --fg:var(--ui-fg); --muted:var(--ui-muted);
+  --line:var(--ui-border); --input:var(--ui-input); --hover:var(--ui-hover);
+  --selected:var(--ui-selected); --focus:var(--ui-focus); --mono:var(--ui-mono);
+  color:var(--ui-fg); background:var(--ui-bg);
+  font:var(--ui-text)/var(--ui-leading) var(--ui-font);
+}
+:host([data-ui-managed="legacy"]) .ui-button { filter:none; }
+
+/* Accessible names for compact native-style action and filter controls. */
+.ui-visually-hidden{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip-path:inset(50%)!important;white-space:nowrap!important;border:0!important}
+
+/* HTTP method badges are shared by route tables and grouped endpoint trees. */
+.ui-http-method{font-family:var(--ui-mono);font-weight:600}
+.ui-http-method+.ui-http-method{margin-left:var(--ui-space-1)}
+.ui-http-method[data-method=GET],.ui-http-method[data-method=HEAD]{color:var(--ui-success)}
+.ui-http-method[data-method=POST],.ui-http-method[data-method=CONNECT]{color:var(--ui-info)}
+.ui-http-method[data-method=PUT],.ui-http-method[data-method=PATCH]{color:var(--ui-warning)}
+.ui-http-method[data-method=DELETE]{color:var(--ui-danger)}
+
+/* Severity is carried by the fill; labels keep the normal readable foreground. */
+.ui-severity-badge.ui-badge--danger{background:var(--ui-error-border);color:var(--ui-fg)}
+.ui-severity-badge.ui-badge--warning{background:var(--ui-warning-border);color:var(--ui-fg)}
+.ui-severity-badge.ui-badge--info{background:var(--ui-info-border);color:var(--ui-fg)}
+
+.ui-toolbar>.ui-toolbar-end{margin-left:auto}
+
+/* Native expui glyphs use the same mono/dual-theme rendering as OpenIDEA. */
+.ui-native-mono{color:var(--ui-icon-color,currentColor)}
+.ui-native-light{display:var(--ui-native-light-display,inline)}
+.ui-native-dark{display:var(--ui-native-dark-display,none)}
+
+.tree-cell .ui-native-mono{color:var(--ui-muted)}
+.ui-embedded-panel .ui-toolbar>.ui-icon-button:not(:disabled){color:var(--ui-muted)}
+.ui-embedded-panel .ui-toolbar>.ui-icon-button:hover:not(:disabled){color:var(--ui-fg)}
+
+.ui-toolbar>.ui-toolbar-end~.ui-toolbar-end{margin-left:0}

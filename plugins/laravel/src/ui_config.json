@@ -7,22 +7,28 @@
     {
       "view": "laravel",
       "id": "reindex",
-      "label": "Laravel: Reindex Project",
-      "kind": "group"
+      "label": "Reindex",
+      "kind": "group",
+      "icon": "refresh"
     },
     {
       "view": "laravel",
       "id": "route-copy-curl",
-      "label": "Laravel: Copy as curl",
-      "kind": "route"
+      "label": "Copy as cURL",
+      "kind": "route",
+      "icon": "copy"
     },
     {
       "view": "laravel",
       "id": "route-create-http",
-      "label": "Laravel: Create HTTP Request File",
-      "kind": "route"
+      "label": "Create HTTP Request File",
+      "kind": "route",
+      "icon": "file-http"
     }
   ],
   "project_independent": false,
-  "project_bound_buttons": []
+  "project_bound_buttons": [],
+  "context_buttons": {
+    "laravel": []
+  }
 }

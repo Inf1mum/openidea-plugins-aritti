@@ -1,0 +1,33 @@
+const engines=await import(process.env.PLAYWRIGHT_MODULE||'@playwright/test');
+import assert from 'node:assert/strict';
+import {resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
+const engine=process.argv.includes('--webkit')?'webkit':'chromium';
+const browser=await engines[engine].launch({headless:true});
+try {
+ const page=await browser.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.addInitScript(()=>{window.sent=[];const listeners=[];window.openidea={postMessage:s=>window.sent.push(JSON.parse(s)),onMessage:f=>listeners.push(f)};window.receive=m=>listeners.forEach(f=>f(JSON.stringify(m)));});
+ await page.goto(pathToFileURL(resolve('plugins/ignore/web/resources/hub.html')).href);
+ const model={title:'Ignore Templates',toolbar:[],actions:[],body:{kind:'tree',items:[{key:'u:mine',label:'My template'},{key:'t:Rust',label:'Rust'}]}};
+ const reply=async toolbar=>{model.toolbar=toolbar;await page.evaluate(model=>{const r=window.sent.at(-1);window.receive({...r,project:'/fixture',model});},model);};
+ const buttons=(user,starred=false)=>[{key:'new',label:'Create User Template',icon:'plus',enabled:true},{key:'delete',label:'Delete User Template',icon:'trash',enabled:user},{key:'star',label:starred?'Unstar':'Star',icon:'star',enabled:true},{key:'preferences',label:'Preferences',icon:'settings',enabled:true}];
+ await reply(buttons(false));
+ await page.locator('tr[data-resource-key="u:mine"]').click({button:'right'});
+ assert.equal(await page.evaluate(()=>window.sent.at(-1).event.key),'u:mine');
+ assert.equal(await page.getByRole('menuitem',{name:'Delete User Template',exact:true}).count(),0,'previous row actions are not reused');
+ await reply(buttons(true,true));
+ await page.getByRole('menuitem',{name:'Unstar',exact:true}).waitFor();
+ assert.equal(await page.getByRole('menuitem',{name:'Delete User Template',exact:true}).isVisible(),true);
+ assert.equal(await page.getByRole('menuitem',{name:'Preferences',exact:true}).count(),0);
+ await page.getByRole('menuitem',{name:'Delete User Template',exact:true}).click();
+ assert.deepEqual(await page.evaluate(()=>{const r=window.sent.at(-1);return {op:r.op,key:r.key,button:r.button};}),{op:'item-button',key:'u:mine',button:'delete'});
+ await reply(buttons(true));
+ await page.locator('tr[data-resource-key="t:Rust"]').focus();await page.keyboard.press('Shift+F10');
+ await reply(buttons(false));await page.getByRole('menuitem',{name:'Star',exact:true}).waitFor();
+ assert.equal(await page.getByRole('menuitem',{name:'Delete User Template',exact:true}).count(),0,'unavailable actions stay hidden');
+ await page.keyboard.press('Escape');
+ await page.locator('tr[data-resource-key="u:mine"]').click({button:'right'});await page.keyboard.press('Escape');
+ await reply(buttons(true));assert.equal(await page.getByRole('menu').count(),0,'dismissed menus do not reopen after late responses');
+ assert.deepEqual(errors,[]);
+ console.log(`PASS ${engine}: shared right-click toolbar actions, authoritative selection, Star/Unstar, hidden unavailable actions, row-bound command dispatch, keyboard access and late-response dismissal`);
+} finally {await browser.close();}
