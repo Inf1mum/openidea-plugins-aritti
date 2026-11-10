@@ -12,6 +12,16 @@ current OpenIDEA host. Native custom-generator templates are an accepted format
 difference; importing Velocity/Laravel Idea settings is not required. Other
 approximations are open gaps, not exclusions.
 
+## Milestone 0 leaf contract
+
+The [machine-readable leaf contract](laravel-parity-contract.json) expands all
+67 historical parent IDs at checkpoint `077677c` against public Laravel Idea
+13.4 / SDK v0.1.40 / API 1.4. Its [usage and evidence rules](laravel-parity-contract.md)
+explain promotion gates and intentionally unqualified baseline questions.
+Validate it with `python3 scripts/check-laravel-parity-contract.py --self-test`.
+No leaf is claimed verified and no API exclusion is assumed by that initial
+contract. Existing implementation/build receipts below retain their own scope.
+
 ## Current parity recheck — 2026-11-10
 
 **Verdict: full parity is not achieved, even after excluding confirmed missing APIs.**
