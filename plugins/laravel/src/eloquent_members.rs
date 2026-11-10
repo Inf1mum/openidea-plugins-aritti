@@ -1,0 +1,2799 @@
+//! Bounded, source-derived Eloquent receiver inference. No PHP, filesystem or network calls.
+use crate::{
+    index::{Entry, Index},
+    php,
+};
+use openidea_plugin::{
+    Position, Range,
+    providers::{CompletionItem, CompletionKind, Document},
+    text,
+};
+use std::{
+    cell::RefCell,
+    collections::{BTreeMap, BTreeSet},
+};
+
+#[path = "eloquent_casts.rs"]
+mod casts;
+#[path = "eloquent_objects.rs"]
+mod objects;
+#[path = "eloquent_traits.rs"]
+mod traits;
+pub(crate) use casts::{Enums, cache as cache_enum};
+pub(crate) use objects::{Objects, cache as cache_object};
+pub(crate) use traits::finish;
+
+const MAX_TEXT: usize = 128 * 1024;
+const MAX_TOKENS: usize = 8192;
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Kind {
+    Name,
+    Var,
+    String,
+    Symbol,
+}
+#[derive(Clone, Copy, Debug)]
+struct Token<'a> {
+    value: &'a str,
+    start: usize,
+    end: usize,
+    kind: Kind,
+}
+struct Source<'a> {
+    text: &'a str,
+    tokens: Vec<Token<'a>>,
+    pairs: BTreeMap<usize, usize>,
+    paths: Vec<Vec<usize>>,
+}
+impl<'a> Source<'a> {
+    fn new(text: &'a str) -> Option<Self> {
+        if text.len() > MAX_TEXT {
+            return None;
+        }
+        let bytes = text.as_bytes();
+        let mut tokens = vec![];
+        let mut at = 0;
+        while at < bytes.len() {
+            if tokens.len() >= MAX_TOKENS {
+                return None;
+            }
+            if bytes[at].is_ascii_whitespace() {
+                at += 1;
+                continue;
+            }
+            if bytes[at..].starts_with(b"<<<") {
+                return None;
+            }
+            if bytes[at..].starts_with(b"//")
+                || bytes[at] == b'#' && bytes.get(at + 1) != Some(&b'[')
+            {
+                while at < bytes.len() && bytes[at] != b'\n' {
+                    at += 1;
+                }
+                continue;
+            }
+            if bytes[at..].starts_with(b"/*") {
+                at += 2;
+                while at < bytes.len() && !bytes[at..].starts_with(b"*/") {
+                    at += 1;
+                }
+                if at == bytes.len() {
+                    break;
+                }
+                at += 2;
+                continue;
+            }
+            let start = at;
+            let kind;
+            if matches!(bytes[at], b'\'' | b'"' | b'`') {
+                let quote = bytes[at];
+                at += 1;
+                while at < bytes.len() {
+                    if bytes[at] == b'\\' {
+                        at = (at + 2).min(bytes.len());
+                    } else if bytes[at] == quote {
+                        at += 1;
+                        break;
+                    } else {
+                        at += 1;
+                    }
+                }
+                kind = Kind::String;
+            } else if bytes[at] == b'$' {
+                at += 1;
+                while at < bytes.len() && php::is_identifier(bytes[at]) {
+                    at += 1;
+                }
+                kind = Kind::Var;
+            } else if bytes[at].is_ascii_alphabetic() || matches!(bytes[at], b'_' | b'\\') {
+                at += 1;
+                while at < bytes.len() && (php::is_identifier(bytes[at]) || bytes[at] == b'\\') {
+                    at += 1;
+                }
+                kind = Kind::Name;
+            } else {
+                let size = [
+                    "?->", "->", "::", "=>", "??", "==", "!=", "+=", "-=", "*=", "/=", "++", "--",
+                    "&=", "|=",
+                ]
+                .into_iter()
+                .find(|s| text[start..].starts_with(s))
+                .map_or_else(
+                    || text[start..].chars().next().unwrap().len_utf8(),
+                    str::len,
+                );
+                at += size;
+                kind = Kind::Symbol;
+            }
+            if !text.is_char_boundary(at) {
+                return None;
+            }
+            tokens.push(Token {
+                value: &text[start..at],
+                start,
+                end: at,
+                kind,
+            });
+        }
+        let mut stack: Vec<(usize, &str)> = vec![];
+        let mut pairs = BTreeMap::new();
+        let mut braces = vec![];
+        let mut paths = vec![];
+        for (i, token) in tokens.iter().enumerate() {
+            if token.value == "}" {
+                braces.pop()?;
+            }
+            paths.push(braces.clone());
+            match token.value {
+                "(" | "[" | "{" => {
+                    stack.push((i, token.value));
+                    if token.value == "{" {
+                        braces.push(i);
+                    }
+                    if stack.len() > 64 {
+                        return None;
+                    }
+                }
+                ")" | "]" | "}" => {
+                    let (open, kind) = stack.pop()?;
+                    if !matches!((kind, token.value), ("(", ")") | ("[", "]") | ("{", "}")) {
+                        return None;
+                    }
+                    pairs.insert(open, i);
+                    pairs.insert(i, open);
+                }
+                _ => {}
+            }
+        }
+        Some(Self {
+            text,
+            tokens,
+            pairs,
+            paths,
+        })
+    }
+    fn is(&self, i: usize, value: &str) -> bool {
+        self.tokens
+            .get(i)
+            .is_some_and(|t| t.value.eq_ignore_ascii_case(value))
+    }
+    fn functions(&self) -> Vec<Function> {
+        let mut found = vec![];
+        for (i, t) in self.tokens.iter().enumerate() {
+            if !t.value.eq_ignore_ascii_case("function") {
+                continue;
+            }
+            let mut at = i + 1;
+            if self.is(at, "&") {
+                at += 1;
+            }
+            let name = if self.tokens.get(at).is_some_and(|t| t.kind == Kind::Name) {
+                let n = at;
+                at += 1;
+                Some(n)
+            } else {
+                None
+            };
+            if !self.is(at, "(") {
+                continue;
+            }
+            let Some(&close) = self.pairs.get(&at) else {
+                continue;
+            };
+            let mut body = close + 1;
+            while body < self.tokens.len() && !self.is(body, "{") && !self.is(body, ";") {
+                body += 1;
+            }
+            if !self.is(body, "{") {
+                continue;
+            }
+            let end = self.pairs.get(&body).copied().unwrap_or(self.tokens.len());
+            found.push(Function {
+                start: i,
+                name,
+                params: at + 1..close,
+                body,
+                end,
+            });
+        }
+        found
+    }
+}
+#[derive(Clone)]
+struct Function {
+    start: usize,
+    name: Option<usize>,
+    params: std::ops::Range<usize>,
+    body: usize,
+    end: usize,
+}
+#[derive(Default)]
+struct Names {
+    namespace: String,
+    imports: BTreeMap<String, String>,
+    class: Option<(String, usize, usize, String)>,
+}
+impl Names {
+    fn parse(source: &Source) -> Option<Self> {
+        let t = &source.tokens;
+        if t.iter()
+            .filter(|token| token.value.eq_ignore_ascii_case("namespace"))
+            .count()
+            > 1
+            || t.iter()
+                .enumerate()
+                .filter(|(i, t)| {
+                    t.value.eq_ignore_ascii_case("class") && (*i == 0 || !source.is(i - 1, "::"))
+                })
+                .count()
+                > 1
+        {
+            return None;
+        }
+        let mut result = Self::default();
+        let mut i = 0;
+        while i < t.len() {
+            if source.is(i, "namespace") {
+                if !result.namespace.is_empty() || !source.is(i + 2, ";") {
+                    return None;
+                }
+                result.namespace = t.get(i + 1)?.value.trim_matches('\\').into();
+                i += 3;
+                continue;
+            }
+            if ["class", "enum", "interface", "trait"]
+                .iter()
+                .any(|kind| source.is(i, kind))
+                && (i == 0 || !source.is(i - 1, "::"))
+            {
+                if t.get(i + 1)?.kind != Kind::Name {
+                    return None;
+                }
+                let mut end = i + 2;
+                while end < t.len() && !source.is(end, "{") {
+                    end += 1;
+                }
+                let mut parent = String::new();
+                for j in i + 2..end {
+                    if source.is(j, "extends") {
+                        parent = result.resolve(t.get(j + 1)?.value);
+                    }
+                }
+                let full = result.qualify(t[i + 1].value);
+                result.class = Some((full, i, end, parent));
+                break;
+            }
+            if source.is(i, "use") {
+                if source.is(i + 1, "function") || source.is(i + 1, "const") {
+                    while i < t.len() && !source.is(i, ";") {
+                        i += 1;
+                    }
+                    i += 1;
+                    continue;
+                }
+                i += 1;
+                let mut prefix = String::new();
+                if source.is(i + 1, "{") {
+                    prefix = t.get(i)?.value.into();
+                    i += 2;
+                }
+                loop {
+                    let token = t.get(i)?;
+                    if token.kind != Kind::Name {
+                        return None;
+                    }
+                    let full = format!("{prefix}{}", token.value)
+                        .trim_start_matches('\\')
+                        .to_owned();
+                    i += 1;
+                    let alias = if source.is(i, "as") {
+                        i += 1;
+                        let name = t.get(i)?.value;
+                        i += 1;
+                        name
+                    } else {
+                        token.value.rsplit('\\').next()?
+                    };
+                    if result
+                        .imports
+                        .insert(alias.to_ascii_lowercase(), full)
+                        .is_some()
+                    {
+                        return None;
+                    }
+                    if source.is(i, ",") {
+                        i += 1;
+                        continue;
+                    }
+                    if !prefix.is_empty() {
+                        if !source.is(i, "}") {
+                            return None;
+                        }
+                        i += 1;
+                    }
+                    if !source.is(i, ";") {
+                        return None;
+                    }
+                    i += 1;
+                    break;
+                }
+                continue;
+            }
+            i += 1;
+        }
+        Some(result)
+    }
+    fn qualify(&self, name: &str) -> String {
+        if self.namespace.is_empty() {
+            name.into()
+        } else {
+            format!("{}\\{name}", self.namespace)
+        }
+    }
+    fn resolve(&self, name: &str) -> String {
+        if let Some(full) = name.strip_prefix('\\') {
+            return full.into();
+        }
+        if let Some(relative) = name.strip_prefix("namespace\\") {
+            return self.qualify(relative);
+        }
+        let (head, tail) = name.split_once('\\').unwrap_or((name, ""));
+        if let Some(full) = self.imports.get(&head.to_ascii_lowercase()) {
+            if tail.is_empty() {
+                full.clone()
+            } else {
+                format!("{full}\\{tail}")
+            }
+        } else {
+            self.qualify(name)
+        }
+    }
+}
+#[derive(Clone, Debug)]
+pub(crate) struct Relation {
+    target: String,
+    kind: String,
+    many: bool,
+    entry: Entry,
+}
+#[derive(Clone, Debug)]
+pub(crate) struct Model {
+    full: String,
+    ambiguous: bool,
+    path: String,
+    parent: String,
+    base: bool,
+    explicit_table: bool,
+    is_trait: bool,
+    traits: Vec<String>,
+    trait_adaptations: bool,
+    adaptations: Vec<traits::Adaptation>,
+    adapted: bool,
+    trait_sources: Vec<String>,
+    returns: BTreeMap<String, objects::Method>,
+    soft_deletes: bool,
+    property_casts: Option<Option<casts::Casts>>,
+    method_casts: Option<Option<casts::Casts>>,
+    table: Option<String>,
+    relations: BTreeMap<String, Relation>,
+    scopes: BTreeMap<String, Entry>,
+    declared: BTreeSet<String>,
+}
+pub(crate) type Models = BTreeMap<String, Model>;
+pub(crate) fn cache(models: &mut Models, source: &str, path: &str) {
+    if let Some(info) = model(source, path) {
+        models
+            .entry(info.full.to_ascii_lowercase())
+            .and_modify(|old| {
+                if old.path != path {
+                    old.ambiguous = true;
+                }
+            })
+            .or_insert(info);
+    }
+}
+
+pub(crate) fn declaration(text: &str) -> Option<String> {
+    let source = Source::new(text)?;
+    let names = Names::parse(&source)?;
+    Some(names.class?.0)
+}
+pub(crate) fn model_inventory(models: &Models) -> Vec<(String, String, String)> {
+    let mut result = vec![];
+    for model in models
+        .values()
+        .filter(|model| !model.is_trait && !model.ambiguous)
+    {
+        let mut current = model;
+        let mut found = vec![model];
+        let mut seen = BTreeSet::new();
+        for _ in 0..8 {
+            if current.ambiguous
+                || current.is_trait
+                || !seen.insert(current.full.to_ascii_lowercase())
+            {
+                break;
+            }
+            if current.base {
+                if let Some(table) = found
+                    .iter()
+                    .find(|model| model.explicit_table)
+                    .copied()
+                    .unwrap_or(model)
+                    .table
+                    .as_ref()
+                {
+                    result.push((model.full.clone(), model.path.clone(), table.clone()));
+                }
+                break;
+            }
+            let Some(parent) = models.get(&current.parent.to_ascii_lowercase()) else {
+                break;
+            };
+            current = parent;
+            found.push(parent);
+        }
+    }
+    result
+}
+
+fn entry(source: &Source, path: &str, token: usize) -> Entry {
+    let t = &source.tokens[token];
+    Entry {
+        path: path.into(),
+        at: text::position(source.text, t.start),
+        width: t.value.encode_utf16().count() as u32,
+        detail: None,
+    }
+}
+const RELATIONS: &[(&str, bool)] = &[
+    ("hasOne", false),
+    ("belongsTo", false),
+    ("hasMany", true),
+    ("belongsToMany", true),
+    ("hasOneThrough", false),
+    ("hasManyThrough", true),
+    ("morphOne", false),
+    ("morphMany", true),
+    ("morphToMany", true),
+    ("morphedByMany", true),
+];
+pub(crate) fn model(text: &str, path: &str) -> Option<Model> {
+    let source = Source::new(text)?;
+    let names = Names::parse(&source)?;
+    let (full, start, body, parent) = names.class.as_ref()?;
+    if !source.is(*start, "class") && !source.is(*start, "trait") {
+        return None;
+    }
+    let base = [
+        "Illuminate\\Database\\Eloquent\\Model",
+        "Illuminate\\Foundation\\Auth\\User",
+        "Illuminate\\Database\\Eloquent\\Relations\\Pivot",
+        "Illuminate\\Database\\Eloquent\\Relations\\MorphPivot",
+    ]
+    .iter()
+    .any(|base| parent.eq_ignore_ascii_case(base));
+    let end = source
+        .pairs
+        .get(body)
+        .copied()
+        .unwrap_or(source.tokens.len());
+    // Multiple classes / conditional declarations are outside this source subset.
+    if source
+        .tokens
+        .iter()
+        .enumerate()
+        .any(|(i, t)| i > end && t.value.eq_ignore_ascii_case("class"))
+    {
+        return None;
+    }
+    let mut result = Model {
+        full: full.clone(),
+        ambiguous: false,
+        path: path.into(),
+        parent: parent.clone(),
+        base,
+        explicit_table: false,
+        is_trait: source.is(*start, "trait"),
+        traits: Vec::new(),
+        trait_adaptations: false,
+        adaptations: Vec::new(),
+        adapted: false,
+        trait_sources: Vec::new(),
+        returns: BTreeMap::new(),
+        soft_deletes: false,
+        property_casts: None,
+        method_casts: None,
+        table: Some(crate::index::table_name(full.rsplit('\\').next()?)),
+        relations: BTreeMap::new(),
+        scopes: BTreeMap::new(),
+        declared: BTreeSet::new(),
+    };
+    for i in 0..source.tokens.len() {
+        if source.is(i, "use") && source.paths[i] == vec![*body] {
+            let mut at = i + 1;
+            loop {
+                let Some(token) = source
+                    .tokens
+                    .get(at)
+                    .filter(|token| token.kind == Kind::Name)
+                else {
+                    result.trait_adaptations = true;
+                    break;
+                };
+                let full = names.resolve(token.value);
+                if full == "Illuminate\\Database\\Eloquent\\SoftDeletes" {
+                    result.soft_deletes = true;
+                }
+                result.traits.push(full);
+                at += 1;
+                if source.is(at, ",") {
+                    at += 1;
+                    continue;
+                }
+                if source.is(at, "{") {
+                    if let Some(adaptations) = traits::parse(&source, &names, at, path) {
+                        result.adaptations.extend(adaptations);
+                    } else {
+                        result.trait_adaptations = true;
+                    }
+                } else if !source.is(at, ";") {
+                    result.trait_adaptations = true;
+                }
+                break;
+            }
+        }
+    }
+    for (i, t) in source.tokens.iter().enumerate() {
+        if t.value == "$casts" && source.paths[i] == vec![*body] {
+            result.property_casts = Some(
+                if source.is(i + 1, "=")
+                    && source
+                        .pairs
+                        .get(&(i + 2))
+                        .is_some_and(|close| source.is(close + 1, ";"))
+                {
+                    casts::array(&source, &names, i + 2, path)
+                } else {
+                    None
+                },
+            );
+        }
+    }
+    for (i, t) in source.tokens.iter().enumerate() {
+        if t.value == "$table" && source.paths[i] == vec![*body] {
+            result.explicit_table = true;
+            if !source.is(i + 1, "=") || !source.is(i + 3, ";") {
+                result.table = None;
+                continue;
+            }
+            result.table = source
+                .tokens
+                .get(i + 2)
+                .filter(|t| t.kind == Kind::String)
+                .and_then(|t| php::literal(text, t.start..t.end))
+                .map(|(s, _)| s.to_owned());
+        }
+    }
+    for function in source.functions() {
+        if source.paths[function.start] != vec![*body] {
+            continue;
+        }
+        let Some(at) = function.name else {
+            continue;
+        };
+        let name = source.tokens[at].value;
+        result.declared.insert(name.into());
+        if let Some(method) = objects::method(&source, &names, &function, path) {
+            result.returns.insert(name.into(), method);
+        }
+        if let Some(rest) = name
+            .strip_prefix("scope")
+            .filter(|s| s.starts_with(|c: char| c.is_ascii_uppercase()))
+        {
+            let scope = format!("{}{}", rest[..1].to_ascii_lowercase(), &rest[1..]);
+            result.scopes.insert(scope, entry(&source, path, at));
+        } else {
+            let start = (0..function.start)
+                .rev()
+                .find(|&i| source.is(i, "}") || source.is(i, ";") || source.is(i, "{"))
+                .map_or(0, |i| i + 1);
+            for i in start..function.start {
+                if source.is(i, "#")
+                    && source.is(i + 1, "[")
+                    && source.tokens.get(i + 2).is_some_and(|t| {
+                        names.resolve(t.value)
+                            == "Illuminate\\Database\\Eloquent\\Attributes\\Scope"
+                    })
+                {
+                    result.scopes.insert(name.into(), entry(&source, path, at));
+                }
+            }
+        }
+        let b = function.body + 1;
+        if name == "casts" {
+            result.method_casts = Some(
+                if source.is(b, "return")
+                    && source
+                        .pairs
+                        .get(&(b + 1))
+                        .is_some_and(|close| source.is(close + 1, ";") && close + 2 == function.end)
+                {
+                    casts::array(&source, &names, b + 1, path)
+                } else {
+                    None
+                },
+            );
+        }
+        if !source.is(b, "return")
+            || !source.is(b + 1, "$this")
+            || !source.is(b + 2, "->")
+            || !source.is(b + 4, "(")
+        {
+            continue;
+        }
+        let factory = source.tokens.get(b + 3)?.value;
+        let Some((_, many)) = RELATIONS.iter().find(|(kind, _)| *kind == factory) else {
+            continue;
+        };
+        let target = source.tokens.get(b + 5)?;
+        if target.value == "static" {
+            continue;
+        }
+        if target.kind != Kind::Name || !source.is(b + 6, "::") || !source.is(b + 7, "class") {
+            continue;
+        }
+        let Some(&close) = source.pairs.get(&(b + 4)) else {
+            continue;
+        };
+        let mut tail = close + 1;
+        while source.is(tail, "->") {
+            let Some(method) = source.tokens.get(tail + 1) else {
+                break;
+            };
+            if ![
+                "withDefault",
+                "withPivot",
+                "withTimestamps",
+                "as",
+                "where",
+                "whereIn",
+                "whereNull",
+                "whereNotNull",
+                "orderBy",
+                "latest",
+                "oldest",
+                "select",
+                "withTrashed",
+                "wherePivot",
+                "wherePivotIn",
+            ]
+            .contains(&method.value)
+                || !source.is(tail + 2, "(")
+            {
+                break;
+            }
+            let Some(&end) = source.pairs.get(&(tail + 2)) else {
+                break;
+            };
+            tail = end + 1;
+        }
+        if !source.is(tail, ";") || tail + 1 != function.end {
+            continue;
+        }
+
+        if close > function.end || ![",", ")"].contains(&source.tokens.get(b + 8)?.value) {
+            continue;
+        }
+        result.relations.insert(
+            name.into(),
+            Relation {
+                target: match target.value {
+                    "self" | "static" => full.clone(),
+                    "parent" => parent.clone(),
+                    _ => names.resolve(target.value),
+                },
+                kind: factory.into(),
+                many: *many,
+                entry: entry(&source, path, at),
+            },
+        );
+    }
+    if result.declared.contains("getTable") {
+        result.table = None;
+    }
+    result
+        .relations
+        .retain(|_, r| !result.declared.contains(&r.kind));
+    Some(result)
+}
+
+#[derive(Clone, Debug, PartialEq)]
+enum Shape {
+    Static,
+    Model,
+    Query,
+    Collection,
+    Relation(String),
+    Enum,
+    Object,
+}
+#[derive(Clone, Debug)]
+struct Typed {
+    model: String,
+    shape: Shape,
+}
+struct Context<'a> {
+    source: Source<'a>,
+    names: Names,
+    arrow: usize,
+    start: usize,
+    end: usize,
+    typed: &'a str,
+    member: &'a str,
+}
+fn context<'a>(doc: &'a Document, at: Position) -> Option<Context<'a>> {
+    let cursor = text::offset(&doc.text, at)?;
+    let source = Source::new(&doc.text)?;
+    let names = Names::parse(&source)?;
+    let t = &source.tokens;
+    let word = t
+        .iter()
+        .position(|t| t.kind == Kind::Name && t.start <= cursor && cursor <= t.end);
+    let (arrow, start, end, typed, member) = if let Some(word) = word {
+        if t[word].value.contains('\\') {
+            return None;
+        }
+        (
+            word.checked_sub(1)?,
+            t[word].start,
+            t[word].end,
+            &doc.text[t[word].start..cursor],
+            t[word].value,
+        )
+    } else {
+        let last = t.iter().rposition(|t| t.end <= cursor)?;
+        if !doc.text[t[last].end..cursor].trim().is_empty() {
+            return None;
+        }
+        (last, cursor, cursor, "", "")
+    };
+    if !matches!(t.get(arrow)?.value, "->" | "?->" | "::") {
+        return None;
+    }
+    Some(Context {
+        source,
+        names,
+        arrow,
+        start,
+        end,
+        typed,
+        member,
+    })
+}
+struct Resolver<'a, 'b> {
+    context: &'a Context<'b>,
+    index: &'a Index,
+    overlay: Option<Model>,
+    path: &'a str,
+    owns: &'a dyn Fn(&str) -> bool,
+    owner_cache: RefCell<BTreeMap<String, bool>>,
+}
+impl<'a, 'b> Resolver<'a, 'b> {
+    fn owned(&self, path: &str) -> bool {
+        if let Some(owned) = self.owner_cache.borrow().get(path).copied() {
+            return owned;
+        }
+        let owned = (self.owns)(path);
+        self.owner_cache.borrow_mut().insert(path.into(), owned);
+        owned
+    }
+    fn raw(&self, full: &str) -> Option<&Model> {
+        if self
+            .index
+            .eloquent_models
+            .get(&full.to_ascii_lowercase())
+            .is_some_and(|m| m.ambiguous)
+        {
+            return None;
+        }
+        if self
+            .overlay
+            .as_ref()
+            .is_some_and(|m| m.full.eq_ignore_ascii_case(full))
+        {
+            return self.overlay.as_ref().filter(|model| {
+                self.owned(&model.path) && model.trait_sources.iter().all(|path| self.owned(path))
+            });
+        }
+        let model = self.index.eloquent_models.get(&full.to_ascii_lowercase())?;
+        (model.path != self.path
+            && self.owned(&model.path)
+            && model.trait_sources.iter().all(|path| self.owned(path)))
+        .then_some(model)
+    }
+    fn lineage(&self, full: &str) -> Option<Vec<&Model>> {
+        let mut found = vec![];
+        let mut current = self.raw(full)?;
+        let mut seen = BTreeSet::new();
+        for _ in 0..8 {
+            if !seen.insert(current.full.to_ascii_lowercase()) {
+                return None;
+            }
+            if current.is_trait {
+                return None;
+            }
+            found.push(current);
+            if !current.adapted {
+                if let Some(traits) = self.traits(current) {
+                    found.extend(traits);
+                }
+            }
+            if current.base {
+                return Some(found);
+            }
+            current = self.raw(&current.parent)?;
+        }
+        None
+    }
+    fn traits(&self, model: &Model) -> Option<Vec<&Model>> {
+        fn walk<'a>(
+            resolver: &'a Resolver<'_, '_>,
+            model: &Model,
+            found: &mut Vec<&'a Model>,
+            active: &mut BTreeSet<String>,
+            depth: u8,
+        ) -> Option<()> {
+            if model.adapted {
+                return Some(());
+            }
+            if depth >= 8 || model.trait_adaptations || !model.adaptations.is_empty() {
+                return None;
+            }
+            for full in &model.traits {
+                let Some(info) = resolver.raw(full) else {
+                    continue;
+                };
+                if !info.is_trait || !active.insert(full.to_ascii_lowercase()) {
+                    return None;
+                }
+                if !found.iter().any(|old| old.full == info.full) {
+                    if found.len() >= 32 {
+                        return None;
+                    }
+                    found.push(info);
+                    walk(resolver, info, found, active, depth + 1)?;
+                }
+                active.remove(&full.to_ascii_lowercase());
+            }
+            Some(())
+        }
+        let mut found = vec![];
+        walk(self, model, &mut found, &mut BTreeSet::new(), 0)?;
+        let mut declared = BTreeSet::new();
+        for info in &found {
+            for name in &info.declared {
+                if !model.declared.contains(name) && !declared.insert(name) {
+                    return None;
+                }
+            }
+        }
+        Some(found)
+    }
+    fn object(&self, full: &str) -> Option<&objects::Object> {
+        let object = self
+            .index
+            .eloquent_objects
+            .get(&full.to_ascii_lowercase())?;
+        (!object.ambiguous && object.path != self.path && self.owned(&object.path))
+            .then_some(object)
+    }
+    fn returned(&self, method: &objects::Method, receiver: &Typed) -> Option<Typed> {
+        if method.static_method != (receiver.shape == Shape::Static) {
+            return None;
+        }
+        self.return_target(&method.target, receiver)
+    }
+    fn return_target(&self, target: &str, receiver: &Typed) -> Option<Typed> {
+        if target.contains('|') {
+            return None;
+        }
+        let mut concrete = None;
+        for target in target.split('&') {
+            let full = if target == "static" {
+                receiver.model.as_str()
+            } else {
+                target
+            };
+            let shape = if self.get(full).is_some() {
+                Some(Shape::Model)
+            } else if self.enumeration(full).is_some() {
+                Some(Shape::Enum)
+            } else if let Some(object) = self.object(full) {
+                if object.is_interface {
+                    None
+                } else {
+                    Some(Shape::Object)
+                }
+            } else {
+                return None;
+            };
+            if let Some(shape) = shape {
+                if concrete.is_some() {
+                    return None;
+                }
+                concrete = Some(Typed {
+                    model: full.into(),
+                    shape,
+                });
+            }
+        }
+        concrete
+    }
+    fn casts(&self, full: &str) -> Option<casts::Casts> {
+        let lineage = self.lineage(full)?;
+        let property = lineage.iter().find_map(|m| m.property_casts.as_ref());
+        let method = lineage.iter().find_map(|m| m.method_casts.as_ref());
+        if property.is_some_and(Option::is_none) || method.is_some_and(Option::is_none) {
+            return None;
+        }
+        let mut result = property
+            .and_then(Option::as_ref)
+            .cloned()
+            .unwrap_or_default();
+        result.extend(method.and_then(Option::as_ref).cloned().unwrap_or_default());
+        Some(result)
+    }
+    fn counts(&self, full: &str) -> BTreeMap<String, Entry> {
+        let mut result = BTreeMap::new();
+        if self.declared(full, "withCount") {
+            return result;
+        }
+        let source = &self.context.source;
+        let Some((_, start)) = self.expr(self.context.arrow, 0) else {
+            return result;
+        };
+        let relations = self.relations(full);
+        for at in start..self.context.arrow {
+            if !source.is(at, "withCount")
+                || at == 0
+                || !source.is(at + 1, "(")
+                || source.paths[at] != source.paths[self.context.arrow]
+            {
+                continue;
+            }
+            let Some((receiver, _)) = self.expr(at - 1, 0) else {
+                continue;
+            };
+            if !receiver.model.eq_ignore_ascii_case(full) {
+                continue;
+            }
+            let Some(&close) = source
+                .pairs
+                .get(&(at + 1))
+                .filter(|close| **close < self.context.arrow)
+            else {
+                continue;
+            };
+            let stable = (close + 1..self.context.arrow)
+                .filter(|&i| {
+                    source.paths[i] == source.paths[self.context.arrow]
+                        && matches!(source.tokens[i].value, "->" | "?->")
+                })
+                .all(|i| {
+                    source.is(i + 2, "(")
+                        && source.tokens.get(i + 1).is_some_and(|token| {
+                            [
+                                "where",
+                                "whereIn",
+                                "whereNull",
+                                "whereNotNull",
+                                "orderBy",
+                                "latest",
+                                "oldest",
+                                "limit",
+                                "take",
+                                "skip",
+                                "offset",
+                                "with",
+                                "withCount",
+                                "first",
+                                "firstOrFail",
+                                "sole",
+                                "get",
+                                "all",
+                                "find",
+                                "findOrFail",
+                                "last",
+                            ]
+                            .contains(&token.value)
+                        })
+                });
+            if !stable {
+                continue;
+            }
+            let mut values = vec![];
+            if let (Some(first), Some(last)) = (
+                source.tokens.get(at + 2),
+                source.tokens.get(close.wrapping_sub(1)),
+            ) {
+                if let Some((value, _)) = php::literal(source.text, first.start..last.end) {
+                    values.push(value.to_owned());
+                } else if first.value == "[" {
+                    for item in php::items(source.text, first.start) {
+                        if let Some((value, _)) =
+                            php::literal(source.text, item.key.unwrap_or(item.value))
+                        {
+                            values.push(value.to_owned());
+                        }
+                    }
+                }
+            }
+            for value in values.into_iter().take(64) {
+                let (relation, alias) = value
+                    .split_once(" as ")
+                    .map_or((value.as_str(), None), |(name, alias)| (name, Some(alias)));
+                let Some(info) = relations.get(relation) else {
+                    continue;
+                };
+                let name = if let Some(alias) = alias {
+                    alias.to_owned()
+                } else {
+                    let chars: Vec<_> = relation.chars().collect();
+                    let mut snake = String::new();
+                    for (i, &ch) in chars.iter().enumerate() {
+                        if ch.is_ascii_uppercase()
+                            && i > 0
+                            && (chars[i - 1].is_ascii_lowercase()
+                                || chars
+                                    .get(i + 1)
+                                    .is_some_and(|next| next.is_ascii_lowercase()))
+                        {
+                            snake.push('_');
+                        }
+                        snake.push(ch.to_ascii_lowercase());
+                    }
+                    format!("{snake}_count")
+                };
+                if name.len() <= 128
+                    && name
+                        .chars()
+                        .next()
+                        .is_some_and(|ch| ch.is_ascii_alphabetic() || ch == '_')
+                    && name
+                        .chars()
+                        .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+                {
+                    if result.len() < 64 {
+                        result.insert(name, info.entry.clone());
+                    }
+                }
+            }
+        }
+        result
+    }
+    fn cast(&self, full: &str, name: &str) -> Option<casts::Cast> {
+        self.casts(full)?.get(name).cloned()
+    }
+    fn enumeration(&self, full: &str) -> Option<&casts::EnumInfo> {
+        let info = self.index.eloquent_enums.get(&full.to_ascii_lowercase())?;
+        (!info.ambiguous && self.owned(&info.path)).then_some(info)
+    }
+    fn get(&self, full: &str) -> Option<&Model> {
+        self.lineage(full)?;
+        self.raw(full)
+    }
+    fn relation(&self, full: &str, name: &str) -> Option<&Relation> {
+        for model in self.lineage(full)? {
+            if model.declared.contains(name) {
+                let relation = model.relations.get(name)?;
+                return (!self.declared(full, &relation.kind)).then_some(relation);
+            }
+        }
+        None
+    }
+    fn relations(&self, full: &str) -> BTreeMap<&str, &Relation> {
+        let mut result = BTreeMap::new();
+        let mut blocked = BTreeSet::new();
+        for model in self.lineage(full).unwrap_or_default() {
+            for (name, relation) in &model.relations {
+                if !blocked.contains(name.as_str()) && !self.declared(full, &relation.kind) {
+                    result.insert(name.as_str(), relation);
+                }
+            }
+            blocked.extend(model.declared.iter().map(String::as_str));
+        }
+        result
+    }
+    fn scopes(&self, full: &str) -> BTreeMap<&str, &Entry> {
+        let mut result = BTreeMap::new();
+        let mut blocked = BTreeSet::new();
+        for model in self.lineage(full).unwrap_or_default() {
+            for (name, entry) in &model.scopes {
+                if !blocked.contains(name.as_str()) {
+                    result.entry(name.as_str()).or_insert(entry);
+                }
+            }
+            blocked.extend(model.declared.iter().map(String::as_str));
+        }
+        result
+    }
+    fn declared(&self, full: &str, name: &str) -> bool {
+        self.lineage(full)
+            .unwrap_or_default()
+            .iter()
+            .any(|model| model.declared.contains(name))
+    }
+    fn table(&self, full: &str) -> Option<&str> {
+        let lineage = self.lineage(full)?;
+        if lineage.iter().any(|m| m.declared.contains("getTable")) {
+            return None;
+        }
+        lineage
+            .iter()
+            .find(|m| m.explicit_table)
+            .copied()
+            .or_else(|| lineage.first().copied())?
+            .table
+            .as_deref()
+    }
+    fn class(&self, name: &str) -> Option<String> {
+        let name = if matches!(name, "self" | "static") {
+            self.context.names.class.as_ref()?.0.clone()
+        } else {
+            self.context.names.resolve(name)
+        };
+        self.get(&name).map(|m| m.full.clone())
+    }
+    fn expr(&self, end: usize, depth: u8) -> Option<(Typed, usize)> {
+        if depth > 16 || end == 0 {
+            return None;
+        }
+        let s = &self.context.source;
+        let t = &s.tokens;
+        let last = end - 1;
+        if s.is(last, ")") {
+            let open = *s.pairs.get(&last)?;
+            if open >= 2
+                && t[open - 1].kind == Kind::Name
+                && matches!(t[open - 2].value, "->" | "?->" | "::")
+            {
+                let (receiver, start) = self.expr(open - 2, depth + 1)?;
+                if (receiver.shape == Shape::Static) != (t[open - 2].value == "::") {
+                    return None;
+                }
+                return Some((
+                    self.call(receiver, t[open - 1].value, open + 1, last)?,
+                    start,
+                ));
+            }
+            if open >= 2 && s.is(open - 2, "new") && t[open - 1].kind == Kind::Name {
+                return Some((
+                    Typed {
+                        model: self.class(t[open - 1].value)?,
+                        shape: Shape::Model,
+                    },
+                    open - 2,
+                ));
+            }
+            let (receiver, start) = self.expr(last, depth + 1)?;
+            if start != open + 1 {
+                return None;
+            }
+            return Some((receiver, open));
+        }
+        if t[last].kind == Kind::Name && last >= 2 && matches!(t[last - 1].value, "->" | "?->") {
+            let (receiver, start) = self.expr(last - 1, depth + 1)?;
+            if receiver.shape != Shape::Model {
+                return None;
+            }
+            if let Some(cast) = self.cast(&receiver.model, t[last].value) {
+                if let Some(info) = cast
+                    .target
+                    .as_deref()
+                    .and_then(|target| self.enumeration(target))
+                {
+                    return Some((
+                        Typed {
+                            model: info.full.clone(),
+                            shape: Shape::Enum,
+                        },
+                        start,
+                    ));
+                }
+                if let Some(caster) = cast
+                    .target
+                    .as_deref()
+                    .and_then(|target| self.object(target))
+                {
+                    let target = caster.cast_target.as_deref()?;
+                    return Some((self.return_target(target, &receiver)?, start));
+                }
+                return None;
+            }
+            let relation = self.relation(&receiver.model, t[last].value)?;
+            let target = self.get(&relation.target)?;
+            return Some((
+                Typed {
+                    model: target.full.clone(),
+                    shape: if relation.many {
+                        Shape::Collection
+                    } else {
+                        Shape::Model
+                    },
+                },
+                start,
+            ));
+        }
+        if t[last].kind == Kind::Name {
+            let full = self.class(t[last].value)?;
+            if last > 0 && s.is(last - 1, "new") {
+                return Some((
+                    Typed {
+                        model: full,
+                        shape: Shape::Model,
+                    },
+                    last - 1,
+                ));
+            }
+            return Some((
+                Typed {
+                    model: full,
+                    shape: Shape::Static,
+                },
+                last,
+            ));
+        }
+        if t[last].kind == Kind::Var {
+            return Some((self.binding(last, depth + 1)?, last));
+        }
+        None
+    }
+    fn binding(&self, at: usize, depth: u8) -> Option<Typed> {
+        if depth > 16 {
+            return None;
+        }
+        let s = &self.context.source;
+        let t = &s.tokens;
+        let name = t[at].value;
+        let functions = s.functions();
+        let function = functions
+            .iter()
+            .filter(|f| f.body < at && at < f.end)
+            .max_by_key(|f| f.body);
+        if name == "$this" {
+            let function = function?;
+            // Anonymous functions and static methods do not prove an instance receiver.
+            if function.name.is_none()
+                || (function.start.saturating_sub(3)..function.start).any(|i| s.is(i, "static"))
+            {
+                return None;
+            }
+            let full = &self.context.names.class.as_ref()?.0;
+            return Some(Typed {
+                model: self.get(full)?.full.clone(),
+                shape: Shape::Model,
+            });
+        }
+        let start = function.map_or(0, |f| f.body + 1);
+        // Arrow-function captures and foreach/destructuring aliases are not inferred.
+        let mut candidate = None;
+        for i in start..at {
+            if s.is(i, "fn") && !(i..at).any(|j| s.is(j, ";")) {
+                return None;
+            }
+            if t[i].kind != Kind::Var || t[i].value != name {
+                continue;
+            }
+            if i > 0 && matches!(t[i - 1].value, "->" | "?->") {
+                continue;
+            }
+            if s.is(i + 1, "=") {
+                if s.paths[i] != s.paths[at] {
+                    return None;
+                }
+                let mut end = i + 2;
+                while end < at {
+                    if s.is(end, ";") {
+                        break;
+                    }
+                    if let Some(close) = s.pairs.get(&end).filter(|&&close| close > end) {
+                        end = close + 1;
+                    } else {
+                        end += 1;
+                    }
+                }
+                if end >= at || !s.is(end, ";") {
+                    return None;
+                }
+                let (typed, first) = self.expr(end, depth + 1)?;
+                if first != i + 2 || typed.shape == Shape::Static {
+                    return None;
+                }
+                candidate = Some(typed);
+            } else if matches!(
+                t.get(i + 1).map(|t| t.value),
+                Some("+=" | "-=" | "*=" | "/=" | "++" | "--" | "]" | "=>")
+            ) || i > 0 && matches!(t[i - 1].value, "as" | "&" | "++" | "--")
+                || i >= 2 && s.is(i - 1, "(") && s.is(i - 2, "unset")
+            {
+                return None;
+            }
+        }
+        if candidate.is_some() {
+            return candidate;
+        }
+        let f = function?;
+        let params = &t[f.params.clone()];
+        let index = params
+            .iter()
+            .position(|p| p.kind == Kind::Var && p.value == name)?;
+        let mut before = &params[..index];
+        if before.last().is_some_and(|t| t.value == "&") {
+            before = &before[..before.len() - 1];
+        }
+        let ty = before.last()?;
+        if ty.kind != Kind::Name {
+            return None;
+        }
+        let previous = before.get(before.len().wrapping_sub(2)).map(|t| t.value);
+        if previous.is_some_and(|v| ![",", "?"].contains(&v)) {
+            return None;
+        }
+        Some(Typed {
+            model: self.class(ty.value)?,
+            shape: Shape::Model,
+        })
+    }
+    fn id_shape(&self, from: usize, to: usize) -> Option<Shape> {
+        let source = &self.context.source;
+        let tokens = &source.tokens;
+        let mut end = from;
+        while end < to {
+            if source.is(end, ",") {
+                break;
+            }
+            if let Some(close) = source.pairs.get(&end).filter(|&&close| close > end) {
+                end = close + 1;
+            } else {
+                end += 1;
+            }
+        }
+        if from >= end {
+            return None;
+        }
+        if source.is(from, "[") && source.pairs.get(&from) == Some(&(end - 1)) {
+            return Some(Shape::Collection);
+        }
+        if end == from + 1 && tokens[from].kind == Kind::String {
+            return Some(Shape::Model);
+        }
+        let literal = &source.text[tokens[from].start..tokens[end - 1].end];
+        if literal.parse::<i64>().is_ok() {
+            return Some(Shape::Model);
+        }
+        if end != from + 1 || tokens[from].kind != Kind::Var {
+            return None;
+        }
+        let name = tokens[from].value;
+        let functions = source.functions();
+        let function = functions
+            .iter()
+            .filter(|f| f.body < from && from < f.end)
+            .max_by_key(|f| f.body)?;
+        for i in function.body + 1..from {
+            if tokens[i].value == name
+                && (source.is(i + 1, "=")
+                    || matches!(
+                        tokens.get(i + 1).map(|t| t.value),
+                        Some("+=" | "-=" | "*=" | "/=" | "++" | "--" | "]" | "=>")
+                    )
+                    || i > 0 && matches!(tokens[i - 1].value, "as" | "&" | "++" | "--")
+                    || i >= 2 && source.is(i - 1, "(") && source.is(i - 2, "unset"))
+            {
+                return None;
+            }
+        }
+        let params = &tokens[function.params.clone()];
+        let at = params
+            .iter()
+            .position(|t| t.kind == Kind::Var && t.value == name)?;
+        let kind = params.get(at.checked_sub(1)?)?.value;
+        if at >= 2 && ![",", "?"].contains(&params[at - 2].value) {
+            return None;
+        }
+        match kind {
+            "int" | "string" => Some(Shape::Model),
+            "array" => Some(Shape::Collection),
+            _ => None,
+        }
+    }
+    fn call(&self, receiver: Typed, name: &str, from: usize, to: usize) -> Option<Typed> {
+        if receiver.shape == Shape::Enum {
+            return None;
+        }
+        if receiver.shape == Shape::Object {
+            let method = self.object(&receiver.model)?.methods.get(name)?;
+            return self.returned(method, &receiver);
+        }
+        self.get(&receiver.model)?;
+        if ["find", "findOrFail"].contains(&name)
+            && !self.declared(&receiver.model, name)
+            && matches!(
+                receiver.shape,
+                Shape::Static | Shape::Query | Shape::Relation(_) | Shape::Collection
+            )
+        {
+            return Some(Typed {
+                shape: self.id_shape(from, to)?,
+                ..receiver
+            });
+        }
+        if receiver.shape == Shape::Model
+            && let Some(relation) = self.relation(&receiver.model, name)
+        {
+            return Some(Typed {
+                model: self.get(&relation.target)?.full.clone(),
+                shape: Shape::Relation(relation.kind.clone()),
+            });
+        }
+        if matches!(
+            receiver.shape,
+            Shape::Static | Shape::Query | Shape::Relation(_)
+        ) && self.scopes(&receiver.model).contains_key(name)
+        {
+            return Some(Typed {
+                shape: if receiver.shape == Shape::Static {
+                    Shape::Query
+                } else {
+                    receiver.shape
+                },
+                ..receiver
+            });
+        }
+        if self.declared(&receiver.model, name) {
+            if !matches!(receiver.shape, Shape::Model | Shape::Static) {
+                return None;
+            }
+            let method = self
+                .lineage(&receiver.model)?
+                .into_iter()
+                .find(|model| model.declared.contains(name))?
+                .returns
+                .get(name)?;
+            return self.returned(method, &receiver);
+        }
+        if let Shape::Relation(kind) = &receiver.shape {
+            if ["belongsToMany", "morphToMany", "morphedByMany"].contains(&kind.as_str())
+                && [
+                    "wherePivot",
+                    "wherePivotIn",
+                    "wherePivotNull",
+                    "withPivot",
+                    "withTimestamps",
+                    "as",
+                ]
+                .contains(&name)
+            {
+                return Some(receiver);
+            }
+            if name == "getQuery" {
+                return Some(Typed {
+                    shape: Shape::Query,
+                    ..receiver
+                });
+            }
+            if name == "createMany"
+                && ["hasMany", "hasOne", "morphMany", "morphOne"].contains(&kind.as_str())
+            {
+                return Some(Typed {
+                    shape: Shape::Collection,
+                    ..receiver
+                });
+            }
+        }
+        if ["withTrashed", "onlyTrashed", "withoutTrashed"].contains(&name)
+            && !self
+                .lineage(&receiver.model)?
+                .iter()
+                .any(|m| m.soft_deletes)
+        {
+            return None;
+        }
+        let shape = match &receiver.shape {
+            Shape::Static | Shape::Query | Shape::Relation(_) => match name {
+                "find" | "findOrFail" | "findOrNew" | "first" | "firstOrFail" | "sole"
+                | "create" | "firstOrCreate" | "updateOrCreate" | "make" => Shape::Model,
+                "get" | "all" | "findMany" => Shape::Collection,
+                "query" | "newQuery" => Shape::Query,
+                name if QUERY.iter().any(|(n, _)| *n == name) => {
+                    if receiver.shape == Shape::Static {
+                        Shape::Query
+                    } else {
+                        receiver.shape.clone()
+                    }
+                }
+                _ => return None,
+            },
+            Shape::Collection => match name {
+                "first" | "last" | "sole" | "find" => Shape::Model,
+                name if COLLECTION_KEEP.contains(&name) => Shape::Collection,
+                _ => return None,
+            },
+            Shape::Model => match name {
+                "fresh" | "refresh" | "replicate" | "load" | "loadMissing" => Shape::Model,
+                _ => return None,
+            },
+            Shape::Enum | Shape::Object => return None,
+        };
+        Some(Typed { shape, ..receiver })
+    }
+}
+const QUERY: &[(&str, &str)] = &[
+    ("where", "Add a where clause"),
+    ("whereIn", "Match a set of values"),
+    ("whereNotIn", "Exclude a set of values"),
+    ("whereNull", "Match null values"),
+    ("whereNotNull", "Exclude null values"),
+    ("whereHas", "Constrain a relationship"),
+    ("with", "Eager load relationships"),
+    ("without", "Exclude eager loads"),
+    ("withCount", "Add relationship counts"),
+    ("orderBy", "Order query results"),
+    ("latest", "Order newest first"),
+    ("oldest", "Order oldest first"),
+    ("limit", "Limit result count"),
+    ("take", "Limit result count"),
+    ("skip", "Skip results"),
+    ("offset", "Set result offset"),
+    ("select", "Select columns"),
+    ("addSelect", "Add selected columns"),
+    ("distinct", "Select distinct values"),
+    ("withTrashed", "Include soft-deleted models"),
+    ("onlyTrashed", "Select soft-deleted models"),
+    ("withoutTrashed", "Exclude soft-deleted models"),
+];
+const COLLECTION_KEEP: &[&str] = &[
+    "filter",
+    "reject",
+    "values",
+    "reverse",
+    "sortBy",
+    "sortByDesc",
+    "take",
+    "skip",
+    "shuffle",
+    "unique",
+    "where",
+    "whereIn",
+    "whereNotNull",
+    "each",
+    "load",
+    "loadMissing",
+];
+fn receiver<'a, 'b>(resolver: &Resolver<'a, 'b>) -> Option<Typed> {
+    let ctx = resolver.context;
+    let (typed, _) = resolver.expr(ctx.arrow, 0)?;
+    if (typed.shape == Shape::Static) != (ctx.source.tokens[ctx.arrow].value == "::") {
+        return None;
+    }
+    Some(typed)
+}
+fn method_item(name: &str, detail: String, ctx: &Context) -> CompletionItem {
+    let mut item = CompletionItem::new(&format!("{name}()"), CompletionKind::Method);
+    item.filter_text = Some(name.into());
+    item.detail = Some(detail);
+    item.replace = Some(Range::new(
+        text::position(ctx.source.text, ctx.start),
+        text::position(ctx.source.text, ctx.end),
+    ));
+    if ctx
+        .source
+        .tokens
+        .iter()
+        .find(|token| token.start >= ctx.end)
+        .is_some_and(|token| token.value == "(")
+    {
+        item.insert_text = name.into();
+    } else {
+        item.insert_text = format!("{name}($0)");
+        item.snippet = true;
+    }
+    item
+}
+#[cfg(test)]
+fn completion(index: &Index, doc: &Document, at: Position) -> Vec<CompletionItem> {
+    completion_checked(index, doc, at, &|_| true)
+}
+pub(crate) fn completion_checked(
+    index: &Index,
+    doc: &Document,
+    at: Position,
+    owns: &dyn Fn(&str) -> bool,
+) -> Vec<CompletionItem> {
+    let Some(ctx) = context(doc, at) else {
+        return vec![];
+    };
+    let resolver = Resolver {
+        context: &ctx,
+        index,
+        overlay: model(&doc.text, &doc.path).map(|mut model| {
+            let _ = traits::compose(&mut model, &index.eloquent_models, &mut BTreeSet::new(), 0);
+            model
+        }),
+        path: &doc.path,
+        owns,
+        owner_cache: RefCell::new(BTreeMap::new()),
+    };
+    let Some(typed) = receiver(&resolver) else {
+        return vec![];
+    };
+    if typed.shape == Shape::Object {
+        let Some(info) = resolver.object(&typed.model) else {
+            return vec![];
+        };
+        let mut items = vec![];
+        for name in info.properties.keys() {
+            let mut item = CompletionItem::new(name, CompletionKind::Property);
+            item.detail = Some(format!("Value object · {}", info.full));
+            item.replace = Some(Range::new(
+                text::position(&doc.text, ctx.start),
+                text::position(&doc.text, ctx.end),
+            ));
+            items.push(item);
+        }
+        for name in info.methods.keys() {
+            items.push(method_item(
+                name,
+                format!("Value object · {}", info.full),
+                &ctx,
+            ));
+        }
+        return items
+            .into_iter()
+            .filter(|item| {
+                item.filter_text
+                    .as_deref()
+                    .unwrap_or(&item.label)
+                    .starts_with(ctx.typed)
+            })
+            .collect();
+    }
+    if typed.shape == Shape::Enum {
+        let Some(info) = resolver.enumeration(&typed.model) else {
+            return vec![];
+        };
+        let mut items = vec![];
+        for (name, kind) in [
+            ("name", Some("string")),
+            ("value", info.value_type.as_deref()),
+        ] {
+            if let Some(kind) = kind {
+                let mut item = CompletionItem::new(name, CompletionKind::Property);
+                item.detail = Some(format!("{} · {kind}", info.full));
+                item.replace = Some(Range::new(
+                    text::position(&doc.text, ctx.start),
+                    text::position(&doc.text, ctx.end),
+                ));
+                items.push(item);
+            }
+        }
+        for name in info.methods.keys() {
+            items.push(method_item(name, format!("Enum · {}", info.full), &ctx));
+        }
+        return items
+            .into_iter()
+            .filter(|item| {
+                item.filter_text
+                    .as_deref()
+                    .unwrap_or(&item.label)
+                    .starts_with(ctx.typed)
+            })
+            .collect();
+    }
+    if resolver.get(&typed.model).is_none() {
+        return vec![];
+    }
+    let mut items = BTreeMap::new();
+    let short = typed.model.rsplit('\\').next().unwrap_or(&typed.model);
+    if typed.shape == Shape::Model {
+        for (name, _) in resolver.counts(&typed.model) {
+            let mut item = CompletionItem::new(&name, CompletionKind::Field);
+            item.detail = Some(format!("{short} · integer (withCount)"));
+            item.replace = Some(Range::new(
+                text::position(&doc.text, ctx.start),
+                text::position(&doc.text, ctx.end),
+            ));
+            items.insert(name, item);
+        }
+        let casts = resolver.casts(&typed.model).unwrap_or_default();
+        if let Some(columns) = resolver
+            .table(&typed.model)
+            .and_then(|table| index.columns.get(table))
+        {
+            for (name, column) in columns {
+                if !resolver.owned(&column.path) {
+                    continue;
+                }
+                let mut item = CompletionItem::new(name, CompletionKind::Field);
+                item.detail = Some(if let Some(cast) = casts.get(name) {
+                    format!(
+                        "{short} · {} → {} (cast)",
+                        column.detail.as_deref().unwrap_or("column"),
+                        cast.label
+                    )
+                } else {
+                    format!(
+                        "{short} · {} (migration)",
+                        column.detail.as_deref().unwrap_or("column")
+                    )
+                });
+                item.replace = Some(Range::new(
+                    text::position(&doc.text, ctx.start),
+                    text::position(&doc.text, ctx.end),
+                ));
+                items.insert(name.clone(), item);
+            }
+        }
+        for (name, cast) in &casts {
+            if !items.contains_key(name) {
+                let mut item = CompletionItem::new(name, CompletionKind::Field);
+                item.detail = Some(format!("{short} · {} (declared cast)", cast.label));
+                item.replace = Some(Range::new(
+                    text::position(&doc.text, ctx.start),
+                    text::position(&doc.text, ctx.end),
+                ));
+                items.insert(name.clone(), item);
+            }
+        }
+        for (name, relation) in resolver.relations(&typed.model) {
+            let Some(target) = resolver.get(&relation.target) else {
+                continue;
+            };
+            let mut item = CompletionItem::new(name, CompletionKind::Property);
+            item.detail = Some(format!(
+                "{} → {}{}",
+                relation.kind,
+                if relation.many { "Collection<" } else { "" },
+                if relation.many {
+                    format!("{}>", target.full)
+                } else {
+                    target.full.clone()
+                }
+            ));
+            item.replace = Some(Range::new(
+                text::position(&doc.text, ctx.start),
+                text::position(&doc.text, ctx.end),
+            ));
+            items.entry(name.to_owned()).or_insert(item);
+            items.insert(
+                format!("{name}()"),
+                method_item(name, format!("{}<{}>", relation.kind, target.full), &ctx),
+            );
+        }
+        for name in [
+            "save",
+            "delete",
+            "update",
+            "fresh",
+            "refresh",
+            "replicate",
+            "load",
+            "loadMissing",
+            "toArray",
+        ] {
+            if !resolver.declared(&typed.model, name) {
+                items.insert(
+                    format!("{name}()"),
+                    method_item(name, format!("Eloquent model · {short}"), &ctx),
+                );
+            }
+        }
+    }
+    if matches!(
+        typed.shape,
+        Shape::Static | Shape::Query | Shape::Relation(_)
+    ) {
+        for (name, description) in QUERY {
+            if ["withTrashed", "onlyTrashed", "withoutTrashed"].contains(name)
+                && !resolver
+                    .lineage(&typed.model)
+                    .unwrap_or_default()
+                    .iter()
+                    .any(|m| m.soft_deletes)
+            {
+                continue;
+            }
+            if !resolver.declared(&typed.model, name) {
+                items.insert(
+                    format!("{name}()"),
+                    method_item(name, format!("{description} · Builder<{short}>"), &ctx),
+                );
+            }
+        }
+        for name in [
+            "first",
+            "firstOrFail",
+            "sole",
+            "find",
+            "findOrFail",
+            "findMany",
+            "get",
+            "count",
+            "exists",
+            "create",
+            "firstOrCreate",
+            "updateOrCreate",
+            "paginate",
+            "simplePaginate",
+            "delete",
+            "update",
+            "pluck",
+        ] {
+            if !resolver.declared(&typed.model, name) {
+                items.insert(
+                    format!("{name}()"),
+                    method_item(name, format!("Eloquent query · {short}"), &ctx),
+                );
+            }
+        }
+        if typed.shape == Shape::Static {
+            for name in ["all", "query"] {
+                if !resolver.declared(&typed.model, name) {
+                    items.insert(
+                        format!("{name}()"),
+                        method_item(name, format!("Eloquent model query · {short}"), &ctx),
+                    );
+                }
+            }
+        }
+        for name in resolver.scopes(&typed.model).keys() {
+            let mut item = method_item(name, format!("Local scope · {short}"), &ctx);
+            item.sort_text = Some(format!("!{name}"));
+            items.insert(format!("{name}()"), item);
+        }
+        if let Shape::Relation(kind) = &typed.shape {
+            let methods: &[&str] = match kind.as_str() {
+                "belongsTo" => &["associate", "dissociate"],
+                "belongsToMany" | "morphToMany" | "morphedByMany" => &[
+                    "attach",
+                    "detach",
+                    "sync",
+                    "syncWithoutDetaching",
+                    "toggle",
+                    "wherePivot",
+                    "withPivot",
+                ],
+                "hasMany" | "hasOne" | "morphMany" | "morphOne" => {
+                    &["save", "saveMany", "createMany"]
+                }
+                _ => &[],
+            };
+            for name in methods {
+                items.insert(
+                    format!("{name}()"),
+                    method_item(name, format!("{kind}<{short}>"), &ctx),
+                );
+            }
+        }
+    }
+    if typed.shape == Shape::Collection {
+        for name in COLLECTION_KEEP.iter().copied().chain([
+            "first",
+            "last",
+            "sole",
+            "find",
+            "count",
+            "isEmpty",
+            "isNotEmpty",
+            "contains",
+            "pluck",
+            "map",
+            "toArray",
+            "modelKeys",
+            "load",
+        ]) {
+            items.insert(
+                format!("{name}()"),
+                method_item(name, format!("Eloquent collection · {short}"), &ctx),
+            );
+        }
+    }
+    if matches!(typed.shape, Shape::Model | Shape::Static) {
+        let mut seen = BTreeSet::new();
+        for model in resolver.lineage(&typed.model).unwrap_or_default() {
+            for name in &model.declared {
+                if !seen.insert(name) {
+                    continue;
+                }
+                if model
+                    .returns
+                    .get(name)
+                    .is_some_and(|method| resolver.returned(method, &typed).is_some())
+                {
+                    if !name.starts_with("__") && !name.starts_with("scope") {
+                        items.entry(format!("{name}()")).or_insert_with(|| {
+                            method_item(name, format!("Declared method · {}", model.full), &ctx)
+                        });
+                    }
+                }
+            }
+        }
+    }
+    items
+        .into_values()
+        .filter(|item| {
+            item.filter_text
+                .as_deref()
+                .unwrap_or(&item.label)
+                .to_ascii_lowercase()
+                .starts_with(&ctx.typed.to_ascii_lowercase())
+        })
+        .take(500)
+        .collect()
+}
+#[cfg(test)]
+fn definition(index: &Index, doc: &Document, at: Position) -> Option<Entry> {
+    definition_checked(index, doc, at, &|_| true)
+}
+pub(crate) fn definition_checked(
+    index: &Index,
+    doc: &Document,
+    at: Position,
+    owns: &dyn Fn(&str) -> bool,
+) -> Option<Entry> {
+    let ctx = context(doc, at)?;
+    let resolver = Resolver {
+        context: &ctx,
+        index,
+        overlay: model(&doc.text, &doc.path).map(|mut model| {
+            let _ = traits::compose(&mut model, &index.eloquent_models, &mut BTreeSet::new(), 0);
+            model
+        }),
+        path: &doc.path,
+        owns,
+        owner_cache: RefCell::new(BTreeMap::new()),
+    };
+    let typed = receiver(&resolver)?;
+    if typed.shape == Shape::Object {
+        let info = resolver.object(&typed.model)?;
+        return info.properties.get(ctx.member).cloned().or_else(|| {
+            info.methods
+                .get(ctx.member)
+                .map(|method| method.entry.clone())
+        });
+    }
+    if typed.shape == Shape::Enum {
+        let info = resolver.enumeration(&typed.model)?;
+        return if ctx.member == "name" || ctx.member == "value" && info.value_type.is_some() {
+            Some(info.declaration.clone())
+        } else {
+            info.methods.get(ctx.member).cloned()
+        };
+    }
+    resolver.get(&typed.model)?;
+    if matches!(typed.shape, Shape::Model | Shape::Static) {
+        if let Some(method) = resolver
+            .lineage(&typed.model)?
+            .into_iter()
+            .find(|model| model.declared.contains(ctx.member))
+            .and_then(|model| model.returns.get(ctx.member))
+            .filter(|method| method.static_method == (typed.shape == Shape::Static))
+        {
+            return Some(method.entry.clone());
+        }
+    }
+    match typed.shape {
+        Shape::Model => {
+            if let Some(entry) = resolver.counts(&typed.model).get(ctx.member) {
+                return Some(entry.clone());
+            }
+            let method = ctx
+                .source
+                .tokens
+                .iter()
+                .find(|token| token.start >= ctx.end)
+                .is_some_and(|token| token.value == "(");
+            if !method && let Some(cast) = resolver.cast(&typed.model, ctx.member) {
+                if let Some(info) = cast
+                    .target
+                    .as_deref()
+                    .and_then(|target| resolver.enumeration(target))
+                {
+                    return Some(info.declaration.clone());
+                }
+                return resolver
+                    .table(&typed.model)
+                    .and_then(|table| index.columns.get(table)?.get(ctx.member))
+                    .cloned()
+                    .or(Some(cast.entry));
+            }
+            resolver
+                .relation(&typed.model, ctx.member)
+                .map(|r| r.entry.clone())
+                .or_else(|| {
+                    resolver
+                        .table(&typed.model)
+                        .and_then(|table| index.columns.get(table)?.get(ctx.member))
+                        .cloned()
+                })
+        }
+        Shape::Static | Shape::Query | Shape::Relation(_) => resolver
+            .scopes(&typed.model)
+            .get(ctx.member)
+            .map(|entry| (*entry).clone()),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tests::{cursor, doc};
+    const ORDER: &str = r#"<?php
+namespace App\Models;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Attributes\Scope;
+use Domain\Comment as Reply;
+class Order extends Model {
+ protected $table = 'orders';
+ public function customer() { return $this->belongsTo(User::class); }
+ public function items() { return $this->hasMany(Reply::class); }
+ public function roles() { return $this->belongsToMany(Role::class); }
+ public function scopeActive($query) { return $query; }
+ #[Scope]
+ protected function visible($query) { return $query; }
+}
+"#;
+    fn index() -> Index {
+        let mut index = Index::default();
+        for (path,text) in [("Order",ORDER.to_owned()),("User",r#"<?php namespace App\Models; use Illuminate\Database\Eloquent\Model; class User extends Model {}"#.into()),("Role",r#"<?php namespace App\Models; use Illuminate\Database\Eloquent\Model; class Role extends Model {}"#.into()),("Comment",r#"<?php namespace Domain; use Illuminate\Database\Eloquent\Model; class Comment extends Model {protected $table='comments';}"#.into())]{cache(&mut index.eloquent_models,&text,&format!("/project/app/Models/{path}.php"));}
+        for (table, names) in [
+            ("orders", vec!["id", "total"]),
+            ("users", vec!["id", "email"]),
+            ("comments", vec!["id", "body"]),
+            ("roles", vec!["id", "title"]),
+        ] {
+            for name in names {
+                index.columns.entry(table.into()).or_default().insert(
+                    name.into(),
+                    Entry {
+                        path: format!("/project/database/migrations/{table}.php"),
+                        at: Position::new(1, 2),
+                        width: name.len() as u32,
+                        detail: Some("string".into()),
+                    },
+                );
+            }
+        }
+        index
+    }
+    fn complete(index: &Index, marked: &str) -> Vec<CompletionItem> {
+        let (text, at) = cursor(marked);
+        completion(
+            index,
+            &doc("/project/app/Http/Controllers/Test.php", "php", &text),
+            at,
+        )
+    }
+    fn names(index: &Index, marked: &str) -> Vec<String> {
+        complete(index, marked)
+            .into_iter()
+            .map(|i| i.label)
+            .collect()
+    }
+    #[test]
+    fn completes_typed_parameter_and_simple_assignment_attributes() {
+        let index = index();
+        for marked in [
+            r#"<?php use App\Models\Order; function show(Order $order) { $order->^ }"#,
+            r#"<?php use App\Models\Order; function show(?Order $order) { $order?->^ }"#,
+            r#"<?php use App\Models\Order; $order = Order::first(); $order->^"#,
+            r#"<?php use App\Models\Order; $order = new Order(); $order->^"#,
+            r#"<?php $order = new \App\Models\Order; $order->^"#,
+        ] {
+            let names = names(&index, marked);
+            assert!(names.contains(&"total".into()), "{marked}: {names:?}");
+            assert!(names.contains(&"customer".into()));
+            assert!(names.contains(&"items()".into()));
+            assert!(!names.contains(&"email".into()));
+        }
+    }
+    #[test]
+    fn tracks_relation_cardinality_query_and_collection_chains() {
+        let index = index();
+        for (expression, wanted, absent) in [
+            ("Order::query()->active()->first()->", "total", "body"),
+            ("Order::first()->customer->", "email", "total"),
+            ("Order::first()->items->", "first()", "body"),
+            ("Order::first()->items->first()->", "body", "total"),
+            (
+                "Order::first()->items()->where('id',1)->first()->",
+                "body",
+                "total",
+            ),
+            (
+                "Order::query()->get()->filter()->first()->",
+                "total",
+                "body",
+            ),
+            ("Order::find([1,2])->", "first()", "total"),
+            ("Order::first()->roles()->", "attach()", "total"),
+            ("Order::first()->customer()->", "associate()", "email"),
+        ] {
+            let source = format!("<?php use App\\Models\\Order; {expression}^");
+            let names = names(&index, &source);
+            assert!(names.contains(&wanted.into()), "{source}: {names:?}");
+            assert!(!names.contains(&absent.into()), "{source}: {names:?}");
+        }
+        let scopes = names(&index, r#"<?php use App\Models\Order; Order::^"#);
+        assert!(scopes.contains(&"active()".into()));
+        assert!(scopes.contains(&"visible()".into()));
+    }
+    #[test]
+    fn resolves_aliases_groups_and_explicit_namespaces_without_short_name_fallback() {
+        let index = index();
+        for source in [
+            r#"<?php use App\Models\Order as Purchase; Purchase::first()->^"#,
+            r#"<?php use App\Models\{Order as Purchase, User}; Purchase::first()->^"#,
+            r#"<?php namespace App\Models; Order::first()->^"#,
+            r#"<?php \App\Models\Order::first()->^"#,
+        ] {
+            assert!(names(&index, source).contains(&"total".into()), "{source}");
+        }
+        for source in [
+            r#"<?php Order::first()->^"#,
+            r#"<?php use Other\Order; Order::first()->^"#,
+            r#"<?php \Other\Order::first()->^"#,
+            r#"<?php namespace Other; Order::first()->^"#,
+        ] {
+            assert!(names(&index, source).is_empty(), "{source}");
+        }
+    }
+    #[test]
+    fn refuses_unknown_returns_shadowing_and_noncode() {
+        let index = index();
+        for body in [
+            "Order::custom()->^",
+            "Order::query()->count()->^",
+            "Order::get()->map(fn($x)=>1)->first()->^",
+            "$order=Order::first();$order=unknown();$order->^",
+            "$order=Order::first();if(true){$order=unknown();}$order->^",
+            "$order=Order::first();unset($order);$order->^",
+            "$order=Order::first();foreach([] as $order){$order->^}",
+            "$order=Order::first();fn($order)=>$order->^",
+            "$order=Order::first();function nested(){ $order->^ }",
+            "'$order->^'",
+            "// $order->^",
+            "/* Order::first()->^ */",
+            "$order=Order::first(); [$order]=[];$order->^",
+            "Order::paginate()->^",
+        ] {
+            let source = format!("<?php use App\\Models\\Order; {body}");
+            assert!(names(&index, &source).is_empty(), "{source}");
+        }
+    }
+    #[test]
+    fn replacement_is_utf16_prefix_filtered_and_does_not_duplicate_parentheses() {
+        let index = index();
+        let marked = "<?php use App\\Models\\Order; /* café 🦀 */ Order::first()->to^tal;";
+        let (source, at) = cursor(marked);
+        let items = completion(&index, &doc("/project/x.php", "php", &source), at);
+        let total = items.iter().find(|i| i.label == "total").unwrap();
+        let range = total.replace.unwrap();
+        assert_eq!(
+            &source[text::offset(&source, range.start).unwrap()
+                ..text::offset(&source, range.end).unwrap()],
+            "total"
+        );
+        let items = complete(
+            &index,
+            r#"<?php use App\Models\Order; Order::wh^ere('id',1);"#,
+        );
+        let item = items.iter().find(|i| i.label == "where()").unwrap();
+        assert_eq!(item.insert_text, "where");
+        assert!(!item.snippet);
+    }
+    #[test]
+    fn this_uses_current_model_text_and_declines_static_methods() {
+        let index = index();
+        let marked = ORDER.replace(
+            "public function customer()",
+            "public function demo(){ $this->^ } public function customer()",
+        );
+        let (source, at) = cursor(&marked);
+        let document = doc("/project/app/Models/Order.php", "php", &source);
+        assert!(
+            completion(&index, &document, at)
+                .iter()
+                .any(|i| i.label == "total")
+        );
+        let marked = marked.replace("public function demo()", "public static function demo()");
+        let (source, at) = cursor(&marked);
+        assert!(completion(&index, &doc(&document.path, "php", &source), at).is_empty());
+        let marked = marked.replace("extends Model", "extends Unknown");
+        let (source, at) = cursor(&marked);
+        assert!(completion(&index, &doc(&document.path, "php", &source), at).is_empty());
+    }
+    #[test]
+    fn definition_targets_relation_declaration_and_attribute_migration() {
+        let index = index();
+        for (member, path) in [
+            ("customer", "/project/app/Models/Order.php"),
+            ("total", "/project/database/migrations/orders.php"),
+        ] {
+            let source = format!("<?php use App\\Models\\Order; Order::first()->{member}^");
+            let (source, at) = cursor(&source);
+            let result = definition(&index, &doc("/project/x.php", "php", &source), at).unwrap();
+            assert_eq!(result.path, path);
+        }
+    }
+    #[test]
+    fn nonmodels_and_ambiguous_model_declarations_are_not_inferred() {
+        let mut index = index();
+        cache(
+            &mut index.eloquent_models,
+            r#"<?php namespace Other; class Order {}"#,
+            "/project/app/Models/Dto.php",
+        );
+        assert!(names(&index, r#"<?php use Other\Order; Order::first()->^"#).is_empty());
+        cache(
+            &mut index.eloquent_models,
+            ORDER,
+            "/project/app/Models/Copy.php",
+        );
+        assert!(names(&index, r#"<?php use App\Models\Order; Order::first()->^"#).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod inheritance_tests {
+    use super::*;
+    use crate::tests::{cursor, doc};
+    #[test]
+    fn inherits_known_relations_scopes_and_explicit_parent_table_but_honors_overrides() {
+        let mut index = Index::default();
+        for (path, source) in [
+            (
+                "Base",
+                r#"<?php namespace App\Models; use Illuminate\Database\Eloquent\Model; abstract class Base extends Model { protected $table='records'; public function parent(){return $this->belongsTo(Child::class);} public function scopeActive($q){return $q;} }"#,
+            ),
+            (
+                "Child",
+                r#"<?php namespace App\Models; class Child extends Base {}"#,
+            ),
+            (
+                "Override",
+                r#"<?php namespace App\Models; class Override extends Base {public function parent(){return 1;}}"#,
+            ),
+        ] {
+            cache(
+                &mut index.eloquent_models,
+                source,
+                &format!("/project/app/Models/{path}.php"),
+            );
+        }
+        index.columns.entry("records".into()).or_default().insert(
+            "title".into(),
+            Entry {
+                path: "/project/database/migrations/create.php".into(),
+                at: Position::new(0, 0),
+                width: 5,
+                detail: None,
+            },
+        );
+        let lookup = |source: &str| {
+            let (text, at) = cursor(source);
+            completion(&index, &doc("/project/x.php", "php", &text), at)
+                .into_iter()
+                .map(|i| i.label)
+                .collect::<Vec<_>>()
+        };
+        let labels = lookup(r#"<?php use App\Models\Child; Child::first()->^"#);
+        assert!(labels.contains(&"title".into()));
+        assert!(labels.contains(&"parent".into()));
+        let labels = lookup(r#"<?php use App\Models\Child; Child::active()->first()->parent->^"#);
+        assert!(labels.contains(&"title".into()));
+        let labels = lookup(r#"<?php use App\Models\Override; Override::first()->^"#);
+        assert!(!labels.contains(&"parent".into()));
+        assert!(!labels.contains(&"parent()".into()));
+    }
+    #[test]
+    fn unresolved_or_cyclic_parent_classes_do_not_become_models() {
+        let mut index = Index::default();
+        for (name, parent) in [("A", "B"), ("B", "A"), ("C", "Unknown")] {
+            cache(
+                &mut index.eloquent_models,
+                &format!("<?php namespace App\\Models; class {name} extends {parent} {{}}"),
+                &format!("/project/app/Models/{name}.php"),
+            );
+        }
+        for name in ["A", "B", "C"] {
+            let (text, at) = cursor(&format!("<?php use App\\Models\\{name}; {name}::^"));
+            assert!(completion(&index, &doc("/project/x.php", "php", &text), at).is_empty());
+        }
+    }
+}
+
+#[cfg(test)]
+mod cast_tests {
+    use super::*;
+    use crate::tests::{cursor, doc};
+    fn setup() -> Index {
+        let mut index = Index::default();
+        cache(
+            &mut index.eloquent_models,
+            r#"<?php namespace App\Models; use Illuminate\Database\Eloquent\Model; use App\Enums\Status as State; class Purchase extends Model { protected $casts=['status'=>State::class,'quantity'=>'integer']; }"#,
+            "/project/app/Models/Purchase.php",
+        );
+        cache_enum(
+            &mut index.eloquent_enums,
+            r#"<?php namespace App\Enums; enum Status:string{case Paid='paid'; public function label():string{return 'Paid';}private function secret(){}public static function defaultCase(){} }"#,
+            "/project/app/Enums/Status.php",
+        );
+        index.columns.entry("purchases".into()).or_default().insert(
+            "status".into(),
+            Entry {
+                path: "/project/database/migrations/table.php".into(),
+                at: Position::new(1, 0),
+                width: 6,
+                detail: Some("string".into()),
+            },
+        );
+        index
+    }
+    #[test]
+    fn enum_cast_properties_and_public_methods_are_completed_and_navigated() {
+        let index = setup();
+        let (text, at) = cursor(r#"<?php use App\Models\Purchase; Purchase::first()->status->^"#);
+        let document = doc("/project/x.php", "php", &text);
+        let names: Vec<_> = completion(&index, &document, at)
+            .into_iter()
+            .map(|i| i.label)
+            .collect();
+        assert_eq!(names, ["name", "value", "label()"]);
+        let (text, at) =
+            cursor(r#"<?php use App\Models\Purchase; Purchase::first()->status->la^bel();"#);
+        assert_eq!(
+            definition(&index, &doc(&document.path, "php", &text), at)
+                .unwrap()
+                .path,
+            "/project/app/Enums/Status.php"
+        );
+        let (text, at) = cursor(
+            r#"<?php use App\Models\Purchase; $status=Purchase::first()->status;$status->va^"#,
+        );
+        assert_eq!(
+            completion(&index, &doc(&document.path, "php", &text), at)[0].label,
+            "value"
+        );
+        assert!(
+            completion_checked(
+                &index,
+                &document,
+                crate::tests::cursor(
+                    r#"<?php use App\Models\Purchase; Purchase::first()->status->^"#
+                )
+                .1,
+                &|path| !path.contains("Enums")
+            )
+            .is_empty()
+        );
+    }
+    #[test]
+    fn casts_method_and_unit_enums_do_not_invent_backed_values() {
+        let mut index = setup();
+        cache(
+            &mut index.eloquent_models,
+            r#"<?php namespace App\Models; use Illuminate\Database\Eloquent\Model; use App\Enums\Choice; class Record extends Model {protected function casts():array{return ['status'=>Choice::class];}}"#,
+            "/project/app/Models/Record.php",
+        );
+        cache_enum(
+            &mut index.eloquent_enums,
+            r#"<?php namespace App\Enums; enum Choice {case Yes;}"#,
+            "/project/app/Enums/Choice.php",
+        );
+        let (text, at) = cursor(r#"<?php use App\Models\Record; Record::first()->status->^"#);
+        let names: Vec<_> = completion(&index, &doc("/project/x.php", "php", &text), at)
+            .into_iter()
+            .map(|i| i.label)
+            .collect();
+        assert_eq!(names, ["name"]);
+    }
+    #[test]
+    fn unknown_custom_casts_do_not_become_enum_objects() {
+        let mut index = setup();
+        cache(
+            &mut index.eloquent_models,
+            r#"<?php namespace App\Models; use Illuminate\Database\Eloquent\Model; class Custom extends Model {protected $casts=['status'=>UnknownCaster::class];}"#,
+            "/project/app/Models/Custom.php",
+        );
+        let (text, at) = cursor(r#"<?php use App\Models\Custom; Custom::first()->status->^"#);
+        assert!(completion(&index, &doc("/project/x.php", "php", &text), at).is_empty());
+    }
+    #[test]
+    fn relations_returning_models_instead_of_relation_objects_are_not_published() {
+        let mut index = setup();
+        cache(
+            &mut index.eloquent_models,
+            r#"<?php namespace App\Models; use Illuminate\Database\Eloquent\Model; class InvalidRelation extends Model {public function purchase(){return $this->hasMany(Purchase::class)->first();}}"#,
+            "/project/app/Models/InvalidRelation.php",
+        );
+        let (text, at) =
+            cursor(r#"<?php use App\Models\InvalidRelation; InvalidRelation::first()->^"#);
+        let names: Vec<_> = completion(&index, &doc("/project/x.php", "php", &text), at)
+            .into_iter()
+            .map(|i| i.label)
+            .collect();
+        assert!(!names.contains(&"purchase".into()));
+    }
+}
+
+#[cfg(test)]
+mod bounded_find_tests {
+    use super::*;
+    use crate::tests::{cursor, doc};
+    #[test]
+    fn find_overloads_respect_scalar_and_array_ids_without_guessing_untyped_variables() {
+        let mut index = Index::default();
+        cache(
+            &mut index.eloquent_models,
+            r#"<?php namespace App\Models; use Illuminate\Database\Eloquent\Model; class Order extends Model {}"#,
+            "/project/app/Models/Order.php",
+        );
+        for (expression, wanted) in [
+            ("function f(int $id){Order::find($id)->^}", Some("save()")),
+            (
+                "function f(array $ids){Order::find($ids)->^}",
+                Some("first()"),
+            ),
+            ("function f($id){Order::find($id)->^}", None),
+            ("Order::find(array(1,2))->^", None),
+            ("function f(array|int $id){Order::find($id)->^}", None),
+            (
+                "function f(int $id){$id += unknown();Order::find($id)->^}",
+                None,
+            ),
+            ("Order::find(unknown())->^", None),
+        ] {
+            let (text, at) = cursor(&format!("<?php use App\\Models\\Order; {expression}"));
+            let items = completion(&index, &doc("/project/x.php", "php", &text), at);
+            if let Some(wanted) = wanted {
+                assert!(items.iter().any(|i| i.label == wanted), "{expression}");
+            } else {
+                assert!(items.is_empty(), "{expression}");
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod inference_boundary_tests {
+    use super::*;
+    use crate::tests::{cursor, doc};
+    #[test]
+    fn fully_qualified_cast_targets_keep_their_root_namespace() {
+        let mut index = Index::default();
+        cache(
+            &mut index.eloquent_models,
+            r#"<?php namespace App\Models; use Illuminate\Database\Eloquent\Model; class Record extends Model { protected $casts=['status'=>\App\Enums\Status::class]; }"#,
+            "/project/app/Models/Record.php",
+        );
+        cache_enum(
+            &mut index.eloquent_enums,
+            r#"<?php namespace App\Enums; enum Status:string {case Paid='paid';}"#,
+            "/project/app/Enums/Status.php",
+        );
+        let (text, at) = cursor(r#"<?php use App\Models\Record; Record::first()->status->va^"#);
+        assert_eq!(
+            completion(&index, &doc("/project/x.php", "php", &text), at)[0].label,
+            "value"
+        );
+    }
+    #[test]
+    fn custom_find_and_underlying_database_query_do_not_infer_models() {
+        let mut index = Index::default();
+        cache(
+            &mut index.eloquent_models,
+            r#"<?php namespace App\Models; use Illuminate\Database\Eloquent\Model; class Record extends Model { public static function find($id){return 1;} }"#,
+            "/project/app/Models/Record.php",
+        );
+        for expression in [
+            "Record::find(1)->^",
+            "Record::query()->getQuery()->first()->^",
+        ] {
+            let (text, at) = cursor(&format!(r"<?php use App\Models\Record; {expression}"));
+            assert!(completion(&index, &doc("/project/x.php", "php", &text), at).is_empty());
+        }
+    }
+    #[test]
+    fn soft_delete_query_methods_require_the_known_trait() {
+        let mut index = Index::default();
+        for (name, body) in [
+            ("Plain", ""),
+            ("Deleted", r"use \Illuminate\Database\Eloquent\SoftDeletes;"),
+        ] {
+            cache(
+                &mut index.eloquent_models,
+                &format!(
+                    r"<?php namespace App\Models; use Illuminate\Database\Eloquent\Model; class {name} extends Model {{{body}}}"
+                ),
+                &format!("/project/app/Models/{name}.php"),
+            );
+            let (text, at) = cursor(&format!("<?php use App\\Models\\{name}; {name}::withTra^"));
+            assert_eq!(
+                !completion(&index, &doc("/project/x.php", "php", &text), at).is_empty(),
+                name == "Deleted"
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod dynamic_declaration_tests {
+    use super::*;
+    #[test]
+    fn dynamic_table_and_cast_expressions_are_withheld() {
+        let model=model(r#"<?php namespace App\Models; use Illuminate\Database\Eloquent\Model; class Record extends Model { protected $table='records'.suffix(); protected $casts=['status'=>State::class]+other(); protected function casts():array{return ['status'=>State::class]+other();} }"#, "/project/app/Models/Record.php").unwrap();
+        assert!(model.table.is_none());
+        assert!(matches!(model.property_casts, Some(None)));
+        assert!(matches!(model.method_casts, Some(None)));
+    }
+}
+
+/// Shared PHP namespace/import resolution for literal class-name constants.
+/// Resolves names only; it does not require or execute the target class.
+pub(crate) fn source_class_name(text: &str, name: &str) -> Option<String> {
+    if ["self", "static", "parent"]
+        .iter()
+        .any(|n| name.eq_ignore_ascii_case(n))
+        || name.is_empty()
+        || !name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'\\'))
+    {
+        return None;
+    }
+    let source = Source::new(text)?;
+    Some(Names::parse(&source)?.resolve(name))
+}
+
+#[cfg(test)]
+mod advanced_tests {
+    use super::*;
+    use crate::tests::{cursor, doc};
+    fn inventory() -> Index {
+        let mut index = Index::default();
+        for (path, source) in [
+            (
+                "app/Models/Order.php",
+                r#"<?php namespace App\Models; use Illuminate\Database\Eloquent\Model; use App\Concerns\HasOwner; use App\Casts\AddressCast; class Order extends Model { use HasOwner; protected $casts=['address'=>AddressCast::class]; public function customer(): ?User {return new User;} public static function sample(): static {return new static;} protected function hidden(): User {return new User;} }"#,
+            ),
+            (
+                "app/Models/User.php",
+                r#"<?php namespace App\Models; use Illuminate\Database\Eloquent\Model; class User extends Model {}"#,
+            ),
+            (
+                "app/Concerns/HasOwner.php",
+                r#"<?php namespace App\Concerns; use App\Models\User; use App\Traits\Active; trait HasOwner {use Active; public function owner(){return $this->belongsTo(User::class);} }"#,
+            ),
+            (
+                "app/Traits/Active.php",
+                r#"<?php namespace App\Traits; trait Active {public function scopeActive($query){return $query;}}"#,
+            ),
+        ] {
+            cache(
+                &mut index.eloquent_models,
+                source,
+                &format!("/project/{path}"),
+            );
+        }
+        for (path, source) in [
+            (
+                "app/Casts/AddressCast.php",
+                r#"<?php namespace App\Casts; use Illuminate\Contracts\Database\Eloquent\CastsAttributes; use App\ValueObjects\Address; class AddressCast implements CastsAttributes { public function get($model,$key,$value,$attributes): Address {return new Address;} }"#,
+            ),
+            (
+                "app/ValueObjects/Address.php",
+                r#"<?php namespace App\ValueObjects; class Address {public string $lineOne; private string $secret; public function __construct(public string $city, protected string $internal){} public function normalized(): self {return $this;} public function format(): string {return '';} private function hidden(): self {return $this;} }"#,
+            ),
+        ] {
+            cache_object(
+                &mut index.eloquent_objects,
+                source,
+                &format!("/project/{path}"),
+            );
+        }
+        for (table, names) in [
+            ("orders", vec!["id", "total"]),
+            ("users", vec!["id", "email"]),
+        ] {
+            for name in names {
+                index.columns.entry(table.into()).or_default().insert(
+                    name.into(),
+                    Entry {
+                        path: format!("/project/database/migrations/{table}.php"),
+                        at: Position::new(0, 0),
+                        width: name.len() as u32,
+                        detail: None,
+                    },
+                );
+            }
+        }
+        index
+    }
+    fn labels(index: &Index, source: &str) -> Vec<String> {
+        let (text, at) = cursor(source);
+        completion(index, &doc("/project/Test.php", "php", &text), at)
+            .into_iter()
+            .map(|i| i.label)
+            .collect()
+    }
+    #[test]
+    fn composes_nested_trait_relations_scopes_and_navigation_without_php() {
+        let index = inventory();
+        assert!(
+            labels(
+                &index,
+                r#"<?php use App\Models\Order; Order::active()->first()->owner->^"#
+            )
+            .contains(&"email".into())
+        );
+        let (text, at) = cursor(r#"<?php use App\Models\Order; Order::first()->ow^ner"#);
+        let target = definition(&index, &doc("/project/Test.php", "php", &text), at).unwrap();
+        assert_eq!(target.path, "/project/app/Concerns/HasOwner.php");
+        let names = completion_checked(
+            &index,
+            &doc("/project/Test.php", "php", &text),
+            at,
+            &|path| !path.contains("Concerns"),
+        );
+        assert!(!names.iter().any(|i| i.label == "owner"));
+    }
+    #[test]
+    fn custom_casts_and_typed_method_chains_expose_only_public_known_members() {
+        let index = inventory();
+        for source in [
+            r#"<?php use App\Models\Order; Order::first()->address->^"#,
+            r#"<?php use App\Models\Order; Order::first()->address->normalized()->^"#,
+        ] {
+            let names = labels(&index, source);
+            for member in ["lineOne", "city", "normalized()", "format()"] {
+                assert!(names.contains(&member.into()), "{names:?}");
+            }
+            for member in ["secret", "internal", "hidden()"] {
+                assert!(!names.contains(&member.into()));
+            }
+        }
+        for source in [
+            r#"<?php use App\Models\Order; Order::first()->customer()?->^"#,
+            r#"<?php use App\Models\Order; Order::sample()->customer()->^"#,
+        ] {
+            assert!(labels(&index, source).contains(&"email".into()));
+        }
+        assert!(
+            labels(
+                &index,
+                r#"<?php use App\Models\Order; Order::query()->customer()->^"#
+            )
+            .is_empty()
+        );
+        assert!(
+            labels(
+                &index,
+                r#"<?php use App\Models\Order; Order::first()->hidden()->^"#
+            )
+            .is_empty()
+        );
+        assert!(
+            labels(
+                &index,
+                r#"<?php use App\Models\Order; Order::first()->address->format()->^"#
+            )
+            .is_empty()
+        );
+        let (text, at) = cursor(r#"<?php use App\Models\Order; Order::first()->address->ci^ty"#);
+        assert_eq!(
+            definition(&index, &doc("/project/Test.php", "php", &text), at)
+                .unwrap()
+                .path,
+            "/project/app/ValueObjects/Address.php"
+        );
+    }
+    #[test]
+    fn custom_cast_literal_names_and_parameters_keep_the_explicit_getter_type() {
+        for cast in [
+            r"\App\Casts\AddressCast::class . ':parameter'",
+            r"'App\Casts\AddressCast:parameter'",
+        ] {
+            let mut index = inventory();
+            index.eloquent_models.remove("app\\models\\order");
+            cache(
+                &mut index.eloquent_models,
+                &format!(
+                    "<?php namespace App\\Models; use Illuminate\\Database\\Eloquent\\Model; class Order extends Model {{protected $casts=['address'=>{cast}];}}"
+                ),
+                "/project/app/Models/Order.php",
+            );
+            assert!(
+                labels(
+                    &index,
+                    r#"<?php use App\Models\Order; Order::first()->address->^"#
+                )
+                .contains(&"city".into()),
+                "{cast}"
+            );
+        }
+    }
+    #[test]
+    fn trait_conflicts_adaptations_and_cycles_do_not_invent_members() {
+        for source in [
+            r#"use \App\Concerns\HasOwner {owner as renamed;}"#,
+            r#"use \App\Concerns\HasOwner, \App\Traits\Other;"#,
+        ] {
+            let mut index = inventory();
+            index.eloquent_models.remove("app\\models\\order");
+            cache(
+                &mut index.eloquent_models,
+                &format!(
+                    "<?php namespace App\\Models; use Illuminate\\Database\\Eloquent\\Model; class Order extends Model {{{source}}}"
+                ),
+                "/project/app/Models/Order.php",
+            );
+            cache(
+                &mut index.eloquent_models,
+                r#"<?php namespace App\Traits; use App\Models\User; trait Other {public function owner(){return $this->belongsTo(User::class);}}"#,
+                "/project/app/Traits/Other.php",
+            );
+            assert!(
+                labels(
+                    &index,
+                    r#"<?php use App\Models\Order; Order::first()->owner->^"#
+                )
+                .is_empty()
+            );
+            assert!(
+                labels(&index, r#"<?php use App\Models\Order; Order::first()->^"#)
+                    .contains(&"total".into())
+            );
+        }
+        let mut index = inventory();
+        index.eloquent_models.remove("app\\traits\\active");
+        cache(
+            &mut index.eloquent_models,
+            r#"<?php namespace App\Traits; use App\Concerns\HasOwner; trait Active {use HasOwner;}"#,
+            "/project/app/Traits/Active.php",
+        );
+        assert!(
+            labels(
+                &index,
+                r#"<?php use App\Models\Order; Order::first()->owner->^"#
+            )
+            .is_empty()
+        );
+    }
+}
+
+#[cfg(test)]
+#[path = "eloquent_deeper_tests.rs"]
+mod deeper_tests;

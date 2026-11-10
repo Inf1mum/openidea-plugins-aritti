@@ -309,7 +309,7 @@ impl Plugin for Main {
                 return Err(format!("This DDEV action belongs to {expected_root}. Run it from that project's window.").into());
             }
         }
-        // Installation/release/issue links and revealing Services do not need
+        // Documentation/release links and revealing Services do not need
         // a configured (or even open) project, like the original help actions.
         match id {
             "open-guide" => {
@@ -320,8 +320,8 @@ impl Plugin for Main {
                 host::open_url("https://github.com/ddev/ddev/releases/latest")?;
                 return Ok(None);
             }
-            "report-issue" => {
-                host::open_url("https://github.com/arnaud-ritti/openidea-plugins/issues/new")?;
+            "open-docs" => {
+                host::open_url("https://docs.ddev.com/en/stable/")?;
                 return Ok(None);
             }
             "show-services" => {

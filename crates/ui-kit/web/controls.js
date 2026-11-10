@@ -74,7 +74,7 @@
   }
   function enhance(root = document) {
     if(withinRaw(root)) return () => {};
-    if(root instanceof ShadowRoot && !observers.has(root)) {
+    if(root instanceof ShadowRoot && !observers.has(root) && !root.querySelector('link[data-ui-components]')) {
       const link = document.createElement("link");link.rel = "stylesheet";link.href = stylesheet;root.append(link);
     }
     scan(root);

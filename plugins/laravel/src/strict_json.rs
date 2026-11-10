@@ -71,11 +71,14 @@ impl<'de> Visitor<'de> for ValueVisitor<'_> {
     }
 }
 pub(crate) fn parse(text: &str, limit: usize) -> Result<Value, Error> {
+    parse_with_budget(text, limit, 50_000)
+}
+pub(crate) fn parse_with_budget(text: &str, limit: usize, values: usize) -> Result<Value, Error> {
     if text.len() > limit {
         return Err(Error::Stale);
     }
     let mut decoder = serde_json::Deserializer::from_str(text);
-    let mut remaining = 50_000;
+    let mut remaining = values;
     let value = Seed {
         depth: 0,
         remaining: &mut remaining,

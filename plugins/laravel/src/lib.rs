@@ -8,16 +8,21 @@
 
 mod actions;
 mod artisan_metadata;
+mod artisan_workspace;
+mod artisan_execution;
 mod artisan_output;
 mod artisan_docker;
+mod artisan_runner;
 mod blade;
 mod blade_php;
 mod bulk;
 mod class_actions;
 mod components;
+mod config_arrays;
 mod controllers;
 mod directives;
 mod eloquent_checks;
+mod eloquent_members;
 mod function_checks;
 mod generate;
 mod hover;
@@ -36,6 +41,9 @@ mod migrations;
 mod php;
 mod refs;
 mod routes;
+mod route_runtime;
+mod runtime_inspection;
+mod mcp;
 mod unused;
 
 use std::borrow::Cow;
@@ -46,8 +54,7 @@ use openidea_plugin::providers::{CodeAction, CompletionItem, CompletionKind, Doc
 use openidea_plugin::views::{Body, Button, TreeItem, View, ViewEvent, Viewport, Views};
 use openidea_plugin::{Context, Diagnostic, Event, EventKind, Location, Position, Range, Severity, TextEdit};
 use openidea_plugin::{Error, Invocation, LogLevel, NotificationLevel, Plugin, Project, host, text};
-use ui_kit::routes::{Handler, Route, RouteEvent, RouteList, copy_as_curl, create_http_file};
-use ui_kit::sections::{SectionDef, Switcher};
+use ui_kit::routes::{Handler, Route, RouteEvent, RouteList, copy_as_curl, create_http_file_for_project};
 
 pub use index::Index;
 use index::{AddName, Entry, Lines, Names};
@@ -56,7 +63,6 @@ use refs::{Kind, Reference};
 const VIEW: &str = "laravel";
 const PLUGIN_ID: &str = "aritti.laravel";
 const DEFAULT_BASE_URL: &str = "http://localhost:8000";
-const SECTIONS: &[SectionDef] = &[SectionDef { id: "routes", label: "Routes" }, SectionDef { id: "index", label: "Index" }];
 const SOURCE: &str = "Laravel";
 const CONTROLLERS_DIRECTORY: &str = "app/Http/Controllers/";
 
@@ -582,7 +588,7 @@ fn missing_config(index: &Index, name: &str) -> bool {
     let Some((parent, _)) = name.rsplit_once('.') else {
         return false;
     };
-    index.config.get(parent).is_some_and(|entry| matches!(entry.detail.as_deref(), Some("array" | "config file")))
+    index.config.get(parent).is_some_and(|entry| !index.config_incomplete.contains(&entry.path) && matches!(entry.detail.as_deref(), Some("array" | "config file")))
 }
 
 /// `file.key` where the project has a lang file for `file` but not the key.
@@ -607,12 +613,12 @@ pub struct Main {
     indexes: BTreeMap<String, Index>,
     /// Files with published problems, checked again when the index changes.
     checked: BTreeSet<String>,
-    /// Expanded nodes of the tool window.
-    expanded: BTreeSet<String>,
     /// Project root and time `migrate-fresh` was first asked for.
     fresh_asked: Option<(String, Instant)>,
-    sections: Option<Switcher>,
     route_list: Option<RouteList>,
+    runtime_routes: BTreeMap<String, route_runtime::Snapshot>,
+    artisan_workspace: artisan_workspace::State,
+    runtime_inspection: runtime_inspection::State,
 }
 
 fn refresh_laravel() {
@@ -623,6 +629,7 @@ fn refresh_laravel() {
 impl Main {
     fn index_project(&mut self, project: &Project) {
         let Ok(root) = project.root() else { return };
+        self.runtime_inspection.invalidate(&root);
 
         if !index::is_laravel(project) {
             if self.indexes.remove(&root).is_some() { refresh_laravel(); }
@@ -703,14 +710,18 @@ impl Main {
         }
 
         task.report(1, Some(2), Some("Indexing"));
+        if let Ok(root)=project.root(){self.runtime_routes.remove(&root);}
         self.index_project(&project);
         host::notify(NotificationLevel::Info, SOURCE, &format!("Ran artisan {command} and reindexed the project."));
         Ok(None)
     }
 
-    fn generator(&self, id: &str, ctx: &Invocation) -> Result<Option<String>, Error> {
+    fn generator(&mut self, id: &str, ctx: &Invocation) -> Result<Option<String>, Error> {
         let project = ctx.project().ok_or("No project is open.")?;
         let root = project.root()?;
+        if matches!(id, "make" | "new-model") && self.artisan_workspace.open_generator(ctx, (id == "new-model").then_some("make:model"))? {
+            return Ok(None);
+        }
         let index = self.indexes.get(&root);
 
         match id {
@@ -803,7 +814,24 @@ impl Plugin for Main {
     fn run_command(&mut self, id: &str, ctx: &Invocation, arg: Option<&str>) -> Result<Option<String>, Error> {
         match id {
             "find-literal-source-matches" => crate::source_matches::run(ctx),
+            "routes-runtime-refresh" => {
+                let project=ctx.project().ok_or("Open a Laravel project first.")?;
+                let root=project.root()?;
+                if self.runtime_routes.len() >= 8 && !self.runtime_routes.contains_key(&root) { return Err(Error::Invalid("Too many runtime route snapshots; reindex to clear them.".into())); }
+                self.index_project(&project);
+                let index=self.view_index(ctx).ok_or("This project is not indexed as Laravel.")?;
+                let partial=index.partial;
+                let snapshot=route_runtime::capture(ctx,index)?;
+                let count=snapshot.routes.len();
+                let open: BTreeSet<_>=host::projects()?.iter().filter_map(|p|p.root().ok()).collect();
+                self.runtime_routes.retain(|root,_|open.contains(root));
+                self.runtime_routes.insert(root,snapshot);
+                refresh_laravel();
+                host::notify(NotificationLevel::Info,SOURCE,&format!("Rebuilt the source index{} and loaded {count} registered routes from Artisan.",if partial {" (incomplete)"} else {""}));
+                Ok(None)
+            }
             "reindex" => {
+                self.runtime_routes.clear();
                 let _task = host::begin_task("Indexing Laravel projects", false);
                 self.index_all();
                 host::notify(NotificationLevel::Info, SOURCE, &self.summary());
@@ -818,12 +846,18 @@ impl Plugin for Main {
             "storage-link" => self.artisan(ctx, "storage:link"),
             "db-seed" => self.artisan(ctx, "db:seed"),
             "route-copy-curl" | "route-create-http" => {
-                let Some(route) = arg.and_then(|key| self.route_at(key, ctx)) else {
+                let Some(mut route) = arg.and_then(|key| self.route_at(key, ctx)) else {
                     return Ok(None);
                 };
+                if route.method.contains('|') {
+                    let choices:Vec<_>=route.method.split('|').map(|method|openidea_plugin::PickItem::new(method,method)).collect();
+                    let Some(method)=host::pick("HTTP method",&choices)? else {return Ok(None);};
+                    if !route.method.split('|').any(|known|known==method) {return Err(Error::Invalid("Unknown HTTP method.".into()));}
+                    route.method=method;
+                }
                 match id {
                     "route-copy-curl" => copy_as_curl(&route, DEFAULT_BASE_URL)?,
-                    _ => create_http_file(&route, DEFAULT_BASE_URL, None)?,
+                    _ => create_http_file_for_project(&route, DEFAULT_BASE_URL, None, &ctx.project().ok_or(Error::Stale)?)?,
                 }
                 Ok(None)
             }
@@ -844,10 +878,49 @@ impl Plugin for Main {
                 }
                 self.artisan(ctx, "migrate:fresh")
             }
+            "runtime-about" | "runtime-events" | "runtime-schedule" | "runtime-queues" | "runtime-queue-status" | "runtime-workers" => {
+                let section=id.strip_prefix("runtime-").ok_or(Error::Stale)?;
+                self.runtime_inspection.capture(ctx,self.artisan_workspace.runner(ctx)?,section)?;
+                refresh_laravel();
+                Ok(None)
+            },
+            "runtime-inspect-queue" => {
+                let Some(connection)=host::input("Queue connection (blank for all configured connections)",None)? else{return Ok(None)};
+                let Some(queue)=host::input("Queue name (blank for configured defaults)",None)? else{return Ok(None)};
+                self.runtime_inspection.capture_queue_status(ctx,self.artisan_workspace.runner(ctx)?,Some(connection.trim()).filter(|value|!value.is_empty()),Some(queue.trim()).filter(|value|!value.is_empty()))?;
+                refresh_laravel();
+                Ok(None)
+            },
+            "runtime-logs" => {
+                let files=self.runtime_inspection.log_files(ctx)?;
+                if files.is_empty(){host::notify(NotificationLevel::Info,SOURCE,"No owned log files found under storage/logs.");return Ok(None);}
+                let choices:Vec<_>=files.iter().map(|file|openidea_plugin::PickItem::new(file,file)).collect();
+                if let Some(file)=host::pick("Read Laravel log",&choices)? {
+                    self.runtime_inspection.capture_log(ctx,self.artisan_workspace.runner(ctx)?,&file)?;
+                    refresh_laravel();
+                } Ok(None)
+            },
+            "runtime-retry-failed" => {
+                let key=arg.ok_or("Select a captured failed-job row and choose Retry Failed Job.")?;
+                let result=self.runtime_inspection.retry_failed(ctx,self.artisan_workspace.runner(ctx)?,key)?;
+                host::notify(NotificationLevel::Info,SOURCE,&result);
+                refresh_laravel();
+                Ok(None)
+            },
+            "runtime-runner" => {
+                if let Some(runner)=host::pick("Runtime PHP runner",&[openidea_plugin::PickItem::new("php","Local PHP"),openidea_plugin::PickItem::new("docker","Docker")])? {
+                    let runner:artisan_runner::Runner=serde_json::from_value(serde_json::json!(runner)).map_err(|_|Error::Stale)?;
+                    self.artisan_workspace.handle(ctx,&serde_json::json!({"op":"runner","runner":runner}).to_string(),&self.artisan_terminals)?;
+                    refresh_laravel();
+                } Ok(None)
+            },
             "unused-views" => self.unused_views(ctx),
-            "artisan-run" => generate::run_artisan(&self.artisan_terminals, ctx),
+            "artisan-run" => { ui_kit::web::reveal_view(artisan_workspace::VIEW, include_str!("ui_config.json"))?; Ok(None) },
+            "artisan-run-terminal" => generate::run_artisan(&self.artisan_terminals, ctx),
             "artisan-refresh-metadata" => artisan_metadata::refresh(ctx),
             "artisan-refresh-docker-metadata" => artisan_docker::refresh(ctx),
+            "artisan-choose-docker-target" => {let result=artisan_docker::discover(ctx)?;refresh_laravel();Ok(result)},
+            "artisan-clear-docker-target" => {let result=artisan_docker::clear_discovered_target(ctx)?;refresh_laravel();Ok(result)},
             "artisan-browse-docker-metadata" => artisan_docker::browse(ctx),
             "make" | "new-model" | "generate-for-model" | "create-missing" => self.generator(id, ctx),
             "remove-phpdocs" => {
@@ -871,6 +944,7 @@ impl Plugin for Main {
             if let Some(exit) = event.terminal_exited()
                 && let Some(root) = self.artisan_terminals.complete(&exit, ctx)
                 && let Some(project) = host::projects().unwrap_or_default().into_iter().find(|p|p.root().ok().as_deref()==Some(&root)) {
+                self.runtime_routes.remove(&root);
                 self.index_project(&project);
                 refresh_laravel();
             }
@@ -899,6 +973,7 @@ impl Plugin for Main {
 
             let changed = saved.iter().filter_map(relative).any(|r| affects_index(&r));
             let unknown = !self.indexes.contains_key(&root) && opened.iter().any(|path| under(path, &root));
+            if saved.iter().any(|path|under(path,&root) && (path.ends_with(".php") || path.rsplit('/').next().is_some_and(|name|name.starts_with(".env") || matches!(name,"composer.json"|"composer.lock")))) { self.runtime_routes.remove(&root); self.runtime_inspection.invalidate(&root); }
             if changed || unknown {
                 self.index_project(&project);
             }
@@ -1124,6 +1199,11 @@ impl Providers for Main {
         let Some(index) = self.index_for(&doc.path) else {
             return Vec::new();
         };
+        if language == "php" {
+            let root = project_for(&doc.path).and_then(|p| p.root().ok());
+            let items = eloquent_members::completion_checked(index, doc, at, &|path| root.is_some() && project_for(path).and_then(|p|p.root().ok()) == root);
+            if !items.is_empty() { return items; }
+        }
         if language == "php" && let Some(token) = provider_token(&doc.path, &doc.text, offset) {
             return provider_items(index, doc, token);
         }
@@ -1173,6 +1253,9 @@ impl Providers for Main {
                 .chain(std::iter::once((doc.path.as_str(), &navigation))),
         );
         let Some(project) = project_for(&doc.path) else { return Vec::new() };
+        if language == "php" && let Some(entry) = eloquent_members::definition_checked(index, doc, at, &|path| project_for(path).and_then(|p|p.root().ok()) == project.root().ok()) {
+            return scoped_location(&project, &entry).into_iter().collect();
+        }
         let related = resolver
             .checked(|path| {
                 if path == doc.path {
@@ -1517,6 +1600,8 @@ const GROUPS: &[(&str, &str, &str)] = &[
 fn group_names<'a>(index: &'a Index, group: &str) -> Option<&'a Names> {
     match group {
         "view" => Some(&index.views),
+        "component" => Some(&index.components),
+        "livewire" => Some(&index.livewire),
         "config" => Some(&index.config),
         "translation" => Some(&index.translations),
         "middleware" => Some(&index.middleware),
@@ -1537,7 +1622,7 @@ fn route_list_of(index: &Index) -> Vec<Route> {
             };
             let end = Position::new(entry.at.line, entry.at.character + entry.width);
             Route {
-                method: def.methods.split('|').next().unwrap_or_default().to_owned(),
+                method: def.methods.split('|').filter(|method|!(*method=="HEAD" && def.methods.split('|').any(|m|m=="GET"))).collect::<Vec<_>>().join("|"),
                 path: def.uri.clone(),
                 handler,
                 name: def.name.clone(),
@@ -1548,6 +1633,11 @@ fn route_list_of(index: &Index) -> Vec<Route> {
 }
 
 fn entry_for<'a>(index: &'a Index, key: &str) -> Option<(&'a str, Position, u32)> {
+    if let Some(encoded) = key.strip_prefix("translation-locale:") {
+        let (locale, name): (String, String) = serde_json::from_str(encoded).ok()?;
+        let entry = index.translations_by_locale.get(&locale)?.get(&name)?;
+        return Some((&entry.path, entry.at, entry.width));
+    }
     let (group, name) = key.split_once(':')?;
     if group == "route" {
         let route = index.route_defs.get(name.parse::<usize>().ok()?)?;
@@ -1558,62 +1648,108 @@ fn entry_for<'a>(index: &'a Index, key: &str) -> Option<(&'a str, Position, u32)
     Some((&entry.path, entry.at, entry.width))
 }
 
+fn view_inventory(index: &Index, project: &Project) -> Body {
+    let root=project.root().unwrap_or_default();
+    let items: Vec<serde_json::Value> = index.views.iter().filter(|(_,entry)|owns_current_path(project,&entry.path)).map(|(name, entry)| {
+        let namespace=name.split_once("::").map_or("app",|(namespace,_)|namespace);
+        let file=entry.path.strip_prefix(&root).unwrap_or(&entry.path).trim_start_matches(['/', '\\']);
+        let folder=index.view_folders.get(name).map(String::as_str).unwrap_or("(root)");
+        serde_json::json!({"key":format!("view:{name}"),"cells":[name,file,folder,namespace],"icon":"file-html"})
+    }).collect();
+    Body::Other { kind:"resources".into(),data:serde_json::json!({"columns":["View","File","Folder","Namespace"],"columnStyles":["code","code","muted","locale"],"columnWeights":[3,4,2,1.5],"showRowIcons":true,"searchPlaceholder":"Filter views…","facetLabels":{"2":"All folders","3":"All namespaces"},"facets":[2,3],"items":items}).to_string() }
+}
+
+fn component_inventory(index: &Index, project: &Project) -> Body {
+    let root = project.root().unwrap_or_default();
+    let items: Vec<serde_json::Value> = [("component", &index.components), ("livewire", &index.livewire)]
+        .into_iter().flat_map(|(kind, names)| names.iter().map(move |(name, entry)| (kind, name, entry)))
+        .filter(|(_, _, entry)| !entry.path.is_empty() && owns_current_path(project, &entry.path))
+        .map(|(kind, name, entry)| {
+            let file = entry.path.strip_prefix(&root).unwrap_or(&entry.path).trim_start_matches(['/', '\\']);
+            let (label, category, icon) = if kind == "livewire" {
+                (format!("<livewire:{name}>"), "Livewire", "class")
+            } else if entry.detail.as_deref() == Some("Blade::component") {
+                (format!("<x-{name}>"), "Blade alias", "file-html")
+            } else if entry.path.ends_with(".blade.php") {
+                (format!("<x-{name}>"), "Blade anonymous", "file-html")
+            } else {
+                (format!("<x-{name}>"), "Blade class", "class")
+            };
+            serde_json::json!({"key":format!("{kind}:{name}"),"cells":[label,category,file],"icon":icon})
+        }).collect();
+    Body::Other { kind: "resources".into(), data: serde_json::json!({
+        "columns":["Component","Type","File"],"columnStyles":["code","text","muted"],
+        "columnWeights":[3,1.5,5],"showRowIcons":true,"searchPlaceholder":"Filter components…",
+        "facets":[1],"facetLabels":{"1":"All types"},"items":items
+    }).to_string() }
+}
+
+fn config_inventory(index: &Index, root: &str) -> Body {
+    let items: Vec<serde_json::Value> = index.config.iter().map(|(name, entry)| {
+        let value = index.config_expressions.get(name).map(String::as_str).unwrap_or_else(|| entry.detail.as_deref().unwrap_or("Expression unavailable"));
+        serde_json::json!({"key":format!("config:{name}"),"cells":[name,value,entry.path.strip_prefix(root).unwrap_or(&entry.path).trim_start_matches(['/', '\\'])],"icon":"file-config"})
+    }).collect();
+    Body::Other { kind:"resources".into(), data:serde_json::json!({"columns":["Key","Value","File"],"columnStyles":["code","code","muted"],"showRowIcons":true,"searchPlaceholder":"Filter config…","facetLabels":{"2":"All files"},"facets":[2],"items":items}).to_string() }
+}
+
+fn translation_inventory(index: &Index, root: &str) -> Body {
+    let items: Vec<serde_json::Value> = index.translations_by_locale.iter().flat_map(|(locale, names)| {
+        names.iter().map(move |(name, entry)| serde_json::json!({
+            "key": format!("translation-locale:{}", serde_json::json!([locale, name])),
+            "cells": [name, locale, entry.detail.as_deref().unwrap_or(""), entry.path.strip_prefix(root).unwrap_or(&entry.path).trim_start_matches(['/', '\\'])],
+            "icon": "text"
+        }))
+    }).collect();
+    Body::Other { kind: "resources".into(), data: serde_json::json!({"columns":["Key","Locale","Value","File"],"columnStyles":["code","locale","text","muted"],"showRowIcons":true,"searchPlaceholder":"Filter translations…","facetLabels":{"1":"All locales"},"facets":[1],"items":items}).to_string() }
+}
+
 impl Main {
-    fn tree(&self, index: &Index) -> Vec<TreeItem> {
-        let mut items = Vec::new();
-
-        for (group, label, icon) in GROUPS {
-            let key = format!("group:{group}");
-            let count = group_names(index, group).map_or(index.route_defs.len(), Names::len);
-            let expanded = self.expanded.contains(&key);
-            let item = TreeItem::new(&key, &format!("{label} ({count})")).icon(icon);
-
-            // An expandable item without children shows as loading forever.
-            if count == 0 {
-                items.push(item);
-                continue;
+    fn tree(&self, index: &Index, group: &str) -> Vec<TreeItem> {
+        let icon = GROUPS.iter().find(|(id, _, _)| *id == group).map_or("file", |(_, _, icon)| *icon);
+        group_names(index, group).into_iter().flat_map(|names| names.iter()).map(|(name, entry)| {
+            let leaf = TreeItem::new(&format!("{group}:{name}"), name).icon(icon);
+            match &entry.detail {
+                Some(detail) if !detail.is_empty() => leaf.detail(detail),
+                _ => leaf,
             }
-
-            items.push(item.expandable(expanded));
-            if !expanded {
-                continue;
-            }
-
-            if let Some(names) = group_names(index, group) {
-                for (name, entry) in names {
-                    let leaf = TreeItem::new(&format!("{group}:{name}"), name).parent(&key).icon(icon);
-                    items.push(match &entry.detail {
-                        Some(detail) if !detail.is_empty() => leaf.detail(detail),
-                        _ => leaf,
-                    });
-                }
-                continue;
-            }
-
-            for (number, route) in index.route_defs.iter().enumerate() {
-                let label = format!("{} {}", route.def.methods, route.def.uri);
-                let detail = match &route.def.name {
-                    Some(name) => format!("{name} · {}", route.def.action),
-                    None => route.def.action.clone(),
-                };
-                items.push(TreeItem::new(&format!("route:{number}"), &label).parent(&key).icon(icon).detail(&detail));
-            }
-        }
-
-        items
-    }
-
-    fn sections(&mut self) -> &mut Switcher {
-        self.sections.get_or_insert_with(|| Switcher::new("laravel.section", SECTIONS))
+        }).collect()
     }
 
     fn route_list(&mut self) -> &mut RouteList {
         self.route_list.get_or_insert_with(|| RouteList::new("laravel.routes", PLUGIN_ID))
     }
 
+    fn active_routes(&self, ctx: &Invocation) -> Vec<Route> {
+        let Some(index)=self.view_index(ctx) else{return vec![];};
+        let project=ctx.project();
+        if let Some(snapshot)=project.as_ref().and_then(|p|p.root().ok()).and_then(|root|self.runtime_routes.get(&root)) {
+            return snapshot.routes.iter().cloned().map(|mut route|{if route.location.as_ref().is_some_and(|l|!project.as_ref().is_some_and(|p|owns_current_path(p,&l.path))){route.location=None;}route}).collect();
+        }
+        route_list_of(index)
+    }
     fn route_at(&self, key: &str, ctx: &Invocation) -> Option<Route> {
         let number: usize = key.strip_prefix("route:")?.parse().ok()?;
-        route_list_of(self.view_index(ctx)?).into_iter().nth(number)
+        self.active_routes(ctx).into_iter().nth(number)
+    }
+
+    fn web_config(&self, ctx: &Invocation) -> String {
+        let mut config: serde_json::Value = serde_json::from_str(include_str!("ui_config.json")).expect("packaged Laravel UI config");
+        if let Some(index) = self.view_index(ctx) {
+            for tab in config["group"]["tabs"].as_array_mut().expect("Laravel tabs") {
+                let count = match tab["id"].as_str().unwrap_or_default() {
+                    VIEW => Some(self.active_routes(ctx).len()),
+                    "laravel-components" => ctx.project().map(|project| [&index.components, &index.livewire].into_iter().flat_map(|names| names.values()).filter(|entry| !entry.path.is_empty() && owns_current_path(&project, &entry.path)).count()),
+                    "laravel-views" => Some(index.views.values().filter(|entry|ctx.project().as_ref().is_some_and(|project|owns_current_path(project,&entry.path))).count()),
+                    "laravel-config" => Some(index.config.len()),
+                    "laravel-translations" => Some(index.translations_by_locale.values().map(Names::len).sum()),
+                    "laravel-middleware" => Some(index.middleware.len()),
+                    "laravel-env" => Some(index.env.len()),
+                    _ => None,
+                };
+                if let Some(count) = count { tab["count"] = count.into(); }
+            }
+        }
+        config.to_string()
     }
 
     fn view_index(&self, ctx: &Invocation) -> Option<&Index> {
@@ -1625,54 +1761,124 @@ impl Main {
 }
 
 impl Views for Main {
-    fn render(&mut self, _view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
+    fn render(&mut self, view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
         (|| -> Result<View, Error> {
+            if view == artisan_workspace::VIEW {
+                return Ok(View::new(Body::Html(artisan_workspace::html())));
+            }
+            if view == "laravel-runtime" {
+                let runner = self.artisan_workspace.runner(ctx)?;
+                return Ok(View::new(self.runtime_inspection.body(ctx,runner)?)
+                    .button(Button::new("runtime-about","Application").icon("info"))
+                    .button(Button::new("runtime-events","Events").icon("text"))
+                    .button(Button::new("runtime-schedule","Schedule").icon("calendar"))
+                    .button(Button::new("runtime-queues","Failed Jobs").icon("warning"))
+                    .button(Button::new("runtime-queue-status","Queue Status").icon("services"))
+                    .button(Button::new("runtime-workers","Workers").icon("services"))
+                    .button(Button::new("runtime-logs","Logs").icon("text"))
+                    .button(Button::new("runtime-runner",if runner==artisan_runner::Runner::Docker{"Docker"}else{"Local PHP"}).icon("terminal"))
+                    .status(&self.runtime_inspection.status(ctx,runner)?));
+            }
             let reindex = Button::new("reindex", "Reindex").icon("refresh");
-            let routes_active = self.sections().active() == "routes";
+            let group = match view {
+                VIEW => "route",
+                "laravel-views" => "view",
+                "laravel-components" => "components",
+                "laravel-config" => "config",
+                "laravel-translations" => "translation",
+                "laravel-middleware" => "middleware",
+                "laravel-env" => "env",
+                _ => return Err(Error::NotFound(view.into())),
+            };
+            let routes_active = group == "route";
             let Some(index) = self.view_index(ctx) else {
                 return Ok(View::message("This project is not a Laravel application.").button(reindex));
             };
 
             let partial = index.partial;
+            let config_incomplete = index.config_incomplete.len();
+            let config_coverage = index.config_incomplete.iter().take(3).map(|path| path.rsplit('/').next().unwrap_or(path)).collect::<Vec<_>>().join(", ");
             let toolbar = |body| {
-                View::new(body)
-                    .button(reindex)
-                    .button(Button::new("route-list", "Route List").icon("terminal"))
-                    .button(Button::new("optimize-clear", "Clear Caches").icon("build-project"))
+                let mut view = View::new(body);
+                if routes_active {
+                    view = view.button(Button::new("routes-runtime-refresh", "Refresh Routes (PHP)").icon("refresh"));
+                    view = view.button(Button::new("route-list", "Route List").icon("terminal"));
+                } else {
+                    view = view.button(reindex);
+                }
+                let cache_action = match group {
+                    "route" => Some(("route-clear", "Clear Route Cache")),
+                    "view" => Some(("view-clear", "Clear Compiled Views")),
+                    "config" | "env" => Some(("config-clear", "Clear Config Cache")),
+                    _ => None,
+                };
+                if let Some((id, label)) = cache_action {
+                    view = view.button(Button::new(id, label).icon("build-project"));
+                }
+                view
             };
             let mut view = if routes_active {
-                let routes = route_list_of(index);
+                let routes = self.active_routes(ctx);
                 let list = self.route_list();
                 list.set_routes(routes);
                 list.render(toolbar(Body::Message(String::new())))
+            } else if group == "components" {
+                toolbar(component_inventory(index, &ctx.project().ok_or(Error::Stale)?))
+            } else if group == "view" {
+                toolbar(view_inventory(index, &ctx.project().ok_or(Error::Stale)?))
+            } else if group == "config" {
+                toolbar(config_inventory(index, &ctx.project().and_then(|p| p.root().ok()).unwrap_or_default()))
+            } else if group == "translation" {
+                toolbar(translation_inventory(index, &ctx.project().and_then(|p| p.root().ok()).unwrap_or_default()))
             } else {
-                toolbar(Body::Tree(self.tree(index)))
+                toolbar(Body::Tree(self.tree(index, group)))
             };
+            if routes_active {
+                let provenance=ctx.project().and_then(|p|p.root().ok()).and_then(|root|self.runtime_routes.get(&root)).map(route_runtime::Snapshot::provenance).unwrap_or_else(||"Static source index · Refresh Routes (PHP) for registered routes".into());
+                view.status=Some(format!("{} · {provenance}",view.status.as_deref().unwrap_or("No routes")));
+            }
+            if group == "config" && config_incomplete > 0 {
+                view = view.status(&format!("Config coverage incomplete: {config_coverage}{} (dynamic arrays, unreadable sources or indexing limits){}",if config_incomplete > 3 {format!(", +{} more",config_incomplete-3)} else {String::new()},if partial {"; project indexing also timed out"} else {""}));
+            }
             if partial && view.status.is_none() {
                 view = view.status("Index incomplete (time limit reached)");
             }
-            Ok(self.sections().buttons(view, &[]))
+            Ok(view)
         })().map(ui_kit::actions::available)
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {
-        if ui_kit::web::handle(self, view, &event, ctx, include_str!("ui_config.json"))? {
+        let config = self.web_config(ctx);
+        if ui_kit::web::handle(self, view, &event, ctx, &config)? {
             return Ok(());
         }
 
-        if self.sections().handle(&event) {
-            host::refresh_view(view);
+        if view == artisan_workspace::VIEW {
+            if let ViewEvent::Message(message) = event {
+                let reply = match self.artisan_workspace.handle(ctx, &message, &self.artisan_terminals) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        let preview = serde_json::from_str::<serde_json::Value>(&message).ok().is_some_and(|request| request["op"] == "preview");
+                        if !preview && !matches!(error, Error::Cancelled) {
+                            host::notify(NotificationLevel::Error, "Artisan", &error.to_string());
+                        }
+                        serde_json::json!({"error":error.to_string()})
+                    },
+                };
+                if reply["completed"] == true && let Some(project) = ctx.project() { if let Ok(root)=project.root(){self.runtime_routes.remove(&root);} self.index_project(&project); }
+                ui_kit::web::post_view_message(view, &reply.to_string(), &config)?;
+            }
             return Ok(());
         }
 
-        if self.sections().active() == "routes" {
+        if view == VIEW {
             match self.route_list().handle(&event) {
                 RouteEvent::Changed => {
                     host::refresh_view(view);
                     return Ok(());
                 }
                 RouteEvent::Open(route) => {
-                    if !self.view_index(ctx).is_some_and(|index| route_list_of(index).iter().any(|current| current == &route)) {
+                    if !self.active_routes(ctx).iter().any(|current| current == &route) {
                         refresh_laravel();
                         return Err(Error::Stale);
                     }
@@ -1686,17 +1892,9 @@ impl Views for Main {
         }
 
         match event {
-            ViewEvent::Expand(key) => {
-                self.expanded.insert(key);
-                host::refresh_view(view);
-            }
-            ViewEvent::Collapse(key) => {
-                self.expanded.remove(&key);
-                host::refresh_view(view);
-            }
             ViewEvent::Activate(key) => {
                 let target = self.view_index(ctx).and_then(|index| entry_for(index, &key));
-                if let Some((path, at, _)) = target.filter(|(path, _, _)| !path.is_empty()) {
+                if let Some((path, at, _)) = target.filter(|(path, _, _)| !path.is_empty() && ctx.project().as_ref().is_some_and(|project| owns_current_path(project, path))) {
                     host::open_location(path, at.line, at.character)?;
                 }
             }
@@ -1710,7 +1908,7 @@ impl Views for Main {
     }
 }
 
-openidea_plugin::register_plugin!(Main, providers, views, indexing, endpoints, file_actions, hover, diagnostics);
+openidea_plugin::register_plugin!(Main, providers, views, indexing, endpoints, file_actions, hover, diagnostics, mcp);
 
 #[cfg(test)]
 mod tests;

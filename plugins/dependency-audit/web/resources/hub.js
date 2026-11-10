@@ -117,7 +117,10 @@
     $("view-tabs").hidden = viewTabs.length < 2;
     $("view-tabs").replaceChildren(...viewTabs.map(tab => {
       const button=element("button",tab.label);button.type="button";button.dataset.viewKey=tab.id;
-      button.id=`view-tab-${encodeURIComponent(tab.id)}`;button.setAttribute("aria-controls",`view-panel-${encodeURIComponent(tab.id)}`);button.title=tab.label;button.setAttribute("role","tab");
+      const packagedTab=Array.isArray(window.uiKitViewTabs) ? window.uiKitViewTabs.find(item=>item.id === tab.id) : null;
+      const icon=viewIcon(tab.icon || packagedTab?.icon);if(icon)button.prepend(icon);
+      if(Number.isSafeInteger(tab.count) && tab.count >= 0)button.append(element("span",String(tab.count),"tab-count"));
+      button.id=`view-tab-${encodeURIComponent(tab.id)}`;button.setAttribute("aria-controls",`view-panel-${encodeURIComponent(tab.id)}`);button.title=tab.label;button.setAttribute("aria-label",Number.isSafeInteger(tab.count) && tab.count >= 0 ? `${tab.label} (${tab.count})` : tab.label);button.setAttribute("role","tab");
       const active=tab.id === state.activeView;button.setAttribute("aria-selected",String(active));button.tabIndex=active ? 0:-1;
       button.addEventListener("click",()=>{if(tab.id !== state.activeView){flushForm();if(state.cleanup){state.cleanup();state.cleanup=null;state.navigationCleaned=true;}send({op:"select-view",target:tab.id});}});
       return button;
@@ -141,6 +144,7 @@
     toolbarButtons.sort((a,b)=>toolbarOrder(a)-toolbarOrder(b));
     $("toolbar").replaceChildren(...toolbarButtons);
     $("search").value = queryState().query;
+    $("search").placeholder = typeof model.body.searchPlaceholder === "string" ? model.body.searchPlaceholder : "Search…";
   }
   function rowModel(body) {
     if (body.kind === "resources") {
@@ -160,10 +164,17 @@
     const heading = element("div", null, "ui-dialog-header"); heading.append(title);
     const fields = element("dl", null, "resource-facts ui-dialog-body");
     const columns = rowModel(body).columns;
-    const fact = (label,value) => { const detail=element("dd",value || "—"), badge=cellBadge(label,value); if(badge) detail.replaceChildren(badge); fields.append(element("dt",label),detail); };
+    let hasCode=false;
+    const fact = (label,value) => {
+      const detail=element("dd",value || "—"), badge=cellBadge(label,value);
+      const preview=badge ? null : window.uiKitCodePreview?.create(label,value);
+      if(badge) detail.replaceChildren(badge);
+      else if(preview){detail.replaceChildren(preview);hasCode=true;}
+      fields.append(element("dt",label),detail);
+    };
     columns.forEach((label,i) => fact(label,row.cells[i]));
-    for (const fact of row.details || []) {
-      if (typeof fact.label === "string" && typeof fact.value === "string") { const detail=element("dd",fact.value || "—"), badge=cellBadge(fact.label,fact.value); if(badge) detail.replaceChildren(badge); fields.append(element("dt",fact.label),detail); }
+    for (const detail of row.details || []) {
+      if (typeof detail.label === "string" && typeof detail.value === "string") fact(detail.label,detail.value);
     }
     if (row.method && !columns.includes("Method")) {
       const method = element("dd"); const badges = methodBadges(row.method);
@@ -172,6 +183,7 @@
     }
     const footer = element("div", null, "ui-dialog-footer"); const close = element("button", "Close");
     close.addEventListener("click",()=>dialog.close()); footer.append(close);
+    dialog.classList.toggle("has-code-preview",hasCode);
     dialog.setAttribute("aria-labelledby",title.id); dialog.replaceChildren(heading, fields, footer);
     if (!dialog.open) dialog.showModal();
   }
@@ -247,7 +259,8 @@
     facets.forEach(column => {
       const label = element("label", null, "ui-field"); label.append(element("span", columns[column], "ui-visually-hidden")); const select = element("select"); select.setAttribute("aria-label", columns[column]);
       const values = [...new Set(rows.map(r => r.cells[column]).filter(Boolean))].sort();
-      const all = element("option", `${columns[column]}: All (${values.length})`); all.value = ""; select.append(all);
+      const facetLabel=typeof body.facetLabels?.[column] === "string" ? body.facetLabels[column] : `${columns[column]}: All`;
+      const all = element("option", `${facetLabel} (${values.length})`); all.value = ""; select.append(all);
       for (const value of values) { const option = element("option", value); option.value = value; select.append(option); }
       if (!values.includes(q.facets[column])) delete q.facets[column];
       select.value = q.facets[column] || ""; select.addEventListener("change", () => { q.facets[column] = select.value; q.page = 0; renderBody(); });
@@ -296,11 +309,17 @@
     const pages = body.kind === "tree" ? 1 : Math.max(1,Math.ceil(visible.length / 100)); q.page = Math.min(q.page,pages-1);
     const table = element("table",null,body.kind === "resources" ? "resources" : ""); const head = element("thead"); const headings = element("tr");
     columns.forEach((label,column) => { const th = element("th"); const b = element("button", label);
+      const style=body.columnStyles?.[column];if(["code","text","muted","locale"].includes(style))th.classList.add(`resource-${style}`);
       if(q.sort?.column === column) {
         b.append(viewIcon(q.sort.descending ? "arrow-12px-down" : "arrow-12px-up"));
       }
       b.addEventListener("click", () => { q.sort = { column, descending: q.sort?.column === column && !q.sort.descending }; renderBody(); });
       th.setAttribute("scope","col"); if(q.sort?.column === column) th.setAttribute("aria-sort",q.sort.descending ? "descending":"ascending"); th.append(b); headings.append(th); });
+    if(body.kind === "resources" && body.columnStyles?.length){
+      table.classList.add("resource-table--bounded");const group=element("colgroup");
+      const weights=columns.map((_,i)=>{const weight=body.columnWeights?.[i];return typeof weight==="number"&&Number.isFinite(weight)&&weight>0&&weight<=100?weight:body.columnStyles[i]==="locale"?0.5:body.columnStyles[i]==="muted"?1:2;}),total=weights.reduce((a,b)=>a+b,0);
+      for(const weight of weights){const col=element("col");col.style.width=`${weight/total*100}%`;group.append(col);}table.append(group);
+    }
     head.append(headings); table.append(head); const tbody = element("tbody"); let rowIndex=0;
     if(body.kind === "tree") {table.classList.add("resource-tree");if(columns.length === 1)table.classList.add("resource-tree--plain");}
     const shownRows=body.kind === "tree" ? visible : visible.slice(q.page*100,(q.page+1)*100);
@@ -328,6 +347,12 @@
       tr.addEventListener("keydown",e=>{if(e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) contextSelect(e);});
       row.cells.forEach((cell,i) => { const td = element("td", cell); if (body.kind === "resources") { const badge = cellBadge(columns[i],cell); if (badge) td.replaceChildren(badge); else td.className = "mono"; }
         else if (["tree","list"].includes(body.kind) && i === 1 && row.method) { const badges = methodBadges(row.method); if (badges) td.replaceChildren(badges, document.createTextNode(cell ? ` ${cell}` : "")); else td.textContent = `${row.method} ${cell}`; }
+        const style=body.columnStyles?.[i];
+        if(["code","text","muted","locale"].includes(style)){td.classList.remove("mono");td.classList.add(`resource-${style}`);td.title=String(cell);const value=element("span",null,"resource-cell-value");value.append(...td.childNodes);td.append(value);}
+        if(i === 0 && body.kind === "resources" && body.showRowIcons === true){
+          const line=element("span",null,"resource-identity"),label=element("span",cell,"resource-cell-label"),icon=viewIcon(row.icon);
+          if(icon)line.append(icon);line.append(label);td.replaceChildren(line);
+        }
         if(["Kind","Type","Method","Severity","Ecosystem"].includes(columns[i]) && /^[\p{L}\p{N}_-]{1,24}$/u.test(String(cell))) td.classList.add("category");
         if (i === 0 && body.kind === "list") {
           const icon = viewIcon(row.icon); if (icon) td.prepend(icon);
@@ -465,17 +490,18 @@
     // and local theme defaults override the managed kit controls/theme.
     for(const style of parsed.querySelectorAll("style")) {style.textContent=`@layer ui-legacy {${style.textContent.replace(/:root|\bhtml\b|\bbody\b/g,":host")}}`;}
     shadow.append(...Array.from(parsed.head.children),...Array.from(parsed.body.childNodes));$("content").replaceChildren(host);$("details").close();
+    if(shadow.querySelector("[data-command-workspace]"))host.classList.add("command-workspace-host");
     // Syntax overlays have a matching pre/textarea geometry and must stay raw.
     shadow.querySelector("#src")?.setAttribute("data-ui-raw", "");
     window.uiKitControls?.enhance(shadow);
     const targetView=state.activeView,generation=state.generation;
-    const bridge={postMessage:value=>{if(state.generation === generation) event({kind:"message",value},targetView);},onMessage:callback=>state.listeners.push(message=>{if(state.generation === generation) callback(message);}),saveFile:options=>window.openidea.saveFile(options),openFile:options=>window.openidea.openFile(options)};
-    if(host.hasAttribute("data-runtime-controls") || shadow.querySelector("[data-runtime-controls]")) {
+    const bridge={project:state.project,postMessage:value=>{if(state.generation === generation) event({kind:"message",value},targetView);},onMessage:callback=>state.listeners.push(message=>{if(state.generation === generation) callback(message);}),saveFile:options=>window.openidea.saveFile(options),openFile:options=>window.openidea.openFile(options)};
+    if(host.hasAttribute("data-runtime-controls") || shadow.querySelector("[data-runtime-controls]") || shadow.querySelector("[data-command-workspace]")) {
       const runtimeBridge={...bridge,postMessage:value=>{
         if(state.generation !== generation || !window.openidea) return;
         openidea.postMessage(JSON.stringify({op:"opaque-message",message:value,channel:"ui-kit",frameId,sequence:0,targetView,project:state.project}));
       }};
-      state.cleanup=window.uiKitRuntimeControls?.mount(shadow,runtimeBridge) || null;
+      state.cleanup=(shadow.querySelector("[data-command-workspace]") ? window.uiKitCommandWorkspace?.mount(shadow,runtimeBridge) : window.uiKitRuntimeControls?.mount(shadow,runtimeBridge)) || null;
     }
     else if(shadow.querySelector("svg .n[data-id]")) shadow.querySelectorAll(".n[data-id]").forEach(node=>{const open=()=>bridge.postMessage(node.dataset.id);node.addEventListener("click",open);node.addEventListener("keydown",e=>{if(e.key === "Enter" || e.key === " "){e.preventDefault();open();}});});
     else if(shadow.querySelector("#src")) window.uiKitLegacy?.kube(shadow,bridge);

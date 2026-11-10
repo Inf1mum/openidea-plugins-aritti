@@ -84,15 +84,15 @@ fn preview(doc: &Document, edit: &TextEdit) -> String {
     let before =
         doc.text.get(offset(&doc.text, edit.range.start).unwrap_or(0)..offset(&doc.text, edit.range.end).unwrap_or(0)).unwrap_or("");
     format!(
-        "Edit: {} (editor version {})\nRange: {}:{}–{}:{}\nReplace (JSON): {}\nWith:\n{}",
+        "Edit: {} (editor version {})\nRange: {}:{}–{}:{}\nReplace source:\n{}\n\nWith source:\n{}",
         doc.path,
         doc.version,
         edit.range.start.line + 1,
         edit.range.start.character + 1,
         edit.range.end.line + 1,
         edit.range.end.character + 1,
-        serde_json::to_string(before).unwrap_or_default(),
-        edit.text
+        ui_kit::prompts::readable_source(before),
+        ui_kit::prompts::readable_source(&edit.text)
     )
 }
 fn suggested_author(plugin: &Liquibase) -> String {

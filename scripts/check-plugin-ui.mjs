@@ -52,7 +52,7 @@ await page.setViewportSize({width:380,height:750});await page.screenshot({path:r
 await page.getByRole('button',{name:'Refresh',exact:true}).first().click();
 const advisory={...model,body:{kind:'resources',columns:['Dependency','Version','Severity'],facets:[2],items:[{key:'dep:1',cells:['example-lib','1.0','High'],details:[{label:'Fixed versions',value:'2.0'},{label:'Advisory',value:'<img src=x onerror=alert(1)>'}]}]}};
 await reply(advisory);await page.locator('tbody tr').click();await reply(advisory);await page.locator('tbody tr').click({button:'right'});await reply(advisory);await page.getByRole('menuitem',{name:'Show Details…',exact:true}).click();
-assert.equal(await page.locator('#details h2').textContent(),'example-lib');assert.equal(await page.locator('#details dd').last().textContent(),'<img src=x onerror=alert(1)>');assert.equal(await page.locator('#details img').count(),0);
+assert.equal(await page.locator('#details h2').textContent(),'example-lib');assert.equal(await page.locator('#details dd').last().locator('code').textContent(),'<img src=x onerror=alert(1)>');assert.equal(await page.locator('#details img').count(),0);
 assert.equal(await page.locator('tbody .method').count(),0);assert.equal(await page.locator('#details dt').filter({hasText:'Fixed versions'}).count(),1);await page.getByRole('button',{name:'Close',exact:true}).click();
 // A bottom dock can be shorter than its header, toolbar and facets together.
 await page.setViewportSize({width:1100,height:260});

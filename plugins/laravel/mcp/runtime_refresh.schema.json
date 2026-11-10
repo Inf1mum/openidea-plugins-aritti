@@ -1,0 +1,28 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "runner": {
+      "type": "string",
+      "enum": [
+        "php",
+        "docker"
+      ],
+      "default": "php"
+    },
+    "section": {
+      "type": "string",
+      "enum": [
+        "about",
+        "events",
+        "schedule",
+        "queues",
+        "queue-status",
+        "workers"
+      ]
+    }
+  },
+  "required": [
+    "section"
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "runner": {
+      "type": "string",
+      "enum": [
+        "php",
+        "docker"
+      ],
+      "default": "php"
+    },
+    "includeLogs": {
+      "type": "boolean",
+      "default": false,
+      "description": "Explicitly include already captured raw log tails, which may contain sensitive application data. Omitted by default."
+    }
+  },
+  "required": []
+}

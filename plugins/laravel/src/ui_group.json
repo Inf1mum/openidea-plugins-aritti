@@ -1,0 +1,50 @@
+{
+  "primary": "laravel",
+  "tabs": [
+    {
+      "id": "laravel",
+      "label": "Routes",
+      "icon": "web"
+    },
+    {
+      "id": "laravel-views",
+      "label": "Views",
+      "icon": "file-html"
+    },
+    {
+      "id": "laravel-components",
+      "label": "Components",
+      "icon": "class"
+    },
+    {
+      "id": "laravel-config",
+      "label": "Config",
+      "icon": "file-config"
+    },
+    {
+      "id": "laravel-translations",
+      "label": "Translations",
+      "icon": "text"
+    },
+    {
+      "id": "laravel-middleware",
+      "label": "Middleware",
+      "icon": "class"
+    },
+    {
+      "id": "laravel-env",
+      "label": "Env",
+      "icon": "file-dotenv"
+    },
+    {
+      "id": "laravel-artisan",
+      "label": "Artisan",
+      "icon": "terminal"
+    },
+    {
+      "id": "laravel-runtime",
+      "label": "Runtime",
+      "icon": "services"
+    }
+  ]
+}

@@ -24,7 +24,7 @@ try {
  const base=(activeView,body=rows)=>({title:tabs.find(tab=>tab.id===activeView).label,viewTabs:tabs,activeView,toolbar:[],actions:[],contextButtons:[],body});
  const last=()=>page.evaluate(()=>window.sent.at(-1));
  const answer=async(model,request,extra={})=>{request ||= await last();return page.evaluate(({model,request,extra})=>window.receive({...request,project:'/fixture',model,...extra}),{model,request,extra});};
- const open=async(model)=>{await page.goto(pathToFileURL(join(scratch,'hub.html')).href);await page.waitForFunction(()=>window.sent.length>0);assert.equal((await last()).targetView,undefined);await answer(model);};
+ const open=async(model,packagedTabs=[])=>{await page.goto(pathToFileURL(join(scratch,'hub.html')).href);await page.waitForFunction(()=>window.sent.length>0);assert.equal((await last()).targetView,undefined);await page.evaluate(tabs=>window.uiKitViewTabs=tabs,packagedTabs);await answer(model);};
  const switchTo=async(id,model)=>{const from=await page.locator('#view-tabs [aria-selected=true]').getAttribute('data-view-key');await page.locator(`#view-tabs [data-view-key=${id}]`).click();const request=await last();assert.equal(request.op,'select-view');assert.equal(request.target,id);assert.equal(request.targetView,from);await answer(model,request);return request;};
  await open(base('first'));
  assert.equal(await page.locator('#view-tabs [role=tab]').count(),3);
@@ -111,11 +111,23 @@ try {
  for(const plugin of readdirSync('plugins')) {
   const path=resolve('plugins',plugin,'src/ui_config.json');if(!existsSync(path))continue;
   const config=JSON.parse(readFileSync(path,'utf8'));if(!config.group)continue;groups++;
-  const modelFor=id=>({title:config.views[id],activeView:id,viewTabs:config.group.tabs,toolbar:[],actions:[],body:{kind:'message',text:`${plugin}/${id}`}});
-  await open(modelFor(config.group.primary));
-  assert.deepEqual(await page.locator('#view-tabs [role=tab]').allTextContents(),config.group.tabs.map(tab=>tab.label),plugin);
+  const counts=[211,11,1566,2290,14,0];
+  const modelFor=id=>({title:config.views[id],activeView:id,viewTabs:config.group.tabs.map((tab,index)=>plugin==='laravel' ? {id:tab.id,label:tab.label,count:counts[index]} : tab),toolbar:[],actions:[],body:{kind:'message',text:`${plugin}/${id}`}});
+  await open(modelFor(config.group.primary),config.group.tabs);
+  assert.deepEqual(await page.locator('#view-tabs [role=tab]').evaluateAll(nodes=>nodes.map(node=>[...node.childNodes].filter(child=>child.nodeType===Node.TEXT_NODE).map(child=>child.textContent).join('').trim())),config.group.tabs.map(tab=>tab.label),plugin);
+  if(plugin==='laravel') {
+   assert.deepEqual(await page.locator('#view-tabs .tab-count').allTextContents(),counts.map(String));
+   assert.equal(await page.locator('#view-tabs [data-view-key=laravel-env]').getAttribute('aria-label'),'Env (0)');
+   assert.notEqual(await page.locator('#view-tabs .tab-count').first().evaluate(node=>getComputedStyle(node).color),await page.locator('#view-tabs button').first().evaluate(node=>getComputedStyle(node).color));
+  }
+  if(plugin==='laravel')for(const width of [320,768])for(const theme of ['light','dark']) {
+   await page.setViewportSize({width,height:520});await page.evaluate(theme=>document.documentElement.dataset.theme=theme,theme);
+   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+   if(output)await page.screenshot({path:join(output,`${engine}-laravel-tabs-${theme}-${width}.png`)});
+  }
   for(const tab of config.group.tabs) {
    assert.ok(config.views[tab.id],`${plugin}: declared logical view ${tab.id}`);
+   if(tab.icon)assert.ok(await page.locator(`#view-tabs [data-view-key="${tab.id}"] .view-icon`).count(),`${plugin}/${tab.id}: tab icon`);
    if(tab.id !== config.group.primary)await switchTo(tab.id,modelFor(tab.id));
    assert.equal(await page.locator('#view-tabs [aria-selected=true]').getAttribute('data-view-key'),tab.id);
   }

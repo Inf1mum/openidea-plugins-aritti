@@ -196,8 +196,8 @@ fn sql() -> String {
 }
 fn confirmation(path: &str, text: &str) -> String {
     format!(
-        "Create: {path}\n\nBundled SQL template contents (JSON): {}\n\nCreate this file only as one undoable workspace action? It will not overwrite a destination, execute SQL, generate schema DDL or update Flyway's history table.",
-        serde_json::to_string(text).unwrap_or_default()
+        "Create: {path}\n\nBundled SQL template contents:\n{}\n\nCreate this file only as one undoable workspace action? It will not overwrite a destination, execute SQL, generate schema DDL or update Flyway's history table.",
+        ui_kit::prompts::readable_source(text)
     )
 }
 
@@ -464,7 +464,7 @@ mod tests {
             "resolving never writes outside host workspace apply"
         );
         let preview = confirmation("/project/sql/V2__a.sql", &sql());
-        assert!(preview.contains("/project/sql/V2__a.sql") && preview.contains("\\n") && preview.contains("undoable"));
+        assert!(preview.contains("/project/sql/V2__a.sql") && preview.contains(&sql()) && preview.contains("undoable"));
     }
     #[test]
     fn cancel_at_each_stage_and_denied_project_access_do_not_return_operations() {

@@ -65,12 +65,12 @@ fn confirm(doc: &Document, root: &str, before: &[(String, String)], title: &str,
         preview.push_str(&format!("{}\n", serde_json::to_string(path).unwrap_or_default()));
         for edit in changes {
             preview.push_str(&format!(
-                "{}:{}–{}:{} → {}\n",
+                "{}:{}–{}:{} — replacement source:\n{}\n\n",
                 edit.range.start.line + 1,
                 edit.range.start.character + 1,
                 edit.range.end.line + 1,
                 edit.range.end.character + 1,
-                serde_json::to_string(&edit.text).unwrap_or_default()
+                ui_kit::prompts::readable_source(&edit.text)
             ));
         }
     }

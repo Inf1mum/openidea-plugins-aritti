@@ -1,0 +1,11 @@
+[package]
+name = "laravel-artisan-wasm-smoke"
+version = "0.0.0"
+edition = "2024"
+publish = false
+[workspace]
+[dependencies]
+ide-plugin = { git = "https://github.com/l0ng-ai/openidea", tag = "v0.1.40" }
+ide-core = { git = "https://github.com/l0ng-ai/openidea", tag = "v0.1.40" }
+ide-extension = { git = "https://github.com/l0ng-ai/openidea", tag = "v0.1.40" }
+serde_json = "1"

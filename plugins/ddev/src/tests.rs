@@ -342,12 +342,14 @@ fn native_services_status_is_inert_and_toolbar_icons_are_explicit() {
     assert_eq!(view.toolbar.len(), 8);
     assert!(!view.toolbar.iter().any(|button| button.id == "start"));
     assert!(view.toolbar.iter().all(|button| button.icon.is_some()));
-    for (id, icon) in [("shell", "terminal"), ("logs", "list"), ("open-service", "external-link"), ("actions", "more")] {
+    for (id, icon) in [("refresh", "refresh"), ("restart", "rerun"), ("shell", "terminal"), ("logs", "list"), ("open-service", "external-link"), ("actions", "more")] {
         assert_eq!(view.toolbar.iter().find(|button| button.id == id).unwrap().icon.as_deref(), Some(icon));
     }
     assert!(plugin.selected.as_deref() != Some("status:no-project"));
     let setup = plugin.render(support::SETUP, None, &host.invocation()).unwrap();
     assert!(setup.toolbar.iter().all(|button| button.icon.is_some()), "setup toolbar must stay compact too");
+    assert!(setup.toolbar.iter().any(|button| button.id == "open-docs" && button.icon.as_deref() == Some("help")));
+    assert!(!setup.toolbar.iter().any(|button| button.id == "report-issue"));
 }
 
 #[test]
@@ -1684,12 +1686,13 @@ fn global_help_links_and_services_work_without_an_open_project() {
     for id in [
         "open-guide",
         "open-releases",
-        "report-issue",
+        "open-docs",
         "show-services",
     ] {
         plugin.run_command(id, &host.invocation(), None).unwrap();
     }
     assert_eq!(host.opened_urls().len(), 3);
+    assert!(host.opened_urls().iter().any(|url| url == "https://docs.ddev.com/en/stable/"));
     assert!(host.revealed_views().iter().any(|id| id == VIEW));
     assert!(matches!(
         plugin.render(VIEW, None, &host.invocation()).unwrap().body,
@@ -2835,7 +2838,7 @@ fn custom_setup_bridge_preserves_drafts_readonly_fields_and_project_authority() 
     };
     let initial=request(&mut plugin,json!({"op":"render"}));
     assert_eq!(initial["model"]["body"]["kind"],"form");
-    assert_eq!(initial["model"]["iconButtons"].as_array().unwrap().len(),7);
+    assert_eq!(initial["model"]["iconButtons"].as_array().unwrap().len(),6);
     assert_eq!(initial["model"]["body"]["fields"].as_array().unwrap().len(),12);
     assert_eq!(initial["model"]["body"]["fields"][0]["value"]["kind"],"readonly-text");
     assert!(host.process_runs().is_empty());

@@ -76,6 +76,10 @@ struct Group {
 struct ViewTab {
     id: String,
     label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    icon: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    count: Option<usize>,
 }
 
 impl Config {
@@ -869,7 +873,7 @@ mod group_tests {
     const CONFIG: &str = r#"{
         "title":"Grouped Bridge Tests",
         "views":{"routes":"Routes","details":"Details"},
-        "group":{"primary":"routes","tabs":[{"id":"routes","label":"Routes"},{"id":"details","label":"Details"}]},
+        "group":{"primary":"routes","tabs":[{"id":"routes","label":"Routes","icon":"web"},{"id":"details","label":"Details"}]},
         "actions":[{"view":"details","id":"copy","label":"Copy","kind":"route"}],
         "opaque_views":["details"],
         "project_free_buttons":["create-token","disabled"]
@@ -917,6 +921,8 @@ mod group_tests {
         let initial=request(&host,&mut demo,json!({"op":"render"}));
         assert_eq!(initial["model"]["activeView"],"routes");
         assert_eq!(initial["model"]["viewTabs"].as_array().unwrap().len(),2);
+        assert_eq!(initial["model"]["viewTabs"][0]["icon"],"web");
+        assert!(initial["model"]["viewTabs"][1].get("icon").is_none());
         let changed=request(&host,&mut demo,json!({"op":"select-view","target":"details","targetView":"routes"}));
         assert_eq!(changed["model"]["activeView"],"details");
         assert_eq!(changed["model"]["title"],"Details");

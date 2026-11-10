@@ -476,6 +476,8 @@ pub struct Leaf {
     pub offset: usize,
     pub width: usize,
     pub value: Option<String>,
+    /// Source expression range, independent of literal-value inference.
+    pub expression: Range<usize>,
     /// The value is an array literal.
     pub array: bool,
 }
@@ -494,8 +496,9 @@ pub fn array_paths(text: &str, open: usize, prefix: &str, out: &mut Vec<Leaf>, d
 
         let path = if prefix.is_empty() { key.to_owned() } else { format!("{prefix}.{key}") };
         let value = literal(text, item.value.clone()).map(|(v, _)| v.to_owned());
+        let expression = trimmed(text, item.value.clone());
         let nested = array_open(text, item.value);
-        out.push(Leaf { path: path.clone(), offset, width: key.len(), value, array: nested.is_some() });
+        out.push(Leaf { path: path.clone(), offset, width: key.len(), value, expression, array: nested.is_some() });
 
         if let Some(nested) = nested {
             array_paths(text, nested, &path, out, depth + 1);

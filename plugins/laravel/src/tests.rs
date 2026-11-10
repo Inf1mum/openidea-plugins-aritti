@@ -340,11 +340,11 @@ fn shows_and_opens_names_in_the_tool_window() {
     let mut plugin = activated(&host);
     let ctx = host.invocation();
 
-    plugin.handle(VIEW, ViewEvent::Button("section:index".into()), &ctx).unwrap();
-    plugin.handle(VIEW, ViewEvent::Expand("group:route".into()), &ctx).unwrap();
-    let View { body: Body::Tree(items), .. } = plugin.render(VIEW, None, &ctx).unwrap() else { panic!("not a tree") };
-    let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).take(6).collect();
-    assert_eq!(labels, ["Routes (4)", "GET|HEAD /", "GET|HEAD /posts", "GET|HEAD /posts/{post}", "GET|HEAD /admin/dashboard", "Views (7)"]);
+    let View { body: Body::Other { kind, data }, .. } = plugin.render("laravel-views", None, &ctx).unwrap() else { panic!("not a views table") };
+    assert_eq!(kind,"resources");
+    let table:serde_json::Value=serde_json::from_str(&data).unwrap();let items=table["items"].as_array().unwrap();
+    assert_eq!(items.len(), 7);
+    assert!(items.iter().all(|item| item["key"].as_str().unwrap().starts_with("view:")));
 
     plugin.handle(VIEW, ViewEvent::Activate("route:0".into()), &ctx).unwrap();
     let routes = host_text(&host, "routes/web.php");
@@ -2023,13 +2023,13 @@ fn run_artisan_uses_static_choices_without_implicit_discovery_and_splits_argumen
     });
     host.answer_next_prompt(Some(&["migrate:status"]));
     host.answer_next_prompt(Some(&["--pending  --no-ansi"]));
-    plugin.run_command("artisan-run", &host.invocation(), None).unwrap();
+    plugin.run_command("artisan-run-terminal", &host.invocation(), None).unwrap();
     assert_eq!(terminal_args(&host, &plugin), [["artisan", "migrate:status", "--pending", "--no-ansi"]]);
     assert!(host.process_runs().is_empty(), "opening the command picker must not execute discovery");
 
     host.answer_next_prompt(Some(&["rm"]));
-    assert!(plugin.run_command("artisan-run", &host.invocation(), None).is_err());
-    assert!(plugin.run_command("artisan-run", &host.invocation(), None).unwrap().is_none());
+    assert!(plugin.run_command("artisan-run-terminal", &host.invocation(), None).is_err());
+    assert!(plugin.run_command("artisan-run-terminal", &host.invocation(), None).unwrap().is_none());
 }
 
 #[test]
@@ -2448,24 +2448,23 @@ fn route_rows(view: &View) -> Vec<(String, String, String)> {
 }
 
 #[test]
-fn laravel_window_has_routes_and_index_sections() {
+fn laravel_window_has_separate_resource_tabs() {
     let host = MockHost::install();
     let mut plugin = activated(&host);
     let ctx = host.invocation();
-
     let view = plugin.render(VIEW, None, &ctx).unwrap();
     assert!(matches!(view.body, Body::List(_)));
-    let labels: Vec<_> = view.toolbar.iter().map(|b| b.label.as_str()).collect();
-    assert_eq!(&labels[..2], ["\u{25cf} Routes", "Index"]);
-    assert!(labels.contains(&"Filter\u{2026}"));
-
-    plugin.handle(VIEW, ViewEvent::Button("section:index".into()), &ctx).unwrap();
-    let view = plugin.render(VIEW, None, &ctx).unwrap();
-    assert!(matches!(view.body, Body::Tree(_)));
-    let labels: Vec<_> = view.toolbar.iter().map(|b| b.label.as_str()).collect();
-    assert_eq!(&labels[..2], ["Routes", "\u{25cf} Index"]);
-    assert!(!labels.contains(&"Filter\u{2026}"));
-    assert!(!labels.contains(&"Tree"));
+    assert!(view.toolbar.iter().all(|b| !b.id.starts_with("section:")));
+    for (tab, prefix) in [("laravel-middleware", "middleware:"), ("laravel-env", "env:")] {
+        let view = plugin.render(tab, None, &ctx).unwrap();
+        let Body::Tree(items) = view.body else { panic!("not a resource list") };
+        assert!(items.iter().all(|item| item.key.starts_with(prefix) && item.parent.is_none()));
+        assert!(view.toolbar.iter().all(|b| !b.id.starts_with("section:")));
+    }
+    let group: serde_json::Value = serde_json::from_str(include_str!("ui_group.json")).unwrap();
+    let tabs = group["tabs"].as_array().unwrap();
+    assert_eq!(tabs.len(), 9);
+    assert!(tabs.iter().all(|tab| tab["icon"].as_str().is_some_and(|icon| !icon.is_empty())));
 }
 
 #[test]
@@ -2475,8 +2474,8 @@ fn routes_show_names_and_controller_methods() {
 
     let view = plugin.render(VIEW, None, &host.invocation()).unwrap();
     let rows = route_rows(&view);
-    assert_eq!(rows[1], ("route:1".into(), "/posts".into(), "[GET] PostController \u{b7} posts.index".into()));
-    assert_eq!(rows[3], ("route:3".into(), "/admin/dashboard".into(), "[GET] PostController \u{b7} admin.dashboard".into()));
+    assert_eq!(rows[1], ("route:1".into(), "/posts".into(), "[GET] PostController@index \u{b7} posts.index".into()));
+    assert_eq!(rows[3], ("route:3".into(), "/admin/dashboard".into(), "[GET] PostController@index \u{b7} admin.dashboard".into()));
 }
 
 #[test]
@@ -2499,7 +2498,7 @@ fn filter_by_controller() {
     plugin.handle(VIEW, ViewEvent::Button("routes:filter".into()), &ctx).unwrap();
     let view = plugin.render(VIEW, None, &ctx).unwrap();
     assert_eq!(route_rows(&view).len(), 1);
-    assert_eq!(view.status.as_deref(), Some("1 endpoints \u{b7} controller: Closure"));
+    assert_eq!(view.status.as_deref(), Some("1 endpoints \u{b7} controller: Closure · Static source index · Refresh Routes (PHP) for registered routes"));
 }
 
 #[test]
@@ -2866,4 +2865,365 @@ fn native_bulk_phpdoc_action_refuses_changed_source_and_generators_refuse_collis
     assert!(bulk::model_file(&host.invocation().project().unwrap(),index,"factory","Post","PostFactory").is_err());
     assert_eq!(host.invocation().project().unwrap().read_file("database/factories/PostFactory.php").unwrap(),"existing");
     assert!(host.process_runs().is_empty());
+}
+
+#[test]
+fn packaged_resource_tabs_include_icons_and_cached_inventory_counts() {
+    let host = MockHost::install();
+    let mut plugin = activated(&host);
+    let ctx = host.invocation();
+    let payload = serde_json::json!({"channel":"ui-kit","op":"render","sequence":1,"frameId":"0123456789abcdef0123456789abcdef","project":"/project"});
+    plugin.handle(VIEW, ViewEvent::Message(payload.to_string()), &ctx).unwrap();
+    let messages = host.view_messages();
+    let reply: serde_json::Value = serde_json::from_str(&messages.last().unwrap().1).unwrap();
+    let tabs = reply["model"]["viewTabs"].as_array().expect("bridge tabs");
+    let index = plugin.view_index(&ctx).unwrap();
+    assert_eq!(tabs.len(), 9);
+    for (tab, count) in tabs.iter().zip([index.route_defs.len(), index.views.len(), index.components.len() + index.livewire.len(), index.config.len(), index.translations_by_locale.values().map(Names::len).sum(), index.middleware.len(), index.env.len()]) {
+        assert!(tab["icon"].as_str().is_some_and(|icon| !icon.is_empty()));
+        assert_eq!(tab["count"].as_u64(), Some(count as u64));
+    }
+}
+
+#[test]
+fn resource_tabs_offer_only_relevant_toolbar_actions() {
+    let host = MockHost::install();
+    let mut plugin = activated(&host);
+    let ctx = host.invocation();
+    for (tab, cache) in [(VIEW, Some("route-clear")), ("laravel-views", Some("view-clear")), ("laravel-config", Some("config-clear")), ("laravel-env", Some("config-clear")), ("laravel-translations", None), ("laravel-middleware", None)] {
+        let view = plugin.render(tab, None, &ctx).unwrap();
+        let ids: Vec<_> = view.toolbar.iter().map(|button| button.id.as_str()).collect();
+        assert_eq!(ids.contains(&"reindex"), tab != VIEW, "{tab}");
+        assert_eq!(ids.contains(&"routes-runtime-refresh"), tab == VIEW, "{tab}");
+        assert_eq!(ids.contains(&"route-list"), tab == VIEW, "{tab}");
+        assert!(!ids.contains(&"optimize-clear"), "{tab}");
+        for id in ["route-clear", "view-clear", "config-clear"] {
+            assert_eq!(ids.contains(&id), cache == Some(id), "{tab}/{id}");
+        }
+    }
+}
+
+#[test]
+fn run_artisan_command_reveals_workspace_without_execution() {
+    let host = MockHost::install();
+    let mut plugin = activated(&host);
+    plugin.run_command("artisan-run", &host.invocation(), None).unwrap();
+    assert_eq!(host.revealed_views(), [VIEW]);
+    assert!(host.process_runs().is_empty());
+    let config: serde_json::Value = serde_json::from_str(include_str!("ui_config.json")).unwrap();
+    assert!(config["group"]["tabs"].as_array().unwrap().iter().any(|tab| tab["id"] == artisan_workspace::VIEW));
+}
+
+#[test]
+fn translation_inventory_preserves_all_five_locales_and_opens_each_definition() {
+    let host = MockHost::install();
+    let files: Vec<(String, String)> = [("de", "Windeln"), ("en", "Diapers"), ("es", "Pañales"), ("fr", "Couches"), ("nl", "Luiers")]
+        .into_iter().map(|(locale, value)| (format!("lang/{locale}/enums.php"), format!("<?php return ['affiliate_category' => ['diapers' => '{value}']];"))).collect();
+    let borrowed: Vec<_> = files.iter().map(|(path,text)| (path.as_str(),text.as_str())).collect();
+    let mut plugin = activated_with(&host, &borrowed);
+    let ctx = host.invocation();
+    let index = plugin.view_index(&ctx).unwrap();
+    assert_eq!(index.translations["enums.affiliate_category.diapers"].detail.as_deref(), Some("Diapers [en]"), "completion still prefers the main locale");
+    let view = plugin.render("laravel-translations", None, &ctx).unwrap();
+    let Body::Other {kind,data} = view.body else {panic!("expected translation resources")};
+    assert_eq!(kind,"resources");
+    let model: serde_json::Value = serde_json::from_str(&data).unwrap();
+    assert_eq!(model["columns"],serde_json::json!(["Key","Locale","Value","File"]));
+    assert_eq!(model["columnStyles"],serde_json::json!(["code","locale","text","muted"]));
+    assert_eq!(model["facets"],serde_json::json!([1]));
+    let matches: Vec<_> = model["items"].as_array().unwrap().iter().filter(|row|row["cells"][0]=="enums.affiliate_category.diapers").collect();
+    assert_eq!(matches.len(),5);
+    let locales: Vec<_> = matches.iter().map(|row|row["cells"][1].as_str().unwrap()).collect();
+    assert_eq!(locales,["de","en","es","fr","nl"]);
+    for row in matches {
+        let key=row["key"].as_str().unwrap();let locale=row["cells"][1].as_str().unwrap();
+        assert_eq!(row["cells"][3],format!("lang/{locale}/enums.php"));
+        plugin.handle("laravel-translations", ViewEvent::Activate(key.into()), &ctx).unwrap();
+        let opened=host.opened_locations();
+        assert_eq!(opened.last().unwrap().0,format!("/project/lang/{locale}/enums.php"));
+    }
+    let config:serde_json::Value=serde_json::from_str(&plugin.web_config(&ctx)).unwrap();
+    let tab=config["group"]["tabs"].as_array().unwrap().iter().find(|tab|tab["id"]=="laravel-translations").unwrap();
+    assert_eq!(tab["count"].as_u64(),Some(model["items"].as_array().unwrap().len() as u64));
+}
+
+#[test]
+fn translation_inventory_includes_json_and_vendor_locales_without_collapsing_keys() {
+    let host=MockHost::install();
+    let plugin=activated_with(&host,&[
+        ("lang/en.json",r#"{"Say \"hi\": 🦀":"Hello"}"#),
+        ("lang/fr.json",r#"{"Say \"hi\": 🦀":"Bonjour"}"#),
+        ("lang/vendor/shop/en/messages.php","<?php return ['hello'=>'Hello shop'];"),
+        ("lang/vendor/shop/fr/messages.php","<?php return ['hello'=>'Bonjour boutique'];"),
+    ]);
+    let index=plugin.view_index(&host.invocation()).unwrap();
+    for (locale,value) in [("en","Hello"),("fr","Bonjour")] {
+        let entry=&index.translations_by_locale[locale]["Say \"hi\": 🦀"];
+        assert_eq!(entry.detail.as_deref(),Some(value));
+        let key=format!("translation-locale:{}",serde_json::json!([locale,"Say \"hi\": 🦀"]));
+        assert_eq!(entry_for(index,&key).unwrap().0,format!("/project/lang/{locale}.json"));
+    }
+    assert_eq!(index.translations_by_locale["fr"]["shop::messages.hello"].detail.as_deref(),Some("Bonjour boutique"));
+    assert!(entry_for(index,"translation-locale:invalid").is_none());
+    assert!(entry_for(index,r#"translation-locale:["missing","messages.hello"]"#).is_none());
+}
+
+#[test]
+fn saving_a_locale_rebuilds_its_inventory_and_retires_removed_definitions() {
+    let host=MockHost::install();let mut plugin=activated_with(&host,&[("lang/de/labels.php","<?php return ['hello'=>'Hallo'];")]);
+    let key=format!("translation-locale:{}",serde_json::json!(["de","labels.hello"]));
+    assert!(entry_for(plugin.view_index(&host.invocation()).unwrap(),&key).is_some());
+    host.add_file("lang/de/labels.php","<?php return ['bye'=>'Tschüss'];");
+    plugin.handle_events(&[Event::FileSaved("/project/lang/de/labels.php".into())],&host.invocation());
+    let index=plugin.view_index(&host.invocation()).unwrap();assert!(!index.translations_by_locale["de"].contains_key("labels.hello"));
+    assert_eq!(index.translations_by_locale["de"]["labels.bye"].detail.as_deref(),Some("Tschüss"));
+    plugin.handle("laravel-translations",ViewEvent::Activate(key),&host.invocation()).unwrap();
+    assert!(host.opened_locations().is_empty());
+}
+
+#[test]
+fn registered_eloquent_members_use_owned_indexes_and_refresh_after_model_edits() {
+    let host=MockHost::install();
+    let source=r#"<?php
+namespace App\Models;
+use Illuminate\Database\Eloquent\Model;
+class Purchase extends Model {
+ public function customer(){return $this->belongsTo(Customer::class);}
+}
+"#;
+    let customer=r#"<?php
+namespace App\Models;
+use Illuminate\Database\Eloquent\Model;
+class Customer extends Model {}
+"#;
+    let mut plugin=activated_with(&host,&[
+        ("app/Models/Purchase.php",source),("app/Models/Customer.php",customer),
+        ("database/migrations/100_tables.php","<?php Schema::create('purchases',function($table){$table->id();$table->string('reference');}); Schema::create('customers',function($table){$table->id();$table->string('email');});"),
+    ]);
+    let marked=r#"<?php use App\Models\Purchase as Order; function show(Order $order){$order->customer->em^ail;}"#;
+    let (text,at)=cursor(marked);let document=doc("/project/app/Http/Controllers/OrderController.php","php",&text);
+    let items=plugin.completion(&document,at,None);assert!(items.iter().any(|item|item.label=="email"));
+    let locations=plugin.definition(&document,at);assert_eq!(locations.len(),1);assert!(locations[0].path.ends_with("100_tables.php"));
+    assert!(host.process_runs().is_empty());assert!(host.requests().is_empty());
+    host.add_file("app/Models/Purchase.php",source.replace("customer()","buyer()").as_str());
+    plugin.handle_events(&[Event::FileSaved("/project/app/Models/Purchase.php".into())],&host.invocation());
+    assert!(plugin.completion(&document,at,None).is_empty(),"removed relation must not remain inferred");
+    let (text,at)=cursor(r#"<?php use App\Models\Purchase; Purchase::first()->buyer->^"#);let updated=doc(&document.path,"php",&text);
+    assert!(plugin.completion(&updated,at,None).iter().any(|item|item.label=="email"));
+    host.add_project("/project/app/Models");
+    assert!(plugin.completion(&updated,at,None).is_empty(),"new foreign model owner must not leak cached members");
+    assert!(host.process_runs().is_empty());
+}
+
+#[test]
+fn artisan_workspace_errors_notify_once_and_preview_validation_stays_in_form() {
+    let host=MockHost::install().with_capabilities(&["project.read","storage","events"]);
+    host.add_file("artisan","<?php");
+    let mut plugin=activated(&host);let ctx=host.invocation();
+    host.answer_next_prompt(Some(&["ok"]));
+    plugin.handle(artisan_workspace::VIEW,ViewEvent::Message(r#"{"op":"refresh"}"#.into()),&ctx).unwrap();
+    let notes=host.notifications();assert_eq!(notes.len(),1);assert_eq!(notes[0].title,"Artisan");
+    assert!(notes[0].body.contains("process:php"));
+    let messages=host.view_messages();
+    let envelope:serde_json::Value=serde_json::from_str(&messages.last().unwrap().1).unwrap();
+    let response:serde_json::Value=serde_json::from_str(envelope["message"].as_str().unwrap()).unwrap();
+    assert!(response["error"].as_str().is_some());
+    plugin.handle(artisan_workspace::VIEW,ViewEvent::Message(r#"{"op":"preview","command":"about","token":"stale","values":{},"revision":1}"#.into()),&ctx).unwrap();
+    assert_eq!(host.notifications().len(),1,"typing validation must not create notifications");
+    assert!(host.process_runs().is_empty());
+}
+
+#[test]
+fn config_inventory_displays_source_expressions_and_preserves_navigation_and_literal_facts() {
+    let host=MockHost::install();
+    host.add_file("config/affiliate.php",r#"<?php return ['associate_tags'=>['fr'=>env('AMAZON_TAG_FR'),'en'=>env('AMAZON_TAG_EN', '')],'enabled'=>true,'count'=>5,'nothing'=>null,'empty'=>'','literal'=>'shop','computed'=>base_path('shop').'/data','long'=>'😀😀'];"#);
+    let mut plugin=activated(&host);let ctx=host.invocation();
+    let index=plugin.view_index(&ctx).unwrap();
+    assert_eq!(index.config["affiliate.literal"].detail.as_deref(),Some("shop"));
+    assert_eq!(index.config["affiliate.associate_tags.fr"].detail,None);
+    let source=index.config["affiliate.associate_tags.fr"].clone();
+    let view=plugin.render("laravel-config",None,&ctx).unwrap();
+    let Body::Other{kind,data}=view.body else {panic!("expected Config table")};assert_eq!(kind,"resources");
+    let table:serde_json::Value=serde_json::from_str(&data).unwrap();
+    assert_eq!(table["columns"],serde_json::json!(["Key","Value","File"]));assert_eq!(table["facets"],serde_json::json!([2]));
+    for (key,value) in [("associate_tags","array"),("associate_tags.fr","env('AMAZON_TAG_FR')"),("enabled","true"),("count","5"),("nothing","null"),("empty","''"),("literal","'shop'"),("computed","base_path('shop').'/data'")] {
+        let row=table["items"].as_array().unwrap().iter().find(|row|row["key"]==format!("config:affiliate.{key}")).unwrap();
+        assert_eq!(row["cells"][1],value);assert_eq!(row["cells"][2],"config/affiliate.php");
+    }
+    plugin.handle("laravel-config",ViewEvent::Activate("config:affiliate.associate_tags.fr".into()),&ctx).unwrap();
+    let locations=host.opened_locations();assert_eq!(locations.last().unwrap(),&(source.path,source.at.line,source.at.character));
+    assert!(host.process_runs().is_empty());
+}
+
+#[test]
+fn config_expression_previews_are_bounded_utf8_safe_and_follow_first_definition() {
+    let host=MockHost::install();
+    host.add_file("config/previews.php",&format!("<?php return ['duplicate'=>'first','duplicate'=>'second','long'=>'{}','comment'=>/* note */ env('APP_NAME')];", "😀".repeat(600)));
+    let plugin=activated(&host);let index=plugin.view_index(&host.invocation()).unwrap();
+    assert_eq!(index.config_expressions["previews.duplicate"],"'first'");
+    assert_eq!(index.config_expressions["previews.long"].chars().count(),513);
+    assert!(index.config_expressions["previews.long"].ends_with('…'));
+    assert_eq!(index.config_expressions["previews.comment"],"env('APP_NAME')");
+    assert!(host.process_runs().is_empty());
+}
+
+#[test]
+fn config_numeric_paths_reach_inventory_completion_and_source_navigation() {
+    let host=MockHost::install();host.add_file("config/child.php",r#"<?php return ['schedule'=>[['name'=>'First'],['name'=>'Second']]];"#);
+    let mut plugin=activated(&host);let ctx=host.invocation();
+    let index=plugin.view_index(&ctx).unwrap();assert!(index.config.contains_key("child.schedule.1.name"));
+    let entry=index.config["child.schedule.1.name"].clone();
+    let (source,at)=cursor("<?php config('child.schedule.1.na^');");
+    assert!(plugin.completion(&doc("/project/test.php","php",&source),at,None).iter().any(|item|item.label=="child.schedule.1.name"));
+    plugin.handle("laravel-config",ViewEvent::Activate("config:child.schedule.1.name".into()),&ctx).unwrap();
+    assert_eq!(host.opened_locations().last().unwrap(),&(entry.path,entry.at.line,entry.at.character));
+    assert!(host.process_runs().is_empty());
+}
+#[test]
+fn config_unsupported_arrays_report_partial_coverage_without_discarding_known_keys() {
+    let host=MockHost::install();host.add_file("config/dynamic.php","<?php return [...$extra,'known'=>['child'=>true]];");
+    let mut plugin=activated(&host);let ctx=host.invocation();
+    assert!(plugin.view_index(&ctx).unwrap().config.contains_key("dynamic.known.child"));
+    assert!(!missing_config(plugin.view_index(&ctx).unwrap(),"dynamic.known.unknown"));
+    let view=plugin.render("laravel-config",None,&ctx).unwrap();
+    assert!(view.status.as_deref().unwrap().contains("Config coverage incomplete"));
+    assert!(!plugin.view_index(&ctx).unwrap().partial,"Config uncertainty must not suppress unrelated diagnostics");
+}
+#[test]
+#[ignore="requires LARAVEL_CONFIG_FIXTURE_DIR containing actual config PHP files"]
+fn captured_config_directory_coverage() {
+    let dir=std::path::PathBuf::from(std::env::var("LARAVEL_CONFIG_FIXTURE_DIR").unwrap());
+    let mut previous=0;let mut current=0;let mut files=0;let mut incomplete=vec![];
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path=entry.unwrap().path();if path.extension().and_then(|e|e.to_str())!=Some("php"){continue;}
+        let text=std::fs::read_to_string(&path).unwrap();let masked=php::mask_comments(&text);let name=path.file_stem().unwrap().to_str().unwrap();
+        let mut old=vec![];if let Some(open)=php::returned_array(&masked){php::array_paths(&masked,open,name,&mut old,0);}
+        let (new,complete)=config_arrays::paths(&masked,name);previous+=old.len()+1;current+=new.len()+1;files+=1;
+        if !complete{incomplete.push(name.to_owned());}
+    }
+    println!("Config source audit: {files} files, {previous} previous keys → {current} keys; incomplete files: {incomplete:?}");
+    assert!(current>previous,"list fixture should gain numeric keys");
+}
+
+#[test]
+fn runtime_routes_drive_tabs_actions_navigation_and_expire_on_save() {
+    let host=MockHost::install();host.add_file("artisan","<?php");let mut plugin=activated(&host);let ctx=host.invocation();
+    let raw=r#"[{"method":"GET|HEAD","uri":"api/live","name":"live","action":"App\\Http\\Controllers\\PostController@index"}]"#;
+    let snapshot=route_runtime::capture_with(&ctx,plugin.view_index(&ctx).unwrap(),|_|Ok(raw.into())).unwrap();
+    plugin.runtime_routes.insert("/project".into(),snapshot);
+    let view=plugin.render(VIEW,None,&ctx).unwrap();assert_eq!(route_rows(&view)[0].1,"/api/live");assert!(view.status.unwrap().contains("Artisan snapshot"));
+    assert_eq!(plugin.route_at("route:0",&ctx).unwrap().path,"/api/live");
+    let config:serde_json::Value=serde_json::from_str(&plugin.web_config(&ctx)).unwrap();assert_eq!(config["group"]["tabs"][0]["count"],1);
+    plugin.handle(VIEW,ViewEvent::Activate("route:0".into()),&ctx).unwrap();assert!(host.opened_locations().last().unwrap().0.ends_with("PostController.php"));
+    plugin.handle_events(&[Event::FileSaved("/project/routes/web.php".into())],&ctx);assert!(plugin.runtime_routes.is_empty());
+    assert!(plugin.render(VIEW,None,&ctx).unwrap().status.unwrap().contains("Static source index"));
+    assert!(host.process_runs().is_empty());
+}
+#[test]
+fn runtime_route_failure_retains_previous_snapshot_and_static_dynamic_uris_are_not_faked() {
+    let host=MockHost::install().with_capabilities(&["project.read","events"]);host.add_file("artisan","<?php");let mut plugin=activated(&host);let ctx=host.invocation();
+    let routes=route_runtime::parse(r#"[{"method":"GET","uri":"kept","name":null,"action":"Closure"}]"#,plugin.view_index(&ctx).unwrap()).unwrap();
+    plugin.runtime_routes.insert("/project".into(),route_runtime::Snapshot{routes,captured:1});
+    host.add_file("config/newly_added.php","<?php return ['enabled'=>true];");
+    assert!(!plugin.view_index(&ctx).unwrap().config.contains_key("newly_added.enabled"));
+    assert!(matches!(plugin.run_command("routes-runtime-refresh",&ctx,None),Err(Error::Denied(_))));
+    assert!(plugin.view_index(&ctx).unwrap().config.contains_key("newly_added.enabled"),"refresh must rebuild the source index before starting PHP");
+    assert_eq!(plugin.active_routes(&ctx)[0].path,"/kept");
+    assert!(routes::parse("<?php Route::get($uri, [$controller,'index']);Route::delete($uri.'/{id}',[$controller,'destroy']);").is_empty());
+    let redirect=routes::parse("<?php Route::redirect('settings','/settings/profile');");assert_eq!(redirect[0].action,"Redirect → /settings/profile");assert!(redirect[0].methods.contains("DELETE"));
+}
+
+#[test]
+fn runtime_http_request_uses_bound_project_when_no_source_location_exists() {
+    let host=MockHost::install().with_capabilities(&["project.read","project.write","clipboard","events"]);let mut plugin=activated(&host);let ctx=host.invocation();host.add_project("/other");
+    let routes=route_runtime::parse(r#"[{"method":"GET","uri":"vendor-status","name":null,"action":"Closure"}]"#,plugin.view_index(&ctx).unwrap()).unwrap();assert!(routes[0].location.is_none());
+    plugin.runtime_routes.insert("/project".into(),route_runtime::Snapshot{routes,captured:1});
+    host.answer_next_prompt(Some(&["http://localhost:8000"]));
+    plugin.run_command("route-create-http",&ctx,Some("route:0")).unwrap();
+    assert!(host.invocation().project().unwrap().read_file("/project/http/get-vendor-status.http").unwrap().contains("GET http://localhost:8000/vendor-status"));
+}
+
+#[test]
+fn artisan_layout_stylesheet_changes_retire_the_cached_layout_url() {
+    let html=artisan_workspace::html();
+    let revision=artisan_metadata::hash(include_str!("../../../crates/ui-kit/web/command-workspace.css"));
+    assert!(html.contains(&format!("command-workspace.css?v={revision}")));
+    assert!(html.contains("ui-menu ui-scroll-area"));
+    assert!(html.contains("command-detail ui-scroll-area"));
+}
+
+#[test]
+fn views_inventory_includes_files_physical_folders_namespaces_and_source_navigation() {
+    let host=MockHost::install();
+    host.add_file("resources/views/pdf/layout.blade.php","<main>PDF</main>");
+    host.add_file("ide-blade.json",r#"{"namespaces":[{"namespace":"shop","path":"modules/shop/views"}]}"#);
+    host.add_file("modules/shop/views/catalog/item.blade.php","<article>Item</article>");
+    host.add_file("resources/views/vendor/mail/html/header.blade.php","<header>Mail</header>");
+    let mut plugin=activated(&host);let ctx=host.invocation();
+    let view=plugin.render("laravel-views",None,&ctx).unwrap();let Body::Other{kind,data}=view.body else{panic!("expected views table")};assert_eq!(kind,"resources");
+    let body:serde_json::Value=serde_json::from_str(&data).unwrap();assert_eq!(body["columns"],serde_json::json!(["View","File","Folder","Namespace"]));assert_eq!(body["facets"],serde_json::json!([2,3]));
+    let rows=body["items"].as_array().unwrap();
+    for (key,file,folder,namespace) in [("welcome","resources/views/welcome.blade.php","(root)","app"),("pdf.layout","resources/views/pdf/layout.blade.php","pdf","app"),("mail::html.header","resources/views/vendor/mail/html/header.blade.php","vendor.mail.html","mail"),("shop::catalog.item","modules/shop/views/catalog/item.blade.php","catalog","shop")] {
+        let row=rows.iter().find(|row|row["key"]==format!("view:{key}")).unwrap();assert_eq!(row["cells"],serde_json::json!([key,file,folder,namespace]));assert_eq!(row["icon"],"file-html");
+    }
+    plugin.handle("laravel-views",ViewEvent::Activate("view:mail::html.header".into()),&ctx).unwrap();assert_eq!(host.opened_locations().last().unwrap().0,"/project/resources/views/vendor/mail/html/header.blade.php");
+    host.add_project("/project/resources/views/vendor");
+    let view=plugin.render("laravel-views",None,&ctx).unwrap();let Body::Other{data,..}=view.body else{panic!()};let body:serde_json::Value=serde_json::from_str(&data).unwrap();assert!(!body["items"].as_array().unwrap().iter().any(|row|row["key"]=="view:mail::html.header"));
+    assert!(host.process_runs().is_empty());
+}
+
+#[test]
+fn components_inventory_preserves_precedence_and_owned_navigation() {
+    let host = MockHost::install();
+    host.add_file("app/Providers/ComponentServiceProvider.php", "<?php Blade::component('package-alert', Alert::class);");
+    let mut plugin = activated(&host);
+    let ctx = host.invocation();
+    let body = |plugin: &mut Main| {
+        let view = plugin.render("laravel-components", None, &ctx).unwrap();
+        assert_eq!(view.toolbar.len(), 1);
+        assert_eq!(view.toolbar[0].id, "reindex");
+        let Body::Other { kind, data } = view.body else { panic!("expected component inventory") };
+        assert_eq!(kind, "resources");
+        serde_json::from_str::<serde_json::Value>(&data).unwrap()
+    };
+    let inventory = body(&mut plugin);
+    assert_eq!(inventory["columns"], serde_json::json!(["Component", "Type", "File"]));
+    let rows = inventory["items"].as_array().unwrap();
+    for (key, tag, kind, path) in [
+        ("component:alert", "<x-alert>", "Blade class", "app/View/Components/Alert.php"),
+        ("component:card", "<x-card>", "Blade anonymous", "resources/views/components/card.blade.php"),
+        ("component:package-alert", "<x-package-alert>", "Blade alias", "app/Providers/ComponentServiceProvider.php"),
+        ("livewire:counter", "<livewire:counter>", "Livewire", "app/Livewire/Counter.php"),
+    ] {
+        let row = rows.iter().find(|row| row["key"] == key).unwrap();
+        assert_eq!(row["cells"], serde_json::json!([tag, kind, path]));
+        plugin.handle("laravel-components", ViewEvent::Activate(key.into()), &ctx).unwrap();
+        assert_eq!(host.opened_locations().last().unwrap().0, format!("/project/{path}"));
+    }
+    assert_eq!(rows.iter().filter(|row| row["key"] == "component:alert").count(), 1);
+    host.add_project("/project/app/Livewire");
+    let inventory = body(&mut plugin);
+    assert!(!inventory["items"].as_array().unwrap().iter().any(|row| row["key"] == "livewire:counter"));
+    let opened = host.opened_locations().len();
+    plugin.handle("laravel-components", ViewEvent::Activate("livewire:counter".into()), &ctx).unwrap();
+    assert_eq!(host.opened_locations().len(), opened);
+    assert!(host.process_runs().is_empty());
+}
+
+#[test]
+fn new_model_command_opens_cached_generator_form_without_running_php() {
+    let host = MockHost::install();
+    let mut plugin = activated(&host);
+    let project = host.invocation().project().unwrap();
+    host.add_file("artisan", "<?php");
+    let definition = serde_json::json!({"commands":[{"name":"make:model","description":"Create model","definition":{"arguments":[{"name":"name","is_required":true}],"options":[{"name":"--migration","accept_value":false}]}}]});
+    let commands = artisan_metadata::parse(&definition.to_string()).unwrap();
+    let snapshot = serde_json::json!({"schema":2,"identity":artisan_metadata::identity(&project).unwrap(),"capturedAt":1,"commands":commands});
+    host::storage::set(&format!("artisan-metadata-v2:{}", artisan_metadata::hash("/project")), &snapshot.to_string()).unwrap();
+    plugin.run_command("new-model", &host.invocation(), None).unwrap();
+    let reply = plugin.artisan_workspace.handle(&host.invocation(), r#"{"op":"state"}"#, &plugin.artisan_terminals).unwrap();
+    assert_eq!(reply["selectCommand"], "make:model");
+    assert!(host.view_messages().iter().any(|(_, message)| message.contains("ui-kit-refresh")));
+    assert!(host.process_runs().is_empty());
+    assert!(plugin.artisan_terminals.commands().is_empty());
 }

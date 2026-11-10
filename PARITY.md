@@ -1,5 +1,7 @@
 # Parity with IntelliJ IDEA plugins
 
+**Current Laravel comparison:** [public documentation walkthrough, direct image links and source-only status](#laravel-idea-public-documentation-comparison-current-source).
+
 **API 1.4 released (v0.1.40, 2026-11-09):** [Current blocker requalification](docs/parity-2026-11-08-refresh/api14-release-requalification/README.md). Canonical packages now target SDK v0.1.40 / API1.4; see the [native migration record](docs/native-api-migration-implementation-2026-11-09.md). Historical parity counters and dated validation receipts have not been promoted by this source migration.
 
 **2026-11-08 plan:** [code and UI parity improvements for all 29 maintained packages](docs/superpowers/plans/2026-11-08-all-plugin-parity.md),
@@ -220,7 +222,70 @@ These explain most of the "Medium" and "Low" ratings. Each is an OpenIDEA API ga
 
 Original features with no OpenIDEA equivalent, so no port is possible yet: Spring Debugger inspection, bean/flow diagrams as IDE diagrams (the plugins draw them in tool windows), database console integration, inlay hints, Structure view for built-in languages, Project view decorations, Endpoints tool window and HTTP client integration, run configurations computed by code.
 
+## Laravel Idea public documentation comparison (current source)
+
+Reference: [official overview](https://laravel-idea.com/docs/overview) and its linked
+feature, configuration, module and package pages. This review uses public behavior
+and documentation images. It does not use proprietary implementation code and does
+not establish side-by-side runtime parity.
+
+**Evidence status:** the current source includes the four-agent follow-up below,
+but its builds, tests and desktop acceptance were explicitly deferred by the user.
+Prepared tests are not passed tests. Earlier validation receipts and historical
+ratings/counters remain tied to their original artifacts. The inventory in the next
+section is a dated historical baseline, not the current implementation checklist.
+
+The image links below point directly to the assets linked by the official pages.
+They are external reference illustrations, not screenshots of our plugin. Several
+PNG requests timed out during this review, and the browser tool could not preview
+GIF assets; those links are still recorded as documentation-linked references,
+without claiming that their visual contents were independently inspected. No image
+assets were copied into the plugin or repository.
+
+| Workflow | Official documentation and image references | Current source coverage | Remaining documented workflow |
+|---|---|---|---|
+| Model creation | [Generation](https://laravel-idea.com/docs/generation); [model wizard image](https://laravel-idea.com/img/docs/generation/new_model.png); [index editor image](https://laravel-idea.com/img/docs/generation/model_indexes.png) | Artisan generator forms expose captured arguments/options; templates and migration-derived factory/resource generation exist. | A unified field/relation/index editor that coordinates model, migration and related-class generation. |
+| Eloquent model overview | [Eloquent](https://laravel-idea.com/docs/eloquent#eloquent-model-ui); [model overview image](https://laravel-idea.com/img/docs/eloquent/model_ui.png) | Cached model/table/column/relation/scope facts and source navigation exist. | A dedicated model overview with navigable fields, related classes and a Create Fields migration workflow. |
+| Eloquent type intelligence and helpers | [Eloquent](https://laravel-idea.com/docs/eloquent); [helper menu image](https://laravel-idea.com/img/docs/eloquent/main_menu.png); [relationship query image](https://laravel-idea.com/img/docs/eloquent/lambda_where.png); [factory generation GIF](https://laravel-idea.com/img/docs/eloquent/factory_generation.gif) | Bounded source inference covers known model/query/collection chains, enum/custom casts, traits, typed returns and direct known `withCount` chains. New trait adaptations and Composer-root support are source-only, awaiting validation. | Database-backed field metadata, generated PHP helpers, collection proxies, general PHP type resolution and safe custom factory inference. |
+| Artisan | [Commands](https://laravel-idea.com/docs/commands); [run dialog image](https://laravel-idea.com/img/docs/commands/run-dialog.png); [terminal completion image](https://laravel-idea.com/img/docs/commands/terminal-completions.png) | Searchable command forms, exact structured argv, captured execution/output/history and terminal dispatch; local PHP/Docker selection. Bind-backed Compose/Sail/DDEV discovery was added in source. | Terminal command/parameter autocomplete and deeper interpreter/command-class integration. DDEV Mutagen volume roots remain unsupported by the current bind-proof adapter. |
+| Routing | [Routing](https://laravel-idea.com/docs/routing); [route search image](https://laravel-idea.com/img/docs/routing/search.png); [inline route hints image](https://laravel-idea.com/img/docs/routing/inlays.png) | Route-name/controller completion, source links, searchable static/runtime route inventories and cURL/HTTP-file actions. | Rich inline hints/actions and broader configurable route registration semantics. The existing table/gutter workflows do not establish the same inline experience. |
+| Validation and transformations | [Requests and validation](https://laravel-idea.com/docs/request_validation); [add model fields GIF](https://laravel-idea.com/img/docs/requests/add_eloquent_fields.gif); [intention behavior examples](https://laravel-idea.com/docs/intention-actions) | Validation-rule completion, migration-derived field insertion, selected rule/controller/facade transformations and a narrowly reviewed literal FormRequest promotion. | Configurable validation contexts and broader binding-aware transformations across ordinary controller methods and expressions. |
+| Blade components and layouts | [Blade](https://laravel-idea.com/docs/blade); [component parameter image](https://laravel-idea.com/img/docs/blade/component_parameters.png) | View/layout/section/stack names, component tags, props/slots and source navigation; Views/Components inventories use the shared native-style UI. | Broader typed PHP/HTML component contexts and more complete semantic usages/refactoring. Literal source matches are not equivalent to semantic usages. |
+| Localization | [Localization](https://laravel-idea.com/docs/localization); [key completion image](https://laravel-idea.com/img/docs/localization/keys.png) | Translation-key completion/navigation, multilingual inventory and selected extraction/key-creation workflows. | Compare individual generation/refactoring contexts during later acceptance; the multilingual inventory alone does not establish generation parity. |
+| Project/package metadata | [ide.json overview](https://laravel-idea.com/docs/ide_json/overview); [completion configuration](https://laravel-idea.com/docs/ide_json/completion); [custom-call completion image](https://laravel-idea.com/img/docs/ide_json/sample_completion.png) | `ide-blade.json` supplies extra view roots/namespaces; settings and literal Composer roots cover selected conventions. | A general declarative metadata layer for custom functions/methods, completion positions, package conventions and related navigation. Full `ide.json` compatibility is not implemented. |
+| Modules and custom generation | [Modules](https://laravel-idea.com/docs/modules); [module settings image](https://laravel-idea.com/img/docs/modules/settings.png); [custom generations](https://laravel-idea.com/docs/custom_generations); [generator settings image](https://laravel-idea.com/img/docs/custom_generations/service_window.png) | Selected configurable roots, Composer-mapped sources and package-gated generators. | Explicit module selection, module-aware related-file generation, reusable custom generation definitions and project/team templates. PSR-4 scanning alone is not a module system. |
+| Livewire and Inertia | [Livewire](https://laravel-idea.com/docs/livewire); [wire parameter GIF](https://laravel-idea.com/img/docs/blade/livewire_wire_parameter.gif); [Inertia](https://laravel-idea.com/docs/inertia); [Inertia settings image](https://laravel-idea.com/img/docs/packages/inertia_settings.png) | Component/directive/attribute/method support for selected source patterns, page-name support and package-gated templates/generators. | More configurable package roots/conventions and broader typed component integration. |
+| Nova and Filament | [Nova](https://laravel-idea.com/docs/nova); [Nova resource GIF](https://laravel-idea.com/img/docs/packages/nova_resource.gif); [Filament](https://laravel-idea.com/docs/filament); [Filament model-generation image](https://laravel-idea.com/img/docs/packages/filament_resource-new_eloquent_model.png) | Package detection exposes relevant resource generators/templates. | Package-specific field generation settings and a unified model-generation flow incorporating those resources. |
+
+### Four-agent source follow-up, awaiting validation
+
+- **Docker:** project-scoped discovery/selection, broader verifiable bind layouts,
+  displayed target identity and separate target drafts; old-job Rerun is disabled
+  when the selected target differs. Volume-only/Mutagen mappings remain unverified.
+- **Runtime:** driver-aware queue metrics, Linux worker visibility, selected-log
+  tails and reviewed selected failed-job retry. Snapshots/actions retain Docker
+  target evidence. Reserved jobs are not reported as proven running jobs; no live
+  request/query/event instrumentation has been added.
+- **MCP:** lifecycle tools remain usable after source-index removal; structured
+  execution inputs are checked before runner changes; raw logs require explicit
+  opt-in. A real server acceptance harness is prepared, not executed. The released
+  host's metadata confirmation does not establish an exact argv review.
+- **Eloquent:** bounded trait aliases/visibility/precedence, literal PSR-4 source
+  roots, selected nullable/intersection return inference and known relationship
+  count attributes. Ambiguous non-null unions, DNF types, dynamic casts/autoloading
+  and custom factory inference remain unresolved.
+
+Current implementation details: [Laravel README](plugins/laravel/README.md#follow-up-source-implementation-validation-deferred).
+Prepared MCP acceptance: [harness instructions](plugins/laravel/tests/mcp-server/README.md).
+
+The next substantial workflows identified by this comparison are the Eloquent
+model overview/field-and-migration wizard, declarative project metadata, and
+module-aware custom generation. These are follow-up opportunities, not newly
+implemented or validated features.
+
 ## Laravel Idea 13.4.1 feature inventory (paid baseline)
+
+**Historical 2026-11-06 inventory.** Use the [current public-doc comparison](#laravel-idea-public-documentation-comparison-current-source) above for today's source scope; the following ratings and API-availability statements have not been rewritten as new acceptance evidence.
 
 Source: the extension descriptors, action ids, inspection/intention names and template names of `laravel-idea-13.4.1.261.jar`, the feature list was compiled at the owner's request on 2026-11-06 from the plugin's descriptor and action and template names. No code, strings or icons were copied. This deviates from the repo's clean-room default for paid plugins.
 

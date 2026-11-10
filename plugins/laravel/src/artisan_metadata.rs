@@ -4,14 +4,14 @@ use openidea_plugin::{Error, Invocation, NotificationLevel, Project, host};
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
 use std::time::Instant;
-const MAX_OUTPUT: usize = 512 * 1024;
-const MAX_CACHE: usize = 768 * 1024;
+const MAX_OUTPUT: usize = 4 * 1024 * 1024;
+const MAX_CACHE: usize = 5 * 1024 * 1024;
 const ARGS: [&str; 5] = ["artisan", "list", "--format=json", "--no-interaction", "--no-ansi"];
 pub(super) fn hash(text: &str) -> String {
     format!("{:016x}", text.bytes().fold(0xcbf29ce484222325u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x100000001b3)))
 }
 fn key(root: &str) -> String {
-    format!("artisan-metadata-v1:{}", hash(root))
+    format!("artisan-metadata-v2:{}", hash(root))
 }
 pub(super) fn identity(project: &Project) -> Result<Value, Error> {
     let root = project.root()?;
@@ -51,9 +51,9 @@ fn name(value: &str) -> bool {
 }
 pub(super) fn parse(raw: &str) -> Result<Value, Error> {
     if raw.len() > MAX_OUTPUT {
-        return Err(Error::Invalid("Artisan JSON output exceeds 512 KiB; previous snapshot retained.".into()));
+        return Err(Error::Invalid("Artisan JSON output exceeds 4 MiB; previous snapshot retained.".into()));
     }
-    let value = crate::strict_json::parse(raw, MAX_OUTPUT)
+    let value = crate::strict_json::parse_with_budget(raw, MAX_OUTPUT, 200_000)
         .map_err(|_| Error::Invalid("Artisan did not return bounded duplicate-free JSON; previous snapshot retained.".into()))?;
     let commands =
         value["commands"].as_array().filter(|v| !v.is_empty() && v.len() <= 512).ok_or("Artisan JSON must have 1..512 commands.")?;
@@ -95,6 +95,13 @@ pub(super) fn parse(raw: &str) -> Result<Value, Error> {
                         entry[flag] = value.clone();
                     }
                 }
+                if let Some(default) = item.get("default") {
+                    fn scalar(v: &Value) -> bool { v.is_null() || v.is_boolean() || v.is_number() || v.as_str().is_some_and(|s| s.len() <= 4096 && !s.contains('\0')) }
+                    if !(scalar(default) || default.as_array().is_some_and(|a| a.len() <= 128 && a.iter().all(scalar))) {
+                        return Err(Error::Invalid("Unsupported or oversized Artisan default.".into()));
+                    }
+                    entry["default"] = default.clone();
+                }
                 entries.push(entry);
             }
             definitions.insert(kind.into(), Value::Array(entries));
@@ -108,9 +115,9 @@ fn load(root: &str) -> Option<Value> {
     if raw.len() > MAX_CACHE {
         return None;
     }
-    let value = crate::strict_json::parse(&raw, MAX_CACHE).ok()?;
+    let value = crate::strict_json::parse_with_budget(&raw, MAX_CACHE, 200_000).ok()?;
     (value["capturedAt"].as_u64().is_some()
-        && value["schema"] == 1
+        && value["schema"] == 2
         && value["identity"]["root"] == root
         && value["identity"]["runner"] == "php"
         && value["identity"]["argv"] == json!(ARGS))
@@ -126,12 +133,20 @@ fn store(identity: &Value, commands: Value) -> Result<(), Error> {
         }
     }
     let captured = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-    let raw = json!({"schema":1,"identity":identity,"capturedAt":captured,"commands":commands}).to_string();
+    let raw = json!({"schema":2,"identity":identity,"capturedAt":captured,"commands":commands}).to_string();
     if raw.len() > MAX_CACHE {
-        return Err(Error::Invalid("Artisan cache exceeds 768 KiB; previous snapshot retained.".into()));
+        return Err(Error::Invalid("Artisan cache exceeds 5 MiB; previous snapshot retained.".into()));
     }
     host::storage::set(&key(root), &raw)
 }
+pub(super) fn snapshot(project: &Project) -> Option<Value> {
+    let current = identity(project).ok()?;
+    let mut value = load(current["root"].as_str()?)?;
+    if value["identity"] != current { return None; }
+    value["commands"] = parse(&json!({"commands":value["commands"]}).to_string()).ok()?;
+    Some(value)
+}
+
 pub fn cached(project: &Project) -> Option<Vec<(String, String)>> {
     let identity = identity(project).ok()?;
     let value = load(identity["root"].as_str()?)?;
@@ -159,11 +174,14 @@ pub fn cached(project: &Project) -> Option<Vec<(String, String)>> {
             .collect(),
     )
 }
-pub(super) fn collect(mut next: impl FnMut(u32) -> Result<host::Chunk, Error>, cancelled: impl Fn() -> bool) -> Result<String, Error> {
+pub(super) fn collect(next: impl FnMut(u32) -> Result<host::Chunk, Error>, cancelled: impl Fn() -> bool) -> Result<String, Error> {
+    collect_limited(MAX_OUTPUT, 256, next, cancelled)
+}
+pub(super) fn collect_limited(limit: usize, polls: usize, mut next: impl FnMut(u32) -> Result<host::Chunk, Error>, cancelled: impl Fn() -> bool) -> Result<String, Error> {
     let started = Instant::now();
     let mut stdout = String::new();
     let mut stderr = String::new();
-    for _ in 0..16 {
+    for _ in 0..polls {
         if cancelled() {
             return Err(Error::Cancelled);
         }
@@ -175,8 +193,8 @@ pub(super) fn collect(mut next: impl FnMut(u32) -> Result<host::Chunk, Error>, c
         if started.elapsed().as_millis() >= 4000 {
             return Err(Error::Failed("Artisan metadata exceeded its four-second polling budget; previous snapshot retained.".into()));
         }
-        if stdout.len() + stderr.len() + chunk.stdout.len() + chunk.stderr.len() > MAX_OUTPUT {
-            return Err(Error::Invalid("Artisan output exceeds 512 KiB; previous snapshot retained.".into()));
+        if stdout.len() + stderr.len() + chunk.stdout.len() + chunk.stderr.len() > limit {
+            return Err(Error::Invalid(format!("Artisan output exceeds {} KiB; previous snapshot retained.", limit / 1024)));
         }
         stdout.push_str(&chunk.stdout);
         stderr.push_str(&chunk.stderr);
@@ -190,7 +208,8 @@ pub(super) fn collect(mut next: impl FnMut(u32) -> Result<host::Chunk, Error>, c
                     stderr.chars().take(1024).collect::<String>()
                 )));
             }
-            return Ok(stdout);
+            // Exit status does not mean the host's buffered pipes have drained.
+            if chunk.stdout.is_empty() && chunk.stderr.is_empty() { return Ok(stdout); }
         }
     }
     Err(Error::Failed("Artisan metadata discovery exhausted its four-second polling budget; previous snapshot retained.".into()))
@@ -213,7 +232,7 @@ fn refresh_with(ctx: &Invocation, execute: impl FnOnce(&Project, &[String]) -> R
         return Err(Error::Invalid("Existing Artisan cache is unreadable or has another owner; it was retained.".into()));
     }
     let preview = format!(
-        "This executes project-controlled PHP bootstrap code and may have side effects. It is not static file reading.\n\nProject / working directory: {root}\nRunner: php (resolved from host PATH, process:php grant required)\nArgv: {}\n\nOnly command metadata is requested. No Docker/remote runner is used. Output is limited to 512 KiB and polling to four seconds. Refresh is explicit; cancellation/failure retains the previous saved snapshot.",
+        "This executes project-controlled PHP bootstrap code and may have side effects. It is not static file reading.\n\nProject / working directory: {root}\nRunner: php (resolved from host PATH, process:php grant required)\nArgv: {}\n\nOnly command metadata is requested. No Docker/remote runner is used. Output is limited to 4 MiB and polling to four seconds. Refresh is explicit; cancellation/failure retains the previous saved snapshot.",
         json!(ARGS)
     );
     if !ui_kit::prompts::confirm_exact("Execute project PHP to discover Artisan commands?", &preview)? {
@@ -336,6 +355,7 @@ mod tests {
     #[test]
     fn bounded_collection_handles_split_output_exit_failure_cancellation_and_timeout() {
         let mut chunks = vec![
+            host::Chunk { status: Some(0), ..Default::default() },
             host::Chunk { stdout: "b".into(), status: Some(0), ..Default::default() },
             host::Chunk { stdout: "a".into(), ..Default::default() },
         ];
@@ -393,5 +413,47 @@ mod workflow_tests {
         assert!(store(&identity, invalid).is_err());
         assert_eq!(host.storage()[&key("/project")], before);
         assert!(parse(&json!({"commands":[{"name":"about"}]}).to_string()).is_err());
+    }
+}
+
+#[cfg(test)]
+mod workspace_metadata_tests {
+    use super::*;
+    #[test]
+    fn retains_argument_order_defaults_and_repeated_flags() {
+        let raw=r#"{"commands":[{"name":"app:ordered","definition":{"arguments":{"z":{"name":"z","is_required":true,"default":null},"a":{"name":"a","is_array":true,"default":["first","second"]}},"options":{"label":{"name":"--label","accept_value":true,"default":"two words"}}}}]}"#;
+        let commands=parse(raw).unwrap();
+        assert_eq!(commands[0]["definition"]["arguments"][0]["name"],"z");
+        assert_eq!(commands[0]["definition"]["arguments"][1]["default"],json!(["first","second"]));
+        assert_eq!(commands[0]["definition"]["options"][0]["default"],"two words");
+    }
+}
+
+#[cfg(test)]
+mod large_catalog_tests {
+    use super::*;
+    use openidea_plugin::mock::MockHost;
+    #[test]
+    fn large_command_catalog_survives_collection_normalization_and_cache_reload() {
+        let host=MockHost::install();host.add_file("artisan","<?php");
+        let raw=json!({"commands":(0..270).map(|i|json!({"name":format!("app:command-{i}"),"description":"D".repeat(2500),"definition":{"arguments":{},"options":{}}})).collect::<Vec<_>>()}).to_string();
+        assert!(raw.len()>512*1024);
+        let mut chunks=raw.as_bytes().chunks(4096).map(|c|std::str::from_utf8(c).unwrap().to_owned());
+        let collected=collect(|_|Ok(match chunks.next(){Some(stdout)=>host::Chunk{stdout,..Default::default()},None=>host::Chunk{status:Some(0),..Default::default()}}),||false).unwrap();
+        let project=host.invocation().project().unwrap();
+        store(&identity(&project).unwrap(),parse(&collected).unwrap()).unwrap();
+        assert_eq!(cached(&project).unwrap().len(),270);
+        assert_eq!(snapshot(&project).unwrap()["commands"].as_array().unwrap().len(),270);
+    }
+    #[test]
+    #[ignore = "requires LARAVEL_ARTISAN_METADATA_FIXTURE pointing to captured Artisan list JSON"]
+    fn captured_application_catalog_roundtrips() {
+        let host=MockHost::install();host.add_file("artisan","<?php");
+        let raw=std::fs::read_to_string(std::env::var("LARAVEL_ARTISAN_METADATA_FIXTURE").unwrap()).unwrap();
+        let expected=serde_json::from_str::<Value>(&raw).unwrap()["commands"].as_array().unwrap().len();
+        let project=host.invocation().project().unwrap();
+        store(&identity(&project).unwrap(),parse(&raw).unwrap()).unwrap();
+        assert_eq!(cached(&project).unwrap().len(),expected);
+        println!("accepted {} bytes / {expected} commands, persisted and reloaded",raw.len());
     }
 }

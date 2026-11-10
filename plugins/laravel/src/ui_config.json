@@ -1,7 +1,15 @@
 {
   "title": "Laravel",
   "views": {
-    "laravel": "Laravel"
+    "laravel": "Routes",
+    "laravel-views": "Views",
+    "laravel-components": "Components",
+    "laravel-config": "Config",
+    "laravel-translations": "Translations",
+    "laravel-middleware": "Middleware",
+    "laravel-env": "Env",
+    "laravel-artisan": "Artisan",
+    "laravel-runtime": "Runtime"
   },
   "actions": [
     {
@@ -24,11 +32,73 @@
       "label": "Create HTTP Request File",
       "kind": "route",
       "icon": "file-http"
+    },
+    {
+      "view": "laravel-runtime",
+      "id": "runtime-retry-failed",
+      "label": "Retry Failed Job…",
+      "kind": "failedjob",
+      "icon": "rerun"
     }
   ],
   "project_independent": false,
   "project_bound_buttons": [],
+  "group": {
+    "primary": "laravel",
+    "tabs": [
+      {
+        "id": "laravel",
+        "label": "Routes",
+        "icon": "web"
+      },
+      {
+        "id": "laravel-views",
+        "label": "Views",
+        "icon": "file-html"
+      },
+      {
+        "id": "laravel-components",
+        "label": "Components",
+        "icon": "class"
+      },
+      {
+        "id": "laravel-config",
+        "label": "Config",
+        "icon": "file-config"
+      },
+      {
+        "id": "laravel-translations",
+        "label": "Translations",
+        "icon": "text"
+      },
+      {
+        "id": "laravel-middleware",
+        "label": "Middleware",
+        "icon": "class"
+      },
+      {
+        "id": "laravel-env",
+        "label": "Env",
+        "icon": "file-dotenv"
+      },
+      {
+        "id": "laravel-artisan",
+        "label": "Artisan",
+        "icon": "terminal"
+      },
+      {
+        "id": "laravel-runtime",
+        "label": "Runtime",
+        "icon": "services"
+      }
+    ]
+  },
+  "opaque_views": [
+    "laravel-artisan"
+  ],
   "context_buttons": {
-    "laravel": []
+    "laravel": [],
+    "laravel-components": [],
+    "laravel-runtime": []
   }
 }

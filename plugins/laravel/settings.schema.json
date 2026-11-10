@@ -2,17 +2,17 @@
   "properties": {
     "artisanDockerSocket": {
       "type": "string",
-      "title": "Docker Artisan metadata: explicit local unix:///socket endpoint",
+      "title": "Docker Artisan: explicit local unix:///socket endpoint",
       "default": "unix:///var/run/docker.sock"
     },
     "artisanDockerContainer": {
       "type": "string",
-      "title": "Docker Artisan metadata: full lowercase 64-hex running container ID (opt-in)",
+      "title": "Docker Artisan: manual full 64-hex container ID (Choose Docker Target can select per project)",
       "default": ""
     },
     "artisanDockerWorkdir": {
       "type": "string",
-      "title": "Docker Artisan metadata: absolute container directory bound to this exact project root",
+      "title": "Docker Artisan: manual absolute container project directory (verified bind mapping)",
       "default": ""
     },
     "diagnostics": {

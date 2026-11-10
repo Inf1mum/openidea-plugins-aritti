@@ -229,9 +229,10 @@ impl RouteList {
     }
 
     fn handler_detail(route: &Route) -> String {
+        let handler=match &route.handler.member {Some(member)=>format!("{}@{member}",route.handler.class),None=>route.handler.class.clone()};
         match &route.name {
-            Some(name) => format!("{} \u{b7} {name}", route.handler.class),
-            None => route.handler.class.clone(),
+            Some(name) => format!("{handler} \u{b7} {name}"),
+            None => handler,
         }
     }
 
@@ -315,6 +316,16 @@ pub fn create_http_file(route: &Route, default_base: &str, directory: Option<&st
         .and_then(|location| host::project_of(&location.path))
         .or_else(|| host::projects().ok().and_then(|mut projects| if projects.len() == 1 { projects.pop() } else { None }))
         .ok_or_else(|| Error::NotFound("The route has no unambiguous project.".into()))?;
+    write_http_file(route, &base, directory, &project)
+}
+
+/// Bound project context for runtime routes without a source declaration.
+pub fn create_http_file_for_project(route: &Route, default_base: &str, directory: Option<&str>, project: &openidea_plugin::Project) -> Result<(), Error> {
+    let Some(base) = ask_base(default_base)? else { return Ok(()); };
+    write_http_file(route, &base, directory, project)
+}
+
+fn write_http_file(route: &Route, base: &str, directory: Option<&str>, project: &openidea_plugin::Project) -> Result<(), Error> {
     let name = http_file_name(route);
     let (relative, path) = match directory {
         Some(directory) => {

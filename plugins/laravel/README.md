@@ -96,7 +96,7 @@ and `@` inside `{{ }}` are left alone. Directives registered by vendor packages 
 
 ## Tool window and commands
 
-The _Laravel_ tool window has two sections, switched by buttons. _Routes_ (the default) is the route list described below; _Index_ lists views, config keys, translations, middleware and env keys; double-click opens the definition.
+The _Laravel_ tool window has six inventory tabs, each with an icon and name: _Routes_ (the default), _Views_, _Config_, _Translations_, _Middleware_ and _Env_. Each inventory tab lists its entries directly; double-click opens the definition. The shared tab strip preserves search and selection separately for each tab. Reindex is available everywhere; Routes offers Route List and Clear Route Cache, Views offers Clear Compiled Views, and Config/Env offer Clear Config Cache. Translations and Middleware have no unrelated runtime actions. The Translations tab lists every locale definition in Key, Locale and Value columns, with a locale filter. Its counter counts locale-specific entries; editor completion and default navigation still prefer the configured main locale.
 
 The route list is a flat list: the generic native endpoint icon, the path, and grey text with `[METHOD] Controller` after it. *Filter* narrows the list to one controller (the status line says which), *Clear* restores it, and *Flat/Tree* groups the rows by controller. Row actions: *Copy as curl* and *Create HTTP Request File* (writes `http/<verb>-<path>.http`, needs `project.write`; without it the request is copied). Limits: the grey text follows the path rather than sitting in a column, there is no request panel beside the list, and no gutter icon on the handler; these wait on upstream OpenIDEA requests.
 
@@ -333,22 +333,25 @@ storage is checked before execution and the host enforces the PHP grant at spawn
 No anonymous project, Docker, remote interpreter or alternative runner is used.
 
 Discovery uses a kept host process with closed stdin, a cancellable task and at
-most sixteen waits within a four-second polling budget (up to 250 ms per wait).
+most 256 waits within a four-second polling budget (up to 250 ms per wait).
 Cancellation, elapsed/poll budget, nonzero exit, malformed JSON, oversize output,
 stale project/source identity and persistence failure do not replace the prior
 saved snapshot. The process is killed on collection failure and its handle is
 released. This bounds discovery collection, not side effects already performed
-by executed project code. Output is rejected beyond 512 KiB combined stdout and
+by executed project code. Successful exit is followed by draining buffered output
+before JSON parsing. The plugin rejects output beyond 4 MiB combined stdout and
 stderr. The supported Symfony Artisan list JSON has 1–512 commands with unique,
 bounded names and argument/option definition objects or arrays (up to 128 each).
-Only normalized names, descriptions and declared boolean definition flags are
-cached; defaults, aliases and arbitrary extra runtime fields are not treated as
-validated input forms.
+Normalized names, descriptions, declared boolean definition flags and bounded
+scalar/list defaults are cached in schema v2. Argument order is preserved.
+Aliases and arbitrary runtime fields are not used to construct execution forms.
 
 The owner-checked cache identifies the exact project root, logical runner `php`,
 argv and fingerprints of `artisan`, `composer.json` and `composer.lock`. Both
-reader and writer enforce a 768 KiB envelope bound and a 512 KiB normalized
-metadata bound before replacement. Another owner's or unreadable existing cache
+reader and writer enforce a 5 MiB envelope bound and a 4 MiB normalized
+metadata bound before replacement. The native host can impose a lower pending-process
+output buffer limit; the component harness does not establish desktop acceptance
+of arbitrarily large output bursts. Another owner's or unreadable existing cache
 is retained and refused. Project/source identities are rechecked after review
 and after execution. Changed fingerprints make a saved snapshot unavailable to
 the picker; failed refreshes still leave its stored evidence intact. The logical
@@ -356,13 +359,13 @@ PHP runner is not a binary digest: PATH/interpreter changes and edits to command
 classes or environment require explicit refresh. No full source freshness or
 interpreter attestation is claimed.
 
-**Run Artisan Command...** reads that scoped cache and never runs `artisan list`
-on opening. Descriptions identify an **executed runtime snapshot**, capture time
+**Run Artisan Command...** opens the Artisan workspace and never runs `artisan list`
+on opening. The separate **Run Artisan in Terminal…** picker reads the scoped cache. Descriptions identify an **executed runtime snapshot**, capture time
 and argument/option counts, or **bundled static choices** when no usable cache
 exists. Browsing/rendering/providers/typing do not trigger metadata execution.
-The existing final selected-command terminal workflow remains separate. A full
-argument/option execution form, execution history/output lifecycle and native
-interpreter selection remain outside this PHP slice. The separately owned
+The existing final selected-command terminal workflow remains separate. The Artisan workspace below now provides the local-PHP argument/option form and
+execution history/output lifecycle. Native interpreter selection remains outside
+this PHP slice. The separately owned
 opt-in local Docker metadata adapter below is now available.
 
 Original/reference comparison: the inspected Laravel Idea
@@ -629,7 +632,7 @@ settings and previous-cache identity are checked around the runtime steps; chang
 post-exec proof refuses adoption. Docker environment/secret fields are not requested.
 
 Each CLI process closes stdin and has the shared four-second/16wait collection
-budget and512KiB combined-output bound. On failure/cancel the Docker client is
+budget and4MiB combined-output bound. On failure/cancel the Docker client is
 killed; stopping that client does not guarantee stopping container PHP that has
 already started. No side-effect rollback or native remote-interpreter integration
 is claimed. The proof is the daemon's reported lexical bind mapping, not filesystem,
@@ -637,7 +640,7 @@ PHP-binary, socket/daemon or full application-source attestation. Named volumes,
 remote TCP/SSH contexts, bind-path aliases, shadowed dependencies and Windows
 named pipes are outside this supported adapter.
 
-Accepted metadata is saved under its own bounded768KiB root-owned envelope, with
+Accepted metadata is saved under its own bounded5MiB root-owned envelope, with
 explicit endpoint/container/workdir/argv, image/start/mount proof, capture time and
 the same `artisan`/Composer fingerprints as PHP discovery. Bounded strict JSON
 rejects duplicate decoded object keys for metadata and both cache readers. Failed,
@@ -650,9 +653,10 @@ complete effective runtime freshness and binary identity remain unverified.
 names/descriptions and their declared arguments/options/boolean flags, with the
 execution source and capture time labelled. It never runs Docker/PHP or executes
 a selected command. It refuses caches for changed project/source/endpoint/container
-owners. Docker command facts never feed **Run Artisan Command...**, which retains
-its existing PHP snapshot/bundled-static behavior. Full native UI/daemon/project
-switch/provider lifecycle acceptance has not been performed.
+owners. The Artisan workspace now has an explicit Local PHP / Docker selector;
+Docker forms consume this separate snapshot and re-inspect the exact target before
+captured or terminal execution. The older terminal-only prompt retains its local
+PHP behavior. Fresh desktop acceptance remains separate from the compiled harness.
 
 
 ### Mapped FormRequest namespace/source roots (P11.3 subset)
@@ -842,3 +846,313 @@ These are source candidates, not semantic usages or Rename. Custom source roots,
 Search Everywhere endpoints now compose route-file paths with literal `withRouting` API prefixes (including custom and empty prefixes), or literal `RouteServiceProvider` mounts. Routing configuration changes refresh the index. Unsupported dynamic and unmounted API routes are omitted; Artisan is never run by the endpoint provider.
 
 Captured Artisan action failures report the exit status and bounded leading diagnostics from both stderr and stdout through the native notification bridge. Terminal formatting is stripped even when a process ignores `--no-ansi`; trailing stack frames no longer replace the exception cause. This does not establish the cause of a real failure when only its stack-trace tail was captured by an older build.
+
+## Artisan workspace
+
+The **Artisan** tab adds a searchable command list, arguments/options form, exact
+PHP argument-vector preview, contextual stdout/stderr and session history.
+**Laravel: Run Artisan Command...** opens this tab. **Run Artisan in Terminal…**
+retains the older terminal picker, including its bundled fallback choices.
+
+Use **Load commands** in the empty state to explicitly collect the local application's
+command definitions. The refresh icon beside command search updates that snapshot. Browsing and selecting commands never execute project PHP.
+The v2 metadata cache preserves positional order, defaults and repeated values;
+older snapshots stay stored but must be refreshed before using forms.
+Defaults are shown as hints and left to Artisan when inputs are omitted.
+Required arguments and unsupported optional-argument gaps are validated before
+launch. Repeated values use one entry per line; optional-value flags can also be
+enabled without supplying a value. Commands launch as argument vectors without a
+shell, with `--no-interaction` and `--no-ansi` for captured runs.
+
+Captured execution uses local `php`, a kept process and bounded nonblocking
+polling. Only one captured run per project is allowed. Output retains up to64KiB
+stdout and16KiB stderr with explicit truncation, drains remaining output and shows
+exit status/time. Cancel stops the owned process. Polling checks a five-minute
+runtime limit; leaving the tab pauses polling, so this is not a hard background
+timeout. Plugin/window teardown drops process handles. Use **Run in Terminal** for
+interactive commands and long-running workers; the workspace does not capture
+that terminal's output or claim to stop its process tree.
+
+Session history keeps up to20 completed captured runs, bounded to128KiB, with
+input restoration and a fresh execution ID on rerun. History/output remain in
+memory, not on disk. Copy Output uses the optional clipboard permission.
+Execution checks project ownership, current metadata identity and duplicate
+submission IDs. Successful captured runs reindex the current project.
+
+The workspace supports local PHP and explicitly configured local bind-mounted
+Docker targets. Runtime snapshots and schema-declared MCP tools use the same runner
+and ownership boundaries; details follow below.
+
+Validation: `cargo test`, `scripts/check-artisan-workspace-ui.mjs` (Chromium and
+WebKit), and the compiled-component live Laravel harness under
+`tests/wasm-smoke/`. These checks are separate from fresh desktop acceptance.
+
+## Source-based Eloquent member completion
+
+PHP completion follows model attributes, relations and common query/collection
+chains from the cached project source index. For example,
+`Purchase::active()->first()->customer->` suggests the related model's migration
+columns; `Purchase::get()->` suggests supported collection methods. Model aliases,
+nullable typed parameters, simple local assignments, project base-model
+inheritance, local scopes and known SoftDeletes methods are supported. Field
+details include literal casts; enum casts expose `name`, backed `value`, and
+declared public instance methods. Navigation opens the owned migration, relation,
+scope or enum declaration when a source destination is known.
+
+Completion uses cached facts and the current unsaved document, without reading
+source files, running PHP, querying a database or requesting network access.
+Models use the configured model directories; enums currently use `app/Enums`.
+Documents are bounded to 128KiB and 8192 tokens, with bounded inference and
+inheritance depth. Unsupported or ambiguous receivers produce no inferred
+suggestions: dynamic table names, unresolved classes, unsupported trait adaptations,
+union/intersection return types, dynamic custom casts and complex control flow are
+not inferred. This is a bounded Laravel completion layer, not a general PHP type
+engine. `find` distinguishes literal/scalar-typed IDs from array IDs; untyped IDs
+are withheld.
+
+Validation includes source-level/provider tests and compiled Wasm completion
+checks with a 50ms callback budget and assertions that completion performs no
+host source reads. Native desktop editor acceptance remains separate.
+
+Artisan workspace operation failures appear as native IDE notifications. Argument
+validation remains beside the form; failed discovery preserves the prior catalog.
+
+The Config tab shows Key, Value and File columns with a file filter. Values are
+bounded source previews (including `env(...)`, booleans, numbers, null and quoted
+strings), not evaluated configuration or resolved environment secrets. Array
+nodes remain labelled `array`; activating a row opens its source key.
+
+Config indexing also traverses list offsets, explicit decimal integer keys and
+source-resolvable `ClassName::class` keys, including imports. Config arrays now
+support 64 levels of nesting (previously 8). Implicit offsets after unknown
+spreads or computed keys remain unresolved. Root merges and dynamic array
+construction are not evaluated. Known keys remain visible and files with
+unsupported arrays, unreadable sources or reached bounds mark Config coverage
+incomplete; missing-key diagnostics are withheld for those files. Each config
+source is limited to 2MiB and 20,000 entries. Project scanning retains its
+three-second budget and 5,000-file discovery cap. This adds no PHP execution.
+
+A source-only audit of the local 38-file fixture on 2026-11-10 increased coverage
+from 1,567 to 3,489 keys; dynamic arrays in three files remain incomplete. This
+fixture is not distributed. Run `captured_config_directory_coverage` with
+`LARAVEL_CONFIG_FIXTURE_DIR` and `--ignored --nocapture` to repeat that audit.
+
+The Artisan sidebar groups commands by namespace, with unprefixed commands under
+General and up to eight recently executed commands under Recent. Search includes
+descriptions and hides empty groups. Arrow keys/Home/End move through command
+rows. Forms use shared native-style group dividers for Arguments, Options and
+Global options, omitting empty groups and retaining per-command drafts. Recent
+commands are scoped to the project and current view session; grouping does not
+execute or rediscover PHP commands.
+
+## Registered runtime routes
+
+Use **Refresh Routes (PHP)** in Routes to rebuild the selected project’s source
+index, then explicitly run
+`php artisan route:list --json --no-interaction --no-ansi` in the selected project.
+This executes the application's PHP bootstrap under the existing optional
+`process:php` grant. The captured list supplies the real URI, name, HTTP methods
+and controller action, including loops, conditional registration and package
+routes. The tab count, flat/tree controller grouping, row actions and available
+source navigation use that captured list. Method names now appear in route row
+details; generating cURL/HTTP for a multi-method route asks which method to use.
+
+The status identifies runtime snapshots and their age. Capture is bounded to
+4MiB / 5,000 routes and four seconds of process polling. Project/source identity
+is checked before and after execution. A failed or cancelled refresh retains the
+previous snapshot. Snapshots stay in memory, for up to eight projects. Saved
+PHP/environment/Composer files, successful Artisan operations and Reindex retire snapshots. Other
+environment/database changes can make snapshots stale; refresh explicitly.
+Views and editor providers never run PHP automatically. The static source index
+remains the fallback; unresolved dynamic URIs are omitted rather than displayed
+as `/?`. Runtime lists do not add source Rename anchors or change the source-based
+Endpoints provider. Runtime JSON paths are not trusted for navigation; destinations
+come from the owned cached route/controller index.
+
+Artisan fills the dock height with two independent panes. Search remains fixed
+at the top of the full-height sidebar, the command list scrolls within it, and
+the command form/output scroll in the right pane. The outer panel does not scroll.
+
+Artisan action buttons use the shared native icon registry. Native terminal tabs
+follow OpenIDEA's Tools → Terminal → Close session when it ends preference;
+disable it to retain completed terminal output. The plugin does not close
+completed terminal tabs.
+
+Views now use a source-backed View / File / Folder / Namespace table with folder
+and namespace filters, sortable columns, file icons and source activation. Folder
+labels follow the physical path below the indexed view root; unnamed application
+views use `app`, while vendor overrides and configured namespaces keep their
+Laravel namespace. Configured extra roots retain the same lookup precedence.
+Browsing uses the cached index and never executes PHP.
+
+
+The Components tab combines cached Blade class, anonymous and registered alias
+components with Livewire classes. It shows the template tag, component type and
+source file, with a type filter, search and sortable columns. Activation opens
+the indexed class, anonymous template or alias registration. Class components
+retain precedence over anonymous templates with the same tag. Counts and rows
+exclude sources owned by another open project; browsing never runs PHP.
+Dynamic component registrations and package-provided components without an owned
+source destination remain outside this source inventory.
+
+
+**Generate with artisan make** and **New Eloquent Model** open the Artisan
+workspace's complete captured command form when current local metadata is
+available. The generator picker includes package/custom `make:*` commands found
+in that snapshot. Opening a form runs no PHP; execution remains explicit through
+Run or Run in Terminal, with normal validation, output and reindexing. The
+selection is consumed once and bound to its project; existing command drafts
+are preserved. Without a matching captured generator, the original guided
+prompts remain available. Generate for Model retains its model-aware flow.
+
+
+## Docker execution, runtime inspection and MCP
+
+Artisan's **PHP runner** selector switches between Local PHP and Docker. Catalogs,
+revision tokens, drafts and recent commands remain separate. Configure
+`artisanDockerSocket`, a full `artisanDockerContainer` ID and
+`artisanDockerWorkdir`, then explicitly refresh the Docker catalog. Each run
+re-inspects the running/unpaused container's image/start identity and exact project
+bind mount against the accepted proof. Captured runs use `docker exec` without a
+shell; terminal dispatch uses `docker exec -it`. The existing output/history limits
+apply. Cancel stops the Docker client; Docker does not guarantee the container PHP
+process stops. The terminal stays under the IDE's normal close-on-exit preference.
+Docker generator entry points refuse missing metadata rather than falling back to
+local PHP. Named-volume-only, remote and shadowed project mounts remain unsupported.
+
+**Runtime** offers explicit snapshots of Application (`about --json`), Events
+(`event:list --json`), Schedule (`schedule:list --json`) and Failed Jobs
+(`queue:failed --json`). Separate Application, Events, Schedule and Failed Jobs toolbar buttons capture
+their section directly; the runner button shares the selected Artisan runner. These commands bootstrap application
+PHP and can access application services; nothing runs merely by opening the tab.
+Each capture has a four-second polling/4MiB output limit, a 5,000-row bound and
+source/owner checks before adoption. Failed captures retain previous snapshots.
+The session cache is bounded to 32 captures / 8MiB and source reindexing retires it.
+The table searches and filters captured sections. Database/environment changes can
+make snapshots stale; refresh explicitly. Older Laravel versions lacking a command's
+`--json` support report an error. Failed Jobs lists failed-job metadata, not pending
+queue counts, payloads or exceptions. Application information uses a fixed allowlist
+and excludes config/environment secret values and custom about sections.
+
+Seven tools are declared to OpenIDEA's built-in MCP server (API 1.4):
+
+- `inventory`: paginated cached routes/views/components/models/config key names and
+  related source inventories, without config/environment values.
+- `artisan_commands`: captured command definitions and revision token, with defaults
+  omitted. This never discovers commands or runs PHP.
+- `runtime_snapshot`: previously captured section rows and capture timestamps.
+- `runtime_refresh`: explicitly execute one inspection command.
+- `artisan_execute`: start a captured command using its runner/token, a unique
+  requestId and structured parameter values; returns a kept job.
+- `artisan_job`: poll that project's job and bounded output.
+- `artisan_cancel`: cancel that owned job.
+
+Runtime refresh and Artisan execution are mutating/destructive declarations and
+use the host's MCP confirmation and Restricted Mode policy. Project grants still
+apply; an agent receives no extra filesystem or process permissions. Execution
+shares the workspace's validation, duplicate-request protection and one-active-run
+lock. Successful completion reindexes. Tools neither install an external MCP
+server nor rewrite agent configuration files. Their registered prefix is
+`aritti_laravel__`, for example `aritti_laravel__inventory`.
+
+## Extended source Eloquent inference
+
+Cached traits from `app/Traits`, `app/Concerns`, model roots and
+`app/Models/Concerns` contribute relations, scopes, casts and explicit typed methods.
+Nested composition is bounded to eight levels and 32 traits per model. Class methods win; cyclic graphs,
+conflicting methods and adaptation blocks withhold trait-derived inference rather
+than guessing. Unknown/package traits remain unresolved.
+
+Custom cast classes in `app/Casts` that implement `CastsAttributes` and explicitly
+type their `get()` return to a known value object expose that object's public
+properties (including promoted properties) and instance methods. Value objects are
+indexed in `app/ValueObjects` and `app/Data`. Public model methods with a single
+explicit class/self/static return type support further model/value-object chains,
+including nullable returns and typed value-object method chains. Fully qualified
+literal cast names and literal constructor-parameter suffixes retain the typed
+getter inference. Member navigation
+opens the owned source declaration. Private/protected/static object members,
+ambiguous classes, dynamic return types, dynamic cast parameters and arbitrary PHP control
+flow remain outside this subset. No cast getter or trait method is executed.
+Providers use cached facts and the current document; compiled acceptance checks
+retain the 50ms budget and verify no host source reads during completion.
+
+
+## Follow-up source implementation (validation deferred)
+
+The following source changes were prepared after the user asked to keep testing
+for later. They have not been built, linted or exercised in the IDE in this pass;
+earlier acceptance receipts apply only to their earlier artifact.
+
+- **Choose Docker Target…** discovers running local containers, identifies
+  Compose/Sail/DDEV candidates from curated labels, and accepts only verified
+  project bind mappings. Selection is project-scoped plugin storage; editing
+  manual Docker settings supersedes it. The Artisan Docker target button shows
+  the chosen container/workdir and separates its form drafts. Ancestor binds,
+  compatible nested binds and project binds below parent volumes are supported.
+  Volume-only/Mutagen project roots remain unverified and are refused; the local
+  DDEV fixture uses that unsupported layout. Discovery does not start a container
+  or execute project PHP. Rerun remains disabled after a Docker target change.
+- **Queue Status**, **Workers** and **Logs** extend Runtime. Queue statistics use
+  supported driver methods and report unavailable metrics explicitly. The
+  **Inspect Queue…** command accepts a connection/queue override. Reserved jobs
+  are not counted as proven running jobs. Worker visibility uses readable Linux
+  `/proc`; other platforms report unavailable. Logs require one selected owned
+  `storage/logs/*.log` file and retain at most 64KiB/200 lines. These are on-demand
+  snapshots, without background telemetry or request/query instrumentation.
+- **Retry Failed Job…** is a row action on captured failed jobs. It rechecks the
+  exact row, host sources and Docker target, displays a concrete native review,
+  then revalidates before issuing a single `queue:retry`. Bulk retry is withheld.
+  Docker runtime snapshots retain their captured target identity/proof and are
+  hidden after target changes.
+- **MCP** job polling/cancellation keeps its owning-project gate even if the source
+  index disappears. Structured arguments are validated before changing runners.
+  Runtime refresh accepts queue/worker sections. Raw captured logs are excluded
+  unless `runtime_snapshot` explicitly sets `includeLogs: true`. An opt-in real
+  server harness is prepared in `tests/mcp-server`; it remains unbuilt/unexecuted.
+  Released host destructive-tool confirmations display tool metadata; an exact
+  argv approval in that server flow has not been established.
+- **Eloquent** now composes supported trait aliases, visibility adaptations and
+  `insteadof` choices. Literal Composer `autoload`/`autoload-dev` PSR-4 roots extend
+  the owned class/trait/cast/value-object/enum inventory, checking declarations
+  against mapped paths. Nullable unions with one concrete target and supported
+  class/interface intersections can retain inference; ambiguous unions and DNF
+  types remain unresolved. Direct known relationship `withCount` chains expose
+  count properties. Dynamic casts, arbitrary PHP evaluation and factory overrides
+  remain outside this bounded inference layer.
+
+## Public Laravel Idea documentation walkthrough
+
+The public documentation was reviewed as a behavior reference, without accessing
+proprietary implementation code. Our source has overlapping Laravel browsing,
+Artisan forms, literal completions, navigation and narrow intentions; that does
+not establish general semantic parity.
+
+- [Code generation](https://laravel-idea.com/docs/generation): the larger remaining
+  workflow is a field/relation/index-driven model wizard generating related files
+  together. Current Artisan forms and migration-based factory/resource generators
+  do not provide that complete UI.
+- [Eloquent](https://laravel-idea.com/docs/eloquent): model overview/navigation,
+  database-backed metadata and generated helper PHP are distinct from our cached
+  source inference. Our typed chains cover a bounded subset.
+- [Artisan](https://laravel-idea.com/docs/commands) and
+  [Routing](https://laravel-idea.com/docs/routing): current command forms, route
+  search/tables, source links and HTTP/cURL actions overlap; terminal autocomplete
+  and rich inline route actions need separate host integration.
+- [Validation](https://laravel-idea.com/docs/request_validation),
+  [Blade](https://laravel-idea.com/docs/blade) and
+  [intentions](https://laravel-idea.com/docs/intention-actions): our implementations
+  cover selected literal and source-resolved patterns; configurable validation
+  contexts and broader semantic transformations remain separate work.
+- [ide.json](https://laravel-idea.com/docs/ide_json/overview),
+  [modules](https://laravel-idea.com/docs/modules) and
+  [custom generators](https://laravel-idea.com/docs/custom_generations): the largest
+  customization gap is reusable metadata for custom call sites, module layouts,
+  package conventions and generation templates. `ide-blade.json` view roots are
+  currently much narrower.
+- [Livewire](https://laravel-idea.com/docs/livewire),
+  [Inertia](https://laravel-idea.com/docs/inertia),
+  [Nova](https://laravel-idea.com/docs/nova) and
+  [Filament](https://laravel-idea.com/docs/filament): source-aware completions and
+  package-gated generators exist here, while configurable package conventions
+  and deeper typed integrations remain partial.

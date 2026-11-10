@@ -179,7 +179,7 @@ fn action_of(text: &str, range: Option<Range<usize>>, controller: Option<&str>) 
         return ("Closure".into(), None);
     }
 
-    (source.chars().take(40).collect(), None)
+    ("Dynamic handler".into(), None)
 }
 
 fn strings_of(text: &str, range: &Range<usize>) -> Vec<String> {
@@ -216,18 +216,19 @@ fn route_defs(text: &str, chain: &Chain, enclosing: &[&Region]) -> Vec<RouteDef>
 
     let own_names: Vec<(&str, usize)> = chain.segments.iter().filter(|s| s.name == "name").filter_map(|s| first_literal(text, s)).collect();
     let arg = |i: usize| verb.args.get(i).cloned();
-    let uri_literal = |i: usize| arg(i).and_then(|r| php::literal(text, r)).map_or("?", |(u, _)| u);
+    let uri_literal = |i: usize| arg(i).and_then(|r| php::literal(text, r)).map(|(u, _)| u);
+    if !matches!(verb.name.as_str(), "resource" | "apiResource") && uri_literal(if verb.name == "match" {1} else {0}).is_none() { return Vec::new(); }
 
     let (methods, uri, options, action_range) = match verb.name.as_str() {
         "match" => {
             let methods = arg(0).map(|r| strings_of(text, &r)).unwrap_or_default().join("|").to_uppercase();
-            (methods, uri_literal(1), arg(2), arg(2))
+            (methods, uri_literal(1).unwrap(), arg(2), arg(2))
         }
-        "any" => ("ANY".to_owned(), uri_literal(0), arg(1), arg(1)),
-        "view" => ("GET|HEAD".to_owned(), uri_literal(0), None, None),
-        "redirect" | "permanentRedirect" => ("GET|HEAD".to_owned(), uri_literal(0), None, None),
+        "any" => ("ANY".to_owned(), uri_literal(0).unwrap(), arg(1), arg(1)),
+        "view" => ("GET|HEAD".to_owned(), uri_literal(0).unwrap(), None, None),
+        "redirect" | "permanentRedirect" => ("GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS".to_owned(), uri_literal(0).unwrap(), None, None),
         "resource" | "apiResource" => return resource_defs(text, chain, verb, &name_prefix, &uri_parts, controller),
-        name => (name.to_uppercase().replace("GET", "GET|HEAD"), uri_literal(0), arg(1), arg(1)),
+        name => (name.to_uppercase().replace("GET", "GET|HEAD"), uri_literal(0).unwrap(), arg(1), arg(1)),
     };
 
     let options_array = options.and_then(|r| php::array_open(text, r));
@@ -249,7 +250,7 @@ fn route_defs(text: &str, chain: &Chain, enclosing: &[&Region]) -> Vec<RouteDef>
 
     let (action, controller) = match verb.name.as_str() {
         "view" => (format!("view: {}", arg(1).and_then(|r| php::literal(text, r)).map_or("?", |(v, _)| v)), None),
-        "redirect" | "permanentRedirect" => ("redirect".to_owned(), None),
+        "redirect" | "permanentRedirect" => (format!("Redirect → {}",arg(1).and_then(|r|php::literal(text,r)).map_or("dynamic destination",|(v,_)|v)), None),
         _ => action_of(text, action_range, controller.as_deref()),
     };
 

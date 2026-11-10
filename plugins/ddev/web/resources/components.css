@@ -229,11 +229,11 @@ input.ui-switch,.ui-check input.ui-switch{appearance:none;width:53px!important;m
 .ui-dialog{background:var(--ui-panel);border:.5px solid var(--ui-separator);border-radius:8px;padding:20px;box-shadow:0 8px 40px #0000004d}
 .ui-table th,.ui-table td{height:24px;padding:4px 8px;font-weight:500;line-height:16px;border-color:var(--ui-separator);text-align:left}
 .ui-table th{background:var(--ui-bg);border-right:1px solid var(--ui-separator)}
-:where(.ui-scroll-area,.ui-popup,.ui-dialog,.ui-tabs:not(.ui-tool-window-tabs),.ui-code-sample,.ui-notifications,textarea.ui-textarea,:root:has(body.ui-embedded-panel),body.ui-embedded-panel){scrollbar-width:thin;scrollbar-color:var(--ui-scroll-thumb) transparent}
-:where(.ui-scroll-area,.ui-popup,.ui-dialog,.ui-tabs:not(.ui-tool-window-tabs),.ui-code-sample,.ui-notifications,textarea.ui-textarea,:root:has(body.ui-embedded-panel),body.ui-embedded-panel)::-webkit-scrollbar{width:10px;height:10px}
-:where(.ui-scroll-area,.ui-popup,.ui-dialog,.ui-tabs:not(.ui-tool-window-tabs),.ui-code-sample,.ui-notifications,textarea.ui-textarea,:root:has(body.ui-embedded-panel),body.ui-embedded-panel)::-webkit-scrollbar-track,:where(.ui-scroll-area,.ui-popup,.ui-dialog,.ui-tabs:not(.ui-tool-window-tabs),.ui-code-sample,.ui-notifications,textarea.ui-textarea,:root:has(body.ui-embedded-panel),body.ui-embedded-panel)::-webkit-scrollbar-corner{background:transparent}
-:where(.ui-scroll-area,.ui-popup,.ui-dialog,.ui-tabs:not(.ui-tool-window-tabs),.ui-code-sample,.ui-notifications,textarea.ui-textarea,:root:has(body.ui-embedded-panel),body.ui-embedded-panel)::-webkit-scrollbar-thumb{background:var(--ui-scroll-thumb);border:1px solid transparent;background-clip:padding-box;border-radius:4px}
-:where(.ui-scroll-area,.ui-popup,.ui-dialog,.ui-tabs:not(.ui-tool-window-tabs),.ui-code-sample,.ui-notifications,textarea.ui-textarea,:root:has(body.ui-embedded-panel),body.ui-embedded-panel)::-webkit-scrollbar-thumb:hover{background:var(--ui-scroll-hover)}
+:is(.ui-scroll-area,.ui-popup,.ui-dialog,.ui-tabs:not(.ui-tool-window-tabs),.ui-code-sample,.ui-notifications,textarea.ui-textarea,:root:has(body.ui-embedded-panel),body.ui-embedded-panel){scrollbar-width:thin;scrollbar-color:var(--ui-scroll-thumb) transparent}
+:is(.ui-scroll-area,.ui-popup,.ui-dialog,.ui-tabs:not(.ui-tool-window-tabs),.ui-code-sample,.ui-notifications,textarea.ui-textarea,:root:has(body.ui-embedded-panel),body.ui-embedded-panel)::-webkit-scrollbar{width:10px;height:10px}
+:is(.ui-scroll-area,.ui-popup,.ui-dialog,.ui-tabs:not(.ui-tool-window-tabs),.ui-code-sample,.ui-notifications,textarea.ui-textarea,:root:has(body.ui-embedded-panel),body.ui-embedded-panel)::-webkit-scrollbar-track,:is(.ui-scroll-area,.ui-popup,.ui-dialog,.ui-tabs:not(.ui-tool-window-tabs),.ui-code-sample,.ui-notifications,textarea.ui-textarea,:root:has(body.ui-embedded-panel),body.ui-embedded-panel)::-webkit-scrollbar-corner{background:transparent}
+:is(.ui-scroll-area,.ui-popup,.ui-dialog,.ui-tabs:not(.ui-tool-window-tabs),.ui-code-sample,.ui-notifications,textarea.ui-textarea,:root:has(body.ui-embedded-panel),body.ui-embedded-panel)::-webkit-scrollbar-thumb{background:var(--ui-scroll-thumb);border:4px solid transparent;background-clip:padding-box;border-radius:6px}
+:is(.ui-scroll-area,.ui-popup,.ui-dialog,.ui-tabs:not(.ui-tool-window-tabs),.ui-code-sample,.ui-notifications,textarea.ui-textarea,:root:has(body.ui-embedded-panel),body.ui-embedded-panel)::-webkit-scrollbar-thumb:hover{background:var(--ui-scroll-hover)}
 .ui-tree [role=treeitem]{border-radius:4px;font-weight:500}
 .ui-window{background:var(--ui-panel);border-color:var(--ui-separator)}
 .ui-window-header{padding:0 12px;border-color:var(--ui-separator);background:var(--ui-panel)}
@@ -343,7 +343,7 @@ input.ui-switch,.ui-check input.ui-switch{appearance:none;width:53px!important;m
 .ui-tree-chevron[aria-expanded=true]::before{transform:none}
 .ui-tree-icon{width:16px;height:16px;flex:0 0 16px;margin-right:4px;background:var(--ui-tree-node-icon) center/16px 16px no-repeat}
 .ui-tree-label{min-width:0;overflow-wrap:anywhere}
-@supports selector(::-webkit-scrollbar){:where(.ui-scroll-area,.ui-popup,.ui-dialog,.ui-tabs:not(.ui-tool-window-tabs),.ui-code-sample,.ui-notifications,textarea.ui-textarea,:root:has(body.ui-embedded-panel),body.ui-embedded-panel){scrollbar-width:auto;scrollbar-color:auto}}
+@supports selector(::-webkit-scrollbar){:is(.ui-scroll-area,.ui-popup,.ui-dialog,.ui-tabs:not(.ui-tool-window-tabs),.ui-code-sample,.ui-notifications,textarea.ui-textarea,:root:has(body.ui-embedded-panel),body.ui-embedded-panel){scrollbar-width:auto;scrollbar-color:auto}}
 .ui-badge{vertical-align:top}
 .ui-table{border-collapse:separate;border-spacing:0}
 .ui-toolbar{border:0}
@@ -461,3 +461,7 @@ input.ui-switch,.ui-check input.ui-switch{appearance:none;width:53px!important;m
 .ui-embedded-panel .ui-toolbar>.ui-icon-button:hover:not(:disabled){color:var(--ui-fg)}
 
 .ui-toolbar>.ui-toolbar-end~.ui-toolbar-end{margin-left:0}
+
+/* Select rows stay single-line; the popup grows to its content within the viewport. */
+.ui-select-popup{box-sizing:border-box;overflow-x:hidden}
+.ui-select-popup .ui-option{box-sizing:border-box;min-height:24px;height:24px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;overflow-wrap:normal}

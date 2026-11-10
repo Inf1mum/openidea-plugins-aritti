@@ -104,7 +104,7 @@ impl Views for Main {
             Ok(View::new(Body::Tree(items))
                 .button(Button::new("refresh", "Refresh Status").icon("refresh"))
                 .button(Button::new("start", "Start DDEV").icon("run").enabled(can_start))
-                .button(Button::new("restart", "Restart DDEV").icon("refresh")
+                .button(Button::new("restart", "Restart DDEV").icon("rerun")
                     .enabled(running || desc.is_none() && can_start))
                 .button(
                     Button::new("stop", "Stop DDEV")

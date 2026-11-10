@@ -269,8 +269,8 @@ title = "DDEV: Open Release Notes"
 category = "DDEV"
 
 [[contributes.commands]]
-id = "report-issue"
-title = "DDEV: Open Plugin Issue Form"
+id = "open-docs"
+title = "DDEV: Open Documentation"
 category = "DDEV"
 
 [[contributes.commands]]

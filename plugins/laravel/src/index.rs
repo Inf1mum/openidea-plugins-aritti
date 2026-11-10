@@ -65,9 +65,16 @@ pub struct Index {
     pub routes: Names,
     pub route_defs: Vec<RouteEntry>,
     pub views: Names,
+    /// Source folders relative to the winning view root, for inventory filters.
+    pub view_folders: BTreeMap<String, String>,
     pub blade: BTreeMap<String, blade::Facts>,
     pub config: Names,
+    /// Bounded source previews for Config browsing; never runtime values.
+    pub config_expressions: BTreeMap<String, String>,
+    pub config_incomplete: BTreeSet<String>,
     pub translations: Names,
+    /// Every locale definition for inventory browsing; completion keeps its preferred definition.
+    pub translations_by_locale: BTreeMap<String, Names>,
     /// `lang/<locale>/<file>.php` files by the file's key, main locale first.
     pub translation_files: BTreeMap<String, Vec<String>>,
     pub env: Names,
@@ -94,6 +101,9 @@ pub struct Index {
     pub providers: Names,
     /// Columns by table, from the migrations.
     pub columns: BTreeMap<String, Names>,
+    pub(crate) eloquent_models: crate::eloquent_members::Models,
+    pub(crate) eloquent_enums: crate::eloquent_members::Enums,
+    pub(crate) eloquent_objects: crate::eloquent_members::Objects,
     /// Table of each model, by short class name and by file.
     pub models: BTreeMap<String, String>,
     pub model_files: BTreeMap<String, String>,
@@ -589,6 +599,9 @@ fn file_name(path: &str) -> &str {
     path.rsplit('/').next().unwrap_or(path)
 }
 
+#[path="eloquent_roots.rs"]
+mod eloquent_roots;
+
 impl Index {
     pub fn build(project: &Project) -> Index {
         let started = Instant::now();
@@ -625,6 +638,10 @@ impl Index {
                 if let Some(namespace) = namespace {
                     name = format!("{namespace}::{name}");
                 }
+                let relative_view=relative(&path);
+                let relative_view=relative_view.strip_prefix(&format!("{view_root}/")).unwrap_or(&relative_view);
+                let folder=relative_view.rsplit_once('/').map(|(folder,_)|folder.replace('/',".")).unwrap_or_else(||"(root)".into());
+                index.view_folders.entry(name.clone()).or_insert(folder);
                 index.views.add(&name, None, &path, Position::new(0, 0), 0);
 
                 if !path.ends_with(".blade.php") {
@@ -690,8 +707,15 @@ impl Index {
             }
         }
 
-        for path in files(&globs(&["config/**/*.php"])) {
-            let Some(text) = read(&path, &mut index) else { continue };
+        let mut config_files = match project.find_files("config/**/*.php", MAX_FILES) {
+            Ok(paths) => paths,
+            Err(_) => { index.config_incomplete.insert(format!("{root}/config")); Vec::new() }
+        };
+        config_files.sort();
+        config_files.dedup();
+        if config_files.len() >= MAX_FILES as usize { index.config_incomplete.insert(format!("{root}/config")); }
+        for path in config_files {
+            let Some(text) = read(&path, &mut index) else { index.config_incomplete.insert(path); continue };
             let relative_path = relative(&path);
             let Some(file_key) = relative_path.strip_prefix("config/").and_then(|p| p.strip_suffix(".php")).map(|p| p.replace('/', "."))
             else {
@@ -700,12 +724,17 @@ impl Index {
 
             index.config.add(&file_key, Some("config file".into()), &path, Position::new(0, 0), 0);
             let masked = php::mask_comments(&text);
-            let Some(open) = php::returned_array(&masked) else { continue };
-
+            let (leaves, complete) = crate::config_arrays::paths(&masked, &file_key);
+            if !complete { index.config_incomplete.insert(path.clone()); }
             let lines = Lines::new(&text);
-            let mut leaves = Vec::new();
-            php::array_paths(&masked, open, &file_key, &mut leaves, 0);
             for leaf in leaves {
+                if !leaf.array && !index.config.contains_key(&leaf.path) {
+                    let source = masked[leaf.expression.clone()].trim();
+                    let mut preview: String = source.chars().take(512).collect();
+                    if source.chars().count() > 512 { preview.push('…'); }
+                    if preview.is_empty() { preview = "Expression unavailable".into(); }
+                    index.config_expressions.insert(leaf.path.clone(), preview);
+                }
                 let detail = if leaf.array { Some("array".to_owned()) } else { leaf.value };
                 index.config.add(&leaf.path, detail, &path, lines.position(leaf.offset), lines.width(leaf.offset, leaf.width));
             }
@@ -909,6 +938,17 @@ impl Index {
             }
         }
 
+        let mut eloquent_seen = BTreeSet::new();
+        for path in files(&globs(&["app/Enums/**/*.php"])) {
+            if let Some(text) = read(&path, &mut index) { eloquent_seen.insert(path.clone()); crate::eloquent_members::cache_enum(&mut index.eloquent_enums, &text, &path); }
+        }
+
+        for path in files(&globs(&["app/Traits/**/*.php","app/Concerns/**/*.php","app/Models/Concerns/**/*.php"])) {
+            if let Some(text)=read(&path,&mut index){eloquent_seen.insert(path.clone());crate::eloquent_members::cache(&mut index.eloquent_models,&text,&path);}
+        }
+        for path in files(&globs(&["app/Casts/**/*.php","app/ValueObjects/**/*.php","app/Data/**/*.php"])) {
+            if let Some(text)=read(&path,&mut index){eloquent_seen.insert(path.clone());crate::eloquent_members::cache_object(&mut index.eloquent_objects,&text,&path);}
+        }
         let mut model_globs = globs(&["app/Models/**/*.php", "app/*.php"]);
         model_globs.extend(
             comma_separated("modelDirectories")
@@ -918,6 +958,8 @@ impl Index {
         );
         for path in files(&model_globs) {
             let Some(text) = read(&path, &mut index) else { continue };
+            eloquent_seen.insert(path.clone());
+            crate::eloquent_members::cache(&mut index.eloquent_models, &text, &path);
             let relative_path = relative(&path);
             let inside = relative_path.trim_start_matches("app/").trim_start_matches("Models/");
             let masked = php::mask_comments(&text);
@@ -937,6 +979,32 @@ impl Index {
 
         if let Some(composer) = read(&format!("{root}/composer.json"), &mut index) {
             index.open_components |= COMPONENT_PACKAGES.iter().any(|package| composer.contains(package));
+            match eloquent_roots::parse(&composer) {
+                Ok(roots)=>{
+                    let mut paths=BTreeSet::new();
+                    for source_root in &roots {
+                        let found=project.find_files(&format!("{}/**/*.php",source_root.directory),MAX_FILES).unwrap_or_default();
+                        if found.len()>=MAX_FILES as usize{index.partial=true;}
+                        for path in found {if paths.len()>=MAX_FILES as usize{index.partial=true;break;}paths.insert(path);}
+                    }
+                    for path in paths {
+                        if eloquent_seen.contains(&path)||!crate::owns_current_path(project,&path){continue;}
+                        let Some(text)=read(&path,&mut index)else{continue};
+                        let Some(full)=crate::eloquent_members::declaration(&text)else{continue};
+                        if !eloquent_roots::matches(&roots,&relative(&path),&full){continue;}
+                        crate::eloquent_members::cache(&mut index.eloquent_models,&text,&path);
+                        crate::eloquent_members::cache_object(&mut index.eloquent_objects,&text,&path);
+                        crate::eloquent_members::cache_enum(&mut index.eloquent_enums,&text,&path);
+                    }
+                },
+                Err(())=>index.partial=true,
+            }
+        }
+        if !crate::eloquent_members::finish(&mut index.eloquent_models){index.partial=true;}
+        for (full,path,table) in crate::eloquent_members::model_inventory(&index.eloquent_models) {
+            let short=full.rsplit('\\').next().unwrap_or(&full).to_owned();
+            index.model_files.entry(path).or_insert(table.clone());
+            index.models.entry(short).or_insert(table);
         }
 
         for rule in VALIDATION_RULES {
@@ -985,11 +1053,14 @@ impl Index {
             let lines = Lines::new(&text);
 
             if json {
+                let values = serde_json::from_str::<serde_json::Value>(&text).ok();
                 for (name, offset) in json_keys(&text) {
                     let value = format!("[{locale}]");
                     let end = php::string_end(text.as_bytes(), offset - 1);
                     let width = lines.width(offset, end.saturating_sub(offset + 1));
                     self.translations.add(&name, Some(value), &path, lines.position(offset), width);
+                    let translated = values.as_ref().and_then(|v| v.get(&name)).and_then(|v| v.as_str()).map(str::to_owned);
+                    self.translations_by_locale.entry(locale.clone()).or_default().add(&name, translated, &path, lines.position(offset), width);
                 }
                 continue;
             }
@@ -1001,6 +1072,7 @@ impl Index {
             let mut leaves = Vec::new();
             php::array_paths(&masked, open, &key, &mut leaves, 0);
             for leaf in leaves {
+                self.translations_by_locale.entry(locale.clone()).or_default().add(&leaf.path, leaf.value.clone(), &path, lines.position(leaf.offset), lines.width(leaf.offset, leaf.width));
                 let detail = leaf.value.map(|v| format!("{v} [{locale}]"));
                 self.translations.add(&leaf.path, detail, &path, lines.position(leaf.offset), lines.width(leaf.offset, leaf.width));
             }

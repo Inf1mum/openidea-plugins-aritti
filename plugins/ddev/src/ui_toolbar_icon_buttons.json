@@ -5,7 +5,6 @@
     "show-services",
     "save-settings",
     "reset-settings",
-    "open-guide",
-    "report-issue"
+    "open-docs"
   ]
 }

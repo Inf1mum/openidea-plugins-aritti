@@ -22,5 +22,13 @@
     "when": "viewItemKind == route",
     "icon": "file-http",
     "label": "Create HTTP Request File"
+  },
+  {
+    "menu": "viewItem.context",
+    "view": "laravel-runtime",
+    "command": "runtime-retry-failed",
+    "when": "viewItemKind == failedjob",
+    "icon": "rerun",
+    "label": "Retry Failed Job\u2026"
   }
 ]

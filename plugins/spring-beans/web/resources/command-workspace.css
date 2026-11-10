@@ -1,0 +1,62 @@
+/* Command workspace composition uses inherited shared UI-kit tokens and controls. */
+[data-command-workspace]{display:flex;flex-direction:column;height:100%;min-height:0;overflow:hidden;gap:var(--ui-space-3);padding:0;box-sizing:border-box;color:var(--ui-fg);font:var(--ui-text)/var(--ui-leading) var(--ui-font)}
+.command-actions{display:flex;align-items:center;flex-wrap:wrap;gap:var(--ui-space-2)}
+.command-columns{display:grid;grid-template-columns:minmax(112px,min(220px,30%)) minmax(0,1fr);gap:0;flex:1;min-height:0}
+.command-list,.command-detail{display:flex;flex-direction:column;min-width:0;min-height:0;gap:var(--ui-space-2)}
+.command-list{overflow:hidden;border-right:1px solid var(--ui-border);padding:0;gap:0}
+.command-sidebar-header{display:flex;flex-direction:column;gap:var(--ui-space-1);padding:var(--ui-space-3);min-width:0;flex:none;box-sizing:border-box}
+#commands{padding-left:4px;min-width:0;display:flex;flex-direction:column;gap:2px;flex:1;min-height:0;max-height:none;overflow:auto;scrollbar-gutter:stable}
+#commands button{text-align:left;white-space:normal;overflow-wrap:anywhere;flex-shrink:0}
+#commands button[aria-pressed=true]{background:var(--ui-selected)}
+.command-muted,.command-default{color:var(--ui-muted);font-size:var(--ui-text-small)}
+.command-detail h2{font-size:var(--ui-text);margin:0;font-weight:600}
+.command-detail p{margin:0}
+#arguments{display:flex;flex-direction:column;gap:var(--ui-space-3)}
+.command-field{display:flex;flex-direction:column;gap:var(--ui-space-1)}
+.command-field input,.command-field textarea{width:100%;box-sizing:border-box}
+.command-field input[type=checkbox]{width:auto}
+.command-field label{overflow-wrap:anywhere}
+.command-field textarea{min-height:60px;resize:vertical}
+.command-detail pre{font-family:var(--ui-font-mono);white-space:pre-wrap;overflow-wrap:anywhere;margin:0;max-height:35vh;overflow:auto}
+#command-preview{padding:var(--ui-space-2);background:var(--ui-editor-bg,var(--ui-bg));border:1px solid var(--ui-border)}
+.command-output{padding:var(--ui-space-2);background:var(--ui-editor-bg,var(--ui-bg));min-height:80px;border:1px solid var(--ui-border)}
+#command-error,#stderr{color:var(--ui-error,var(--ui-fg))}
+
+
+.command-search{display:flex;align-items:center;gap:var(--ui-space-1);min-width:0}
+.command-search input{flex:1;min-width:0;width:100%}
+.command-search #discover{flex:none}
+.command-editor{display:flex;flex-direction:column;gap:var(--ui-space-2);min-width:0}
+.command-editor[hidden],.command-empty[hidden]{display:none}
+.command-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:var(--ui-space-3);min-height:180px;max-width:360px;align-self:center;padding:var(--ui-space-4);text-align:center}
+.command-empty p{color:var(--ui-muted)}
+#command-error:empty{display:none}
+
+/* Composition of native shared group dividers, menu rows and form controls. */
+.command-group,.command-form-group{display:flex;flex-direction:column;min-width:0}
+.command-group>.ui-group-header,.command-form-group>.ui-group-header{margin:0}
+.command-group>.ui-group-header{padding-inline:var(--ui-space-3)}
+.command-group+.command-group{margin-top:var(--ui-space-2)}
+#commands .command-item{display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;gap:2px;width:100%;height:auto;min-height:28px;padding:4px var(--ui-space-3)}
+.command-item-name{font-family:var(--ui-mono);font-size:var(--ui-text-small);overflow-wrap:anywhere}
+.command-item-description{color:var(--ui-muted);font-weight:400;text-overflow:ellipsis;white-space:nowrap;overflow:hidden;min-width:0}
+.command-form-group{gap:var(--ui-space-3)}
+.command-field{display:grid;grid-template-columns:minmax(120px,180px) minmax(0,1fr);column-gap:var(--ui-space-3);align-items:start}
+.command-field>label:first-child{grid-column:1;padding-top:var(--ui-space-1);font-family:var(--ui-mono);font-size:var(--ui-text-small)}
+.command-field>input,.command-field>textarea,.command-field>small,.command-field>.command-bare-option{grid-column:2;min-width:0}
+.command-field>input[type=checkbox],.command-field>.ui-choice-control{grid-column:2;justify-self:start;margin-top:var(--ui-space-1)}
+.command-bare-option{display:flex;align-items:center;gap:var(--ui-space-2)}
+.command-detail pre{font-family:var(--ui-mono)}
+@media(max-width:720px){.command-field{grid-template-columns:minmax(0,1fr)}.command-field>label:first-child,.command-field>input,.command-field>textarea,.command-field>small,.command-field>.command-bare-option,.command-field>.ui-choice-control{grid-column:1}}
+
+/* The command list and editor own scrolling; the search and sidebar stay fixed. */
+.command-search,#provenance,#command-error{flex-shrink:0}
+.command-detail{padding:var(--ui-space-3);overflow:auto;overflow-wrap:anywhere;scrollbar-gutter:stable}
+.command-editor{flex:0 0 auto}
+.command-group{flex-shrink:0}
+
+#command-error:not(:empty){margin:0;padding:var(--ui-space-2) var(--ui-space-3)}
+
+.command-runner-controls{display:flex;align-items:center;gap:var(--ui-space-1);min-width:0}
+.command-runner-controls select,.command-runner-controls>.ui-select-shell{flex:1;min-width:0}
+#command-runner-target{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}

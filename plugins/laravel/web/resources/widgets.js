@@ -17,7 +17,8 @@
   function position(popup, anchor, point) {
     const rect=anchor.getBoundingClientRect(), margin=8;
     const tip=popup.classList.contains('ui-tooltip'), menu=popup.classList.contains('ui-menu'), arrow=tip&&popup.dataset.uiTip;
-    popup.style.maxWidth='';popup.style.width=tip||menu?'max-content':`${Math.min(Math.max(rect.width,180),innerWidth-margin*2)}px`;
+    popup.style.maxWidth=`${Math.max(0,innerWidth-margin*2)}px`;popup.style.width='max-content';
+    popup.style.minWidth=popup.classList.contains('ui-select-popup')?`${Math.min(rect.width,Math.max(0,innerWidth-margin*2))}px`:'';
     popup.style.maxHeight=`${Math.min(260,innerHeight-margin*2)}px`;
     const naturalWidth=popup.getBoundingClientRect().width;
     popup.style.maxWidth=`${Math.min(naturalWidth,innerWidth-margin*2)}px`;
@@ -68,7 +69,7 @@
         const index=filtered.indexOf(option);
         const parent=option.parentElement.localName==='optgroup'?option.parentElement.label:'';
         if(parent&&parent!==group){popup.append(node('div','ui-group-header',parent));}group=parent;
-        const item=node('div','ui-option',option.label);item.id=`${id}-option-${option.index}`;if(index>=0)item.dataset.index=index;item.setAttribute('role','option');item.setAttribute('aria-selected',String(option.selected));item.setAttribute('aria-disabled',String(index<0));
+        const item=node('div','ui-option',option.label);item.title=option.label;item.id=`${id}-option-${option.index}`;if(index>=0)item.dataset.index=index;item.setAttribute('role','option');item.setAttribute('aria-selected',String(option.selected));item.setAttribute('aria-disabled',String(index<0));
         item.addEventListener('pointerdown',event=>event.preventDefault());if(index>=0)item.addEventListener('click',()=>choose(index));popup.append(item);
       });
       if(!shown.length)popup.append(node('div','ui-menu-empty','No matching options'));

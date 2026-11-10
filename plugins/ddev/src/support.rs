@@ -410,8 +410,7 @@ impl Main {
             .button(Button::new("show-services", "Show Services").icon("open-in-tool-window"))
             .button(Button::new("save-settings", "Save Preferences").icon("check"))
             .button(Button::new("reset-settings", "Reset Changes").icon("undo"))
-            .button(Button::new("open-guide", "Installation Guide").icon("external-link"))
-            .button(Button::new("report-issue", "Report Plugin Issue").icon("help"))
+            .button(Button::new("open-docs", "DDEV Documentation").icon("help"))
             .status("Preferences apply to this project after Save. Saving requires the optional project.write permission."))
     }
     pub(crate) fn handle_setup(&mut self, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {

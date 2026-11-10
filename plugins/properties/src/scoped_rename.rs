@@ -298,13 +298,13 @@ fn preview(
             let end = offset(source, edit.range.end).ok_or(Error::Stale)?;
             let old = source.get(start..end).ok_or(Error::Stale)?;
             text.push_str(&format!(
-                "{}:{}–{}:{}: {} → {}\n",
+                "{}:{}–{}:{}\nBefore source:\n{}\n\nAfter source:\n{}\n\n",
                 edit.range.start.line + 1,
                 edit.range.start.character + 1,
                 edit.range.end.line + 1,
                 edit.range.end.character + 1,
-                serde_json::to_string(old).unwrap_or_default(),
-                serde_json::to_string(&edit.text).unwrap_or_default()
+                ui_kit::prompts::readable_source(old),
+                ui_kit::prompts::readable_source(&edit.text)
             ));
         }
     }
@@ -594,8 +594,8 @@ mod tests {
         let edits = plan(&bundle, &sources, "hello", "fresh:key").unwrap();
         let review = preview("/project", "hello", "fresh:key", &bundle, &sources, &edits).unwrap();
         assert!(
-            review.contains("hel\\\\u006Co")
-                && review.contains("fresh\\\\:key")
+            review.contains(r"hel\u006Co")
+                && review.contains(r"fresh\:key")
                 && review.contains("local JDK literals")
                 && review.contains("classloader")
                 && review.contains("A.java")

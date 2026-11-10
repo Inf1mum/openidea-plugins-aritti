@@ -144,20 +144,26 @@ impl Terminals {
 }
 
 pub fn run(state: &Terminals, ctx: &Invocation, command: &str, args: Vec<String>) -> Result<(), Error> {
-    let root = ctx.project().ok_or("No project is open.")?.root()?;
-    if state.pending.borrow().len() >= 32 { return Err("Close or finish existing Artisan terminals before starting another.".into()); }
     let mut full = vec!["artisan".to_owned(), command.to_owned()];
     full.extend(args);
+    run_with(state, ctx, command, full, crate::artisan_runner::Runner::Php)
+}
+pub(super) fn run_with(state: &Terminals, ctx: &Invocation, command: &str, full: Vec<String>, runner: crate::artisan_runner::Runner) -> Result<(), Error> {
+    let project = ctx.project().ok_or("No project is open.")?;
+    let root = project.root()?;
+    runner.verify(&project)?;
+    let executable = runner.argv(&project, &full, true)?;
+    if state.pending.borrow().len() >= 32 { return Err("Close or finish existing Artisan terminals before starting another.".into()); }
     let sequence = state.next.get().checked_add(1).ok_or(Error::Stale)?;
     state.next.set(sequence);
     let hash = root.bytes().fold(0xcbf29ce484222325u64, |h,b|(h ^ u64::from(b)).wrapping_mul(0x100000001b3));
     use std::hash::BuildHasher;
     let nonce = std::collections::hash_map::RandomState::new().hash_one((&root, sequence, std::time::SystemTime::now()));
     let key = format!("artisan-{hash:016x}-{nonce:016x}-{sequence}");
-    let cmd = openidea_plugin::host::Command { program:"php".into(), args:full.clone(), env:Vec::new() };
+    let cmd = openidea_plugin::host::Command { program:runner.name().into(), args:executable, env:Vec::new() };
     match host::open_terminal_session(&key, &format!("artisan {command}"), &cmd) {
         Ok(id) => { state.pending.borrow_mut().push((id,key,root,full)); Ok(()) },
-        Err(Error::Denied(_)) => Err("Allow the process:php capability in Settings › Plugins.".into()),
+        Err(Error::Denied(_)) => Err(format!("Allow the process:{} capability in Settings › Plugins.", runner.name()).into()),
         Err(error) => Err(error),
     }
 }

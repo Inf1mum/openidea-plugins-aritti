@@ -47,6 +47,9 @@ def assets(name):
         if variants:
             plugin_icons[f"ext:fileIcon/{manifest['id']}/{entry['id']}"] = variants
     data['plugin-icons.js'] = 'window.uiKitPluginIcons = Object.freeze(' + json.dumps(plugin_icons, ensure_ascii=False) + ');\n'
+    group_path = package/'src/ui_group.json'
+    tabs = json.loads(group_path.read_text()).get('tabs', []) if group_path.exists() else []
+    data['plugin-icons.js'] += 'window.uiKitViewTabs = Object.freeze(' + json.dumps(tabs, ensure_ascii=False) + ');\n'
     data['hub.html'] = data['hub.html'].replace('<script src="./native-icons.js">', '<script src="./plugin-icons.js"></script><script src="./native-icons.js">')
     functions = []
     if name == 'kube-explorer':

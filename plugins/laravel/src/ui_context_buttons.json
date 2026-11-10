@@ -1,3 +1,5 @@
 {
-  "laravel": []
+  "laravel": [],
+  "laravel-components": [],
+  "laravel-runtime": []
 }

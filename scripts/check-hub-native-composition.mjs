@@ -85,6 +85,20 @@ try {
  await page.screenshot({path:resolve(output,`${engine}-ignore-native-background.png`)});
  await gear.click();assert.equal(await page.evaluate(()=>window.sent.at(-1).event.key),'preferences','gear dispatches the existing preference action');
 
+ // Status stays pinned while short and overflowing forms share the remaining space.
+ for (const height of [180, 360, 420, 520]) for (const count of [1, 30]) {
+  await page.setViewportSize({width:600,height});
+  await reply({title:'Setup',toolbar:[{key:'save',label:'Save',icon:'check',enabled:true}],status:'Preferences apply after Save.',body:{kind:'form',fields:Array.from({length:count},(_,i)=>({key:`field-${i}`,label:`Field ${i}`,value:{kind:'text',text:''}}))}});
+  const geometry=await page.evaluate(()=>{
+   const content=document.querySelector('#content'),status=document.querySelector('#status');
+   return {bottom:status.getBoundingClientRect().bottom,statusHeight:status.getBoundingClientRect().height,contentBottom:content.getBoundingClientRect().bottom,statusTop:status.getBoundingClientRect().top,rootHeight:document.documentElement.scrollHeight,scrollable:content.scrollHeight>content.clientHeight};
+  });
+  assert.ok(Math.abs(geometry.bottom-height)<1,`status pinned at ${height}px with ${count} fields`);
+  assert.ok(geometry.statusHeight<40,'status remains a compact line');
+  assert.ok(Math.abs(geometry.contentBottom-geometry.statusTop)<1,'content fills space above status');
+  assert.ok(geometry.rootHeight<=height,'dock does not overflow');
+  if(count===30) assert.ok(geometry.scrollable,'long forms scroll inside the content area');
+ }
  assert.deepEqual(errors,[]);writeFileSync(resolve(output,`${engine}-receipt.json`),JSON.stringify(measurements,null,2)+'\n');
  console.log(`PASS ${engine}: kit toolbar/tab/form geometry, 8 dock layouts, section keyboard navigation, compact action dispatch, row density and accessible filters`);
 }finally{await browser.close();}
