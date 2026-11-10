@@ -22,6 +22,14 @@ mod traits;
 pub(crate) use casts::{Enums, cache as cache_enum};
 pub(crate) use objects::{Objects, cache as cache_object};
 pub(crate) use traits::finish;
+#[path = "metadata_inference.rs"]
+pub(crate) mod metadata_inference;
+pub(crate) use metadata_inference::{cache as cache_metadata, finish as finish_metadata};
+
+#[path = "eloquent_helper_facts.rs"]
+pub(crate) mod helper_facts;
+#[path="eloquent_related_facts.rs"]
+pub(crate) mod related_facts;
 
 const MAX_TEXT: usize = 128 * 1024;
 const MAX_TOKENS: usize = 8192;
@@ -455,6 +463,90 @@ pub(crate) fn model_inventory(models: &Models) -> Vec<(String, String, String)> 
         }
     }
     result
+}
+
+/// Source-backed members for the Models workspace; preserve exact declaration
+/// destinations instead of treating related class names as rename anchors.
+pub(crate) fn member_inventory(models:&Models)->Vec<(String,String,String,Entry)> {
+    let mut result=Vec::new();
+    let eligible:BTreeSet<_>=model_inventory(models).into_iter().map(|(full,_,_)|full).collect();
+    for model in models.values().filter(|model|eligible.contains(&model.full)) {
+        for (name,relation) in &model.relations {
+            let mut entry=relation.entry.clone();
+            entry.detail=Some(format!("{} → {}",relation.kind,relation.target));
+            result.push((model.full.clone(),"Relation".into(),name.clone(),entry));
+        }
+        for (name,entry) in &model.scopes {result.push((model.full.clone(),"Scope".into(),name.clone(),entry.clone()));}
+    }
+    result
+}
+
+/// Explicit project metadata is an author-supplied model/table override. Keep
+/// the distinction from source inference; dynamic table methods still suppress
+/// resolver-derived fields unless the caller explicitly elects an override.
+pub(crate) fn apply_model_tables(models:&mut Models,metadata:&crate::metadata::Metadata) {
+    for model in models.values_mut().filter(|model|!model.is_trait&&!model.ambiguous) {
+        if let Some(table)=metadata.model_table(&model.full) {
+            model.table=Some(table.into());model.explicit_table=true;
+        }
+    }
+}
+
+/// Current-buffer class ancestry proof for scope transformations. Cached parents
+/// must be unambiguous, owned and outside the current file; no PHP executes.
+pub(crate) fn scope_model_source(index:&Index,doc:&Document)->bool {
+    let Some(project)=openidea_plugin::host::project_of(&doc.path) else{return false};
+    if doc.language!="php"||!crate::owns_current_path(&project,&doc.path){return false;}
+    let Some(current)=model(&doc.text,&doc.path).filter(|model|!model.is_trait&&!model.ambiguous) else{return false};
+    if index.eloquent_models.get(&current.full.to_ascii_lowercase()).is_some_and(|cached|cached.ambiguous||cached.path!=doc.path){return false;}
+    let mut current=&current;let mut seen=BTreeSet::new();
+    for _ in 0..8 {
+        if !seen.insert(current.full.to_ascii_lowercase()){return false;}
+        if current.base{return true;}
+        let Some(parent)=index.eloquent_models.get(&current.parent.to_ascii_lowercase()).filter(|parent|!parent.is_trait&&!parent.ambiguous&&parent.path!=doc.path&&crate::owns_current_path(&project,&parent.path)) else{return false};
+        current=parent;
+    }
+    false
+}
+/// Declaration and opening-body offsets without interpreting model properties.
+pub(crate) fn class_layout(text:&str)->Option<(usize,usize)> {
+    let source=Source::new(text)?;let names=Names::parse(&source)?;
+    let (_,start,body,_)=names.class.as_ref()?;if !source.is(*start,"class"){return None;}
+    let mut declaration=*start;
+    loop {
+        if declaration>0&&matches!(source.tokens[declaration-1].value,"final"|"abstract"|"readonly"){declaration-=1;continue;}
+        if declaration>0&&source.is(declaration-1,"]") {
+            if let Some(open)=source.pairs.iter().find(|(open,close)|**close==declaration-1&&source.is(**open,"[")).map(|(open,_)|*open).filter(|open|*open>0&&source.is(*open-1,"#")){declaration=open-1;continue;}
+        }
+        break;
+    }
+    Some((source.tokens[declaration].start,source.tokens[*body].end))
+}
+
+/// Exact class offsets and an optional literal fillable array, for reviewed
+/// native edits. Dynamic fillable declarations are withheld.
+pub(crate) fn edit_layout(text:&str)->Option<(usize,usize,Option<std::ops::Range<usize>>)> {
+    let source=Source::new(text)?;let names=Names::parse(&source)?;
+    let (_,start,body,_)=names.class.as_ref()?;
+    if !source.is(*start,"class") {return None;}
+    let mut fillable=None;
+    for (i,t) in source.tokens.iter().enumerate() {
+        if t.value=="$fillable" && source.paths[i]==vec![*body] {
+            if fillable.is_some() || !source.is(i+1,"=") || !source.is(i+2,"["){return None;}
+            let end=*source.pairs.get(&(i+2))?;
+            fillable=Some(source.tokens[i+2].start..source.tokens[end].end);
+        }
+    }
+    let mut declaration=*start;
+    loop {
+        if declaration>0 && matches!(source.tokens[declaration-1].value,"final"|"abstract"|"readonly") {declaration-=1;continue;}
+        if declaration>0 && source.is(declaration-1,"]") {
+            let opening=source.pairs.iter().find(|(open,close)|**close==declaration-1&&source.is(**open,"[")).map(|(open,_)|*open);
+            if let Some(open)=opening.filter(|open|*open>0&&source.is(*open-1,"#")){declaration=open-1;continue;}
+        }
+        break;
+    }
+    Some((source.tokens[declaration].start,source.tokens[*body].end,fillable))
 }
 
 fn entry(source: &Source, path: &str, token: usize) -> Entry {
@@ -905,11 +997,11 @@ impl<'a, 'b> Resolver<'a, 'b> {
             .index
             .eloquent_objects
             .get(&full.to_ascii_lowercase())?;
-        (!object.ambiguous && object.path != self.path && self.owned(&object.path))
+        (!object.ambiguous && object.path != self.path && self.owned(&object.path) && object.metadata_sources.iter().all(|path|self.owned(path)))
             .then_some(object)
     }
     fn returned(&self, method: &objects::Method, receiver: &Typed) -> Option<Typed> {
-        if method.static_method != (receiver.shape == Shape::Static) {
+        if !self.owned(&method.entry.path) || method.static_method != (receiver.shape == Shape::Static) {
             return None;
         }
         self.return_target(&method.target, receiver)
@@ -1145,6 +1237,8 @@ impl<'a, 'b> Resolver<'a, 'b> {
             .any(|model| model.declared.contains(name))
     }
     fn table(&self, full: &str) -> Option<&str> {
+        self.get(full)?;
+        if let Some(table)=self.index.metadata.model_table(full){return Some(table);}
         let lineage = self.lineage(full)?;
         if lineage.iter().any(|m| m.declared.contains("getTable")) {
             return None;
@@ -1163,7 +1257,7 @@ impl<'a, 'b> Resolver<'a, 'b> {
         } else {
             self.context.names.resolve(name)
         };
-        self.get(&name).map(|m| m.full.clone())
+        self.get(&name).map(|m| m.full.clone()).or_else(||self.object(&name).map(|o|o.full.clone()))
     }
     fn expr(&self, end: usize, depth: u8) -> Option<(Typed, usize)> {
         if depth > 16 || end == 0 {
@@ -1191,7 +1285,7 @@ impl<'a, 'b> Resolver<'a, 'b> {
                 return Some((
                     Typed {
                         model: self.class(t[open - 1].value)?,
-                        shape: Shape::Model,
+                        shape: if self.get(&self.class(t[open - 1].value)?).is_some(){Shape::Model}else{Shape::Object},
                     },
                     open - 2,
                 ));
@@ -1250,8 +1344,8 @@ impl<'a, 'b> Resolver<'a, 'b> {
             if last > 0 && s.is(last - 1, "new") {
                 return Some((
                     Typed {
+                        shape: if self.get(&full).is_some(){Shape::Model}else{Shape::Object},
                         model: full,
-                        shape: Shape::Model,
                     },
                     last - 1,
                 ));
@@ -1362,7 +1456,7 @@ impl<'a, 'b> Resolver<'a, 'b> {
         }
         Some(Typed {
             model: self.class(ty.value)?,
-            shape: Shape::Model,
+            shape: if self.get(&self.class(ty.value)?).is_some(){Shape::Model}else{Shape::Object},
         })
     }
     fn id_shape(&self, from: usize, to: usize) -> Option<Shape> {
@@ -1432,7 +1526,7 @@ impl<'a, 'b> Resolver<'a, 'b> {
         if receiver.shape == Shape::Enum {
             return None;
         }
-        if receiver.shape == Shape::Object {
+        if receiver.shape == Shape::Object || receiver.shape == Shape::Static && self.get(&receiver.model).is_none() {
             let method = self.object(&receiver.model)?.methods.get(name)?;
             return self.returned(method, &receiver);
         }
@@ -1648,12 +1742,12 @@ pub(crate) fn completion_checked(
     let Some(typed) = receiver(&resolver) else {
         return vec![];
     };
-    if typed.shape == Shape::Object {
+    if typed.shape == Shape::Object || typed.shape == Shape::Static && resolver.get(&typed.model).is_none() {
         let Some(info) = resolver.object(&typed.model) else {
             return vec![];
         };
         let mut items = vec![];
-        for name in info.properties.keys() {
+        for name in info.properties.keys().filter(|_|typed.shape!=Shape::Static) {
             let mut item = CompletionItem::new(name, CompletionKind::Property);
             item.detail = Some(format!("Value object · {}", info.full));
             item.replace = Some(Range::new(
@@ -1662,12 +1756,15 @@ pub(crate) fn completion_checked(
             ));
             items.push(item);
         }
-        for name in info.methods.keys() {
-            items.push(method_item(
-                name,
-                format!("Value object · {}", info.full),
-                &ctx,
-            ));
+        for (name,method) in info.methods.iter().filter(|(_,m)|m.static_method==(typed.shape==Shape::Static)) {
+            let mut item=method_item(name,format!("Value object · {}",info.full),&ctx);
+            if let Some(signature)=index.metadata.forwarded.get(&(info.full.to_ascii_lowercase(),name.to_ascii_lowercase())) {
+                item.detail=Some(format!("{}({}) → {}",name,signature.parameters.join(", "),signature.target));
+                item.documentation=Some(format!("Constructor parameters forwarded from `{}`.",info.full));
+                if item.snippet {let parameters=signature.parameters.iter().enumerate().map(|(i,p)|{let name=p.split('$').nth(1).unwrap_or("argument").split(|c:char|!c.is_ascii_alphanumeric()&&c!='_').next().unwrap_or("argument");format!("${{{}:{}}}",i+1,name)}).collect::<Vec<_>>().join(", ");item.insert_text=format!("{name}({parameters})$0");}
+            }
+            let _=method;
+            items.push(item);
         }
         return items
             .into_iter()
@@ -1919,6 +2016,9 @@ pub(crate) fn completion_checked(
             );
         }
     }
+    if typed.shape==Shape::Model && let Some(object)=resolver.object(&typed.model) {
+        for name in object.properties.keys() {let mut item=CompletionItem::new(name,CompletionKind::Property);item.detail=Some(format!("Declared/mixin property · {}",object.full));item.replace=Some(Range::new(text::position(&doc.text,ctx.start),text::position(&doc.text,ctx.end)));items.entry(name.clone()).or_insert(item);}
+    }
     if matches!(typed.shape, Shape::Model | Shape::Static) {
         let mut seen = BTreeSet::new();
         for model in resolver.lineage(&typed.model).unwrap_or_default() {
@@ -1975,12 +2075,10 @@ pub(crate) fn definition_checked(
         owner_cache: RefCell::new(BTreeMap::new()),
     };
     let typed = receiver(&resolver)?;
-    if typed.shape == Shape::Object {
+    if typed.shape == Shape::Object || typed.shape == Shape::Static && resolver.get(&typed.model).is_none() {
         let info = resolver.object(&typed.model)?;
-        return info.properties.get(ctx.member).cloned().or_else(|| {
-            info.methods
-                .get(ctx.member)
-                .map(|method| method.entry.clone())
+        return info.properties.get(ctx.member).filter(|_|typed.shape!=Shape::Static).cloned().or_else(|| {
+            info.methods.get(ctx.member).filter(|method|method.static_method==(typed.shape==Shape::Static)).map(|method| method.entry.clone())
         });
     }
     if typed.shape == Shape::Enum {
@@ -1992,6 +2090,7 @@ pub(crate) fn definition_checked(
         };
     }
     resolver.get(&typed.model)?;
+    if typed.shape==Shape::Model && let Some(property)=resolver.object(&typed.model).and_then(|object|object.properties.get(ctx.member)) {return Some(property.clone());}
     if matches!(typed.shape, Shape::Model | Shape::Static) {
         if let Some(method) = resolver
             .lineage(&typed.model)?
@@ -2576,6 +2675,20 @@ pub(crate) fn source_class_name(text: &str, name: &str) -> Option<String> {
     }
     let source = Source::new(text)?;
     Some(Names::parse(&source)?.resolve(name))
+}
+
+/// Constructor-forwarded signatures use cached owned declarations, never source reads.
+pub(crate) fn forwarded_signature_help_checked(index:&Index,doc:&Document,at:Position,owns:&dyn Fn(&str)->bool)->Option<openidea_plugin::language_features::SignatureHelp>{
+    use openidea_plugin::language_features::{SignatureHelp,Signature,Parameter,ParameterLabel};
+    let offset=text::offset(&doc.text,at)?;let source=Source::new(&doc.text)?;let names=Names::parse(&source)?;
+    let open=(0..source.tokens.len()).rev().find(|&i|source.is(i,"(")&&source.tokens[i].start<offset&&source.pairs.get(&i).is_none_or(|&end|source.tokens[end].start>=offset))?;
+    if open<3||!source.is(open-2,"::")||source.tokens[open-3].kind!=Kind::Name||source.tokens[open-1].kind!=Kind::Name{return None;}
+    let full=names.resolve(source.tokens[open-3].value);let method=source.tokens[open-1].value;
+    let signature=index.metadata.forwarded.get(&(full.to_ascii_lowercase(),method.to_ascii_lowercase()))?;
+    if !owns(&signature.entry.path)||!signature.sources.iter().all(|path|owns(path)){return None;}
+    let mut parameter=0;let mut cursor=open+1;
+    while cursor<source.tokens.len()&&source.tokens[cursor].start<offset {if source.is(cursor,","){parameter+=1;}if let Some(&end)=source.pairs.get(&cursor).filter(|&&end|end>cursor){if source.tokens[end].start<offset{cursor=end+1;continue;}}cursor+=1;}
+    Some(SignatureHelp{signatures:vec![Signature{label:format!("{full}::{method}({}): {}",signature.parameters.join(", "),signature.target),documentation:Some("Declared constructor parameters forwarded through project metadata.".into()),parameters:signature.parameters.iter().map(|p|Parameter{label:ParameterLabel::Text(p.clone()),documentation:None}).collect()}],active_signature:0,active_parameter:parameter})
 }
 
 #[cfg(test)]

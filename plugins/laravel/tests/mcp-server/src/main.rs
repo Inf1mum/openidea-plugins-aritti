@@ -1,4 +1,4 @@
-//! Deferred, opt-in acceptance against the released host Registry and HTTP MCP server.
+//! Opt-in acceptance against the released host Registry and HTTP MCP server.
 //! This uses only a newly-created disposable project and profile, never the user's IDE.
 use ide_core::IdeEvent;
 use ide_host::{
@@ -204,7 +204,7 @@ async fn main() {
     assert_eq!(
         std::env::var("LARAVEL_RUN_MCP_ACCEPTANCE").ok().as_deref(),
         Some("1"),
-        "Deferred acceptance: explicitly set LARAVEL_RUN_MCP_ACCEPTANCE=1 when authorized to run tests"
+        "Acceptance is opt-in: explicitly set LARAVEL_RUN_MCP_ACCEPTANCE=1"
     );
     let package = std::env::args_os()
         .nth(1)

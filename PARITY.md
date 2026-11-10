@@ -1,6 +1,6 @@
 # Parity with IntelliJ IDEA plugins
 
-**Current Laravel comparison:** [public documentation walkthrough, direct image links and source-only status](#laravel-idea-public-documentation-comparison-current-source).
+**Current Laravel acceptance:** [feature ledger and current-host capability qualification](docs/laravel-parity-acceptance.md). The [public documentation comparison](#laravel-idea-public-documentation-comparison-current-source) remains a source inventory, not verified runtime parity.
 
 **API 1.4 released (v0.1.40, 2026-11-09):** [Current blocker requalification](docs/parity-2026-11-08-refresh/api14-release-requalification/README.md). Canonical packages now target SDK v0.1.40 / API1.4; see the [native migration record](docs/native-api-migration-implementation-2026-11-09.md). Historical parity counters and dated validation receipts have not been promoted by this source migration.
 
@@ -31,7 +31,7 @@ Path: **Source** = ported from an open-source repo, licence files kept. **Clean-
 | `ideolog` | Ideolog (log viewer) | Source | Medium | Log language can't take a plugin syntax, no line hiding, no scrollbar marks, caret can't move (no extended selection), time-gap colouring only as a setting (audit v2), no banners. Added: level detection for 11 built-in formats plus custom, Next Warning / Next Exception, more stack-frame formats (Ruby, PHP, Go, Dart, Swift) Backlog pass: Patterns view (no XML), format status item, time-gap colouring. |
 | `quarkus` | Quarkus Tools (`com.redhat.devtools.intellij.quarkus`) | Source | Low-Medium | LSP4MP and qute-ls unusable (hover, code lens, Qute, JAX-RS, Java diagnostics), no wrapper runs, bundled metadata only (about 170 `io.quarkus` extensions, 2,797 keys, was 42; no Quarkiverse), no project wizard, no required-property check (the metadata has no required-ness). Added: duplicate-key, missing-separator, invalid-value (conservative), typo-only undefined `${}` expression, unassigned-value hint Backlog pass: named instances, opt-in required-key and unassigned checks, Java `@ConfigProperty` completion and checks, key to declaration navigation; Qute still out. |
 | `spring-osgi` | Spring OSGi (`com.intellij.spring.osgi`) | Source | Medium | Checks needing real type resolution, no Generate-menu API Backlog pass: unresolved `ref` Info, `ref` sorting, `osgix` tags, Generate OSGi bean command. |
-| `laravel` | Laravel Plugin (`de.espend.idea.laravel` 0.15.4, free) | Source (partial) + Laravel docs | High vs the free plugin; Medium vs Laravel Idea (paid) | Service container and facades, Eloquent relations and accessors, `Blade::directive()` in vendor code (project `app/**` ones complete), component slots/attributes, Run Artisan Command, Generate with artisan make, New Eloquent Model, Generate for Model and Create Missing View/Component/Controller ask via pick/input and run `php artisan make:*` in a terminal (stock stubs, no field or relation filling; needs process:php), `artisan` run configurations are fixed commands (serve, test, queue:work, schedule:work, shown in every project with an `artisan` file; db:seed and migrate:fresh commands), Extract partial view; the 16 New-menu file templates have fixed namespaces and no prompts. Added by the feasible pass: Eloquent checks (guarded assignment, unscheduled prunable, `orderBy` to `latest()`/`oldest()` fix), rules array to pipe string intention, Ziggy `route()` completion and definition in JS/TS/Vue (no Inertia page completion in JS); no scope-to-attribute intention, no Pest navigation, no FormRequest promotion. Added by the gap F pass: `env-outside-config`, `latest(col)`/`oldest(col)` for date columns, `@class`, bulk rule/controller, `Rule::` object and facade-import rewrites, `controllersNamespace`, `ide-blade.json` namespaces (project root and `.idea/` only), about 45 Blade directive snippets. Added since the first rating: missing-name problems for Blade and Livewire components, Livewire directives, Inertia pages and model factories, `@` directive completion in Blade (core, Livewire, project `Blade::directive`), intentions (validation string to array, controller string to class array, Blade `{{ }}` / `{!! !!}` toggle), New-menu templates, artisan run detectors. Features the free plugin lacks: env, middleware, Vite, validation rules, gates, migration columns, tool window. Not run in a Laravel project in the IDE Backlog pass: Livewire/route controller problems, Find Unused Views, indexer links, component/column/container completion, intentions, 11 templates, artisan generators that ask and run in a terminal. |
+| `laravel` | Laravel Plugin (`de.espend.idea.laravel` 0.15.4, free); Laravel Idea 13.4 public behavior | Source (partial) + public docs | Partial; full parity not achieved | Native model/preset wizards, Models tree, metadata/helpers, About, local/Docker Artisan, runtime/database workflows and tested MCP now exist. Remaining gaps include semantic usages/Rename, model/factory/helper depth, complete module/package generation, metadata/override consistency, validation/extraction contexts and external-service lifecycle. Scope version gating and migration column-change replay are now covered by regression tests. See the [current recheck](docs/laravel-parity-acceptance.md#current-parity-recheck--2026-11-10); passing tests do not establish full desktop parity. |
 | `blade` | Blade support (PhpStorm) | Clean-room | Low-Medium | Highlight, structure, folding; `@` directive completion (core, Livewire, project `Blade::directive`), the `{{ }}` / `{!! !!}` toggle and the unknown-component checks come from `aritti.laravel`, so a blade-only install lacks them. Unpaired directive and unbalanced-parenthesis inspections added (`blade` alone; a first activating file is checked on its next open/save). No PHP/HTML injection (own approximate lexer), custom directives not highlighted, no formatter; directive snippets live in `aritti.laravel`, `blade` itself did not change in the gap F pass; `*.blade.php` resolving to the `blade` language is read in the host source but not run in the IDE Backlog pass: no code change; the README records that directive completion belongs to `aritti.laravel`. |
 | `symfony` | Symfony Support (Espendiller/Brault) | Source | Medium | No references/rename/hover, no Twig-in-PHP injection, no file-creating quick fixes. Added by the gap F pass: 5 Twig checks, 3 YAML/XML checks, 5 PHP class checks (Symfony 8.1 deprecations gated), 6 Doctrine checks, six code actions, tag-name completion, `twigNamespaces` setting, 3 service-config templates, file icons and a status item. Added by the feasible pass: about 10 text inspections (missing controller method, deprecated route settings and service classes, duplicate parameter key, unknown named argument, removed form type names, missing asset, unknown translation domain, Twig missing route/asset) and 9 New-menu templates with fixed namespaces; project classes only. Added: Twig `paths:` namespaces (twig.yaml only), Profiler view (latest 100 requests, rows not clickable), duplicate `<service id>` in one XML file, unquoted `@`/`%` YAML values with a quote quick fix, Twig completion and unclosed-tag problem (see `twig`) Backlog pass: Go to Declaration from the index, many container, Twig and Doctrine checks, generators, console/route/service pickers (unverified in the IDE). |
 | `twig` | Twig support (PhpStorm) | Clean-room | Low-Medium | Highlighting, structure and folding from `aritti.twig`; completion of tags, filters, functions and tests (static lists), thirteen snippets and the unclosed-tag, end-without-opener and unterminated-delimiter problems now come from `aritti.twig` itself (in a Symfony project `aritti.symfony` keeps name completion and unclosed-tag, so nothing is doubled). No custom-extension names, no macro completion/navigation, no formatter, no auto-close, no HTML intelligence inside Twig Backlog pass: own completion, snippets and inspections; formatter skipped (OpenIDEA only runs Prettier and Ruff). |
@@ -224,68 +224,74 @@ Original features with no OpenIDEA equivalent, so no port is possible yet: Sprin
 
 ## Laravel Idea public documentation comparison (current source)
 
-Reference: [official overview](https://laravel-idea.com/docs/overview) and its linked
-feature, configuration, module and package pages. This review uses public behavior
-and documentation images. It does not use proprietary implementation code and does
-not establish side-by-side runtime parity.
+**Rechecked 2026-11-10 against the current working tree and public Laravel Idea
+13.4 documentation. Full parity is not achieved, including after excluding the
+narrow confirmed API restrictions.** The [current acceptance recheck](docs/laravel-parity-acceptance.md#current-parity-recheck--2026-11-10)
+supersedes earlier missing-feature claims and separates implementation, tests and
+remaining acceptance. Historical inventories below are not today's checklist.
 
-**Evidence status:** the current source includes the four-agent follow-up below,
-but its builds, tests and desktop acceptance were explicitly deferred by the user.
-Prepared tests are not passed tests. Earlier validation receipts and historical
-ratings/counters remain tied to their original artifacts. The inventory in the next
-section is a dated historical baseline, not the current implementation checklist.
+**Latest completed batch:** New Model has independent factory/resource field and resource relation selectors. Existing-model resources also offer owned casts/accessors/PHPDoc/appends and proven cached schema fields, with source/capture freshness checks. See the [current receipt](docs/laravel-parity-acceptance.md#rich-resource-fields-and-new-model-output-selections--2026-11-10).
 
-The image links below point directly to the assets linked by the official pages.
-They are external reference illustrations, not screenshots of our plugin. Several
-PNG requests timed out during this review, and the browser tool could not preview
-GIF assets; those links are still recorded as documentation-linked references,
-without claiming that their visual contents were independently inspected. No image
-assets were copied into the plugin or repository.
+**Related-generator configuration follow-up:** existing-model factory/resource actions now honor native per-kind settings, module availability and overrides, base classes, postfix defaults and configured Composer proofs. Factories retain writable schema fields; resources now offer richer source/capture choices and New Model output selectors are implemented. See the [latest implementation receipt](docs/laravel-parity-acceptance.md#related-generator-configuration-follow-up--2026-11-10).
 
-| Workflow | Official documentation and image references | Current source coverage | Remaining documented workflow |
-|---|---|---|---|
-| Model creation | [Generation](https://laravel-idea.com/docs/generation); [model wizard image](https://laravel-idea.com/img/docs/generation/new_model.png); [index editor image](https://laravel-idea.com/img/docs/generation/model_indexes.png) | Artisan generator forms expose captured arguments/options; templates and migration-derived factory/resource generation exist. | A unified field/relation/index editor that coordinates model, migration and related-class generation. |
-| Eloquent model overview | [Eloquent](https://laravel-idea.com/docs/eloquent#eloquent-model-ui); [model overview image](https://laravel-idea.com/img/docs/eloquent/model_ui.png) | Cached model/table/column/relation/scope facts and source navigation exist. | A dedicated model overview with navigable fields, related classes and a Create Fields migration workflow. |
-| Eloquent type intelligence and helpers | [Eloquent](https://laravel-idea.com/docs/eloquent); [helper menu image](https://laravel-idea.com/img/docs/eloquent/main_menu.png); [relationship query image](https://laravel-idea.com/img/docs/eloquent/lambda_where.png); [factory generation GIF](https://laravel-idea.com/img/docs/eloquent/factory_generation.gif) | Bounded source inference covers known model/query/collection chains, enum/custom casts, traits, typed returns and direct known `withCount` chains. New trait adaptations and Composer-root support are source-only, awaiting validation. | Database-backed field metadata, generated PHP helpers, collection proxies, general PHP type resolution and safe custom factory inference. |
-| Artisan | [Commands](https://laravel-idea.com/docs/commands); [run dialog image](https://laravel-idea.com/img/docs/commands/run-dialog.png); [terminal completion image](https://laravel-idea.com/img/docs/commands/terminal-completions.png) | Searchable command forms, exact structured argv, captured execution/output/history and terminal dispatch; local PHP/Docker selection. Bind-backed Compose/Sail/DDEV discovery was added in source. | Terminal command/parameter autocomplete and deeper interpreter/command-class integration. DDEV Mutagen volume roots remain unsupported by the current bind-proof adapter. |
-| Routing | [Routing](https://laravel-idea.com/docs/routing); [route search image](https://laravel-idea.com/img/docs/routing/search.png); [inline route hints image](https://laravel-idea.com/img/docs/routing/inlays.png) | Route-name/controller completion, source links, searchable static/runtime route inventories and cURL/HTTP-file actions. | Rich inline hints/actions and broader configurable route registration semantics. The existing table/gutter workflows do not establish the same inline experience. |
-| Validation and transformations | [Requests and validation](https://laravel-idea.com/docs/request_validation); [add model fields GIF](https://laravel-idea.com/img/docs/requests/add_eloquent_fields.gif); [intention behavior examples](https://laravel-idea.com/docs/intention-actions) | Validation-rule completion, migration-derived field insertion, selected rule/controller/facade transformations and a narrowly reviewed literal FormRequest promotion. | Configurable validation contexts and broader binding-aware transformations across ordinary controller methods and expressions. |
-| Blade components and layouts | [Blade](https://laravel-idea.com/docs/blade); [component parameter image](https://laravel-idea.com/img/docs/blade/component_parameters.png) | View/layout/section/stack names, component tags, props/slots and source navigation; Views/Components inventories use the shared native-style UI. | Broader typed PHP/HTML component contexts and more complete semantic usages/refactoring. Literal source matches are not equivalent to semantic usages. |
-| Localization | [Localization](https://laravel-idea.com/docs/localization); [key completion image](https://laravel-idea.com/img/docs/localization/keys.png) | Translation-key completion/navigation, multilingual inventory and selected extraction/key-creation workflows. | Compare individual generation/refactoring contexts during later acceptance; the multilingual inventory alone does not establish generation parity. |
-| Project/package metadata | [ide.json overview](https://laravel-idea.com/docs/ide_json/overview); [completion configuration](https://laravel-idea.com/docs/ide_json/completion); [custom-call completion image](https://laravel-idea.com/img/docs/ide_json/sample_completion.png) | `ide-blade.json` supplies extra view roots/namespaces; settings and literal Composer roots cover selected conventions. | A general declarative metadata layer for custom functions/methods, completion positions, package conventions and related navigation. Full `ide.json` compatibility is not implemented. |
-| Modules and custom generation | [Modules](https://laravel-idea.com/docs/modules); [module settings image](https://laravel-idea.com/img/docs/modules/settings.png); [custom generations](https://laravel-idea.com/docs/custom_generations); [generator settings image](https://laravel-idea.com/img/docs/custom_generations/service_window.png) | Selected configurable roots, Composer-mapped sources and package-gated generators. | Explicit module selection, module-aware related-file generation, reusable custom generation definitions and project/team templates. PSR-4 scanning alone is not a module system. |
-| Livewire and Inertia | [Livewire](https://laravel-idea.com/docs/livewire); [wire parameter GIF](https://laravel-idea.com/img/docs/blade/livewire_wire_parameter.gif); [Inertia](https://laravel-idea.com/docs/inertia); [Inertia settings image](https://laravel-idea.com/img/docs/packages/inertia_settings.png) | Component/directive/attribute/method support for selected source patterns, page-name support and package-gated templates/generators. | More configurable package roots/conventions and broader typed component integration. |
-| Nova and Filament | [Nova](https://laravel-idea.com/docs/nova); [Nova resource GIF](https://laravel-idea.com/img/docs/packages/nova_resource.gif); [Filament](https://laravel-idea.com/docs/filament); [Filament model-generation image](https://laravel-idea.com/img/docs/packages/filament_resource-new_eloquent_model.png) | Package detection exposes relevant resource generators/templates. | Package-specific field generation settings and a unified model-generation flow incorporating those resources. |
+**Existing-model generation follow-up:** factory/resource entry points now offer field selection, explicit owned factory mappings and loaded-relation resource wrappers. Unmapped factory fields and New Model inferred mappings/wrappers remain partial. See the [implementation receipt](docs/laravel-parity-acceptance.md#existing-model-generation-follow-up--2026-11-10).
 
-### Four-agent source follow-up, awaiting validation
+**Latest implementation:** native generators now expose per-kind/module paths,
+namespaces and availability, with Composer ownership proofs and scoped custom
+templates. Models shows typed cast/accessor/inherited and related-class facts;
+helper parameters persist per project and have a reviewed regeneration entry.
+Named database connection/schema selection is retained in model and migration
+output. Explicit metadata adds gates, middleware, model/table associations,
+custom Route methods and all four documented Blade component sources. Artisan
+forms preserve additional quoted argv through preview/run/history/rerun;
+controller-string rewrites handle broader proven qualified/imported identities.
+These scoped additions do not close the broad baseline rows or establish real
+native desktop, Docker or connected-service acceptance.
 
-- **Docker:** project-scoped discovery/selection, broader verifiable bind layouts,
-  displayed target identity and separate target drafts; old-job Rerun is disabled
-  when the selected target differs. Volume-only/Mutagen mappings remain unverified.
-- **Runtime:** driver-aware queue metrics, Linux worker visibility, selected-log
-  tails and reviewed selected failed-job retry. Snapshots/actions retain Docker
-  target evidence. Reserved jobs are not reported as proven running jobs; no live
-  request/query/event instrumentation has been added.
-- **MCP:** lifecycle tools remain usable after source-index removal; structured
-  execution inputs are checked before runner changes; raw logs require explicit
-  opt-in. A real server acceptance harness is prepared, not executed. The released
-  host's metadata confirmation does not establish an exact argv review.
-- **Eloquent:** bounded trait aliases/visibility/precedence, literal PSR-4 source
-  roots, selected nullable/intersection return inference and known relationship
-  count attributes. Ambiguous non-null unions, DNF types, dynamic casts/autoloading
-  and custom factory inference remain unresolved.
+| Area | Current coverage | Remaining gap |
+|---|---|---|
+| Model wizards | Native model/field/relation/index editor, related-file preview, Keep-mode preservation and atomic native/selected-model generation | Package resources, richer factory/resource mapping, broader existing-model layouts and complete related-file behavior |
+| Modules/custom generators | Project/user presets and CRUD, indexed models, calculations/overrides, scoped shared/conditional templates, owned Composer modules, per-kind paths/namespaces and Application/module availability | Actual nWidart scaffolding, remaining template capabilities and complete version-specific generation remain incomplete |
+| Models/database | Grouped typed model/member tree, accessor/cast/inherited/related-class facts, captured schema, model-from-table and named local/Docker connection registration with reviewed mapping | Unsupported schema metadata, complete per-model connection/type binding, general field usages/rename and real Database/Docker acceptance |
+| Eloquent/helpers | Bounded chains/casts/relations/traits, mixins, constructor forwarding, helper-only/preserve/overwrite actions, persistent project storage/count/date settings and reviewed project regeneration entry | Factory result inference, general proxies/generics, runtime-field helper merging, automatic refresh and full container/facade type resolution |
+| Schema evolution | SQL CREATE, custom Blueprint facts and ordered rename/change/drop | SQL ALTER/constraints and dynamic completeness remain unresolved |
+| Metadata/Vite | Supported ide.json argument/root/package/database/helper domains; explicit gates/middleware/modelTables/custom routes and four Blade component sources; literal Vite config/manifests | Arbitrary receiver/array/return contexts, remaining metadata and full version-specific package behavior |
+| Routes/editor | Literal/static/runtime inventories, fuzzy Route Search, inlays, request-action lenses/gutters, source-verified captured endpoints, reviewed view rename, hover and selected signatures | Attribute/general registrations, type-definition export, native Find Usages and PHP class-component rename |
+| Validation/refactoring | Rule builders, version-gated Eloquent Scope conversion, narrow FormRequest promotion, scoped dependency transformations, qualified/imported controller-string conversion, layout/component extraction and overrides | General request/rule-argument contexts, external/mutated request bindings and complex Blade scopes |
+| Blade/packages | Names, selected props/slots/Livewire methods, configured Inertia roots, Passport scopes and Wayfinder navigation | Typed/PHPDoc values, vendor directives, PHP expression injection, complete Livewire/Volt and Nova/Filament/other package-specific behavior |
+| Application/operations | About, console Run markers, quoted additional Artisan argv with matching captured preview/run/history/rerun, managed Processes, structured Monolog origins/traces/previous exceptions and runtime snapshots | Full processor/context/error-format coverage, exact Blade line mapping and external-service acceptance; restart/reconnect equivalence remains unqualified |
+| Sentry/Cloud | Secret-backed read-only issue/app/environment lists, details and bounded explicit pagination | OAuth, endpoint variants and connected-account acceptance; deployment/management equivalence is unqualified |
+| MCP/integrations | Seven tools and passing real loopback-server/compiled fixture receipts | Project Laravel-MCP route understanding and precise integration scope; terminal completion, Qodana and other hooks remain open/unqualified |
 
-Current implementation details: [Laravel README](plugins/laravel/README.md#follow-up-source-implementation-validation-deferred).
-Prepared MCP acceptance: [harness instructions](plugins/laravel/tests/mcp-server/README.md).
+**Current frozen-source checks:** 828 Laravel tests passed, 10 ignored; generated PHP lint and Chromium/WebKit generator, Artisan and Models fixtures passed. API 1.4 build/check, compiled real-Laravel smoke and real HTTP MCP acceptance passed; exact artifact evidence is in the acceptance ledger.
 
-The next substantial workflows identified by this comparison are the Eloquent
-model overview/field-and-migration wizard, declarative project metadata, and
-module-aware custom generation. These are follow-up opportunities, not newly
-implemented or validated features.
+**Earlier integration receipt (before the latest batch):** 777 Laravel tests passed, 9 ignored; 59 Blade tests passed.
+Generator Chromium/WebKit fixtures, relevant explicit PHP lint/Monolog replay
+checks, both API 1.4 packages, compiled Wasm/real-Laravel smoke and real HTTP MCP
+acceptance passed. Exact artifact evidence is in the ledger. Real desktop
+transactions, project installation, Docker and connected services remain unverified.
+
+**Confirmed API restrictions are narrow:** the pinned SDK has no direct general
+FileAction application from a webview, and its Injection record cannot express
+arbitrary virtual prefix/suffix context. Editor-action transactions and physical
+injection ranges remain available. Native indexed Rename substitutes unvalidated raw
+replacement text; literal framework names use reviewed typed FileActions instead.
+Missing PHP inference, package logic, metadata handling or database lifecycle are
+not API exclusions.
+Terminal completion hook availability still requires a precise audit. The baseline
+explicitly excludes route-name refactoring; our reviewed literal rename is an
+extra capability. Controller refactoring/usages remain relevant.
+
+Sources: [generation](https://laravel-idea.com/docs/generation),
+[Eloquent](https://laravel-idea.com/docs/eloquent),
+[metadata](https://laravel-idea.com/docs/ide_json/overview),
+[intentions](https://laravel-idea.com/docs/intention-actions),
+[modules](https://laravel-idea.com/docs/modules),
+[changelog](https://laravel-idea.com/docs/changelog).
 
 ## Laravel Idea 13.4.1 feature inventory (paid baseline)
 
-**Historical 2026-11-06 inventory.** Use the [current public-doc comparison](#laravel-idea-public-documentation-comparison-current-source) above for today's source scope; the following ratings and API-availability statements have not been rewritten as new acceptance evidence.
+**Historical 2026-11-06 inventory.** Use the [current acceptance ledger](docs/laravel-parity-acceptance.md) for current scope and SDK qualification. The following rows are retained as historical evidence and contain superseded API claims (including file creation, hover, inlays, endpoints/search and Database support). They must not be read as current exclusions or new acceptance evidence.
 
 Source: the extension descriptors, action ids, inspection/intention names and template names of `laravel-idea-13.4.1.261.jar`, the feature list was compiled at the owner's request on 2026-11-06 from the plugin's descriptor and action and template names. No code, strings or icons were copied. This deviates from the repo's clean-room default for paid plugins.
 

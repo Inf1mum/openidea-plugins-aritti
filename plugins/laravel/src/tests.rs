@@ -1495,6 +1495,7 @@ const NEW_RULES: &str = "/project/app/A.php";
 #[test]
 fn static_class_attribute_converts_to_class_directive() {
     let host = MockHost::install();
+    host.add_file("composer.lock",r#"{"packages":[{"name":"laravel/framework","version":"v11.0.0"}]}"#);
     let mut plugin = activated(&host);
     let text = "<div class=\"btn btn-primary\">x</div>\n";
     let result = apply_titled(&mut plugin, NEW_BLADE, "blade", text, "btn-primary", "Convert class attribute to @class");
@@ -1504,6 +1505,7 @@ fn static_class_attribute_converts_to_class_directive() {
 #[test]
 fn class_attribute_with_echo_wraps_into_class_directive() {
     let host = MockHost::install();
+    host.add_file("composer.lock",r#"{"packages":[{"name":"laravel/framework","version":"v11.0.0"}]}"#);
     let mut plugin = activated(&host);
     let text = "<div id=\"a\" class=\"btn {{ $size }}\">x</div>\n";
     let result = apply_titled(&mut plugin, NEW_BLADE, "blade", text, "btn {{", "Wrap class attribute in @class");
@@ -1708,6 +1710,7 @@ fn rewrites_applied_twice_do_not_duplicate_imports() {
 #[test]
 fn new_rewrites_survive_multibyte_text_and_crlf() {
     let host = MockHost::install();
+    host.add_file("composer.lock",r#"{"packages":[{"name":"laravel/framework","version":"v11.0.0"}]}"#);
     let mut plugin = activated(&host);
     let text = "<?php\r\nnamespace App;\r\n\r\nuse Foo\\Bar;\r\n\r\n// é日本\r\n$request->validate(['f' => ['é', 'in:a,b']]);\r\n";
     let result = apply_titled(&mut plugin, NEW_RULES, "php", text, "in:a", "Convert to Rule::in(['a', 'b'])");
@@ -1977,26 +1980,26 @@ fn make_asks_then_runs_artisan_in_a_terminal() {
 }
 
 #[test]
-fn new_model_passes_the_flags() {
+fn legacy_model_generator_passes_the_flags() {
     let host = MockHost::install().with_capabilities(&["project.read", "events", "process:php", "editor.read", "editor.write"]);
-    let mut plugin = activated(&host);
+    let plugin = activated(&host);
     host.answer_next_prompt(Some(&["Tag"]));
     host.answer_next_prompt(Some(&["-m", "-f"]));
-    plugin.run_command("new-model", &host.invocation(), None).unwrap();
+    generate::make(&plugin.artisan_terminals, &host.invocation(), plugin.view_index(&host.invocation()), Some("model"), "").unwrap();
     assert_eq!(terminal_args(&host, &plugin), [["artisan", "make:model", "Tag", "-m", "-f"]]);
 }
 
 #[test]
 fn make_rejects_unsafe_names_and_honours_dismissal() {
     let host = MockHost::install().with_capabilities(&["project.read", "events", "process:php", "editor.read", "editor.write"]);
-    let mut plugin = activated(&host);
+    let plugin = activated(&host);
     for bad in ["Foo; rm -rf /", "--force", "$(id)", "Foo Bar", "..\\x", ""] {
         host.answer_next_prompt(Some(&[bad]));
-        assert!(plugin.run_command("new-model", &host.invocation(), None).is_err(), "{bad}");
+        assert!(generate::make(&plugin.artisan_terminals, &host.invocation(), plugin.view_index(&host.invocation()), Some("model"), "").is_err(), "{bad}");
     }
-    assert!(plugin.run_command("new-model", &host.invocation(), None).unwrap().is_none());
+    assert!(generate::make(&plugin.artisan_terminals, &host.invocation(), plugin.view_index(&host.invocation()), Some("model"), "").unwrap().is_none());
     host.answer_next_prompt(Some(&["Tag"]));
-    assert!(plugin.run_command("new-model", &host.invocation(), None).unwrap().is_none());
+    assert!(generate::make(&plugin.artisan_terminals, &host.invocation(), plugin.view_index(&host.invocation()), Some("model"), "").unwrap().is_none());
     assert!(host.terminals().is_empty());
 }
 
@@ -2337,15 +2340,24 @@ fn config_app_providers_complete_project_providers() {
 }
 
 #[test]
-fn generate_for_a_selected_model_writes_a_factory_with_its_columns() {
+fn generate_for_a_selected_model_prepares_an_atomic_factory_creation() {
     let host = MockHost::install().with_capabilities(&["project.read", "project.write", "events", "process:php", "editor.read"]);
     let mut plugin = activated(&host);
     host.select_paths(&["/project/app/Models/Post.php"]);
     host.answer_next_prompt(Some(&["factory"]));
     host.answer_next_prompt(Some(&["PostFactory"]));
+    host.answer_next_prompt(Some(&["all"]));
     plugin.run_command("generate-for-model", &host.invocation(), None).unwrap();
 
-    let body = host.invocation().project().unwrap().read_file("database/factories/PostFactory.php").unwrap();
+    let project=host.invocation().project().unwrap();
+    assert!(!project.exists("database/factories/PostFactory.php").unwrap());
+    use openidea_plugin::file_actions::{FileActions,FileOperation};
+    let source=project.read_file("app/Models/Post.php").unwrap();let document=doc("/project/app/Models/Post.php","php",&source);
+    let action=plugin.file_actions(&document,Range::new(Position::new(0,0),Position::new(0,0))).into_iter().find(|action|action.data.as_deref().is_some_and(|key|key.starts_with("bulk-generate:"))).unwrap();
+    host.answer_next_prompt(Some(&["yes"]));let action=plugin.resolve_file_action(&document,action).unwrap();
+    let [FileOperation::Create{path,text:body,overwrite}]=action.operations.as_slice() else{panic!("one atomic creation")};
+    assert!(path.ends_with("database/factories/PostFactory.php"));assert!(!overwrite);
+    assert!(!project.exists(path).unwrap(),"preparing returns an edit without writing");
     assert!(host.process_runs().is_empty());
     assert!(body.contains("'title' => fake()->sentence(),") && body.contains("'body' => fake()->paragraph(),"), "{body}");
     assert!(!body.contains("created_at"), "{body}");
@@ -2353,14 +2365,18 @@ fn generate_for_a_selected_model_writes_a_factory_with_its_columns() {
 }
 
 #[test]
-fn resource_body_lists_columns_and_falls_back_to_artisan_without_project_write() {
+fn resource_body_prepares_editor_application_without_running_artisan() {
     let host = MockHost::install().with_capabilities(&["project.read", "events", "process:php", "editor.read"]);
     let mut plugin = activated(&host);
     host.select_paths(&["/project/app/Models/Post.php"]);
     host.answer_next_prompt(Some(&["resource"]));
     host.answer_next_prompt(Some(&["PostResource"]));
+    host.answer_next_prompt(Some(&["all"]));
     plugin.run_command("generate-for-model", &host.invocation(), None).unwrap();
-    assert_eq!(terminal_args(&host, &plugin), [["artisan", "make:resource", "PostResource"]]);
+    assert!(host.terminals().is_empty());
+    assert!(host.process_runs().is_empty());
+    assert!(!host.invocation().project().unwrap().exists("app/Http/Resources/PostResource.php").unwrap());
+    assert_eq!(host.invocation().editor().unwrap().path(),"/project/app/Models/Post.php");
 
     let index = plugin.indexes.values().next().unwrap();
     let source = bulk::resource_source(index, "Post", "PostResource");
@@ -2463,7 +2479,7 @@ fn laravel_window_has_separate_resource_tabs() {
     }
     let group: serde_json::Value = serde_json::from_str(include_str!("ui_group.json")).unwrap();
     let tabs = group["tabs"].as_array().unwrap();
-    assert_eq!(tabs.len(), 9);
+    assert_eq!(tabs.len(), 14);
     assert!(tabs.iter().all(|tab| tab["icon"].as_str().is_some_and(|icon| !icon.is_empty())));
 }
 
@@ -2878,11 +2894,15 @@ fn packaged_resource_tabs_include_icons_and_cached_inventory_counts() {
     let reply: serde_json::Value = serde_json::from_str(&messages.last().unwrap().1).unwrap();
     let tabs = reply["model"]["viewTabs"].as_array().expect("bridge tabs");
     let index = plugin.view_index(&ctx).unwrap();
-    assert_eq!(tabs.len(), 9);
-    for (tab, count) in tabs.iter().zip([index.route_defs.len(), index.views.len(), index.components.len() + index.livewire.len(), index.config.len(), index.translations_by_locale.values().map(Names::len).sum(), index.middleware.len(), index.env.len()]) {
+    assert_eq!(tabs.len(), 14);
+    for (id, count) in [(VIEW, index.route_defs.len()), ("laravel-views", index.views.len()), ("laravel-components", index.components.len()+index.livewire.len()), ("laravel-config", index.config.len()), ("laravel-translations", index.translations_by_locale.values().map(Names::len).sum()), ("laravel-middleware", index.middleware.len()), ("laravel-env", index.env.len())] {
+        let tab = tabs.iter().find(|tab|tab["id"] == id).unwrap();
         assert!(tab["icon"].as_str().is_some_and(|icon| !icon.is_empty()));
         assert_eq!(tab["count"].as_u64(), Some(count as u64));
     }
+    assert_eq!(tabs[0]["id"], "laravel-about");
+    let icons: std::collections::BTreeSet<_> = tabs.iter().filter_map(|tab|tab["icon"].as_str()).collect();
+    assert_eq!(icons.len(), tabs.len(), "Tabs have distinct purpose-specific icons");
 }
 
 #[test]
@@ -3111,9 +3131,12 @@ fn runtime_routes_drive_tabs_actions_navigation_and_expire_on_save() {
     let raw=r#"[{"method":"GET|HEAD","uri":"api/live","name":"live","action":"App\\Http\\Controllers\\PostController@index"}]"#;
     let snapshot=route_runtime::capture_with(&ctx,plugin.view_index(&ctx).unwrap(),|_|Ok(raw.into())).unwrap();
     plugin.runtime_routes.insert("/project".into(),snapshot);
+    let endpoints=openidea_plugin::endpoints::EndpointsProvider::endpoints(&mut plugin,&ctx).unwrap();
+    assert!(endpoints.iter().any(|endpoint|endpoint.path=="/api/live" && endpoint.method.as_deref()==Some("GET")));
+    assert!(endpoints.iter().any(|endpoint|endpoint.path=="/api/live" && endpoint.method.as_deref()==Some("HEAD")));
     let view=plugin.render(VIEW,None,&ctx).unwrap();assert_eq!(route_rows(&view)[0].1,"/api/live");assert!(view.status.unwrap().contains("Artisan snapshot"));
     assert_eq!(plugin.route_at("route:0",&ctx).unwrap().path,"/api/live");
-    let config:serde_json::Value=serde_json::from_str(&plugin.web_config(&ctx)).unwrap();assert_eq!(config["group"]["tabs"][0]["count"],1);
+    let config:serde_json::Value=serde_json::from_str(&plugin.web_config(&ctx)).unwrap();assert_eq!(config["group"]["tabs"].as_array().unwrap().iter().find(|tab|tab["id"] == VIEW).unwrap()["count"],1);
     plugin.handle(VIEW,ViewEvent::Activate("route:0".into()),&ctx).unwrap();assert!(host.opened_locations().last().unwrap().0.ends_with("PostController.php"));
     plugin.handle_events(&[Event::FileSaved("/project/routes/web.php".into())],&ctx);assert!(plugin.runtime_routes.is_empty());
     assert!(plugin.render(VIEW,None,&ctx).unwrap().status.unwrap().contains("Static source index"));
@@ -3123,7 +3146,7 @@ fn runtime_routes_drive_tabs_actions_navigation_and_expire_on_save() {
 fn runtime_route_failure_retains_previous_snapshot_and_static_dynamic_uris_are_not_faked() {
     let host=MockHost::install().with_capabilities(&["project.read","events"]);host.add_file("artisan","<?php");let mut plugin=activated(&host);let ctx=host.invocation();
     let routes=route_runtime::parse(r#"[{"method":"GET","uri":"kept","name":null,"action":"Closure"}]"#,plugin.view_index(&ctx).unwrap()).unwrap();
-    plugin.runtime_routes.insert("/project".into(),route_runtime::Snapshot{routes,captured:1});
+    plugin.runtime_routes.insert("/project".into(),route_runtime::Snapshot::fixture(routes,1));
     host.add_file("config/newly_added.php","<?php return ['enabled'=>true];");
     assert!(!plugin.view_index(&ctx).unwrap().config.contains_key("newly_added.enabled"));
     assert!(matches!(plugin.run_command("routes-runtime-refresh",&ctx,None),Err(Error::Denied(_))));
@@ -3137,7 +3160,7 @@ fn runtime_route_failure_retains_previous_snapshot_and_static_dynamic_uris_are_n
 fn runtime_http_request_uses_bound_project_when_no_source_location_exists() {
     let host=MockHost::install().with_capabilities(&["project.read","project.write","clipboard","events"]);let mut plugin=activated(&host);let ctx=host.invocation();host.add_project("/other");
     let routes=route_runtime::parse(r#"[{"method":"GET","uri":"vendor-status","name":null,"action":"Closure"}]"#,plugin.view_index(&ctx).unwrap()).unwrap();assert!(routes[0].location.is_none());
-    plugin.runtime_routes.insert("/project".into(),route_runtime::Snapshot{routes,captured:1});
+    plugin.runtime_routes.insert("/project".into(),route_runtime::Snapshot::fixture(routes,1));
     host.answer_next_prompt(Some(&["http://localhost:8000"]));
     plugin.run_command("route-create-http",&ctx,Some("route:0")).unwrap();
     assert!(host.invocation().project().unwrap().read_file("/project/http/get-vendor-status.http").unwrap().contains("GET http://localhost:8000/vendor-status"));
@@ -3211,7 +3234,7 @@ fn components_inventory_preserves_precedence_and_owned_navigation() {
 }
 
 #[test]
-fn new_model_command_opens_cached_generator_form_without_running_php() {
+fn new_model_command_opens_native_wizard_without_running_php() {
     let host = MockHost::install();
     let mut plugin = activated(&host);
     let project = host.invocation().project().unwrap();
@@ -3222,8 +3245,193 @@ fn new_model_command_opens_cached_generator_form_without_running_php() {
     host::storage::set(&format!("artisan-metadata-v2:{}", artisan_metadata::hash("/project")), &snapshot.to_string()).unwrap();
     plugin.run_command("new-model", &host.invocation(), None).unwrap();
     let reply = plugin.artisan_workspace.handle(&host.invocation(), r#"{"op":"state"}"#, &plugin.artisan_terminals).unwrap();
-    assert_eq!(reply["selectCommand"], "make:model");
+    assert!(reply["selectCommand"].is_null());
+    let view = plugin.render(generator_workspace::VIEW, None, &host.invocation()).unwrap();
+    assert!(matches!(view.body, Body::Html(ref html) if html.contains("data-generator-workspace")));
     assert!(host.view_messages().iter().any(|(_, message)| message.contains("ui-kit-refresh")));
     assert!(host.process_runs().is_empty());
     assert!(plugin.artisan_terminals.commands().is_empty());
+}
+
+#[test]
+fn parity_workspaces_render_without_php_network_or_direct_writes() {
+    let host = MockHost::install();
+    let mut plugin = activated(&host);
+    let ctx = host.invocation();
+    for view in ["laravel-about", "laravel-generators", "laravel-models", "laravel-processes", "laravel-external"] {
+        let rendered = plugin.render(view, None, &ctx).unwrap();
+        assert!(!matches!(rendered.body, Body::Message(ref message) if message.is_empty()));
+    }
+    assert!(host.process_runs().is_empty());
+    assert!(host.requests().is_empty());
+    assert!(host.terminals().is_empty());
+    let config: serde_json::Value = serde_json::from_str(&plugin.web_config(&ctx)).unwrap();
+    for id in ["runtime-open-frame", "sentry-details", "cloud-environments"] {
+        let action = config["actions"].as_array().unwrap().iter().find(|action| action["id"] == id).unwrap();
+        assert_eq!(action["keys"], serde_json::json!([]), "Cold captured-row actions must remain unavailable: {id}");
+    }
+}
+
+#[test]
+fn metadata_input_and_schema_changes_refresh_indexes() {
+    for path in ["ide.json", ".idea/ide.json", ".openidea/laravel-generators.json", "database/schema/mysql-schema.sql", "vite.config.ts", "public/build/manifest.json", "composer.lock"] {
+        assert!(affects_index(path), "{path}");
+    }
+}
+
+#[test]
+fn scope_attribute_intentions_require_supported_locked_framework_and_respect_setting() {
+    let source = "<?php\nnamespace App\\Models;\nuse Illuminate\\Database\\Eloquent\\Model;\nclass Post extends Model {\n public function scopeActive($query) { return $query; }\n public function scopeRecent($query) { return $query; }\n}\n";
+    let at = text::position(source, source.find("scopeActive").unwrap() + 2);
+    let selection = Range::new(at, at);
+    for (version, expected) in [(None, false), (Some("v10.48.0"), false), (Some("v12.5.9"), false), (Some("v12.6.0"), true), (Some("v13.0.0"), true)] {
+        let host = MockHost::install();
+        if let Some(version) = version {
+            host.add_file("composer.lock", &serde_json::json!({"packages":[{"name":"laravel/framework","version":version}]}).to_string());
+        }
+        let mut plugin = activated_with(&host, &[("app/Models/Post.php", source)]);
+        let document = doc("/project/app/Models/Post.php", "php", source);
+        let found = plugin.code_actions(&document, selection);
+        assert_eq!(found.iter().any(|action| action.title.starts_with("Use #[Scope]")), expected, "locked version {version:?}");
+        host.set_setting("scopeAttributeIntentions", "false");
+        assert!(!plugin.code_actions(&document, selection).iter().any(|action| action.title.starts_with("Use #[Scope]")));
+        assert!(host.process_runs().is_empty());
+    }
+}
+
+#[test]
+fn generator_package_overrides_gate_fixed_launchers_before_prompts_or_execution() {
+    let host = MockHost::install();
+    let mut plugin = activated(&host);
+    let composer = r#"{"require":{"laravel/framework":"^12","laravel/nova":"^5"}}"#;
+    host.add_file("composer.json", composer);
+    host.add_file("ide.json", r#"{"packages":{"disabledPackages":["laravel/nova"],"enabledPackages":{"livewire/livewire":"3.6.4"}}}"#);
+    let ctx = host.invocation();
+    plugin.index_project(&ctx.project().unwrap());
+    let index = plugin.view_index(&ctx).unwrap();
+    assert!(generate::make(&plugin.artisan_terminals, &ctx, Some(index), Some("nova:resource"), composer).is_err());
+    host.answer_next_prompt(None);
+    assert!(generate::make(&plugin.artisan_terminals, &ctx, Some(index), Some("livewire"), composer).unwrap().is_none());
+    assert!(host.terminals().is_empty() && host.process_runs().is_empty());
+}
+
+#[test]
+fn disabled_livewire_directives_do_not_remove_core_or_explicit_custom_blade_names() {
+    let host = MockHost::install();
+    let mut plugin = activated_with(&host, &[("ide.json", r#"{"packages":{"disabledPackages":["livewire/livewire"]}}"#)]);
+    let document = doc("/project/resources/views/welcome.blade.php", "blade", "@");
+    let labels: Vec<_> = plugin.completion(&document, Position::new(0,1), Some("@")).into_iter().map(|item|item.label).collect();
+    assert!(labels.contains(&"if".to_owned()));
+    for name in ["livewire","livewireStyles","livewireScripts","livewireScriptConfig"] { assert!(!labels.contains(&name.to_owned()), "{name}"); }
+    host.add_file("app/Providers/BladeServiceProvider.php", "<?php Blade::directive('livewire', function () { return ''; });");
+    plugin.index_project(&host.invocation().project().unwrap());
+    let labels: Vec<_> = plugin.completion(&document, Position::new(0,1), Some("@")).into_iter().map(|item|item.label).collect();
+    assert!(labels.contains(&"livewire".to_owned()));
+    assert!(!labels.contains(&"livewireStyles".to_owned()));
+}
+
+#[test]
+fn packaged_native_generation_and_process_views_are_opaque() {
+    let config: serde_json::Value = serde_json::from_str(include_str!("ui_config.json")).unwrap();
+    for id in ["laravel-generators", "laravel-processes"] {
+        assert!(config["opaque_views"].as_array().unwrap().iter().any(|item| item == id));
+        assert!(config["group"]["tabs"].as_array().unwrap().iter().any(|tab| tab["id"] == id));
+    }
+    assert_eq!(config["context_buttons"]["laravel-runtime"], serde_json::json!([]));
+}
+
+#[test]
+fn database_actions_are_wired_to_owned_rows_and_native_lifecycle() {
+    let h=MockHost::install();let mut main=activated(&h);let ctx=h.invocation();let project=ctx.project().unwrap();
+    let id=format!("laravel-{}",artisan_metadata::hash("testing"));
+    project.upsert_data_source(&openidea_plugin::PluginDataSource{id:id.clone(),name:"Testing".into(),driver:"sqlite".into(),..Default::default()}).unwrap();
+    let key=format!("runtime:database:{}:{id}",artisan_metadata::hash(&project.root().unwrap()));
+    let body=main.runtime_inspection.body(&ctx,artisan_runner::Runner::Php).unwrap();
+    let Body::Other{data,..}=body else{panic!("resource body")};
+    assert!(data.contains(&key));
+    let config:serde_json::Value=serde_json::from_str(&main.web_config(&ctx)).unwrap();
+    for action in ["runtime-database-connect","runtime-database-remove"] {
+        let value=config["actions"].as_array().unwrap().iter().find(|v|v["id"]==action).unwrap();
+        assert_eq!(value["keys"],serde_json::json!([key.clone()]));
+    }
+    main.run_command("runtime-database-connect",&ctx,Some(&key)).unwrap();
+    h.answer_next_prompt(Some(&["yes"]));main.run_command("runtime-database-remove",&ctx,Some(&id)).unwrap();
+    assert!(project.data_sources().unwrap().is_empty());assert!(h.process_runs().is_empty());
+}
+#[test]
+fn route_search_command_finds_fuzzy_name_and_navigates_without_php() {
+    let h=MockHost::install();let mut main=activated(&h);h.answer_next_prompt(Some(&["adsh"]));h.answer_next_prompt(Some(&["0"]));
+    main.run_command("route-search",&h.invocation(),None).unwrap();
+    assert!(h.invocation().editor().unwrap().path().ends_with("routes/web.php"));assert!(h.process_runs().is_empty());
+}
+
+#[test]
+fn generators_reply_with_error_when_no_laravel_index_is_available() {
+    let h=MockHost::install();let mut main=Main::default();
+    main.handle(generator_workspace::VIEW,ViewEvent::Message(r#"{"op":"state"}"#.into()),&h.invocation()).unwrap();
+    assert!(h.view_messages().iter().any(|(_,message)|message.contains("error")));
+    assert!(h.process_runs().is_empty());
+}
+
+#[test]
+fn blade_class_conversion_requires_a_supported_locked_framework() {
+    let source="<div class=\"btn btn-primary\">x</div>";
+    for (version,expected) in [(None,false),(Some("v8.0.0"),false),(Some("v9.0.0"),true),(Some("v13.0.0"),true)] {
+        let h=MockHost::install();if let Some(version)=version {h.add_file("composer.lock",&serde_json::json!({"packages":[{"name":"laravel/framework","version":version}]}).to_string());}
+        let mut main=activated(&h);let titles=rewrite_titles(&mut main,NEW_BLADE,"blade",source,"btn");
+        assert_eq!(titles.iter().any(|title|title.contains("class attribute")),expected,"{version:?}");
+        assert!(h.process_runs().is_empty());
+    }
+}
+#[test]
+fn invokable_controller_route_literals_complete_and_navigate_to_invoke() {
+    let h=MockHost::install();let mut main=activated_with(&h,&[("app/Http/Controllers/EditProfileController.php","<?php\nnamespace App\\Http\\Controllers;\nfinal class EditProfileController {\n public function __invoke() {}\n public function __construct() {}\n}\n")]);
+    let source="<?php Route::get('/profile', 'EditProfileController');";
+    let document=doc("/project/routes/web.php","php",source);let at=text::position(source,source.find("EditProfile").unwrap()+3);
+    let completions=main.completion(&document,at,None);
+    assert!(completions.iter().any(|item|item.label=="EditProfileController"));
+    let definitions=main.definition(&document,at);assert!(definitions.iter().any(|location|location.path.ends_with("EditProfileController.php") && location.range.start.line==3));
+    assert!(!completions.iter().any(|item|item.label.contains("__construct")));assert!(h.process_runs().is_empty());
+}
+
+#[test]
+fn fallback_layout_uses_first_existing_source_without_false_missing_warning() {
+    let h=MockHost::install();let mut main=activated(&h);
+    let source="@extendsFirst(['missing.layout','layouts.app'])\n@section('content')Hi@endsection";
+    let document=doc("/project/resources/views/child.blade.php","blade",source);
+    let at=text::position(source,source.find("content").unwrap()+2);
+    assert!(main.completion(&document,at,None).iter().any(|item|item.label=="content"));
+    let index=main.indexes.get("/project").unwrap();
+    assert!(!problems(index,"blade",source,true).iter().any(|diagnostic|diagnostic.code.as_deref()==Some("missing-view")));
+    assert!(h.process_runs().is_empty());
+}
+#[test]
+fn console_run_marker_selects_only_cached_metadata_and_revalidates_source() {
+    use openidea_plugin::language_features::LanguageFeatures;
+    let h=MockHost::install();h.add_file("artisan","<?php");let mut main=activated(&h);
+    let source="<?php\nnamespace App\\Console\\Commands;\nuse Illuminate\\Console\\Command;\nclass SendReport extends Command {\n protected $signature='reports:send {--dry-run}';\n}\n";
+    let path="/project/app/Console/Commands/SendReport.php";h.add_file(path,source);h.open_editor(path,"php",source,&[]);
+    let ctx=h.invocation();let project=ctx.project().unwrap();
+    let commands=artisan_metadata::parse(&serde_json::json!({"commands":[{"name":"reports:send","description":"Send report","definition":{"arguments":[],"options":[{"name":"--dry-run","accept_value":false}]}}]}).to_string()).unwrap();
+    host::storage::set(&format!("artisan-metadata-v2:{}",artisan_metadata::hash("/project")),&serde_json::json!({"schema":2,"identity":artisan_metadata::identity(&project).unwrap(),"capturedAt":1,"commands":commands}).to_string()).unwrap();
+    h.set_setting("routeHints","false");let document=doc(path,"php",source);
+    assert!(main.code_lenses(&document).iter().any(|lens|lens.command=="console-command-open"));
+    let action=main.gutter_actions(&document).into_iter().find(|action|action.command=="console-command-open").unwrap();
+    main.run_command("console-command-open",&ctx,action.argument.as_deref()).unwrap();
+    let state=main.artisan_workspace.handle(&ctx,r#"{"op":"state"}"#,&main.artisan_terminals).unwrap();assert_eq!(state["selectCommand"],"reports:send");
+    h.type_in_editor(" // changed");assert!(main.run_command("console-command-open",&ctx,action.argument.as_deref()).is_err());assert!(h.process_runs().is_empty());
+}
+
+#[test]
+fn dynamic_fillable_does_not_block_phpdoc_updates_or_declared_key_display() {
+    use openidea_plugin::file_actions::FileActions;
+    let source="<?php\nnamespace App\\Models;\nuse Illuminate\\Database\\Eloquent\\Model;\n/** Handwritten.\n * @property string $manual\n */\nclass DynamicRecord extends Model {\n private const FIELDS = ['title'];\n protected $fillable = self::FIELDS;\n protected $primaryKey = 'record_key';\n}\n";
+    let h=MockHost::install();let mut main=activated_with(&h,&[("app/Models/DynamicRecord.php",source)]);let project=h.invocation().project().unwrap();
+    let document=doc("/project/app/Models/DynamicRecord.php","php",source);
+    let rows=model_overview::rows(main.indexes.get("/project").unwrap(),&project);
+    assert!(rows.iter().any(|row|row["cells"][0]=="App\\Models\\DynamicRecord" && row["cells"][2].as_str().is_some_and(|text|text.contains("record_key"))));
+    let action=main.file_actions(&document,Range::new(Position::new(0,0),Position::new(0,0))).into_iter().find(|action|action.data.as_deref().is_some_and(|data|data.starts_with("model-native:docs:"))).unwrap();
+    h.answer_next_prompt(Some(&["yes"]));let result=main.resolve_file_action(&document,action).unwrap();
+    let updated=&result.edits[0].1[0].text;assert!(updated.contains("@openidea-laravel-generated-start"));assert!(updated.contains("Handwritten."));assert!(updated.contains("@property string $manual"));assert!(updated.contains("$fillable = self::FIELDS;"));
+    assert_eq!(project.read_file(&document.path).unwrap(),source);assert!(h.process_runs().is_empty());
 }

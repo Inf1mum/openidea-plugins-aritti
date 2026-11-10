@@ -6,6 +6,41 @@ IntelliJ (`de.espend.idea.laravel` 0.15.4, revision `3a07f4a5`, MIT, by Daniel
 Espendiller). The port uses only the free code of the public repository; the
 features that plugin doesn't have follow [Laravel's documentation](https://laravel.com/docs).
 
+**Parity implementation is in progress.** The working source now includes
+Generators, Models, Processes and External Services workspaces alongside the
+existing inventories. These additions have targeted native/UI checks; full
+Laravel Idea parity and desktop acceptance are not established. The
+[acceptance ledger and implementation receipt](../../docs/laravel-parity-acceptance.md#working-tree-source-receipt-2026-11-10)
+separate new source coverage from the frozen checkpoint inventory and remaining
+gaps.
+
+The current implementation also includes a graphical existing-model field/index
+editor with reviewed casts and mass-assignment edits, module-local factory/seeder
+generation, configurable generation classes/postfixes, and typed rename actions
+for proven route, config, translation and explicit Blade-alias literals. Blade
+layout extraction supports anonymous components with explicit props. Sentry and
+Cloud inventories offer explicit bounded pagination. These are scoped workflows;
+the ledger records their remaining limitations.
+
+Preset model parameters use searchable indexed model choices; calculated values
+update live with explicit overrides and reset. Dedicated **Search Routes…** matches
+names, URIs, methods and controllers with fuzzy ranking. Source-verified captured
+routes also appear in native endpoints discovery. Runtime database sources support
+Connect through the native credential dialog and reviewed removal of connections
+and saved credentials. Filename-based view/anonymous-component rename uses one
+reviewed move-and-reference transaction. FormRequest promotion supports imported
+Request aliases and ordinary statements after the initial validation call. Helper
+regeneration supports reviewed multi-model selection, helper files or preserving/
+overwriting PHPDoc, proven cast/relation/scope signatures and optional counts.
+
+Related-model factory/resource generation now prepares an atomic editor action;
+unknown foreign-key factory mappings are explicit placeholders. Console command
+classes offer source-verified Run markers using captured command metadata. The
+latest fixes also cover Eloquent Scope/import/property collision checks,
+segment-preserving validation completion, namespaced component tags and standard
+Monolog JSON traces. Native presets support declared shared partials and bounded
+boolean sections; Composer mapping accepts owned module and parent-prefix roots.
+
 Blade highlighting, folding and the structure view come from the `aritti.blade`
 plugin (the IDE has no Blade grammar). Without it, Blade files open as PHP, and
 everything below still works in them.
@@ -272,19 +307,28 @@ lines, so a `/*` in the text of a multi-line template literal hides later route
 calls in the file, and a stray quote hides route calls to the end of its line.
 Comments and strings are tracked with a simple scan (no regex literals, no Vue text awareness; a stray quote can pair with a later one on the same line).
 
-## Not ported
+## Remaining parity and implementation limits
 
-These rely on PhpStorm's PHP PSI and type inference, which the OpenIDEA plugin
-API has no equivalent for (see `LIMITATIONS.md`):
+The [acceptance ledger](../../docs/laravel-parity-acceptance.md) tracks wizard and
+non-wizard behaviors against the public Laravel Idea 13.4 baseline. Full parity
+is not established. Selected source-aware Eloquent chains, traits, casts and
+accessors, literal container names and reviewed Blade extraction already exist;
+these should not be described as wholly unported. General dynamic PHP
+resolution, complete metadata compatibility and broader package/refactoring
+behavior still require implementation and acceptance. New native generator,
+model/helper and runtime workflows are summarized in the working-tree receipt
+below; their existence does not close all acceptance scenarios. The absence of a shared host PHP type model does not by itself
+exclude plugin-side inference.
 
-- container bindings made outside `app/` or with a non-literal name, facade
-  resolution, and custom Blade directives registered outside `app/`;
-- attributes added by accessors, and `where('column')` on a query whose model
-  is lost (`$user->posts()->where(...)`, a variable of unknown type); dropped
-  and renamed columns aren't tracked;
-- the _Extract partial view_ refactoring.
+API 1.4 includes hover, inlays, code lenses, actionable gutters, signature help,
+type-definition navigation, embedded ranges, endpoints/search, owned Database
+sources and secure credential storage. Historical blanket claims that these
+APIs are unavailable are superseded. A prepared multi-file plan can be applied
+atomically through an editor FileAction; direct transaction application from a
+workspace button has no corresponding public SDK function.
 
-The artisan `make:*` generators are ported as commands (see _Generators_ below).
+Artisan generators expose argument/option forms or guided prompts. They are
+not equivalent to a field/relation/index model-design wizard.
 
 View namespaces and extra view roots come from `ide-blade.json` at the project
 root or `.idea/ide-blade.json` (both are read when present):
@@ -1123,36 +1167,154 @@ earlier acceptance receipts apply only to their earlier artifact.
 
 ## Public Laravel Idea documentation walkthrough
 
+See the [acceptance ledger](../../docs/laravel-parity-acceptance.md) for the
+expanded behavior inventory, SDK evidence and required verification. This
+walkthrough is not the complete implementation checklist.
+
 The public documentation was reviewed as a behavior reference, without accessing
 proprietary implementation code. Our source has overlapping Laravel browsing,
 Artisan forms, literal completions, navigation and narrow intentions; that does
 not establish general semantic parity.
 
-- [Code generation](https://laravel-idea.com/docs/generation): the larger remaining
-  workflow is a field/relation/index-driven model wizard generating related files
-  together. Current Artisan forms and migration-based factory/resource generators
-  do not provide that complete UI.
-- [Eloquent](https://laravel-idea.com/docs/eloquent): model overview/navigation,
-  database-backed metadata and generated helper PHP are distinct from our cached
-  source inference. Our typed chains cover a bounded subset.
+- [Code generation](https://laravel-idea.com/docs/generation): native model,
+  field/relation/index and related-file workflows now exist with per-kind/module
+  destinations and availability. Full package resources and selectable resource/
+  factory mappings remain partial.
+- [Eloquent](https://laravel-idea.com/docs/eloquent): typed Models, related-source
+  navigation and reviewed helper modes/preferences now exist. Arbitrary PHP type
+  flow, factory/proxy inference and automatic helper workflows remain partial.
 - [Artisan](https://laravel-idea.com/docs/commands) and
-  [Routing](https://laravel-idea.com/docs/routing): current command forms, route
-  search/tables, source links and HTTP/cURL actions overlap; terminal autocomplete
-  and rich inline route actions need separate host integration.
+  [Routing](https://laravel-idea.com/docs/routing): captured command forms include
+  additional quoted argv and exact captured preview/run/history/rerun behavior.
+  Route hints/search/request actions cover scoped registrations; terminal
+  autocomplete and general registration semantics remain open.
 - [Validation](https://laravel-idea.com/docs/request_validation),
   [Blade](https://laravel-idea.com/docs/blade) and
-  [intentions](https://laravel-idea.com/docs/intention-actions): our implementations
-  cover selected literal and source-resolved patterns; configurable validation
-  contexts and broader semantic transformations remain separate work.
+  [intentions](https://laravel-idea.com/docs/intention-actions): selected source
+  bindings, qualified/imported controller rewrites, bounded extraction and
+  component metadata are implemented; generalized contexts remain partial.
 - [ide.json](https://laravel-idea.com/docs/ide_json/overview),
   [modules](https://laravel-idea.com/docs/modules) and
-  [custom generators](https://laravel-idea.com/docs/custom_generations): the largest
-  customization gap is reusable metadata for custom call sites, module layouts,
-  package conventions and generation templates. `ide-blade.json` view roots are
-  currently much narrower.
+  [custom generators](https://laravel-idea.com/docs/custom_generations): custom
+  call sites, explicit framework inventories, component sources, project/user
+  presets and configured module generation now exist. Remaining type/place
+  conditions, full scaffolding and version-specific package behavior remain open.
 - [Livewire](https://laravel-idea.com/docs/livewire),
   [Inertia](https://laravel-idea.com/docs/inertia),
   [Nova](https://laravel-idea.com/docs/nova) and
-  [Filament](https://laravel-idea.com/docs/filament): source-aware completions and
-  package-gated generators exist here, while configurable package conventions
-  and deeper typed integrations remain partial.
+  [Filament](https://laravel-idea.com/docs/filament): generators and selected
+  source-aware integrations exist; complete typed/package workflows are partial.
+
+## Working-tree parity implementation (2026-11-10)
+
+The earlier dated receipts describe their original artifacts. The following
+source additions are integrated work in progress; consult the
+[acceptance ledger](../../docs/laravel-parity-acceptance.md#working-tree-source-receipt-2026-11-10)
+for limits and validation evidence.
+
+- **Generators:** model field/relation/index planning, related-file previews and
+  an editor FileAction bridge for one undoable nonoverwrite transaction. Project
+  custom presets/module mappings use `.openidea/laravel-generators.json` and
+  `.openidea/laravel-templates/`. This is our native declarative format; it does
+  not import Velocity settings. Project/user preset CRUD and private user storage
+  are available; advanced definitions use JSON editors. Native per-kind directories/
+  namespaces, Application/module availability and module-specific overrides flow
+  through the reviewed plan and Composer proofs. Primary keys include
+  numeric, UUID/ULID and custom strategies, with timezone-aware timestamps.
+  The New Laravel Project command uses installed
+  CLI help to gate options and launches an explicitly reviewed native terminal.
+- **Models:** source and captured-schema inventories, reviewed helper PHP,
+  model-from-captured-table drafts, handwritten-PHPDoc-preserving model
+  documentation and new-field/migration actions. Cast/accessor/inherited members
+  and proven factory/resource/migration/policy/observer/seeder associations now
+  feed the grouped tree. Helper storage/count/date preferences persist per project;
+  Configure Helper Parameters saves them after review. Regenerate Model Helpers
+  opens an owned source anchor for the reviewed editor action, rather than
+  directly applying files from a toolbar command. This remains a bounded
+  source/schema implementation, not a general
+  PHP type engine or complete helper-generation replacement.
+- **Metadata and editor:** supported `ide.json` roots/custom literal call sites,
+  package overrides, Passport scopes, additional gates/middleware, FQN model/table
+  mappings and declared custom Route facade methods; bounded Wayfinder references; Vite
+  config/manifest sources; consumed helper mixins/constructor forwarding with
+  signature help; route request actions, proven imported/qualified/absolute
+  controller-string conversions and additional rule-object
+  conversions. Blade component viewPaths, phpNamespaces, explicit list and literal
+  fromConfig declarations feed owned inventories and namespaced/bare-tag props
+  consumers. Dynamic config, unsupported metadata and dynamic PHP stay partial.
+- **Database:** ordered migration/schema-file inputs, custom Blueprint facts,
+  explicit named framework connection/schema capture and owned Database source
+  registration. Connection names are retained in model and migration output,
+  including migration create/drop calls. Docker registration requires verified
+  same-project network/alias and loopback-published-port mapping; internal
+  container addresses are not assumed host-reachable. Runtime schema attachment
+  to Models requires matching connection proof; unknown/default binding is not
+  evidence of a match. Real Docker/Database acceptance remains outstanding.
+- **Localization:** reviewed PHP/JSON extraction and owned vendor
+  view/translation override creation. These do not establish general semantic
+  rename, translation synchronization or arbitrary expression extraction.
+- **Artisan:** opt-in additional options and trailing arguments use quoted argv
+  parsing without shell evaluation. Extra options precede the structured `--`
+  boundary; trailing data follows it. Captured preview/run/history/rerun retain
+  the same values. Terminal runs retain their distinct interactive flags.
+- **Processes and errors:** session-owned Artisan process lifecycle/output and
+  bounded structured Monolog parsing. Process supervision across reload/restart,
+  full log-format/timezone coverage and compiled-Blade frame mapping remain open.
+- **External Services:** explicit paginated Sentry issue lists/details/latest
+  stack frames and Laravel Cloud application/environment lists. Configure tokens
+  through plugin Secrets; configure the Sentry organization per project. Token
+  removal affects every project using that plugin-global credential and clears
+  its caches. Rendering performs no HTTP. Remote frame text is not a trusted
+  local navigation destination.
+
+The external integrations use documented read-only HTTP contracts. Token
+connection is an alternative to the unimplemented Sentry OAuth lifecycle; a
+registered OAuth application is not configured. Regional/self-hosted Sentry,
+Cloud deployments/management and connected-account acceptance
+remain open. Load More fetches one validated page per action, bounded to 20
+pages/2000 resources per inventory; the UI marks the limit as incomplete.
+Sentry next cursors and Cloud next links are rebuilt against the original
+service/resource, and captured row keys include project/snapshot identity.
+These remaining gaps are not classified as missing host APIs.
+
+The current editor-action transaction bridge is deliberate: the pinned SDK does
+not expose direct webview application of a general multi-file FileAction. Exact
+widget/interaction identity with Laravel Idea is not claimed. Shared UI-kit
+styles, native icons and both themes remain the design contract.
+
+### Existing-model factory and resource choices
+
+Generate for Model now offers all or selected supported fields. For factories,
+selected foreign keys ending in `_id` can map to a declared owned factory class;
+unmapped keys retain review placeholders. Resource generation can include proven
+relations through `whenLoaded()`, optionally wrapped in an associated declared
+resource with one/many cardinality preserved.
+
+The native pickers prepare the existing reviewed editor action. No files are
+written until the host applies its one-shot atomic creation. Selected class
+sources and ownership are checked again during review. Existing-model mappings are reviewed through these native pickers. New Model also has per-output selectors, while indexed wrappers and factory mappings remain separate.
+
+Existing-model factory/resource entry points also honor the native Application/
+module availability, per-kind paths/namespaces and overrides, configured bases,
+postfix defaults and optional return hints. Explicit names remain unchanged.
+Configured destinations and module-local outputs require the same owned Composer
+proofs as the wizard; changing those settings invalidates a prepared action.
+Model generation itself may be disabled while generating a related class for an
+existing model. Factory fields retain writable schema facts. Resources can additionally select owned casts, typed classic accessors, literal appends, documented properties and proven cached database columns.
+
+### New Model output selections and richer resource fields
+
+New Model lets you independently select factory fields, resource fields and
+resource relations, including applicable primary-key output and reset-to-default
+controls. These choices filter related output without changing the model or
+migration. Preview and Finish preserve the same selections.
+
+Existing-model resource selection additionally includes bounded owned inherited
+accessors/casts, attached PHPDoc properties and literal appends. Explicit cached
+schema columns require a matching proven named model connection and unique table;
+refresh the capture after application/database changes. Prepared actions recheck
+sources, capture, runner and application configuration without executing PHP.
+Virtual resource attributes are not offered as writable factory inputs.
+
+The New Model wizard still emits selected relations as raw `whenLoaded` values;
+indexed resource wrappers and inferred factory mappings remain separate gaps.

@@ -47,17 +47,17 @@
     },
     "reportUnknownComponents": {
       "type": "boolean",
-      "title": "Report <x-\u2026> Blade components that have no file or class",
+      "title": "Report <x-…> Blade components that have no file or class",
       "default": true
     },
     "reportUnknownLivewire": {
       "type": "boolean",
-      "title": "Report <livewire:\u2026> components that have no class or view",
+      "title": "Report <livewire:…> components that have no class or view",
       "default": true
     },
     "reportUnknownLivewireDirectives": {
       "type": "boolean",
-      "title": "Report @livewire('\u2026') components that have no class or view",
+      "title": "Report @livewire('…') components that have no class or view",
       "default": true
     },
     "reportUnknownLivewireMethods": {
@@ -99,6 +99,16 @@
       "type": "boolean",
       "title": "Report env() calls outside the config directory (they return null once the configuration is cached)",
       "default": true
+    },
+    "routeHints": {
+      "type": "boolean",
+      "default": true,
+      "description": "Show cached route and controller hints in the editor."
+    },
+    "scopeAttributeIntentions": {
+      "type": "boolean",
+      "default": true,
+      "description": "Offer scope-to-attribute intentions when composer.lock establishes Laravel 12.6 or newer."
     }
   }
 }

@@ -3,6 +3,10 @@ use crate::{artisan_metadata as metadata, artisan_runner::Runner};
 use openidea_plugin::{Error, Invocation, Project, host, views::Body};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
+#[path = "runtime_database.rs"]
+mod database;
+#[path = "runtime_errors.rs"]
+pub(super) mod errors;
 #[path = "runtime_queue_tools.rs"]
 mod queue_tools;
 const MAX: usize = 4 * 1024 * 1024;
@@ -14,6 +18,7 @@ pub(super) const SECTIONS: &[(&str, &str, &str)] = &[
     ("queue-status", "Queues", "@queue-status"),
     ("workers", "Workers", "@workers"),
     ("logs", "Logs", "@logs"),
+    ("schema", "Schema", "@schema"),
 ];
 #[derive(Clone)]
 struct Snapshot {
@@ -118,6 +123,7 @@ fn string(value: &Value) -> Result<String, Error> {
     Ok(text)
 }
 pub(super) fn parse(section: &str, raw: &str) -> Result<Vec<Value>, Error> {
+    if section == "schema" { return database::parse(raw); }
     if matches!(section, "queue-status" | "workers" | "logs") {
         return queue_tools::parse(section, raw);
     }
@@ -264,6 +270,10 @@ impl State {
     ) -> Result<(), Error> {
         self.capture_options_with(ctx, runner, section, json!({}), run)
     }
+    #[cfg(test)]
+    pub(crate) fn capture_schema_fixture(&mut self,ctx:&Invocation,payload:Value)->Result<(),Error>{
+        self.capture_options_with(ctx,Runner::Php,"schema",json!({}),|_,_|Ok(payload.to_string()))
+    }
     fn capture_options_with(
         &mut self,
         ctx: &Invocation,
@@ -295,6 +305,11 @@ impl State {
         };
         let raw = run(&project, &args)?;
         let mut rows = parse(section, &raw)?;
+        if section == "logs" {
+            let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d|d.as_nanos());
+            let capture = metadata::hash(&format!("{root}:{}:{nonce}:{}",runner.name(),metadata::hash(&raw)));
+            for (index,row) in rows.iter_mut().enumerate() { row["key"] = json!(format!("runtime-log:{capture}:{index}")); }
+        }
         if section == "queues" {
             let nonce = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -361,6 +376,61 @@ impl State {
         );
         Ok(())
     }
+    /// Revalidate a captured stack candidate before exposing a source location.
+    /// Callers must pass the opaque captured row key, never a path from the webview.
+    pub fn log_frame(&self, ctx:&Invocation, runner:Runner, row_key:&str, index:usize) -> Result<openidea_plugin::Location,Error> {
+        let (project,root)=owner(ctx)?;
+        let target=target_binding(&project,runner)?;
+        let snapshot=self.snapshots.get(&key(&root,runner,"logs")).filter(|snapshot|snapshot.target==target).ok_or(Error::Stale)?;
+        let row=snapshot.rows.iter().find(|row|row["key"].as_str()==Some(row_key)).ok_or(Error::Stale)?;
+        let value=row["error"]["frames"].as_array().and_then(|frames|frames.get(index)).ok_or(Error::Stale)?;
+        let frame=errors::Frame {path:value["path"].as_str().ok_or(Error::Stale)?.into(),line:value["line"].as_u64().and_then(|n|u32::try_from(n).ok()).ok_or(Error::Stale)?,call:String::new()};
+        let (path,line)=errors::source(&project,&frame).ok_or(Error::Stale)?;
+        let position=openidea_plugin::Position::new(line,0);
+        Ok(openidea_plugin::Location{path,range:openidea_plugin::Range::new(position,position)})
+    }
+    /// Select from currently provable source frames; revalidate again after the prompt.
+    pub fn open_log_frame(&self, ctx:&Invocation, runner:Runner, row_key:&str) -> Result<(),Error> {
+        let (_,root)=owner(ctx)?;
+        let snapshot=self.snapshots.get(&key(&root,runner,"logs")).ok_or(Error::Stale)?;
+        let row=snapshot.rows.iter().find(|row|row["key"].as_str()==Some(row_key)).ok_or(Error::Stale)?;
+        let frames=row["error"]["frames"].as_array().ok_or("Select a structured error with stack frames.")?;
+        let choices:Vec<_>=frames.iter().enumerate().filter_map(|(index,_)| {
+            let location=self.log_frame(ctx,runner,row_key,index).ok()?;
+            Some(openidea_plugin::PickItem::new(&index.to_string(),&format!("{}:{}",location.path,location.range.start.line+1)))
+        }).collect();
+        if choices.is_empty(){return Err("No captured frame currently resolves to an owned source file.".into());}
+        let Some(selected)=host::pick("Open Laravel error frame",&choices)? else{return Ok(())};
+        if !choices.iter().any(|choice|choice.key==selected){return Err(Error::Stale);}
+        let index=selected.parse::<usize>().map_err(|_|Error::Stale)?;
+        let location=self.log_frame(ctx,runner,row_key,index)?;
+        host::open_editor(&location.path,Some(location.range))
+    }
+    /// Read-only local project inventory, separate from explicit PHP runtime snapshots.
+    pub fn dashboard_rows(&self, ctx:&Invocation) -> Result<Vec<Value>,Error> {
+        let (project,root)=owner(ctx)?;
+        let mut rows=vec![json!({"key":"runtime:dashboard:root","cells":["Dashboard","Project",root],"activationEnabled":false})];
+        for relative in ["artisan","bootstrap/app.php","composer.json"] {
+            let path=format!("{root}/{relative}");
+            if crate::owns_current_path(&project,&path) && project.exists(&path)? {
+                rows.push(json!({"key":format!("runtime:dashboard:{relative}"),"cells":["Dashboard",relative,"Present · source inventory"],"activationEnabled":false}));
+            }
+        }
+        let path=format!("{root}/composer.json");
+        if crate::owns_current_path(&project,&path) && project.exists(&path)? {
+            let text=project.read_file(&path)?;
+            if text.len()<=128*1024 {
+                if let Ok(value)=crate::strict_json::parse(&text,128*1024) {
+                    for package in ["php","laravel/framework","livewire/livewire","inertiajs/inertia-laravel","laravel/nova","filament/filament","laravel/passport","laravel/sanctum"] {
+                        if let Some(version)=value["require"][package].as_str().filter(|s|s.len()<=256 && !s.chars().any(char::is_control)) {
+                            rows.push(json!({"key":format!("runtime:dashboard:package:{package}"),"cells":["Dashboard",package,format!("{version} · declared Composer constraint; installed version not inferred")],"activationEnabled":false}));
+                        }
+                    }
+                }
+            }
+        }
+        Ok(rows)
+    }
     pub fn invalidate(&mut self, root: &str) {
         self.snapshots
             .retain(|_, snapshot| snapshot.identity["root"] != root);
@@ -405,12 +475,14 @@ impl State {
     }
     pub fn body(&self, ctx: &Invocation, runner: Runner) -> Result<Body, Error> {
         let cached = self.cached(ctx, runner)?;
-        let rows: Vec<_> = cached["snapshots"]
+        let mut rows = self.dashboard_rows(ctx)?;
+        rows.extend(self.database_source_rows(ctx).unwrap_or_default());
+        rows.extend(cached["snapshots"]
             .as_array()
             .into_iter()
             .flatten()
             .flat_map(|snapshot| snapshot["rows"].as_array().into_iter().flatten().cloned())
-            .collect();
+            );
         Ok(Body::Other{kind:"resources".into(),data:json!({"columns":["Section","Resource","Details"],"columnStyles":["text","code","muted"],"columnWeights":[1,3,4],"facets":[0],"facetLabels":{"0":"All sections"},"searchPlaceholder":"Filter runtime information…","items":rows}).to_string()})
     }
 }
@@ -424,6 +496,44 @@ mod tests {
         host.add_file("artisan", "<?php");
         host.add_file("composer.json", "{}");
         host
+    }
+    #[test]
+    fn log_frame_navigation_rejects_stale_keys_and_rechecks_current_sources() {
+        let host=setup(); host.add_file("app/Broken.php","<?php\nthrow new Exception();");
+        let ctx=host.invocation();let root=ctx.project().unwrap().root().unwrap();let mut state=State::default();
+        let payload=json!({"file":"storage/logs/laravel.log","truncated":false,"lines":["[2026-11-10] local.ERROR: Broken",format!("#0 {root}/app/Broken.php(2): run()")]});
+        state.capture_options_with(&ctx,Runner::Php,"logs",json!({}),|_,_|Ok(payload.to_string())).unwrap();
+        let snapshot=&state.snapshots[&key(&root,Runner::Php,"logs")];let row=snapshot.rows.iter().find(|row|row.get("error").is_some()).unwrap();let captured=row["key"].as_str().unwrap().to_owned();
+        assert_eq!(state.log_frame(&ctx,Runner::Php,&captured,0).unwrap().range.start.line,1);
+        host.answer_next_prompt(Some(&["0"]));state.open_log_frame(&ctx,Runner::Php,&captured).unwrap();
+        let editor=ctx.editor().unwrap();assert_eq!(editor.path(),format!("{root}/app/Broken.php"));assert_eq!(editor.selections().unwrap()[0].start.line,1);
+        host.type_in_editor(" changed");let edited=host.editor_text();host.answer_next_prompt(None);state.open_log_frame(&ctx,Runner::Php,&captured).unwrap();assert_eq!(host.editor_text(),edited);
+        assert!(state.log_frame(&ctx,Runner::Php,&captured,10).is_err());
+        host.add_file("app/Broken.php","<?php");host.open_editor("app/Broken.php","php","<?php",&[]);assert!(state.log_frame(&ctx,Runner::Php,&captured,0).is_err());
+        host.add_file("app/Broken.php","<?php\nthrow new Exception();");host.open_editor("app/Broken.php","php","<?php\nthrow new Exception();",&[]);
+        state.capture_options_with(&ctx,Runner::Php,"logs",json!({}),|_,_|Ok(payload.to_string())).unwrap();
+        assert!(state.log_frame(&ctx,Runner::Php,&captured,0).is_err());
+    }
+    #[test]
+    fn dashboard_is_local_curated_inventory_not_runtime_or_credentials() {
+        let host=setup();host.add_file("composer.json",r#"{"require":{"php":"^8.3","laravel/framework":"^13.0","password":"secret"},"password":"secret"}"#);
+        let rows=State::default().dashboard_rows(&host.invocation()).unwrap();let text=json!(rows).to_string();
+        assert!(text.contains("^13.0"));assert!(text.contains("installed version not inferred"));assert!(!text.contains("secret"));
+    }
+    #[test]
+    fn readonly_endpoint_and_route_search_keep_explicit_runtime_snapshots() {
+        use openidea_plugin::Plugin;
+        let host=MockHost::install();host.add_file("artisan","<?php");let mut plugin=crate::tests::activated(&host);let ctx=host.invocation();let root=ctx.project().unwrap().root().unwrap();
+        plugin.runtime_inspection.capture_options_with(&ctx,Runner::Php,"about",json!({}),|_,_|Ok(json!({"environment":{"php_version":"8.4"}}).to_string())).unwrap();
+        plugin.runtime_inspection.capture_options_with(&ctx,Runner::Php,"schema",json!({}),|_,_|Ok(json!({"tables":[{"name":"posts","columns":[{"name":"id","type":"integer","nullable":false}],"indexes":[]}]}).to_string())).unwrap();
+        let raw=r#"[{"method":"GET|HEAD","uri":"api/live","name":"live","action":"App\\Http\\Controllers\\PostController@index"}]"#;
+        let snapshot=crate::route_runtime::capture_with(&ctx,plugin.view_index(&ctx).unwrap(),|_|Ok(raw.into())).unwrap();plugin.runtime_routes.insert(root.clone(),snapshot);
+        let before=plugin.runtime_inspection.cached(&ctx,Runner::Php).unwrap();let provenance=plugin.runtime_routes[&root].provenance();
+        let endpoints=openidea_plugin::endpoints::EndpointsProvider::endpoints(&mut plugin,&ctx).unwrap();assert!(endpoints.iter().any(|endpoint|endpoint.path=="/api/live"));
+        assert_eq!(plugin.runtime_inspection.cached(&ctx,Runner::Php).unwrap(),before);assert_eq!(plugin.runtime_routes[&root].provenance(),provenance);
+        host.answer_next_prompt(Some(&["live"]));host.answer_next_prompt(Some(&["0"]));plugin.run_command("route-search",&ctx,None).unwrap();
+        assert_eq!(plugin.runtime_inspection.cached(&ctx,Runner::Php).unwrap(),before);assert_eq!(plugin.runtime_routes[&root].provenance(),provenance);assert!(host.process_runs().is_empty());
+        assert!(ctx.editor().unwrap().path().ends_with("PostController.php"));
     }
     #[test]
     fn parses_runtime_sections_and_excludes_secret_payloads() {

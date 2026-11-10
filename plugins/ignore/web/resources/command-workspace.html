@@ -8,7 +8,7 @@
       <small id="command-runner-target" class="command-muted" hidden></small>
       <span id="provenance" class="command-muted"></span>
       </header>
-      <div id="commands" class="ui-menu ui-scroll-area" role="group" aria-label="Commands"></div>
+      <div id="commands" class="command-sidebar-items ui-menu ui-scroll-area" role="group" aria-label="Commands"></div>
       <p id="command-error" role="alert"></p>
     </aside>
     <section class="command-detail ui-scroll-area" aria-label="Selected command">
@@ -16,6 +16,7 @@
       <div id="command-editor" class="command-editor" hidden>
       <h2 id="command-name">Choose a command</h2><p id="command-description"></p>
       <form id="arguments" autocomplete="off" aria-label="Command parameters"></form>
+      <section id="command-additional" hidden aria-label="Additional command arguments"><label for="command-extra-options">Additional options<input id="command-extra-options" autocomplete="off" spellcheck="false" placeholder='--custom-option="value with spaces"'></label><label for="command-extra-arguments">Additional arguments<input id="command-extra-arguments" autocomplete="off" spellcheck="false" placeholder='"extra value"'></label><small class="command-muted">Quotes group values; no shell expansion. Options precede configured positional arguments; additional arguments follow them.</small></section>
       <label for="command-preview">Captured run arguments</label><pre id="command-preview" tabindex="0">Select a command to inspect its arguments.</pre>
       <div class="command-actions"><button type="button" id="run" disabled><span data-ui-icon="run" aria-hidden="true"></span>Run</button><button type="button" id="terminal" disabled><span data-ui-icon="terminal" aria-hidden="true"></span>Run in Terminal</button><button type="button" id="cancel" disabled><span data-ui-icon="stop" aria-hidden="true"></span>Cancel</button><button type="button" id="copy" disabled><span data-ui-icon="copy" aria-hidden="true"></span>Copy Output</button><button type="button" id="rerun" disabled><span data-ui-icon="rerun" aria-hidden="true"></span>Rerun</button></div>
       <output id="command-status" role="status" aria-live="polite"></output>

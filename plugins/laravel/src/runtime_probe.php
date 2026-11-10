@@ -30,6 +30,82 @@ if ($mode === 'logs') {
 require getcwd().'/vendor/autoload.php';
 $app = require getcwd().'/bootstrap/app.php';
 $app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+if ($mode === 'schema') {
+    $selected = $options['connection'] ?? null;
+    $connections = $app['config']->get('database.connections', []);
+    if ($selected !== null && (!is_string($selected) || !is_array($connections) || !array_key_exists($selected, $connections))) { throw new RuntimeException('Selected database connection is not configured.'); }
+    $connection = $app['db']->connection($selected);
+    $schema = $connection->getSchemaBuilder();
+    if (!method_exists($schema, 'getTables') || !method_exists($schema, 'getColumns') || !method_exists($schema, 'getIndexes')) {
+        throw new RuntimeException('This framework schema builder does not expose table, column and index metadata.');
+    }
+    $tables = $schema->getTables();
+    if (!is_array($tables) || count($tables) > 128) { throw new RuntimeException('Schema capture exceeds 128 tables.'); }
+    $result = [];
+    foreach ($tables as $table) {
+        $name = $table['name'] ?? null;
+        $namespace = $table['schema'] ?? null;
+        if (!is_string($name) || strlen($name) > 512 || preg_match('/[\x00-\x1f]/', $name)) { throw new RuntimeException('Invalid schema table name.'); }
+        $qualified = is_string($namespace) && $namespace !== '' ? $namespace.'.'.$name : $name;
+        $columns = $schema->getColumns($qualified);
+        $indexes = $schema->getIndexes($qualified);
+        if (!is_array($columns) || count($columns) > 256 || !is_array($indexes) || count($indexes) > 64) { throw new RuntimeException('Schema table exceeds column/index bounds.'); }
+        $safeColumns = [];
+        foreach ($columns as $column) {
+            $safeColumn = ['name' => (string) ($column['name'] ?? ''), 'type' => (string) ($column['type_name'] ?? $column['type'] ?? 'unknown'), 'nullable' => (bool) ($column['nullable'] ?? false)];
+            // These are schema descriptors only. Never copy defaults, comments, generated
+            // expressions, connection settings or any row values into the snapshot.
+            if (isset($column['type']) && is_string($column['type'])) { $safeColumn['fullType'] = $column['type']; }
+            foreach (['auto_increment' => 'autoIncrement', 'unsigned' => 'unsigned'] as $key => $output) {
+                if (array_key_exists($key, $column) && is_bool($column[$key])) { $safeColumn[$output] = $column[$key]; }
+            }
+            foreach (['length', 'precision', 'scale'] as $key) {
+                if (array_key_exists($key, $column) && is_int($column[$key])) { $safeColumn[$key] = $column[$key]; }
+            }
+            if (isset($column['values']) && is_array($column['values'])) { $safeColumn['values'] = array_values($column['values']); }
+            $safeColumns[] = $safeColumn;
+        }
+        $safeIndexes = [];
+        foreach ($indexes as $index) {
+            $safeIndexes[] = ['name' => (string) ($index['name'] ?? ''), 'columns' => array_values($index['columns'] ?? []), 'unique' => (bool) ($index['unique'] ?? false), 'primary' => (bool) ($index['primary'] ?? false)];
+        }
+        $result[] = ['name' => $name, 'schema' => is_string($namespace) ? $namespace : '', 'columns' => $safeColumns, 'indexes' => $safeIndexes];
+    }
+    echo json_encode(['connection' => $selected ?? (string) $app['config']->get('database.default', 'default'), 'tables' => $result], JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE);
+    exit;
+}
+if ($mode === 'database-sources') {
+    $connections = $app['config']->get('database.connections', []);
+    if (!is_array($connections) || count($connections) > 32) { throw new RuntimeException('Database inventory exceeds 32 declared connections.'); }
+    $result = [];
+    foreach ($connections as $name => $_) {
+        if (!is_string($name) || $name === '' || strlen($name) > 128 || preg_match('/[\\x00-\\x1f]/', $name)) { throw new RuntimeException('Invalid database connection name.'); }
+        $safe = ['name' => $name, 'available' => true];
+        try {
+            // Resolves URL config without connecting, but never exports URL/password/options.
+            $config = $app['db']->connection($name)->getConfig();
+            if (!empty($config['unix_socket']) || !empty($config['read']) || !empty($config['write']) || !empty($config['options']) || (isset($config['sslmode']) && $config['sslmode'] !== 'prefer')) {
+                $result[] = ['name' => $name, 'available' => false, 'reason' => 'Connection transport options require manual configuration.'];
+                continue;
+            }
+            foreach (['driver', 'host', 'port', 'database', 'username'] as $key) {
+                $value = $config[$key] ?? null;
+                if (is_string($value) || is_int($value) || $value === null) { $safe[$key] = $value; }
+                else { $safe = ['name' => $name, 'available' => false, 'reason' => 'Structured connection settings require manual configuration.']; break; }
+            }
+            if (($safe['driver'] ?? '') === 'sqlite' && is_string($safe['database'] ?? null)) {
+                $resolved = realpath($safe['database']);
+                if ($resolved !== false) { $safe['database'] = $resolved; }
+            }
+        } catch (\Throwable $_) {
+            // Driver exceptions can include DSNs: return a fixed diagnostic, never their text.
+            $safe = ['name' => $name, 'available' => false, 'reason' => 'Framework could not resolve this connection.'];
+        }
+        $result[] = $safe;
+    }
+    echo json_encode(['default' => (string) $app['config']->get('database.default', ''), 'connections' => $result], JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE);
+    exit;
+}
 if ($mode === 'queue-status') {
     $connections = $app['config']->get('queue.connections', []);
     if (!is_array($connections) || count($connections) > 32) {

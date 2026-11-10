@@ -1,1 +1,5 @@
-["laravel-artisan"]
+[
+  "laravel-artisan",
+  "laravel-generators",
+  "laravel-processes"
+]

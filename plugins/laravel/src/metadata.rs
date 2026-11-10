@@ -1,0 +1,2311 @@
+//! Bounded, declarative project metadata. No PHP or metadata expressions execute.
+use crate::index::{AddName, Index, Names};
+use openidea_plugin::{
+    Location, Position, Range as TextRange,
+    host::{self, Project},
+    providers::{CompletionItem, CompletionKind},
+    text,
+};
+use serde_json::Value;
+use std::collections::{BTreeMap, BTreeSet};
+use std::ops::Range;
+#[path = "metadata_validation.rs"]
+mod validation;
+
+#[derive(Default, Debug)]
+pub(crate) struct Metadata {
+    pub view_roots: Vec<(Option<String>, String)>,
+    pub inertia_roots: Vec<String>,
+    pub(crate) inertia_paths: Vec<PageRoot>,
+    pub(crate) inertia_ignore_settings: bool,
+    pub(crate) livewire_namespaces: Vec<LivewireNamespace>,
+    installed_packages: BTreeMap<String, String>,
+    pub route_files: Vec<String>,
+    pub(crate) additional_gates: Names,
+    pub(crate) additional_middleware: Names,
+    pub(crate) route_methods: BTreeMap<String, RouteMethod>,
+    model_tables: BTreeMap<String, (String, String)>,
+    pub schema_directories: Vec<String>,
+    pub schema_files: Vec<String>,
+    pub column_methods: Vec<Value>,
+    pub framework_version: Option<(u32, u32, u32)>,
+    pub directives: BTreeSet<String>,
+    pub(crate) blade_components: crate::components::Metadata,
+    pub passport: Names,
+    pub enabled_packages: BTreeMap<String, String>,
+    pub disabled_packages: BTreeSet<String>,
+    pub issues: Vec<String>,
+    pub(crate) mixins: Vec<(String, String)>,
+    pub(crate) project_root: String,
+    pub(crate) mixin_sources: BTreeMap<String, String>,
+    pub(crate) ambiguous_forward_classes: BTreeSet<String>,
+    pub(crate) forward_methods: Vec<ForwardMethod>,
+    pub(crate) forward_classes: BTreeMap<String, ForwardClass>,
+    pub(crate) forwarded: BTreeMap<(String, String), Forwarded>,
+    ignored_classes: BTreeSet<String>,
+    ignored_namespaces: BTreeSet<String>,
+    inputs: BTreeSet<String>,
+    source_hashes: BTreeMap<String, String>,
+    external_json: BTreeMap<String, Option<Value>>,
+    rules: Vec<Rule>,
+}
+/// Documented routing.routeFacadeMethods entry; argument indices remain 1-based.
+#[derive(Clone, Debug)]
+pub(crate) struct RouteMethod {
+    pub name: String,
+    pub url_index: Option<usize>,
+    pub controller_index: Option<usize>,
+    pub http_method: String,
+}
+#[derive(Clone, Debug)]
+pub(crate) struct PageRoot {
+    pub path: String,
+    pub prefix: String,
+    pub suffix: String,
+}
+#[derive(Clone, Debug)]
+pub(crate) struct LivewireNamespace {
+    pub source: String,
+    pub class_namespace: Option<String>,
+    pub view_path: Option<String>,
+    pub tag_prefix: String,
+}
+#[derive(Clone, Debug)]
+pub(crate) struct ForwardMethod {
+    pub source: String,
+    pub base: String,
+    pub name: String,
+    pub target: String,
+    pub additional: Vec<String>,
+}
+#[derive(Clone, Debug)]
+pub(crate) struct ForwardClass {
+    pub full: String,
+    pub path: String,
+    pub parents: Vec<String>,
+    pub constructor: Option<Vec<String>>,
+    pub constructor_blocked: bool,
+    pub declared_methods: BTreeSet<String>,
+    pub entry: crate::index::Entry,
+}
+#[derive(Clone, Debug)]
+pub(crate) struct Forwarded {
+    pub sources: Vec<String>,
+    pub parameters: Vec<String>,
+    pub target: String,
+    pub entry: crate::index::Entry,
+}
+fn identifier(value: &str) -> bool {
+    let mut bytes = value.bytes();
+    bytes
+        .next()
+        .is_some_and(|b| b.is_ascii_alphabetic() || b == b'_')
+        && bytes.all(|b| b.is_ascii_alphanumeric() || b == b'_')
+}
+fn class_name(value: &Value) -> Option<String> {
+    let name = value.as_str()?.trim_matches('\\');
+    (!name.is_empty() && name.split('\\').all(identifier)).then(|| name.to_owned())
+}
+fn metadata_type(value: &Value) -> Option<String> {
+    let name = value.as_str()?;
+    let primitive = matches!(
+        name,
+        "string"
+            | "int"
+            | "float"
+            | "bool"
+            | "array"
+            | "mixed"
+            | "object"
+            | "callable"
+            | "iterable"
+    );
+    if primitive {
+        Some(name.into())
+    } else {
+        class_name(value).map(|s| format!("\\{s}"))
+    }
+}
+#[derive(Debug)]
+struct Rule {
+    category: String,
+    conditions: Vec<Condition>,
+    strings: Names,
+    prefix: Option<String>,
+}
+#[derive(Debug)]
+struct Condition {
+    functions: Vec<String>,
+    function_fqns: Vec<String>,
+    methods: Vec<String>,
+    classes: Vec<String>,
+    constructors: Vec<String>,
+    parameters: Vec<usize>,
+    parameter_names: Vec<String>,
+}
+const LIMIT: usize = 256 << 10;
+fn strings(v: &Value) -> Vec<String> {
+    v.as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_owned)
+        .collect()
+}
+fn list<'a>(v: &'a Value, key: &str) -> impl Iterator<Item = &'a Value> {
+    v.get(key).and_then(Value::as_array).into_iter().flatten()
+}
+/// Slash-prefixed paths are project-relative, other paths are metadata-relative.
+/// Parent traversal is allowed only while the resolved path remains project-owned.
+pub(crate) fn resolve_path(source: &str, path: &str) -> Option<String> {
+    if path.is_empty() || path.contains(['\\', '\0', '\n', '*', '?', '[', ']']) {
+        return None;
+    }
+    let mut parts: Vec<&str> = if path.starts_with('/') {
+        Vec::new()
+    } else {
+        source
+            .rsplit_once('/')
+            .map(|(d, _)| d.split('/').collect())
+            .unwrap_or_default()
+    };
+    for part in path.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                parts.pop()?;
+            }
+            p => parts.push(p),
+        }
+    }
+    (!parts.is_empty()).then(|| parts.join("/"))
+}
+impl Metadata {
+    pub(crate) fn load(project: &Project) -> Self {
+        let mut result = Self::default();
+        let Ok(root) = project.root() else {
+            return result;
+        };
+        result.project_root = root.clone();
+        // Package defaults first; explicit project metadata is loaded last.
+        // Hidden .idea is addressed explicitly because host discovery skips it.
+        let mut sources = project.find_files("**/ide.json", 129).unwrap_or_default();
+        sources.sort();
+        sources.dedup();
+        if sources.len() > 128 {
+            result
+                .issues
+                .push("Metadata file budget exceeded; only 128 source files are loaded".into());
+            sources.truncate(128);
+        }
+        let mut sources: Vec<String> = sources
+            .into_iter()
+            .filter_map(|p| p.strip_prefix(&format!("{root}/")).map(str::to_owned))
+            .filter(|p| {
+                p != "ide.json"
+                    && p != ".idea/ide.json"
+                    && !p
+                        .split('/')
+                        .any(|s| matches!(s, "node_modules" | "dist" | "target"))
+            })
+            .collect();
+        sources.extend(["ide.json".into(), ".idea/ide.json".into()]);
+        for source in sources {
+            let absolute = format!("{root}/{source}");
+            if host::project_of(&absolute)
+                .and_then(|p| p.root().ok())
+                .as_deref()
+                != Some(root.as_str())
+            {
+                continue;
+            }
+            if project.stat(&source).is_ok_and(|s| s.size > LIMIT as u64) {
+                result
+                    .issues
+                    .push(format!("{source}: metadata exceeds size limit"));
+                continue;
+            }
+            if let Ok(contents) = project.read_file(&source) {
+                result.extend(&source, &contents, |path| {
+                    let absolute = format!("{root}/{path}");
+                    (host::project_of(&absolute)
+                        .and_then(|p| p.root().ok())
+                        .as_deref()
+                        == Some(root.as_str())
+                        && project.stat(path).is_ok_and(|s| s.size <= LIMIT as u64))
+                    .then(|| project.read_file(path).ok())
+                    .flatten()
+                });
+            }
+        }
+        if host::project_of(&format!("{root}/composer.lock"))
+            .and_then(|p| p.root().ok())
+            .as_deref()
+            == Some(root.as_str())
+            && project
+                .stat("composer.lock")
+                .is_ok_and(|s| s.size <= 4 << 20)
+        {
+            if let Ok(lock) = project.read_file("composer.lock") {
+                result.framework_version = installed_framework(&lock);
+                if let Ok(value) = crate::strict_json::parse(&lock, 4 << 20) {
+                    for section in ["packages", "packages-dev"] {
+                        for package in list(&value, section) {
+                            if let (Some(name), Some(version)) =
+                                (package["name"].as_str(), package["version"].as_str())
+                            {
+                                result
+                                    .installed_packages
+                                    .insert(name.into(), version.into());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if !result.package_enabled("laravel/passport", true) {
+            result.passport.clear();
+        }
+        for entry in result
+            .additional_gates
+            .values_mut()
+            .chain(result.additional_middleware.values_mut())
+        {
+            entry.path = format!("{root}/{}", entry.path);
+        }
+        for entry in result.passport.values_mut() {
+            entry.path = format!("{root}/{}", entry.path);
+        }
+        for rule in &mut result.rules {
+            for entry in rule.strings.values_mut() {
+                entry.path = format!("{root}/{}", entry.path);
+            }
+        }
+        result
+    }
+    fn extend(&mut self, source: &str, contents: &str, read: impl Fn(&str) -> Option<String>) {
+        self.inputs.insert(source.to_owned());
+        self.source_hashes
+            .insert(source.into(), crate::artisan_metadata::hash(contents));
+        let value = match crate::strict_json::parse(contents, LIMIT) {
+            Ok(v) if v.is_object() => v,
+            _ => {
+                self.issues.push(format!(
+                    "{source}: invalid, duplicate-key or oversized metadata JSON"
+                ));
+                return;
+            }
+        };
+        self.issues.extend(validation::issues(source, &value));
+        for (domain, field, target) in [
+            ("auth", "additionalGates", &mut self.additional_gates),
+            (
+                "routing",
+                "additionalMiddleware",
+                &mut self.additional_middleware,
+            ),
+        ] {
+            for item in list(&value[domain], field) {
+                let Some(name) = item.as_str() else { continue };
+                if name.trim().is_empty() || name.len() > 1024 || name.chars().any(char::is_control)
+                {
+                    self.issues
+                        .push(format!("{source}: invalid {domain}.{field} name"));
+                    continue;
+                }
+                target.remove(name);
+                target.add(
+                    name,
+                    Some(format!("ide.json {domain}.{field}")),
+                    source,
+                    Position::new(0, 0),
+                    0,
+                );
+            }
+        }
+        for item in list(&value["eloquent"], "modelTables") {
+            let (Some(model), Some(table)) = (class_name(&item["model"]), item["table"].as_str())
+            else {
+                continue;
+            };
+            if table.trim().is_empty() || table.len() > 256 || table.chars().any(char::is_control) {
+                self.issues.push(format!(
+                    "{source}: invalid eloquent.modelTables table for {model}"
+                ));
+                continue;
+            }
+            let model = model.to_ascii_lowercase();
+            if self
+                .model_tables
+                .get(&model)
+                .is_some_and(|(old, _)| old != table)
+            {
+                self.issues.push(format!("{source}: conflicting eloquent.modelTables override for {model}; later metadata source wins"));
+            }
+            self.model_tables
+                .insert(model, (table.into(), source.into()));
+        }
+        for item in list(&value["routing"], "routeFacadeMethods") {
+            let Some(name) = item["name"].as_str().filter(|name| identifier(name)) else {
+                continue;
+            };
+            let index = |key: &str| {
+                item.get(key).map(|value| {
+                    value
+                        .as_u64()
+                        .filter(|i| *i > 0 && *i <= 256)
+                        .map(|i| i as usize)
+                })
+            };
+            let (url, controller) = (index("urlIndex"), index("controllerIndex"));
+            if url.as_ref().is_some_and(Option::is_none)
+                || controller.as_ref().is_some_and(Option::is_none)
+            {
+                continue;
+            }
+            let http_method = item
+                .get("httpMethod")
+                .and_then(Value::as_str)
+                .unwrap_or("GET");
+            if http_method.is_empty()
+                || http_method.len() > 32
+                || !http_method
+                    .bytes()
+                    .all(|b| b.is_ascii_alphabetic() || b == b'|')
+            {
+                self.issues.push(format!(
+                    "{source}: invalid routing.routeFacadeMethods httpMethod for {name}"
+                ));
+                continue;
+            }
+            let method = RouteMethod {
+                name: name.into(),
+                url_index: url.flatten(),
+                controller_index: controller.flatten(),
+                http_method: http_method.to_ascii_uppercase(),
+            };
+            self.route_methods.insert(name.to_ascii_lowercase(), method);
+        }
+
+        for item in list(&value["helperCode"]["eloquent"], "ignoreClasses") {
+            if let Some(name) = class_name(item) {
+                self.ignored_classes.insert(name.to_ascii_lowercase());
+            } else {
+                self.issues
+                    .push(format!("{source}: invalid helperCode ignoreClasses entry"));
+            }
+        }
+        for item in list(&value["helperCode"]["eloquent"], "ignoreNamespaces") {
+            if let Some(name) = class_name(item) {
+                self.ignored_namespaces.insert(name.to_ascii_lowercase());
+            } else {
+                self.issues.push(format!(
+                    "{source}: invalid helperCode ignoreNamespaces entry"
+                ));
+            }
+        }
+        for item in list(&value["helperCode"], "classMixins") {
+            match (class_name(&item["classFqn"]), class_name(&item["mixinFqn"])) {
+                (Some(target), Some(donor)) if !target.eq_ignore_ascii_case(&donor) => {
+                    if self.mixins.len() >= 64 {
+                        self.issues
+                            .push(format!("{source}: classMixins budget exceeded"));
+                        continue;
+                    }
+                    self.mixin_sources
+                        .insert(target.to_ascii_lowercase(), source.into());
+                    self.mixins.push((target, donor))
+                }
+                _ => self
+                    .issues
+                    .push(format!("{source}: invalid helperCode classMixins entry")),
+            }
+        }
+        for item in list(&value["helperCode"], "methodsWithConstructorParameters") {
+            let Some(base) = class_name(&item["baseFqn"]) else {
+                self.issues
+                    .push(format!("{source}: invalid forwarding baseFqn"));
+                continue;
+            };
+            for method in list(item, "methods") {
+                let name = method["name"].as_str().filter(|s| identifier(s));
+                let target = metadata_type(&method["returnType"]);
+                let mut additional = Vec::new();
+                let mut valid = true;
+                for parameter in list(method, "additionalParameters") {
+                    match (
+                        parameter["name"].as_str().filter(|s| identifier(s)),
+                        metadata_type(&parameter["type"]),
+                    ) {
+                        (Some(name), Some(kind)) => additional.push(format!("{kind} ${name}")),
+                        _ => valid = false,
+                    }
+                }
+                match (name, target) {
+                    (Some(name), Some(target)) if valid => {
+                        if self.forward_methods.len() >= 128 {
+                            self.issues.push(format!(
+                                "{source}: constructor forwarding method budget exceeded"
+                            ));
+                            continue;
+                        }
+                        self.forward_methods.push(ForwardMethod {
+                            source: source.into(),
+                            base: base.clone(),
+                            name: name.into(),
+                            target: target.trim_start_matches('\\').into(),
+                            additional,
+                        })
+                    }
+                    _ => self
+                        .issues
+                        .push(format!("{source}: invalid constructor forwarding method")),
+                }
+            }
+        }
+        let mut view_roots = Vec::new();
+        for entry in list(&value["view"], "paths") {
+            let path = entry
+                .as_str()
+                .or_else(|| entry.get("path").and_then(Value::as_str));
+            if let Some(path) = path.and_then(|p| resolve_path(source, p)) {
+                view_roots.push((
+                    entry
+                        .get("namespace")
+                        .and_then(Value::as_str)
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_owned),
+                    path,
+                ));
+            } else {
+                self.issues
+                    .push(format!("{source}: invalid view.paths entry"));
+            }
+        }
+        view_roots.append(&mut self.view_roots);
+        self.view_roots = view_roots;
+        for entry in list(&value["routing"], "rootFiles") {
+            if let Some(path) = entry.as_str().and_then(|p| resolve_path(source, p)) {
+                self.route_files.push(path);
+            } else {
+                self.issues
+                    .push(format!("{source}: invalid routing.rootFiles entry"));
+            }
+        }
+        for (key, target) in [
+            ("schemaDirectories", &mut self.schema_directories),
+            ("schemaFilePaths", &mut self.schema_files),
+        ] {
+            for entry in list(&value["database"], key) {
+                if let Some(path) = entry.as_str().and_then(|p| resolve_path(source, p)) {
+                    target.push(path);
+                } else {
+                    self.issues
+                        .push(format!("{source}: invalid database.{key} entry"));
+                }
+            }
+        }
+        self.column_methods
+            .extend(list(&value["database"], "columnMigrationMethods").cloned());
+        for key in ["directives", "ifDirectives", "scriptDirectives"] {
+            for entry in list(&value["blade"], key) {
+                if let Some(name) = entry.get("name").and_then(Value::as_str).filter(|s| {
+                    !s.is_empty() && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+                }) {
+                    self.directives.insert(name.into());
+                    if key == "ifDirectives" {
+                        for prefix in ["else", "unless", "end"] {
+                            self.directives.insert(format!("{prefix}{name}"));
+                        }
+                    }
+                    if key == "scriptDirectives" {
+                        self.directives.insert(format!("end{name}"));
+                    }
+                    if entry.get("prefix").is_some() || entry.get("suffix").is_some() {
+                        self.issues.push(format!(
+                            "{source}: {name} injection prefix/suffix is not supported"
+                        ));
+                    }
+                }
+            }
+        }
+        let components =
+            crate::components::metadata(source, &value, &|path| resolve_path(source, path));
+        self.issues
+            .extend(self.blade_components.prepend(components));
+        let packages = &value["packages"];
+        if let Some(map) = packages["enabledPackages"].as_object() {
+            for (name, version) in map {
+                if let Some(version) = version
+                    .as_str()
+                    .filter(|version| !version.trim().is_empty())
+                {
+                    if self.disabled_packages.contains(name) {
+                        self.issues.push(format!("{source}: conflicting package override {name}; explicit enable supersedes an earlier source disable"));
+                        self.disabled_packages.remove(name);
+                    }
+                    self.enabled_packages.insert(name.clone(), version.into());
+                } else {
+                    self.issues
+                        .push(format!("{source}: invalid version override for {name}"));
+                }
+            }
+        }
+        for name in strings(&packages["disabledPackages"]) {
+            if self.enabled_packages.remove(&name).is_some() {
+                self.issues.push(format!("{source}: conflicting package override {name}; explicit disable wins in this source"));
+            }
+            self.disabled_packages.insert(name);
+        }
+        let inertia = if packages.get("inertia").is_some() {
+            &packages["inertia"]
+        } else {
+            &value["inertia"]
+        };
+        if value.get("inertia").is_some() {
+            self.issues.push(format!(
+                "{source}: deprecated inertia metadata; use packages.inertia"
+            ));
+        }
+        if let Some(ignore) = inertia["ignoreSettingsPaths"].as_bool() {
+            self.inertia_ignore_settings = ignore;
+        }
+        let mut inertia_paths = Vec::new();
+        for entry in list(inertia, "pagePaths") {
+            if ["prefix", "suffix"]
+                .iter()
+                .any(|key| entry.get(*key).is_some_and(|v| !v.is_string()))
+            {
+                continue;
+            }
+            if let Some(path) = entry["path"]
+                .as_str()
+                .and_then(|path| resolve_path(source, path))
+            {
+                self.inertia_roots.push(path.clone());
+                inertia_paths.push(PageRoot {
+                    path,
+                    prefix: entry["prefix"].as_str().unwrap_or("").into(),
+                    suffix: entry["suffix"].as_str().unwrap_or("").into(),
+                });
+            } else {
+                self.issues
+                    .push(format!("{source}: invalid packages.inertia.pagePaths path"));
+            }
+        }
+        inertia_paths.append(&mut self.inertia_paths);
+        self.inertia_paths = inertia_paths;
+        let mut livewire_namespaces = Vec::new();
+        for entry in list(&packages["livewire"], "namespaces") {
+            if entry.get("tagPrefix").is_some_and(|v| !v.is_string()) {
+                continue;
+            }
+            let class_namespace = entry.get("classNamespace").and_then(class_name);
+            let view_path = entry["viewPath"]
+                .as_str()
+                .and_then(|path| resolve_path(source, path));
+            let prefix = entry["tagPrefix"].as_str().unwrap_or("");
+            if class_namespace.is_none() && view_path.is_none()
+                || !prefix
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
+            {
+                self.issues.push(format!("{source}: invalid packages.livewire.namespaces entry; need classNamespace or owned viewPath and a literal tagPrefix"));
+                continue;
+            }
+            if entry.get("classNamespace").is_some() && class_namespace.is_none()
+                || entry.get("viewPath").is_some() && view_path.is_none()
+            {
+                self.issues
+                    .push(format!("{source}: invalid Livewire namespace/path"));
+                continue;
+            }
+            livewire_namespaces.push(LivewireNamespace {
+                source: source.into(),
+                class_namespace,
+                view_path,
+                tag_prefix: prefix.into(),
+            });
+        }
+        livewire_namespaces.append(&mut self.livewire_namespaces);
+        self.livewire_namespaces = livewire_namespaces;
+        if !self.disabled_packages.contains("laravel/passport") {
+            if let Some(scopes) = packages["passport"].get("scopes") {
+                self.add_scopes(source, source, scopes);
+            }
+            for entry in list(&packages["passport"], "scopeFiles") {
+                if let Some(path) = entry.as_str().and_then(|p| resolve_path(source, p)) {
+                    self.inputs.insert(path.clone());
+                    let external =
+                        read(&path).and_then(|s| crate::strict_json::parse(&s, LIMIT).ok());
+                    self.external_json.insert(path.clone(), external.clone());
+                    match external {
+                        Some(v) => self.add_scopes(source, &path, &v),
+                        None => self.issues.push(format!(
+                            "{source}: unreadable or invalid Passport scope file {path}"
+                        )),
+                    }
+                }
+            }
+        }
+        for entry in list(&value, "completions") {
+            let Some(category) = entry.get("complete").and_then(Value::as_str) else {
+                self.issues
+                    .push(format!("{source}: completion missing complete"));
+                continue;
+            };
+            if !matches!(
+                category,
+                "routeName"
+                    | "routeMiddleware"
+                    | "configKey"
+                    | "viewName"
+                    | "translationKey"
+                    | "validationRule"
+                    | "validationRules"
+                    | "staticStrings"
+                    | "gate"
+                    | "policy"
+                    | "authRule"
+                    | "assetPath"
+                    | "environmentVariable"
+                    | "inertiaPage"
+                    | "livewireComponent"
+                    | "bladeComponent"
+                    | "viteAsset"
+                    | "passportScopeId"
+            ) {
+                self.issues.push(format!(
+                    "{source}: unsupported completion category {category}"
+                ));
+                continue;
+            }
+            let mut conditions = Vec::new();
+            for condition in list(entry, "condition") {
+                if condition.as_object().is_none_or(|o| {
+                    o.keys().any(|k| {
+                        !matches!(
+                            k.as_str(),
+                            "functionNames"
+                                | "functionFqn"
+                                | "parameterNames"
+                                | "methodNames"
+                                | "classFqn"
+                                | "newClassFqn"
+                                | "parameters"
+                                | "place"
+                        )
+                    })
+                }) {
+                    self.issues
+                        .push(format!("{source}: unsupported completion condition"));
+                    continue;
+                }
+                if condition
+                    .get("place")
+                    .is_some_and(|p| p.as_str() != Some("parameter"))
+                {
+                    self.issues
+                        .push(format!("{source}: unsupported completion place"));
+                    continue;
+                }
+                let functions = strings(&condition["functionNames"]);
+                let function_fqns = strings(&condition["functionFqn"]);
+                let parameter_names = strings(&condition["parameterNames"]);
+                if condition.get("parameterNames").is_some() && parameter_names.is_empty()
+                    || parameter_names.iter().any(|name| !identifier(name))
+                {
+                    self.issues
+                        .push(format!("{source}: invalid parameterNames identifier"));
+                    continue;
+                }
+                let methods = strings(&condition["methodNames"]);
+                let classes = strings(&condition["classFqn"]);
+                let constructors = strings(&condition["newClassFqn"]);
+                let parameters = condition["parameters"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_u64)
+                    .filter(|n| *n > 0 && *n < 256)
+                    .map(|n| n as usize)
+                    .collect::<Vec<_>>();
+                if condition.get("parameters").is_some() && parameters.is_empty() {
+                    self.issues
+                        .push(format!("{source}: invalid completion parameter positions"));
+                    continue;
+                }
+                // A method condition without exact class ownership must not match unrelated classes.
+                if functions.is_empty()
+                    && function_fqns.is_empty()
+                    && constructors.is_empty()
+                    && (methods.is_empty() || classes.is_empty())
+                {
+                    self.issues.push(format!("{source}: completion requires functionNames or exact classFqn + methodNames"));
+                    continue;
+                }
+                conditions.push(Condition {
+                    functions,
+                    function_fqns,
+                    parameter_names,
+                    methods,
+                    classes,
+                    constructors,
+                    parameters,
+                });
+            }
+            let mut names = Names::new();
+            for item in list(&entry["options"], "strings") {
+                if let Some(name) = item.as_str() {
+                    names.add(
+                        name,
+                        Some("ide.json".into()),
+                        source,
+                        Position::new(0, 0),
+                        0,
+                    );
+                } else if let Some(name) = item.get("value").and_then(Value::as_str) {
+                    names.add(
+                        name,
+                        item.get("description")
+                            .and_then(Value::as_str)
+                            .map(str::to_owned),
+                        source,
+                        Position::new(0, 0),
+                        0,
+                    );
+                }
+            }
+            if let Some(file) = entry["options"].get("dataFile").and_then(Value::as_str) {
+                let resolved = resolve_path(source, file);
+                if let Some(path) = &resolved {
+                    self.inputs.insert(path.clone());
+                }
+                let external = resolved
+                    .as_ref()
+                    .and_then(|path| read(path))
+                    .and_then(|data| crate::strict_json::parse(&data, LIMIT).ok());
+                if let Some(path) = &resolved {
+                    self.external_json.insert(path.clone(), external.clone());
+                }
+                match external {
+                    Some(data) if data.is_array() => {
+                        for (position, value) in data.as_array().unwrap().iter().enumerate() {
+                            if let Some(name) = value.as_str() {
+                                names.add(
+                                    name,
+                                    Some("ide.json dataFile".into()),
+                                    source,
+                                    Position::new(0, 0),
+                                    0,
+                                );
+                            } else {
+                                self.issues.push(format!("{source}: staticStrings dataFile {file}[{position}] must be a string"));
+                            }
+                        }
+                    }
+                    _ => self.issues.push(format!(
+                        "{source}: invalid or unsupported staticStrings dataFile {file}"
+                    )),
+                }
+            }
+
+            if entry["options"].as_object().is_some_and(|o| {
+                o.keys()
+                    .any(|k| !matches!(k.as_str(), "strings" | "dataFile" | "prefix"))
+            }) {
+                self.issues
+                    .push(format!("{source}: unsupported completion options"));
+                continue;
+            }
+            if entry.get("prefix").is_some()
+                || entry.get("suffix").is_some()
+                || entry.get("transform").is_some()
+            {
+                self.issues.push(format!(
+                    "{source}: completion transformations are not supported"
+                ));
+                continue;
+            }
+            if !conditions.is_empty() {
+                self.rules.push(Rule {
+                    category: category.into(),
+                    conditions,
+                    strings: names,
+                    prefix: entry["options"]["prefix"].as_str().map(str::to_owned),
+                });
+            }
+        }
+    }
+    fn add_scopes(&mut self, source: &str, path: &str, value: &Value) {
+        let Some(map) = value.as_object() else {
+            self.issues.push(format!(
+                "{source}: Passport scopes in {path} must be an object of scope descriptions"
+            ));
+            return;
+        };
+        for (name, description) in map {
+            if let Some(description) = description.as_str() {
+                if name.is_empty() || name.chars().any(char::is_control) {
+                    self.issues
+                        .push(format!("{source}: invalid Passport scope name in {path}"));
+                    continue;
+                }
+                self.passport.remove(name);
+                self.passport
+                    .add(name, Some(description.into()), path, Position::new(0, 0), 0);
+            } else {
+                self.issues.push(format!(
+                    "{source}: Passport scope {name} in {path} must have a string description"
+                ));
+            }
+        }
+    }
+    /// Explicit FQN overrides; source order is package defaults then project metadata.
+    pub(crate) fn model_table(&self, full: &str) -> Option<&str> {
+        self.model_tables
+            .get(&full.trim_matches('\\').to_ascii_lowercase())
+            .map(|(table, _)| table.as_str())
+    }
+    pub(crate) fn helper_ignored(&self, full: &str) -> bool {
+        let full = full.trim_matches('\\').to_ascii_lowercase();
+        self.ignored_classes.contains(&full)
+            || self
+                .ignored_namespaces
+                .iter()
+                .any(|namespace| full == *namespace || full.starts_with(&format!("{namespace}\\")))
+    }
+    /// Invalidate declared metadata dependencies even outside conventional Laravel roots.
+    pub(crate) fn affects(&self, relative: &str) -> bool {
+        relative == "ide.json"
+            || relative == ".idea/ide.json"
+            || relative.ends_with("/ide.json")
+            || self.inputs.contains(relative)
+            || self
+                .livewire_namespaces
+                .iter()
+                .filter_map(|n| n.view_path.as_ref())
+                .any(|root| relative == root || relative.starts_with(&format!("{root}/")))
+            || self.route_files.iter().any(|path| path == relative)
+            || self.schema_files.iter().any(|path| path == relative)
+            || self
+                .view_roots
+                .iter()
+                .map(|(_, path)| path)
+                .chain(self.inertia_roots.iter())
+                .chain(self.schema_directories.iter())
+                .any(|root| relative == root || relative.starts_with(&format!("{root}/")))
+    }
+    pub(crate) fn package_version(&self, name: &str) -> Option<&str> {
+        if self.disabled_packages.contains(name) {
+            return None;
+        }
+        self.enabled_packages
+            .get(name)
+            .or_else(|| self.installed_packages.get(name))
+            .map(String::as_str)
+    }
+    pub(crate) fn package_major(&self, name: &str) -> Option<u32> {
+        self.package_version(name)?
+            .trim_start_matches('v')
+            .split('.')
+            .next()?
+            .parse()
+            .ok()
+    }
+    pub(crate) fn package_enabled(&self, name: &str, detected: bool) -> bool {
+        !self.disabled_packages.contains(name)
+            && (self.enabled_packages.contains_key(name)
+                || self.installed_packages.contains_key(name)
+                || detected)
+    }
+}
+
+/// Cached metadata issues, attributed only to their owning metadata source.
+pub(crate) fn diagnostics(
+    index: &Index,
+    path: &str,
+    root: &str,
+) -> Vec<openidea_plugin::Diagnostic> {
+    let Some(relative) = path.strip_prefix(&format!("{root}/")) else {
+        return Vec::new();
+    };
+    if !relative.ends_with("ide.json") {
+        return Vec::new();
+    }
+    index
+        .metadata
+        .issues
+        .iter()
+        .filter(|issue| issue.starts_with(&format!("{relative}:")) || !issue.contains(": "))
+        .take(200)
+        .map(|issue| {
+            let bounded: String = issue.chars().take(1024).collect();
+            let mut diagnostic = openidea_plugin::Diagnostic::new(
+                TextRange::new(Position::new(0, 0), Position::new(0, 0)),
+                openidea_plugin::Severity::Warning,
+                bounded,
+            );
+            diagnostic.code = Some("laravel-metadata".into());
+            diagnostic
+        })
+        .collect()
+}
+
+/// Revalidate changed metadata text against cached owned external snapshots.
+/// Editor callbacks do not read source files or bootstrap project code.
+pub(crate) fn diagnostics_current(
+    index: &Index,
+    path: &str,
+    root: &str,
+    contents: &str,
+) -> Vec<openidea_plugin::Diagnostic> {
+    let Some(relative) = path.strip_prefix(&format!("{root}/")) else {
+        return Vec::new();
+    };
+    if !relative.ends_with("ide.json") {
+        return Vec::new();
+    }
+    if contents.len() > LIMIT {
+        let overlay = Index {
+            metadata: Metadata {
+                issues: vec![format!(
+                    "{relative}: metadata exceeds the {LIMIT}-byte size limit"
+                )],
+                ..Metadata::default()
+            },
+            ..Index::default()
+        };
+        return diagnostics(&overlay, path, root);
+    }
+    if index
+        .metadata
+        .source_hashes
+        .get(relative)
+        .is_some_and(|hash| *hash == crate::artisan_metadata::hash(contents))
+    {
+        return diagnostics(index, path, root);
+    }
+    let missing = std::cell::RefCell::new(BTreeSet::new());
+    let mut current = Metadata::default();
+    current.extend(relative, contents, |dependency| {
+        let absolute = format!("{root}/{dependency}");
+        if host::project_of(&absolute)
+            .and_then(|project| project.root().ok())
+            .as_deref()
+            != Some(root)
+        {
+            return None;
+        }
+        match index.metadata.external_json.get(dependency) {
+            Some(Some(value)) => serde_json::to_string(value).ok(),
+            Some(None) => None,
+            None => {
+                missing.borrow_mut().insert(dependency.to_owned());
+                None
+            }
+        }
+    });
+    let missing = missing.into_inner();
+    current
+        .issues
+        .retain(|issue| !missing.iter().any(|dependency| issue.contains(dependency)));
+    for dependency in missing {
+        current.issues.push(format!("{relative}: external metadata {dependency} is not indexed; save/reindex to validate its contents"));
+    }
+    current.issues.extend(
+        index
+            .metadata
+            .issues
+            .iter()
+            .filter(|issue| !issue.contains(": "))
+            .cloned(),
+    );
+    current.issues.sort();
+    current.issues.dedup();
+    let overlay = Index {
+        metadata: current,
+        ..Index::default()
+    };
+    diagnostics(&overlay, path, root)
+}
+
+/// Only an exact installed stable lock version is evidence; constraints are not.
+fn installed_framework(lock: &str) -> Option<(u32, u32, u32)> {
+    let value = crate::strict_json::parse(lock, 4 << 20).ok()?;
+    let found = list(&value, "packages")
+        .filter(|p| p["name"].as_str() == Some("laravel/framework"))
+        .collect::<Vec<_>>();
+    if found.len() != 1 {
+        return None;
+    }
+    let mut parts = found[0]["version"]
+        .as_str()?
+        .trim_start_matches('v')
+        .split('.');
+    let version = (
+        parts.next()?.parse().ok()?,
+        parts.next()?.parse().ok()?,
+        parts.next()?.parse().ok()?,
+    );
+    parts.next().is_none().then_some(version)
+}
+
+struct Site {
+    open: usize,
+    identity: crate::eloquent_members::metadata_inference::CallIdentity,
+    argument: usize,
+    parameter_name: Option<String>,
+    literal: Range<usize>,
+}
+fn parameter_prefix(text: &str) -> Option<Option<String>> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Some(None);
+    }
+    let name = trimmed.strip_suffix(':')?.trim();
+    identifier(name).then(|| Some(name.to_owned()))
+}
+fn argument_context(masked: &str, open: usize, literal: usize) -> Option<(usize, Option<String>)> {
+    let b = masked.as_bytes();
+    let mut i = open + 1;
+    let mut start = i;
+    let mut ordinal = 1;
+    let mut names = BTreeSet::new();
+    let mut had_named = false;
+    while i < literal {
+        match b[i] {
+            b'\'' | b'"' => {
+                i = crate::php::string_end(b, i).min(b.len());
+                continue;
+            }
+            b'(' | b'[' | b'{' => {
+                i = crate::php::closing(masked, i)? + 1;
+                continue;
+            }
+            b',' => {
+                let prefix = masked[start..i].trim_start();
+                let length = prefix
+                    .bytes()
+                    .take_while(|b| b.is_ascii_alphanumeric() || *b == b'_')
+                    .count();
+                let name = &prefix[..length];
+                if identifier(name) && prefix[length..].trim_start().starts_with(':') {
+                    if !names.insert(name.to_owned()) {
+                        return None;
+                    }
+                    had_named = true;
+                } else if had_named {
+                    return None;
+                }
+                ordinal += 1;
+                start = i + 1;
+            }
+            b'.' if b[i..].starts_with(b"...") => return None,
+            _ => {}
+        }
+        i += 1;
+    }
+    if i != literal {
+        return None;
+    }
+    let name = parameter_prefix(&masked[start..literal])?;
+    if name.as_ref().is_some_and(|name| names.contains(name)) || name.is_none() && had_named {
+        return None;
+    }
+    Some((ordinal, name))
+}
+/// Direct literal arguments only; comments, nested arrays and interpolation do not
+/// manufacture call ownership. Receiver classes are resolved only from imports,
+/// explicit parameter types and straight-line literal new bindings.
+fn site(text: &str, at: usize) -> Option<Site> {
+    if text.len() > 1 << 20 || at > text.len() || !text.is_char_boundary(at) {
+        return None;
+    }
+    if text[..at].contains("<<<") || text[..at].contains('`') || text[..at].contains("?>") {
+        return None;
+    }
+    let masked = crate::php::mask_comments(text);
+    let b = masked.as_bytes();
+    let mut stack: Vec<(u8, usize, usize)> = Vec::new();
+    let mut i = 0;
+    while i < b.len() {
+        if matches!(b[i], b'\'' | b'"') {
+            let mut end = i + 1;
+            let mut closed = false;
+            while end < b.len() {
+                if b[end] == b[i] {
+                    end += 1;
+                    closed = true;
+                    break;
+                }
+                end = (end + if b[end] == b'\\' { 2 } else { 1 }).min(b.len());
+            }
+            let literal = i + 1..if closed { end - 1 } else { end };
+            if literal.start <= at && at <= literal.end {
+                let &(kind, open, arg) = stack.last()?;
+                if kind != b'(' || text[literal.clone()].contains(['\\', '$']) {
+                    return None;
+                }
+                let (argument, parameter_name) = argument_context(&masked, open, i)?;
+                let _ = arg;
+                let mut tail = end;
+                while tail < b.len() && b[tail].is_ascii_whitespace() {
+                    tail += 1;
+                }
+                if closed && !matches!(b.get(tail), Some(b',') | Some(b')')) {
+                    return None;
+                }
+                let identity =
+                    crate::eloquent_members::metadata_inference::call_identity(text, open)?;
+                return Some(Site {
+                    open,
+                    identity,
+                    argument,
+                    parameter_name,
+                    literal,
+                });
+            }
+            i = end.max(i + 1);
+            continue;
+        }
+        match b[i] {
+            b'(' | b'[' | b'{' => stack.push((b[i], i, 0)),
+            b')' | b']' | b'}' => {
+                let expected = match b[i] {
+                    b')' => b'(',
+                    b']' => b'[',
+                    _ => b'{',
+                };
+                if stack.pop().is_none_or(|s| s.0 != expected) {
+                    return None;
+                }
+            }
+            b',' => {
+                if let Some(s) = stack.last_mut() {
+                    s.2 += 1;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+fn matches(condition: &Condition, site: &Site) -> bool {
+    if let Some(name) = &site.parameter_name {
+        if !condition.parameter_names.is_empty() {
+            if !condition.parameter_names.contains(name) {
+                return false;
+            }
+        } else if !condition.parameters.is_empty() {
+            return false;
+        }
+    } else if !condition.parameters.is_empty() {
+        if !condition.parameters.contains(&site.argument) {
+            return false;
+        }
+    } else if !condition.parameter_names.is_empty() {
+        return false;
+    }
+    let identity = &site.identity;
+    if identity.constructor {
+        return identity.class.as_ref().is_some_and(|class| {
+            condition.constructors.iter().any(|expected| {
+                expected
+                    .trim_start_matches('\\')
+                    .eq_ignore_ascii_case(class)
+            })
+        });
+    }
+    if let Some(class) = &identity.class {
+        return condition.classes.iter().any(|expected| {
+            expected
+                .trim_start_matches('\\')
+                .eq_ignore_ascii_case(class)
+        }) && condition
+            .methods
+            .iter()
+            .any(|name| name.eq_ignore_ascii_case(&identity.method));
+    }
+    condition.functions.iter().any(|expected| {
+        identity
+            .function_names
+            .iter()
+            .any(|name| name.eq_ignore_ascii_case(expected))
+    }) || identity.function_fqn.as_ref().is_some_and(|full| {
+        condition
+            .function_fqns
+            .iter()
+            .any(|expected| expected.trim_start_matches('\\').eq_ignore_ascii_case(full))
+    })
+}
+fn inventory<'a>(index: &'a Index, rule: &'a Rule) -> &'a Names {
+    match rule.category.as_str() {
+        "routeName" => &index.routes,
+        "routeMiddleware" => &index.middleware,
+        "configKey" => &index.config,
+        "viewName" => &index.views,
+        "translationKey" => &index.translations,
+        "validationRule" | "validationRules" => &index.rules,
+        "staticStrings" => &rule.strings,
+        "gate" | "policy" | "authRule" => &index.abilities,
+        "assetPath" => &index.assets,
+        "environmentVariable" => &index.env,
+        "inertiaPage" => &index.inertia_pages,
+        "livewireComponent" => &index.livewire,
+        "bladeComponent" => &index.components,
+        "viteAsset" => &index.vite,
+        "passportScopeId" => &index.metadata.passport,
+        _ => &rule.strings,
+    }
+}
+/// Controller arguments of documented custom Route facade methods.
+/// This feeds the same action/method inventories as standard route calls.
+pub(crate) fn route_reference(
+    metadata: &Metadata,
+    source: &str,
+    at: usize,
+) -> Option<crate::refs::Reference> {
+    use crate::{
+        php,
+        refs::{Kind, Reference},
+    };
+    if metadata.route_methods.is_empty()
+        || source.len() > 128 * 1024
+        || at > source.len()
+        || !source.is_char_boundary(at)
+    {
+        return None;
+    }
+    if let Some(site) = site(source, at) {
+        let class = site.identity.class.as_deref()?;
+        if !crate::eloquent_members::metadata_inference::route_calls(source)
+            .iter()
+            .any(|(_, method)| {
+                *method < site.open
+                    && source[*method..site.open]
+                        .trim_end()
+                        .eq_ignore_ascii_case(&site.identity.method)
+            })
+        {
+            return None;
+        }
+        if !class.eq_ignore_ascii_case("Route")
+            && !class.eq_ignore_ascii_case("Illuminate\\Support\\Facades\\Route")
+        {
+            return None;
+        }
+        let method = metadata
+            .route_methods
+            .get(&site.identity.method.to_ascii_lowercase())?;
+        if site.parameter_name.is_none() && method.controller_index == Some(site.argument) {
+            return Some(Reference {
+                kind: Kind::Action,
+                start: site.literal.start,
+                end: site.literal.end,
+                class: None,
+                closed: source
+                    .as_bytes()
+                    .get(site.literal.end)
+                    .is_some_and(|b| matches!(b, b'\'' | b'"')),
+            });
+        }
+        return None;
+    }
+    let masked = php::mask_comments(source);
+    for (_, start) in crate::eloquent_members::metadata_inference::route_calls(source) {
+        let tail = &masked[start..];
+        let Some(open) = tail.find('(').map(|i| i + start) else {
+            continue;
+        };
+        let name = masked[start..open].trim().to_ascii_lowercase();
+        let Some(method) = metadata.route_methods.get(&name) else {
+            continue;
+        };
+        let Some(index) = method.controller_index else {
+            continue;
+        };
+        let args = php::arguments(&masked, open);
+        let Some(range) = args
+            .get(index - 1)
+            .cloned()
+            .filter(|range| range.contains(&at))
+        else {
+            continue;
+        };
+        // Positional indices are not valid after an unpacked/named argument.
+        if args.iter().take(index).any(|range| {
+            let arg = masked[range.clone()].trim_start();
+            arg.starts_with("...")
+                || arg
+                    .split_once(':')
+                    .is_some_and(|(name, _)| identifier(name.trim()))
+        }) {
+            continue;
+        }
+        let Some(array) = php::array_open(&masked, range.clone()) else {
+            continue;
+        };
+        if php::closing(&masked, array)
+            .is_none_or(|end| end + 1 != php::trimmed(&masked, range).end)
+        {
+            continue;
+        }
+        let items = php::items(&masked, array);
+        if items.len() != 2 || items.iter().any(|item| item.key.is_some()) {
+            continue;
+        }
+        let Some(class) = php::class_constant(&masked, items[0].value.clone()) else {
+            continue;
+        };
+        if class_name(&Value::String(class.into())).is_none() {
+            continue;
+        }
+        let Some(class) =
+            crate::eloquent_members::metadata_inference::class_identity(source, class)
+        else {
+            continue;
+        };
+        let Some((name, start)) = php::literal(&masked, items[1].value.clone()) else {
+            continue;
+        };
+        if name.contains(['$', '\\']) || at < start || at > start + name.len() {
+            continue;
+        }
+        return Some(Reference {
+            kind: Kind::Method,
+            start,
+            end: start + name.len(),
+            class: Some(class),
+            closed: true,
+        });
+    }
+    None
+}
+
+fn completion_range(rule: &Rule, source: &str, site: &Site, at: usize) -> Option<Range<usize>> {
+    if !matches!(rule.category.as_str(), "validationRule" | "validationRules") {
+        return Some(site.literal.clone());
+    }
+    let contents = source.get(site.literal.clone())?;
+    let relative = at.checked_sub(site.literal.start)?;
+    if relative > contents.len() || !contents.is_char_boundary(relative) {
+        return None;
+    }
+    if rule.category == "validationRule" && contents.contains('|') {
+        return None;
+    }
+    // A regex parameter may contain pipes. Without interpreting PHP/PCRE, the
+    // remainder cannot safely be treated as separate rule names.
+    if rule.category == "validationRules"
+        && contents[..relative].split('|').any(|segment| {
+            segment
+                .split_once(':')
+                .is_some_and(|(name, _)| matches!(name.trim(), "regex" | "not_regex"))
+        })
+    {
+        return None;
+    }
+    let from = if rule.category == "validationRules" {
+        contents[..relative].rfind('|').map_or(0, |i| i + 1)
+    } else {
+        0
+    };
+    if contents[from..relative].contains(':') {
+        return None;
+    }
+    let end = relative
+        + contents[relative..]
+            .find(['|', ':'])
+            .unwrap_or(contents.len() - relative);
+    Some(site.literal.start + from..site.literal.start + end)
+}
+pub(crate) fn completion(index: &Index, source: &str, at: usize) -> Vec<CompletionItem> {
+    if index.metadata.rules.is_empty() {
+        return Vec::new();
+    }
+    let Some(site) = site(source, at) else {
+        return Vec::new();
+    };
+    let mut out = BTreeMap::new();
+    for rule in &index.metadata.rules {
+        if rule.conditions.iter().any(|c| matches(c, &site)) {
+            let Some(replace) = completion_range(rule, source, &site, at) else {
+                continue;
+            };
+            for (name, entry) in inventory(index, rule) {
+                let name = if let Some(prefix) = &rule.prefix {
+                    let Some(short) = name.strip_prefix(&format!("{prefix}.")) else {
+                        continue;
+                    };
+                    short
+                } else {
+                    name.as_str()
+                };
+                let mut item = CompletionItem::new(name, CompletionKind::Value);
+                item.detail = entry.detail.clone();
+                item.replace = Some(TextRange::new(
+                    text::position(source, replace.start),
+                    text::position(source, replace.end),
+                ));
+                out.insert(name.to_owned(), item);
+            }
+        }
+    }
+    out.into_values().collect()
+}
+pub(crate) fn definition(index: &Index, source: &str, at: usize) -> Vec<Location> {
+    if index.metadata.rules.is_empty() {
+        return Vec::new();
+    }
+    let Some(site) = site(source, at) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for rule in &index.metadata.rules {
+        if rule.conditions.iter().any(|c| matches(c, &site)) {
+            let Some(range) = completion_range(rule, source, &site, at) else {
+                continue;
+            };
+            let name = &source[range];
+            if let Some(entry) = inventory(index, rule).get(
+                &rule
+                    .prefix
+                    .as_ref()
+                    .map_or_else(|| name.to_owned(), |p| format!("{p}.{name}")),
+            ) {
+                if !entry.path.is_empty() {
+                    out.push(Location {
+                        path: entry.path.clone(),
+                        range: TextRange::new(
+                            entry.at,
+                            Position::new(entry.at.line, entry.at.character + entry.width),
+                        ),
+                    });
+                }
+            }
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn parse(source: &str) -> Metadata {
+        let mut m = Metadata::default();
+        m.extend("ide.json", source, |_| None);
+        m
+    }
+    #[test]
+    fn path_semantics_are_metadata_relative_and_never_escape() {
+        assert_eq!(
+            resolve_path(".idea/ide.json", "../views"),
+            Some("views".into())
+        );
+        assert_eq!(
+            resolve_path("vendor/pkg/ide.json", "/views"),
+            Some("views".into())
+        );
+        assert_eq!(resolve_path("ide.json", "../outside"), None);
+        assert_eq!(resolve_path("ide.json", "x/**/*.php"), None);
+    }
+    #[test]
+    fn invalid_duplicates_do_not_partially_load() {
+        let m = parse(r#"{"packages":{"enabledPackages":{"x":"1","x":"2"}}}"#);
+        assert!(m.enabled_packages.is_empty());
+        assert_eq!(m.issues.len(), 1);
+    }
+    #[test]
+    fn package_disabling_wins_and_scope_files_are_bounded() {
+        let mut m = Metadata::default();
+        m.extend(".idea/ide.json",r#"{"packages":{"enabledPackages":{"laravel/passport":"12"},"disabledPackages":["laravel/passport"],"passport":{"scopes":{"read":"Read"}}}}"#,|_|None);
+        assert!(!m.package_enabled("laravel/passport", true));
+        assert!(m.passport.is_empty());
+    }
+    #[test]
+    fn custom_function_completion_reuses_real_inventory_and_navigation() {
+        let mut index = Index::default();
+        index.metadata = parse(
+            r#"{"completions":[{"complete":"routeName","condition":[{"functionNames":["tenantRoute"],"parameters":[2]}]}]}"#,
+        );
+        index.routes.add(
+            "users.index",
+            None,
+            "/app/routes/web.php",
+            Position::new(3, 2),
+            11,
+        );
+        let source = "<?php tenantRoute(42, 'users.index');";
+        let at = source.find("users.index").unwrap() + 3;
+        assert_eq!(completion(&index, source, at)[0].label, "users.index");
+        assert_eq!(
+            definition(&index, source, at)[0].path,
+            "/app/routes/web.php"
+        );
+        assert!(completion(&index, "<?php tenantRoute('x');", 20).is_empty());
+    }
+    #[test]
+    fn static_methods_require_exact_class_and_literals_cannot_fake_calls() {
+        let m = parse(
+            r#"{"completions":[{"complete":"staticStrings","options":{"strings":["yes"]},"condition":[{"methodNames":["pick"],"classFqn":["\\Pkg\\Chooser"],"parameters":[1]}]}]}"#,
+        );
+        let mut index = Index::default();
+        index.metadata = m;
+        for source in [
+            "<?php \\Pkg\\Chooser::pick('');",
+            "<?php Chooser::pick('');",
+            "<?php $x->pick('');",
+            "<?php // \\Pkg\\Chooser::pick('');",
+        ] {
+            let at = source.find("''").unwrap() + 1;
+            assert_eq!(
+                !completion(&index, source, at).is_empty(),
+                source.starts_with("<?php \\")
+            );
+        }
+    }
+    #[test]
+    fn expressions_and_arrays_are_not_direct_literal_arguments() {
+        for source in ["<?php f(['']);", "<?php f('x'.'');", "<?php f('$value');"] {
+            let at = source.rfind('\'').unwrap() - 1;
+            assert!(site(source, at).is_none());
+        }
+    }
+    #[test]
+    fn unsupported_conditions_are_not_broadened() {
+        let m = parse(
+            r#"{"completions":[{"complete":"routeName","condition":[{"functionNames":["f"],"place":"arrayKey"}]}]}"#,
+        );
+        assert!(m.rules.is_empty());
+        assert!(!m.issues.is_empty());
+    }
+    #[test]
+    fn installed_versions_reject_ranges_prereleases_and_duplicate_frameworks() {
+        assert_eq!(
+            installed_framework(
+                r#"{"packages":[{"name":"laravel/framework","version":"v12.7.1"}]}"#
+            ),
+            Some((12, 7, 1))
+        );
+        for version in ["^12.0", "12.1.0-dev", "dev-master"] {
+            assert_eq!(
+                installed_framework(&format!(
+                    r#"{{"packages":[{{"name":"laravel/framework","version":"{version}"}}]}}"#
+                )),
+                None
+            );
+        }
+    }
+    #[test]
+    fn index_loads_roots_scopes_schema_and_custom_completion_without_execution() {
+        let host = openidea_plugin::mock::MockHost::install();
+        host.add_file("ide.json",r#"{"view":{"paths":[{"path":"/modules/blog/views","namespace":"blog"}]},"routing":{"rootFiles":["/extra/routes.php"]},"packages":{"passport":{"scopeFiles":["/scopes.json"]},"inertia":{"pagePaths":[{"path":"/frontend/pages"}]}},"completions":[{"complete":"viewName","condition":[{"functionNames":["tenantView"]}]}]}"#);
+        host.add_file("modules/blog/views/home.blade.php", "Hello");
+        host.add_file(
+            "extra/routes.php",
+            "<?php Route::get('/extra', fn()=>1)->name('extra');",
+        );
+        host.add_file("frontend/pages/Show.vue", "<template/>");
+        host.add_file("scopes.json", r#"{"read":"Read content"}"#);
+        let index = Index::build(&openidea_plugin::host::projects().unwrap().remove(0));
+        assert!(index.views.contains_key("blog::home"));
+        assert!(index.routes.contains_key("extra"));
+        assert!(index.inertia_pages.contains_key("Show"));
+        assert_eq!(index.metadata.passport["read"].path, "/project/scopes.json");
+        let source = "<?php tenantView('');";
+        assert!(
+            completion(&index, source, source.find("''").unwrap() + 1)
+                .iter()
+                .any(|i| i.label == "blog::home")
+        );
+        assert!(host.process_runs().is_empty());
+    }
+    #[test]
+    fn constructors_and_config_prefix_use_documented_options() {
+        let mut index = Index::default();
+        index.metadata = parse(
+            r#"{"completions":[{"complete":"staticStrings","options":{"strings":["latitude","longitude"]},"condition":[{"newClassFqn":["\\Geo\\Axis"],"parameters":[1]}]},{"complete":"configKey","options":{"prefix":"database.connections"},"condition":[{"functionNames":["connection"],"place":"parameter"}]}]}"#,
+        );
+        index.config.add(
+            "database.connections.mysql",
+            None,
+            "/project/config/database.php",
+            Position::new(0, 0),
+            0,
+        );
+        index.config.add(
+            "app.name",
+            None,
+            "/project/config/app.php",
+            Position::new(0, 0),
+            0,
+        );
+        let source = "<?php new \\Geo\\Axis('');";
+        assert_eq!(
+            completion(&index, source, source.find("''").unwrap() + 1).len(),
+            2
+        );
+        let source = "<?php connection('mysql');";
+        assert_eq!(
+            completion(&index, source, source.find("mysql").unwrap())[0].label,
+            "mysql"
+        );
+        assert_eq!(
+            definition(&index, source, source.find("mysql").unwrap())[0].path,
+            "/project/config/database.php"
+        );
+    }
+    #[test]
+    fn package_metadata_paths_are_relative_and_nested_projects_are_excluded() {
+        let host = openidea_plugin::mock::MockHost::install();
+        host.add_file(
+            "vendor/acme/pkg/ide.json",
+            r#"{"view":{"paths":[{"path":"views","namespace":"acme"}]}}"#,
+        );
+        host.add_file("vendor/acme/pkg/views/card.blade.php", "Card");
+        host.add_project("/project/nested");
+        host.add_file(
+            "nested/ide.json",
+            r#"{"view":{"paths":[{"path":"/foreign","namespace":"foreign"}]}}"#,
+        );
+        host.add_file("foreign/card.blade.php", "Foreign");
+        let index = Index::build(&openidea_plugin::host::projects().unwrap().remove(0));
+        assert!(index.views.contains_key("acme::card"));
+        assert!(!index.views.contains_key("foreign::card"));
+    }
+    #[test]
+    fn vite_config_and_manifest_add_owned_inputs_and_manifest_only_assets() {
+        let host = openidea_plugin::mock::MockHost::install();
+        host.add_file("vite.config.js","import laravel from 'laravel-vite-plugin'; export default {plugins:[laravel({input:['frontend/app.ts'],buildDirectory:'assets'})]};");
+        host.add_file("frontend/app.ts", "export default 1;");
+        host.add_file("public/assets/manifest.json",r#"{"resources/images/logo.svg":{"file":"assets/logo-hash.svg","src":"resources/images/logo.svg"}}"#);
+        let index = Index::build(&openidea_plugin::host::projects().unwrap().remove(0));
+        assert_eq!(
+            index.vite["frontend/app.ts"].path,
+            "/project/frontend/app.ts"
+        );
+        assert_eq!(
+            index.vite["resources/images/logo.svg"].path,
+            "/project/public/assets/manifest.json"
+        );
+        assert!(host.process_runs().is_empty());
+    }
+    #[test]
+    fn dynamic_calls_heredocs_and_unterminated_escaped_strings_are_withheld() {
+        for source in [
+            "<?php $f('');",
+            "<?php $x->f('');",
+            "<?php $x = <<<TXT\nf('');\nTXT;",
+        ] {
+            let at = source.find("''").unwrap() + 1;
+            assert!(site(source, at).is_none());
+        }
+        let source = "<?php f('tail\\";
+        assert!(site(source, source.len()).is_none());
+    }
+    #[test]
+    fn invalidation_tracks_external_inputs_and_declared_roots() {
+        let mut metadata = Metadata::default();
+        metadata.extend("ide.json",r#"{"view":{"paths":[{"path":"/modules/views"}]},"packages":{"passport":{"scopeFiles":["/data/scopes.json"]}},"completions":[{"complete":"staticStrings","options":{"dataFile":"/data/values.json"},"condition":[{"functionNames":["f"]}]}]}"#, |_|Some("[]".into()));
+        for path in [
+            "vendor/pkg/ide.json",
+            "modules/views/new.blade.php",
+            "data/scopes.json",
+            "data/values.json",
+        ] {
+            assert!(metadata.affects(path), "{path}");
+        }
+        assert!(!metadata.affects("modules/views-other/a.php"));
+        assert!(!metadata.affects("unrelated/a.json"));
+    }
+    #[test]
+    fn nested_unknown_and_malformed_shapes_have_attributed_diagnostics() {
+        let metadata = parse(
+            r#"{"packages":{"livewire":{"namespaces":"bad","typo":true},"inertia":{"pagePaths":[{"path":"/pages","prefix":2,"extra":true}]},"enabledPackages":{"laravel/nova":5}},"routing":{"rootFiles":false,"unexpected":[]},"helperCode":{"eloquent":{"ignoreClasses":"bad","unknown":true}},"database":{"schemaDirectories":[4]}}"#,
+        );
+        for field in [
+            "packages.livewire.namespaces",
+            "packages.livewire.typo",
+            "packages.inertia.pagePaths[0].prefix",
+            "packages.inertia.pagePaths[0].extra",
+            "packages.enabledPackages.laravel/nova",
+            "routing.rootFiles",
+            "routing.unexpected",
+            "helperCode.eloquent.ignoreClasses",
+            "helperCode.eloquent.unknown",
+            "database.schemaDirectories[0]",
+        ] {
+            assert!(
+                metadata
+                    .issues
+                    .iter()
+                    .any(|i| i.starts_with("ide.json:") && i.contains(field)),
+                "{field}: {:?}",
+                metadata.issues
+            );
+        }
+        assert!(metadata.livewire_namespaces.is_empty());
+        assert!(metadata.inertia_paths.is_empty());
+    }
+    #[test]
+    fn disabled_packages_remove_their_inventory_but_preserve_core_blade() {
+        let host = openidea_plugin::mock::MockHost::install();
+        host.add_file("composer.json",r#"{"require":{"laravel/framework":"^12","filament/filament":"^4","laravel/nova":"^5"}}"#);
+        host.add_file("ide.json",r#"{"packages":{"disabledPackages":["livewire/livewire","inertiajs/inertia-laravel","filament/filament","laravel/nova"],"livewire":{"namespaces":[{"viewPath":"/module/views"}]},"inertia":{"pagePaths":[{"path":"/frontend"}]}}}"#);
+        host.add_file(
+            "app/Livewire/Counter.php",
+            "<?php namespace App\\Livewire; class Counter extends Component {}",
+        );
+        host.add_file("resources/js/Pages/Home.vue", "<template/>");
+        host.add_file("frontend/Other.vue", "<template/>");
+        host.add_file("module/views/counter.blade.php", "Counter");
+        host.add_file("resources/views/components/card.blade.php", "Card");
+        let index = Index::build(&host::projects().unwrap().remove(0));
+        assert!(index.livewire.is_empty());
+        assert!(index.inertia_pages.is_empty());
+        assert!(index.components.contains_key("card"));
+        assert!(index.views.contains_key("components.card"));
+        assert!(!index.open_components);
+        for package in [
+            "livewire/livewire",
+            "inertiajs/inertia-laravel",
+            "filament/filament",
+            "laravel/nova",
+        ] {
+            assert!(!index.metadata.package_enabled(package, true));
+        }
+    }
+    #[test]
+    fn livewire_namespace_maps_psr4_classes_and_views_with_owned_precedence() {
+        let host = openidea_plugin::mock::MockHost::install();
+        host.add_file(
+            "composer.json",
+            r#"{"autoload":{"psr-4":{"Modules\\Blog\\":"modules/Blog/"}}}"#,
+        );
+        host.add_file("ide.json",r#"{"packages":{"enabledPackages":{"livewire/livewire":"4.0.1"},"livewire":{"namespaces":[{"classNamespace":"Modules\\Blog\\Livewire","viewPath":"/modules/Blog/views","tagPrefix":"blog"}]}}}"#);
+        host.add_file("modules/Blog/Livewire/Forms/Editor.php","<?php namespace Modules\\Blog\\Livewire\\Forms; class Editor extends \\Livewire\\Component {}");
+        host.add_file("modules/Blog/views/forms/editor.blade.php", "Editor");
+        host.add_file("modules/Blog/views/status.blade.php", "Status");
+        host.add_project("/project/modules/Blog/Livewire/Private");
+        host.add_file(
+            "modules/Blog/Livewire/Private/Secret.php",
+            "<?php namespace Modules\\Blog\\Livewire\\Private; class Secret extends Component {}",
+        );
+        let index = Index::build(&host::projects().unwrap().remove(0));
+        assert_eq!(
+            index.livewire["blog::forms.editor"].path,
+            "/project/modules/Blog/Livewire/Forms/Editor.php"
+        );
+        assert_eq!(
+            index.livewire["blog::status"].path,
+            "/project/modules/Blog/views/status.blade.php"
+        );
+        assert!(!index.livewire.contains_key("blog::private.secret"));
+        assert_eq!(
+            index.metadata.package_version("livewire/livewire"),
+            Some("4.0.1")
+        );
+        assert_eq!(index.metadata.package_major("livewire/livewire"), Some(4));
+        assert!(index.affects("modules/Blog/Livewire/NewComponent.php"));
+    }
+    #[test]
+    fn package_versions_and_overrides_have_deterministic_source_precedence() {
+        let host = openidea_plugin::mock::MockHost::install();
+        host.add_file("composer.lock",r#"{"packages":[{"name":"livewire/livewire","version":"v3.6.2"},{"name":"filament/filament","version":"v4.0.0"}]}"#);
+        host.add_file("vendor/acme/pkg/ide.json",r#"{"packages":{"disabledPackages":["livewire/livewire"],"enabledPackages":{"laravel/nova":"4.0.0"}}}"#);
+        host.add_file("ide.json",r#"{"packages":{"enabledPackages":{"livewire/livewire":"4.0.1","laravel/nova":"5.0.0"}}}"#);
+        host.add_file(
+            ".idea/ide.json",
+            r#"{"packages":{"disabledPackages":["laravel/nova"]}}"#,
+        );
+        let metadata = Metadata::load(&host::projects().unwrap().remove(0));
+        assert_eq!(metadata.package_version("livewire/livewire"), Some("4.0.1"));
+        assert_eq!(metadata.package_major("filament/filament"), Some(4));
+        assert!(metadata.package_enabled("livewire/livewire", false));
+        assert!(!metadata.package_enabled("laravel/nova", true));
+        assert_eq!(metadata.package_version("laravel/nova"), None);
+        assert!(
+            metadata
+                .issues
+                .iter()
+                .any(|i| i.contains("conflicting package override"))
+        );
+    }
+    #[test]
+    fn inertia_documented_paths_ignore_defaults_and_transform_names() {
+        let host = openidea_plugin::mock::MockHost::install();
+        host.add_file("ide.json",r#"{"packages":{"inertia":{"ignoreSettingsPaths":true,"pagePaths":[{"path":"/frontend/pages","prefix":"Tenant/","suffix":"Page"}]}}}"#);
+        host.add_file("frontend/pages/Posts/Index.vue", "<template/>");
+        host.add_file("resources/js/Pages/Default.vue", "<template/>");
+        let index = Index::build(&host::projects().unwrap().remove(0));
+        assert_eq!(
+            index
+                .inertia_pages
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            ["Tenant/Posts/IndexPage"]
+        );
+    }
+    #[test]
+    fn explicit_view_metadata_precedes_defaults_and_diagnoses_unmapped_livewire() {
+        let host = openidea_plugin::mock::MockHost::install();
+        host.add_file("ide.json",r#"{"view":{"paths":[{"path":"/custom/views"}]},"packages":{"livewire":{"namespaces":[{"classNamespace":"Unknown\\Livewire"}]}}}"#);
+        host.add_file("custom/views/home.blade.php", "Custom");
+        host.add_file("resources/views/home.blade.php", "Default");
+        let index = Index::build(&host::projects().unwrap().remove(0));
+        assert_eq!(
+            index.views["home"].path,
+            "/project/custom/views/home.blade.php"
+        );
+        assert!(
+            index
+                .metadata
+                .issues
+                .iter()
+                .any(|issue| issue.contains("no owned Composer PSR-4 mapping"))
+        );
+    }
+    fn custom_views(config: &str) -> Index {
+        let mut index = Index::default();
+        index.metadata = parse(config);
+        index.views.add(
+            "home",
+            None,
+            "/project/resources/views/home.blade.php",
+            Position::new(0, 0),
+            0,
+        );
+        index
+    }
+    fn completed(index: &Index, source: &str) -> bool {
+        let at = source
+            .rfind("'home'")
+            .map(|at| at + 2)
+            .expect("marked home literal");
+        completion(index, source, at)
+            .iter()
+            .any(|i| i.label == "home")
+    }
+    #[test]
+    fn named_argument_names_override_lexical_position_without_guessing_signature() {
+        let index = custom_views(
+            r#"{"completions":[{"complete":"viewName","condition":[{"functionNames":["renderView"],"parameters":[1],"parameterNames":["template"]}]}]}"#,
+        );
+        assert!(
+            index.metadata.issues.is_empty(),
+            "{:?}",
+            index.metadata.issues
+        );
+        for source in [
+            "<?php renderView(template: 'home');",
+            "<?php renderView(data: [], template: 'home');",
+            "<?php renderView('home');",
+        ] {
+            assert!(completed(&index, source), "{source}");
+        }
+        for source in [
+            "<?php renderView(other: 'home');",
+            "<?php renderView([], 'home');",
+            "<?php renderView(...$args, template: 'home');",
+            "<?php renderView(template:'old',template:'home');",
+            "<?php renderView(data: [], 'home');",
+        ] {
+            assert!(!completed(&index, source), "{source}");
+        }
+        let source = "<?php renderView(data: [], template: 'home');";
+        let at = source.find("'home'").unwrap() + 2;
+        assert_eq!(
+            definition(&index, source, at)[0].path,
+            "/project/resources/views/home.blade.php"
+        );
+        let index = custom_views(
+            r#"{"completions":[{"complete":"viewName","condition":[{"functionNames":["renderView"],"parameterNames":["template"]}]}]}"#,
+        );
+        assert!(completed(&index, "<?php renderView(template:'home');"));
+        assert!(!completed(&index, "<?php renderView('home');"));
+    }
+    #[test]
+    fn imported_static_and_constructor_classes_are_resolved_without_suffix_guessing() {
+        let index = custom_views(
+            r#"{"completions":[{"complete":"viewName","condition":[{"classFqn":["\\Pkg\\Chooser"],"methodNames":["pick"]},{"newClassFqn":["\\Pkg\\Chooser"]}]}]}"#,
+        );
+        for source in [
+            "<?php use Pkg\\Chooser as C; C::pick('home');",
+            "<?php use Pkg\\Chooser as C; new C('home');",
+            "<?php namespace Pkg; Chooser::pick('home');",
+            "<?php use Pkg\\{Chooser as C}; C::pick('home');",
+        ] {
+            assert!(completed(&index, source), "{source}");
+        }
+        for source in [
+            "<?php use Other\\Chooser as C; C::pick('home');",
+            "<?php use Pkg\\Chooser as C; use Other\\Chooser as C; C::pick('home');",
+            "<?php $class::pick('home');",
+            "<?php namespace A; use Pkg\\Chooser as C; namespace B; C::pick('home');",
+        ] {
+            assert!(!completed(&index, source), "{source}");
+        }
+    }
+    #[test]
+    fn function_import_aliases_and_fqns_use_the_proven_function_namespace() {
+        let index = custom_views(
+            r#"{"completions":[{"complete":"viewName","condition":[{"functionFqn":["\\Pkg\\renderView"],"parameterNames":["template"]}]}]}"#,
+        );
+        assert!(
+            index.metadata.issues.is_empty(),
+            "{:?}",
+            index.metadata.issues
+        );
+        for source in [
+            "<?php use function Pkg\\renderView as rv; rv(template:'home');",
+            "<?php \\Pkg\\renderView(template:'home');",
+            "<?php namespace Pkg; namespace\\renderView(template:'home');",
+            "<?php use function Pkg\\{renderView as rv}; rv(template:'home');",
+        ] {
+            assert!(completed(&index, source), "{source}");
+        }
+        for source in [
+            "<?php use function Other\\renderView as rv; rv(template:'home');",
+            "<?php use function Pkg\\renderView as rv; use function Other\\renderView as rv; rv(template:'home');",
+            "<?php namespace Unknown; renderView(template:'home');",
+            "<?php use Pkg\\renderView as rv; rv(template:'home');",
+        ] {
+            assert!(!completed(&index, source), "{source}");
+        }
+    }
+    #[test]
+    fn instance_calls_use_typed_parameters_this_and_straight_line_new_bindings() {
+        let index = custom_views(
+            r#"{"completions":[{"complete":"viewName","condition":[{"classFqn":["\\Pkg\\Chooser"],"methodNames":["pick"]}]}]}"#,
+        );
+        for source in [
+            "<?php function f(\\Pkg\\Chooser $p){$p->pick('home');}",
+            "<?php use Pkg\\Chooser as C; function f(?C $p){$p?->pick('home');}",
+            "<?php function f(\\Pkg\\Chooser|null $p){$p?->pick('home');}",
+            "<?php use Pkg\\Chooser as C; $p=new C; $p->pick('home');",
+            "<?php $p=new \\Pkg\\Chooser(); $p->pick('home');",
+            "<?php use Pkg\\Chooser as C; (new C())->pick('home');",
+            "<?php namespace Pkg; class Chooser {function f(){$this->pick('home');}}",
+        ] {
+            assert!(completed(&index, source), "{source}");
+        }
+        for source in [
+            "<?php $p->pick('home');",
+            "<?php function f(\\Other\\Chooser $p){$p->pick('home');}",
+            "<?php function f(\\Pkg\\Chooser|\\Other\\Chooser $p){$p->pick('home');}",
+            "<?php function f(\\Pkg\\Chooser $p){$p=unknown();$p->pick('home');}",
+            "<?php function f(\\Pkg\\Chooser $p){mutate($p);$p->pick('home');}",
+            "<?php function f(\\Pkg\\Chooser $p){if($condition){$p=new \\Other\\Chooser;}$p->pick('home');}",
+            "<?php getPicker()->pick('home');",
+            "<?php $p=new \\Pkg\\Chooser; $other=$p; $other->pick('home');",
+            "<?php namespace Pkg; class Chooser {static function f(){$this->pick('home');}}",
+        ] {
+            assert!(!completed(&index, source), "{source}");
+        }
+    }
+    #[test]
+    fn qualified_function_imports_preserve_proven_identity() {
+        let mut index = Index::default();
+        index.metadata = parse(
+            r#"{"completions":[{"complete":"staticStrings","options":{"strings":["home"]},"condition":[{"functionFqn":["\\Vendor\\Views\\render"]}]}]}"#,
+        );
+        for source in [
+            "<?php namespace Site; use Vendor\\Views as V; V\\render('home');",
+            "<?php namespace Site; use Vendor as V; V\\Views\\render('home');",
+            "<?php namespace Site; use Vendor\\Views; Views\\render('home');",
+            "<?php namespace Site; \\Vendor\\Views\\render('home');",
+        ] {
+            assert!(completed(&index, source), "{source}");
+        }
+        for source in [
+            "<?php namespace Site; V\\render('home');",
+            "<?php namespace Site; use Other\\Views as V; V\\render('home');",
+            "<?php namespace Site; use Vendor\\Views as V; namespace\\V\\render('home');",
+            "<?php namespace Site; use Vendor\\Views as V; use Other\\Views as V; V\\render('home');",
+            "<?php namespace Site; use function Vendor\\Views\\render as V; V\\render('home');",
+        ] {
+            assert!(!completed(&index, source), "{source}");
+        }
+    }
+    #[test]
+    fn validation_list_replaces_only_current_name_with_utf16_ranges() {
+        let mut index = Index::default();
+        index.metadata = parse(
+            r#"{"completions":[{"complete":"validationRules","condition":[{"functionNames":["rules"]}]}]}"#,
+        );
+        index.rules.add(
+            "required",
+            None,
+            "/project/rules.php",
+            Position::new(4, 0),
+            8,
+        );
+        let source = "<?php /* 😀 */ rules('nullable|réq:3|email');";
+        let start = source.find("réq").unwrap();
+        let at = start + "ré".len();
+        let out = completion(&index, source, at);
+        assert_eq!(out.len(), 1);
+        assert_eq!(
+            out[0].replace,
+            Some(TextRange::new(
+                text::position(source, start),
+                text::position(source, start + "réq".len())
+            ))
+        );
+        let changed = format!(
+            "{}required{}",
+            &source[..start],
+            &source[start + "réq".len()..]
+        );
+        assert_eq!(
+            changed,
+            "<?php /* 😀 */ rules('nullable|required:3|email');"
+        );
+        assert!(completion(&index, source, source.find(":3").unwrap() + 2).is_empty());
+        let source = "<?php rules('nullable|required:3|email');";
+        assert_eq!(
+            definition(&index, source, source.find("required").unwrap() + 2)[0].path,
+            "/project/rules.php"
+        );
+        index.metadata = parse(
+            r#"{"completions":[{"complete":"validationRule","condition":[{"functionNames":["rules"]}]}]}"#,
+        );
+        assert!(completion(&index, source, source.find("required").unwrap() + 2).is_empty());
+        let source = "<?php rules('réq:3');";
+        assert_eq!(
+            completion(&index, source, source.find("réq").unwrap() + 1).len(),
+            1
+        );
+    }
+    #[test]
+    fn malformed_external_entries_are_diagnosed_without_discarding_valid_values() {
+        let mut metadata = Metadata::default();
+        metadata.extend("ide.json", r#"{"packages":{"passport":{"scopeFiles":["/scopes.json"]}},"completions":[{"complete":"staticStrings","options":{"dataFile":"/strings.json"},"condition":[{"functionNames":["f"]}]}]}"#, |path| {
+            Some(if path == "scopes.json" {r#"{"read":"Read records","bad":4,"":"Empty"}"#} else {r#"["ok",3,{"value":"no"}]"#}.into())
+        });
+        assert!(metadata.passport.contains_key("read"));
+        assert!(!metadata.passport.contains_key("bad"));
+        assert_eq!(
+            metadata.rules[0]
+                .strings
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>(),
+            vec!["ok"]
+        );
+        for expected in [
+            "scope bad",
+            "invalid Passport scope name",
+            "strings.json[1]",
+            "strings.json[2]",
+        ] {
+            assert!(
+                metadata
+                    .issues
+                    .iter()
+                    .any(|issue| issue.starts_with("ide.json:") && issue.contains(expected)),
+                "{expected}: {:?}",
+                metadata.issues
+            );
+        }
+        metadata
+            .issues
+            .push("Metadata file budget exceeded; only 128 source files are loaded".into());
+        let index = Index {
+            metadata,
+            ..Index::default()
+        };
+        assert!(
+            diagnostics(&index, "/project/ide.json", "/project")
+                .iter()
+                .any(|d| d.message.contains("budget exceeded"))
+        );
+    }
+    #[test]
+    fn validation_lists_with_regex_parameters_never_replace_internal_pipes() {
+        let mut index = Index::default();
+        index.metadata = parse(
+            r#"{"completions":[{"complete":"validationRules","condition":[{"functionNames":["rules"]}]}]}"#,
+        );
+        index.rules.add(
+            "required",
+            None,
+            "/project/rules.php",
+            Position::new(0, 0),
+            8,
+        );
+        for source in [
+            "<?php rules('required|regex:/foo|ba/');",
+            "<?php rules('required|not_regex:#foo|ba#');",
+            "<?php rules('regex:/foo|ba/|email');",
+            "<?php rules('required|regex:/foo|ba');",
+            "<?php rules('required|regex:/foo\\|ba/');",
+        ] {
+            let at = source.find("ba").unwrap() + 1;
+            assert!(completion(&index, source, at).is_empty(), "{source}");
+            assert!(definition(&index, source, at).is_empty(), "{source}");
+        }
+        let source = "<?php rules('required|regex:/foo|ba/');";
+        assert_eq!(
+            completion(&index, source, source.find("required").unwrap() + 2).len(),
+            1
+        );
+        assert_eq!(
+            completion(&index, source, source.find("regex").unwrap() + 2).len(),
+            1
+        );
+    }
+    #[test]
+    fn public_inventory_domains_have_precedence_and_precise_shape_diagnostics() {
+        let mut metadata = parse(
+            r#"{"auth":{"additionalGates":["package"]},"routing":{"additionalMiddleware":["tenant"],"routeFacadeMethods":[{"name":"apiGet","urlIndex":2,"controllerIndex":3}]},"eloquent":{"modelTables":[{"model":"\\App\\Models\\User","table":"legacy_users"}]}}"#,
+        );
+        assert!(metadata.additional_gates.contains_key("package"));
+        assert!(metadata.additional_middleware.contains_key("tenant"));
+        assert_eq!(metadata.route_methods["apiget"].http_method, "GET");
+        assert_eq!(
+            metadata.model_table("app\\models\\USER"),
+            Some("legacy_users")
+        );
+        metadata.extend(".idea/ide.json",r#"{"eloquent":{"modelTables":[{"model":"App\\Models\\User","table":"project_users"}]}}"#,|_|None);
+        assert_eq!(
+            metadata.model_table("\\App\\Models\\User"),
+            Some("project_users")
+        );
+        assert!(
+            metadata
+                .issues
+                .iter()
+                .any(|issue| issue.starts_with(".idea/ide.json:") && issue.contains("conflicting"))
+        );
+        let metadata = parse(
+            r#"{"auth":{"additionalGates":[2,""]},"eloquent":{"modelTables":[{"model":"bad class","table":"x"},{"model":"App\\User"}]},"routing":{"additionalMiddleware":[false],"routeFacadeMethods":[{"name":"x","urlIndex":0},{"name":"y","controllerIndex":300},{"name":"bad()"},{"name":"z","httpMethod":"POST\nGET"}]}}"#,
+        );
+        for field in [
+            "auth.additionalGates[0]",
+            "eloquent.modelTables model",
+            "eloquent.modelTables[1].table",
+            "routing.additionalMiddleware[0]",
+            "urlIndex",
+            "controllerIndex",
+            ".name",
+            "httpMethod",
+        ] {
+            assert!(
+                metadata.issues.iter().any(|issue| issue.contains(field)),
+                "{field}: {:?}",
+                metadata.issues
+            );
+        }
+        assert!(metadata.route_methods.is_empty());
+    }
+    #[test]
+    fn custom_route_references_require_static_owned_facade_identity() {
+        let metadata = parse(
+            r#"{"routing":{"routeFacadeMethods":[{"name":"apiGet","urlIndex":1,"controllerIndex":2}]}}"#,
+        );
+        for source in [
+            "<?php Route::apiGet('/x','PostController@index');",
+            "<?php use Illuminate\\Support\\Facades\\Route as R; R::apiGet('/x','PostController@index');",
+            "<?php \\Illuminate\\Support\\Facades\\Route::apiGet('/x','PostController@index');",
+        ] {
+            let at = source.find("PostController@index").unwrap() + 5;
+            let found = route_reference(&metadata, source, at).expect(source);
+            assert_eq!(found.kind, crate::refs::Kind::Action);
+            assert_eq!(&source[found.start..found.end], "PostController@index");
+        }
+        let source = "<?php use App\\Http\\Controllers\\PostController as P; use Illuminate\\Support\\Facades\\Route as R; R::apiGet('/x',[P::class,'index']);";
+        let found =
+            route_reference(&metadata, source, source.find("'index'").unwrap() + 2).unwrap();
+        assert_eq!(found.kind, crate::refs::Kind::Method);
+        assert_eq!(
+            found.class.as_deref(),
+            Some("App\\Http\\Controllers\\PostController")
+        );
+        for source in [
+            "<?php use Other\\Route; Route::apiGet('/x','PostController@index');",
+            "<?php class Route{} Route::apiGet('/x','PostController@index');",
+            "<?php function f(\\Illuminate\\Support\\Facades\\Route $r){$r->apiGet('/x','PostController@index');}",
+            "<?php Route::apiGet(...$args,'PostController@index');",
+            "<?php Route::apiGet(url:'/x',handler:'PostController@index');",
+            "<?php $x=\"Route::apiGet('/x','PostController@index');\";",
+            "<?php Route::apiGet('/x',[$class,'index']);",
+            "<?php Route::apiGet('/x',[P::class,'index']+$more);",
+        ] {
+            let at = source
+                .find("PostController@index")
+                .map(|p| p + 3)
+                .unwrap_or_else(|| source.find("'index'").unwrap() + 2);
+            assert!(route_reference(&metadata, source, at).is_none(), "{source}");
+        }
+    }
+    #[test]
+    fn documented_domains_reach_real_index_and_registered_providers() {
+        use crate::tests::{activated, cursor, doc};
+        use openidea_plugin::{mock::MockHost, providers::Providers};
+        let host = MockHost::install();
+        host.add_file("ide.json",r#"{"auth":{"additionalGates":["audit","view-reports"]},"routing":{"additionalMiddleware":["tenant"],"routeFacadeMethods":[{"name":"apiGet","urlIndex":1,"controllerIndex":2}]},"eloquent":{"modelTables":[{"model":"App\\Models\\LegacyUser","table":"external_users"}]}}"#);
+        host.add_file("app/Models/LegacyUser.php","<?php namespace App\\Models; use Illuminate\\Database\\Eloquent\\Model; class LegacyUser extends Model {protected $table='old_users';}");
+        host.add_file("database/migrations/2030_01_01_external.php","<?php use Illuminate\\Support\\Facades\\Schema; Schema::create('external_users', function($table){$table->string('external_key');});");
+        host.add_file("routes/custom.php","<?php use Illuminate\\Support\\Facades\\Route as R; R::apiGet('/custom','PostController@show')->name('custom.show');");
+        let mut plugin = activated(&host);
+        let index = &plugin.indexes["/project"];
+        assert!(index.routes.contains_key("custom.show"));
+        assert_eq!(
+            index.metadata.model_table("App\\Models\\LegacyUser"),
+            Some("external_users")
+        );
+        assert_eq!(
+            index
+                .model_files
+                .get("/project/app/Models/LegacyUser.php")
+                .map(String::as_str),
+            Some("external_users")
+        );
+        assert_eq!(index.abilities["audit"].path, "/project/ide.json");
+        assert_eq!(
+            index.abilities["view-reports"].path,
+            "/project/app/Providers/AuthServiceProvider.php"
+        );
+        for (marked, expected) in [
+            ("<?php Gate::allows('aud|');", "audit"),
+            ("<?php Route::middleware('ten|');", "tenant"),
+            ("<?php Route::apiGet('/x','Post|');", "PostController@index"),
+            (
+                "<?php use Illuminate\\Support\\Facades\\Route as R; use App\\Http\\Controllers\\PostController as P; R::apiGet('/x',[P::class,'sh|']);",
+                "show",
+            ),
+            (
+                "<?php \\App\\Models\\LegacyUser::where('ext|');",
+                "external_key",
+            ),
+        ] {
+            let (source, at) = cursor(marked);
+            let found = plugin.completion(&doc("/project/test.php", "php", &source), at, None);
+            assert!(
+                found.iter().any(|item| item.label == expected),
+                "{marked}: {found:?}"
+            );
+        }
+        let (source, at) = cursor("<?php Route::apiGet('/x','PostController@sh|ow');");
+        assert_eq!(
+            plugin.definition(&doc("/project/test.php", "php", &source), at)[0].path,
+            "/project/app/Http/Controllers/PostController.php"
+        );
+        for marked in [
+            "<?php use Other\\Route; Route::apiGet('/x','Post|');",
+            "<?php class Route{} Route::apiGet('/x','Post|');",
+        ] {
+            let (source, at) = cursor(marked);
+            assert!(
+                plugin
+                    .completion(&doc("/project/test.php", "php", &source), at, None)
+                    .is_empty(),
+                "{marked}"
+            );
+        }
+    }
+}

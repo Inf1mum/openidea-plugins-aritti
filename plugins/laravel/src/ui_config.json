@@ -2,14 +2,19 @@
   "title": "Laravel",
   "views": {
     "laravel": "Routes",
+    "laravel-about": "About",
+    "laravel-models": "Models",
     "laravel-views": "Views",
     "laravel-components": "Components",
-    "laravel-config": "Config",
-    "laravel-translations": "Translations",
     "laravel-middleware": "Middleware",
+    "laravel-config": "Config",
     "laravel-env": "Env",
+    "laravel-translations": "Translations",
+    "laravel-generators": "Generators",
     "laravel-artisan": "Artisan",
-    "laravel-runtime": "Runtime"
+    "laravel-runtime": "Runtime",
+    "laravel-processes": "Processes",
+    "laravel-external": "Services"
   },
   "actions": [
     {
@@ -39,6 +44,55 @@
       "label": "Retry Failed Job…",
       "kind": "failedjob",
       "icon": "rerun"
+    },
+    {
+      "view": "laravel-runtime",
+      "id": "runtime-open-frame",
+      "label": "Open Error Stack Frame…",
+      "kind": "",
+      "icon": "file-php"
+    },
+    {
+      "view": "laravel-external",
+      "id": "sentry-details",
+      "label": "Show Issue Details",
+      "kind": "",
+      "icon": "info"
+    },
+    {
+      "view": "laravel-external",
+      "id": "cloud-environments",
+      "label": "Load Environments",
+      "kind": "",
+      "icon": "services"
+    },
+    {
+      "view": "laravel-models",
+      "id": "model-open-source",
+      "label": "Open Model Source",
+      "kind": "",
+      "icon": "class"
+    },
+    {
+      "view": "laravel-models",
+      "id": "model-create-fields",
+      "label": "Create Fields…",
+      "kind": "",
+      "icon": "add"
+    },
+    {
+      "view": "laravel-runtime",
+      "id": "runtime-database-connect",
+      "label": "Connect Database…",
+      "kind": "",
+      "icon": "database"
+    },
+    {
+      "view": "laravel-runtime",
+      "id": "runtime-database-remove",
+      "label": "Remove Database Connection…",
+      "kind": "",
+      "icon": "delete"
     }
   ],
   "project_independent": false,
@@ -47,9 +101,19 @@
     "primary": "laravel",
     "tabs": [
       {
+        "id": "laravel-about",
+        "label": "About",
+        "icon": "info"
+      },
+      {
         "id": "laravel",
         "label": "Routes",
         "icon": "web"
+      },
+      {
+        "id": "laravel-models",
+        "label": "Models",
+        "icon": "database"
       },
       {
         "id": "laravel-views",
@@ -59,27 +123,32 @@
       {
         "id": "laravel-components",
         "label": "Components",
-        "icon": "class"
-      },
-      {
-        "id": "laravel-config",
-        "label": "Config",
-        "icon": "file-config"
-      },
-      {
-        "id": "laravel-translations",
-        "label": "Translations",
-        "icon": "text"
+        "icon": "module"
       },
       {
         "id": "laravel-middleware",
         "label": "Middleware",
-        "icon": "class"
+        "icon": "filter"
+      },
+      {
+        "id": "laravel-config",
+        "label": "Config",
+        "icon": "settings"
       },
       {
         "id": "laravel-env",
         "label": "Env",
-        "icon": "file-dotenv"
+        "icon": "variable"
+      },
+      {
+        "id": "laravel-translations",
+        "label": "Translations",
+        "icon": "symbol-text"
+      },
+      {
+        "id": "laravel-generators",
+        "label": "Generators",
+        "icon": "folder-generated-source"
       },
       {
         "id": "laravel-artisan",
@@ -89,16 +158,29 @@
       {
         "id": "laravel-runtime",
         "label": "Runtime",
-        "icon": "services"
+        "icon": "profile"
+      },
+      {
+        "id": "laravel-processes",
+        "label": "Processes",
+        "icon": "run"
+      },
+      {
+        "id": "laravel-external",
+        "label": "Services",
+        "icon": "server"
       }
     ]
   },
   "opaque_views": [
-    "laravel-artisan"
+    "laravel-artisan",
+    "laravel-generators",
+    "laravel-processes"
   ],
   "context_buttons": {
     "laravel": [],
     "laravel-components": [],
-    "laravel-runtime": []
+    "laravel-runtime": [],
+    "laravel-external": []
   }
 }

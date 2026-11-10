@@ -18,7 +18,8 @@
         "schedule",
         "queues",
         "queue-status",
-        "workers"
+        "workers",
+        "schema"
       ]
     }
   },

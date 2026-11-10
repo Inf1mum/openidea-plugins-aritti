@@ -2,9 +2,19 @@
   "primary": "laravel",
   "tabs": [
     {
+      "id": "laravel-about",
+      "label": "About",
+      "icon": "info"
+    },
+    {
       "id": "laravel",
       "label": "Routes",
       "icon": "web"
+    },
+    {
+      "id": "laravel-models",
+      "label": "Models",
+      "icon": "database"
     },
     {
       "id": "laravel-views",
@@ -14,27 +24,32 @@
     {
       "id": "laravel-components",
       "label": "Components",
-      "icon": "class"
-    },
-    {
-      "id": "laravel-config",
-      "label": "Config",
-      "icon": "file-config"
-    },
-    {
-      "id": "laravel-translations",
-      "label": "Translations",
-      "icon": "text"
+      "icon": "module"
     },
     {
       "id": "laravel-middleware",
       "label": "Middleware",
-      "icon": "class"
+      "icon": "filter"
+    },
+    {
+      "id": "laravel-config",
+      "label": "Config",
+      "icon": "settings"
     },
     {
       "id": "laravel-env",
       "label": "Env",
-      "icon": "file-dotenv"
+      "icon": "variable"
+    },
+    {
+      "id": "laravel-translations",
+      "label": "Translations",
+      "icon": "symbol-text"
+    },
+    {
+      "id": "laravel-generators",
+      "label": "Generators",
+      "icon": "folder-generated-source"
     },
     {
       "id": "laravel-artisan",
@@ -44,7 +59,17 @@
     {
       "id": "laravel-runtime",
       "label": "Runtime",
-      "icon": "services"
+      "icon": "profile"
+    },
+    {
+      "id": "laravel-processes",
+      "label": "Processes",
+      "icon": "run"
+    },
+    {
+      "id": "laravel-external",
+      "label": "Services",
+      "icon": "server"
     }
   ]
 }

@@ -1,13 +1,13 @@
-# Deferred MCP server acceptance
+# Real MCP server acceptance
 
-Prepared on 2026-11-10, **not built or executed** because the user requested tests
-be kept for later. This harness is distinct from the existing Wasm smoke test:
+First executed successfully on 2026-11-10 after testing was authorized.
+This harness is distinct from the existing Wasm smoke test:
 it instantiates the released `ide-host::mcp::Registry`, installs the real package,
 starts the real `ide-mcp::McpServer` on a loopback ephemeral port and calls it over
 MCP Streamable HTTP. It uses a disposable profile/project and a tiny authored PHP
 Artisan fixture, and leaves the user's IDE profile and projects alone.
 
-When the user resumes testing:
+Run against the current built artifact:
 
 ```sh
 openidea-plugin build plugins/laravel
@@ -17,10 +17,10 @@ LARAVEL_RUN_MCP_ACCEPTANCE=1 cargo run \
 ```
 
 Requires a host `php` executable and API 1.4 package/checker. The `Cargo.toml`
-pins host/plugin/MCP dependencies to released `v0.1.40`. The Cargo lockfile has
-not been generated because this harness has not been built.
+pins host/plugin/MCP dependencies to released `v0.1.40`. The checked-in Cargo
+lockfile records the dependency graph used by the acceptance run.
 
-Prepared coverage:
+Verified coverage:
 
 - Real JSON-RPC initialize and HTTP tools/list for namespaced plugin declarations.
 - Source inventory calls, schema rejection and live withdrawal after disable.
@@ -51,5 +51,6 @@ Released source `v0.1.40`, commit `37c2a60`, has the following behavior:
   expired, rejected or wrong-window answers.
 
 No upstream files or SDK interfaces were changed here. Desktop server discovery,
-native approval presentation and this new harness remain unverified until the
-user resumes testing.
+native approval presentation remain unverified by this headless harness.
+The loopback registry/transport/approval scenarios above passed; this does not
+establish exact-argv confirmation or native desktop presentation.

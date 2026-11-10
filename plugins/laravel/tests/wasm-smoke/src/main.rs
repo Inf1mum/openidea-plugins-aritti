@@ -583,6 +583,42 @@ class WorkspaceRuntimeController { public function index(){return 'index';} publ
         workspace_root: Some(root),
         ..Default::default()
     };
+    request(&mut runtime, &host, &invocation, json!({"op":"select-view","target":"laravel-generators","targetView":"laravel"}));
+    let generator_preview = request(
+        &mut runtime,
+        &host,
+        &invocation,
+        json!({"op":"opaque-message","targetView":"laravel-generators","message":json!({
+            "op":"preview","draft":{
+                "name":"WorkspaceGeneratedAcceptance","table":"workspace_generated_acceptance",
+                "migrationStamp":"2026_11_10_120000","fields":[{"name":"title","kind":"string","nullable":true}],
+                "related":["migration","factory"]
+            }
+        }).to_string()}),
+    );
+    assert!(generator_preview.get("error").is_none(), "compiled generator preview: {generator_preview}");
+    let generated=generator_preview["files"].as_array().expect("compiled generator files");
+    assert_eq!(generated.len(),3,"model, migration and factory preview");
+    assert!(generated.iter().any(|file|file["path"]=="app/Models/WorkspaceGeneratedAcceptance.php" && file["text"].as_str().unwrap().contains("'title'")));
+    assert!(generated.iter().any(|file|file["path"].as_str().unwrap().starts_with("database/migrations/") && file["text"].as_str().unwrap().contains("->nullable()")));
+    assert!(generated.iter().all(|file|!host.root.join(file["path"].as_str().unwrap()).exists()),"preview must not create files");
+    assert!(host.jobs.lock().unwrap().is_empty(),"generator preview must not start PHP");
+    println!("PASS compiled model wizard preview: typed model/migration/factory files, nullable field, no writes or PHP execution");
+    let selected_preview=request(&mut runtime,&host,&invocation,json!({"op":"opaque-message","targetView":"laravel-generators","message":json!({
+        "op":"preview","draft":{"name":"WorkspaceSelectedAcceptance","table":"workspace_selected_acceptance","migrationStamp":"2026_11_10_120001",
+        "fields":[{"name":"title","kind":"string"}],"related":["factory","resource"],"factoryFields":[],"resourceFields":["title"],"resourceRelations":[]}
+    }).to_string()}));
+    assert!(selected_preview.get("error").is_none(),"compiled output selection: {selected_preview}");
+    let selected_files=selected_preview["files"].as_array().expect("selected preview files");
+    let factory=selected_files.iter().find(|file|file["path"].as_str().unwrap().ends_with("Factory.php")).expect("selected factory")["text"].as_str().unwrap();
+    let resource=selected_files.iter().find(|file|file["path"].as_str().unwrap().ends_with("Resource.php")).expect("selected resource")["text"].as_str().unwrap();
+    assert!(!factory.contains("'title' =>"),"empty factory selection stays empty");
+    assert!(resource.contains("'title' => $this->title")&&!resource.contains("'id' =>"),"resource selection omits the primary key");
+    assert!(selected_files.iter().all(|file|!host.root.join(file["path"].as_str().unwrap()).exists()),"selected preview never writes");
+    assert!(host.jobs.lock().unwrap().is_empty(),"selected preview never starts PHP");
+    println!("PASS compiled per-output wizard selection: empty factory, selected resource field, omitted primary key, no writes or PHP");
+
+    request(&mut runtime, &host, &invocation, json!({"op":"select-view","target":"laravel","targetView":"laravel-generators"}));
     let registered = request(
         &mut runtime,
         &host,
@@ -799,7 +835,15 @@ class WorkspaceRuntimeController { public function index(){return 'index';} publ
     }
     let rendered=request(&mut runtime,&host,&invocation,json!({"op":"select-view","target":"laravel-runtime","targetView":"laravel-artisan"}));
     assert_eq!(rendered["model"]["body"]["columns"],json!(["Section","Resource","Details"]));
-    assert_eq!(rendered["model"]["toolbar"].as_array().unwrap().len(),8);
+    let toolbar = rendered["model"]["toolbar"].as_array().expect("runtime toolbar");
+    let toolbar_keys: std::collections::BTreeSet<_> = toolbar.iter()
+        .map(|action| action["key"].as_str().expect("runtime action key"))
+        .collect();
+    assert_eq!(toolbar_keys.len(), toolbar.len(), "runtime actions must have unique keys");
+    for required in ["runtime-database-list", "runtime-about", "runtime-events", "runtime-schedule",
+        "runtime-queues", "runtime-queue-status", "runtime-workers", "runtime-logs", "runtime-runner"] {
+        assert!(toolbar_keys.contains(required), "missing runtime action: {required}");
+    }
     assert!(rendered["model"]["status"].as_str().unwrap().contains("4 captured sections"));
     request(&mut runtime,&host,&invocation,json!({"op":"select-view","target":"laravel-artisan","targetView":"laravel-runtime"}));
     let inventory=runtime.mcp_call("inventory",r#"{"resource":"config","query":"workspace.rows.0","limit":10}"#,invocation.clone()).unwrap();

@@ -2,6 +2,9 @@
 //! `@props([...])`, constructor parameters or public properties, and slot names
 //! from the variables its view prints.
 
+#[path = "component_metadata.rs"]
+mod declarations;
+pub(crate) use declarations::{Metadata,parse_metadata as metadata,apply_metadata};
 use crate::index::separated;
 use crate::php;
 use crate::refs::Kind;
@@ -50,7 +53,7 @@ fn still_open(tag: &str) -> Option<bool> {
     Some(quote.is_none())
 }
 
-fn enclosing_component(text: &str, before: usize) -> Option<String> {
+fn enclosing_component(text: &str, before: usize,bare:Option<&std::collections::BTreeSet<String>>) -> Option<String> {
     let mut stack: Vec<String> = Vec::new();
     let mut i = 0;
 
@@ -60,10 +63,10 @@ fn enclosing_component(text: &str, before: usize) -> Option<String> {
         let rest = &text[at + 1..before];
         let closing = rest.starts_with('/');
         let rest = rest.strip_prefix('/').unwrap_or(rest);
-        let Some(rest) = rest.strip_prefix("x-") else { continue };
+        let (rest,standard)=rest.strip_prefix("x-").map_or((rest,false),|rest|(rest,true));
         let length = rest.bytes().take_while(|b| word(*b) || *b == b':').count();
         let name = &rest[..length];
-        if name.is_empty() || name.contains(':') || name == "slot" {
+        if !crate::refs::valid_tag_name(name,false) || name == "slot" || !standard&&!bare.is_some_and(|names|names.contains(name)) {
             continue;
         }
 
@@ -86,7 +89,11 @@ fn enclosing_component(text: &str, before: usize) -> Option<String> {
     stack.pop()
 }
 
-pub fn context_at(text: &str, at: usize) -> Option<Context> {
+pub fn context_at(text: &str, at: usize) -> Option<Context> {context_impl(text,at,None)}
+pub(crate) fn context_with_metadata(index:&crate::Index,text:&str,at:usize)->Option<Context>{context_impl(text,at,Some(&index.metadata.blade_components.bare_tags))}
+fn context_impl(text:&str,at:usize,bare:Option<&std::collections::BTreeSet<String>>)->Option<Context>{
+    if at>text.len()||!text.is_char_boundary(at){return None;}
+    let visible=crate::refs::without_comments(text);if visible.len()!=text.len(){return None;}let text=visible.as_str();
     let tag_start = text[..at].rfind('<')?;
     let tag = &text[tag_start..at];
     if !still_open(tag)? {
@@ -97,20 +104,17 @@ pub fn context_at(text: &str, at: usize) -> Option<Context> {
         if typed.bytes().any(|b| !word(b)) {
             return None;
         }
-        let component = enclosing_component(text, tag_start)?;
+        let component = enclosing_component(text, tag_start,bare)?;
         return Some(Context::Slot { component, start: at - typed.len() });
     }
 
-    let (kind, rest) = if let Some(rest) = tag.strip_prefix("<x-") {
-        (Kind::Component, rest)
-    } else {
-        (Kind::Livewire, tag.strip_prefix("<livewire:")?)
-    };
+    let raw=tag.strip_prefix('<')?;let name_length=raw.bytes().take_while(|b|word(*b)||*b==b':').count();
+    let (kind,rest)=if bare.is_some_and(|names|names.contains(&raw[..name_length])){(Kind::Component,raw)}else if let Some(rest)=tag.strip_prefix("<x-"){(Kind::Component,rest)}else{(Kind::Livewire,tag.strip_prefix("<livewire:")?)};
 
-    let length = rest.bytes().take_while(|b| word(*b)).count();
+    let length = rest.bytes().take_while(|b| word(*b)||*b==b':').count();
     let component = &rest[..length];
     let after = &rest[length..];
-    if component.is_empty() || !after.starts_with(char::is_whitespace) || rest[length..].starts_with(':') {
+    if !crate::refs::valid_tag_name(component,false) || !after.starts_with(char::is_whitespace) {
         return None;
     }
 
@@ -123,10 +127,35 @@ pub fn context_at(text: &str, at: usize) -> Option<Context> {
     Some(Context::Attribute { kind, component: component.to_owned(), start })
 }
 
+/// Only metadata explicitly declaring no `x-` prefix may own ordinary HTML tags.
+fn bare_reference(index:&crate::Index,doc:&openidea_plugin::providers::Document,at:usize)->Option<crate::refs::Reference>{
+    if at>doc.text.len()||!doc.text.is_char_boundary(at)||index.metadata.blade_components.bare_tags.is_empty(){return None;}
+    let visible=crate::refs::without_comments(&doc.text);if visible.len()!=doc.text.len(){return None;}
+    let open=visible[..at].rfind('<')?;let start=open+1+usize::from(visible.as_bytes().get(open+1)==Some(&b'/'));
+    let end=start+visible[start..].bytes().take_while(|b|word(*b)||*b==b':').count();if at<start||at>end{return None;}
+    let name=&visible[start..end];if !crate::refs::valid_tag_name(name,true)||!index.metadata.blade_components.bare_tags.iter().any(|candidate|candidate.starts_with(name)){return None;}
+    Some(crate::refs::Reference{kind:Kind::Component,start,end,class:None,closed:index.metadata.blade_components.bare_tags.contains(name)})
+}
+pub(crate) fn bare_completion(index:&crate::Index,doc:&openidea_plugin::providers::Document,at:openidea_plugin::Position)->Vec<openidea_plugin::providers::CompletionItem>{
+    use openidea_plugin::{providers::{CompletionItem,CompletionKind},text,Range};
+    let Some(at)=text::offset(&doc.text,at)else{return vec![];};let Some(reference)=bare_reference(index,doc,at)else{return vec![];};let typed=&doc.text[reference.start..at];
+    let Some(project)=crate::project_for(&doc.path)else{return vec![];};
+    index.metadata.blade_components.bare_tags.iter().filter(|name|name.starts_with(typed)).filter_map(|name|{
+        let entry=index.components.get(name)?;if !entry.path.is_empty()&&!crate::owns_current_path(&project,&entry.path){return None;}
+        let mut item=CompletionItem::new(name,CompletionKind::Class);item.detail=entry.detail.clone();item.replace=Some(Range::new(text::position(&doc.text,reference.start),text::position(&doc.text,reference.end)));Some(item)
+    }).collect()
+}
+pub(crate) fn bare_definition(index:&crate::Index,doc:&openidea_plugin::providers::Document,at:openidea_plugin::Position)->Vec<openidea_plugin::Location>{
+    let run=||{let at=openidea_plugin::text::offset(&doc.text,at)?;let reference=bare_reference(index,doc,at)?;if !reference.closed{return None;}
+        let project=crate::project_for(&doc.path)?;let entry=index.components.get(&doc.text[reference.start..reference.end])?;crate::scoped_location(&project,entry)
+    };run().into_iter().collect()
+}
+pub(crate) fn metadata_view<'a>(index:&'a crate::Index,name:&str)->Option<&'a crate::index::Entry>{index.metadata.blade_components.resolved_views.get(name)}
+
 /// Attributes named by `@props([...])` of an anonymous component view.
 pub fn view_props(view: &str) -> Vec<Prop> {
-    let Some(at) = view.find("@props(") else { return Vec::new() };
-    let open = at + "@props".len();
+    let Some(region)=crate::refs::blade_regions(view).into_iter().find(|region|view[region.clone()].starts_with("@props("))else{return Vec::new();};
+    let open=region.start+"@props".len();
     let Some(array) = php::arguments(view, open).into_iter().next().and_then(|range| php::array_open(view, range)) else { return Vec::new() };
 
     php::items(view, array)
@@ -144,7 +173,8 @@ pub fn view_props(view: &str) -> Vec<Prop> {
 /// Constructor parameters of a class component.
 pub fn constructor_props(class: &str) -> Vec<Prop> {
     let masked = php::mask_comments(class);
-    let Some(at) = masked.find("function __construct(") else { return Vec::new() };
+    let Some(structure)=crate::package_facts::code(class)else{return Vec::new();};
+    let Some(at) = structure.find("function __construct(") else { return Vec::new() };
     let open = at + "function __construct".len();
 
     php::arguments(&masked, open)
@@ -165,8 +195,9 @@ pub fn constructor_props(class: &str) -> Vec<Prop> {
 pub fn livewire_props(class: &str) -> Vec<Prop> {
     let masked = php::mask_comments(class);
     let mut props = Vec::new();
+    let Some(structure)=crate::package_facts::code(class)else{return props;};
 
-    for line in masked.lines() {
+    for (line,original) in structure.lines().zip(masked.lines()) {
         let line = line.trim();
         let Some(rest) = line.strip_prefix("public ") else { continue };
         if rest.contains("function ") || rest.starts_with("static ") {
@@ -175,13 +206,13 @@ pub fn livewire_props(class: &str) -> Vec<Prop> {
 
         let Some(dollar) = rest.find('$') else { continue };
         let name: String = rest[dollar + 1..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
-        let default = rest.split_once('=').map(|(_, value)| value.trim().trim_end_matches(';').to_owned());
+        let default = original.split_once('=').map(|(_, value)| value.trim().trim_end_matches(';').to_owned());
         if !name.is_empty() {
             props.push(Prop { name, default });
         }
     }
 
-    if let Some(at) = masked.find("function mount(") {
+    if let Some(at) = structure.find("function mount(") {
         for range in php::arguments(&masked, at + "function mount".len()) {
             let parameter = masked[range].split('=').next().unwrap_or_default().trim().to_owned();
             if let Some(name) = parameter.rsplit(char::is_whitespace).next().and_then(|p| p.strip_prefix('$'))
@@ -233,6 +264,49 @@ mod tests {
         context_at(&marked.replacen('|', "", 1), at)
     }
 
+    #[test]
+    fn component_property_sources_ignore_fake_declarations_inside_php_or_blade_data() {
+        let class="<?php class Card { private string $payload = 'function __construct(public string $fake) {}'; }";
+        assert!(constructor_props(class).is_empty());
+        let class="<?php class Counter { private string $payload = 'function mount($fake) {}\npublic string $invented;';\npublic string $actual = 'function'; }";
+        assert_eq!(livewire_props(class).into_iter().map(|prop|prop.name).collect::<Vec<_>>(),["actual"]);
+        assert!(view_props("@php $x=\"@props(['fake'])\"; @endphp").is_empty());
+        assert!(view_props("{{-- @props(['fake']) --}}").is_empty());
+        assert_eq!(view_props("@props(['actual'])").into_iter().map(|prop|prop.name).collect::<Vec<_>>(),["actual"]);
+    }
+    #[test]
+    fn namespaced_tags_preserve_attribute_and_slot_owner_names() {
+        assert!(matches!(context("<x-ui::card ti|"),Some(Context::Attribute{component,..})if component=="ui::card"));
+        assert!(matches!(context("<livewire:blog::counter ti|"),Some(Context::Attribute{component,kind:Kind::Livewire,..})if component=="blog::counter"));
+        assert!(matches!(context("<x-ui::card><x-slot:he|"),Some(Context::Slot{component,..})if component=="ui::card"));
+        assert!(context("<x-ui::card></x-ui::card><x-slot:he|").is_none());
+        assert!(context("{{-- <x-ui::card ti| --}}").is_none());
+        assert!(context("<x-ui:card ti|").is_none());
+    }
+    #[test]
+    fn actual_providers_complete_navigate_and_read_namespaced_component_attributes() {
+        use openidea_plugin::{mock::MockHost,providers::{Providers,Document},text,Position};
+        use crate::index::Entry;
+        let host=MockHost::install().with_capabilities(&["project.read","editor.read"]);
+        host.add_file("composer.json",r#"{"require":{"laravel/framework":"^12","livewire/livewire":"^3"},"autoload":{"psr-4":{"App\\":"app/"}}}"#);
+        host.add_file("artisan","<?php");host.add_file("ide.json",r#"{"packages":{"livewire":{"namespaces":[{"classNamespace":"App\\Blog\\Livewire","tagPrefix":"blog"}]}}}"#);
+        host.add_file("app/Blog/Livewire/Counter.php","<?php\nnamespace App\\Blog\\Livewire;\nclass Counter extends \\Livewire\\Component {\n public string $title;\n}");
+        host.add_file("resources/views/components/anonymous.blade.php","@props(['tone']) {{$header}} {{$slot}}");
+        host.add_file("app/View/Components/Card.php","<?php\nclass Card { public function __construct(public string $classTitle) {} }");
+        let project=host.invocation().project().unwrap();let mut index=crate::Index::build(&project);assert!(index.livewire.contains_key("blog::counter"));
+        index.components.insert("ui::card".into(),Entry{path:"/project/resources/views/components/anonymous.blade.php".into(),at:Position::new(0,0),width:0,detail:None});
+        let mut main=crate::Main::default();main.indexes.insert("/project".into(),index);
+        let doc=|source:&str|Document{path:"/project/resources/views/page.blade.php".into(),language:"blade".into(),text:source.into(),version:1};
+        for (source,label) in [("<livewire:blog::cou>","blog::counter"),("</livewire:blog::cou>","blog::counter"),("<x-ui::ca>","ui::card"),("</x-ui::ca>","ui::card")]{let at=text::position(source,source.find('>').unwrap());assert!(main.completion(&doc(source),at,None).iter().any(|i|i.label==label),"{source}");}
+        for source in ["<livewire:blog::counter/>","</livewire:blog::counter>"]{let at=text::position(source,source.find("counter").unwrap()+2);let found=main.definition(&doc(source),at);assert!(found.iter().any(|d|d.path.ends_with("/Counter.php")),"{source}");}
+        let source="<livewire:blog::counter ti";assert!(main.completion(&doc(source),text::position(source,source.len()),None).iter().any(|i|i.label=="title"));
+        let source="<x-ui::card to";assert!(main.completion(&doc(source),text::position(source,source.len()),None).iter().any(|i|i.label=="tone"));
+        let source="<x-ui::card><x-slot:he";assert!(main.completion(&doc(source),text::position(source,source.len()),None).iter().any(|i|i.label=="header"));
+        main.indexes.get_mut("/project").unwrap().components.insert("ui::card".into(),Entry{path:"/project/app/View/Components/Card.php".into(),at:Position::new(1,6),width:4,detail:None});
+        let source="<x-ui::card cl";let items=main.completion(&doc(source),text::position(source,source.len()),None);assert!(items.iter().any(|i|i.label=="class-title"));assert!(!items.iter().any(|i|i.label=="tone"));
+        assert!(!crate::problems(main.indexes.get("/project").unwrap(),"blade","<x-external::card/><livewire:external::counter/>",false).iter().any(|d|matches!(d.code.as_deref(),Some("missing-component"|"missing-livewire"))));
+        host.add_project("/project/app/Blog");let source="<livewire:blog::counter ti";assert!(main.completion(&doc(source),text::position(source,source.len()),None).is_empty());
+    }
     #[test]
     fn attribute_position_inside_a_component_tag() {
         assert_eq!(context("<x-alert ty|"), Some(Context::Attribute { kind: Kind::Component, component: "alert".into(), start: 9 }));

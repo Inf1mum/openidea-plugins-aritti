@@ -39,6 +39,8 @@ enum Request {
         token: String,
         values: BTreeMap<String, Value>,
         revision: u32,
+        #[serde(default,rename="additionalOptions")] additional_options:String,
+        #[serde(default,rename="additionalArguments")] additional_arguments:String,
     },
     CopyOutput {
         id: String,
@@ -50,6 +52,8 @@ enum Request {
         values: BTreeMap<String, Value>,
         #[serde(default)]
         terminal: bool,
+        #[serde(default,rename="additionalOptions")] additional_options:String,
+        #[serde(default,rename="additionalArguments")] additional_arguments:String,
     },
     Poll {
         id: String,
@@ -78,6 +82,10 @@ impl State {
     pub fn runner(&self, ctx: &Invocation) -> Result<crate::artisan_runner::Runner, Error> {
         let (_,root)=owner(ctx)?;
         Ok(self.projects.get(&root).map(|session|session.runner).unwrap_or_default())
+    }
+
+    pub(crate) fn runner_for_project(&self, project: &Project) -> Result<crate::artisan_runner::Runner, Error> {
+        Ok(self.projects.get(&project.root()?).map(|session|session.runner).unwrap_or_default())
     }
 
     /// Uses already captured definitions only; opening a generator never runs PHP.
@@ -116,6 +124,20 @@ impl State {
         Ok(true)
     }
 
+    /// Selects only an already captured exact command. Opening never discovers or executes PHP.
+    pub fn select_command(&mut self, ctx:&Invocation, name:&str)->Result<bool,Error> {
+        let (project,root)=owner(ctx)?;
+        if name.is_empty() || name.len()>128 || name.starts_with('-') || !name.bytes().all(|byte|byte.is_ascii_alphanumeric() || b"_:-.".contains(&byte)) {return Err(Error::Invalid("Invalid Artisan command name".into()));}
+        let runner=self.projects.get(&root).map(|session|session.runner).unwrap_or_default();
+        let (snapshot,token)=match runner.catalog(&project) {Ok(value)=>value,Err(error) if runner==crate::artisan_runner::Runner::Docker=>return Err(error),Err(_)=>return Ok(false)};
+        if !snapshot["commands"].as_array().is_some_and(|commands|commands.iter().any(|command|command["name"]==name)){return Ok(false);}
+        if !self.projects.contains_key(&root) && self.projects.len()>=8 {return Err(Error::Invalid("Too many Artisan project sessions".into()));}
+        if owner(ctx)?.1!=root || runner.catalog(&project)?.1!=token {return Err(Error::Stale);}
+        self.projects.entry(root).or_default().selection=Some(name.into());
+        ui_kit::web::reveal_view(VIEW,include_str!("ui_config.json"))?;
+        Ok(true)
+    }
+
     pub fn handle(
         &mut self,
         ctx: &Invocation,
@@ -145,7 +167,7 @@ impl State {
         }
         let runner = session.runner;
         let target_label=if runner==crate::artisan_runner::Runner::Docker {crate::artisan_docker::target_label(&project).ok().flatten()} else {None};
-        let mut response = json!({"root":root,"runner":runner.name(),"targetLabel":target_label,"sessionHistory":true});
+        let mut response = json!({"root":root,"runner":runner.name(),"targetLabel":target_label,"sessionHistory":true,"additionalArgv":true});
         if matches!(request, Request::Refresh) {
             runner.refresh(ctx)?;
         }
@@ -170,7 +192,7 @@ impl State {
                 command,
                 token,
                 values,
-                revision,
+                revision, additional_options, additional_arguments,
             } => {
                 let (snapshot, current) = runner.catalog(&project)?;
                 if token != current {
@@ -180,7 +202,7 @@ impl State {
                     .as_array()
                     .and_then(|a| a.iter().find(|c| c["name"] == command))
                     .ok_or(Error::Stale)?;
-                response["argv"] = json!(runner.argv(&project, &arguments(definition, &values, true)?, false)?);
+                response["argv"] = json!(runner.argv(&project, &crate::artisan_arguments::merge(arguments(definition, &values, true)?,&additional_options,&additional_arguments,true)?, false)?);
                 response["revision"] = revision.into();
             }
             Request::CopyOutput { id } => {
@@ -202,7 +224,7 @@ impl State {
                 command,
                 token,
                 values,
-                terminal,
+                terminal, additional_options, additional_arguments,
             } => {
                 if id.len() < 16
                     || id.len() > 128
@@ -221,7 +243,7 @@ impl State {
                     .as_array()
                     .and_then(|a| a.iter().find(|c| c["name"] == command))
                     .ok_or(Error::Stale)?;
-                let argv = arguments(definition, &values, !terminal)?;
+                let argv = crate::artisan_arguments::merge(arguments(definition, &values, !terminal)?,&additional_options,&additional_arguments,!terminal)?;
                 // Recheck source/project identity immediately before starting.
                 if runner.catalog(&project)?.1 != current
                     || ctx.project().and_then(|p| p.root().ok()) != project.root().ok()
@@ -238,7 +260,8 @@ impl State {
                     crate::generate::run_with(terminals, ctx, &command, argv, runner)?;
                     response["terminal"] = true.into();
                 } else {
-                    let job = Job::start_with(&project, id.clone(), command, values, argv, runner)?;
+                    let mut job = Job::start_with(&project, id.clone(), command, values, argv, runner)?;
+                    job.additional_options=additional_options;job.additional_arguments=additional_arguments;
                     if let Some(previous) = session.job.take() {
                         let mut record = previous.json();
                         record.as_object_mut().unwrap().remove("stdout");
@@ -634,4 +657,17 @@ mod tests {
         assert!(state.handle(&host.invocation(),&json!({"op":"run","id":"execution-request-0001","command":"app:probe","token":token,"values":{"name":"x"}}).to_string(),&terminals).is_err());
         assert!(host.process_runs().is_empty());
     }
+    #[test]
+    fn additional_argv_preview_run_and_history_preserve_exact_grouping() {
+        let h=MockHost::install().with_capabilities(&["project.read","storage","process:php"]);let(_,_,token)=seed(&h);
+        h.on_process("php",|_,_|Ok(openidea_plugin::ProcessOutput{status:Some(0),stdout:String::new(),stderr:String::new()}));
+        let mut state=State::default();let terminals=crate::generate::Terminals::default();let ctx=h.invocation();
+        let mut request=json!({"op":"preview","command":"app:probe","token":token,"values":{"name":"-équipe","tags":["structured"]},"revision":1,"additionalOptions":"--label=\"extra option\"","additionalArguments":"\"trailing value\" '$HOME'"});
+        let preview=state.handle(&ctx,&request.to_string(),&terminals).unwrap();
+        assert_eq!(preview["argv"],json!(["artisan","app:probe","--no-interaction","--no-ansi","--label=extra option","--","-équipe","structured","trailing value","$HOME"]));
+        request["op"]=json!("run");request.as_object_mut().unwrap().remove("revision");request["id"]=json!("additional-argv-fixture-001");
+        let run=state.handle(&ctx,&request.to_string(),&terminals).unwrap();assert_eq!(run["job"]["argv"],preview["argv"]);assert_eq!(run["job"]["additionalOptions"],request["additionalOptions"]);assert_eq!(run["job"]["additionalArguments"],request["additionalArguments"]);
+        request["id"]=json!("additional-argv-invalid-002");request["additionalOptions"]=json!("--ansi");assert!(state.handle(&ctx,&request.to_string(),&terminals).is_err());
+    }
+
 }

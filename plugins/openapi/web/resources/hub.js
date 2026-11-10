@@ -269,7 +269,7 @@
     const needle = q.query.trim().toLocaleLowerCase();
     $("clear").hidden = !needle && !facets.some(column=>q.facets[column]);
     const compare = (a,b) => String(a.cells[q.sort.column] || "").localeCompare(String(b.cells[q.sort.column] || ""), undefined, { numeric: true }) * (q.sort.descending ? -1 : 1);
-    let visible = rows.filter(r => (!needle || [r.method || "", ...r.cells].join(" ").toLocaleLowerCase().includes(needle)) && facets.every(c => !q.facets[c] || q.facets[c] === r.cells[c]));
+    let visible = rows.filter(r => (!needle || [r.method || "", r.searchText || "", ...r.cells].join(" ").toLocaleLowerCase().includes(needle)) && facets.every(c => !q.facets[c] || q.facets[c] === r.cells[c]));
     const treeDepths = new Map();
     if (body.kind === "tree") {
       const byKey = new Map(rows.map(row=>[row.key,row])), children = new Map(), roots=[];
@@ -490,18 +490,19 @@
     // and local theme defaults override the managed kit controls/theme.
     for(const style of parsed.querySelectorAll("style")) {style.textContent=`@layer ui-legacy {${style.textContent.replace(/:root|\bhtml\b|\bbody\b/g,":host")}}`;}
     shadow.append(...Array.from(parsed.head.children),...Array.from(parsed.body.childNodes));$("content").replaceChildren(host);$("details").close();
-    if(shadow.querySelector("[data-command-workspace]"))host.classList.add("command-workspace-host");
+    if(shadow.querySelector("[data-command-workspace], [data-generator-workspace]"))host.classList.add("command-workspace-host");
     // Syntax overlays have a matching pre/textarea geometry and must stay raw.
     shadow.querySelector("#src")?.setAttribute("data-ui-raw", "");
     window.uiKitControls?.enhance(shadow);
     const targetView=state.activeView,generation=state.generation;
     const bridge={project:state.project,postMessage:value=>{if(state.generation === generation) event({kind:"message",value},targetView);},onMessage:callback=>state.listeners.push(message=>{if(state.generation === generation) callback(message);}),saveFile:options=>window.openidea.saveFile(options),openFile:options=>window.openidea.openFile(options)};
-    if(host.hasAttribute("data-runtime-controls") || shadow.querySelector("[data-runtime-controls]") || shadow.querySelector("[data-command-workspace]")) {
+    if(host.hasAttribute("data-runtime-controls") || shadow.querySelector("[data-runtime-controls]") || shadow.querySelector("[data-command-workspace], [data-generator-workspace], [data-managed-processes]")) {
       const runtimeBridge={...bridge,postMessage:value=>{
         if(state.generation !== generation || !window.openidea) return;
         openidea.postMessage(JSON.stringify({op:"opaque-message",message:value,channel:"ui-kit",frameId,sequence:0,targetView,project:state.project}));
       }};
-      state.cleanup=(shadow.querySelector("[data-command-workspace]") ? window.uiKitCommandWorkspace?.mount(shadow,runtimeBridge) : window.uiKitRuntimeControls?.mount(shadow,runtimeBridge)) || null;
+      const adapter=shadow.querySelector("[data-generator-workspace]") ? window.uiKitGeneratorWorkspace : shadow.querySelector("[data-managed-processes]") ? window.uiKitManagedProcesses : shadow.querySelector("[data-command-workspace]") ? window.uiKitCommandWorkspace : window.uiKitRuntimeControls;
+      state.cleanup=adapter?.mount(shadow,runtimeBridge) || null;
     }
     else if(shadow.querySelector("svg .n[data-id]")) shadow.querySelectorAll(".n[data-id]").forEach(node=>{const open=()=>bridge.postMessage(node.dataset.id);node.addEventListener("click",open);node.addEventListener("keydown",e=>{if(e.key === "Enter" || e.key === " "){e.preventDefault();open();}});});
     else if(shadow.querySelector("#src")) window.uiKitLegacy?.kube(shadow,bridge);

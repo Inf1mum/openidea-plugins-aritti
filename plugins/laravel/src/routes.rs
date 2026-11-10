@@ -21,7 +21,19 @@ pub struct RouteDef {
 }
 
 const VERBS: &[&str] = &[
-    "get", "post", "put", "patch", "delete", "options", "any", "match", "view", "redirect", "permanentRedirect", "resource", "apiResource",
+    "get",
+    "post",
+    "put",
+    "patch",
+    "delete",
+    "options",
+    "any",
+    "match",
+    "view",
+    "redirect",
+    "permanentRedirect",
+    "resource",
+    "apiResource",
 ];
 const RESOURCE_ACTIONS: &[(&str, &str, &str)] = &[
     ("index", "GET|HEAD", ""),
@@ -56,7 +68,10 @@ fn chains(text: &str) -> Vec<Chain> {
 }
 
 fn parse_chain(text: &str, at: usize) -> Option<Chain> {
-    let mut i = at + "Route::".len();
+    parse_chain_from(text, at, at + "Route::".len())
+}
+fn parse_chain_from(text: &str, at: usize, method_start: usize) -> Option<Chain> {
+    let mut i = method_start;
     let mut segments = Vec::new();
 
     loop {
@@ -76,17 +91,32 @@ fn parse_chain(text: &str, at: usize) -> Option<Chain> {
 
         let name = text[name_start..i].to_owned();
         let Some(close) = php::closing(text, open) else {
-            segments.push(Segment { name, start: name_start, open, args: Vec::new() });
+            segments.push(Segment {
+                name,
+                start: name_start,
+                open,
+                args: Vec::new(),
+            });
             break;
         };
-        segments.push(Segment { name, start: name_start, open, args: php::split(text, open + 1..close) });
+        segments.push(Segment {
+            name,
+            start: name_start,
+            open,
+            args: php::split(text, open + 1..close),
+        });
 
         let rest = text[close + 1..].trim_start();
-        let Some(rest) = rest.strip_prefix("?->").or_else(|| rest.strip_prefix("->")) else { break };
+        let Some(rest) = rest.strip_prefix("?->").or_else(|| rest.strip_prefix("->")) else {
+            break;
+        };
         i = text.len() - rest.trim_start().len();
     }
 
-    (!segments.is_empty()).then_some(Chain { start: at, segments })
+    (!segments.is_empty()).then_some(Chain {
+        start: at,
+        segments,
+    })
 }
 
 struct Region {
@@ -101,7 +131,11 @@ fn short(class: &str) -> &str {
 }
 
 fn join_uri(parts: &[&str]) -> String {
-    let joined: Vec<&str> = parts.iter().map(|p| p.trim_matches('/')).filter(|p| !p.is_empty()).collect();
+    let joined: Vec<&str> = parts
+        .iter()
+        .map(|p| p.trim_matches('/'))
+        .filter(|p| !p.is_empty())
+        .collect();
     format!("/{}", joined.join("/"))
 }
 
@@ -110,7 +144,8 @@ fn first_literal<'a>(text: &'a str, segment: &Segment) -> Option<(&'a str, usize
 }
 
 fn controller_of(text: &str, range: Range<usize>) -> Option<String> {
-    let class = php::class_constant(text, range.clone()).or_else(|| php::literal(text, range).map(|(c, _)| c))?;
+    let class = php::class_constant(text, range.clone())
+        .or_else(|| php::literal(text, range).map(|(c, _)| c))?;
     Some(short(class).to_owned())
 }
 
@@ -129,49 +164,90 @@ fn region_of(text: &str, chain: &Chain) -> Option<Region> {
         match segment.name.as_str() {
             "name" => names.extend(first_literal(text, segment).map(|(n, _)| n)),
             "prefix" => prefixes.extend(first_literal(text, segment).map(|(p, _)| p)),
-            "controller" => controller = segment.args.first().and_then(|a| controller_of(text, a.clone())),
+            "controller" => {
+                controller = segment
+                    .args
+                    .first()
+                    .and_then(|a| controller_of(text, a.clone()))
+            }
             _ => {}
         }
     }
 
-    if let Some(options) = group.args.first().and_then(|a| php::array_open(text, a.clone())) {
+    if let Some(options) = group
+        .args
+        .first()
+        .and_then(|a| php::array_open(text, a.clone()))
+    {
         names.extend(php::string_value(text, options, "as").map(|(n, _)| n));
         prefixes.extend(php::string_value(text, options, "prefix").map(|(p, _)| p));
     }
 
-    Some(Region { body: brace + 1..end, names, prefix: join_uri(&prefixes), controller })
+    Some(Region {
+        body: brace + 1..end,
+        names,
+        prefix: join_uri(&prefixes),
+        controller,
+    })
 }
 
 /// The action shown for the route and the controller method it names.
-fn action_of(text: &str, range: Option<Range<usize>>, controller: Option<&str>) -> (String, Option<(String, String)>) {
-    let Some(range) = range else { return ("Closure".into(), None) };
+fn action_of(
+    text: &str,
+    range: Option<Range<usize>>,
+    controller: Option<&str>,
+) -> (String, Option<(String, String)>) {
+    let Some(range) = range else {
+        return ("Closure".into(), None);
+    };
     let trimmed = php::trimmed(text, range.clone());
     let source = &text[trimmed.clone()];
 
     if let Some((action, _)) = php::literal(text, range.clone()) {
         return match action.split_once('@') {
-            Some((class, method)) => (action.to_owned(), Some((short(class).to_owned(), method.to_owned()))),
+            Some((class, method)) => (
+                action.to_owned(),
+                Some((short(class).to_owned(), method.to_owned())),
+            ),
             None => match controller {
-                Some(class) => (format!("{class}@{action}"), Some((class.to_owned(), action.to_owned()))),
+                Some(class) => (
+                    format!("{class}@{action}"),
+                    Some((class.to_owned(), action.to_owned())),
+                ),
                 None => (action.to_owned(), None),
             },
         };
     }
 
     if let Some(class) = php::class_constant(text, range.clone()) {
-        return (format!("{}@__invoke", short(class)), Some((short(class).to_owned(), "__invoke".into())));
+        return (
+            format!("{}@__invoke", short(class)),
+            Some((short(class).to_owned(), "__invoke".into())),
+        );
     }
 
     if let Some(open) = php::array_open(text, range) {
         let items = php::items(text, open);
-        if let Some(uses) = items.iter().find(|i| i.key.clone().and_then(|k| php::literal(text, k)).is_some_and(|(k, _)| k == "uses")) {
+        if let Some(uses) = items.iter().find(|i| {
+            i.key
+                .clone()
+                .and_then(|k| php::literal(text, k))
+                .is_some_and(|(k, _)| k == "uses")
+        }) {
             return action_of(text, Some(uses.value.clone()), controller);
         }
 
-        let class = items.first().and_then(|i| php::class_constant(text, i.value.clone()));
-        let method = items.get(1).and_then(|i| php::literal(text, i.value.clone()));
+        let class = items
+            .first()
+            .and_then(|i| php::class_constant(text, i.value.clone()));
+        let method = items
+            .get(1)
+            .and_then(|i| php::literal(text, i.value.clone()));
         if let (Some(class), Some((method, _))) = (class, method) {
-            return (format!("{}@{method}", short(class)), Some((short(class).to_owned(), method.to_owned())));
+            return (
+                format!("{}@{method}", short(class)),
+                Some((short(class).to_owned(), method.to_owned())),
+            );
         }
     }
 
@@ -183,17 +259,25 @@ fn action_of(text: &str, range: Option<Range<usize>>, controller: Option<&str>) 
 }
 
 fn strings_of(text: &str, range: &Range<usize>) -> Vec<String> {
-    php::array_open(text, range.clone()).map(|open| php::strings(text, open, false)).unwrap_or_default()
+    php::array_open(text, range.clone())
+        .map(|open| php::strings(text, open, false))
+        .unwrap_or_default()
 }
 
 /// The routes of one file, from its text with comments blanked.
 pub fn parse(text: &str) -> Vec<RouteDef> {
     let chains = chains(text);
-    let regions: Vec<Region> = chains.iter().filter_map(|chain| region_of(text, chain)).collect();
+    let regions: Vec<Region> = chains
+        .iter()
+        .filter_map(|chain| region_of(text, chain))
+        .collect();
     let mut defs = Vec::new();
 
     for chain in &chains {
-        let enclosing: Vec<&Region> = regions.iter().filter(|r| r.body.contains(&chain.start)).collect();
+        let enclosing: Vec<&Region> = regions
+            .iter()
+            .filter(|r| r.body.contains(&chain.start))
+            .collect();
         defs.extend(route_defs(text, chain, &enclosing));
     }
 
@@ -201,8 +285,82 @@ pub fn parse(text: &str) -> Vec<RouteDef> {
     defs
 }
 
+/// Add documented custom methods, retaining the existing core route parser.
+/// Custom calls use bounded, source-proven facade/import identities.
+pub(crate) fn parse_with_custom(
+    text: &str,
+    custom: &std::collections::BTreeMap<String, crate::metadata::RouteMethod>,
+) -> Vec<RouteDef> {
+    let mut defs = parse(text);
+    if custom.is_empty() {
+        return defs;
+    }
+    let chains: Vec<_> = crate::eloquent_members::metadata_inference::route_calls(text)
+        .into_iter()
+        .filter_map(|(at, method)| parse_chain_from(text, at, method))
+        .collect();
+    let regions: Vec<_> = chains
+        .iter()
+        .filter_map(|chain| region_of(text, chain))
+        .collect();
+    for chain in &chains {
+        if !chain
+            .segments
+            .iter()
+            .any(|segment| custom.contains_key(&segment.name.to_ascii_lowercase()))
+        {
+            continue;
+        }
+        let enclosing: Vec<_> = regions
+            .iter()
+            .filter(|region| region.body.contains(&chain.start))
+            .collect();
+        let original = route_defs(text, chain, &enclosing);
+        defs.retain(|def| !original.iter().any(|old| old.offset == def.offset));
+        defs.extend(configured_defs(text, chain, &enclosing, custom));
+    }
+    defs.sort_by_key(|def| def.offset);
+    defs
+}
+
 fn route_defs(text: &str, chain: &Chain, enclosing: &[&Region]) -> Vec<RouteDef> {
-    let Some(verb) = chain.segments.iter().find(|s| VERBS.contains(&s.name.as_str())) else { return Vec::new() };
+    configured_defs(text, chain, enclosing, &std::collections::BTreeMap::new())
+}
+fn configured_defs(
+    text: &str,
+    chain: &Chain,
+    enclosing: &[&Region],
+    custom: &std::collections::BTreeMap<String, crate::metadata::RouteMethod>,
+) -> Vec<RouteDef> {
+    let Some(verb) = chain.segments.iter().find(|s| {
+        VERBS.contains(&s.name.as_str()) || custom.contains_key(&s.name.to_ascii_lowercase())
+    }) else {
+        return Vec::new();
+    };
+    let method = custom
+        .get(&verb.name.to_ascii_lowercase())
+        .filter(|method| method.name.eq_ignore_ascii_case(&verb.name));
+    if let Some(method) = method {
+        let through = method
+            .url_index
+            .into_iter()
+            .chain(method.controller_index)
+            .max()
+            .unwrap_or(0);
+        if verb.args.iter().take(through).any(|range| {
+            let argument = text[range.clone()].trim_start();
+            argument.starts_with("...")
+                || argument.split_once(':').is_some_and(|(name, _)| {
+                    let mut chars = name.trim().chars();
+                    chars
+                        .next()
+                        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+                        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+                })
+        }) {
+            return Vec::new();
+        }
+    }
     let name_prefix: String = enclosing.iter().map(|r| r.names.as_str()).collect();
     let controller = chain
         .segments
@@ -212,23 +370,72 @@ fn route_defs(text: &str, chain: &Chain, enclosing: &[&Region]) -> Vec<RouteDef>
         .or_else(|| enclosing.iter().rev().find_map(|r| r.controller.clone()));
 
     let mut uri_parts: Vec<&str> = enclosing.iter().map(|r| r.prefix.as_str()).collect();
-    uri_parts.extend(chain.segments.iter().filter(|s| s.name == "prefix").filter_map(|s| first_literal(text, s).map(|(p, _)| p)));
+    uri_parts.extend(
+        chain
+            .segments
+            .iter()
+            .filter(|s| s.name == "prefix")
+            .filter_map(|s| first_literal(text, s).map(|(p, _)| p)),
+    );
 
-    let own_names: Vec<(&str, usize)> = chain.segments.iter().filter(|s| s.name == "name").filter_map(|s| first_literal(text, s)).collect();
+    let own_names: Vec<(&str, usize)> = chain
+        .segments
+        .iter()
+        .filter(|s| s.name == "name")
+        .filter_map(|s| first_literal(text, s))
+        .collect();
     let arg = |i: usize| verb.args.get(i).cloned();
     let uri_literal = |i: usize| arg(i).and_then(|r| php::literal(text, r)).map(|(u, _)| u);
-    if !matches!(verb.name.as_str(), "resource" | "apiResource") && uri_literal(if verb.name == "match" {1} else {0}).is_none() { return Vec::new(); }
-
-    let (methods, uri, options, action_range) = match verb.name.as_str() {
-        "match" => {
-            let methods = arg(0).map(|r| strings_of(text, &r)).unwrap_or_default().join("|").to_uppercase();
-            (methods, uri_literal(1).unwrap(), arg(2), arg(2))
+    if let Some(method) = method {
+        if method
+            .url_index
+            .and_then(|i| uri_literal(i - 1))
+            .is_none_or(|uri| uri.contains(['$', '\\']))
+        {
+            return Vec::new();
         }
-        "any" => ("ANY".to_owned(), uri_literal(0).unwrap(), arg(1), arg(1)),
-        "view" => ("GET|HEAD".to_owned(), uri_literal(0).unwrap(), None, None),
-        "redirect" | "permanentRedirect" => ("GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS".to_owned(), uri_literal(0).unwrap(), None, None),
-        "resource" | "apiResource" => return resource_defs(text, chain, verb, &name_prefix, &uri_parts, controller),
-        name => (name.to_uppercase().replace("GET", "GET|HEAD"), uri_literal(0).unwrap(), arg(1), arg(1)),
+    } else if !matches!(verb.name.as_str(), "resource" | "apiResource")
+        && uri_literal(if verb.name == "match" { 1 } else { 0 }).is_none()
+    {
+        return Vec::new();
+    }
+
+    let (methods, uri, options, action_range) = if let Some(method) = method {
+        let action = method.controller_index.and_then(|i| arg(i - 1));
+        (
+            method.http_method.clone(),
+            uri_literal(method.url_index.unwrap() - 1).unwrap(),
+            action.clone(),
+            action,
+        )
+    } else {
+        match verb.name.as_str() {
+            "match" => {
+                let methods = arg(0)
+                    .map(|r| strings_of(text, &r))
+                    .unwrap_or_default()
+                    .join("|")
+                    .to_uppercase();
+                (methods, uri_literal(1).unwrap(), arg(2), arg(2))
+            }
+            "any" => ("ANY".to_owned(), uri_literal(0).unwrap(), arg(1), arg(1)),
+            "view" => ("GET|HEAD".to_owned(), uri_literal(0).unwrap(), None, None),
+            "redirect" | "permanentRedirect" => (
+                "GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS".to_owned(),
+                uri_literal(0).unwrap(),
+                None,
+                None,
+            ),
+            "resource" | "apiResource" => {
+                return resource_defs(text, chain, verb, &name_prefix, &uri_parts, controller);
+            }
+            name => (
+                name.to_uppercase().replace("GET", "GET|HEAD"),
+                uri_literal(0).unwrap(),
+                arg(1),
+                arg(1),
+            ),
+        }
     };
 
     let options_array = options.and_then(|r| php::array_open(text, r));
@@ -248,10 +455,30 @@ fn route_defs(text: &str, chain: &Chain, enclosing: &[&Region]) -> Vec<RouteDef>
         (offset, width) = (*at, own_names[0].0.len());
     }
 
-    let (action, controller) = match verb.name.as_str() {
-        "view" => (format!("view: {}", arg(1).and_then(|r| php::literal(text, r)).map_or("?", |(v, _)| v)), None),
-        "redirect" | "permanentRedirect" => (format!("Redirect → {}",arg(1).and_then(|r|php::literal(text,r)).map_or("dynamic destination",|(v,_)|v)), None),
-        _ => action_of(text, action_range, controller.as_deref()),
+    let (action, controller) = if method.is_some() {
+        action_of(text, action_range, controller.as_deref())
+    } else {
+        match verb.name.as_str() {
+            "view" => (
+                format!(
+                    "view: {}",
+                    arg(1)
+                        .and_then(|r| php::literal(text, r))
+                        .map_or("?", |(v, _)| v)
+                ),
+                None,
+            ),
+            "redirect" | "permanentRedirect" => (
+                format!(
+                    "Redirect → {}",
+                    arg(1)
+                        .and_then(|r| php::literal(text, r))
+                        .map_or("dynamic destination", |(v, _)| v)
+                ),
+                None,
+            ),
+            _ => action_of(text, action_range, controller.as_deref()),
+        }
     };
 
     uri_parts.push(uri);
@@ -274,15 +501,38 @@ fn resource_defs(
     uri_parts: &[&str],
     group_controller: Option<String>,
 ) -> Vec<RouteDef> {
-    let Some((resource, offset)) = verb.args.first().and_then(|r| php::literal(text, r.clone())) else { return Vec::new() };
-    let controller = verb.args.get(1).and_then(|r| controller_of(text, r.clone())).or(group_controller);
+    let Some((resource, offset)) = verb
+        .args
+        .first()
+        .and_then(|r| php::literal(text, r.clone()))
+    else {
+        return Vec::new();
+    };
+    let controller = verb
+        .args
+        .get(1)
+        .and_then(|r| controller_of(text, r.clone()))
+        .or(group_controller);
     let api = verb.name == "apiResource";
 
-    let options = verb.args.get(2).and_then(|r| php::array_open(text, r.clone()));
+    let options = verb
+        .args
+        .get(2)
+        .and_then(|r| php::array_open(text, r.clone()));
     let option = |name: &str| -> Option<usize> {
-        let fluent = chain.segments.iter().find(|s| s.name == name).and_then(|s| s.args.first()).and_then(|r| php::array_open(text, r.clone()));
+        let fluent = chain
+            .segments
+            .iter()
+            .find(|s| s.name == name)
+            .and_then(|s| s.args.first())
+            .and_then(|r| php::array_open(text, r.clone()));
         fluent.or_else(|| {
-            let item = php::items(text, options?).into_iter().find(|i| i.key.clone().and_then(|k| php::literal(text, k)).is_some_and(|(k, _)| k == name))?;
+            let item = php::items(text, options?).into_iter().find(|i| {
+                i.key
+                    .clone()
+                    .and_then(|k| php::literal(text, k))
+                    .is_some_and(|(k, _)| k == name)
+            })?;
             php::array_open(text, item.value)
         })
     };
@@ -292,7 +542,12 @@ fn resource_defs(
     let renamed = option("names").map(|open| {
         php::items(text, open)
             .into_iter()
-            .filter_map(|i| Some((php::literal(text, i.key?)?.0.to_owned(), php::literal(text, i.value)?.0.to_owned())))
+            .filter_map(|i| {
+                Some((
+                    php::literal(text, i.key?)?.0.to_owned(),
+                    php::literal(text, i.value)?.0.to_owned(),
+                ))
+            })
             .collect::<Vec<_>>()
     });
 
@@ -306,7 +561,11 @@ fn resource_defs(
         .iter()
         .filter(|(action, _, _)| !(api && matches!(*action, "create" | "edit")))
         .filter(|(action, _, _)| only.as_ref().is_none_or(|o| o.iter().any(|a| a == action)))
-        .filter(|(action, _, _)| except.as_ref().is_none_or(|e| !e.iter().any(|a| a == action)))
+        .filter(|(action, _, _)| {
+            except
+                .as_ref()
+                .is_none_or(|e| !e.iter().any(|a| a == action))
+        })
         .map(|(action, methods, suffix)| {
             let name = renamed
                 .as_ref()
@@ -320,7 +579,9 @@ fn resource_defs(
                 methods: (*methods).to_owned(),
                 uri: join_uri(&parts),
                 name: Some(format!("{name_prefix}{name}")),
-                action: controller.as_deref().map_or_else(|| (*action).to_owned(), |c| format!("{c}@{action}")),
+                action: controller
+                    .as_deref()
+                    .map_or_else(|| (*action).to_owned(), |c| format!("{c}@{action}")),
                 controller: controller.clone().map(|c| (c, (*action).to_owned())),
                 offset,
                 width: resource.len(),
@@ -348,7 +609,15 @@ mod tests {
     use super::*;
 
     fn names(defs: &[RouteDef]) -> Vec<(&str, &str, &str)> {
-        defs.iter().map(|d| (d.name.as_deref().unwrap_or("-"), d.uri.as_str(), d.action.as_str())).collect()
+        defs.iter()
+            .map(|d| {
+                (
+                    d.name.as_deref().unwrap_or("-"),
+                    d.uri.as_str(),
+                    d.action.as_str(),
+                )
+            })
+            .collect()
     }
 
     #[test]
@@ -366,8 +635,14 @@ mod tests {
             ]
         );
         assert_eq!(defs[1].methods, "POST");
-        assert_eq!(defs[1].controller, Some(("AuthController".into(), "login".into())));
-        assert_eq!(&text[defs[0].offset..defs[0].offset + defs[0].width], "home");
+        assert_eq!(
+            defs[1].controller,
+            Some(("AuthController".into(), "login".into()))
+        );
+        assert_eq!(
+            &text[defs[0].offset..defs[0].offset + defs[0].width],
+            "home"
+        );
     }
 
     #[test]
@@ -389,7 +664,16 @@ mod tests {
     fn expands_resources() {
         let text = "<?php\nRoute::resource('photos', PhotoController::class)->only(['index', 'show']);\nRoute::apiResource('admin/posts', 'PostController', ['except' => ['destroy']]);\nRoute::resource('comments', CommentController::class)->names(['index' => 'all.comments'])->only(['index']);\nRoute::name('v1.')->group(function () { Route::resource('tags', TagController::class)->only(['edit']); });\n";
         let defs = parse(text);
-        let listed: Vec<_> = defs.iter().map(|d| (d.name.as_deref().unwrap(), d.methods.as_str(), d.uri.as_str())).collect();
+        let listed: Vec<_> = defs
+            .iter()
+            .map(|d| {
+                (
+                    d.name.as_deref().unwrap(),
+                    d.methods.as_str(),
+                    d.uri.as_str(),
+                )
+            })
+            .collect();
         assert_eq!(
             listed,
             [
@@ -415,14 +699,25 @@ mod tests {
 
     #[test]
     fn reads_class_imports() {
-        let imports = imports("<?php\nuse App\\Http\\Controllers\\PostController;\nuse Foo\\{A, B};\nuse Bar\\Baz as Q;\n");
-        assert_eq!(imports, [("PostController".to_owned(), "App\\Http\\Controllers".to_owned())]);
+        let imports = imports(
+            "<?php\nuse App\\Http\\Controllers\\PostController;\nuse Foo\\{A, B};\nuse Bar\\Baz as Q;\n",
+        );
+        assert_eq!(
+            imports,
+            [(
+                "PostController".to_owned(),
+                "App\\Http\\Controllers".to_owned()
+            )]
+        );
     }
 }
 
 /// Literal application mounts. `Some` is authoritative even when empty: an
 /// unsupported/dynamic mount must not turn into an invented root-level route.
-pub fn application_mounts(bootstrap: &str, provider: &str) -> Option<std::collections::BTreeMap<String, String>> {
+pub fn application_mounts(
+    bootstrap: &str,
+    provider: &str,
+) -> Option<std::collections::BTreeMap<String, String>> {
     use std::collections::BTreeMap;
     fn path(text: &str, r: Range<usize>, dir: &str) -> Option<String> {
         let r = php::trimmed(text, r);
@@ -430,22 +725,40 @@ pub fn application_mounts(bootstrap: &str, provider: &str) -> Option<std::collec
         let value = if let Some(rest) = code.strip_prefix("__DIR__") {
             let tail = rest.trim_start().strip_prefix('.')?.trim();
             let (value, _) = php::literal(tail, 0..tail.len())?;
-            if tail != format!("'{value}'") && tail != format!("\"{value}\"") { return None; }
+            if tail != format!("'{value}'") && tail != format!("\"{value}\"") {
+                return None;
+            }
             format!("{dir}/{value}")
         } else if code.starts_with("base_path(") {
             let close = php::closing(code, 9)?;
-            if close + 1 != code.len() { return None; }
+            if close + 1 != code.len() {
+                return None;
+            }
             let args = php::split(code, 10..close);
-            if args.len() != 1 { return None; }
+            if args.len() != 1 {
+                return None;
+            }
             let raw = code[args[0].clone()].trim();
             let (value, _) = php::literal(raw, 0..raw.len())?;
-            if raw != format!("'{value}'") && raw != format!("\"{value}\"") { return None; }
+            if raw != format!("'{value}'") && raw != format!("\"{value}\"") {
+                return None;
+            }
             value.into()
-        } else { return None; };
-        if value.contains(['\\', '$', '\0', ':']) { return None; }
+        } else {
+            return None;
+        };
+        if value.contains(['\\', '$', '\0', ':']) {
+            return None;
+        }
         let mut parts = Vec::new();
         for part in value.split('/') {
-            match part { "" | "." => {}, ".." => { parts.pop()?; }, other => parts.push(other) }
+            match part {
+                "" | "." => {}
+                ".." => {
+                    parts.pop()?;
+                }
+                other => parts.push(other),
+            }
         }
         let result = parts.join("/");
         (result.starts_with("routes/") && result.ends_with(".php")).then_some(result)
@@ -453,69 +766,132 @@ pub fn application_mounts(bootstrap: &str, provider: &str) -> Option<std::collec
     fn literal(text: &str, r: Range<usize>) -> Option<String> {
         let raw = text[r].trim();
         let (v, _) = php::literal(raw, 0..raw.len())?;
-        ((raw == format!("'{v}'") || raw == format!("\"{v}\"")) && !v.contains(['\\', '$', '?', '#']) && !v.chars().any(char::is_control)).then(|| v.trim_matches('/').to_owned())
+        ((raw == format!("'{v}'") || raw == format!("\"{v}\""))
+            && !v.contains(['\\', '$', '?', '#'])
+            && !v.chars().any(char::is_control))
+        .then(|| v.trim_matches('/').to_owned())
     }
-    if bootstrap.len() > 128 << 10 || provider.len() > 128 << 10 { return Some(BTreeMap::new()); }
+    if bootstrap.len() > 128 << 10 || provider.len() > 128 << 10 {
+        return Some(BTreeMap::new());
+    }
     let b = php::mask_comments(bootstrap);
     // Only inspect executable call sites, never quoted examples/comments.
     let mut at = 0;
     let mut calls = Vec::new();
     while at < b.len() {
-        if matches!(b.as_bytes()[at], b'\'' | b'"') { at = php::string_end(b.as_bytes(), at); continue; }
+        if matches!(b.as_bytes()[at], b'\'' | b'"') {
+            at = php::string_end(b.as_bytes(), at);
+            continue;
+        }
         if b[at..].starts_with("->withRouting(") {
             let open = at + "->withRouting".len();
-            let Some(close) = php::closing(&b, open) else { return Some(BTreeMap::new()) };
-            calls.push((open, close)); at = close + 1;
-        } else { at += b[at..].chars().next().unwrap().len_utf8(); }
+            let Some(close) = php::closing(&b, open) else {
+                return Some(BTreeMap::new());
+            };
+            calls.push((open, close));
+            at = close + 1;
+        } else {
+            at += b[at..].chars().next().unwrap().len_utf8();
+        }
     }
     if !calls.is_empty() {
         let mut mounts = BTreeMap::new();
-        if calls.len() != 1 { return Some(mounts); }
+        if calls.len() != 1 {
+            return Some(mounts);
+        }
         let (open, close) = calls[0];
         let mut args = BTreeMap::new();
         for r in php::split(&b, open + 1..close) {
-            let Some(colon) = b[r.clone()].find(':') else { return Some(BTreeMap::new()) };
-            let key = b[r.start..r.start+colon].trim();
-            if args.insert(key, r.start+colon+1..r.end).is_some() { return Some(BTreeMap::new()); }
+            let Some(colon) = b[r.clone()].find(':') else {
+                return Some(BTreeMap::new());
+            };
+            let key = b[r.start..r.start + colon].trim();
+            if args.insert(key, r.start + colon + 1..r.end).is_some() {
+                return Some(BTreeMap::new());
+            }
         }
-        if args.contains_key("using") || args.contains_key("then") { return Some(mounts); }
+        if args.contains_key("using") || args.contains_key("then") {
+            return Some(mounts);
+        }
         for key in ["web", "api"] {
             let Some(r) = args.get(key) else { continue };
-            let Some(file) = path(&b, r.clone(), "bootstrap") else { continue };
+            let Some(file) = path(&b, r.clone(), "bootstrap") else {
+                continue;
+            };
             let prefix = if key == "api" {
-                match args.get("apiPrefix") { Some(r) => literal(&b, r.clone()), None => Some("api".into()) }
-            } else { Some(String::new()) };
-            if let Some(prefix) = prefix { mounts.insert(file, prefix); }
+                match args.get("apiPrefix") {
+                    Some(r) => literal(&b, r.clone()),
+                    None => Some("api".into()),
+                }
+            } else {
+                Some(String::new())
+            };
+            if let Some(prefix) = prefix {
+                mounts.insert(file, prefix);
+            }
         }
         return Some(mounts);
     }
     let p = php::mask_comments(provider);
-    if p.trim().is_empty() { return None; }
+    if p.trim().is_empty() {
+        return None;
+    }
     let mut mounts = BTreeMap::new();
     let mut executable = std::collections::BTreeSet::new();
     let mut at = 0;
     while at < p.len() {
-        if matches!(p.as_bytes()[at], b'\'' | b'"') { at = php::string_end(p.as_bytes(), at); continue; }
-        if p[at..].starts_with("Route::") { executable.insert(at); }
+        if matches!(p.as_bytes()[at], b'\'' | b'"') {
+            at = php::string_end(p.as_bytes(), at);
+            continue;
+        }
+        if p[at..].starts_with("Route::") {
+            executable.insert(at);
+        }
         at += p[at..].chars().next().unwrap().len_utf8();
     }
-    let legacy_chains: Vec<_> = chains(&p).into_iter().filter(|c| executable.contains(&c.start)).collect();
-    let outer_regions: Vec<_> = legacy_chains.iter().filter_map(|c| region_of(&p,c)).collect();
+    let legacy_chains: Vec<_> = chains(&p)
+        .into_iter()
+        .filter(|c| executable.contains(&c.start))
+        .collect();
+    let outer_regions: Vec<_> = legacy_chains
+        .iter()
+        .filter_map(|c| region_of(&p, c))
+        .collect();
     for chain in legacy_chains {
-        if outer_regions.iter().any(|r| r.body.contains(&chain.start)) { continue; }
-        let Some(group) = chain.segments.iter().find(|s| s.name == "group") else { continue };
-        if group.args.len() != 1 { continue; }
-        let Some(file) = path(&p, group.args[0].clone(), "app/Providers") else { continue };
+        if outer_regions.iter().any(|r| r.body.contains(&chain.start)) {
+            continue;
+        }
+        let Some(group) = chain.segments.iter().find(|s| s.name == "group") else {
+            continue;
+        };
+        if group.args.len() != 1 {
+            continue;
+        }
+        let Some(file) = path(&p, group.args[0].clone(), "app/Providers") else {
+            continue;
+        };
         // Nested closure mounts require composing outer scopes; refuse here.
-        if chain.segments.iter().any(|s| s.name == "namespace" || s.name == "domain") { continue; }
-        let prefixes: Vec<_> = chain.segments.iter().filter(|s| s.name == "prefix").collect();
+        if chain
+            .segments
+            .iter()
+            .any(|s| s.name == "namespace" || s.name == "domain")
+        {
+            continue;
+        }
+        let prefixes: Vec<_> = chain
+            .segments
+            .iter()
+            .filter(|s| s.name == "prefix")
+            .collect();
         let prefix = match prefixes.as_slice() {
             [] => Some(String::new()),
             [s] if s.args.len() == 1 => literal(&p, s.args[0].clone()),
             _ => None,
         };
         if let Some(prefix) = prefix {
-            if mounts.insert(file, prefix).is_some() { return Some(BTreeMap::new()); }
+            if mounts.insert(file, prefix).is_some() {
+                return Some(BTreeMap::new());
+            }
         }
     }
     Some(mounts)
@@ -531,17 +907,81 @@ mod mount_tests {
         assert_eq!(m.get("routes/api.php").map(String::as_str), Some("api"));
         assert_eq!(m.get("routes/web.php").map(String::as_str), Some(""));
         for prefix in ["'v2'", "''", "$prefix", "'v2' . suffix()"] {
-            let s = format!("<?php Application::configure()->withRouting(api: __DIR__.'/../routes/api.php', apiPrefix: {prefix});");
+            let s = format!(
+                "<?php Application::configure()->withRouting(api: __DIR__.'/../routes/api.php', apiPrefix: {prefix});"
+            );
             let m = application_mounts(&s, "").unwrap();
-            assert_eq!(m.get("routes/api.php").map(String::as_str), match prefix { "'v2'" => Some("v2"), "''" => Some(""), _ => None });
+            assert_eq!(
+                m.get("routes/api.php").map(String::as_str),
+                match prefix {
+                    "'v2'" => Some("v2"),
+                    "''" => Some(""),
+                    _ => None,
+                }
+            );
         }
-        assert!(application_mounts("<?php // ->withRouting(api: x)\n $x='->withRouting(api: x)';", "").is_none());
-        assert!(application_mounts("<?php $a->withRouting(using: fn()=>1, api: __DIR__.'/../routes/api.php');", "").unwrap().is_empty());
+        assert!(
+            application_mounts(
+                "<?php // ->withRouting(api: x)\n $x='->withRouting(api: x)';",
+                ""
+            )
+            .is_none()
+        );
+        assert!(
+            application_mounts(
+                "<?php $a->withRouting(using: fn()=>1, api: __DIR__.'/../routes/api.php');",
+                ""
+            )
+            .unwrap()
+            .is_empty()
+        );
     }
     #[test]
     fn legacy_literal_mounts() {
         let m = application_mounts("", "<?php Route::middleware('api')->prefix('api')->group(base_path('routes/api.php')); Route::middleware('web')->group(base_path('routes/web.php'));").unwrap();
         assert_eq!(m.get("routes/api.php").map(String::as_str), Some("api"));
         assert_eq!(m.get("routes/web.php").map(String::as_str), Some(""));
+    }
+    #[test]
+    fn custom_facade_methods_use_declared_indices_groups_and_http_verbs() {
+        use crate::metadata::RouteMethod;
+        let custom = std::collections::BTreeMap::from([(
+            "apipost".into(),
+            RouteMethod {
+                name: "apiPost".into(),
+                url_index: Some(2),
+                controller_index: Some(3),
+                http_method: "POST".into(),
+            },
+        )]);
+        let source = "<?php use Illuminate\\Support\\Facades\\Route as R; R::prefix('admin')->name('admin.')->group(function(){ R::apiPost('ignored','/users',[PostController::class,'store'])->name('users'); });";
+        let defs = parse_with_custom(source, &custom);
+        assert_eq!(defs.len(), 1, "{defs:?}");
+        assert_eq!(
+            (
+                defs[0].methods.as_str(),
+                defs[0].uri.as_str(),
+                defs[0].name.as_deref(),
+                defs[0].action.as_str()
+            ),
+            (
+                "POST",
+                "/admin/users",
+                Some("admin.users"),
+                "PostController@store"
+            )
+        );
+        assert_eq!(
+            &source[defs[0].offset..defs[0].offset + defs[0].width],
+            "users"
+        );
+        for source in [
+            "<?php use Other\\Route as R; R::apiPost('ignored','/x','P@x')->name('bad');",
+            "<?php $x=\"Route::apiPost('ignored','/x','P@x')->name('bad');\";",
+            "<?php Route::apiPost('ignored',$url,'P@x')->name('bad');",
+            "<?php class Route{} Route::apiPost('ignored','/x','P@x')->name('bad');",
+        ] {
+            assert!(parse_with_custom(source, &custom).is_empty(), "{source}");
+        }
     }
 }

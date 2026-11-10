@@ -25,7 +25,7 @@ try {
  const catalog=[command,{name:'list',description:'List commands',definition:{arguments:[],options:[]}},{name:'make:model',description:'Create an Eloquent model',definition:{arguments:[],options:[]}},{name:'make:request',description:'Create a request',definition:{arguments:[],options:[]}}];
  for(let i=0;i<80;i++)catalog.push({name:`queue:fixture-${i}`,description:'Command list scrolling fixture',definition:{arguments:[],options:[]}});
  await next('state');
- await reply({root:'/fixture',commands:[],token:null,job:null,history:[]});
+ await reply({root:'/fixture',commands:[],token:null,job:null,history:[],additionalArgv:true});
  assert.equal(await root.locator('.command-heading').count(),0);
  assert.equal(await root.locator('#command-editor').isVisible(),false);
  assert.equal(await root.locator('#command-empty').isVisible(),true);
@@ -63,12 +63,14 @@ try {
  let preview=await next('preview');assert.equal(preview.values.name,'two words; $HOME');await reply({root:'/fixture',revision:preview.revision,argv:['artisan','app:probe','--no-interaction','--no-ansi','--',preview.values.name],job:null,history:[]});
  await root.locator('#argument-1').fill('one two\nthree');
  preview=await next('preview');assert.deepEqual(preview.values.tags,['one two','three']);await reply({root:'/fixture',revision:preview.revision,argv:['artisan','app:probe','--','two words; $HOME','one two','three'],job:null,history:[]});
- await root.locator('#run').click();const run=await next('run');assert.equal(run.token,'snapshot');assert.equal(run.values.name,'two words; $HOME');assert.deepEqual(run.values.tags,['one two','three']);assert.equal(await root.locator('#run').isDisabled(),true);
- const job={id:run.id,command:'app:probe',values:run.values,running:true,stdout:'',stderr:'',elapsedMs:30,status:null};await reply({root:'/fixture',job,history:[]});
+ await root.locator('#command-extra-options').fill('--custom="extra option"');preview=await next('preview');assert.equal(preview.additionalOptions,'--custom="extra option"');await reply({root:'/fixture',revision:preview.revision,argv:['artisan','app:probe']});
+ await root.locator('#command-extra-arguments').fill('"trailing value"');preview=await next('preview');assert.equal(preview.additionalArguments,'"trailing value"');await reply({root:'/fixture',revision:preview.revision,argv:['artisan','app:probe']});
+ await root.locator('#run').click();const run=await next('run');assert.equal(run.token,'snapshot');assert.equal(run.additionalOptions,'--custom="extra option"');assert.equal(run.additionalArguments,'"trailing value"');assert.equal(run.values.name,'two words; $HOME');assert.deepEqual(run.values.tags,['one two','three']);assert.equal(await root.locator('#run').isDisabled(),true);
+ const job={id:run.id,command:'app:probe',values:run.values,additionalOptions:run.additionalOptions,additionalArguments:run.additionalArguments,running:true,stdout:'',stderr:'',elapsedMs:30,status:null};await reply({root:'/fixture',job,history:[]});
  await root.locator('#cancel').click();const cancel=await next('cancel');assert.equal(cancel.id,run.id);job.running=false;job.cancelled=true;job.status=-1;job.stdout='<img src=x onerror=alert(1)>\npartial';job.stderr='cancelled';await reply({root:'/fixture',job,history:[]});
  assert.equal(await root.locator('#stdout img').count(),0);assert.ok((await root.locator('#stdout').textContent()).includes('<img'));assert.match(await root.locator('#command-status').textContent(),/Cancelled/);
  await root.locator('#copy').click();assert.equal((await next('copy-output')).id,run.id);await reply({root:'/fixture',copied:true,job,history:[]});
- await root.locator('#rerun').click();const rerun=await next('run');assert.notEqual(rerun.id,run.id);assert.deepEqual(rerun.values,run.values);
+ await root.locator('#rerun').click();const rerun=await next('run');assert.notEqual(rerun.id,run.id);assert.deepEqual(rerun.values,run.values);assert.equal(rerun.additionalOptions,run.additionalOptions);assert.equal(rerun.additionalArguments,run.additionalArguments);
  const completed={...job,id:rerun.id,cancelled:false,status:0,stdout:'Completed',stderr:''};await reply({root:'/fixture',job:completed,history:[job]});
  assert.equal(await root.locator('#command-history option').count(),3);
  assert.equal(await root.locator('[data-command-group=recent]').count(),1);
@@ -80,7 +82,7 @@ try {
  await root.getByRole('button',{name:'list',exact:true}).click();preview=await next('preview');await reply({root:'/fixture',revision:preview.revision,argv:['artisan','list'],job:completed,history:[job]});
  assert.equal(await root.locator('#arguments .ui-group-header').count(),0,'commands without fields must not show empty sections');
  await root.locator('[data-command-group="namespace:app"]').getByRole('button',{name:'app:probe',exact:true}).click();preview=await next('preview');
- assert.equal(preview.values.name,'two words; $HOME');assert.deepEqual(preview.values.tags,['one two','three']);
+ assert.equal(preview.values.name,'two words; $HOME');assert.deepEqual(preview.values.tags,['one two','three']);assert.equal(preview.additionalOptions,'--custom="extra option"');assert.equal(preview.additionalArguments,'"trailing value"');
  await reply({root:'/fixture',revision:preview.revision,argv:['artisan','app:probe'],job:completed,history:[job]});
  assert.deepEqual(await root.locator('#arguments .ui-group-header').allTextContents(),['Arguments','Options','Global options']);
  // Host-requested generator selection opens the full form and preserves the old draft.

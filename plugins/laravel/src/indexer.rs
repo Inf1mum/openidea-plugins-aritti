@@ -127,6 +127,7 @@ pub fn edges_of(path: &str, text: &str, exists: &dyn Fn(&str) -> bool) -> Edges 
 
     let Some((role, _, stem)) = classify(path) else { return edges };
     let masked = php::mask_comments(text);
+    let structure=crate::package_facts::code(text).unwrap_or_default();
     let mut definition = |key: String, range: Range| edges.definitions.push(Anchor { key, range });
     let mut markers: Vec<Anchor> = Vec::new();
     let mut reference_anchors: Vec<Anchor> = Vec::new();
@@ -135,10 +136,10 @@ pub fn edges_of(path: &str, text: &str, exists: &dyn Fn(&str) -> bool) -> Edges 
 
     match role {
         Role::Model => {
-            if !extends_model(&masked) {
+            if !extends_model(&structure) {
                 return Edges::default();
             }
-            let Some(at) = class_name(&masked, stem) else { return Edges::default() };
+            let Some(at) = class_name(&structure, stem) else { return Edges::default() };
             let range = range_of(text, at, stem.len());
             let table = index::explicit_table(&masked).unwrap_or_else(|| index::table_name(stem));
 
@@ -165,7 +166,7 @@ pub fn edges_of(path: &str, text: &str, exists: &dyn Fn(&str) -> bool) -> Edges 
                 _ => ("seeder", "Seeder"),
             };
             let Some(model) = stem.strip_suffix(suffix).filter(|m| !m.is_empty()) else { return Edges::default() };
-            let Some(at) = class_name(&masked, stem) else { return Edges::default() };
+            let Some(at) = class_name(&structure, stem) else { return Edges::default() };
             let range = range_of(text, at, stem.len());
 
             definition(format!("{prefix}#{model}"), range);
@@ -181,7 +182,7 @@ pub fn edges_of(path: &str, text: &str, exists: &dyn Fn(&str) -> bool) -> Edges 
             }
         }
         Role::Event => {
-            let Some(at) = class_name(&masked, stem) else { return Edges::default() };
+            let Some(at) = class_name(&structure, stem) else { return Edges::default() };
             let range = range_of(text, at, stem.len());
             definition(format!("event#{stem}"), range);
             markers.push(Anchor { key: format!("listener#{stem}"), range });
@@ -201,22 +202,22 @@ pub fn edges_of(path: &str, text: &str, exists: &dyn Fn(&str) -> bool) -> Edges 
             }
         }
         Role::Controller => {
-            let Some(at) = class_name(&masked, stem) else { return Edges::default() };
+            let Some(at) = class_name(&structure, stem) else { return Edges::default() };
             let range = range_of(text, at, stem.len());
             definition(format!("controller#{stem}"), range);
             markers.push(Anchor { key: format!("route#{stem}"), range });
         }
         Role::Listener => {
-            let Some(at) = class_name(&masked, stem) else { return Edges::default() };
+            let Some(at) = class_name(&structure, stem) else { return Edges::default() };
             let range = range_of(text, at, stem.len());
-            for event in listener_events(&masked) {
+            for event in listener_events(&structure) {
                 definition(format!("listener#{event}"), range);
                 markers.push(Anchor { key: format!("event#{event}"), range });
             }
         }
     }
 
-    for (start, end) in uses_of(&masked, "::factory(") {
+    for (start, end) in uses_of(&structure, "::factory(") {
         reference_anchors.push(Anchor { key: format!("factory#{}", &masked[start..end]), range: range_of(text, start, end - start) });
     }
 
@@ -230,14 +231,41 @@ pub fn edges_of(path: &str, text: &str, exists: &dyn Fn(&str) -> bool) -> Edges 
 
 /// A transient source graph for provider navigation, never host rename edits.
 pub(crate) fn navigation(path: &str, text: &str) -> ui_kit::navigation::Graph {
-    edges_of(path, text, &|_| true).into()
+    let mut graph:ui_kit::navigation::Graph=edges_of(path, text, &|_| true).into();
+    if !path.ends_with(".php") || SKIPPED.iter().any(|segment|path.contains(segment)){return graph;}
+    let Some(masked)=crate::package_facts::code(text) else{return graph;};
+    // Generic FQN declarations allow explicit attribute targets outside the
+    // conventional Laravel directories. They remain plugin navigation facts,
+    // never host Rename anchors.
+    if let Some(stem)=path.rsplit('/').next().and_then(|name|name.strip_suffix(".php")) {
+        if let Some(at)=class_name(&masked,stem) {
+            if let Some(fqn)=crate::package_facts::resolve_class(text,stem) {
+                graph.definitions.push((format!("class-fqn#{fqn}"),range_of(text,at,stem.len())));
+            }
+        }
+    }
+    for attribute in crate::package_facts::attribute_classes(text) {
+        let range=range_of(text,attribute.range.start,attribute.range.len());
+        let key=format!("class-fqn#{}",attribute.class);
+        graph.references.push((key.clone(),range));graph.markers.push((key,range));
+    }
+    for subscription in crate::package_facts::subscriber_events(text) {
+        let Some(class)=crate::package_facts::resolve_class(text,&subscription.event_class) else{continue;};
+        let method=range_of(text,subscription.method_range.start,subscription.method_range.len());
+        let event=range_of(text,subscription.event_range.start,subscription.event_range.len());
+        graph.definitions.push((format!("listener#{}",class.rsplit('\\').next().unwrap_or(&class)),method));
+        graph.references.push((format!("class-fqn#{class}"),event));
+        graph.markers.push((format!("class-fqn#{class}"),method));
+    }
+    graph
 }
 
 impl DocumentIndexer for Main {
     fn index(&mut self, _doc: &Document) -> Edges {
-        // These keys connect related files with transformed names (Post versus
-        // PostFactory, inferred tables, listener classes and route expressions).
-        // Their targets belong in Providers, not the host's automatic Rename graph.
+        // The host inserts the same unvalidated new_name into every indexed
+        // anchor. Literal PHP/JSON names need a validation/escaping hook, and
+        // filename identities need file operations. Reviewed framework Rename
+        // therefore uses semantic_refs FileActions, never unsafe host anchors.
         Edges::default()
     }
 }
@@ -258,6 +286,24 @@ mod tests {
         false
     }
 
+    #[test]
+    fn explicit_eloquent_attributes_and_subscribers_use_proven_fqn_graph() {
+        let model="<?php namespace App\\Models; use Illuminate\\Database\\Eloquent\\Attributes\\UseFactory; use Database\\Factories\\SpecialFactory as Custom; #[UseFactory(Custom::class)] class Post extends Model {}";
+        let graph=navigation("/p/app/Models/Post.php",model);
+        assert!(graph.references.iter().any(|(key,_)|key=="class-fqn#Database\\Factories\\SpecialFactory"));
+        let factory=navigation("/p/database/factories/SpecialFactory.php","<?php namespace Database\\Factories; class SpecialFactory {}");
+        assert!(factory.definitions.iter().any(|(key,_)|key=="class-fqn#Database\\Factories\\SpecialFactory"));
+        let subscriber="<?php namespace App\\Listeners; use App\\Events\\Login as SignedIn; class Subscriber { function subscribe(): array {return [SignedIn::class=>'onLogin'];} function onLogin() {} }";
+        let graph=navigation("/p/app/Listeners/Subscriber.php",subscriber);
+        assert!(graph.definitions.iter().any(|(key,_)|key=="listener#Login"));
+        assert!(graph.references.iter().any(|(key,_)|key=="class-fqn#App\\Events\\Login"));
+    }
+    #[test]
+    fn lookalike_attribute_and_opaque_declarations_do_not_create_navigation() {
+        let model="<?php namespace App; use App\\UseFactory; #[UseFactory(Custom::class)] class Post extends Model {}";
+        assert!(navigation("/p/app/Models/Post.php",model).references.is_empty());
+        assert!(navigation("/p/app/Fake.php","<?php $x = 'class Fake {}';").definitions.is_empty());
+    }
     #[test]
     fn model_defines_itself_and_links_to_the_files_that_exist() {
         let text = "<?php\nnamespace App\\Models;\nclass Post extends Model\n{\n}\n";

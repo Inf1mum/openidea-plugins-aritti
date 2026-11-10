@@ -10,6 +10,8 @@ pub type Named = (String, usize);
 #[derive(Default, Debug)]
 pub struct Facts {
     pub extends: Option<String>,
+    /// Ordered literal fallback candidates; consumers select a proven existing layout.
+    pub extends_first: Vec<String>,
     pub includes: Vec<String>,
     pub sections: Vec<Named>,
     pub yields: Vec<Named>,
@@ -31,7 +33,14 @@ pub fn facts(text: &str) -> Facts {
 
         match name {
             "extends" => facts.extends = argument(0).map(|(v, _)| v),
-            "include" | "includeIf" | "component" => facts.includes.extend(argument(0).map(|(v, _)| v)),
+            "extendsFirst" | "includeFirst" => {
+                if let Some(array)=arguments.first().and_then(|range|php::array_open(text,range.clone())) {
+                    let names:Option<Vec<_>>=php::items(text,array).into_iter().map(|item|{if item.key.is_some(){return None;}let(name,_)=php::literal(text,item.value)?;(!name.is_empty()&&!name.contains(['\\','$'])).then(||name.to_owned())}).collect();
+                    let Some(names)=names else{continue;};
+                    if name=="extendsFirst"{facts.extends_first=names;}else{facts.includes.extend(names);}
+                }
+            },
+            "include" | "includeIf" | "includeIsolated" | "component" => facts.includes.extend(argument(0).map(|(v, _)| v)),
             "includeWhen" | "includeUnless" => facts.includes.extend(argument(1).map(|(v, _)| v)),
             "each" => facts.includes.extend([argument(0), argument(3)].into_iter().flatten().map(|(v, _)| v)),
             "section" => facts.sections.extend(argument(0)),
@@ -148,6 +157,12 @@ pub fn livewire_methods(text: &str) -> Option<Vec<String>> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn fallback_layouts_and_isolated_includes_keep_order_without_guessing_dynamic_layouts() {
+        let facts=facts("@extendsFirst(['missing','layouts.app']) @includeFirst(['parts.a','parts.b']) @includeIsolated('parts.card')");
+        assert!(facts.extends.is_none());assert_eq!(facts.extends_first,["missing","layouts.app"]);assert_eq!(facts.includes,["parts.a","parts.b","parts.card"]);
+        assert!(super::facts("@extendsFirst([$dynamic,'layouts.app'])").extends_first.is_empty());
+    }
     #[test]
     fn reads_layout_sections_and_stacks() {
         let text = "@extends('layouts.app')\n@section('content')\n@include('partials.nav')\n@each('row', $rows, 'r', 'empty')\n@push('scripts')\n@endpush\n@stack('styles')\n@yield('title')\n@section('title', 'Home')";

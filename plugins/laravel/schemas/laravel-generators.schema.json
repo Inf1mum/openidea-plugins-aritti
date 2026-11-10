@@ -1,0 +1,599 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:openidea:laravel:generators:v1",
+  "title": "OpenIDEA Laravel native generators",
+  "description": "Version 1 project or user generator definitions. Project config is .openidea/laravel-generators.json; templates are relative to .openidea/laravel-templates. Duplicate ids/names, choice-default membership, template existence, aggregate limits and calculations are additionally validated by the plugin. No template expression executes PHP or shell.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "maxLength": 4096,
+      "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]*$"
+    },
+    "version": {
+      "const": 1
+    },
+    "presets": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "$ref": "#/$defs/preset"
+      }
+    },
+    "modules": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "$ref": "#/$defs/module"
+      }
+    },
+    "settings": {
+      "$ref": "#/$defs/settings"
+    },
+    "partials": {
+      "type": "array",
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4096
+      },
+      "description": "Registered shared template filenames relative to the template root. Native ${#include name} can only include registered or direct template files in its own project/user scope."
+    },
+    "generators": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "$ref": "#/$defs/generatorOptions"
+        },
+        "migration": {
+          "$ref": "#/$defs/generatorOptions"
+        },
+        "factory": {
+          "$ref": "#/$defs/generatorOptions"
+        },
+        "seeder": {
+          "$ref": "#/$defs/generatorOptions"
+        },
+        "controller": {
+          "$ref": "#/$defs/generatorOptions"
+        },
+        "policy": {
+          "$ref": "#/$defs/generatorOptions"
+        },
+        "request": {
+          "$ref": "#/$defs/generatorOptions"
+        },
+        "resource": {
+          "$ref": "#/$defs/generatorOptions"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "parameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "label",
+        "type"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+          "maxLength": 96
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "pattern": "^(?=.*\\S)[^\\u0000-\\u001f\\u007f-\\u009f]*$"
+        },
+        "type": {
+          "enum": [
+            "text",
+            "boolean",
+            "choice",
+            "model"
+          ]
+        },
+        "choices": {
+          "type": "array",
+          "maxItems": 128,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "maxLength": 4096,
+            "pattern": "^[^\\u0000]*$"
+          }
+        },
+        "default": {}
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "choice"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "choices"
+            ],
+            "properties": {
+              "choices": {
+                "minItems": 1
+              },
+              "default": {
+                "type": "string"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "choices": {
+                "maxItems": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "boolean"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "default": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "text"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "default": {
+                "type": "string",
+                "maxLength": 4096,
+                "pattern": "^[^\\u0000]*$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "model"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "default": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^\\\\*[A-Za-z_][A-Za-z0-9_]*(?:\\\\[A-Za-z_][A-Za-z0-9_]*)*$"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "preset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "label",
+        "files"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+          "maxLength": 96
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "pattern": "^(?=.*\\S)[^\\u0000-\\u001f\\u007f-\\u009f]*$"
+        },
+        "parameters": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/parameter"
+          }
+        },
+        "calculated": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "expression"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                "maxLength": 96
+              },
+              "expression": {
+                "type": "string",
+                "maxLength": 4096,
+                "pattern": "^\\$\\{[^{}]*\\}$",
+                "description": "One expression consuming an input or earlier calculation, e.g. ${model|className|snake|plural}. Supported transforms: className, namespace, snake, kebab, studly, camel, plural, singular, php."
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "hidden": {
+                "type": "boolean",
+                "default": false,
+                "description": "Compute without displaying a field; hidden values cannot be overridden."
+              },
+              "editable": {
+                "type": "boolean",
+                "default": true,
+                "description": "Visible calculated values may be overridden until reset to automatic. False makes the field read-only."
+              }
+            }
+          }
+        },
+        "files": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "template"
+            ],
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096,
+                "description": "Output path template. Expanded path must be relative and contain no . or .. components."
+              },
+              "template": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "pattern": "^(?!.*(?:^|/)\\.{1,2}(?:/|$))[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*$"
+              }
+            }
+          }
+        },
+        "availableInApplication": {
+          "type": "boolean",
+          "default": true
+        },
+        "availableInModules": {
+          "type": "boolean",
+          "default": true
+        },
+        "moduleIds": {
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+            "maxLength": 96
+          },
+          "description": "When supplied, only these configured modules can invoke the preset. Application availability is independent."
+        }
+      }
+    },
+    "module": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "label",
+        "namespace",
+        "sourceRoot",
+        "migrationRoot",
+        "viewRoot"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+          "maxLength": 96
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "pattern": "^(?=.*\\S)[^\\u0000-\\u001f\\u007f-\\u009f]*$"
+        },
+        "namespace": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\\\*[A-Za-z_][A-Za-z0-9_]*(?:\\\\[A-Za-z_][A-Za-z0-9_]*)*$"
+        },
+        "sourceRoot": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^(?!.*(?:^|/)\\.{1,2}(?:/|$))[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*$"
+        },
+        "migrationRoot": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^(?!.*(?:^|/)\\.{1,2}(?:/|$))[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*$"
+        },
+        "viewRoot": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^(?!.*(?:^|/)\\.{1,2}(?:/|$))[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*$"
+        },
+        "factoryRoot": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 1024,
+          "description": "Explicit module related-file project-relative root; omitted values derive from the module namespace and database directory."
+        },
+        "factoryNamespace": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 1024,
+          "description": "Explicit module related-file namespace; omitted values derive from the module namespace and database directory."
+        },
+        "seederRoot": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 1024,
+          "description": "Explicit module related-file project-relative root; omitted values derive from the module namespace and database directory."
+        },
+        "seederNamespace": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 1024,
+          "description": "Explicit module related-file namespace; omitted values derive from the module namespace and database directory."
+        },
+        "generators": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "model": {
+              "$ref": "#/$defs/moduleGeneratorOptions"
+            },
+            "migration": {
+              "$ref": "#/$defs/moduleGeneratorOptions"
+            },
+            "factory": {
+              "$ref": "#/$defs/moduleGeneratorOptions"
+            },
+            "seeder": {
+              "$ref": "#/$defs/moduleGeneratorOptions"
+            },
+            "controller": {
+              "$ref": "#/$defs/moduleGeneratorOptions"
+            },
+            "policy": {
+              "$ref": "#/$defs/moduleGeneratorOptions"
+            },
+            "request": {
+              "$ref": "#/$defs/moduleGeneratorOptions"
+            },
+            "resource": {
+              "$ref": "#/$defs/moduleGeneratorOptions"
+            }
+          }
+        }
+      }
+    },
+    "settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "modelBase": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "default": "Illuminate\\Database\\Eloquent\\Model"
+        },
+        "controllerBase": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "default": "Illuminate\\Routing\\Controller"
+        },
+        "requestBase": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "default": "Illuminate\\Foundation\\Http\\FormRequest"
+        },
+        "resourceBase": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "default": "Illuminate\\Http\\Resources\\Json\\JsonResource"
+        },
+        "factoryBase": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "default": "Illuminate\\Database\\Eloquent\\Factories\\Factory"
+        },
+        "seederBase": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "default": "Illuminate\\Database\\Seeder"
+        },
+        "policyBase": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "controllerPostfix": {
+          "type": "string",
+          "maxLength": 96,
+          "default": "Controller",
+          "pattern": "^[A-Za-z0-9_]*$"
+        },
+        "policyPostfix": {
+          "type": "string",
+          "maxLength": 96,
+          "default": "Policy",
+          "pattern": "^[A-Za-z0-9_]*$"
+        },
+        "requestPostfix": {
+          "type": "string",
+          "maxLength": 96,
+          "default": "Request",
+          "pattern": "^[A-Za-z0-9_]*$"
+        },
+        "resourcePostfix": {
+          "type": "string",
+          "maxLength": 96,
+          "default": "Resource",
+          "pattern": "^[A-Za-z0-9_]*$"
+        },
+        "factoryPostfix": {
+          "type": "string",
+          "maxLength": 96,
+          "default": "Factory",
+          "pattern": "^[A-Za-z0-9_]*$"
+        },
+        "seederPostfix": {
+          "type": "string",
+          "maxLength": 96,
+          "default": "Seeder",
+          "pattern": "^[A-Za-z0-9_]*$"
+        },
+        "typeHints": {
+          "type": "boolean",
+          "default": true,
+          "description": "Emit generated return type declarations; dependency parameter types remain necessary for container injection."
+        },
+        "constructorPromotion": {
+          "type": "boolean",
+          "default": true
+        },
+        "controllerDependencies": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "class"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+              },
+              "class": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              }
+            }
+          }
+        }
+      }
+    },
+    "generatorOptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "directory": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "description": "Project-relative native output directory. Optional ${sourceRoot} and ${moduleRoot} placeholders resolve in the selected context."
+        },
+        "namespace": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "description": "Qualified namespace; optional ${namespace} resolves to the application/module namespace. Not accepted for migrations."
+        },
+        "availableInApplication": {
+          "type": "boolean",
+          "default": true
+        },
+        "availableInModules": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "moduleGeneratorOptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "directory": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "description": "Project-relative native output directory. Optional ${sourceRoot} and ${moduleRoot} placeholders resolve in the selected context."
+        },
+        "namespace": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "description": "Qualified namespace; optional ${namespace} resolves to the application/module namespace. Not accepted for migrations."
+        },
+        "availableInModules": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    }
+  }
+}

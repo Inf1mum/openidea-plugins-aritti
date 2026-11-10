@@ -226,10 +226,13 @@ pub(super) fn validate(project: &Project, root: &str, doc: &Document, name: &str
 }
 impl FileActions for Main {
     fn file_actions(&mut self, doc: &Document, selection: Range) -> Vec<FileAction> {
-        let bulk=crate::bulk::actions(self,doc);if !bulk.is_empty(){return bulk;}
-        let promotion=crate::request_promotion::actions(self,doc,selection);if !promotion.is_empty(){return promotion;}
-        let request=crate::request_creation::actions(self,doc,selection);if !request.is_empty(){return request;}
-        let extraction=crate::view_extract::actions(self,doc,selection);if !extraction.is_empty(){return extraction;}
+        let mut found=self.generator_workspace.actions(doc);
+        found.extend(crate::vendor_overrides::actions(self,doc,selection));
+        found.extend(crate::bulk::actions(self,doc));
+        found.extend(crate::request_promotion::actions(self,doc,selection));
+        found.extend(crate::request_creation::actions(self,doc,selection));
+        found.extend(crate::view_extract::actions(self,doc,selection));
+        let missing = (|| {
         let Ok((_, root)) = owner(doc, None) else {
             return Vec::new();
         };
@@ -258,9 +261,32 @@ impl FileActions for Main {
             data: Some(data),
             ..Default::default()
         }]
+        })();
+        found.extend(missing);
+        if let Some(language)=crate::language_of(&doc.path,&doc.language) {
+            found.extend(crate::lang_actions::locale_actions(doc,language,selection));
+        }
+        if let Some(index)=self.index_for(&doc.path) { found.extend(crate::model_actions::actions(index,doc)); }
+        if let Some(index)=self.index_for(&doc.path) { found.extend(crate::semantic_refs::actions(index,doc,selection)); found.extend(crate::view_rename::actions(index,doc,selection)); }
+        found
     }
     fn resolve_file_action(&mut self, doc: &Document, action: FileAction) -> Result<FileAction, Error> {
-        if action.data.as_deref().is_some_and(|key|key.starts_with("bulk-phpdocs:")){return crate::bulk::resolve(self,doc,action);}
+        if action.data.as_deref().is_some_and(|key|key.starts_with("view-rename:")) {
+            let index = self.index_for(&doc.path).ok_or(Error::Stale)?;
+            return crate::view_rename::resolve(index, doc, action);
+        }
+        if action.data.as_deref().is_some_and(|key|key.starts_with("semantic-rename:")) {
+            let index = self.index_for(&doc.path).ok_or(Error::Stale)?;
+            return crate::semantic_refs::resolve(index, doc, action);
+        }
+        if action.data.as_deref().is_some_and(|key|key.starts_with("model-native:")) {
+            let index=self.index_for(&doc.path).ok_or(Error::Stale)?;
+            return crate::model_actions::resolve(index,doc,action);
+        }
+        if action.data.as_deref().is_some_and(|key|key.starts_with("generator-apply:") || key.starts_with("generator-presets:") || key.starts_with("existing-model-fields:")){return self.generator_workspace.resolve(doc,action);}
+        if action.data.as_deref().is_some_and(|key|key.starts_with("locale-json:") || key.starts_with("locale-php:")){return crate::lang_actions::resolve_locale(doc,action);}
+        if crate::vendor_overrides::handles(&action){return crate::vendor_overrides::resolve(self,doc,action);}
+        if action.data.as_deref().is_some_and(|key|key.starts_with("bulk-phpdocs:") || key.starts_with("bulk-generate:")){return crate::bulk::resolve(self,doc,action);}
         if action.data.as_deref().is_some_and(|key|key.starts_with("request-promote:")){return crate::request_promotion::resolve(self,doc,action);}
         if action.data.as_deref().is_some_and(|key|key.starts_with("request-create:")){return crate::request_creation::resolve(self,doc,action);}
         if action.data.as_deref().is_some_and(|key|key.starts_with("extract-view:")){return crate::view_extract::resolve(self,doc,action);}

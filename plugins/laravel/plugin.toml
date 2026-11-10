@@ -25,7 +25,7 @@ activation = ["on-language:php", "on-language:blade", "on-file:resources/js/**"]
 [capabilities]
 required = ["project.read", "events"]
 # process:docker: explicit opt-in local container metadata inspection/discovery only. clipboard: Copy as curl, and the fallback of Create HTTP Request File. project.write: native factory/resource creation. Artisan commands run `php artisan`; editor.read: Create Missing Target reads the name under the cursor.
-optional = ["project.write", "process:php", "process:docker", "editor.read", "clipboard", "storage"]
+optional = ["project.write", "process:php", "process:docker", "process:composer", "process:laravel", "fs.read:~", "database.sources", "secrets", "net:sentry.io", "net:cloud.laravel.com", "editor.read", "clipboard", "storage"]
 
 [[contributes.commands]]
 id = "artisan-refresh-docker-metadata"
@@ -229,13 +229,13 @@ kinds = ["completion", "definition"]
 languages = ["javascript", "typescript", "vue", "javascriptreact", "typescriptreact"]
 
 [[contributes.documentIndexers]]
-extensions = ["php"]
+extensions = ["php", "json"]
 
 [[contributes.views]]
 id = "laravel"
 title = "Laravel"
 icon = "icons/laravel.svg"
-location = "right"
+location = "bottom"
 web = "web/resources/hub.html"
 
 [contributes.settings]
@@ -624,4 +624,166 @@ category = "Laravel"
 [[contributes.commands]]
 id = "runtime-inspect-queue"
 title = "Laravel: Inspect Queue…"
+category = "Laravel"
+
+[[contributes.providers]]
+kinds = ["inlay-hints", "code-lenses", "gutter-actions", "signature-help"]
+languages = ["php"]
+
+[[contributes.commands]]
+id = "route-editor-open"
+title = "Laravel: Open Route Declaration"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "new-project"
+title = "Laravel: New Laravel Project…"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "runtime-open-frame"
+title = "Laravel: Open Error Stack Frame…"
+category = "Laravel"
+
+[[contributes.providers]]
+kinds = ["diagnostics"]
+languages = ["json"]
+
+[[contributes.commands]]
+id = "runtime-schema"
+title = "Laravel: Refresh Database Metadata (Executes Project PHP)"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "runtime-register-database"
+title = "Laravel: Add Application Database Connection…"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "sentry-configure"
+title = "Laravel: Configure Sentry…"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "sentry-refresh"
+title = "Laravel: Refresh Sentry Issues"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "cloud-refresh"
+title = "Laravel: Refresh Laravel Cloud Applications"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "sentry-details"
+title = "Laravel: Show Sentry Issue Details"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "cloud-environments"
+title = "Laravel: Load Cloud Environments"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "sentry-disconnect"
+title = "Laravel: Remove Sentry Token (All Projects)"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "cloud-disconnect"
+title = "Laravel: Remove Cloud Token (All Projects)"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "external-list"
+title = "Laravel: Show External Resource List"
+category = "Laravel"
+
+[[contributes.secrets]]
+name = "sentry-token"
+label = "Sentry API token"
+description = "Read Sentry issues for the organization configured in Laravel Services."
+
+[[contributes.secrets]]
+name = "cloud-token"
+label = "Laravel Cloud API token"
+description = "Read applications and environments in Laravel Services."
+
+[[contributes.commands]]
+id = "route-editor-action"
+title = "Laravel: Route Request Actions…"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "model-from-database"
+title = "Laravel: New Model from Captured Database Table…"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "model-open-source"
+title = "Laravel: Open Model Source"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "model-create-fields"
+title = "Laravel: Create Model Fields…"
+category = "Laravel"
+
+[[contributes.providers]]
+kinds = ["code-actions"]
+languages = ["json"]
+
+[[contributes.commands]]
+id = "sentry-more"
+title = "Laravel: Load More Sentry Issues"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "cloud-more"
+title = "Laravel: Load More Cloud Applications"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "cloud-environments-more"
+title = "Laravel: Load More Cloud Environments"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "sentry-forget"
+title = "Laravel: Unlink Sentry Organization (This Project)"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "route-search"
+title = "Laravel: Search Routes…"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "runtime-database-list"
+title = "Laravel: Database Connections…"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "runtime-database-connect"
+title = "Laravel: Connect Database…"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "runtime-database-remove"
+title = "Laravel: Remove Database Connection…"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "console-command-open"
+title = "Laravel: Run Command From Class…"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "helper-parameters"
+title = "Laravel: Configure Model Helper Parameters…"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "regenerate-model-helpers"
+title = "Laravel: Regenerate Reviewed Model Helpers…"
 category = "Laravel"

@@ -35,7 +35,7 @@ pub fn parse(relative: &str, text: &str) -> Option<Controller> {
         let name_start = at + "function ".len();
         let name_length = text[name_start..].bytes().position(|b| !is_identifier(b)).unwrap_or(0);
         let name = &text[name_start..name_start + name_length];
-        if !name.is_empty() && !name.starts_with("__") {
+        if !name.is_empty() && (!name.starts_with("__") || name == "__invoke") {
             methods.push((name.to_owned(), name_start));
         }
     }

@@ -15,8 +15,20 @@ const MAX_OUTPUT: usize = 4 * 1024 * 1024;
 pub struct Snapshot {
     pub routes: Vec<Route>,
     pub captured: u64,
+    source_stamp: Value,
+    methods: Vec<String>,
 }
 impl Snapshot {
+    #[cfg(test)]
+    pub(crate) fn fixture(routes: Vec<Route>, captured: u64) -> Self {
+        let methods = routes.iter().map(|route| route.method.clone()).collect();
+        Self {
+            routes,
+            captured,
+            source_stamp: Value::Null,
+            methods,
+        }
+    }
     pub fn provenance(&self) -> String {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -31,7 +43,7 @@ impl Snapshot {
         }
     }
 }
-fn stamp(project: &Project) -> Result<Value, Error> {
+fn stamp(project: &Project, index: &Index) -> Result<Value, Error> {
     let mut identity = artisan_metadata::identity(project)?;
     identity["argv"] = json!(ARGS);
     let root = project.root()?;
@@ -47,6 +59,7 @@ fn stamp(project: &Project) -> Result<Value, Error> {
         "config/**/*.php",
         "app/Providers/**/*.php",
         "bootstrap/**/*.php",
+        "**/ide.json",
     ] {
         let found = project.find_files(glob, 1024)?;
         if found.len() >= 1024 {
@@ -54,7 +67,23 @@ fn stamp(project: &Project) -> Result<Value, Error> {
         }
         paths.extend(found);
     }
-    for name in [".env", "app/Http/routes.php", "app/routes.php"] {
+    paths.extend(index.route_defs.iter().map(|entry| entry.path.clone()));
+    paths.extend(
+        index
+            .metadata
+            .route_files
+            .iter()
+            .map(|relative| format!("{root}/{relative}")),
+    );
+    for name in [
+        ".env",
+        "app/Http/routes.php",
+        "app/routes.php",
+        "ide.json",
+        ".idea/ide.json",
+        "ide-blade.json",
+        ".idea/ide-blade.json",
+    ] {
         let path = format!("{root}/{name}");
         if project.exists(&path)? {
             paths.push(path);
@@ -153,7 +182,17 @@ pub fn parse(raw: &str, index: &Index) -> Result<Vec<Route>, Error> {
         } else {
             member
                 .as_deref()
-                .and_then(|method| index.methods.get(&class)?.get(method))
+                .and_then(|method| {
+                    index
+                        .methods
+                        .get(&class)
+                        .and_then(|methods| methods.get(method))
+                        .or_else(|| {
+                            (method == "__invoke")
+                                .then(|| index.controllers.get(&class))
+                                .flatten()
+                        })
+                })
                 .map(|e| Location {
                     path: e.path.clone(),
                     range: Range::new(e.at, Position::new(e.at.line, e.at.character + e.width)),
@@ -174,22 +213,244 @@ pub fn parse(raw: &str, index: &Index) -> Result<Vec<Route>, Error> {
     }
     Ok(routes)
 }
+/// Publish captured registrations only while their inputs and owned declaration
+/// remain current. This performs bounded source reads, never Artisan execution.
+pub fn endpoint_routes(snapshot: &Snapshot, index: &Index, project: &Project) -> Vec<Route> {
+    if index.partial
+        || snapshot.routes.len() > 5000
+        || stamp(project, index).ok().as_ref() != Some(&snapshot.source_stamp)
+    {
+        return Vec::new();
+    }
+    let namespace = host::setting_string("controllersNamespace")
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "App\\Http\\Controllers".into());
+    let normalize = |class: &str| {
+        class
+            .trim_start_matches('\\')
+            .strip_prefix(&format!("{namespace}\\"))
+            .unwrap_or(class.trim_start_matches('\\'))
+            .to_owned()
+    };
+    let handler = |action: &str| {
+        if action == "Closure" {
+            Handler {
+                class: "Closure".into(),
+                member: None,
+            }
+        } else if let Some((class, member)) = action.rsplit_once('@') {
+            Handler {
+                class: normalize(class),
+                member: Some(member.into()),
+            }
+        } else {
+            Handler {
+                class: normalize(action),
+                member: Some("__invoke".into()),
+            }
+        }
+    };
+    let mut sources: std::collections::BTreeMap<String, Option<std::rc::Rc<String>>> =
+        std::collections::BTreeMap::new();
+    let mut bytes = 0usize;
+    let mut read = |path: &str| -> Option<std::rc::Rc<String>> {
+        if !crate::owns_current_path(project, path) {
+            return None;
+        }
+        if let Some(cached) = sources.get(path) {
+            return cached.clone();
+        }
+        let value = project.read_file(path).ok().filter(|source| {
+            source.len() <= 256 * 1024 && bytes.saturating_add(source.len()) <= 8 * 1024 * 1024
+        });
+        if let Some(source) = &value {
+            bytes += source.len();
+        }
+        let value = value.map(std::rc::Rc::new);
+        sources.insert(path.into(), value.clone());
+        value
+    };
+    let mut published = Vec::new();
+    for (ordinal, route) in snapshot.routes.iter().enumerate() {
+        let Some(location) = &route.location else {
+            continue;
+        };
+        let static_matches: Vec<_> = index
+            .route_defs
+            .iter()
+            .filter(|entry| {
+                entry.path == location.path
+                    && entry.at == location.range.start
+                    && location.range.end
+                        == Position::new(
+                            entry.at.line,
+                            entry.at.character.saturating_add(entry.width),
+                        )
+                    && entry.endpoint_uri.as_deref() == Some(route.path.as_str())
+                    && handler(&entry.def.action) == route.handler
+                    && route
+                        .method
+                        .split('|')
+                        .all(|method| entry.def.methods.split('|').any(|known| method == known))
+            })
+            .collect();
+        let static_valid = if static_matches.len() == 1 {
+            let entry = static_matches[0];
+            read(&entry.path).is_some_and(|source| {
+                crate::routes::parse_with_custom(&source,&index.metadata.route_methods)
+                    .iter()
+                    .filter(|def| **def == entry.def)
+                    .count()
+                    == 1
+            })
+        } else {
+            false
+        };
+        let mut controller_valid = false;
+        if !static_valid && let Some(member) = &route.handler.member {
+            let controllers: Vec<_> = index
+                .controllers
+                .iter()
+                .filter(|(class, _)| normalize(class) == route.handler.class)
+                .collect();
+            if controllers.len() == 1 {
+                let (class, class_entry) = controllers[0];
+                if let Some(method) = index
+                    .methods
+                    .get(class)
+                    .and_then(|methods| methods.get(member))
+                    .or_else(|| (member == "__invoke").then_some(class_entry))
+                {
+                    let expected = Location {
+                        path: method.path.clone(),
+                        range: Range::new(
+                            method.at,
+                            Position::new(
+                                method.at.line,
+                                method.at.character.saturating_add(method.width),
+                            ),
+                        ),
+                    };
+                    if *location == expected && method.path == class_entry.path {
+                        if let Some(source) = read(&method.path) {
+                            if let Some(masked) = controller_source(&source) {
+                                let expected_namespace = class
+                                    .rsplit_once('\\')
+                                    .map(|(parent, _)| format!("{namespace}\\{parent}"))
+                                    .unwrap_or_else(|| namespace.clone());
+                                let namespaces: Vec<_> = masked
+                                    .match_indices("namespace ")
+                                    .filter_map(|(at, _)| {
+                                        masked[at + 10..]
+                                            .split_once(';')
+                                            .map(|(name, _)| name.trim())
+                                    })
+                                    .collect();
+                                if namespaces == [expected_namespace.as_str()] {
+                                    if let Some(current) = crate::controllers::parse(
+                                        &format!("{}.php", class.replace('\\', "/")),
+                                        &masked,
+                                    ) {
+                                        let current_class =
+                                            text_position(&source, current.class_offset);
+                                        controller_valid = current_class == class_entry.at
+                                            && if member == "__invoke" {
+                                                has_invokable(&masked)
+                                            } else {
+                                                current.methods.iter().any(|(name, at)| {
+                                                    name == member
+                                                        && text_position(&source, *at) == method.at
+                                                })
+                                            };
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (static_valid || controller_valid) && crate::owns_current_path(project, &location.path) {
+            let mut route = route.clone();
+            route.method = snapshot
+                .methods
+                .get(ordinal)
+                .cloned()
+                .unwrap_or_else(|| route.method.clone());
+            published.push(route);
+        }
+    }
+    published
+}
+fn has_invokable(masked: &str) -> bool {
+    masked.match_indices("function __invoke").any(|(at, _)| {
+        let line = masked[..at]
+            .rsplit_once('\n')
+            .map_or(&masked[..at], |(_, last)| last)
+            .trim();
+        matches!(line, "public" | "final public" | "public final" | "")
+            && masked[at + "function __invoke".len()..]
+                .trim_start()
+                .starts_with('(')
+    })
+}
+
+fn controller_source(source: &str) -> Option<String> {
+    if !source.trim_start().starts_with("<?php") || source.contains("?>") {
+        return None;
+    }
+    let masked = crate::php::mask_comments(source);
+    if masked.contains("<<<") {
+        return None;
+    }
+    let mut bytes = masked.as_bytes().to_vec();
+    let mut at = 0;
+    while at < bytes.len() {
+        if matches!(bytes[at], b'\'' | b'"' | b'`') {
+            let end = crate::php::string_end(&bytes, at).min(bytes.len());
+            for byte in &mut bytes[at..end] {
+                if !matches!(*byte, b'\n' | b'\r') {
+                    *byte = b' ';
+                }
+            }
+            at = end;
+        } else {
+            at += 1;
+        }
+    }
+    String::from_utf8(bytes).ok()
+}
+
+fn text_position(source: &str, offset: usize) -> Position {
+    openidea_plugin::text::position(source, offset)
+}
+
 pub fn capture_with(
     ctx: &Invocation,
     index: &Index,
     execute: impl FnOnce(&Project) -> Result<String, Error>,
 ) -> Result<Snapshot, Error> {
     let project = ctx.project().ok_or("Open a Laravel project first.")?;
-    let before = stamp(&project)?;
+    let before = stamp(&project, index)?;
     let output = execute(&project)?;
     if ctx.project().and_then(|p| p.root().ok()) != project.root().ok()
-        || stamp(&project)? != before
+        || stamp(&project, index)? != before
     {
         return Err(Error::Stale);
     }
     let routes = parse(&output, index)?;
+    // parse validated the bounded JSON and every method; retain HEAD for endpoint publication.
+    let data: Value = serde_json::from_str(&output).map_err(|_| Error::Stale)?;
+    let methods = data
+        .as_array()
+        .ok_or(Error::Stale)?
+        .iter()
+        .map(|entry| entry["method"].as_str().unwrap_or_default().to_owned())
+        .collect();
     Ok(Snapshot {
         routes,
+        source_stamp: before,
+        methods,
         captured: std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_secs()),
@@ -293,5 +554,141 @@ mod tests {
         println!(
             "Parsed {expected} registered runtime routes without placeholder paths or variable controller labels"
         );
+    }
+    fn dynamic_fixture() -> (MockHost, Index, Snapshot) {
+        use crate::index::AddName;
+        let host = setup();
+        let source = "<?php\nnamespace App\\Http\\Controllers\\Api;\nclass ContractionController {\n public function index() {}\n public function update() {}\n}\n";
+        let path = "/project/app/Http/Controllers/Api/ContractionController.php";
+        host.add_file(path, source);
+        let class = crate::controllers::parse("Api/ContractionController.php", source).unwrap();
+        let mut index = Index::default();
+        index.controllers.add(
+            &class.class,
+            None,
+            path,
+            openidea_plugin::text::position(source, class.class_offset),
+            "ContractionController".len(),
+        );
+        let mut methods = crate::index::Names::new();
+        for (method, offset) in &class.methods {
+            methods.add(
+                method,
+                None,
+                path,
+                openidea_plugin::text::position(source, *offset),
+                method.len(),
+            );
+        }
+        index.methods.insert(class.class, methods);
+        let snapshot = capture_with(&host.invocation(), &index, |_| Ok(sample())).unwrap();
+        (host, index, snapshot)
+    }
+    #[test]
+    fn runtime_endpoints_publish_dynamic_registrations_with_proven_controller_source() {
+        let (host, index, snapshot) = dynamic_fixture();
+        let routes = endpoint_routes(&snapshot, &index, &host.invocation().project().unwrap());
+        assert_eq!(routes.len(), 2);
+        let endpoints = ui_kit::routes::endpoints(&routes, "Laravel");
+        assert_eq!(endpoints.len(), 4);
+        assert_eq!(endpoints[0].path, "/api/pregnancy/contractions");
+        assert!(endpoints.iter().all(|endpoint| {
+            endpoint
+                .location
+                .path
+                .starts_with("/project/app/Http/Controllers/")
+        }));
+        assert!(host.process_runs().is_empty());
+    }
+    #[test]
+    fn runtime_endpoints_withhold_changed_inputs_methods_namespaces_and_foreign_sources() {
+        let (host, mut index, snapshot) = dynamic_fixture();
+        let project = host.invocation().project().unwrap();
+        let path = "/project/app/Http/Controllers/Api/ContractionController.php";
+        let original = project.read_file(path).unwrap();
+        host.open_editor(
+            path,
+            "php",
+            &original.replace("function index", "function other"),
+            &[],
+        );
+        assert_eq!(endpoint_routes(&snapshot, &index, &project).len(), 1);
+        host.open_editor(
+            path,
+            "php",
+            &original.replace("Controllers\\Api;", "Controllers\\Other;"),
+            &[],
+        );
+        assert!(endpoint_routes(&snapshot, &index, &project).is_empty());
+        host.open_editor(path, "php", &original, &[]);
+        index.partial = true;
+        assert!(endpoint_routes(&snapshot, &index, &project).is_empty());
+        index.partial = false;
+        host.add_file("config/changed.php", "<?php return [];");
+        assert!(endpoint_routes(&snapshot, &index, &project).is_empty());
+        assert!(host.process_runs().is_empty());
+        let (host, index, snapshot) = dynamic_fixture();
+        host.add_project("/project/app/Http");
+        assert!(
+            endpoint_routes(&snapshot, &index, &host.invocation().project().unwrap()).is_empty()
+        );
+    }
+    #[test]
+    fn runtime_endpoints_reject_unproven_snapshot_locations_and_ambiguous_controllers() {
+        let (host, mut index, mut snapshot) = dynamic_fixture();
+        snapshot.routes[0].location.as_mut().unwrap().path = "/untrusted/json.php".into();
+        let project = host.invocation().project().unwrap();
+        assert_eq!(endpoint_routes(&snapshot, &index, &project).len(), 1);
+        let entry = index.controllers["Api\\ContractionController"].clone();
+        index.controllers.insert(
+            "App\\Http\\Controllers\\Api\\ContractionController".into(),
+            entry,
+        );
+        assert!(endpoint_routes(&snapshot, &index, &project).is_empty());
+    }
+    #[test]
+    fn static_runtime_endpoint_keeps_current_route_location_and_omits_vendor_closures() {
+        let host = setup();
+        let source = "<?php\nRoute::get('/hello', fn()=> 'hi')->name('hello');\n";
+        let path = "/project/routes/web.php";
+        host.add_file(path, source);
+        let def = crate::routes::parse(source).remove(0);
+        let mut index = Index::default();
+        index.route_defs.push(crate::index::RouteEntry {
+            at: openidea_plugin::text::position(source, def.offset),
+            width: def.width as u32,
+            def,
+            path: path.into(),
+            endpoint_uri: Some("/hello".into()),
+        });
+        let raw=json!([{"method":"GET|HEAD","uri":"hello","name":"hello","action":"Closure"},{"method":"GET","uri":"vendor","name":null,"action":"Closure","path":"/outside/route.php"}]).to_string();
+        let snapshot = capture_with(&host.invocation(), &index, |_| Ok(raw)).unwrap();
+        let project = host.invocation().project().unwrap();
+        let published = endpoint_routes(&snapshot, &index, &project);
+        assert_eq!(published.len(), 1);
+        assert_eq!(published[0].method, "GET|HEAD");
+        assert_eq!(published[0].location.as_ref().unwrap().path, path);
+        host.open_editor(path, "php", &source.replace("/hello", "/changed"), &[]);
+        assert!(endpoint_routes(&snapshot, &index, &project).is_empty());
+    }
+    #[test]
+    fn runtime_invokable_controller_requires_current_public_invoke_declaration() {
+        let (host, index, _) = dynamic_fixture();
+        let source = "<?php\nnamespace App\\Http\\Controllers\\Api;\nclass ContractionController {\n public function __invoke() {}\n}\n";
+        let path = "/project/app/Http/Controllers/Api/ContractionController.php";
+        host.add_file(path, source);
+        let raw=json!([{"method":"GET","uri":"runtime-only","name":null,"action":"App\\Http\\Controllers\\Api\\ContractionController"}]).to_string();
+        let snapshot = capture_with(&host.invocation(), &index, |_| Ok(raw)).unwrap();
+        let project = host.invocation().project().unwrap();
+        let routes = endpoint_routes(&snapshot, &index, &project);
+        assert_eq!(routes.len(), 1);
+        assert_eq!(routes[0].handler.member.as_deref(), Some("__invoke"));
+        host.open_editor(
+            path,
+            "php",
+            &source.replace("public function", "private function"),
+            &[],
+        );
+        assert!(endpoint_routes(&snapshot, &index, &project).is_empty());
     }
 }

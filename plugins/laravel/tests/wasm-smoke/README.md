@@ -27,6 +27,8 @@ and source-file cells. Filesystem
 enumeration returns only these fixtures. Compiled completion checks exercise
 inherited scopes, relation traversal, collection methods and enum casts with the
 50ms callback budget, and assert that callbacks perform no host source reads.
+The compiled Generators preview also returns the model, migration and factory
+contents for a typed field, without creating files or starting PHP.
 Editing callbacks are absent. This does not validate native desktop editor UI,
 network services, Docker, real clipboard or native terminal output.
 

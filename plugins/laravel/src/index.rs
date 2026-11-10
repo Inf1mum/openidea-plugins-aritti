@@ -62,6 +62,9 @@ pub struct Render {
 #[derive(Default, Debug)]
 pub struct Index {
     pub navigation: BTreeMap<String, ui_kit::navigation::Graph>,
+    pub(crate) metadata: crate::metadata::Metadata,
+    pub(crate) dependency_files: BTreeSet<String>,
+    pub(crate) dependency_roots:BTreeSet<String>,
     pub routes: Names,
     pub route_defs: Vec<RouteEntry>,
     pub views: Names,
@@ -603,16 +606,19 @@ fn file_name(path: &str) -> &str {
 mod eloquent_roots;
 
 impl Index {
+    pub(crate) fn affects(&self, relative: &str) -> bool { self.metadata.affects(relative) || self.dependency_files.contains(relative) || self.dependency_roots.iter().any(|root|relative==root||relative.starts_with(&format!("{root}/"))) }
     pub fn build(project: &Project) -> Index {
         let started = Instant::now();
         let mut index = Index::default();
         let root = project.root().unwrap_or_default();
+        index.metadata = crate::metadata::Metadata::load(project);
         let relative = |path: &str| path.strip_prefix(&format!("{root}/")).unwrap_or(path).to_owned();
 
         let files = |globs: &[String]| -> Vec<String> {
             let mut paths: Vec<String> = globs.iter().flat_map(|glob| project.find_files(glob, MAX_FILES).unwrap_or_default()).collect();
             paths.sort();
             paths.dedup();
+            paths.retain(|path| host::project_of(path).and_then(|p|p.root().ok()).as_deref()==Some(root.as_str()));
             paths
         };
         let globs = |patterns: &[&str]| -> Vec<String> { patterns.iter().map(|p| (*p).to_owned()).collect() };
@@ -625,13 +631,16 @@ impl Index {
             let text = project.read_file(path).ok()?;
             if path.ends_with(".php") {
                 index.navigation.insert(path.into(), crate::indexer::edges_of(path, &text, &|_| true).into());
+                crate::eloquent_members::cache_metadata(&mut index.metadata,&text,path);
+                if !index.metadata.mixins.is_empty() || !index.metadata.forward_methods.is_empty() {crate::eloquent_members::cache_object(&mut index.eloquent_objects,&text,path);}
             }
             Some(text)
         };
 
-        let mut view_roots: Vec<(Option<String>, String)> = VIEW_ROOTS.iter().map(|r| (None, (*r).to_owned())).collect();
-        view_roots.extend(comma_separated("viewPaths").into_iter().map(|r| (None, r)));
+        let mut view_roots: Vec<(Option<String>, String)> = comma_separated("viewPaths").into_iter().map(|r|(None,r)).collect();
+        view_roots.extend(index.metadata.view_roots.clone());
         view_roots.extend(ide_blade_roots(|path| project.read_file(path)));
+        view_roots.extend(VIEW_ROOTS.iter().map(|r|(None,(*r).to_owned())));
         for (namespace, view_root) in &view_roots {
             for path in files(&[format!("{view_root}/**/*.php")]) {
                 let Some(mut name) = relative(&path).strip_prefix(&format!("{view_root}/")).and_then(view_name) else { continue };
@@ -658,12 +667,14 @@ impl Index {
             &project.read_file("bootstrap/app.php").unwrap_or_default(),
             &project.read_file("app/Providers/RouteServiceProvider.php").unwrap_or_default(),
         );
-        for path in files(&globs(ROUTE_FILES)) {
+        let mut route_patterns = globs(ROUTE_FILES);
+        route_patterns.extend(index.metadata.route_files.clone());
+        for path in files(&route_patterns) {
             let Some(text) = read(&path, &mut index) else { continue };
             let masked = php::mask_comments(&text);
             let lines = Lines::new(&text);
 
-            for def in routes::parse(&masked) {
+            for def in routes::parse_with_custom(&masked,&index.metadata.route_methods) {
                 let at = lines.position(def.offset);
                 let width = lines.width(def.offset, def.width);
                 if let Some(name) = &def.name {
@@ -794,6 +805,7 @@ impl Index {
             }
         }
 
+        if index.metadata.package_enabled("livewire/livewire", true) {
         for directory in ["app/Livewire", "app/Http/Livewire"] {
             for path in files(&[format!("{directory}/**/*.php")]) {
                 let Some(text) = read(&path, &mut index) else { continue };
@@ -807,12 +819,62 @@ impl Index {
             }
         }
 
-        for root in INERTIA_PAGE_ROOTS {
-            for extension in INERTIA_PAGE_EXTENSIONS {
-                for path in files(&[format!("{root}/**/*.{extension}")]) {
-                    let name =
-                        relative(&path).trim_start_matches(&format!("{root}/")).trim_end_matches(&format!(".{extension}")).to_owned();
-                    index.inertia_pages.add(&name, None, &path, Position::new(0, 0), 0);
+        if !index.metadata.livewire_namespaces.is_empty() {
+            let composer_path=format!("{root}/composer.json");
+            let composer=if host::project_of(&composer_path).and_then(|p|p.root().ok()).as_deref()==Some(root.as_str()){project.read_file("composer.json").unwrap_or_default()}else{String::new()};
+            let roots=if composer.is_empty(){vec![eloquent_roots::Root{prefix:"App\\".into(),directory:"app".into()}]}else{match eloquent_roots::parse(&composer){Ok(roots) if roots.is_empty()=>vec![eloquent_roots::Root{prefix:"App\\".into(),directory:"app".into()}],Ok(roots)=>roots,Err(())=>Vec::new()}};
+            for mapping in index.metadata.livewire_namespaces.clone() {
+                if let Some(namespace)=&mapping.class_namespace {
+                    let mut matched=false;
+                    for source_root in &roots {
+                        let directory=if namespace==source_root.prefix.trim_end_matches('\\'){Some(source_root.directory.clone())}
+                            else if let Some(tail)=namespace.strip_prefix(&source_root.prefix){Some(format!("{}/{}",source_root.directory,tail.replace('\\',"/")))}
+                            else if source_root.prefix.starts_with(&format!("{namespace}\\")){Some(source_root.directory.clone())}else{None};
+                        let Some(directory)=directory else{continue;};matched=true;index.dependency_roots.insert(directory.clone());
+                        for path in files(&[format!("{directory}/**/*.php")]) {
+                            let Some(text)=read(&path,&mut index)else{continue;};
+                            let Some(full)=crate::eloquent_members::declaration(&text)else{continue;};
+                            if !eloquent_roots::matches(&roots,&relative(&path),&full){continue;}
+                            let Some(inside)=full.strip_prefix(&format!("{namespace}\\"))else{continue;};
+                            let name=tag_name(&format!("{}.php",inside.replace('\\',"/")));
+                            let name=if mapping.tag_prefix.is_empty(){name}else{format!("{}::{name}",mapping.tag_prefix)};
+                            let stem=file_name(&path).trim_end_matches(".php");
+                            if let Some(code)=crate::package_facts::code(&text) {
+                                let offset=code.match_indices("class").find_map(|(at,_)|{
+                                    if at>0 && php::is_identifier(code.as_bytes()[at-1]){return None;}
+                                    let after=at+5;let tail=code.get(after..)?;if !tail.starts_with(char::is_whitespace){return None;}
+                                    let start=code.len()-tail.trim_start().len();
+                                    (code[start..].starts_with(stem)&&!code.as_bytes().get(start+stem.len()).is_some_and(|b|php::is_identifier(*b))).then_some(start)
+                                });
+                                if let Some(offset)=offset{let lines=Lines::new(&text);index.livewire.add(&name,Some("ide.json Livewire namespace".into()),&path,lines.position(offset),stem.len());}
+                            }
+                        }
+                    }
+                    if !matched{index.metadata.issues.push(format!("{}: Livewire classNamespace {namespace} has no owned Composer PSR-4 mapping",mapping.source));}
+                }
+            }
+            // Class mappings are inserted before view-only components.
+            for mapping in index.metadata.livewire_namespaces.clone() {
+                if let Some(directory)=mapping.view_path {
+                    for path in files(&[format!("{directory}/**/*.blade.php")]) {
+                        let rel=relative(&path);let Some(inside)=rel.strip_prefix(&format!("{directory}/"))else{continue;};
+                        let name=inside.trim_end_matches(".blade.php").replace('/',".");let name=if mapping.tag_prefix.is_empty(){name}else{format!("{}::{name}",mapping.tag_prefix)};
+                        index.livewire.add(&name,Some("ide.json Livewire view namespace".into()),&path,Position::new(0,0),0);
+                    }
+                }
+            }
+        }
+        } // Livewire package enabled
+        if index.metadata.package_enabled("inertiajs/inertia-laravel", true) {
+            let mut inertia_roots=index.metadata.inertia_paths.clone();
+            if !index.metadata.inertia_ignore_settings {inertia_roots.extend(INERTIA_PAGE_ROOTS.iter().map(|path|crate::metadata::PageRoot{path:(*path).into(),prefix:String::new(),suffix:String::new()}));}
+            for page_root in &inertia_roots {
+                for extension in INERTIA_PAGE_EXTENSIONS {
+                    for path in files(&[format!("{}/**/*.{extension}",page_root.path)]) {
+                        let relative=relative(&path);let Some(name)=relative.strip_prefix(&format!("{}/",page_root.path)).and_then(|name|name.strip_suffix(&format!(".{extension}")))else{continue;};
+                        let name=format!("{}{name}{}",page_root.prefix,page_root.suffix);
+                        index.inertia_pages.add(&name,None,&path,Position::new(0,0),0);
+                    }
                 }
             }
         }
@@ -836,10 +898,45 @@ impl Index {
             }
         }
 
+        // Vite config and manifests augment the source inventory; never execute JS.
+        let mut manifests = BTreeSet::from(["public/build/manifest.json".to_owned(), "public/build/.vite/manifest.json".to_owned()]);
+        for config_path in ["vite.config.js", "vite.config.ts", "vite.config.mjs", "vite.config.mts"] {
+            let absolute = format!("{root}/{config_path}");
+            if host::project_of(&absolute).and_then(|p|p.root().ok()).as_deref()!=Some(root.as_str()) {continue;}
+            let Some(source)=read(&absolute,&mut index) else {continue;};
+            let config=crate::vite::config(&source);
+            for (input,_) in config.inputs {
+                index.dependency_files.insert(input.clone());
+                let absolute=format!("{root}/{input}");
+                if crate::vite::path(&input) && host::project_of(&absolute).and_then(|p|p.root().ok()).as_deref()==Some(root.as_str()) && project.exists(&input).unwrap_or(false) {
+                    index.vite.add(&input,Some("Vite configured input".into()),&absolute,Position::new(0,0),0);
+                }
+            }
+            let directory=config.build_directory.unwrap_or_else(||"build".into());
+            if crate::vite::path(&directory) {
+                if let Some(manifest)=config.manifest.filter(|p|crate::vite::path(p)) {manifests.insert(format!("public/{directory}/{manifest}"));}
+                else {manifests.insert(format!("public/{directory}/manifest.json"));manifests.insert(format!("public/{directory}/.vite/manifest.json"));}
+            }
+        }
+        for manifest_path in manifests {
+            index.dependency_files.insert(manifest_path.clone());
+            let absolute=format!("{root}/{manifest_path}");
+            if host::project_of(&absolute).and_then(|p|p.root().ok()).as_deref()!=Some(root.as_str()) {continue;}
+            let Some(source)=read(&absolute,&mut index) else {continue;};
+            if let Ok(assets)=crate::vite::manifest(&source) {for asset in assets {
+                let target=format!("{root}/{}",asset.source);
+                let owned=host::project_of(&target).and_then(|p|p.root().ok()).as_deref()==Some(root.as_str()) && project.exists(&asset.source).unwrap_or(false);
+                index.vite.add(&asset.source,Some(format!("Vite manifest → {}",asset.output)),if owned{&target}else{&absolute},Position::new(0,0),0);
+            }}
+        }
+
         for path in files(&globs(&["app/Providers/**/*.php"])) {
             let Some(text) = read(&path, &mut index) else { continue };
             let masked = php::mask_comments(&text);
             let lines = Lines::new(&text);
+            if index.metadata.package_enabled("laravel/passport", true) {
+                for (name, entry) in crate::package_facts::passport_names(&path, &text) { index.metadata.passport.insert(name, entry); }
+            }
             index.open_components |=
                 ["anonymousComponentPath(", "anonymousComponentNamespace(", "componentNamespace(", "Blade::components("]
                     .iter()
@@ -875,6 +972,10 @@ impl Index {
                     index.abilities.add(ability, Some("Gate::define".into()), &path, lines.position(offset), lines.width(offset, ability.len()));
                 }
             }
+        }
+
+        for name in &index.metadata.directives {
+            index.directives.add(name, Some("ide.json directive".into()), "", Position::new(0, 0), 0);
         }
 
         for alias in CORE_BINDINGS {
@@ -928,14 +1029,16 @@ impl Index {
             }
         }
 
+        let mut schema_patterns = vec!["database/schema/**/*.sql".to_owned()];
+        schema_patterns.extend(index.metadata.schema_directories.iter().map(|p|format!("{p}/**/*.sql")));
+        schema_patterns.extend(index.metadata.schema_files.clone());
+        for path in files(&schema_patterns) {
+            if host::project_of(&path).and_then(|p|p.root().ok()).as_deref()!=Some(root.as_str()) { continue; }
+            if let Some(text)=read(&path,&mut index) { migrations::apply_sql(&mut index.columns,&text,&path); }
+        }
         for path in files(&globs(&["database/migrations/**/*.php"])) {
             let Some(text) = read(&path, &mut index) else { continue };
-            let masked = php::mask_comments(&text);
-            let lines = Lines::new(&text);
-            for column in migrations::parse(&masked) {
-                let names = index.columns.entry(column.table).or_default();
-                names.add(&column.name, Some(column.kind), &path, lines.position(column.offset), lines.width(column.offset, column.name.len()));
-            }
+            migrations::apply_custom(&mut index.columns, &php::mask_comments(&text), &path, &index.metadata.column_methods);
         }
 
         let mut eloquent_seen = BTreeSet::new();
@@ -978,7 +1081,7 @@ impl Index {
         }
 
         if let Some(composer) = read(&format!("{root}/composer.json"), &mut index) {
-            index.open_components |= COMPONENT_PACKAGES.iter().any(|package| composer.contains(package));
+            index.open_components |= COMPONENT_PACKAGES.iter().any(|package| composer.contains(package) && (*package!="filament/"||index.metadata.package_enabled("filament/filament",true)));
             match eloquent_roots::parse(&composer) {
                 Ok(roots)=>{
                     let mut paths=BTreeSet::new();
@@ -1001,15 +1104,24 @@ impl Index {
             }
         }
         if !crate::eloquent_members::finish(&mut index.eloquent_models){index.partial=true;}
-        for (full,path,table) in crate::eloquent_members::model_inventory(&index.eloquent_models) {
+        crate::eloquent_members::apply_model_tables(&mut index.eloquent_models,&index.metadata);
+        let model_inventory=crate::eloquent_members::model_inventory(&index.eloquent_models);
+        let mut short_counts=BTreeMap::<String,usize>::new();
+        for (full,_,_) in &model_inventory {*short_counts.entry(full.rsplit('\\').next().unwrap_or(full).to_owned()).or_default()+=1;}
+        for (full,path,table) in model_inventory {
             let short=full.rsplit('\\').next().unwrap_or(&full).to_owned();
-            index.model_files.entry(path).or_insert(table.clone());
-            index.models.entry(short).or_insert(table);
+            index.model_files.insert(path,table.clone());
+            if short_counts.get(&short)==Some(&1) {index.models.insert(short,table);} else {index.models.remove(&short);}
         }
 
+        crate::eloquent_members::finish_metadata(&mut index.eloquent_models,&mut index.eloquent_objects,&mut index.metadata);
         for rule in VALIDATION_RULES {
             index.rules.add(rule, Some("validation rule".into()), "", Position::new(0, 0), 0);
         }
+
+        for (name,entry) in &index.metadata.additional_gates {index.abilities.entry(name.clone()).or_insert_with(||entry.clone());}
+        for (name,entry) in &index.metadata.additional_middleware {index.middleware.entry(name.clone()).or_insert_with(||entry.clone());}
+        crate::components::apply_metadata(project,&mut index);
 
         index.renders.sort_by(|a, b| (&a.path, a.at.line, a.at.character).cmp(&(&b.path, b.at.line, b.at.character)));
         index
@@ -1084,6 +1196,11 @@ impl Index {
         self.views.iter().find(|(_, entry)| entry.path == path).map(|(name, _)| name.as_str())
     }
 
+    /// Resolve literal fallback layouts against the indexed source inventory.
+    pub fn layout_parent<'a>(&self, facts:&'a blade::Facts)->Option<&'a str> {
+        facts.extends.as_deref().or_else(||facts.extends_first.iter().find(|name|self.views.contains_key(name.as_str())).map(String::as_str))
+    }
+
     /// The views a view extends, nearest first.
     pub fn parents<'a>(&'a self, view: &'a str) -> Vec<&'a str> {
         let mut parents = Vec::new();
@@ -1091,7 +1208,7 @@ impl Index {
 
         // Layouts are a few levels deep; the limit stops cycles.
         for _ in 0..10 {
-            let Some(parent) = self.blade.get(current).and_then(|f| f.extends.as_deref()) else { break };
+            let Some(parent) = self.blade.get(current).and_then(|facts| self.layout_parent(facts)) else { break };
             if parents.contains(&parent) {
                 break;
             }
@@ -1104,7 +1221,7 @@ impl Index {
 
     /// Views that extend or include `view`.
     pub fn users_of(&self, view: &str) -> Vec<&str> {
-        let uses = |facts: &blade::Facts| facts.extends.as_deref() == Some(view) || facts.includes.iter().any(|i| i == view);
+        let uses = |facts: &blade::Facts| facts.extends.as_deref() == Some(view) || facts.extends_first.iter().any(|name|name==view) || facts.includes.iter().any(|i| i == view);
         self.blade.iter().filter(|(_, facts)| uses(facts)).map(|(name, _)| name.as_str()).collect()
     }
 

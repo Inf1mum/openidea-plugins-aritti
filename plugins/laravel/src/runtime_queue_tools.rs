@@ -3,12 +3,12 @@
 use super::{
     MAX, State, execute, key, owner, parse as parse_runtime, stamp, string, target_binding,
 };
-use crate::{artisan_metadata as metadata, artisan_runner::Runner};
+use crate::artisan_runner::Runner;
 use openidea_plugin::{Error, FileKind, Invocation, Project};
 use serde_json::{Value, json};
 
 pub(super) fn probe_args(section: &str, options: &Value) -> Result<Vec<String>, Error> {
-    if !matches!(section, "queue-status" | "workers" | "logs") {
+    if !matches!(section, "queue-status" | "workers" | "logs" | "schema" | "database-sources") {
         return Err(Error::Stale);
     }
     Ok(vec![
@@ -171,6 +171,8 @@ pub(super) fn parse(section: &str, raw: &str) -> Result<Vec<Value>, Error> {
                 display,
             ));
         }
+        let text: Vec<String> = lines.iter().filter_map(|line|line.as_str().map(str::to_owned)).collect();
+        rows.extend(super::errors::rows(&text, truncated));
     } else {
         return Err(Error::Stale);
     }

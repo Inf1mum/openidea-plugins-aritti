@@ -170,6 +170,7 @@ impl openidea_plugin::McpProvider for Main {
                     "queues",
                     "queue-status",
                     "workers",
+                    "schema",
                 ]
                 .contains(&input.section.as_str())
                 {

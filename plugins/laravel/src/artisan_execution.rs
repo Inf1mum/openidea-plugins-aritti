@@ -8,6 +8,8 @@ pub(super) struct Job {
     pub id: String,
     pub command: String,
     pub values: Value,
+    pub additional_options:String,
+    pub additional_arguments:String,
     argv: Vec<String>,
     runner: crate::artisan_runner::Runner,
     target_label: Option<String>,
@@ -59,6 +61,7 @@ impl Job {
             command,
             values,
             argv,
+            additional_options:String::new(),additional_arguments:String::new(),
             runner,
             target_label,
             started: Instant::now(),
@@ -127,7 +130,7 @@ impl Job {
         }
     }
     pub fn json(&self) -> Value {
-        json!({"runner":self.runner.name(),"targetLabel":self.target_label,"id":self.id,"command":self.command,"values":self.values,"argv":self.argv,"stdout":self.stdout,"stderr":self.stderr,"running":self.running(),"status":self.status,"cancelled":self.cancelled,"truncated":self.truncated,"elapsedMs":if self.running(){self.started.elapsed().as_millis()}else{self.elapsed}})
+        json!({"runner":self.runner.name(),"targetLabel":self.target_label,"id":self.id,"command":self.command,"values":self.values,"additionalOptions":self.additional_options,"additionalArguments":self.additional_arguments,"argv":self.argv,"stdout":self.stdout,"stderr":self.stderr,"running":self.running(),"status":self.status,"cancelled":self.cancelled,"truncated":self.truncated,"elapsedMs":if self.running(){self.started.elapsed().as_millis()}else{self.elapsed}})
     }
 }
 fn append(target: &mut String, text: &str, limit: usize, truncated: &mut bool) {

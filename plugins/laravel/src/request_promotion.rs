@@ -8,6 +8,8 @@ use openidea_plugin::{
     text::{offset, position},
 };
 use std::collections::{BTreeMap, BTreeSet};
+#[path = "request_promotion_ordinary.rs"]
+mod ordinary;
 #[derive(Default)]
 pub(crate) struct State {
     next: u64,
@@ -27,6 +29,7 @@ struct Shape {
     call: std::ops::Range<usize>,
     rules: String,
     variable: String,
+    strict: bool,
 }
 #[derive(Clone, Copy)]
 struct Token<'a> {
@@ -123,7 +126,7 @@ fn rule(p: &mut Parser<'_>) -> Option<()> {
     let s = string(p.token()?)?;
     (!s.is_empty()).then_some(())
 }
-fn shape(doc: &Document) -> Option<Shape> {
+fn literal_shape(doc: &Document) -> Option<Shape> {
     if doc.language != "php" || !doc.path.ends_with(".php") || doc.path.ends_with(".blade.php") {
         return None;
     }
@@ -254,14 +257,24 @@ fn shape(doc: &Document) -> Option<Shape> {
         call: receiver.start..call_end,
         rules: doc.text[open.start..close.end].into(),
         variable: variable.into(),
+        strict: false,
     })
+}
+fn shapes(doc: &Document) -> Vec<Shape> {
+    let mut result = ordinary::shapes(doc).unwrap_or_default();
+    if let Some(shape) = literal_shape(doc) {
+        if !result.contains(&shape) {
+            result.push(shape);
+        }
+    }
+    result
 }
 fn admitted(main: &Main, p: &Pending, doc: &Document) -> Result<(), Error> {
     if doc.path != p.doc.path
         || doc.language != p.doc.language
         || doc.version != p.doc.version
         || doc.text != p.doc.text
-        || shape(doc).as_ref() != Some(&p.shape)
+        || !shapes(doc).contains(&p.shape)
     {
         return Err(Error::Stale);
     }
@@ -280,18 +293,18 @@ pub(crate) fn actions(main: &mut Main, doc: &Document, selection: Range) -> Vec<
     if main.indexes.get(&root).is_none_or(|i| i.partial) {
         return vec![];
     }
-    let Some(shape) = shape(doc) else {
-        return vec![];
-    };
     let (Some(start), Some(end)) = (
         offset(&doc.text, selection.start),
         offset(&doc.text, selection.end),
     ) else {
         return vec![];
     };
-    if start < shape.parameter.start || end < start || end > shape.parameter.end {
+    let Some(shape) = shapes(doc)
+        .into_iter()
+        .find(|shape| start >= shape.parameter.start && end >= start && end <= shape.parameter.end)
+    else {
         return vec![];
-    }
+    };
     if main.request_promotions.pending.len() >= 8 {
         main.request_promotions.pending.clear();
     }
@@ -346,7 +359,7 @@ pub(crate) fn resolve(
     } else {
         "\n"
     };
-    let head=format!("<?php\n\nnamespace {}Http\\Requests;\n\nuse Illuminate\\Foundation\\Http\\FormRequest;\n\nclass {name} extends FormRequest\n{{\n    public function authorize(): bool\n    {{\n        return true;\n    }}\n\n    public function rules(): array\n    {{\n        return ",p.shape.prefix).replace('\n',eol);
+    let head=format!("<?php\n\n{}namespace {}Http\\Requests;\n\nuse Illuminate\\Foundation\\Http\\FormRequest;\n\nclass {name} extends FormRequest\n{{\n    public function authorize(): bool\n    {{\n        return true;\n    }}\n\n    public function rules(): array\n    {{\n        return ",(if p.shape.strict {"declare(strict_types=1);\n\n"}else{""}),p.shape.prefix).replace('\n',eol);
     let text = head + &p.shape.rules + &";\n    }\n}\n".replace('\n', eol);
     let mut replacement = doc.text.clone();
     replacement.replace_range(
@@ -358,7 +371,7 @@ pub(crate) fn resolve(
         &format!("\\{}Http\\Requests\\{name}", p.shape.prefix),
     );
     let preview = format!(
-        "Project: {}\nSource: {}\nDocument version: {}\nVerified Composer mapping: {} → {source}/\n\nCreate (no overwrite): {target}\nExact new request contents:\n{text}\nExact complete replacement controller:\n{replacement}\n\nOnly authored literal rules are transferred. The sole request parameter becomes the explicit absolute generated type; a distinct local assignment/return binding, when present, is preserved; no imports or other variables are inferred. validated() retains the array return shape. authorize() returns true, adding no request-specific authorization gate; review route/controller authorization separately. FormRequest validation runs before the controller method, so preparation/error timing may differ. Installed framework/PHP/autoloader state and custom policies are not resolved. No PHP/Artisan/process runs.\n\nApply one undoable Create + controller Edit atomically?",
+        "Project: {}\nSource: {}\nDocument version: {}\nVerified Composer mapping: {} → {source}/\n\nCreate (no overwrite): {target}\nExact new request contents:\n{text}\nExact complete replacement controller:\n{replacement}\n\nAuthored literal rules and supported self-contained class-rule expressions are transferred. Moved class references are fully qualified; external variables, closures and controller self/parent scope are withheld. The selected request parameter becomes the explicit absolute generated type. Other parameters, comments, statements and local assignment/return bindings stay in place. Only a first-statement validation call is promoted; other controller methods stay unchanged. validated() preserves the original validation call's array result; safe() would instead return ValidatedInput and is not substituted. authorize() returns true, adding no request-specific authorization gate; review route/controller authorization separately. FormRequest validation runs before the controller method, so preparation/error timing may differ. Installed framework/PHP/autoloader state and custom policies are not resolved. No PHP/Artisan/process runs.\n\nApply one undoable Create + controller Edit atomically?",
         p.root, doc.path, doc.version, p.shape.prefix
     );
     if !ui_kit::prompts::confirm_exact("Promote literal request validation?", &preview)? {
@@ -487,25 +500,17 @@ mod tests {
             SOURCE.replace("'nullable|string'", "'nullable' . $suffix"),
             SOURCE.replace("'nullable|string'", "fn() => 'string'"),
             SOURCE.replace("'nullable|string'", "\"required $value\""),
-            SOURCE.replace("'nullable|string'", "'required\\\\escaped'"),
             SOURCE.replace("'body' =>", "'title' =>"),
             SOURCE.replace("return $request", "return $other"),
             SOURCE.replace("return $request", "$request = request(); return $request"),
-            SOURCE.replace("return $request", "/* external scope */ return $request"),
-            SOURCE.replace("$request):", "$request, $other):"),
             SOURCE.replace(
                 "class PostController",
                 "class PostController extends Controller",
-            ),
-            SOURCE.replace(
-                "class PostController",
-                "use Illuminate\\Http\\Request; class PostController",
             ),
             SOURCE.replace("public function store", "public function __invoke"),
             SOURCE.replace("public function store", "public static function store"),
             SOURCE.replace("$request", "$_GET"),
             SOURCE.replace("class PostController", "class Wrong\\Qualified"),
-            SOURCE.replace("): array", ")"),
             SOURCE.replace("$request->validate", "$request->validateWithBag"),
             SOURCE.replace("]);", "], ['title.required' => 'message']);"),
             SOURCE.to_owned() + "<?php helper();",
@@ -648,7 +653,7 @@ mod tests {
     }
 
     #[test]
-    fn assigned_promotion_refuses_other_binding_returns_and_external_scope() {
+    fn assigned_promotion_refuses_mutated_request_bindings_and_external_rules() {
         let base = SOURCE
             .replace(
                 "return $request->validate",
@@ -658,15 +663,340 @@ mod tests {
         for source in [
             base.replace("$validated", "$request"),
             base.replace("$validated", "$_POST"),
-            base.replace("return $validated", "return $other"),
-            base.replace("return $validated", "return $validated['title']"),
-            base.replace("return $validated", "$validated = []; return $validated"),
-            base.replace("return $validated", "helper($validated); return $validated"),
-            base.replace("return $validated", "return $request->all()"),
             base.replace("'body' => 'nullable|string'", "'body' => $external"),
         ] {
             let (_h, mut main, doc, range) = setup(&source);
             assert!(main.file_actions(&doc, range).is_empty(), "{source}");
         }
+    }
+    fn ordinary_setup(source: &str, parameter: &str) -> (MockHost, Main, Document, Range) {
+        // Keep the same production Composer/ownership fixture as the original
+        // tests while selecting the actual imported parameter spelling.
+        let sentinel = source.replace(parameter, "\\Illuminate\\Http\\Request");
+        let (host, main, mut doc, _) = setup(&sentinel);
+        host.add_file(&doc.path, source);
+        host.open_editor(&doc.path, "php", source, &[]);
+        doc.text = source.into();
+        let at = position(source, source.find(parameter).unwrap());
+        (host, main, doc, Range::new(at, at))
+    }
+    #[test]
+    fn imported_request_alias_framework_controller_and_ordinary_statements_preserve_source_bindings()
+     {
+        let source = "<?php\nnamespace App\\Http\\Controllers;\nuse Illuminate\\Http\\Request as HttpRequest;\nuse Illuminate\\Routing\\Controller as FrameworkController;\nuse Illuminate\\Validation\\Rule as ValidationRule;\nuse App\\Enums\\Status;\nfinal class PostController extends FrameworkController\n{\n    public function store(HttpRequest $request, int $id)\n    {\n        // Keep the original local binding and every later expression.\n        $data = $request->validate([\n            'title' => ['required', 'string'],\n            'status' => [ValidationRule::enum(Status::class)],\n            'slug' => [ValidationRule::unique('posts', 'slug')->ignore(123)],\n        ]);\n        $data['id'] = $id;\n        return response()->json($data);\n    }\n    public function show(int $id): array\n    {\n        return ['id' => $id];\n    }\n}\n";
+        let (host, mut main, doc, selection) = ordinary_setup(source, "HttpRequest $request");
+        // The helper selects the full marker; action accepts only the type span.
+        let selection = Range::new(selection.start, selection.start);
+        let action = main
+            .file_actions(&doc, selection)
+            .into_iter()
+            .find(|action| {
+                action
+                    .data
+                    .as_deref()
+                    .is_some_and(|data| data.starts_with("request-promote:"))
+            })
+            .unwrap();
+        host.answer_next_prompt(Some(&["StorePostRequest"]));
+        host.answer_next_prompt(Some(&["yes"]));
+        let ready = main.resolve_file_action(&doc, action).unwrap();
+        let FileOperation::Create {
+            path,
+            text,
+            overwrite,
+        } = &ready.operations[0]
+        else {
+            panic!("one create")
+        };
+        assert_eq!(path, "/project/app/Http/Requests/StorePostRequest.php");
+        assert!(!overwrite);
+        assert!(
+            text.contains("\\Illuminate\\Validation\\Rule::enum(\\App\\Enums\\Status::class)"),
+            "{text}"
+        );
+        assert!(
+            text.contains("\\Illuminate\\Validation\\Rule::unique('posts', 'slug')->ignore(123)"),
+            "{text}"
+        );
+        let replacement = &ready.edits[0].1[0].text;
+        let expected = source.replace(
+            "HttpRequest $request",
+            "\\App\\Http\\Requests\\StorePostRequest $request",
+        );
+        let begin = expected.find("$request->validate(").unwrap();
+        let open = begin + "$request->validate".len();
+        let end = crate::php::closing(&expected, open).unwrap() + 1;
+        let mut expected = expected;
+        expected.replace_range(begin..end, "$request->validated()");
+        assert_eq!(replacement, &expected);
+        assert!(
+            host.invocation()
+                .project()
+                .unwrap()
+                .read_file(path)
+                .is_err()
+        );
+        assert_eq!(
+            host.invocation()
+                .project()
+                .unwrap()
+                .read_file(&doc.path)
+                .unwrap(),
+            source
+        );
+        assert!(host.process_runs().is_empty());
+    }
+    #[test]
+    fn quoted_rule_spelling_comments_and_post_validation_expressions_remain_unchanged() {
+        for source in [
+            SOURCE.replace("'nullable|string'", "'required\\\\escaped'"),
+            SOURCE.replace("return $request", "/* ordinary comment */ return $request"),
+            SOURCE.replace("): array", ")"),
+            SOURCE.replace("$request):", "$request, int $id):"),
+            SOURCE
+                .replace("return $request->validate", "$data = $request->validate")
+                .replace("]);", "]); helper($data); return $data;"),
+        ] {
+            let (host, mut main, doc, selection) = setup(&source);
+            let action = main
+                .file_actions(&doc, selection)
+                .into_iter()
+                .find(|action| {
+                    action
+                        .data
+                        .as_deref()
+                        .is_some_and(|data| data.starts_with("request-promote:"))
+                })
+                .unwrap_or_else(|| panic!("{source}"));
+            host.answer_next_prompt(Some(&["StorePostRequest"]));
+            host.answer_next_prompt(Some(&["yes"]));
+            let ready = main.resolve_file_action(&doc, action).unwrap();
+            let replacement = &ready.edits[0].1[0].text;
+            assert!(
+                replacement.contains("$request->validated()"),
+                "{replacement}"
+            );
+            if source.contains("helper($data)") {
+                assert!(replacement.contains("helper($data); return $data;"));
+            }
+            if source.contains("/* ordinary comment */") {
+                assert!(replacement.contains("/* ordinary comment */"));
+            }
+            let FileOperation::Create { text, .. } = &ready.operations[0] else {
+                panic!()
+            };
+            if source.contains("required\\\\escaped") {
+                assert!(text.contains("required\\\\escaped"));
+            }
+            assert!(host.process_runs().is_empty());
+        }
+    }
+    #[test]
+    fn external_rule_expressions_receiver_mutation_multiple_validations_and_unknown_base_classes_stay_withheld()
+     {
+        let base = SOURCE.replace(
+            "namespace App\\Http\\Controllers;",
+            "namespace App\\Http\\Controllers;\nuse Illuminate\\Validation\\Rule;",
+        );
+        for source in [
+            base.replace("'nullable|string'", "Rule::unique('posts')->ignore($id)"),
+            base.replace("'nullable|string'", "Rule::requiredIf(fn () => true)"),
+            base.replace("'nullable|string'", "self::RULES"),
+            base.replace("'nullable|string'", "config('validation.rule')"),
+            base.replace("'nullable|string'", "new CustomRule()"),
+            base.replace(
+                "return $request",
+                "$request->merge(['title'=>'changed']); return $request",
+            ),
+            base.replace("return $request", "$request = request(); return $request"),
+            base.replace("return $request->validate", "$data = $request->validate")
+                .replace("]);", "]); return $request->validate(['other'=>'string']);"),
+            base.replace(
+                "class PostController",
+                "class PostController extends UnknownController",
+            ),
+        ] {
+            let (_host, mut main, doc, selection) = setup(&source);
+            assert!(
+                main.file_actions(&doc, selection)
+                    .iter()
+                    .all(|action| !action
+                        .data
+                        .as_deref()
+                        .is_some_and(|data| data.starts_with("request-promote:"))),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn strict_types_is_retained_for_moved_rule_expression_evaluation() {
+        let source = SOURCE.replace("<?php\n", "<?php\ndeclare(strict_types=1);\n");
+        let (host, mut main, doc, selection) = setup(&source);
+        let action = main
+            .file_actions(&doc, selection)
+            .into_iter()
+            .find(|action| {
+                action
+                    .data
+                    .as_deref()
+                    .is_some_and(|data| data.starts_with("request-promote:"))
+            })
+            .unwrap();
+        host.answer_next_prompt(Some(&["StorePostRequest"]));
+        host.answer_next_prompt(Some(&["yes"]));
+        let ready = main.resolve_file_action(&doc, action).unwrap();
+        let FileOperation::Create { text, .. } = &ready.operations[0] else {
+            panic!()
+        };
+        assert!(
+            text.starts_with("<?php\n\ndeclare(strict_types=1);\n\nnamespace App\\Http\\Requests;"),
+            "{text}"
+        );
+        assert!(
+            ready.edits[0].1[0]
+                .text
+                .contains("declare(strict_types=1);")
+        );
+    }
+    #[test]
+    fn selected_method_and_nested_controller_namespace_keep_other_requests_unchanged() {
+        let source = "<?php\nnamespace App\\Http\\Controllers\\Admin;\nuse Illuminate\\Http\\Request;\nclass PostController\n{\n    public function first(Request $first): array { return $first->validate(['first'=>'required']); }\n    public function second(Request $second, int $id): array\n    {\n        $data = $second->validate(['title'=>'required|string']);\n        $data['id'] = $id;\n        return $data;\n    }\n}\n";
+        let (host, mut main, mut doc, _) = ordinary_setup(source, "Request $second");
+        host.add_dir("app/Http/Controllers/Admin");
+        doc.path = "/project/app/Http/Controllers/Admin/PostController.php".into();
+        host.add_file(&doc.path, source);
+        host.open_editor(&doc.path, "php", source, &[]);
+        let at = position(source, source.find("Request $second").unwrap());
+        let action = main
+            .file_actions(&doc, Range::new(at, at))
+            .into_iter()
+            .find(|action| {
+                action
+                    .data
+                    .as_deref()
+                    .is_some_and(|data| data.starts_with("request-promote:"))
+            })
+            .unwrap();
+        host.answer_next_prompt(Some(&["StorePostRequest"]));
+        host.answer_next_prompt(Some(&["yes"]));
+        let ready = main.resolve_file_action(&doc, action).unwrap();
+        let replacement = &ready.edits[0].1[0].text;
+        assert!(
+            replacement.contains(
+                "first(Request $first): array { return $first->validate(['first'=>'required']); }"
+            ),
+            "{replacement}"
+        );
+        assert!(
+            replacement
+                .contains("second(\\App\\Http\\Requests\\StorePostRequest $second, int $id)"),
+            "{replacement}"
+        );
+        assert!(replacement.contains("$data = $second->validated();"));
+        assert!(replacement.contains("$data['id'] = $id;"));
+    }
+    #[test]
+    fn expanded_promotion_revalidates_import_identity_and_target_after_preparation() {
+        let source = "<?php\nnamespace App\\Http\\Controllers;\nuse Illuminate\\Http\\Request;\nclass PostController\n{\n    public function store(Request $request)\n    {\n        $data = $request->validate(['title'=>'required']);\n        return response()->json($data);\n    }\n}\n";
+        for mode in 0..4 {
+            let (host, mut main, mut doc, selection) = ordinary_setup(source, "Request $request");
+            let action = main
+                .file_actions(&doc, selection)
+                .into_iter()
+                .find(|action| {
+                    action
+                        .data
+                        .as_deref()
+                        .is_some_and(|data| data.starts_with("request-promote:"))
+                })
+                .unwrap();
+            match mode {
+                0 => doc.text = source.replace("Illuminate\\Http\\Request", "Vendor\\Request"),
+                1 => {
+                    host.add_file("app/Http/Requests/StorePostRequest.php", "KEEP");
+                    host.answer_next_prompt(Some(&["StorePostRequest"]));
+                }
+                2 => host.answer_next_prompt(None),
+                _ => {
+                    host.answer_next_prompt(Some(&["StorePostRequest"]));
+                    host.answer_next_prompt(None);
+                }
+            }
+            assert!(main.resolve_file_action(&doc, action).is_err(), "{mode}");
+            assert_eq!(
+                host.invocation()
+                    .project()
+                    .unwrap()
+                    .read_file("/project/app/Http/Controllers/PostController.php")
+                    .unwrap(),
+                source
+            );
+            assert!(host.process_runs().is_empty());
+        }
+    }
+    #[test]
+    #[ignore = "requires LARAVEL_PROMOTION_FIXTURE pointing to a disposable Laravel acceptance app and php"]
+    fn generated_form_request_preserves_real_laravel_validation_array_and_rule_factory_behavior() {
+        let fixture = std::env::var("LARAVEL_PROMOTION_FIXTURE")
+            .expect("set disposable Laravel fixture path");
+        let directory = std::path::Path::new(&fixture)
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert!(
+            directory.starts_with("laravel-artisan-acceptance-"),
+            "use a disposable acceptance app"
+        );
+        let source = "<?php\ndeclare(strict_types=1);\nnamespace App\\Http\\Controllers;\nuse Illuminate\\Http\\Request;\nuse Illuminate\\Validation\\Rule;\nclass PostController\n{\n    public function store(Request $request, int $id): array\n    {\n        $data = $request->validate([\n            'title' => ['required', 'string'],\n            'status' => [Rule::in(['draft', 'live'])],\n            'note' => 'nullable|string',\n        ]);\n        $data['id'] = $id;\n        return $data;\n    }\n}\n";
+        let (host, mut main, doc, selection) = ordinary_setup(source, "Request $request");
+        let action = main
+            .file_actions(&doc, selection)
+            .into_iter()
+            .find(|action| {
+                action
+                    .data
+                    .as_deref()
+                    .is_some_and(|data| data.starts_with("request-promote:"))
+            })
+            .unwrap();
+        host.answer_next_prompt(Some(&["ParityQaRequest"]));
+        host.answer_next_prompt(Some(&["yes"]));
+        let ready = main.resolve_file_action(&doc, action).unwrap();
+        let FileOperation::Create { text, .. } = &ready.operations[0] else {
+            panic!()
+        };
+        let payload = serde_json::json!({"before":source.replace("class PostController","class ParityQaBeforeController"),"request":text,"after":ready.edits[0].1[0].text.replace("class PostController","class ParityQaAfterController")});
+        let php = r#"
+            require $argv[1].'/vendor/autoload.php';
+            $app=require $argv[1].'/bootstrap/app.php';
+            $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+            $payload=json_decode($argv[2],true,512,JSON_THROW_ON_ERROR);
+            foreach(['before','request','after'] as $key){eval(substr($payload[$key],5));}
+            $cases=[['title'=>'Hello','status'=>'draft','extra'=>'omitted'],['title'=>'Hi','status'=>'live','note'=>null],['status'=>'draft'],['title'=>'Hi','status'=>'invalid']];
+            foreach($cases as $input){
+                $before=Illuminate\Http\Request::create('/','POST',$input);
+                $after=App\Http\Requests\ParityQaRequest::createFrom($before);
+                $after->setContainer($app);$after->setRedirector($app['redirect']);
+                try{$left=['ok'=>(new App\Http\Controllers\ParityQaBeforeController)->store($before,42)];}catch(Illuminate\Validation\ValidationException $error){$left=['errors'=>$error->errors()];}
+                try{$after->validateResolved();$right=['ok'=>(new App\Http\Controllers\ParityQaAfterController)->store($after,42)];}catch(Illuminate\Validation\ValidationException $error){$right=['errors'=>$error->errors()];}
+                if($left!==$right){throw new RuntimeException('Validation output differs: '.json_encode([$left,$right]));}
+                if(isset($right['ok'])&&!is_array($right['ok'])){throw new RuntimeException('Array became ValidatedInput');}
+            }
+            echo 'PASS: actual generated FormRequest preserves valid/invalid results and array shape';
+        "#;
+        let output = std::process::Command::new("php")
+            .args(["-r", php, &fixture, &payload.to_string()])
+            .output()
+            .expect("run PHP");
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(String::from_utf8_lossy(&output.stdout).contains("PASS:"));
+        assert!(host.process_runs().is_empty());
     }
 }

@@ -4,13 +4,18 @@ use openidea_plugin::diagnostics::DiagnosticsProvider;
 
 impl DiagnosticsProvider for Main {
     fn diagnostics(&mut self, doc: &Document) -> Vec<Diagnostic> {
-        if doc.text.len() > 32 * 1024 || !hover::canonical(&doc.path)
+        let metadata_document=doc.path.ends_with("/ide.json");
+        if (!metadata_document&&doc.text.len() > 32 * 1024) || !hover::canonical(&doc.path)
             || !host::setting_bool("diagnostics").unwrap_or(true)
-            || ["/vendor/", "/storage/", "/bootstrap/cache/", "/node_modules/"]
-                .iter().any(|part| doc.path.contains(part)) { return Vec::new(); }
-        let Some(language) = language_of(&doc.path, &doc.language) else { return Vec::new() };
+            || ["/storage/", "/bootstrap/cache/", "/node_modules/"]
+                .iter().any(|part| doc.path.contains(part)) || !metadata_document&&doc.path.contains("/vendor/") { return Vec::new(); }
         let Some(root) = project_for(&doc.path).and_then(|project| project.root().ok()) else { return Vec::new() };
-        let Some(index) = self.indexes.get(&root).filter(|index| !index.partial) else { return Vec::new() };
+        let Some(index) = self.indexes.get(&root) else { return Vec::new() };
+        if metadata_document {
+            return metadata::diagnostics_current(index, &doc.path, &root,&doc.text);
+        }
+        if index.partial{return Vec::new();}
+        let Some(language) = language_of(&doc.path, &doc.language) else { return Vec::new() };
         let check_routes = host::setting_bool("reportMissingRoutes").unwrap_or(false);
         problems(index, language, &doc.text, check_routes).into_iter().take(200)
             .map(|mut diagnostic| {
@@ -160,6 +165,29 @@ mod tests {
     #[test]
     fn registered_live_inventory_ignores_fake_includes_in_php_directive_argument_comments() {
         let host=MockHost::install();let mut plugin=activated(&host);let observed:Vec<_>=["@if(/* ) @include('absent') */ $real) @endif","@if(// ) @include('absent')\n$real) @endif","@if(# ) @include('absent')\n$real) @endif"].into_iter().map(|source|(source,plugin.diagnostics(&doc("/project/resources/views/test.blade.php","blade",source)).len())).collect();assert!(observed.iter().all(|(_,n)|*n==0),"{observed:?}");
+    }
+
+    #[test]
+    fn metadata_diagnostics_follow_unsaved_text_and_cached_external_snapshots() {
+        let host = MockHost::install();
+        host.add_file("ide.json", r#"{"packages":{"passport":{"scopeFiles":["/scopes.json"]}}}"#);
+        host.add_file("scopes.json", r#"{"bad":4}"#);
+        let mut plugin = activated(&host);
+        let original = r#"{"packages":{"passport":{"scopeFiles":["/scopes.json"]}}}"#;
+        assert!(plugin.diagnostics(&doc("/project/ide.json", "json", original)).iter().any(|d| d.message.contains("scope bad")));
+        // Changing the on-disk dependency does not trigger source reads from the callback.
+        host.add_file("scopes.json", r#"{"good":"Description"}"#);
+        let changed = format!(" {original}");
+        assert!(plugin.diagnostics(&doc("/project/ide.json", "json", &changed)).iter().any(|d| d.message.contains("scope bad")));
+        assert!(plugin.diagnostics(&doc("/project/ide.json", "json", "{}")).is_empty());
+        assert!(plugin.diagnostics(&doc("/project/ide.json", "json", "{broken")).iter().any(|d| d.message.contains("invalid")));
+        let changed = r#"{"packages":{"passport":{"scopeFiles":["/new.json"]}}}"#;
+        let out = plugin.diagnostics(&doc("/project/ide.json", "json", changed));
+        assert!(out.iter().any(|d| d.message.contains("new.json is not indexed; save/reindex")), "{out:?}");
+        let large = format!("{}{{}}", " ".repeat(40 * 1024));
+        assert!(plugin.diagnostics(&doc("/project/ide.json", "json", &large)).is_empty());
+        assert!(plugin.diagnostics(&doc("/project/ide.json", "json", &" ".repeat(256 * 1024 + 1))).iter().any(|d| d.message.contains("size limit")));
+        assert!(host.process_runs().is_empty() && host.requests().is_empty());
     }
 
 }

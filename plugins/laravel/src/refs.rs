@@ -565,9 +565,9 @@ fn classify(text: &str, language: &str, literal: &Literal, site: &Site) -> Optio
         || content_view && site.depth == 0
         || route_view
         || plain_view
-        || site.is_directive(&["extends", "include", "includeIf", "component"]) && direct(0)
+        || site.is_directive(&["extends", "include", "includeIf", "includeIsolated", "component"]) && direct(0)
         || site.is_directive(&["includeWhen", "includeUnless"]) && direct(1)
-        || site.is_directive(&["includeFirst"]) && site.string_or_list(0)
+        || site.is_directive(&["includeFirst","extendsFirst"]) && site.string_or_list(0)
         || site.is_directive(&["each"]) && (direct(0) || direct(3))
     {
         return Some((Kind::View, None));
@@ -778,36 +778,36 @@ pub fn rule_list_at(language: &str, text: &str, at: usize) -> Option<usize> {
     found
 }
 
-/// The component or Livewire name of `<x-name` / `<livewire:name` at `at`.
-fn tag_reference(text: &str, at: usize) -> Option<Reference> {
-    let bytes = text.as_bytes();
-    let allowed = |b: u8| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_');
-
-    let mut start = at;
-    while start > 0 && allowed(bytes[start - 1]) {
-        start -= 1;
-    }
-    let mut end = at;
-    while end < bytes.len() && allowed(bytes[end]) {
-        end += 1;
-    }
-
-    // `x-` is part of the word scanned above, `livewire:` is not.
-    let is_component = text[start..end].starts_with("x-") && (text[..start].ends_with('<') || text[..start].ends_with("</"));
-    let kind = if is_component {
-        start += 2;
-        Kind::Component
-    } else if text[..start].ends_with("<livewire:") || text[..start].ends_with("</livewire:") {
-        Kind::Livewire
-    } else {
-        return None;
-    };
-
-    Some(Reference { kind, start, end, class: None, closed: true })
+/// Validate the literal Blade/Livewire tag spelling. One `::` namespace is
+/// allowed; a single `:` belongs to slots/attributes, never a component name.
+pub(crate) fn valid_tag_name(name:&str,partial:bool)->bool {
+    if partial&&name.is_empty(){return true;}
+    let part=|name:&str|!name.is_empty()&&name.bytes().all(|b|b.is_ascii_alphanumeric()||matches!(b,b'.'|b'-'|b'_'))&&name.split('.').all(|p|!p.is_empty());
+    if let Some((namespace,local))=name.split_once("::") {
+        part(namespace)&&!local.contains(':')&&(part(local)||partial&&(local.is_empty()||local.strip_suffix('.').is_some_and(&part)))
+    }else if partial&&name.ends_with(':')&&!name[..name.len()-1].contains(':') {
+        part(&name[..name.len()-1])
+    }else{part(name)||partial&&name.strip_suffix('.').is_some_and(&part)}
+}
+/// The complete component or Livewire token under the cursor, retaining its
+/// namespace for exact inventory lookups on both opening and closing tags.
+fn tag_reference(text:&str,at:usize)->Option<Reference>{
+    if at>text.len()||!text.is_char_boundary(at){return None;}
+    let visible=without_comments(text);if visible.len()!=text.len(){return None;}let bytes=visible.as_bytes();
+    let allowed=|b:u8|b.is_ascii_alphanumeric()||matches!(b,b'.'|b'-'|b'_'|b':');
+    let mut start=at;while start>0&&allowed(bytes[start-1]){start-=1;}
+    let mut end=at;while end<bytes.len()&&allowed(bytes[end]){end+=1;}
+    if !(visible[..start].ends_with('<')||visible[..start].ends_with("</")){return None;}
+    let raw=&visible[start..end];let(kind,prefix)=if raw.starts_with("x-"){(Kind::Component,2)}else if raw.starts_with("livewire:"){(Kind::Livewire,9)}else{return None;};
+    start+=prefix;let name=&visible[start..end];
+    if kind==Kind::Component&&(name=="slot"||name.starts_with("slot:")){return None;}
+    let complete=valid_tag_name(name,false);
+    if !complete&&!valid_tag_name(name,true){return None;}
+    Some(Reference{kind,start,end,class:None,closed:complete})
 }
 
 /// Blade and HTML comments blanked out, so the byte offsets stay the same.
-fn without_comments(text: &str) -> String {
+pub(crate) fn without_comments(text: &str) -> String {
     let Some(visible) = crate::blade_php::masked(text) else { return String::new(); };
     let mut out = visible.as_bytes().to_vec();
 
@@ -827,29 +827,27 @@ fn without_comments(text: &str) -> String {
     String::from_utf8(out).unwrap_or_default()
 }
 
-/// Every `<x-name` and `<livewire:name` of a Blade document, except the ones
-/// that live in a package namespace (`<x-package::name>`) or aren't names
-/// (`<x-slot:title>`, `<x-{{ $name }}>`).
-pub fn tag_references(text: &str) -> Vec<Reference> {
-    let masked = without_comments(text);
-    let bytes = masked.as_bytes();
-    let mut found = Vec::new();
-
-    for (prefix, kind) in [("<x-", Kind::Component), ("<livewire:", Kind::Livewire)] {
-        for (at, _) in masked.match_indices(prefix) {
-            let start = at + prefix.len();
-            let end = (start..bytes.len()).find(|&i| !(bytes[i].is_ascii_alphanumeric() || matches!(bytes[i], b'.' | b'-' | b'_'))).unwrap_or(bytes.len());
-
-            if end == start || bytes.get(end) == Some(&b':') || bytes.get(end) == Some(&b'{') {
-                continue;
-            }
-
-            found.push(Reference { kind, start, end, class: None, closed: true });
+/// Every literal opening/closing/self-closing Blade or Livewire component tag.
+/// Namespaces remain part of the name; slots, dynamic and malformed names stay out.
+pub fn tag_references(text:&str)->Vec<Reference>{
+    let masked=without_comments(text);let bytes=masked.as_bytes();let mut found=Vec::new();
+    for(prefix,kind)in [("<x-",Kind::Component),("</x-",Kind::Component),("<livewire:",Kind::Livewire),("</livewire:",Kind::Livewire)]{
+        for(at,_)in masked.match_indices(prefix){let start=at+prefix.len();let end=(start..bytes.len()).find(|&i|!(bytes[i].is_ascii_alphanumeric()||matches!(bytes[i],b'.'|b'-'|b'_'|b':'))).unwrap_or(bytes.len());
+            let name=&masked[start..end];if !valid_tag_name(name,false)||kind==Kind::Component&&(name=="slot"||name.starts_with("slot:"))||bytes.get(end)==Some(&b'{'){continue;}
+            found.push(Reference{kind,start,end,class:None,closed:true});
         }
     }
+    found.sort_by_key(|r|r.start);found
+}
 
-    found.sort_by_key(|r| r.start);
-    found
+/// Missing entries in ordered view fallback lists are expected, not errors.
+pub(crate) fn optional_view_fallback(language:&str,text:&str,at:usize)->bool{
+    let Some(from)=window_start(language,text,at)else{return false;};let mut optional=false;
+    walk(text,from,text.len(),true,false,|literal,site|{
+        if literal.start>at{return false;}
+        if at<=literal.end{optional=(site.is_directive(&["includeFirst","extendsFirst"])||site.is_static(&["View"],&["first"]))&&site.string_or_list(0);return false;}
+        true
+    });optional
 }
 
 /// The class of every `Class::factory(` call.
@@ -971,6 +969,21 @@ mod tests {
         assert_eq!(kind_at("php", "$x = 'it\\'s |here';"), None);
     }
 
+    #[test]
+    fn namespaced_component_tags_keep_the_whole_token_in_all_forms() {
+        let text="<x-ui::forms.card /><livewire:blog::counter></livewire:blog::counter></x-ui::forms.card>";
+        let refs=tag_references(text);assert_eq!(refs.iter().map(|r|&text[r.start..r.end]).collect::<Vec<_>>(),["ui::forms.card","blog::counter","blog::counter","ui::forms.card"]);
+        for reference in refs{for at in reference.start..reference.end{assert_eq!(reference_at("blade",text,at).map(|r|(r.start,r.end)),Some((reference.start,reference.end)));}}
+        for text in ["<x-slot:title>","<x-ui:card>","<x-ui:::card>","<livewire:blog::>","{{-- <x-ui::card> --}}","<!-- <livewire:blog::counter> -->","@php $x='<x-ui::card>'; @endphp"]{assert!(tag_references(text).is_empty(),"{text}");}
+        for text in ["<x-","<x-ui::","<livewire:blog::"]{let reference=reference_at("blade",text,text.len()).unwrap();assert!(!reference.closed);}
+    }
+    #[test]
+    fn optional_layout_and_isolated_include_literals_are_view_references() {
+        assert_eq!(kind_at("blade","@extendsFirst(['missing','layouts.a|pp'])"),some(Kind::View,"layouts.app"));
+        assert_eq!(kind_at("blade","@includeIsolated('parts.c|ard')"),some(Kind::View,"parts.card"));
+        for (language,text) in [("blade","@extendsFirst(['missing','layouts.app'])"),("blade","@includeFirst(['missing','parts.card'])"),("php","View::first(['missing','parts.card']);")]{assert!(optional_view_fallback(language,text,text.find("missing").unwrap()));}
+        assert!(!optional_view_fallback("blade","@include('missing')",12));
+    }
     #[test]
     fn detects_middleware_and_controllers() {
         assert_eq!(kind_at("php", "Route::get('/', fn() => 1)->middleware('thro|ttle:60,1');"), some(Kind::Middleware, "throttle"));

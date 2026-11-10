@@ -52,6 +52,12 @@ def assets(name):
     data['plugin-icons.js'] += 'window.uiKitViewTabs = Object.freeze(' + json.dumps(tabs, ensure_ascii=False) + ');\n'
     data['hub.html'] = data['hub.html'].replace('<script src="./native-icons.js">', '<script src="./plugin-icons.js"></script><script src="./native-icons.js">')
     functions = []
+    if name == 'laravel':
+        for script_name in ('generators', 'managed-processes'):
+            driver = package/'web'/f'{script_name}.js'
+            if driver.exists():
+                data[f'{script_name}.js'] = driver.read_text()
+                data['hub.html'] = data['hub.html'].replace('<script src="./legacy.js"></script>', f'<script src="./{script_name}.js"></script><script src="./legacy.js"></script>')
     if name == 'kube-explorer':
         page = (ROOT/'plugins/kube-explorer/src/page.html').read_text()
         script = re.search(r'<script>([\s\S]*?)</script>',page)

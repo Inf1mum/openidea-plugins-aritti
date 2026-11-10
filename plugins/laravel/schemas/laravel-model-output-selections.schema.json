@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:openidea:laravel:model-output-selections:v1",
+  "title": "Laravel native model output selection fragment",
+  "description": "Supplemental schema for output-selection properties on a native New Model draft. Other draft properties are validated by the plugin. Every selected name must belong to the same draft; this cross-reference validation is enforced natively. This is not a project generator configuration document.",
+  "type": "object",
+  "properties": {
+    "factoryFields": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "maxItems": 129,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+      },
+      "description": "Factory definition entries. Omitted/null selects all fields plus a manually generated primary key; [] selects none. Automatic increment/UUID/ULID keys cannot be selected."
+    },
+    "resourceFields": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "maxItems": 129,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+      },
+      "description": "Resource scalar entries. Omitted/null selects the primary key and all declared fields; [] selects none."
+    },
+    "resourceRelations": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+      },
+      "description": "Resource raw whenLoaded relation entries. Omitted/null selects every declared relation; [] selects none. No resource wrapper class names are accepted."
+    }
+  },
+  "additionalProperties": true
+}
