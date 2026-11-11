@@ -234,3 +234,19 @@ Upstream alternative stays open (ROADMAP line 14): a host schema API would repla
 | O1 | Entity-side snapshot alignment | Open (inspect the builder before P2) | |
 
 Next: P0 host spike (see parity/P0_SPIKE.md once written).
+
+## 10. P0 spike corrections (from parity/P0_SPIKE.md; apply during P1)
+
+Source: host source at v0.1.42 (cited in P0_SPIKE.md) plus local measurements with an H2 prototype (parity/spike/Helper.java). Docker was not running, so PostgreSQL/MySQL/MariaDB behavior is still unmeasured.
+
+- **D5 is moot.** `ui.input` and `tasks.begin` are WIT calls, not manifest capability strings; the manifest parser rejects unknown capability strings. Declare only `process:java` (optional, already present) and optionally `database.sources`.
+- **D4 needs reconfirmation.** There is no masked prompt: `host::input` shows what the user types in clear, and passwords cannot be read back from secrets or `database.sources`. The decision was "config first, else prompt"; the prompt echoes. Options: keep the prompt with explicit UX copy, or config/env placeholders only until the host adds a secret flag (upstream request for `l0ng-ai/openidea`).
+- **D2 recap.** `database.sources` accepts only sqlite, postgres, mysql, sqlServer, clickhouse and oracle (no MariaDB, H2 or Db2), writes `.openidea/data-sources.toml` into the project and never returns credentials. Approved as optional, but keep it out of P1.
+- **D7 consequence.** All six dialects need the helper's own driver handling; H2 is in scope only with a URL policy (file/tcp only, no `;` properties, read-only options that were NOT tested).
+- **Budget.** Every helper call must run under `begin_task` (otherwise 5 s total, less than a 5 s connect timeout plus about 0.45 s JVM launch). Set the helper `deadlineMs` below the host budget; connect timeout units differ per driver (seconds: pgjdbc, mssql; milliseconds: MySQL, MariaDB).
+- **Driver loading.** `DriverManager.getConnection` fails with "No suitable driver" under URLClassLoader source launch; call `Driver.connect` directly (measured). All six drivers loaded.
+- **Driver versions.** Do not pick the highest Maven Central version: mssql-jdbc and Db2 "release" resolve to preview/special builds. Prefer the version the project's build declares, otherwise the highest stable.
+- **Metadata.** Pass null table types and map vendor strings (H2 reports `BASE TABLE`); filter PK-backing and FK-backing indexes in the Rust mapper.
+- **Hygiene.** Never `eprintln!` request or response text (the host logs the plugin's Wasm stderr at info); scrub only passwords of 4+ characters; treat a response without a trailing newline or with invalid JSON as a protocol error. Measured: the password never appeared in argv, env, stdout or stderr.
+- **Platform.** The host applies no sandbox to children and does not log child stdin/stdout/stderr; cancel/timeout/reclaim kill the process group. Whether an orphaned JVM survives a `kill -9` of the IDE is unknown.
+- **Still unknown (need a real IDE session):** prompt echo and log capture, macOS `/usr/bin/java` stub with no JDK, stdin size cap, JVM network egress as a child of the IDE, real PostgreSQL/MySQL/MariaDB metadata and error codes.
