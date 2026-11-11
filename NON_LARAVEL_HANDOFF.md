@@ -24,7 +24,7 @@ Real isolated host smoke tests also rendered native/custom views and exercised P
 Committed: `9bed009` Tasks `generic` REST/Java-regex family (wired, 11 bridge tests, `adapters/GENERIC.md`); `7fabc9c` six small residuals; `2af50f2` report reclassification.
 - Closed: F14 OpenAPI generator JSON config import; F27 Dependency Audit ignore-profile export/import (safe-coordinate rows skipped); F33 Ignore Unicode unused-rule model (exact bytes; unprovable misses withheld); F42 Tasks owned Jira JQL via `jql:` prefix; F56 Initializr ZIP safe modes/mtime.
 - Partial: F50 Kubernetes label graph affinity/topology-spread links done; escaped-scalar edits open (parser gives no scalar end offsets).
-- Reclassified: F82 MVC template catalogue is LICENCE-BLOCKED (original is proprietary; clean-room only) and the multi-action marker popup is a HOST limit (`line-marker` has one target). F69 Modulith Kotlin descriptor and bean-completion warning are DEFERRED (no documented target file; completion has no bean type/module).
+- Reclassified: F82 MVC template catalogue is LICENCE-BLOCKED (original is proprietary; clean-room only) and the multi-action marker popup is a HOST limit (`line-marker` has one target). F69 Modulith Kotlin descriptor and bean-completion warning are DECIDED-SKIPPED by the user (no documented target file; completion has no bean type/module).
 - Bugzilla/Trac dropped by decision; no code exists.
 - Residual inventory: about 93 open of 98 counted (about 63 adapter, 19 host, 1 licence-blocked, 11 unverified). The counted F01–F98 table lives only in the session transcript; rebuild it from the family reports.
 - Not done: real-host smoke of Generic search/close and the new commands; no live tracker account; `deny_unknown_fields` now on dependency-audit's stored `Ignore` (forward-compat risk).
@@ -32,7 +32,7 @@ Committed: `9bed009` Tasks `generic` REST/Java-regex family (wired, 11 bridge te
 ## Next session
 
 1. Pick adapter work by family from the family reports' exact residual inventories. Do not infer closure from tests/counts or historical PARITY.md ratings. Medium candidates: Dependency Audit PyPI markers/workspace graph, OpenAPI remote catalog/Add actions, Helm/Kustomize refs, GitLab GFM/drafts, Ignore template controls.
-2. Decide F69 Kotlin behaviour (generate a `@PackageInfo` class, or keep refused) before touching it.
+2. F69 decided 2026-11-11: keep Kotlin absent-descriptor creation refused and skip the bean-completion module warning (no approximation). Do not revisit without a documented Modulith target file or a bean-candidate model.
 3. Keep genuine host limitations explicit: IDE datasource APIs, debugger/remote features, injected plugin-lexer rendering, multi-action markers, safe native indexed Rename policy. No API modifications are authorized.
 4. Run fresh validation after changes. Build the released CLI once: `cargo install --locked --git https://github.com/l0ng-ai/openidea --tag v0.1.40 --root /tmp/openidea-parity-tools ide-host --bin openidea-plugin`, then `python3 scripts/check-non-laravel-parity.py --cli /tmp/openidea-parity-tools/bin/openidea-plugin --output /tmp/parity-next --jobs 2` (the global `openidea-plugin` targets API 1.3; checker notes in `scripts/api14-package-checker/README.md`). Runtime harness: `scripts/runtime-smoke/README.md`. UI sync must use `--exclude laravel`.
 
