@@ -10,6 +10,16 @@ use spring_text::finding::Finding;
 pub fn check(text: &str) -> Vec<Finding> {
     model::check(text)
 }
+/// `check` plus findings that need the project: import closure bean refs and `mvc:resources` locations.
+pub(crate) fn check_in_project(doc: &Document) -> Vec<Finding> {
+    let mut out = check(&doc.text);
+    if let Some(project) = spring_text::index::project_of(&doc.path) {
+        let read = |p: &str| project.read_file(p).ok().filter(|t| t.len() <= 256 << 10);
+        let find = |glob: &str| project.find_files(glob, 200).ok();
+        out.extend(model::context_findings(&doc.path, &doc.text, &read, &find));
+    }
+    out
+}
 pub(crate) fn definition(doc: &Document, at: Position) -> Vec<Location> {
     model::definition(doc, at)
 }
@@ -201,5 +211,103 @@ mod tests {
     fn reference_absence_is_never_reported_as_missing_runtime_bean() {
         let d = doc("<m:annotation-driven validator='external'/>");
         assert!(check(&d.text).is_empty());
+    }
+
+    const ROOT: &str = "/p/src/main/resources/mvc.xml";
+    fn findings(
+        path: &str,
+        body: &str,
+        files: &[(&str, &str)],
+        listed: &[&str],
+    ) -> Vec<(&'static str, String)> {
+        let d = doc(body);
+        let files: Vec<(String, String)> = files
+            .iter()
+            .map(|(p, b)| (p.to_string(), doc(b).text))
+            .collect();
+        let read = |p: &str| files.iter().find(|f| f.0 == p).map(|f| f.1.clone());
+        let find = |g: &str| {
+            Some(if g == "**/*.xml" {
+                files.iter().map(|f| f.0.clone()).collect()
+            } else {
+                listed
+                    .iter()
+                    .filter(|l| g.trim_end_matches("/**").replace("**/", "") == l.to_string())
+                    .map(|l| l.to_string())
+                    .collect()
+            })
+        };
+        model::context_findings(path, &d.text, &read, &find)
+            .into_iter()
+            .map(|f| (f.code, d.text[f.start..f.end].to_string()))
+            .collect()
+    }
+    #[test]
+    fn imported_beans_resolve_through_classpath_relative_and_cyclic_imports() {
+        let main = "<b:import resource='classpath:a.xml'/><m:annotation-driven validator='v' conversion-service='c'/>";
+        let a = "<b:import resource='sub/b.xml'/><b:import resource='classpath:mvc.xml'/><b:bean id='v'/>";
+        let b = "<b:bean id='c'/>";
+        let files = [
+            ("/p/src/main/resources/a.xml", a),
+            ("/p/src/main/resources/sub/b.xml", b),
+        ];
+        assert!(findings(ROOT, main, &files, &[]).is_empty());
+        let none = findings(ROOT, main, &files[..1], &[]);
+        assert!(none.is_empty(), "unreadable import keeps the context unresolved");
+    }
+    #[test]
+    fn unknown_beans_are_reported_only_for_a_fully_resolved_closure() {
+        let body = "<m:annotation-driven validator='nope'/>";
+        let found = findings(ROOT, body, &[], &[]);
+        assert_eq!(found, [("mvc-xml-unknown-bean", "nope".to_string())]);
+        for quiet in [
+            "<b:import resource='http://x/y.xml'/>",
+            "<b:import resource='${cfg}.xml'/>",
+            "<b:import resource='missing.xml'/>",
+            "<b:import resource='/abs.xml'/>",
+        ] {
+            assert!(findings(ROOT, &format!("{quiet}{body}"), &[], &[]).is_empty(), "{quiet}");
+        }
+        let importer = [("/p/src/main/resources/root.xml", "<b:import resource='mvc.xml'/>")];
+        assert!(findings(ROOT, body, &importer, &[]).is_empty());
+        let foreign = format!("<x:component-scan xmlns:x='urn:ctx'/>{body}");
+        assert!(findings(ROOT, &foreign, &[], &[]).is_empty());
+    }
+    #[test]
+    fn beans_declared_only_inside_profile_blocks_are_reported_as_such() {
+        let body = "<b:beans profile='dev'><b:bean id='v'/></b:beans><b:beans profile='prod'><b:bean id='v'/><b:bean name='x, y'/></b:beans><m:annotation-driven validator='v' message-codes-resolver='x'/>";
+        let found = findings(ROOT, body, &[], &[]);
+        assert_eq!(found.len(), 2);
+        assert!(found.iter().all(|f| f.0 == "mvc-xml-bean-in-profile"));
+        let both = format!("<b:bean id='v'/>{body}");
+        assert_eq!(findings(ROOT, &both, &[], &[]).len(), 1);
+        let nested = "<b:beans profile='dev'><m:annotation-driven validator='v'/></b:beans><b:bean id='v'/>";
+        assert!(findings(ROOT, nested, &[], &[]).is_empty());
+        let imported = "<b:beans profile='dev'><b:import resource='a.xml'/></b:beans><m:annotation-driven validator='v'/>";
+        let a = [("/p/src/main/resources/a.xml", "<b:bean id='v'/>")];
+        assert_eq!(findings(ROOT, imported, &a, &[])[0].0, "mvc-xml-bean-in-profile");
+    }
+    #[test]
+    fn interceptor_refs_use_the_same_context() {
+        let body = "<m:interceptors><b:ref bean='gone'/></m:interceptors>";
+        assert_eq!(findings(ROOT, body, &[], &[])[0].0, "mvc-xml-unknown-bean");
+    }
+    #[test]
+    fn resource_locations_are_checked_against_resources_and_webapp_only_when_provable() {
+        let body = |l: &str| format!("<m:resources mapping='/s/**' location='{l}'/>");
+        let missing = findings(ROOT, &body("classpath:/static/, /assets/"), &[], &["src/main/resources/static"]);
+        assert_eq!(missing, [("mvc-xml-missing-resource-location", "/assets/".to_string())]);
+        assert!(findings(ROOT, &body("/assets/"), &[], &["src/main/webapp/assets"]).is_empty());
+        for quiet in [
+            "classpath:/META-INF/resources/webjars/",
+            "classpath*:/x/",
+            "file:/tmp/x/",
+            "classpath:/${dir}/",
+            "classpath:/st*/",
+            "/",
+        ] {
+            assert!(findings(ROOT, &body(quiet), &[], &[]).is_empty(), "{quiet}");
+        }
+        assert!(findings("/p/src/test/resources/mvc.xml", &body("classpath:/x/"), &[], &[]).is_empty());
     }
 }

@@ -17,6 +17,7 @@ mod batch_runtime;
 mod batch_launch;
 mod java_hover;
 mod source_scope;
+mod contexts;
 mod dsl_flows;
 
 mod source_provenance;
@@ -65,6 +66,8 @@ pub enum Role {
     BeanCandidate,
     /// An XML `ref` to a bean.
     BeanRef,
+    /// Context graph fact (`contexts`): an import/scan edge, a declared type, or an unprovable edge.
+    Edge,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -163,6 +166,14 @@ fn dsl_factory_owned(file:&spring_text::java::JavaFile,text:&str,call:&spring_te
 }
 
 fn parse_source(path: &str, text: &str) -> Vec<Ref> {
+    let mut out=parse_source_refs(path,text);
+    if text.len()>512*1024 {return out;}
+    let file=spring_text::parse_source(path,text);
+    let edges=contexts::source_edges(path,&file,text);
+    if !out.is_empty() || !edges.is_empty() {out.extend(edges);out.extend(contexts::source_types(&file));}
+    out
+}
+fn parse_source_refs(path: &str, text: &str) -> Vec<Ref> {
     if text.len()>512*1024 {return vec![Ref{name:String::new(),role:Role::BeanCandidate,what:"Source exceeds admission bound".into(),range:Range::default(),checked:false,owner:0}];}
     let file = spring_text::parse_source(path, text);
     let mut out = Vec::new();
@@ -271,6 +282,7 @@ fn parse_xml(text: &str) -> Vec<Ref> {
             }
         }
     }
+    out.extend(contexts::xml_edges(&els,text));
     if !text.contains(NAMESPACE) {
         return out;
     }
@@ -342,6 +354,16 @@ fn others<'a>(index: &'a Index<Vec<Ref>>, doc: &Document, r: &Ref, roles: &[Role
     all(index).filter(|(p, x)| roles.contains(&x.role) && x.name == r.name && !(*p == doc.path && x.range == r.range)).collect()
 }
 
+/// Where `r` is declared: beans for a bean reference, else channel declarations, else consumers.
+fn definitions<'a>(index: &'a Index<Vec<Ref>>, doc: &Document, r: &Ref) -> Vec<(&'a str, &'a Ref)> {
+    match r.role {
+        Role::BeanRef => others(index, doc, r, &[Role::Bean]),
+        _ => Some(others(index, doc, r, &[Role::Declares]))
+            .filter(|d| !d.is_empty())
+            .unwrap_or_else(|| others(index, doc, r, &[Role::Consumes])),
+    }
+}
+
 fn location((path, r): (&str, &Ref)) -> Location {
     Location { path: path.into(), range: r.range }
 }
@@ -387,6 +409,16 @@ fn problems(index: &Index<Vec<Ref>>, doc: &Document) -> Vec<Diagnostic> {
         return Vec::new();
     }
     let known = |name: &str, roles: &[Role]| all(index).any(|(_, x)| x.name == name && roles.contains(&x.role));
+    let contexts = contexts::build(index);
+    let provenance = here(index, doc).iter().filter(|r| matches!(r.role, Role::Consumes | Role::Produces | Role::BeanRef)).filter(|r| !r.name.is_empty() && !beans::is_expression(&r.name)).filter_map(|r| {
+        let (found, contexts_spanned) = contexts.scope(&doc.path, definitions(index, doc, r));
+        if contexts_spanned < 2 {
+            return None;
+        }
+        let files: BTreeSet<&str> = found.iter().map(|(p, _)| file_name(p)).collect();
+        let message = format!("'{}' is defined in {contexts_spanned} contexts ({}); this file belongs to all of them.", r.name, files.into_iter().collect::<Vec<_>>().join(", "));
+        Some(Diagnostic::new(r.range, Severity::Info, message).code("multi-context-definition"))
+    }).collect::<Vec<_>>();
     here(index, doc)
         .iter()
         .filter(|r| r.checked && !r.name.is_empty() && !beans::is_expression(&r.name))
@@ -407,6 +439,7 @@ fn problems(index: &Index<Vec<Ref>>, doc: &Document) -> Vec<Diagnostic> {
             };
             Some(Diagnostic::new(r.range, Severity::Warning, message).code(code))
         })
+        .chain(provenance)
         .collect()
 }
 
@@ -446,12 +479,7 @@ impl Providers for Integration {
         let Some(r) = here(index, doc).iter().find(|r| contains(r.range, at) && matches!(r.role,Role::Declares|Role::Consumes|Role::Produces|Role::BeanRef) && !r.name.is_empty()) else {
             return Vec::new();
         };
-        let found = match r.role {
-            Role::BeanRef => others(index, doc, r, &[Role::Bean]),
-            _ => Some(others(index, doc, r, &[Role::Declares]))
-                .filter(|d| !d.is_empty())
-                .unwrap_or_else(|| others(index, doc, r, &[Role::Consumes])),
-        };
+        let (found, _) = contexts::build(index).scope(&doc.path, definitions(index, doc, r));
         found.into_iter().map(location).collect()
     }
 
@@ -460,12 +488,14 @@ impl Providers for Integration {
             return Vec::new();
         };
         let mut markers = Vec::new();
+        let contexts = contexts::build(index);
         for r in here(index, doc).iter().filter(|r| !r.name.is_empty()) {
             let (found, title) = match r.role {
                 Role::Consumes => (others(index, doc, r, &[Role::Produces]), format!("Sent to '{}' by", r.name)),
                 Role::Produces => (others(index, doc, r, &[Role::Consumes]), format!("'{}' is consumed by", r.name)),
                 _ => continue,
             };
+            let (found, _) = contexts.scope(&doc.path, found);
             let Some(&first) = found.first() else {
                 continue;
             };
@@ -735,6 +765,28 @@ interface OrderGateway {
         assert_eq!(names(&xml, Role::Produces), ["lost", "quoted"]);
         assert_eq!(names(&xml, Role::BeanRef), ["billing", "mailer"]);
         assert!(parse(XML_PATH, "<beans><int:channel id=\"x\"/></beans>").iter().all(|reference|reference.role==Role::BeanCandidate));
+    }
+
+    #[test]
+    fn global_usages_resolve_in_effective_contexts() {
+        let host = MockHost::install();
+        let head = "<beans xmlns=\"http://www.springframework.org/schema/beans\" xmlns:int=\"http://www.springframework.org/schema/integration\">";
+        let root = |d: &str| format!("{head}<import resource=\"shared.xml\"/><import resource=\"{d}.xml\"/></beans>");
+        let decl = format!("{head}<int:channel id=\"c\"/></beans>");
+        let shared = format!("{head}<int:bridge input-channel=\"in\" output-channel=\"c\"/></beans>");
+        let unrelated = format!("{head}<int:channel id=\"c\"/></beans>");
+        let base = "/project/src/main/resources/";
+        for (n, t) in [("a.xml", root("da")), ("b.xml", root("db")), ("da.xml", decl.clone()), ("db.xml", decl), ("shared.xml", shared.clone()), ("other.xml", unrelated), ("c.xml", root("dc")), ("dc.xml", shared.replace("<int:bridge input-channel=\"in\" output-channel=\"c\"/>", "<int:channel id=\"c\"/>"))] {
+            host.add_file(&format!("{base}{n}"), &t);
+        }
+        let mut p = Integration::default();
+        let path = format!("{base}shared.xml");
+        let found = p.definition(&doc(&path, &shared), at(&shared, "\"c\"/>"));
+        let paths: BTreeSet<&str> = found.iter().map(|l| l.path.as_str()).collect();
+        assert!(paths.iter().any(|x| x.ends_with("da.xml")) && paths.iter().any(|x| x.ends_with("db.xml")), "{paths:?}");
+        assert!(paths.iter().any(|x| x.ends_with("other.xml")), "unowned files stay visible: {paths:?}");
+        let diagnostics = p.index(&doc(&path, &shared)).map(|i| problems(i, &doc(&path, &shared))).unwrap_or_default();
+        assert!(diagnostics.iter().any(|d| d.code.as_deref() == Some("multi-context-definition") && d.message.contains("3 contexts")), "{diagnostics:?}");
     }
 
     #[test]

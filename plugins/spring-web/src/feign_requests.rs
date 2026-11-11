@@ -353,6 +353,14 @@ fn requests(doc: &Document) -> Vec<Request> {
     let f = parse_source(&doc.path, &doc.text);
     let mut out = vec![];
     for (i, ty) in f.types.iter().enumerate() {
+        if let Some(found) = exchange_requests(&f, doc, i) {
+            out.extend(found);
+            if out.len() >= 128 {
+                out.truncate(128);
+                return out;
+            }
+            continue;
+        }
         if ty.kind != "interface"
             || ty.supers().next().is_some()
             || ty.annotations.len() != 1
@@ -537,119 +545,10 @@ fn requests(doc: &Document) -> Vec<Request> {
             {
                 continue;
             }
-            let mut bindings = vec![];
-            let mut bound = BTreeSet::new();
-            let mut actual_paths = BTreeSet::new();
-            let mut bodies = 0;
-            for param in &method.params {
-                if param.annotations.len() != 1
-                    || param.ty.array
-                    || !param.ty.args.is_empty()
-                    || [
-                        "Map",
-                        "List",
-                        "Set",
-                        "Collection",
-                        "MultiValueMap",
-                        "Optional",
-                    ]
-                    .contains(&param.ty.name.as_str())
-                {
-                    valid = false;
-                    break;
-                }
-                let binding = &param.annotations[0];
-                let kind = match binding.name.as_str() {
-                    "PathVariable" => "path",
-                    "RequestParam" => "query",
-                    "RequestHeader" => "header",
-                    "RequestBody" => "body",
-                    _ => {
-                        valid = false;
-                        break;
-                    }
-                };
-                if !owned(
-                    &f,
-                    &doc.text,
-                    binding,
-                    &format!("org.springframework.web.bind.annotation.{}", binding.name),
-                ) {
-                    valid = false;
-                    break;
-                }
-                if binding.args.iter().any(|a| {
-                    binding
-                        .args
-                        .iter()
-                        .filter(|other| other.name == a.name)
-                        .count()
-                        > 1
-                }) || binding.args.iter().any(|a| {
-                    if kind == "body" {
-                        a.name != "required"
-                    } else if kind == "path" {
-                        !["name", "value", "required"].contains(&a.name.as_str())
-                    } else {
-                        !["name", "value", "required", "defaultValue"].contains(&a.name.as_str())
-                    }
-                }) {
-                    valid = false;
-                    break;
-                }
-                let Some(name) = alias(binding, "name", "value", &doc.text).map(|s| {
-                    s.filter(|s| !s.is_empty())
-                        .unwrap_or_else(|| param.name.clone())
-                }) else {
-                    valid = false;
-                    break;
-                };
-                if kind != "body" && !identifier(&name)
-                    || kind == "header"
-                        && (!token(&name)
-                            || [
-                                "host",
-                                "content-length",
-                                "connection",
-                                "transfer-encoding",
-                                "content-type",
-                                "accept",
-                            ]
-                            .contains(&name.to_ascii_lowercase().as_str()))
-                {
-                    valid = false;
-                    break;
-                }
-                if !bound.insert((
-                    kind,
-                    if kind == "header" {
-                        name.to_ascii_lowercase()
-                    } else {
-                        name.clone()
-                    },
-                )) {
-                    valid = false;
-                    break;
-                }
-                if kind == "path" {
-                    actual_paths.insert(name.clone());
-                }
-                if kind == "body" {
-                    bodies += 1;
-                }
-                if kind == "query" && query.contains_key(&name)
-                    || kind == "header" && headers.contains_key(&name.to_ascii_lowercase())
-                {
-                    valid = false;
-                    break;
-                }
-                bindings.push(Binding {
-                    kind,
-                    name,
-                    sample: sample(param),
-                });
-            }
-            if !valid || actual_paths != path_names || bodies > 1 {
+            let Some(bindings) = bind(&f, &doc.text, method, &query, &headers, &path_names) else {
+                continue;
+            };
+            if !valid {
                 continue;
             }
             out.push(Request {
@@ -672,6 +571,233 @@ fn requests(doc: &Document) -> Vec<Request> {
         }
     }
     out
+}
+fn bind(
+    f: &JavaFile,
+    text: &str,
+    method: &java::Member,
+    query: &BTreeMap<String, Option<String>>,
+    headers: &BTreeMap<String, (String, String)>,
+    path_names: &BTreeSet<String>,
+) -> Option<Vec<Binding>> {
+    let mut bindings = vec![];
+    let mut bound = BTreeSet::new();
+    let mut actual_paths = BTreeSet::new();
+    let mut bodies = 0;
+    for param in &method.params {
+        if param.annotations.len() != 1
+            || param.ty.array
+            || !param.ty.args.is_empty()
+            || [
+                "Map",
+                "List",
+                "Set",
+                "Collection",
+                "MultiValueMap",
+                "Optional",
+            ]
+            .contains(&param.ty.name.as_str())
+        {
+            return None;
+        }
+        let binding = &param.annotations[0];
+        let kind = match binding.name.as_str() {
+            "PathVariable" => "path",
+            "RequestParam" => "query",
+            "RequestHeader" => "header",
+            "RequestBody" => "body",
+            _ => {
+                return None;
+            }
+        };
+        if !owned(
+            f,
+            text,
+            binding,
+            &format!("org.springframework.web.bind.annotation.{}", binding.name),
+        ) {
+            return None;
+        }
+        if binding.args.iter().any(|a| {
+            binding
+                .args
+                .iter()
+                .filter(|other| other.name == a.name)
+                .count()
+                > 1
+        }) || binding.args.iter().any(|a| {
+            if kind == "body" {
+                a.name != "required"
+            } else if kind == "path" {
+                !["name", "value", "required"].contains(&a.name.as_str())
+            } else {
+                !["name", "value", "required", "defaultValue"].contains(&a.name.as_str())
+            }
+        }) {
+            return None;
+        }
+        let Some(name) = alias(binding, "name", "value", text).map(|s| {
+            s.filter(|s| !s.is_empty())
+                .unwrap_or_else(|| param.name.clone())
+        }) else {
+            return None;
+        };
+        if kind != "body" && !identifier(&name)
+            || kind == "header"
+                && (!token(&name)
+                    || [
+                        "host",
+                        "content-length",
+                        "connection",
+                        "transfer-encoding",
+                        "content-type",
+                        "accept",
+                    ]
+                    .contains(&name.to_ascii_lowercase().as_str()))
+        {
+            return None;
+        }
+        if !bound.insert((
+            kind,
+            if kind == "header" {
+                name.to_ascii_lowercase()
+            } else {
+                name.clone()
+            },
+        )) {
+            return None;
+        }
+        if kind == "path" {
+            actual_paths.insert(name.clone());
+        }
+        if kind == "body" {
+            bodies += 1;
+        }
+        if kind == "query" && query.contains_key(&name)
+            || kind == "header" && headers.contains_key(&name.to_ascii_lowercase())
+        {
+            return None;
+        }
+        bindings.push(Binding {
+            kind,
+            name,
+            sample: sample(param),
+        });
+    }
+    (actual_paths == *path_names && bodies <= 1).then_some(bindings)
+}
+const EXCHANGE: &str = "org.springframework.web.service.annotation";
+struct Exchange {
+    verb: Option<String>,
+    url: String,
+    content_type: Option<String>,
+    accept: Vec<String>,
+}
+fn exchange_fields(f: &JavaFile, text: &str, a: &Annotation, fixed: Option<&str>) -> Option<Exchange> {
+    let method_ok = fixed.is_none() || a.arg("method").is_none();
+    if !method_ok
+        || !owned(f, text, a, &format!("{EXCHANGE}.{}", a.name))
+        || a.args.iter().any(|x| !["value", "url", "method", "contentType", "accept"].contains(&x.name.as_str()))
+    {
+        return None;
+    }
+    let verb = match fixed {
+        Some(v) => Some(v.to_owned()),
+        None => one(a, "method", text)?.filter(|v| !v.is_empty()),
+    };
+    let accept = values(a, "accept", text).filter(|v| v.iter().all(|s| media(s, true)))?;
+    let content_type = one(a, "contentType", text)?.filter(|c| !c.is_empty());
+    if content_type.as_deref().is_some_and(|c| !media(c, false)) {
+        return None;
+    }
+    Some(Exchange { verb, url: alias(a, "value", "url", text)?.unwrap_or_default(), content_type, accept })
+}
+/// Spring Framework 6 `@HttpExchange` interface clients; `None` when the type is not one.
+fn exchange_requests(f: &JavaFile, doc: &Document, i: usize) -> Option<Vec<Request>> {
+    let ty = &f.types[i];
+    let fixed = |n: &str| {
+        Some(match n {
+            "GetExchange" => "GET",
+            "PostExchange" => "POST",
+            "PutExchange" => "PUT",
+            "PatchExchange" => "PATCH",
+            "DeleteExchange" => "DELETE",
+            _ => return None,
+        })
+    };
+    if ty.kind != "interface"
+        || ty.supers().next().is_some()
+        || ty.annotations.len() > 1
+        || !ty.annotations.iter().all(|a| a.name == "HttpExchange")
+        || !ty.methods().any(|m| m.annotations.iter().any(|a| a.name == "HttpExchange" || fixed(&a.name).is_some()))
+    {
+        return None;
+    }
+    let mut out = vec![];
+    let class = match ty.annotations.first() {
+        Some(a) => match exchange_fields(f, &doc.text, a, None) {
+            Some(c) => c,
+            None => return Some(out),
+        },
+        None => Exchange { verb: None, url: String::new(), content_type: None, accept: vec![] },
+    };
+    let (base, prefix) = match class.url.split_once("://") {
+        Some((scheme, rest)) => {
+            let end = rest.find('/').unwrap_or(rest.len());
+            let origin_text = format!("{scheme}://{}", &rest[..end]);
+            if !matches!(scheme, "http" | "https") || !origin(&origin_text) {
+                return Some(out);
+            }
+            (Some(origin_text), rest[end..].to_owned())
+        }
+        None => (None, class.url.clone()),
+    };
+    let name = ty.name.clone();
+    let qualified = f.qualified(i);
+    for method in ty.methods() {
+        if method.body.is_some()
+            || method.modifiers.iter().any(|m| matches!(m.as_str(), "static" | "default"))
+            || method.params.len() > 32
+            || method.annotations.len() != 1
+        {
+            continue;
+        }
+        let a = &method.annotations[0];
+        let kind = fixed(&a.name);
+        if kind.is_none() && a.name != "HttpExchange" {
+            continue;
+        }
+        let Some(m) = exchange_fields(f, &doc.text, a, kind) else { continue };
+        let Some(verb) = m.verb.or_else(|| class.verb.clone()) else { continue };
+        let verb = verb.to_ascii_uppercase();
+        if !["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"].contains(&verb.as_str()) || m.url.contains("://") {
+            continue;
+        }
+        let request_path = java::join_paths(&prefix, &m.url);
+        let Some(path_names) = path(&request_path, true).then(|| names(&request_path)).flatten() else { continue };
+        let consumes = m.content_type.or_else(|| class.content_type.clone());
+        let produces = if m.accept.is_empty() { class.accept.clone() } else { m.accept };
+        let Some(bindings) = bind(f, &doc.text, method, &BTreeMap::new(), &BTreeMap::new(), &path_names) else { continue };
+        let form = consumes.as_deref().is_some_and(|c| c.eq_ignore_ascii_case("application/x-www-form-urlencoded"));
+        if form && bindings.iter().any(|b| b.kind == "query") {
+            continue;
+        }
+        out.push(Request {
+            source: doc.path.clone(),
+            client: format!("{name} ({qualified})"),
+            member: method.name.clone(),
+            method: verb,
+            path: request_path,
+            origin: base.clone(),
+            range: range(&doc.text, method.at, method.at + method.name.len()),
+            bindings,
+            query: BTreeMap::new(),
+            headers: BTreeMap::new(),
+            consumes,
+            produces: produces.into_iter().filter(|s| !s.is_empty()).collect(),
+        });
+    }
+    Some(out)
 }
 fn digest(text: &str) -> String {
     use std::hash::{Hash, Hasher};
@@ -1031,6 +1157,19 @@ mod tests {
         ] {
             h.answer_next_prompt(Some(&[value]));
         }
+    }
+    #[test]
+    fn http_exchange_interface_requests_join_class_prefix_and_stay_literal() {
+        let src = "import org.springframework.web.service.annotation.HttpExchange; import org.springframework.web.service.annotation.GetExchange; import org.springframework.web.service.annotation.PatchExchange; import org.springframework.web.service.annotation.PostExchange; import org.springframework.web.bind.annotation.*; @HttpExchange(url=\"https://api.example/repos/{owner}\", accept=\"application/json\") interface Repos { @GetExchange(\"/{repo}\") String get(@PathVariable String owner, @PathVariable(\"repo\") String r, @RequestParam int page, @RequestHeader(\"X-T\") String t); @PatchExchange(url=\"/x\", contentType=\"application/json\") void patch(@PathVariable String owner, @RequestBody String b); @PostExchange(\"/f\", contentType=\"application/x-www-form-urlencoded\") void form(@PathVariable String owner, @RequestParam String q); @GetExchange(URL) void dyn(@PathVariable String owner); @GetExchange(\"/m\") void missing(); }";
+        let model = requests(&doc(src));
+        let got: Vec<_> = model.iter().map(|r| (r.member.as_str(), r.method.as_str(), r.path.as_str())).collect();
+        assert_eq!(got, [("get", "GET", "/repos/{owner}/{repo}"), ("patch", "PATCH", "/repos/{owner}/x")]);
+        assert_eq!(model[0].origin.as_deref(), Some("https://api.example"));
+        assert_eq!(model[0].produces, ["application/json"]);
+        assert_eq!(model[1].consumes.as_deref(), Some("application/json"));
+        assert_eq!(model[0].bindings.len(), 4);
+        let foreign = src.replace("org.springframework.web.service.annotation.", "com.acme.");
+        assert!(requests(&doc(&foreign)).is_empty());
     }
     #[test]
     fn literal_client_request_lens_reviews_samples_and_never_publishes_a_server_route() {

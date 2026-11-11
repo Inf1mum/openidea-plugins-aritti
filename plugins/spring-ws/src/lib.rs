@@ -13,6 +13,7 @@ mod resource_paths;
 mod annotation_owners;
 mod schema_qnames;
 mod xml_refs;
+mod wsdl_qnames;
 mod xml_contracts;
 mod typed_xml;
 mod xml_resources;
@@ -534,6 +535,8 @@ impl Providers for WsTools {
             if let Some((path, _)) = xml_resources::references(doc).into_iter().find(|(_, r)| r.start <= at && at < r.end) {
                 return self.cached_resource_definition(doc, &path);
             }
+            let wsdl = wsdl_qnames::definition(doc, at);
+            if !wsdl.is_empty() { return wsdl; }
             let local = xml_refs::definition(doc, at);
             if !local.is_empty() { return local; }
             let Some((path, _)) = sws_resources(&doc.text).into_iter().find(|(_, location)| contains(*location, at)) else {
@@ -606,6 +609,7 @@ impl DiagnosticsProvider for WsTools {
     fn diagnostics(&mut self, doc: &Document) -> Vec<Diagnostic> {
         if doc.language == "xml" {
             let mut problems=xml_contracts::diagnostics(doc);
+            problems.extend(wsdl_qnames::diagnostics(doc));
             // Current unsaved schema facts update only this cached file; no scan.
             let Some(index) = self.schemas.for_cached_document(&doc.path, &doc.text) else {
                 return problems;

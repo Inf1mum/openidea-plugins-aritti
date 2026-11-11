@@ -14,7 +14,7 @@ pub(crate) fn local(value: &str) -> bool {
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
 }
-fn namespace(value: &str) -> bool {
+pub(crate) fn namespace(value: &str) -> bool {
     value.len() <= 1024
         && !value.chars().any(|c| c.is_control() || c.is_whitespace())
         && !value.contains(['&', '\\', '"'])

@@ -197,7 +197,7 @@ impl DiagnosticsProvider for Endpoints {
         let mut out = Vec::new();
         if applicable.web && WEB_LANGUAGES.contains(&doc.language.as_str()) {
             if is_xml(doc) {
-                out.extend(xml_checks::check(&doc.text).iter().map(|f| f.diagnostic(&doc.text)));
+                out.extend(xml_checks::check_in_project(doc).iter().map(|f| f.diagnostic(&doc.text)));
             } else {
                 out.extend(problems(doc).into_iter().map(|p| p.diagnostic));
                 let (configured, standard, inserter_missing) = match self.web.versioning.for_cached_document(&doc.path, &doc.text) {

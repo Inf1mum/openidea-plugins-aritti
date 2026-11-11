@@ -130,10 +130,16 @@ fn edit(text: &str, from: usize, to: usize, new: &str) -> TextEdit {
 }
 
 fn role_prefix(text: &str, at: usize, role: &str) -> Problem {
-    let message = format!("Role literal `ROLE_{role}` depends on the receiver and configured role prefix. Review framework semantics before changing this spelling.");
+    let message = format!(
+        "`hasRole`/`hasAnyRole` throw IllegalArgumentException (`ROLE_{role} should not start with ROLE_ …`) when the default `ROLE_` prefix applies: write `{role}`, or use `hasAuthority(\"ROLE_{role}\")`."
+    );
     Problem {
         diagnostic: problem(text, at, at + ROLE_PREFIX.len() + role.len(), Severity::Warning, "role-prefix", message),
     }
+}
+
+fn spel_role_prefix_message(role: &str) -> String {
+    format!("The SpEL `hasRole`/`hasAnyRole` strip a leading `ROLE_` with the default prefix, so this works, but `{role}` is the documented spelling.")
 }
 
 /// Quotes or parentheses left open in a SpEL expression.
@@ -212,8 +218,7 @@ fn expression_problems(expr: &str) -> Vec<(usize, usize, &'static str, Severity,
     }
     for (at, role) in spel_roles(expr) {
         if let Some(bare) = role.strip_prefix(ROLE_PREFIX) {
-            let message = format!("hasRole and hasAnyRole add the `ROLE_` prefix themselves: write `{bare}`.");
-            out.push((at, at + role.len(), "role-prefix", Severity::Warning, message));
+            out.push((at, at + role.len(), "role-prefix", Severity::Info, spel_role_prefix_message(bare)));
         }
     }
     out.sort_by_key(|p| p.0);
@@ -428,6 +433,7 @@ struct Rule {
     method: Option<String>,
     /// Ant-style literal patterns: start, end (inside the quotes), value.
     patterns: Vec<(usize, usize, String)>,
+    access: Option<String>,
 }
 
 /// The `HttpMethod` and the literal patterns that start an argument list; stops at the first dynamic argument.
@@ -464,6 +470,17 @@ fn pattern_covers(broad: &str, narrow: &str) -> bool {
     prefix.ends_with('/') && !prefix.contains(['*', '?', '{']) && (narrow.starts_with(prefix) || narrow == prefix.trim_end_matches('/'))
 }
 
+/// The access call chained right after a matcher call, such as `permitAll()` or `hasRole("X")`.
+fn chained_access(text: &str, code: &str, from: usize) -> Option<String> {
+    let rest = code.get(from..)?.trim_start().strip_prefix('.')?;
+    let start = code.len() - rest.len();
+    let name_end = start + rest.find(|c: char| !(c.is_alphanumeric() || c == '_'))?;
+    let after = code[name_end..].trim_start();
+    let open = code.len() - after.len();
+    let end = if after.starts_with('(') { closing(code, open) + 1 } else { name_end };
+    Some(text[start..end].split_whitespace().collect::<Vec<_>>().join(" "))
+}
+
 /// The rules of one `authorizeHttpRequests`/`authorizeRequests` configuration, in source order.
 fn rules_in(text: &str, code: &str, kotlin: bool, scope: (usize, usize)) -> Vec<Rule> {
     let mut out = Vec::new();
@@ -482,20 +499,24 @@ fn rules_in(text: &str, code: &str, kotlin: bool, scope: (usize, usize)) -> Vec<
             let close = closing(code, open);
             (close, argument_ranges(code, open, close))
         };
-        let rule = |any_request: bool, method, patterns| Rule { at: i, name_end: end, any_request, method, patterns };
+        let rule = |any_request: bool, method, patterns| Rule { at: i, name_end: end, any_request, method, patterns, access: None };
         if name == "anyRequest" {
             out.push(rule(true, None, Vec::new()));
         } else if has_args && MATCHER_CALLS.contains(&name) {
-            let (_, ranges) = args();
+            let (close, ranges) = args();
             let (method, patterns) = if name == "regexMatchers" { (None, Vec::new()) } else { leading_patterns(text, &ranges) };
-            out.push(rule(false, method, patterns));
+            let mut matcher = rule(false, method, patterns);
+            matcher.access = chained_access(text, code, close + 1);
+            out.push(matcher);
         } else if kotlin && has_args && name == "authorize" {
             let (close, ranges) = args();
             if ranges.first().is_some_and(|r| text[trimmed(text, *r).0..trimmed(text, *r).1] == *"anyRequest") {
                 out.push(rule(true, None, Vec::new()));
             } else {
                 let (method, patterns) = leading_patterns(text, &ranges);
-                out.push(rule(false, method, patterns));
+                let mut matcher = rule(false, method, patterns);
+                matcher.access = ranges.get(1).map(|r| text[trimmed(text, *r).0..trimmed(text, *r).1].to_owned());
+                out.push(matcher);
             }
             i = close;
             continue;
@@ -530,7 +551,7 @@ fn matcher_problems(text: &str, code: &str, kotlin: bool) -> Vec<Problem> {
             let rules = rules_in(text, code, kotlin, scope);
             for rule in &rules {
                 if any_request {
-                    let message = "Spring Security rejects this at startup: `anyRequest()` must be the last rule, nothing can follow it.";
+                    let message = "Spring Security throws IllegalStateException at startup (`Can't configure requestMatchers after anyRequest`): `anyRequest()` must be the last rule.";
                     warn(rule.at, rule.name_end, "matchers-after-any-request", message.to_owned());
                     continue;
                 }
@@ -541,10 +562,16 @@ fn matcher_problems(text: &str, code: &str, kotlin: bool) -> Vec<Problem> {
                             && e.patterns.iter().any(|(_, _, broad)| pattern_covers(broad, pattern))
                     });
                     if let Some(first) = covering.and_then(|e| e.patterns.iter().find(|(_, _, broad)| pattern_covers(broad, pattern))) {
-                        let message = format!(
-                            "`{pattern}` is never reached: the earlier rule for `{}` already matches it. Put the narrower pattern first.",
-                            first.2
-                        );
+                        let earlier_access = covering.and_then(|e| e.access.as_deref());
+                        let message = match (earlier_access, rule.access.as_deref()) {
+                            (Some(first_access), Some(later)) if first.2 == *pattern && first_access != later => format!(
+                                "`{pattern}` is matched twice with conflicting access: the earlier `{first_access}` wins and the later `{later}` is unreachable."
+                            ),
+                            _ => format!(
+                                "`{pattern}` is never reached: the earlier rule for `{}` already matches it. Put the narrower pattern first.",
+                                first.2
+                            ),
+                        };
                         warn(*from, *to, "matcher-order", message);
                     }
                 }
@@ -647,12 +674,16 @@ fn problems(path: &str, text: &str) -> Vec<Problem> {
             for s in a.strings(&["value"]).into_iter().filter(|s| s.value.len() == s.end - s.at) {
                 for (at, role) in spel_roles(&s.value) {
                     if let Some(bare) = role.strip_prefix(ROLE_PREFIX) {
-                        out.push(role_prefix(text, s.at + at, bare));
+                        let mut found = role_prefix(text, s.at + at, bare);
+                        found.diagnostic.severity = Severity::Info;
+                        found.diagnostic.message = spel_role_prefix_message(bare);
+                        out.push(found);
                     }
                 }
             }
         }
     }
+    out.extend(disabled_method_annotations(text, &file));
     let security = file.imports.iter().any(|i| i.path.starts_with("org.springframework.security"));
     out.extend(method_expression_problems(text, &file));
     for c in spring_text::source_calls(path, text) {
@@ -763,6 +794,26 @@ fn spel_variables(expr: &str) -> Vec<(usize, &str)> {
             None => {}
         }
         i += 1;
+    }
+    out
+}
+
+/// `@Secured`/`@RolesAllowed` next to an `@EnableMethodSecurity` of the same file that leaves their switch at its default `false`.
+fn disabled_method_annotations(text: &str, file: &JavaFile) -> Vec<Problem> {
+    let methods: Vec<&Annotation> = annotations(file).filter(|a| a.name == "EnableMethodSecurity").collect();
+    let switched_on = |switch: &str| methods.iter().any(|e| e.arg(switch).is_some_and(|v| v.text.trim() != "false"));
+    let mut out = Vec::new();
+    for a in annotations(file) {
+        let (switch, label) = match a.name.as_str() {
+            "Secured" => ("securedEnabled", "@Secured"),
+            "RolesAllowed" => ("jsr250Enabled", "@RolesAllowed"),
+            _ => continue,
+        };
+        if methods.is_empty() || switched_on(switch) {
+            continue;
+        }
+        let message = format!("{label} is ignored unless `@EnableMethodSecurity({switch} = true)`: it defaults to false.");
+        out.push(Problem { diagnostic: problem(text, a.at, a.end, Severity::Info, "method-security-disabled", message) });
     }
     out
 }
@@ -1366,6 +1417,48 @@ class SecurityConfig : WebSecurityConfigurerAdapter() {
         assert_eq!(run("@PreAuthorize(\"hasRole('A'\")\nvoid f() {}", "unbalanced-expression"), ["hasRole('A'"]);
         assert_eq!(run("@PreAuthorize(\"hasRole()\")\nvoid f() {}", "empty-security-function"), ["hasRole()"]);
         assert!(run("@PreAuthorize(\"hasAuthority('x') or permitAll\")\nvoid f() {}", "unbalanced-expression").is_empty());
+    }
+
+    #[test]
+    fn identical_matchers_with_conflicting_access_name_both_rules() {
+        let _host = MockHost::install();
+        let body = "http.authorizeHttpRequests(a -> a.requestMatchers(\"/a\").permitAll().requestMatchers(\"/a\").hasRole(\"X\").anyRequest().denyAll());";
+        let order = |body: &str| -> Vec<String> {
+            let text = format!("{SECURITY_IMPORT}class C {{ void f(HttpSecurity http) {{\n{body}\n}} }}");
+            problems("/project/C.java", &text)
+                .into_iter()
+                .filter(|p| p.diagnostic.code.as_deref() == Some("matcher-order"))
+                .map(|p| p.diagnostic.message)
+                .collect()
+        };
+        let found = order(body);
+        assert_eq!(found.len(), 1);
+        assert!(found[0].contains("permitAll()") && found[0].contains("hasRole(\"X\")") && found[0].contains("unreachable"), "{}", found[0]);
+        let same = order(&body.replace("hasRole(\"X\")", "permitAll()"));
+        assert!(same.len() == 1 && !same[0].contains("conflicting"));
+    }
+
+    #[test]
+    fn role_prefix_is_a_startup_error_in_the_dsl_and_tolerated_in_spel() {
+        let _host = MockHost::install();
+        let find = |text: &str| {
+            problems("/project/C.java", text).into_iter().find(|p| p.diagnostic.code.as_deref() == Some("role-prefix")).unwrap().diagnostic
+        };
+        let dsl = find(&format!("{SECURITY_IMPORT}class C {{ void f(HttpSecurity http) {{ http.authorizeHttpRequests(a -> a.anyRequest().hasRole(\"ROLE_A\")); }} }}"));
+        assert!(dsl.message.contains("IllegalArgumentException") && dsl.severity == Severity::Warning);
+        let spel = find("import org.springframework.security.access.prepost.PreAuthorize;\nclass C {\n@PreAuthorize(\"hasRole('ROLE_A')\")\nvoid f() {}\n}");
+        assert!(spel.message.contains("strip") && spel.severity == Severity::Info);
+    }
+
+    #[test]
+    fn secured_and_roles_allowed_need_their_switch_on_the_same_enable_annotation() {
+        let src = |enable: &str| format!("import org.springframework.security.access.annotation.Secured;\n{enable}\nclass C {{\n@Secured(\"ROLE_A\")\nvoid f() {{}}\n@RolesAllowed(\"A\")\nvoid g() {{}}\n}}");
+        let run = |enable: &str| spans("/project/C.java", &src(enable), "method-security-disabled");
+        assert_eq!(run("@EnableMethodSecurity"), ["@Secured(\"ROLE_A\")", "@RolesAllowed(\"A\")"]);
+        assert_eq!(run("@EnableMethodSecurity(securedEnabled = true)"), ["@RolesAllowed(\"A\")"]);
+        assert!(run("@EnableMethodSecurity(securedEnabled = true, jsr250Enabled = true)").is_empty());
+        assert!(run("").is_empty());
+        assert!(run("@EnableGlobalMethodSecurity(securedEnabled = true)").is_empty());
     }
 
     #[test]

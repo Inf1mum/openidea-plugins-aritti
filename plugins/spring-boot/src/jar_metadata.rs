@@ -12,6 +12,8 @@ use std::{
 };
 #[path = "jar_versions.rs"]
 mod versions;
+#[path = "jar_gradle.rs"]
+mod gradle;
 const CACHE: &str = "~/.m2/repository";
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Dependency {
@@ -386,11 +388,28 @@ impl State {
             .project()
             .ok_or("Open the owning Maven project first.")?;
         let root = project.root()?;
-        let pom = format!("{root}/pom.xml");
+        let pom_path = format!("{root}/pom.xml");
         if root.len() > 4096 || root.chars().any(char::is_control) {
             return Err(invalid("Unreviewable project identity."));
         }
-        let source = project.read_file(&pom)?;
+        let (pom, source, gradle_build) = match project.read_file(&pom_path) {
+            Ok(source) => (pom_path, source, false),
+            Err(error) => {
+                let found = ["build.gradle.kts", "build.gradle"].iter().find_map(|name| {
+                    let path = format!("{root}/{name}");
+                    project.read_file(&path).ok().map(|text| (path, text))
+                });
+                let Some((path, text)) = found else {
+                    return Err(error);
+                };
+                (path, text, true)
+            }
+        };
+        let cache = if gradle_build && cache == CACHE {
+            gradle::CACHE
+        } else {
+            cache
+        };
         let pom_digest = format!("{:x}", Sha256::digest(source.as_bytes()));
         if self.snapshots.get(&root).is_some_and(|snapshots| {
             snapshots
@@ -406,16 +425,29 @@ impl State {
         {
             self.version_scopes.remove(&root);
         }
-        let mut dependencies = dependencies(&source)?;
-        let (catalogs, catalog_sources) = versions::cache_catalog(&source, cache)?;
-        for catalog in catalogs {
-            if !dependencies
-                .iter()
-                .any(|d| d.group == catalog.group && d.artifact == catalog.artifact)
-            {
-                dependencies.push(catalog);
+        let (dependencies, catalog_sources) = if gradle_build {
+            match host::fs::read_dir(cache) {
+                Err(Error::Denied(_)) => return Ok(None),
+                Err(e) => return Err(e),
+                Ok(_) => {}
             }
-        }
+            match gradle::resolve(&source, cache) {
+                Err(Error::Denied(_)) => return Ok(None),
+                other => other?,
+            }
+        } else {
+            let mut dependencies = dependencies(&source)?;
+            let (catalogs, catalog_sources) = versions::cache_catalog(&source, cache)?;
+            for catalog in catalogs {
+                if !dependencies
+                    .iter()
+                    .any(|d| d.group == catalog.group && d.artifact == catalog.artifact)
+                {
+                    dependencies.push(catalog);
+                }
+            }
+            (dependencies, catalog_sources)
+        };
         if dependencies.len() > 512 {
             return Err(invalid(
                 "Declared metadata dependency catalog exceeds512 candidates.",
@@ -423,7 +455,7 @@ impl State {
         }
         if dependencies.is_empty() {
             return Err(invalid(
-                "No supported direct/version-property JAR dependencies or locally cached official parent/BOM catalog entries in the current root POM.",
+                "No supported direct/version-property JAR dependencies or locally cached official parent/BOM catalog entries in the current root build file.",
             ));
         }
         let choices: Vec<_> = dependencies
@@ -441,7 +473,15 @@ impl State {
             .and_then(|i| dependencies.get(i))
             .ok_or("Unknown dependency selection.")?
             .clone();
-        let jar = selected.path(cache);
+        let jar = if gradle_build {
+            match gradle::file(cache, &selected, ".jar") {
+                Err(Error::Denied(_)) => return Ok(None),
+                Err(e) => return Err(e),
+                Ok(found) => found.ok_or("Selected JAR is not in the Gradle module cache.")?,
+            }
+        } else {
+            selected.path(cache)
+        };
         let grant_probe = host::fs::stat(&jar)?;
         if grant_probe.kind != FileKind::File
             || grant_probe.size > super::jar_archive::MAX_ARCHIVE as u64
@@ -1321,5 +1361,51 @@ mod tests {
                 && !local.contains("configured-sensitive")
         );
         assert!(h.requests().is_empty() && h.process_runs().is_empty());
+    }
+
+    #[test]
+    fn gradle_cache_resolves_explicit_and_boot_managed_versions_and_degrades_when_denied() {
+        const CACHE: &str = "/gradle";
+        let h = MockHost::install().with_capabilities(&[
+            "project.read",
+            "fs.write:/gradle",
+            "fs.read:/gradle",
+            "editor.read",
+        ]);
+        h.add_file(
+            "build.gradle",
+            "plugins { id 'org.springframework.boot' version '4.0.0' }\ndependencies {\n implementation 'org.example:config:1.2.3'\n implementation 'org.springframework.boot:spring-boot-autoconfigure'\n api 'org.example:ranged:[1.0,2.0)'\n}",
+        );
+        let bom = "<project><groupId>org.springframework.boot</groupId><artifactId>spring-boot-dependencies</artifactId><version>4.0.0</version><dependencyManagement><dependencies><dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-autoconfigure</artifactId><version>${project.version}</version></dependency></dependencies></dependencyManagement></project>";
+        let bom_path = format!("{CACHE}/org.springframework.boot/spring-boot-dependencies/4.0.0/aaaa/spring-boot-dependencies-4.0.0.pom");
+        h.add_external_file(&bom_path, bom);
+        let jar = |hash: &str, group: &str, artifact: &str, version: &str, key: &str| {
+            let json = format!(r#"{{"properties":[{{"name":"{key}","type":"java.lang.Boolean"}}]}}"#);
+            let bytes = super::super::jar_archive::fixture(&[(
+                "META-INF/spring-configuration-metadata.json",
+                json.as_bytes(),
+                8,
+            )]);
+            let path = format!("{CACHE}/{group}/{artifact}/{version}/{hash}/{artifact}-{version}.jar");
+            h.add_external_file(&path, "");
+            host::fs::write_bytes(&path, &bytes).unwrap();
+        };
+        jar("bbbb", "org.example", "config", "1.2.3", "gradle.explicit.feature");
+        jar("cccc", "org.springframework.boot", "spring-boot-autoconfigure", "4.0.0", "gradle.managed.feature");
+        let mut state = State::default();
+        for expected in ["gradle.explicit.feature", "gradle.managed.feature"] {
+            let index = if expected.contains("explicit") { "0" } else { "1" };
+            h.answer_next_prompt(Some(&[index]));
+            h.answer_next_prompt(Some(&["ok"]));
+            state.import_at(&h.invocation(), CACHE).unwrap();
+            let catalog = state.catalog("/project/application.properties");
+            let lookup = spring_text::metadata::Lookup(vec![&catalog]);
+            assert!(lookup.prop(expected).is_some(), "{expected}");
+        }
+        assert!(state.version_scoped("/project/application.properties"));
+
+        let denied = MockHost::install().with_capabilities(&["project.read", "editor.read"]);
+        denied.add_file("build.gradle", "dependencies { implementation 'org.example:config:1.2.3' }");
+        assert!(State::default().import_at(&denied.invocation(), CACHE).unwrap().is_none());
     }
 }

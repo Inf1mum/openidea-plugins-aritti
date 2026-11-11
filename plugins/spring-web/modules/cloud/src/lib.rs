@@ -107,6 +107,48 @@ pub struct Endpoint {
     pub range: Range,
     /// `Class.method()`.
     pub label: String,
+    /// Literal Feign `contextId` / `configuration` of the client, when written.
+    pub note: String,
+}
+
+/// The single string literal of `a`'s first set attribute among `names`; `None` when that attribute isn't one literal.
+fn literal(a: &java::Annotation, names: &[&str]) -> Option<String> {
+    let Some(arg) = names.iter().find_map(|n| a.arg(n)) else { return Some(String::new()) };
+    let [s] = arg.strings.as_slice() else { return None };
+    (arg.text.trim() == format!("\"{}\"", s.value)).then(|| s.value.clone())
+}
+
+fn exchange_verb(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "GetExchange" => "GET",
+        "PostExchange" => "POST",
+        "PutExchange" => "PUT",
+        "DeleteExchange" => "DELETE",
+        "PatchExchange" => "PATCH",
+        _ => return None,
+    })
+}
+
+/// Path of an `@HttpExchange` `url`; an absolute URL keeps only its path.
+fn exchange_path(url: &str) -> String {
+    match url.split_once("://") {
+        Some((_, rest)) => rest.find('/').map_or(String::new(), |i| rest[i..].to_owned()),
+        None => url.to_owned(),
+    }
+}
+
+fn feign_note(feign: &java::Annotation) -> String {
+    let mut parts = Vec::new();
+    if let Some(id) = literal(feign, &["contextId"]).filter(|s| !s.is_empty()) {
+        parts.push(format!("contextId {id}"));
+    }
+    if let Some(cfg) = feign.arg("configuration") {
+        let text = cfg.text.trim().trim_matches(['{', '}']).trim();
+        if !text.is_empty() && text.split(',').all(|t| t.trim().strip_suffix(".class").is_some_and(|n| n.chars().all(|c| c.is_alphanumeric() || matches!(c, '_' | '.')))) {
+            parts.push(format!("configuration {text}"));
+        }
+    }
+    parts.join(" · ")
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -173,6 +215,37 @@ pub fn facts_in(path: &str, text: &str) -> JavaFacts {
                         path: java::join_paths(&prefix, &path),
                         range: span(m.at, &m.name),
                         label: format!("{}.{}()", c.name, m.name),
+                        note: feign_note(feign),
+                    });
+                }
+            }
+        } else if c.kind == "interface"
+            && (c.annotation("HttpExchange").is_some() || c.methods().any(|m| m.annotations.iter().any(|a| exchange_verb(&a.name).is_some())))
+        {
+            // Spring `@HttpExchange` interface clients (Framework 6): the type-level `url` prefixes each method's `url`.
+            let class = c.annotation("HttpExchange");
+            let prefix = class.map_or(Some(String::new()), |a| literal(a, &["url", "value"]));
+            let class_verb = class.and_then(|a| literal(a, &["method"])).filter(|v| !v.is_empty());
+            for m in c.methods() {
+                for a in &m.annotations {
+                    let fixed = exchange_verb(&a.name);
+                    if fixed.is_none() && a.name != "HttpExchange" {
+                        continue;
+                    }
+                    let verb = match fixed {
+                        Some(v) => Some(v.to_owned()),
+                        None => literal(a, &["method"]).filter(|v| !v.is_empty()).or(class_verb.clone()),
+                    };
+                    let (Some(prefix), Some(path), Some(verb)) = (prefix.as_deref(), literal(a, &["url", "value"]), verb) else { continue };
+                    if path.contains("://") {
+                        continue;
+                    }
+                    out.clients.push(Endpoint {
+                        verb: verb.to_ascii_uppercase(),
+                        path: java::join_paths(&exchange_path(prefix), &path),
+                        range: span(m.at, &m.name),
+                        label: format!("{}.{}()", c.name, m.name),
+                        note: String::new(),
                     });
                 }
             }
@@ -180,7 +253,7 @@ pub fn facts_in(path: &str, text: &str) -> JavaFacts {
             for m in c.methods() {
                 for (verb, path) in java::mappings(c, m) {
                     let label = format!("{}.{}()", c.name, m.name);
-                    out.servers.push(Endpoint { verb, path, range: span(m.at, &m.name), label });
+                    out.servers.push(Endpoint { verb, path, range: span(m.at, &m.name), label, note: String::new() });
                 }
             }
         }
@@ -907,7 +980,8 @@ impl CloudTools {
             for c in clients {
                 let key = format!("c:{}:{}:{path}", c.range.start.line, c.range.start.character);
                 let label = format!("{} {}", c.verb, c.path);
-                items.push(TreeItem::new(&key, &label).parent(&file_key).detail(&c.label).icon("send"));
+                let detail = if c.note.is_empty() { c.label.clone() } else { format!("{} · {}", c.label, c.note) };
+                items.push(TreeItem::new(&key, &label).parent(&file_key).detail(&detail).icon("send"));
             }
         }
         let mut route_total = 0;
@@ -1665,6 +1739,37 @@ class StreamFunctions {
         assert_eq!(codes(&host, path), [("bootstrap-configuration-scanned".to_owned(), Severity::Hint)]);
         tools.line_markers(&doc(path, "java", "@BootstrapConfiguration\nclass Boot {}\n"));
         assert!(codes(&host, path).is_empty());
+    }
+
+    #[test]
+    fn http_exchange_interfaces_are_clients_with_class_prefix_and_literal_only() {
+        let f = facts_in(
+            "Repos.java",
+            "@HttpExchange(url = \"/repos/{owner}\", accept = \"application/json\")\ninterface Repos {\n  @GetExchange(\"/{repo}\") R get(@PathVariable String owner, @PathVariable String repo);\n  @PostExchange(url = \"/x\") void post(@RequestBody R r);\n  @HttpExchange(method = \"PUT\", url = \"/y\") void put();\n  @DeleteExchange(URL) void del();\n  @PatchExchange void patch();\n}\n",
+        );
+        let got: Vec<_> = f.clients.iter().map(|c| (c.verb.as_str(), c.path.as_str(), c.label.as_str())).collect();
+        assert_eq!(
+            got,
+            [
+                ("GET", "/repos/{owner}/{repo}", "Repos.get()"),
+                ("POST", "/repos/{owner}/x", "Repos.post()"),
+                ("PUT", "/repos/{owner}/y", "Repos.put()"),
+                ("PATCH", "/repos/{owner}", "Repos.patch()"),
+            ]
+        );
+        assert!(f.servers.is_empty() && f.unmapped.is_empty());
+        let dynamic = facts_in("A.java", "@HttpExchange(BASE) interface A { @GetExchange(\"/a\") void a(); }");
+        assert!(dynamic.clients.is_empty());
+        let method_less = facts_in("B.java", "interface B { @HttpExchange(\"/a\") void a(); }");
+        assert!(method_less.clients.is_empty());
+    }
+
+    #[test]
+    fn feign_client_shows_literal_context_id_and_configuration() {
+        let f = facts_in("U.java", "@FeignClient(name = \"u\", contextId = \"usersCtx\", configuration = UserCfg.class)\ninterface U { @GetMapping(\"/a\") void a(); }");
+        assert_eq!(f.clients[0].note, "contextId usersCtx · configuration UserCfg.class");
+        let dynamic = facts_in("V.java", "@FeignClient(name = \"u\", contextId = CTX, configuration = cfg())\ninterface V { @GetMapping(\"/a\") void a(); }");
+        assert_eq!(dynamic.clients[0].note, "");
     }
 
     #[test]

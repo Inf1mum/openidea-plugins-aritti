@@ -257,8 +257,7 @@ fn path(es: &[Element], mut i: usize) -> Option<String> {
             None => break,
             Some(parent) if xml::namespace(es, parent) == Some(MVC) => i = parent,
             Some(parent)
-                if parent == 0
-                    && es[parent].local() == "beans"
+                if es[parent].local() == "beans"
                     && matches!(xml::namespace(es, parent), Some(BEANS) | None) =>
             {
                 break;
@@ -343,6 +342,83 @@ pub(super) fn check(text: &str) -> Vec<Finding> {
     }
     out
 }
+fn plain(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 128
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
+}
+/// Bean-reference attribute values as (value, start, end) bytes.
+fn ref_sites(es: &[Element], profile: u16) -> Vec<(String, usize, usize)> {
+    let mut refs = vec![];
+    for (i, e) in es.iter().enumerate() {
+        if let Some(path) = path(es, i) {
+            for rule in tables::RULES
+                .iter()
+                .filter(|r| r.path == path && r.profiles & profile != 0)
+            {
+                for a in e
+                    .attrs
+                    .iter()
+                    .filter(|a| rule.refs.contains(&a.name.as_str()))
+                {
+                    if a.value.is_empty() || plain(&a.value) {
+                        refs.push((a.value.clone(), a.value_at, a.value_end));
+                    }
+                }
+            }
+        }
+        if e.local() == "ref"
+            && xml::namespace(es, i) == Some(BEANS)
+            && e.parent.and_then(|p| path(es, p)).is_some_and(|path| {
+                tables::REF_PARENTS
+                    .iter()
+                    .any(|(p, mask)| *p == path && mask & profile != 0)
+            })
+            && e.attrs.len() == 1
+        {
+            if let Some(a) = e.attrs.iter().find(|a| a.name == "bean") {
+                if a.value.is_empty() || plain(&a.value) {
+                    refs.push((a.value.clone(), a.value_at, a.value_end));
+                }
+            }
+        }
+    }
+    refs
+}
+#[path = "mvc_xml_context.rs"]
+mod context;
+/// Findings needing file access: `read` returns a file's text, `find` the files matching a glob (None when the host cannot say).
+pub(super) fn context_findings(
+    path: &str,
+    text: &str,
+    read: &dyn Fn(&str) -> Option<String>,
+    find: &dyn Fn(&str) -> Option<Vec<String>>,
+) -> Vec<Finding> {
+    let file = path.rsplit('/').next().unwrap_or(path);
+    let imported_elsewhere = || {
+        let Some(files) = find("**/*.xml") else {
+            return true;
+        };
+        files.iter().filter(|f| f.as_str() != path).any(|f| read(f).is_none_or(|t| t.contains(file) && t.contains("import")))
+    };
+    let mut out = context::check(path, text, read, &imported_elsewhere);
+    if path.contains("/src/main/") {
+        for (location, start, end) in context::resource_locations(text) {
+            let Some(globs) = context::location_globs(&location) else {
+                continue;
+            };
+            let found: Option<Vec<bool>> = globs.iter().map(|g| find(g).map(|f| !f.is_empty())).collect();
+            if found.is_some_and(|f| !f.contains(&true)) {
+                out.push(
+                    Finding::new(start, end, "mvc-xml-missing-resource-location", format!("Resource location \"{location}\" was not found under src/main/resources or src/main/webapp."))
+                        .with_severity(openidea_plugin::Severity::Info),
+                );
+            }
+        }
+    }
+    out
+}
 fn refs(
     es: &[Element],
     profile: u16,
@@ -362,15 +438,8 @@ fn refs(
     }) {
         return None;
     }
-    let plain = |s: &str| {
-        !s.is_empty()
-            && s.len() <= 128
-            && s.bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
-    };
     let mut beans = BTreeMap::new();
     let mut duplicates = BTreeSet::new();
-    let mut refs = vec![];
     for (i, e) in es.iter().enumerate() {
         if e.parent == Some(0) && xml::namespace(es, i) == Some(BEANS) && e.local() == "bean" {
             if e.attrs.iter().any(|a| a.name == "name") {
@@ -388,39 +457,11 @@ fn refs(
                 }
             }
         }
-        if let Some(path) = path(es, i) {
-            for rule in tables::RULES
-                .iter()
-                .filter(|r| r.path == path && r.profiles & profile != 0)
-            {
-                for a in e
-                    .attrs
-                    .iter()
-                    .filter(|a| rule.refs.contains(&a.name.as_str()))
-                {
-                    if a.value.is_empty() || plain(&a.value) {
-                        refs.push((a.value.clone(), range(text, a.value_at, a.value_end)));
-                    }
-                }
-            }
-        }
-        if e.local() == "ref"
-            && xml::namespace(es, i) == Some(BEANS)
-            && e.parent.and_then(|p| path(es, p)).is_some_and(|path| {
-                tables::REF_PARENTS
-                    .iter()
-                    .any(|(p, mask)| *p == path && mask & profile != 0)
-            })
-        {
-            if e.attrs.len() == 1 {
-                if let Some(a) = e.attrs.iter().find(|a| a.name == "bean") {
-                    if a.value.is_empty() || plain(&a.value) {
-                        refs.push((a.value.clone(), range(text, a.value_at, a.value_end)));
-                    }
-                }
-            }
-        }
     }
+    let refs = ref_sites(es, profile)
+        .into_iter()
+        .map(|(v, s, e)| (v, range(text, s, e)))
+        .collect();
     for duplicate in duplicates {
         beans.remove(&duplicate);
     }
