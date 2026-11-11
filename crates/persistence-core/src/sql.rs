@@ -9,7 +9,7 @@
 //! INDEX, identifier rules, numeric/date/character/binary/boolean/uuid types). Not verified: MySQL VARCHAR
 //! needing a length, CHAR/VARCHAR/identifier length limits for MySQL (64 assumed from general knowledge).
 use crate::schema::{
-    Change, ChangePlan, Column, Danger, Fact, ForeignKey, Index, LogicalType, PlannedChange, Table, UniqueConstraint,
+    Change, ChangePlan, Column, Danger, Fact, ForeignKey, Index, LogicalType, PlannedChange, SqlType, Table, UniqueConstraint,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -317,6 +317,53 @@ fn quote_list(dialect: Dialect, names: &[String]) -> Result<String, SqlError> {
     Ok(quoted?.join(", "))
 }
 
+/// Sets the SQL type of `column` from a generic type name the user typed: `bigint`, `varchar(100)`, `numeric(19,2)`.
+/// Vendor translation stays with the emitters; a name outside this list is refused, not passed through.
+pub fn apply_type_text(column: &mut Column, text: &str) -> Result<(), String> {
+    use LogicalType::*;
+    let text = text.trim().to_ascii_lowercase();
+    let (name, args) = match text.split_once('(') {
+        Some((name, rest)) => (name.trim(), Some(rest.strip_suffix(')').ok_or("a type with arguments ends with ')'")?)),
+        None => (text.as_str(), None),
+    };
+    let numbers = args
+        .map(|args| args.split(',').map(|n| n.trim().parse::<u32>().map_err(|_| format!("`{}` is not a number", n.trim()))).collect::<Result<Vec<_>, _>>())
+        .transpose()?
+        .unwrap_or_default();
+    let logical = match name {
+        "tinyint" => Tinyint,
+        "smallint" => Smallint,
+        "int" | "integer" => Integer,
+        "bigint" => Bigint,
+        "real" => Real,
+        "double" | "double precision" => Double,
+        "decimal" | "numeric" => Decimal,
+        "char" => Char,
+        "varchar" => Varchar,
+        "text" => Text,
+        "boolean" | "bool" => Boolean,
+        "date" => Date,
+        "time" => Time,
+        "timestamp" => Timestamp,
+        "timestamptz" => TimestampTz,
+        "uuid" => Uuid,
+        "binary" | "bytea" => Binary,
+        other => return Err(format!("`{other}` is not one of tinyint, smallint, int, bigint, real, double, decimal, numeric, char, varchar, text, boolean, date, time, timestamp, timestamptz, uuid, binary")),
+    };
+    let (length, precision, scale) = match (logical, numbers.as_slice()) {
+        (Char | Varchar, [length]) => (Some(*length), None, None),
+        (Decimal, [precision]) => (None, Some(*precision), None),
+        (Decimal, [precision, scale]) => (None, Some(*precision), Some(*scale)),
+        (_, []) => (None, None, None),
+        _ => return Err(format!("`{text}` has arguments this type does not take")),
+    };
+    column.sql_type = Fact::Known(SqlType { logical, raw: text.clone() });
+    column.length = length;
+    column.precision = precision;
+    column.scale = scale;
+    Ok(())
+}
+
 type Unsupported = String;
 
 fn type_name(dialect: Dialect, column: &Column) -> Result<String, Unsupported> {
@@ -338,7 +385,8 @@ fn type_name(dialect: Dialect, column: &Column) -> Result<String, Unsupported> {
         }
     };
     match (sql_type.logical, pg) {
-        (Tinyint, true) => no("PostgreSQL has no 1-byte integer type"),
+        // PostgreSQL has no 1-byte integer; Hibernate's PostgreSQL dialect maps TINYINT (Envers REVTYPE) to smallint.
+        (Tinyint, true) => Ok("smallint".into()),
         (Tinyint, false) => Ok("tinyint".into()),
         (Smallint, true) => Ok("smallint".into()),
         (Smallint, false) => Ok("smallint".into()),
@@ -1011,6 +1059,22 @@ ALTER TABLE `t` ADD CONSTRAINT `fk_a` FOREIGN KEY (`a`) REFERENCES `b` (`id`);
     }
 
     #[test]
+    fn typed_text_sets_a_generic_sql_type() {
+        let mut column = col("price", LogicalType::Text);
+        column.sql_type = Fact::unknown("no documented column mapping for type Money");
+        apply_type_text(&mut column, "Numeric(19, 2)").unwrap();
+        assert_eq!((column.sql_type.known().map(|t| t.logical), column.precision, column.scale), (Some(LogicalType::Decimal), Some(19), Some(2)));
+        apply_type_text(&mut column, "varchar(100)").unwrap();
+        assert_eq!((column.length, column.precision), (Some(100), None));
+        apply_type_text(&mut column, "bigint").unwrap();
+        assert_eq!(type_name(Dialect::PostgreSql, &column).as_deref(), Ok("bigint"));
+        for bad in ["money", "bigint(3)", "varchar(x)", "varchar(10", "uuid(1)"] {
+            assert!(apply_type_text(&mut column, bad).is_err(), "{bad}");
+        }
+        assert_eq!(column.sql_type.known().map(|t| t.logical), Some(LogicalType::Bigint));
+    }
+
+    #[test]
     fn type_names_per_dialect() {
         use LogicalType::*;
         let name = |d, l, len: Option<u32>, p: Option<u32>, s: Option<u32>| {
@@ -1021,7 +1085,7 @@ ALTER TABLE `t` ADD CONSTRAINT `fk_a` FOREIGN KEY (`a`) REFERENCES `b` (`id`);
             type_name(d, &c).ok()
         };
         let (pg, my) = (Dialect::PostgreSql, Dialect::MySql);
-        assert_eq!(name(pg, Tinyint, None, None, None), None);
+        assert_eq!(name(pg, Tinyint, None, None, None).as_deref(), Some("smallint"));
         assert_eq!(name(my, Tinyint, None, None, None).as_deref(), Some("tinyint"));
         assert_eq!(name(pg, Double, None, None, None).as_deref(), Some("double precision"));
         assert_eq!(name(my, Decimal, None, None, None), None);

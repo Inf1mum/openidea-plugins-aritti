@@ -12,7 +12,8 @@
 //! refreshed baseline is written to `db/jpa-schema-baseline.next.json` (never overwriting); the user moves it
 //! over the baseline. While that file exists, generation refuses so one change set is never emitted twice.
 use super::*;
-use persistence_core::schema::{self, Danger, SchemaSnapshot};
+use persistence_core::schema::{self, Danger, Fact, SchemaSnapshot};
+use crate::schema_snapshot::{EnversConfig, Scope, ScopedSnapshot};
 use persistence_core::sql::{self, BackfillValue, Dialect, EmitOptions};
 use super::template_settings::{self, FlywayNaming};
 use persistence_core::naming::{self, DateTime, Inputs};
@@ -37,6 +38,10 @@ pub(super) fn absolute(root: &str, file: &str) -> String {
 }
 
 pub(crate) fn scan(project: &Project, root: &str) -> Result<SchemaSnapshot, Error> {
+    Ok(scan_scoped(project, root, &Scope::All)?.snapshot)
+}
+
+pub(crate) fn scan_scoped(project: &Project, root: &str, scope: &Scope) -> Result<ScopedSnapshot, Error> {
     let deadline = Instant::now() + Duration::from_secs(SCAN_SECONDS);
     let mut docs = Vec::new();
     let mut total = 0usize;
@@ -64,7 +69,172 @@ pub(crate) fn scan(project: &Project, root: &str) -> Result<SchemaSnapshot, Erro
             docs.push(Document { path: file, language: language.into(), text, version: 0 });
         }
     }
-    Ok(crate::schema_snapshot::snapshot_from_entities_named(&docs, &crate::naming_strategy::detect(project)))
+    Ok(crate::schema_snapshot::snapshot_configured(&docs, scope, &crate::naming_strategy::detect(project), &EnversConfig::detect(project)))
+}
+
+/// With several persistence units a run is per unit (JetBrains database versioning help: "A persistence unit must be
+/// selected"); with one or none the whole project is the scope and nothing is asked.
+pub(crate) fn choose_scope(project: &Project, root: &str) -> Result<Scope, Error> {
+    let units: Vec<_> = crate::structure_related::units(project).into_iter().filter(|u| !crate::naming_strategy::skipped(&u.path)).collect();
+    if units.len() < 2 {
+        return Ok(Scope::All);
+    }
+    let items: Vec<PickItem> = units.iter().enumerate().map(|(i, u)| PickItem::new(&i.to_string(), &u.name).description(&u.path)).collect();
+    let key = host::pick("Persistence unit to take the model from (one run per unit)", &items)?.ok_or(Error::Cancelled)?;
+    let unit = key.parse::<usize>().ok().and_then(|i| units.get(i)).ok_or(Error::Stale)?;
+    let file = absolute(root, &unit.path);
+    let text = project.read_file(&file)?;
+    Scope::from_persistence_xml(&file, &text, &unit.name).ok_or(Error::Stale)
+}
+
+pub(crate) fn scope_unit(scope: &Scope) -> Option<&str> {
+    match scope {
+        Scope::All => None,
+        Scope::Unit { name, .. } => Some(name),
+    }
+}
+
+/// Everything the Flyway and Liquibase actions share before their first option prompt.
+pub(crate) struct Prepared {
+    pub baseline_path: String,
+    pub next_path: String,
+    pub scope: Scope,
+    /// `None`: no baseline exists and the whole model is written as an initial migration.
+    pub baseline_text: Option<String>,
+    pub baseline: SchemaSnapshot,
+    pub model: ScopedSnapshot,
+    pub plan: schema::ChangePlan,
+    pub next_baseline: String,
+}
+
+impl Prepared {
+    pub(crate) fn init(&self) -> bool {
+        self.baseline_text.is_none()
+    }
+
+    pub(crate) fn verify_unchanged(&self, project: &Project, root: &str) -> Result<(), Error> {
+        if read_optional(project, &self.baseline_path)? != self.baseline_text {
+            return Err(Error::Stale);
+        }
+        let fresh = scan_scoped(project, root, &self.scope)?;
+        if crate::schema_snapshot::scoped_json(&fresh, &self.scope).map_err(Error::from)? != self.next_baseline.trim_end() {
+            return Err(Error::Stale);
+        }
+        Ok(())
+    }
+}
+
+pub(crate) fn prepare(project: &Project, root: &str, output: &str, nothing: &str) -> Result<Prepared, Error> {
+    let baseline_path = target_in_root(project, root, BASELINE)?;
+    let next_path = target_in_root(project, root, BASELINE_NEXT)?;
+    if project.exists(&next_path)? || read_optional(project, &next_path)?.is_some() {
+        return Err(format!("{next_path} exists: move it over {baseline_path} (or delete it) before generating another {output}.").into());
+    }
+    let scope = choose_scope(project, root)?;
+    let baseline_text = read_optional(project, &baseline_path)?;
+    let baseline = match &baseline_text {
+        Some(text) => {
+            if crate::schema_snapshot::recorded_unit(text).as_deref() != scope_unit(&scope) {
+                return Err(format!(
+                    "The schema baseline was taken for {}, this run is for {}; run it for the same persistence unit.",
+                    crate::schema_snapshot::recorded_unit(text).map_or("the whole project".to_owned(), |unit| format!("persistence unit {unit}")),
+                    scope_unit(&scope).map_or("the whole project".to_owned(), |unit| format!("persistence unit {unit}")),
+                )
+                .into());
+            }
+            crate::schema_snapshot::snapshot_from_json(text).map_err(|e| Error::from(format!("The schema baseline is unreadable: {e}")))?
+        }
+        None => SchemaSnapshot::default(),
+    };
+    let model = scan_scoped(project, root, &scope)?;
+    if baseline_text.is_none() && model.snapshot.tables.is_empty() {
+        return Err("No schema baseline exists and no entity tables were found in the project sources.".into());
+    }
+    let plan = schema::diff(&baseline, &model.snapshot).map_err(|e| Error::from(format!("The snapshots cannot be compared: {e:?}")))?;
+    if plan.changes.is_empty() && plan.notes.is_empty() {
+        return Err(nothing.into());
+    }
+    let mut next_baseline = crate::schema_snapshot::scoped_json(&model, &scope).map_err(Error::from)?;
+    next_baseline.push('\n');
+    Ok(Prepared { baseline_path, next_path, scope, baseline_text, baseline, model, plan, next_baseline })
+}
+
+/// Jakarta Persistence `@Column.length` defaults to 255, so a `varchar` without a length is `varchar(255)`; Liquibase needs it written.
+pub(super) fn apply_default_lengths(plan: &mut schema::ChangePlan) {
+    let widen = |column: &mut schema::Column| {
+        if column.length.is_none() && column.sql_type.known().is_some_and(|t| t.logical == schema::LogicalType::Varchar) {
+            column.length = Some(255);
+        }
+    };
+    for planned in &mut plan.changes {
+        match &mut planned.change {
+            schema::Change::AddColumn { column, .. } => widen(column),
+            schema::Change::CreateTable { table } => {
+                if let Fact::Known(columns) = &mut table.columns {
+                    columns.iter_mut().for_each(widen);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+const TYPE_ATTEMPTS: usize = 3;
+const CUSTOM_TYPE_REASON: &str = "no documented column mapping for type ";
+
+/// Columns of a custom Java type get no automatic SQL mapping (JetBrains database versioning help); the user names the
+/// target type once per column name and Java type, so an audit table's mirror column reuses the answer. Empty input
+/// leaves the column unmapped, so its statement stays withheld.
+pub(super) fn ask_custom_types(plan: &mut schema::ChangePlan) -> Result<(), Error> {
+    let mut answers: BTreeMap<(String, String), Option<schema::Column>> = BTreeMap::new();
+    let mut ask = |table: &str, column: &mut schema::Column| -> Result<(), Error> {
+        let Fact::Unknown(reason) = &column.sql_type else {
+            return Ok(());
+        };
+        let Some(java_type) = reason.strip_prefix(CUSTOM_TYPE_REASON).map(str::to_owned) else {
+            return Ok(());
+        };
+        let key = (column.name.clone(), java_type.clone());
+        if let Some(answer) = answers.get(&key) {
+            if let Some(typed) = answer {
+                (column.sql_type, column.length, column.precision, column.scale) = (typed.sql_type.clone(), typed.length, typed.precision, typed.scale);
+            }
+            return Ok(());
+        }
+        let question = format!("SQL type for column {table}.{} (Java type {java_type}); for example varchar(255), bigint, numeric(19,2); leave empty to withhold it", column.name);
+        let mut prompt = question.clone();
+        for attempt in 1..=TYPE_ATTEMPTS {
+            let input = host::input(&prompt, None)?.ok_or(Error::Cancelled)?;
+            if input.trim().is_empty() {
+                answers.insert(key, None);
+                return Ok(());
+            }
+            match sql::apply_type_text(column, &input) {
+                Ok(()) => {
+                    answers.insert(key, Some(column.clone()));
+                    return Ok(());
+                }
+                Err(why) if attempt == TYPE_ATTEMPTS => return Err(format!("The SQL type of {table}.{} was refused: {why}.", column.name).into()),
+                Err(why) => prompt = format!("Refused: {why}. {question}"),
+            }
+        }
+        Ok(())
+    };
+    for planned in &mut plan.changes {
+        match &mut planned.change {
+            schema::Change::AddColumn { table, column } => ask(table, column)?,
+            schema::Change::CreateTable { table } => {
+                let name = table.name.clone();
+                if let Fact::Known(columns) = &mut table.columns {
+                    for column in columns {
+                        ask(&name, column)?;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn target_in_root(project: &Project, root: &str, relative: &str) -> Result<String, Error> {
@@ -103,11 +273,13 @@ pub(super) fn acknowledge(reasons: &[String]) -> Result<(), Error> {
 
 pub(super) fn resolve_baseline(pending: &Pending, doc: &Document, project: &Project) -> Result<FileAction, Error> {
     current(pending, doc)?;
-    let snapshot = scan(project, &pending.root)?;
+    let scope = choose_scope(project, &pending.root)?;
+    let scoped = scan_scoped(project, &pending.root, &scope)?;
+    let snapshot = &scoped.snapshot;
     if snapshot.tables.is_empty() {
         return Err("No entity tables were found in the project sources.".into());
     }
-    let json = crate::schema_snapshot::snapshot_json(&snapshot).map_err(Error::from)?;
+    let json = crate::schema_snapshot::scoped_json(&scoped, &scope).map_err(Error::from)?;
     let target = target_in_root(project, &pending.root, BASELINE)?;
     absent(project, &target)?;
     let mut text = json;
@@ -116,7 +288,8 @@ pub(super) fn resolve_baseline(pending: &Pending, doc: &Document, project: &Proj
         acknowledge(&["some entity sources were not fully understood; absent tables are unproven".into()])?;
     }
     let body = format!(
-        "Target: {target}\nTables: {}\nComplete: {}\n\nA JSON snapshot of the entity sources (no database, no test sources, bounded scan of {MAX_FILES} files per language). The exact file is the deterministic serialization of this scan; its first lines:\n{}\n\nOne non-overwriting Create.",
+        "Target: {target}\nScope: {}\nTables: {}\nComplete: {}\n\nA JSON snapshot of the entity sources (no database, no test sources, bounded scan of {MAX_FILES} files per language). The exact file is the deterministic serialization of this scan; its first lines:\n{}\n\nOne non-overwriting Create.",
+        scope_unit(&scope).map_or("the whole project".to_owned(), |unit| format!("persistence unit {unit}")),
         snapshot.tables.len(),
         snapshot.complete,
         text.lines().take(12).collect::<Vec<_>>().join("\n"),
@@ -126,7 +299,8 @@ pub(super) fn resolve_baseline(pending: &Pending, doc: &Document, project: &Proj
     }
     current(pending, doc)?;
     absent(project, &target)?;
-    if crate::schema_snapshot::snapshot_json(&scan(project, &pending.root)?).map_err(Error::from)? != text.trim_end() {
+    let fresh = scan_scoped(project, &pending.root, &scope)?;
+    if crate::schema_snapshot::scoped_json(&fresh, &scope).map_err(Error::from)? != text.trim_end() {
         return Err(Error::Stale);
     }
     Ok(FileAction {
@@ -258,10 +432,11 @@ pub(super) fn java_migrations(project: &Project, root: &str) -> Result<Vec<(Stri
 }
 
 pub(super) fn flyway_folder(project: &Project, root: &str) -> Result<Folder, Error> {
-    flyway_folder_with(project, root, &FlywayNaming::default())
+    flyway_folder_with(project, root, &FlywayNaming::default(), None)
 }
 
-fn flyway_folder_with(project: &Project, root: &str, naming: &FlywayNaming) -> Result<Folder, Error> {
+/// `module_fallback`: the module an initial migration goes into when the project has no migration at all.
+fn flyway_folder_with(project: &Project, root: &str, naming: &FlywayNaming, module_fallback: Option<&str>) -> Result<Folder, Error> {
     let versioned = |name: &str| versioned_named(name, &naming.prefix, &naming.separator, ".sql").map(str::to_owned);
     if custom_flyway_settings(project)? {
         return Err("Flyway locations or naming are configured; only the default classpath:db/migration with V__.sql names is supported, and nothing is guessed.".into());
@@ -286,6 +461,9 @@ fn flyway_folder_with(project: &Project, root: &str, naming: &FlywayNaming) -> R
             let modules: BTreeSet<&str> = java.iter().filter_map(|(dir, _)| dir.strip_suffix(JAVA_DIR_SUFFIX)).collect();
             let mut modules = modules.into_iter();
             let (Some(module), None) = (modules.next(), modules.next()) else {
+                if let (true, Some(module)) = (java.is_empty(), module_fallback) {
+                    return Ok(Folder { directory: format!("{module}{MIGRATION_DIR_SUFFIX}"), version: "1".into(), names: Vec::new(), versions: Vec::new() });
+                }
                 return Err("No existing <prefix><version><separator><description>.sql or Java migration (V<version>__<description> by default) was found; the folder and version cannot be determined.".into());
             };
             (format!("{module}{MIGRATION_DIR_SUFFIX}"), Vec::new())
@@ -390,21 +568,17 @@ pub(super) fn ask_backfills(plan: &schema::ChangePlan, options: &mut EmitOptions
     Ok(())
 }
 
+/// The module of an entity source (`<module>/src/main/java|kotlin/...`), where an initial migration goes if the project has none.
+fn module_of(file: &str) -> Option<&str> {
+    ["/src/main/java/", "/src/main/kotlin/"].iter().find_map(|marker| file.find(marker).map(|at| &file[..at]))
+}
+
 pub(super) fn resolve_migration(pending: &Pending, doc: &Document, project: &Project) -> Result<FileAction, Error> {
     current(pending, doc)?;
     let root = pending.root.as_str();
-    let baseline_path = target_in_root(project, root, BASELINE)?;
-    let next_path = target_in_root(project, root, BASELINE_NEXT)?;
-    if project.exists(&next_path)? || read_optional(project, &next_path)?.is_some() {
-        return Err(format!("{next_path} exists: move it over {baseline_path} (or delete it) before generating another migration.").into());
-    }
-    let baseline_text = read_optional(project, &baseline_path)?.ok_or("No schema baseline exists; run 'Create schema baseline…' first.")?;
-    let baseline = crate::schema_snapshot::snapshot_from_json(&baseline_text).map_err(|e| Error::from(format!("The schema baseline is unreadable: {e}")))?;
-    let model = scan(project, root)?;
-    let plan = schema::diff(&baseline, &model).map_err(|e| Error::from(format!("The snapshots cannot be compared: {e:?}")))?;
-    if plan.changes.is_empty() && plan.notes.is_empty() {
-        return Err("The model matches the baseline; there is nothing to migrate.".into());
-    }
+    let mut prepared = prepare(project, root, "migration", "The model matches the baseline; there is nothing to migrate.")?;
+    let init = prepared.init();
+    let (baseline_path, next_path) = (prepared.baseline_path.clone(), prepared.next_path.clone());
 
     let mut dialects = [PickItem::new("postgresql", "PostgreSQL"), PickItem::new("mysql", "MySQL")];
     crate::datasource_facts::prefer(project, &mut dialects);
@@ -426,8 +600,10 @@ pub(super) fn resolve_migration(pending: &Pending, doc: &Document, project: &Pro
             _ => return Err(Error::Stale),
         });
     }
-    ask_backfills(&plan, &mut options)?;
-    let description = host::input("Migration description (ASCII letters and digits)", Some("jpa_model_changes"))?.ok_or(Error::Cancelled)?;
+    ask_custom_types(&mut prepared.plan)?;
+    let (plan, model, baseline) = (&prepared.plan, &prepared.model.snapshot, &prepared.baseline);
+    ask_backfills(plan, &mut options)?;
+    let description = host::input("Migration description (ASCII letters and digits)", Some(if init { "init" } else { "jpa_model_changes" }))?.ok_or(Error::Cancelled)?;
     let description = naming::style_description(&description, template_settings::description_style()?);
     if description.is_empty() {
         return Err("Enter a description containing ASCII letters or digits.".into());
@@ -438,7 +614,7 @@ pub(super) fn resolve_migration(pending: &Pending, doc: &Document, project: &Pro
         None => None,
     };
 
-    let emitted = sql::emit(&plan, dialect, &options).map_err(|e| Error::from(format!("SQL cannot be generated: {e:?}")))?;
+    let emitted = sql::emit(plan, dialect, &options).map_err(|e| Error::from(format!("SQL cannot be generated: {e:?}")))?;
     if emitted.emitted() == 0 {
         return Err("Every change is withheld or unsupported; there is no SQL to write. Adjust the options or the model.".into());
     }
@@ -459,7 +635,8 @@ pub(super) fn resolve_migration(pending: &Pending, doc: &Document, project: &Pro
         acknowledge(&incomplete)?;
     }
 
-    let folder = flyway_folder_with(project, root, &flyway_naming)?;
+    let fallback = init.then(|| module_of(&doc.path)).flatten().filter(|module| inside(root, module));
+    let folder = flyway_folder_with(project, root, &flyway_naming, fallback)?;
     let version = chosen_version(&folder, &flyway_naming, &description, now, project)?;
     let name = format!("{}{version}{}{description}.sql", flyway_naming.prefix, flyway_naming.separator);
     if folder.names.iter().any(|n| n.eq_ignore_ascii_case(&name)) {
@@ -471,30 +648,29 @@ pub(super) fn resolve_migration(pending: &Pending, doc: &Document, project: &Pro
     }
     absent(project, &target)?;
     let sql_text = emitted.render();
-    let mut next_baseline = crate::schema_snapshot::snapshot_json(&model).map_err(Error::from)?;
-    next_baseline.push('\n');
+    let next_baseline = prepared.next_baseline.clone();
 
+    let kind = if init {
+        "No baseline exists: this is an INIT migration, a DDL script of the whole model (every table as CREATE TABLE).\n"
+    } else {
+        ""
+    };
     let preview = format!(
-        "Target: {target}\nDialect: {dialect:?}\nPlan: {}\nStatements: {} emitted, {} withheld by policy, {} unsupported\n\nExact SQL file:\n{sql_text}\nAlso creates {next_path} ({} tables, deterministic serialization of this scan). The plugin never overwrites files: afterwards move it over {baseline_path} to refresh the baseline; until then this action refuses. SQL is never executed.",
-        summary(&plan),
+        "{kind}Target: {target}\nDialect: {dialect:?}\nPlan: {}\nStatements: {} emitted, {} withheld by policy, {} unsupported\n\nExact SQL file:\n{sql_text}\nAlso creates {next_path} ({} tables, deterministic serialization of this scan). The plugin never overwrites files: afterwards move it over {baseline_path} to {} the baseline; until then this action refuses. SQL is never executed.",
+        summary(plan),
         emitted.emitted(),
         emitted.policy_skipped(),
         emitted.unsupported(),
         model.tables.len(),
+        if init { "make it" } else { "refresh" },
     );
     if !ui_kit::prompts::confirm_exact("Create Flyway migration?", &preview)? {
         return Err(Error::Cancelled);
     }
 
     current(pending, doc)?;
-    if read_optional(project, &baseline_path)?.as_deref() != Some(baseline_text.as_str()) {
-        return Err(Error::Stale);
-    }
-    let fresh = scan(project, root)?;
-    if crate::schema_snapshot::snapshot_json(&fresh).map_err(Error::from)? != next_baseline.trim_end() {
-        return Err(Error::Stale);
-    }
-    let again = flyway_folder_with(project, root, &flyway_naming)?;
+    prepared.verify_unchanged(project, root)?;
+    let again = flyway_folder_with(project, root, &flyway_naming, fallback)?;
     if again.directory != folder.directory || again.version != folder.version {
         return Err(Error::Stale);
     }
@@ -762,6 +938,66 @@ mod tests {
         assert!(text.contains("\nALTER TABLE \"customer\" DROP COLUMN \"email\";"), "{text}");
     }
 
+    const TWO_UNITS: &str = "<persistence xmlns=\"https://jakarta.ee/xml/ns/persistence\">\n<persistence-unit name=\"a\"><class>shop.Customer</class><exclude-unlisted-classes>true</exclude-unlisted-classes></persistence-unit>\n<persistence-unit name=\"b\"><class>shop.Other</class><exclude-unlisted-classes>true</exclude-unlisted-classes></persistence-unit>\n</persistence>\n";
+    const UNIT_A: &str = "0";
+
+    #[test]
+    fn several_persistence_units_ask_which_one_and_record_it_in_the_baseline() {
+        let (host, mut plugin, doc) = setup(ENTITY);
+        host.add_file("src/main/resources/META-INF/persistence.xml", TWO_UNITS);
+        let pending = action(&mut plugin, &doc, BASELINE_TITLE);
+        host.answer_next_prompt(Some(&[UNIT_A]));
+        host.answer_next_prompt(Some(&[]));
+        let resolved = plugin.resolve_file_action(&doc, pending).unwrap();
+        let FileOperation::Create { text, .. } = &resolved.operations[0] else { panic!() };
+        assert!(text.contains("\"kind\": \"unit\"") && text.contains("\"name\": \"a\""), "{text}");
+        assert!(text.contains("\"name\": \"customer\""), "{text}");
+
+        let (host, mut plugin, doc) = setup(ENTITY);
+        host.add_file("src/main/resources/META-INF/persistence.xml", &TWO_UNITS.replace("<persistence-unit name=\"b\"><class>shop.Other</class><exclude-unlisted-classes>true</exclude-unlisted-classes></persistence-unit>", ""));
+        let pending = action(&mut plugin, &doc, BASELINE_TITLE);
+        host.answer_next_prompt(Some(&[]));
+        let resolved = plugin.resolve_file_action(&doc, pending).unwrap();
+        let FileOperation::Create { text, .. } = &resolved.operations[0] else { panic!() };
+        assert_eq!(text, &baseline_json(ENTITY), "a single unit asks nothing and keeps the plain baseline");
+    }
+
+    #[test]
+    fn a_baseline_of_another_scope_is_refused_by_the_migration() {
+        let (host, mut plugin, doc) = migration_ready(ENTITY_PLUS);
+        host.add_file("src/main/resources/META-INF/persistence.xml", TWO_UNITS);
+        let pending = action(&mut plugin, &doc, MIGRATION_TITLE);
+        host.answer_next_prompt(Some(&[UNIT_A]));
+        let err = plugin.resolve_file_action(&doc, pending).unwrap_err();
+        assert!(format!("{err:?}").contains("same persistence unit"), "{err:?}");
+    }
+
+    #[test]
+    fn a_custom_java_type_column_asks_for_its_sql_type() {
+        let entity_money = ENTITY_PLUS.replace("String name;", "String name;\n    Money price;");
+        let (host, mut plugin, doc) = migration_ready(&entity_money);
+        let pending = action(&mut plugin, &doc, MIGRATION_TITLE);
+        host.answer_next_prompt(Some(&["postgresql"]));
+        host.answer_next_prompt(Some(&[]));
+        host.answer_next_prompt(Some(&["numeric(19,2)"]));
+        host.answer_next_prompt(Some(&["Add price"]));
+        host.answer_next_prompt(Some(&[]));
+        host.answer_next_prompt(Some(&[]));
+        let resolved = plugin.resolve_file_action(&doc, pending).unwrap();
+        let FileOperation::Create { text, .. } = &resolved.operations[0] else { panic!() };
+        assert!(text.contains("ALTER TABLE \"customer\" ADD COLUMN \"price\" numeric(19,2);"), "{text}");
+
+        let (host, mut plugin, doc) = migration_ready(&entity_money);
+        let pending = action(&mut plugin, &doc, MIGRATION_TITLE);
+        host.answer_next_prompt(Some(&["postgresql"]));
+        host.answer_next_prompt(Some(&[]));
+        for refused in ["money", "money", "money"] {
+            host.answer_next_prompt(Some(&[refused]));
+        }
+        let err = plugin.resolve_file_action(&doc, pending).unwrap_err();
+        assert!(format!("{err:?}").contains("customer.price"), "{err:?}");
+    }
+
     #[test]
     fn migration_refusals() {
         let refused = |setup_extra: &dyn Fn(&MockHost), source: &str| {
@@ -778,7 +1014,12 @@ mod tests {
 
         let (host, mut plugin, doc) = setup(ENTITY_PLUS);
         host.add_file("src/main/resources/db/migration/V1__first.sql", "");
-        assert!(generate(&host, &mut plugin, &doc, "postgresql", &[], &[true]).is_err(), "no baseline");
+        let resolved = generate(&host, &mut plugin, &doc, "postgresql", &[], &[true]).expect("no baseline: init migration");
+        let FileOperation::Create { path, text, .. } = &resolved.operations[0] else { panic!() };
+        assert!(path.ends_with("/V2__Add_customer_email.sql"), "{path}");
+        assert!(text.contains("CREATE TABLE \"customer\"") && text.contains("\"email\""), "{text}");
+        let FileOperation::Create { path, .. } = &resolved.operations[1] else { panic!() };
+        assert!(path.ends_with("/db/jpa-schema-baseline.next.json"));
 
         let (host, mut plugin, doc) = setup(ENTITY_PLUS);
         host.add_file("db/jpa-schema-baseline.json", &baseline_json(ENTITY));

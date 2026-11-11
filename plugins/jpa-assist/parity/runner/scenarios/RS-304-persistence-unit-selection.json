@@ -16,9 +16,9 @@
   "kind": "fileaction",
   "setup": [
     {
-      "copy": {
-        "from": "persistence-xml-variant/persistence-defects.xml",
-        "to": "src/main/resources/META-INF/persistence.xml"
+      "write": {
+        "path": "src/main/resources/META-INF/persistence.xml",
+        "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<persistence xmlns=\"https://jakarta.ee/xml/ns/persistence\" version=\"3.0\">\n    <persistence-unit name=\"shopPuA\">\n        <class>com.example.shop.domain.Customer</class>\n        <class>com.example.shop.domain.Category</class>\n        <exclude-unlisted-classes>true</exclude-unlisted-classes>\n    </persistence-unit>\n    <persistence-unit name=\"shopPuB\">\n        <class>com.example.shop.domain.Product</class>\n        <exclude-unlisted-classes>true</exclude-unlisted-classes>\n    </persistence-unit>\n</persistence>\n"
       }
     }
   ],
@@ -30,6 +30,9 @@
     "title": "Create schema baseline…"
   },
   "prompts": [
+    {
+      "pickLabel": "shopPuA"
+    },
     {
       "confirm": "yes"
     },
@@ -46,5 +49,5 @@
       }
     ]
   },
-  "note": "boot-jpa-java-jakarta with a two-unit persistence.xml; the documented unit selection is expected before the snapshot."
+  "note": "boot-jpa-java-jakarta with a two-unit persistence.xml (shopPuA, shopPuB, written by the setup); the documented unit selection is expected before the snapshot. The first version copied the defect variant (units a, a, unnamed), which does not contain the units the claim text names, and had no answer for the unit prompt."
 }
