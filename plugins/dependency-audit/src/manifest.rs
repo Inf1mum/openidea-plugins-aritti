@@ -49,6 +49,7 @@ pub enum Kind {
     UvLock,
     PipfileLock,
     Requirements,
+    Pylock,
 }
 
 pub const GLOBS: &[&str] = &[
@@ -67,6 +68,8 @@ pub const GLOBS: &[&str] = &[
     "**/uv.lock",
     "**/Pipfile.lock",
     "**/requirements.txt",
+    "**/pylock.toml",
+    "**/pylock.*.toml",
 ];
 
 /// PyPI names compare case-insensitively with runs of `-`, `_` and `.` equal (PEP 503).
@@ -122,6 +125,7 @@ pub fn kind(path: &str) -> Option<Kind> {
         "uv.lock" => Some(Kind::UvLock),
         "Pipfile.lock" => Some(Kind::PipfileLock),
         "requirements.txt" => Some(Kind::Requirements),
+        name if name == "pylock.toml" || (name.starts_with("pylock.") && name.ends_with(".toml")) => Some(Kind::Pylock),
         _ => None,
     }
 }
@@ -152,6 +156,7 @@ pub fn parse(path: &str, text: &str, lock: Option<&str>) -> Vec<Dep> {
         Some(Kind::UvLock) => uv_lock(path, text),
         Some(Kind::PipfileLock) => pipfile_lock(path, text),
         Some(Kind::Requirements) => requirements(path, text),
+        Some(Kind::Pylock) => pylock(path, text),
         None => Vec::new(),
     }
 }
@@ -395,6 +400,11 @@ fn package_json(path: &str, text: &str, lock: Option<&str>) -> Vec<Dep> {
     let mut deps = Vec::new();
     for section in ["dependencies", "devDependencies"] {
         for (name, spec, base) in section_entries(&root, text, section) {
+            if let Some(target) = spec.strip_prefix("npm:") {
+                deps.extend(npm_alias(path, text, base, name, spec, target));
+
+                continue;
+            }
             if spec.contains(':') {
                 continue;
             }
@@ -426,6 +436,30 @@ fn package_json(path: &str, text: &str, lock: Option<&str>) -> Vec<Dep> {
     }
 
     deps
+}
+
+/// `"alias": "npm:<package>@<exact version>"` names the real registry package; ranges, tags and bare names stay unknown.
+/// The editor fix is withheld because it would rewrite the alias spec.
+fn npm_alias(path: &str, text: &str, base: usize, alias: &str, spec: &str, target: &str) -> Option<Dep> {
+    let split = target.rfind('@').filter(|&i| i > 0)?;
+    let (package, version) = (&target[..split], &target[split + 1..]);
+    let scoped = package.strip_prefix('@').unwrap_or(package);
+    let valid = !scoped.is_empty()
+        && scoped.matches('/').count() == usize::from(package.starts_with('@'))
+        && scoped.chars().all(|c| c.is_ascii_alphanumeric() || "-_.~/".contains(c));
+    if !valid || !is_exact(version) {
+        return None;
+    }
+    let (at, _) = find_entry(&text[base..], alias, spec)?;
+
+    Some(Dep {
+        path: path.to_owned(),
+        ecosystem: Ecosystem::Npm,
+        name: package.to_owned(),
+        version: version.to_owned(),
+        at: shift(at, base),
+        version_at: None,
+    })
 }
 
 /// Offset of every object key after `from`, first occurrence wins; one pass keeps thousands of lock entries linear.
@@ -917,6 +951,54 @@ fn uv_lock(path: &str, text: &str) -> Vec<Dep> {
     deps
 }
 
+/// PEP 751 `[[packages]]`: only an explicit pypi.org `index` with a `version` is a PyPI identity.
+/// VCS, directory and archive packages, other indexes and missing versions stay unknown; markers are not evaluated.
+fn pylock(path: &str, text: &str) -> Vec<Dep> {
+    let mut deps = Vec::new();
+    let mut package: Option<(&str, usize, &str, bool)> = None;
+    let flush = |package: &mut Option<(&str, usize, &str, bool)>, deps: &mut Vec<Dep>| {
+        if let Some((name, at, version, registry)) = package.take()
+            && registry && !name.is_empty() && is_version(version)
+        {
+            deps.push(lock_dep(path, Ecosystem::PyPI, name, version, at));
+        }
+    };
+    let mut keys = false;
+    for (at, line) in lines(text) {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') {
+            let header = trimmed.trim_matches(['[', ']']);
+            keys = false;
+            if trimmed == "[[packages]]" {
+                flush(&mut package, &mut deps);
+                package = Some(("", 0, "", false));
+                keys = true;
+            } else if matches!(header, "packages.vcs" | "packages.directory" | "packages.archive") {
+                if let Some(record) = package.as_mut() {
+                    record.3 = false;
+                    record.0 = "";
+                }
+            } else if !header.starts_with("packages.") {
+                flush(&mut package, &mut deps);
+            }
+            continue;
+        }
+        let Some(record) = package.as_mut().filter(|_| keys) else { continue; };
+        if let Some((name, start)) = toml_string(line, at, "name") {
+            (record.0, record.1) = (name, start);
+        } else if let Some((version, _)) = toml_string(line, at, "version") {
+            record.2 = version;
+        } else if let Some((key, value)) = trimmed.split_once('=')
+            && key.trim() == "index"
+        {
+            record.3 = matches!(value.trim(), "\"https://pypi.org/simple\"" | "\"https://pypi.org/simple/\"");
+        }
+    }
+    flush(&mut package, &mut deps);
+
+    deps
+}
+
 fn requirements(path: &str, text: &str) -> Vec<Dep> {
     let mut deps = Vec::new();
     for (at, line) in lines(text) {
@@ -1259,6 +1341,59 @@ source = { registry = "https://pypi.org/simple/" }
     }
 
     #[test]
+    fn pylock_admits_only_pypi_index_packages_with_versions() {
+        let text = r#"lock-version = "1.0"
+[[packages]]
+name = "Requests"
+version = "2.31.0"
+index = "https://pypi.org/simple"
+marker = "python_version > '3'"
+[[packages.wheels]]
+name = "requests-2.31.0-py3-none-any.whl"
+url = "https://files.pythonhosted.org/x.whl"
+[[packages]]
+name = "gitpkg"
+version = "1.0"
+index = "https://pypi.org/simple"
+[packages.vcs]
+type = "git"
+url = "https://example.com/x.git"
+[[packages]]
+name = "private"
+version = "1.0"
+index = "https://private.example/simple"
+[[packages]]
+name = "noindex"
+version = "1.0"
+[[packages]]
+name = "noversion"
+index = "https://pypi.org/simple"
+[[packages]]
+name = "urllib3"
+version = "2.0.0"
+index = "https://pypi.org/simple/"
+[tool.x]
+name = "tool"
+"#;
+        for path in ["/p/pylock.toml", "/p/pylock.dev.toml"] {
+            let deps = parse(path, text, None);
+            assert_eq!(sorted(&deps), [("Requests", "2.31.0"), ("urllib3", "2.0.0")]);
+            for dep in deps { assert_eq!(&text[dep.at.0..dep.at.1], dep.name); assert_eq!(dep.ecosystem, Ecosystem::PyPI); }
+        }
+        assert!(GLOBS.contains(&"**/pylock.toml") && GLOBS.contains(&"**/pylock.*.toml"));
+        assert!(parse("/p/pylock.toml.bak", text, None).is_empty());
+    }
+
+    #[test]
+    fn package_json_npm_alias_audits_the_real_package_only_when_exact() {
+        let text = r#"{"dependencies":{"old":"npm:lodash@4.17.15","scoped":"npm:@babel/core@7.0.0","range":"npm:lodash@^4.0.0","bare":"npm:lodash","w":"workspace:*","l":"link:../x","bad":"npm:a/b/c@1.0.0"}}"#;
+        let deps = parse("/p/package.json", text, None);
+        assert_eq!(sorted(&deps), [("@babel/core", "7.0.0"), ("lodash", "4.17.15")]);
+        for dep in &deps { assert!(dep.version_at.is_none()); assert_eq!(dep.ecosystem, Ecosystem::Npm); }
+        assert_eq!(&text[deps[0].at.0..deps[0].at.1], "old");
+    }
+
+    #[test]
     fn new_formats_never_panic_on_half_typed_text() {
         for (path, text) in [
             ("/p/libs.versions.toml", "[versions]\nj = \"é\"\n[libraries]\na = { module = \"é:é\", version.ref = \"j\" }\nb = \"é:é:1\"\n"),
@@ -1266,6 +1401,8 @@ source = { registry = "https://pypi.org/simple/" }
             ("/p/pnpm-lock.yaml", "packages:\n  '/é@1.0.0(é@1)':\n    dev: true\n"),
             ("/p/Cargo.lock", "[[package]]\nname = \"é\"\nversion = \"1.0.0\"\nsource = \"registry+é\"\n"),
             ("/p/requirements.txt", "é[é]==1.0 ; é # é\n"),
+            ("/p/pylock.toml", "[[packages]]\nname = \"é\"\nversion = \"1\"\nindex = \"é\"\n[packages.vcs]\n"),
+            ("/p/package.json", "{\"dependencies\":{\"é\":\"npm:é@1.0.0\"}}"),
         ] {
             let text = format!("{text}é\"é'");
             for end in (0..=text.len()).filter(|&i| text.is_char_boundary(i)) {

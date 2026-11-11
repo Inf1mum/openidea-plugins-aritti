@@ -12,6 +12,7 @@ mod chart_actions;
 mod checks;
 mod complete;
 mod kustomize;
+mod helm_values;
 mod crd_schema;
 mod crd_export;
 mod helm_assistance;
@@ -1679,6 +1680,7 @@ impl KubeExplorer {
 impl Providers for KubeExplorer {
     fn definition(&mut self, doc: &Document, at: Position) -> Vec<openidea_plugin::Location> {
         let mut found = kustomize::definition(doc, at);
+        found.extend(helm_values::definition(doc, at));
         found.extend(self.navigation.definition(doc, at));
         found.extend(self.label_refs.definition(doc,at));
         found

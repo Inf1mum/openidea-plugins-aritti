@@ -18,6 +18,7 @@ mod component_occurrences;
 mod component_rename;
 mod codegen;
 mod codegen_options;
+mod operation_actions;
 mod section_actions;
 mod yaml_scan;
 
@@ -1034,6 +1035,7 @@ impl Providers for OpenApi {
         }
 
         actions.extend(section_actions::actions(doc, selection));
+        actions.extend(operation_actions::actions(doc, selection));
         if let Some(rename)=component_rename::offer(doc,selection){actions.push(rename);}
         actions
     }

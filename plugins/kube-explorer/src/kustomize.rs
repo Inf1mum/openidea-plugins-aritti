@@ -15,6 +15,7 @@ const FIELDS: &[&str] = &[
     "validators",
     "patchesStrategicMerge",
 ];
+const GENERATORS: &[&str] = &["configMapGenerator", "secretGenerator"];
 #[derive(Debug)]
 struct Reference {
     value: String,
@@ -44,12 +45,26 @@ fn values(doc: &Yaml) -> Vec<String> {
             found.extend(items.iter().filter_map(|v| v.as_str().map(str::to_owned)));
         }
     }
-    if let Some(items) = doc["patches"].as_vec() {
-        found.extend(
-            items
-                .iter()
-                .filter_map(|v| v["path"].as_str().map(str::to_owned)),
-        );
+    for key in ["patches", "replacements"] {
+        if let Some(items) = doc[key].as_vec() {
+            found.extend(
+                items
+                    .iter()
+                    .filter_map(|v| v["path"].as_str().map(str::to_owned)),
+            );
+        }
+    }
+    for key in GENERATORS {
+        for item in doc[*key].as_vec().into_iter().flatten() {
+            for list in ["files", "envs"] {
+                for entry in item[list].as_vec().into_iter().flatten() {
+                    if let Some(entry) = entry.as_str() {
+                        found.push(entry.rsplit_once('=').map_or(entry, |(_, p)| p).to_owned());
+                    }
+                }
+            }
+            found.extend(item["env"].as_str().map(str::to_owned));
+        }
     }
     found
 }
@@ -112,6 +127,8 @@ fn references(doc: &Document) -> Vec<Reference> {
     let mut field = "";
     let mut result = Vec::new();
     let mut patch_indent = None;
+    let mut generator_indent = None;
+    let mut sub = String::new();
     let mut at = 0;
     for line in doc.text.split_inclusive('\n') {
         let content = line.trim_start();
@@ -124,11 +141,31 @@ fn references(doc: &Document) -> Vec<Reference> {
         {
             field = line.split_once(':').map_or("", |(key, _)| key.trim());
             patch_indent = None;
+            generator_indent = None;
+            sub.clear();
         } else if FIELDS.contains(&field) {
             if let Some(raw) = content.strip_prefix("- ") {
                 value = Some((raw, at + indent + 2));
             }
-        } else if field == "patches" {
+        } else if GENERATORS.contains(&field) && !content.starts_with('#') {
+            let mut item = content;
+            if let Some(rest) = content.strip_prefix("- ") {
+                if generator_indent.is_none_or(|i| i == indent) {
+                    generator_indent = Some(indent);
+                    item = rest;
+                    sub.clear();
+                } else if matches!(sub.as_str(), "files" | "envs") {
+                    value = Some((rest, at + indent + 2));
+                    item = "";
+                }
+            }
+            if let Some((key, rest)) = item.split_once(':') {
+                sub = key.trim().to_owned();
+                if sub == "env" {
+                    value = Some((rest, at + line.len() - rest.len()));
+                }
+            }
+        } else if matches!(field, "patches" | "replacements") {
             let item = if let Some(item) = content.strip_prefix("- ") {
                 patch_indent = Some(indent);
                 item
@@ -143,8 +180,18 @@ fn references(doc: &Document) -> Vec<Reference> {
         }
         if let Some((raw, start)) = value {
             if let Some((value, end)) = scalar(raw) {
+                let lead = raw.len() - raw.trim_start().len();
+                let (value, lead) = match value.rsplit_once('=') {
+                    Some((_, path))
+                        if matches!(field, "configMapGenerator" | "secretGenerator")
+                            && sub == "files"
+                            && !raw.trim_start().starts_with(['"', '\'']) =>
+                    {
+                        (path.to_owned(), lead + raw.trim_start().len().min(end) - path.len())
+                    }
+                    _ => (value, lead),
+                };
                 if expected.contains(&value) {
-                    let lead = raw.len() - raw.trim_start().len();
                     result.push(Reference {
                         value,
                         start: start + lead,
@@ -466,5 +513,31 @@ mod tests {
         h.add_file("shared/kustomization.yaml", "resources: []\n");
         h.add_file("shared/Kustomization", "resources: []\n");
         assert!(definition(&d, Position::new(1, 4)).is_empty());
+    }
+
+    #[test]
+    fn generator_files_envs_and_replacement_paths_navigate_with_exact_spans() {
+        let d = doc(
+            "configMapGenerator:\n- name: a\n  files:\n  - app.properties=conf/app.txt # c\n  - plain.txt\n  envs:\n  - .env\n  literals:\n  - files=x\nsecretGenerator:\n- name: s\n  env: s.env\n  files:\n    - \"k=quoted.txt\"\nreplacements:\n- path: rep.yaml\n",
+        );
+        let h = host(&d);
+        for f in ["conf/app.txt", "plain.txt", ".env", "s.env", "rep.yaml"] {
+            h.add_file(&format!("overlays/dev/{f}"), "x\n");
+        }
+        let refs = references(&d);
+        let spans: Vec<_> = refs.iter().map(|r| &d.text[r.start..r.end]).collect();
+        assert_eq!(spans, ["conf/app.txt", "plain.txt", ".env", "s.env", "rep.yaml"]);
+        assert_eq!(
+            definition(&d, text::position(&d.text, refs[0].start))[0].path,
+            "/p/overlays/dev/conf/app.txt"
+        );
+        assert_eq!(markers(&d).len(), 5);
+    }
+
+    #[test]
+    fn generator_remote_and_missing_refs_stay_quiet() {
+        let d = doc("configMapGenerator:\n- name: a\n  files:\n  - https://x.io/a.txt\n  - k=gone.txt\n  - ../../../out.txt\n");
+        let _h = host(&d);
+        assert!(markers(&d).is_empty());
     }
 }

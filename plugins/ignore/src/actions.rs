@@ -59,9 +59,38 @@ fn source_unchanged(doc: &Document, root: &str) -> Result<Project, Error> {
     Ok(project)
 }
 
+const RECENT_TEMPLATES: &str = "recent-templates:v1";
+const RECENT_LIMIT: usize = 16;
+
+fn recent_templates() -> Vec<String> {
+    let stored = host::storage::get(RECENT_TEMPLATES).ok().flatten().unwrap_or_default();
+    let mut keys: Vec<String> = serde_json::from_str(&stored).unwrap_or_default();
+    keys.truncate(RECENT_LIMIT);
+    keys
+}
+
+fn remember_templates(chosen: &[String]) {
+    let mut keys: Vec<String> = chosen.to_vec();
+    for old in recent_templates() {
+        if !keys.contains(&old) {
+            keys.push(old);
+        }
+    }
+    keys.truncate(RECENT_LIMIT);
+    if let Ok(json) = serde_json::to_string(&keys) {
+        let _ = host::storage::set(RECENT_TEMPLATES, &json);
+    }
+}
+
 fn choose_template_block(before: &str) -> Result<String, Error> {
     let mut items: Vec<_> = TEMPLATES.iter().map(|(name, _)| PickItem::new(&format!("t:{name}"), name)).collect();
     items.extend(user_templates().iter().map(|n| PickItem::new(&format!("u:{n}"), n)));
+    let recent = recent_templates();
+    let rank = |key: &str| recent.iter().position(|r| r == key).unwrap_or(usize::MAX);
+    items.sort_by_key(|item| rank(&item.key));
+    for item in items.iter_mut().filter(|item| rank(&item.key) != usize::MAX) {
+        item.label = format!("{} (recent)", item.label);
+    }
     let keys = host::pick_many("Ignore templates", &items)?.ok_or(Error::Cancelled)?;
     if keys.is_empty() { return Err(Error::Cancelled); }
     if keys.len() > 16 || keys.iter().collect::<HashSet<_>>().len() != keys.len()
@@ -69,8 +98,8 @@ fn choose_template_block(before: &str) -> Result<String, Error> {
         return Err("Choose up to 16 distinct current templates.".into());
     }
     let mut block = String::new();
-    for key in keys {
-        let (label, content) = template_content(&key)?;
+    for key in &keys {
+        let (label, content) = template_content(key)?;
         let header = format!("### {label} template");
         if before.lines().any(|line| line == header) {
             return Err("A selected template header is already present; review the file before appending again.".into());
@@ -79,6 +108,7 @@ fn choose_template_block(before: &str) -> Result<String, Error> {
         if !block.ends_with('\n') { block.push('\n'); }
         if block.len() > MAX { return Err("Selected templates exceed 256 KiB.".into()); }
     }
+    remember_templates(&keys);
     Ok(block)
 }
 
@@ -272,6 +302,23 @@ mod tests {
         assert!(!overwrite);
         assert!(!host.invocation().project().unwrap().exists(path).unwrap());
         assert_eq!(result.open.as_deref(), Some(path.as_str()));
+    }
+
+    #[test]
+    fn remembers_bounded_recent_templates_most_recent_first() {
+        let (host, mut plugin, doc) = setup("/project/a.txt", "");
+        for pick in [&["t:Rust", "t:Node"][..], &["t:Go", "t:Rust"][..]] {
+            let a = action(&mut plugin, &doc, "Create ignore file from templates");
+            for answer in [Some(&[".gitignore"][..]), Some(&[""][..]), Some(pick), Some(&[][..])] {
+                host.answer_next_prompt(answer);
+            }
+            plugin.resolve_file_action(&doc, a).unwrap();
+        }
+        assert_eq!(recent_templates(), ["t:Go", "t:Rust", "t:Node"]);
+        remember_templates(&(0..40).map(|i| format!("t:x{i}")).collect::<Vec<_>>());
+        assert_eq!(recent_templates().len(), RECENT_LIMIT);
+        host::storage::set(RECENT_TEMPLATES, "garbage").unwrap();
+        assert!(recent_templates().is_empty());
     }
 
     #[test]
