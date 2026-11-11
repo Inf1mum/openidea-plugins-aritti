@@ -154,6 +154,11 @@ fn render_flat(plan: &Plan) -> Result<(String, String), Error> {
 fn gather(pending: &Pending, doc: &Document, project: &Project, flat: bool) -> Result<Plan, Error> {
     current(pending, doc)?;
     let class = dto_action::source(doc).ok_or(Error::Stale)?;
+    if flat && !class.kotlin {
+        if let Some(level) = dto_action::java_level_below_record(&doc.path) {
+            return Err(dto_action::record_refusal(level).into());
+        }
+    }
     if doc.text.contains("@Entity(") && doc.text.split("@Entity(").nth(1).and_then(|r| r.split(')').next()).is_some_and(|a| a.contains("name")) {
         return Err("The entity declares a custom @Entity name; the JPQL entity name is not guessed.".into());
     }
@@ -251,8 +256,13 @@ fn create(pending: &Pending, doc: &Document, project: &Project, plan: &Plan, mut
         dto_convert_action::offer_reuse(project, &pending.root, directory, plan.class.kotlin, &doc.path, &wanted)?;
     }
     no_collision(project, &pending.root, directory, name, None)?;
+    let unproven = flat && !plan.class.kotlin && project_facts::detect(project, directory).java_level.is_none();
     let note = if flat {
-        "Flattened DTO: components are entity fields and to-one association fields with prefixed names. Class-based DTOs cannot carry nested projections (Spring Data). Java record needs Java 16+; Kotlin properties are nullable."
+        if unproven {
+            "Flattened DTO: components are entity fields and to-one association fields with prefixed names. Class-based DTOs cannot carry nested projections (Spring Data). Java record needs Java 16+; the project's Java level could not be proven from the build files (version catalogs, BOMs and inherited settings are not resolved)."
+        } else {
+            "Flattened DTO: components are entity fields and to-one association fields with prefixed names. Class-based DTOs cannot carry nested projections (Spring Data). Java record needs Java 16+; Kotlin properties are nullable."
+        }
     } else {
         "Closed interface projection with nested interface projections for to-one associations. Spring Data: projections limit the selection to top-level properties; a nested property resolving to a join selects the entire nested property. To-many nested projections are not offered (not documented)."
     };

@@ -45,6 +45,8 @@ pub struct ProjectFacts {
     pub liquibase: Fact,
     pub jackson: Fact,
     pub bean_validation: Fact,
+    /// Proven Java language level (release/source/target, toolchain, Spring Boot 3 implies 17); `None` when not provable.
+    pub java_level: Option<u32>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -161,8 +163,64 @@ pub fn from_text(module: &str, own: &str, all: &str, kotlin_dir: bool, java_dir:
         flyway: dependency(all, indirect, feature_present(Feature::Flyway, all)),
         liquibase: dep(&["liquibase-core"]),
         jackson: dep(&["com.fasterxml.jackson", "jackson-databind"]),
-        bean_validation: dep(&["jakarta.validation", "javax.validation", "spring-boot-starter-validation", "hibernate-validator"]),
+        bean_validation: dep(&["spring-boot-starter-validation", "hibernate-validator"]),
+        java_level: java_level(own).or_else(|| java_level(all)),
     }
+}
+
+fn level_of(value: &str) -> Option<u32> {
+    let value = value.trim().trim_matches(['\'', '"']).trim();
+    let value = value.split_once("VERSION_").map_or(value, |(_, version)| version).replace('_', ".");
+    let value = value.strip_prefix("1.").unwrap_or(&value);
+    let digits: String = value.chars().take_while(char::is_ascii_digit).collect();
+    digits.parse().ok().filter(|level| (5..=60).contains(level))
+}
+
+fn tag_values(text: &str, tag: &str) -> Vec<String> {
+    let (open, close) = (format!("<{tag}>"), format!("</{tag}>"));
+    let mut found = Vec::new();
+    let mut rest = text;
+    while let Some(at) = rest.find(&open) {
+        rest = &rest[at + open.len()..];
+        let Some(end) = rest.find(&close) else {
+            break;
+        };
+        let value = rest[..end].trim();
+        let resolved = match value.strip_prefix("${").and_then(|name| name.strip_suffix('}')) {
+            Some(name) => tag_values(text, name).first().cloned().unwrap_or_default(),
+            None => value.to_owned(),
+        };
+        found.push(resolved);
+        rest = &rest[end + close.len()..];
+    }
+    found
+}
+
+fn after_key(text: &str, key: &str) -> Vec<String> {
+    text.match_indices(key)
+        .map(|(at, _)| text[at + key.len()..].trim_start_matches([' ', '\t', '=', '(']).lines().next().unwrap_or_default().to_owned())
+        .collect()
+}
+
+/// Explicit release wins over source/target; the lowest of several declarations is used. Version catalogs
+/// and BOM-managed values do not parse and leave the level unknown.
+fn java_level(text: &str) -> Option<u32> {
+    let mut release: Vec<u32> = ["maven.compiler.release", "release"].iter().flat_map(|tag| tag_values(text, tag)).filter_map(|v| level_of(&v)).collect();
+    release.extend(["options.release", "release.set(", "JavaLanguageVersion.of(", "jvmToolchain("].iter().flat_map(|key| after_key(text, key)).filter_map(|v| level_of(&v)));
+    if let Some(level) = release.into_iter().min() {
+        return Some(level);
+    }
+    let mut other: Vec<u32> = ["maven.compiler.source", "maven.compiler.target", "java.version"].iter().flat_map(|tag| tag_values(text, tag)).filter_map(|v| level_of(&v)).collect();
+    other.extend(["sourceCompatibility", "targetCompatibility"].iter().flat_map(|key| after_key(text, key)).filter_map(|v| level_of(&v)));
+    if let Some(level) = other.into_iter().min() {
+        return Some(level);
+    }
+    spring_boot_majors(text).iter().any(|major| *major >= 3).then_some(17)
+}
+
+/// Java record DTO forms need Java 16: `Some(level)` below 16 is refused, `None` (unproven) is allowed with a preview note.
+pub fn java_level_below_record(project: &Project, directory: &str) -> Option<u32> {
+    detect_cached(project, directory).java_level.filter(|level| *level < 16)
 }
 
 fn inside(root: &str, path: &str) -> bool {
@@ -356,6 +414,48 @@ mod tests {
         assert_eq!(facts(six, six, false, false).hibernate6, Fact::Yes);
         let boot2 = "plugins { id 'org.springframework.boot' version '2.7.18' }";
         assert_eq!(facts(boot2, boot2, false, false).namespace, Namespace::Javax);
+    }
+
+    #[test]
+    fn java_level_is_read_from_maven_gradle_and_boot_and_stays_unknown_otherwise() {
+        let level = |build: &str| facts(build, build, false, true).java_level;
+        assert_eq!(level("<properties><java.version>11</java.version></properties>"), Some(11));
+        assert_eq!(level("<properties><java.version>1.8</java.version></properties>"), Some(8));
+        assert_eq!(level("<properties><maven.compiler.source>11</maven.compiler.source><maven.compiler.target>11</maven.compiler.target></properties>"), Some(11));
+        assert_eq!(level("<properties><maven.compiler.release>17</maven.compiler.release><maven.compiler.source>11</maven.compiler.source></properties>"), Some(17));
+        assert_eq!(level("<properties><v>21</v><maven.compiler.release>${v}</maven.compiler.release></properties>"), Some(21));
+        assert_eq!(level("<plugin><artifactId>maven-compiler-plugin</artifactId><configuration><release>11</release></configuration></plugin>"), Some(11));
+        assert_eq!(level("<properties><java.version>11</java.version></properties><!-- <java.version>21</java.version> -->"), Some(11));
+        assert_eq!(level("sourceCompatibility = '1.8'"), Some(8));
+        assert_eq!(level("sourceCompatibility = JavaVersion.VERSION_17"), Some(17));
+        assert_eq!(level("java { sourceCompatibility = JavaVersion.VERSION_1_8 }"), Some(8));
+        assert_eq!(level("java { toolchain { languageVersion = JavaLanguageVersion.of(21) } }"), Some(21));
+        assert_eq!(level("java { toolchain { languageVersion.set(JavaLanguageVersion.of(11)) } }"), Some(11));
+        assert_eq!(level("tasks.withType<JavaCompile> { options.release.set(11) }"), Some(11));
+        assert_eq!(level("kotlin { compilerOptions { jvmTarget = JvmTarget.JVM_11 } }"), None);
+        assert_eq!(level("<parent><artifactId>spring-boot-starter-parent</artifactId><version>3.3.0</version></parent>"), Some(17));
+        assert_eq!(level("plugins { id 'org.springframework.boot' version '3.2.1' }"), Some(17));
+        assert_eq!(level("<parent><artifactId>spring-boot-starter-parent</artifactId><version>2.7.18</version></parent><properties><java.version>11</java.version></properties>"), Some(11));
+        assert_eq!(level("<parent><artifactId>spring-boot-starter-parent</artifactId><version>2.7.18</version></parent>"), None);
+        assert_eq!(level("java { sourceCompatibility = JavaVersion.toVersion(libs.versions.java.get()) }"), None);
+        assert_eq!(level(""), None);
+    }
+
+    #[test]
+    fn java_level_prefers_the_module_over_its_ancestors() {
+        let own = "<properties><java.version>11</java.version></properties>";
+        let parent = "<parent><artifactId>spring-boot-starter-parent</artifactId><version>3.3.0</version></parent>";
+        assert_eq!(from_text("m", own, &format!("{own}{parent}"), false, true).java_level, Some(11));
+        assert_eq!(from_text("m", "<project/>", &format!("<project/>{parent}"), false, true).java_level, Some(17));
+    }
+
+    #[test]
+    fn bean_validation_needs_hibernate_validator_or_the_starter() {
+        let level = |build: &str| facts(build, build, false, true).bean_validation;
+        assert_eq!(level("<artifactId>spring-boot-starter-validation</artifactId>"), Fact::Yes);
+        assert_eq!(level("implementation 'org.hibernate.validator:hibernate-validator:8.0.1.Final'"), Fact::Yes);
+        assert_eq!(level("<artifactId>jakarta.validation-api</artifactId>"), Fact::No);
+        assert_eq!(level("dependencies { implementation(libs.validation) }"), Fact::Unknown);
     }
 
     #[test]

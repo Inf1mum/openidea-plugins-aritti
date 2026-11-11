@@ -82,12 +82,64 @@ pub(super) fn fields(class: &Class) -> Option<Vec<(String, String)>> {
     let fields = dto_fields(&candidate, &none);
     (!fields.is_empty() && fields.len() <= MAX_FIELDS).then_some(fields)
 }
+/// A plain Java class (no JPA marker, no inheritance, no generics) is parsed as if it were an entity so its own
+/// scalar fields can be picked; documented DTO generation is not limited to entities (G067-C3, G068-C1).
+fn plain_source(doc: &Document) -> Option<Class> {
+    if doc.language != "java" || !doc.path.ends_with(".java") {
+        return None;
+    }
+    let masked = mask(&doc.text);
+    let top_level = |keyword: &str| words(&masked, keyword).filter(|at| *at == 0 || masked.as_bytes()[at - 1] != b'.').count();
+    let marked = annotations(&masked).iter().any(|a| ["Entity", "MappedSuperclass", "Embeddable"].contains(&a.name));
+    if marked || top_level("class") != 1 || ["interface", "enum", "record"].iter().any(|keyword| top_level(keyword) != 0) || masked.contains("@interface") {
+        return None;
+    }
+    let at = words(&masked, "class").find(|at| *at == 0 || masked.as_bytes()[at - 1] != b'.')?;
+    let line_start = masked[..at].rfind('\n').map_or(0, |newline| newline + 1);
+    let synthetic = format!("{}@Entity\n{}", &doc.text[..line_start], &doc.text[line_start..]);
+    let class = parse_class(&synthetic, &doc.path).filter(|class| class.superclass.is_none())?;
+    let header = masked[at + 5..].trim_start().strip_prefix(&class.name)?.trim_start();
+    if !header.starts_with('{') || !identifier(&class.name) || class.package.is_none() || package(doc).as_ref() != class.package.as_ref() || class.attributes.len() > 128 {
+        return None;
+    }
+    Some(class)
+}
+
+fn dto_source(doc: &Document) -> Option<Class> {
+    source(doc).or_else(|| plain_source(doc))
+}
+
+pub(super) fn java_level_below_record(path: &str) -> Option<u32> {
+    let project = host::project_of(path)?;
+    project_facts::java_level_below_record(&project, path.rsplit_once('/')?.0)
+}
+
+pub(super) fn record_refusal(level: u32) -> String {
+    format!("The project's Java level is {level}; Java records need 16 or newer, so no record was generated.")
+}
+
+pub(super) const UNPROVEN_LEVEL_NOTE: &str = "Java record: requires Java 16 or newer; the project's Java level could not be proven from the build files (version catalogs, BOMs and inherited settings are not resolved).";
+
+/// Whether a Java record may be offered for the file's module: false only when a level below 16 is proven.
+pub(super) fn record_offered(path: &str) -> bool {
+    java_level_below_record(path).is_none()
+}
+
 pub(super) fn eligible(doc: &Document) -> bool {
-    source(doc).as_ref().and_then(fields).is_some()
+    let Some(class) = dto_source(doc) else {
+        return false;
+    };
+    fields(&class).is_some() && (class.kotlin || record_offered(&doc.path))
 }
 pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> Result<FileAction, Error> {
     current(pending, doc)?;
-    let mut class = source(doc).ok_or(Error::Stale)?;
+    let mut class = dto_source(doc).ok_or(Error::Stale)?;
+    if !class.kotlin {
+        if let Some(level) = java_level_below_record(&doc.path) {
+            return Err(record_refusal(level).into());
+        }
+    }
+    let unproven = !class.kotlin && project_facts::detect(project, doc.path.rsplit_once('/').ok_or(Error::Stale)?.0).java_level.is_none();
     let available = fields(&class).ok_or("No bounded unambiguous scalar fields are available for a DTO.")?;
     let default = format!("{}Dto", class.name);
     let Some(name) = host::input("DTO type name (same package; ending in Dto)", Some(&default))? else {
@@ -146,7 +198,7 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> R
     let note = if class.kotlin {
         "Kotlin data class: selected transfer fields are nullable with null defaults."
     } else {
-        "Java record: requires Java 16 or newer; compiler/source level was not verified."
+        if unproven { UNPROVEN_LEVEL_NOTE } else { "Java record: the project's Java level is 16 or newer." }
     };
     let preview = format!(
         "Source: {}\nSource version: {}\nPackage: {declared}\nTarget: {target}\n\n{note}\nSource-derived draft only: no DB/schema diff, mapper, inherited fields or association-ID guesses.\n\nExact new file:\n{generated}\nOne atomic host-managed Create; no existing file is overwritten.",
@@ -196,7 +248,7 @@ impl Style {
 const TRANSFER: [&str; 7] = ["NotNull", "NotBlank", "Size", "Min", "Max", "Pattern", "Email"];
 
 pub(super) fn class_eligible(doc: &Document) -> bool {
-    source(doc).is_some_and(|class| !class.kotlin && !class_fields(&class).is_empty())
+    dto_source(doc).is_some_and(|class| !class.kotlin && !class_fields(&class).is_empty())
 }
 
 fn class_fields(class: &Class) -> Vec<(String, String)> {
@@ -454,7 +506,7 @@ fn render_class(class: &Class, package_name: &str, plan: &Plan) -> String {
         out.push_str(&format!("{annotation}\n"));
     }
     out.push_str(&format!("public class {} {{\n", plan.name));
-    let modifier = if style == Style::LombokValue { "private final" } else { "private" };
+    let modifier = if style == Style::LombokValue { "" } else { "private " };
     let annotated = plan.fields.iter().any(|(name, _)| renamed(name) || plan.constraints.contains_key(name));
     for (at, (name, ty)) in plan.fields.iter().enumerate() {
         if annotated || at == 0 {
@@ -466,7 +518,7 @@ fn render_class(class: &Class, package_name: &str, plan: &Plan) -> String {
         if renamed(name) {
             out.push_str(&format!("    @JsonProperty(\"{}\")\n", snake(name)));
         }
-        out.push_str(&format!("    {modifier} {ty} {name};\n"));
+        out.push_str(&format!("    {modifier}{ty} {name};\n"));
     }
     if pojo {
         let class_name = plan.name;
@@ -534,7 +586,7 @@ fn render_class(class: &Class, package_name: &str, plan: &Plan) -> String {
 
 pub(super) fn resolve_class(pending: &Pending, doc: &Document, project: &Project) -> Result<FileAction, Error> {
     current(pending, doc)?;
-    let class = source(doc).filter(|class| !class.kotlin).ok_or(Error::Stale)?;
+    let class = dto_source(doc).filter(|class| !class.kotlin).ok_or(Error::Stale)?;
     let available = class_fields(&class);
     if available.is_empty() {
         return Err("No bounded unambiguous scalar field has a bean-safe name for a DTO class.".into());
@@ -631,7 +683,11 @@ pub(super) fn resolve_class(pending: &Pending, doc: &Document, project: &Project
     let mut namespace = String::new();
     let applicable = annotations(&mask(&doc.text)).iter().any(|a| TRANSFER.contains(&a.name));
     if applicable {
-        let choices = [("none", "Do not copy validation"), ("copy", "Copy NotNull, NotBlank, Size, Min, Max, Pattern, Email (literal arguments)")];
+        let validator_proven = project_facts::detect(project, directory).bean_validation == project_facts::Fact::Yes;
+        let choices: Vec<_> = [("none", "Do not copy validation"), ("copy", "Copy NotNull, NotBlank, Size, Min, Max, Pattern, Email (literal arguments)")]
+            .into_iter()
+            .filter(|(key, _)| *key != "copy" || validator_proven)
+            .collect();
         let items: Vec<_> = choices.iter().map(|(key, label)| PickItem::new(key, label)).collect();
         let answer = host::pick("Bean Validation transfer", &items)?.ok_or(Error::Cancelled)?;
         match answer.as_str() {
@@ -673,7 +729,7 @@ pub(super) fn resolve_class(pending: &Pending, doc: &Document, project: &Project
     no_collision(project, &pending.root, directory, &name, None)?;
     let mut notes = vec!["Java class DTO: source-derived draft only (no mapper, inherited fields or association IDs).".to_owned()];
     match style {
-        Style::LombokValue => notes.push("Lombok @Value: final class, private final fields, getters, no setters, all-args constructor generated by Lombok; no no-args constructor.".into()),
+        Style::LombokValue => notes.push("Lombok @Value: implies a final class and private final fields (so no modifiers are written), getters, no setters, all-args constructor generated by Lombok; no no-args constructor.".into()),
         Style::LombokData => notes.push("Lombok @Data: getters, setters, equals/hashCode/toString; Lombok skips its constructor when an explicit one exists.".into()),
         Style::LombokChain => notes.push("Lombok @Accessors is an experimental feature; chain = true makes setters return this.".into()),
         _ => {}
@@ -882,7 +938,8 @@ mod tests {
     const PLAIN: &str = "package shop;\nimport jakarta.persistence.*;\n@Entity\npublic class Customer {\n @Id Long id;\n String title;\n boolean flag;\n Boolean seen;\n byte[] blob;\n}\n";
     const VALID: &str = "package shop;\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\nimport jakarta.validation.constraints.NotBlank;\nimport jakarta.validation.constraints.Size;\nimport jakarta.validation.constraints.Pattern;\nimport jakarta.validation.constraints.Email;\nimport jakarta.validation.constraints.Min;\nimport jakarta.validation.constraints.Max;\nimport jakarta.validation.constraints.NotNull;\n@Entity\npublic class Customer {\n @Id Long id;\n @NotBlank @Size(min = 2, max = 40, message = \"too, long\") String title;\n @Pattern(regexp = \"[a-z]+,\\\\d\") String code;\n @Email String mail;\n @Min(1) @Max(value = 9L) Integer rank;\n @NotNull Boolean seen;\n}\n";
     const POM_LOMBOK: &str = "<project><dependency><groupId>org.projectlombok</groupId><artifactId>lombok</artifactId></dependency></project>";
-    const POM_JACKSON: &str = "<project><dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId></dependency></project>";
+    const POM_VALIDATION: &str = "<project><dependency><artifactId>spring-boot-starter-validation</artifactId></dependency></project>";
+    const POM_JACKSON: &str = "<project><dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId></dependency><dependency><artifactId>spring-boot-starter-validation</artifactId></dependency></project>";
     const CPATH: &str = "/project/src/main/java/shop/Customer.java";
 
     fn run_class(source: &str, build: Option<(&str, &str)>, answers: &[&[&str]], confirm: bool) -> (MockHost, Result<FileAction, Error>) {
@@ -949,12 +1006,121 @@ mod tests {
     fn lombok_value_is_immutable_without_constructor_options_and_refuses_jackson() {
         let value: [&[&str]; 4] = [&["lombok-value"], &["CustomerDto"], &["id", "title"], &["none"]];
         let text = text_of(run_class(PLAIN, Some(("pom.xml", POM_LOMBOK)), &value, true).1);
-        assert!(text.contains("@Value\npublic class CustomerDto {") && text.contains("    private final Long id;\n    private final String title;\n"), "{text}");
+        assert!(text.contains("@Value\npublic class CustomerDto {") && text.contains("    Long id;\n    String title;\n"), "{text}");
         assert!(!text.contains("Constructor") && !text.contains("@Setter"), "{text}");
         let jackson: [&[&str]; 4] = [&["lombok-value"], &["CustomerDto"], &["id"], &["snake-case"]];
         let pom = format!("{POM_LOMBOK}{POM_JACKSON}");
         let error = format!("{:?}", run_class(PLAIN, Some(("pom.xml", &pom)), &jackson, true).1.err().unwrap());
         assert!(error.contains("immutable"), "{error}");
+    }
+
+    #[test]
+    fn lombok_value_writes_no_modifiers_that_value_implies() {
+        let answers: [&[&str]; 5] = [&["lombok-value"], &["CustomerDto"], &["id", "title"], &["none"], &[]];
+        let text = text_of(run_class(PLAIN, Some(("pom.xml", POM_LOMBOK)), &answers[..4], true).1);
+        assert!(text.contains("@Value\npublic class CustomerDto {") && text.contains("    Long id;\n    String title;\n"), "{text}");
+        assert!(!text.contains("private") && !text.contains("final"), "{text}");
+    }
+
+    #[test]
+    fn validation_transfer_is_offered_only_with_hibernate_validator_or_the_starter() {
+        let offered = |build: Option<(&str, &str)>| {
+            let answers: [&[&str]; 6] = [&["pojo"], &["CustomerDto"], &["title"], &[], &["none"], &["copy"]];
+            match run_class(VALID, build, &answers, true).1 {
+                Ok(_) => Some(true),
+                Err(Error::Invalid(message)) if message.contains("not one of the items") => Some(false),
+                Err(other) => panic!("{other:?}"),
+            }
+        };
+        assert_eq!(offered(Some(("pom.xml", POM_VALIDATION))), Some(true));
+        assert_eq!(offered(Some(("build.gradle", "implementation 'org.hibernate.validator:hibernate-validator:8.0.1.Final'"))), Some(true));
+        assert_eq!(offered(Some(("pom.xml", "<project><artifactId>spring-boot-starter-web</artifactId></project>"))), Some(false));
+        assert_eq!(offered(None), Some(false));
+        assert_eq!(offered(Some(("build.gradle", "implementation(libs.validation)"))), Some(false));
+    }
+
+    #[test]
+    fn plain_non_entity_classes_get_scalar_dto_and_dto_class_offers() {
+        let plain = "package shop;\n\npublic class PlainThing {\n\n    private String label;\n\n    private int count;\n}\n";
+        let path = "/project/src/main/java/shop/PlainThing.java";
+        let (host, mut plugin, doc) = setup(path, plain, "java");
+        let titles: Vec<_> = plugin.file_actions(&doc, Range::default()).into_iter().map(|a| a.title).collect();
+        assert!(titles.iter().any(|t| t == "Create scalar DTO with preview…") && titles.iter().any(|t| t == CLASS_TITLE), "{titles:?}");
+        let pending = plugin.file_actions(&doc, Range::default()).into_iter().find(|a| a.title.starts_with("Create scalar DTO")).unwrap();
+        answer(&host, "PlainThingDto", &["label", "count"], true);
+        let action = plugin.resolve_file_action(&doc, pending).unwrap();
+        let (target, text) = created(&action);
+        assert_eq!(target, "/project/src/main/java/shop/PlainThingDto.java");
+        assert!(text.contains("public record PlainThingDto(") && text.contains("String label") && text.contains("int count"), "{text}");
+        for refused in [
+            plain.replace("PlainThing {", "PlainThing extends Base {"),
+            plain.replace("PlainThing {", "PlainThing<T> {"),
+            plain.replace("PlainThing {", "PlainThing implements Marker {"),
+            plain.replace("}\n", "    static class Inner {}\n}\n"),
+            plain.replace("public class", "public interface"),
+            plain.replace("package shop;\n\n", ""),
+            "package shop;\n\npublic class A {\n int x;\n}\nclass B {\n int y;\n}\n".to_owned(),
+        ] {
+            let (_host, mut plugin, doc) = setup(path, &refused, "java");
+            assert!(!plugin.file_actions(&doc, Range::default()).iter().any(|a| a.title.starts_with("Create scalar DTO") || a.title == CLASS_TITLE), "{refused}");
+        }
+    }
+
+    fn java_record_offered(build: Option<(&str, &str)>) -> bool {
+        project_facts::invalidate_all();
+        let (host, mut plugin, doc) = setup(CPATH, JAVA, "java");
+        if let Some((name, text)) = build {
+            host.add_file(name, text);
+        }
+        plugin.file_actions(&doc, Range::default()).iter().any(|a| a.title.starts_with("Create scalar DTO"))
+    }
+
+    #[test]
+    fn record_dto_is_offered_only_when_the_java_level_is_not_proven_below_16() {
+        assert!(java_record_offered(None));
+        assert!(java_record_offered(Some(("pom.xml", "<properties><java.version>17</java.version></properties>"))));
+        assert!(java_record_offered(Some(("pom.xml", "<properties><java.version>16</java.version></properties>"))));
+        assert!(java_record_offered(Some(("build.gradle", "sourceCompatibility = JavaVersion.VERSION_21"))));
+        assert!(java_record_offered(Some(("pom.xml", "<parent><artifactId>spring-boot-starter-parent</artifactId><version>3.3.0</version></parent>"))));
+        assert!(!java_record_offered(Some(("pom.xml", "<properties><java.version>11</java.version></properties>"))));
+        assert!(!java_record_offered(Some(("pom.xml", "<properties><maven.compiler.source>1.8</maven.compiler.source></properties>"))));
+        assert!(!java_record_offered(Some(("pom.xml", "<parent><artifactId>spring-boot-starter-parent</artifactId><version>2.7.18</version></parent><properties><java.version>11</java.version></properties>"))));
+        assert!(!java_record_offered(Some(("build.gradle", "java { toolchain { languageVersion = JavaLanguageVersion.of(11) } }"))));
+        assert!(java_record_offered(Some(("build.gradle", "sourceCompatibility = JavaVersion.toVersion(libs.versions.jdk.get())"))));
+    }
+
+    #[test]
+    fn proven_java_11_hides_record_forms_everywhere_but_keeps_other_forms() {
+        let pojo = "package shop;\n\npublic class Thing {\n    private String label;\n    public String getLabel() {\n        return label;\n    }\n}\n";
+        let order = JAVA;
+        let titles = |source: &str, path: &str, pom: &str| {
+            project_facts::invalidate_all();
+            let (host, mut plugin, doc) = setup(path, source, "java");
+            host.add_file("pom.xml", pom);
+            host.add_file("src/main/java/shop/Other.java", "package shop;\nimport jakarta.persistence.*;\n@Entity\npublic class Other {\n @Id Long id;\n}\n");
+            plugin.file_actions(&doc, Range::default()).into_iter().map(|a| a.title).collect::<Vec<_>>()
+        };
+        let java11 = "<properties><java.version>11</java.version></properties>";
+        let java17 = "<properties><java.version>17</java.version></properties>";
+        let has = |titles: &[String], start: &str| titles.iter().any(|t| t.starts_with(start));
+        let old = titles(order, CPATH, java11);
+        assert!(!has(&old, "Create scalar DTO") && !has(&old, "Create flattened DTO") && has(&old, "Create projection") && has(&old, "Create projection with nested") && has(&old, CLASS_TITLE), "{old:?}");
+        let new = titles(order, CPATH, java17);
+        assert!(has(&new, "Create scalar DTO") && has(&new, "Create flattened DTO"), "{new:?}");
+        let convert_path = "/project/src/main/java/shop/Thing.java";
+        assert!(!has(&titles(pojo, convert_path, java11), dto_convert_action::TO_RECORD_TITLE));
+        assert!(has(&titles(pojo, convert_path, java17), dto_convert_action::TO_RECORD_TITLE));
+        assert!(has(&titles(pojo, convert_path, "<project/>"), dto_convert_action::TO_RECORD_TITLE));
+    }
+
+    #[test]
+    fn projection_record_form_is_not_a_choice_when_java_is_below_16() {
+        project_facts::invalidate_all();
+        let (host, mut plugin, doc) = setup(CPATH, JAVA, "java");
+        host.add_file("pom.xml", "<properties><java.version>11</java.version></properties>");
+        let pending = plugin.file_actions(&doc, Range::default()).into_iter().find(|a| a.title == projection_action::TITLE).unwrap();
+        host.answer_next_prompt(Some(&["record"]));
+        assert!(matches!(plugin.resolve_file_action(&doc, pending), Err(Error::Invalid(_))));
     }
 
     #[test]
@@ -994,7 +1160,7 @@ mod tests {
     #[test]
     fn validation_transfer_copies_only_literal_supported_constraints_in_the_matching_namespace() {
         let answers: [&[&str]; 6] = [&["pojo"], &["CustomerDto"], &["id", "title", "code", "mail", "rank", "seen"], &[], &["none"], &["copy"]];
-        let text = text_of(run_class(VALID, None, &answers, true).1);
+        let text = text_of(run_class(VALID, Some(("pom.xml", POM_VALIDATION)), &answers, true).1);
         for expected in [
             "import jakarta.validation.constraints.Email;",
             "@NotBlank\n    @Size(min = 2, max = 40, message = \"too, long\")\n    private String title;",
@@ -1006,9 +1172,9 @@ mod tests {
             assert!(text.contains(expected), "{expected}\n{text}");
         }
         let declined: [&[&str]; 6] = [&["pojo"], &["CustomerDto"], &["title"], &[], &["none"], &["none"]];
-        assert!(!text_of(run_class(VALID, None, &declined, true).1).contains("@NotBlank"));
+        assert!(!text_of(run_class(VALID, Some(("pom.xml", POM_VALIDATION)), &declined, true).1).contains("@NotBlank"));
         let javax = VALID.replace("jakarta.", "javax.");
-        let text = text_of(run_class(&javax, None, &answers, true).1);
+        let text = text_of(run_class(&javax, Some(("pom.xml", POM_VALIDATION)), &answers, true).1);
         assert!(text.contains("import javax.validation.constraints.NotBlank;") && !text.contains("jakarta"), "{text}");
         let none: [&[&str]; 4] = [&["pojo"], &["CustomerDto"], &["id"], &[]];
         let mut prompts = Vec::from(none);
@@ -1027,7 +1193,7 @@ mod tests {
             (VALID.replace("@Email", "@jakarta.validation.constraints.Email"), "fully qualified"),
         ] {
             let all: [&[&str]; 6] = [&["pojo"], &["CustomerDto"], &["title", "code", "mail", "seen"], &[], &["none"], &["copy"]];
-            let error = format!("{:?}", run_class(&source, None, &all, true).1.err().unwrap());
+            let error = format!("{:?}", run_class(&source, Some(("pom.xml", POM_VALIDATION)), &all, true).1.err().unwrap());
             assert!(error.contains(expect) || expect == "non-literal" && error.contains("non-literal"), "{expect}: {error}");
         }
     }

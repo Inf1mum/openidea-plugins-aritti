@@ -29,7 +29,7 @@ fn forms(kotlin: bool) -> [(Form, &'static str, &'static str); 2] {
 }
 
 pub(super) fn eligible(doc: &Document) -> bool {
-    dto_action::eligible(doc)
+    dto_action::source(doc).as_ref().and_then(dto_action::fields).is_some()
 }
 
 pub(super) fn offered(class: &Class, form: Form) -> Vec<(String, String)> {
@@ -91,9 +91,11 @@ fn render(class: &Class, package_name: &str, form: Form, name: &str, fields: &[(
 pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> Result<FileAction, Error> {
     current(pending, doc)?;
     let class = dto_action::source(doc).ok_or(Error::Stale)?;
-    let choices: Vec<_> = forms(class.kotlin).iter().map(|(_, key, label)| PickItem::new(key, label)).collect();
+    let record_offered = class.kotlin || dto_action::record_offered(&doc.path);
+    let forms: Vec<_> = forms(class.kotlin).into_iter().filter(|(form, _, _)| *form != Form::Record || record_offered).collect();
+    let choices: Vec<_> = forms.iter().map(|(_, key, label)| PickItem::new(key, label)).collect();
     let key = host::pick("Projection form", &choices)?.ok_or(Error::Cancelled)?;
-    let form = forms(class.kotlin).iter().find(|(_, k, _)| *k == key).map(|(f, _, _)| *f).ok_or("Choose one of the offered forms.")?;
+    let form = forms.iter().find(|(_, k, _)| *k == key).map(|(f, _, _)| *f).ok_or("Choose one of the offered forms.")?;
     let available = offered(&class, form);
     if available.is_empty() {
         return Err("No plain scalar attribute has a name usable as a projection property.".into());
@@ -138,9 +140,11 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> R
         return Err(Error::Stale);
     }
     no_collision(project, &pending.root, directory, &name, None)?;
+    let unproven_level = form == Form::Record && project_facts::detect(project, directory).java_level.is_none();
     let note = match form {
         Form::Interface => "Closed interface projection: accessor names must match entity properties; `is` getters only for primitive boolean.",
-        Form::Record => "Java record: requires Java 16 or newer; compiler/source level was not verified. Constructor parameter names must match entity properties.",
+        Form::Record if unproven_level => "Java record: requires Java 16 or newer; the project's Java level could not be proven from the build files (version catalogs, BOMs and inherited settings are not resolved). Constructor parameter names must match entity properties.",
+        Form::Record => "Java record: the project's Java level is 16 or newer. Constructor parameter names must match entity properties.",
         Form::DataClass => "Kotlin data class without defaults (single constructor); properties are nullable. Constructor parameter names must match entity properties.",
     };
     let preview = format!(

@@ -472,7 +472,7 @@ impl FileActions for JpaAssist {
         if dto_convert_action::eligible_record(doc) {
             operations.push((Operation::DtoToClass, dto_convert_action::TO_CLASS_TITLE));
         }
-        if dto_convert_action::eligible_class(doc) {
+        if dto_convert_action::eligible_class(doc) && dto_action::record_offered(&doc.path) {
             operations.push((Operation::DtoToRecord, dto_convert_action::TO_RECORD_TITLE));
         }
         if extract_superclass::eligible(doc) {
@@ -546,7 +546,9 @@ impl FileActions for JpaAssist {
         }
         if nested_dto_action::eligible(doc) {
             operations.push((Operation::NestedProjection, nested_dto_action::TITLE));
-            operations.push((Operation::FlatDto, nested_dto_action::FLAT_TITLE));
+            if doc.language != "java" || dto_action::record_offered(&doc.path) {
+                operations.push((Operation::FlatDto, nested_dto_action::FLAT_TITLE));
+            }
         }
         if mapper_action::eligible(doc) {
             operations.push((Operation::MapstructMapper, mapper_action::TITLE));
