@@ -190,15 +190,41 @@ fn java_plan(project: &Project, root: &str, doc_directory: &str) -> Result<JavaP
 
 fn render_java_migration(package: &str, class: &str) -> String {
     format!(
-        "package {package};\n\nimport java.sql.Connection;\n\nimport org.flywaydb.core.api.migration.BaseJavaMigration;\nimport org.flywaydb.core.api.migration.Context;\n\npublic class {class} extends BaseJavaMigration {{\n    @Override\n    public void migrate(Context context) throws Exception {{\n        Connection connection = context.getConnection();\n    }}\n}}\n"
+        "package {package};\n\nimport java.sql.PreparedStatement;\n\nimport org.flywaydb.core.api.migration.BaseJavaMigration;\nimport org.flywaydb.core.api.migration.Context;\n\npublic class {class} extends BaseJavaMigration {{\n    @Override\n    public void migrate(Context context) throws Exception {{\n        try (PreparedStatement statement = context.getConnection().prepareStatement(\"\")) {{\n        }}\n    }}\n}}\n"
     )
 }
 
-fn render_java_callback(package: &str, class: &str, events: &[&str]) -> String {
+fn render_java_callback(package: &str, class: &str, events: &[&str], callback_name: &str, in_transaction: bool) -> String {
     let conditions = events.iter().map(|id| format!("event == Event.{}", event_constant(id))).collect::<Vec<_>>().join("\n                || ");
     format!(
-        "package {package};\n\nimport org.flywaydb.core.api.callback.BaseCallback;\nimport org.flywaydb.core.api.callback.Context;\nimport org.flywaydb.core.api.callback.Event;\n\npublic class {class} extends BaseCallback {{\n    @Override\n    public boolean supports(Event event, Context context) {{\n        return {conditions};\n    }}\n\n    @Override\n    public void handle(Event event, Context context) {{\n    }}\n}}\n"
+        "package {package};\n\nimport org.flywaydb.core.api.callback.Callback;\nimport org.flywaydb.core.api.callback.Context;\nimport org.flywaydb.core.api.callback.Event;\n\npublic class {class} implements Callback {{\n    @Override\n    public boolean supports(Event event, Context context) {{\n        return {conditions};\n    }}\n\n    @Override\n    public boolean canHandleInTransaction(Event event, Context context) {{\n        return {in_transaction};\n    }}\n\n    @Override\n    public void handle(Event event, Context context) {{\n        // TODO\n    }}\n\n    @Override\n    public String getCallbackName() {{\n        return \"{callback_name}\";\n    }}\n}}\n"
     )
+}
+
+pub(super) const DEFAULT_CALLBACK_PACKAGE: &str = "db.callback";
+
+fn callback_name_literal(name: &str) -> Result<String, Error> {
+    let name = name.trim();
+    if name.is_empty() || name.len() > 100 || !name.chars().all(|ch| ch.is_ascii_graphic() || ch == ' ') || name.contains(['"', '\\']) {
+        return Err("The callback name must be 1 to 100 printable ASCII characters without quotes or backslashes.".into());
+    }
+    Ok(name.to_owned())
+}
+
+fn callback_directory(root: &str, source_root: &str, package: &str) -> Result<String, Error> {
+    let source_root = source_root.trim().trim_matches('/');
+    if source_root.is_empty() || source_root.split('/').any(|part| matches!(part, "" | "." | "..")) || !(source_root == "src/main/java" || source_root.ends_with("/src/main/java")) {
+        return Err("The source root must be a folder named src/main/java inside the project.".into());
+    }
+    let package = package.trim();
+    if package.is_empty() || !package.split('.').all(identifier) {
+        return Err("Choose a valid Java package.".into());
+    }
+    let directory = format!("{}/{source_root}/{}", root.trim_end_matches('/'), package.replace('.', "/"));
+    if path(&directory).as_deref() != Some(directory.as_str()) || !inside(root, &directory) {
+        return Err(Error::Stale);
+    }
+    Ok(directory)
 }
 
 fn render_sql_callback(event: &str) -> String {
@@ -246,7 +272,7 @@ pub(super) fn resolve_java_migration(pending: &Pending, doc: &Document, project:
     absent(project, &format!("{}/{class}.kt", plan.directory))?;
     confirm(
         "Create Flyway Java migration?",
-        &format!("Target: {target}\nSource version: {}\n\n{source}\nThe migrate method only obtains the connection from the context and executes nothing; add your own logic. One non-overwriting Create; nothing is run.", doc.version),
+        &format!("Target: {target}\nSource version: {}\n\n{source}\nThe migrate method holds a PreparedStatement stub with an empty SQL string and executes nothing; put your SQL into the string and execute the statement. One non-overwriting Create; nothing is run.", doc.version),
     )?;
     current(pending, doc)?;
     if java_plan(project, root, &doc_dir)? != plan {
@@ -302,26 +328,34 @@ pub(super) fn resolve_java_callback(pending: &Pending, doc: &Document, project: 
     let root = pending.root.as_str();
     let directory = directory_of(pending)?;
     prove_flyway(project, root, &directory)?;
+    let class = capitalize(&ask_identifier("Name")?.ok_or(Error::Cancelled)?);
+    if !identifier(&class) {
+        return Err("Choose a valid class name.".into());
+    }
+    let callback_name = host::input("Callback name", Some(&class))?.ok_or(Error::Cancelled)?;
+    let callback_name = callback_name_literal(&callback_name)?;
     let items: Vec<PickItem> = EVENTS.iter().map(|(id, _)| PickItem::new(id, id)).collect();
-    let picked = host::pick_many("Events handled by the callback", &items)?.ok_or(Error::Cancelled)?;
+    let picked = host::pick_many("Callback event(s)", &items)?.ok_or(Error::Cancelled)?;
     let events: Vec<&str> = EVENTS.iter().map(|(id, _)| *id).filter(|id| picked.iter().any(|p| p == id)).collect();
     if events.is_empty() {
         return Err("Select at least one event.".into());
     }
-    let class = capitalize(&ask_identifier("Callback class name")?.ok_or(Error::Cancelled)?);
-    if !identifier(&class) {
-        return Err("Choose a valid class name.".into());
-    }
-    let package = package(doc).ok_or(Error::Stale)?;
-    let target = format!("{directory}/{class}.java");
-    no_collision(project, root, &directory, &class, None)?;
-    let source = render_java_callback(&package, &class, &events);
+    let in_transaction = host::confirm("Can handle in transaction?", "canHandleInTransaction() returns true when confirmed and false otherwise.")?;
+    let module = directory.split_once("/src/main/java/").ok_or(Error::Stale)?.0;
+    let default_root = format!("{}/src/main/java", module.strip_prefix(root.trim_end_matches('/')).unwrap_or_default().trim_start_matches('/')).trim_start_matches('/').to_owned();
+    let source_root = host::input("Source root (relative to the project)", Some(&default_root))?.ok_or(Error::Cancelled)?;
+    let package = host::input("Package", Some(DEFAULT_CALLBACK_PACKAGE))?.ok_or(Error::Cancelled)?;
+    let package = package.trim().to_owned();
+    let target_directory = callback_directory(root, &source_root, &package)?;
+    let target = format!("{target_directory}/{class}.java");
+    no_collision(project, root, &target_directory, &class, None)?;
+    let source = render_java_callback(&package, &class, &events, &callback_name, in_transaction);
     confirm(
         "Create Flyway Java callback?",
-        &format!("Target: {target}\nSource version: {}\n\n{source}\nThe handle method is empty; add your own logic. Flyway must be given the callback (for example as a Spring bean or through the configuration); this action does not register it. One non-overwriting Create; nothing is run.", doc.version),
+        &format!("Target: {target}\nSource version: {}\n\n{source}\nThe handle method is a TODO; add your own logic. Flyway must be given the callback (for example as a Spring bean or through the configuration); this action does not register it. One non-overwriting Create; nothing is run.", doc.version),
     )?;
     current(pending, doc)?;
-    no_collision(project, root, &directory, &class, None)?;
+    no_collision(project, root, &target_directory, &class, None)?;
     Ok(create(format!("Create Flyway Java callback {class}"), target, source))
 }
 
@@ -470,30 +504,68 @@ mod tests {
         assert!(plugin.file_actions(&doc, Range::default()).iter().all(|a| !a.title.contains("Flyway")), "gated on flyway-core");
     }
 
+    fn callback_answers(host: &MockHost, answers: [&[&str]; 6]) {
+        for answer in answers {
+            host.answer_next_prompt(Some(answer));
+        }
+        host.answer_next_prompt(Some(&[]));
+    }
+
     #[test]
-    fn java_callback_extends_base_callback_with_selected_events() {
+    fn java_callback_implements_callback_with_every_documented_method() {
         let (host, mut plugin, doc) = java_setup(true);
         let action = pick(&mut plugin, &doc, TITLE_JAVA_CALLBACK);
-        host.answer_next_prompt(Some(&["beforeMigrate", "afterEachMigrateError"]));
-        host.answer_next_prompt(Some(&["auditCallback"]));
+        callback_answers(&host, [&["auditCallback"], &["Audit callback"], &["beforeMigrate", "afterEachMigrateError"], &[], &["src/main/java"], &["db.callback"]]);
+        let action = plugin.resolve_file_action(&doc, action).unwrap();
+        let (path, text) = only_create(&action);
+        assert_eq!(path, "/project/src/main/java/db/callback/AuditCallback.java");
+        assert_eq!(text, render_java_callback("db.callback", "AuditCallback", &["beforeMigrate", "afterEachMigrateError"], "Audit callback", true));
+        assert!(text.contains("event == Event.BEFORE_MIGRATE\n                || event == Event.AFTER_EACH_MIGRATE_ERROR;"), "{text}");
+        for expected in [
+            "implements Callback {",
+            "canHandleInTransaction(Event event, Context context) {\n        return true;",
+            "public void handle(Event event, Context context) {\n        // TODO",
+            "public String getCallbackName() {\n        return \"Audit callback\";",
+        ] {
+            assert!(text.contains(expected), "{expected}\n{text}");
+        }
+        assert!(render_java_callback("p", "C", &["beforeClean"], "C", false).contains("canHandleInTransaction(Event event, Context context) {\n        return false;"));
+    }
+
+    #[test]
+    fn java_callback_asks_the_documented_fields_and_defaults_the_package_and_source_root() {
+        let (host, mut plugin, doc) = java_setup(true);
+        let action = pick(&mut plugin, &doc, TITLE_JAVA_CALLBACK);
+        host.answer_next_prompt(Some(&["AuditCallback"]));
+        host.answer_next_prompt(Some(&["AuditCallback"]));
+        host.answer_next_prompt(Some(&["beforeMigrate"]));
+        host.answer_next_prompt(None);
+        host.answer_next_prompt(Some(&["src/main/java"]));
+        host.answer_next_prompt(Some(&["shop.callbacks"]));
         host.answer_next_prompt(Some(&[]));
         let action = plugin.resolve_file_action(&doc, action).unwrap();
         let (path, text) = only_create(&action);
-        assert_eq!(path, "/project/src/main/java/shop/AuditCallback.java");
-        assert_eq!(text, render_java_callback("shop", "AuditCallback", &["beforeMigrate", "afterEachMigrateError"]));
-        assert!(text.contains("event == Event.BEFORE_MIGRATE\n                || event == Event.AFTER_EACH_MIGRATE_ERROR;"), "{text}");
+        assert_eq!(path, "/project/src/main/java/shop/callbacks/AuditCallback.java");
+        assert!(text.starts_with("package shop.callbacks;") && text.contains("canHandleInTransaction(Event event, Context context) {\n        return false;"));
+        assert_eq!(callback_directory("/project", "src/main/java", "db.callback").unwrap(), "/project/src/main/java/db/callback");
+        assert_eq!(callback_directory("/project", "api/src/main/java", "db.callback").unwrap(), "/project/api/src/main/java/db/callback");
+        for (root, package) in [("src/test/java", "a"), ("../src/main/java", "a"), ("src/main/java", "a..b"), ("src/main/java", "1a"), ("", "a")] {
+            assert!(callback_directory("/project", root, package).is_err(), "{root} {package}");
+        }
+        assert!(callback_name_literal("a\"b").is_err() && callback_name_literal("  ").is_err() && callback_name_literal("ok name").is_ok());
+    }
 
+    #[test]
+    fn java_callback_refusals() {
         let (host, mut plugin, doc) = java_setup(true);
-        host.add_file("src/main/java/shop/AuditCallback.java", "package shop;\nclass AuditCallback {}\n");
+        host.add_file("src/main/java/db/callback/AuditCallback.java", "package db.callback;\nclass AuditCallback {}\n");
         let action = pick(&mut plugin, &doc, TITLE_JAVA_CALLBACK);
-        host.answer_next_prompt(Some(&["beforeMigrate"]));
-        host.answer_next_prompt(Some(&["AuditCallback"]));
-        host.answer_next_prompt(Some(&[]));
+        callback_answers(&host, [&["AuditCallback"], &["x"], &["beforeMigrate"], &[], &["src/main/java"], &["db.callback"]]);
         assert!(plugin.resolve_file_action(&doc, action).is_err());
 
         let (host, mut plugin, doc) = java_setup(true);
         let action = pick(&mut plugin, &doc, TITLE_JAVA_CALLBACK);
-        host.answer_next_prompt(Some(&[]));
+        callback_answers(&host, [&["AuditCallback"], &["x"], &[], &[], &["src/main/java"], &["db.callback"]]);
         assert!(plugin.resolve_file_action(&doc, action).is_err(), "no events");
     }
 
@@ -523,7 +595,8 @@ mod tests {
         let all: Vec<&str> = EVENTS.iter().map(|(id, _)| *id).collect();
         let files = [
             ("V3__Add_users.java", render_java_migration("db.migration", "V3__Add_users")),
-            ("AllCallback.java", render_java_callback("db.migration", "AllCallback", &all)),
+            ("AllCallback.java", render_java_callback("db.migration", "AllCallback", &all, "All", true)),
+            ("NoTxCallback.java", render_java_callback("db.callback", "NoTxCallback", &["beforeMigrate"], "No tx", false)),
         ];
         let paths: Vec<_> = files
             .iter()

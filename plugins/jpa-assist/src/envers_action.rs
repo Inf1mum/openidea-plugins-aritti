@@ -21,8 +21,8 @@ const ENVERS: &str = "org.hibernate.envers";
 const MAX_FIELDS: usize = 32;
 const MAX_EXTRA: usize = 8;
 const MAX_SCANNED: usize = 1000;
-const RESERVED_TYPES: [&str; 8] =
-    ["Entity", "Id", "GeneratedValue", "RevisionEntity", "RevisionNumber", "RevisionTimestamp", "RevisionListener", "String"];
+const RESERVED_TYPES: [&str; 9] =
+    ["Entity", "Id", "Table", "GeneratedValue", "RevisionEntity", "RevisionNumber", "RevisionTimestamp", "RevisionListener", "String"];
 
 pub(super) fn eligible_toggle(doc: &Document) -> bool {
     iq::source(doc).is_some()
@@ -305,6 +305,7 @@ pub(super) fn render_revision(
         format!("{ns}.Entity"),
         format!("{ns}.GeneratedValue"),
         format!("{ns}.Id"),
+        format!("{ns}.Table"),
         format!("{ENVERS}.RevisionEntity"),
         format!("{ENVERS}.RevisionNumber"),
         format!("{ENVERS}.RevisionTimestamp"),
@@ -312,7 +313,7 @@ pub(super) fn render_revision(
     imports.sort();
     let import_block: String = imports.iter().map(|i| format!("import {i};\n")).collect();
     let annotation = if listener { format!("@RevisionEntity({listener_name}.class)") } else { "@RevisionEntity".to_owned() };
-    let entity = format!("package {package};\n\n{import_block}\n@Entity\n{annotation}\npublic class {name} {{\n{members}}}\n");
+    let entity = format!("package {package};\n\n{import_block}\n@Entity\n@Table(name = \"revinfo\")\n{annotation}\npublic class {name} {{\n{members}}}\n");
     let mut files = vec![(name.to_owned(), entity)];
     if listener {
         files.push((
@@ -512,8 +513,8 @@ mod tests {
             let (target, entity) = &files[0];
             assert_eq!(target, "/project/src/main/java/shop/CustomRevisionEntity.java");
             for expected in [
-                format!("import {ns}.Entity;\nimport {ns}.GeneratedValue;\nimport {ns}.Id;\nimport org.hibernate.envers.RevisionEntity;"),
-                "@Entity\n@RevisionEntity(CustomRevisionEntityListener.class)\npublic class CustomRevisionEntity {".to_owned(),
+                format!("import {ns}.Entity;\nimport {ns}.GeneratedValue;\nimport {ns}.Id;\nimport {ns}.Table;\nimport org.hibernate.envers.RevisionEntity;"),
+                "@Entity\n@Table(name = \"revinfo\")\n@RevisionEntity(CustomRevisionEntityListener.class)\npublic class CustomRevisionEntity {".to_owned(),
                 "    @Id\n    @GeneratedValue\n    @RevisionNumber\n    private int id;\n\n    @RevisionTimestamp\n    private long timestamp;\n\n    private String username;".to_owned(),
                 "public String getUsername() {".to_owned(),
                 "public void setTimestamp(long timestamp) {".to_owned(),
@@ -530,7 +531,7 @@ mod tests {
     fn revision_entity_without_listener_or_fields_and_with_crlf() {
         let files = render_revision("shop", "jakarta.persistence", "/project/src/main/java/shop", "Rev", &[], false, true).unwrap();
         assert_eq!(files.len(), 1);
-        assert!(files[0].1.contains("@RevisionEntity\r\npublic class Rev {"));
+        assert!(files[0].1.contains("@Table(name = \"revinfo\")\r\n@RevisionEntity\r\npublic class Rev {"));
         assert!(!files[0].1.replace("\r\n", "").contains('\n'));
         assert!(!files[0].1.contains("username"));
     }
@@ -557,5 +558,24 @@ mod tests {
     fn eligibility_follows_the_entity_and_language() {
         assert!(eligible_toggle(&doc(ENTITY)) && eligible_revision(&doc(ENTITY)));
         assert!(!eligible_toggle(&doc("package shop;\n\npublic class Plain {\n}\n")));
+    }
+}
+
+#[cfg(test)]
+mod compile {
+    use super::*;
+
+    #[test]
+    #[ignore = "requires javac, HIBERNATE_ENVERS_JAR, HIBERNATE_CORE_JAR and JAKARTA_PERSISTENCE_JAR"]
+    fn generated_revision_entity_compiles_against_envers() {
+        let var = |name: &str| std::env::var(name).unwrap_or_else(|_| panic!("{name}"));
+        let classpath = [var("HIBERNATE_ENVERS_JAR"), var("HIBERNATE_CORE_JAR"), var("JAKARTA_PERSISTENCE_JAR")].join(":");
+        let dir = std::env::temp_dir().join(format!("jpa-envers-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let files = render_revision("shop", "jakarta.persistence", dir.to_str().unwrap(), "AuditRevision", &["username".to_owned()], true, false).unwrap();
+        let paths: Vec<_> = files.iter().map(|(path, text)| (std::fs::write(path, text).unwrap(), path.clone()).1).collect();
+        let result = std::process::Command::new("javac").args(["--release", "17", "-proc:none", "-classpath", &classpath, "-d"]).arg(&dir).args(&paths).output().expect("javac installed");
+        assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

@@ -278,7 +278,7 @@
     },
     "liquibaseChangeSetDefaults": {
       "type": "array",
-      "title": "Liquibase changeSet attributes: row 'all' applies to every generated changeSet, a row for one change type overrides it field by field; unset writes nothing. Preconditions: createTable and addColumn only; empty rollback: drop changes only",
+      "title": "Liquibase changeSet attributes: row 'all' applies to every generated changeSet, a row for one change type overrides it field by field; unset writes nothing. Preconditions: table/column/index/unique/FK changes; empty rollback: drop changes only",
       "items": {
         "type": "object",
         "properties": {
@@ -294,7 +294,7 @@
       },
       "default": []
     },
-    "liquibaseChangelogNamePattern": {"type": "string", "title": "Liquibase changelog file name, ending .xml. Tokens: {seq}, {description}, {date}, #date(yyyyMMddHHmmss), #increment(1, 1, 000), ${semVer.getMajor()} (also getMinor, getPatch, getPreRelease, getRawVersion)", "default": "{seq}-{description}.xml"},
+    "liquibaseChangelogNamePattern": {"type": "string", "title": "Liquibase changelog file name, ending .xml. Tokens: {seq}, {description}, {date}, #date(yyyyMMddHHmmss), #increment(1, 1, 000), ${semVer.getMajor()} (also getMinor, getPatch, getPreRelease, getRawVersion: '+' is kept, other unsafe characters become '_')", "default": "{seq}-{description}.xml"},
     "flywayMigrationPrefix": {"type": "string", "title": "Flyway migration prefix of generated files (V versioned, U undo or B baseline); must match Flyway's own setting", "enum": ["V", "U", "B"], "default": "V"},
     "flywayMigrationSeparator": {"type": "string", "title": "Flyway separator between version and description (2 to 4 underscores); must match Flyway's own setting", "default": "__"},
     "flywayVersionPattern": {"type": "string", "title": "Flyway version of generated files; empty keeps the next-version convention. Same tokens as the changelog name, {seq} = convention version; must be digits with . or _ and sort after existing versions", "default": ""},

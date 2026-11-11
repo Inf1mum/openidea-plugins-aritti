@@ -5,8 +5,13 @@
 //! Environment, which includes environment variables (Spring Boot "Externalized Configuration", Property
 //! Placeholders). `driver-class-name` is omitted because Spring Boot deduces the driver from the URL (Spring Boot
 //! "SQL Databases"). URL templates: `jdbc:postgresql://host:port/db` (default port 5432), `jdbc:mysql://host:port/db`
-//! (3306), `jdbc:mariadb://host:port/db` (3306), `jdbc:h2:mem:<name>`. Refused when the file already sets
-//! `spring.datasource.url`, `.username` or `.password` (a second line would silently override the first).
+//! (3306), `jdbc:mariadb://host:port/db` (3306), `jdbc:db2://host:port/db` (50000), `jdbc:sqlserver://host:port;databaseName=db`
+//! (1433, Microsoft JDBC `serverName:portNumber;property=value`), `jdbc:oracle:thin:@//host:port/service` (1521, Oracle
+//! thin service-name form), `jdbc:h2:mem:<name>` and `jdbc:hsqldb:mem:<name>`. Optional `spring.jpa.hibernate.ddl-auto`
+//! (`none`, `validate`, `update`, `create`, `create-drop`; the empty choice writes nothing), `spring.jpa.show-sql=true`
+//! and `spring.jpa.properties.hibernate.format_sql=true` (only written when enabled). Refused when the file already sets
+//! `spring.datasource.url`, `.username` or `.password` or a JPA key about to be written (a second line would silently
+//! override the first).
 use super::*;
 
 pub(super) const TITLE: &str = "Add datasource configuration…";
@@ -65,18 +70,29 @@ fn name(value: &str) -> bool {
     !value.is_empty() && value.len() <= MAX_FIELD && value.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.')
 }
 
+enum Shape {
+    Slash(&'static str),
+    Semicolon(&'static str),
+    OracleThin,
+    InMemory(&'static str),
+}
+
 struct Choice {
     key: &'static str,
     label: &'static str,
     default_port: Option<u16>,
-    scheme: &'static str,
+    shape: Shape,
 }
 
-const CHOICES: [Choice; 4] = [
-    Choice { key: "postgresql", label: "PostgreSQL", default_port: Some(5432), scheme: "jdbc:postgresql" },
-    Choice { key: "mysql", label: "MySQL", default_port: Some(3306), scheme: "jdbc:mysql" },
-    Choice { key: "mariadb", label: "MariaDB", default_port: Some(3306), scheme: "jdbc:mariadb" },
-    Choice { key: "h2", label: "H2 (in-memory)", default_port: None, scheme: "jdbc:h2:mem" },
+const CHOICES: [Choice; 8] = [
+    Choice { key: "postgresql", label: "PostgreSQL", default_port: Some(5432), shape: Shape::Slash("jdbc:postgresql") },
+    Choice { key: "mysql", label: "MySQL", default_port: Some(3306), shape: Shape::Slash("jdbc:mysql") },
+    Choice { key: "mariadb", label: "MariaDB", default_port: Some(3306), shape: Shape::Slash("jdbc:mariadb") },
+    Choice { key: "h2", label: "H2 (in-memory)", default_port: None, shape: Shape::InMemory("jdbc:h2:mem") },
+    Choice { key: "hsqldb", label: "HSQLDB (in-memory)", default_port: None, shape: Shape::InMemory("jdbc:hsqldb:mem") },
+    Choice { key: "db2", label: "IBM Db2 LUW", default_port: Some(50000), shape: Shape::Slash("jdbc:db2") },
+    Choice { key: "sqlserver", label: "Microsoft SQL Server", default_port: Some(1433), shape: Shape::Semicolon("jdbc:sqlserver") },
+    Choice { key: "oracle", label: "Oracle", default_port: Some(1521), shape: Shape::OracleThin },
 ];
 
 pub(super) fn url(key: &str, host: &str, port: Option<u16>, database: &str) -> Option<String> {
@@ -84,25 +100,74 @@ pub(super) fn url(key: &str, host: &str, port: Option<u16>, database: &str) -> O
     if !name(database) {
         return None;
     }
-    if choice.default_port.is_none() {
-        return Some(format!("{}:{database}", choice.scheme));
+    if let Shape::InMemory(scheme) = choice.shape {
+        return Some(format!("{scheme}:{database}"));
     }
     if !host_name(host) {
         return None;
     }
-    Some(format!("{}://{host}:{}/{database}", choice.scheme, port?))
+    let port = port?;
+    Some(match choice.shape {
+        Shape::Slash(scheme) => format!("{scheme}://{host}:{port}/{database}"),
+        Shape::Semicolon(scheme) => format!("{scheme}://{host}:{port};databaseName={database}"),
+        _ => format!("jdbc:oracle:thin:@//{host}:{port}/{database}"),
+    })
+}
+
+const DDL_AUTO_CHOICES: [(&str, &str); 6] = [
+    ("unset", "(empty) do not set spring.jpa.hibernate.ddl-auto"),
+    ("none", "none"),
+    ("validate", "validate"),
+    ("update", "update"),
+    ("create", "create"),
+    ("create-drop", "create-drop"),
+];
+
+const DDL_AUTO_KEY: &str = "spring.jpa.hibernate.ddl-auto";
+const SHOW_SQL_KEY: &str = "spring.jpa.show-sql";
+const FORMAT_SQL_KEY: &str = "spring.jpa.properties.hibernate.format_sql";
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(super) struct JpaOptions {
+    pub ddl_auto: Option<String>,
+    pub show_sql: bool,
+    pub format_sql: bool,
+}
+
+impl JpaOptions {
+    fn lines(&self, eol: &str) -> String {
+        let mut out = String::new();
+        if let Some(value) = &self.ddl_auto {
+            out.push_str(&format!("{DDL_AUTO_KEY}={value}{eol}"));
+        }
+        if self.show_sql {
+            out.push_str(&format!("{SHOW_SQL_KEY}=true{eol}"));
+        }
+        if self.format_sql {
+            out.push_str(&format!("{FORMAT_SQL_KEY}=true{eol}"));
+        }
+        out
+    }
+
+    fn keys(&self) -> Vec<&'static str> {
+        [(self.ddl_auto.is_some(), DDL_AUTO_KEY), (self.show_sql, SHOW_SQL_KEY), (self.format_sql, FORMAT_SQL_KEY)]
+            .into_iter()
+            .filter_map(|(written, key)| written.then_some(key))
+            .collect()
+    }
 }
 
 /// The lines to append, using the document's own line ending; `None` when a key already exists.
-pub(super) fn render(text: &str, url: &str, username: &str) -> Result<String, String> {
+pub(super) fn render(text: &str, url: &str, username: &str, jpa: &JpaOptions) -> Result<String, String> {
+    let written = jpa.keys();
     for key in existing_keys(text) {
-        if ["spring.datasource.url", "spring.datasource.username", "spring.datasource.password"].contains(&key) {
+        if ["spring.datasource.url", "spring.datasource.username", "spring.datasource.password"].contains(&key) || written.contains(&key) {
             return Err(format!("This file already sets {key}; edit it by hand instead."));
         }
     }
     let eol = if text.contains("\r\n") { "\r\n" } else { "\n" };
     let lead = if text.is_empty() || text.ends_with('\n') { "" } else { eol };
-    Ok(format!("{lead}spring.datasource.url={url}{eol}spring.datasource.username={username}{eol}{PASSWORD_LINE}{eol}"))
+    Ok(format!("{lead}spring.datasource.url={url}{eol}spring.datasource.username={username}{eol}{PASSWORD_LINE}{eol}{}", jpa.lines(eol)))
 }
 
 pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> Result<FileAction, Error> {
@@ -110,7 +175,7 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> R
     if !eligible(doc) {
         return Err(Error::Stale);
     }
-    render(&doc.text, "x", "x")?;
+    render(&doc.text, "x", "x", &JpaOptions::default())?;
 
     let mut items: Vec<PickItem> = CHOICES.iter().map(|c| PickItem::new(c.key, c.label)).collect();
     crate::datasource_facts::prefer_in(&crate::datasource_facts::discover(project), &mut items);
@@ -138,7 +203,15 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> R
         return Err(format!("Database and user names use at most {MAX_FIELD} letters, digits, dots, dashes and underscores.").into());
     }
     let url = url(choice.key, &host_value, port_value, &database).ok_or(Error::Stale)?;
-    let block = render(&doc.text, &url, &username)?;
+    let ddl_items: Vec<PickItem> = DDL_AUTO_CHOICES.iter().map(|(key, label)| PickItem::new(key, label)).collect();
+    let ddl_auto = host::pick("Hibernate DDL auto (spring.jpa.hibernate.ddl-auto)", &ddl_items)?.ok_or(Error::Cancelled)?;
+    if !DDL_AUTO_CHOICES.iter().any(|(key, _)| *key == ddl_auto) {
+        return Err(Error::Stale);
+    }
+    let show_sql = host::confirm("Show SQL (spring.jpa.show-sql)?", "Confirm to write spring.jpa.show-sql=true; decline to leave it unset.")?;
+    let format_sql = host::confirm("Format SQL (spring.jpa.properties.hibernate.format_sql)?", "Confirm to write spring.jpa.properties.hibernate.format_sql=true; decline to leave it unset.")?;
+    let jpa = JpaOptions { ddl_auto: (ddl_auto != "unset").then_some(ddl_auto), show_sql, format_sql };
+    let block = render(&doc.text, &url, &username, &jpa)?;
     let end = position(&doc.text, doc.text.len());
     let edits = vec![TextEdit { range: Range::new(end, end), text: block.clone() }];
 
@@ -174,9 +247,16 @@ mod tests {
     }
 
     fn answers(h: &MockHost, values: &[&str], confirm: bool) {
+        jpa_answers(h, values, "unset", false, false, confirm);
+    }
+
+    fn jpa_answers(h: &MockHost, values: &[&str], ddl_auto: &str, show_sql: bool, format_sql: bool, confirm: bool) {
         for value in values {
             h.answer_next_prompt(Some(&[value]));
         }
+        h.answer_next_prompt(Some(&[ddl_auto]));
+        h.answer_next_prompt(show_sql.then_some(&[]));
+        h.answer_next_prompt(format_sql.then_some(&[]));
         h.answer_next_prompt(confirm.then_some(&[]));
     }
 
@@ -192,20 +272,25 @@ mod tests {
         assert_eq!(url("h2", "", None, "test").as_deref(), Some("jdbc:h2:mem:test"));
         assert_eq!(url("postgresql", "db", Some(5432), "a/b"), None);
         assert_eq!(url("postgresql", "db?x=1", Some(5432), "a"), None);
-        assert_eq!(url("oracle", "h", Some(1), "a"), None);
+        assert_eq!(url("db2", "h", Some(50000), "bludb").as_deref(), Some("jdbc:db2://h:50000/bludb"));
+        assert_eq!(url("sqlserver", "h", Some(1433), "shop").as_deref(), Some("jdbc:sqlserver://h:1433;databaseName=shop"));
+        assert_eq!(url("oracle", "h", Some(1521), "ORCLPDB1").as_deref(), Some("jdbc:oracle:thin:@//h:1521/ORCLPDB1"));
+        assert_eq!(url("hsqldb", "", None, "test").as_deref(), Some("jdbc:hsqldb:mem:test"));
+        assert_eq!(url("sqlserver", "h;x=1", Some(1433), "shop"), None);
+        assert_eq!(url("derby", "h", Some(1), "a"), None);
     }
 
     #[test]
     fn render_appends_with_the_document_line_ending_and_a_placeholder_password() {
         let url = "jdbc:postgresql://localhost:5432/shop";
         assert_eq!(
-            render("a=b\n", url, "app").unwrap(),
+            render("a=b\n", url, "app", &JpaOptions::default()).unwrap(),
             "spring.datasource.url=jdbc:postgresql://localhost:5432/shop\nspring.datasource.username=app\nspring.datasource.password=${DB_PASSWORD}\n"
         );
-        assert!(render("a=b", url, "app").unwrap().starts_with("\nspring"));
-        let crlf = render("a=b\r\nc=d", url, "app").unwrap();
+        assert!(render("a=b", url, "app", &JpaOptions::default()).unwrap().starts_with("\nspring"));
+        let crlf = render("a=b\r\nc=d", url, "app", &JpaOptions::default()).unwrap();
         assert!(crlf.starts_with("\r\nspring.datasource.url=") && crlf.ends_with("${DB_PASSWORD}\r\n") && !crlf.replace("\r\n", "").contains('\n'));
-        assert!(render("", url, "app").unwrap().starts_with("spring.datasource.url="));
+        assert!(render("", url, "app", &JpaOptions::default()).unwrap().starts_with("spring.datasource.url="));
     }
 
     #[test]
@@ -217,10 +302,10 @@ mod tests {
             "spring.datasource.username=u\n",
             "spring.datasource.password=p\n",
         ] {
-            assert!(render(text, "u", "n").is_err(), "{text}");
+            assert!(render(text, "u", "n", &JpaOptions::default()).is_err(), "{text}");
         }
         for text in ["# spring.datasource.url=x\n", "spring.datasource.hikari.maximum-pool-size=3\n", "spring.datasource.urls=x\n"] {
-            assert!(render(text, "u", "n").is_ok(), "{text}");
+            assert!(render(text, "u", "n", &JpaOptions::default()).is_ok(), "{text}");
         }
     }
 
@@ -263,6 +348,10 @@ mod tests {
             ("mysql", vec!["localhost", "3306", "d", "u"], "jdbc:mysql://localhost:3306/d"),
             ("mariadb", vec!["h", "3307", "d", "u"], "jdbc:mariadb://h:3307/d"),
             ("h2", vec!["mem1", "sa"], "jdbc:h2:mem:mem1"),
+            ("hsqldb", vec!["mem1", "sa"], "jdbc:hsqldb:mem:mem1"),
+            ("db2", vec!["h", "50000", "d", "u"], "jdbc:db2://h:50000/d"),
+            ("sqlserver", vec!["h", "1433", "d", "u"], "jdbc:sqlserver://h:1433;databaseName=d"),
+            ("oracle", vec!["h", "1521", "svc", "u"], "jdbc:oracle:thin:@//h:1521/svc"),
         ] {
             let (h, mut p, d) = setup("a=b\r\n", PATH);
             let pending = offered(&mut p, &d).unwrap();
@@ -273,6 +362,32 @@ mod tests {
             assert!(block.starts_with(&format!("spring.datasource.url={expected}\r\n")), "{block}");
             assert!(!block.replace("\r\n", "").contains('\n'));
         }
+    }
+
+    #[test]
+    fn jpa_options_are_written_only_when_chosen_and_never_include_a_password() {
+        let (h, mut p, d) = setup("a=b\n", PATH);
+        let pending = offered(&mut p, &d).unwrap();
+        jpa_answers(&h, &["postgresql", "h", "5432", "d", "u"], "validate", true, true, true);
+        let block = appended(&p.resolve_file_action(&d, pending).unwrap());
+        assert_eq!(
+            block,
+            "spring.datasource.url=jdbc:postgresql://h:5432/d\nspring.datasource.username=u\nspring.datasource.password=${DB_PASSWORD}\nspring.jpa.hibernate.ddl-auto=validate\nspring.jpa.show-sql=true\nspring.jpa.properties.hibernate.format_sql=true\n"
+        );
+        for ddl in ["none", "update", "create", "create-drop"] {
+            let (h, mut p, d) = setup("a=b\n", PATH);
+            let pending = offered(&mut p, &d).unwrap();
+            jpa_answers(&h, &["postgresql", "h", "5432", "d", "u"], ddl, false, false, true);
+            assert!(appended(&p.resolve_file_action(&d, pending).unwrap()).ends_with(&format!("{{DB_PASSWORD}}\nspring.jpa.hibernate.ddl-auto={ddl}\n")));
+        }
+        let (h, mut p, d) = setup("spring.jpa.show-sql=false\n", PATH);
+        let pending = offered(&mut p, &d).unwrap();
+        jpa_answers(&h, &["postgresql", "h", "5432", "d", "u"], "unset", true, false, true);
+        assert!(p.resolve_file_action(&d, pending).is_err(), "an existing JPA key that would be written is refused");
+        let (h, mut p, d) = setup("spring.jpa.show-sql=false\n", PATH);
+        let pending = offered(&mut p, &d).unwrap();
+        jpa_answers(&h, &["postgresql", "h", "5432", "d", "u"], "unset", false, false, true);
+        assert!(p.resolve_file_action(&d, pending).is_ok(), "an untouched existing JPA key is left alone");
     }
 
     #[test]

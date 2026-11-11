@@ -7,7 +7,7 @@
 //! (`quarkus.datasource.jdbc.url`, `quarkus.datasource.username`, named `quarkus.datasource."name".jdbc.url`, profile
 //! prefix `%prod.`), PostgreSQL JDBC (`jdbc:postgresql://host:port/db`, `user`/`password` URL parameters), MySQL
 //! Connector/J (`jdbc:mysql://host:port/db`, `user:password@host`), MariaDB Connector/J (`jdbc:mariadb://`), H2
-//! (`jdbc:h2:mem:`/`jdbc:h2:file:`), Microsoft JDBC (`jdbc:sqlserver://`, `;property=value`, `password={...}` escapes),
+//! (`jdbc:h2:mem:`/`jdbc:h2:file:`), HSQLDB (`jdbc:hsqldb:mem:<name>`, `jdbc:hsqldb:hsql://host/db`), Microsoft JDBC (`jdbc:sqlserver://`, `;property=value`, `password={...}` escapes),
 //! Oracle JDBC (`jdbc:oracle:thin:[user/password]@...`), IBM Db2 (`jdbc:db2://server:port/database`).
 //! Micronaut was not verified and is not read.
 //!
@@ -25,6 +25,7 @@ pub enum Dialect {
     MySql,
     MariaDb,
     H2,
+    Hsqldb,
     SqlServer,
     Oracle,
     Db2,
@@ -66,6 +67,7 @@ pub fn dialect_of(url: &str) -> Fact<Dialect> {
         "mysql" => Dialect::MySql,
         "mariadb" => Dialect::MariaDb,
         "h2" => Dialect::H2,
+        "hsqldb" => Dialect::Hsqldb,
         "sqlserver" => Dialect::SqlServer,
         "oracle" => Dialect::Oracle,
         "db2" => Dialect::Db2,
@@ -398,6 +400,8 @@ mod tests {
             ("jdbc:mysql://h/db", Dialect::MySql),
             ("jdbc:mariadb://h/db", Dialect::MariaDb),
             ("jdbc:h2:mem:test", Dialect::H2),
+            ("jdbc:hsqldb:mem:test", Dialect::Hsqldb),
+            ("jdbc:hsqldb:hsql://h:9001/db", Dialect::Hsqldb),
             ("jdbc:h2:file:/data/sample", Dialect::H2),
             ("jdbc:sqlserver://h;databaseName=x", Dialect::SqlServer),
             ("jdbc:oracle:thin:@//h:1521/svc", Dialect::Oracle),

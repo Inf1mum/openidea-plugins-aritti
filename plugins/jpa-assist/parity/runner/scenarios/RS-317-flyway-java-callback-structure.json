@@ -30,13 +30,19 @@
   },
   "prompts": [
     {
+      "input": "AuditCallback"
+    },
+    "default",
+    {
       "pickMany": [
         "beforeMigrate"
       ]
     },
     {
-      "input": "AuditCallback"
+      "confirm": "yes"
     },
+    "default",
+    "default",
     {
       "confirm": "yes"
     }
@@ -47,11 +53,11 @@
       "contains": [
         "supports(",
         "BEFORE_MIGRATE",
-        "canHandleInTransaction()",
+        "canHandleInTransaction(",
         "handle(",
         "getCallbackName()"
       ]
     }
   },
-  "note": "Java callback skeleton content."
+  "note": "Java callback skeleton content. Expectation corrected: the documented method is written canHandleInTransaction() as a name; the compilable Callback signature is canHandleInTransaction(Event, Context)."
 }

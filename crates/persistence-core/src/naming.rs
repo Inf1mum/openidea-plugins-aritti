@@ -10,7 +10,10 @@
 //! - `#date`: only `yyyy MM dd HH mm ss` with `-`, `_`, `.` between them (a small subset of SimpleDateFormat).
 //! Our own tokens (not from the originals): `{seq}`, `{description}`, `{date}` (= `#date(yyyyMMdd)`).
 //! Everything else is refused: unknown tokens, literals outside `A-Za-z0-9_.-`, output with `..`, a leading `.`,
-//! characters outside that set, or more than `MAX_LEN` characters. Nothing is sanitized silently.
+//! characters outside that set, or more than `MAX_LEN` characters. Nothing is sanitized silently, with one documented
+//! exception: the project version inserted by `${semVer.*}` keeps its SemVer build-metadata `+` (the help's own example
+//! `1.2.3-SNAPSHOT+build4` yields `getRawVersion()` = the full string) and any other character outside the set is
+//! replaced by `_` in that version component only, so such a version is usable instead of refused.
 
 pub const MAX_LEN: usize = 120;
 
@@ -290,9 +293,13 @@ pub fn needs(pattern: &str) -> Result<Needs, NamingError> {
     Ok(needs)
 }
 
+fn sanitized_version_text(text: &str) -> String {
+    text.chars().map(|c| if name_char(c) || c == '+' { c } else { '_' }).collect()
+}
+
 fn sem_ver_part(version: &str, part: SemVerPart) -> Result<String, NamingError> {
     if part == SemVerPart::Raw {
-        return Ok(version.to_owned());
+        return Ok(sanitized_version_text(version));
     }
     let bad = NamingError::Missing("a semantic version (major.minor.patch with optional -pre-release and +build)");
     let (core, _build) = version.split_once('+').unwrap_or((version, ""));
@@ -316,7 +323,9 @@ fn sem_ver_part(version: &str, part: SemVerPart) -> Result<String, NamingError> 
 /// Expands `pattern`; deterministic for the same inputs.
 pub fn expand(pattern: &str, inputs: &Inputs) -> Result<String, NamingError> {
     let mut out = String::new();
-    for token in parse(pattern)? {
+    let tokens = parse(pattern)?;
+    let plus_allowed = tokens.iter().any(|token| matches!(token, Token::SemVer(SemVerPart::Raw)));
+    for token in tokens {
         match token {
             Token::Literal(text) => out.push_str(&text),
             Token::Seq => out.push_str(inputs.seq.ok_or(NamingError::Missing("a sequence"))?),
@@ -349,7 +358,7 @@ pub fn expand(pattern: &str, inputs: &Inputs) -> Result<String, NamingError> {
     if out.chars().count() > MAX_LEN {
         return Err(NamingError::TooLong);
     }
-    if !out.chars().all(name_char) {
+    if !out.chars().all(|c| name_char(c) || (plus_allowed && c == '+')) {
         return unsafe_output("it contains a character outside ASCII letters, digits, '.', '_' and '-'");
     }
     if out.starts_with('.') || out.contains("..") {
@@ -413,7 +422,12 @@ mod tests {
         assert_eq!(expanded("${semVer.getMinor()}"), "2");
         assert_eq!(expanded("V${semVer.getMajor()}.${semVer.getMinor()}.${semVer.getPatch()}"), "V1.2.3");
         assert_eq!(expanded("${semVer.getPreRelease()}"), "SNAPSHOT");
-        assert!(matches!(expand("${semVer.getRawVersion()}", &inputs()), Err(NamingError::UnsafeOutput(_))), "'+' is not filename-safe here");
+        assert_eq!(expanded("${semVer.getRawVersion()}"), "1.2.3-SNAPSHOT+build4", "build metadata is kept");
+        assert_eq!(expanded("${semVer.getRawVersion()}_${semVer.getMajor()}_${semVer.getPatch()}_${semVer.getPreRelease()}"), "1.2.3-SNAPSHOT+build4_1_3_SNAPSHOT");
+        let odd_chars = Inputs { sem_ver: Some("1.2.3 beta/2"), ..inputs() };
+        assert_eq!(expand("${semVer.getRawVersion()}", &odd_chars).unwrap(), "1.2.3_beta_2");
+        assert!(expand("a+b", &inputs()).is_err(), "a literal '+' stays refused");
+        assert!(expand("${semVer.getRawVersion()}", &Inputs { sem_ver: Some("../x"), ..inputs() }).is_err(), "traversal stays refused");
         let plain = Inputs { sem_ver: Some("2.0.1"), ..inputs() };
         assert_eq!(expand("${semVer.getRawVersion()}", &plain).unwrap(), "2.0.1");
         assert_eq!(expand("${semVer.getPreRelease()}", &plain), Err(NamingError::Missing("a pre-release part in the project version")));

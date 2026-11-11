@@ -53,6 +53,15 @@
       "input": "shop"
     },
     {
+      "pick": "validate"
+    },
+    {
+      "confirm": "yes"
+    },
+    {
+      "confirm": "yes"
+    },
+    {
       "confirm": "yes"
     }
   ],
