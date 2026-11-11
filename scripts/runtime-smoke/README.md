@@ -31,3 +31,24 @@ complete feature parity. Editor-only plugins are recorded as having no views.
 
 Build fresh Wasm and run the full package verifier first; the harness alone does
 not establish source-to-artifact provenance. See [full validation](../api14-package-checker/README.md).
+
+## Laravel released-host acceptance (headless)
+
+`laravel` is a separate binary because the generic harness always excludes the
+Laravel plugin. It installs the freshly built `plugins/laravel/dist/plugin.wasm`
+into a private released-host instance (no desktop window, no external grants beyond
+`project.write`/`storage`/`editor.read`) and runs against a disposable copy of a
+Laravel application:
+
+```sh
+openidea-plugin build plugins/laravel
+cargo build --locked --manifest-path scripts/runtime-smoke/Cargo.toml \
+  --target-dir scripts/api14-package-checker/target --bin laravel
+scripts/api14-package-checker/target/debug/laravel "$PWD" /tmp/laravel-host-smoke /path/to/laravel-app
+```
+
+Checks: install, activation within the per-call fuel budget, index built to completion
+through view ticks, view/config completion, go to definition, missing-view diagnostic,
+and the "create missing view" quick fix applied as a native workspace edit and removed
+by native grouped Undo. The web hub is not rendered headlessly (the host returns a
+fallback message), so tabs and their interactions still need the desktop.

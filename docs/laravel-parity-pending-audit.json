@@ -9,9 +9,9 @@
       "id": "native-activation-fuel",
       "leaves": [],
       "owner": "root/performance",
-      "disposition": "blocking_current_native_acceptance",
-      "detail": "No leaf has every required actual pinned OpenIDEA native-host gate satisfied. Actual aritti.laravel activation in OpenIDEA0.1.40 currently traps at its 5,000,000,000-fuel budget; root is implementing bounded resumable indexing. The earlier bottom-panel observation belonged to another installed plugin and is explicitly retracted. MockHost, custom Wasm, actual PHP/framework and browser receipts retain their narrower scopes.",
-      "evidence": "Parent actual OpenIDEA0.1.40 SettingsPlugins aritti.laravel activation failure: activation exceeded its CPU budget (5000000000 fuel per call), repeated; no native gate passed."
+      "disposition": "released_host_headless_passed_desktop_pending",
+      "detail": "Cleared. On the released v0.1.40 host (rev 37c2a60, scripts/runtime-smoke laravel binary, private stores) the freshly built plugin installs, activates, builds the index to completion and serves completion, definition, diagnostics and the create-view quick fix with native apply and grouped Undo: 11/11 checks on a stock Laravel 13 application (21 ticks, longest callback 64 ms) and on the 30,904-file baby-bob application (181 ticks, longest callback 369 ms). The earlier trap was web_config rebuilding the full model overview. This is headless released-host evidence; it does not render the web hub and is not desktop acceptance.",
+      "evidence": "scripts/runtime-smoke/src/bin/laravel.rs; results.json from two runs 2026-11-11"
     },
     {
       "id": "css-identifiers",
