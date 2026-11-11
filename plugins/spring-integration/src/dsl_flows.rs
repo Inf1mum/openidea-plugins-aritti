@@ -114,6 +114,12 @@ pub(crate) fn java_chains(file: &JavaFile, text: &str, calls: &[Call], kotlin: b
         }
     }
     for &(member, owner) in &members {
+        let one_expression = member.args.len() == 1 || member.args.len() == 2 && member.args[1].text.contains("->");
+        if one_expression && matches!(member.name.as_str(), "filter" | "route" | "transform" | "split") {
+            if let Some(s) = literal(text, member, kotlin) {
+                out.extend(spel::refs(text, s.at, &s.value, &format!("flow .{}", member.name), owner));
+            }
+        }
         let specs = spec_names(&member.name);
         let Some(lambda) = member.args.last().filter(|_| !specs.is_empty()) else {
             continue;

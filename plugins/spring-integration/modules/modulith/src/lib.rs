@@ -289,9 +289,40 @@ fn violations<'m>(model: &'m Model, path: &str, f: &JavaFile, text: &str) -> Vec
     let Some((from, _)) = model.module_of(&f.package).filter(|_| !is_test(path)) else { return Vec::new() };
     let mut uses:Vec<_>=f.imports.iter().map(|i|(i.path.clone(),i.at,i.end)).collect();
     uses.extend(qualified_type_uses(text,f).into_iter().filter(|(name,_,_)|model.declared_types.contains(name)));
-    uses.into_iter().filter_map(|(name,at,end)| {
+    let mut out:Vec<_>=uses.into_iter().filter_map(|(name,at,end)| {
         let (b,v)=model.check(&from,&name)?;Some((range(text,at,end),b,v?))
-    }).collect()
+    }).collect();
+    if path.ends_with(".java") {out.extend(simple_name_uses(model,&from,f,text));}
+    out
+}
+
+/// Uses of a type brought in by an exact single-type import: `extends`, `implements`,
+/// annotations, generic arguments, parameter/return types, `new`, `Foo.member`.
+/// Quiet for wildcard/static imports, names declared or imported twice, and type parameters.
+fn simple_name_uses<'m>(model:&'m Model,from:&str,f:&JavaFile,text:&str)->Vec<(Range,&'m Module,Violation)> {
+    let imports:Vec<_>=f.imports.iter().filter(|i|!i.is_static&&!i.path.ends_with('*')).collect();
+    let mut found:BTreeMap<&str,(&Module,Violation)>=BTreeMap::new();
+    for i in &imports {
+        let simple=last_segment(&i.path);
+        if !simple.starts_with(|c:char|c.is_ascii_uppercase())
+            || imports.iter().filter(|o|last_segment(&o.path)==simple).count()>1
+            || f.types.iter().any(|t|t.name==simple) {continue;}
+        if let Some((b,Some(v)))=model.check(from,&i.path) {found.insert(simple,(b,v));}
+    }
+    if found.is_empty()||text.len()>256*1024 {return Vec::new();}
+    let tokens=java::tokens(text);if tokens.len()>32768 {return Vec::new();}
+    let mut shadowed=BTreeSet::new();
+    let mut out=Vec::new();
+    for (n,t) in tokens.iter().enumerate() {
+        let Some((b,v))=found.get(t.s) else {continue};
+        let before=n.checked_sub(1).map(|k|tokens[k].s);let after=tokens.get(n+1).map(|t|t.s);
+        if f.imports.iter().any(|i|i.at<=t.at&&t.at<i.end)||before==Some(".")||matches!(before,Some("package"|"class"|"interface"|"enum"|"record")) {continue;}
+        if matches!(before,Some("<"|","))&&after==Some("extends") {shadowed.insert(t.s);continue;}
+        let explicit=matches!(before,Some("extends"|"implements"|"new"|"@"|"<"|"&"|"throws"|"instanceof"|"permits"|"("|"final"|"public"|"private"|"protected"|"static"|"abstract"|"?"|">"))
+            ||matches!(after,Some("."|"<"|"["|">"|"..."))||tokens.get(n+1).is_some_and(|t|t.is_ident())||after==Some(",")&&matches!(before,Some("<"|","));
+        if explicit&&after!=Some("(")||before==Some("new") {out.push((range(text,t.at,t.end()),*b,v.clone(),t.s));}
+    }
+    out.into_iter().filter(|o|!shadowed.contains(o.3)).map(|(r,b,v,_)|(r,b,v)).collect()
 }
 
 fn message(import: &str, b: &Module, v: &Violation, from: &str) -> String {
@@ -942,6 +973,36 @@ class Shipper {}
         let test_doc = Document { path: "/project/src/test/java/com/acme/shipping/ShipperTest.java".into(), ..doc("", test) };
         tools.line_markers(&test_doc);
         assert!(!host.diagnostics().contains_key(&test_doc.path));
+    }
+
+    #[test]
+    fn exactly_imported_types_are_checked_at_member_use_sites() {
+        let host=setup();
+        let text="package com.acme.shipping;
+import java.util.List;
+import com.acme.order.internal.OrderRepository;
+import com.acme.inventory.spi.Hook;
+import com.acme.order.OrderService;
+import com.acme.other.*;
+class Repo<T extends OrderRepository> extends OrderRepository implements Hook {
+    List<OrderRepository> all;
+    OrderRepository find(Hook h) { return new OrderRepository(); }
+    void run() { OrderRepository.create(); OrderService s; int OrderRepository = 1; }
+}
+";
+        let d=doc("shipping/Repo.java",text);host.add_file(&d.path,&d.text);let mut tools=ModulithTools::default();
+        tools.warm_project(&host.invocation().project().unwrap(),COMMAND_BUDGET);
+        let problems=tools.live_diagnostics(&d);
+        let internal=problems.iter().filter(|p|p.code.as_deref()==Some("module-internal")).count();
+        let unlisted=problems.iter().filter(|p|p.code.as_deref()==Some("module-not-allowed")).count();
+        assert_eq!((internal,unlisted),(7,3));
+        let shadow="package com.acme.shipping;
+import com.acme.order.internal.OrderRepository;
+class Box<OrderRepository extends Object> { OrderRepository value; }
+";
+        let d=doc("shipping/Box.java",shadow);host.add_file(&d.path,&d.text);
+        let uses=tools.live_diagnostics(&d).into_iter().filter(|p|p.code.as_deref()==Some("module-internal")).count();
+        assert_eq!(uses,1);
     }
 
     #[cfg(not(feature = "embedded"))]

@@ -24,6 +24,7 @@ mod local_hierarchy;
 mod local_identifiers;
 mod local_inheritance;
 mod orm_xml;
+mod persistence_unit;
 mod local_repository;
 mod jpql_language;
 mod source_diagram;
@@ -117,15 +118,36 @@ fn choose_many(title: &str, items: &[PickItem]) -> Result<Option<Vec<String>>, E
     }
 }
 
+#[cfg(test)]
 fn choose_dialect() -> Result<Option<Dialect>, Error> {
+    choose_dialect_for(None)
+}
+
+fn choose_dialect_for(settings: Option<&persistence_unit::Settings>) -> Result<Option<Dialect>, Error> {
     let configured = host::setting_string("ddlDialect");
     let mut items = vec![PickItem::new("postgresql", "PostgreSQL"), PickItem::new("mysql", "MySQL")];
-    if Dialect::from_setting(configured.as_deref()) == Dialect::MySql {
+    let preferred = match settings.and_then(|s| s.family()) {
+        Some("mysql" | "mariadb") => Some(Dialect::MySql),
+        Some("postgresql") => Some(Dialect::PostgreSql),
+        _ => None,
+    };
+    if preferred.unwrap_or_else(|| Dialect::from_setting(configured.as_deref())) == Dialect::MySql {
         items.reverse();
     }
-    items[0].description = Some("default".into());
+    items[0].description = Some(match (preferred, settings) {
+        (Some(_), Some(s)) => format!("from {}", s.summary()),
+        _ => "default".into(),
+    });
 
     Ok(choose("SQL dialect", &items)?.map(|key| Dialect::from_setting(Some(&key))))
+}
+
+fn effective_dialect(ctx: &Invocation) -> Result<Option<Dialect>, Error> {
+    let settings = match ctx.project() {
+        Some(project) => persistence_unit::effective(&project)?,
+        None => None,
+    };
+    choose_dialect_for(settings.as_ref())
 }
 
 fn choose_entity_language() -> Result<Option<bool>, Error> {
@@ -1096,7 +1118,7 @@ impl Plugin for JpaAssist {
             "find-attribute-usages" => {file_actions::find_attribute_usages(ctx)?; Ok(None)}
             "copy-ddl" => {
                 let class = self.entity_of(ctx, arg)?;
-                let Some(dialect) = choose_dialect()? else {
+                let Some(dialect) = effective_dialect(ctx)? else {
                     return Ok(None);
                 };
                 let known = |n: &str| self.class(n);
@@ -1111,7 +1133,7 @@ impl Plugin for JpaAssist {
                     return Ok(None);
                 }
 
-                let Some(dialect) = choose_dialect()? else {
+                let Some(dialect) = effective_dialect(ctx)? else {
                     return Ok(None);
                 };
 

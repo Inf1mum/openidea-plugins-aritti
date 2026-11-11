@@ -260,14 +260,21 @@ fn read_plan(project: &Project, profile: &str) -> Result<Plan, Error> {
         .collect();
     let dialect_key = match value.get("dialect") {
         Some(value) => value.as_str().ok_or(Error::Stale)?.to_owned(),
-        None => host::pick(
-            "Target SQL dialect (offline default version; no database is queried)",
-            &dialects
+        None => {
+            let settings = crate::persistence_unit::effective(project)?;
+            let family = settings.as_ref().and_then(|s| s.family());
+            let mut items: Vec<_> = dialects
                 .iter()
                 .map(|dialect| openidea_plugin::PickItem::new(dialect.key, dialect.label))
-                .collect::<Vec<_>>(),
-        )?
-        .ok_or(Error::Cancelled)?,
+                .collect();
+            if let Some(at) = items.iter().position(|i| Some(i.key.as_str()) == family) {
+                let mut first = items.remove(at);
+                first.description = settings.map(|s| format!("from {}", s.summary()));
+                items.insert(0, first);
+            }
+            host::pick("Target SQL dialect (offline default version; no database is queried)", &items)?
+                .ok_or(Error::Cancelled)?
+        }
     };
     let dialect = dialects
         .into_iter()

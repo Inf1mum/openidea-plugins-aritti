@@ -415,7 +415,7 @@ impl Schemas<'_> {
         if decl.kind == "record" {
             if decl.components.len() > 256
                 || decl.components.is_empty()
-                || decl.components.iter().any(|p| !p.annotations.is_empty())
+                || decl.components.iter().any(|p| !validation_only(&p.annotations, file))
             {
                 return None;
             }
@@ -430,7 +430,7 @@ impl Schemas<'_> {
             let fields = fields.collect::<Vec<_>>();
             if fields
                 .iter()
-                .any(|f| !f.annotations.is_empty() || f.ty.is_none())
+                .any(|f| !validation_only(&f.annotations, file) || f.ty.is_none())
             {
                 return None;
             }
@@ -452,13 +452,16 @@ impl Schemas<'_> {
         // Placeholder makes recursive source objects terminate without dropping their identity.
         self.components.insert(key.clone(), json!({}));
         let mut properties = serde_json::Map::new();
+        let mut required = Vec::new();
         if decl.kind == "record" {
             for param in &decl.components {
-                properties.insert(
-                    param.name.clone(),
-                    self.resolve(&param.ty, file, depth)
-                        .unwrap_or_else(|| json!({"x-java-type":param.ty.text})),
-                );
+                let mut shape = self
+                    .resolve(&param.ty, file, depth)
+                    .unwrap_or_else(|| json!({"x-java-type":param.ty.text}));
+                if apply_validation(&param.annotations, file, &mut shape) {
+                    required.push(param.name.clone());
+                }
+                properties.insert(param.name.clone(), shape);
             }
         } else {
             for field in decl.fields().filter(|f| {
@@ -469,11 +472,13 @@ impl Schemas<'_> {
                         .any(|m| matches!(m.as_str(), "static" | "transient"))
             }) {
                 let ty = field.ty.as_ref()?;
-                properties.insert(
-                    field.name.clone(),
-                    self.resolve(ty, file, depth)
-                        .unwrap_or_else(|| json!({"x-java-type":ty.text})),
-                );
+                let mut shape = self
+                    .resolve(ty, file, depth)
+                    .unwrap_or_else(|| json!({"x-java-type":ty.text}));
+                if apply_validation(&field.annotations, file, &mut shape) {
+                    required.push(field.name.clone());
+                }
+                properties.insert(field.name.clone(), shape);
             }
             for method in decl.methods() {
                 if let Some((name, ty)) = getter(method) {
@@ -491,9 +496,107 @@ impl Schemas<'_> {
                 }
             }
         }
-        self.components.insert(key,json!({"type":"object","properties":properties,"description":"Positive written DTO shape; serializer configuration, validation and runtime inclusion are not evaluated.","x-openidea-source":{"path":path,"type":target}}));
+        let mut object = json!({"type":"object","properties":properties,"description":"Positive written DTO shape; serializer configuration and runtime inclusion are not evaluated; only literal Bean Validation constraints are mapped.","x-openidea-source":{"path":path,"type":target}});
+        if !required.is_empty() {
+            object["required"] = json!(required);
+        }
+        self.components.insert(key, object);
         Some(reference)
     }
+}
+
+const VALIDATION: &[&str] = &[
+    "NotNull", "NotBlank", "NotEmpty", "Size", "Min", "Max", "DecimalMin", "DecimalMax",
+    "Positive", "PositiveOrZero", "Negative", "NegativeOrZero", "Pattern", "Email",
+];
+
+fn is_validation(a: &spring_text::java::Annotation, file: &JavaFile) -> bool {
+    VALIDATION.contains(&a.name.as_str())
+        && ["jakarta", "javax"]
+            .iter()
+            .any(|p| file.imports.iter().any(|i| !i.is_static && i.path == format!("{p}.validation.constraints.{}", a.name)))
+}
+
+fn validation_only(annotations: &[spring_text::java::Annotation], file: &JavaFile) -> bool {
+    annotations.iter().all(|a| is_validation(a, file))
+}
+
+fn literal_number(a: &spring_text::java::Annotation, name: &str) -> Option<Value> {
+    let text = a.arg(name)?.text.trim();
+    let text = match a.arg(name)?.strings.as_slice() {
+        [s] if text.starts_with('"') => s.value.trim(),
+        _ => text.trim_end_matches(['L', 'l']),
+    };
+    if let Ok(n) = text.parse::<i64>() {
+        return Some(json!(n));
+    }
+    text.parse::<f64>().ok().filter(|f| f.is_finite()).map(|f| json!(f))
+}
+
+/// Maps literal Bean Validation constraints onto `shape`; returns whether the property is required.
+fn apply_validation(annotations: &[spring_text::java::Annotation], file: &JavaFile, shape: &mut Value) -> bool {
+    let kind = shape["type"].as_str().unwrap_or("").to_owned();
+    let (lo, hi) = match kind.as_str() {
+        "string" => ("minLength", "maxLength"),
+        "array" => ("minItems", "maxItems"),
+        "object" if shape.get("additionalProperties").is_some() => ("minProperties", "maxProperties"),
+        _ => ("", ""),
+    };
+    let numeric = matches!(kind.as_str(), "integer" | "number");
+    let mut required = false;
+    let mut set = |shape: &mut Value, key: &str, value: Value| {
+        if !key.is_empty() {
+            shape[key] = value;
+        }
+    };
+    for a in annotations.iter().filter(|a| is_validation(a, file)) {
+        match a.name.as_str() {
+            "NotNull" => required = true,
+            "NotBlank" | "NotEmpty" => {
+                required = true;
+                if !(a.name == "NotBlank" && kind != "string") {
+                    set(shape, lo, json!(1));
+                }
+            }
+            "Size" => {
+                for (arg, key) in [("min", lo), ("max", hi)] {
+                    if let Some(n) = literal_number(a, arg).filter(|n| n.is_u64()) {
+                        set(shape, key, n);
+                    }
+                }
+            }
+            "Pattern" => {
+                if let [s] = a.arg("regexp").map(|x| x.strings.as_slice()).unwrap_or(&[]) {
+                    if kind == "string" && a.arg("regexp").is_some_and(|x| x.text.trim().starts_with('"')) {
+                        shape["pattern"] = json!(s.value);
+                    }
+                }
+            }
+            "Email" if kind == "string" => shape["format"] = json!("email"),
+            _ if !numeric => {}
+            "Min" | "Max" | "DecimalMin" | "DecimalMax" => {
+                let upper = a.name.ends_with("Max");
+                if let Some(n) = literal_number(a, "value") {
+                    shape[if upper { "maximum" } else { "minimum" }] = n;
+                    if a.arg("inclusive").is_some_and(|x| x.text.trim() == "false") && a.name.starts_with("Decimal") {
+                        shape[if upper { "exclusiveMaximum" } else { "exclusiveMinimum" }] = json!(true);
+                    }
+                }
+            }
+            "Positive" => {
+                shape["minimum"] = json!(0);
+                shape["exclusiveMinimum"] = json!(true);
+            }
+            "PositiveOrZero" => shape["minimum"] = json!(0),
+            "Negative" => {
+                shape["maximum"] = json!(0);
+                shape["exclusiveMaximum"] = json!(true);
+            }
+            "NegativeOrZero" => shape["maximum"] = json!(0),
+            _ => {}
+        }
+    }
+    required
 }
 
 fn getter(method: &spring_text::java::Member) -> Option<(String, &TypeRef)> {
@@ -798,5 +901,28 @@ mod tests {
         let p = &exported["components"]["schemas"]["demo.Dto"]["properties"];
         assert_eq!(p["ready"]["type"], "boolean");
         assert!(p.get("count").is_none());
+    }
+
+    #[test]
+    fn bean_validation_literals_map_to_schema_constraints_for_exact_imports_only() {
+        let source = "package demo; import jakarta.validation.constraints.*; import jakarta.validation.constraints.NotBlank; import jakarta.validation.constraints.Size; import jakarta.validation.constraints.Min; import jakarta.validation.constraints.Positive; import jakarta.validation.constraints.Pattern; import jakarta.validation.constraints.Email; import jakarta.validation.constraints.NotNull; import jakarta.validation.constraints.DecimalMax; import java.util.List;
+            record Dto(@NotBlank @Size(min=2,max=9) @Pattern(regexp=\"[a-z]+\") String name, @Email String mail, @Min(3) @Positive int n, @DecimalMax(value=\"1.5\",inclusive=false) double d, @NotNull @Size(max=4) List<String> tags) {}";
+        let sources = Sources::from_files(&[("/p/Dto.java", source)]);
+        let mut schemas = sources.schemas();
+        assert!(schemas.schema(&named("Dto"), &spring_text::java::parse("package demo;")).is_some());
+        let o = &schemas.components["demo.Dto"];
+        let p = &o["properties"];
+        assert_eq!(o["required"], json!(["name", "tags"]));
+        assert_eq!(p["name"]["minLength"], 2);
+        assert_eq!(p["name"]["maxLength"], 9);
+        assert_eq!(p["name"]["pattern"], "[a-z]+");
+        assert_eq!(p["mail"]["format"], "email");
+        assert_eq!(p["n"]["minimum"], 0);
+        assert_eq!(p["n"]["exclusiveMinimum"], true);
+        assert_eq!(p["d"]["maximum"], 1.5);
+        assert_eq!(p["d"]["exclusiveMaximum"], true);
+        assert_eq!(p["tags"]["maxItems"], 4);
+        let foreign = Sources::from_files(&[("/p/Dto.java", "package demo; record Dto(@NotNull String x) {}")]);
+        assert!(foreign.schemas().schema(&named("Dto"), &spring_text::java::parse("package demo;")).is_none());
     }
 }

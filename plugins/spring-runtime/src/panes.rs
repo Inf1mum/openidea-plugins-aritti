@@ -138,16 +138,21 @@ fn records(s: &Snapshot) -> Vec<Record> {
         ));
     }
     for c in s.conditions.iter().take(64) {
+        let (class, member) = c.key.split_once('#').map_or((c.key.as_str(), None), |(class, member)| (class, Some(member)));
+        let class = class.replace('$', ".");
+        let (matched, unmatched) = s.conditions.iter().filter(|o| o.key.split('#').next() == c.key.split('#').next()).fold((0, 0), |(m, n), o| if o.matched { (m + 1, n) } else { (m, n + 1) });
         add!(row(
             &c.key,
             "conditions",
             format!(
-                "Condition key: {}\nReported match: {}\nMessages:\n{}\n\nCondition keys are not resolved Java owners.",
-                known(&c.key),
-                c.matched,
+                "Auto-configuration class: {}\nBean method: {}\nReported match: {}\nThis class, all reported entries: {matched} matched, {unmatched} not matched\nMessages ({}):\n{}",
+                known(&class),
+                member.unwrap_or("none (class-level condition)"),
+                if c.matched { "positive match" } else { "negative match" },
+                if c.matched { "why it matched" } else { "why it did not match" },
                 c.messages.iter().take(32).map(|m| presentation(m, 256)).collect::<Vec<_>>().join("\n")
             ),
-            None
+            candidate(&class, member.map(str::to_owned))
         ));
     }
     for m in s.mappings.iter().take(64) {
@@ -155,13 +160,20 @@ fn records(s: &Snapshot) -> Vec<Record> {
             &m.predicate,
             "mappings",
             format!(
-                "Group: {}\nPredicate: {}\nHandler: {}\nDeclared method: {}\nOverload signature / current source identity: unknown.",
+                "Group: {}\nPredicate: {}\nHandler: {}\nDeclared method: {}\nDescriptor: {}\nSource navigation matches the exact overload by parameter simple type names when a descriptor is reported.",
                 known(&m.group),
                 known(&m.predicate),
                 known(&m.handler),
-                m.method.as_ref().map(|(c, m)| format!("{c}#{m}")).unwrap_or_else(|| "not reported".into())
+                m.method.as_ref().map(|(c, m)| format!("{c}#{m}")).unwrap_or_else(|| "not reported".into()),
+                m.descriptor.as_deref().map(|d| presentation(d, 512)).unwrap_or_else(|| "not reported".into())
             ),
-            m.method.as_ref().and_then(|(c, m)| candidate(c, Some(m.clone())))
+            m.method.as_ref().and_then(|(c, name)| {
+                let params = m.descriptor.as_deref().and_then(crate::snapshot::descriptor_params);
+                match params {
+                    Some(params) if qualified(c) => Some(Target::Overload(c.clone(), name.clone(), params)),
+                    _ => candidate(c, Some(name.clone())),
+                }
+            })
         );
         record.examples=m.examples.clone();
         record.body=presentation(&format!("{}\n\nReported request conditions:\n{}",record.body,m.examples.review_text()),8192);
@@ -178,16 +190,19 @@ fn records(s: &Snapshot) -> Vec<Record> {
         add!(record);
     }
     for p in s.configprops.iter().take(64) {
+        let values: Vec<String> = p.props.iter().take(64).map(|(k, v)| format!("{}: {}", presentation(k, 128), crate::snapshot::masked_value(k, v))).collect();
         add!(row(
             &p.prefix,
             "configprops",
             format!(
-                "Prefix: {}\nReported type: {}\nRetained property count: {}\nValues omitted. Binding to the current source declaration is unverified.",
+                "Prefix: {}\nReported type: {}\nBound properties: {} (first {} shown, secrets masked)\n{}",
                 known(&p.prefix),
                 known(&p.ty),
-                p.props.len()
+                p.props.len(),
+                values.len(),
+                values.join("\n")
             ),
-            candidate(&p.ty, None)
+            (qualified(&p.ty) && !p.prefix.is_empty() && p.prefix.len() <= 512).then(|| Target::Props(p.prefix.clone(), p.ty.clone()))
         ));
     }
     for t in s.scheduled.iter().take(64) {
@@ -483,34 +498,68 @@ impl Runtime {
         self.open_pane_candidate(target,ctx)
     }
     fn open_pane_candidate(&mut self,target:Option<Target>,ctx:&Invocation)->Result<(),Error> {
-        let Some(Target::Type(class, method)) = target else {
+        let Some(target) = target else {
             return Ok(());
         };
         let project = ctx.project().ok_or(Error::Stale)?;
         let scope = Scope::current(&project)?;
         self.java.reset();
-        let index = self.java.get(&project, COMMAND_BUDGET);
-        if !index.fresh() || index.iter().any(|(_, types)| types.iter().any(|t| t.fqn == "\0incomplete")) {
-            return Err(Error::Failed("Source index incomplete or stale; no candidate opened.".into()));
-        }
-        let hits: Vec<_> =
-            index.iter().filter(|(path, _)| source_owned(path, &scope.root))
-                .flat_map(|(path, types)| types.iter().filter(|t| t.fqn == class).map(move |t| (path, t))).take(2).collect();
-        let [(path, ty)] = hits.as_slice() else {
-            return Err(Error::Failed("No unique exact qualified source candidate; no file opened.".into()));
+        let (path, line, column) = match self.resolve(&project, &scope, &target) {
+            Resolved::Found(path, line, column) => (path, line, column),
+            Resolved::Library => return Err(Error::Failed("No project source with this exact name (library class); no file opened.".into())),
+            Resolved::Refused(why) => return Err(Error::Failed(why)),
         };
-        let (line, column) = if let Some(method) = method {
-            let methods: Vec<_> = ty.methods.iter().filter(|m| m.0 == method).take(2).collect();
-            let [m] = methods.as_slice() else {
-                return Err(Error::Failed("Method missing or overloaded; no source candidate opened.".into()));
-            };
-            (m.1, m.2)
-        } else {
-            (ty.line, ty.column)
-        };
-        if Scope::current(&project)? != scope || !source_owned(path, &scope.root) { return Err(Error::Stale); }
-        host::open_location(path, line, column)
+        if Scope::current(&project)? != scope || !source_owned(&path, &scope.root) { return Err(Error::Stale); }
+        host::open_location(&path, line, column)
     }
+    fn resolve(&mut self, project: &Project, scope: &Scope, target: &Target) -> Resolved {
+        let index = self.java.get(project, COMMAND_BUDGET);
+        if !index.fresh() || index.iter().any(|(_, types)| types.iter().any(|t| t.fqn == "\0incomplete")) {
+            return Resolved::Refused("Source index incomplete or stale; no candidate opened.".into());
+        }
+        let owned = || index.iter().filter(|(path, _)| source_owned(path, &scope.root)).flat_map(|(path, types)| types.iter().map(move |t| (path, t)));
+        let (class, method) = match target {
+            Target::Type(class, method) => (class, method.as_ref().map(|m| (m, None))),
+            Target::Overload(class, name, params) => (class, Some((name, Some(params)))),
+            Target::Props(prefix, ty) => {
+                let by_type: Vec<_> = owned().filter(|(_, t)| t.fqn == *ty).take(2).collect();
+                if let [(path, t)] = by_type.as_slice() {
+                    return Resolved::Found(path.to_string(), t.line, t.column);
+                }
+                if by_type.len() > 1 {
+                    return Resolved::Refused("The reported type has several project declarations; no file opened.".into());
+                }
+                let by_prefix: Vec<_> = owned().filter(|(_, t)| t.config_prefix.as_deref() == Some(prefix.as_str())).take(2).collect();
+                return match by_prefix.as_slice() {
+                    [] => Resolved::Library,
+                    [(path, t)] => Resolved::Found(path.to_string(), t.line, t.column),
+                    _ => Resolved::Refused("Several project classes declare this exact @ConfigurationProperties prefix; no file opened.".into()),
+                };
+            }
+            _ => return Resolved::Refused("Not a source candidate.".into()),
+        };
+        let hits: Vec<_> = owned().filter(|(_, t)| t.fqn == *class).take(2).collect();
+        let [(path, ty)] = hits.as_slice() else {
+            return if hits.is_empty() { Resolved::Library } else { Resolved::Refused("No unique exact qualified source candidate; no file opened.".into()) };
+        };
+        let Some((name, params)) = method else {
+            return Resolved::Found(path.to_string(), ty.line, ty.column);
+        };
+        let matching: Vec<_> = (0..ty.methods.len())
+            .filter(|&i| ty.methods[i].0 == *name && params.is_none_or(|p| ty.params.get(i) == Some(p)))
+            .take(2)
+            .collect();
+        match matching.as_slice() {
+            [i] => Resolved::Found(path.to_string(), ty.methods[*i].1, ty.methods[*i].2),
+            [] => Resolved::Refused("No method with this name and parameter types in the project class; no source candidate opened.".into()),
+            _ => Resolved::Refused("Method missing or overloaded; no source candidate opened.".into()),
+        }
+    }
+}
+enum Resolved {
+    Found(String, u32, u32),
+    Library,
+    Refused(String),
 }
 impl Details for Runtime {
     fn detail(&mut self, view: &str, key: &str, ctx: &Invocation) -> Result<Vec<Tab>, Error> {
@@ -541,10 +590,23 @@ impl Details for Runtime {
             self.error.as_deref().unwrap_or("none recorded"),
             self.snapshot.as_ref().map(|s| s.missing.join(", ")).unwrap_or_default()
         );
+        let (body, endpoint, target) = (record.body.clone(), record.endpoint, record.target.clone());
+        let scope = scope.clone();
+        let source = match (target, matches!(endpoint, "conditions" | "configprops" | "mappings"), ctx.project()) {
+            (Some(target), true, Some(project)) => Some(match self.resolve(&project, &scope, &target) {
+                Resolved::Found(path, line, _) => format!("Project source: {}:{}", presentation(&path, 1024), line + 1),
+                Resolved::Library => "library: no project source declares this exact name.".to_owned(),
+                Resolved::Refused(why) => format!("Not navigable: {why}"),
+            }),
+            _ => None,
+        };
         let mut tabs = vec![
-            Tab::new("observation", "Observation", Pane::Text(record.body.clone())),
+            Tab::new("observation", "Observation", Pane::Text(body)),
             Tab::new("provenance", "Provenance", Pane::Text(presentation(&provenance, 16384))),
         ];
+        if let Some(source) = source {
+            tabs.insert(1, Tab::new("source", "Source", Pane::Text(source)));
+        }
         if let Some((response_key,response))=&self.panes.response {
             if response_key==key {tabs.push(Tab::new("http-response","HTTP Response",Pane::Text(response.clone())));}
         }
@@ -954,6 +1016,76 @@ mod tests {
             assert!(matches!(tabs[0].body, Pane::Message(_)));
             assert!(runtime.activate_pane(&key, &host.invocation()).is_err());
             assert!(host.opened_locations().is_empty());
+        }
+    }
+    fn pane_key(runtime: &Runtime, endpoint: &str, title: &str) -> String {
+        runtime.panes.rows.iter().find(|(_, r)| r.endpoint == endpoint && r.title == title).unwrap().0.clone()
+    }
+    #[test]
+    fn mapping_descriptor_selects_exact_overload_and_refuses_unmatched_or_equal_signatures() {
+        let docs = serde_json::json!({"contexts":{"application":{"mappings":{"dispatcherServlets":{"dispatcherServlet":[{
+            "details":{"handlerMethod":{"className":"com.acme.Users$Api","descriptor":"(Ljava/lang/String;I[Ljava/util/List;)Ljava/lang/String;","name":"find"},
+            "requestMappingConditions":{"methods":["GET"],"patterns":["/users"]}},"handler":"x","predicate":"{GET [/users]}"}]}}}}});
+        for (source, opens) in [
+            ("class Users { static class Api { String find(){return \"\";} String find(String a, int b, List<String>[] c){return a;} } }", true),
+            ("class Users { static class Api { String find(String a){return a;} String find(String a, long b, List[] c){return a;} } }", false),
+            ("class Users { static class Api { String find(String a, int b, List[] c){return a;} String find(String x, int y, List[] z){return x;} } }", false),
+        ] {
+            let (host, mut runtime) = setup();
+            host.add_file("src/Users.java", &format!("package com.acme; {source}"));
+            runtime.snapshot.as_mut().unwrap().read("mappings", &docs);
+            let ctx = host.invocation();
+            runtime.render_panes(&ctx).unwrap();
+            let key = runtime.panes.rows.iter().find(|(_, r)| r.endpoint == "mappings").unwrap().0.clone();
+            assert_eq!(runtime.activate_pane(&key, &ctx).is_ok(), opens, "{source}");
+        }
+        assert_eq!(crate::snapshot::descriptor_params("(IJ[[BLjava/util/Map$Entry;)V").unwrap(), ["int", "long", "byte[]", "Entry"]);
+        assert!(crate::snapshot::descriptor_params("(Lbroken)V").is_none());
+    }
+    #[test]
+    fn conditions_show_class_matches_and_navigate_only_to_exact_project_classes() {
+        let docs = serde_json::json!({"contexts":{"application":{
+            "negativeMatches":{"com.acme.MailConfig":{"notMatched":[{"condition":"OnClassCondition","message":"@ConditionalOnClass did not find required class 'x.Y'"}],"matched":[]}},
+            "positiveMatches":{"com.acme.MailConfig#sender":[{"condition":"OnBeanCondition","message":"@ConditionalOnMissingBean (types: x.Sender; SearchStrategy: all) did not find any beans"}],
+                "org.springframework.boot.autoconfigure.web.WebAutoConfiguration":[{"condition":"OnWebApplicationCondition","message":"web"}],
+                "EndpointAutoConfiguration#propertiesEndpointAccessResolver":[{"condition":"OnBeanCondition","message":"m"}]},
+            "unconditionalClasses":["x.Y"]}}});
+        let (host, mut runtime) = setup();
+        host.add_file("src/MailConfig.java", "package com.acme; @Configuration class MailConfig { @Bean Sender sender(){return null;} }");
+        runtime.snapshot.as_mut().unwrap().read("conditions", &docs);
+        let ctx = host.invocation();
+        runtime.render_panes(&ctx).unwrap();
+        let class_row = pane_key(&runtime, "conditions", "com.acme.MailConfig");
+        let body = &runtime.panes.rows[&class_row].body;
+        assert!(body.contains("negative match") && body.contains("1 matched, 1 not matched"), "{body}");
+        assert!(runtime.activate_pane(&class_row, &ctx).is_ok());
+        assert!(runtime.activate_pane(&pane_key(&runtime, "conditions", "com.acme.MailConfig#sender"), &ctx).is_ok());
+        assert_eq!(host.opened_locations().len(), 2);
+        let library = pane_key(&runtime, "conditions", "org.springframework.boot.autoconfigure.web.WebAutoConfiguration");
+        assert!(runtime.activate_pane(&library, &ctx).is_err());
+        let tabs = runtime.detail(VIEW, &library, &ctx).unwrap();
+        assert!(tabs.iter().any(|t| matches!(&t.body, Pane::Text(text) if text.starts_with("library"))));
+        assert!(runtime.panes.rows[&pane_key(&runtime, "conditions", "EndpointAutoConfiguration#propertiesEndpointAccessResolver")].target.is_none());
+        assert_eq!(host.opened_locations().len(), 2);
+    }
+    #[test]
+    fn configprops_prefix_navigates_to_the_unique_literal_prefix_and_masks_values() {
+        let docs = serde_json::json!({"contexts":{"application":{"beans":{
+            "spring.web-org.springframework.boot.autoconfigure.web.WebProperties":{"prefix":"spring.web","properties":{"locale":"en","datasource":{"password":"hunter2","url":"jdbc:mysql://root:pw@db/x"}},"inputs":{}},
+            "acme.mail-com.acme.Missing":{"prefix":"acme.mail","properties":{"host":"h"},"inputs":{}}}}}});
+        for (extra, opens) in [("", true), ("@ConfigurationProperties(\"acme.mail\") class Other {}", false)] {
+            let (host, mut runtime) = setup();
+            host.add_file("src/MailProps.java", "package com.acme; @ConfigurationProperties(prefix = \"acme.mail\") class MailProps {}");
+            if !extra.is_empty() { host.add_file("src/Other.java", &format!("package com.acme; {extra}")); }
+            runtime.snapshot.as_mut().unwrap().read("configprops", &docs);
+            let ctx = host.invocation();
+            runtime.render_panes(&ctx).unwrap();
+            let mail = pane_key(&runtime, "configprops", "acme.mail");
+            assert_eq!(runtime.activate_pane(&mail, &ctx).is_ok(), opens);
+            assert_eq!(host.opened_locations().len(), usize::from(opens));
+            let web = &runtime.panes.rows[&pane_key(&runtime, "configprops", "spring.web")];
+            assert!(web.body.contains("datasource.password: ******") && web.body.contains("jdbc:mysql://******@db/x") && !web.body.contains("hunter2"), "{}", web.body);
+            assert!(runtime.activate_pane(&pane_key(&runtime, "configprops", "spring.web"), &ctx).is_err());
         }
     }
     #[test]

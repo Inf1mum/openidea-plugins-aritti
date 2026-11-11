@@ -18,12 +18,12 @@ pub(super) fn findings(doc: &Document) -> Vec<Finding> {
     findings_with(doc, &read)
 }
 
-fn class_annotations<'a>(masked: &'a str, annotations: &'a [Annotation<'a>]) -> Option<Vec<&'a Annotation<'a>>> {
+pub(crate) fn class_annotations<'a>(masked: &'a str, annotations: &'a [Annotation<'a>]) -> Option<Vec<&'a Annotation<'a>>> {
     let (class_at, _) = model::declaration_keyword(masked, 0, &["class"])?;
     Some(annotations.iter().filter(|a| a.start < class_at).collect())
 }
 
-fn owned(imports: &[String], masked: &str, a: &Annotation) -> bool {
+pub(crate) fn owned(imports: &[String], masked: &str, a: &Annotation) -> bool {
     let known = |n: &str| n == format!("jakarta.persistence.{}", a.name) || n == format!("javax.persistence.{}", a.name);
     let written = &masked[a.start + 1..a.name_end];
     if written.contains('.') {
@@ -102,7 +102,7 @@ fn findings_with(doc: &Document, load: &dyn Fn(&str) -> Option<String>) -> Vec<F
     found
 }
 
-fn declaration_name(masked: &str) -> Option<&str> {
+pub(crate) fn declaration_name(masked: &str) -> Option<&str> {
     let (at, _) = model::declaration_keyword(masked, 0, &["class"])?;
     let rest = masked[at + 5..].trim_start();
     let end = rest.bytes().take_while(|&b| model::is_ident(b)).count();

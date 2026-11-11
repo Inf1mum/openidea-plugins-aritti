@@ -45,10 +45,14 @@ struct JavaType {
     line: u32,
     column: u32,
     methods: Vec<(String, u32, u32)>,
+    /// Per method, parallel to `methods`: parameter simple type names (`int[]` for arrays).
+    params: Vec<Vec<String>>,
+    /// The one literal `@ConfigurationProperties` prefix of the type, if it has exactly that.
+    config_prefix: Option<String>,
 }
 
 fn index_java(_: &str, text: &str) -> Option<Vec<JavaType>> {
-    let incomplete = || Some(vec![JavaType {fqn:"\0incomplete".into(),line:0,column:0,methods:Vec::new()}]);
+    let incomplete = || Some(vec![JavaType {fqn:"\0incomplete".into(),line:0,column:0,methods:Vec::new(),params:Vec::new(),config_prefix:None}]);
     if text.len()>512<<10 {return incomplete();}
     let file = java::parse(text);
     if file.types.len()>512 || file.types.iter().map(|t|t.members.len()).sum::<usize>()>4096 {return incomplete();}
@@ -63,7 +67,16 @@ fn index_java(_: &str, text: &str) -> Option<Vec<JavaType>> {
         .map(|(i, t)| {
             let (line, column) = at(t.at);
             let methods = t.methods().map(|m| (m.name.clone(), at(m.at).0, at(m.at).1)).collect();
-            JavaType { fqn: file.qualified(i), line, column, methods }
+            let params = t
+                .methods()
+                .map(|m| m.params.iter().map(|p| if p.ty.array { format!("{}[]", p.ty.name) } else { p.ty.name.clone() }).collect())
+                .collect();
+            let config_prefix = t.annotation("ConfigurationProperties").and_then(|a| {
+                let arg = a.arg("prefix").or_else(|| a.arg("value"))?;
+                let [only] = arg.strings.as_slice() else { return None };
+                (arg.text.trim().len() == only.value.len() + 2).then(|| only.value.clone())
+            });
+            JavaType { fqn: file.qualified(i), line, column, methods, params, config_prefix }
         })
         .collect();
     (!types.is_empty()).then_some(types)
@@ -90,6 +103,10 @@ enum Target {
     /// A configuration key, preferably in the named file.
     Key(String, Option<String>),
     File(String),
+    /// A class by exact qualified name, at the one method whose parameter simple type names are these.
+    Overload(String, String, Vec<String>),
+    /// A `@ConfigurationProperties` literal prefix and the reported bean type.
+    Props(String, String),
 }
 
 impl Target {
@@ -98,6 +115,8 @@ impl Target {
             Self::Type(class,method)=>class.len()<=4096 && method.as_ref().is_none_or(|m|m.len()<=512),
             Self::Key(key,file)=>key.len()<=4096 && file.as_ref().is_none_or(|f|f.len()<=1024),
             Self::File(file)=>file.len()<=1024,
+            Self::Overload(class,method,params)=>class.len()<=4096 && method.len()<=512 && params.len()<=64,
+            Self::Props(prefix,ty)=>prefix.len()<=4096 && ty.len()<=4096,
         };
         valid.then_some(self)
     }
@@ -768,6 +787,7 @@ impl Runtime {
                 let in_file = hits.iter().find(|h| file.as_ref().is_some_and(|f| h.0.ends_with(&format!("/{f}"))));
                 in_file.or(hits.first()).map(|h| (h.0.to_owned(), h.1, h.2))
             }
+            Target::Overload(..) | Target::Props(..) => None,
             Target::File(name) => {
                 let suffix = format!("/{name}");
                 let index = self.configs.get(project, COMMAND_BUDGET);

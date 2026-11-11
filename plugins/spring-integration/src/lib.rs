@@ -19,6 +19,7 @@ mod java_hover;
 mod source_scope;
 mod contexts;
 mod dsl_flows;
+mod spel;
 
 mod source_provenance;
 use source_provenance::{source_type_owned,source_bean_owned};
@@ -68,6 +69,8 @@ pub enum Role {
     BeanRef,
     /// Context graph fact (`contexts`): an import/scan edge, a declared type, or an unprovable edge.
     Edge,
+    /// A syntax error in a literal SpEL expression; `name` is the message, `range` the exact span.
+    SpelError,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -307,6 +310,13 @@ fn parse_xml(text: &str) -> Vec<Ref> {
                 | "reply-channel"
                 | "channel" => Role::Produces,
                 "ref" => Role::BeanRef,
+                "expression" | "value-expression" | "selector-expression" => {
+                    let literal = a.value.is_ascii() && !a.value.contains('&') && !a.value.chars().any(char::is_control);
+                    if literal {
+                        out.extend(spel::refs(text, a.value_at, &a.value, &format!("<{}>", e.name), i + 1));
+                    }
+                    continue;
+                }
                 _ => continue,
             };
             if a.value.chars().any(char::is_control) {
@@ -405,8 +415,13 @@ fn here<'a>(index: &'a Index<Vec<Ref>>, doc: &Document) -> &'a [Ref] {
 }
 
 fn problems(index: &Index<Vec<Ref>>, doc: &Document) -> Vec<Diagnostic> {
+    let mut syntax: Vec<Diagnostic> = here(index, doc)
+        .iter()
+        .filter(|r| r.role == Role::SpelError)
+        .map(|r| Diagnostic::new(r.range, Severity::Warning, format!("SpEL syntax error in {}: {}", r.what, r.name)).code("spel-syntax"))
+        .collect();
     if !index.complete() || all(index).any(|(_,reference)|reference.role==Role::BeanCandidate) {
-        return Vec::new();
+        return syntax;
     }
     let known = |name: &str, roles: &[Role]| all(index).any(|(_, x)| x.name == name && roles.contains(&x.role));
     let contexts = contexts::build(index);
@@ -419,6 +434,11 @@ fn problems(index: &Index<Vec<Ref>>, doc: &Document) -> Vec<Diagnostic> {
         let message = format!("'{}' is defined in {contexts_spanned} contexts ({}); this file belongs to all of them.", r.name, files.into_iter().collect::<Vec<_>>().join(", "));
         Some(Diagnostic::new(r.range, Severity::Info, message).code("multi-context-definition"))
     }).collect::<Vec<_>>();
+    let unknown_spel_beans = here(index, doc)
+        .iter()
+        .filter(|r| r.role == Role::BeanRef && r.what.starts_with("SpEL @bean") && !beans::INFRASTRUCTURE.contains(&r.name.as_str()) && !known(&r.name, &[Role::Bean]))
+        .map(|r| Diagnostic::new(r.range, Severity::Info, format!("No supported indexed literal bean named '{}' was found for this SpEL reference. Imported/composed/runtime contexts are unresolved.", r.name)).code("unknown-spel-bean"))
+        .collect::<Vec<_>>();
     here(index, doc)
         .iter()
         .filter(|r| r.checked && !r.name.is_empty() && !beans::is_expression(&r.name))
@@ -440,6 +460,8 @@ fn problems(index: &Index<Vec<Ref>>, doc: &Document) -> Vec<Diagnostic> {
             Some(Diagnostic::new(r.range, Severity::Warning, message).code(code))
         })
         .chain(provenance)
+        .chain(unknown_spel_beans)
+        .chain(syntax.drain(..))
         .collect()
 }
 
@@ -841,6 +863,31 @@ interface OrderGateway {
         let xml_problems = p.live_diagnostics(&doc(XML_PATH, XML));
         assert_eq!(codes(&xml_problems), [(5, "unconsumed-channel".into()), (6, "unknown-bean".into()), (7, "unconsumed-channel".into())]);
         assert!(xml_problems[1].message.contains("'mailer'"));
+    }
+
+    #[test]
+    fn spel_expressions_report_syntax_and_unknown_beans() {
+        let _host = setup();
+        let mut p = Integration::default();
+        let xml = XML.replace(
+            "<bean id=\"pricing\"",
+            "<int:filter input-channel=\"invoices\" expression=\"payload.size( > 0\"/>\n    <int:router input-channel=\"invoices\" expression=\"@pricing.route(payload) + @ghost.x\"/>\n    <int:filter input-channel=\"invoices\" expression=\"#{a +\"/>\n    <bean id=\"pricing\"",
+        );
+        p.line_markers(&doc(XML_PATH, &xml));
+        let found = p.live_diagnostics(&doc(XML_PATH, &xml));
+        let by = |code: &str| found.iter().filter(|d| d.code.as_deref() == Some(code)).collect::<Vec<_>>();
+        assert_eq!(by("spel-syntax").len(), 1);
+        assert_eq!(by("spel-syntax")[0].severity, Severity::Warning);
+        assert_eq!(by("unknown-spel-bean").len(), 1);
+        assert!(by("unknown-spel-bean")[0].message.contains("'ghost'"));
+    }
+
+    #[test]
+    fn dsl_string_expressions_are_checked_in_owned_chains_only() {
+        let src = "import org.springframework.integration.dsl.IntegrationFlow;\nclass F { Object f() { return IntegrationFlow.from(\"in\").filter(\"payload.size( > 0\").route(\"headers['t']\").transform(\"@mapper.go(payload)\").transform(\"bean\", \"method\").get(); } }\n";
+        let refs = parse(CONFIG_PATH, src);
+        assert_eq!(refs.iter().filter(|r| r.role == Role::SpelError).count(), 1);
+        assert_eq!(refs.iter().filter(|r| r.what.starts_with("SpEL @bean")).map(|r| r.name.as_str()).collect::<Vec<_>>(), ["mapper"]);
     }
 
     #[test]

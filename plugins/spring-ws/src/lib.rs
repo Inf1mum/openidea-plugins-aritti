@@ -13,6 +13,7 @@ mod resource_paths;
 mod annotation_owners;
 mod schema_qnames;
 mod xml_refs;
+mod wsdl_pairs;
 mod wsdl_qnames;
 mod xml_contracts;
 mod typed_xml;
@@ -617,6 +618,9 @@ impl DiagnosticsProvider for WsTools {
             if !self.watching || !complete_schemas(index) || !self.unreadable_schemas.is_empty() {
                 return problems;
             }
+            if self.watching && complete_schemas(index) && self.unreadable_schemas.is_empty() {
+                problems.extend(wsdl_pairs::unpaired_requests(doc, index));
+            }
             problems.extend(sws_resources(&doc.text)
                 .into_iter()
                 .filter(|(path, _)| {
@@ -633,6 +637,7 @@ impl DiagnosticsProvider for WsTools {
             return Vec::new();
         }
         let mut problems = xpath::syntax_diagnostics(doc);
+        problems.extend(wsdl_pairs::void_response_payload(doc));
         if !self.watching {
             return problems;
         }

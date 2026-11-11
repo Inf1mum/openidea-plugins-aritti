@@ -198,6 +198,7 @@ impl State {
             if setting("checkEntityId") { findings.extend(crate::local_hierarchy::identifier_absent(doc)); }
             if setting("checkAttributeTypes") { findings.extend(crate::local_hierarchy::converter_findings(doc)); }
             if setting("checkClassSignature") { findings.extend(crate::local_inheritance::findings(doc)); }
+            if setting("checkClassSignature") { findings.extend(crate::persistence_unit::findings(doc)); }
             findings.extend(crate::local_graph::findings(doc));
             findings.extend(crate::local_listener::findings(doc));
             findings.extend(crate::local_listener::callback_findings(doc));

@@ -10,6 +10,7 @@ use spring_text::config::canonical;
 pub const ENDPOINTS: [&str; 9] = ["beans", "env", "conditions", "health", "mappings", "configprops", "scheduledtasks", "loggers", "caches"];
 /// What Actuator shows for a value it hides.
 pub const MASK: &str = "******";
+pub const CONFIGPROPS_VALUES: usize = 256;
 pub const HEALTH_DEPTH: usize = 4;
 pub const HEALTH_NODES: usize = 200;
 
@@ -20,6 +21,11 @@ fn health_text(s: &str, max: usize) -> String {
         return clean;
     }
     format!("{}…", clean.chars().take(max).collect::<String>())
+}
+
+/// A bound or reported value as it may be shown: sensitive keys hidden, URL userinfo masked, bounded.
+pub fn masked_value(key: &str, raw: &str) -> String {
+    if sensitive_key(key) { MASK.to_owned() } else { health_text(&mask_userinfo(raw), 200) }
 }
 
 fn sensitive_key(key: &str) -> bool {
@@ -100,6 +106,9 @@ pub struct Mapping {
     pub handler: String,
     /// The handler method's class and name, when it is one.
     pub method: Option<(String, String)>,
+    /// The handler method's JVM descriptor (`(Ljava/lang/String;I)V`); absent in older caches.
+    #[serde(default)]
+    pub descriptor: Option<String>,
     /// Exact method/path pairs reported by requestMappingConditions; legacy snapshots have none.
     #[serde(default)]
     pub requests: Vec<(String, String)>,
@@ -135,6 +144,56 @@ pub struct Cache {
     pub manager: String,
     pub name: String,
     pub target: String,
+}
+
+/// Masks every bound value (caches written before schema 3 stored them as reported).
+pub fn mask_props(props: &mut [(String, String)]) {
+    for (key, value) in props {
+        *value = masked_value(key, value);
+    }
+}
+
+/// Parameter simple type names of a JVM method descriptor (`(Ljava/util/List;[I)V` is `List`, `int[]`).
+pub fn descriptor_params(descriptor: &str) -> Option<Vec<String>> {
+    let body = descriptor.strip_prefix('(')?.split_once(')')?.0;
+    let mut out = Vec::new();
+    let mut chars = body.chars().peekable();
+    while chars.peek().is_some() {
+        let mut array = false;
+        while chars.peek() == Some(&'[') {
+            chars.next();
+            array = true;
+        }
+        let mut name = match chars.next()? {
+            'B' => "byte".to_owned(),
+            'C' => "char".to_owned(),
+            'D' => "double".to_owned(),
+            'F' => "float".to_owned(),
+            'I' => "int".to_owned(),
+            'J' => "long".to_owned(),
+            'S' => "short".to_owned(),
+            'Z' => "boolean".to_owned(),
+            'L' => {
+                let mut class = String::new();
+                loop {
+                    match chars.next()? {
+                        ';' => break,
+                        c => class.push(c),
+                    }
+                }
+                class.rsplit(['/', '$']).next().filter(|n| !n.is_empty())?.to_owned()
+            }
+            _ => return None,
+        };
+        if array {
+            name.push_str("[]");
+        }
+        out.push(name);
+        if out.len() > 64 {
+            return None;
+        }
+    }
+    Some(out)
 }
 
 fn mapping_requests(conditions: &Value) -> Vec<(String, String)> {
@@ -250,6 +309,7 @@ impl Snapshot {
                                 predicate: text(&h["predicate"]),
                                 handler: text(&h["handler"]),
                                 method: method["className"].as_str().map(|class| (type_name(class), text(&method["name"]))),
+                                descriptor: method["descriptor"].as_str().filter(|d| d.len() <= 512).map(str::to_owned),
                             });
                         }
                     }
@@ -262,6 +322,8 @@ impl Snapshot {
                         let ty = key.strip_prefix(&format!("{prefix}-")).unwrap_or(key);
                         let mut props = Vec::new();
                         flatten("", &b["properties"], &mut props);
+                        props.truncate(CONFIGPROPS_VALUES);
+                        mask_props(&mut props);
                         self.configprops.push(PropsBean { prefix, ty: type_name(ty), props });
                     }
                 }
@@ -342,7 +404,7 @@ impl Snapshot {
                     Value::String(s) => s.clone(),
                     other => other.to_string(),
                 };
-                let value = if sensitive_key(key) { MASK.to_owned() } else { health_text(&mask_userinfo(&raw), 200) };
+                let value = masked_value(key, &raw);
                 self.health_details.push((path.to_owned(), health_text(key, 128), value));
             }
         }

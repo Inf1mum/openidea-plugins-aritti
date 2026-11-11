@@ -30,45 +30,30 @@ pub fn export_with_registry(
         ]
         .contains(&method.as_str())
             || !crate::safe_request_path(&route.path)
-            || route.path.contains('*')
-            || route.path.contains(':')
+            || route.path.contains(['*', '?'])
         {
-            unsupported.push(json!({"method":route.method,"path":route.path}));
+            unsupported.push(json!({"method":route.method,"path":route.path,"reason":"ant pattern (`*`, `**`, `?`) is not exported"}));
             continue;
         }
-        let mut parameters = Vec::new();
-        let mut rest = route.path.as_str();
-        let mut valid = true;
-        let mut names = std::collections::BTreeSet::new();
-        while let Some((prefix, tail)) = rest.split_once('{') {
-            if prefix.contains('}') {
-                valid = false;
-                break;
-            }
-            let Some((name, after)) = tail.split_once('}') else {
-                valid = false;
-                break;
-            };
-            if name.is_empty() || !name.chars().all(|c| c.is_alphanumeric() || c == '_') {
-                valid = false;
-                break;
-            }
-            if names.insert(name.to_owned()) {
-                parameters.push(
-                    json!({"name":name,"in":"path","required":true,"schema":{"type":"string"}}),
-                );
-            }
-            rest = after;
-        }
-        if !valid || rest.contains('}') {
+        let Some((template, variables)) = path_template(&route.path) else {
             unsupported.push(json!({"method":route.method,"path":route.path}));
             continue;
-        }
+        };
+        let parameters = variables
+            .into_iter()
+            .map(|(name, pattern)| {
+                let mut schema = json!({"type":"string"});
+                if let Some(pattern) = pattern {
+                    schema["pattern"] = json!(pattern);
+                }
+                json!({"name":name,"in":"path","required":true,"schema":schema})
+            })
+            .collect::<Vec<_>>();
         let handler = route.handler.member.as_ref().map_or_else(
             || route.handler.class.clone(),
             |m| format!("{}@{m}", route.handler.class),
         );
-        let path = paths.entry(route.path.clone()).or_insert_with(|| json!({}));
+        let path = paths.entry(template).or_insert_with(|| json!({}));
         let operation = path.as_object_mut().unwrap().entry(method).or_insert_with(|| json!({
             "responses":{"default":{"description":"Response schema is not inferred from source mappings."}},
             "parameters":parameters,
@@ -291,6 +276,13 @@ fn declared_operation_with_schemas(
                 }
                 data["responses"] = json!({"default":{"description":"Declared response media types and positive written source shape when available.","content":content}});
             }
+            if let Some(code) = declared_status(method, &file, text) {
+                let mut response = json!({"description":"Declared HTTP status; body schema only as written in source."});
+                if let Some(content) = data["responses"]["default"].get("content") {
+                    response["content"] = content.clone();
+                }
+                data["responses"] = json!({code.to_string():response});
+            }
             let mut conditions = serde_json::Map::new();
             for key in ["params", "headers"] {
                 let values = class_mapping
@@ -311,6 +303,134 @@ fn declared_operation_with_schemas(
     }
     None
 }
+/// Strips `{name:regex}` to `{name}`; `None` for malformed templates or `{*name}` captures.
+fn path_template(path: &str) -> Option<(String, Vec<(String, Option<String>)>)> {
+    let mut out = String::new();
+    let mut variables: Vec<(String, Option<String>)> = Vec::new();
+    let mut chars = path.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '}' | ':' => return None,
+            '{' => {
+                let mut inner = String::new();
+                let mut depth = 0usize;
+                loop {
+                    match chars.next()? {
+                        '{' => {
+                            depth += 1;
+                            inner.push('{');
+                        }
+                        '}' if depth == 0 => break,
+                        '}' => {
+                            depth -= 1;
+                            inner.push('}');
+                        }
+                        c => inner.push(c),
+                    }
+                }
+                let (name, pattern) = match inner.split_once(':') {
+                    Some((name, regex)) if !regex.is_empty() => (name, Some(regex.to_owned())),
+                    Some(_) => return None,
+                    None => (inner.as_str(), None),
+                };
+                if name.is_empty() || !name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                    return None;
+                }
+                if !variables.iter().any(|(n, _)| n == name) {
+                    variables.push((name.to_owned(), pattern));
+                }
+                out.push('{');
+                out.push_str(name);
+                out.push('}');
+            }
+            c => out.push(c),
+        }
+    }
+    Some((out, variables))
+}
+
+fn http_status(name: &str) -> Option<u16> {
+    Some(match name {
+        "OK" => 200,
+        "CREATED" => 201,
+        "ACCEPTED" => 202,
+        "NO_CONTENT" => 204,
+        "RESET_CONTENT" => 205,
+        "PARTIAL_CONTENT" => 206,
+        "MOVED_PERMANENTLY" => 301,
+        "FOUND" => 302,
+        "SEE_OTHER" => 303,
+        "NOT_MODIFIED" => 304,
+        "BAD_REQUEST" => 400,
+        "UNAUTHORIZED" => 401,
+        "FORBIDDEN" => 403,
+        "NOT_FOUND" => 404,
+        "CONFLICT" => 409,
+        "GONE" => 410,
+        "UNPROCESSABLE_ENTITY" => 422,
+        "INTERNAL_SERVER_ERROR" => 500,
+        "NOT_IMPLEMENTED" => 501,
+        "SERVICE_UNAVAILABLE" => 503,
+        _ => return None,
+    })
+}
+
+fn declared_status(
+    method: &spring_text::java::Member,
+    file: &spring_text::java::JavaFile,
+    text: &str,
+) -> Option<u16> {
+    if let Some(a) = method.annotation("ResponseStatus") {
+        if !file.from_spring("ResponseStatus") {
+            return None;
+        }
+        let arg = a.arg("code").or_else(|| a.arg("value"))?;
+        return http_status(arg.text.trim().strip_prefix("HttpStatus.")?);
+    }
+    if method.ty.as_ref()?.name != "ResponseEntity" || !file.from_spring("ResponseEntity") {
+        return None;
+    }
+    let (from, to) = method.body?;
+    let body = text.get(from..to)?;
+    let tokens = spring_text::java::tokens(body);
+    let returns = tokens.iter().filter(|t| t.s == "return").count();
+    let mut codes = std::collections::BTreeSet::new();
+    let mut hits = 0;
+    for (i, t) in tokens.iter().enumerate() {
+        if t.s == "new" && tokens.get(i + 1).is_some_and(|n| n.s == "ResponseEntity") {
+            return None;
+        }
+        if t.s != "ResponseEntity" || tokens.get(i + 1).is_none_or(|d| d.s != ".") {
+            continue;
+        }
+        let name = tokens.get(i + 2)?.s;
+        let code = match name {
+            "ok" => 200,
+            "created" => 201,
+            "accepted" => 202,
+            "noContent" => 204,
+            "badRequest" => 400,
+            "notFound" => 404,
+            "unprocessableEntity" => 422,
+            "internalServerError" => 500,
+            "status" => {
+                let args = tokens.get(i + 3..i + 7)?;
+                if args[0].s != "(" || args[1].s != "HttpStatus" || args[2].s != "." {
+                    return None;
+                }
+                http_status(args[3].s)?
+            }
+            _ => return None,
+        };
+        codes.insert(code);
+        hits += 1;
+    }
+    match (codes.len(), hits == returns) {
+        (1, true) => codes.into_iter().next(),
+        _ => None,
+    }
+}
+
 fn scalar_schema(ty: &spring_text::java::TypeRef) -> Value {
     if ty.name == "Optional" && ty.args.len() == 1 {
         return scalar_schema(&ty.args[0]);
@@ -443,13 +563,56 @@ mod tests {
             route("GET", "/files/**", "files"),
         ]))
         .unwrap();
-        assert_eq!(data["paths"], json!({}));
+        assert_eq!(data["paths"].as_object().unwrap().len(), 1);
+        assert_eq!(
+            data["paths"]["/users/{id}"]["get"]["parameters"][0]["schema"]["pattern"],
+            "[0-9]+"
+        );
         assert_eq!(
             data["x-openidea-unexported-mappings"]
                 .as_array()
                 .unwrap()
                 .len(),
-            3
+            2
         );
+    }
+
+    fn exported(source: &str, path: &str, name: &str) -> Value {
+        let file = spring_text::parse_source("/project/Users.java", source);
+        let method = file.types[0].methods().find(|m| m.name == name).unwrap();
+        let mut r = route("GET", path, name);
+        r.location = Some(openidea_plugin::Location {
+            path: "/project/Users.java".into(),
+            range: spring_text::range(source, method.at, method.at + method.name.len()),
+        });
+        serde_json::from_str(&export_with_sources(&[r], |_| Some(source.into()))).unwrap()
+    }
+
+    #[test]
+    fn regex_path_variables_become_patterns_and_ant_patterns_are_listed_unexported() {
+        let source = "@RestController class Users { @GetMapping(\"/u\") void one() {} }";
+        let data = exported(source, "/u/{id:[0-9]{2,}}/x/{name}", "one");
+        let op = &data["paths"]["/u/{id}/x/{name}"]["get"];
+        assert_eq!(op["parameters"][0]["schema"]["pattern"], "[0-9]{2,}");
+        assert!(op["parameters"][1]["schema"].get("pattern").is_none());
+        let skipped = export(&[route("GET", "/files/**", "a"), route("GET", "/t?st", "b")]);
+        let skipped: Value = serde_json::from_str(&skipped).unwrap();
+        assert_eq!(skipped["x-openidea-unexported-mappings"].as_array().unwrap().len(), 2);
+        assert_eq!(skipped["paths"], json!({}));
+    }
+
+    #[test]
+    fn literal_response_status_replaces_default_only_when_provable() {
+        let source = "import org.springframework.web.bind.annotation.*; import org.springframework.http.*; @RestController class Users {
+            @ResponseStatus(HttpStatus.CREATED) @PostMapping(\"/a\") void a() {}
+            @GetMapping(\"/b\") ResponseEntity<String> b() { return ResponseEntity.noContent().build(); }
+            @GetMapping(\"/c\") ResponseEntity<String> c() { if (x) { return ResponseEntity.ok(\"\"); } return ResponseEntity.notFound().build(); }
+        }";
+        let a = exported(source, "/a", "a");
+        assert!(a["paths"]["/a"]["get"]["responses"].get("201").is_some());
+        let b = exported(source, "/b", "b");
+        assert!(b["paths"]["/b"]["get"]["responses"].get("204").is_some());
+        let c = exported(source, "/c", "c");
+        assert!(c["paths"]["/c"]["get"]["responses"].get("default").is_some());
     }
 }

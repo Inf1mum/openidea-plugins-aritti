@@ -4,8 +4,8 @@ use openidea_plugin::{Error, Project, host};
 use serde::{Deserialize, Serialize};
 
 pub(crate) const MAX_BYTES: usize = 8 << 20;
-const SCHEMA: u8 = 2;
-/// Schema 1 only lacks `health_details`, which defaults to empty, so it is migrated by reading.
+const SCHEMA: u8 = 3;
+/// Schema 1 lacks `health_details` and schema 2 stores configprops values unmasked and no handler descriptors: both migrate by reading (defaults, then masking).
 const OLDEST_READABLE_SCHEMA: u8 = 1;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct Scope {
@@ -51,7 +51,13 @@ fn decode(value: &str, scope: &Scope) -> Result<Snapshot, Error> {
     if !(OLDEST_READABLE_SCHEMA..=SCHEMA).contains(&stored.schema) || stored.scope != *scope || stored.snapshot.url != scope.url {
         return Err("The saved runtime snapshot belongs to a different scope or schema; it was not reused.".into());
     }
-    Ok(stored.snapshot)
+    let mut snapshot = stored.snapshot;
+    if stored.schema < 3 {
+        for bean in &mut snapshot.configprops {
+            crate::snapshot::mask_props(&mut bean.props);
+        }
+    }
+    Ok(snapshot)
 }
 pub(crate) fn read(scope: &Scope) -> Result<Option<Snapshot>, Error> {
     host::storage::get(&scope.key())?.map(|s| decode(&s, scope)).transpose()
@@ -209,7 +215,17 @@ mod tests {
         let restored = read(&s).unwrap().unwrap();
         assert!(restored.health_details.is_empty());
         write(&s, &restored).unwrap();
-        assert!(host.storage()[&s.key()].starts_with(r#"{"schema":2"#));
+        assert!(host.storage()[&s.key()].starts_with(r#"{"schema":3"#));
+    }
+    #[test]
+    fn schema_two_cache_masks_configprops_values_when_read() {
+        let _host = MockHost::install();
+        let s = scope();
+        let mut snap = snapshot();
+        snap.configprops.push(crate::snapshot::PropsBean { prefix: "app".into(), ty: "com.acme.App".into(), props: vec![("app.password".into(), "hunter2".into()), ("app.name".into(), "demo".into())] });
+        host::storage::set(&s.key(), &serde_json::to_string(&Envelope { schema: 2, scope: s.clone(), snapshot: snap }).unwrap()).unwrap();
+        let restored = read(&s).unwrap().unwrap();
+        assert_eq!(restored.configprops[0].props, vec![("app.password".to_owned(), crate::snapshot::MASK.to_owned()), ("app.name".to_owned(), "demo".to_owned())]);
     }
     #[test]
     fn owner_url_auth_and_schema_are_checked_independently_of_hash_locator() {
