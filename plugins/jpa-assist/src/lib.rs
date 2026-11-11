@@ -61,7 +61,7 @@ use checks::{
     unknown_entity_graph, unknown_named_query, unused_listener,
 };
 use generate::{
-    Dialect, callback_method, ddl, dto, dto_fields, entity_from_ddl, inherited, table_name,
+    Dialect, callback_method, ddl_named, dto, dto_fields, entity_from_ddl, inherited, table_name,
     to_string_method,
 };
 use model::{
@@ -156,6 +156,10 @@ fn choose_dialect_for(settings: Option<&persistence_unit::Settings>) -> Result<O
     });
 
     Ok(choose("SQL dialect", &items)?.map(|key| Dialect::from_setting(Some(&key))))
+}
+
+fn standard_physical_naming(ctx: &Invocation) -> bool {
+    ctx.project().is_some_and(|project| naming_strategy::detect(&project).physical.known() == Some(&naming_strategy::Physical::Standard))
 }
 
 fn effective_dialect(ctx: &Invocation) -> Result<Option<Dialect>, Error> {
@@ -1307,7 +1311,7 @@ impl Plugin for JpaAssist {
                     return Ok(None);
                 };
                 let known = |n: &str| self.class(n);
-                copied(ddl(&[&class], &known, dialect), &format!("DDL of {}", class.name))
+                copied(ddl_named(&[&class], &known, dialect, standard_physical_naming(ctx)), &format!("DDL of {}", class.name))
             }
             "copy-ddl-all" => {
                 let project = ctx.project().ok_or("Open a project first.")?;
@@ -1323,7 +1327,7 @@ impl Plugin for JpaAssist {
                 };
 
                 let known = |n: &str| self.class(n);
-                copied(ddl(&entities, &known, dialect), &format!("DDL of {}", entities_count(entities.len())))
+                copied(ddl_named(&entities, &known, dialect, standard_physical_naming(ctx)), &format!("DDL of {}", entities_count(entities.len())))
             }
             "copy-dto" => {
                 let class = self.entity_of(ctx, arg)?;

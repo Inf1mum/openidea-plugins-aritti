@@ -152,8 +152,25 @@ pub fn table_name(class: &Class) -> String {
     snake_case(class.table.as_deref().unwrap_or(&class.name))
 }
 
-fn column_name(a: &Attribute) -> String {
-    snake_case(a.column.as_deref().unwrap_or(&a.name))
+/// Logical name to physical name: Spring/CamelCaseToUnderscores (and an unverified strategy) snake-case it;
+/// `PhysicalNamingStrategyStandardImpl` keeps it as written.
+#[derive(Clone, Copy)]
+struct Physical {
+    standard: bool,
+}
+
+impl Physical {
+    fn name(self, logical: &str) -> String {
+        if self.standard { logical.to_owned() } else { snake_case(logical) }
+    }
+
+    fn table(self, class: &Class) -> String {
+        self.name(class.table.as_deref().unwrap_or(&class.name))
+    }
+
+    fn column(self, a: &Attribute) -> String {
+        self.name(a.column.as_deref().unwrap_or(&a.name))
+    }
 }
 
 fn base_type(ty: &str) -> &str {
@@ -222,9 +239,9 @@ impl Table {
 }
 
 /// The id column of `class` and its SQL type.
-fn key_of(class: Option<&Class>, known: Known, dialect: Dialect) -> (String, String) {
+fn key_of(class: Option<&Class>, known: Known, dialect: Dialect, physical: Physical) -> (String, String) {
     let id = class.and_then(|c| id_attribute(c, known));
-    let column = id.as_ref().map_or("id".to_owned(), column_name);
+    let column = id.as_ref().map_or("id".to_owned(), |a| physical.column(a));
     let ty = id.as_ref().and_then(|a| sql_type(a, dialect)).unwrap_or_else(|| "BIGINT".into());
     (column, ty)
 }
@@ -234,18 +251,25 @@ fn foreign_key(table: &str, column: &str, target_table: &str, target_column: &st
 }
 
 /// `CREATE` statements for `entities`, foreign keys last so the order of tables doesn't matter.
+#[cfg(test)]
 pub fn ddl(entities: &[&Class], known: Known, dialect: Dialect) -> String {
+    ddl_named(entities, known, dialect, false)
+}
+
+/// `standard`: the detected physical naming strategy is `PhysicalNamingStrategyStandardImpl`, so logical names are kept.
+pub fn ddl_named(entities: &[&Class], known: Known, dialect: Dialect, standard: bool) -> String {
+    let physical = Physical { standard };
     let mut sequences = Vec::new();
     let mut tables = Vec::new();
     let mut constraints = Vec::new();
 
     for entity in entities.iter().filter(|e| e.kind == Kind::Entity) {
-        let mut table = Table::new(table_name(entity));
+        let mut table = Table::new(physical.table(entity));
         let mut join_tables = Vec::new();
 
         for a in inherited(entity, known) {
             let target = known(&a.target);
-            let target_table = target.map_or_else(|| snake_case(&a.target), table_name);
+            let target_table = target.map_or_else(|| physical.name(&a.target), |t| physical.table(t));
 
             match a.relation {
                 Relation::None | Relation::Embedded => {
@@ -259,7 +283,7 @@ pub fn ddl(entities: &[&Class], known: Known, dialect: Dialect) -> String {
                     };
 
                     for part in parts {
-                        let column = column_name(part);
+                        let column = physical.column(part);
                         let Some(ty) = sql_type(part, dialect) else {
                             table.columns.push(format!("-- {column}: no SQL type for {}", part.ty));
                             continue;
@@ -275,7 +299,7 @@ pub fn ddl(entities: &[&Class], known: Known, dialect: Dialect) -> String {
                         };
 
                         if let Some(strategy) = generated.filter(|s| *s != "IDENTITY") {
-                            let sequence = format!("{}_seq", snake_case(&entity.name));
+                            let sequence = format!("{}_seq", physical.name(&entity.name));
                             sequences.push(match dialect {
                                 Dialect::PostgreSql => format!("CREATE SEQUENCE IF NOT EXISTS {sequence} START WITH 1 INCREMENT BY 50;\n"),
                                 Dialect::MySql => format!("-- {strategy} ids: Hibernate keeps the next value in table {sequence}\nCREATE TABLE {sequence}\n(\n    next_val BIGINT\n);\nINSERT INTO {sequence} VALUES (1);\n"),
@@ -292,8 +316,8 @@ pub fn ddl(entities: &[&Class], known: Known, dialect: Dialect) -> String {
                     }
                 }
                 Relation::ManyToOne | Relation::OneToOne if !a.mapped_by => {
-                    let (target_column, ty) = key_of(target, known, dialect);
-                    let column = a.column.as_deref().map_or_else(|| format!("{}_{target_column}", snake_case(&a.name)), snake_case);
+                    let (target_column, ty) = key_of(target, known, dialect, physical);
+                    let column = a.column.as_deref().map_or_else(|| format!("{}_{target_column}", physical.name(&a.name)), |c| physical.name(c));
                     let null = if a.not_null || a.id { " NOT NULL" } else { "" };
                     table.columns.push(format!("{column} {ty}{null}"));
 
@@ -306,11 +330,11 @@ pub fn ddl(entities: &[&Class], known: Known, dialect: Dialect) -> String {
                     constraints.push(foreign_key(&table.name, &column, &target_table, &target_column));
                 }
                 Relation::OneToMany | Relation::ManyToMany if !a.mapped_by && !a.join_column => {
-                    let (own_column, own_type) = key_of(Some(entity), known, dialect);
-                    let (target_column, target_type) = key_of(target, known, dialect);
-                    let join = a.join_table.as_deref().map_or_else(|| format!("{}_{}", snake_case(&entity.name), snake_case(&a.target)), snake_case);
-                    let owner = format!("{}_{own_column}", snake_case(&entity.name));
-                    let element = format!("{}_{target_column}", snake_case(&a.name));
+                    let (own_column, own_type) = key_of(Some(entity), known, dialect, physical);
+                    let (target_column, target_type) = key_of(target, known, dialect, physical);
+                    let join = a.join_table.as_deref().map_or_else(|| format!("{}_{}", physical.name(&entity.name), physical.name(&a.target)), |j| physical.name(j));
+                    let owner = format!("{}_{own_column}", physical.name(&entity.name));
+                    let element = format!("{}_{target_column}", physical.name(&a.name));
 
                     let mut join_table = Table::new(join.clone());
                     join_table.columns = vec![format!("{owner} {own_type} NOT NULL"), format!("{element} {target_type} NOT NULL")];
@@ -695,6 +719,17 @@ public class Order {
 
     fn classes() -> Vec<Class> {
         vec![parse_class(ORDER, "/p/Order.java").unwrap(), parse_class(CUSTOMER, "/p/Customer.kt").unwrap()]
+    }
+
+    #[test]
+    fn standard_physical_naming_keeps_logical_names() {
+        let source = "package shop;\n\n@Entity\npublic class PetType {\n    @Id\n    private Long id;\n    private String birthDate;\n}\n";
+        let class = parse_class(source, "/p/PetType.java").unwrap();
+        let known = |_: &str| None;
+        let standard = ddl_named(&[&class], &known, Dialect::PostgreSql, true);
+        assert!(standard.contains("CREATE TABLE PetType\n") && standard.contains("birthDate ") && !standard.contains("pet_type"), "{standard}");
+        let spring = ddl_named(&[&class], &known, Dialect::PostgreSql, false);
+        assert!(spring.contains("CREATE TABLE pet_type\n") && spring.contains("birth_date "), "{spring}");
     }
 
     #[test]

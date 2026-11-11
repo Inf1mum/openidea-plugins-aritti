@@ -7,7 +7,7 @@
     "G097-C4"
   ],
   "verifies": {
-    "G097-C4": "a junction table with only two foreign key columns yields @ManyToMany with @JoinTable on one side (Book, naming book_tags) and @ManyToMany(mappedBy) on the other (Tag). All three tables are selected."
+    "G097-C4": "a junction table with only two foreign key columns yields @ManyToMany with @JoinTable on one side (Book, naming book_tags) and @ManyToMany(mappedBy) on the other (Tag). All three tables are selected. The @JoinTable also names its join and inverse join columns explicitly (book_id, tag_id): the JPA defaults would derive the inverse column from the attribute name (tags_id), so the claim's @JoinTable is only correct with them; the expectation therefore matches the prefix @JoinTable(name = \"book_tags\" and not a closing parenthesis."
   },
   "fixture": "envers-flyway-liquibase",
   "kind": "fileaction",
@@ -33,9 +33,6 @@
         "tags",
         "book_tags"
       ]
-    },
-    {
-      "pick": "java"
     },
     {
       "pick": "com.example.billing.domain"
@@ -67,7 +64,9 @@
         "path": "src/main/java/com/example/billing/domain/Book.java",
         "contains": [
           "@ManyToMany",
-          "@JoinTable(name = \"book_tags\")"
+          "@JoinTable(name = \"book_tags\"",
+          "joinColumns",
+          "inverseJoinColumns"
         ]
       },
       {

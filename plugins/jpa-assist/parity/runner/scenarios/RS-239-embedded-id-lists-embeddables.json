@@ -7,7 +7,7 @@
     "G017-C1"
   ],
   "verifies": {
-    "G017-C1": "the embedded identifier action lists @Embeddable classes of the project for selection: a plain public Serializable embeddable PairKey (public no-arg constructor, equals/hashCode, two fields) written by setup is among the picker's options. Whether every @Embeddable is listed is not claimed here (the plugin's picker is stricter, see the findings)."
+    "G017-C1": "the embedded identifier action lists @Embeddable classes of the project for selection: a plain public Serializable embeddable PairKey (public no-arg constructor, equals/hashCode, two scalar fields) written by setup is among the picker's options. The plugin's key discovery is deliberately strict: java.lang types must be spelled canonically (java.lang.Long, java.lang.Object, @java.lang.Override) or imported explicitly, because a bare Long could be shadowed by a same-package type and there is no compiler to resolve it; the setup uses that spelling. Whether every @Embeddable is listed is not claimed here."
   },
   "fixture": "boot-jpa-java-jakarta",
   "kind": "fileaction",
@@ -53,7 +53,7 @@
     {
       "write": {
         "path": "src/main/java/com/example/shop/domain/PairKey.java",
-        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.Embeddable;\nimport java.io.Serializable;\nimport java.util.Objects;\n\n@Embeddable\npublic class PairKey implements Serializable {\n\n    private Long left;\n\n    private Long right;\n\n    public PairKey() {\n    }\n\n    @Override\n    public boolean equals(Object other) {\n        if (this == other) {\n            return true;\n        }\n        if (!(other instanceof PairKey that)) {\n            return false;\n        }\n        return Objects.equals(left, that.left) && Objects.equals(right, that.right);\n    }\n\n    @Override\n    public int hashCode() {\n        return Objects.hash(left, right);\n    }\n}\n"
+        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.Embeddable;\nimport java.io.Serializable;\nimport java.util.Objects;\n\n@Embeddable\npublic class PairKey implements Serializable {\n\n    private java.lang.Long left;\n\n    private java.lang.Long right;\n\n    public PairKey() {\n    }\n\n    @java.lang.Override\n    public boolean equals(java.lang.Object other) {\n        if (this == other) {\n            return true;\n        }\n        if (!(other instanceof PairKey)) {\n            return false;\n        }\n        PairKey that = (PairKey) other;\n        return Objects.equals(left, that.left) && Objects.equals(right, that.right);\n    }\n\n    @java.lang.Override\n    public int hashCode() {\n        return Objects.hash(left, right);\n    }\n}\n"
       }
     }
   ]

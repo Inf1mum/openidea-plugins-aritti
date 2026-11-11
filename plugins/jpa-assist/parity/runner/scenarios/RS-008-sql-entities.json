@@ -7,7 +7,7 @@
     "G101-C3"
   ],
   "verifies": {
-    "G101-C3": "the Singularize class names option is chosen and the proposed class name for table tbl_users is User and for tbl_customers is Customer (promptSequence defaultIs); the created sources declare public class User and public class Customer. The same run strips the tbl_ and col_ prefixes (userName, name) but C1 is not claimed: only one table and one column prefix, no suffixes and no comma-separated lists are offered. C2 (reserved-word suffix) is not supported (a column named class refuses its table) and C4 (FK as basic attribute) is not offered."
+    "G101-C3": "the Singularize class names option is chosen and the proposed class name for table tbl_users is User and for tbl_customers is Customer (promptSequence defaultIs); the created sources declare public class User and public class Customer. The same run strips the tbl_ and col_ prefixes (userName, name); the prefix lists and suffixes (C1) are RS-226, the reserved-word suffix (C2) RS-227, and C4 (FK as basic attribute) is not offered."
   },
   "fixture": "envers-flyway-liquibase",
   "kind": "fileaction",
@@ -32,9 +32,6 @@
         "tbl_customers",
         "tbl_users"
       ]
-    },
-    {
-      "pick": "java"
     },
     {
       "pick": "com.example.billing.domain"
@@ -78,15 +75,6 @@
           "tbl_users"
         ],
         "name": "tables"
-      },
-      {
-        "kind": "pick",
-        "titleContains": "Entity language",
-        "optionsInclude": [
-          "java",
-          "kotlin"
-        ],
-        "name": "language"
       },
       {
         "kind": "pick",
