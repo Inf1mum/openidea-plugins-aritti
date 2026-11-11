@@ -14,7 +14,7 @@ pub(crate) struct Snapshot {
     expansion: Expansion,
 }
 
-fn resolve(packages: &serde_json::Map<String, Value>, parent: &str, name: &str) -> Option<String> {
+pub(crate) fn resolve(packages: &serde_json::Map<String, Value>, parent: &str, name: &str) -> Option<String> {
     if name.is_empty()
         || name.contains(['\\', ':'])
         || name

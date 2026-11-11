@@ -121,7 +121,7 @@ fn column_type(attributes: &str) -> Option<String> {
     Some(value[..end].trim().trim_matches(['\'', '"']).to_owned())
 }
 
-fn data_class(text: &str, masked: &str, model: &ClassModel) -> Option<String> {
+pub(crate) fn data_class(text: &str, masked: &str, model: &ClassModel) -> Option<String> {
     let options = model.method("configureOptions")?;
     let open = masked[options.parameters.end..model.body.end].find('{')? + options.parameters.end;
     let close = matching_close(masked, open)?;

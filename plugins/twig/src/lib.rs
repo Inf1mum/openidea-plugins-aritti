@@ -128,17 +128,76 @@ fn template_namespaces() -> Vec<(String, String)> {
         .collect()
 }
 
-/// Setting entries plus Symfony `twig.paths`; a namespace named by the setting ignores the config entirely.
+/// Config blocks that are always active (`twig.yaml` top level) and blocks that apply in some environment only.
+fn config_blocks(project: &Project) -> (Option<twig_config::Block>, Vec<twig_config::Block>) {
+    let read = |path: &str| project.read_file(path).ok().map(|t| twig_config::blocks(&t));
+    let mut always = None;
+    let mut some_env = Vec::new();
+    if let Some((top, whens)) = read("config/packages/twig.yaml") {
+        always = Some(top);
+        some_env.extend(whens);
+    }
+    for env in ["dev", "prod", "test"] {
+        if let Some((top, whens)) = read(&format!("config/packages/{env}/twig.yaml")) {
+            some_env.push(top);
+            some_env.extend(whens);
+        }
+    }
+    (always, some_env)
+}
+
+/// Setting entries plus Symfony `twig.paths` from every environment's config; a namespace named by the setting
+/// ignores the config, and a namespace the config maps to different directories is refused.
 fn merged_template_namespaces(project: &Project) -> Vec<(String, String)> {
     let mut all = template_namespaces();
-    let configured = project.read_file("config/packages/twig.yaml").ok().map(|t| twig_config::paths(&t)).unwrap_or_default();
     let explicit: Vec<String> = all.iter().map(|(n, _)| n.clone()).collect();
-    all.extend(configured.into_iter().filter_map(|(dir, ns)| {
-        let ns = ns?;
-        let dir = dir.trim_end_matches('/').to_owned();
-        (!explicit.contains(&ns) && safe_namespace_part(&ns, false) && safe_namespace_part(&dir, true)).then_some((ns, dir))
-    }));
+    let (always, some_env) = config_blocks(project);
+    let mut configured: Vec<(String, String)> = Vec::new();
+    for (dir, ns) in always.iter().chain(&some_env).flat_map(|b| b.paths.iter()) {
+        let (Some(ns), dir) = (ns, dir.trim_end_matches('/')) else { continue };
+        if explicit.contains(ns) || !safe_namespace_part(ns, false) || !safe_namespace_part(dir, true) {
+            continue;
+        }
+        if !configured.iter().any(|(n, d)| n == ns && d == dir) {
+            configured.push((ns.clone(), dir.to_owned()));
+        }
+    }
+    let conflicting: Vec<String> = configured.iter().filter(|(n, _)| configured.iter().filter(|(m, _)| m == n).count() > 1).map(|(n, _)| n.clone()).collect();
+    all.extend(configured.into_iter().filter(|(n, _)| !conflicting.contains(n)));
     all
+}
+
+/// Main-namespace template directories: (always active, environment-dependent). `None` when `default_path` differs between sources.
+fn main_template_dirs(project: &Project) -> Option<(Vec<String>, Vec<String>)> {
+    let (always, some_env) = config_blocks(project);
+    let defaults: Vec<&String> = always.iter().chain(&some_env).filter_map(|b| b.default_path.as_ref()).collect();
+    if defaults.iter().any(|d| *d != defaults[0]) {
+        return None;
+    }
+    let usable = |dir: &str| safe_namespace_part(dir, true).then(|| dir.trim_end_matches('/').to_owned());
+    let mut fixed = Vec::new();
+    let mut variable = Vec::new();
+    let mut add = |list: &mut Vec<String>, other: &[String], dir: Option<String>| {
+        if let Some(dir) = dir {
+            if !list.contains(&dir) && !other.contains(&dir) {
+                list.push(dir);
+            }
+        }
+    };
+    let base_default = always.as_ref().and_then(|b| b.default_path.as_deref()).unwrap_or("templates");
+    add(&mut fixed, &[], usable(base_default));
+    for (dir, _) in always.iter().flat_map(|b| b.paths.iter()).filter(|(_, ns)| ns.is_none()) {
+        add(&mut fixed, &[], usable(dir));
+    }
+    for block in &some_env {
+        if let Some(default) = &block.default_path {
+            add(&mut variable, &fixed, usable(default));
+        }
+        for (dir, _) in block.paths.iter().filter(|(_, ns)| ns.is_none()) {
+            add(&mut variable, &fixed, usable(dir));
+        }
+    }
+    Some((fixed, variable))
 }
 
 fn template_path(project: &Project, name: &str) -> Option<String> {
@@ -151,22 +210,25 @@ fn template_path(project: &Project, name: &str) -> Option<String> {
         return None;
     }
     let root = project.root().ok()?;
-    let direct = match name.strip_prefix('@') {
-        None => format!("templates/{name}"),
-        Some(namespaced) => {
-            let (namespace, rest) = namespaced.split_once('/')?;
-            let mapped = merged_template_namespaces(project).into_iter().filter(|(n, _)| n == namespace).collect::<Vec<_>>();
-            if mapped.len() != 1 {
-                return None;
-            }
-            format!("{}/{rest}", mapped[0].1)
-        }
+    let existing = |direct: &str| -> Option<String> {
+        let full = format!("{root}/{direct}");
+        (same_owner(&root, &full) && project.stat(direct).ok()?.kind == openidea_plugin::FileKind::File).then_some(full)
     };
-    let full = format!("{root}/{direct}");
-    if !same_owner(&root, &full) || project.stat(&direct).ok()?.kind != openidea_plugin::FileKind::File {
+    let Some(namespaced) = name.strip_prefix('@') else {
+        let (fixed, variable) = main_template_dirs(project)?;
+        if let Some(found) = fixed.iter().find_map(|dir| existing(&format!("{dir}/{name}"))) {
+            return Some(found);
+        }
+        let mut found: Vec<String> = variable.iter().filter_map(|dir| existing(&format!("{dir}/{name}"))).collect();
+        found.dedup();
+        return (found.len() == 1).then(|| found.remove(0));
+    };
+    let (namespace, rest) = namespaced.split_once('/')?;
+    let mapped = merged_template_namespaces(project).into_iter().filter(|(n, _)| n == namespace).collect::<Vec<_>>();
+    if mapped.len() != 1 {
         return None;
     }
-    Some(full)
+    existing(&format!("{}/{rest}", mapped[0].1))
 }
 
 fn macros_of(project: &Project, current: &Document, template: &str) -> Option<(String, String)> {
@@ -1571,6 +1633,40 @@ mod project_tests {
         let (d, p) = at("{% include '@ui/forms.ht^ml.twig' %}");
         assert_eq!(twig.definition(&d, p).len(), 1);
         host.add_file("config/packages/twig.yaml", "twig:\n    paths: { 'lib/ui': ui }\n");
+        assert!(twig.definition(&d, p).is_empty());
+    }
+    #[test]
+    fn default_path_and_main_namespace_paths_resolve_plain_names() {
+        let host = host();
+        host.add_file("views/a.twig", "x");
+        host.add_file("templates/a.twig", "x");
+        host.add_file("tpl/main/b.twig", "x");
+        let mut twig = Twig::default();
+        let (d, p) = at("{% include 'a.t^wig' %}");
+        assert!(twig.definition(&d, p)[0].path.ends_with("/templates/a.twig"));
+        host.add_file("config/packages/twig.yaml", "twig:\n    default_path: '%kernel.project_dir%/views'\n    paths:\n        'tpl/main': ~\n");
+        assert!(twig.definition(&d, p)[0].path.ends_with("/views/a.twig"));
+        let (d, p) = at("{% include 'b.t^wig' %}");
+        assert!(twig.definition(&d, p)[0].path.ends_with("/tpl/main/b.twig"));
+    }
+    #[test]
+    fn environment_blocks_add_directories_and_refuse_conflicting_namespaces() {
+        let host = host();
+        host.add_file("dev/ui/x.twig", "x");
+        host.add_file("prod/ui/x.twig", "x");
+        host.add_file("only/dev/y.twig", "x");
+        host.add_file("config/packages/twig.yaml", "twig:\n    paths:\n        a: base\nwhen@dev:\n    twig:\n        paths:\n            only/dev: devns\n            dev/ui: ui\nwhen@prod:\n    twig:\n        paths:\n            prod/ui: ui\n");
+        host.add_file("only/dev/y.twig", "x");
+        let mut twig = Twig::default();
+        let (d, p) = at("{% include '@devns/y.t^wig' %}");
+        assert_eq!(twig.definition(&d, p).len(), 1);
+        let (d, p) = at("{% include '@ui/x.t^wig' %}");
+        assert!(twig.definition(&d, p).is_empty());
+        host.add_file("config/packages/test/twig.yaml", "twig:\n    default_path: tests/views\n");
+        host.add_file("tests/views/z.twig", "x");
+        let (d, p) = at("{% include 'z.t^wig' %}");
+        assert_eq!(twig.definition(&d, p).len(), 1);
+        host.add_file("config/packages/dev/twig.yaml", "twig:\n    default_path: dev/views\n");
         assert!(twig.definition(&d, p).is_empty());
     }
     #[test]

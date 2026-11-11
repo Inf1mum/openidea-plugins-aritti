@@ -80,7 +80,7 @@
     "templateNamespaces": {
       "type": "array",
       "title": "Twig loader namespaces",
-      "description": "Map @namespace/name.twig template names to project-relative directories (no .., no absolute paths; at most 32 entries). A namespace mapped twice is ignored.",
+      "description": "Map @namespace/name.twig template names to project-relative directories (no .., no absolute paths; at most 32 entries). A namespace mapped twice is ignored. In Symfony projects, namespaces from twig.paths in config/packages/twig.yaml, its when@dev/prod/test blocks and config/packages/{dev,prod,test}/twig.yaml are added too, unless this setting names the namespace or the config maps it to different directories.",
       "default": [],
       "maxItems": 32,
       "items": {

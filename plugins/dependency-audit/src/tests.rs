@@ -1390,7 +1390,7 @@ fn dependency_row_exposes_advisories_and_exact_ignores_without_losing_upgrade() 
     let model=resource_model(&mut plugin,&host);
     let dep=model["body"]["items"].as_array().unwrap().iter().find(|row|row["cells"][0]=="Dependency"&&row["cells"][1]=="lodash").unwrap()["key"].as_str().unwrap().to_owned();
     let actions=model["actions"].as_array().unwrap().iter().filter(|action|action["kind"]=="dep").map(|action|action["id"].as_str().unwrap()).collect::<Vec<_>>();
-    assert_eq!(actions,["preview-upgrade","open-advisory","ignore-finding"]);
+    assert_eq!(actions,["preview-upgrade","open-declaration","open-advisory","ignore-finding"]);
     let open=model["actions"].as_array().unwrap().iter().filter(|action|action["id"]=="open-advisory").collect::<Vec<_>>();
     assert_eq!(open.iter().find(|action|action["kind"]=="advisory").unwrap()["replacesOpen"],true);
     assert_eq!(open.iter().find(|action|action["kind"]=="dep").unwrap()["replacesOpen"],false);

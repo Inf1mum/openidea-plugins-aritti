@@ -9,6 +9,13 @@
   {
     "menu": "viewItem.context",
     "view": "vulnerabilities",
+    "command": "open-declaration",
+    "when": "viewItemKind == dep",
+    "icon": "file"
+  },
+  {
+    "menu": "viewItem.context",
+    "view": "vulnerabilities",
     "command": "open-advisory",
     "when": "viewItemKind == dep",
     "icon": "external-link"

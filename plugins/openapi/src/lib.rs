@@ -4,6 +4,7 @@ mod ui_group;
 mod checks;
 mod structure;
 mod try_http;
+mod compat;
 mod diff;
 mod http;
 mod hover;
@@ -366,6 +367,53 @@ impl OpenApi {
         Ok(None)
     }
 
+    fn compatibility_report(&mut self, ctx: &Invocation) -> Result<Option<String>, Error> {
+        let editor = ctx.editor().ok_or("No file is open.")?;
+        let path = editor.path();
+        let buffer = editor.document()?;
+        if spec::parse(&buffer.text).is_none() {
+            return Err("The current file is not an OpenAPI document.".into());
+        }
+        if buffer.text.len() > MAX_SCANNED_FILE_BYTES {
+            return Err(Error::Invalid("The current spec exceeds the 1 MiB bound.".into()));
+        }
+        comparison_owner(ctx, &path)?;
+        let project = ctx.project().ok_or(Error::Stale)?;
+        self.refresh_project_files(&project);
+        let root = project.root()?;
+        let mut candidates = Vec::new();
+        for file in self.project_files.iter().filter(|file| **file != path) {
+            let Ok(text) = project.read_file(file) else { continue };
+            if text.len() <= MAX_SCANNED_FILE_BYTES && spec::parse(&text).is_some() {
+                let relative = file.strip_prefix(root.trim_end_matches('/')).unwrap_or(file).trim_start_matches('/');
+                candidates.push(PickItem::new(file, relative));
+            }
+        }
+        if candidates.is_empty() {
+            host::notify(NotificationLevel::Info, "OpenAPI", "No other OpenAPI file in this project to compare with.");
+            return Ok(None);
+        }
+        let Some(old_path) = host::pick("Old spec (the previous version) to compare the current spec with", &candidates)? else {
+            return Ok(None);
+        };
+        if !candidates.iter().any(|item| item.key == old_path) { return Err(Error::Stale); }
+        comparison_owner(ctx, &old_path)?;
+        let old = project.read_file(&old_path)?;
+        if old.len() > MAX_SCANNED_FILE_BYTES {
+            return Err(Error::Invalid("The old spec exceeds the 1 MiB bound.".into()));
+        }
+        let current = ctx.editor().ok_or(Error::Stale)?.document()?;
+        if current.version != buffer.version || current.text != buffer.text {
+            return Err(Error::Stale);
+        }
+        let findings = compat::compare(&old_path, &old, &path, &buffer.text).map_err(Error::Invalid)?;
+        let breaking = findings.iter().filter(|f| f.severity == compat::Severity::Breaking).count();
+        host::notify(NotificationLevel::Info, "OpenAPI", &format!("{breaking} breaking changes, {} findings in total.", findings.len()));
+        let report = compat::render(&old_path, &path, &findings);
+
+        save_or_copy(&sibling_file(&path, "{stem}.compatibility.md"), &report, "OpenAPI compatibility report")
+    }
+
     fn compare_last_revision(&mut self, ctx: &Invocation) -> Result<Option<String>, Error> {
         let editor = ctx.editor().ok_or("No file is open.")?;
         let path = editor.path();
@@ -549,6 +597,9 @@ impl Plugin for OpenApi {
         }
         if id == "compare-specs" {
             return self.compare_specs(ctx);
+        }
+        if id == "compare-specs-breaking" {
+            return self.compatibility_report(ctx);
         }
         if id == "export-self-contained" {
             return self.export_self_contained(ctx);

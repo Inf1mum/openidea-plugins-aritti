@@ -13,6 +13,13 @@
     },
     {
       "view": "vulnerabilities",
+      "id": "open-declaration",
+      "label": "Go to declaration",
+      "kind": "dep",
+      "icon": "file"
+    },
+    {
+      "view": "vulnerabilities",
       "id": "open-advisory",
       "label": "Open advisory on OSV.dev",
       "kind": "dep",

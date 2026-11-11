@@ -14,6 +14,7 @@ mod resources;
 mod actions;
 mod editor_actions;
 mod scoped;
+mod binding;
 
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
@@ -364,7 +365,7 @@ fn scan_report(project: &Project, live: &mut live::Live) -> Result<(String, bool
     }
     let findings = audit(&deps, true, now(), Instant::now() + CALL_BUDGET)?;
 
-    let rows: Vec<Row> = findings
+    let mut rows: Vec<Row> = findings
         .iter()
         .map(|f| Row {
             path: f.dep.path.clone(),
@@ -387,6 +388,7 @@ fn scan_report(project: &Project, live: &mut live::Live) -> Result<(String, bool
             details: f.advisories.clone(),
         })
         .collect();
+    binding::annotate(&mut rows, &texts);
     let report = Report {
         rows,
         scanned_at: Some(now()),
@@ -563,7 +565,7 @@ impl Plugin for DependencyAudit {
             selected = key;Some(selected.as_str())
         } else { arg };
         if matches!(id,"ignore-finding" | "review-ignores" | "export-ignores" | "import-ignores") { return self.scoped_command(id,ctx,arg); }
-        if matches!(id,"preview-upgrade" | "open-advisory") { return self.resource_command(id,ctx,arg); }
+        if matches!(id,"preview-upgrade" | "open-advisory" | "open-declaration") { return self.resource_command(id,ctx,arg); }
         if id == "resolve-sbt-dependencies"{self.sbt_resolution.start(ctx)?;return Ok(None);}
         if id == "analyze-vulnerable-calls"{self.call_analysis.start(ctx)?;return Ok(None);}
         if id == "resolve-build-dependencies"{self.build_resolution.start(ctx)?;return Ok(None);}

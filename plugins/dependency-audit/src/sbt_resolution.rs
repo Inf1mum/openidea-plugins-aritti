@@ -431,7 +431,7 @@ pub(crate) fn audit_evidence(project: &Project, e: Evidence) -> Result<(), Error
         return Err(Error::Stale);
     }
     let findings = audit(&e.deps, true, now(), Instant::now() + CALL_BUDGET)?;
-    let rows = findings
+    let mut rows: Vec<Row> = findings
         .iter()
         .map(|f| Row {
             path: f.dep.path.clone(),
@@ -453,6 +453,7 @@ pub(crate) fn audit_evidence(project: &Project, e: Evidence) -> Result<(), Error
             details: f.advisories.clone(),
         })
         .collect();
+    binding::annotate(&mut rows, &e.before.iter().map(|(k, v)| (k.clone(), v.clone())).collect());
     let report = Report {
         rows,
         scanned_at: Some(now()),

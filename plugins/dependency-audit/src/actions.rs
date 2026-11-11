@@ -164,6 +164,14 @@ impl DependencyAudit {
             return Ok(None);
         }
         let row = dependency(&report, key)?;
+        if id == "open-declaration" {
+            let bound: Vec<&Declaration> = row.sources.iter().filter(|d| d.evidence.contains(binding::DECLARED) && scoped_path(&root, &d.path)).collect();
+            let [target] = bound.as_slice() else {
+                return Err("No single bound declaration for this dependency (transitive, ambiguous or alias); open the listed source manually.".into());
+            };
+            host::open_location(&target.path, target.line, 0)?;
+            return Ok(None);
+        }
         let editor = ctx.editor().ok_or("Open a declaration listed for this dependency, then choose Preview upgrade again.")?;
         let current = editor.document()?;
         let doc = Document { path: editor.path(), language: editor.language(), version: current.version, text: current.text };
@@ -467,4 +475,15 @@ mod tests {
         assert!(host.opened_urls().is_empty()&&host.requests().is_empty()&&host.process_runs().is_empty());
     }
 
+
+    #[test]
+    fn open_declaration_requires_exactly_one_bound_in_project_declaration() {
+        let host = MockHost::install().with_capabilities(CAPS);
+        let mut bound = row();
+        let key = saved(&host, row());
+        assert!(DependencyAudit::default().run_command("open-declaration", &host.invocation(), Some(&key)).is_err());
+        bound.sources = vec![Declaration { path: "/project/package.json".into(), line: 0, evidence: format!("{} package.json:1", binding::DECLARED) }];
+        saved(&host, bound);
+        DependencyAudit::default().run_command("open-declaration", &host.invocation(), Some(&key)).unwrap();
+    }
 }

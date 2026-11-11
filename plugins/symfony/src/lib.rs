@@ -9,6 +9,7 @@ mod attr_args;
 mod checks;
 mod config_checks;
 mod doctrine;
+mod orm_links;
 mod file_actions;
 mod generators;
 mod index;
@@ -598,6 +599,7 @@ fn findings(index: &Index, groups: Groups, read: checks::Reader, path: &str, lan
 
     if groups.doctrine {
         findings.extend(doctrine::check(path, language, text));
+        findings.extend(orm_links::check(&ctx, language, text));
     }
 
     findings

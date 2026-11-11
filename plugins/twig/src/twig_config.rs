@@ -1,14 +1,10 @@
 //! Exact reader for the literal block-style `twig.paths` mapping of `config/packages/twig.yaml`.
 //! Anything else (anchors, flow style, tabs, nesting, duplicates, parameters other than a leading
-//! `%kernel.project_dir%/`) refuses the whole block. `when@env` and `packages/<env>/` overrides are not read.
+//! `%kernel.project_dir%/`) refuses that block. Also reads `default_path` and `when@dev|prod|test` twig blocks.
+//! `None` namespace is the main namespace; directories are project-relative.
 
 const MAX_BYTES: usize = 16 << 10;
 const MAX_ENTRIES: usize = 32;
-
-/// (project-relative directory, namespace); `None` namespace is the main namespace.
-pub fn paths(text: &str) -> Vec<(String, Option<String>)> {
-    parse(text).unwrap_or_default()
-}
 
 fn indent(line: &str) -> usize {
     line.len() - line.trim_start_matches(' ').len()
@@ -65,22 +61,63 @@ fn split_entry(line: &str) -> Option<(String, String)> {
     Some((scalar(&key)?, value.trim().to_owned()))
 }
 
-fn parse(text: &str) -> Option<Vec<(String, Option<String>)>> {
+#[derive(Debug, Default, PartialEq)]
+pub struct Block {
+    pub default_path: Option<String>,
+    pub paths: Vec<(String, Option<String>)>,
+}
+
+/// The top-level `twig:` block and the `twig:` blocks under `when@dev|prod|test:`; a block that cannot be read exactly is dropped.
+pub fn blocks(text: &str) -> (Block, Vec<Block>) {
+    let sections = sections(text).unwrap_or_default();
+    let mut top = Block::default();
+    let mut seen_twig = false;
+    let mut whens = Vec::new();
+    for (key, body) in &sections {
+        if key == "twig" {
+            if seen_twig {
+                top = Block::default();
+                continue;
+            }
+            seen_twig = true;
+            top = block(body).unwrap_or_default();
+        } else if matches!(key.as_str(), "when@dev" | "when@prod" | "when@test") {
+            let twig = body.iter().position(|l| indent(l) == body.first().map_or(0, |f| indent(f)) && l.trim() == "twig:");
+            if let Some(i) = twig {
+                let child = indent(body[0]);
+                let end = body[i + 1..].iter().position(|l| indent(l) <= child).map_or(body.len(), |n| i + 1 + n);
+                whens.extend(block(&body[i + 1..end]));
+            }
+        }
+    }
+    (top, whens)
+}
+
+/// Depth-0 keys with their indented body lines.
+fn sections(text: &str) -> Option<Vec<(String, Vec<&str>)>> {
     if text.len() > MAX_BYTES || text.contains(['\t', '\r']) {
         return None;
     }
-    let mut lines = text.lines().map(strip_comment).filter(|l| !l.trim().is_empty() && !l.starts_with("---"));
-    lines.find(|l| *l == "twig:")?;
+    let mut out: Vec<(String, Vec<&str>)> = Vec::new();
+    for line in text.lines().map(strip_comment).filter(|l| !l.trim().is_empty() && !l.starts_with("---")) {
+        if indent(line) == 0 {
+            let key = line.strip_suffix(':').map(str::to_owned).unwrap_or_default();
+            out.push((key, Vec::new()));
+        } else if let Some((_, body)) = out.last_mut() {
+            body.push(line);
+        }
+    }
+    Some(out)
+}
+
+fn block(lines: &[&str]) -> Option<Block> {
     let mut child = None;
     let mut entry_indent = None;
     let mut in_paths = false;
     let mut found = false;
-    let mut out: Vec<(String, Option<String>)> = Vec::new();
-    for line in lines {
+    let mut result = Block::default();
+    for line in lines.iter().copied() {
         let depth = indent(line);
-        if depth == 0 {
-            break;
-        }
         let child_depth = *child.get_or_insert(depth);
         let body = line.trim_start();
         if depth == child_depth {
@@ -92,6 +129,16 @@ fn parse(text: &str) -> Option<Vec<(String, Option<String>)>> {
                 }
                 found = true;
                 in_paths = true;
+            } else if key == "default_path" {
+                if result.default_path.is_some() || value.is_empty() {
+                    return None;
+                }
+                let value = scalar(&value)?;
+                let value = value.strip_prefix("%kernel.project_dir%/").unwrap_or(&value);
+                if value.contains('%') {
+                    return None;
+                }
+                result.default_path = Some(value.to_owned());
             }
             continue;
         }
@@ -106,7 +153,7 @@ fn parse(text: &str) -> Option<Vec<(String, Option<String>)>> {
         }
         let (dir, ns) = split_entry(body)?;
         let dir = dir.strip_prefix("%kernel.project_dir%/").unwrap_or(&dir).to_owned();
-        if dir.contains('%') || out.iter().any(|(d, _)| *d == dir) || out.len() >= MAX_ENTRIES {
+        if dir.contains('%') || result.paths.iter().any(|(d, _)| *d == dir) || result.paths.len() >= MAX_ENTRIES {
             return None;
         }
         let namespace = match ns.as_str() {
@@ -119,14 +166,18 @@ fn parse(text: &str) -> Option<Vec<(String, Option<String>)>> {
                 Some(value)
             }
         };
-        out.push((dir, namespace));
+        result.paths.push((dir, namespace));
     }
-    Some(out)
+    Some(result)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::paths;
+    use super::{blocks, Block};
+
+    fn paths(text: &str) -> Vec<(String, Option<String>)> {
+        blocks(text).0.paths
+    }
 
     fn some(dir: &str, ns: Option<&str>) -> (String, Option<String>) {
         (dir.to_owned(), ns.map(str::to_owned))
@@ -162,5 +213,20 @@ mod tests {
         }
         assert!(paths("framework:\n    paths:\n        a: b\n").is_empty());
         assert!(paths(&format!("twig:\n    paths:\n        a: b\n#{}", "x".repeat(20 << 10))).is_empty());
+    }
+
+    #[test]
+    fn reads_default_path_and_when_blocks() {
+        let text = "twig:\n    default_path: '%kernel.project_dir%/views'\n    paths:\n        a: x\nwhen@dev:\n    twig:\n        default_path: dev/views\n        paths:\n            b: y\n    other: 1\nwhen@staging:\n    twig:\n        paths:\n            c: z\nwhen@test:\n    twig:\n        paths: {}\n";
+        let (top, whens) = blocks(text);
+        assert_eq!(top, Block { default_path: Some("views".into()), paths: vec![some("a", Some("x"))] });
+        assert_eq!(whens, vec![Block { default_path: Some("dev/views".into()), paths: vec![some("b", Some("y"))] }]);
+    }
+
+    #[test]
+    fn refuses_parameterised_or_duplicate_default_path() {
+        for body in ["default_path: '%env(D)%'", "default_path: '%kernel.cache_dir%/t'", "default_path:", "default_path: a\n    default_path: b"] {
+            assert_eq!(blocks(&format!("twig:\n    {body}\n")).0.default_path, None, "{body}");
+        }
     }
 }
