@@ -522,6 +522,14 @@
       "disposition": "accepted_conservative_static_limit_improvement_identified",
       "detail": "The Config tab status 'Config coverage incomplete: app.php, filesystems.php' on a stock Laravel 13.40 application is accurate for static analysis: config/app.php:103 spreads ...array_filter(explode(',', env('APP_PREVIOUS_KEYS'))) inside previous_keys and config/filesystems.php:77 uses the computed key public_path('storage') inside links. config_arrays::Walker marks the whole file incomplete, so unknown-key diagnostics are suppressed for every key under app.* and filesystems.* (config_inspections::missing). Tracking incompleteness per array (app.previous_keys, filesystems.links) was prototyped and withdrawn: metadata_config_parents skips package-default merging for any file already marked incomplete, so a per-array refinement would report package-provided keys as missing. A safe refinement needs merge awareness (know which config keys have package defaults) before diagnostics can use per-array coverage. Laravel Idea evaluates the application through PHP; this plugin does not by design.",
       "evidence": "src/config_arrays.rs Walker, src/index.rs config_incomplete, src/metadata_config_parents.rs app_config_incomplete; investigation 2026-11-11"
+    },
+    {
+      "id": "installed-fixture-acceptance",
+      "leaves": [],
+      "owner": "root/acceptance",
+      "disposition": "passed_headless_tier",
+      "detail": "All 44 #[ignore] installed-fixture tests pass (cargo test --lib -- --ignored --test-threads=1, PHP 8.5.5, Laravel 13.40.0): real PHP lint of generated code, installed Composer/npm packages (Livewire 4.4.8, Filament, Lift, adjacency-list, CTE, PowerJoins, October Rain, Pest, Inertia adapters), actual route list, artisan catalog, Blade compiler error frames, Monolog formatter and Laravel MCP metadata discovery. This is the actual-PHP/framework tier; it is not desktop acceptance. Fixture map and setup are in plugins/laravel/tests/INSTALLED-ACCEPTANCE.md.",
+      "evidence": "ignored3.log run 2026-11-11: test result ok. 44 passed; 0 failed"
     }
   ],
   "leaves": [
