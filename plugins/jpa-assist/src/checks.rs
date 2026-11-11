@@ -59,7 +59,7 @@ fn fetch_finding(text: &str, masked: &str, a: &Annotation, to_one: bool, kotlin:
             a.end(),
             Severity::Warning,
             "jpa-eager-fetch",
-            "Eager fetching loads this association with every query on the entity. Use LAZY and fetch it explicitly where you need it.",
+            "Eager fetching loads this association with every query on the entity. Use LAZY and fetch it explicitly where you need it. Hibernate User Guide 29.6.1: EAGER fetching is almost always a bad choice; a forgotten JOIN FETCH is initialized by a secondary statement, which can cause N+1 queries.",
         );
 
         return Some(finding.fix("Fetch lazily", edits));
@@ -84,7 +84,7 @@ fn fetch_finding(text: &str, masked: &str, a: &Annotation, to_one: bool, kotlin:
         a.end(),
         Severity::Info,
         "jpa-eager-to-one",
-        "To-one associations are fetched eagerly by default. Set fetch = FetchType.LAZY.",
+        "To-one associations are fetched eagerly by default (Jakarta Persistence). Set fetch = FetchType.LAZY. Hibernate User Guide 29.6.1: EAGER fetching is to be avoided because it can lead to N+1 queries.",
     );
 
     Some(finding.fix("Fetch lazily", edits))
@@ -134,13 +134,13 @@ fn fetch_finding_owned(masked: &str, a: &Annotation, to_one: bool, class: &Class
         }
         if class.imports.iter().any(|i|i.rsplit('.').next()==Some(prefix) && !short) {return None;}
         if value.ends_with(".LAZY") {return None;}
-        return Some(Finding::new(a.start,a.end(),Severity::Warning,"jpa-eager-fetch","This source annotation explicitly requests eager fetching. Consider lazy fetching with explicit loading where needed.")
+        return Some(Finding::new(a.start,a.end(),Severity::Warning,"jpa-eager-fetch","This source annotation explicitly requests eager fetching. Consider lazy fetching with explicit loading where needed. Hibernate User Guide 29.6.1: EAGER fetching is almost always a bad choice; a forgotten JOIN FETCH is initialized by a secondary statement, which can cause N+1 queries.")
             .fix("Fetch lazily",vec![Edit{start:at,end:at+value.len(),text:format!("{ns}.FetchType.LAZY")}]))
     }
     if !to_one || keys.contains("mappedBy") {return None;}
     let value=format!("fetch = {ns}.FetchType.LAZY");
     let edit=match a.args {None=>Edit::insert(a.name_end,&format!("({value})")),Some((start,end)) if masked[start..end].trim().is_empty()=>Edit::insert(start,&value),Some((start,_))=>Edit::insert(start,&format!("{value}, "))};
-    Some(Finding::new(a.start,a.end(),Severity::Info,"jpa-eager-to-one","This source annotation omits fetch; JPA defaults to eager for to-one associations. Consider an explicit lazy request.").fix("Fetch lazily",vec![edit]))
+    Some(Finding::new(a.start,a.end(),Severity::Info,"jpa-eager-to-one","This source annotation omits fetch; JPA defaults to eager for to-one associations. Consider an explicit lazy request. Hibernate User Guide 29.6.1: EAGER fetching is to be avoided because it can lead to N+1 queries.").fix("Fetch lazily",vec![edit]))
 }
 
 fn lombok_data_fix(text: &str, a: &Annotation, kotlin: bool) -> Vec<Edit> {
@@ -1204,7 +1204,7 @@ fn query_parameter_findings(text: &str, kotlin: bool, owned_native: bool) -> Vec
 }
 
 /// The names the parameters in `start..end` bind under: a `@Param` value, else the parameter name; `None` when one is not spelled out.
-fn parameter_names(text: &str, masked: &str, all: &[Annotation], start: usize, end: usize, kotlin: bool) -> Option<Vec<String>> {
+pub(crate) fn parameter_names(text: &str, masked: &str, all: &[Annotation], start: usize, end: usize, kotlin: bool) -> Option<Vec<String>> {
     let mut names = Vec::new();
 
     for (offset, part) in split_top_level(&masked[start..end]).into_iter().filter(|(_, p)| !p.trim().is_empty()) {

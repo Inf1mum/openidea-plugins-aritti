@@ -1,0 +1,39 @@
+html, body { margin: 0; height: 100%; overflow-x: clip; background: var(--ui-bg); color: var(--ui-fg); font: var(--ui-text) var(--ui-font); }
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+.designer-shell { height: 100%; display: flex; flex-direction: column; min-width: 0; }
+.designer-shell > main { flex: 1; overflow: auto; padding: var(--ui-space-3); min-height: 0; }
+.designer-shell > .ui-toolbar { flex-wrap: wrap; border-bottom: 1px solid var(--ui-border); }
+.designer-shell > .ui-tabs { display: flex; flex-shrink: 0; border-bottom: 1px solid var(--ui-border); }
+.designer-shell > .ui-tabs > button { flex: 1; min-width: 0; }
+.source-caption { display: flex; align-items: center; gap: var(--ui-space-2); flex-wrap: wrap; }
+.source-caption > strong { overflow-wrap: anywhere; min-width: 0; }
+#source-path, #preview-path { overflow-wrap: anywhere; }
+#attribute { width: 100%; min-width: 0; }
+.designer-actions { display: flex; flex-wrap: wrap; gap: var(--ui-space-2); padding-top: var(--ui-space-3); }
+.designer-actions > button { max-width: 100%; }
+#status { display: block; margin-top: var(--ui-space-2); color: var(--ui-muted); }
+.creator-form { margin-top: var(--ui-space-3); }
+.creator-fields { display: grid; gap: var(--ui-space-2); min-width: 0; margin: 0; padding: 0; border: 0; }
+.creator-fields > .ui-field { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: var(--ui-space-1); }
+.creator-fields .ui-input, .creator-fields .ui-select { width: 100%; min-width: 0; }
+.creator-group { margin: var(--ui-space-2) 0; padding: var(--ui-space-2); border: 1px solid var(--ui-border); border-radius: var(--ui-radius); }
+.creator-group > legend { padding: 0 var(--ui-space-1); }
+#create-target { overflow-wrap: anywhere; }
+#preview details { margin-bottom: var(--ui-space-3); }
+#preview summary { cursor: pointer; padding: var(--ui-space-1) 0; }
+#preview pre { margin: 0; max-height: 35vh; overflow: auto; white-space: pre; font-family: var(--ui-mono); }
+.designer-shell > .ui-tabs > button { overflow: hidden; text-overflow: ellipsis; }
+.migration-list { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--ui-space-2); }
+.migration-row { min-width: 0; overflow-wrap: anywhere; }
+.migration-row-head { display: flex; align-items: center; gap: var(--ui-space-2); flex-wrap: wrap; min-width: 0; }
+.migration-row p { margin: var(--ui-space-1) 0 0; }
+.migration-group { margin-bottom: var(--ui-space-3); }
+.migration-backfill { margin-top: var(--ui-space-2); min-width: 0; }
+.migration-backfill .ui-field { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--ui-space-1); min-width: 0; }
+.migration-backfill-error:empty { display: none; }
+#mig-incomplete { padding: var(--ui-space-2); }
+#mig-sql { margin: 0; max-height: 40vh; overflow: auto; white-space: pre; font-family: var(--ui-mono); }
+#mig-sql.migration-stale { opacity: 0.55; }
+#mig-notes summary { cursor: pointer; padding: var(--ui-space-1) 0; }
+@media (max-width: 280px) { .designer-shell > main { padding: var(--ui-space-2); } }

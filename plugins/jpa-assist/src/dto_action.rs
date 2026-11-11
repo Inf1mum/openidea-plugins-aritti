@@ -64,7 +64,7 @@ pub(super) fn source(doc: &Document) -> Option<Class> {
     }
     Some(class)
 }
-fn fields(class: &Class) -> Option<Vec<(String, String)>> {
+pub(super) fn fields(class: &Class) -> Option<Vec<(String, String)>> {
     let mut names = HashSet::new();
     if class.attributes.iter().any(|attribute| !names.insert(attribute.name.as_str())) {
         return None;
@@ -113,6 +113,9 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> R
     {
         return Err("Choose one or more offered scalar fields exactly once.".into());
     }
+    let wanted: Vec<_> = available.iter().filter(|(field, _)| selected.contains(field.as_str())).cloned().collect();
+    let reuse_directory = doc.path.rsplit_once('/').ok_or(Error::Stale)?.0;
+    dto_convert_action::offer_reuse(project, &pending.root, reuse_directory, class.kotlin, &doc.path, &wanted)?;
     class.attributes.retain(|attribute| attribute.relation == Relation::None && selected.contains(attribute.name.as_str()));
     let none = |_: &str| None;
     let generated = dto(&class, &none, Some(&chosen));
@@ -156,6 +159,548 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> R
     no_collision(project, &pending.root, directory, &name, None)?;
     Ok(FileAction {
         title: format!("Create scalar DTO {name}"),
+        kind: Some("refactor.rewrite".into()),
+        operations: vec![FileOperation::Create { path: target.clone(), text: generated, overwrite: false }],
+        open: Some(target),
+        ..FileAction::default()
+    })
+}
+
+pub(super) const CLASS_TITLE: &str = "Create DTO class with preview…";
+
+#[derive(Clone, Copy, PartialEq)]
+enum Style {
+    Pojo,
+    Fluent,
+    LombokAccessors,
+    LombokChain,
+    LombokData,
+    LombokValue,
+}
+
+const STYLES: [(Style, &str, &str); 6] = [
+    (Style::Pojo, "pojo", "Plain class: private fields, getters and void setters"),
+    (Style::Fluent, "fluent", "Fluent class: chained setters returning this, conventional getters"),
+    (Style::LombokAccessors, "lombok-getter-setter", "Lombok @Getter @Setter"),
+    (Style::LombokChain, "lombok-chain", "Lombok @Getter @Setter @Accessors(chain = true)"),
+    (Style::LombokData, "lombok-data", "Lombok @Data"),
+    (Style::LombokValue, "lombok-value", "Lombok @Value (immutable)"),
+];
+
+impl Style {
+    fn lombok(self) -> bool {
+        !matches!(self, Self::Pojo | Self::Fluent)
+    }
+}
+
+const TRANSFER: [&str; 7] = ["NotNull", "NotBlank", "Size", "Min", "Max", "Pattern", "Email"];
+
+pub(super) fn class_eligible(doc: &Document) -> bool {
+    source(doc).is_some_and(|class| !class.kotlin && !class_fields(&class).is_empty())
+}
+
+fn class_fields(class: &Class) -> Vec<(String, String)> {
+    fields(class).unwrap_or_default().into_iter().filter(|(name, ty)| accessor_safe(name, ty)).collect()
+}
+
+fn accessor_safe(name: &str, ty: &str) -> bool {
+    let mut chars = name.chars();
+    let first_lower = chars.next().is_some_and(|c| c.is_ascii_lowercase());
+    let second_upper = chars.next().is_some_and(|c| c.is_ascii_uppercase());
+    let is_prefixed = ty == "boolean" && name.strip_prefix("is").and_then(|r| r.chars().next()).is_some_and(|c| c.is_ascii_uppercase());
+    first_lower && !second_upper && !is_prefixed
+}
+
+fn capitalised(name: &str) -> String {
+    let mut chars = name.chars();
+    let head = chars.next().map(|c| c.to_ascii_uppercase()).unwrap_or_default();
+    format!("{head}{}", chars.as_str())
+}
+
+fn snake(name: &str) -> String {
+    let chars: Vec<char> = name.chars().collect();
+    let mut out = String::new();
+    for (at, ch) in chars.iter().enumerate() {
+        if !ch.is_ascii_uppercase() {
+            out.push(*ch);
+            continue;
+        }
+        let after_lower = at > 0 && (chars[at - 1].is_ascii_lowercase() || chars[at - 1].is_ascii_digit());
+        let acronym_end = at > 0 && chars[at - 1].is_ascii_uppercase() && chars.get(at + 1).is_some_and(|n| n.is_ascii_lowercase());
+        if after_lower || acronym_end {
+            out.push('_');
+        }
+        out.push(ch.to_ascii_lowercase());
+    }
+    out
+}
+
+fn declares(text: &str, group: &str, artifact: &str) -> bool {
+    let needle = format!("{group}:{artifact}");
+    let gradle = text.match_indices(&needle).any(|(at, found)| {
+        text[at + found.len()..].chars().next().is_none_or(|ch| !(ch.is_alphanumeric() || matches!(ch, '-' | '_' | '.')))
+    });
+    gradle || (text.contains(&format!("<groupId>{group}</groupId>")) && text.contains(&format!("<artifactId>{artifact}</artifactId>")))
+}
+
+fn build_declares(project: &Project, root: &str, directory: &str, any: &[(&str, &str)]) -> Result<bool, Error> {
+    let text = mapper_action::build_text(project, root, directory)?;
+    Ok(any.iter().any(|(group, artifact)| declares(&text, group, artifact)))
+}
+
+fn string_literal(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    if bytes.len() < 2 || bytes[0] != b'"' || bytes[bytes.len() - 1] != b'"' {
+        return false;
+    }
+    let mut at = 1;
+    while at < bytes.len() - 1 {
+        match bytes[at] {
+            b'\\' => at += 2,
+            b'"' => return false,
+            _ => at += 1,
+        }
+    }
+    at == bytes.len() - 1
+}
+
+fn split_outside_strings(text: &str, separator: u8) -> Option<Vec<&str>> {
+    let bytes = text.as_bytes();
+    let mut parts = Vec::new();
+    let (mut start, mut at, mut quoted) = (0, 0, false);
+    while at < bytes.len() {
+        match bytes[at] {
+            b'\\' if quoted => at += 1,
+            b'"' => quoted = !quoted,
+            b'(' | b')' | b'{' | b'}' if !quoted => return None,
+            byte if byte == separator && !quoted => {
+                parts.push(&text[start..at]);
+                start = at + 1;
+            }
+            _ => {}
+        }
+        at += 1;
+    }
+    if quoted {
+        return None;
+    }
+    parts.push(&text[start..]);
+    Some(parts)
+}
+
+fn transfer_one(name: &str, args: Option<&str>) -> Result<String, Error> {
+    let refusal = || Error::from(format!("The entity @{name} has a non-literal or unsupported argument; no DTO was generated."));
+    let allowed: &[(&str, bool)] = match name {
+        "NotNull" | "NotBlank" | "Email" => &[("message", false)],
+        "Size" => &[("min", true), ("max", true), ("message", false)],
+        "Min" | "Max" => &[("value", true), ("message", false)],
+        "Pattern" => &[("regexp", false), ("message", false)],
+        _ => return Err(refusal()),
+    };
+    let text = args.map(str::trim).unwrap_or("");
+    let mut kept: Vec<(String, String)> = Vec::new();
+    if !text.is_empty() {
+        for part in split_outside_strings(text, b',').ok_or_else(refusal)? {
+            let part = part.trim();
+            let (key, value) = match split_outside_strings(part, b'=').filter(|pieces| pieces.len() == 2) {
+                Some(pieces) => (pieces[0].trim(), pieces[1].trim()),
+                None => ("value", part),
+            };
+            let Some((_, numeric)) = allowed.iter().find(|(allowed_key, _)| *allowed_key == key) else {
+                return Err(refusal());
+            };
+            let literal = if *numeric { validation_action::number(value).is_some() && value.is_ascii() } else { string_literal(value) };
+            if !literal || kept.iter().any(|(k, _)| k == key) {
+                return Err(refusal());
+            }
+            kept.push((key.to_owned(), value.to_owned()));
+        }
+    }
+    let required = match name {
+        "Min" | "Max" => Some("value"),
+        "Pattern" => Some("regexp"),
+        _ => None,
+    };
+    if required.is_some_and(|key| !kept.iter().any(|(k, _)| k == key)) {
+        return Err(refusal());
+    }
+    if kept.is_empty() {
+        return Ok(format!("@{name}"));
+    }
+    let joined: Vec<_> = kept.iter().map(|(k, v)| format!("{k} = {v}")).collect();
+    Ok(format!("@{name}({})", joined.join(", ")))
+}
+
+fn transferred(doc: &Document, chosen: &[(String, String)]) -> Result<(HashMap<String, Vec<String>>, String), Error> {
+    let (class, namespace) = validation_action::source(doc)
+        .ok_or("The entity validation annotations cannot be read (unsupported entity shape); no DTO was generated.")?;
+    let masked = mask(&doc.text);
+    let namespace = namespace.to_owned();
+    if annotations(&masked).iter().any(|a| TRANSFER.contains(&a.name) && masked[a.start + 1..a.name_end] != *a.name) {
+        return Err("A validation annotation is written fully qualified; spelling is not verified, no DTO was generated.".into());
+    }
+    let mut found = HashMap::new();
+    for (name, _) in chosen {
+        let attribute = class.attributes.iter().find(|attribute| &attribute.name == name).ok_or(Error::Stale)?;
+        let site = validation_action::site(doc, &class, attribute)?;
+        let mut lines = Vec::new();
+        for (annotation, args) in &site.existing {
+            if !TRANSFER.contains(&annotation.as_str()) {
+                continue;
+            }
+            let wanted = format!("{namespace}.constraints.{annotation}");
+            let star = format!("{namespace}.constraints.*");
+            let conflicting = class.imports.iter().any(|i| i.rsplit('.').next() == Some(annotation.as_str()) && *i != wanted);
+            if conflicting || !(class.imports.contains(&wanted) || class.imports.contains(&star)) {
+                return Err(format!("@{annotation} is not provably a {namespace} constraint in the entity imports; no DTO was generated.").into());
+            }
+            lines.push(transfer_one(annotation, args.as_deref())?);
+        }
+        if !lines.is_empty() {
+            found.insert(name.clone(), lines);
+        }
+    }
+    Ok((found, namespace))
+}
+
+struct Plan<'a> {
+    style: Style,
+    name: &'a str,
+    fields: &'a [(String, String)],
+    no_args: bool,
+    all_args: bool,
+    equals: bool,
+    to_string: bool,
+    snake: bool,
+    ignore_unknown: bool,
+    constraints: &'a HashMap<String, Vec<String>>,
+    namespace: &'a str,
+}
+
+fn lombok_annotation(imports: &mut Vec<String>, annotations: &mut Vec<String>, name: &str) {
+    imports.push(format!("lombok.{name}"));
+    annotations.push(format!("@{name}"));
+}
+
+fn render_class(class: &Class, package_name: &str, plan: &Plan) -> String {
+    let style = plan.style;
+    let pojo = !style.lombok();
+    let mut imports: Vec<String> = plan
+        .fields
+        .iter()
+        .filter_map(|(_, ty)| class.qualified(ty.split('<').next().unwrap_or(ty).rsplit('.').next().unwrap_or(ty)))
+        .collect();
+    let renamed = |name: &str| plan.snake && snake(name) != name;
+    let mut class_annotations: Vec<String> = Vec::new();
+    match style {
+        Style::LombokAccessors | Style::LombokChain => {
+            lombok_annotation(&mut imports, &mut class_annotations, "Getter");
+            lombok_annotation(&mut imports, &mut class_annotations, "Setter");
+            if style == Style::LombokChain {
+                imports.push("lombok.experimental.Accessors".into());
+                class_annotations.push("@Accessors(chain = true)".into());
+            }
+        }
+        Style::LombokData => lombok_annotation(&mut imports, &mut class_annotations, "Data"),
+        Style::LombokValue => lombok_annotation(&mut imports, &mut class_annotations, "Value"),
+        Style::Pojo | Style::Fluent => {}
+    }
+    if style.lombok() {
+        if plan.no_args {
+            lombok_annotation(&mut imports, &mut class_annotations, "NoArgsConstructor");
+        }
+        if plan.all_args {
+            lombok_annotation(&mut imports, &mut class_annotations, "AllArgsConstructor");
+        }
+        if plan.equals {
+            lombok_annotation(&mut imports, &mut class_annotations, "EqualsAndHashCode");
+        }
+        if plan.to_string {
+            lombok_annotation(&mut imports, &mut class_annotations, "ToString");
+        }
+    }
+    if plan.ignore_unknown {
+        imports.push("com.fasterxml.jackson.annotation.JsonIgnoreProperties".into());
+        class_annotations.push("@JsonIgnoreProperties(ignoreUnknown = true)".into());
+    }
+    if plan.fields.iter().any(|(name, _)| renamed(name)) {
+        imports.push("com.fasterxml.jackson.annotation.JsonProperty".into());
+    }
+    for lines in plan.constraints.values() {
+        for line in lines {
+            let name: String = line[1..].chars().take_while(|c| c.is_ascii_alphanumeric()).collect();
+            imports.push(format!("{}.constraints.{name}", plan.namespace));
+        }
+    }
+    let has_array = plan.fields.iter().any(|(_, ty)| ty == "byte[]");
+    if pojo && (plan.equals || plan.to_string) && has_array {
+        imports.push("java.util.Arrays".into());
+    }
+    if pojo && plan.equals {
+        imports.push("java.util.Objects".into());
+    }
+    imports.sort();
+    imports.dedup();
+    imports.retain(|i| i.rsplit_once('.').map(|(pk, _)| pk) != Some(package_name));
+
+    let mut out = format!("package {package_name};\n\n");
+    for import in &imports {
+        out.push_str(&format!("import {import};\n"));
+    }
+    if !imports.is_empty() {
+        out.push('\n');
+    }
+    for annotation in &class_annotations {
+        out.push_str(&format!("{annotation}\n"));
+    }
+    out.push_str(&format!("public class {} {{\n", plan.name));
+    let modifier = if style == Style::LombokValue { "private final" } else { "private" };
+    let annotated = plan.fields.iter().any(|(name, _)| renamed(name) || plan.constraints.contains_key(name));
+    for (at, (name, ty)) in plan.fields.iter().enumerate() {
+        if annotated || at == 0 {
+            out.push('\n');
+        }
+        for line in plan.constraints.get(name).into_iter().flatten() {
+            out.push_str(&format!("    {line}\n"));
+        }
+        if renamed(name) {
+            out.push_str(&format!("    @JsonProperty(\"{}\")\n", snake(name)));
+        }
+        out.push_str(&format!("    {modifier} {ty} {name};\n"));
+    }
+    if pojo {
+        let class_name = plan.name;
+        if plan.no_args {
+            out.push_str(&format!("\n    public {class_name}() {{\n    }}\n"));
+        }
+        if plan.all_args {
+            let params: Vec<_> = plan.fields.iter().map(|(n, t)| format!("{t} {n}")).collect();
+            let assigns: String = plan.fields.iter().map(|(n, _)| format!("        this.{n} = {n};\n")).collect();
+            out.push_str(&format!("\n    public {class_name}({}) {{\n{assigns}    }}\n", params.join(", ")));
+        }
+        for (name, ty) in plan.fields {
+            let suffix = capitalised(name);
+            let prefix = if ty == "boolean" { "is" } else { "get" };
+            out.push_str(&format!("\n    public {ty} {prefix}{suffix}() {{\n        return {name};\n    }}\n"));
+            if style == Style::Fluent {
+                out.push_str(&format!("\n    public {class_name} set{suffix}({ty} {name}) {{\n        this.{name} = {name};\n        return this;\n    }}\n"));
+            } else {
+                out.push_str(&format!("\n    public void set{suffix}({ty} {name}) {{\n        this.{name} = {name};\n    }}\n"));
+            }
+        }
+        if plan.equals {
+            let compares: Vec<_> = plan
+                .fields
+                .iter()
+                .map(|(n, t)| if t == "byte[]" { format!("Arrays.equals(this.{n}, other.{n})") } else { format!("Objects.equals(this.{n}, other.{n})") })
+                .collect();
+            out.push_str(&format!(
+                "\n    @Override\n    public boolean equals(Object object) {{\n        if (this == object) {{\n            return true;\n        }}\n        if (object == null || getClass() != object.getClass()) {{\n            return false;\n        }}\n        {class_name} other = ({class_name}) object;\n        return {};\n    }}\n",
+                compares.join("\n                && ")
+            ));
+            let plain: Vec<_> = plan.fields.iter().filter(|(_, t)| t != "byte[]").map(|(n, _)| format!("this.{n}")).collect();
+            let arrays: Vec<_> = plan.fields.iter().filter(|(_, t)| t == "byte[]").map(|(n, _)| n.as_str()).collect();
+            let body = if arrays.is_empty() {
+                format!("        return Objects.hash({});\n", plain.join(", "))
+            } else {
+                let mut body = if plain.is_empty() { "        int result = 1;\n".to_owned() } else { format!("        int result = Objects.hash({});\n", plain.join(", ")) };
+                for array in arrays {
+                    body.push_str(&format!("        result = 31 * result + Arrays.hashCode(this.{array});\n"));
+                }
+                body.push_str("        return result;\n");
+                body
+            };
+            out.push_str(&format!("\n    @Override\n    public int hashCode() {{\n{body}    }}\n"));
+        }
+        if plan.to_string {
+            let parts: Vec<_> = plan
+                .fields
+                .iter()
+                .enumerate()
+                .map(|(at, (n, t))| {
+                    let value = if t == "byte[]" { format!("Arrays.toString(this.{n})") } else { format!("this.{n}") };
+                    format!("+ \"{}{n}=\" + {value}", if at == 0 { "" } else { ", " })
+                })
+                .collect();
+            out.push_str(&format!(
+                "\n    @Override\n    public String toString() {{\n        return \"{class_name}{{\"\n                {}\n                + '}}';\n    }}\n",
+                parts.join("\n                ")
+            ));
+        }
+    }
+    out.push_str("}\n");
+    out
+}
+
+pub(super) fn resolve_class(pending: &Pending, doc: &Document, project: &Project) -> Result<FileAction, Error> {
+    current(pending, doc)?;
+    let class = source(doc).filter(|class| !class.kotlin).ok_or(Error::Stale)?;
+    let available = class_fields(&class);
+    if available.is_empty() {
+        return Err("No bounded unambiguous scalar field has a bean-safe name for a DTO class.".into());
+    }
+    let directory = doc.path.rsplit_once('/').ok_or(Error::Stale)?.0;
+    let choices: Vec<_> = STYLES.iter().map(|(_, key, label)| PickItem::new(key, label)).collect();
+    let key = host::pick("DTO class form", &choices)?.ok_or(Error::Cancelled)?;
+    let style = STYLES.iter().find(|(_, k, _)| *k == key).map(|(s, _, _)| *s).ok_or("Choose one of the offered DTO class forms.")?;
+    if style.lombok()
+        && !mapper_action::uses_lombok(&doc.text)
+        && !build_declares(project, &pending.root, directory, &[("org.projectlombok", "lombok")])?
+    {
+        return Err("Lombok is not provably used: the entity imports no lombok type and no pom.xml/build.gradle(.kts) above it declares org.projectlombok:lombok literally; no DTO was generated.".into());
+    }
+    let default = format!("{}Dto", class.name);
+    let Some(name) = host::input("DTO class name (same package; ending in Dto)", Some(&default))? else {
+        return Err(Error::Cancelled);
+    };
+    let name = name.trim().to_owned();
+    if !identifier(&name)
+        || !name.ends_with("Dto")
+        || name == class.name
+        || class.imports.iter().any(|import| import.rsplit('.').next() == Some(name.as_str()))
+        || class.attributes.iter().any(|attribute| attribute.ty.rsplit('.').next() == Some(name.as_str()))
+    {
+        return Err("Use a non-conflicting Java identifier ending in Dto (at most 128 bytes).".into());
+    }
+    current(pending, doc)?;
+    let items: Vec<_> = available.iter().map(|(n, t)| PickItem::new(n, n).description(t)).collect();
+    let chosen = host::pick_many("Source scalar fields (relationships, embedded and unknown types omitted)", &items)?.ok_or(Error::Cancelled)?;
+    let mut seen = HashSet::new();
+    if chosen.is_empty() || chosen.len() > MAX_FIELDS || chosen.iter().any(|n| !available.iter().any(|(f, _)| f == n) || !seen.insert(n.as_str())) {
+        return Err("Choose one or more offered scalar fields exactly once.".into());
+    }
+    let fields: Vec<_> = available.iter().filter(|(n, _)| chosen.contains(n)).cloned().collect();
+    dto_convert_action::offer_reuse(project, &pending.root, directory, false, &doc.path, &fields)?;
+
+    let mut members: Vec<(&str, &str)> = Vec::new();
+    match style {
+        Style::LombokValue => {}
+        Style::LombokData => members.extend([("no-args", "No-args constructor"), ("all-args", "All-args constructor")]),
+        _ => members.extend([
+            ("no-args", "No-args constructor"),
+            ("all-args", "All-args constructor"),
+            ("equals-hash-code", "equals and hashCode"),
+            ("to-string", "toString"),
+        ]),
+    }
+    let mut picked: Vec<String> = Vec::new();
+    if !members.is_empty() {
+        let items: Vec<_> = members.iter().map(|(key, label)| PickItem::new(key, label)).collect();
+        picked = host::pick_many("Extra members (none is allowed)", &items)?.ok_or(Error::Cancelled)?;
+        let mut unique = HashSet::new();
+        if picked.iter().any(|key| !members.iter().any(|(k, _)| k == key) || !unique.insert(key.as_str())) {
+            return Err("Choose only the offered members, each once.".into());
+        }
+    }
+    let has = |key: &str| picked.iter().any(|k| k == key);
+
+    let jackson_choices = [
+        ("none", "No Jackson annotations"),
+        ("snake-case", "@JsonProperty with camelCase to snake_case names"),
+        ("ignore-unknown", "@JsonIgnoreProperties(ignoreUnknown = true)"),
+        ("snake-case-ignore-unknown", "Both"),
+    ];
+    let items: Vec<_> = jackson_choices.iter().map(|(key, label)| PickItem::new(key, label)).collect();
+    let jackson = host::pick("Jackson annotations", &items)?.ok_or(Error::Cancelled)?;
+    if !jackson_choices.iter().any(|(key, _)| *key == jackson) {
+        return Err("Choose one of the offered Jackson options.".into());
+    }
+    let (snake_case, ignore_unknown) = (jackson.starts_with("snake-case"), jackson.ends_with("ignore-unknown"));
+    if snake_case || ignore_unknown {
+        if style == Style::LombokValue {
+            return Err("Jackson deserialisation of an immutable @Value class needs a creator this generator does not emit; choose another form.".into());
+        }
+        current(pending, doc)?;
+        if !build_declares(
+            project,
+            &pending.root,
+            directory,
+            &[("com.fasterxml.jackson.core", "jackson-annotations"), ("com.fasterxml.jackson.core", "jackson-databind")],
+        )? {
+            return Err("Jackson is not provably on this project: neither com.fasterxml.jackson.core:jackson-annotations nor jackson-databind is written literally in a pom.xml/build.gradle(.kts) above this source; no DTO was generated.".into());
+        }
+    }
+    if snake_case {
+        let mut names = HashSet::new();
+        if !fields.iter().all(|(n, _)| names.insert(snake(n))) {
+            return Err("Two selected fields map to the same snake_case JSON name; no DTO was generated.".into());
+        }
+    }
+
+    let mut constraints = HashMap::new();
+    let mut namespace = String::new();
+    let applicable = annotations(&mask(&doc.text)).iter().any(|a| TRANSFER.contains(&a.name));
+    if applicable {
+        let choices = [("none", "Do not copy validation"), ("copy", "Copy NotNull, NotBlank, Size, Min, Max, Pattern, Email (literal arguments)")];
+        let items: Vec<_> = choices.iter().map(|(key, label)| PickItem::new(key, label)).collect();
+        let answer = host::pick("Bean Validation transfer", &items)?.ok_or(Error::Cancelled)?;
+        match answer.as_str() {
+            "none" => {}
+            "copy" => (constraints, namespace) = transferred(doc, &fields)?,
+            _ => return Err("Choose one of the offered validation options.".into()),
+        }
+    }
+
+    let declared = package(doc).ok_or(Error::Stale)?;
+    let plan = Plan {
+        style,
+        name: &name,
+        fields: &fields,
+        no_args: has("no-args"),
+        all_args: has("all-args"),
+        equals: has("equals-hash-code"),
+        to_string: has("to-string"),
+        snake: snake_case,
+        ignore_unknown,
+        constraints: &constraints,
+        namespace: &namespace,
+    };
+    let mut generated = render_class(&class, &declared, &plan);
+    if generated.lines().filter_map(|line| line.trim().strip_prefix("import ")).any(|import| import.trim_end_matches(';').rsplit('.').next() == Some(name.as_str())) {
+        return Err("DTO name conflicts with an imported output type.".into());
+    }
+    if doc.text.contains("\r\n") {
+        generated = generated.replace('\n', "\r\n");
+    }
+    if generated.len() > MAX_TEXT {
+        return Err("DTO output exceeds the validated source/package bound.".into());
+    }
+    let target = format!("{directory}/{name}.java");
+    if path(&target).as_deref() != Some(target.as_str()) || !inside(&pending.root, &target) {
+        return Err(Error::Stale);
+    }
+    current(pending, doc)?;
+    no_collision(project, &pending.root, directory, &name, None)?;
+    let mut notes = vec!["Java class DTO: source-derived draft only (no mapper, inherited fields or association IDs).".to_owned()];
+    match style {
+        Style::LombokValue => notes.push("Lombok @Value: final class, private final fields, getters, no setters, all-args constructor generated by Lombok; no no-args constructor.".into()),
+        Style::LombokData => notes.push("Lombok @Data: getters, setters, equals/hashCode/toString; Lombok skips its constructor when an explicit one exists.".into()),
+        Style::LombokChain => notes.push("Lombok @Accessors is an experimental feature; chain = true makes setters return this.".into()),
+        _ => {}
+    }
+    if style.lombok() {
+        notes.push("Lombok must be on the compile classpath and annotation processor path.".into());
+    }
+    if style == Style::Fluent && (snake_case || ignore_unknown) {
+        notes.push("Jackson binding to chained (non-void) setters was not verified.".into());
+    }
+    if !constraints.is_empty() {
+        let count: usize = constraints.values().map(Vec::len).sum();
+        notes.push(format!("Copied {count} literal Bean Validation constraint(s); other entity annotations are not transferred."));
+    }
+    let preview = format!(
+        "Source: {}\nSource version: {}\nPackage: {declared}\nTarget: {target}\n\n{}\n\nExact new file:\n{generated}\nOne atomic host-managed Create; no existing file is overwritten.",
+        doc.path,
+        doc.version,
+        notes.join("\n")
+    );
+    if !ui_kit::prompts::confirm_exact("Create DTO class?", &preview)? {
+        return Err(Error::Cancelled);
+    }
+    current(pending, doc)?;
+    no_collision(project, &pending.root, directory, &name, None)?;
+    Ok(FileAction {
+        title: format!("Create DTO class {name}"),
         kind: Some("refactor.rewrite".into()),
         operations: vec![FileOperation::Create { path: target.clone(), text: generated, overwrite: false }],
         open: Some(target),
@@ -332,5 +877,237 @@ mod tests {
         answer(&host, "CustomerDto", &["id"], true);
         assert!(plugin.resolve_file_action(&doc, pending).is_err());
         assert_eq!(host.editor_text(), JAVA);
+    }
+
+    const PLAIN: &str = "package shop;\nimport jakarta.persistence.*;\n@Entity\npublic class Customer {\n @Id Long id;\n String title;\n boolean flag;\n Boolean seen;\n byte[] blob;\n}\n";
+    const VALID: &str = "package shop;\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\nimport jakarta.validation.constraints.NotBlank;\nimport jakarta.validation.constraints.Size;\nimport jakarta.validation.constraints.Pattern;\nimport jakarta.validation.constraints.Email;\nimport jakarta.validation.constraints.Min;\nimport jakarta.validation.constraints.Max;\nimport jakarta.validation.constraints.NotNull;\n@Entity\npublic class Customer {\n @Id Long id;\n @NotBlank @Size(min = 2, max = 40, message = \"too, long\") String title;\n @Pattern(regexp = \"[a-z]+,\\\\d\") String code;\n @Email String mail;\n @Min(1) @Max(value = 9L) Integer rank;\n @NotNull Boolean seen;\n}\n";
+    const POM_LOMBOK: &str = "<project><dependency><groupId>org.projectlombok</groupId><artifactId>lombok</artifactId></dependency></project>";
+    const POM_JACKSON: &str = "<project><dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId></dependency></project>";
+    const CPATH: &str = "/project/src/main/java/shop/Customer.java";
+
+    fn run_class(source: &str, build: Option<(&str, &str)>, answers: &[&[&str]], confirm: bool) -> (MockHost, Result<FileAction, Error>) {
+        let (host, mut plugin, doc) = setup(CPATH, source, "java");
+        if let Some((name, text)) = build {
+            host.add_file(name, text);
+        }
+        let pending = plugin.file_actions(&doc, Range::default()).into_iter().find(|a| a.title == CLASS_TITLE).unwrap();
+        assert!(pending.operations.is_empty() && pending.edits.is_empty());
+        for answer in answers {
+            host.answer_next_prompt(Some(answer));
+        }
+        host.answer_next_prompt(confirm.then_some(&[]));
+        let result = plugin.resolve_file_action(&doc, pending);
+        assert_eq!(host.editor_text(), source);
+        (host, result)
+    }
+    fn text_of(result: Result<FileAction, Error>) -> String {
+        let action = result.unwrap_or_else(|e| panic!("{e:?}"));
+        created(&action).1.to_owned()
+    }
+
+    #[test]
+    fn plain_pojo_is_exact_with_constructors_equals_hash_code_and_to_string() {
+        let answers: [&[&str]; 5] = [&["pojo"], &["CustomerDto"], &["id", "flag", "blob"], &["no-args", "all-args", "equals-hash-code", "to-string"], &["none"]];
+        let (_, result) = run_class(PLAIN, None, &answers, true);
+        let expected = "package shop;\n\nimport java.util.Arrays;\nimport java.util.Objects;\n\npublic class CustomerDto {\n\n    private Long id;\n    private boolean flag;\n    private byte[] blob;\n\n    public CustomerDto() {\n    }\n\n    public CustomerDto(Long id, boolean flag, byte[] blob) {\n        this.id = id;\n        this.flag = flag;\n        this.blob = blob;\n    }\n\n    public Long getId() {\n        return id;\n    }\n\n    public void setId(Long id) {\n        this.id = id;\n    }\n\n    public boolean isFlag() {\n        return flag;\n    }\n\n    public void setFlag(boolean flag) {\n        this.flag = flag;\n    }\n\n    public byte[] getBlob() {\n        return blob;\n    }\n\n    public void setBlob(byte[] blob) {\n        this.blob = blob;\n    }\n\n    @Override\n    public boolean equals(Object object) {\n        if (this == object) {\n            return true;\n        }\n        if (object == null || getClass() != object.getClass()) {\n            return false;\n        }\n        CustomerDto other = (CustomerDto) object;\n        return Objects.equals(this.id, other.id)\n                && Objects.equals(this.flag, other.flag)\n                && Arrays.equals(this.blob, other.blob);\n    }\n\n    @Override\n    public int hashCode() {\n        int result = Objects.hash(this.id, this.flag);\n        result = 31 * result + Arrays.hashCode(this.blob);\n        return result;\n    }\n\n    @Override\n    public String toString() {\n        return \"CustomerDto{\"\n                + \"id=\" + this.id\n                + \", flag=\" + this.flag\n                + \", blob=\" + Arrays.toString(this.blob)\n                + '}';\n    }\n}\n";
+        assert_eq!(text_of(result), expected);
+    }
+
+    #[test]
+    fn fluent_form_chains_setters_and_keeps_conventional_getters() {
+        let answers: [&[&str]; 5] = [&["fluent"], &["CustomerDto"], &["title", "seen"], &[], &["none"]];
+        let text = text_of(run_class(PLAIN, None, &answers, true).1);
+        assert!(text.contains("public CustomerDto setTitle(String title) {\n        this.title = title;\n        return this;\n    }"), "{text}");
+        assert!(text.contains("public Boolean getSeen()") && !text.contains("void set") && !text.contains("equals"), "{text}");
+    }
+
+    #[test]
+    fn lombok_forms_need_provable_lombok_and_render_verified_annotations() {
+        fn answers<'a>(form: &'a [&'a str]) -> [&'a [&'a str]; 5] {
+            [form, &["CustomerDto"], &["id", "title"], &["no-args", "equals-hash-code"], &["none"]]
+        }
+        for form in [&["lombok-getter-setter"][..], &["lombok-chain"], &["lombok-data"]] {
+            let (_, result) = run_class(PLAIN, None, &answers(form), true);
+            let error = format!("{:?}", result.err().unwrap());
+            assert!(error.contains("Lombok is not provably used"), "{form:?}: {error}");
+        }
+        let imported = PLAIN.replace("import jakarta.persistence.*;", "import jakarta.persistence.*;\nimport lombok.Getter;");
+        let text = text_of(run_class(&imported, None, &answers(&["lombok-getter-setter"]), true).1);
+        assert!(text.contains("import lombok.EqualsAndHashCode;\nimport lombok.Getter;\nimport lombok.NoArgsConstructor;\nimport lombok.Setter;\n\n@Getter\n@Setter\n@NoArgsConstructor\n@EqualsAndHashCode\npublic class CustomerDto {"), "{text}");
+        assert!(!text.contains("public Long getId") && text.contains("    private Long id;\n    private String title;\n"), "{text}");
+        let text = text_of(run_class(PLAIN, Some(("pom.xml", POM_LOMBOK)), &answers(&["lombok-chain"]), true).1);
+        assert!(text.contains("import lombok.experimental.Accessors;") && text.contains("@Accessors(chain = true)\n"), "{text}");
+        let data: [&[&str]; 5] = [&["lombok-data"], &["CustomerDto"], &["id"], &["all-args"], &["none"]];
+        let gradle = ("build.gradle", "dependencies { compileOnly 'org.projectlombok:lombok:1.18.30' }");
+        let text = text_of(run_class(PLAIN, Some(gradle), &data, true).1);
+        assert!(text.contains("@Data\n@AllArgsConstructor\npublic class CustomerDto"), "{text}");
+        let lookalike = ("build.gradle", "dependencies { compileOnly 'org.projectlombok:lombok-mapstruct-binding:0.2.0' }");
+        assert!(run_class(PLAIN, Some(lookalike), &data, true).1.is_err());
+    }
+
+    #[test]
+    fn lombok_value_is_immutable_without_constructor_options_and_refuses_jackson() {
+        let value: [&[&str]; 4] = [&["lombok-value"], &["CustomerDto"], &["id", "title"], &["none"]];
+        let text = text_of(run_class(PLAIN, Some(("pom.xml", POM_LOMBOK)), &value, true).1);
+        assert!(text.contains("@Value\npublic class CustomerDto {") && text.contains("    private final Long id;\n    private final String title;\n"), "{text}");
+        assert!(!text.contains("Constructor") && !text.contains("@Setter"), "{text}");
+        let jackson: [&[&str]; 4] = [&["lombok-value"], &["CustomerDto"], &["id"], &["snake-case"]];
+        let pom = format!("{POM_LOMBOK}{POM_JACKSON}");
+        let error = format!("{:?}", run_class(PLAIN, Some(("pom.xml", &pom)), &jackson, true).1.err().unwrap());
+        assert!(error.contains("immutable"), "{error}");
+    }
+
+    #[test]
+    fn jackson_is_refused_unless_provable_and_snake_case_names_are_explicit() {
+        let source = PLAIN.replace("String title;", "String titleText;\n String httpURLValue;\n String plain;");
+        let answers: [&[&str]; 5] = [&["pojo"], &["CustomerDto"], &["id", "titleText", "httpURLValue", "plain"], &[], &["snake-case-ignore-unknown"]];
+        let error = format!("{:?}", run_class(&source, None, &answers, true).1.err().unwrap());
+        assert!(error.contains("Jackson is not provably"), "{error}");
+        let text = text_of(run_class(&source, Some(("pom.xml", POM_JACKSON)), &answers, true).1);
+        for expected in [
+            "import com.fasterxml.jackson.annotation.JsonIgnoreProperties;",
+            "import com.fasterxml.jackson.annotation.JsonProperty;",
+            "@JsonIgnoreProperties(ignoreUnknown = true)\npublic class CustomerDto",
+            "@JsonProperty(\"title_text\")\n    private String titleText;",
+            "@JsonProperty(\"http_url_value\")\n    private String httpURLValue;",
+            "\n    private String plain;",
+        ] {
+            assert!(text.contains(expected), "{expected}\n{text}");
+        }
+        assert!(!text.contains("@JsonProperty(\"id\")") && !text.contains("@JsonProperty(\"plain\")"), "{text}");
+        let ignore_only: [&[&str]; 5] = [&["pojo"], &["CustomerDto"], &["id"], &[], &["ignore-unknown"]];
+        let gradle = ("build.gradle", "implementation 'com.fasterxml.jackson.core:jackson-annotations:2.17.0'");
+        let text = text_of(run_class(&source, Some(gradle), &ignore_only, true).1);
+        assert!(text.contains("@JsonIgnoreProperties(ignoreUnknown = true)") && !text.contains("JsonProperty"), "{text}");
+        let clash = source.replace("String plain;", "String title_text;");
+        let clash_answers: [&[&str]; 5] = [&["pojo"], &["CustomerDto"], &["titleText", "title_text"], &[], &["snake-case"]];
+        assert!(run_class(&clash, Some(("pom.xml", POM_JACKSON)), &clash_answers, true).1.is_err());
+    }
+
+    #[test]
+    fn snake_case_conversion_splits_words_digits_and_acronyms() {
+        for (from, to) in [("firstName", "first_name"), ("address2Line", "address2_line"), ("httpURLValue", "http_url_value"), ("id", "id"), ("userID", "user_id")] {
+            assert_eq!(snake(from), to);
+        }
+    }
+
+    #[test]
+    fn validation_transfer_copies_only_literal_supported_constraints_in_the_matching_namespace() {
+        let answers: [&[&str]; 6] = [&["pojo"], &["CustomerDto"], &["id", "title", "code", "mail", "rank", "seen"], &[], &["none"], &["copy"]];
+        let text = text_of(run_class(VALID, None, &answers, true).1);
+        for expected in [
+            "import jakarta.validation.constraints.Email;",
+            "@NotBlank\n    @Size(min = 2, max = 40, message = \"too, long\")\n    private String title;",
+            "@Pattern(regexp = \"[a-z]+,\\\\d\")\n    private String code;",
+            "@Email\n    private String mail;",
+            "@Min(value = 1)\n    @Max(value = 9L)\n    private Integer rank;",
+            "@NotNull\n    private Boolean seen;",
+        ] {
+            assert!(text.contains(expected), "{expected}\n{text}");
+        }
+        let declined: [&[&str]; 6] = [&["pojo"], &["CustomerDto"], &["title"], &[], &["none"], &["none"]];
+        assert!(!text_of(run_class(VALID, None, &declined, true).1).contains("@NotBlank"));
+        let javax = VALID.replace("jakarta.", "javax.");
+        let text = text_of(run_class(&javax, None, &answers, true).1);
+        assert!(text.contains("import javax.validation.constraints.NotBlank;") && !text.contains("jakarta"), "{text}");
+        let none: [&[&str]; 4] = [&["pojo"], &["CustomerDto"], &["id"], &[]];
+        let mut prompts = Vec::from(none);
+        prompts.push(&["none"]);
+        assert!(run_class(PLAIN, None, &prompts[..], true).1.is_ok());
+    }
+
+    #[test]
+    fn validation_transfer_refuses_non_literal_unprovable_and_qualified_spellings() {
+        for (source, expect) in [
+            (VALID.replace("max = 40", "max = LIMIT"), "non-literal"),
+            (VALID.replace("message = \"too, long\"", "message = \"a\" + \"b\""), "non-literal"),
+            (VALID.replace("@Pattern(regexp = \"[a-z]+,\\\\d\")", "@Pattern(regexp = \"x\", flags = Pattern.Flag.CASE_INSENSITIVE)"), "non-literal"),
+            (VALID.replace("import jakarta.validation.constraints.Pattern;\n", ""), "Pattern"),
+            (VALID.replace("import jakarta.validation.constraints.NotNull;\n", "import org.jetbrains.annotations.NotNull;\n"), "NotNull"),
+            (VALID.replace("@Email", "@jakarta.validation.constraints.Email"), "fully qualified"),
+        ] {
+            let all: [&[&str]; 6] = [&["pojo"], &["CustomerDto"], &["title", "code", "mail", "seen"], &[], &["none"], &["copy"]];
+            let error = format!("{:?}", run_class(&source, None, &all, true).1.err().unwrap());
+            assert!(error.contains(expect) || expect == "non-literal" && error.contains("non-literal"), "{expect}: {error}");
+        }
+    }
+
+    #[test]
+    fn cancellations_forged_answers_collisions_and_stale_state_leave_no_output() {
+        let valid: [&[&str]; 5] = [&["pojo"], &["CustomerDto"], &["id"], &[], &["none"]];
+        for stage in 0..5 {
+            let (_, result) = run_class(PLAIN, None, &valid[..stage], false);
+            assert!(matches!(result, Err(Error::Cancelled)), "{stage}");
+        }
+        let bad: [(&[&str], usize); 5] = [(&["rubbish"], 0), (&["Customer"], 1), (&["bogus"], 2), (&["id", "id"], 2), (&["x"], 3)];
+        for (value, at) in bad {
+            let mut answers: Vec<&[&str]> = valid.to_vec();
+            answers[at] = value;
+            assert!(run_class(PLAIN, None, &answers, true).1.is_err(), "{value:?}");
+        }
+        let mut forged: Vec<&[&str]> = valid.to_vec();
+        forged[4] = &["sideways"];
+        assert!(run_class(PLAIN, None, &forged, true).1.is_err());
+        let (host, mut plugin, doc) = setup(CPATH, PLAIN, "java");
+        host.add_file("src/main/java/shop/CustomerDto.java", "package shop; class CustomerDto {}");
+        let pending = plugin.file_actions(&doc, Range::default()).into_iter().find(|a| a.title == CLASS_TITLE).unwrap();
+        for answer in &valid[..4] {
+            host.answer_next_prompt(Some(answer));
+        }
+        host.answer_next_prompt(Some(&[]));
+        assert!(plugin.resolve_file_action(&doc, pending.clone()).is_err());
+        host.type_in_editor("// changed");
+        assert!(matches!(plugin.resolve_file_action(&doc, pending), Err(Error::Stale)));
+    }
+
+    #[test]
+    fn crlf_entities_produce_crlf_only_dto_classes_and_kotlin_is_not_offered() {
+        let answers: [&[&str]; 5] = [&["pojo"], &["CustomerDto"], &["id"], &["all-args"], &["none"]];
+        let text = text_of(run_class(&PLAIN.replace('\n', "\r\n"), None, &answers, true).1);
+        assert!(text.contains("\r\n") && !text.replace("\r\n", "").contains('\n'), "{text:?}");
+        let kotlin = "package shop\nimport jakarta.persistence.*\n@Entity\nclass Customer(@Id var id: Long? = null) {}\n";
+        let (_host, mut plugin, doc) = setup("/project/src/shop/Customer.kt", kotlin, "kotlin");
+        assert!(!plugin.file_actions(&doc, Range::default()).iter().any(|a| a.title == CLASS_TITLE));
+    }
+
+    #[test]
+    fn bean_unsafe_names_are_not_offered_for_class_forms() {
+        let source = PLAIN.replace("byte[] blob;", "boolean isActive;\n int aB;");
+        let (_host, _plugin, doc) = setup(CPATH, &source, "java");
+        let offered: Vec<_> = class_fields(&source_class(&doc)).into_iter().map(|(n, _)| n).collect();
+        assert_eq!(offered, ["id", "title", "flag", "seen"]);
+    }
+
+    #[test]
+    #[ignore = "requires javac and JPA_JAKARTA_VALIDATION_API; Jackson jar is taken from JACKSON_ANNOTATIONS_JAR or ~/.m2; Lombok forms are not compiled (no annotation-processing jar in ~/.m2)"]
+    fn generated_dto_classes_compile_with_validation_and_jackson() {
+        let validation = std::env::var("JPA_JAKARTA_VALIDATION_API").expect("jakarta validation api jar");
+        let jackson = std::env::var("JACKSON_ANNOTATIONS_JAR")
+            .unwrap_or_else(|_| format!("{}/.m2/repository/com/fasterxml/jackson/core/jackson-annotations/2.21/jackson-annotations-2.21.jar", std::env::var("HOME").unwrap()));
+        assert!(std::path::Path::new(&jackson).exists(), "jackson-annotations jar missing: {jackson}");
+        let valid_answers: [&[&str]; 5] = [&["pojo"], &["CustomerDto"], &["id", "title", "code", "mail", "rank", "seen"], &["no-args", "all-args", "equals-hash-code", "to-string"], &["snake-case-ignore-unknown"]];
+        let source = VALID.replace("@Email String mail;", "@Email String mailAddress;\n byte[] blob;");
+        let mut cases = Vec::new();
+        for form in ["pojo", "fluent"] {
+            let mut answers = valid_answers.to_vec();
+            answers[0] = if form == "pojo" { &["pojo"] } else { &["fluent"] };
+            answers[2] = &["id", "title", "code", "mailAddress", "rank", "seen", "blob"];
+            answers.insert(5, &["copy"]);
+            cases.push(text_of(run_class(&source, Some(("pom.xml", POM_JACKSON)), &answers, true).1));
+        }
+        for (at, text) in cases.iter().enumerate() {
+            let dir = std::env::temp_dir().join(format!("jpa-dto-class-{}-{at}", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let file = dir.join("CustomerDto.java");
+            std::fs::write(&file, text).unwrap();
+            let result = std::process::Command::new("javac")
+                .args(["--release", "17", "-Xlint:all", "-classpath", &format!("{validation}:{jackson}"), "-d"])
+                .arg(&dir)
+                .arg(&file)
+                .output()
+                .expect("javac installed");
+            assert!(result.status.success(), "{}\n{text}", String::from_utf8_lossy(&result.stderr));
+            std::fs::remove_dir_all(dir).unwrap();
+        }
     }
 }

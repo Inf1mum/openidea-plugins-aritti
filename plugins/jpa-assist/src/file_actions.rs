@@ -8,8 +8,71 @@ const MAX_TEXT: usize = 128 << 10;
 mod dto_action;
 #[path = "ddl_action.rs"]
 mod ddl_action;
+#[path = "datasource_action.rs"]
+mod datasource_action;
 #[path = "attribute_refactor.rs"]
 mod attribute_refactor;
+#[path = "identifier_action.rs"]
+mod identifier_action;
+#[path = "embedded_id_action.rs"]
+mod embedded_id_action;
+#[path = "extract_superclass.rs"]
+mod extract_superclass;
+#[path = "dto_convert_action.rs"]
+mod dto_convert_action;
+#[path = "flyway_misc_action.rs"]
+mod flyway_misc_action;
+#[path = "equality_action.rs"]
+mod equality_action;
+#[path = "ddl_entities_action.rs"]
+mod ddl_entities_action;
+#[path = "migration_action.rs"]
+pub(crate) mod migration_action;
+#[path = "liquibase_action.rs"]
+mod liquibase_action;
+#[path = "envers_action.rs"]
+mod envers_action;
+#[path = "entity_graph_action.rs"]
+mod entity_graph_action;
+#[path = "mapper_action.rs"]
+mod mapper_action;
+#[path = "mapper_more_action.rs"]
+mod mapper_more_action;
+#[path = "converter_action.rs"]
+mod converter_action;
+#[path = "hibernate_action.rs"]
+mod hibernate_action;
+#[path = "projection_action.rs"]
+mod projection_action;
+#[path = "nested_dto_action.rs"]
+mod nested_dto_action;
+#[path = "repository_action.rs"]
+mod repository_action;
+#[path = "auditing_action.rs"]
+mod auditing_action;
+#[path = "validation_action.rs"]
+mod validation_action;
+#[path = "query_method_action.rs"]
+mod query_method_action;
+#[path = "query_extract_action.rs"]
+mod query_extract_action;
+#[path = "query_edit_action.rs"]
+mod query_edit_action;
+#[path = "query_convert_action.rs"]
+mod query_convert_action;
+#[path = "index_query_action.rs"]
+mod index_query_action;
+#[path = "naming_action.rs"]
+mod naming_action;
+#[path = "injection_action.rs"]
+mod injection_action;
+#[path = "revision_repo_action.rs"]
+mod revision_repo_action;
+#[path = "modelmapper_action.rs"]
+mod modelmapper_action;
+pub(crate) use naming_action::{column_name as naming_column_name, table_name as naming_table_name};
+pub(crate) use mapper_action::build_text;
+pub(crate) use hibernate_action::{hibernate6, hibernate_core_majors, spring_boot_majors};
 // Reuse the unchanged plain manual scalar source gate for current-request templates.
 pub(super) fn scalar_source(doc: &Document) -> Option<Class> { ddl_action::source(doc) }
 
@@ -18,21 +81,129 @@ pub(super) fn find_attribute_usages(ctx: &Invocation) -> Result<(),Error> { attr
 #[derive(Clone, Copy)]
 enum Operation {
     Entity,
+    PersistenceClass,
     Attribute,
     Inverse,
     Dto,
+    DtoClass,
     Ddl,
     Rename,
+    Identifier,
+    ConfiguredEntity,
+    EmbeddedIdentifier,
+    ExtractSuperclass,
+    DtoToClass,
+    DtoToRecord,
+    Datasource,
+    FlywayJavaMigration,
+    FlywaySqlCallback,
+    FlywayJavaCallback,
+    EqualityMethods,
+    LazySafeToString,
+    DdlEntities,
+    SchemaBaseline,
+    FlywayMigration,
+    LiquibaseChangelog,
+    EnversToggle,
+    EnversRevision,
+    EntityGraph,
+    MapstructMapper,
+    AddMapping,
+    BaseMapper,
+    ExtendMapper,
+    InjectMapper,
+    ModelMapperConfig,
+    ModelMapperConversion,
+    BlazeEntityView,
+    AttributeConverter,
+    HibernateUserType,
+    HibernateJson,
+    HibernateListener,
+    SpringRepository,
+    SpringProjection,
+    NestedProjection,
+    FlatDto,
+    ValidationConstraint,
+    LombokAnnotations,
+    QueryMethod,
+    QueryExtract,
+    QueryEdit,
+    QueryAsync,
+    QueryDynamicProjection,
+    IndexConstraint,
+    NamedQuery,
+    NameConstants,
+    InjectRepository,
+    AuditingFields,
+    AuditingConfig,
+    SpringRepositories,
+    RevisionRepository,
+    EnableEnversRepositories,
+    EntityViewRepository,
 }
 impl Operation {
     fn key(self) -> &'static str {
         match self {
             Self::Entity => "entity",
+            Self::PersistenceClass => "persistence-class",
             Self::Attribute => "attribute",
             Self::Inverse => "inverse",
             Self::Dto => "dto",
+            Self::DtoClass => "dto-class",
             Self::Ddl => "ddl",
             Self::Rename => "rename-local",
+            Self::Identifier => "identifier",
+            Self::ConfiguredEntity => "configured-entity",
+            Self::EmbeddedIdentifier => "embedded-identifier",
+            Self::ExtractSuperclass => "extract-superclass",
+            Self::DtoToClass => "dto-to-class",
+            Self::DtoToRecord => "dto-to-record",
+            Self::Datasource => "datasource",
+            Self::FlywayJavaMigration => "flyway-java-migration",
+            Self::FlywaySqlCallback => "flyway-sql-callback",
+            Self::FlywayJavaCallback => "flyway-java-callback",
+            Self::EqualityMethods => "equality-methods",
+            Self::LazySafeToString => "lazy-safe-to-string",
+            Self::DdlEntities => "ddl-entities",
+            Self::SchemaBaseline => "schema-baseline",
+            Self::FlywayMigration => "flyway-migration",
+            Self::LiquibaseChangelog => "liquibase-changelog",
+            Self::EnversToggle => "envers-toggle",
+            Self::EnversRevision => "envers-revision",
+            Self::EntityGraph => "entity-graph",
+            Self::MapstructMapper => "mapstruct-mapper",
+            Self::AddMapping => "add-mapping-method",
+            Self::BaseMapper => "generic-base-mapper",
+            Self::ExtendMapper => "extend-base-mapper",
+            Self::InjectMapper => "inject-mapper",
+            Self::ModelMapperConfig => "modelmapper-config",
+            Self::ModelMapperConversion => "modelmapper-conversion",
+            Self::BlazeEntityView => "blaze-entity-view",
+            Self::AttributeConverter => "attribute-converter",
+            Self::HibernateUserType => "hibernate-user-type",
+            Self::HibernateJson => "hibernate-json",
+            Self::HibernateListener => "hibernate-listener",
+            Self::SpringRepository => "spring-repository",
+            Self::QueryMethod => "query-method",
+            Self::QueryExtract => "query-extract",
+            Self::QueryEdit => "query-edit",
+            Self::QueryAsync => "query-async",
+            Self::QueryDynamicProjection => "query-dynamic-projection",
+            Self::SpringProjection => "spring-projection",
+            Self::NestedProjection => "nested-projection",
+            Self::FlatDto => "flat-dto",
+            Self::ValidationConstraint => "validation-constraint",
+            Self::LombokAnnotations => "lombok-annotations",
+            Self::IndexConstraint => "index-constraint",
+            Self::NamedQuery => "named-query",
+            Self::NameConstants => "name-constants",
+            Self::InjectRepository => "inject-repository",
+            Self::AuditingFields => "auditing-fields",
+            Self::AuditingConfig => "auditing-config",
+            Self::SpringRepositories => "spring-repositories",
+            Self::RevisionRepository => "revision-repository",
+            Self::EnableEnversRepositories => "enable-envers-repositories",
+            Self::EntityViewRepository => "entity-view-repository",
         }
     }
 }
@@ -53,7 +224,7 @@ pub(crate) fn identifier(value: &str) -> bool {
     value.len() <= 128 && value.is_ascii() && is_identifier(value)
         && !"_ abstract assert boolean break byte case catch char class const continue default do double else enum extends false final finally float for fun if implements import in instanceof int interface is long native new null object package private protected public record return sealed short static strictfp super switch synchronized this throw throws transient true try typealias val var void volatile when while yield".split_ascii_whitespace().any(|word| word == value)
 }
-fn path(value: &str) -> Option<String> {
+pub(super) fn path(value: &str) -> Option<String> {
     let value = value.replace('\\', "/");
     let absolute = value.starts_with('/')
         || (value.as_bytes().first().is_some_and(u8::is_ascii_alphabetic)
@@ -66,7 +237,7 @@ fn path(value: &str) -> Option<String> {
         && !value.contains(['*', '?', '[', ']', '{', '}']))
     .then_some(value)
 }
-fn inside(root: &str, value: &str) -> bool {
+pub(super) fn inside(root: &str, value: &str) -> bool {
     value.starts_with(&format!("{}/", root.trim_end_matches('/')))
 }
 fn package(doc: &Document) -> Option<String> {
@@ -113,9 +284,10 @@ fn annotation_is(text: &str, class: &Class, name: &str, namespace: &str) -> bool
         })
 }
 fn namespace(text: &str, class: &Class) -> Option<&'static str> {
+    let role = match class.kind { Kind::Entity => "Entity", Kind::Embeddable => "Embeddable", Kind::MappedSuperclass => "MappedSuperclass" };
     let candidates: Vec<_> = ["jakarta.persistence", "javax.persistence"]
         .into_iter()
-        .filter(|namespace| annotation_is(text, class, "Entity", namespace))
+        .filter(|namespace| annotation_is(text, class, role, namespace))
         .collect();
     let [namespace] = candidates.as_slice() else {
         return None;
@@ -130,7 +302,7 @@ fn current_class(doc: &Document) -> Option<Class> {
     if mask(&doc.text).lines().any(|line| line.trim_start().starts_with("import ") && line.contains(" as ")) {
         return None;
     }
-    let mut class = parse_class(&doc.text, &doc.path).filter(|class| class.kind == Kind::Entity && class.superclass.is_none())?;
+    let mut class = parse_class(&doc.text, &doc.path).filter(|class| class.superclass.is_none())?;
     let masked = mask(&doc.text);
     if !identifier(&class.name)
         || words(&masked, "class").filter(|at| *at == 0 || masked.as_bytes()[at - 1] != b'.').count() != 1
@@ -141,11 +313,12 @@ fn current_class(doc: &Document) -> Option<Class> {
     }
     let ns = namespace(&doc.text, &class)?;
     if !class.imports.iter().any(|import| import.starts_with(ns)) {
-        class.imports.push(format!("{ns}.Entity"));
+        let role = match class.kind { Kind::Entity => "Entity", Kind::Embeddable => "Embeddable", Kind::MappedSuperclass => "MappedSuperclass" };
+        class.imports.push(format!("{ns}.{role}"));
     }
     Some(class)
 }
-fn checked_after(doc: &Document, edits: &[TextEdit]) -> Result<String, Error> {
+pub(crate) fn checked_after(doc: &Document, edits: &[TextEdit]) -> Result<String, Error> {
     let after = patched(&doc.text, edits)?;
     let class = parse_class(&after, &doc.path).ok_or(Error::Stale)?;
     if doc.language == "kotlin"
@@ -184,7 +357,7 @@ fn current(pending: &Pending, doc: &Document) -> Result<Project, Error> {
     }
     Ok(project)
 }
-fn no_collision(project: &Project, root: &str, directory: &str, name: &str, empty_source: Option<&str>) -> Result<(), Error> {
+pub(super) fn no_collision(project: &Project, root: &str, directory: &str, name: &str, empty_source: Option<&str>) -> Result<(), Error> {
     for extension in ["java", "kt"] {
         let target = format!("{directory}/{name}.{extension}");
         if empty_source == Some(target.as_str()) {
@@ -243,8 +416,33 @@ pub(super) fn patched(text: &str, edits: &[TextEdit]) -> Result<String, Error> {
     Ok(after)
 }
 
+fn resolve_lombok(pending: &Pending, doc: &Document) -> Result<FileAction, Error> {
+    current(pending, doc)?;
+    let class = crate::owned_entity_source(doc).ok_or(Error::Stale)?;
+    let toggles = crate::lombok_checks::toggle_items(&doc.text, &class).ok_or(Error::Stale)?;
+    let items: Vec<_> = toggles.iter().map(|(name, present)| PickItem::new(name, &format!("{} @{name}", if *present { "Remove" } else { "Add" }))).collect();
+    let picked = host::pick_many("Lombok annotations to add or remove", &items)?.ok_or(Error::Cancelled)?;
+    if picked.is_empty() {
+        return Err(Error::Cancelled);
+    }
+    let edits: Vec<TextEdit> = crate::lombok_checks::plan(&doc.text, &class, &picked)?.iter().map(|e| e.to_text_edit(&doc.text)).collect();
+    let after = checked_after(doc, &edits)?;
+    if !ui_kit::prompts::confirm_exact("Edit Lombok annotations?", &format!("Target: {}\nSource version: {}\n\n{after}\nlombok.config is not consulted.", doc.path, doc.version))? {
+        return Err(Error::Cancelled);
+    }
+    current(pending, doc)?;
+    Ok(FileAction { title: crate::lombok_checks::TITLE.trim_end_matches('…').into(), kind: Some("refactor.rewrite".into()), edits: vec![(doc.path.clone(), edits)], ..FileAction::default() })
+}
+
 impl FileActions for JpaAssist {
     fn file_actions(&mut self, doc: &Document, selection: Range) -> Vec<FileAction> {
+        if let Some(actions) = datasource_action::actions(&mut self.generation, doc, selection) {
+            return actions;
+        }
+        if let Some(mut actions) = ddl_entities_action::actions(&mut self.generation, doc, selection) {
+            actions.extend(flyway_misc_action::sql_actions(&mut self.generation, doc).unwrap_or_default());
+            return actions;
+        }
         if doc.text.len() > MAX_TEXT
             || language_of(&doc.path).is_none()
             || !matches!(doc.language.as_str(), "java" | "kotlin")
@@ -259,17 +457,139 @@ impl FileActions for JpaAssist {
             return Vec::new();
         }
         let mut operations = vec![(Operation::Entity, "Generate JPA entity…")];
-        if current_class(doc).is_some() {
-            operations.extend([
-                (Operation::Attribute, "Add JPA attribute with preview…"),
-                (Operation::Inverse, "Add inverse attribute to this entity…"),
-            ]);
+        operations.push((Operation::PersistenceClass, "Generate JPA embeddable or mapped superclass…"));
+        operations.push((Operation::ConfiguredEntity,"Generate JPA entity with identifier options…"));
+        if identifier_action::source(doc).is_some() {
+            operations.push((Operation::Identifier,"Add JPA identifier with preview…"));
+            operations.push((Operation::EmbeddedIdentifier,embedded_id_action::TITLE));
+        }
+        if let Some(class) = current_class(doc) {
+            operations.push((Operation::Attribute, "Add JPA attribute with preview…"));
+            if class.kind == Kind::Entity { operations.push((Operation::Inverse, "Add inverse attribute to this entity…")); }
+        }
+        if dto_convert_action::eligible_record(doc) {
+            operations.push((Operation::DtoToClass, dto_convert_action::TO_CLASS_TITLE));
+        }
+        if dto_convert_action::eligible_class(doc) {
+            operations.push((Operation::DtoToRecord, dto_convert_action::TO_RECORD_TITLE));
+        }
+        if extract_superclass::eligible(doc) {
+            operations.push((Operation::ExtractSuperclass, extract_superclass::TITLE));
+        }
+        operations.extend(flyway_misc_action::operations(doc));
+        if equality_action::eligible_equals(doc) {
+            operations.push((Operation::EqualityMethods, equality_action::TITLE_EQUALS));
+        }
+        if equality_action::eligible_to_string(doc) {
+            operations.push((Operation::LazySafeToString, equality_action::TITLE_TO_STRING));
+        }
+        if migration_action::eligible(doc) {
+            operations.push((Operation::SchemaBaseline, migration_action::BASELINE_TITLE));
+            operations.push((Operation::FlywayMigration, migration_action::MIGRATION_TITLE));
+            operations.push((Operation::LiquibaseChangelog, liquibase_action::TITLE));
+        }
+        if envers_action::eligible_toggle(doc) {
+            operations.push((Operation::EnversToggle, envers_action::TOGGLE_TITLE));
+        }
+        if envers_action::eligible_revision(doc) {
+            operations.push((Operation::EnversRevision, envers_action::REVISION_TITLE));
+        }
+        if entity_graph_action::eligible(doc) {
+            operations.push((Operation::EntityGraph, entity_graph_action::TITLE));
+        }
+        if repository_action::eligible(doc) {
+            operations.push((Operation::SpringRepository, repository_action::TITLE));
+            operations.push((Operation::SpringRepositories, repository_action::BATCH_TITLE));
+        }
+        if revision_repo_action::eligible(doc) {
+            operations.push((Operation::RevisionRepository, revision_repo_action::TITLE));
+            operations.push((Operation::EnableEnversRepositories, revision_repo_action::ENABLE_TITLE));
+        }
+        if revision_repo_action::eligible_view(doc) {
+            operations.push((Operation::EntityViewRepository, revision_repo_action::VIEW_TITLE));
+        }
+        if auditing_action::eligible_fields(doc) {
+            operations.push((Operation::AuditingFields, auditing_action::FIELDS_TITLE));
+        }
+        if auditing_action::eligible_config(doc) {
+            operations.push((Operation::AuditingConfig, auditing_action::CONFIG_TITLE));
+        }
+        if query_method_action::eligible(doc) {
+            operations.push((Operation::QueryMethod, query_method_action::TITLE));
+        }
+        if query_extract_action::eligible(doc) {
+            operations.push((Operation::QueryExtract, query_extract_action::TITLE));
+        }
+        if query_edit_action::eligible(doc) {
+            operations.push((Operation::QueryEdit, query_edit_action::TITLE));
+        }
+        if query_convert_action::eligible(doc) {
+            operations.push((Operation::QueryAsync, query_convert_action::TITLE_ASYNC));
+            operations.push((Operation::QueryDynamicProjection, query_convert_action::TITLE_DYNAMIC));
+        }
+        if validation_action::eligible(doc) {
+            operations.push((Operation::ValidationConstraint, validation_action::TITLE));
+        }
+        if crate::owned_entity_source(doc).is_some_and(|class| crate::lombok_checks::eligible(&doc.text, &class)) {
+            operations.push((Operation::LombokAnnotations, crate::lombok_checks::TITLE));
         }
         if dto_action::eligible(doc) {
             operations.push((Operation::Dto, "Create scalar DTO with preview…"));
         }
+        if dto_action::class_eligible(doc) {
+            operations.push((Operation::DtoClass, dto_action::CLASS_TITLE));
+        }
+        if projection_action::eligible(doc) {
+            operations.push((Operation::SpringProjection, projection_action::TITLE));
+        }
+        if nested_dto_action::eligible(doc) {
+            operations.push((Operation::NestedProjection, nested_dto_action::TITLE));
+            operations.push((Operation::FlatDto, nested_dto_action::FLAT_TITLE));
+        }
+        if mapper_action::eligible(doc) {
+            operations.push((Operation::MapstructMapper, mapper_action::TITLE));
+        }
+        if mapper_more_action::eligible(doc) {
+            operations.push((Operation::AddMapping, mapper_more_action::ADD_TITLE));
+            operations.push((Operation::BaseMapper, mapper_more_action::BASE_TITLE));
+        }
+        if mapper_more_action::eligible_extend(doc) {
+            operations.push((Operation::ExtendMapper, mapper_more_action::EXTEND_TITLE));
+        }
+        if injection_action::eligible(doc) {
+            operations.push((Operation::InjectMapper, mapper_more_action::INJECT_TITLE));
+        }
+        if modelmapper_action::eligible_service(doc) {
+            operations.push((Operation::ModelMapperConfig, modelmapper_action::CONFIG_TITLE));
+            operations.push((Operation::ModelMapperConversion, modelmapper_action::CONVERT_TITLE));
+        }
+        if modelmapper_action::eligible_view(doc) {
+            operations.push((Operation::BlazeEntityView, modelmapper_action::VIEW_TITLE));
+        }
+        if converter_action::eligible(doc) {
+            operations.push((Operation::AttributeConverter, converter_action::TITLE));
+        }
+        if hibernate_action::eligible_type(doc) {
+            operations.push((Operation::HibernateUserType, hibernate_action::TITLE_TYPE));
+        }
+        if hibernate_action::eligible_json(doc) {
+            operations.push((Operation::HibernateJson, hibernate_action::TITLE_JSON));
+        }
+        if hibernate_action::eligible_listener(doc) {
+            operations.push((Operation::HibernateListener, hibernate_action::TITLE_LISTENER));
+        }
         if ddl_action::eligible(doc) {
             operations.push((Operation::Ddl, ddl_action::TITLE));
+        }
+        if index_query_action::eligible(doc) {
+            operations.push((Operation::IndexConstraint, index_query_action::INDEX_TITLE));
+            operations.push((Operation::NamedQuery, index_query_action::QUERY_TITLE));
+        }
+        if naming_action::eligible(doc) {
+            operations.push((Operation::NameConstants, naming_action::TITLE));
+        }
+        if injection_action::eligible(doc) {
+            operations.push((Operation::InjectRepository, injection_action::TITLE));
         }
         if attribute_refactor::eligible(doc,selection) {operations.push((Operation::Rename,attribute_refactor::TITLE));}
         if self.generation.pending.len() > 8 {
@@ -292,12 +612,37 @@ impl FileActions for JpaAssist {
         let project = current(&pending, doc)?;
         let directory = doc.path.rsplit_once('/').ok_or(Error::Stale)?.0;
         match pending.operation {
-            Operation::Entity => {
+            Operation::Entity | Operation::PersistenceClass | Operation::ConfiguredEntity => {
                 let items = [PickItem::new("jakarta", "Jakarta Persistence"), PickItem::new("javax", "Javax Persistence")];
                 let Some(namespace) = host::pick("Persistence namespace for the new entity", &items)? else {
                     return Err(Error::Cancelled);
                 };
-                let Some((name, source)) = prompt_entity(Some(&doc.path), &namespace)? else {
+                let generated = if matches!(pending.operation, Operation::PersistenceClass) {
+                    let roles = [PickItem::new("embeddable", "Embeddable"), PickItem::new("mapped-superclass", "Mapped superclass")];
+                    let Some(role) = host::pick("Persistence class role", &roles)? else { return Err(Error::Cancelled); };
+                    let Some(name) = ask_identifier("Persistence class name")? else { return Err(Error::Cancelled); };
+                    let name = capitalize(&name);
+                    if !identifier(&name) { return Err("Choose a valid persistence class name.".into()); }
+                    let role = match role.as_str() {
+                        "embeddable" => persistence_core::PersistenceRole::Embeddable,
+                        "mapped-superclass" => persistence_core::PersistenceRole::MappedSuperclass,
+                        _ => return Err(Error::Stale),
+                    };
+                    let source = entity_source(&EntitySpec { role, name: name.clone(), table: String::new(), package: package(doc),
+                        kotlin: doc.language == "kotlin", id: "none".into(), auditing: false, version: false, equals: false });
+                    Some((name, if namespace == "javax" { source.replace("jakarta.persistence.", "javax.persistence.") } else { source }))
+                } else if matches!(pending.operation,Operation::ConfiguredEntity) {
+                    let Some(name)=ask_identifier("Entity class name")? else {return Err(Error::Cancelled);};
+                    let name=capitalize(&name);
+                    let Some(table)=host::input("Table name",Some(&naming_table_name(&name)))? else {return Err(Error::Cancelled);};
+                    let ns=match namespace.as_str() {"jakarta"=>persistence_core::generation::Namespace::Jakarta,"javax"=>persistence_core::generation::Namespace::Javax,_=>return Err(Error::Stale)};
+                    let identifier=identifier_action::prompt(ns,&name)?;
+                    let versioned=host::pick_many("Additional mappings",&[PickItem::new("version","Version field")])?.ok_or(Error::Cancelled)?.iter().any(|s|s=="version");
+                    let draft=persistence_core::generation::ManagedClassDraft{name:name.clone(),role:persistence_core::PersistenceRole::Entity,namespace:ns,table_name:table.trim().into(),identifier:Some(identifier),versioned,inheritance:None};
+                    let source=crate::wizard::configured_class_source(&draft,&package(doc).ok_or(Error::Stale)?,doc.language=="kotlin").map_err(Error::from)?;
+                    Some((name,source))
+                } else { prompt_entity(Some(&doc.path), &namespace)? };
+                let Some((name, source)) = generated else {
                     return Err(Error::Cancelled);
                 };
                 let declared = package(doc).ok_or(Error::Stale)?;
@@ -315,7 +660,7 @@ impl FileActions for JpaAssist {
                 let same = target == doc.path && doc.text.trim().is_empty();
                 no_collision(&project, &pending.root, directory, &name, same.then_some(doc.path.as_str()))?;
                 if !ui_kit::prompts::confirm_exact(
-                    "Create JPA entity?",
+                    if matches!(pending.operation, Operation::PersistenceClass) { "Create persistence class?" } else { "Create JPA entity?" },
                     &format!(
                         "Namespace: {namespace}.persistence\nTarget: {target}\nSource version: {}\n\n{source}\nOne host-managed undoable edit; no existing file is overwritten.",
                         doc.version
@@ -326,7 +671,7 @@ impl FileActions for JpaAssist {
                 current(&pending, doc)?;
                 no_collision(&project, &pending.root, directory, &name, same.then_some(doc.path.as_str()))?;
                 Ok(FileAction {
-                    title: format!("Create JPA entity {name}"),
+                    title: if matches!(pending.operation, Operation::PersistenceClass) { format!("Create persistence class {name}") } else { format!("Create JPA entity {name}") },
                     kind: Some("refactor.rewrite".into()),
                     operations: if same {
                         Vec::new()
@@ -365,9 +710,61 @@ impl FileActions for JpaAssist {
                 })
             }
             Operation::Inverse => self.resolve_inverse(&pending, doc, &project),
+            Operation::ValidationConstraint => validation_action::resolve(&pending, doc),
+            Operation::LombokAnnotations => resolve_lombok(&pending, doc),
             Operation::Dto => dto_action::resolve(&pending, doc, &project),
+            Operation::DtoClass => dto_action::resolve_class(&pending, doc, &project),
             Operation::Ddl => ddl_action::resolve(&pending, doc, &project),
             Operation::Rename => attribute_refactor::resolve(&pending,doc),
+            Operation::Identifier => identifier_action::resolve(&pending,doc),
+            Operation::EmbeddedIdentifier => embedded_id_action::resolve(&pending,doc),
+            Operation::ExtractSuperclass => extract_superclass::resolve(&pending, doc, &project),
+            Operation::DtoToClass => dto_convert_action::resolve_to_class(&pending, doc, &project),
+            Operation::DtoToRecord => dto_convert_action::resolve_to_record(&pending, doc, &project),
+            Operation::Datasource => datasource_action::resolve(&pending, doc, &project),
+            Operation::FlywayJavaMigration => flyway_misc_action::resolve_java_migration(&pending, doc, &project),
+            Operation::FlywaySqlCallback => flyway_misc_action::resolve_sql_callback(&pending, doc, &project),
+            Operation::FlywayJavaCallback => flyway_misc_action::resolve_java_callback(&pending, doc, &project),
+            Operation::EqualityMethods => equality_action::resolve_equals(&pending, doc, &project),
+            Operation::LazySafeToString => equality_action::resolve_to_string(&pending, doc),
+            Operation::DdlEntities => ddl_entities_action::resolve(&pending, doc, &project),
+            Operation::SchemaBaseline => migration_action::resolve_baseline(&pending, doc, &project),
+            Operation::FlywayMigration => migration_action::resolve_migration(&pending, doc, &project),
+            Operation::LiquibaseChangelog => liquibase_action::resolve(&pending, doc, &project),
+            Operation::EnversToggle => envers_action::resolve_toggle(&pending, doc, &project),
+            Operation::EnversRevision => envers_action::resolve_revision(&pending, doc, &project),
+            Operation::EntityGraph => entity_graph_action::resolve(&pending, doc, &project),
+            Operation::MapstructMapper => mapper_action::resolve(&pending, doc, &project),
+            Operation::AddMapping => mapper_more_action::resolve_add(&pending, doc, &project),
+            Operation::BaseMapper => mapper_more_action::resolve_base(&pending, doc, &project),
+            Operation::ExtendMapper => mapper_more_action::resolve_extend(&pending, doc, &project),
+            Operation::InjectMapper => mapper_more_action::resolve_inject(&pending, doc, &project),
+            Operation::ModelMapperConfig => modelmapper_action::resolve_config(&pending, doc, &project),
+            Operation::ModelMapperConversion => modelmapper_action::resolve_conversion(&pending, doc, &project),
+            Operation::BlazeEntityView => modelmapper_action::resolve_view(&pending, doc, &project),
+            Operation::AttributeConverter => converter_action::resolve(&pending, doc, &project),
+            Operation::HibernateUserType => hibernate_action::resolve_type_action(&pending, doc, &project),
+            Operation::HibernateJson => hibernate_action::resolve_json_action(&pending, doc, &project),
+            Operation::HibernateListener => hibernate_action::resolve_listener_action(&pending, doc, &project),
+            Operation::SpringRepository => repository_action::resolve(&pending, doc, &project),
+            Operation::QueryMethod => query_method_action::resolve(&pending, doc, &project),
+            Operation::QueryExtract => query_extract_action::resolve(&pending, doc, &project),
+            Operation::QueryEdit => query_edit_action::resolve(&pending, doc, &project),
+            Operation::QueryAsync => query_convert_action::resolve_async(&pending, doc),
+            Operation::QueryDynamicProjection => query_convert_action::resolve_dynamic(&pending, doc),
+            Operation::SpringProjection => projection_action::resolve(&pending, doc, &project),
+            Operation::NestedProjection => nested_dto_action::resolve(&pending, doc, &project),
+            Operation::FlatDto => nested_dto_action::resolve_flat(&pending, doc, &project),
+            Operation::IndexConstraint => index_query_action::resolve_index(&pending, doc),
+            Operation::NamedQuery => index_query_action::resolve_query(&pending, doc),
+            Operation::NameConstants => naming_action::resolve(&pending, doc, &project),
+            Operation::InjectRepository => injection_action::resolve(&pending, doc, &project),
+            Operation::AuditingFields => auditing_action::resolve_fields(&pending, doc, &project),
+            Operation::AuditingConfig => auditing_action::resolve_config(&pending, doc, &project),
+            Operation::SpringRepositories => self.resolve_repositories(&pending, doc, &project),
+            Operation::RevisionRepository => revision_repo_action::resolve_revision(&pending, doc, &project),
+            Operation::EnableEnversRepositories => revision_repo_action::resolve_enable(&pending, doc, &project),
+            Operation::EntityViewRepository => revision_repo_action::resolve_view(&pending, doc, &project),
         }
     }
 }
@@ -490,6 +887,99 @@ mod tests {
         for row in rows {
             host.answer_next_prompt(Some(row));
         }
+    }
+    #[test]
+    fn transient_source_names_are_not_reused_for_generated_attributes() {
+        let source = CUSTOMER.replace("    @Id Long id;", "    @Id Long id;\n    @Transient Long cached;");
+        let (host, mut plugin, doc) = setup("/project/src/main/java/shop/Customer.java", &source, "java");
+        let pending = action(&mut plugin, &doc, "Add JPA attribute");
+        answers(&host, &[&["cached"], &["transient"], &["Long"]]);
+        assert!(plugin.resolve_file_action(&doc, pending).is_err());
+        assert_eq!(host.editor_text(), source);
+    }
+    #[test]
+    fn value_collections_embedded_values_and_transient_fields_have_distinct_mappings() {
+        for (name, rows, expected, forbidden) in [
+            ("address", vec![vec!["address"],vec!["Embedded"],vec!["Address"],vec![]], "@Embedded", "cascade"),
+            ("labels", vec![vec!["labels"],vec!["ElementCollection"],vec!["String"],vec![],vec![]], "List<String> labels = new ArrayList<>()", "cascade"),
+            ("cached", vec![vec!["cached"],vec!["transient"],vec!["Long"],vec![]], "@Transient", "@Column"),
+        ] {
+            let (host, mut plugin, doc) = setup("/project/src/main/java/shop/Customer.java", CUSTOMER, "java");
+            let pending = action(&mut plugin, &doc, "Add JPA attribute");
+            for row in rows { host.answer_next_prompt(Some(&row)); }
+            let resolved = plugin.resolve_file_action(&doc, pending).unwrap();
+            let after = patched(&doc.text, &resolved.edits[0].1).unwrap();
+            assert!(after.contains(expected), "{name}: {after}");
+            assert!(!after.contains(forbidden), "{name}: {after}");
+            assert_eq!(host.editor_text(), CUSTOMER);
+        }
+    }
+    #[test]
+    fn embeddables_and_mapped_superclasses_allow_attributes_but_not_inverse_generation() {
+        for role in ["Embeddable", "MappedSuperclass"] {
+            let source = format!("package shop;\nimport jakarta.persistence.*;\n@{role}\nclass Address {{}}\n");
+            let (host, mut plugin, doc) = setup("/project/src/main/java/shop/Address.java", &source, "java");
+            assert!(plugin.file_actions(&doc, Range::default()).iter().all(|a| !a.title.starts_with("Add inverse")));
+            let pending = action(&mut plugin, &doc, "Add JPA attribute");
+            answers(&host, &[&["city"], &["none"], &["String"], &["notNull"], &[]]);
+            let result = plugin.resolve_file_action(&doc, pending).unwrap();
+            let after = patched(&doc.text, &result.edits[0].1).unwrap();
+            assert!(after.contains("@Column(nullable = false)") && after.contains("String city"), "{after}");
+            assert!(!after.contains("@Entity") && !after.contains("@Id"), "{after}");
+        }
+    }
+    #[test]
+    fn kotlin_value_collections_use_kotlin_scalar_element_names() {
+        let source = "package shop\nimport jakarta.persistence.Entity\nimport jakarta.persistence.Id\n@Entity\nclass Customer { @Id var id: Long? = null }\n";
+        let (host, mut plugin, doc) = setup("/project/src/main/kotlin/shop/Customer.kt", source, "kotlin");
+        let pending = action(&mut plugin, &doc, "Add JPA attribute");
+        answers(&host, &[&["values"], &["ElementCollection"], &["Integer"], &[], &[]]);
+        let result = plugin.resolve_file_action(&doc, pending).unwrap();
+        let after = patched(&doc.text, &result.edits[0].1).unwrap();
+        assert!(after.contains("MutableList<Int>") && after.contains("@ElementCollection"), "{after}");
+        assert!(!after.contains("MutableList<Integer>"));
+    }
+    #[test]
+    fn persistence_roles_create_java_and_kotlin_without_table_or_identifier() {
+        for (language, extension, role, expected) in [("java", "java", "embeddable", "@Embeddable"), ("kotlin", "kt", "mapped-superclass", "@MappedSuperclass")] {
+            let path = format!("/project/src/main/{language}/shop/Address.{extension}");
+            let (host, mut plugin, doc) = setup(&path, "", language);
+            let pending = action(&mut plugin, &doc, "Generate JPA embeddable");
+            answers(&host, &[&["jakarta"], &[role], &["Address"], &[]]);
+            let resolved = plugin.resolve_file_action(&doc, pending).unwrap();
+            assert!(resolved.operations.is_empty());
+            let source = &resolved.edits[0].1[0].text;
+            assert!(source.contains(expected), "{source}");
+            assert!(!source.contains("@Entity") && !source.contains("@Table") && !source.contains("@Id") && !source.contains("var id") && !source.contains("Long id"), "{source}");
+            assert_eq!(host.editor_text(), "");
+        }
+    }
+    #[test]
+    fn persistence_class_creation_cancellation_and_existing_targets_refuse() {
+        let (host, mut plugin, doc) = setup("/project/src/main/java/shop/Customer.java", CUSTOMER, "java");
+        let pending = action(&mut plugin, &doc, "Generate JPA embeddable");
+        host.answer_next_prompt(None);
+        assert!(matches!(plugin.resolve_file_action(&doc, pending), Err(Error::Cancelled)));
+        host.add_file("src/main/java/shop/Address.java", "class Address {}");
+        let pending = action(&mut plugin, &doc, "Generate JPA embeddable");
+        answers(&host, &[&["javax"], &["embeddable"], &["Address"]]);
+        assert!(plugin.resolve_file_action(&doc, pending).is_err());
+        assert_eq!(host.editor_text(), CUSTOMER);
+    }
+    #[test]
+    fn configured_entity_sibling_has_custom_identifier_and_non_overwriting_creation() {
+        let (host, mut plugin, doc) = setup("/project/src/main/java/shop/Customer.java", CUSTOMER, "java");
+        let pending = action(&mut plugin, &doc, "Generate JPA entity with identifier options");
+        answers(&host, &[&["javax"], &["Invoice"], &["invoices"], &["key"], &["invoice_id"], &["integer"], &["sequence"], &["invoiceIds"], &["invoice_seq"], &["5"], &["10"], &["version"], &[]]);
+        let resolved = plugin.resolve_file_action(&doc, pending).unwrap();
+        let [FileOperation::Create { path, text, overwrite }] = resolved.operations.as_slice() else { panic!("single sibling create") };
+        assert!(!overwrite);
+        assert_eq!(path, "/project/src/main/java/shop/Invoice.java");
+        assert!(text.contains("@javax.persistence.SequenceGenerator") && text.contains("sequenceName = \"invoice_seq\"") && text.contains("initialValue = 5, allocationSize = 10"), "{text}");
+        assert!(text.contains("java.lang.Integer key") && text.contains("@javax.persistence.Version"), "{text}");
+        assert!(resolved.edits.is_empty());
+        assert_eq!(host.editor_text(), CUSTOMER);
+        assert!(host.process_runs().is_empty());
     }
     #[test]
     fn empty_java_entity_is_previewed_host_edit_and_command_never_writes() {

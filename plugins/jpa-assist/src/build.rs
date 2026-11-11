@@ -4,14 +4,11 @@ use crate::model::Edit;
 
 pub const BUILD_FILES: &[&str] = &["build.gradle.kts", "build.gradle", "pom.xml"];
 
-#[cfg_attr(not(test), allow(dead_code))]
-const APPLIED: &[&str] = &["plugin.jpa", "kotlin-jpa", "kotlin.jpa", "kotlinJpa", "<plugin>jpa</plugin>"];
+pub(crate) const APPLIED: &[&str] = &["plugin.jpa", "kotlin-jpa", "kotlin.jpa", "kotlinJpa", "<plugin>jpa</plugin>"];
 
-#[cfg_attr(not(test), allow(dead_code))]
-const KOTLIN: &[&str] = &["kotlin(\"jvm\")", "org.jetbrains.kotlin.jvm", "kotlin-gradle-plugin", "kotlin-maven-plugin"];
+pub(crate) const KOTLIN: &[&str] = &["kotlin(\"jvm\")", "org.jetbrains.kotlin.jvm", "kotlin-gradle-plugin", "kotlin-maven-plugin"];
 
-#[cfg_attr(not(test), allow(dead_code))]
-const NOT_LITERAL: &[&str] = &[
+pub(crate) const NOT_LITERAL: &[&str] = &[
     "alias(",
     "buildSrc",
     "includeBuild",

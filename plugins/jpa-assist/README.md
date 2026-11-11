@@ -202,6 +202,7 @@ rules explicitly listed in the live section above run automatically now.
 | Lombok `@EqualsAndHashCode` on an entity | warning | |
 | `FetchType.EAGER` on any association | warning | Fetch lazily |
 | `@ManyToOne` / `@OneToOne` relying on the eager default | info | Fetch lazily (adds the `FetchType` import) |
+| Spec-derived rules over one closed source-owned class with only exact persistence annotations (`src/inspections_more.rs`, live): Java entity with constructors but no public/protected no-arg one (`jpa-no-arg-constructor`, error, `checkNoArgConstructor`); final method or final persistent field of a Java entity (`jpa-final-member`, `checkFinalMembers`; quick fix removes `final`); `@GeneratedValue` without `@Id` (`jpa-generated-value-without-id`, `checkGeneratedValueId`); strategy not fitting a known key type (`jpa-generated-value-type`, `checkGeneratedValueType`); `@Column(length)` on numeric/boolean (`jpa-column-length-type`, `checkColumnLength`); `@Column(precision/scale)` on String/boolean/char (`jpa-column-precision-type`, `checkColumnPrecision`); `@OneToMany` without mappedBy/`@JoinColumn`/`@JoinTable` (`jpa-unidirectional-one-to-many`, info, `checkUnidirectionalOneToMany`). Java and Kotlin except the first two (Java only) | warning | Remove final |
 | Direct attribute association/ID-kind conflicts or owned basic/collection relationship mismatch (`jpa-attribute-multiple-relations`, `jpa-relationship-type`, `jpa-multiple-id-kinds`) | warning | |
 | Current-source field/getter mapping placement mismatch without `@Access` (`jpa-mixed-access`) | info | Effective hierarchy/XML access unresolved |
 | Entity with property access (`@Id` on a getter, no mapping annotation on fields) whose annotated getter has no setter (`jpa-missing-setter`) | info | |
@@ -332,6 +333,10 @@ again after preview, but an owner can still change in the final read/apply gap.
 This is a remaining semantic freshness limit, not permission to overwrite an
 owner buffer. Desktop previews, application, dirty-buffer lifecycle and undo
 have not been exercised; native tests verify returned operations and guards.
+
+### Entity language (`entityLanguage`)
+
+`java` (default) and `kotlin` behave as before. `auto` is used only where no source file decides (New Entity without an editor, the Java/Kotlin picker for copied CREATE TABLE entities): the nearest module (pom.xml or build.gradle(.kts)) is read, and Kotlin is the default only when it is Kotlin (literal Kotlin Gradle/Maven plugin or `src/main/kotlin`) and has no `src/main/java`; mixed or unknown modules keep Java. Facts are cached for two minutes and dropped when a build file or `src/main/` path changes. Version catalogs, BOMs and parents are never treated as proof of absence.
 
 ## Limits
 
@@ -694,6 +699,16 @@ source-linked entity/field browsing and navigation are preserved. Persistence-un
 converter and effective ORM grouping, database/runtime mappings and native screenshot
 parity are not claimed. The packaged structure HTML bridge is no longer used.
 
+### Association advice and inspection severities
+
+New live rules in `src/inspections_more.rs`, each with a toggle, source-only on a closed class with exact persistence annotations (no inherited or XML mappings are resolved):
+
+- `jpa-many-to-many-list` (info, `checkManyToManyCollectionType`): `@ManyToMany` typed as `java.util.List` (Kotlin `List`/`MutableList`). Hibernate 6.6 User Guide 3.8.4 (the lifecycle example deletes every link row of the owner, then re-inserts the rest) and 29.4.2 ("For unidirectional collections, Sets are the best choice"). No quick fix: switching to `Set` also changes the initializer and call sites.
+- `jpa-many-to-many-cascade-remove` (warning, `checkManyToManyCascade`): `cascade` containing `REMOVE` or `ALL` on `@ManyToMany`; the guide (3.8.4) says it propagates beyond the link table and can end in a `ConstraintViolationException`. Only fully recognised `CascadeType` values are evaluated; `orphanRemoval` is never flagged. No quick fix.
+- The existing `jpa-eager-fetch` and `jpa-eager-to-one` rules now share the toggle `checkAssociationFetch` and cite guide 29.6.1 (EAGER is almost always a bad choice; a forgotten `JOIN FETCH` causes N+1; `@ManyToOne` and `@OneToOne` default to EAGER by Jakarta Persistence). Their "Fetch lazily" quick fix is unchanged.
+
+`inspectionSeverities` (Settings table, rows of rule code and `error|warning|info|hint|off`) is applied once, where live diagnostics are returned, to any code in the known-code registry (`KNOWN_CODES` in `src/live.rs`, mirrored by the settings enum). Unknown codes, unknown levels and malformed rows are ignored; with no rows, severities are the built-in defaults. A per-rule `check...` toggle set to off still disables its rule, whichever place turns it off. Quick fixes are keyed on the finding range and stay available on remapped findings. Not covered: codes of checks that are not live (published only by the event path), per-project severity profiles.
+
 ### Source identifier conflicts
 
 Live diagnostics now report an owned, closed Java entity that declares an
@@ -783,3 +798,112 @@ projections in a native table; Refresh Status and Cancel manage this owned child
 The supplied H2 fixtures qualify both pinned Hibernate versions; other databases
 remain unqualified. Read-only/rollback are requested and do not sandbox trusted
 project/driver/database code. See [adapter setup and limits](adapters/README.md).
+
+## Persistence Designer (unreleased, partial parity)
+
+**JPA: Inspect at Caret** opens the second tool window, **Persistence Designer**,
+using the shared UI kit. The existing native **Persistence** tree remains on the
+left. The Designer has Inspect, Create and Changes pages. Broader model creation,
+query/schema workflows remain on the [full parity plan](parity/PLAN.md).
+
+Create binds a verified empty Java/Kotlin editor under a conventional named
+`src/main` or `src/test` source package. Its path determines name/package/language.
+Choose Entity, Embeddable or Mapped superclass, Jakarta/javax, optional version,
+and an identifier where appropriate. Supported types are Long, Integer, Short,
+String, UUID and BigInteger; compatible assigned/identity/sequence/table/AUTO/UUID
+strategies are filtered by type and namespace. Sequence and table generators have
+explicit names, initial values and allocation sizes. Newly configured Kotlin entities
+and mapped superclasses use open classes/properties without requiring an all-open
+compiler plugin. Preview displays exact source;
+Apply rechecks editor version, current ownership and sibling type collisions.
+This workflow replaces only the bound empty editor. Existing FileActions provide
+reviewed sibling creation through **Generate JPA entity with identifier options**.
+
+**Add JPA identifier with preview** adds a configured ID to a closed plain entity
+or mapped superclass with no existing source ID. Inherited/generic/property-access
+or ambiguous contexts are withheld. These are source-generation choices; API
+version compatibility, provider configuration, external mappings and persistence
+unit generator-name uniqueness still require project validation. Javax generation
+never offers the Jakarta UUID strategy. Full composite ID creation and superclass
+selection remain open parity work.
+
+**Add embedded identifier with preview** selects an existing Java composite-key
+class for an eligible Java/Kotlin entity or mapped superclass with no source ID.
+Discovery is explicit and bounded to the same named package and conventional
+`src/main` or `src/test` source set, including its paired Java/Kotlin directories.
+Candidates must have the matching javax/Jakarta namespace, a public plain Java
+embeddable class, 2–16 directly declared supported scalar fields, Serializable,
+a public/protected no-argument constructor (or implicit public constructor), and
+declared equals/hashCode methods. Fully qualified or explicit canonical imports
+establish scalar/annotation spellings; ambiguous wildcard-only spellings, inheritance,
+generics, records, Kotlin keys and associations are withheld. A literal static
+serialVersionUID is permitted. Serializable is a conservative older-API-compatible
+restriction of this action, not a universal Jakarta Persistence 3.2 requirement.
+
+The picker uses qualified identities and rejects duplicate package declarations
+within this source-set scope and sources owned by another open project. Resolve
+reads current unsaved overlays and rechecks the selected key and invoking source
+after selection and preview. Only the invoking entity is edited, using a fully
+qualified key type and an exact source preview. Review the key's equality methods
+for database-consistent equality; method presence does not prove their behavior.
+The SDK cannot atomically guard a separate read-only key file during final host
+application. Classpath/module completeness, effective ORM mappings, native Undo
+and original-runtime parity remain unverified. The Designer Create form continues
+to offer scalar identifiers; broader key creation/picking is still open parity work.
+
+For supported plain Java scalar fields, edit literal Column name, nullable,
+unique, insertable, updatable, length, precision and scale values where applicable.
+Preview shows current/resulting source. Apply uses the current editor's expected
+version and one undoable edit; `editor.write` is optional and denied writes leave
+source unchanged. Unchanged arguments, comments, physical names and CRLF are
+preserved. The bridge binds requests to the project, displayed source/version
+and selected attribute; changing selection elsewhere cannot redirect a draft.
+
+This is source-local editing, not effective ORM resolution. Unknown expressions
+are read-only; inherited/generic/ambiguous contexts, associations and unsupported
+field shapes are withheld. String/numeric applicability requires proved source
+scalar spellings. Implicit or foreign lookalike types are not compiler-resolved.
+Kotlin declarations can be inspected within the existing source snapshot bounds;
+column editing is currently Java-only. No native desktop apply/Undo acceptance or
+original-runtime parity is claimed by browser/MockHost checks.
+
+Generated-source compiler checks run separately from the normal Rust suite:
+
+```sh
+JPA_JAKARTA_API=/path/jakarta.persistence-api-3.2.0.jar \
+JPA_JAVAX_API=/path/javax.persistence-api-2.2.jar \
+cargo test --manifest-path plugins/jpa-assist/Cargo.toml generated_java_compiles -- --ignored --nocapture
+```
+
+The Kotlin variant (`generated_kotlin_compiles`) also requires an explicit
+`KOTLIN_COMPILER_CLASSPATH` and `KOTLIN_STDLIB` jar. These checks compile supported
+generated source against pinned APIs; they do not certify provider mapping or
+native editor application. Bytecode inspection also checks no-argument constructors
+and non-final public classes/accessors for the configured entity/superclass output,
+following the [entity class requirements](https://jakarta.ee/specifications/persistence/3.2/jakarta-persistence-spec-3.2.html#the-entity-class).
+
+Editor intentions also create reviewed Java/Kotlin **Embeddable** and **Mapped
+Superclass** classes without an automatic table/identifier. Attribute generation
+now offers **Embedded value**, **Element collection** and **Transient attribute**;
+embeddables/mapped superclasses can receive attributes too. Collection/embedded
+forms do not offer inapplicable cascade options. Every generated source is
+previewed through the existing host-managed FileAction. Type/classpath and
+effective runtime mapping validation remain unresolved.
+
+The [parity ledger](parity/requirements.json) includes audited capabilities,
+inspection families and captured original registrations. It deliberately records
+no verified-parity completion from these limited checks. Run
+`python3 scripts/check-jpa-parity.py --release` from the repository root to enforce
+the full-parity release gate; it currently refuses release while gaps remain.
+
+## Lombok checks and defaults
+
+Java entities with strictly source-owned Lombok annotations (`lombok.<Name>` imports, no wildcard) get
+`jpa-lombok-to-string` (associations in `@ToString`/`@Data`, fix: `@ToString.Exclude`),
+`jpa-lombok-equals-field` (associations or a generated id in `@EqualsAndHashCode`/`@Data`, fix for
+associations: `@EqualsAndHashCode.Exclude`) and `jpa-lombok-constructors` (`@Builder` or
+`@AllArgsConstructor` without `@NoArgsConstructor`, fix adds it, plus `@AllArgsConstructor` for
+`@Builder`). Toggles: `jpaAssist.checkLombokToString`, `checkLombokEquality`, `checkLombokConstructors`.
+`Edit Lombok annotations…` previews an add/remove of the common class-level annotations.
+`lombok.config` is not read and Kotlin is not inspected. The `lombokEntityDefaults` setting (default
+off) makes the New Entity wizard emit `@Getter @Setter @NoArgsConstructor` instead of accessors.

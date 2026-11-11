@@ -55,6 +55,16 @@ impl State {
         }
         files.insert(path.into(), (Instant::now(), class));
     }
+    pub(crate) fn entities(&self, root: &str) -> Vec<&Class> {
+        let Some(files) = self.roots.get(root) else { return vec![] };
+        let mut all: Vec<&Class> = files.values().filter(|(at, _)| at.elapsed() < TTL).map(|(_, c)| c).collect();
+        all.sort_by(|a, b| a.name.cmp(&b.name));
+        let unique: Vec<&Class> = all.iter().copied().filter(|c| all.iter().filter(|o| o.name == c.name).count() == 1).collect();
+        unique
+    }
+    pub(crate) fn entity_by_name(&self, root: &str, name: &str) -> Option<&Class> {
+        self.entities(root).into_iter().find(|c| c.name == name)
+    }
     fn domain(&self, root: &str, fqcn: &str) -> Option<&Class> {
         let mut found = self
             .roots

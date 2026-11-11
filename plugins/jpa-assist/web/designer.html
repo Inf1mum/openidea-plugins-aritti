@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="./resources/tokens.css"><link rel="stylesheet" href="./resources/components.css">
+<link rel="stylesheet" href="./resources/property-grid.css"><link rel="stylesheet" href="./designer.css">
+<script defer src="./resources/native-icons.js"></script><script defer src="./resources/icons.js"></script>
+<script defer src="./resources/widgets.js"></script><script defer src="./resources/controls.js"></script>
+<script defer src="./resources/property-grid.js"></script><script defer src="./creator.js"></script><script defer src="./attribute.js"></script><script defer src="./relationship.js"></script><script defer src="./migration.js"></script><script defer src="./designer.js"></script>
+</head><body class="ui-embedded-panel">
+<div class="designer-shell">
+  <div class="ui-toolbar" role="toolbar" aria-label="Persistence inspection">
+    <button class="ui-button" id="inspect" type="button"><span data-ui-icon="locate" aria-hidden="true"></span>Inspect at Caret</button>
+    <button class="ui-button ui-button--quiet" id="reset" type="button" disabled>Reset</button>
+  </div>
+  <div class="ui-tabs" role="tablist" aria-label="Designer pages">
+    <button type="button" id="tab-inspect" role="tab" aria-controls="inspect-panel" aria-selected="true">Inspect</button>
+    <button type="button" id="tab-create" role="tab" aria-controls="create-panel" aria-selected="false" tabindex="-1">Create</button>
+    <button type="button" id="tab-changes" role="tab" aria-controls="changes-panel" aria-selected="false" tabindex="-1">Changes</button>
+    <button type="button" id="tab-migration" role="tab" aria-controls="migration-panel" aria-selected="false" tabindex="-1">Migration</button>
+  </div>
+  <main class="ui-scroll-area">
+    <section id="inspect-panel" role="tabpanel" aria-labelledby="tab-inspect">
+      <div class="ui-empty" id="empty"><p>Open a persistence source file, then inspect its current declaration.</p></div>
+      <div id="source" hidden>
+        <div class="source-caption"><strong id="class-name"></strong><span class="ui-badge" id="role"></span></div>
+        <p id="source-path" class="ui-help"></p>
+        <label class="ui-field" for="attribute">Attribute<select class="ui-select" id="attribute"></select></label>
+        <p id="inspection-note" class="ui-help"></p>
+        <form id="properties-form" novalidate><fieldset class="ui-property-grid" id="properties"><legend class="ui-visually-hidden">Column mapping</legend></fieldset></form>
+        <p class="ui-help" id="provenance"></p>
+        <div class="designer-actions"><button class="ui-button ui-button--primary" id="prepare" type="button" disabled>Preview Changes</button></div>
+        <form id="relationship-form" class="creator-form" hidden novalidate>
+          <fieldset id="relationship-fields" class="creator-fields creator-group"><legend>Relationship mapping</legend>
+            <label class="ui-field" id="rel-fetch-row">Fetch<select class="ui-select" id="rel-fetch"><option value="LAZY">Lazy</option><option value="EAGER">Eager</option></select></label>
+            <label class="ui-check" id="rel-orphan-row"><input type="checkbox" id="rel-orphan">Orphan removal</label>
+            <label class="ui-check" id="rel-optional-row"><input type="checkbox" id="rel-optional">Optional</label>
+            <fieldset class="creator-fields" id="rel-cascade"><legend>Cascade</legend>
+              <label class="ui-check"><input type="checkbox" value="ALL">All</label><label class="ui-check"><input type="checkbox" value="PERSIST">Persist</label><label class="ui-check"><input type="checkbox" value="MERGE">Merge</label><label class="ui-check"><input type="checkbox" value="REMOVE">Remove</label><label class="ui-check"><input type="checkbox" value="REFRESH">Refresh</label><label class="ui-check"><input type="checkbox" value="DETACH">Detach</label>
+            </fieldset>
+            <fieldset class="creator-fields" id="rel-join-column-row"><legend>Join column</legend>
+              <label class="ui-field">Column name<input class="ui-input" id="rel-join-column" maxlength="63" autocomplete="off"></label>
+              <label class="ui-check"><input type="checkbox" id="rel-join-column-notnull">Not null</label>
+            </fieldset>
+            <fieldset class="creator-fields" id="rel-join-table-row"><legend>Join table</legend>
+              <label class="ui-field">Table name<input class="ui-input" id="rel-join-table" maxlength="63" autocomplete="off"></label>
+              <label class="ui-field">Join column<input class="ui-input" id="rel-join-table-column" maxlength="63" autocomplete="off"></label>
+              <label class="ui-field">Inverse join column<input class="ui-input" id="rel-join-table-inverse" maxlength="63" autocomplete="off"></label>
+            </fieldset>
+            <label class="ui-field" id="rel-order-by-row">Order by<input class="ui-input" id="rel-order-by" maxlength="160" autocomplete="off" placeholder="name ASC, id DESC"></label>
+            <label class="ui-field" id="rel-order-column-row">Order column<input class="ui-input" id="rel-order-column" maxlength="63" autocomplete="off"></label>
+          </fieldset>
+          <p id="rel-note" class="ui-help"></p>
+          <p id="rel-validation" class="ui-help" role="status" aria-live="polite"></p>
+          <button class="ui-button ui-button--primary" id="prepare-relationship" type="button" disabled>Preview Relationship Changes</button>
+        </form>
+        <details id="add-attribute" class="creator-form"><summary>Add attribute</summary>
+          <form id="attribute-form" novalidate>
+            <fieldset id="attribute-configuration" class="creator-fields">
+              <legend class="ui-visually-hidden">New attribute</legend>
+              <label class="ui-field">Attribute name<input class="ui-input" id="attr-name" required maxlength="128" pattern="[A-Za-z_][A-Za-z0-9_$]*"></label>
+              <label class="ui-field">Kind<select class="ui-select" id="attr-kind"><option value="none">Basic</option><option value="ManyToOne">Many to one</option><option value="OneToMany">One to many</option><option value="OneToOne">One to one</option><option value="ManyToMany">Many to many</option><option value="Embedded">Embedded value</option><option value="ElementCollection">Element collection</option><option value="transient">Transient</option></select></label>
+              <label class="ui-field"><span id="attr-type-label">Type</span><input class="ui-input" id="attr-type" list="attr-types" required maxlength="128" pattern="[A-Za-z_][A-Za-z0-9_$]*" value="String"></label>
+              <datalist id="attr-types"><option value="String"><option value="Long"><option value="Integer"><option value="Boolean"><option value="BigDecimal"><option value="LocalDate"><option value="LocalDateTime"><option value="UUID"></datalist>
+              <label class="ui-check" id="attr-enum-row"><input type="checkbox" id="attr-enum">Enumeration (stored as string)</label>
+              <label class="ui-check" id="attr-notnull-row"><input type="checkbox" id="attr-notnull">Not null</label>
+              <label class="ui-check" id="attr-unique-row"><input type="checkbox" id="attr-unique">Unique</label>
+              <fieldset id="attr-relation-fields" class="creator-fields creator-group" hidden disabled><legend>Relationship</legend>
+                <fieldset class="creator-fields" id="attr-cascade"><legend>Cascade</legend>
+                  <label class="ui-check"><input type="checkbox" value="ALL">All</label><label class="ui-check"><input type="checkbox" value="PERSIST">Persist</label><label class="ui-check"><input type="checkbox" value="MERGE">Merge</label><label class="ui-check"><input type="checkbox" value="REMOVE">Remove</label><label class="ui-check"><input type="checkbox" value="REFRESH">Refresh</label><label class="ui-check"><input type="checkbox" value="DETACH">Detach</label>
+                </fieldset>
+                <label class="ui-field">Fetch<select class="ui-select" id="attr-fetch"><option value="">Default</option><option value="LAZY">Lazy</option><option value="EAGER">Eager</option></select></label>
+                <label class="ui-check" id="attr-orphan-row"><input type="checkbox" id="attr-orphan">Orphan removal</label>
+                <div id="attr-order-fields" class="creator-fields">
+                  <label class="ui-field">Ordering<select class="ui-select" id="attr-order"><option value="">None</option><option value="by">Order by property</option><option value="column">Order column</option></select></label>
+                  <label class="ui-field" id="attr-order-value-row">Ordering value<input class="ui-input" id="attr-order-value" maxlength="128" placeholder="name ASC, id DESC (empty for the default)"></label>
+                </div>
+                <div id="attr-join-fields" class="creator-fields">
+                  <label class="ui-field">Join column<input class="ui-input" id="attr-join-column" maxlength="63" pattern="[A-Za-z_][A-Za-z0-9_]*" placeholder="Provider default"></label>
+                  <label class="ui-check" id="attr-join-notnull-row"><input type="checkbox" id="attr-join-notnull">Join column not null</label>
+                </div>
+                <div id="attr-table-fields" class="creator-fields">
+                  <label class="ui-field">Join table<input class="ui-input" id="attr-table" maxlength="63" pattern="[A-Za-z_][A-Za-z0-9_]*" placeholder="Provider default"></label>
+                  <label class="ui-field">Table join column<input class="ui-input" id="attr-table-join" maxlength="63" pattern="[A-Za-z_][A-Za-z0-9_]*"></label>
+                  <label class="ui-field">Table inverse column<input class="ui-input" id="attr-table-inverse" maxlength="63" pattern="[A-Za-z_][A-Za-z0-9_]*"></label>
+                </div>
+              </fieldset>
+            </fieldset>
+            <p id="attr-validation" class="ui-help" role="status" aria-live="polite"></p>
+            <button class="ui-button ui-button--primary" id="prepare-attribute" type="button" disabled>Preview Attribute</button>
+          </form>
+        </details>
+      </div>
+    </section>
+    <section id="create-panel" role="tabpanel" aria-labelledby="tab-create" hidden>
+      <p class="ui-help">Create a persistence class in an empty Java or Kotlin editor. The source path determines its name, package and language.</p>
+      <button class="ui-button" id="bind-creation" type="button">Use Open File</button>
+      <p id="create-target" class="ui-help"></p>
+      <form id="create-form" class="creator-form" hidden>
+        <fieldset id="create-configuration" class="creator-fields">
+          <legend class="ui-visually-hidden">Persistence class configuration</legend>
+          <label class="ui-field">Class name<input class="ui-input" id="create-name" readonly></label>
+          <label class="ui-field">Package<input class="ui-input" id="create-package" readonly></label>
+          <label class="ui-field">Persistence role<select class="ui-select" id="create-role"><option value="entity">Entity</option><option value="embeddable">Embeddable</option><option value="mapped-superclass">Mapped superclass</option></select></label>
+          <label class="ui-field">Namespace<select class="ui-select" id="create-namespace"><option value="jakarta">Jakarta Persistence</option><option value="javax">Javax Persistence</option></select></label>
+          <label class="ui-field" id="create-table-row">Table name<input class="ui-input" id="create-table" required maxlength="128" pattern="[A-Za-z_][A-Za-z0-9_$]*"></label>
+          <label class="ui-check" id="create-declare-id-row" hidden><input type="checkbox" id="create-declare-id" checked>Declare an identifier</label>
+          <fieldset id="create-id-fields" class="creator-fields creator-group"><legend>Identifier</legend>
+            <label class="ui-field">Attribute name<input class="ui-input" id="create-id-name" value="id" required maxlength="128" pattern="[A-Za-z_][A-Za-z0-9_$]*"></label>
+            <label class="ui-field">Column name<input class="ui-input" id="create-id-column" value="id" maxlength="128" pattern="[A-Za-z_][A-Za-z0-9_$]*" placeholder="Default attribute name"></label>
+            <label class="ui-field">Identifier type<select class="ui-select" id="create-id-type"><option value="long">Long</option><option value="integer">Integer</option><option value="short">Short</option><option value="string">String</option><option value="uuid">UUID</option><option value="big-integer">BigInteger</option></select></label>
+            <label class="ui-field">Generation strategy<select class="ui-select" id="create-id-strategy"><option value="assigned">Assigned</option></select></label>
+            <p class="ui-help">The identifier column is mandatory. Available strategies depend on the selected type and namespace.</p>
+            <fieldset id="create-sequence-fields" class="creator-fields creator-group" hidden><legend>Sequence generator</legend>
+              <label class="ui-field">Generator name<input class="ui-input" id="create-sequence-generator" required maxlength="128" pattern="[A-Za-z_][A-Za-z0-9_$]*"></label>
+              <label class="ui-field">Sequence name<input class="ui-input" id="create-sequence-name" required maxlength="128" pattern="[A-Za-z_][A-Za-z0-9_$]*"></label>
+              <label class="ui-field">Initial value<input class="ui-input" id="create-sequence-initial" type="number" step="1" min="-2147483648" max="2147483647" value="1" required></label>
+              <label class="ui-field">Allocation size<input class="ui-input" id="create-sequence-allocation" type="number" step="1" min="1" max="2147483647" value="50" required></label>
+            </fieldset>
+            <fieldset id="create-generator-table-fields" class="creator-fields creator-group" hidden><legend>Table generator</legend>
+              <label class="ui-field">Generator name<input class="ui-input" id="create-table-generator" required maxlength="128" pattern="[A-Za-z_][A-Za-z0-9_$]*"></label>
+              <label class="ui-field">Generator table<input class="ui-input" id="create-generator-table" value="id_sequences" required maxlength="128" pattern="[A-Za-z_][A-Za-z0-9_$]*"></label>
+              <label class="ui-field">Key column<input class="ui-input" id="create-table-key-column" value="sequence_name" required maxlength="128" pattern="[A-Za-z_][A-Za-z0-9_$]*"></label>
+              <label class="ui-field">Value column<input class="ui-input" id="create-table-value-column" value="next_value" required maxlength="128" pattern="[A-Za-z_][A-Za-z0-9_$]*"></label>
+              <label class="ui-field">Key value<input class="ui-input" id="create-table-key-value" required maxlength="128" pattern="[A-Za-z_][A-Za-z0-9_$]*"></label>
+              <label class="ui-field">Initial value<input class="ui-input" id="create-table-initial" type="number" step="1" min="-2147483648" max="2147483647" value="0" required></label>
+              <label class="ui-field">Allocation size<input class="ui-input" id="create-table-allocation" type="number" step="1" min="1" max="2147483647" value="50" required></label>
+            </fieldset>
+          </fieldset>
+          <label class="ui-check" id="create-version-row"><input type="checkbox" id="create-version">Version field</label>
+          <label class="ui-field" id="create-inherit-row">Inheritance<select class="ui-select" id="create-inherit"><option value="none">None</option><option value="root">Hierarchy root</option><option value="subclass">Subclass</option></select></label>
+          <fieldset id="create-inherit-root-fields" class="creator-fields creator-group" hidden disabled><legend>Hierarchy root</legend>
+            <label class="ui-field">Strategy<select class="ui-select" id="create-inherit-strategy"><option value="single-table">Single table</option><option value="joined">Joined</option><option value="table-per-class">Table per class</option></select></label>
+            <div id="create-discriminator-fields" class="creator-fields">
+              <label class="ui-field">Discriminator column<input class="ui-input" id="create-discriminator-name" value="dtype" required maxlength="128" pattern="[A-Za-z_][A-Za-z0-9_$]*"></label>
+              <label class="ui-field">Discriminator type<select class="ui-select" id="create-discriminator-type"><option value="string">String</option><option value="char">Char</option><option value="integer">Integer</option></select></label>
+              <label class="ui-field" id="create-discriminator-length-row">Discriminator length<input class="ui-input" id="create-discriminator-length" type="number" min="0" max="255" value="31"></label>
+              <label class="ui-field">Root discriminator value<input class="ui-input" id="create-root-value" maxlength="64" pattern="[A-Za-z0-9_ \-]*" placeholder="Default entity name"></label>
+            </div>
+          </fieldset>
+          <fieldset id="create-inherit-sub-fields" class="creator-fields creator-group" hidden disabled><legend>Subclass</legend>
+            <label class="ui-field">Superclass<input class="ui-input" id="create-superclass" required maxlength="256" pattern="[A-Za-z_][A-Za-z0-9_$]*(\.[A-Za-z_][A-Za-z0-9_$]*)*"></label>
+            <label class="ui-field">Discriminator value<input class="ui-input" id="create-sub-value" maxlength="64" pattern="[A-Za-z0-9_ \-]*" placeholder="Default entity name"></label>
+            <label class="ui-field">Primary-key join column<input class="ui-input" id="create-pk-join" maxlength="128" pattern="[A-Za-z_][A-Za-z0-9_$]*" placeholder="Joined strategy only"></label>
+            <p class="ui-help">The table is optional: leave it empty for a single-table hierarchy. The identifier and version come from the root.</p>
+          </fieldset>
+        </fieldset>
+        <p class="ui-help">Review the generated source before replacing this empty editor. Ensure your project has the selected Persistence API and each generator name is unique in its persistence unit.</p>
+        <p id="create-validation" class="ui-help" role="status" aria-live="polite"></p>
+        <button class="ui-button ui-button--primary" id="prepare-class" type="button" disabled>Preview Class</button>
+      </form>
+    </section>
+    <section id="changes-panel" role="tabpanel" aria-labelledby="tab-changes" hidden>
+      <div class="ui-empty" id="no-changes"><p>No prepared changes. Edit a supported property, then preview the result.</p></div>
+      <div id="preview" hidden>
+        <p id="preview-path" class="ui-help"></p>
+        <details open><summary>Current source</summary><pre class="ui-code ui-scroll-area" id="before" tabindex="0"></pre></details>
+        <details open><summary>Resulting source</summary><pre class="ui-code ui-scroll-area" id="after" tabindex="0"></pre></details>
+        <div class="designer-actions"><button class="ui-button ui-button--primary" id="apply" type="button">Apply to Source</button><button class="ui-button" id="discard" type="button">Discard Changes</button></div>
+      </div>
+    </section>
+    <section id="migration-panel" role="tabpanel" aria-labelledby="tab-migration" hidden>
+      <div class="designer-actions"><button class="ui-button ui-button--primary" id="mig-plan" type="button">Compare with Baseline</button></div>
+      <div class="ui-empty" id="mig-empty"><p>Compare the current entity sources with the schema baseline to list what a migration would change. Nothing is written and no database is contacted.</p></div>
+      <div class="ui-empty" id="mig-nobaseline" hidden><p>No schema baseline exists yet. Run the file action "Create schema baseline…" from an entity first; the comparison needs it.</p></div>
+      <div id="mig-result" hidden>
+        <p id="mig-summary" class="ui-help" role="status" aria-live="polite"></p>
+        <ul id="mig-incomplete" class="ui-alert ui-alert--warning migration-list" hidden></ul>
+        <div id="mig-groups"></div>
+        <details id="mig-notes" hidden><summary>Facts that could not be compared</summary><ul id="mig-notes-list" class="migration-list"></ul></details>
+        <form id="mig-options" class="creator-form" novalidate>
+          <fieldset class="creator-fields creator-group"><legend>SQL options</legend>
+            <label class="ui-field">Dialect<select class="ui-select" id="mig-dialect"><option value="postgresql">PostgreSQL</option><option value="mysql">MySQL</option></select></label>
+            <fieldset class="creator-fields" id="mig-include"><legend>Also include withheld statements</legend>
+              <label class="ui-check"><input type="checkbox" value="needs-backfill">NeedsBackfill</label>
+              <label class="ui-check"><input type="checkbox" value="data-loss">DataLoss</label>
+            </fieldset>
+            <p class="ui-help" id="mig-rename-note" hidden>Renames are never assumed: without "Treat as rename" the literal drop and add are used.</p>
+            <label class="ui-field">Description<input class="ui-input" id="mig-description" maxlength="80" value="jpa_model_changes" autocomplete="off"></label>
+          </fieldset>
+          <button class="ui-button ui-button--primary" id="mig-generate" type="button" disabled>Preview SQL</button>
+        </form>
+        <div id="mig-sql-wrap" hidden>
+          <p id="mig-sql-state" class="ui-help" role="status" aria-live="polite"></p>
+          <pre class="ui-code ui-scroll-area" id="mig-sql" tabindex="0"></pre>
+          <div class="designer-actions"><button class="ui-button" id="mig-copy" type="button">Copy SQL</button></div>
+          <p id="mig-pointer" class="ui-help"></p>
+        </div>
+      </div>
+    </section>
+    <output id="status" role="status" aria-live="polite"></output>
+  </main>
+</div>
+</body></html>

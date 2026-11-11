@@ -1,5 +1,71 @@
 {
   "properties": {
+    "injectionStyle": {
+      "type": "string",
+      "title": "Style for Inject repository (constructor field plus parameter, @Autowired field, or Lombok @RequiredArgsConstructor; Lombok needs proof in the file imports or build files)",
+      "enum": ["constructor", "field-autowired", "lombok-required-args"],
+      "default": "constructor"
+    },
+    "mapperComponentModel": {
+      "type": "string",
+      "title": "Default MapStruct componentModel offered first by Create MapStruct mapper (default, spring or jakarta-cdi; default keeps the original order)",
+      "enum": ["default", "spring", "jakarta-cdi"],
+      "default": "default"
+    },
+    "mapperUnmappedTargetPolicy": {
+      "type": "string",
+      "title": "Default unmappedTargetPolicy for new mappers (MapStruct ReportingPolicy; WARN is the MapStruct default and is not written)",
+      "enum": ["IGNORE", "WARN", "ERROR"],
+      "default": "WARN"
+    },
+    "queryFindPrefix": {
+      "type": "string",
+      "title": "Subject prefix for generated find query methods (Spring Data query subject keywords find, read, get, query, search; count, exists and delete are unaffected)",
+      "enum": ["find", "get", "read", "query", "search"],
+      "default": "find"
+    },
+    "queryEqualityKeyword": {
+      "type": "string",
+      "title": "Equality keyword in generated query names (Spring Data: Is, Equals or no keyword)",
+      "enum": ["none", "Is", "Equals"],
+      "default": "none"
+    },
+    "queryNegationKeyword": {
+      "type": "string",
+      "title": "Negation keyword in generated query names (Not or IsNot)",
+      "enum": ["Not", "IsNot"],
+      "default": "Not"
+    },
+    "queryBooleanStyle": {
+      "type": "string",
+      "title": "Boolean condition keywords in generated query names (True/False or IsTrue/IsFalse)",
+      "enum": ["True", "IsTrue"],
+      "default": "True"
+    },
+    "queryNullKeyword": {
+      "type": "string",
+      "title": "Null check keyword in generated query names (IsNull or Null)",
+      "enum": ["IsNull", "Null"],
+      "default": "IsNull"
+    },
+    "queryContainsKeyword": {
+      "type": "string",
+      "title": "Containing keyword in generated query names (Containing or Contains)",
+      "enum": ["Containing", "Contains"],
+      "default": "Containing"
+    },
+    "queryIgnoreCaseKeyword": {
+      "type": "string",
+      "title": "Case-insensitive modifier in generated query names (IgnoreCase or IgnoringCase)",
+      "enum": ["IgnoreCase", "IgnoringCase"],
+      "default": "IgnoreCase"
+    },
+    "queryDateKeywords": {
+      "type": "string",
+      "title": "Comparison keywords for date and time attributes in generated query names (GreaterThan/LessThan or After/Before)",
+      "enum": ["GreaterThanLessThan", "AfterBefore"],
+      "default": "GreaterThanLessThan"
+    },
     "jpaAssist.jpqlMutationPreview": {
       "type": "boolean",
       "title": "Allow JPQL UPDATE/DELETE row-count preview in the console (offline H2 only; the statement is never executed)",
@@ -13,9 +79,47 @@
     },
     "entityLanguage": {
       "type": "string",
-      "title": "Language for entities copied from CREATE TABLE",
-      "enum": ["java", "kotlin"],
+      "title": "Language for entities copied from CREATE TABLE or created without a source file (auto: Kotlin only when the module is Kotlin-only, else Java)",
+      "enum": ["java", "kotlin", "auto"],
       "default": "java"
+    },
+    "jpaAssist.identifierPolicy": {
+      "type": "string",
+      "title": "Identifier case in generated SQL drafts (names are always quoted)",
+      "enum": ["as-written", "lowercase", "uppercase"],
+      "default": "as-written"
+    },
+    "jpaAssist.tableNameCase": {
+      "type": "string",
+      "title": "Default table name case for new entities, name constants and SQL drafts",
+      "enum": ["snake_case", "upper_snake_case", "lowercase", "uppercase"],
+      "default": "snake_case"
+    },
+    "jpaAssist.tableNamePrefix": {
+      "type": "string",
+      "title": "Table name prefix (letters, digits, underscore; at most 32)",
+      "default": ""
+    },
+    "jpaAssist.tableNameSuffix": {
+      "type": "string",
+      "title": "Table name suffix (letters, digits, underscore; at most 32)",
+      "default": ""
+    },
+    "jpaAssist.columnNameCase": {
+      "type": "string",
+      "title": "Default column name case for name constants and SQL drafts",
+      "enum": ["snake_case", "upper_snake_case", "lowercase", "uppercase"],
+      "default": "snake_case"
+    },
+    "jpaAssist.columnNamePrefix": {
+      "type": "string",
+      "title": "Column name prefix (letters, digits, underscore; at most 32)",
+      "default": ""
+    },
+    "jpaAssist.columnNameSuffix": {
+      "type": "string",
+      "title": "Column name suffix (letters, digits, underscore; at most 32)",
+      "default": ""
     },
     "jpaAssist.checkEntityId": {
       "type": "boolean",
@@ -71,6 +175,106 @@
       "type": "boolean",
       "title": "Warn about lifecycle callbacks with the wrong parameters or return type",
       "default": true
+    },
+    "jpaAssist.checkLombokEquality": {
+      "type": "boolean",
+      "title": "Warn when Lombok @Data or @EqualsAndHashCode includes associations or a generated id in equals and hashCode",
+      "default": true
+    },
+    "jpaAssist.checkLombokToString": {
+      "type": "boolean",
+      "title": "Warn when Lombok @Data or @ToString includes associations (lazy loading or recursion) in toString",
+      "default": true
+    },
+    "jpaAssist.checkLombokConstructors": {
+      "type": "boolean",
+      "title": "Warn when Lombok @Builder or @AllArgsConstructor leaves an entity without a no-arg constructor",
+      "default": true
+    },
+    "jpaAssist.checkNoArgConstructor": {
+      "type": "boolean",
+      "title": "Error about Java entities that declare constructors but none public or protected without parameters",
+      "default": true
+    },
+    "jpaAssist.checkFinalMembers": {
+      "type": "boolean",
+      "title": "Warn about final methods and final persistent fields in Java entities",
+      "default": true
+    },
+    "jpaAssist.checkGeneratedValueId": {
+      "type": "boolean",
+      "title": "Warn about @GeneratedValue on an attribute without @Id",
+      "default": true
+    },
+    "jpaAssist.checkGeneratedValueType": {
+      "type": "boolean",
+      "title": "Warn about @GeneratedValue strategies that do not fit the identifier type (IDENTITY, SEQUENCE and TABLE need long or int, UUID needs UUID or String)",
+      "default": true
+    },
+    "jpaAssist.checkColumnLength": {
+      "type": "boolean",
+      "title": "Warn about @Column(length) on numeric and boolean attributes",
+      "default": true
+    },
+    "jpaAssist.checkColumnPrecision": {
+      "type": "boolean",
+      "title": "Warn about @Column(precision) and @Column(scale) on String, boolean and char attributes",
+      "default": true
+    },
+    "jpaAssist.checkUnidirectionalOneToMany": {
+      "type": "boolean",
+      "title": "Note unidirectional @OneToMany associations that use a link table",
+      "default": true
+    },
+    "jpaAssist.checkAssociationFetch": {
+      "type": "boolean",
+      "title": "Advise lazy fetching: explicit EAGER on any association and the EAGER default of @ManyToOne and @OneToOne (Hibernate User Guide 29.6.1)",
+      "default": true
+    },
+    "jpaAssist.checkManyToManyCollectionType": {
+      "type": "boolean",
+      "title": "Suggest a Set instead of a List for @ManyToMany (Hibernate User Guide 29.4.2)",
+      "default": true
+    },
+    "jpaAssist.checkManyToManyCascade": {
+      "type": "boolean",
+      "title": "Warn about cascade REMOVE or ALL on @ManyToMany (Hibernate User Guide 3.8.4)",
+      "default": true
+    },
+    "jpaAssist.inspectionSeverities": {
+      "type": "array",
+      "title": "Inspection severities: remap the level of a rule code, or turn it off (a per-rule check toggle set to off also disables the rule)",
+      "items": {
+        "type": "object",
+        "properties": {
+          "code": {"type": "string", "title": "Rule code", "default": "attribute-type", "enum": ["attribute-type", "jpa-attribute-multiple-relations", "jpa-callback-modifiers", "jpa-column-length-type", "jpa-column-precision-type", "jpa-data-class", "jpa-duplicate-embedded-id", "jpa-duplicate-lifecycle-event", "jpa-duplicate-version", "jpa-eager-fetch", "jpa-eager-to-one", "jpa-embeddable-identifier", "jpa-entity-multiple-roles", "jpa-entity-nested", "jpa-entity-not-a-class", "jpa-final-entity", "jpa-final-member", "jpa-generated-value-type", "jpa-generated-value-without-id", "jpa-immutable-collection", "jpa-kotlin-plugin-missing", "jpa-listener-constructor", "jpa-listener-without-callbacks", "jpa-lombok-constructors", "jpa-lombok-data", "jpa-lombok-equals", "jpa-lombok-equals-field", "jpa-lombok-to-string", "jpa-many-to-many-cascade-remove", "jpa-many-to-many-list", "jpa-missing-setter", "jpa-mixed-access", "jpa-multiple-id-kinds", "jpa-no-arg-constructor", "jpa-redundant-constructor", "jpa-redundant-open", "jpa-relationship-target", "jpa-relationship-type", "jpa-repository-id", "jpa-source-identifier-absent", "jpa-source-repository-id", "jpa-unidirectional-one-to-many", "jpa-unknown-attribute-override", "jpa-unknown-entity-graph", "jpa-unknown-entity-graph-node", "jpa-unknown-entity-graph-path", "jpa-unknown-map-key", "jpa-unknown-maps-id", "jpa-unknown-named-query", "jpa-unknown-query-parameter", "jpa-val-attribute", "jpa-xml-class", "jpa-xml-class-duplicate", "jpa-xml-class-not-persistent", "jpa-xml-class-unknown", "jpa-xml-property", "jpa-xml-provider", "jpa-xml-unit-name", "jpa-xml-value"]},
+          "severity": {"type": "string", "title": "Severity", "enum": ["error", "warning", "info", "hint", "off"], "default": "warning"}
+        }
+      },
+      "default": []
+    },
+    "sqlImportIdGeneration": {
+      "type": "string",
+      "title": "SQL import: @GeneratedValue for database-generated keys (identity, sequence without a named generator and refused for MySQL, auto, or none)",
+      "enum": ["identity", "sequence", "auto", "none"],
+      "default": "identity"
+    },
+    "sqlImportFetch": {
+      "type": "string",
+      "title": "SQL import: fetch of generated @ManyToOne (lazy writes FetchType.LAZY; default leaves the JPA default, EAGER)",
+      "enum": ["lazy", "default"],
+      "default": "lazy"
+    },
+    "sqlImportOptional": {
+      "type": "string",
+      "title": "SQL import: nullable = false on generated @JoinColumn for NOT NULL foreign keys (nullability) or never",
+      "enum": ["nullability", "never"],
+      "default": "nullability"
+    },
+    "lombokEntityDefaults": {
+      "type": "boolean",
+      "title": "Java entities created by the New Entity wizard use Lombok @Getter, @Setter and @NoArgsConstructor instead of generated accessors (the project must have Lombok)",
+      "default": false
     }
   }
 }

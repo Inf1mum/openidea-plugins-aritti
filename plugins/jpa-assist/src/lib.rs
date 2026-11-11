@@ -13,10 +13,14 @@
 
 mod attribute_info;
 mod build;
+mod datasource_facts;
+mod designer;
+mod creation;
 mod checks;
 mod file_actions;
 mod generate;
 mod live;
+mod lombok_checks;
 mod local_graph;
 mod local_callbacks;
 mod local_versions;
@@ -29,10 +33,16 @@ mod local_repository;
 mod jpql_language;
 mod source_diagram;
 mod query_console;
+mod inspections_more;
 mod local_listener;
 mod model;
+mod naming_strategy;
+mod project_facts;
 mod queries;
+mod relationship_edit;
 mod repository_completion;
+mod schema_snapshot;
+mod structure_related;
 mod wizard;
 mod xml;
 mod xml_context;
@@ -66,7 +76,8 @@ use openidea_plugin::{
     Severity, TextEdit, register_plugin,
 };
 use queries::{Prop, parse_repository};
-use wizard::{AttributeSpec, EntitySpec, attribute_edits, entity_source, inverse_spec};
+use structure_related::{ARTIFACT_PREFIX, GROUP_PREFIX, Membership, Related, UNIT_PREFIX, Unit};
+use wizard::{AttributeSpec, EntitySpec, JoinTable, RelationOptions, attribute_edits, entity_source, inverse_spec};
 use xml::Lookup;
 
 /// Time one provider call may spend reading repositories.
@@ -74,6 +85,9 @@ const REPOSITORY_BUDGET: Duration = Duration::from_millis(30);
 
 /// Source files listed per pattern.
 const MAX_SOURCES: u32 = 50_000;
+
+/// Repository files the Persistence tree reads per render; the rest wait for the next refresh.
+const MAX_TREE_REPOSITORY_FILES: usize = 500;
 
 fn setting(name: &str) -> bool {
     host::setting_bool(&format!("jpaAssist.{name}")).unwrap_or(true)
@@ -151,8 +165,12 @@ fn effective_dialect(ctx: &Invocation) -> Result<Option<Dialect>, Error> {
 }
 
 fn choose_entity_language() -> Result<Option<bool>, Error> {
+    choose_entity_language_for(host::setting_string("entityLanguage").as_deref() == Some("kotlin"))
+}
+
+fn choose_entity_language_for(kotlin_first: bool) -> Result<Option<bool>, Error> {
     let mut items = vec![PickItem::new("java", "Java"), PickItem::new("kotlin", "Kotlin")];
-    if host::setting_string("entityLanguage").as_deref() == Some("kotlin") {
+    if kotlin_first {
         items.reverse();
     }
     items[0].description = Some("default".into());
@@ -205,6 +223,10 @@ fn ask_basic_type() -> Result<Option<(String, bool)>, Error> {
 }
 
 fn prompt_entity(path: Option<&str>, namespace: &str) -> Result<Option<(String, String)>, Error> {
+    prompt_entity_with(path, namespace, None)
+}
+
+fn prompt_entity_with(path: Option<&str>, namespace: &str, fallback_kotlin: Option<bool>) -> Result<Option<(String, String)>, Error> {
     let Some(name) = ask_identifier("Entity class name")? else {
         return Ok(None);
     };
@@ -212,7 +234,7 @@ fn prompt_entity(path: Option<&str>, namespace: &str) -> Result<Option<(String, 
     if !file_actions::identifier(&name) {
         return Err("Choose a Java/Kotlin class identifier without keywords or path separators.".into());
     }
-    let Some(table) = host::input("Table name", Some(&snake_case(&name)))? else {
+    let Some(table) = host::input("Table name", Some(&file_actions::naming_table_name(&name)))? else {
         return Ok(None);
     };
 
@@ -234,13 +256,16 @@ fn prompt_entity(path: Option<&str>, namespace: &str) -> Result<Option<(String, 
         return Ok(None);
     };
 
-    let kotlin = path.and_then(language_of).unwrap_or_else(|| host::setting_string("entityLanguage").as_deref() == Some("kotlin"));
+    let kotlin = path.and_then(language_of)
+        .or(fallback_kotlin)
+        .unwrap_or_else(|| host::setting_string("entityLanguage").as_deref() == Some("kotlin"));
     let table = table.trim();
     if table.len() > 128 || (!table.is_empty() && !table.split('.').all(file_actions::identifier)) {
         return Err("Use a literal table identifier (optionally schema-qualified), without quotes or control characters.".into());
     }
-    let source = entity_source(&EntitySpec {
-        table: if table.is_empty() { snake_case(&name) } else { table.to_owned() },
+    let source = wizard::entity_source_with(&EntitySpec {
+        role: persistence_core::PersistenceRole::Entity,
+        table: if table.is_empty() { file_actions::naming_table_name(&name) } else { table.to_owned() },
         package: path.and_then(package_of),
         kotlin,
         id,
@@ -248,7 +273,7 @@ fn prompt_entity(path: Option<&str>, namespace: &str) -> Result<Option<(String, 
         version: extras.iter().any(|e| e == "version"),
         equals: extras.iter().any(|e| e == "equals"),
         name: name.clone(),
-    });
+    }, host::setting_bool("lombokEntityDefaults").unwrap_or(false));
 
     let source = if namespace == "javax" { source.replace("jakarta.persistence.", "javax.persistence.") } else { source };
     Ok(Some((name, source)))
@@ -256,7 +281,7 @@ fn prompt_entity(path: Option<&str>, namespace: &str) -> Result<Option<(String, 
 
 fn new_entity(ctx: &Invocation) -> Result<Option<String>, Error> {
     let path = ctx.editor().map(|editor| editor.path());
-    if let Some((name, source)) = prompt_entity(path.as_deref(), "jakarta")? {
+    if let Some((name, source)) = prompt_entity_with(path.as_deref(), "jakarta", Some(project_facts::kotlin_default(ctx)))? {
         copied(source, &name)?;
         host::notify(
             NotificationLevel::Info,
@@ -269,7 +294,7 @@ fn new_entity(ctx: &Invocation) -> Result<Option<String>, Error> {
 
 fn prompt_attribute(doc: &Document) -> Result<Option<Vec<TextEdit>>, Error> {
     let path = &doc.path;
-    let entity = |text: &str| parse_class(text, &path).filter(|c| c.kind == Kind::Entity).ok_or("The open file isn't a JPA entity.");
+    let entity = |text: &str| parse_class(text, &path).ok_or("The open file isn't a persistence class.");
     entity(&doc.text)?;
 
     let Some(name) = ask_identifier("Attribute name")? else {
@@ -283,6 +308,9 @@ fn prompt_attribute(doc: &Document) -> Result<Option<Vec<TextEdit>>, Error> {
         ("OneToMany", "OneToMany"),
         ("OneToOne", "OneToOne"),
         ("ManyToMany", "ManyToMany"),
+        ("Embedded", "Embedded value"),
+        ("ElementCollection", "Element collection"),
+        ("transient", "Transient attribute"),
     ];
     let items: Vec<PickItem> = relations.iter().map(|(k, l)| PickItem::new(k, l)).collect();
     let Some(kind) = choose("Association", &items)? else {
@@ -293,58 +321,173 @@ fn prompt_attribute(doc: &Document) -> Result<Option<Vec<TextEdit>>, Error> {
         "OneToMany" => Relation::OneToMany,
         "OneToOne" => Relation::OneToOne,
         "ManyToMany" => Relation::ManyToMany,
+        "Embedded" => Relation::Embedded,
+        "ElementCollection" => Relation::ElementCollection,
         _ => Relation::None,
     };
 
-    let (ty, enumerated) = if relation == Relation::None {
+    let (ty, enumerated) = if relation == Relation::None || relation == Relation::ElementCollection {
         let Some(chosen) = ask_basic_type()? else {
             return Ok(None);
         };
         chosen
     } else {
-        let Some(target) = ask_identifier("Target entity")? else {
+        let Some(target) = ask_identifier(if relation == Relation::Embedded { "Embeddable type" } else { "Target entity" })? else {
             return Ok(None);
         };
         (capitalize(&target), false)
     };
 
-    let mut options = vec![PickItem::new("cascade", "Cascade all")];
-    if !relation.to_many() {
+    let transient = kind == "transient";
+    let mut options = Vec::new();
+    let association = matches!(relation, Relation::ManyToOne | Relation::OneToOne | Relation::OneToMany | Relation::ManyToMany) && !transient;
+    if association {
+        options.extend([
+            PickItem::new("cascade", "Cascade all"),
+            PickItem::new("cascadePersist", "Cascade PERSIST"),
+            PickItem::new("cascadeMerge", "Cascade MERGE"),
+            PickItem::new("cascadeRemove", "Cascade REMOVE"),
+            PickItem::new("cascadeRefresh", "Cascade REFRESH"),
+            PickItem::new("cascadeDetach", "Cascade DETACH"),
+            PickItem::new("fetchLazy", "Fetch LAZY"),
+            PickItem::new("fetchEager", "Fetch EAGER"),
+        ]);
+        if matches!(relation, Relation::OneToOne | Relation::OneToMany) {
+            options.push(PickItem::new("orphanRemoval", "Orphan removal"));
+        }
+        if matches!(relation, Relation::OneToMany | Relation::ManyToMany) {
+            options.extend([PickItem::new("orderBy", "Order by property"), PickItem::new("orderColumn", "Order column")]);
+        }
+        if relation.to_one() {
+            options.extend([PickItem::new("joinColumn", "Join column"), PickItem::new("joinColumnNotNull", "Join column not null")]);
+        }
+        if relation == Relation::ManyToMany {
+            options.push(PickItem::new("joinTable", "Join table"));
+        }
+    }
+    if !relation.to_many() && relation != Relation::Embedded && !transient {
         options.insert(0, PickItem::new("notNull", "Not null"));
     }
-    if relation == Relation::None {
-        options.remove(options.len() - 1);
+    if relation == Relation::None && !transient {
         options.push(PickItem::new("unique", "Unique"));
-    } else {
+    } else if association {
         let label = if relation.to_one() { "Lazy fetch" } else { "Eager fetch" };
         options.push(PickItem::new("fetch", label));
     }
-    let Some(chosen) = choose_many("Options", &options)? else {
+    let Some(chosen) = (if options.is_empty() { Some(Vec::new()) } else { choose_many("Options", &options)? }) else {
         return Ok(None);
     };
     let has = |key: &str| chosen.iter().any(|c| c == key);
 
-    let class = entity(&doc.text)?;
-    if class.attributes.iter().any(|a| a.name == name) {
-        return Err(format!("{} already has an attribute named {name}.", class.name).into());
-    }
+    let Some(relation_options) = relation_options(&chosen, relation)? else {
+        return Ok(None);
+    };
+    relation_options.validate(relation, transient, false).map_err(Error::from)?;
 
     let spec = AttributeSpec {
-        name: name.clone(),
+        name,
+        transient,
         ty,
         relation,
         enumerated,
         not_null: has("notNull"),
         unique: has("unique"),
-        cascade: has("cascade"),
-        fetch: has("fetch"),
+        options: relation_options,
         mapped_by: None,
         imports: Vec::new(),
     };
-    let edits = attribute_edits(&class, &doc.text, &mask(&doc.text), &spec).ok_or("The class has no body to add an attribute to.")?;
-    let edits: Vec<TextEdit> = edits.iter().map(|e| e.to_text_edit(&doc.text)).collect();
 
-    Ok(Some(edits))
+    Ok(Some(attribute_text_edits(doc, &spec)?))
+}
+
+/// Validates `spec` against the current source and renders it; shared by the prompt flow and the Designer.
+pub(crate) fn attribute_text_edits(doc: &Document, spec: &AttributeSpec) -> Result<Vec<TextEdit>, Error> {
+    let class = parse_class(&doc.text, &doc.path).ok_or("The open file isn't a persistence class.")?;
+    spec.options.validate(spec.relation, spec.transient, spec.mapped_by.is_some()).map_err(Error::from)?;
+    let name = &spec.name;
+    if class.attributes.iter().any(|a| &a.name == name) {
+        return Err(format!("{} already has an attribute named {name}.", class.name).into());
+    }
+    let masked = mask(&doc.text);
+    let from = offset(&doc.text, class.pos).ok_or(Error::Stale)?;
+    let to = class.body_end.ok_or(Error::Stale)?;
+    if has_word(&masked[from..to], name) {
+        return Err("This identifier already appears in the source class. Choose another name or edit the declaration manually.".into());
+    }
+
+    let edits = attribute_edits(&class, &doc.text, &masked, spec).ok_or("The class has no body to add an attribute to.")?;
+    Ok(edits.iter().map(|e| e.to_text_edit(&doc.text)).collect())
+}
+
+fn relation_options(chosen: &[String], relation: Relation) -> Result<Option<RelationOptions>, Error> {
+    let has = |key: &str| chosen.iter().any(|c| c == key);
+    let mut options = RelationOptions::default();
+    for (key, kind) in [
+        ("cascade", "ALL"),
+        ("cascadePersist", "PERSIST"),
+        ("cascadeMerge", "MERGE"),
+        ("cascadeRemove", "REMOVE"),
+        ("cascadeRefresh", "REFRESH"),
+        ("cascadeDetach", "DETACH"),
+    ] {
+        if has(key) {
+            options.cascade.push(kind.to_owned());
+        }
+    }
+
+    let fetches: Vec<&str> = [
+        has("fetch").then_some(if relation.to_one() { "LAZY" } else { "EAGER" }),
+        has("fetchLazy").then_some("LAZY"),
+        has("fetchEager").then_some("EAGER"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    if fetches.len() > 1 {
+        return Err("Choose only one fetch type.".into());
+    }
+    options.fetch = fetches.first().map(|f| (*f).to_owned());
+    options.orphan_removal = has("orphanRemoval");
+    options.join_column_not_null = has("joinColumnNotNull");
+
+    let ask = |title: &str, required: bool| -> Result<Option<String>, Error> {
+        let Some(answer) = host::input(title, None)? else {
+            return Ok(None);
+        };
+        let answer = answer.trim().to_owned();
+        if required && answer.is_empty() {
+            return Err(format!("{title} is required.").into());
+        }
+        Ok(Some(answer))
+    };
+    if has("orderBy") {
+        let Some(value) = ask("Order by (for example name ASC, id DESC; empty orders by primary key)", false)? else {
+            return Ok(None);
+        };
+        options.order_by = Some(value);
+    }
+    if has("orderColumn") {
+        let Some(value) = ask("Order column name (empty for the default)", false)? else {
+            return Ok(None);
+        };
+        options.order_column = Some(value);
+    }
+    if has("joinColumn") || has("joinColumnNotNull") {
+        let Some(value) = ask("Join column name", true)? else {
+            return Ok(None);
+        };
+        options.join_column = Some(value);
+    }
+    if has("joinTable") {
+        let (Some(name), Some(join_column), Some(inverse_column)) =
+            (ask("Join table name", true)?, ask("Join column name (this entity)", true)?, ask("Inverse join column name (target entity)", true)?)
+        else {
+            return Ok(None);
+        };
+        options.join_table = Some(JoinTable { name, join_column, inverse_column });
+    }
+
+    Ok(Some(options))
 }
 
 fn entities_count(n: usize) -> String {
@@ -380,7 +523,13 @@ fn owned_entity_source(doc: &Document) -> Option<Class> {
 
 fn owned_entity_quickfixes(doc: &Document) -> Vec<Finding> {
     let Some(class)=owned_entity_source(doc) else {return vec![];};
-    checks::inspect_entity_owned(&doc.text,class.kotlin,&class)
+    let mut found=checks::inspect_entity_owned(&doc.text,class.kotlin,&class);
+    found.extend(lombok_checks::findings(&doc.text,&class,setting("checkLombokEquality"),setting("checkLombokToString"),setting("checkLombokConstructors")));
+    found.extend(inspections_more::findings(doc));
+    if !setting("checkAssociationFetch") {
+        found.retain(|f| !matches!(f.code, "jpa-eager-fetch" | "jpa-eager-to-one"));
+    }
+    found
 }
 fn owned_callback_source(doc: &Document) -> Option<(Class, &'static str)> {
     let class=owned_entity_source(doc)?;
@@ -406,6 +555,7 @@ fn owned_callback_source(doc: &Document) -> Option<(Class, &'static str)> {
 
 #[derive(Default)]
 pub struct JpaAssist {
+    designer: designer::State,
     generation: file_actions::Generation,
     diagram: source_diagram::State,
     console: query_console::Console,
@@ -426,6 +576,12 @@ pub struct JpaAssist {
     locations: HashMap<String, (String, Position)>,
     /// Expanded entities of the structure tree.
     expanded: HashSet<String>,
+    /// Simple names shared by several scanned JPA classes; only one of them is kept in `classes`.
+    duplicate_names: HashSet<String>,
+    /// `persistence.xml` units of the structure root; `None` until read.
+    units: Option<Vec<Unit>>,
+    /// Unit groups already expanded once by default.
+    seeded_groups: HashSet<String>,
     /// Names of `@NamedQuery` and friends across the project; `None` once computed means an XML mapping or a non-literal name hides some.
     named_queries: Option<Option<Declared>>,
     /// Build files around a Kotlin entity, by the entity's path; cleared when a build file is saved.
@@ -496,6 +652,29 @@ impl JpaAssist {
         let mut found = index.by_entity.get(entity).cloned().unwrap_or_default();
         found.sort_by(|a, b| a.1.path.cmp(&b.1.path));
         found
+    }
+
+    /// Repository facts for the Persistence tree: reads a bounded number of unread files, then reports whether every repository file was read.
+    fn repository_facts(&mut self, project: &Project) -> (HashMap<String, Vec<(String, Location)>>, bool) {
+        let index = self.repositories.entry(project.root().unwrap_or_default()).or_default();
+
+        if !index.listed {
+            index.listed = true;
+            for pattern in ["**/*Repository.java", "**/*Repository.kt"] {
+                index.unread.extend(project.find_files(pattern, MAX_SOURCES).unwrap_or_default());
+            }
+        }
+
+        for _ in 0..MAX_TREE_REPOSITORY_FILES {
+            let Some(path) = index.unread.pop() else {
+                break;
+            };
+            if let Ok(text) = project.read_file(&path) {
+                index.add(&path, &text);
+            }
+        }
+
+        (index.by_entity.clone(), index.unread.is_empty())
     }
 
     /// The build files from the directory of `path` up to the project root.
@@ -1029,6 +1208,9 @@ impl JpaAssist {
             }
 
             if let Some(class) = parse_class(&text, path) {
+                if self.classes.get(&class.name).and_then(Option::as_ref).is_some_and(|known| known.path != class.path) {
+                    self.duplicate_names.insert(class.name.clone());
+                }
                 self.remember(class);
             }
         }
@@ -1112,6 +1294,7 @@ impl Plugin for JpaAssist {
 
     fn run_command(&mut self, id: &str, ctx: &Invocation, arg: Option<&str>) -> Result<Option<String>, Error> {
         match id {
+            "inspect-at-caret" => { self.inspect_at_caret(ctx)?; Ok(None) }
             "jpql-console-run"|"jpql-console-status"|"jpql-console-cancel"=>{self.console.run(id,ctx)?;Ok(None)},
             "source-diagram"=>{self.refresh_source_diagram(ctx)?;ui_kit::web::reveal_view(source_diagram::VIEW,include_str!("ui_config.json"))?;Ok(None)},
             "structure-source" => { self.navigate_structure(arg.ok_or(Error::Stale)?, ctx)?; Ok(None) }
@@ -1160,7 +1343,7 @@ impl Plugin for JpaAssist {
                 let doc = editor.document()?;
                 let caret = editor.selections()?.first().map_or(Position::new(0, 0), |s| s.start);
                 let at = offset(&doc.text, caret).unwrap_or(doc.text.len());
-                let Some(kotlin) = choose_entity_language()? else {
+                let Some(kotlin) = choose_entity_language_for(project_facts::kotlin_default(ctx))? else {
                     return Ok(None);
                 };
                 let entity = entity_from_ddl(&doc.text, at, kotlin).ok_or("Put the caret in a CREATE TABLE statement.")?;
@@ -1184,6 +1367,7 @@ impl Plugin for JpaAssist {
                 for path in batch.created.iter().chain(&batch.modified).chain(&batch.removed) {
                     self.live.invalidate(path);
                     self.repository_completion.invalidate(path);
+                    project_facts::invalidate(path);
                 }
             }
             match event {
@@ -1293,6 +1477,8 @@ impl Providers for JpaAssist {
             return self.class_element_completion(doc, at);
         }
 
+        let jpql=self.embedded_jpql_completion(doc,at);
+        if !jpql.is_empty() {return jpql;}
         let fields=local_graph::completion(doc,at);
         if !fields.is_empty() {return fields;}
         self.cached_repository_completion(doc, at)
@@ -1457,11 +1643,16 @@ impl JpaAssist {
     }
 
     fn navigate_structure(&self, key: &str, ctx: &Invocation) -> Result<(), Error> {
-        let (path, _) = self.locations.get(key).ok_or(Error::Stale)?;
+        if key.starts_with(UNIT_PREFIX) && !self.locations.contains_key(key) { return Ok(()); }
+        let (path, at) = self.locations.get(key).ok_or(Error::Stale)?;
         let project = ctx.project().ok_or(Error::Stale)?;
         if self.structure_root.as_deref() != Some(project.root()?.as_str())
             || host::project_of(path).and_then(|owner| owner.root().ok()) != self.structure_root {
             return Err(Error::Stale);
+        }
+        if [UNIT_PREFIX, GROUP_PREFIX, ARTIFACT_PREFIX].iter().any(|prefix| key.starts_with(prefix)) {
+            project.read_file(path)?;
+            return host::open_location(path, at.line, at.character);
         }
         let class = parse_class(&project.read_file(path)?, path).filter(|class| class.kind == Kind::Entity).ok_or(Error::Stale)?;
         let pos = if key.starts_with(ENTITY_KEY_PREFIX) { class.pos } else {
@@ -1474,6 +1665,7 @@ impl JpaAssist {
 
 impl Views for JpaAssist {
     fn render(&mut self, _view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
+        if _view == designer::VIEW { return Ok(View::message("Inspect a persistence declaration to edit its source mappings.")); }
         (|| -> Result<View, Error> {
             if _view==query_console::VIEW { let Some(project)=ctx.project() else{return Ok(View::message("Open the owning project for JPQL Console."));};return Ok(self.console.view(&project.root()?)); }
             if _view==source_diagram::VIEW{return self.render_source_diagram(ctx);}
@@ -1488,6 +1680,7 @@ impl Views for JpaAssist {
             if self.structure_root.as_deref() != Some(root.as_str()) {
                 self.classes.clear(); self.sources.clear(); self.missing.clear();
                 self.locations.clear(); self.expanded.clear(); self.scanned = false;
+                self.duplicate_names.clear(); self.units = None; self.seeded_groups.clear();
                 self.structure_root = Some(root.clone());
                 self.structure_located = None;
             }
@@ -1498,17 +1691,62 @@ impl Views for JpaAssist {
             if !self.scanned {
                 self.scan(&project)?;
             }
+            let (repository_files, repositories_complete) = self.repository_facts(&project);
+            if self.units.is_none() { self.units = Some(structure_related::units(&project)); }
+            for key in ["unit:unassigned", "unit:ambiguous"].map(String::from).into_iter().chain(self.units.iter().flatten().map(Unit::key)) {
+                if self.seeded_groups.insert(key.clone()) { self.expanded.insert(key); }
+            }
             let located = self.structure_located.as_ref();
             let mut items = Vec::new();
             let mut locations = HashMap::new();
             let entities = self.entities();
+            let units = self.units.as_deref().unwrap_or_default();
+            let related = Related::new(&entities, &self.duplicate_names, &repository_files, repositories_complete);
+            let mut related_budget = structure_related::MAX_RELATED_NODES;
+            let mut related_cut = false;
 
-            for entity in &entities {
+            let mut groups: Vec<(Option<String>, Vec<&Class>)> = Vec::new();
+            if units.is_empty() {
+                groups.push((None, entities.clone()));
+            } else {
+                let mut members: Vec<Vec<&Class>> = vec![Vec::new(); units.len()];
+                let (mut ambiguous, mut unassigned) = (Vec::new(), Vec::new());
+                for entity in &entities {
+                    match structure_related::membership(units, entity) {
+                        Membership::Unit(i) => members[i].push(entity),
+                        Membership::Ambiguous(_) => ambiguous.push(*entity),
+                        Membership::Unassigned => unassigned.push(*entity),
+                    }
+                }
+                for (unit, entities) in units.iter().zip(members) {
+                    if entities.is_empty() { continue; }
+                    let key = unit.key();
+                    let detail = format!("persistence.xml · {} listed", entities_count(entities.len()));
+                    items.push(TreeItem::new(&key, &unit.name).icon("folder").detail(&detail).expandable(self.expanded.contains(&key)));
+                    locations.insert(key.clone(), (unit.path.clone(), unit.pos));
+                    groups.push((Some(key), entities));
+                }
+                for (key, label, detail, entities) in [
+                    ("unit:ambiguous", "Ambiguous", "listed in several persistence units; membership unknown", ambiguous),
+                    ("unit:unassigned", "Unassigned", "not listed in any persistence.xml class entry; membership unknown", unassigned),
+                ] {
+                    if entities.is_empty() { continue; }
+                    items.push(TreeItem::new(key, label).icon("folder").detail(detail).expandable(self.expanded.contains(key)));
+                    groups.push((Some(key.into()), entities));
+                }
+            }
+
+            for (group, entities) in &groups { for entity in entities {
                 if host::project_of(&entity.path).and_then(|owner| owner.root().ok()).as_deref() != Some(root.as_str()) { continue; }
                 let key = format!("{ENTITY_KEY_PREFIX}{}", entity.path);
                 let table = table_name(entity);
-                let detail = if located.is_some_and(|doc| doc.path == entity.path) { format!("{table} · Opened file") } else { table };
-                let item = TreeItem::new(&key, &entity.name).icon("db-table").detail(&detail);
+                let mut detail = if located.is_some_and(|doc| doc.path == entity.path) { format!("{table} · Opened file") } else { table };
+                if let Membership::Ambiguous(listed) = structure_related::membership(units, entity) {
+                    let names: Vec<&str> = listed.iter().map(|&i| units[i].name.as_str()).collect();
+                    detail.push_str(&format!(" · units: {}", names.join(", ")));
+                }
+                let mut item = TreeItem::new(&key, &entity.name).icon("db-table").detail(&detail);
+                if let Some(group) = group { item = item.parent(group); }
                 items.push(if entity.attributes.is_empty() { item } else { item.expandable(self.expanded.contains(&key)) });
                 locations.insert(key.clone(), (entity.path.clone(), entity.pos));
 
@@ -1529,9 +1767,14 @@ impl Views for JpaAssist {
                     items.push(TreeItem::new(&attribute_key, &a.name).parent(&key).icon(icon).detail(&detail));
                     locations.insert(attribute_key, (entity.path.clone(), a.pos));
                 }
-            }
+
+                related_cut |= related.nodes(entity, &key, &self.expanded, &mut related_budget, &mut items, &mut locations);
+            } }
 
             let mut status = entities_count(entities.len());
+            if related_cut { status.push_str(" · related artifacts truncated"); }
+            if !repositories_complete { status.push_str(" · repository scan incomplete"); }
+            if !self.duplicate_names.is_empty() { status.push_str(" · duplicate class names unknown"); }
             if let Some(located) = located { status.push_str(&format!(" · Located {}", file_stem(&located.path))); }
             self.locations = locations;
 
@@ -1547,6 +1790,7 @@ impl Views for JpaAssist {
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, _ctx: &Invocation) -> Result<(), Error> {
+        if view == designer::VIEW { return self.designer_event(event, _ctx); }
         if ui_kit::web::handle(self,view,&event,_ctx,include_str!("ui_config.json"))?{return Ok(());}
         if view==query_console::VIEW { if let ViewEvent::Button(id)=event {self.console.run(&id,_ctx)?;} return Ok(()); }
         if view==source_diagram::VIEW{return self.handle_source_diagram(event,_ctx);}
@@ -1557,13 +1801,17 @@ impl Views for JpaAssist {
                 self.sources.clear();
                 self.classes.clear();
                 self.missing.clear();
+                self.duplicate_names.clear();
+                self.units = None;
+                self.repositories.clear();
                 self.scanned = false;
                 self.structure_located = None;
                 host::refresh_view(view);
             }
             ViewEvent::Button(id) if id == "expand-all" || id == "collapse-all" => {
                 if id == "expand-all" {
-                    self.expanded.extend(self.locations.keys().filter(|key| key.starts_with(ENTITY_KEY_PREFIX)).cloned());
+                    self.expanded.extend(self.locations.keys().filter(|key| key.starts_with(ENTITY_KEY_PREFIX) || key.starts_with(GROUP_PREFIX) || key.starts_with(UNIT_PREFIX)).cloned());
+                    self.expanded.extend(["unit:unassigned", "unit:ambiguous"].map(String::from));
                 } else { self.expanded.clear(); }
                 host::refresh_view(view);
             }
@@ -2119,6 +2367,47 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
         assert!(!text.contains(';'));
     }
     #[test]
+    fn attribute_file_action_previews_join_table_cascade_and_order_choices() {
+        let host = wizard_host("/project/src/shop/Order.java", "java", ORDER);
+        answers(&host, &[&["tags"], &["ManyToMany"], &["Tag"], &["cascadePersist", "cascadeMerge", "fetchLazy", "orderColumn", "joinTable"], &["tag_pos"], &["order_tag"], &["order_id"], &["tag_id"], &[]]);
+        let text = attribute_preview(&host).unwrap().unwrap();
+        assert!(text.contains("@ManyToMany(fetch = FetchType.LAZY, cascade = {CascadeType.PERSIST, CascadeType.MERGE})\n    @JoinTable(name = \"order_tag\", joinColumns = @JoinColumn(name = \"order_id\"), inverseJoinColumns = @JoinColumn(name = \"tag_id\"))\n    @OrderColumn(name = \"tag_pos\")\n    private List<Tag> tags"), "{text}");
+        assert_eq!(host.editor_text(), ORDER);
+    }
+    #[test]
+    fn attribute_file_action_previews_orphan_removal_and_order_by_for_kotlin() {
+        let kotlin = "package shop\n\nimport jakarta.persistence.*\n\n@Entity\nclass Order {\n    @Id\n    var id: Long? = null\n}\n";
+        let host = wizard_host("/project/src/shop/Order.kt", "kotlin", kotlin);
+        answers(&host, &[&["lines"], &["OneToMany"], &["OrderLine"], &["cascade", "orphanRemoval", "orderBy"], &["position DESC"], &[]]);
+        let text = attribute_preview(&host).unwrap().unwrap();
+        assert!(text.contains("@OneToMany(cascade = [CascadeType.ALL], orphanRemoval = true)\n    @OrderBy(\"position DESC\")\n    var lines: MutableList<OrderLine> = mutableListOf()"), "{text}");
+    }
+    #[test]
+    fn attribute_file_action_previews_join_column_for_owning_to_one() {
+        let host = wizard_host("/project/src/shop/Order.java", "java", ORDER);
+        answers(&host, &[&["buyer"], &["ManyToOne"], &["Customer"], &["joinColumnNotNull"], &["buyer_id"], &[]]);
+        let text = attribute_preview(&host).unwrap().unwrap();
+        assert!(text.contains("@ManyToOne\n    @JoinColumn(name = \"buyer_id\", nullable = false)\n    private Customer buyer;"), "{text}");
+    }
+    #[test]
+    fn attribute_file_action_refuses_invalid_relationship_choices_without_edits() {
+        let cases: [(&str, &str, &[&str], &[&str]); 5] = [
+            ("ManyToOne", "Customer", &["orphanRemoval"], &[]),
+            ("OneToMany", "Line", &["cascade", "cascadeMerge"], &[]),
+            ("OneToMany", "Line", &["fetchLazy", "fetchEager"], &[]),
+            ("ManyToOne", "Customer", &["joinColumn"], &["bad name"]),
+            ("ManyToMany", "Tag", &["joinTable"], &["order_tag", "same", "same"]),
+        ];
+        for (kind, target, chosen, texts) in cases {
+            let host = wizard_host("/project/src/shop/Order.java", "java", ORDER);
+            let mut all: Vec<Vec<&str>> = vec![vec!["extra"], vec![kind], vec![target], chosen.to_vec()];
+            all.extend(texts.iter().map(|t| vec![*t]));
+            all.iter().for_each(|a| host.answer_next_prompt(Some(a)));
+            assert!(attribute_preview(&host).is_err(), "{kind} {chosen:?}");
+            assert_eq!(host.editor_text(), ORDER);
+        }
+    }
+    #[test]
     fn attribute_file_action_previews_string_enumerated_fields() {
         let host = wizard_host("/project/src/shop/Order.java", "java", ORDER);
         answers(&host, &[&["status"], &["none"], &["enum"], &["OrderStatus"], &[], &[]]);
@@ -2175,6 +2464,7 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
         assert_eq!(
             editor_menus,
             [
+                ("inspect-at-caret".to_owned(), "editorLangId == java || editorLangId == kotlin".to_owned()),
                 ("copy-ddl".to_owned(), "(editorLangId == java || editorLangId == kotlin) && plugin.aritti.jpa-assist.isEntity".to_owned()),
                 ("copy-dto".to_owned(), "(editorLangId == java || editorLangId == kotlin) && plugin.aritti.jpa-assist.isEntity".to_owned()),
                 ("copy-entity".to_owned(), "editorLangId == sql && plugin.aritti.jpa-assist.hasCreateTable".to_owned()),
@@ -2190,7 +2480,7 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
         let view = plugin.render("structure", None, &host.invocation()).unwrap();
         let Body::Tree(items) = view.body else { panic!("a tree") };
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
-        assert_eq!(labels, ["Customer", "id", "name", "Order", "id", "number", "customer"]);
+        assert_eq!(labels, ["Customer", "id", "name", "Incoming associations", "Order.customer", "Order", "id", "number", "customer", "Repositories", "OrderRepository", "Outgoing associations", "Customer"]);
 
         assert_eq!(view.status.as_deref(), Some("2 entities"));
 

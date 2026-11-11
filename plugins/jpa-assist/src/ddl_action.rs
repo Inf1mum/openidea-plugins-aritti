@@ -39,7 +39,7 @@ pub(super) fn source(doc: &Document) -> Option<Class> {
     }
     let mut names = HashSet::new();
     for attribute in &class.attributes {
-        let column = snake_case(&attribute.name);
+        let column = super::naming_column_name(&attribute.name);
         if attribute.relation != Relation::None
             || attribute.generated.is_some()
             || attribute.ty.rsplit('.').next() == Some(class.name.as_str())
@@ -91,13 +91,17 @@ fn absent(project: &Project, root: &str, target: &str) -> Result<(), Error> {
     }
     Ok(())
 }
-fn sql(class: &Class, table: &str, dialect: Dialect) -> Option<String> {
+fn sql(class: &Class, table: &str, dialect: Dialect, policy: crate::naming_strategy::IdentifierPolicy) -> Option<String> {
     let quote = if dialect == Dialect::MySql { '`' } else { '"' };
-    let quoted = |name: &str| format!("{quote}{name}{quote}");
+    let quoted = |name: &str| format!("{quote}{}{quote}", policy.apply(name));
+    let mut cased = HashSet::new();
     let mut fields = Vec::new();
     let mut key = None;
     for attribute in &class.attributes {
-        let name = quoted(&snake_case(&attribute.name));
+        let name = quoted(&super::naming_column_name(&attribute.name));
+        if !cased.insert(name.clone()) {
+            return None;
+        }
         let ty = crate::generate::sql_type(attribute, dialect)?;
         fields.push(format!(
             "    {name} {ty}{}",
@@ -122,10 +126,11 @@ pub(super) fn resolve(
     current(pending, doc)?;
     let class = source(doc)
         .ok_or("This source is outside the plain Java scalar field-access SQL draft subset.")?;
-    let choices = [
+    let mut choices = [
         PickItem::new("postgresql", "PostgreSQL scalar draft"),
         PickItem::new("mysql", "MySQL scalar draft"),
     ];
+    crate::datasource_facts::prefer(project, &mut choices);
     let selected = host::pick("SQL draft dialect (no database connection)", &choices)?
         .ok_or(Error::Cancelled)?;
     let dialect = match selected.as_str() {
@@ -135,7 +140,7 @@ pub(super) fn resolve(
     };
     let table = host::input(
         "Draft table name (one unqualified ASCII identifier)",
-        Some(&table_name(&class)),
+        Some(&super::naming_table_name(class.table.as_deref().unwrap_or(&class.name))),
     )?
     .ok_or(Error::Cancelled)?;
     if !sql_name(&table) {
@@ -156,15 +161,18 @@ pub(super) fn resolve(
     if path(&target).as_deref() != Some(target.as_str()) || !inside(&pending.root, &target) {
         return Err(Error::Stale);
     }
-    let generated = sql(&class, &table, dialect).ok_or(Error::Stale)?;
+    let policy = crate::naming_strategy::IdentifierPolicy::from_setting(host::setting_string("jpaAssist.identifierPolicy").as_deref());
+    let strategy = crate::naming_strategy::detect(project);
+    let generated = sql(&class, &table, dialect, policy).ok_or(Error::Stale)?;
     current(pending, doc)?;
     absent(project, &pending.root, &target)?;
     let preview = format!(
-        "Source: {}\nSource version: {}\nPackage: {}\nDialect: {selected}\nTable: {table}\nTarget: {target}\n\nAll {} parsed scalar fields, one manual primary key. Non-ID columns are nullable draft choices. No DB/schema diff, physical naming strategy, generated IDs, converters, relationships or deployment check.\n\nExact new SQL file:\n{generated}\nOne atomic non-overwriting Create. This action never executes SQL.",
+        "Source: {}\nSource version: {}\nPackage: {}\nDialect: {selected}\nTable: {table}\nTarget: {target}\n\nAll {} parsed scalar fields, one manual primary key. Non-ID columns are nullable draft choices. Detected physical naming strategy: {}; the names below come from the naming templates, not from it. Identifier policy: {policy:?} (all names are quoted). No DB/schema diff, generated IDs, converters, relationships or deployment check.\n\nExact new SQL file:\n{generated}\nOne atomic non-overwriting Create. This action never executes SQL.",
         doc.path,
         doc.version,
         package(doc).ok_or(Error::Stale)?,
-        class.attributes.len()
+        class.attributes.len(),
+        strategy.physical_label().map_or_else(|| "not verified".to_owned(), |label| format!("{label} ({})", strategy.source))
     );
     if !ui_kit::prompts::confirm_exact("Create reviewed scalar SQL draft?", &preview)? {
         return Err(Error::Cancelled);
@@ -284,6 +292,16 @@ mod tests {
                 d.text
             );
         }
+    }
+    #[test]
+    fn identifier_policy_changes_case_of_quoted_names_and_defaults_to_as_written() {
+        use crate::naming_strategy::IdentifierPolicy;
+        let (_host, _plugin, doc) = setup();
+        let class = source(&doc).unwrap();
+        let written = sql(&class, "Customers", Dialect::PostgreSql, IdentifierPolicy::AsWritten).unwrap();
+        assert!(written.contains("CREATE TABLE \"Customers\"") && written.contains("\"display_name\""), "{written}");
+        let upper = sql(&class, "Customers", Dialect::MySql, IdentifierPolicy::Uppercase).unwrap();
+        assert!(upper.contains("CREATE TABLE `CUSTOMERS`") && upper.contains("`DISPLAY_NAME`"), "{upper}");
     }
     #[test]
     fn cancellation_invalid_inputs_collisions_and_stale_or_foreign_source_return_no_operations() {

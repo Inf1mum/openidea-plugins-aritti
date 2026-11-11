@@ -154,11 +154,15 @@ impl State {
             }
             if let Some(class) = parse_class(text, &doc.path) {
                 findings.extend(inspect_entity_owned(text, kotlin, &class));
+                findings.extend(crate::lombok_checks::findings(text, &class, setting("checkLombokEquality"), setting("checkLombokToString"), setting("checkLombokConstructors")));
                 if kotlin && setting("checkKotlinEntities") {
                     findings.extend(inspect_kotlin_entity_owned(text, &class));
                 }
                 if !setting("checkKotlinEntities") {
                     findings.retain(|f| f.code != "jpa-data-class");
+                }
+                if !setting("checkAssociationFetch") {
+                    findings.retain(|f| !matches!(f.code, "jpa-eager-fetch" | "jpa-eager-to-one"));
                 }
                 if setting("checkAttributeSignatures") {
                     findings.extend(inspect_attribute_signatures_owned(text, kotlin, &class, persistence_annotations_only(text)));
@@ -199,6 +203,7 @@ impl State {
             if setting("checkAttributeTypes") { findings.extend(crate::local_hierarchy::converter_findings(doc)); }
             if setting("checkClassSignature") { findings.extend(crate::local_inheritance::findings(doc)); }
             if setting("checkClassSignature") { findings.extend(crate::persistence_unit::findings(doc)); }
+            findings.extend(crate::inspections_more::findings(doc));
             findings.extend(crate::local_graph::findings(doc));
             findings.extend(crate::local_listener::findings(doc));
             findings.extend(crate::local_listener::callback_findings(doc));
@@ -212,8 +217,70 @@ impl State {
         };
         findings.retain(|f| f.start < f.end && f.end <= text.len() && text.is_char_boundary(f.start) && text.is_char_boundary(f.end));
         findings.truncate(512);
+        apply_configured_severities(&mut findings);
         findings.iter().map(|f| f.diagnostic(text)).collect()
     }
+}
+
+/// Every code a check can emit; `inspectionSeverities` rows naming anything else are ignored.
+pub(super) const KNOWN_CODES: &[&str] = &[
+    "attribute-type", "jpa-attribute-multiple-relations", "jpa-callback-modifiers", "jpa-column-length-type", "jpa-column-precision-type",
+    "jpa-data-class", "jpa-duplicate-embedded-id", "jpa-duplicate-lifecycle-event", "jpa-duplicate-version", "jpa-eager-fetch",
+    "jpa-eager-to-one", "jpa-embeddable-identifier", "jpa-entity-multiple-roles", "jpa-entity-nested", "jpa-entity-not-a-class",
+    "jpa-final-entity", "jpa-final-member", "jpa-generated-value-type", "jpa-generated-value-without-id", "jpa-immutable-collection",
+    "jpa-kotlin-plugin-missing", "jpa-listener-constructor", "jpa-listener-without-callbacks", "jpa-lombok-constructors", "jpa-lombok-data",
+    "jpa-lombok-equals", "jpa-lombok-equals-field", "jpa-lombok-to-string", "jpa-many-to-many-cascade-remove", "jpa-many-to-many-list",
+    "jpa-missing-setter", "jpa-mixed-access", "jpa-multiple-id-kinds", "jpa-no-arg-constructor", "jpa-redundant-constructor",
+    "jpa-redundant-open", "jpa-relationship-target", "jpa-relationship-type", "jpa-repository-id", "jpa-source-identifier-absent",
+    "jpa-source-repository-id", "jpa-unidirectional-one-to-many", "jpa-unknown-attribute-override", "jpa-unknown-entity-graph",
+    "jpa-unknown-entity-graph-node", "jpa-unknown-entity-graph-path", "jpa-unknown-map-key", "jpa-unknown-maps-id", "jpa-unknown-named-query",
+    "jpa-unknown-query-parameter", "jpa-val-attribute", "jpa-xml-class", "jpa-xml-class-duplicate", "jpa-xml-class-not-persistent",
+    "jpa-xml-class-unknown", "jpa-xml-property", "jpa-xml-provider", "jpa-xml-unit-name", "jpa-xml-value",
+];
+
+/// `None` removes the finding, `Some` replaces its severity. Malformed rows and unknown codes or levels are skipped.
+fn configured_severities() -> HashMap<String, Option<openidea_plugin::Severity>> {
+    use openidea_plugin::Severity::*;
+    let mut rules = HashMap::new();
+    let Some(raw) = host::setting("jpaAssist.inspectionSeverities") else {
+        return rules;
+    };
+    let Ok(rows) = serde_json::from_str::<Vec<serde_json::Value>>(&raw) else {
+        return rules;
+    };
+    for row in rows.iter().take(1000) {
+        let (Some(code), Some(level)) = (row["code"].as_str(), row["severity"].as_str()) else {
+            continue;
+        };
+        if !KNOWN_CODES.contains(&code) {
+            continue;
+        }
+        let severity = match level {
+            "error" => Some(Error),
+            "warning" => Some(Warning),
+            "info" => Some(Info),
+            "hint" => Some(Hint),
+            "off" => None,
+            _ => continue,
+        };
+        rules.insert(code.to_owned(), severity);
+    }
+    rules
+}
+
+fn apply_configured_severities(findings: &mut Vec<Finding>) {
+    let rules = configured_severities();
+    if rules.is_empty() {
+        return;
+    }
+    findings.retain_mut(|f| match rules.get(f.code) {
+        Some(None) => false,
+        Some(Some(severity)) => {
+            f.severity = *severity;
+            true
+        }
+        None => true,
+    });
 }
 // Every consumed framework annotation needs canonical source ownership before
 // live diagnostics/cache admission. Wildcards and local lookalikes are unknown.

@@ -51,6 +51,9 @@ fn find(b: &[u8], from: usize, pattern: &[u8]) -> Option<usize> {
     b.get(from..)?.windows(pattern.len()).position(|w| w == pattern).map(|p| p + from)
 }
 
+/// Last byte of a terminated literal in `mask`: whitespace to `trim`, but `members` can tell `= ""` from a dangling `=`.
+const LITERAL_END: u8 = 0x0c;
+
 /// `text` with comments and string literals blanked: same byte offsets, newlines kept.
 pub fn mask(text: &str) -> String {
     let b = text.as_bytes();
@@ -80,6 +83,10 @@ pub fn mask(text: &str) -> String {
             if *c != b'\n' {
                 *c = b' ';
             }
+        }
+
+        if end > i + 1 && matches!(b[i], b'"' | b'\'') && b[end - 1] == b[i] {
+            out[end - 1] = LITERAL_END;
         }
 
         i = end;
@@ -526,7 +533,7 @@ pub fn members(masked: &str, start: usize, end: usize, kotlin: bool, params: boo
             }
             b'\n' if kotlin && !params && braces == 0 && parens == 0 => {
                 let line = without_annotations(masked, segment, i);
-                let open_ended = line.trim_end().ends_with(['=', '.', ',', ':', '(', '<']);
+                let open_ended = line.trim_end_matches([' ', '\t', '\r']).ends_with(['=', '.', ',', ':', '(', '<']);
                 if !line.trim().is_empty() && !open_ended {
                     found.push((segment, i));
                     segment = i;
@@ -845,7 +852,7 @@ class Customer(
         let text = "a /* é */ \"x\\\"y\" 'c' // ü\nb";
         let masked = mask(text);
         assert_eq!(masked.len(), text.len());
-        assert_eq!(masked.trim_matches(' ').replace(' ', ""), "a\nb");
+        assert_eq!(masked.split_whitespace().collect::<Vec<_>>(), ["a", "b"]);
     }
 
     #[test]
@@ -854,5 +861,47 @@ class Customer(
         let edit = import_edit(text, &["lombok.Setter", "lombok.Getter", "lombok.Getter"], false).unwrap();
         assert_eq!(edit.start, 11);
         assert_eq!(edit.text, "\nimport lombok.Getter;\nimport lombok.Setter;\n");
+    }
+
+    fn kotlin_members(body: &str) -> Vec<String> {
+        let text = format!("class A {{\n{body}\n}}");
+        let masked = mask(&text);
+        let open = text.find('{').unwrap();
+        let close = text.rfind('}').unwrap();
+        members(&masked, open + 1, close, true, false)
+            .into_iter()
+            .map(|(s, e)| text[s..e].trim().to_owned())
+            .filter(|m| !m.is_empty())
+            .collect()
+    }
+
+    #[test]
+    fn kotlin_literal_initializers_end_the_member_at_the_line_end() {
+        for init in ["\"\"", "\"x\"", "'c'", "\"\"\"raw\"\"\"", "\"a${b}c\"", "\"a\\\"b\""] {
+            let found = kotlin_members(&format!("    var s: String = {init}\n    var t: Int = 1"));
+            assert_eq!(found.len(), 2, "{init}: {found:?}");
+        }
+    }
+
+    #[test]
+    fn kotlin_lines_ending_in_operators_still_continue() {
+        for tail in ["=", ".", ",", ":", "<"] {
+            let found = kotlin_members(&format!("    var s: Int {tail}\n        1\n    var t: Int = 1"));
+            assert_eq!(found.len(), 2, "{tail}: {found:?}");
+        }
+
+        let found = kotlin_members("    var s: String =\n        \"x\"\n    var t: Int = 1");
+        assert_eq!(found.len(), 2, "{found:?}");
+        let found = kotlin_members("    var s: Int = 1 // c =\n    var t: Int = 1");
+        assert_eq!(found.len(), 2, "{found:?}");
+    }
+
+    #[test]
+    fn java_text_blocks_do_not_split_members() {
+        let text = "class A {\n    String s = \"\"\"\n        a;b\n        \"\"\";\n    int t;\n}";
+        let masked = mask(text);
+        let open = text.find('{').unwrap();
+        let close = text.rfind('}').unwrap();
+        assert_eq!(members(&masked, open + 1, close, false, false).len(), 3);
     }
 }
