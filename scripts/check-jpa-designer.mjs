@@ -1,0 +1,329 @@
+// Tests the shipped UI and bridge correlations; Rust tests own source semantics.
+import assert from 'node:assert/strict';
+import {fileURLToPath, pathToFileURL} from 'node:url';
+import {resolve} from 'node:path';
+import {mkdirSync, writeFileSync} from 'node:fs';
+const {chromium, webkit} = await import(process.env.PLAYWRIGHT_MODULE || '@playwright/test');
+const root = fileURLToPath(new URL('../', import.meta.url));
+const engine = process.argv.includes('--webkit') ? 'webkit' : 'chromium';
+const output = process.env.UI_QA_DIR || '/tmp/jpa-designer-qa'; mkdirSync(output, {recursive: true});
+const browser = await ({chromium, webkit})[engine].launch({headless: true, ...(process.env.PLAYWRIGHT_EXECUTABLE_PATH ? {executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH} : {})});
+const results = [];
+const before = 'package shop;\n@Entity class Person {\n  @Column(length = 40) private java.lang.String name;\n}\n';
+const after = before.replace('length = 40', 'length = 120');
+const fixture = {root: '/project', empty: false, source: {root: '/project', path: '/project/src/main/java/shop/Person.java', version: 1, language: 'java'}, className: 'Person', role: 'Entity', attributes: [{name: 'name', type: 'String'}], selected: 'name', pending: null, canApply: true, provenance: 'Current source; external mappings unresolved.', properties: [
+  {key: 'name', label: 'Column name', value: 'display_name', origin: 'explicit', editable: true, detail: null},
+  {key: 'nullable', label: 'Nullable', value: true, origin: 'annotation-default', editable: true, detail: null},
+  {key: 'length', label: 'Length', value: 40, origin: 'explicit', editable: true, detail: null},
+  {key: 'precision', label: 'Precision', value: 0, origin: 'unresolved', editable: false, detail: 'Unknown effective numeric mapping.'},
+]};
+try {
+  for (const theme of ['light', 'dark']) for (const [width, height] of [[280, 400], [400, 700], [800, 600]]) {
+    const page = await browser.newPage({viewport: {width, height}, colorScheme: theme});
+    const errors = []; page.on('pageerror', error => errors.push(error.message));
+    await page.addInitScript(() => {
+      window.requests = []; const listeners = [];
+      window.openidea = {postMessage: raw => window.requests.push(JSON.parse(raw)), onMessage: callback => listeners.push(callback)};
+      window.reply = message => listeners.forEach(callback => callback(JSON.stringify(message)));
+    });
+    await page.goto(pathToFileURL(resolve(root, 'plugins/jpa-assist/web/designer.html')).href);
+    await page.waitForFunction(() => window.requests.length === 1);
+    const reply = async (model, extra = {}) => page.evaluate(({model, extra}) => { const r = window.requests.at(-1); window.reply({...r, ok: true, model, ...extra}); }, {model, extra});
+    await reply(fixture);
+    assert.equal(await page.getByLabel('Precision', {exact: true}).isDisabled(), true);
+    await page.getByLabel('Length', {exact: true}).fill('120');
+    assert.equal(await page.getByRole('button', {name: 'Inspect at Caret', exact: true}).isDisabled(), true);
+    assert.equal(await page.getByRole('button', {name: 'Preview Changes', exact: true}).isEnabled(), true);
+    await page.getByRole('button', {name: 'Preview Changes', exact: true}).click();
+    const request = await page.evaluate(() => window.requests.at(-1));
+    assert.deepEqual(request.operation, {kind: 'prepare', changes: [{property: 'length', value: 120}]});
+    assert.deepEqual(request.context, {path: fixture.source.path, version: 1, attribute: 'name'});
+    // Foreign/out-of-order messages cannot complete the current request.
+    await page.evaluate(r => window.reply({...r, frame: 'f'.repeat(32), ok: true, model: {empty: true}}), request);
+    assert.equal(await page.locator('#prepare').getAttribute('aria-busy'), 'true');
+    const prepared = {...fixture, pending: {token: 'fixture-review-token', before, after}};
+    await reply(prepared);
+    assert.equal(await page.getByRole('tab', {name: 'Changes', exact: true}).getAttribute('aria-selected'), 'true');
+    assert.equal(await page.locator('#after').textContent(), after);
+    await page.getByRole('button', {name: 'Apply to Source', exact: true}).click();
+    assert.equal((await page.evaluate(() => window.requests.at(-1))).operation.token, 'fixture-review-token');
+    const applied = {...fixture, source: {...fixture.source, version: 2}, properties: fixture.properties.map(p => p.key === 'length' ? {...p, value: 120} : p)};
+    await reply(applied);
+    assert.match(await page.locator('#status').textContent(), /Source updated/);
+    await page.getByLabel('Length', {exact: true}).fill('0');
+    assert.equal(await page.getByRole('button', {name: 'Preview Changes', exact: true}).isDisabled(), true);
+    await page.getByRole('button', {name: 'Reset', exact: true}).click();
+    assert.equal(await page.getByLabel('Length', {exact: true}).inputValue(), '120');
+    await page.getByRole('button', {name: 'Inspect at Caret', exact: true}).click();
+    const implicitName = {...applied, properties: applied.properties.map(p => p.key === 'name' ? {...p, value: '', origin: 'annotation-default'} : p)};
+    await reply(implicitName);
+    await page.getByLabel('Length', {exact: true}).fill('240');
+    assert.equal(await page.getByRole('button', {name: 'Preview Changes', exact: true}).isEnabled(), true);
+    await page.getByRole('button', {name: 'Preview Changes', exact: true}).click();
+    await reply(implicitName, {ok: false});
+    assert.equal(await page.getByLabel('Length', {exact: true}).inputValue(), '240', 'Rejected preparation retains user input');
+    await page.getByRole('button', {name: 'Reset', exact: true}).click();
+    await page.locator('#add-attribute > summary').click();
+    assert.equal(await page.locator('#prepare-attribute').isDisabled(), true);
+    await page.locator('#attr-name').fill('lines');
+    await page.locator('#attr-kind').selectOption('OneToMany');
+    await page.locator('#attr-type').fill('Line');
+    assert.equal(await page.locator('#attr-relation-fields').isVisible(), true);
+    assert.equal(await page.locator('#attr-join-fields').isVisible(), false);
+    await page.locator('#attr-cascade input[value=PERSIST]').check();
+    await page.locator('#attr-orphan').check();
+    await page.locator('#attr-order').selectOption('by');
+    await page.locator('#attr-order-value').fill('id DESC');
+    assert.equal(await page.locator('#prepare-attribute').isEnabled(), true);
+    await page.locator('#attr-kind').selectOption('ManyToOne');
+    assert.equal(await page.locator('#attr-orphan-row').isVisible(), false);
+    assert.equal(await page.locator('#attr-join-fields').isVisible(), true);
+    await page.locator('#attr-kind').selectOption('OneToMany');
+    await page.locator('#prepare-attribute').click();
+    assert.deepEqual((await page.evaluate(() => window.requests.at(-1))).operation, {kind: 'prepare-attribute', draft: {name: 'lines', kind: 'OneToMany', type: 'Line', enumerated: false, notNull: false, unique: false, cascade: ['PERSIST'], fetch: null, orphanRemoval: true, orderBy: 'id DESC', orderColumn: null, joinColumn: null, joinColumnNotNull: false, joinTable: null}});
+    await reply(implicitName, {ok: false});
+    assert.equal(await page.locator('#attr-name').inputValue(), 'lines', 'Rejected preview retains the attribute draft');
+    await page.getByRole('button', {name: 'Reset', exact: true}).click();
+    assert.equal(await page.locator('#attr-name').inputValue(), '');
+    await page.locator('#add-attribute > summary').click();
+    assert.equal(await page.locator('#relationship-form').isVisible(), false);
+    const relationship = {...fixture, relationship: [
+      {key: 'fetch', label: 'Fetch', value: 'LAZY', origin: 'annotation-default', editable: true},
+      {key: 'orphanRemoval', label: 'Orphan removal', value: false, origin: 'annotation-default', editable: true},
+      {key: 'cascade', label: 'Cascade', value: ['PERSIST'], origin: 'explicit', editable: true},
+    ]};
+    await page.getByRole('button', {name: 'Inspect at Caret', exact: true}).click();
+    await reply(relationship);
+    assert.equal(await page.locator('#relationship-form').isVisible(), true);
+    assert.equal(await page.locator('#rel-optional-row').isVisible(), false);
+    assert.equal(await page.locator('#prepare-relationship').isDisabled(), true);
+    await page.locator('#rel-orphan').check();
+    await page.locator('#rel-cascade input[value=ALL]').check();
+    assert.equal(await page.locator('#prepare-relationship').isDisabled(), true, 'ALL with PERSIST is refused');
+    await page.locator('#rel-cascade input[value=PERSIST]').uncheck();
+    await page.locator('#prepare-relationship').click();
+    assert.deepEqual((await page.evaluate(() => window.requests.at(-1))).operation, {kind: 'prepare-relationship', changes: [{property: 'orphanRemoval', value: true}, {property: 'cascade', value: ['ALL']}]});
+    await reply(relationship, {ok: false});
+    assert.equal(await page.locator('#rel-orphan').isChecked(), true, 'Rejected preview retains relationship edits');
+    await page.getByRole('button', {name: 'Reset', exact: true}).click();
+    assert.equal(await page.locator('#rel-orphan').isChecked(), false);
+    const mapping = {...fixture, relationship: [
+      {key: 'fetch', label: 'Fetch', value: 'LAZY', origin: 'annotation-default', editable: true},
+      {key: 'cascade', label: 'Cascade', value: [], origin: 'annotation-default', editable: true},
+      {key: 'joinTable', label: 'Join table', value: {name: 'order_tag', joinColumn: 'order_id', inverseColumn: 'tag_id'}, origin: 'explicit', editable: true},
+      {key: 'orderBy', label: 'Order by', value: '', origin: 'annotation-default', editable: true},
+      {key: 'orderColumn', label: 'Order column', value: '', origin: 'annotation-default', editable: false},
+    ]};
+    await page.getByRole('button', {name: 'Inspect at Caret', exact: true}).click();
+    await reply(mapping);
+    assert.equal(await page.locator('#rel-join-column-row').isVisible(), false);
+    assert.equal(await page.locator('#rel-join-table-row').isVisible(), true);
+    assert.equal(await page.locator('#rel-join-table').inputValue(), 'order_tag');
+    assert.equal(await page.locator('#rel-order-column').isDisabled(), true);
+    await page.locator('#rel-join-table-inverse').fill('order_id');
+    assert.equal(await page.locator('#prepare-relationship').isDisabled(), true, 'equal join columns are refused');
+    await page.locator('#rel-join-table-inverse').fill('label_id');
+    await page.locator('#rel-order-by').fill('name DESC, id');
+    await page.locator('#prepare-relationship').click();
+    assert.deepEqual((await page.evaluate(() => window.requests.at(-1))).operation, {kind: 'prepare-relationship', changes: [{property: 'joinTable', name: 'order_tag', joinColumn: 'order_id', inverseColumn: 'label_id'}, {property: 'orderBy', value: 'name DESC, id'}]});
+    await reply(mapping, {ok: false});
+    assert.equal(await page.locator('#rel-order-by').inputValue(), 'name DESC, id', 'Rejected preview retains join and ordering edits');
+    await page.getByRole('button', {name: 'Reset', exact: true}).click();
+    assert.equal(await page.locator('#rel-join-table-inverse').inputValue(), 'tag_id');
+    const toOne = {...fixture, relationship: [
+      {key: 'fetch', label: 'Fetch', value: 'EAGER', origin: 'annotation-default', editable: true},
+      {key: 'optional', label: 'Optional', value: true, origin: 'annotation-default', editable: true},
+      {key: 'cascade', label: 'Cascade', value: [], origin: 'annotation-default', editable: true},
+      {key: 'joinColumn', label: 'Join column', value: {name: '', nullable: true}, origin: 'annotation-default', editable: true},
+    ]};
+    await page.getByRole('button', {name: 'Inspect at Caret', exact: true}).click();
+    await reply(toOne);
+    assert.equal(await page.locator('#rel-join-table-row').isVisible(), false);
+    assert.equal(await page.locator('#rel-order-by-row').isVisible(), false);
+    await page.locator('#rel-join-column-notnull').check();
+    assert.equal(await page.locator('#prepare-relationship').isDisabled(), true, 'a join column needs a name');
+    await page.locator('#rel-join-column').fill('customer_id');
+    await page.locator('#prepare-relationship').click();
+    assert.deepEqual((await page.evaluate(() => window.requests.at(-1))).operation, {kind: 'prepare-relationship', changes: [{property: 'joinColumn', name: 'customer_id', nullable: false}]});
+    await reply(toOne, {ok: false});
+    await page.getByRole('button', {name: 'Reset', exact: true}).click();
+    await page.getByRole('button', {name: 'Inspect at Caret', exact: true}).click();
+    await reply(fixture);
+    assert.equal(await page.locator('#relationship-form').isVisible(), false);
+    await page.getByRole('tab', {name: 'Inspect', exact: true}).focus();
+    await page.keyboard.press('ArrowRight');
+    assert.equal(await page.getByRole('tab', {name: 'Create', exact: true}).getAttribute('aria-selected'), 'true');
+    await page.getByRole('button', {name: 'Use Open File', exact: true}).click();
+    const target = {root: '/project', path: '/project/src/main/java/shop/Customer.java', language: 'java', version: 1};
+    const creation = {name: 'Customer', package: 'shop', source: target, defaultTableName: 'customer'};
+    const creating = {root: '/project', empty: true, source: target, creation, selected: null, pending: null, canApply: true};
+    await reply(creating);
+    assert.equal(await page.locator('#create-name').getAttribute('readonly'), '');
+    await page.locator('#create-table').fill('');
+    assert.equal(await page.locator('#create-table').getAttribute('aria-invalid'), 'true');
+    await page.getByRole('button', {name: 'Reset', exact: true}).click();
+    assert.equal(await page.locator('#create-table').inputValue(), 'customer');
+    assert.notEqual(await page.locator('#create-table').getAttribute('aria-invalid'), 'true');
+    await page.locator('#create-role').selectOption('embeddable');
+    assert.equal(await page.locator('#create-id-fields').isVisible(), false);
+    assert.equal(await page.locator('#prepare-class').isEnabled(), true);
+    await page.locator('#create-role').selectOption('mapped-superclass');
+    assert.equal(await page.locator('#create-declare-id').isChecked(), false);
+    await page.locator('#create-declare-id').check();
+    await page.locator('#create-id-type').selectOption('uuid');
+    await page.locator('#create-namespace').selectOption('javax');
+    assert.deepEqual(await page.locator('#create-id-strategy option').evaluateAll(options => options.map(o => o.value)), ['assigned']);
+    await page.locator('#create-role').selectOption('entity');
+    await page.locator('#create-namespace').selectOption('jakarta');
+    await page.locator('#create-id-strategy').selectOption('uuid');
+    await page.locator('#create-id-type').selectOption('integer');
+    assert.equal(await page.locator('#create-id-strategy').inputValue(), 'assigned');
+    await page.locator('#create-id-strategy').selectOption('table');
+    assert.equal(await page.locator('#create-generator-table-fields').isVisible(), true);
+    await page.locator('#create-id-strategy').selectOption('sequence');
+    await page.locator('#create-id-name').fill('key');
+    await page.locator('#create-id-column').fill('customer_id');
+    await page.locator('#create-sequence-generator').fill('customer_ids');
+    await page.locator('#create-sequence-name').fill('SEQ_CUSTOMER');
+    await page.locator('#create-sequence-initial').fill('5');
+    await page.locator('#create-sequence-allocation').fill('0');
+    assert.equal(await page.locator('#prepare-class').isDisabled(), true);
+    await page.locator('#create-sequence-allocation').fill('10');
+    await page.locator('#create-version').check();
+    const choiceGeometry = await page.locator('#create-version-row').evaluate(label => ({height: label.getBoundingClientRect().height, width: label.getBoundingClientRect().width}));
+    assert.ok(choiceGeometry.width > 100 && choiceGeometry.height >= 16, JSON.stringify(choiceGeometry));
+    await page.locator('#create-sequence-fields').scrollIntoViewIfNeeded();
+    await page.screenshot({path: resolve(output, `${engine}-${theme}-${width}x${height}-create.png`)});
+    await page.locator('#create-inherit').selectOption('root');
+    await page.locator('#create-inherit-strategy').selectOption('table-per-class');
+    assert.equal(await page.locator('#create-discriminator-fields').isVisible(), false);
+    assert.deepEqual((await page.evaluate(() => window.jpaCreator.draft())).inheritance, {kind: 'root', strategy: 'table-per-class', discriminator: null, discriminatorValue: null});
+    await page.locator('#create-inherit').selectOption('subclass');
+    assert.equal(await page.locator('#create-id-fields').isVisible(), false);
+    assert.equal(await page.locator('#prepare-class').isDisabled(), true);
+    await page.locator('#create-superclass').fill('Vehicle');
+    await page.locator('#create-table').fill('');
+    const subclassDraft = await page.evaluate(() => window.jpaCreator.draft());
+    assert.deepEqual([subclassDraft.identifier, subclassDraft.versioned, subclassDraft.tableName, subclassDraft.inheritance], [null, false, '', {kind: 'subclass', superclass: 'Vehicle', discriminatorValue: null, primaryKeyJoinColumn: null}]);
+    await page.locator('#create-table').fill('customer');
+    await page.locator('#create-inherit').selectOption('none');
+    assert.equal(await page.locator('#create-id-fields').isVisible(), true);
+    await page.getByRole('button', {name: 'Preview Class', exact: true}).click();
+    const createRequest = await page.evaluate(() => window.requests.at(-1));
+    assert.deepEqual(createRequest.context, {path: target.path, version: 1, attribute: null});
+    assert.deepEqual(createRequest.operation.draft, {name: 'Customer', role: 'entity', namespace: 'jakarta', tableName: 'customer', versioned: true, identifier: {name: 'key', column: 'customer_id', idType: 'integer', strategy: 'sequence', sequence: {generator: 'customer_ids', sequenceName: 'SEQ_CUSTOMER', initialValue: 5, allocationSize: 10}, table: null}, inheritance: null});
+    const classSource = 'package shop;\n@jakarta.persistence.Entity\npublic class Customer { @jakarta.persistence.Id java.lang.Integer key; }\n';
+    await reply({...creating, pending: {kind: 'creation', token: 'create-token', before: '', after: classSource}});
+    assert.equal(await page.locator('#after').textContent(), classSource);
+    await page.getByRole('button', {name: 'Apply to Source', exact: true}).click();
+    await reply({...fixture, source: {...target, version: 2}, className: 'Customer', attributes: [{name: 'key', type: 'java.lang.Integer'}], selected: 'key', properties: [], creation: null});
+    assert.match(await page.locator('#status').textContent(), /Source updated/);
+    assert.deepEqual(await page.getByRole('tab').allTextContents(), ['Inspect', 'Create', 'Changes', 'Migration']);
+    await page.getByRole('tab', {name: 'Changes', exact: true}).focus();
+    await page.keyboard.press('ArrowRight');
+    assert.equal(await page.getByRole('tab', {name: 'Migration', exact: true}).getAttribute('aria-selected'), 'true');
+    await page.keyboard.press('ArrowRight');
+    assert.equal(await page.getByRole('tab', {name: 'Inspect', exact: true}).getAttribute('aria-selected'), 'true');
+    await page.keyboard.press('ArrowLeft');
+    assert.equal(await page.getByRole('tab', {name: 'Migration', exact: true}).getAttribute('aria-selected'), 'true');
+    await page.keyboard.press('Home');
+    await page.keyboard.press('End');
+    assert.equal(await page.getByRole('tab', {name: 'Migration', exact: true}).getAttribute('aria-selected'), 'true');
+    assert.equal(await page.locator('#mig-empty').isVisible(), true);
+    assert.equal(await page.locator('#mig-generate').isDisabled(), true);
+    await page.locator('#mig-plan').click();
+    const planRequest = await page.evaluate(() => window.requests.at(-1));
+    assert.deepEqual(planRequest.operation, {kind: 'plan-migration'});
+    await page.evaluate(r => window.reply({...r, frame: 'f'.repeat(32), ok: true, model: {empty: true, root: '/other'}, migration: {kind: 'plan', state: 'no-baseline'}}), planRequest);
+    assert.equal(await page.locator('#mig-plan').getAttribute('aria-busy'), 'true', 'foreign frame cannot complete the request');
+    await reply({root: '/project', empty: true}, {migration: {kind: 'plan', state: 'no-baseline', fileAction: 'Generate Flyway migration from model changes…'}});
+    assert.equal(await page.locator('#mig-nobaseline').isVisible(), true);
+    assert.equal(await page.locator('#mig-result').isVisible(), false);
+    const change = (kind, table, detail, danger, reason, extra = {}) => ({kind, table, detail, danger, reason, ...extra});
+    const plan = {kind: 'plan', state: 'ready', tables: 2, baselineComplete: true, modelComplete: false, incomplete: ['The current model scan is incomplete.'], pendingBaseline: false, truncated: false, fileAction: 'Generate Flyway migration from model changes…', notes: [{table: 'customer', subject: 'default', reason: 'unknown default'}], changes: [
+      change('add-column', 'customer', 'email', 'safe', 'nullable column'),
+      change('drop-column', 'customer', 'name', 'data-loss', 'column dropped'),
+      change('add-column', 'customer', 'full_name', 'needs-backfill', 'NOT NULL without default', {backfill: {table: 'customer', column: 'full_name', logical: 'varchar', length: 5, precision: null, scale: null}}),
+      change('rename-candidate', 'customer', 'name -> full_name', 'ambiguous', 'same type dropped and added', {from: 'name', to: 'full_name'}),
+      change('create-table', 'orders', '3 columns', 'rewrite', 'new table'),
+    ]};
+    await page.locator('#mig-plan').click();
+    await reply({root: '/project', empty: true}, {migration: plan});
+    assert.equal(await page.locator('#mig-groups h3').count(), 2);
+    assert.deepEqual(await page.locator('#mig-groups .ui-badge').allTextContents(), ['Safe', 'DataLoss', 'NeedsBackfill', 'Ambiguous', 'Rewrite']);
+    assert.equal(await page.locator('#mig-incomplete').isVisible(), true);
+    assert.equal(await page.locator('#mig-groups input[type=checkbox]').count(), 1);
+    assert.equal(await page.locator('#mig-groups input[type=checkbox]').isChecked(), false, 'a rename is never on by default');
+    assert.equal(await page.locator('#mig-include input[value=data-loss]').isChecked(), false);
+    assert.match(await page.locator('#mig-include').textContent(), /NeedsBackfill \(1\)/);
+    assert.equal(await page.locator('#mig-generate').isEnabled(), true);
+    await page.locator('#mig-description').fill('!!!');
+    assert.equal(await page.locator('#mig-generate').isDisabled(), true);
+    await page.locator('#mig-description').fill('Add customer email');
+    await page.locator('#mig-dialect').selectOption('mysql');
+    await page.locator('#mig-include input[value=data-loss]').check();
+    await page.locator('#mig-groups input[type=checkbox]').check();
+    await page.locator('#mig-generate').scrollIntoViewIfNeeded();
+    await page.screenshot({path: resolve(output, `${engine}-${theme}-${width}x${height}-migration.png`)});
+    await page.locator('#mig-generate').click();
+    const generateRequest = await page.evaluate(() => window.requests.at(-1));
+    assert.deepEqual(generateRequest.operation, {kind: 'generate-migration', dialect: 'mysql', includeDangers: ['data-loss'], renameDecisions: [{table: 'customer', from: 'name', to: 'full_name'}], backfills: [], description: 'Add customer email'});
+    await reply({root: '/project', empty: true}, {ok: false, migration: null});
+    assert.equal(await page.locator('#mig-sql-wrap').isVisible(), false);
+    assert.equal(await page.locator('#mig-description').inputValue(), 'Add customer email', 'a rejected preview retains the draft');
+    assert.equal(await page.locator('#mig-groups input[type=checkbox]').isChecked(), true);
+    await page.locator('#mig-generate').click();
+    const sqlText = 'ALTER TABLE `customer` RENAME COLUMN `name` TO `full_name`;\n';
+    await reply({root: '/project', empty: true}, {migration: {kind: 'sql', sql: sqlText, description: 'Add_customer_email', fileSuffix: '__Add_customer_email.sql', emitted: 1, policySkipped: 0, unsupported: 0, fileAction: plan.fileAction, created: false}});
+    assert.equal(await page.locator('#mig-sql').textContent(), sqlText);
+    assert.match(await page.locator('#mig-pointer').textContent(), /Generate Flyway migration from model changes/);
+    assert.equal(await page.locator('#mig-copy').isEnabled(), true);
+    await page.locator('#mig-dialect').selectOption('postgresql');
+    assert.match(await page.locator('#mig-sql-state').textContent(), /Preview again/);
+    assert.equal(await page.locator('#mig-copy').isDisabled(), true, 'a stale preview cannot be copied');
+    await page.locator('#mig-plan').click();
+    await reply({root: '/project', empty: true}, {migration: {...plan, changes: plan.changes.filter(c => c.kind !== 'rename-candidate')}});
+    assert.equal(await page.locator('#mig-groups input[type=checkbox]').count(), 0);
+    await page.locator('#mig-plan').click();
+    await reply({root: '/project', empty: true}, {migration: plan});
+    assert.equal(await page.locator('#mig-groups input[type=checkbox]').isChecked(), false, 'a vanished candidate loses its decision');
+    assert.equal(await page.locator('#mig-description').inputValue(), 'Add customer email');
+    assert.equal(await page.locator('#mig-include input[value=data-loss]').isChecked(), true);
+    const backfillInput = page.locator('#mig-groups input[data-backfill]');
+    assert.equal(await backfillInput.count(), 1);
+    assert.equal(await backfillInput.isVisible(), false, 'no backfill input unless NeedsBackfill is included');
+    await page.locator('#mig-include input[value=needs-backfill]').check();
+    assert.equal(await backfillInput.isVisible(), true);
+    await backfillInput.fill('too long');
+    assert.equal(await page.locator('#mig-generate').isDisabled(), true, 'an invalid backfill blocks the preview');
+    assert.match(await page.locator('.migration-backfill-error').textContent(), /Longer than 5/);
+    await backfillInput.fill("it's");
+    assert.equal(await page.locator('#mig-generate').isEnabled(), true);
+    await page.locator('#mig-generate').click();
+    const backfillRequest = await page.evaluate(() => window.requests.at(-1));
+    assert.deepEqual(backfillRequest.operation.backfills, [{table: 'customer', column: 'full_name', value: "it's"}]);
+    assert.deepEqual(backfillRequest.operation.includeDangers, ['needs-backfill', 'data-loss']);
+    await reply({root: '/project', empty: true}, {ok: false, migration: null});
+    assert.equal(await backfillInput.inputValue(), "it's", 'a rejected preview retains the backfill draft');
+    await page.locator('#mig-plan').click();
+    await reply({root: '/project', empty: true}, {migration: plan});
+    assert.equal(await backfillInput.inputValue(), "it's", 'a refreshed plan keeps the draft of a surviving row');
+    await page.locator('#mig-include input[value=needs-backfill]').uncheck();
+    assert.equal(await backfillInput.isVisible(), false);
+    await page.locator('#mig-generate').click();
+    assert.deepEqual((await page.evaluate(() => window.requests.at(-1))).operation.backfills, [], 'values are not sent unless NeedsBackfill is included');
+    await reply({root: '/project', empty: true}, {ok: false, migration: null});
+    const migrationGeometry = await page.evaluate(() => ({scroll: document.documentElement.scrollWidth, width: innerWidth}));
+    assert.ok(migrationGeometry.scroll <= migrationGeometry.width + 1, JSON.stringify(migrationGeometry));
+    await page.getByRole('tab', {name: 'Changes', exact: true}).focus();
+    await page.keyboard.press('Home');
+    await page.screenshot({path: resolve(output, `${engine}-${theme}-${width}x${height}.png`)});
+    const geometry = await page.evaluate(() => ({scroll: document.documentElement.scrollWidth, width: innerWidth, panel: document.querySelector('main').getBoundingClientRect().width}));
+    assert.ok(geometry.scroll <= geometry.width + 1, JSON.stringify(geometry));
+    assert.deepEqual(errors, []);
+    results.push({engine, theme, width, height, geometry, errors});
+    await page.close();
+  }
+} finally { await browser.close(); }
+writeFileSync(resolve(output, `${engine}-results.json`), JSON.stringify(results, null, 2));
+console.log(`PASS ${engine}: ${results.length} Designer layouts, mapping and class creation, typed IDs/generators, migration plan/SQL preview, stale replies and keyboard navigation`);
