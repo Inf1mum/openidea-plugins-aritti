@@ -273,3 +273,14 @@ exposes the current view's `iconButtons` list. These existing buttons render as
 compact icon buttons with their original labels retained for accessibility and
 tooltips. Missing icons keep visible labels. The policy never changes dispatch or
 authorization.
+
+Producer bodies may opt into active-view background work with
+`backgroundPoll: { intervalMs: 1000, message: { op: "tick" } }`.
+The adapter sends at most one opaque request at a time, with the captured project,
+view and frame. The plugin must echo the request's `_backgroundPoll` token in its
+view-message response. Polling pauses while the document is hidden and stops as
+soon as view navigation begins or the page closes. Intervals are bounded to
+0.1–60 seconds. A missing acknowledgment permits a new tick after 30 seconds;
+producers must make ticks idempotent and echo only the matching token.
+This is an active-view callback, not a background scheduler; keep
+durable state and interruption recovery in the plugin.

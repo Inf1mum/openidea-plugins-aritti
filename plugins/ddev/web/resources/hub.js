@@ -8,6 +8,8 @@
   const frameId = Array.from(frameBytes, byte => byte.toString(16).padStart(2, "0")).join("");
   Object.defineProperty(window, "uiKitFrameId", { value: frameId, writable: false, configurable: false });
   const $ = id => document.getElementById(id);
+  const tr=(key,fallback,args)=>window.uiKitI18n?.t(key,fallback,args)??fallback;
+  const columnLabel=label=>tr(`column.${String(label).toLowerCase().replaceAll(" ","_")}`,label);
   const state = { sequence: 0, project: null, model: null, activeView: "", groupFocus: null, generation: 0, cleanup: null, navigationCleaned: false, section: "", pages: new Map(), selected: null, sort: null, busy: false, refreshPending: false, sectionFocus: null, listeners: [], contextPending: null, contextActionsKey: null, contextApproved: false };
   const element = (tag, text, className) => { const node = document.createElement(tag); if (text != null) node.textContent = text; if (className) node.className = className; const control={button:"ui-button",input:"ui-input",select:"ui-select",textarea:"ui-textarea",output:"ui-output",table:"ui-table"}[tag]; if(control) node.classList.add(control); return node; };
   const contentScope = () => JSON.stringify([state.project,state.activeView]);
@@ -20,7 +22,7 @@
     else window.uiKitWidgets?.notify({title:"Plugin view",message:text,tone:"error"});
   };
   function send(op) {
-    if (!window.openidea) { notice("Open this view in OpenIDEA to load project resources."); return; }
+    if (!window.openidea) { notice(tr("shared.openInIdea","Open this view in OpenIDEA to load project resources.")); return; }
     state.contextPending = null;
     state.groupFocus = $("view-tabs").contains(document.activeElement) ? document.activeElement.dataset.viewKey : null;
     state.sectionFocus = $("sections").contains(document.activeElement) ? document.activeElement.dataset.sectionKey : null;
@@ -29,9 +31,30 @@
     // A text-field blur can flush its draft before the user's button click.
     // Keep navigation clickable for field syncs; the following action owns busy state.
     if(!(op.op === "event" && op.event?.kind === "field")) document.querySelectorAll("#toolbar button, #view-tabs button, #sections button, .field-controls>[data-inline-action]").forEach(b => b.disabled = true);
-    openidea.postMessage(JSON.stringify({ targetView: state.activeView || undefined, ...op, channel: "ui-kit", frameId, sequence: ++state.sequence, project: state.project }));
+    openidea.postMessage(JSON.stringify({ targetView: state.activeView || undefined, ...op, channel: "ui-kit", frameId, clientLocale:window.uiKitI18n?.locale, sequence: ++state.sequence, project: state.project }));
     return state.sequence;
   }
+  // Optional producer-owned background work. One request may be outstanding;
+  // polls stop on navigation, hidden documents and page teardown.
+  let backgroundPoll=null,backgroundSequence=0;
+  function stopBackgroundPoll(){if(backgroundPoll)clearTimeout(backgroundPoll.timer);backgroundPoll=null;}
+  function configureBackgroundPoll(){
+    const spec=state.model?.body?.backgroundPoll;
+    if(!spec || typeof spec.message!=="object" || Array.isArray(spec.message) || !Number.isSafeInteger(spec.intervalMs) || spec.intervalMs<100 || spec.intervalMs>60000){stopBackgroundPoll();return;}
+    const scope=JSON.stringify([state.project,state.activeView,spec]);
+    if(backgroundPoll?.scope===scope)return;
+    stopBackgroundPoll();const poll={scope,project:state.project,view:state.activeView,pending:null,pendingSince:0,timer:null};backgroundPoll=poll;
+    const schedule=()=>{poll.timer=setTimeout(()=>{
+      if(backgroundPoll!==poll)return;
+      if(poll.pending && performance.now()-poll.pendingSince>=30000)poll.pending=null;
+      if(!document.hidden && !poll.pending && !state.busy && window.openidea){
+        poll.pending=`${frameId}:${++backgroundSequence}`;poll.pendingSince=performance.now();
+        openidea.postMessage(JSON.stringify({op:"opaque-message",message:JSON.stringify({...spec.message,_backgroundPoll:poll.pending}),channel:"ui-kit",frameId,clientLocale:window.uiKitI18n?.locale,sequence:0,targetView:poll.view,project:poll.project}));
+      }
+      schedule();
+    },spec.intervalMs);};schedule();
+  }
+  window.addEventListener("pagehide",stopBackgroundPoll);
   const event = (data, targetView=state.activeView) => send({ op: "event", event: data, targetView: targetView || undefined });
   const formDrafts = new Map();
   const formScope = () => `${state.project}\0${state.activeView}\0${state.section}`;
@@ -93,6 +116,7 @@
   }
 
   function actionButton(button, toolbar = false) {
+    if(button.key!=="runtime-runner" || button.label==="Local PHP") button={...button,label:tr(`action.${button.key}`,button.label)};
     const targetView=state.activeView;
     const b = element("button");
     const overflow = button.key === "more-actions" || ["more", "more-horizontal", "more-vertical"].includes(button.icon);
@@ -122,7 +146,7 @@
       if(Number.isSafeInteger(tab.count) && tab.count >= 0)button.append(element("span",String(tab.count),"tab-count"));
       button.id=`view-tab-${encodeURIComponent(tab.id)}`;button.setAttribute("aria-controls",`view-panel-${encodeURIComponent(tab.id)}`);button.title=tab.label;button.setAttribute("aria-label",Number.isSafeInteger(tab.count) && tab.count >= 0 ? `${tab.label} (${tab.count})` : tab.label);button.setAttribute("role","tab");
       const active=tab.id === state.activeView;button.setAttribute("aria-selected",String(active));button.tabIndex=active ? 0:-1;
-      button.addEventListener("click",()=>{if(tab.id !== state.activeView){flushForm();if(state.cleanup){state.cleanup();state.cleanup=null;state.navigationCleaned=true;}send({op:"select-view",target:tab.id});}});
+      button.addEventListener("click",()=>{if(tab.id !== state.activeView){stopBackgroundPoll();flushForm();if(state.cleanup){state.cleanup();state.cleanup=null;state.navigationCleaned=true;}send({op:"select-view",target:tab.id});}});
       return button;
     }));
     if(focusedView) [...$("view-tabs").children].find(node=>node.dataset.viewKey === focusedView)?.focus({preventScroll:true});
@@ -144,7 +168,7 @@
     toolbarButtons.sort((a,b)=>toolbarOrder(a)-toolbarOrder(b));
     $("toolbar").replaceChildren(...toolbarButtons);
     $("search").value = queryState().query;
-    $("search").placeholder = typeof model.body.searchPlaceholder === "string" ? model.body.searchPlaceholder : "Search…";
+    $("search").placeholder = typeof model.body.searchPlaceholder === "string" ? tr(`search.${state.activeView}`,model.body.searchPlaceholder) : tr("shared.searchPlaceholder","Search…");
   }
   function rowModel(body) {
     if (body.kind === "resources") {
@@ -165,23 +189,23 @@
     const fields = element("dl", null, "resource-facts ui-dialog-body");
     const columns = rowModel(body).columns;
     let hasCode=false;
-    const fact = (label,value) => {
+    const fact = (label,value,isColumn=false) => {
       const detail=element("dd",value || "—"), badge=cellBadge(label,value);
       const preview=badge ? null : window.uiKitCodePreview?.create(label,value);
       if(badge) detail.replaceChildren(badge);
       else if(preview){detail.replaceChildren(preview);hasCode=true;}
-      fields.append(element("dt",label),detail);
+      fields.append(element("dt",isColumn?columnLabel(label):label),detail);
     };
-    columns.forEach((label,i) => fact(label,row.cells[i]));
+    columns.forEach((label,i) => fact(label,row.cells[i],true));
     for (const detail of row.details || []) {
       if (typeof detail.label === "string" && typeof detail.value === "string") fact(detail.label,detail.value);
     }
     if (row.method && !columns.includes("Method")) {
       const method = element("dd"); const badges = methodBadges(row.method);
       if (badges) method.append(badges); else method.textContent = row.method;
-      fields.append(element("dt", "Method"), method);
+      fields.append(element("dt", tr("column.method", "Method")), method);
     }
-    const footer = element("div", null, "ui-dialog-footer"); const close = element("button", "Close");
+    const footer = element("div", null, "ui-dialog-footer"); const close = element("button", tr("shared.close","Close"));
     close.addEventListener("click",()=>dialog.close()); footer.append(close);
     dialog.classList.toggle("has-code-preview",hasCode);
     dialog.setAttribute("aria-labelledby",title.id); dialog.replaceChildren(heading, fields, footer);
@@ -220,10 +244,10 @@
         item(button.label,()=>send({op:"item-button",key:row.key,button:button.key}),button.icon);
       }
     } else if(state.contextPending?.key === row.key) {
-      const loading=element("button","Loading actions…");loading.type="button";loading.disabled=true;loading.dataset.contextLoading="";menu.append(loading);
+      const loading=element("button",tr("shared.loadingActions","Loading actions…"));loading.type="button";loading.disabled=true;loading.dataset.contextLoading="";menu.append(loading);
     }
     menu.append(element("hr"));
-    item("Show Details…",()=>showDetails(row,body),"info");
+    item(tr("shared.showDetails","Show Details…"),()=>showDetails(row,body),"info");
     return menu;
   }
   function activate(row, body) { if(row.activationEnabled === false) return; if(body.kind === "tree" && row.expandable){event({kind:row.expanded ? "collapse":"expand",key:row.key});return;} event(body.kind === "table" ? { kind: "table-activate", row: row.row } : { kind: "activate", key: row.key }); }
@@ -257,9 +281,9 @@
     const { columns, facets, rows } = rowModel(body); const q = queryState();
     const filters = $("facets"); filters.replaceChildren();
     facets.forEach(column => {
-      const label = element("label", null, "ui-field"); label.append(element("span", columns[column], "ui-visually-hidden")); const select = element("select"); select.setAttribute("aria-label", columns[column]);
+      const label = element("label", null, "ui-field"); label.append(element("span", columnLabel(columns[column]), "ui-visually-hidden")); const select = element("select"); select.setAttribute("aria-label", columnLabel(columns[column]));
       const values = [...new Set(rows.map(r => r.cells[column]).filter(Boolean))].sort();
-      const facetLabel=typeof body.facetLabels?.[column] === "string" ? body.facetLabels[column] : `${columns[column]}: All`;
+      const facetLabel=typeof body.facetLabels?.[column] === "string" ? tr(`facet.${state.activeView}.${column}`,body.facetLabels[column]) : `${columnLabel(columns[column])}: ${tr("shared.all","All")}`;
       const all = element("option", `${facetLabel} (${values.length})`); all.value = ""; select.append(all);
       for (const value of values) { const option = element("option", value); option.value = value; select.append(option); }
       if (!values.includes(q.facets[column])) delete q.facets[column];
@@ -308,7 +332,7 @@
     } else if(q.sort) visible.sort(compare);
     const pages = body.kind === "tree" ? 1 : Math.max(1,Math.ceil(visible.length / 100)); q.page = Math.min(q.page,pages-1);
     const table = element("table",null,body.kind === "resources" ? "resources" : ""); const head = element("thead"); const headings = element("tr");
-    columns.forEach((label,column) => { const th = element("th"); const b = element("button", label);
+    columns.forEach((label,column) => { const th = element("th"); const b = element("button", columnLabel(label));
       const style=body.columnStyles?.[column];if(["code","text","muted","locale"].includes(style))th.classList.add(`resource-${style}`);
       if(q.sort?.column === column) {
         b.append(viewIcon(q.sort.descending ? "arrow-12px-down" : "arrow-12px-up"));
@@ -398,17 +422,17 @@
     if(visible.length) content.replaceChildren(table);
     else {
       const empty = element("div", null, "empty ui-empty");
-      empty.append(element("strong", rows.length ? "No matching resources" : "No resources found"), element("p", rows.length ? "Try a different search or clear the filters." : "Resources appear here when available."));
-      if(rows.length) {const reset=element("button","Reset filters");reset.addEventListener("click",()=>$("clear").click());empty.append(reset);}
+      empty.append(element("strong", rows.length ? tr("shared.noMatching","No matching resources") : tr("shared.noResources","No resources found")), element("p", rows.length ? tr("shared.trySearch","Try a different search or clear the filters.") : tr("shared.resourcesAppear","Resources appear here when available.")));
+      if(rows.length) {const reset=element("button",tr("shared.resetFilters","Reset filters"));reset.addEventListener("click",()=>$("clear").click());empty.append(reset);}
       content.replaceChildren(empty);
     }
-    if (pages > 1) { const pager=element("div",null,"pager"); const prev=element("button","Previous"), next=element("button","Next"); prev.hidden=q.page===0;next.hidden=q.page===pages-1;prev.addEventListener("click",()=>{q.page--;renderBody();});next.addEventListener("click",()=>{q.page++;renderBody();});pager.append(prev,element("span",`${q.page+1} / ${pages}`),next);content.append(pager); }
+    if (pages > 1) { const pager=element("div",null,"pager"); const prev=element("button",tr("shared.previous","Previous")), next=element("button",tr("shared.next","Next")); prev.hidden=q.page===0;next.hidden=q.page===pages-1;prev.addEventListener("click",()=>{q.page--;renderBody();});next.addEventListener("click",()=>{q.page++;renderBody();});pager.append(prev,element("span",`${q.page+1} / ${pages}`),next);content.append(pager); }
     const selected = rows.find(r=>r.key===q.selected); if(selected) select(selected,body); else {$("details").close();q.selected=null;state.selected=null;}
     if(focusedKey) {
       const nodes=[...tbody.querySelectorAll('tr')],next=nodes.find(node=>node.dataset.resourceKey === focusedKey) || nodes.find(node=>node.dataset.resourceKey === q.selected) || nodes.find(node=>node.tabIndex === 0);
       next?.focus({preventScroll:true});
     }
-    $("status").textContent = `${visible.length} of ${rows.length} resources${body.totalRows > rows.length ? ` (${body.totalRows} available)` : ""}${state.model.status ? ` · ${state.model.status}`:""}`;
+    $("status").textContent = tr("shared.resourceCount","{visible} of {total} resources",{visible:visible.length,total:rows.length})+(body.totalRows>rows.length?" "+tr("shared.availableCount","({count} available)",{count:body.totalRows}):"")+(state.model.status?` · ${state.model.status}`:"");
   }
   function inlineActionState(model) {
     const keys=Object.values(model?.fieldActions || {}).map(action=>action.button);
@@ -433,7 +457,7 @@
       else if(value.kind === "multiline") {input=element("textarea");input.value=value.text;}
       else if(value.kind === "checkbox") {input=element("input");input.type="checkbox";input.className="ui-choice";input.checked=value.checked;label.className="checkbox ui-check";}
       else if(value.kind === "text") {input=element("input");input.type="text";input.value=value.text;}
-      else {input=element("output","Unsupported field type");}
+      else {input=element("output",tr("shared.unsupportedField","Unsupported field type"));}
       input.setAttribute("aria-label",field.label);input.dataset.fieldKey=field.key;
       if(value.kind === "text" || value.kind === "multiline") {
         const draft=formDrafts.get(draftKey(field.key));if(draft?.scope === formScope()) input.value=draft.value;
@@ -499,7 +523,7 @@
     if(host.hasAttribute("data-runtime-controls") || shadow.querySelector("[data-runtime-controls]") || shadow.querySelector("[data-command-workspace], [data-generator-workspace], [data-managed-processes]")) {
       const runtimeBridge={...bridge,postMessage:value=>{
         if(state.generation !== generation || !window.openidea) return;
-        openidea.postMessage(JSON.stringify({op:"opaque-message",message:value,channel:"ui-kit",frameId,sequence:0,targetView,project:state.project}));
+        openidea.postMessage(JSON.stringify({op:"opaque-message",message:value,channel:"ui-kit",frameId,clientLocale:window.uiKitI18n?.locale,sequence:0,targetView,project:state.project}));
       }};
       const adapter=shadow.querySelector("[data-generator-workspace]") ? window.uiKitGeneratorWorkspace : shadow.querySelector("[data-managed-processes]") ? window.uiKitManagedProcesses : shadow.querySelector("[data-command-workspace]") ? window.uiKitCommandWorkspace : window.uiKitRuntimeControls;
       state.cleanup=adapter?.mount(shadow,runtimeBridge) || null;
@@ -508,6 +532,8 @@
     else if(shadow.querySelector("#src")) window.uiKitLegacy?.kube(shadow,bridge);
     else if(shadow.querySelector(".file[data-new-path]")) window.uiKitLegacy?.review(shadow,bridge);
     restoreHtmlDraft(body,shadow);
+    const localeCleanup=window.uiKitI18n?.observe(shadow),adapterCleanup=state.cleanup;
+    state.cleanup=()=>{adapterCleanup?.();localeCleanup?.();};
     state.listeners.push(message=>{if(message === "end") $("content").scrollTop=$("content").scrollHeight;});
   }
   function renderBody() {
@@ -532,6 +558,13 @@
   window.openidea?.onMessage(text=>{
     let message;try{message=JSON.parse(text);}catch{state.listeners.forEach(callback=>callback(text));return;}
     if(message.channel === "ui-kit-view-message") {
+      let schedulerReply=false;
+      try{const reply=JSON.parse(message.message);schedulerReply=reply && typeof reply === "object" && Object.hasOwn(reply,"_backgroundPoll");}catch{}
+      if(message.frameId===frameId && message.targetView===state.activeView && backgroundPoll?.pending){
+        try{const reply=JSON.parse(message.message);if(reply._backgroundPoll===backgroundPoll.pending)backgroundPoll.pending=null;}catch{}
+      }
+      // Scheduler acknowledgments cannot consume an embedded form's request.
+      if(schedulerReply)return;
       if((message.frameId == null || message.frameId === frameId) && message.targetView === state.activeView && typeof message.message === "string") state.listeners.forEach(callback=>callback(message.message));
       return;
     }
@@ -547,9 +580,16 @@
     if(state.refreshPending) queueMicrotask(drainRefresh);
     if(message.notified) return;
     if(message.error) {if(state.model) {header();restoreInlineActions();if(state.navigationCleaned){state.navigationCleaned=false;renderBody();}if(state.selected) select(state.selected,state.model.body);}return;}
+    const previousLanguage=window.uiKitI18n?.locale;
+    window.uiKitI18n?.setLocale(message.model.uiLanguage || "auto");
+    const languageChanged=previousLanguage!==window.uiKitI18n?.locale;
+    if(languageChanged)captureHtmlDraft();
+    if(Array.isArray(message.model.viewTabs)) message.model.viewTabs=message.model.viewTabs.map(tab=>({...tab,label:tr(`view.${tab.id}`,tab.label)}));
     const nextView=typeof message.model.activeView === "string" ? message.model.activeView : "";
     const viewChanged=state.activeView !== nextView;
-    const sameBody=!viewChanged && state.project === message.project && JSON.stringify(state.model?.body) === JSON.stringify(message.model.body);
+    // Producer scheduling metadata does not change controls or their drafts.
+    const presentation=body=>{if(!body)return body;const {backgroundPoll,...content}=body;return content;};
+    const sameBody=!languageChanged && !viewChanged && state.project === message.project && JSON.stringify(presentation(state.model?.body)) === JSON.stringify(presentation(message.model.body));
     const previousSection=state.section,oldScope=formScope();
     if(viewChanged && state.project === message.project) {captureHtmlDraft();const previous=queryState();previous.scrollTop=$("content").scrollTop;previous.scrollLeft=$("content").scrollLeft;}
     if(state.project !== message.project) {state.pages.clear();state.selected=null;clearFormDrafts();htmlDrafts.clear();}
@@ -560,7 +600,7 @@
       for(const draft of formDrafts.values()) if(draft.scope === oldScope) {clearTimeout(draft.timer);draft.timer=null;}
     }
     let formRefresh=message.model.body.kind === "form" && inlineActionState(state.model) !== inlineActionState(message.model);
-    state.project=message.project;state.activeView=nextView;state.model=message.model;state.navigationCleaned=false;notice("");header();
+    state.project=message.project;state.activeView=nextView;state.model=message.model;state.navigationCleaned=false;notice("");header();configureBackgroundPoll();
     if(!viewChanged && (oldScope !== formScope() || state.model.body.kind !== "form")) clearFormDrafts(oldScope);
     if(!viewChanged && oldScope !== formScope()) htmlDrafts.delete(oldScope);
     const htmlDraft=htmlDrafts.get(formScope());

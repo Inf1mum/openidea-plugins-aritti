@@ -240,10 +240,11 @@
     content.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();close();suppressFocus=true;trigger.focus();queueMicrotask(()=>suppressFocus=false);}});
     content.querySelector('[data-ui-dismiss]')?.addEventListener('click',()=>{dismissed=true;close();trigger.focus();});
   }
-  function notify({title='Notification',message='',tone='info',root=document}={}) {
+  function notify({title,message='',tone='info',root=document}={}) {
+    title ??= window.uiKitI18n?.t('shared.notification','Notification') ?? 'Notification';
     let region=root.querySelector('.ui-notifications');if(!region){region=node('div','ui-notifications');(root.body||root).append(region);}
     const toast=node('section',`ui-notification ui-alert ui-alert--${tone}`);toast.setAttribute('role',tone==='error'?'alert':'status');
-    const close=node('button','ui-button ui-button--quiet ui-icon-button');if(window.uiKitIcons)close.append(window.uiKitIcons.create('close',{size:16}));else close.textContent='×';close.type='button';close.setAttribute('aria-label','Dismiss notification');close.addEventListener('click',()=>toast.remove());
+    const close=node('button','ui-button ui-button--quiet ui-icon-button');if(window.uiKitIcons)close.append(window.uiKitIcons.create('close',{size:16}));else close.textContent='×';close.type='button';close.setAttribute('aria-label',window.uiKitI18n?.t('shared.dismissNotification','Dismiss notification')??'Dismiss notification');close.addEventListener('click',()=>toast.remove());
     toast.append(node('strong',null,title),node('p',null,message),close);region.append(toast);return toast;
   }
   function enhance(root=document) {

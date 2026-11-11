@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 
 thread_local! {
     static RENDERING: Cell<bool> = const { Cell::new(false) };
+    static UI_LANGUAGES: RefCell<std::collections::BTreeMap<String,String>> = const { RefCell::new(std::collections::BTreeMap::new()) };
     static ORIGIN_FRAME: RefCell<Option<String>> = const { RefCell::new(None) };
     static GROUP_SELECTIONS: RefCell<std::collections::BTreeMap<String, GroupSelection>> = const { RefCell::new(std::collections::BTreeMap::new()) };
 }
@@ -25,6 +26,19 @@ impl MessageOrigin {
 }
 impl Drop for MessageOrigin {
     fn drop(&mut self) { ORIGIN_FRAME.with(|value| *value.borrow_mut() = self.0.take()); }
+}
+
+/// Cosmetic browser-language hint, captured only from correlated auto-language requests.
+/// This is not a settings write and never affects project values or command arguments.
+pub fn resolved_language(title:&str)->Option<String> {
+    UI_LANGUAGES.with(|hints|hints.borrow().get(title).cloned()).or_else(||host::storage::get(&format!("ui-kit.language:{title}")).ok().flatten()).filter(|language|matches!(language.as_str(),"en"|"ja"|"ko"|"zh-CN"))
+}
+fn record_language(config:&Config,frame_id:Option<&str>,client_locale:Option<&str>) {
+    if !matches!(config.ui_language.as_str(),""|"auto")||!frame_id.is_some_and(valid_frame_id){return;}
+    let Some(language)=client_locale.filter(|language|matches!(*language,"en"|"ja"|"ko"|"zh-CN"))else{return;};
+    let unchanged=UI_LANGUAGES.with(|hints|{let mut hints=hints.borrow_mut();let unchanged=hints.get(&config.title).is_some_and(|old|old==language);hints.insert(config.title.clone(),language.into());unchanged});
+    if unchanged{return;}
+    let _=host::storage::set(&format!("ui-kit.language:{}",config.title),language);
 }
 
 pub fn is_rendering() -> bool {
@@ -46,6 +60,8 @@ impl Drop for Rendering {
 #[derive(Deserialize)]
 struct Config {
     title: String,
+    #[serde(default, rename = "uiLanguage")]
+    ui_language: String,
     views: std::collections::BTreeMap<String, String>,
     actions: Vec<Action>,
     #[serde(default)]
@@ -215,6 +231,8 @@ struct Request {
     #[serde(default, rename = "frameId")]
     frame_id: Option<String>,
     project: Option<String>,
+    #[serde(default, rename="clientLocale")]
+    client_locale: Option<String>,
     #[serde(default, rename = "targetView")]
     target_view: Option<String>,
     #[serde(flatten)]
@@ -451,6 +469,7 @@ pub fn handle_with_actions<T: Plugin + Views>(plugin: &mut T, view: &str, event:
                 return Err(Error::Denied("This action needs an identifiable project. Open a project and allow project.read.".into()));
             }
         }
+        record_language(&config,request.frame_id.as_deref(),request.client_locale.as_deref());
         let view = initial_view.as_str();
         match request.operation {
             Operation::Render | Operation::Notify { .. } => {}
@@ -530,7 +549,7 @@ pub fn handle_with_actions<T: Plugin + Views>(plugin: &mut T, view: &str, event:
         let model = plugin.render(view, Some(Viewport { first_row: 0, rows: 5000 }), ctx)?;
         let actions = actions(plugin, view, &model)?.unwrap_or_else(|| config.actions.iter().filter(|a|a.view==view)
             .map(|a|json!({"id":a.id,"label":a.label,"kind":a.kind,"keys":a.keys,"icon":a.icon,"replacesOpen":a.replaces_open})).collect());
-        Ok(json!({"title":title,"plugin":config.title,"body":body(model.body),"status":model.status,
+        Ok(json!({"title":title,"plugin":config.title,"uiLanguage":config.ui_language,"body":body(model.body),"status":model.status,
             "toolbar":model.toolbar.iter().map(|b|json!({"key":b.id,"label":b.label,"icon":b.icon,"enabled":b.enabled})).collect::<Vec<_>>(),
             "actions":actions,"fieldActions":config.field_actions,"contextButtons":config.context_buttons.get(view),"iconButtons":config.toolbar_icon_buttons.get(view),
             "activeView":view,"viewTabs":config.group_for(&physical).map(|group| &group.tabs)}))
@@ -1049,4 +1068,16 @@ mod group_tests {
         let envelope:Value=serde_json::from_str(&host.view_messages().last().unwrap().1).unwrap();
         assert_eq!(envelope["targetView"],"details");assert!(envelope["frameId"].is_null());
     }
+    #[test]
+    fn browser_locale_hint_requires_auto_and_a_correlated_frame_without_changing_settings() {
+        let host=MockHost::install();
+        let mut config=configuration(r#"{"title":"LocaleHintTest","views":{"routes":"Routes"},"actions":[],"uiLanguage":"auto"}"#).unwrap();
+        record_language(&config,None,Some("ja"));assert!(resolved_language("LocaleHintTest").is_none());
+        record_language(&config,Some("invalid"),Some("ja"));assert!(resolved_language("LocaleHintTest").is_none());
+        record_language(&config,Some("0123456789abcdef0123456789abcdef"),Some("ja"));assert_eq!(resolved_language("LocaleHintTest").as_deref(),Some("ja"));
+        assert!(host::setting_string("uiLanguage").is_none());
+        config.ui_language="ko".into();record_language(&config,Some("0123456789abcdef0123456789abcdef"),Some("zh-CN"));assert_eq!(resolved_language("LocaleHintTest").as_deref(),Some("ja"));
+        drop(host);
+    }
+
 }
