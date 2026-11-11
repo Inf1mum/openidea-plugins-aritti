@@ -13,7 +13,9 @@
 //! The master is never edited: released FileAction edits carry no expected document version (S007), so an edit of
 //! a document other than the invoking one cannot be guarded. The exact `include` line is shown instead.
 use super::*;
-use super::migration_action::{BASELINE, BASELINE_NEXT, absent, absolute, acknowledge, ask_backfills, description_of, read_optional, scan, summary, target_in_root};
+use super::template_settings;
+use persistence_core::naming::{self, Inputs};
+use super::migration_action::{BASELINE, BASELINE_NEXT, absent, absolute, acknowledge, ask_backfills, read_optional, scan, summary, target_in_root};
 use persistence_core::liquibase::{self, LiquibaseOptions};
 use persistence_core::schema::{self, Danger};
 use persistence_core::sql::EmitOptions;
@@ -301,15 +303,19 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> R
     let author = host::input("changeSet author", Some("jpa-assist"))?.ok_or(Error::Cancelled)?;
     let id_prefix = host::input("changeSet id prefix (ids are <prefix>-<n>)", Some(&located.sequence))?.ok_or(Error::Cancelled)?;
     let description = host::input("Changelog description (ASCII letters and digits)", Some("jpa_model_changes"))?.ok_or(Error::Cancelled)?;
-    let description = description_of(&description);
+    let description = naming::style_description(&description, template_settings::description_style()?);
     if description.is_empty() {
         return Err("Enter a description containing ASCII letters or digits.".into());
     }
+    let (name_pattern, needs) = template_settings::liquibase_name_pattern()?;
+    let now = template_settings::ask_date(&needs)?;
+    let sem_ver = if needs.sem_ver { Some(template_settings::project_version(project)?) } else { None };
 
     let options = LiquibaseOptions {
         emit,
         author: author.trim().to_owned(),
         id_prefix: id_prefix.trim().to_owned(),
+        defaults: template_settings::changeset_defaults()?,
     };
     let emitted = liquibase::emit_xml(&plan, &options).map_err(|e| Error::from(format!("The changelog cannot be generated: {e:?}")))?;
     if emitted.emitted() == 0 {
@@ -332,7 +338,9 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> R
         acknowledge(&incomplete)?;
     }
 
-    let name = format!("{}-{description}.xml", located.sequence);
+    let highest = located.names.iter().filter_map(|n| leading_number(n)).map(|(value, _)| value).max();
+    let inputs = Inputs { seq: Some(&located.sequence), highest, description: Some(&description), now, sem_ver: sem_ver.as_deref() };
+    let name = naming::expand(&name_pattern, &inputs).map_err(|e| Error::from(format!("liquibaseChangelogNamePattern: {e}.")))?;
     if located.names.iter().any(|n| n.eq_ignore_ascii_case(&name)) {
         return Err(Error::Stale);
     }
@@ -436,12 +444,19 @@ mod tests {
     }
 
     fn generate(host: &MockHost, plugin: &mut JpaAssist, doc: &Document, allow: &[&str], confirms: &[bool]) -> Result<FileAction, Error> {
+        generate_with(host, plugin, doc, allow, &[], confirms)
+    }
+
+    fn generate_with(host: &MockHost, plugin: &mut JpaAssist, doc: &Document, allow: &[&str], extra: &[&str], confirms: &[bool]) -> Result<FileAction, Error> {
         let pending = plugin.file_actions(doc, Range::default()).into_iter().find(|a| a.title == TITLE).unwrap();
         assert!(pending.operations.is_empty() && pending.edits.is_empty());
         host.answer_next_prompt(Some(allow));
         host.answer_next_prompt(Some(&["Alice"]));
         host.answer_next_prompt(Some(&["add-email"]));
         host.answer_next_prompt(Some(&["Add customer email!"]));
+        for answer in extra {
+            host.answer_next_prompt(Some(&[answer]));
+        }
         for confirm in confirms {
             host.answer_next_prompt(confirm.then_some(&[]));
         }
@@ -477,6 +492,93 @@ mod tests {
         assert!(resolved.edits.is_empty(), "the master is never edited");
         assert_eq!(resolved.open.as_ref(), Some(path));
         assert!(host.process_runs().is_empty() && host.requests().is_empty());
+    }
+
+    fn file_text(resolved: &FileAction) -> (String, String) {
+        let FileOperation::Create { path, text, .. } = &resolved.operations[0] else { panic!() };
+        (path.rsplit('/').next().unwrap().to_owned(), text.clone())
+    }
+
+    #[test]
+    fn explicit_default_settings_reproduce_the_unset_output_byte_for_byte() {
+        let (host, mut plugin, doc) = ready(ENTITY_PLUS);
+        let plain = file_text(&generate(&host, &mut plugin, &doc, &[], &[true]).unwrap());
+        let (host, mut plugin, doc) = ready(ENTITY_PLUS);
+        host.set_setting("liquibaseChangelogNamePattern", "\"{seq}-{description}.xml\"");
+        host.set_setting("migrationDescriptionCase", "\"keep\"");
+        host.set_setting("liquibaseChangeSetDefaults", "[]");
+        assert_eq!(file_text(&generate(&host, &mut plugin, &doc, &[], &[true]).unwrap()), plain);
+        let (host, mut plugin, doc) = ready(ENTITY_PLUS);
+        host.set_setting("liquibaseChangeSetDefaults", r#"[{"changeType":"all","failOnError":"unset","runOnChange":"unset","context":"","labels":"","preConditionsOnFail":"unset","preConditionsOnError":"unset","addEmptyRollback":"unset"}]"#);
+        assert_eq!(file_text(&generate(&host, &mut plugin, &doc, &[], &[true]).unwrap()), plain);
+        assert_eq!(plain.0, "003-Add_customer_email.xml");
+    }
+
+    #[test]
+    fn changeset_defaults_setting_reaches_the_changelog() {
+        let (host, mut plugin, doc) = ready(ENTITY_PLUS);
+        host.set_setting("liquibaseChangeSetDefaults", r#"[{"changeType":"all","runOnChange":"true","context":"dev,test","preConditionsOnFail":"MARK_RAN"},{"changeType":"addColumn","failOnError":"false","labels":"v1"}]"#);
+        let (_, text) = file_text(&generate(&host, &mut plugin, &doc, &[], &[true]).unwrap());
+        assert!(text.contains("<changeSet id=\"add-email-1\" author=\"Alice\" runOnChange=\"true\" failOnError=\"false\" context=\"dev,test\" labels=\"v1\">"), "{text}");
+        assert!(text.contains("<preConditions onFail=\"MARK_RAN\">\n            <not>\n                <columnExists tableName=\"customer\" columnName=\"email\"/>"), "{text}");
+        assert_parses(&text);
+
+        let (host, mut plugin, doc) = ready(ENTITY_PLUS);
+        host.set_setting("liquibaseChangeSetDefaults", r#"[{"context":"a b"}]"#);
+        assert!(generate(&host, &mut plugin, &doc, &[], &[true]).is_err(), "invalid context");
+        let (host, mut plugin, doc) = ready(ENTITY_PLUS);
+        host.set_setting("liquibaseChangeSetDefaults", r#"[{"changeType":"dropEverything"}]"#);
+        assert!(generate(&host, &mut plugin, &doc, &[], &[true]).is_err(), "unknown type");
+    }
+
+    #[test]
+    fn empty_rollback_goes_into_unsupported_reverse_changesets() {
+        let wider = baseline_json(ENTITY_PLUS);
+        let (host, mut plugin, doc) = ready(ENTITY);
+        host.add_file("db/jpa-schema-baseline.json", &wider);
+        host.set_setting("liquibaseChangeSetDefaults", r#"[{"addEmptyRollback":"true"}]"#);
+        let (_, text) = file_text(&generate(&host, &mut plugin, &doc, &["data-loss"], &[true]).unwrap());
+        assert!(text.contains("<dropColumn tableName=\"customer\" columnName=\"email\"/>\n        <rollback/>\n    </changeSet>"), "{text}");
+        assert_parses(&text);
+    }
+
+    #[test]
+    fn name_patterns_dates_increments_and_description_case() {
+        let (host, mut plugin, doc) = ready(ENTITY_PLUS);
+        host.set_setting("liquibaseChangelogNamePattern", "\"#date(yyyyMMddHHmmss)_{description}.xml\"");
+        host.set_setting("migrationDescriptionCase", "\"kebab\"");
+        assert_eq!(file_text(&generate_with(&host, &mut plugin, &doc, &[], &["20250309040506"], &[true]).unwrap()).0, "20250309040506_add-customer-email.xml");
+
+        let (host, mut plugin, doc) = ready(ENTITY_PLUS);
+        host.set_setting("liquibaseChangelogNamePattern", "\"#increment(1, 1, 0000)-{description}.xml\"");
+        host.set_setting("migrationDescriptionCase", "\"lower_snake\"");
+        assert_eq!(file_text(&generate(&host, &mut plugin, &doc, &[], &[true]).unwrap()).0, "0003-add_customer_email.xml");
+
+        let (host, mut plugin, doc) = ready(ENTITY_PLUS);
+        host.add_file("pom.xml", "<project><version>2.5.0</version></project>");
+        host.set_setting("liquibaseChangelogNamePattern", "\"v${semVer.getMajor()}.${semVer.getMinor()}-{seq}-{description}.xml\"");
+        assert_eq!(file_text(&generate(&host, &mut plugin, &doc, &[], &[true]).unwrap()).0, "v2.5-003-Add_customer_email.xml");
+    }
+
+    #[test]
+    fn bad_name_patterns_and_dates_refuse() {
+        for (pattern, extra) in [
+            ("{nope}.xml", vec![]),
+            ("{seq}-{description}", vec![]),
+            ("../{seq}.xml", vec![]),
+            ("{seq}/{description}.xml", vec![]),
+            ("#date(yyyyMMdd)-{seq}.xml", vec!["2025-03-09"]),
+            ("#date(yyyyMMdd)-{seq}.xml", vec!["20251301"]),
+            ("${semVer.getMajor()}-{seq}.xml", vec![]),
+            ("{seq}..{description}.xml", vec![]),
+        ] {
+            let (host, mut plugin, doc) = ready(ENTITY_PLUS);
+            host.set_setting("liquibaseChangelogNamePattern", &format!("{pattern:?}"));
+            assert!(generate_with(&host, &mut plugin, &doc, &[], &extra, &[true]).is_err(), "{pattern} {extra:?}");
+        }
+        let (host, mut plugin, doc) = ready(ENTITY_PLUS);
+        host.set_setting("liquibaseChangelogNamePattern", "\"#date(yyyyMMdd)-{seq}.xml\"");
+        assert!(matches!(generate_with(&host, &mut plugin, &doc, &[], &[], &[true]), Err(Error::Cancelled)), "no date answer cancels");
     }
 
     #[test]

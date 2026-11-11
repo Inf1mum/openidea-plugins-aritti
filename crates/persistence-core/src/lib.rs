@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 pub mod ddl_parse;
 pub mod generation;
 pub mod liquibase;
+pub mod naming;
 pub mod schema;
 pub mod sql;
 

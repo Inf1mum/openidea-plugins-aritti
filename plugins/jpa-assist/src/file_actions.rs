@@ -30,6 +30,8 @@ mod ddl_entities_action;
 pub(crate) mod migration_action;
 #[path = "liquibase_action.rs"]
 mod liquibase_action;
+#[path = "template_settings.rs"]
+mod template_settings;
 #[path = "envers_action.rs"]
 mod envers_action;
 #[path = "entity_graph_action.rs"]

@@ -275,6 +275,29 @@
       "type": "boolean",
       "title": "Java entities created by the New Entity wizard use Lombok @Getter, @Setter and @NoArgsConstructor instead of generated accessors (the project must have Lombok)",
       "default": false
-    }
+    },
+    "liquibaseChangeSetDefaults": {
+      "type": "array",
+      "title": "Liquibase changeSet attributes: row 'all' applies to every generated changeSet, a row for one change type overrides it field by field; unset writes nothing. Preconditions: createTable and addColumn only; empty rollback: drop changes only",
+      "items": {
+        "type": "object",
+        "properties": {
+          "changeType": {"type": "string", "title": "Change type", "enum": ["all", "createTable", "dropTable", "addColumn", "dropColumn", "modifyDataType", "dropNotNullConstraint", "addNotNullConstraint", "dropForeignKeyConstraint", "dropUniqueConstraint", "dropIndex", "addUniqueConstraint", "createIndex", "addForeignKeyConstraint", "renameColumn", "update", "addPrimaryKey"], "default": "all"},
+          "failOnError": {"type": "string", "title": "failOnError (unset writes nothing)", "enum": ["unset", "true", "false"], "default": "unset"},
+          "runOnChange": {"type": "string", "title": "runOnChange (unset writes nothing)", "enum": ["unset", "true", "false"], "default": "unset"},
+          "context": {"type": "string", "title": "context: comma-separated literals (letters, digits, . _ -); empty writes nothing", "default": ""},
+          "labels": {"type": "string", "title": "labels: comma-separated literals (letters, digits, . _ -); empty writes nothing", "default": ""},
+          "preConditionsOnFail": {"type": "string", "title": "onFail of the generated preConditions", "enum": ["unset", "HALT", "CONTINUE", "MARK_RAN", "WARN"], "default": "unset"},
+          "preConditionsOnError": {"type": "string", "title": "onError of the generated preConditions", "enum": ["unset", "HALT", "CONTINUE", "MARK_RAN", "WARN"], "default": "unset"},
+          "addEmptyRollback": {"type": "string", "title": "Add an empty <rollback/> where Liquibase has no automatic rollback", "enum": ["unset", "true", "false"], "default": "unset"}
+        }
+      },
+      "default": []
+    },
+    "liquibaseChangelogNamePattern": {"type": "string", "title": "Liquibase changelog file name, ending .xml. Tokens: {seq}, {description}, {date}, #date(yyyyMMddHHmmss), #increment(1, 1, 000), ${semVer.getMajor()} (also getMinor, getPatch, getPreRelease, getRawVersion)", "default": "{seq}-{description}.xml"},
+    "flywayMigrationPrefix": {"type": "string", "title": "Flyway migration prefix of generated files (V versioned, U undo or B baseline); must match Flyway's own setting", "enum": ["V", "U", "B"], "default": "V"},
+    "flywayMigrationSeparator": {"type": "string", "title": "Flyway separator between version and description (2 to 4 underscores); must match Flyway's own setting", "default": "__"},
+    "flywayVersionPattern": {"type": "string", "title": "Flyway version of generated files; empty keeps the next-version convention. Same tokens as the changelog name, {seq} = convention version; must be digits with . or _ and sort after existing versions", "default": ""},
+    "migrationDescriptionCase": {"type": "string", "title": "Description in generated Liquibase and Flyway file names (keep case with underscores, lower_snake, or kebab)", "enum": ["keep", "lower_snake", "kebab"], "default": "keep"}
   }
 }
