@@ -26,6 +26,7 @@ Committed: `9bed009` Tasks `generic` REST/Java-regex family (wired, 11 bridge te
 - Partial: F50 Kubernetes label graph affinity/topology-spread links done; escaped-scalar edits open (parser gives no scalar end offsets).
 - Reclassified: F82 MVC template catalogue is LICENCE-BLOCKED (original is proprietary; clean-room only) and the multi-action marker popup is a HOST limit (`line-marker` has one target). F69 Modulith Kotlin descriptor and bean-completion warning are DECIDED-SKIPPED by the user (no documented target file; completion has no bean type/module).
 - Bugzilla/Trac dropped by decision; no code exists.
+- Spring Web batch (`08ee674`): MVC ControllerAdvice model variables and Thymeleaf argument-bearing fragment calls; Cloud unknown expanded Gateway args (20 factories); GraphQL Kotlin import aliases and stricter BatchMapping returns; WebSocket/Messaging XML false-positive removal plus enum/ref checks. Skipped: WebTestClient/RestClient URL shapes, `@SessionAttributes`, Web Flow Java-config registry, Java DSL predicates, Gateway shortcut arity, Stream gaps (type adapter). Spring Web tests 168 + module suites pass; no real-host run.
 - Residual inventory: about 93 open of 98 counted (about 63 adapter, 19 host, 1 licence-blocked, 11 unverified). The counted F01–F98 table lives only in the session transcript; rebuild it from the family reports.
 - Not done: real-host smoke of Generic search/close and the new commands; no live tracker account; `deny_unknown_fields` now on dependency-audit's stored `Ignore` (forward-compat risk).
 
