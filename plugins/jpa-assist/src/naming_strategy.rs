@@ -118,6 +118,11 @@ fn unquote(value: &str) -> String {
 
 /// `(key, value, from_later_document)` pairs for the two literal keys in a `.properties` or YAML file.
 fn read_application(text: &str, yaml: bool) -> Vec<(&'static str, String, bool)> {
+    read_keys(text, yaml, &[PHYSICAL_KEY, IMPLICIT_KEY])
+}
+
+/// Like [`read_application`] for any literal keys.
+pub(crate) fn read_keys(text: &str, yaml: bool, keys: &[&'static str]) -> Vec<(&'static str, String, bool)> {
     let mut found = Vec::new();
     let mut later = false;
     let mut stack: Vec<(usize, String)> = Vec::new();
@@ -155,7 +160,7 @@ fn read_application(text: &str, yaml: bool) -> Vec<(&'static str, String, bool)>
         } else {
             key
         };
-        for name in [PHYSICAL_KEY, IMPLICIT_KEY] {
+        for &name in keys {
             if full == name {
                 found.push((name, unquote(&value), later));
             }
@@ -199,7 +204,7 @@ fn proves_spring_boot(build_text: &str) -> bool {
 }
 
 /// Values of one setting across files: `Ok(None)` unset, `Ok(Some(v))` one agreed value, `Err` unusable.
-fn settle(values: &[(String, String, bool)]) -> Result<Option<String>, String> {
+pub(crate) fn settle(values: &[(String, String, bool)]) -> Result<Option<String>, String> {
     let mut distinct: Vec<&str> = Vec::new();
     for (_, value, _) in values {
         if !distinct.contains(&value.as_str()) {
@@ -264,34 +269,39 @@ pub fn detect_from(sources: &Sources) -> NamingStrategy {
     NamingStrategy { physical: physical_fact, implicit: implicit_fact, source: source.to_owned() }
 }
 
-fn skipped(path: &str) -> bool {
+pub(crate) fn skipped(path: &str) -> bool {
     ["/src/test/", "/target/", "/build/", "/node_modules/"].iter().any(|part| path.contains(part))
 }
 
-/// Gathers bounded literal sources with the existing `project.read` capability only; unreadable or oversized files
+/// Bounded literal sources read with the existing `project.read` capability only; unreadable or oversized files
 /// are skipped, so the result can only be less certain.
-pub fn detect(project: &openidea_plugin::Project) -> NamingStrategy {
-    let gather = |patterns: &[&str], keep: &dyn Fn(&str) -> bool| -> Vec<(String, String)> {
-        let mut out = Vec::new();
-        for pattern in patterns {
-            let Ok(files) = project.find_files(pattern, MAX_FILES) else {
-                continue;
-            };
-            for file in files.into_iter().filter(|f| !skipped(f) && keep(f)).take(MAX_FILES as usize) {
-                if let Ok(text) = project.read_file(&file).map(|t| t.to_string()) {
-                    if text.len() <= MAX_TEXT {
-                        out.push((file, text));
-                    }
+pub(crate) fn gather(project: &openidea_plugin::Project, patterns: &[&str], keep: &dyn Fn(&str) -> bool) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for pattern in patterns {
+        let Ok(files) = project.find_files(pattern, MAX_FILES) else {
+            continue;
+        };
+        for file in files.into_iter().filter(|f| !skipped(f) && keep(f)).take(MAX_FILES as usize) {
+            if let Ok(text) = project.read_file(&file).map(|t| t.to_string()) {
+                if text.len() <= MAX_TEXT {
+                    out.push((file, text));
                 }
             }
         }
-        out
-    };
-    let applications = gather(&["**/application*.properties", "**/application*.yml", "**/application*.yaml"], &|f| {
-        f.contains("/src/main/resources/") || f.starts_with("src/main/resources/")
-    });
-    let persistence_xml = gather(&["**/persistence.xml"], &|_| true);
-    let build = gather(&["**/pom.xml", "**/build.gradle", "**/build.gradle.kts"], &|_| true);
+    }
+    out
+}
+
+pub(crate) const APPLICATION_PATTERNS: [&str; 3] = ["**/application*.properties", "**/application*.yml", "**/application*.yaml"];
+
+pub(crate) fn is_main_resource(file: &str) -> bool {
+    file.contains("/src/main/resources/") || file.starts_with("src/main/resources/")
+}
+
+pub fn detect(project: &openidea_plugin::Project) -> NamingStrategy {
+    let applications = gather(project, &APPLICATION_PATTERNS, &is_main_resource);
+    let persistence_xml = gather(project, &["**/persistence.xml"], &|_| true);
+    let build = gather(project, &["**/pom.xml", "**/build.gradle", "**/build.gradle.kts"], &|_| true);
     let build_text: String = build.iter().map(|(_, text)| text.as_str()).collect::<Vec<_>>().join("\n");
     detect_from(&Sources { applications: &applications, persistence_xml: &persistence_xml, build_text: &build_text })
 }

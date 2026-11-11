@@ -228,12 +228,92 @@ struct Model {
 }
 
 pub fn snapshot_from_entities(docs: &[Document]) -> SchemaSnapshot {
-    build(docs, &Scope::All, &NamingStrategy::unknown("naming strategy was not read")).snapshot
+    build(docs, &Scope::All, &NamingStrategy::unknown("naming strategy was not read"), &EnversConfig::default()).snapshot
 }
 
 /// Like [`snapshot_from_entities`], deriving unannotated table and column names with a detected naming strategy.
 pub fn snapshot_from_entities_named(docs: &[Document], naming: &NamingStrategy) -> SchemaSnapshot {
-    build(docs, &Scope::All, naming).snapshot
+    build(docs, &Scope::All, naming, &EnversConfig::default()).snapshot
+}
+
+/// The model of one persistence scope with the project's naming strategy and Envers configuration.
+pub fn snapshot_configured(docs: &[Document], scope: &Scope, naming: &NamingStrategy, envers: &EnversConfig) -> ScopedSnapshot {
+    build(docs, scope, naming, envers)
+}
+
+const SUFFIX_NAME: &str = "org.hibernate.envers.audit_table_suffix";
+const PREFIX_NAME: &str = "org.hibernate.envers.audit_table_prefix";
+const SPRING_SUFFIX_KEY: &str = "spring.jpa.properties.org.hibernate.envers.audit_table_suffix";
+const SPRING_PREFIX_KEY: &str = "spring.jpa.properties.org.hibernate.envers.audit_table_prefix";
+
+/// Literal Envers settings read from `application*.properties|yml|yaml` (Spring `spring.jpa.properties.` keys) and
+/// `persistence.xml` `<property>` elements. A conflict, placeholder or profile-only value makes audit table names unknown.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct EnversConfig {
+    pub suffix: Option<String>,
+    pub prefix: Option<String>,
+    pub names_unknown: Option<String>,
+    config_text: String,
+}
+
+impl EnversConfig {
+    pub fn from_sources(applications: &[(String, String)], persistence_xml: &[(String, String)]) -> Self {
+        let mut suffix: Vec<(String, String, bool)> = Vec::new();
+        let mut prefix: Vec<(String, String, bool)> = Vec::new();
+        for (path, text) in applications {
+            let file = path.rsplit('/').next().unwrap_or(path);
+            let profile = file.starts_with("application-");
+            for (key, value, later) in crate::naming_strategy::read_keys(text, !file.ends_with(".properties"), &[SPRING_SUFFIX_KEY, SPRING_PREFIX_KEY]) {
+                let target = if key == SPRING_SUFFIX_KEY { &mut suffix } else { &mut prefix };
+                target.push((path.clone(), value, profile || later));
+            }
+        }
+        for (path, text) in persistence_xml {
+            for (name, value) in persistence_properties(text) {
+                match name.as_str() {
+                    SUFFIX_NAME => suffix.push((path.clone(), value, false)),
+                    PREFIX_NAME => prefix.push((path.clone(), value, false)),
+                    _ => {}
+                }
+            }
+        }
+
+        let mut names_unknown = None;
+        let mut settle = |values: &[(String, String, bool)], what: &str| match crate::naming_strategy::settle(values) {
+            Ok(value) => value,
+            Err(why) => {
+                names_unknown.get_or_insert(format!("audit table {what}: {why}"));
+                None
+            }
+        };
+        let suffix = settle(&suffix, "suffix");
+        let prefix = settle(&prefix, "prefix");
+        let config_text = applications.iter().chain(persistence_xml).map(|(_, text)| text.to_lowercase()).collect::<Vec<_>>().join("\n");
+
+        Self { suffix, prefix, names_unknown, config_text }
+    }
+
+    pub fn detect(project: &openidea_plugin::Project) -> Self {
+        let applications = crate::naming_strategy::gather(project, &crate::naming_strategy::APPLICATION_PATTERNS, &crate::naming_strategy::is_main_resource);
+        let persistence_xml = crate::naming_strategy::gather(project, &["**/persistence.xml"], &|_| true);
+        Self::from_sources(&applications, &persistence_xml)
+    }
+}
+
+/// `(name, value)` of every `<property name=".." value=".."/>` element.
+fn persistence_properties(text: &str) -> Vec<(String, String)> {
+    text.split("<property")
+        .skip(1)
+        .filter_map(|tag| {
+            let tag = tag.split('>').next()?;
+            let attr = |name: &str| {
+                let at = tag.find(&format!("{name}=\""))? + name.len() + 2;
+                let rest = &tag[at..];
+                Some(rest[..rest.find('"')?].trim().to_owned())
+            };
+            Some((attr("name")?, attr("value")?))
+        })
+        .collect()
 }
 
 /// Persistence scope of a snapshot (G106). `Unit` carries a persistence.xml unit's `<class>` entries.
@@ -272,21 +352,31 @@ pub struct ScopedSnapshot {
 }
 
 pub fn snapshot_from_entities_scoped(docs: &[Document], scope: &Scope) -> ScopedSnapshot {
-    build(docs, scope, &NamingStrategy::unknown("naming strategy was not read"))
+    build(docs, scope, &NamingStrategy::unknown("naming strategy was not read"), &EnversConfig::default())
 }
 
 struct EnversSettings {
     names_unknown: Option<String>,
     columns_unknown: Option<String>,
+    suffix: Option<String>,
+    prefix: Option<String>,
 }
 
-fn envers_settings(docs: &[Document]) -> EnversSettings {
+fn envers_settings(docs: &[Document], config: &EnversConfig) -> EnversSettings {
     let text: String = docs.iter().map(|d| d.text.to_lowercase()).collect::<Vec<_>>().join("\n");
-    let first = |needles: &[&str]| needles.iter().find(|n| text.contains(**n)).map(|n| format!("the property {n} is present in the provided sources"));
+    let in_sources = |needles: &[&str], text: &str| needles.iter().find(|n| text.contains(**n)).map(|n| format!("the property {n} is present in the provided sources"));
+    let name_needles_in_code = in_sources(&["audit_table_suffix", "audit_table_prefix"], &text);
+    let schema_needles = ["envers.default_schema", "envers.default_catalog"];
+    let column_needles = ["revision_field_name", "revision_type_field_name", "audit_strategy", "modified_flag"];
 
     EnversSettings {
-        names_unknown: first(&["audit_table_suffix", "audit_table_prefix", "envers.default_schema", "envers.default_catalog"]),
-        columns_unknown: first(&["revision_field_name", "revision_type_field_name", "audit_strategy", "modified_flag"]),
+        names_unknown: name_needles_in_code
+            .or_else(|| config.names_unknown.clone())
+            .or_else(|| in_sources(&schema_needles, &text))
+            .or_else(|| in_sources(&schema_needles, &config.config_text)),
+        columns_unknown: in_sources(&column_needles, &text).or_else(|| in_sources(&column_needles, &config.config_text)),
+        suffix: config.suffix.clone(),
+        prefix: config.prefix.clone(),
     }
 }
 
@@ -299,7 +389,7 @@ enum Revision {
 const AUDIT_NOTE_SEQUENCES: &str = "sequence objects (for example REVINFO_SEQ) are not modelled";
 const AUDIT_NOTE_COLLECTIONS: &str = "audit tables of collections and join tables are not modelled";
 
-fn build(docs: &[Document], scope: &Scope, naming: &NamingStrategy) -> ScopedSnapshot {
+fn build(docs: &[Document], scope: &Scope, naming: &NamingStrategy, envers: &EnversConfig) -> ScopedSnapshot {
     let mut notes: Vec<String> = Vec::new();
     let mut complete = true;
     let mut infos = Vec::new();
@@ -335,7 +425,7 @@ fn build(docs: &[Document], scope: &Scope, naming: &NamingStrategy) -> ScopedSna
     }
     let mut late: BTreeMap<String, String> = BTreeMap::new();
     let mut tables: Vec<Table> = Vec::new();
-    let settings = envers_settings(docs);
+    let settings = envers_settings(docs, envers);
     let revision = model.revision();
     let mut audit_tables = 0usize;
 
@@ -498,6 +588,21 @@ pub fn baseline_json(snapshot: &SchemaSnapshot, options: &BaselineOptions) -> Re
     serde_json::to_string_pretty(&BaselineFile { snapshot: sorted, generated_by: BASELINE_GENERATED_BY, scope, notes }).map_err(|e| e.to_string())
 }
 
+/// The persistence unit a baseline file was taken for; `None` for the whole project (also for files without a header).
+pub fn recorded_unit(json: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(json).ok()?;
+    let scope = value.get("scope")?;
+    (scope.get("kind")?.as_str()? == "unit").then(|| scope.get("name")?.as_str().map(str::to_owned)).flatten()
+}
+
+/// Baseline file text for a scope: a plain snapshot for the whole project, the scope-recording form for a unit.
+pub fn scoped_json(scoped: &ScopedSnapshot, scope: &Scope) -> Result<String, String> {
+    match scope {
+        Scope::All => snapshot_json(&scoped.snapshot),
+        Scope::Unit { .. } => baseline_json(&scoped.snapshot, &BaselineOptions { scope, notes: &scoped.notes }),
+    }
+}
+
 pub fn snapshot_json(snapshot: &SchemaSnapshot) -> Result<String, String> {
     snapshot.validate().map_err(|e| format!("{e:?}"))?;
     let mut sorted = snapshot.clone();
@@ -598,11 +703,15 @@ impl Model {
 
     /// Guide 6.6 "Understanding the Envers Schema": `<table>_AUD(id.., REV integer not null, REVTYPE tinyint, audited columns.., primary key (id.., REV))`
     /// plus a foreign key REV -> REVINFO. Lower-case names follow the snake-case naming this reader assumes.
-    /// Unknown: audit column nullability (guide DDL differs between examples), inherited attributes, generation.
+    /// Audited value columns are nullable (guide DDL: `customer_name varchar(255)`), REVTYPE is `not null` (current guide; the 5.2 guide
+    /// printed it nullable). Unknown: inherited attributes, generation.
     fn audit_table(&self, idx: usize, base: &Table, built: &Built, settings: &EnversSettings, revision: &Revision) -> Table {
         let info = &self.infos[idx];
         let envers = &info.envers;
-        let default_name = format!("{}_aud", base.name);
+        let default_name = match (&settings.prefix, &settings.suffix) {
+            (None, None) => format!("{}_aud", base.name),
+            (prefix, suffix) => self.physical(&format!("{}{}{}", prefix.as_deref().unwrap_or(""), base.name, suffix.as_deref().unwrap_or("_AUD"))),
+        };
         let (name, provenance, name_reason) = match (&envers.audit_table, &settings.names_unknown) {
             (AuditTableName::Literal(v), _) => (v.clone(), Provenance::Literal, None),
             (AuditTableName::Opaque, _) => (default_name, Provenance::Derived, Some("@AuditTable is not a plain literal name or sets a schema or catalog".to_owned())),
@@ -645,7 +754,7 @@ impl Model {
             let mut audit = column.clone();
             audit.generated = Fact::Known(false);
             if !included.iter().any(|a| a.id && self.attr_column(a) == column.name) {
-                audit.nullable = Fact::unknown("audit column nullability is not proven");
+                audit.nullable = Fact::Known(true);
                 value_columns.push(audit);
                 continue;
             }
@@ -671,7 +780,7 @@ impl Model {
 
         let mut revtype = Column::new("revtype", LogicalType::Tinyint);
         revtype.sql_type = known_type(LogicalType::Tinyint, "tinyint");
-        revtype.nullable = Fact::unknown("the guide DDL shows REVTYPE both nullable and not null");
+        revtype.nullable = Fact::Known(false);
         revtype.generated = Fact::Known(false);
         revtype.default = Fact::unknown("column defaults are not read");
 
@@ -1245,8 +1354,8 @@ public class Order {{
         assert_eq!((rev.nullable.clone(), rev.sql_type.known().unwrap().logical), (Fact::Known(false), LogicalType::Integer));
         let revtype = &cols(aud)[2];
         assert_eq!(revtype.sql_type.known().unwrap().raw, "tinyint");
-        assert!(matches!(revtype.nullable, Fact::Unknown(_)));
-        assert!(matches!(cols(aud)[3].nullable, Fact::Unknown(_)));
+        assert_eq!(revtype.nullable, Fact::Known(false));
+        assert_eq!(cols(aud)[3].nullable, Fact::Known(true));
         let fk = &aud.foreign_keys.known().unwrap()[0];
         assert_eq!((fk.columns.clone(), fk.ref_table.as_str(), fk.ref_columns.clone()), (vec!["rev".to_owned()], "revinfo", Fact::Known(vec!["rev".to_owned()])));
 
@@ -1256,6 +1365,57 @@ public class Order {{
         assert!(matches!(cols(info)[0].generated, Fact::Unknown(_)));
         assert!(s.complete);
         assert!(snapshot_from_entities_scoped(&[doc("/p/Invoice.java", &audited("", ""))], &Scope::All).notes.iter().any(|n| n.contains("REVINFO_SEQ")));
+    }
+
+    fn configured(applications: &[(&str, &str)], xml: &[(&str, &str)]) -> SchemaSnapshot {
+        let own = |items: &[(&str, &str)]| items.iter().map(|(a, b)| (a.to_string(), b.to_string())).collect::<Vec<_>>();
+        let config = EnversConfig::from_sources(&own(applications), &own(xml));
+        snapshot_configured(&[doc("/p/Invoice.java", &audited("", ""))], &Scope::All, &NamingStrategy::unknown("test"), &config).snapshot
+    }
+
+    #[test]
+    fn audit_table_suffix_and_prefix_come_from_literal_configuration() {
+        const APP: &str = "/p/src/main/resources/application.properties";
+        let suffix = "spring.jpa.properties.org.hibernate.envers.audit_table_suffix=_history\n";
+        let s = configured(&[(APP, suffix)], &[]);
+        assert_eq!(table(&s, "invoice_history").columns.known().map(|c| c.len()), Some(4));
+        assert!(!s.tables.iter().any(|t| t.name == "invoice_aud"));
+
+        let yaml = "spring:\n  jpa:\n    properties:\n      org.hibernate.envers.audit_table_suffix: _log\n      org.hibernate.envers.audit_table_prefix: h_\n";
+        let s = configured(&[("/p/src/main/resources/application.yml", yaml)], &[]);
+        assert!(s.tables.iter().any(|t| t.name == "h_invoice_log" && t.columns.known().is_some()), "{:?}", s.tables.iter().map(|t| &t.name).collect::<Vec<_>>());
+
+        let xml = "<persistence><persistence-unit name=\"x\"><properties><property name=\"org.hibernate.envers.audit_table_suffix\" value=\"_rev\"/></properties></persistence-unit></persistence>";
+        assert!(configured(&[], &[("/p/persistence.xml", xml)]).tables.iter().any(|t| t.name == "invoice_rev"));
+        assert!(configured(&[(APP, "spring.jpa.show-sql=true\n")], &[]).tables.iter().any(|t| t.name == "invoice_aud"));
+    }
+
+    #[test]
+    fn conflicting_or_unreadable_audit_table_names_stay_unknown() {
+        const APP: &str = "/p/src/main/resources/application.properties";
+        let key = "spring.jpa.properties.org.hibernate.envers.audit_table_suffix";
+        let xml = "<property name=\"org.hibernate.envers.audit_table_suffix\" value=\"_b\"/>";
+        for conflict in [configured(&[(APP, &format!("{key}=_a\n"))], &[("/p/persistence.xml", xml)]), configured(&[(APP, &format!("{key}=${{SUFFIX}}\n"))], &[]), configured(&[("/p/src/main/resources/application-dev.properties", &format!("{key}=_a\n"))], &[])] {
+            let aud = conflict.tables.iter().find(|t| t.name.starts_with("invoice_")).unwrap();
+            assert!(matches!(aud.columns, Fact::Unknown(_)), "{aud:?}");
+        }
+        let schema = configured(&[(APP, "spring.jpa.properties.org.hibernate.envers.default_schema=audit\n")], &[]);
+        assert!(matches!(table(&schema, "invoice_aud").columns, Fact::Unknown(_)));
+    }
+
+    #[test]
+    fn audited_entities_migrate_their_audit_tables_on_postgresql() {
+        use persistence_core::sql::{Dialect, EmitOptions, emit};
+        let before = snap(&[doc("/p/Invoice.java", &audited("", ""))]);
+        let after = snap(&[doc("/p/Invoice.java", &audited("", "private String note;"))]);
+        let sql = emit(&persistence_core::schema::diff(&before, &after).unwrap(), Dialect::PostgreSql, &EmitOptions::default()).unwrap();
+        let text = sql.render();
+        assert!(text.contains("ALTER TABLE \"invoice\" ADD COLUMN \"note\"") && text.contains("ALTER TABLE \"invoice_aud\" ADD COLUMN \"note\" varchar;"), "{text}");
+
+        let plain = snap(&[doc("/p/Invoice.java", &audited("", "").replace("@Audited\n", ""))]);
+        let created = emit(&persistence_core::schema::diff(&plain, &before).unwrap(), Dialect::PostgreSql, &EmitOptions::default()).unwrap().render();
+        assert!(created.contains("CREATE TABLE \"invoice_aud\"") && created.contains("\"revtype\" smallint NOT NULL"), "{created}");
+        assert!(created.contains("CREATE TABLE \"revinfo\""), "{created}");
     }
 
     #[test]

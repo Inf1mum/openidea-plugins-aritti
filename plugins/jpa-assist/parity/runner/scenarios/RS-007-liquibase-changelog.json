@@ -200,7 +200,7 @@
         "<changeSet id=\"cs-2\" author=\"jpa-assist\"[^>]*failOnError=\"false\"",
         "<changeSet id=\"cs-2\" author=\"jpa-assist\"[^>]*runOnChange=\"true\"",
         "<changeSet id=\"cs-1\"[^>]*>\\s*<preConditions onFail=\"MARK_RAN\">[\\s\\S]*?</preConditions>\\s*<addColumn",
-        "<changeSet id=\"cs-2\"[^>]*>\\s*<dropColumn[^>]*/>\\s*<rollback/>\\s*</changeSet>",
+        "<changeSet id=\"cs-3\"[^>]*>\\s*<dropColumn[^>]*/>\\s*<rollback/>\\s*</changeSet>",
         "</addColumn>\\s*</changeSet>"
       ],
       "notContains": [

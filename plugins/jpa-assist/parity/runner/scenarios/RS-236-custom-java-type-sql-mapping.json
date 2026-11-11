@@ -59,6 +59,9 @@
       ]
     },
     {
+      "input": "numeric(19,2)"
+    },
+    {
       "input": "add_price"
     },
     {
@@ -85,5 +88,5 @@
       }
     ]
   },
-  "note": "Add a Money-typed attribute to Client after the baseline."
+  "note": "Add a Money-typed attribute to Client after the baseline. The prompts list gained the answer to the new SQL type prompt (numeric(19,2)); the expectations are unchanged."
 }

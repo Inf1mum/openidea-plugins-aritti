@@ -15,9 +15,9 @@
 use super::*;
 use super::template_settings;
 use persistence_core::naming::{self, Inputs};
-use super::migration_action::{BASELINE, BASELINE_NEXT, absent, absolute, acknowledge, ask_backfills, read_optional, scan, summary, target_in_root};
+use super::migration_action::{absent, absolute, acknowledge, ask_backfills, apply_default_lengths, ask_custom_types, prepare, read_optional, summary};
 use persistence_core::liquibase::{self, LiquibaseOptions};
-use persistence_core::schema::{self, Danger};
+use persistence_core::schema::Danger;
 use persistence_core::sql::EmitOptions;
 use quick_xml::{events::Event, name::ResolveResult, reader::NsReader};
 use std::collections::BTreeSet;
@@ -276,21 +276,29 @@ fn describe_options(picked: &[String]) -> Result<Vec<Danger>, Error> {
         .collect()
 }
 
+const CLOSING_TAG: &str = "</databaseChangeLog>";
+
+/// The changeSet part of a rendered changelog: what lies between the root start tag and the closing tag.
+fn changesets_of(rendered: &str) -> Option<&str> {
+    let start = rendered.find(">\n\n")? + 3;
+    let end = rendered.rfind(&format!("\n{CLOSING_TAG}"))?;
+    rendered.get(start..end).map(str::trim)
+}
+
+/// Where the changeSets go in an existing changelog and the text to insert there.
+fn append_edit(existing: &str, changesets: &str) -> Result<TextEdit, Error> {
+    let tag = existing.rfind(CLOSING_TAG).ok_or("The existing changelog has no closing databaseChangeLog tag; nothing can be appended.")?;
+    let line_start = existing[..tag].rfind('\n').map_or(0, |i| i + 1);
+    let at = if existing[line_start..tag].trim().is_empty() { line_start } else { tag };
+    Ok(TextEdit { range: Range::new(position(existing, at), position(existing, at)), text: format!("\n{changesets}\n\n") })
+}
+
 pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> Result<FileAction, Error> {
     current(pending, doc)?;
     let root = pending.root.as_str();
-    let baseline_path = target_in_root(project, root, BASELINE)?;
-    let next_path = target_in_root(project, root, BASELINE_NEXT)?;
-    if project.exists(&next_path)? || read_optional(project, &next_path)?.is_some() {
-        return Err(format!("{next_path} exists: move it over {baseline_path} (or delete it) before generating another changelog.").into());
-    }
-    let baseline_text = read_optional(project, &baseline_path)?.ok_or("No schema baseline exists; run 'Create schema baseline…' first.")?;
-    let baseline = crate::schema_snapshot::snapshot_from_json(&baseline_text).map_err(|e| Error::from(format!("The schema baseline is unreadable: {e}")))?;
-    let model = scan(project, root)?;
-    let plan = schema::diff(&baseline, &model).map_err(|e| Error::from(format!("The snapshots cannot be compared: {e:?}")))?;
-    if plan.changes.is_empty() && plan.notes.is_empty() {
-        return Err("The model matches the baseline; there is nothing to write.".into());
-    }
+    let mut prepared = prepare(project, root, "changelog", "The model matches the baseline; there is nothing to write.")?;
+    let init = prepared.init();
+    let (baseline_path, next_path) = (prepared.baseline_path.clone(), prepared.next_path.clone());
     let located = locate(project, root)?;
 
     let withheld = [
@@ -299,10 +307,13 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> R
     ];
     let picked = host::pick_many("Also emit changes withheld by default (each is marked in the preview)", &withheld)?.ok_or(Error::Cancelled)?;
     let mut emit = EmitOptions { allow: describe_options(&picked)?, ..EmitOptions::default() };
-    ask_backfills(&plan, &mut emit)?;
+    ask_custom_types(&mut prepared.plan)?;
+    apply_default_lengths(&mut prepared.plan);
+    let (plan, model, baseline) = (&prepared.plan, &prepared.model.snapshot, &prepared.baseline);
+    ask_backfills(plan, &mut emit)?;
     let author = host::input("changeSet author", Some("jpa-assist"))?.ok_or(Error::Cancelled)?;
     let id_prefix = host::input("changeSet id prefix (ids are <prefix>-<n>)", Some(&located.sequence))?.ok_or(Error::Cancelled)?;
-    let description = host::input("Changelog description (ASCII letters and digits)", Some("jpa_model_changes"))?.ok_or(Error::Cancelled)?;
+    let description = host::input("Changelog description (ASCII letters and digits)", Some(if init { "init" } else { "jpa_model_changes" }))?.ok_or(Error::Cancelled)?;
     let description = naming::style_description(&description, template_settings::description_style()?);
     if description.is_empty() {
         return Err("Enter a description containing ASCII letters or digits.".into());
@@ -317,7 +328,7 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> R
         id_prefix: id_prefix.trim().to_owned(),
         defaults: template_settings::changeset_defaults()?,
     };
-    let emitted = liquibase::emit_xml(&plan, &options).map_err(|e| Error::from(format!("The changelog cannot be generated: {e:?}")))?;
+    let emitted = liquibase::emit_xml(plan, &options).map_err(|e| Error::from(format!("The changelog cannot be generated: {e:?}")))?;
     if emitted.emitted() == 0 {
         return Err("Every change is withheld or unsupported; there is nothing to write. Adjust the options or the model.".into());
     }
@@ -341,54 +352,87 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> R
     let highest = located.names.iter().filter_map(|n| leading_number(n)).map(|(value, _)| value).max();
     let inputs = Inputs { seq: Some(&located.sequence), highest, description: Some(&description), now, sem_ver: sem_ver.as_deref() };
     let name = naming::expand(&name_pattern, &inputs).map_err(|e| Error::from(format!("liquibaseChangelogNamePattern: {e}.")))?;
-    if located.names.iter().any(|n| n.eq_ignore_ascii_case(&name)) {
-        return Err(Error::Stale);
-    }
-    if matches!(located.link, Link::IncludeAll { .. }) && located.names.iter().any(|n| n.as_str() >= name.as_str()) {
-        return Err("The new name would not sort after every file the includeAll directory already holds, so it would run out of order; nothing is written.".into());
-    }
     let target = format!("{}/{name}", located.directory);
     if path(&target).as_deref() != Some(target.as_str()) || !inside(root, &target) {
         return Err(Error::Stale);
     }
-    absent(project, &target)?;
+    let existing = read_optional(project, &target)?;
+    let appending = existing.is_some() || project.exists(&target)?;
     let text = emitted.render();
-    let mut next_baseline = crate::schema_snapshot::snapshot_json(&model).map_err(Error::from)?;
-    next_baseline.push('\n');
+    let next_baseline = prepared.next_baseline.clone();
 
-    let linking = match &located.link {
-        Link::Include => format!(
-            "The master {} is NOT edited (an edit of another document cannot be version-guarded). After creating the file, add this line to it:\n{}",
+    let (target_line, content, append) = match (&existing, appending) {
+        (Some(existing), _) => {
+            if !target.ends_with(".xml") {
+                return Err(format!("{target} exists and is not XML; the changeSets cannot be appended, and nothing is overwritten.").into());
+            }
+            parse_master(existing).map_err(|e| Error::from(format!("{target} exists but cannot be appended to ({e}); nothing is overwritten.")))?;
+            for id in emitted.changesets.iter().filter_map(|set| set.id.as_deref()) {
+                if existing.contains(&format!("id=\"{id}\"")) {
+                    return Err(format!("{target} already holds a changeSet with id {id}; choose another id prefix.").into());
+                }
+            }
+            let changesets = changesets_of(&text).ok_or(Error::Stale)?;
+            let edit = append_edit(existing, changesets)?;
+            (format!("Target: {target} (exists: the changeSets below are appended before {CLOSING_TAG}; the rest of the file is untouched)"), changesets.to_owned(), Some(edit))
+        }
+        (None, true) => return Err(format!("{target} exists but cannot be read; nothing is overwritten.").into()),
+        (None, false) => {
+            if located.names.iter().any(|n| n.eq_ignore_ascii_case(&name)) {
+                return Err(Error::Stale);
+            }
+            if matches!(located.link, Link::IncludeAll { .. }) && located.names.iter().any(|n| n.as_str() >= name.as_str()) {
+                return Err("The new name would not sort after every file the includeAll directory already holds, so it would run out of order; nothing is written.".into());
+            }
+            absent(project, &target)?;
+            (format!("Target: {target}"), text.clone(), None)
+        }
+    };
+
+    let linking = match (&located.link, &append) {
+        (_, Some(_)) => String::new(),
+        (Link::Include, None) => format!(
+            "The master {} is NOT edited (an edit of another document cannot be version-guarded). After creating the file, add this line to it:\n{}\n",
             located.master,
             include_line(&name)
         ),
-        Link::IncludeAll { path } => format!("The master {} includes the directory '{path}' with includeAll, so no include line is needed.", located.master),
+        (Link::IncludeAll { path }, None) => format!("The master {} includes the directory '{path}' with includeAll, so no include line is needed.\n", located.master),
     };
+    let kind = if init { "No baseline exists: this is an INIT changelog of the whole model (every table as createTable).\n" } else { "" };
     let preview = format!(
-        "Target: {target}\nPlan: {}\nChangeSets: {} emitted, {} withheld by policy, {} unsupported\n{linking}\n\nExact changelog file:\n{text}\nAlso creates {next_path} ({} tables, deterministic serialization of this scan). The plugin never overwrites files: afterwards move it over {baseline_path} to refresh the baseline; until then this action refuses. Nothing is executed.",
-        summary(&plan),
+        "{kind}{target_line}\nPlan: {}\nChangeSets: {} emitted, {} withheld by policy, {} unsupported\n{linking}\n{}:\n{content}\nAlso creates {next_path} ({} tables, deterministic serialization of this scan). The plugin never overwrites files: afterwards move it over {baseline_path} to {} the baseline; until then this action refuses. Nothing is executed.",
+        summary(plan),
         emitted.emitted(),
         emitted.policy_skipped(),
         emitted.unsupported(),
+        if append.is_some() { "Exact changeSets to append" } else { "Exact changelog file" },
         model.tables.len(),
+        if init { "make it" } else { "refresh" },
     );
     if !ui_kit::prompts::confirm_exact("Create Liquibase changelog?", &preview)? {
         return Err(Error::Cancelled);
     }
 
     current(pending, doc)?;
-    if read_optional(project, &baseline_path)?.as_deref() != Some(baseline_text.as_str()) {
-        return Err(Error::Stale);
-    }
-    let fresh = scan(project, root)?;
-    if crate::schema_snapshot::snapshot_json(&fresh).map_err(Error::from)? != next_baseline.trim_end() {
-        return Err(Error::Stale);
-    }
+    prepared.verify_unchanged(project, root)?;
     if locate(project, root)? != located {
         return Err(Error::Stale);
     }
-    absent(project, &target)?;
+    if read_optional(project, &target)? != existing {
+        return Err(Error::Stale);
+    }
     absent(project, &next_path)?;
+    let create_next = FileOperation::Create { path: next_path, text: next_baseline, overwrite: false };
+    if let Some(edit) = append {
+        return Ok(FileAction {
+            title: format!("Append to Liquibase changelog {name}"),
+            kind: Some("refactor.rewrite".into()),
+            operations: vec![create_next],
+            edits: vec![(target.clone(), vec![edit])],
+            open: Some(target),
+            ..FileAction::default()
+        });
+    }
     if located.link == Link::Include {
         host::notify(
             NotificationLevel::Info,
@@ -399,10 +443,7 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> R
     Ok(FileAction {
         title: format!("Create Liquibase changelog {name}"),
         kind: Some("refactor.rewrite".into()),
-        operations: vec![
-            FileOperation::Create { path: target.clone(), text, overwrite: false },
-            FileOperation::Create { path: next_path, text: next_baseline, overwrite: false },
-        ],
+        operations: vec![FileOperation::Create { path: target.clone(), text, overwrite: false }, create_next],
         open: Some(target),
         ..FileAction::default()
     })
@@ -729,6 +770,50 @@ mod tests {
         let doc = Document { text: big, ..doc };
         let err = generate(&host, &mut plugin, &doc, &[], &[true]).unwrap_err();
         assert!(format!("{err:?}").contains("16 KiB"), "{err:?}");
+    }
+
+    const CHANGELOG: &str = "<databaseChangeLog xmlns=\"http://www.liquibase.org/xml/ns/dbchangelog\">\n    <changeSet id=\"old-1\" author=\"Bob\">\n        <sql>select 1</sql>\n    </changeSet>\n</databaseChangeLog>\n";
+
+    #[test]
+    fn without_a_baseline_the_whole_model_becomes_an_init_changelog() {
+        let (host, mut plugin, doc) = setup(ENTITY_PLUS);
+        host.add_file("src/main/resources/db/changelog/db.changelog-master.xml", MASTER_INCLUDES);
+        host.add_file("src/main/resources/db/changelog/001-init.xml", "<databaseChangeLog/>");
+        let resolved = generate(&host, &mut plugin, &doc, &[], &[true]).unwrap();
+        let (name, text) = file_text(&resolved);
+        assert_eq!(name, "003-Add_customer_email.xml");
+        assert!(text.contains("<createTable tableName=\"customer\">") && text.contains("name=\"email\""), "{text}");
+        assert_parses(&text);
+        let FileOperation::Create { path, .. } = &resolved.operations[1] else { panic!() };
+        assert!(path.ends_with("/db/jpa-schema-baseline.next.json"));
+    }
+
+    #[test]
+    fn an_existing_target_file_gets_the_changesets_appended_by_one_edit() {
+        let (host, mut plugin, doc) = ready(ENTITY_PLUS);
+        host.add_file("src/main/resources/db/changelog/002-more.xml", CHANGELOG);
+        host.set_setting("liquibaseChangelogNamePattern", "\"002-more.xml\"");
+        let resolved = generate(&host, &mut plugin, &doc, &[], &[true]).unwrap();
+        let [FileOperation::Create { path: next, .. }] = resolved.operations.as_slice() else { panic!("only the next baseline is created") };
+        assert!(next.ends_with("/db/jpa-schema-baseline.next.json"));
+        let [(target, edits)] = resolved.edits.as_slice() else { panic!("one edited file") };
+        assert_eq!(target, &format!("{DIR}/002-more.xml"));
+        let [edit] = edits.as_slice() else { panic!("one edit") };
+        assert_eq!((edit.range.start.line, edit.range.start.character), (4, 0));
+        assert!(edit.range.start == edit.range.end);
+        let merged = format!("{}{}{}", &CHANGELOG[..CHANGELOG.rfind("</databaseChangeLog>").unwrap()], edit.text, "</databaseChangeLog>\n");
+        assert_parses(&merged);
+        assert!(merged.contains("id=\"old-1\"") && merged.contains("<changeSet id=\"add-email-1\" author=\"Alice\">"), "{merged}");
+
+        let (host, mut plugin, doc) = ready(ENTITY_PLUS);
+        host.add_file("src/main/resources/db/changelog/002-more.xml", &CHANGELOG.replace("old-1", "add-email-1"));
+        host.set_setting("liquibaseChangelogNamePattern", "\"002-more.xml\"");
+        assert!(format!("{:?}", generate(&host, &mut plugin, &doc, &[], &[true]).unwrap_err()).contains("already holds a changeSet"), "id clash");
+
+        let (host, mut plugin, doc) = ready(ENTITY_PLUS);
+        host.add_file("src/main/resources/db/changelog/002-more.xml", "<databaseChangeLog/>");
+        host.set_setting("liquibaseChangelogNamePattern", "\"002-more.xml\"");
+        assert!(generate(&host, &mut plugin, &doc, &[], &[true]).is_err(), "self-closing root has nowhere to append");
     }
 
     #[test]
