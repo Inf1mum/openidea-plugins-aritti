@@ -216,3 +216,39 @@ Row verdicts (G080-G103; all currently `unverified` in `requirements.json`):
 | G099 generation defaults, G101 name cleanup, G102 naming algorithms | nothing | Settings/pure naming; share work with G031/G032. |
 
 Upstream alternative stays open (ROADMAP line 14): a host schema API would replace the helper wholesale; the `SchemaSnapshot` mapping layer and the reverse-engineering logic are the parts that survive either way.
+
+## 9. Decision log (2026-11-11, answered by the user)
+
+| # | Decision | Answer | Note |
+|---|---|---|---|
+| D1 | Helper form / JDK floor | Accepted: single-file source launch, JDK 17+ | |
+| D2 | `database.sources` capability | **Approved now** (differs from the recommendation to defer) | Declare as an OPTIONAL capability only when a feature uses it; still no schema API or credential read-back documented, so it only serves connection-management UX. |
+| D3 | Driver acquisition | User-provided jar path + helper-side Maven/Gradle cache discovery | No bundling, no downloader, no `fs.read`, no `net`. The user accepts that `process:java` lets the JVM read files the user can read. |
+| D4 | Passwords | From config at call time, else prompt; never stored; helper stdin only | |
+| D5 | New capabilities | `ui.input` and `tasks.begin` approved (new, beyond pre-approved optional `process:*`) | Declare as optional where the host allows. |
+| D6 | Scope | Read-only metadata | DDL/SQL execution out of scope (G083 execute half). |
+| D7 | First dialects | **All six at once** (differs from the recommendation: PostgreSQL, MySQL, MariaDB, then others) | PostgreSQL, MySQL, MariaDB, H2, SQL Server, Oracle, Db2. Driver coordinates and fixtures are needed for each; only PostgreSQL/MySQL have SQL/changelog emitters today. |
+| D8 | Connect confirmation | Mandatory confirmation for every new URL | |
+| D9 | Warm helper | No: one-shot per request | |
+| D10 | Network | No `net` capability declared; spike verifies child egress | |
+| O1 | Entity-side snapshot alignment | Open (inspect the builder before P2) | |
+
+Next: P0 host spike (see parity/P0_SPIKE.md once written).
+
+## 10. P0 spike corrections (from parity/P0_SPIKE.md; apply during P1)
+
+Source: host source at v0.1.42 (cited in P0_SPIKE.md) plus local measurements with an H2 prototype (parity/spike/Helper.java). Docker was not running, so PostgreSQL/MySQL/MariaDB behavior is still unmeasured.
+
+- **D5 is moot.** `ui.input` and `tasks.begin` are WIT calls, not manifest capability strings; the manifest parser rejects unknown capability strings. Declare only `process:java` (optional, already present) and optionally `database.sources`.
+- **D4 needs reconfirmation.** There is no masked prompt: `host::input` shows what the user types in clear, and passwords cannot be read back from secrets or `database.sources`. The decision was "config first, else prompt"; the prompt echoes. Options: keep the prompt with explicit UX copy, or config/env placeholders only until the host adds a secret flag (upstream request for `l0ng-ai/openidea`).
+- **D2 recap.** `database.sources` accepts only sqlite, postgres, mysql, sqlServer, clickhouse and oracle (no MariaDB, H2 or Db2), writes `.openidea/data-sources.toml` into the project and never returns credentials. Approved as optional, but keep it out of P1.
+- **D7 consequence.** All six dialects need the helper's own driver handling; H2 is in scope only with a URL policy (file/tcp only, no `;` properties, read-only options that were NOT tested).
+- **Budget.** Every helper call must run under `begin_task` (otherwise 5 s total, less than a 5 s connect timeout plus about 0.45 s JVM launch). Set the helper `deadlineMs` below the host budget; connect timeout units differ per driver (seconds: pgjdbc, mssql; milliseconds: MySQL, MariaDB).
+- **Driver loading.** `DriverManager.getConnection` fails with "No suitable driver" under URLClassLoader source launch; call `Driver.connect` directly (measured). All six drivers loaded.
+- **Driver versions.** Do not pick the highest Maven Central version: mssql-jdbc and Db2 "release" resolve to preview/special builds. Prefer the version the project's build declares, otherwise the highest stable.
+- **Metadata.** Pass null table types and map vendor strings (H2 reports `BASE TABLE`); filter PK-backing and FK-backing indexes in the Rust mapper.
+- **Hygiene.** Never `eprintln!` request or response text (the host logs the plugin's Wasm stderr at info); scrub only passwords of 4+ characters; treat a response without a trailing newline or with invalid JSON as a protocol error. Measured: the password never appeared in argv, env, stdout or stderr.
+- **Platform.** The host applies no sandbox to children and does not log child stdin/stdout/stderr; cancel/timeout/reclaim kill the process group. Whether an orphaned JVM survives a `kill -9` of the IDE is unknown.
+- **Still unknown (need a real IDE session):** prompt echo and log capture, macOS `/usr/bin/java` stub with no JDK, stdin size cap, JVM network egress as a child of the IDE, real PostgreSQL/MySQL/MariaDB metadata and error codes.
+
+**Reconfirmed by the user after the spike (2026-11-11):** D4 stays "config first, else prompt" even though the prompt shows the typed password in clear (no masked prompt in the host). The UX copy must say so before the prompt, the password is still sent only on the helper's stdin and never stored or logged by the plugin, and an upstream request for a `secret` flag on `host::input` stays on the list.

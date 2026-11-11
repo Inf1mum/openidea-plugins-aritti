@@ -1511,11 +1511,17 @@
       "id": "G116",
       "family": "Database versioning",
       "capability": "Change templates",
-      "status": "unverified",
+      "status": "partial",
       "baseline": "Partial suite",
-      "finding": "Author/skeleton templates exist; model-aware precondition/rollback defaults need work.",
+      "finding": "Table setting `liquibaseChangeSetDefaults` (row `all` plus per-change-type overrides): failOnError, runOnChange, context, labels (literal lists, <=16 items), preConditionsOnFail/OnError (HALT|CONTINUE|MARK_RAN|WARN) written only for createTable (<not><tableExists/>) and addColumn (<not><columnExists/>) because preConditions needs a child element (XSD 4.29), addEmptyRollback `<rollback/>` only for dropTable, dropColumn, modifyDataType, dropForeignKeyConstraint, dropUniqueConstraint, dropIndex. All-unset output is byte-identical to before. Verified against the Liquibase 4.29 XSD and docs.liquibase.com (preconditions, contexts, labels, per-type rollback pages); `columnExists` inside `not` is XSD-only, empty `<rollback/>` is shown on the JetBrains page and allowed by the XSD but on no docs.liquibase.com page read. Not implemented: <property dbms>/${prop}, runAlways, dbms, other preconditions.",
       "evidence": [],
-      "acceptance": []
+      "acceptance": [],
+      "implementation": [
+        "crates/persistence-core/src/liquibase.rs",
+        "plugins/jpa-assist/src/template_settings.rs",
+        "plugins/jpa-assist/src/liquibase_action.rs",
+        "plugins/jpa-assist/settings.schema.json"
+      ]
     },
     {
       "id": "G117",
@@ -1560,11 +1566,17 @@
       "id": "G120",
       "family": "Database versioning",
       "capability": "Naming macros",
-      "status": "unverified",
+      "status": "partial",
       "baseline": "Partial suite",
-      "finding": "Flyway version/name helpers exist; full date/increment/semantic-version templates unproved.",
+      "finding": "Pure bounded naming-pattern expander (persistence-core naming.rs; tokens {seq}, {description}, {date}, #date(..), #increment(start, step, 000), ${semVer.getMajor()/getMinor()/getPatch()/getPreRelease()/getRawVersion()}; unknown tokens, unsafe characters and '..' refused, 120-char cap) wired into Liquibase changelog and Flyway migration file names via settings liquibaseChangelogNamePattern, flywayVersionPattern, flywayMigrationPrefix (V|U|B), flywayMigrationSeparator (2-4 underscores), migrationDescriptionCase (keep|lower_snake|kebab); defaults reproduce <seq>-<description>.xml and V<n>__<description>.sql. Macro names/arguments from the JetBrains liquibase/flyway help pages, which give no example outputs: the meaning of #increment, the #date format subset and the separator range are OUR choices, not documented behaviour. No host clock API: with a date token the action asks for the date (UTC) and proposes the WASI clock; MockHost cannot fake it. semVer reads a literal project version from the root build.gradle(.kts)/pom.xml.",
       "evidence": [],
-      "acceptance": []
+      "acceptance": [],
+      "implementation": [
+        "crates/persistence-core/src/naming.rs",
+        "plugins/jpa-assist/src/template_settings.rs",
+        "plugins/jpa-assist/src/migration_action.rs",
+        "plugins/jpa-assist/src/liquibase_action.rs"
+      ]
     },
     {
       "id": "G121",
