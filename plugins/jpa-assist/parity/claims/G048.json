@@ -1,0 +1,27 @@
+{
+ "row": "G048",
+ "capability": "Graph builder",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Spring Data help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G048-C1",
+   "statement": "A GUI wizard builds entity graphs for repository methods.",
+   "supports": "A GUI wizard builds entity graphs",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+   "strength": "explicit",
+   "ourFeature": "Add entity graph with preview… (entity_graph_action.rs)",
+   "verifiableHeadless": true
+  }
+ ],
+ "undocumented": [
+  "attribute nodes/subgraphs shape",
+  "@NamedEntityGraph output"
+ ],
+ "verdict": "thin"
+}

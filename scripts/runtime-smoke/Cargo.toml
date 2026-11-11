@@ -7,12 +7,16 @@ publish = false
 [workspace]
 
 [dependencies]
-ide-extension = { git = "https://github.com/l0ng-ai/openidea", rev = "37c2a6048eea89d4f6db645622612358b643862b" }
-ide-host = { git = "https://github.com/l0ng-ai/openidea", rev = "37c2a6048eea89d4f6db645622612358b643862b" }
-ide-core = { git = "https://github.com/l0ng-ai/openidea", rev = "37c2a6048eea89d4f6db645622612358b643862b" }
-ide-language = { git = "https://github.com/l0ng-ai/openidea", rev = "37c2a6048eea89d4f6db645622612358b643862b" }
-ide-plugin = { git = "https://github.com/l0ng-ai/openidea", rev = "37c2a6048eea89d4f6db645622612358b643862b" }
+ide-extension = { git = "https://github.com/l0ng-ai/openidea", rev = "e702e4da7b0333e81bc818e26be72db1d157ec5d" }
+ide-host = { git = "https://github.com/l0ng-ai/openidea", rev = "e702e4da7b0333e81bc818e26be72db1d157ec5d" }
+ide-core = { git = "https://github.com/l0ng-ai/openidea", rev = "e702e4da7b0333e81bc818e26be72db1d157ec5d" }
+ide-language = { git = "https://github.com/l0ng-ai/openidea", rev = "e702e4da7b0333e81bc818e26be72db1d157ec5d" }
+ide-plugin = { git = "https://github.com/l0ng-ai/openidea", rev = "e702e4da7b0333e81bc818e26be72db1d157ec5d" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 tempfile = "3"
 serde_json = "1"
 sha2 = "0.10"
+
+[[bin]]
+name = "jpa_assist"
+path = "src/bin/jpa_assist.rs"

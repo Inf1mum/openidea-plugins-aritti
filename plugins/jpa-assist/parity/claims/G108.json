@@ -1,0 +1,44 @@
+{
+ "row": "G108",
+ "capability": "Danger classification",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/database-versioning.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Database versioning help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G108-C1",
+   "statement": "Preview changes are colour-coded SAFE (green), CAUTION (yellow), DANGER (red).",
+   "supports": "SAFE (green), CAUTION (yellow), DANGER (red)",
+   "source": "https://www.jetbrains.com/help/idea/database-versioning.html",
+   "strength": "explicit",
+   "ourFeature": "schema.rs",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G108-C2",
+   "statement": "SAFE cannot lose data; CAUTION needs review (e.g. NOT NULL over existing NULLs); DANGER can lose data (drop column, type change).",
+   "supports": "SAFE ... CAUTION ... NOT NULL ... DANGER ... dropping columns or changing types",
+   "source": "https://www.jetbrains.com/help/idea/database-versioning.html",
+   "strength": "explicit",
+   "ourFeature": "schema.rs",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G108-C3",
+   "statement": "Danger levels are customizable per change type in Tools > Database Versioning > Diff Changes.",
+   "supports": "Danger levels customizable under Tools > Database Versioning > Diff Changes",
+   "source": "https://www.jetbrains.com/help/idea/database-versioning.html",
+   "strength": "explicit",
+   "ourFeature": "schema.rs",
+   "verifiableHeadless": true
+  }
+ ],
+ "undocumented": [
+  "Danger Safe/NeedsBackfill/Rewrite/DataLoss enum (docs: SAFE/CAUTION/DANGER)"
+ ],
+ "verdict": "documented"
+}

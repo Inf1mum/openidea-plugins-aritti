@@ -1,0 +1,49 @@
+{
+ "row": "G066",
+ "capability": "SDK gating",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
+   "retrievedOn": "2026-11-11",
+   "note": "DTO generator help page; WebFetch extraction (paraphrase)"
+  },
+  {
+   "url": "https://www.jetbrains.com/help/idea/jpa-buddy.html",
+   "retrievedOn": "2026-11-11",
+   "note": "JPA Buddy overview help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G066-C1",
+   "statement": "The Java Record checkbox appears only when the project SDK is 16 or higher.",
+   "supports": "appears in the New DTO wizard only if the project SDK is 16 or higher",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
+   "strength": "explicit",
+   "ourFeature": "project_facts.rs",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G066-C2",
+   "statement": "The Jackson option is available only when the Jackson Annotations dependency is in the project.",
+   "supports": "Only available when the Jackson Annotations dependency is in the project",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
+   "strength": "explicit",
+   "ourFeature": "project_facts.rs",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G066-C3",
+   "statement": "Features are enabled from detected dependencies, per module in multi-module projects.",
+   "supports": "enables features based on detected project dependencies; per module",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy.html",
+   "strength": "explicit",
+   "ourFeature": "project_facts.rs",
+   "verifiableHeadless": true
+  }
+ ],
+ "undocumented": [
+  "gate(Feature) helper and its refusal messages"
+ ],
+ "verdict": "documented"
+}

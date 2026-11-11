@@ -1,0 +1,27 @@
+{
+ "row": "G081",
+ "capability": "Datasource discovery",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Reverse engineering help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G081-C1",
+   "statement": "In Spring, Micronaut and Quarkus projects a gutter icon in application.properties/yml creates a data source from existing properties.",
+   "supports": "a gutter icon in application.properties or application.yml creates a data source from existing properties",
+   "source": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+   "strength": "explicit",
+   "ourFeature": "Add datasource configuration… (datasource_facts.rs)",
+   "verifiableHeadless": false
+  }
+ ],
+ "undocumented": [
+  "default spring.datasource.* only",
+  "dialect preselect"
+ ],
+ "verdict": "thin"
+}

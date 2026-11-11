@@ -1,0 +1,35 @@
+{
+ "row": "G106",
+ "capability": "Persistence scope",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/database-versioning.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Database versioning help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G106-C1",
+   "statement": "A persistence unit must be selected for a model source; multiple data stores need separate runs per unit.",
+   "supports": "A persistence unit must be selected ... separate runs per persistence unit",
+   "source": "https://www.jetbrains.com/help/idea/database-versioning.html",
+   "strength": "explicit",
+   "ourFeature": "schema_snapshot.rs",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G106-C2",
+   "statement": "Init DDL chooses Model and a persistence unit and can limit scope to selected entities.",
+   "supports": "Init DDL: choose Model and a persistence unit, optionally limit scope to selected entities",
+   "source": "https://www.jetbrains.com/help/idea/database-versioning.html",
+   "strength": "explicit",
+   "ourFeature": "schema_snapshot.rs",
+   "verifiableHeadless": true
+  }
+ ],
+ "undocumented": [
+  "Envers audit table snapshot extension"
+ ],
+ "verdict": "thin"
+}

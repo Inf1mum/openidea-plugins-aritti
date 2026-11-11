@@ -1,0 +1,26 @@
+{
+ "row": "G024",
+ "capability": "Lombok generation defaults",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Entity designer help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G024-C1",
+   "statement": "Which Lombok annotations are added to new entities or attributes is a setting at the bottom of the Entity Declaration window.",
+   "supports": "Choose which Lombok annotations are added when creating new entities or attributes",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+   "strength": "explicit",
+   "ourFeature": "settings.schema.json, wizard.rs",
+   "verifiableHeadless": true
+  }
+ ],
+ "undocumented": [
+  "single lombokEntityDefaults boolean and its exact annotation set"
+ ],
+ "verdict": "thin"
+}

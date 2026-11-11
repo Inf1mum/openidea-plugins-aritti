@@ -1,0 +1,36 @@
+{
+ "row": "G018",
+ "capability": "Add identifier",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Entity designer help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G018-C1",
+   "statement": "ID generation is available from the JPA Palette, Editor Toolbar and as an Alt+Enter quick fix, with a detailed wizard for further customization.",
+   "supports": "ID generation is available from JPA Palette, Editor Toolbar, Quick-fix; detailed wizard",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+   "strength": "explicit",
+   "ourFeature": "creation.rs, creator.js, generation.rs, identifier_action.rs, wizard.rs",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G018-C2",
+   "statement": "The New Entity window generates an ID attribute with an ID type and a generation strategy choice.",
+   "supports": "Options: ID type, Generation strategy, Sequence name",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+   "strength": "explicit",
+   "ourFeature": "creation.rs, creator.js, generation.rs, identifier_action.rs, wizard.rs",
+   "verifiableHeadless": true
+  }
+ ],
+ "undocumented": [
+  "custom column/type options",
+  "plain closed entity restriction"
+ ],
+ "verdict": "thin"
+}

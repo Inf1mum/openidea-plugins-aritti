@@ -1,0 +1,60 @@
+{
+ "row": "G119",
+ "capability": "Java callbacks",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/flyway.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Flyway help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G119-C1",
+   "statement": "Flyway Java Callback dialog offers Name, Callback name, Callback event(s), Can handle in transaction, Source root and Package.",
+   "supports": "Name, Callback name, Callback event, Can handle in transaction, Source root, Package",
+   "source": "https://www.jetbrains.com/help/idea/flyway.html",
+   "strength": "explicit",
+   "ourFeature": "Create Flyway Java migration…; Create Flyway SQL callback… (flyway_misc_action.rs)",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G119-C2",
+   "statement": "Callback name is the return value of getCallbackName() and events go into supports().",
+   "supports": "Callback name: return value of getCallbackName(); events added to supports()",
+   "source": "https://www.jetbrains.com/help/idea/flyway.html",
+   "strength": "explicit",
+   "ourFeature": "Create Flyway Java migration…; Create Flyway SQL callback… (flyway_misc_action.rs)",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G119-C3",
+   "statement": "Can handle in transaction makes canHandleInTransaction() return true.",
+   "supports": "makes canHandleInTransaction() return true when selected",
+   "source": "https://www.jetbrains.com/help/idea/flyway.html",
+   "strength": "explicit",
+   "ourFeature": "Create Flyway Java migration…; Create Flyway SQL callback… (flyway_misc_action.rs)",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G119-C4",
+   "statement": "The default package scanned for Java callbacks is db.callback.",
+   "supports": "default package Flyway scans for Java callbacks is db.callback",
+   "source": "https://www.jetbrains.com/help/idea/flyway.html",
+   "strength": "explicit",
+   "ourFeature": "Create Flyway Java migration…; Create Flyway SQL callback… (flyway_misc_action.rs)",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G119-C5",
+   "statement": "The generated class implements Callback with supports, canHandleInTransaction, handle (TODO) and getCallbackName.",
+   "supports": "implements Callback with supports(), canHandleInTransaction(), handle() (TODO), getCallbackName()",
+   "source": "https://www.jetbrains.com/help/idea/flyway.html",
+   "strength": "explicit",
+   "ourFeature": "Create Flyway Java migration…; Create Flyway SQL callback… (flyway_misc_action.rs)",
+   "verifiableHeadless": true
+  }
+ ],
+ "undocumented": [],
+ "verdict": "documented"
+}

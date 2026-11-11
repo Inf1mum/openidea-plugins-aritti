@@ -1,0 +1,36 @@
+{
+ "row": "G015",
+ "capability": "ID type choice",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Entity designer help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G015-C1",
+   "statement": "The New Entity window generates an ID attribute with an ID type and a generation strategy choice.",
+   "supports": "Options: ID type, Generation strategy, Sequence name",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+   "strength": "explicit",
+   "ourFeature": "creation.rs, creator.js, generation.rs, identifier_action.rs, wizard.rs",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G015-C2",
+   "statement": "Generated sequence ID example: @Id, @GeneratedValue(SEQUENCE), @SequenceGenerator(name, sequenceName, initialValue, allocationSize), @Column(nullable=false) on Long id.",
+   "supports": "example output @Id, @GeneratedValue SEQUENCE, @SequenceGenerator ...",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+   "strength": "explicit",
+   "ourFeature": "creation.rs, creator.js, generation.rs, identifier_action.rs, wizard.rs",
+   "verifiableHeadless": true
+  }
+ ],
+ "undocumented": [
+  "the exact list Long/Integer/Short/String/UUID/BigInteger",
+  "which generator strategies are compatible with which type"
+ ],
+ "verdict": "thin"
+}

@@ -1,0 +1,35 @@
+{
+ "row": "G105",
+ "capability": "Model snapshots",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/database-versioning.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Database versioning help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G105-C1",
+   "statement": "A data model snapshot is a JSON capture of the model, created in the Persistence tool window (New > Data Model Snapshot).",
+   "supports": "JSON snapshot ... New > Data Model Snapshot",
+   "source": "https://www.jetbrains.com/help/idea/database-versioning.html",
+   "strength": "explicit",
+   "ourFeature": "schema.rs, schema_snapshot.rs",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G105-C2",
+   "statement": "A snapshot lets you diff against an older state (e.g. a branch) without keeping a database.",
+   "supports": "Branch workflow ... no database is needed for an older state",
+   "source": "https://www.jetbrains.com/help/idea/database-versioning.html",
+   "strength": "explicit",
+   "ourFeature": "schema.rs, schema_snapshot.rs",
+   "verifiableHeadless": true
+  }
+ ],
+ "undocumented": [
+  "baseline JSON file location and format"
+ ],
+ "verdict": "thin"
+}

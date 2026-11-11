@@ -1,0 +1,35 @@
+{
+ "row": "G094",
+ "capability": "Deferred mappings",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Reverse engineering help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G094-C1",
+   "statement": "The TODO mapping type emits the field commented out with a TODO marker.",
+   "supports": "TODO: a basic field commented out with a TODO marker",
+   "source": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+   "strength": "explicit",
+   "ourFeature": "ddl_entities_action.rs, ddl_parse.rs",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G094-C2",
+   "statement": "The TODO comment offers \"Uncomment as is\" and \"Remove column mapping\" actions.",
+   "supports": "offers \"Uncomment as is\" and \"Remove column mapping\" actions",
+   "source": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+   "strength": "explicit",
+   "ourFeature": "ddl_entities_action.rs, ddl_parse.rs",
+   "verifiableHeadless": true
+  }
+ ],
+ "undocumented": [
+  "String with @Column(columnDefinition) fallback"
+ ],
+ "verdict": "thin"
+}

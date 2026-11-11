@@ -1,0 +1,42 @@
+{
+ "row": "G034",
+ "capability": "Lifecycle templates",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Entity designer help page; WebFetch extraction (paraphrase)"
+  },
+  {
+   "url": "https://www.jetbrains.com/help/idea/jpa-buddy.html",
+   "retrievedOn": "2026-11-11",
+   "note": "JPA Buddy overview help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G034-C1",
+   "statement": "The JPA Palette offers a Lifecycle Callbacks wizard.",
+   "supports": "Wizards provided for ... Lifecycle Callbacks",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+   "strength": "explicit",
+   "ourFeature": "local_callbacks.rs",
+   "verifiableHeadless": false
+  },
+  {
+   "id": "G034-C2",
+   "statement": "Entities, attributes, lifecycle callbacks, indexes and constraints can be created and edited in Java and Kotlin.",
+   "supports": "Creates and edits entities, attributes, lifecycle callbacks, indexes, and constraints in Java and Kotlin",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy.html",
+   "strength": "explicit",
+   "ourFeature": "local_callbacks.rs",
+   "verifiableHeadless": false
+  }
+ ],
+ "undocumented": [
+  "the seven templates",
+  "Jakarta Persistence 3.1 section 3.5.2 audit",
+  "Kotlin template shape"
+ ],
+ "verdict": "thin"
+}

@@ -1,0 +1,54 @@
+{
+ "row": "G002",
+ "capability": "Related artifacts",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Spring Data help page; WebFetch extraction (paraphrase)"
+  },
+  {
+   "url": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Entity designer help page; WebFetch extraction (paraphrase)"
+  },
+  {
+   "url": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
+   "retrievedOn": "2026-11-11",
+   "note": "DTO generator help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G002-C1",
+   "statement": "The JPA Structure Repositories section groups all repositories of each entity regardless of package, with jump-to or create-new.",
+   "supports": "groups all repositories for each entity in one place regardless of package",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+   "strength": "explicit",
+   "ourFeature": "repository scan incomplete (structure_related.rs)",
+   "verifiableHeadless": false
+  },
+  {
+   "id": "G002-C2",
+   "statement": "The Persistence tool window lets you view the DTOs and projections for each entity.",
+   "supports": "View the DTOs and projections for each entity",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+   "strength": "explicit",
+   "ourFeature": "repository scan incomplete (structure_related.rs)",
+   "verifiableHeadless": false
+  },
+  {
+   "id": "G002-C3",
+   "statement": "Associated DTOs and projections appear in the Dto & Projections section of the structure view, and a gutter icon in a DTO navigates to its entity.",
+   "supports": "DTOs appear in Dto & Projections section; gutter icon in the DTO class navigates to its entity",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
+   "strength": "explicit",
+   "ourFeature": "repository scan incomplete (structure_related.rs)",
+   "verifiableHeadless": false
+  }
+ ],
+ "undocumented": [
+  "Outgoing/Incoming association nodes per entity"
+ ],
+ "verdict": "documented"
+}

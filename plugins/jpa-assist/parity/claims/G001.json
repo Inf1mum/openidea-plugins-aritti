@@ -1,0 +1,42 @@
+{
+ "row": "G001",
+ "capability": "Structure browsing",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/persistence-tool-window.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Persistence tool window help page; WebFetch extraction (paraphrase)"
+  },
+  {
+   "url": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Spring Data help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G001-C1",
+   "statement": "The Persistence tool window shows persistence units, managed entities and Spring repositories for the project.",
+   "supports": "tool window shows configuration files, persistence units, managed entities, Spring repositories, converters",
+   "source": "https://www.jetbrains.com/help/idea/persistence-tool-window.html",
+   "strength": "explicit",
+   "ourFeature": "lib.rs, structure_related.rs",
+   "verifiableHeadless": false
+  },
+  {
+   "id": "G001-C2",
+   "statement": "The JPA Structure Repositories section groups all repositories of each entity regardless of package, with jump-to or create-new.",
+   "supports": "groups all repositories for each entity in one place regardless of package",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+   "strength": "explicit",
+   "ourFeature": "lib.rs, structure_related.rs",
+   "verifiableHeadless": false
+  }
+ ],
+ "undocumented": [
+  "persistence.xml unit grouping details",
+  "Outgoing/Incoming association nodes",
+  "\"repository scan incomplete\" label"
+ ],
+ "verdict": "thin"
+}

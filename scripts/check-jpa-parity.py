@@ -3,15 +3,90 @@
 import argparse
 import collections
 import json
+import re
 from pathlib import Path
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 STATUSES = {'unverified', 'missing', 'partial', 'blocked', 'verified-parity'}
+CLAIMS_DIR = ROOT / 'plugins/jpa-assist/parity/claims'
+LEVELS = ('L0', 'L1', 'L2', 'L3')
+LEVEL_STATES = {'pass', 'fail', 'none'}
+REFERENCE_TYPES = {'observed', 'documentation'}
 REQUIRED_IDS = {f'{prefix}{i:03}' for prefix, count in [('G', 134), ('A', 44), ('I', 12), ('S', 7), ('F', 19), ('E', 139)] for i in range(1, count + 1)}
 
 
-def validate(data):
+def repo_file(value):
+    if not isinstance(value, str) or not value:
+        return False
+    path = (ROOT / value).resolve()
+    return path.is_relative_to(ROOT) and path.is_file()
+
+
+def strings(value):
+    return isinstance(value, list) and bool(value) and all(isinstance(v, str) and v.strip() for v in value)
+
+
+def validate_evidence_level(key, level):
+    """Optional per-row progress record; never affects status rules."""
+    if not isinstance(level, dict) or not set(level) <= set(LEVELS):
+        return [f'{key}: evidenceLevel must be an object with keys among L0..L3']
+    errors = []
+    for name, item in level.items():
+        if not isinstance(item, dict) or item.get('status') not in LEVEL_STATES:
+            errors.append(f'{key}: evidenceLevel.{name}.status must be pass, fail or none')
+            continue
+        passing = item['status'] == 'pass'
+        files = []
+        if name == 'L0':
+            if 'tests' in item and not strings(item['tests']):
+                errors.append(f'{key}: evidenceLevel.L0.tests must be a nonempty list of names')
+            if passing and (not strings(item.get('tests')) or not item.get('commit')):
+                errors.append(f'{key}: evidenceLevel.L0 pass needs tests and commit')
+        elif name == 'L1':
+            files = [item.get('harness'), item.get('receipt')]
+            if passing and (not all(files) or not re.fullmatch(r'[0-9a-f]{64}', str(item.get('wasmSha256', '')))):
+                errors.append(f'{key}: evidenceLevel.L1 pass needs harness, receipt and 64-hex wasmSha256')
+            if 'wasmSha256' in item and not re.fullmatch(r'[0-9a-f]{64}', str(item['wasmSha256'])):
+                errors.append(f'{key}: evidenceLevel.L1.wasmSha256 must be 64 hex characters')
+            files = [f for f in files if f is not None]
+        else:
+            refs = item.get('receipts')
+            if (passing or refs is not None) and not strings(refs):
+                errors.append(f'{key}: evidenceLevel.{name}.receipts must be a nonempty list of paths')
+            files = refs if isinstance(refs, list) else []
+        for ref in files:
+            if not repo_file(ref):
+                errors.append(f'{key}: evidenceLevel.{name} missing file {ref}')
+    return errors
+
+
+def claim_ids(key, claims_dir):
+    path = Path(claims_dir) / f'{key}.json'
+    if not path.is_file():
+        return None
+    doc = json.loads(path.read_text())
+    items = doc.get('claims', []) if isinstance(doc, dict) else doc
+    return {c.get('id') if isinstance(c, dict) else c for c in items}
+
+
+def validate_documentation_case(key, case):
+    errors = []
+    if not all(case.get(k) for k in ('scenario', 'implementationEvidence', 'test', 'scope')) or case.get('result') != 'pass':
+        errors.append(f'{key}: incomplete documentation acceptance case')
+    if not repo_file(case.get('implementationEvidence')):
+        errors.append(f'{key}: documentation case implementationEvidence must be an existing file')
+    sources = case.get('referenceSources')
+    if not strings(sources) or not all(u.startswith('https://') for u in sources):
+        errors.append(f'{key}: documentation case needs referenceSources as nonempty https URLs')
+    if not strings(case.get('referenceClaims')):
+        errors.append(f'{key}: documentation case needs nonempty referenceClaims')
+    if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', str(case.get('docsRetrievedOn', ''))):
+        errors.append(f'{key}: documentation case needs docsRetrievedOn (YYYY-MM-DD)')
+    return errors
+
+
+def validate(data, claims_dir=CLAIMS_DIR):
     errors = []
     if data.get('schemaVersion') != 1:
         errors.append('Unsupported ledger schema')
@@ -38,6 +113,8 @@ def validate(data):
             errors.append(f'{key}: mappedTo must be a nonempty list of G/S/F ids')
         if na is not None and (not isinstance(na, str) or not na.strip()):
             errors.append(f'{key}: notApplicable needs a non-empty reason')
+        if 'evidenceLevel' in entry:
+            errors.extend(validate_evidence_level(key, entry['evidenceLevel']))
         if entry.get('status') == 'blocked' and not entry.get('blocker'):
             errors.append(f'{key}: blocked requirements need an exact blocker')
         if entry.get('status') == 'verified-parity':
@@ -45,8 +122,24 @@ def validate(data):
             if not entry.get('implementation') or not entry.get('evidence') or not acceptance:
                 errors.append(f'{key}: verified parity needs implementation, evidence and acceptance cases')
             for case in acceptance or []:
-                if not isinstance(case, dict) or not all(case.get(k) for k in ('scenario', 'referenceEvidence', 'implementationEvidence', 'test', 'scope')) or case.get('result') != 'pass':
+                if isinstance(case, dict) and case.get('referenceType', 'observed') not in REFERENCE_TYPES:
+                    errors.append(f'{key}: unknown referenceType {case.get("referenceType")}')
+                elif isinstance(case, dict) and case.get('referenceType') == 'documentation':
+                    errors.extend(validate_documentation_case(key, case))
+                elif not isinstance(case, dict) or not all(case.get(k) for k in ('scenario', 'referenceEvidence', 'implementationEvidence', 'test', 'scope')) or case.get('result') != 'pass':
                     errors.append(f'{key}: incomplete differential acceptance case')
+            try:
+                required = claim_ids(key, claims_dir)
+            except (OSError, ValueError, AttributeError):
+                required = None
+                errors.append(f'{key}: unreadable claims file')
+            if required:
+                covered = set()
+                for case in acceptance or []:
+                    if isinstance(case, dict) and isinstance(case.get('claimIds'), list):
+                        covered.update(case['claimIds'])
+                if required - covered:
+                    errors.append(f'{key}: documented claims without acceptance case: ' + ', '.join(sorted(map(str, required - covered))))
             for evidence in entry.get('evidence', []):
                 if not isinstance(evidence, str):
                     errors.append(f'{key}: invalid evidence path')
@@ -61,6 +154,26 @@ def validate(data):
     if REQUIRED_IDS - ids:
         errors.append('Missing pinned parity requirements: ' + ', '.join(sorted(REQUIRED_IDS - ids)))
     return errors
+
+
+def coverage(entries):
+    table = {name: 0 for name in (*LEVELS, 'none')}
+    for e in entries:
+        level = e.get('evidenceLevel') if isinstance(e.get('evidenceLevel'), dict) else {}
+        passing = [n for n in LEVELS if isinstance(level.get(n), dict) and level[n].get('status') == 'pass']
+        table[passing[-1] if passing else 'none'] += 1
+    return table
+
+
+def verified_split(entries):
+    observed, documentation = [], []
+    for e in entries:
+        if e.get('status') != 'verified-parity':
+            continue
+        cases = [c for c in e.get('acceptance') or [] if isinstance(c, dict)]
+        is_docs = any(c.get('referenceType') == 'documentation' for c in cases)
+        (documentation if is_docs else observed).append(e.get('id'))
+    return observed, documentation
 
 
 def main():
@@ -84,13 +197,19 @@ def main():
         'notApplicable': sum(1 for e in derived if e.get('notApplicable')),
         'unmapped': sum(1 for e in derived if not e.get('mappedTo') and not e.get('notApplicable')),
     }
+    observed, documentation = verified_split(entries)
+    levels = coverage(entries)
     passed = not errors and (not args.release or not gaps)
-    summary = {'valid': not errors, 'fullParity': not errors and not gaps and bool(entries), 'requirements': len(entries), 'statuses': counts, 'openGaps': gaps, 'mapping': mapping, 'errors': errors}
+    summary = {'valid': not errors, 'fullParity': not errors and not gaps and bool(entries), 'requirements': len(entries), 'statuses': counts, 'openGaps': gaps, 'mapping': mapping, 'evidenceCoverage': levels, 'verifiedObservedReference': observed, 'verifiedDocumentationReference': documentation, 'errors': errors}
     if args.json:
         print(json.dumps(summary, indent=2))
     else:
         print(f'{len(entries)} requirements; {len(gaps)} open gaps; full parity: {summary["fullParity"]}')
         print('E/A/I mapping: {mapped} mapped, {notApplicable} not-applicable, {unmapped} unmapped (all still open gaps)'.format(**mapping))
+        print('Evidence coverage (rows by highest passing level): ' + ', '.join(f'{k}={v}' for k, v in levels.items()))
+        print(f'Verified with observed reference: {len(observed)}; verified with documentation-derived reference (weaker): {len(documentation)}')
+        if documentation:
+            print('Documentation-derived: ' + ', '.join(map(str, documentation)))
         for error in errors:
             print(error, file=sys.stderr)
     return 0 if passed else 1

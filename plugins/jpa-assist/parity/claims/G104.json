@@ -1,0 +1,50 @@
+{
+ "row": "G104",
+ "capability": "Model/DB diff",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/database-versioning.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Database versioning help page; WebFetch extraction (paraphrase)"
+  },
+  {
+   "url": "https://www.jetbrains.com/help/idea/liquibase.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Liquibase help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G104-C1",
+   "statement": "A diff takes a Source (DB or Model) and a Target (DB or Snapshot); the result upgrades the target to the source.",
+   "supports": "Source options: DB or Model. Target options: DB or Snapshot. source minus target",
+   "source": "https://www.jetbrains.com/help/idea/database-versioning.html",
+   "strength": "explicit",
+   "ourFeature": "Migration; Treat as rename (schema.rs, schema_snapshot.rs)",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G104-C2",
+   "statement": "A persistence unit must be selected for a model source; multiple data stores need separate runs per unit.",
+   "supports": "A persistence unit must be selected ... separate runs per persistence unit",
+   "source": "https://www.jetbrains.com/help/idea/database-versioning.html",
+   "strength": "explicit",
+   "ourFeature": "Migration; Treat as rename (schema.rs, schema_snapshot.rs)",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G104-C3",
+   "statement": "A Liquibase diff changelog compares Source (DB or Model) with Target (DB or Snapshot) and goes through a preview before saving.",
+   "supports": "Diff Database Changelog dialog: Source DB or Model; Target DB or Snapshot ... preview",
+   "source": "https://www.jetbrains.com/help/idea/liquibase.html",
+   "strength": "explicit",
+   "ourFeature": "Migration; Treat as rename (schema.rs, schema_snapshot.rs)",
+   "verifiableHeadless": true
+  }
+ ],
+ "undocumented": [
+  "Known/Unknown fact model",
+  "deterministic ChangePlan"
+ ],
+ "verdict": "documented"
+}

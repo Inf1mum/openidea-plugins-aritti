@@ -1,0 +1,37 @@
+{
+ "row": "G030",
+ "capability": "Inspection configuration",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Entity designer help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G030-C1",
+   "statement": "All JPA Buddy inspections are enabled by default in all scopes with warning severity.",
+   "supports": "all inspections are enabled in all scopes and have warning severity",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+   "strength": "explicit",
+   "ourFeature": "live.rs, settings.schema.json",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G030-C2",
+   "statement": "Inspections are configurable under Settings > Editor > Inspections > JPA Buddy.",
+   "supports": "Configure them under Settings > Editor > Inspections > JPA Buddy",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+   "strength": "explicit",
+   "ourFeature": "live.rs, settings.schema.json",
+   "verifiableHeadless": false
+  }
+ ],
+ "undocumented": [
+  "59-code registry",
+  "rule-code -> error/warning/info/hint/off values",
+  "hand-maintained KNOWN_CODES"
+ ],
+ "verdict": "thin"
+}

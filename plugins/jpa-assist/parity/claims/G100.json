@@ -1,0 +1,24 @@
+{
+ "row": "G100",
+ "capability": "Database comments",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Reverse engineering help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G100-C1",
+   "statement": "Table/column comments can become @Comment (the only type that reaches generated DDL), Javadoc, or be ignored.",
+   "supports": "@Comment ... only comment type in generated DDL; Javadoc; Ignore",
+   "source": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+   "strength": "explicit",
+   "ourFeature": "ddl_entities_action.rs, ddl_parse.rs",
+   "verifiableHeadless": true
+  }
+ ],
+ "undocumented": [],
+ "verdict": "thin"
+}

@@ -1,0 +1,49 @@
+{
+ "row": "G125",
+ "capability": "Envers schema",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/database-versioning.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Database versioning help page; WebFetch extraction (paraphrase)"
+  },
+  {
+   "url": "https://www.jetbrains.com/help/idea/jpa-buddy.html",
+   "retrievedOn": "2026-11-11",
+   "note": "JPA Buddy overview help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G125-C1",
+   "statement": "Envers support generates audit tables for @Audited entities and a revision table for the @RevisionEntity entity.",
+   "supports": "Generates audit tables for @Audited entities and a revision table for the @RevisionEntity",
+   "source": "https://www.jetbrains.com/help/idea/database-versioning.html",
+   "strength": "explicit",
+   "ourFeature": "schema_snapshot.rs",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G125-C2",
+   "statement": "Suffixes and prefixes of audited tables are configurable from properties files or settings.",
+   "supports": "Suffixes and prefixes for audited entities configurable, from properties files or settings",
+   "source": "https://www.jetbrains.com/help/idea/database-versioning.html",
+   "strength": "explicit",
+   "ourFeature": "schema_snapshot.rs",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G125-C3",
+   "statement": "JPA Buddy generates migration scripts for Envers audit tables.",
+   "supports": "Generates migration scripts for audit tables",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy.html",
+   "strength": "explicit",
+   "ourFeature": "schema_snapshot.rs",
+   "verifiableHeadless": true
+  }
+ ],
+ "undocumented": [
+  "_aud table naming and revinfo shape"
+ ],
+ "verdict": "documented"
+}

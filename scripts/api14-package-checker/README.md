@@ -59,6 +59,6 @@ This uses the existing original-ID inventory in ignored repository audit docs;
 CI also validates newly built non-Laravel packages with the pinned official Linux
 API1.4 CLI, so contribution-schema mistakes cannot pass on Cargo checks alone.
 
-[Real-Wasm runtime smoke](../runtime-smoke/README.md) separately checks isolated
+This workspace stays on v0.1.40 / API 1.4. The [real-Wasm runtime smoke](../runtime-smoke/README.md) is pinned separately (v0.1.42, API 1.5) and separately checks isolated
 view dispatch, permission denial and a native Properties apply/Undo transaction.
 It is not a substitute for desktop or authenticated service acceptance.

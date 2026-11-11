@@ -1,0 +1,35 @@
+{
+ "row": "G016",
+ "capability": "Sequence parameters",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Entity designer help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G016-C1",
+   "statement": "A sequence name can be entered when the Sequence strategy is chosen.",
+   "supports": "Sequence name (for the Sequence strategy)",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+   "strength": "explicit",
+   "ourFeature": "creation.rs, creator.js, generation.rs, identifier_action.rs, wizard.rs",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G016-C2",
+   "statement": "Generated sequence ID example: @Id, @GeneratedValue(SEQUENCE), @SequenceGenerator(name, sequenceName, initialValue, allocationSize), @Column(nullable=false) on Long id.",
+   "supports": "example output @Id, @GeneratedValue SEQUENCE, @SequenceGenerator ...",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+   "strength": "explicit",
+   "ourFeature": "creation.rs, creator.js, generation.rs, identifier_action.rs, wizard.rs",
+   "verifiableHeadless": true
+  }
+ ],
+ "undocumented": [
+  "bounds validation of initial/allocation values"
+ ],
+ "verdict": "thin"
+}

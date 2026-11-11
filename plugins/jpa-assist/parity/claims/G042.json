@@ -1,0 +1,36 @@
+{
+ "row": "G042",
+ "capability": "Conditions and ordering",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Spring Data help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G042-C1",
+   "statement": "The middle section is a table of query conditions.",
+   "supports": "middle section holds a table of query conditions",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+   "strength": "explicit",
+   "ourFeature": "Add query method with preview… (query_method_action.rs)",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G042-C2",
+   "statement": "Fields to order results by can be specified.",
+   "supports": "You can specify fields to order results by",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+   "strength": "explicit",
+   "ourFeature": "Add query method with preview… (query_method_action.rs)",
+   "verifiableHeadless": true
+  }
+ ],
+ "undocumented": [
+  "and/or combination rules",
+  "OrderBy keyword generation details"
+ ],
+ "verdict": "thin"
+}

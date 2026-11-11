@@ -1,0 +1,24 @@
+{
+ "row": "G088",
+ "capability": "Field selection",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Reverse engineering help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G088-C1",
+   "statement": "Column/Reference checkboxes choose which columns and references are generated, and attribute names can be edited.",
+   "supports": "Column/Reference Name: checkboxes choose which to generate; Attribute: field names",
+   "source": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+   "strength": "explicit",
+   "ourFeature": "ddl_entities_action.rs, ddl_parse.rs",
+   "verifiableHeadless": true
+  }
+ ],
+ "undocumented": [],
+ "verdict": "thin"
+}

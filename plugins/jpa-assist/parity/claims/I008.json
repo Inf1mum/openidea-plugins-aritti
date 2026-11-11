@@ -1,0 +1,27 @@
+{
+ "row": "I008",
+ "capability": "com.intellij.jpb.inspection.NoArgsConstructorInspection",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Entity designer help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "I008-C1",
+   "statement": "The Lombok inspection that adds @NoArgsConstructor may be the capability named NoArgsConstructorInspection (class name only; the page does not name it).",
+   "supports": "Add @NoArgsConstructor to entities that use @Builder or @AllArgsConstructor",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+   "strength": "implied",
+   "ourFeature": "inspections_more.rs",
+   "verifiableHeadless": true
+  }
+ ],
+ "undocumented": [
+  "the docs name no no-arg-constructor inspection other than the Lombok one",
+  "rules jpa-no-arg-constructor, jpa-final-member, jpa-generated-value-* have no documentation"
+ ],
+ "verdict": "none"
+}

@@ -1,0 +1,44 @@
+{
+ "row": "G127",
+ "capability": "Naming strategies",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/database-versioning.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Database versioning help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G127-C1",
+   "statement": "Supported physical strategies are Spring (default), standard Hibernate and CamelCaseToUnderscores; custom PhysicalNamingStrategy classes are listed separately.",
+   "supports": "Spring (default), the standard Hibernate implementation, CamelCaseToUnderscores; custom classes in a custom section",
+   "source": "https://www.jetbrains.com/help/idea/database-versioning.html",
+   "strength": "explicit",
+   "ourFeature": "naming_strategy.rs, schema_snapshot.rs",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G127-C2",
+   "statement": "Migration scripts apply the same naming strategy as runtime.",
+   "supports": "Migration scripts apply the same naming strategy to match runtime names",
+   "source": "https://www.jetbrains.com/help/idea/database-versioning.html",
+   "strength": "explicit",
+   "ourFeature": "naming_strategy.rs, schema_snapshot.rs",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G127-C3",
+   "statement": "A custom naming strategy class is reloaded by an explicit action or IDE restart.",
+   "supports": "Use Reload custom physical naming strategy class or restart the IDE",
+   "source": "https://www.jetbrains.com/help/idea/database-versioning.html",
+   "strength": "explicit",
+   "ourFeature": "naming_strategy.rs, schema_snapshot.rs",
+   "verifiableHeadless": false
+  }
+ ],
+ "undocumented": [
+  "detect() bounds for application*.properties"
+ ],
+ "verdict": "documented"
+}
