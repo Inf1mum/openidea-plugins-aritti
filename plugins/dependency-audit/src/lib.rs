@@ -6,6 +6,7 @@ mod workspaces;
 mod npm_graph;
 mod build_resolution;
 mod call_analysis;
+mod imports;
 mod sbt_resolution;
 mod live;
 mod commit;
@@ -389,6 +390,7 @@ fn scan_report(project: &Project, live: &mut live::Live) -> Result<(String, bool
         })
         .collect();
     binding::annotate(&mut rows, &texts);
+    imports::scan(project, &mut rows);
     let report = Report {
         rows,
         scanned_at: Some(now()),

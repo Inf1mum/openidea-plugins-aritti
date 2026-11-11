@@ -29,6 +29,7 @@ pub(crate) struct State {
     response: Option<(String,String)>,
 }
 impl State {
+    pub(crate) fn retire_rows(&mut self) { self.rows.clear(); }
     pub(crate) fn clear(&mut self) {
         self.scope = None;
         self.rows.clear();
@@ -74,6 +75,7 @@ fn endpoint_presentation(endpoint: &str) -> (&str, &str) {
         "scheduledtasks" => ("Scheduled Tasks", "clock"),
         "loggers" => ("Loggers", "settings"),
         "caches" => ("Caches", "database"),
+        "jmx" => ("JMX (localhost)", "info"),
         _ => (endpoint, "info"),
     }
 }
@@ -310,7 +312,8 @@ impl Runtime {
             self.panes.epoch = self.panes.epoch.checked_add(1).ok_or(Error::Stale)?;
             self.panes.scope = Some(scope);
             self.panes.at = at;
-            for (i, record) in records(snap).into_iter().enumerate() {
+            let jmx = self.jmx.iter().filter(|(root, _)| *root == self.panes.scope.as_ref().map_or("", |s| s.root.as_str())).map(|(_, text)| row("JMX read (localhost)", "jmx", text.clone(), None));
+            for (i, record) in records(snap).into_iter().chain(jmx).enumerate() {
                 self.panes.rows.insert(format!("snapshot:{}:{i}", self.panes.epoch), record);
             }
         }

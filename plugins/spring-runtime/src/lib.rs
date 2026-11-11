@@ -10,6 +10,7 @@ mod snapshot_database;
 mod graph;
 mod persistence;
 mod controls;
+mod jmx;
 use persistence::Scope;
 
 pub use snapshot::*;
@@ -558,6 +559,7 @@ pub struct Runtime {
     panes: panes::State,
     graph: graph::State,
     polling: controls::Polling,
+    jmx: Option<(String, String)>,
     snapshot: Option<Snapshot>,
     scope: Option<Scope>,
     /// Storage was read (the snapshot may survive instance reclaim).
@@ -578,6 +580,7 @@ impl Default for Runtime {
             panes: panes::State::default(),
             graph: graph::State::default(),
             polling: controls::Polling::default(),
+            jmx: None,
             snapshot: None,
             scope: None,
             loaded: false,
@@ -940,6 +943,7 @@ impl Plugin for Runtime {
             "poll-stop"=>self.stop_polling(&ctx.project().ok_or(Error::Stale)?).map(Some),
             "runtime-graph"=>{ctx.project().ok_or(Error::Stale)?;crate::reveal_view(graph::VIEW)?;Ok(None)},
             "snapshot-details" => {ctx.project().ok_or("Open a project first.")?;crate::reveal_view("runtime-snapshot")?;Ok(None)},
+            "read-jmx" => self.read_jmx(ctx).map(Some),
             "refresh" => self.refresh(&ctx.project().ok_or("Open a project first.")?).map(Some),
             "clear" => {
                 self.clear(&ctx.project().ok_or("Open a project first.")?)?;
