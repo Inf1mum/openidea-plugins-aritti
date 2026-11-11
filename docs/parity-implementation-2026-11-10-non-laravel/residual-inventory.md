@@ -16,11 +16,11 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F10 | Liquibase | Other dialects, online snapshot, GUI undo | U | |
 | F11 | Hibernate | Live schema compare, effective persistence units, other ORM versions | A-M | |
 | F12 | JPQL console | PostgreSQL/MySQL/MariaDB unverified | U | |
-| F13 | JPQL console | Mutation mode, entity-graph editing, effective config | A-M | |
+| F13 | JPQL console | Mutation mode, entity-graph editing, effective config | A-M | partial (opt-in UPDATE/DELETE dry-run with count preview; commit path not built, needs Java helper change, awaiting decision) |
 | F14 | OpenAPI | Generator JSON config import | A-S | done |
 | F15 | OpenAPI | Source-context Add path/operation/response | A-M | partial (YAML+JSON Add operation/response/path/query parameter) |
 | F16 | OpenAPI | Remote catalog, SwaggerHub, typed client URL completion | A-M | |
-| F17 | OpenAPI | Full compatibility report | A-M | |
+| F17 | OpenAPI | Full compatibility report | A-M | partial (breaking-change report; oneOf/anyOf, constraints, security not analysed) |
 | F18 | OpenAPI | Draft spec from framework mappings | A-L | |
 | F19 | OpenAPI | Staged generation apply/Undo on desktop | U | |
 | F20 | GitLab | GFM mentions/emoji/math, persistent drafts, timeline | A-M | partial (mentions/emoji, math source, local drafts; native diff-line add open) |
@@ -29,7 +29,7 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F23 | GitLab | No live account/glab acceptance | U | |
 | F24 | Dependency Audit | PyPI markers/groups/pylock | A-M | partial (pylock, pyproject/PEP 735 pins; markers not evaluated) |
 | F25 | Dependency Audit | Workspace/link/alias graph | A-M | partial (npm: aliases, workspaces/link local rows) |
-| F26 | Dependency Audit | Coordinate-to-declaration binding; more build profiles | A-M | |
+| F26 | Dependency Audit | Coordinate-to-declaration binding; more build profiles | A-M | partial (direct binding + npm/uv/poetry chains; uv.lock/poetry.lock parsers untested on real files) |
 | F27 | Dependency Audit | Ignore-profile import/export, safe-coordinate rows | A-S | done (import/export + checked/skipped rows on Scan Project; Maven/Gradle/sbt imports lack rows) |
 | F28 | Dependency Audit | Vulnerable-call analysis Java/Kotlin/Python | A-L | |
 | F29 | Dependency Audit | Native Problems Security tab, semantic member queries | H | |
@@ -41,13 +41,13 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F35 | Properties | Kotlin, modulepath, custom loader, constant-key, inherited, live graph | A-L | partial (same-file constants, @PropertyKey; Kotlin ctor params, modulepath, custom loader open) |
 | F36 | Properties | Native bundle grouping, encoding chooser | H | |
 | F37 | Ideolog | Native line hiding, heatmap, terminal filtering, exact rendering | H | |
-| F38 | Ideolog | Inline editor syntax from JVM adapter | A-M | |
+| F38 | Ideolog | Inline editor syntax from JVM adapter | A-M | no change needed for cached JVM tokens (already present); group-to-token mapping beyond time/severity/category open |
 | F39 | Ideolog | Live-tail dock/grant untested; Java 17 not exercised | U | |
 | F40 | Tasks | Native changelist decoration, after-commit closure, stacktrace analyzer | H | |
 | F41 | Tasks | Generic family real-host smoke; no live tenant for any bridge | U | partial (installer check done) |
 | F42 | Tasks | Owned JQL editor; other trackers need bridges | A-S | done (`jql:` prefix); Bugzilla/Trac dropped |
 | F43 | Quarkus | LS broker desktop acceptance; other OS/profiles; multi-module | U | |
-| F44 | Quarkus | Config overlay: new unsaved files, YAML, third-party sources | A-M | |
+| F44 | Quarkus | Config overlay: new unsaved files, YAML, third-party sources | A-M | partial (YAML, .env, config/ sources for dirty buffers; saved files still not sources) |
 | F45 | Quarkus | Qute Java-embedded routing, custom roots, inherited data model | A-L | |
 | F46 | Quarkus | JAX-RS roots/custom annotations; scheduler expressions | A-M | partial (@Scheduled checks, effective REST path) |
 | F47 | Quarkus | MPJava diagnostics while config dirty (upstream LS limit) | H | |
@@ -61,7 +61,7 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F55 | DDEV/Kubernetes | Native Database/debugger/remote/Windows acceptance | U | |
 | F56 | Initializr | ZIP timestamps/modes; non-start.spring.io grants | A-S | partial (modes/mtime done; grants not) |
 | F57 | Initializr | Linux/Windows exclusive-commit profiles never run | U | |
-| F58 | Initializr | Add Starters effective build models | A-M | |
+| F58 | Initializr | Add Starters effective build models | A-M | partial (Gradle platform BOM, literal version catalog; Maven aggregators, explicit versions open) |
 | F59 | Initializr | Native New Project wizard, JDK/SDK config, IDE build import | H | |
 | F60 | Runtime | External-library/overloaded source semantics | A-L | |
 | F61 | Runtime | Remote/JMX management transport | A-L | |
@@ -69,7 +69,7 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F63 | Boot run | Custom args, build-plugin resolution, multi-module root | A-M | partial (module runs, Run with Profiles/Arguments; include/config.import discovery open) |
 | F64 | Boot metadata | Gradle resolution, inherited properties, alternate repos | A-M | |
 | F65 | Integration | Effective context ownership for global usages | A-L | |
-| F66 | Integration | DSL flow edges, Kotlin DSL | A-M | |
+| F66 | Integration | DSL flow edges, Kotlin DSL | A-M | partial (Java/Kotlin DSL channel edges) |
 | F67 | Batch | XML structural/XSD rules; Batch 6 migration | A-M | partial (chunk/tasklet exclusivity) |
 | F68 | Modulith | Type/member/hierarchy semantics, move-to-API | A-L | |
 | F69 | Modulith | Kotlin descriptor creation, bean-completion module warning | A-S | skip (user decision) |
@@ -77,8 +77,8 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F71 | Integration | SpEL/XPath/embedded-language assistance | A-M | |
 | F72 | Spring core | Library assignability, effective conditional contexts, bean graph | A-L | |
 | F73 | Spring core | All classpath metadata, dynamic build resolution, converters | A-M | |
-| F74 | Spring core | Data projection/query/entity-graph generators | A-L | |
-| F75 | Spring core | Security chain, effective authorization | A-L | |
+| F74 | Spring core | Data projection/query/entity-graph generators | A-L | partial (projection, record DTO, @EntityGraph checks) |
+| F75 | Spring core | Security chain, effective authorization | A-L | partial (method-security SpEL checks; chain checks pre-existing) |
 | F76 | Spring core | JPA hierarchy/XML mappings/converters/reverse engineering | A-L | partial (hierarchy identifier, converter checks) |
 | F77 | Spring Web | MVC mapping predicates/params, body-aware request samples | A-M | partial (proven-receiver test-URL completion) |
 | F78 | Spring Web | MVC OpenAPI export conditions, regex/ANY mappings | A-L | |
@@ -99,8 +99,8 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F93 | Twig | Formatter, custom delimiters | A-M | |
 | F94 | Twig | Dynamic context, extension types | A-L | |
 | F95 | Twig | Embedded type resolution, Enter/pairing, debugger mapping, plugin-lexer rendering | H | |
-| F96 | Symfony | Service/route/template/domain reference models, reviewed Rename | A-L | |
+| F96 | Symfony | Service/route/template/domain reference models, reviewed Rename | A-L | partial (Doctrine association check; go-to links unconfirmed feasible) |
 | F97 | Symfony | Profiler collector detail, pagination, remote modes | A-M | partial (profiler paging, time/cache/logger collectors; events/request open) |
-| F98 | Symfony | Doctrine/forms/container types | A-L | |
+| F98 | Symfony | Doctrine/forms/container types | A-L | partial (form-field Info check) |
 
-Totals at 2026-11-11: 98 items. Done: F14, F27, F33, F42, F50. Skipped: F69. Blocked: F82. Partial: about 36 (see status column). About 55 untouched. Counts are judgment calls; partial does not mean near-complete.
+Totals at 2026-11-11: 98 items. Done: F14, F27, F33, F42, F50. Skipped: F69. Blocked: F82. Partial: about 46 (see status column). About 45 untouched. Counts are judgment calls; partial does not mean near-complete.
