@@ -17,6 +17,14 @@ try {
     $value = unserialize($raw, ['allowed_classes' => false, 'max_depth' => 32]);
     if (!is_array($value) || ($value['token'] ?? null) !== $argv[3] || !is_array($value['data'] ?? null) || count($value['data']) > 128) { exit(5); }
     $rows = [];
+    $prop = static function ($o, string $n) {
+        if (!is_array($o) && !is_object($o)) { return null; }
+        foreach ((array) $o as $k => $v) {
+            if (is_string($k) && substr($k, strrpos($k, "\0") !== false ? strrpos($k, "\0") + 1 : 0) === $n) { return $v; }
+        }
+        return null;
+    };
+    $num = static fn($n) => (is_int($n) || is_float($n)) && is_finite((float) $n) && $n >= 0 && $n <= 1.0e15;
     $keys = ['time', 'duration', 'memory', 'memory_limit', 'peak_memory', 'query_count', 'query_time', 'error_count', 'exception_count', 'status_code', 'start_time', 'deprecation_count', 'warning_count', 'scream_count'];
     foreach ($value['data'] as $name => $collector) {
         if (!is_string($name) || !preg_match('/^[a-zA-Z0-9_.-]{1,80}$/D', $name)) { continue; }
@@ -50,7 +58,33 @@ try {
             }
             $metrics['query_count'] = $count;
         }
-        $rows[] = ['name' => $name, 'class' => $class, 'metrics' => (object) $metrics];
+        $row = ['name' => $name, 'class' => $class, 'metrics' => (object) $metrics];
+        if ($name === 'time' && is_array($data['events'] ?? null)) {
+            $events = [];
+            foreach ($data['events'] as $eventName => $event) {
+                if (count($events) >= 50) { break; }
+                if (!is_string($eventName) || !preg_match('/^[\x20-\x7e]{1,120}$/D', $eventName)) { continue; }
+                $item = ['name' => $eventName];
+                $category = $prop($event, 'category');
+                if (is_string($category) && preg_match('/^[\x20-\x7e]{1,80}$/D', $category)) { $item['category'] = $category; }
+                $origin = $prop($event, 'origin');
+                if ($num($origin)) { $item['origin'] = $origin; }
+                $periods = $prop($event, 'periods');
+                if (is_array($periods) && count($periods) <= 1000) {
+                    $total = 0;
+                    foreach ($periods as $period) {
+                        $start = $prop($period, 'start');
+                        $end = $prop($period, 'end');
+                        if (!$num($start) || !$num($end) || $end < $start) { $total = null; break; }
+                        $total += $end - $start;
+                    }
+                    if ($total !== null) { $item['duration'] = round($total, 3); $item['periods'] = count($periods); }
+                }
+                $events[] = $item;
+            }
+            if ($events) { $row['events'] = $events; }
+        }
+        $rows[] = $row;
     }
     echo json_encode(['version' => 2, 'token' => $argv[3], 'collectors' => $rows], JSON_THROW_ON_ERROR);
 } catch (Throwable $e) { exit(5); }

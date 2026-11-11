@@ -591,6 +591,20 @@ fn discovered_profiles(project: &openidea_plugin::Project) -> Vec<String> {
     let names: std::collections::BTreeSet<String> = files
         .iter()
         .filter_map(|f| crate::nav::profile_of(f))
+        .collect();
+    let seeds: Vec<_> = crate::fileset::GLOBS
+        .iter()
+        .flat_map(|g| project.find_files(g, 64).unwrap_or_default())
+        .filter_map(|path| {
+            let text = project.read_file(&path).ok()?;
+            crate::fileset::read(&path, &text).map(|set| (path, set))
+        })
+        .take(crate::fileset::MAX_FILES)
+        .collect();
+    let discovered = crate::fileset::discover_in(project, &seeds);
+    let names: std::collections::BTreeSet<String> = names
+        .into_iter()
+        .chain(discovered.profiles)
         .filter(|p| profile_names(p).is_ok_and(|v| v.len() == 1))
         .collect();
     names.into_iter().collect()

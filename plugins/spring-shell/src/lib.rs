@@ -26,6 +26,8 @@ pub struct Command {
     /// Qualified name of the declaring class.
     pub class: String,
     pub method: String,
+    /// Declared with the standard `@ShellMethod`, whose registrar walks the bean's superclass chain.
+    pub legacy: bool,
     /// The key's literal, or the method name when the key is derived from it.
     pub anchor: Range,
     /// The method name.
@@ -51,6 +53,10 @@ pub struct ClassInfo {
     pub base: Base,
     /// Zero-argument methods by name.
     pub methods: Vec<(String, Range)>,
+    /// Every method name, whatever its parameters.
+    pub method_names: Vec<String>,
+    /// Literally annotated `@ShellComponent`.
+    pub component: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -89,9 +95,10 @@ pub fn commands(f: &JavaFile, text: &str) -> Vec<Command> {
         let prefix = class_command.map(|a| words(&a.strings(&["command"])));
         for m in t.methods() {
             let target = range(text, m.at, m.at + m.name.len());
+            let legacy = m.annotation("ShellMethod").is_some_and(|a| rules::supported(f, text, a));
             let mut push = |key: String, anchor: Range| {
                 if !key.is_empty() && !key.contains('$') {
-                    out.push(Command { key, class: class.clone(), method: m.name.clone(), anchor, target });
+                    out.push(Command { key, class: class.clone(), method: m.name.clone(), legacy, anchor, target });
                 }
             };
             if let Some(a) = m.annotation("ShellMethod").filter(|a| rules::supported(f, text, a)) {
@@ -297,7 +304,9 @@ fn class_infos(f: &JavaFile, text: &str) -> Vec<ClassInfo> {
             _ => Base::Unknown,
         };
         let methods = t.methods().filter(|m| m.params.is_empty()).map(|m| (m.name.clone(), range(text, m.at, m.at + m.name.len()))).collect();
-        ClassInfo { qualified: f.qualified(i), kind: t.kind.clone(), base, methods }
+        let method_names = t.methods().map(|m| m.name.clone()).collect();
+        let component = t.annotation("ShellComponent").is_some_and(|a| rules::supported(f, text, a));
+        ClassInfo { qualified: f.qualified(i), kind: t.kind.clone(), base, methods, method_names, component }
     }).collect()
 }
 
@@ -307,35 +316,80 @@ enum Inherited {
     Unknown,
 }
 
-/// Looks `name` up the project-declared superclass chain of `class`, like
-/// `ReflectionUtils.findMethod`. Anything not literally declared once as a
-/// class in the project makes the answer `Unknown`.
-fn inherited_indicator(doc: &Document, f: &JavaFile, index: &Index<Shell>, class: &str, name: &str) -> Inherited {
-    let local = class_infos(f, &doc.text);
+/// Project-declared superclass chain of `start`, nearest first, and whether it
+/// ends literally at `Object`. Anything not declared once as a class in the
+/// project ends the walk as incomplete.
+fn walk(index: &Index<Shell>, path: &str, local: &[ClassInfo], start: &ClassInfo) -> (Vec<(String, ClassInfo)>, bool) {
     let declared = |qualified: &str| -> Vec<(String, &ClassInfo)> {
-        let others = index.iter().filter(|(p, _)| *p != doc.path).flat_map(|(p, s)| s.classes.iter().map(move |c| (p.to_owned(), c)));
-        others.chain(local.iter().map(|c| (doc.path.clone(), c))).filter(|(_, c)| c.qualified == qualified).collect()
+        let others = index.iter().filter(|(p, _)| *p != path).flat_map(|(p, s)| s.classes.iter().map(move |c| (p.to_owned(), c)));
+        others.chain(local.iter().map(|c| (path.to_owned(), c))).filter(|(_, c)| c.qualified == qualified).collect()
     };
-    let Some(start) = local.iter().find(|c| c.qualified == class) else { return Inherited::Unknown };
+    let mut chain = Vec::new();
     let mut next = start.base.clone();
-    let mut seen = vec![class.to_owned()];
+    let mut seen = vec![start.qualified.clone()];
     loop {
         let parent = match next {
-            Base::Root => return Inherited::Missing,
-            Base::Unknown => return Inherited::Unknown,
+            Base::Root => return (chain, true),
+            Base::Unknown => return (chain, false),
             Base::Named(q) => q,
         };
         let found = declared(&parent);
-        let [(path, info)] = found.as_slice() else { return Inherited::Unknown };
+        let [(p, info)] = found.as_slice() else { return (chain, false) };
         if info.kind != "class" || seen.contains(&parent) || seen.len() > 16 {
-            return Inherited::Unknown;
+            return (chain, false);
         }
-        if let Some((_, at)) = info.methods.iter().find(|(n, _)| n == name) {
-            return Inherited::Found(path.clone(), *at);
-        }
+        chain.push((p.clone(), (*info).clone()));
         seen.push(parent);
         next = info.base.clone();
     }
+}
+
+/// Looks `name` up the project-declared superclass chain of `class`, like
+/// `ReflectionUtils.findMethod` (nearest declaration wins).
+fn inherited_indicator(doc: &Document, f: &JavaFile, index: &Index<Shell>, class: &str, name: &str) -> Inherited {
+    let local = class_infos(f, &doc.text);
+    let Some(start) = local.iter().find(|c| c.qualified == class) else { return Inherited::Unknown };
+    let (chain, complete) = walk(index, &doc.path, &local, start);
+    for (path, info) in chain {
+        if let Some((_, at)) = info.methods.iter().find(|(n, _)| n == name) {
+            return Inherited::Found(path, *at);
+        }
+    }
+    if complete { Inherited::Missing } else { Inherited::Unknown }
+}
+
+/// `@ShellMethod` commands a `@ShellComponent` class inherits through a fully
+/// literal project superclass chain, as `(owner file, declaring file, command)`
+/// with the command re-homed to the inheriting class. Spring Shell registers
+/// `ReflectionUtils.doWithMethods(bean.getClass())`, so they belong to the
+/// subclass bean; their group still comes from the declaring class
+/// (`method.getDeclaringClass()`), so nothing about the group changes.
+/// Methods redeclared nearer in the chain are skipped.
+fn inherited_commands(index: &Index<Shell>, path: &str, classes: &[ClassInfo], own: &[Command]) -> Vec<(String, String, Command)> {
+    let mut out = Vec::new();
+    for class in classes.iter().filter(|c| c.component && c.kind == "class") {
+        let (chain, complete) = walk(index, path, classes, class);
+        if !complete {
+            continue;
+        }
+        let mut redeclared = class.method_names.clone();
+        for (declaring, info) in chain {
+            let declared: Vec<Command> = if declaring == path {
+                own.to_vec()
+            } else {
+                index.iter().filter(|(p, _)| *p == declaring).flat_map(|(_, s)| s.commands.clone()).collect()
+            };
+            for c in declared.into_iter().filter(|c| c.class == info.qualified && c.legacy && !redeclared.contains(&c.method)) {
+                out.push((path.to_owned(), declaring.clone(), Command { class: class.qualified.clone(), ..c }));
+            }
+            redeclared.extend(info.method_names);
+        }
+    }
+    out
+}
+
+fn all_inherited(index: &Index<Shell>) -> Vec<(String, String, Command)> {
+    index.iter().flat_map(|(p, s)| inherited_commands(index, p, &s.classes, &s.commands)).collect()
 }
 
 fn all_commands(index: &Index<Shell>) -> impl Iterator<Item = (&str, &Command)> {
@@ -366,8 +420,10 @@ fn problem(range: Range, severity: Severity, code: &str, message: String) -> Dia
 
 /// Legacy indicator selectors address commands in their declaring class. An
 /// unrelated class's equal command name is not an availability target.
-fn named<'a>(index: &'a Index<Shell>, class: &str, key: &str) -> Vec<(&'a str, &'a Command)> {
-    all_commands(index).filter(|(_, c)| c.class == class && c.key == key).collect()
+fn named(index: &Index<Shell>, class: &str, key: &str) -> Vec<(String, Command)> {
+    let own = all_commands(index).map(|(p, c)| (p.to_owned(), c.clone()));
+    let inherited = all_inherited(index).into_iter().map(|(_, declaring, c)| (declaring, c));
+    own.chain(inherited).filter(|(_, c)| c.class == class && c.key == key).collect()
 }
 
 fn availability_owner<'a>(f: &'a JavaFile, text: &str, annotation: &Annotation) -> Option<&'a java::TypeDecl> {
@@ -397,6 +453,28 @@ fn analyze(doc: &Document, f: &JavaFile, index: &Index<Shell>) -> (Vec<Diagnosti
         }
     }
 
+    let local_infos = class_infos(f, text);
+    let local_inherited = inherited_commands(index, &doc.path, &local_infos, &mine);
+    if !local_inherited.is_empty() {
+        let siblings: Vec<_> = if index.fresh() {
+            all_inherited(index).into_iter().filter(|(owner, _, _)| *owner != doc.path).collect()
+        } else {
+            Vec::new()
+        };
+        for (_, declaring, c) in &local_inherited {
+            let Some((_, t)) = f.types.iter().enumerate().find(|(ti, _)| f.qualified(*ti) == c.class) else { continue };
+            let direct = all_commands(index)
+                .filter(|(p, o)| (*p == doc.path || index.fresh()) && o.key == c.key && !(*p == declaring && o.anchor == c.anchor))
+                .map(|(p, o)| (simple(&o.class).to_owned(), o.method.clone(), p.to_owned()));
+            let sibling = siblings.iter().filter(|(_, _, o)| o.key == c.key).map(|(owner, _, o)| (simple(&o.class).to_owned(), o.method.clone(), owner.clone()));
+            let local = local_inherited.iter().filter(|(_, _, o)| o.key == c.key && o.class != c.class).map(|(owner, _, o)| (simple(&o.class).to_owned(), o.method.clone(), owner.clone()));
+            if let Some((class, method, path)) = direct.chain(sibling).chain(local).next() {
+                let message = format!("Command `{}` inherited from {} is also declared by {}.{} in {}.", c.key, simple(&c.class), class, method, path);
+                problems.push(problem(at(t.at, t.at + t.name.len()), Severity::Error, "duplicate-command", message));
+            }
+        }
+    }
+
     for (ti, t) in f.types.iter().enumerate() {
         let class = f.qualified(ti);
         let legacy: Vec<&Member> =
@@ -419,6 +497,7 @@ fn analyze(doc: &Document, f: &JavaFile, index: &Index<Shell>) -> (Vec<Diagnosti
         for m in &legacy {
             let keys: Vec<&str> = mine.iter().filter(|c| c.class == class && c.method == m.name).map(|c| c.key.as_str()).collect();
             let conventional = format!("{}Availability", m.name);
+            let mut inherited_conventional = None;
             let available = if let Some(explicit) = m.annotation("ShellMethodAvailability").filter(|a| rules::supported(f, text, a)) {
                 explicit.arg("value").filter(|arg| hover::literal_values(arg)).and_then(|arg| match arg.strings.as_slice() {
                     [name] => t.methods().find(|m| m.name == name.value && m.params.is_empty()),
@@ -438,8 +517,25 @@ fn analyze(doc: &Document, f: &JavaFile, index: &Index<Shell>) -> (Vec<Diagnosti
                             })
                     })
                 };
-                t.methods().find(|a| a.name == conventional && a.params.is_empty()).or_else(|| candidate(false)).or_else(|| candidate(true))
+                match t.methods().find(|a| a.name == conventional && a.params.is_empty()) {
+                    Some(local) => Some(local),
+                    None => match inherited_indicator(doc, f, index, &class, &conventional) {
+                        Inherited::Missing => candidate(false).or_else(|| candidate(true)),
+                        other => {
+                            inherited_conventional = Some(other);
+                            None
+                        }
+                    },
+                }
             };
+            if let Some(Inherited::Found(path, range)) = inherited_conventional {
+                markers.push(LineMarker {
+                    line: line_of(m),
+                    icon: None,
+                    tooltip: format!("Availability method: {conventional}() (inherited)"),
+                    target: Some(Location { path, range }),
+                });
+            }
             if available.is_none() && t.supers().next().is_some() {
                 let explicit = m.annotation("ShellMethodAvailability").filter(|a| rules::supported(f, text, a));
                 let named = explicit.and_then(|a| rules::literals(a, "value")).filter(|v| v.len() == 1 && !v[0].value.contains('$'));
@@ -601,9 +697,10 @@ impl Providers for ShellTools {
         let mut out: Vec<CompletionItem> = match (a.name.as_str(), arg.name.as_str()) {
             ("ShellMethodAvailability", "value") => {
                 let class = class_at(&f, offset);
-                let mut out: Vec<_> = all_commands(index)
-                    .filter(|(_, c)| c.class == class)
-                    .map(|(_, c)| {
+                let inherited = all_inherited(index).into_iter().map(|(_, _, c)| c);
+                let mut out: Vec<_> = all_commands(index).map(|(_, c)| c.clone()).chain(inherited)
+                    .filter(|c| c.class == class)
+                    .map(|c| {
                         let detail = format!("{}.{}()", simple(&c.class), c.method);
                         item(&c.key, CompletionKind::Method, &detail, if c.class == class { "0" } else { "1" })
                     })
@@ -1244,5 +1341,77 @@ mod inherited_availability_tests {
         let problems = tools.diagnostics(&doc("A.java", &text));
         let message = problems.iter().find(|p| p.code.as_deref() == Some("duplicate-command")).map(|p| p.message.clone()).unwrap_or_default();
         assert!(message.ends_with("B.a in /project/src/main/java/p/B.java."), "{message}");
+    }
+
+    fn lint(files: &[(&str, &str)], name: &str) -> (Vec<String>, Vec<Diagnostic>) {
+        let host = MockHost::install();
+        for (path, text) in files {
+            host.add_file(&format!("src/main/java/p/{path}"), text);
+        }
+        let text = files.iter().find(|(p, _)| *p == name).unwrap().1;
+        let mut tools = ShellTools::default();
+        let d = doc(name, text);
+        let markers = tools.line_markers(&d).into_iter().map(|m| format!("{}|{}", m.tooltip, m.target.map(|t| t.path).unwrap_or_default())).collect();
+        (markers, tools.diagnostics(&d))
+    }
+
+    const CHILD_CONVENTIONAL: &str = "package p;\nimport org.springframework.shell.standard.ShellComponent; import org.springframework.shell.standard.ShellMethod; import org.springframework.shell.standard.ShellMethodAvailability; import org.springframework.shell.Availability;\n@ShellComponent class Child extends Base { @ShellMethod(key=\"run\",value=\"Run\") void run(){} @ShellMethodAvailability(\"*\") Availability any(){return null;} }";
+    const BASE_CONVENTIONAL: &str = "package p; import org.springframework.shell.Availability; abstract class Base { Availability runAvailability(){return null;} }";
+
+    #[test]
+    fn inherited_conventional_availability_beats_local_wildcard_marker() {
+        let (markers, problems) = lint(&[("Base.java", BASE_CONVENTIONAL), ("Child.java", CHILD_CONVENTIONAL)], "Child.java");
+        assert_eq!(markers, ["Availability method: runAvailability() (inherited)|/project/src/main/java/p/Base.java"], "{problems:?}");
+    }
+
+    #[test]
+    fn unknown_chain_suppresses_local_wildcard_fallback_and_missing_chain_keeps_it() {
+        let (markers, _) = lint(&[("Child.java", CHILD_CONVENTIONAL)], "Child.java");
+        assert!(markers.is_empty(), "{markers:?}");
+        let base = "package p; abstract class Base { }";
+        let (markers, _) = lint(&[("Base.java", base), ("Child.java", CHILD_CONVENTIONAL)], "Child.java");
+        assert_eq!(markers, ["Availability method: any()|/project/src/main/java/p/Child.java"]);
+    }
+
+    const BASE_COMMANDS: &str = "package p; import org.springframework.shell.standard.ShellComponent; import org.springframework.shell.standard.ShellMethod; import org.springframework.shell.standard.ShellMethodAvailability; abstract class Base { @ShellMethod(key=\"shared\",value=\"S\") void shared(){} @ShellMethod(key=\"over\",value=\"O\") void over(){} }";
+
+    fn child_class(name: &str, body: &str) -> String {
+        format!("package p; import org.springframework.shell.standard.ShellComponent; import org.springframework.shell.standard.ShellMethod; import org.springframework.shell.standard.ShellMethodAvailability; @ShellComponent class {name} extends Base {{ {body} }}")
+    }
+
+    fn duplicates(problems: &[Diagnostic]) -> usize {
+        problems.iter().filter(|p| p.code.as_deref() == Some("duplicate-command")).count()
+    }
+
+    #[test]
+    fn inherited_shell_method_commands_belong_to_the_subclass() {
+        let child = child_class("Child", "@ShellMethod(key=\"own\",value=\"O\") void own(){} @ShellMethodAvailability(\"shared\") org.springframework.shell.Availability gate(){return null;}");
+        let host = MockHost::install();
+        host.add_file("src/main/java/p/Base.java", BASE_COMMANDS);
+        host.add_file("src/main/java/p/Child.java", &child);
+        let mut tools = ShellTools::default();
+        let d = doc("Child.java", &child);
+        tools.line_markers(&d);
+        let index = tools.indexes.for_document(&d.path, &d.text, PROVIDER_BUDGET).unwrap();
+        let mut keys: Vec<_> = named(index, "p.Child", "shared").into_iter().map(|(p, c)| (p, c.method)).collect();
+        keys.sort();
+        assert_eq!(keys, [("/project/src/main/java/p/Base.java".to_string(), "shared".to_string())]);
+        assert!(named(index, "p.Child", "own").len() == 1);
+    }
+
+    #[test]
+    fn sibling_subclasses_inheriting_one_command_conflict_but_overrides_and_unknown_chains_do_not() {
+        let one = child_class("One", "");
+        let two = child_class("Two", "");
+        let (_, problems) = lint(&[("Base.java", BASE_COMMANDS), ("One.java", &one), ("Two.java", &two)], "One.java");
+        assert_eq!(duplicates(&problems), 2, "{problems:?}");
+        let (_, problems) = lint(&[("Base.java", BASE_COMMANDS), ("One.java", &one)], "One.java");
+        assert_eq!(duplicates(&problems), 0, "{problems:?}");
+        let overriding = child_class("Two", "@Override void shared(){} @Override void over(){}");
+        let (_, problems) = lint(&[("Base.java", BASE_COMMANDS), ("One.java", &one), ("Two.java", &overriding)], "One.java");
+        assert_eq!(duplicates(&problems), 0, "{problems:?}");
+        let unknown = one.replace("extends Base", "extends Library");
+        let (_, problems) = lint(&[("Base.java", BASE_COMMANDS), ("One.java", &unknown), ("Two.java", &two)], "One.java");
+        assert_eq!(duplicates(&problems), 0, "{problems:?}");
     }
 }

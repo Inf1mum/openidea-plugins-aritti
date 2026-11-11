@@ -3,6 +3,7 @@
 //! plugin's `syntax-provider`. Detection comes from `languages/twig.toml`.
 
 mod checks;
+mod twig_config;
 mod reviewed_symbols;
 mod macro_rename;
 mod template_index;
@@ -102,19 +103,20 @@ fn extension_source(root:&str,path:&str)->bool {
 }
 fn same_owner(root:&str,path:&str)->bool {canonical(root,path)&&project_of(path).and_then(|p|p.root().ok()).as_deref()==Some(root)}
 
+fn safe_namespace_part(value: &str, allow_slash: bool) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && !value.starts_with('/')
+        && !value.contains(['\\', ':', '*', '?', '[', ']', '@'])
+        && !value.chars().any(char::is_control)
+        && (allow_slash || !value.contains('/'))
+        && value.trim_end_matches('/').split('/').all(|p| !p.is_empty() && !matches!(p, "." | ".."))
+}
+
 /// `templateNamespaces` entries as (namespace, project-relative directory): bounded, relative, no `..`.
 fn template_namespaces() -> Vec<(String, String)> {
     let raw = host::setting("templateNamespaces").unwrap_or_default();
     let entries: Vec<serde_json::Value> = if raw.len() > 16 << 10 { Vec::new() } else { serde_json::from_str(&raw).unwrap_or_default() };
-    let safe = |value: &str, allow_slash: bool| {
-        !value.is_empty()
-            && value.len() <= 128
-            && !value.starts_with('/')
-            && !value.contains(['\\', ':', '*', '?', '[', ']', '@'])
-            && !value.chars().any(char::is_control)
-            && (allow_slash || !value.contains('/'))
-            && value.trim_end_matches('/').split('/').all(|p| !p.is_empty() && !matches!(p, "." | ".."))
-    };
     entries
         .into_iter()
         .take(32)
@@ -122,8 +124,21 @@ fn template_namespaces() -> Vec<(String, String)> {
             let field = |key: &str| e.get(key).and_then(|v| v.as_str()).map(str::to_owned);
             Some((field("namespace")?.trim_start_matches('@').to_owned(), field("path")?.trim_end_matches('/').to_owned()))
         })
-        .filter(|(namespace, path)| safe(namespace, false) && safe(path, true))
+        .filter(|(namespace, path)| safe_namespace_part(namespace, false) && safe_namespace_part(path, true))
         .collect()
+}
+
+/// Setting entries plus Symfony `twig.paths`; a namespace named by the setting ignores the config entirely.
+fn merged_template_namespaces(project: &Project) -> Vec<(String, String)> {
+    let mut all = template_namespaces();
+    let configured = project.read_file("config/packages/twig.yaml").ok().map(|t| twig_config::paths(&t)).unwrap_or_default();
+    let explicit: Vec<String> = all.iter().map(|(n, _)| n.clone()).collect();
+    all.extend(configured.into_iter().filter_map(|(dir, ns)| {
+        let ns = ns?;
+        let dir = dir.trim_end_matches('/').to_owned();
+        (!explicit.contains(&ns) && safe_namespace_part(&ns, false) && safe_namespace_part(&dir, true)).then_some((ns, dir))
+    }));
+    all
 }
 
 fn template_path(project: &Project, name: &str) -> Option<String> {
@@ -140,7 +155,7 @@ fn template_path(project: &Project, name: &str) -> Option<String> {
         None => format!("templates/{name}"),
         Some(namespaced) => {
             let (namespace, rest) = namespaced.split_once('/')?;
-            let mapped = template_namespaces().into_iter().filter(|(n, _)| n == namespace).collect::<Vec<_>>();
+            let mapped = merged_template_namespaces(project).into_iter().filter(|(n, _)| n == namespace).collect::<Vec<_>>();
             if mapped.len() != 1 {
                 return None;
             }
@@ -1537,6 +1552,26 @@ mod project_tests {
             host.set_setting("templateNamespaces", bad);
             assert!(twig.definition(&d, p).is_empty(), "{bad}");
         }
+    }
+    #[test]
+    fn symfony_twig_paths_merge_with_setting_and_explicit_wins() {
+        let host = host();
+        host.add_file("lib/ui/forms.html.twig", "x");
+        host.add_file("backend/templates/a.twig", "x");
+        host.add_file("other/a.twig", "x");
+        host.add_file("config/packages/twig.yaml", "twig:\n    paths:\n        'backend/templates': 'admin'\n        'lib/ui': ui\n        'tpl/main': ~\n");
+        let mut twig = Twig::default();
+        let (d, p) = at("{% include '@admin/a.t^wig' %}");
+        assert!(twig.definition(&d, p)[0].path.ends_with("/backend/templates/a.twig"));
+        let (d, p) = at("{% include '@ui/forms.ht^ml.twig' %}");
+        assert_eq!(twig.definition(&d, p).len(), 1);
+        host.set_setting("templateNamespaces", r#"[{"namespace":"admin","path":"other"}]"#);
+        let (d, p) = at("{% include '@admin/a.t^wig' %}");
+        assert!(twig.definition(&d, p)[0].path.ends_with("/other/a.twig"));
+        let (d, p) = at("{% include '@ui/forms.ht^ml.twig' %}");
+        assert_eq!(twig.definition(&d, p).len(), 1);
+        host.add_file("config/packages/twig.yaml", "twig:\n    paths: { 'lib/ui': ui }\n");
+        assert!(twig.definition(&d, p).is_empty());
     }
     #[test]
     fn use_and_embed_targets_and_used_blocks_resolve_only_when_unambiguous() {

@@ -155,7 +155,7 @@ impl BootTools {
             index
                 .iter()
                 .filter(|(path, _)| live::current_owner(&roots, path) == Some(owner.as_str()))
-                .map(|(_, l)| l),
+                .map(|(path, l)| (path, l)),
         )
     }
 }
@@ -701,21 +701,14 @@ impl BootTools {
             .iter()
             .flat_map(|g| project.find_files(g, 500).unwrap_or_default())
             .collect();
-        let sets: Vec<fileset::Locations> = self
+        let seeds: Vec<(String, fileset::Locations)> = self
             .locations
             .get(project, COMMAND_BUDGET)
             .iter()
             .filter(|(path, _)| live::current_owner(roots, path) == Some(owner))
-            .map(|(_, l)| l.clone())
+            .map(|(path, l)| (path.to_owned(), l.clone()))
             .collect();
-        for set in &sets {
-            for tail in &set.tails {
-                files.extend(
-                    project
-                        .find_files(&format!("**/{tail}"), 20)
-                        .unwrap_or_default(),
-                );
-            }
+        for (_, set) in &seeds {
             for name in &set.names {
                 for extension in ["properties", "yml", "yaml"] {
                     files.extend(
@@ -726,6 +719,7 @@ impl BootTools {
                 }
             }
         }
+        files.extend(fileset::discover_in(project, &seeds).files);
         files.retain(|path| live::current_owner(roots, path) == Some(owner));
         files.sort();
         files.dedup();

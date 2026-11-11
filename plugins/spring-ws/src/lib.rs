@@ -297,6 +297,7 @@ fn scan_java(path: &str, text: &str) -> Option<Vec<Endpoint>> {
 /// Every schema file is kept, even without a schema: it tells resources exist.
 const MAX_DOCUMENT_BYTES: usize = 256 * 1024;
 const MAX_SCHEMA_BYTES: usize = 128 * 1024;
+const XPATH_GUARD_GLOBS: &[&str] = &["**/*.java", "**/*.kt", "**/*.xml"];
 const SCHEMA_GLOBS: &[&str] = &["**/*.xsd", "**/*.wsdl"];
 const SOURCE_WATCH_GLOBS: &[&str] = &["**/*.java", "**/*.kt", "**/*.xsd", "**/*.wsdl"];
 const WATCH_GLOBS: &[&str] = &["**/*.java", "**/*.kt", "**/*.xsd", "**/*.wsdl", "**/*.xslt", "**/*.xml"];
@@ -425,6 +426,7 @@ pub struct WsTools {
     generation: generate::Generation,
     schemas: Indexes<SchemaFile>,
     xpath_packages: Indexes<xpath::PackageNamespaces>,
+    xpath_guards: Indexes<()>,
     xml_types: Indexes<Vec<typed_xml::SourceType>>,
     resource_paths: resource_paths::Paths,
     watching: bool,
@@ -438,6 +440,7 @@ impl Default for WsTools {
             generation:generate::Generation::default(),
             schemas: Indexes::new(SCHEMA_GLOBS, scan_schemas),
             xpath_packages: Indexes::new(&["**/package-info.java"],xpath::scan_package),
+            xpath_guards: Indexes::new(XPATH_GUARD_GLOBS,xpath::scan_resolver_customization),
             xml_types: Indexes::new(SOURCE_GLOBS,typed_xml::scan_source),
             resource_paths: resource_paths::Paths::default(),
             watching: false,
@@ -629,6 +632,7 @@ impl DiagnosticsProvider for WsTools {
         if !self.watching {
             return problems;
         }
+        problems.extend(xpath::undeclared_prefixes(self, doc));
         let Some(index) = self.schemas.for_cached_document(&doc.path, &doc.text) else { return problems };
         if !complete_schemas(index) || !self.unreadable_schemas.is_empty() {
             return problems;
@@ -684,6 +688,7 @@ impl Plugin for WsTools {
             self.schemas.get(&project, budget.min(Duration::from_millis(250)));
             self.xpath_packages.get(&project, deadline.saturating_duration_since(Instant::now()).min(Duration::from_millis(250)));
             self.xml_types.get(&project,deadline.saturating_duration_since(Instant::now()).min(Duration::from_millis(250)));
+            self.xpath_guards.get(&project,deadline.saturating_duration_since(Instant::now()).min(Duration::from_millis(250)));
             self.resource_paths.warm(&project, deadline.saturating_duration_since(Instant::now()).min(Duration::from_millis(250)));
         }
         Ok(())
@@ -713,6 +718,18 @@ impl Plugin for WsTools {
                 if !resource_overflow {
                     if resource_paths::relevant(path) { self.resource_paths.observe(&project, path, removed); }
                     self.resource_paths.warm(&project, resource_budget.min(Duration::from_millis(250)));
+                }
+                if XPATH_GUARD_GLOBS.iter().any(|glob| spring_text::index::glob_matches(glob, path)) {
+                    match (removed, project.read_file(path)) {
+                        (true, _) => {
+                            self.xpath_guards.update_existing(&project, path, None);
+                        }
+                        (false, Ok(text)) => {
+                            self.xpath_guards.update_existing(&project, path, Some(&text));
+                        }
+                        (false, Err(_)) => self.xpath_guards.reset(),
+                    }
+                    self.xpath_guards.get(&project, deadline.saturating_duration_since(Instant::now()).min(Duration::from_millis(250)));
                 }
                 if !SOURCE_WATCH_GLOBS.iter().any(|glob| spring_text::index::glob_matches(glob, path)) { continue; }
                 if removed {

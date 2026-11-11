@@ -196,9 +196,11 @@ pub(crate) fn scan_package(path: &str, text: &str) -> Option<PackageNamespaces> 
         language: "java".into(),
         version: 0,
     };
-    let file = source(&doc)?;
+    let Some(file) = source(&doc) else {
+        return Some(PackageNamespaces { package: String::new(), bindings: None });
+    };
     if file.package.is_empty() || !file.types.is_empty() {
-        return None;
+        return Some(PackageNamespaces { package: String::new(), bindings: None });
     }
     let owners = annotation_owners::Owners::new(&file, text, false);
     Some(PackageNamespaces {
@@ -335,6 +337,97 @@ fn references_with_package(doc: &Document, package: &[Binding]) -> Vec<(String, 
                         local.into(),
                         range(&doc.text, start, start + local.len()),
                     ));
+                }
+            }
+        }
+    }
+    out
+}
+const LEGACY_RESOLVER_MARKERS: [&str; 3] =
+    ["XPathParamAnnotationMethodEndpointAdapter", "XPathParamMethodArgumentResolver", "NamespaceUtils"];
+pub(crate) fn scan_resolver_customization(_path: &str, text: &str) -> Option<()> {
+    LEGACY_RESOLVER_MARKERS.iter().any(|marker| text.contains(marker)).then_some(())
+}
+fn effective_bindings(package: &[Binding], class: &[Binding], own: Vec<Binding>) -> Vec<Binding> {
+    let mut values = package.to_vec();
+    for binding in class.iter().cloned().chain(own) {
+        values.retain(|b| b.prefix != binding.prefix);
+        values.push(binding);
+    }
+    values
+}
+/// Reports an `@XPathParam` prefix only when Spring-WS's `NamespaceUtils` (package, class, method
+/// `@Namespace`/`@Namespaces`; `@Namespace` is not valid on parameters) is the sole source and every
+/// project file was scanned: any custom/legacy adapter or resolver mention, unparseable or ambiguous
+/// `package-info.java`, or non-literal declaration keeps this quiet. `xml`/`xmlns` are always bound.
+pub(crate) fn undeclared_prefixes(nav: &mut WsTools, doc: &Document) -> Vec<Diagnostic> {
+    let quiet = vec![];
+    if !nav.watching || doc.path.contains('\\') {
+        return quiet;
+    }
+    let Some(file) = source(doc) else {
+        return quiet;
+    };
+    let Some(guards) = nav.xpath_guards.for_cached_document(&doc.path, &doc.text) else {
+        return quiet;
+    };
+    if !guards.fresh() || guards.iter().next().is_some() {
+        return quiet;
+    }
+    let Some(packages) = nav.xpath_packages.for_cached_document(&doc.path, &doc.text) else {
+        return quiet;
+    };
+    if !packages.fresh() || packages.iter().any(|(_, fact)| fact.package.is_empty() && fact.bindings.is_none()) {
+        return quiet;
+    }
+    let directory = doc.path.rsplit_once('/').map_or("", |(directory, _)| directory);
+    let package_bindings = if file.package.is_empty() {
+        vec![]
+    } else {
+        let same: Vec<_> = packages.iter().filter(|(_, fact)| fact.package == file.package).collect();
+        match same.as_slice() {
+            [] => vec![],
+            [(path, fact)] if path.rsplit_once('/').map(|(d, _)| d) == Some(directory) => match &fact.bindings {
+                Some(bindings) => bindings.clone(),
+                None => return quiet,
+            },
+            _ => return quiet,
+        }
+    };
+    let owners = annotation_owners::Owners::new(&file, &doc.text, doc.language == "kotlin");
+    let kotlin = doc.language == "kotlin";
+    let mut out = vec![];
+    for ty in &file.types {
+        let Some(class) = bindings(&ty.annotations, &owners, &doc.text, kotlin) else {
+            continue;
+        };
+        for method in ty.methods() {
+            let Some(own) = bindings(&method.annotations, &owners, &doc.text, kotlin) else {
+                continue;
+            };
+            let active = effective_bindings(&package_bindings, &class, own);
+            for a in method.params.iter().flat_map(|p| &p.annotations) {
+                if a.name != "XPathParam" || !owners.known(&doc.text, a, &format!("{PREFIX}XPathParam")) {
+                    continue;
+                }
+                let Some(value) = literal(a, "value", &doc.text) else {
+                    continue;
+                };
+                if xpath_syntax::check(&value.value).is_err() {
+                    continue;
+                }
+                for (prefix, start, end) in prefix_ranges(&value.value) {
+                    if matches!(prefix.as_str(), "xml" | "xmlns") || active.iter().any(|b| b.prefix == prefix) {
+                        continue;
+                    }
+                    out.push(
+                        Diagnostic::new(
+                            range(&doc.text, value.at + start, value.at + end),
+                            Severity::Warning,
+                            format!("XPath prefix `{prefix}` is not declared by @Namespace on the method, class or package."),
+                        )
+                        .code("undeclared-xpath-prefix"),
+                    );
                 }
             }
         }
@@ -1038,5 +1131,58 @@ mod syntax_diagnostic_tests {
         assert_eq!(found.len(), 1);
         let q = d.text.find("\"\"").unwrap();
         assert_eq!(found[0].range, range(&d.text, q, q + 2));
+    }
+}
+#[cfg(test)]
+mod undeclared_prefix_tests {
+    use super::*;
+    use openidea_plugin::mock::MockHost;
+    const IMPORTS: &str = "import org.springframework.ws.server.endpoint.annotation.Namespace; import org.springframework.ws.server.endpoint.annotation.XPathParam; ";
+    const DIR: &str = "src/main/java/com/acme";
+    fn reported(files: &[(&str, &str)], body: &str) -> Vec<String> {
+        let host = MockHost::install();
+        for (name, text) in files {
+            host.add_file(name, text);
+        }
+        let text = format!("package com.acme; {IMPORTS}{body}");
+        host.add_file(&format!("{DIR}/E.java"), &text);
+        let mut nav = WsTools::default();
+        nav.activate(&host.context("aritti.spring-ws")).unwrap();
+        let doc = Document { path: format!("/project/{DIR}/E.java"), text: text.clone(), language: "java".into(), version: 1 };
+        nav.diagnostics(&doc)
+            .into_iter()
+            .filter(|d| d.code.as_deref() == Some("undeclared-xpath-prefix"))
+            .map(|d| text[offset(&text, d.range.start).unwrap()..offset(&text, d.range.end).unwrap()].to_owned())
+            .collect()
+    }
+    use openidea_plugin::text::offset;
+    const PARAM: &str = "void h(@XPathParam(\"/p:a/q:b[@xml:lang='x']/@xmlns:z\") String v) {}";
+    #[test]
+    fn unbound_prefixes_are_reported_and_reserved_xml_prefixes_are_not() {
+        let found = reported(&[], &format!("@Namespace(prefix=\"p\",uri=\"urn:a\") class E {{ {PARAM} }}"));
+        assert_eq!(found, ["q"]);
+    }
+    #[test]
+    fn package_class_and_method_declarations_all_bind() {
+        let package = "@Namespace(prefix=\"q\",uri=\"urn:q\") package com.acme; import org.springframework.ws.server.endpoint.annotation.Namespace;";
+        let found = reported(&[(&format!("{DIR}/package-info.java"), package)], &format!("@Namespace(prefix=\"p\",uri=\"urn:a\") class E {{ {PARAM} }}"));
+        assert!(found.is_empty(), "{found:?}");
+        let found = reported(&[], &format!("class E {{ @Namespace(prefix=\"p\",uri=\"urn:a\") void h(@XPathParam(\"/p:a/q:b\") String v) {{}} }}"));
+        assert_eq!(found, ["q"]);
+    }
+    #[test]
+    fn uncertain_declaration_sources_keep_diagnostics_quiet() {
+        let class = format!("class E {{ {PARAM} }}");
+        for (files, body) in [
+            (vec![("src/main/resources/a.xml", "<bean class=\"org.springframework.ws.server.endpoint.adapter.XPathParamAnnotationMethodEndpointAdapter\"/>")], class.clone()),
+            (vec![("src/main/java/com/acme/Config.java", "class Config { XPathParamAnnotationMethodEndpointAdapter a; }")], class.clone()),
+            (vec![(&*format!("{DIR}/package-info.java"), "@Namespace(prefix=PREFIX,uri=\"u\") package com.acme; import org.springframework.ws.server.endpoint.annotation.Namespace;")], class.clone()),
+            (vec![(&*format!("{DIR}/package-info.java"), "package com.acme; @@@ {{")], class.clone()),
+            (vec![("src/test/java/com/acme/package-info.java", "package com.acme;")], class.clone()),
+            (vec![], format!("@Namespace(prefix=P,uri=\"urn:a\") class E {{ {PARAM} }}")),
+            (vec![], "class E { void h(@XPathParam(NAME) String v) {} }".into()),
+        ] {
+            assert!(reported(&files, &body).is_empty(), "{files:?} {body}");
+        }
     }
 }

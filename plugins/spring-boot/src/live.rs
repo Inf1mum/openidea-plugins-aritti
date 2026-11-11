@@ -243,13 +243,13 @@ fn snapshot(index: &Index<File>, doc: &Document, watching: bool) -> Snapshot {
     let owner = roots
         .as_ref()
         .and_then(|roots| current_owner(roots, &doc.path));
-    let files: Vec<_> = index
+    let owned: Vec<_> = index
         .iter()
         .filter(|(path, _)| {
             owner.is_some() && roots.as_ref().and_then(|roots| current_owner(roots, path)) == owner
         })
-        .map(|(_, file)| file)
         .collect();
+    let files: Vec<_> = owned.iter().map(|(_, file)| *file).collect();
     let complete = owner.is_some()
         && index.fresh()
         && files.len() == index.files().len()
@@ -287,7 +287,9 @@ fn snapshot(index: &Index<File>, doc: &Document, watching: bool) -> Snapshot {
     let is_config = is_config_file(&doc.path)
         || fileset::is_configuration(
             &doc.path,
-            files.iter().filter_map(|file| file.locations.as_ref()),
+            owned
+                .iter()
+                .filter_map(|(path, file)| file.locations.as_ref().map(|l| (*path, l))),
         );
     Snapshot {
         catalog,

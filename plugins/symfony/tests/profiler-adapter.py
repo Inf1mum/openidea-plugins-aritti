@@ -53,6 +53,30 @@ class ProfilerAdapter(unittest.TestCase):
         self.assertEqual(m['cache'], {'cache_calls': 4, 'cache_time': 0.5, 'cache_reads': 3, 'cache_writes': 1, 'cache_deletes': 0, 'cache_hits': 2})
         self.assertEqual(m['logger'], {'error_count': 1, 'deprecation_count': 2, 'warning_count': 3, 'stored_logs': 1})
 
+    def test_time_events_decode_only_plain_stopwatch_shapes_and_are_bounded(self):
+        generator = '''namespace Symfony\\Component\\Stopwatch { class StopwatchPeriod { private $start; private $end; private $memory=1; function __construct($s,$e){$this->start=$s;$this->end=$e;} }
+        class StopwatchEvent { private $periods; private float $origin; private string $category; private $started=[]; private string $name; function __construct($o,$c,$p){$this->origin=$o;$this->category=$c;$this->periods=$p;$this->name='secret-name';} } }
+        namespace { class C { protected $data; function __construct($d){$this->data=$d;} }
+        use Symfony\\Component\\Stopwatch\\{StopwatchEvent as E, StopwatchPeriod as P};
+        $events=['__section__'=>new E(1700.5,'section',[new P(0,40.5)]),'kernel.request'=>new E(2.0,'event_listener',[new P(1,2),new P(5,8.25)]),
+         'cloned'=>new E(1.0,'x',new C(['secret'=>1])),'bad name\n'=>new E(1.0,'x',[]),'neg'=>new E(1.0,\"bad\\x01\",[new P(5,1)]),7=>new E(1.0,'x',[])];
+        for($i=0;$i<60;$i++){$events['e'.$i]=new E($i,'default',[]);}
+        echo serialize(['token'=>'abcdef','data'=>['time'=>new C(['events'=>$events,'start_time'=>1.0]),'other'=>new C(['events'=>$events])]]); }'''
+        self.path.write_bytes(subprocess.check_output([PHP, '-n', '-r', generator]))
+        result = self.run_adapter()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        summary = json.loads(result.stdout)
+        self.assertEqual(summary['version'], 2)
+        time, other = summary['collectors']
+        self.assertNotIn('events', other)
+        events = time['events']
+        self.assertEqual(len(events), 50)
+        self.assertEqual(events[0], {'name': '__section__', 'category': 'section', 'origin': 1700.5, 'duration': 40.5, 'periods': 1})
+        self.assertEqual(events[1], {'name': 'kernel.request', 'category': 'event_listener', 'origin': 2.0, 'duration': 4.25, 'periods': 2})
+        self.assertEqual(events[2], {'name': 'cloned', 'category': 'x', 'origin': 1.0})
+        self.assertEqual(events[3], {'name': 'neg', 'origin': 1.0})
+        self.assertNotIn(b'secret', result.stdout)
+
     def test_malformed_wrong_token_and_decompression_limit_are_refused(self):
         for raw in [b'not a profile', gzip.compress(b'x'*1048577), b'x'*1048577]:
             self.path.write_bytes(raw)
