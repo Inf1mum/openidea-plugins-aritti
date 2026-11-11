@@ -426,7 +426,7 @@ pub(super) fn resolve(pending: &Pending, doc: &Document) -> Result<FileAction, E
     let ns = namespace.package();
     let available = candidates(&project, pending, doc, ns)?;
     if available.is_empty() {
-        return Err("No eligible Java composite key was found in this source package. This source subset needs a public same-namespace embeddable, 2–16 scalar fields, Serializable, a no-argument constructor and declared equals/hashCode.".into());
+        return Err("No eligible Java composite key was found in this source package. This source subset needs a public same-namespace embeddable, 2–16 scalar fields, Serializable, a no-argument constructor and declared equals/hashCode, with java.lang types spelled canonically (java.lang.Long, java.lang.Object, @java.lang.Override) or imported explicitly because a bare name could be shadowed.".into());
     }
     let selected = host::pick(
         "Embedded identifier class",

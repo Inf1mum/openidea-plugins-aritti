@@ -255,8 +255,8 @@
     },
     "sqlImportIdGeneration": {
       "type": "string",
-      "title": "SQL import: @GeneratedValue for database-generated keys (identity, sequence without a named generator and refused for MySQL, auto, or none)",
-      "enum": ["identity", "sequence", "auto", "none"],
+      "title": "SQL import: @GeneratedValue for generated keys: identity, sequence (no named generator; refused for MySQL), auto, uuid (GenerationType.UUID on uuid keys; jakarta + Boot 3.1+/Hibernate 6.2+ proven) or none",
+      "enum": ["identity", "sequence", "auto", "uuid", "none"],
       "default": "identity"
     },
     "sqlImportFetch": {
@@ -270,6 +270,11 @@
       "title": "SQL import: nullable = false on generated @JoinColumn for NOT NULL foreign keys (nullability) or never",
       "enum": ["nullability", "never"],
       "default": "nullability"
+    },
+    "sqlImportValidation": {
+      "type": "boolean",
+      "title": "SQL import: @NotNull for NOT NULL and @Size(max) for varchar(n) columns; needs Bean Validation declared in the build",
+      "default": false
     },
     "lombokEntityDefaults": {
       "type": "boolean",

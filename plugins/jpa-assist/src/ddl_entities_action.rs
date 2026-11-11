@@ -11,7 +11,7 @@
 //! written as delimited identifiers (`@Column(name = "\"order\"")`, Jakarta Persistence 3.2 section
 //! 2.15 "Naming of Database Objects").
 use super::*;
-use crate::model::camel_case;
+use crate::model::{camel_case, decapitalize};
 use persistence_core::ddl_parse::{self, DdlError, Dialect as SqlDialect, ParsedDdl};
 use persistence_core::schema::{Column, Fact, ForeignKey, Index, LogicalType, Table, UniqueConstraint};
 use std::collections::{BTreeMap, BTreeSet};
@@ -27,12 +27,15 @@ const MAX_COMMENT_CHARS: usize = 240;
 const MAX_PREFIX: usize = 32;
 const OTHER_PACKAGE: &str = "\u{0}other";
 const ALL_COLUMNS: &str = "\u{0}all";
-const TAKEN_NAMES: [&str; 37] = [
+const TAKEN_NAMES: &[&str] = &[
     "Entity", "Table", "Id", "Column", "GeneratedValue", "GenerationType", "ManyToOne", "FetchType", "JoinColumn", "BigDecimal",
     "LocalDate", "LocalTime", "LocalDateTime", "OffsetDateTime", "UUID", "String", "Object", "Long", "Integer", "Short", "Byte",
     "Boolean", "Float", "Double", "Int", "ByteArray", "Any", "Unit", "Number", "Index", "UniqueConstraint", "Enumerated", "EnumType",
-    "Immutable", "Inheritance", "InheritanceType", "PrimaryKeyJoinColumn",
+    "Immutable", "Inheritance", "InheritanceType", "PrimaryKeyJoinColumn", "OneToOne", "OneToMany", "ManyToMany", "JoinTable", "MapsId", "Set",
+    "LinkedHashSet", "MutableSet",
 ];
+const VALIDATION_NAMES: [&str; 2] = ["NotNull", "Size"];
+const MAX_AFFIXES: usize = 16;
 const UNUSABLE_CONSTANTS: [&str; 19] = [
     "name", "ordinal", "values", "valueOf", "entries", "declaringClass", "getDeclaringClass", "compareTo", "hashCode", "toString",
     "equals", "clone", "finalize", "getClass", "notify", "notifyAll", "wait", "describeConstable", "Companion",
@@ -65,7 +68,14 @@ enum IdGeneration {
     Identity,
     Sequence,
     Auto,
+    Uuid,
     Unassigned,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Link {
+    ManyToOne,
+    OneToOne,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -92,10 +102,18 @@ struct Options {
     schema: bool,
     indexes: bool,
     comments: bool,
+    comment_annotation: bool,
     enums: bool,
     singular: bool,
-    table_prefix: String,
-    column_prefix: String,
+    table_prefixes: Vec<String>,
+    column_prefixes: Vec<String>,
+    table_suffixes: Vec<String>,
+    column_suffixes: Vec<String>,
+    /// Package of the Bean Validation constraints (`sqlImportValidation` on and Bean Validation proven).
+    validation: Option<&'static str>,
+    kotlin: bool,
+    /// Child table index to parent table index: a key that is also a foreign key mapped with `@MapsId`.
+    maps_id: HashMap<usize, usize>,
     /// Class names the user edited, by table index.
     classes: HashMap<usize, String>,
     /// Lower-cased selected column names by table index; a table that is absent maps every column.
@@ -118,9 +136,43 @@ struct Attr {
     scale: Option<u32>,
     unique: bool,
     target: Option<String>,
+    target_table: Option<usize>,
+    link: Link,
+    size: Option<u32>,
     enum_type: Option<String>,
     comment: Option<String>,
+    comment_annotation: Option<String>,
     definition: Option<String>,
+}
+
+#[derive(Debug)]
+enum Member {
+    OneToMany { name: String, target: String, mapped_by: String },
+    OneToOne { name: String, target: String, mapped_by: String },
+    ManyToManyOwner { name: String, target: String, table: String, schema: Option<String>, join: String, inverse: String },
+    ManyToManyMapped { name: String, target: String, mapped_by: String },
+}
+
+impl Member {
+    fn name(&self) -> &str {
+        match self {
+            Member::OneToMany { name, .. } | Member::OneToOne { name, .. } | Member::ManyToManyOwner { name, .. } | Member::ManyToManyMapped { name, .. } => name,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct MapsIdOut {
+    name: String,
+    target: String,
+    column: String,
+}
+
+#[derive(Debug)]
+struct TodoField {
+    name: String,
+    column: String,
+    sql_type: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -143,7 +195,11 @@ struct Plan {
     table_quoted: bool,
     schema: Option<String>,
     comment: Option<String>,
+    comment_annotation: Option<String>,
     attrs: Vec<Attr>,
+    members: Vec<Member>,
+    maps_id: Option<MapsIdOut>,
+    todo_fields: Vec<TodoField>,
     indexes: Vec<IndexOut>,
     uniques: Vec<IndexOut>,
     enums: Vec<EnumPlan>,
@@ -152,6 +208,7 @@ struct Plan {
     id_generation: IdGeneration,
     default_fetch: bool,
     never_required: bool,
+    validation: Option<&'static str>,
     deferred: Vec<String>,
     /// Class name of the JOINED parent; the key attribute is then inherited, not mapped here.
     parent: Option<String>,
@@ -215,9 +272,48 @@ fn singularize(name: &str) -> String {
     if head.is_empty() { singular } else { format!("{head}_{singular}") }
 }
 
+fn strip_suffix(name: &str, suffix: &str) -> String {
+    let matches = !suffix.is_empty() && name.len() > suffix.len() && name.is_char_boundary(name.len() - suffix.len()) && name[name.len() - suffix.len()..].eq_ignore_ascii_case(suffix);
+    if matches { name[..name.len() - suffix.len()].trim_end_matches('_').to_owned() } else { name.to_owned() }
+}
+
+/// The first configured prefix that matches is removed, then the first configured suffix that matches.
+fn strip_affixes(name: &str, prefixes: &[String], suffixes: &[String]) -> String {
+    let stripped = prefixes.iter().map(|prefix| strip_prefix(name, prefix)).find(|stripped| stripped != name).unwrap_or_else(|| name.to_owned());
+    suffixes.iter().map(|suffix| strip_suffix(&stripped, suffix)).find(|result| *result != stripped).unwrap_or(stripped)
+}
+
+/// Plural collection name for an entity class name: ies for a trailing consonant+y, es after s/x/z/ch/sh,
+/// a name that already ends in s is kept, otherwise s is appended.
+fn pluralize(name: &str) -> String {
+    let lower = name.to_ascii_lowercase();
+    let vowel_before_y = lower.len() > 1 && lower[..lower.len() - 1].ends_with(['a', 'e', 'i', 'o', 'u']);
+    if lower.ends_with('y') && !vowel_before_y {
+        return format!("{}ies", &name[..name.len() - 1]);
+    }
+    if lower.ends_with("ss") || lower.ends_with('x') || lower.ends_with('z') || lower.ends_with("ch") || lower.ends_with("sh") {
+        return format!("{name}es");
+    }
+    if lower.ends_with('s') {
+        return name.to_owned();
+    }
+    format!("{name}s")
+}
+
+/// A comment as one string literal body (Java or Kotlin), or `None` when empty or over the bound.
+fn string_text(text: &str, kotlin: bool) -> Option<String> {
+    let cleaned: String = text.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
+    let collapsed = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
+    if collapsed.is_empty() || collapsed.chars().count() > MAX_COMMENT_CHARS {
+        return None;
+    }
+    let escaped = collapsed.replace('\\', "\\\\").replace('"', "\\\"");
+    Some(if kotlin { escaped.replace('$', "\\$") } else { escaped })
+}
+
 fn default_class(table: &Table, options: &Options) -> String {
     let name = table.name.rsplit('.').next().unwrap_or(&table.name);
-    let name = strip_prefix(name, &options.table_prefix);
+    let name = strip_affixes(name, &options.table_prefixes, &options.table_suffixes);
     let name = if options.singular { singularize(&name) } else { name };
     camel_case(&name, true)
 }
@@ -256,6 +352,10 @@ fn enum_values_ok(values: &[String]) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+fn taken(name: &str, options: &Options) -> bool {
+    TAKEN_NAMES.contains(&name) || options.validation.is_some() && VALIDATION_NAMES.contains(&name)
 }
 
 struct Gate<'a> {
@@ -302,7 +402,7 @@ fn gate<'a>(parsed: &'a ParsedDdl, ti: usize, dialect: SqlDialect, options: &Opt
         return refuse("the schema name is a reserved word, which is not generated as a delimited schema".into());
     }
     let class = options.classes.get(&ti).cloned().unwrap_or_else(|| default_class(table, options));
-    if !identifier(&class) || TAKEN_NAMES.contains(&class.as_str()) {
+    if !identifier(&class) || taken(&class, options) {
         return refuse(format!("class name `{class}` is not usable (keyword or generated import name)"));
     }
     if !columns.iter().any(|c| c.name.eq_ignore_ascii_case(key)) {
@@ -343,7 +443,7 @@ fn column_attr(parsed: &ParsedDdl, ti: usize, dialect: SqlDialect, options: &Opt
                 Some(type_name) => camel_case(type_name, true),
                 None => format!("{}{}", gate.class, camel_case(&column.name, true)),
             };
-            if !identifier(&name) || TAKEN_NAMES.contains(&name.as_str()) {
+            if !identifier(&name) || taken(&name, options) {
                 return Err(format!("enum name `{name}` is not usable (keyword or generated import name)"));
             }
             enum_plan = Some(EnumPlan { name: name.clone(), values: found.values.clone() });
@@ -377,22 +477,22 @@ fn column_attr(parsed: &ParsedDdl, ti: usize, dialect: SqlDialect, options: &Opt
     }
     let unique = gate.uniques.iter().any(|u| u.columns.len() == 1 && u.columns[0].eq_ignore_ascii_case(&column.name));
     let text = matches!(logical, Some(LogicalType::Char | LogicalType::Varchar | LogicalType::Binary));
-    let comment = options
-        .comments
+    let comment = (options.comments || options.comment_annotation)
         .then(|| parsed.comments.iter().find(|c| c.table == table.name && c.column.as_deref() == Some(column.name.as_str())))
         .flatten();
     let mut notes = Vec::new();
-    let comment = match comment {
+    let (comment, comment_annotation) = match comment {
         Some(found) => {
-            let shown = doc_text(&found.text);
-            if shown.is_none() {
+            let shown = doc_text(&found.text).filter(|_| options.comments);
+            let annotated = string_text(&found.text, options.kotlin).filter(|_| options.comment_annotation);
+            if doc_text(&found.text).is_none() {
                 notes.push(format!("{}: database comment is empty or longer than {MAX_COMMENT_CHARS} characters and is not copied", column.name));
             }
-            shown
+            (shown, annotated)
         }
-        None => None,
+        None => (None, None),
     };
-    let stem_source = strip_prefix(&column.name, &options.column_prefix);
+    let stem_source = strip_affixes(&column.name, &options.column_prefixes, &options.column_suffixes);
     let mut attr = Attr {
         name: camel_case(&stem_source, false),
         column: column.name.clone(),
@@ -408,8 +508,12 @@ fn column_attr(parsed: &ParsedDdl, ti: usize, dialect: SqlDialect, options: &Opt
         scale: column.scale.filter(|s| logical == Some(LogicalType::Decimal) && *s != 0),
         unique: unique && !is_key,
         target: None,
+        target_table: None,
+        link: Link::ManyToOne,
+        size: column.length.filter(|n| *n > 0 && matches!(logical, Some(LogicalType::Char | LogicalType::Varchar))),
         enum_type: enum_plan.as_ref().map(|e| e.name.clone()),
         comment,
+        comment_annotation,
         definition,
     };
     let single = gate.foreign_keys.iter().find(|fk| fk.columns.len() == 1 && fk.columns[0].eq_ignore_ascii_case(&column.name));
@@ -423,6 +527,8 @@ fn column_attr(parsed: &ParsedDdl, ti: usize, dialect: SqlDialect, options: &Opt
         match (target, ref_matches) {
             (Some(t), true) => {
                 attr.target = Some(linked[&t].clone());
+                attr.target_table = Some(t);
+                attr.link = if attr.unique { Link::OneToOne } else { Link::ManyToOne };
                 let stem = stem_source.trim_end_matches("_id").trim_end_matches("_ID");
                 let relation = camel_case(stem, false);
                 if !relation.is_empty() && relation != attr.name {
@@ -436,7 +542,12 @@ fn column_attr(parsed: &ParsedDdl, ti: usize, dialect: SqlDialect, options: &Opt
         }
     }
     if !identifier(&attr.name) {
-        return Err(format!("attribute name `{}` is not a valid identifier", attr.name));
+        let suffixed = format!("{}Field", attr.name);
+        if !identifier(&suffixed) {
+            return Err(format!("attribute name `{}` is not a valid identifier", attr.name));
+        }
+        notes.push(format!("{}: `{}` is a reserved word, so the attribute is named `{suffixed}`", column.name, attr.name));
+        attr.name = suffixed;
     }
     Ok(Built { attr, enum_plan, notes })
 }
@@ -454,6 +565,7 @@ fn plan(parsed: &ParsedDdl, ti: usize, dialect: SqlDialect, linked: &HashMap<usi
     let mut enums: Vec<EnumPlan> = Vec::new();
     let mut notes = Vec::new();
     let mut omitted = Vec::new();
+    let mut todo_fields = Vec::new();
     for column in gate.columns {
         let is_key = column.name.eq_ignore_ascii_case(gate.key);
         if !is_key && selected.is_some_and(|set| !set.contains(&column.name.to_ascii_lowercase())) {
@@ -461,7 +573,13 @@ fn plan(parsed: &ParsedDdl, ti: usize, dialect: SqlDialect, linked: &HashMap<usi
             continue;
         }
         if !is_key && matches!(column.sql_type, Fact::Unknown(_)) && options.deferred.get(&(ti, column.name.to_ascii_lowercase())) == Some(&Deferred::Skip) {
-            deferred_columns.push(format!("{} ({})", column.name, unmapped_text(parsed, &table.name, &column.name).unwrap_or("unmapped type")));
+            let sql_type = unmapped_text(parsed, &table.name, &column.name).unwrap_or("unmapped type");
+            deferred_columns.push(format!("{} ({sql_type})", column.name));
+            let name = camel_case(&strip_affixes(&column.name, &options.column_prefixes, &options.column_suffixes), false);
+            let sql_type = if safe_definition(sql_type) { format!("the unmapped SQL type {sql_type}") } else { "an unmapped SQL type".to_owned() };
+            if identifier(&name) && simple(&column.name, dialect == SqlDialect::PostgreSql) {
+                todo_fields.push(TodoField { name, column: literal(&column.name, ddl_parse::is_reserved(dialect, &column.name)), sql_type });
+            }
             continue;
         }
         let built = column_attr(parsed, ti, dialect, options, &gate, column, linked).map_err(|reason| format!("{}: column {}: {reason}", table.name, column.name))?;
@@ -531,15 +649,15 @@ fn plan(parsed: &ParsedDdl, ti: usize, dialect: SqlDialect, linked: &HashMap<usi
         }
         _ => None,
     };
-    let comment = match options.comments.then(|| parsed.comments.iter().find(|c| c.table == table.name && c.column.is_none())).flatten() {
+    let table_comment = (options.comments || options.comment_annotation).then(|| parsed.comments.iter().find(|c| c.table == table.name && c.column.is_none())).flatten();
+    let (comment, comment_annotation) = match table_comment {
         Some(found) => {
-            let shown = doc_text(&found.text);
-            if shown.is_none() {
+            if doc_text(&found.text).is_none() {
                 notes.push(format!("table comment is empty or longer than {MAX_COMMENT_CHARS} characters and is not copied"));
             }
-            shown
+            (doc_text(&found.text).filter(|_| options.comments), string_text(&found.text, options.kotlin).filter(|_| options.comment_annotation))
         }
-        None => None,
+        None => (None, None),
     };
     let table_quoted = ddl_parse::is_reserved(dialect, &gate.name);
     if attrs.iter().any(|a| a.identity) {
@@ -558,12 +676,20 @@ fn plan(parsed: &ParsedDdl, ti: usize, dialect: SqlDialect, linked: &HashMap<usi
             parent = Some(parent_class.clone());
         }
     }
+    let maps_id = match options.maps_id.get(&ti).filter(|_| parent.is_none()) {
+        Some(&parent_table) => maps_id_member(parsed, &gate, &attrs, linked, parent_table, &mut notes),
+        None => None,
+    };
     Ok(Plan {
         class: gate.class,
         table: gate.name,
         table_quoted,
         schema,
         comment,
+        comment_annotation,
+        members: Vec::new(),
+        maps_id,
+        todo_fields,
         attrs,
         indexes,
         uniques,
@@ -573,12 +699,33 @@ fn plan(parsed: &ParsedDdl, ti: usize, dialect: SqlDialect, linked: &HashMap<usi
         id_generation: options.id_generation,
         default_fetch: options.default_fetch,
         never_required: options.never_required,
+        validation: options.validation,
         deferred: deferred_columns,
         parent,
         join_column,
         open: false,
         joined_root: false,
     })
+}
+
+/// The association of a shared primary key: `@OneToOne @MapsId` next to the plain `@Id`. Needs the parent to be
+/// generated and its key to have the same SQL type, otherwise the key stays a plain `@Id`.
+fn maps_id_member(parsed: &ParsedDdl, gate: &Gate, attrs: &[Attr], linked: &HashMap<usize, String>, parent: usize, notes: &mut Vec<String>) -> Option<MapsIdOut> {
+    let target = linked.get(&parent)?;
+    let key_attr = attrs.iter().find(|a| a.key)?;
+    let parent_key = parsed.snapshot.tables[parent].primary_key.known().and_then(|key| key.first())?;
+    let key_type = |columns: &[Column], name: &str| columns.iter().find(|c| c.name.eq_ignore_ascii_case(name)).and_then(|c| c.sql_type.known().map(|t| t.logical));
+    let parent_columns = parsed.snapshot.tables[parent].columns.known()?;
+    if key_type(gate.columns, gate.key) != key_type(parent_columns, parent_key) {
+        notes.push(format!("the primary key {} stays a plain @Id: its SQL type differs from the key of {}, so @MapsId is not generated", key_attr.column, parsed.snapshot.tables[parent].name));
+        return None;
+    }
+    let name = decapitalize(target);
+    if !identifier(&name) || attrs.iter().any(|a| a.name == name) {
+        notes.push(format!("the primary key {} stays a plain @Id: the association attribute `{name}` is not usable here, so @MapsId is not generated", key_attr.column));
+        return None;
+    }
+    Some(MapsIdOut { name, target: target.clone(), column: literal(&key_attr.column, key_attr.quoted) })
 }
 
 fn unmapped_text<'a>(parsed: &'a ParsedDdl, table: &str, column: &str) -> Option<&'a str> {
@@ -596,6 +743,18 @@ fn render(plan: &Plan, package: &str, ns: &str, kotlin: bool) -> String {
     for name in ["Entity", "Table"] {
         imports.insert(format!("{ns}.{name}"));
     }
+    let fetch_line = |imports: &mut BTreeSet<String>, kind: &str| {
+        if plan.default_fetch {
+            format!("@{kind}")
+        } else {
+            imports.insert(format!("{ns}.FetchType"));
+            format!("@{kind}(fetch = FetchType.LAZY)")
+        }
+    };
+    let property = |field: &str, kt: &str| {
+        let private_set = if plan.view { "\n        private set" } else { "" };
+        format!("var {field}: {kt}? = null{private_set}")
+    };
     let mut body = String::new();
     let mut accessors = Vec::new();
     for attr in &plan.attrs {
@@ -603,48 +762,57 @@ fn render(plan: &Plan, package: &str, ns: &str, kotlin: bool) -> String {
         if let Some(comment) = &attr.comment {
             lines.push(format!("/** {comment} */"));
         }
+        if let Some(text) = &attr.comment_annotation {
+            lines.push(format!("@org.hibernate.annotations.Comment(\"{text}\")"));
+        }
         if attr.key {
             imports.insert(format!("{ns}.Id"));
             lines.push("@Id".to_owned());
-            if attr.identity && plan.id_generation != IdGeneration::Unassigned {
+            let strategy = match plan.id_generation {
+                _ if attr.identity && plan.id_generation == IdGeneration::Unassigned => None,
+                IdGeneration::Sequence if attr.identity => Some("SEQUENCE"),
+                IdGeneration::Auto if attr.identity => Some("AUTO"),
+                IdGeneration::Uuid if !attr.identity && attr.java == "UUID" => Some("UUID"),
+                _ if attr.identity => Some("IDENTITY"),
+                _ => None,
+            };
+            if let Some(strategy) = strategy {
                 imports.insert(format!("{ns}.GeneratedValue"));
                 imports.insert(format!("{ns}.GenerationType"));
-                let strategy = match plan.id_generation {
-                    IdGeneration::Sequence => "SEQUENCE",
-                    IdGeneration::Auto => "AUTO",
-                    _ => "IDENTITY",
-                };
                 lines.push(format!("@GeneratedValue(strategy = GenerationType.{strategy})"));
             }
         }
         let mut args = Vec::new();
         let column = literal(&attr.column, attr.quoted);
         if let Some(target) = &attr.target {
-            for name in ["ManyToOne", "JoinColumn"] {
+            let kind = if attr.link == Link::OneToOne { "OneToOne" } else { "ManyToOne" };
+            for name in [kind, "JoinColumn"] {
                 imports.insert(format!("{ns}.{name}"));
             }
-            if plan.default_fetch {
-                lines.push("@ManyToOne".into());
-            } else {
-                imports.insert(format!("{ns}.FetchType"));
-                lines.push("@ManyToOne(fetch = FetchType.LAZY)".into());
-            }
+            lines.push(fetch_line(&mut imports, kind));
             args.push(format!("name = \"{column}\""));
             if attr.not_null && !plan.never_required {
                 args.push("nullable = false".into());
             }
-            if attr.unique {
-                args.push("unique = true".into());
-            }
             lines.push(format!("@JoinColumn({})", args.join(", ")));
             let (field, ty) = (&attr.name, target);
-            lines.push(if kotlin { format!("var {field}: {ty}? = null") } else { format!("private {ty} {field};") });
+            lines.push(if kotlin { property(field, ty) } else { format!("private {ty} {field};") });
             accessors.push((field.clone(), ty.clone(), ty.clone()));
         } else {
             if attr.enum_type.is_some() {
                 imports.insert(format!("{ns}.Enumerated"));
                 imports.insert(format!("{ns}.EnumType"));
                 lines.push("@Enumerated(EnumType.STRING)".into());
+            }
+            if let Some(package) = plan.validation {
+                if attr.not_null {
+                    imports.insert(format!("{package}.NotNull"));
+                    lines.push("@NotNull".into());
+                }
+                if let Some(size) = attr.size {
+                    imports.insert(format!("{package}.Size"));
+                    lines.push(format!("@Size(max = {size})"));
+                }
             }
             if attr.quoted || attr.column != crate::file_actions::naming_column_name(&attr.name) {
                 args.push(format!("name = \"{column}\""));
@@ -675,11 +843,81 @@ fn render(plan: &Plan, package: &str, ns: &str, kotlin: bool) -> String {
                 imports.insert(import.to_owned());
             }
             let (field, java, kt) = (&attr.name, &attr.java, &attr.kotlin);
-            lines.push(if kotlin { format!("var {field}: {kt}? = null") } else { format!("private {java} {field};") });
+            lines.push(if kotlin { property(field, kt) } else { format!("private {java} {field};") });
             accessors.push((field.clone(), java.clone(), kt.clone()));
         }
         body.push_str(&lines.iter().map(|l| format!("    {l}\n")).collect::<String>());
         body.push('\n');
+    }
+    if let Some(maps_id) = &plan.maps_id {
+        for name in ["OneToOne", "MapsId", "JoinColumn"] {
+            imports.insert(format!("{ns}.{name}"));
+        }
+        let optional = if plan.default_fetch { "@OneToOne(optional = false)".to_owned() } else {
+            imports.insert(format!("{ns}.FetchType"));
+            "@OneToOne(fetch = FetchType.LAZY, optional = false)".to_owned()
+        };
+        let (field, ty) = (&maps_id.name, &maps_id.target);
+        let declaration = if kotlin { property(field, ty) } else { format!("private {ty} {field};") };
+        body.push_str(&format!("    {optional}\n    @MapsId\n    @JoinColumn(name = \"{}\", nullable = false)\n    {declaration}\n\n", maps_id.column));
+        accessors.push((field.clone(), ty.clone(), ty.clone()));
+    }
+    for member in &plan.members {
+        let mut lines = Vec::new();
+        let (name, target, collection) = match member {
+            Member::OneToMany { name, target, mapped_by } => {
+                imports.insert(format!("{ns}.OneToMany"));
+                lines.push(format!("@OneToMany(mappedBy = \"{mapped_by}\")"));
+                (name, target, true)
+            }
+            Member::ManyToManyMapped { name, target, mapped_by } => {
+                imports.insert(format!("{ns}.ManyToMany"));
+                lines.push(format!("@ManyToMany(mappedBy = \"{mapped_by}\")"));
+                (name, target, true)
+            }
+            Member::ManyToManyOwner { name, target, table, schema, join, inverse } => {
+                for kind in ["ManyToMany", "JoinTable", "JoinColumn"] {
+                    imports.insert(format!("{ns}.{kind}"));
+                }
+                let at = if kotlin { "" } else { "@" };
+                let list = |item: String| if kotlin { format!("[{item}]") } else { format!("{{{item}}}") };
+                let schema = schema.as_ref().map_or(String::new(), |schema| format!(", schema = \"{schema}\""));
+                lines.push("@ManyToMany".to_owned());
+                lines.push(format!(
+                    "@JoinTable(name = \"{table}\"{schema}, joinColumns = {}, inverseJoinColumns = {})",
+                    list(format!("{at}JoinColumn(name = \"{join}\")")),
+                    list(format!("{at}JoinColumn(name = \"{inverse}\")"))
+                ));
+                (name, target, true)
+            }
+            Member::OneToOne { name, target, mapped_by } => {
+                imports.insert(format!("{ns}.OneToOne"));
+                lines.push(format!("@OneToOne(mappedBy = \"{mapped_by}\")"));
+                (name, target, false)
+            }
+        };
+        if collection {
+            if kotlin {
+                lines.push(format!("var {name}: MutableSet<{target}> = mutableSetOf()"));
+            } else {
+                imports.insert("java.util.LinkedHashSet".to_owned());
+                imports.insert("java.util.Set".to_owned());
+                lines.push(format!("private Set<{target}> {name} = new LinkedHashSet<>();"));
+            }
+            accessors.push((name.clone(), format!("Set<{target}>"), format!("MutableSet<{target}>")));
+        } else {
+            lines.push(if kotlin { property(name, target) } else { format!("private {target} {name};") });
+            accessors.push((name.clone(), target.clone(), target.clone()));
+        }
+        body.push_str(&lines.iter().map(|l| format!("    {l}\n")).collect::<String>());
+        body.push('\n');
+    }
+    for todo in &plan.todo_fields {
+        let declaration = if kotlin { format!("var {}: Any? = null", todo.name) } else { format!("private Object {};", todo.name) };
+        body.push_str(&format!(
+            "    // TODO: column {} has {}; choose a Java type and uncomment\n    // @Column(name = \"{}\")\n    // {declaration}\n\n",
+            todo.name, todo.sql_type, todo.column
+        ));
     }
     let mut table_args = vec![format!("name = \"{}\"", literal(&plan.table, plan.table_quoted))];
     if let Some(schema) = &plan.schema {
@@ -734,6 +972,9 @@ fn render(plan: &Plan, package: &str, ns: &str, kotlin: bool) -> String {
     if let Some(comment) = &plan.comment {
         out.push_str(&format!("/** {comment} */\n"));
     }
+    if let Some(text) = &plan.comment_annotation {
+        out.push_str(&format!("@org.hibernate.annotations.Comment(\"{text}\")\n"));
+    }
     out.push_str("@Entity\n");
     if plan.view {
         out.push_str("@Immutable\n");
@@ -748,20 +989,26 @@ fn render(plan: &Plan, package: &str, ns: &str, kotlin: bool) -> String {
     if kotlin {
         let open = if plan.open { "open " } else { "" };
         let parent = plan.parent.as_ref().map_or(String::new(), |p| format!(" : {p}()"));
-        out.push_str(&format!("{open}class {}{parent} {{\n", plan.class));
+        let constructor = if plan.view { " protected constructor()" } else { "" };
+        out.push_str(&format!("{open}class {}{constructor}{parent} {{\n", plan.class));
         out.push_str(body.trim_end());
         out.push_str("\n}\n");
     } else {
         let parent = plan.parent.as_ref().map_or(String::new(), |p| format!(" extends {p}"));
         out.push_str(&format!("public class {}{parent} {{\n", plan.class));
         out.push_str(&body);
+        if plan.view {
+            out.push_str(&format!("    protected {}() {{\n    }}\n\n", plan.class));
+        }
         let methods: Vec<String> = accessors
             .iter()
             .map(|(field, ty, _)| {
                 let cap = capitalize(field);
-                format!(
-                    "    public {ty} get{cap}() {{\n        return {field};\n    }}\n\n    public void set{cap}({ty} {field}) {{\n        this.{field} = {field};\n    }}\n"
-                )
+                let getter = format!("    public {ty} get{cap}() {{\n        return {field};\n    }}\n");
+                if plan.view {
+                    return getter;
+                }
+                format!("{getter}\n    public void set{cap}({ty} {field}) {{\n        this.{field} = {field};\n    }}\n")
             })
             .collect();
         out.push_str(&methods.join("\n"));
@@ -785,6 +1032,100 @@ struct Built3 {
     enums: Vec<EnumPlan>,
 }
 
+struct Junction {
+    table: usize,
+    ends: [(String, usize); 2],
+}
+
+/// A table of exactly two columns that together are its primary key, each a single-column foreign key to the
+/// single-column primary key of another table. Both columns are returned with the table they reference.
+fn junction_shape(parsed: &ParsedDdl, ti: usize, dialect: SqlDialect, options: &Options) -> Option<Junction> {
+    let table = &parsed.snapshot.tables[ti];
+    let case_sensitive = dialect == SqlDialect::PostgreSql;
+    let (schema, name) = table.name.split_once('.').map_or((None, table.name.as_str()), |(schema, name)| (Some(schema), name));
+    if options.views.contains(&ti) || !simple(name, case_sensitive) || schema.is_some_and(|s| !simple(s, case_sensitive)) {
+        return None;
+    }
+    let columns = table.columns.known()?;
+    let key = table.primary_key.known()?;
+    let foreign_keys = table.foreign_keys.known()?;
+    let [first, second] = columns.as_slice() else { return None };
+    let is_key = |column: &Column| key.iter().any(|k| k.eq_ignore_ascii_case(&column.name));
+    if key.len() != 2 || !is_key(first) || !is_key(second) || foreign_keys.len() != 2 {
+        return None;
+    }
+    let end = |column: &Column| -> Option<(String, usize)> {
+        if !simple(&column.name, case_sensitive) {
+            return None;
+        }
+        let fk = foreign_keys.iter().find(|fk| fk.columns.len() == 1 && fk.columns[0].eq_ignore_ascii_case(&column.name))?;
+        let target = ddl_parse::find_table(&parsed.snapshot, &fk.ref_table)?;
+        let target_key = parsed.snapshot.tables[target].primary_key.known()?;
+        let matches = match &fk.ref_columns {
+            Fact::Known(refs) => refs.len() == 1 && target_key.len() == 1 && refs[0].eq_ignore_ascii_case(&target_key[0]),
+            Fact::Unknown(_) => false,
+        };
+        (matches && target != ti).then(|| (column.name.clone(), target))
+    };
+    let ends = [end(first)?, end(second)?];
+    (ends[0].1 != ends[1].1).then_some(Junction { table: ti, ends })
+}
+
+/// Free attribute name for a new member: `base`, else `baseByOwner`; `None` when both are taken or not identifiers.
+fn free_name(taken: &BTreeSet<String>, base: &str, owner: &str) -> Option<String> {
+    [base.to_owned(), format!("{base}By{}", capitalize(owner))].into_iter().find(|name| identifier(name) && !taken.contains(name))
+}
+
+fn names_of(plan: &Plan) -> BTreeSet<String> {
+    plan.attrs.iter().map(|a| a.name.clone()).chain(plan.members.iter().map(|m| m.name().to_owned())).chain(plan.maps_id.iter().map(|m| m.name.clone())).collect()
+}
+
+/// Inverse sides of the generated foreign keys (`@OneToMany(mappedBy)` or `@OneToOne(mappedBy)`) on the referenced
+/// entity, and `@ManyToMany` for junction tables between two generated entities. Only tables that are both generated.
+fn add_members(parsed: &ParsedDdl, dialect: SqlDialect, planned: &mut [(usize, Plan)], junctions: &[Junction], options: &Options) {
+    let links: Vec<(usize, String, String, Link, usize)> = planned
+        .iter()
+        .flat_map(|(ti, plan)| plan.attrs.iter().filter_map(move |a| Some((a.target_table?, plan.class.clone(), a.name.clone(), a.link, *ti))))
+        .collect();
+    for (target, child_class, owner_attr, link, _) in links {
+        let Some((_, plan)) = planned.iter_mut().find(|(ti, _)| *ti == target) else { continue };
+        let taken = names_of(plan);
+        let (base, make): (String, fn(String, String, String) -> Member) = match link {
+            Link::ManyToOne => (pluralize(&decapitalize(&child_class)), |name, target, mapped_by| Member::OneToMany { name, target, mapped_by }),
+            Link::OneToOne => (decapitalize(&child_class), |name, target, mapped_by| Member::OneToOne { name, target, mapped_by }),
+        };
+        match free_name(&taken, &base, &owner_attr) {
+            Some(name) => plan.members.push(make(name, child_class, owner_attr)),
+            None => plan.notes.push(format!("no inverse side for {child_class}.{owner_attr}: the attribute name `{base}` is taken")),
+        }
+    }
+    for junction in junctions {
+        let name = &parsed.snapshot.tables[junction.table].name;
+        let class_of = |ti: usize| planned.iter().find(|(t, _)| *t == ti).map(|(_, p)| p.class.clone());
+        let ([(join, owner), (inverse, other)], Some(owner_class), Some(other_class)) = (&junction.ends, class_of(junction.ends[0].1), class_of(junction.ends[1].1)) else { continue };
+        let quoted = |part: &str| literal(part, ddl_parse::is_reserved(dialect, part));
+        let (schema, table) = name.split_once('.').map_or((None, name.as_str()), |(schema, table)| (Some(schema), table));
+        let schema = schema.filter(|_| options.schema && dialect == SqlDialect::PostgreSql).map(str::to_owned);
+        let owner_name = pluralize(&decapitalize(&other_class));
+        let mapped_name = pluralize(&decapitalize(&owner_class));
+        let free = |ti: usize, base: &str, planned: &[(usize, Plan)]| planned.iter().find(|(t, _)| *t == ti).and_then(|(_, p)| free_name(&names_of(p), base, ""));
+        let (Some(owner_member), Some(mapped_member)) = (free(*owner, &owner_name, planned), free(*other, &mapped_name, planned)) else {
+            for (ti, plan) in planned.iter_mut().filter(|(ti, _)| ti == owner || ti == other) {
+                let _ = ti;
+                plan.notes.push(format!("junction table {name} is not mapped: the attribute names `{owner_name}` and `{mapped_name}` are not both free"));
+            }
+            continue;
+        };
+        if let Some((_, plan)) = planned.iter_mut().find(|(ti, _)| ti == owner) {
+            plan.notes.push(format!("junction table {name} is mapped as @ManyToMany with {other_class}; no entity is generated for it"));
+            plan.members.push(Member::ManyToManyOwner { name: owner_member.clone(), target: other_class.clone(), table: quoted(table), schema, join: quoted(join), inverse: quoted(inverse) });
+        }
+        if let Some((_, plan)) = planned.iter_mut().find(|(ti, _)| ti == other) {
+            plan.members.push(Member::ManyToManyMapped { name: mapped_member, target: owner_class, mapped_by: owner_member });
+        }
+    }
+}
+
 /// Plans every selected table once alone (refusals, class and enum names), then again with
 /// relations to the tables that were planned successfully.
 fn build_with(parsed: &ParsedDdl, dialect: SqlDialect, selected: &[usize], options: &Options) -> Result<Built3, Error> {
@@ -792,8 +1133,13 @@ fn build_with(parsed: &ParsedDdl, dialect: SqlDialect, selected: &[usize], optio
     let mut linked: HashMap<usize, String> = HashMap::new();
     let mut enums: Vec<EnumPlan> = Vec::new();
     let mut refused: Vec<String> = Vec::new();
+    let mut junction_candidates = Vec::new();
     for &ti in selected {
         let name = &parsed.snapshot.tables[ti].name;
+        if let Some(junction) = junction_shape(parsed, ti, dialect, options) {
+            junction_candidates.push(junction);
+            continue;
+        }
         let first = match plan(parsed, ti, dialect, &alone, options) {
             Ok(first) => first,
             Err(reason) => {
@@ -823,6 +1169,14 @@ fn build_with(parsed: &ParsedDdl, dialect: SqlDialect, selected: &[usize], optio
         }
         linked.insert(ti, first.class);
     }
+    let mut junctions = Vec::new();
+    for junction in junction_candidates {
+        if junction.ends.iter().all(|(_, target)| linked.contains_key(target)) {
+            junctions.push(junction);
+        } else if let Err(reason) = plan(parsed, junction.table, dialect, &alone, options) {
+            refused.push(reason);
+        }
+    }
     let mut local = options.clone();
     let mut downgraded: BTreeMap<usize, String> = BTreeMap::new();
     let mut planned: Vec<(usize, Plan)>;
@@ -845,6 +1199,7 @@ fn build_with(parsed: &ParsedDdl, dialect: SqlDialect, selected: &[usize], optio
         local.parents.remove(&ti);
         downgraded.insert(ti, why);
     }
+    add_members(parsed, dialect, &mut planned, &junctions, &local);
     let parent_classes: BTreeSet<String> = planned.iter().filter_map(|(_, p)| p.parent.clone()).collect();
     let mut plans = Vec::new();
     for (ti, mut p) in planned {
@@ -946,15 +1301,19 @@ fn describe(error: &DdlError) -> String {
     }
 }
 
-fn prompt_prefix(title: &str) -> Result<String, Error> {
-    let value = host::input(title, None)?.ok_or(Error::Cancelled)?.trim().to_owned();
-    if value.is_empty() || value.len() > MAX_PREFIX || !value.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-        return Err("Choose a prefix of letters, digits and underscores (at most 32 characters).".into());
+/// A comma-separated list of prefixes or suffixes; each of letters, digits and underscores.
+fn prompt_affixes(title: &str) -> Result<Vec<String>, Error> {
+    let value = host::input(title, None)?.ok_or(Error::Cancelled)?;
+    let affixes: Vec<String> = value.split(',').map(|part| part.trim().to_owned()).collect();
+    let valid = affixes.len() <= MAX_AFFIXES
+        && affixes.iter().all(|a| !a.is_empty() && a.len() <= MAX_PREFIX && a.chars().all(|c| c.is_ascii_alphanumeric() || c == '_'));
+    if !valid {
+        return Err(format!("Choose a comma-separated list of at most {MAX_AFFIXES} entries, each of letters, digits and underscores (at most {MAX_PREFIX} characters).").into());
     }
-    Ok(value)
+    Ok(affixes)
 }
 
-fn prompt_options(parsed: &ParsedDdl, dialect: SqlDialect, selected: &[usize]) -> Result<Options, Error> {
+fn prompt_options(parsed: &ParsedDdl, dialect: SqlDialect, selected: &[usize], comment_annotation_ok: bool) -> Result<Options, Error> {
     let tables = &parsed.snapshot.tables;
     let chosen_tables: Vec<&Table> = selected.iter().map(|&ti| &tables[ti]).collect();
     let names: BTreeSet<&str> = chosen_tables.iter().map(|t| t.name.as_str()).collect();
@@ -970,6 +1329,9 @@ fn prompt_options(parsed: &ParsedDdl, dialect: SqlDialect, selected: &[usize]) -
     }
     if parsed.comments.iter().any(|c| names.contains(c.table.as_str())) {
         items.push(PickItem::new("comments", "Copy database comments as Javadoc").description("Up to 240 characters each"));
+        if comment_annotation_ok {
+            items.push(PickItem::new("commentAnnotation", "Copy database comments as @Comment (Hibernate)").description("org.hibernate.annotations.Comment reaches generated DDL; up to 240 characters each"));
+        }
     }
     if parsed.column_enums.iter().any(|e| names.contains(e.table.as_str())) {
         items.push(PickItem::new("enums", "Generate enums for enumerated columns").description("New enum files; @Enumerated(EnumType.STRING)"));
@@ -981,29 +1343,38 @@ fn prompt_options(parsed: &ParsedDdl, dialect: SqlDialect, selected: &[usize]) -
         items.push(PickItem::new("deferred", "Decide per column for unmapped SQL types").description("Skip it (listed as deferred) or String with @Column(columnDefinition); never a guessed Java type"));
     }
     items.push(PickItem::new("singular", "Singularize class names").description("ies->y, ses->s, xes->x, ches->ch, shes->sh, sses->ss, trailing s; editable next"));
-    items.push(PickItem::new("tablePrefix", "Strip a table-name prefix").description("For example tbl_"));
-    items.push(PickItem::new("columnPrefix", "Strip a column-name prefix").description("For example col_"));
+    items.push(PickItem::new("tablePrefix", "Strip table-name prefixes").description("Comma-separated, for example tbl_,old_"));
+    items.push(PickItem::new("columnPrefix", "Strip column-name prefixes").description("Comma-separated, for example col_"));
+    items.push(PickItem::new("tableSuffix", "Strip table-name suffixes").description("Comma-separated, for example _tbl,_old"));
+    items.push(PickItem::new("columnSuffix", "Strip column-name suffixes").description("Comma-separated, for example _col"));
     let picked: BTreeSet<String> = host::pick_many("Generation options (none chosen: defaults)", &items)?.ok_or(Error::Cancelled)?.into_iter().collect();
     let mut options = Options {
         schema: picked.contains("schema"),
         indexes: picked.contains("indexes"),
         comments: picked.contains("comments"),
+        comment_annotation: picked.contains("commentAnnotation") && comment_annotation_ok,
         enums: picked.contains("enums"),
         singular: picked.contains("singular"),
         offer_deferred: picked.contains("deferred"),
         ..Options::default()
     };
     if picked.contains("tablePrefix") {
-        options.table_prefix = prompt_prefix("Table prefix to strip (case-insensitive)")?;
+        options.table_prefixes = prompt_affixes("Table prefixes to strip (comma-separated, case-insensitive)")?;
     }
     if picked.contains("columnPrefix") {
-        options.column_prefix = prompt_prefix("Column prefix to strip (case-insensitive)")?;
+        options.column_prefixes = prompt_affixes("Column prefixes to strip (comma-separated, case-insensitive)")?;
+    }
+    if picked.contains("tableSuffix") {
+        options.table_suffixes = prompt_affixes("Table suffixes to strip (comma-separated, case-insensitive)")?;
+    }
+    if picked.contains("columnSuffix") {
+        options.column_suffixes = prompt_affixes("Column suffixes to strip (comma-separated, case-insensitive)")?;
     }
     Ok(options)
 }
 
 fn prompt_classes(parsed: &ParsedDdl, dialect: SqlDialect, selected: &[usize], options: &mut Options) -> Result<(), Error> {
-    if !options.singular && options.table_prefix.is_empty() {
+    if !options.singular && options.table_prefixes.is_empty() && options.table_suffixes.is_empty() {
         return Ok(());
     }
     for &ti in selected {
@@ -1126,7 +1497,7 @@ fn prompt_parents(parsed: &ParsedDdl, dialect: SqlDialect, selected: &[usize], o
         if candidates.is_empty() {
             continue;
         }
-        let mut items = vec![PickItem::new("\u{0}none", "Normal entity").description("The key column stays this entity's own @Id")];
+        let mut items = vec![PickItem::new("\u{0}none", "Normal entity").description("The key stays this entity's own @Id; with one candidate parent it also gets @OneToOne @MapsId @JoinColumn(nullable = false), optional = false")];
         for &parent in &candidates {
             items.push(
                 PickItem::new(&tables[parent].name, &format!("Extends {} (JOINED inheritance)", tables[parent].name))
@@ -1136,6 +1507,9 @@ fn prompt_parents(parsed: &ParsedDdl, dialect: SqlDialect, selected: &[usize], o
         let title = format!("Table {}: its primary key is also a foreign key to another selected table", tables[ti].name);
         let chosen = host::pick(&title, &items)?.ok_or(Error::Cancelled)?;
         if chosen == "\u{0}none" {
+            if let [only] = candidates.as_slice() {
+                options.maps_id.insert(ti, *only);
+            }
             continue;
         }
         let parent = candidates.iter().find(|&&p| tables[p].name == chosen).ok_or(Error::Stale)?;
@@ -1198,8 +1572,9 @@ fn import_defaults(options: &mut Options) -> Result<(), Error> {
         None | Some("identity") => IdGeneration::Identity,
         Some("sequence") => IdGeneration::Sequence,
         Some("auto") => IdGeneration::Auto,
+        Some("uuid") => IdGeneration::Uuid,
         Some("none") => IdGeneration::Unassigned,
-        Some(other) => return Err(format!("Unknown sqlImportIdGeneration `{other}`; use identity, sequence, auto or none.").into()),
+        Some(other) => return Err(format!("Unknown sqlImportIdGeneration `{other}`; use identity, sequence, auto, uuid or none.").into()),
     };
     options.default_fetch = match host::setting_string("sqlImportFetch").as_deref() {
         None | Some("lazy") => false,
@@ -1211,6 +1586,83 @@ fn import_defaults(options: &mut Options) -> Result<(), Error> {
         Some("never") => true,
         Some(other) => return Err(format!("Unknown sqlImportOptional `{other}`; use nullability or never.").into()),
     };
+    Ok(())
+}
+
+/// Build text that could hide a Kotlin plugin or dependency from a literal scan.
+const HIDING_BUILD_TEXT: [&str; 14] = [
+    "alias(", "buildSrc", "includeBuild", "apply(from", "apply from", "noArg", "no-arg", "plugin.noarg", "libs.", "versionCatalogs", "platform(",
+    "<scope>import</scope>", "pluginManagement", "gradle.properties",
+];
+
+/// Kotlin is absent from the module when `project_facts` could not tell (Unknown, usually because of a Maven
+/// `<parent>` or Gradle `allprojects`), no build file of the module or an ancestor mentions Kotlin (a plugin
+/// declaration written `apply false` does not apply it), nothing in them hides one, and no `.kt` source exists
+/// under the module. A parent POM outside the project is not read.
+fn kotlin_proven_absent(project: &Project, root: &str, facts: &crate::project_facts::ProjectFacts) -> bool {
+    if facts.kotlin != crate::project_facts::Fact::Unknown {
+        return false;
+    }
+    let Ok(build) = super::mapper_action::build_text(project, root, &facts.module) else { return false };
+    let applied: String = build.lines().filter(|line| !line.contains("apply false")).collect::<Vec<_>>().join("\n");
+    let lower = applied.to_ascii_lowercase();
+    if applied.trim().is_empty() || lower.contains("kotlin") || HIDING_BUILD_TEXT.iter().any(|needle| applied.contains(needle)) {
+        return false;
+    }
+    let Ok(found) = project.find_files("**/*.kt", MAX_SOURCES) else { return false };
+    let module = facts.module.trim_end_matches('/');
+    found.len() < MAX_SOURCES as usize && !found.iter().any(|file| inside(module, &absolute(root, file)))
+}
+
+fn version_pair(text: &str) -> Option<(u32, u32)> {
+    let text = text.trim_start_matches(|c: char| c.is_whitespace() || matches!(c, '\'' | '"' | '(' | '=' | ':'));
+    let digits = |value: &str| -> Option<(u32, usize)> {
+        let end = value.find(|c: char| !c.is_ascii_digit()).unwrap_or(value.len());
+        value[..end].parse().ok().map(|number| (number, end))
+    };
+    let (major, end) = digits(text)?;
+    let (minor, _) = digits(text[end..].strip_prefix('.')?)?;
+    Some((major, minor))
+}
+
+/// `GenerationType.UUID` exists from Jakarta Persistence 3.1 (Hibernate 6.2, Spring Boot 3.1). It is written only
+/// for the `jakarta.persistence` namespace and a literal Spring Boot 3.1+ or hibernate-core 6.2+ version.
+fn uuid_generation_proof(ns: &str, build: &str) -> Result<(), Error> {
+    let refuse = |reason: &str| Err(Error::from(format!("sqlImportIdGeneration = uuid writes GenerationType.UUID, which needs Jakarta Persistence 3.1 (Hibernate 6.2, Spring Boot 3.1): {reason} Choose another id generation or define the key yourself; nothing was generated.")));
+    if ns != "jakarta.persistence" {
+        return refuse("javax.persistence has no GenerationType.UUID.");
+    }
+    if super::hibernate_action::hibernate6(build).is_err() {
+        return refuse("Hibernate 6 is not provable from the build files.");
+    }
+    let mut hibernate = Vec::new();
+    for needle in ["org.hibernate.orm:hibernate-core:", "org.hibernate:hibernate-core:"] {
+        hibernate.extend(build.match_indices(needle).filter_map(|(at, _)| version_pair(&build[at + needle.len()..])));
+    }
+    for (at, tag) in build.match_indices("<artifactId>hibernate-core</artifactId>") {
+        let window = &build[at + tag.len()..(at + tag.len() + 200).min(build.len())];
+        hibernate.extend(window.split_once("<version>").and_then(|(_, rest)| version_pair(rest)));
+    }
+    let mut boot = Vec::new();
+    for artifact in ["spring-boot-starter-parent", "spring-boot-dependencies"] {
+        let tag = format!("<artifactId>{artifact}</artifactId>");
+        for (at, _) in build.match_indices(&tag) {
+            let window = &build[at..(at + 300).min(build.len())];
+            boot.extend(window.split_once("<version>").and_then(|(_, rest)| version_pair(rest)));
+        }
+    }
+    for (at, needle) in build.match_indices("org.springframework.boot") {
+        let line = build[at + needle.len()..].lines().next().unwrap_or("");
+        boot.extend(line.split_once("version").or_else(|| line.split_once("spring-boot-gradle-plugin:")).and_then(|(_, after)| version_pair(after)));
+    }
+    let proven = match (hibernate.is_empty(), boot.is_empty()) {
+        (false, _) => hibernate.iter().all(|pair| *pair >= (6, 2)),
+        (true, false) => boot.iter().all(|pair| *pair >= (3, 1)),
+        (true, true) => false,
+    };
+    if !proven {
+        return refuse("a literal Spring Boot 3.1+ or hibernate-core 6.2+ version is not written in the build files.");
+    }
     Ok(())
 }
 
@@ -1258,7 +1710,11 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> R
 
     let setting = host::setting_string("entityLanguage");
     let module_dir = doc.path.rsplit_once('/').map_or(pending.root.as_str(), |(dir, _)| dir);
-    let kotlin = match crate::project_facts::decided_language(setting.as_deref(), &crate::project_facts::detect_cached(project, module_dir)) {
+    let mut facts = crate::project_facts::detect_cached(project, module_dir);
+    if kotlin_proven_absent(project, &pending.root, &facts) {
+        facts.kotlin = crate::project_facts::Fact::No;
+    }
+    let kotlin = match crate::project_facts::decided_language(setting.as_deref(), &facts) {
         Some(kotlin) => kotlin,
         None => crate::choose_entity_language()?.ok_or(Error::Cancelled)?,
     };
@@ -1284,7 +1740,17 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> R
             Err(reason) => view_options.view_block = Some(format!("a view is mapped with the Hibernate @Immutable annotation, and {reason}")),
         }
     }
-    let mut options = prompt_options(&parsed, dialect, &selected)?;
+    let comment_annotation_ok = facts.hibernate6 == crate::project_facts::Fact::Yes;
+    let mut options = prompt_options(&parsed, dialect, &selected, comment_annotation_ok)?;
+    options.kotlin = kotlin;
+    let validation_note = match (host::setting_bool("sqlImportValidation").unwrap_or(false), facts.bean_validation) {
+        (false, _) => None,
+        (true, crate::project_facts::Fact::Yes) => {
+            options.validation = Some(if ns == "jakarta.persistence" { "jakarta.validation.constraints" } else { "javax.validation.constraints" });
+            None
+        }
+        (true, _) => Some("sqlImportValidation is on, but Bean Validation (jakarta.validation, javax.validation, hibernate-validator or spring-boot-starter-validation) is not literally declared in the build files above this module: no @NotNull/@Size written."),
+    };
     options.views = view_options.views;
     options.view_block = view_options.view_block;
     options.id_generation = defaults.id_generation;
@@ -1297,6 +1763,10 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> R
     let Built3 { plans, refused, enums } = build_with(&parsed, dialect, &selected, &options)?;
     if plans.is_empty() {
         return Err(format!("Every selected table was refused: {}", refused.join("; ")).into());
+    }
+    if options.id_generation == IdGeneration::Uuid && plans.iter().any(|p| p.attrs.iter().any(|a| a.key && a.java == "UUID")) {
+        let build = super::mapper_action::build_text(project, &pending.root, &found.root_dir)?;
+        uuid_generation_proof(ns, &build)?;
     }
     if plans.len() + enums.len() > MAX_FILES {
         return Err(format!("{} files (entities and enums) exceed the limit of {MAX_FILES}; pick fewer tables or columns.", plans.len() + enums.len()).into());
@@ -1337,15 +1807,17 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> R
         let inherited = plan.parent.as_ref().map(|p| format!("inherited from {p}"));
         let key = plan.attrs.iter().find(|a| a.key).map(|a| a.name.clone()).or(inherited).unwrap_or_else(|| "-".into());
         let relations = plan.attrs.iter().filter(|a| a.target.is_some()).count();
+        let uuid_key = plan.id_generation == IdGeneration::Uuid && plan.attrs.iter().any(|a| a.key && !a.identity && a.java == "UUID");
         let generation = match plan.id_generation {
+            _ if uuid_key => " (UUID)",
             _ if !plan.attrs.iter().any(|a| a.identity) => "",
-            IdGeneration::Identity => " (IDENTITY)",
             IdGeneration::Sequence => " (SEQUENCE)",
             IdGeneration::Auto => " (AUTO)",
             IdGeneration::Unassigned => " (no @GeneratedValue)",
+            IdGeneration::Identity | IdGeneration::Uuid => " (IDENTITY)",
         };
         let kind = if plan.view { "view (@Immutable)" } else { "table" };
-        preview.push_str(&format!("- {target}: {kind} {}, {} attributes, @Id {key}{generation}, {relations} @ManyToOne\n", plan.table, plan.attrs.len()));
+        preview.push_str(&format!("- {target}: {kind} {}, {} attributes, @Id {key}{generation}, {relations} to-one, {} collection/inverse\n", plan.table, plan.attrs.len(), plan.members.len()));
         if let Some(parent) = &plan.parent {
             preview.push_str(&format!("    JOINED: extends {parent}, @PrimaryKeyJoinColumn\n"));
         }
@@ -1366,6 +1838,9 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> R
     }
     if !enums.is_empty() && parsed.enum_types.iter().any(|t| enums.iter().any(|e| camel_case(&t.name, true) == e.name)) {
         preview.push_str("    note: PostgreSQL named enum types may need a provider-specific JDBC type mapping on the field; that is not verified or generated here.\n");
+    }
+    if let Some(note) = validation_note {
+        preview.push_str(&format!("\nNote: {note}\n"));
     }
     if !refused.is_empty() {
         preview.push_str("\nRefused tables:\n");
@@ -1435,7 +1910,9 @@ mod tests {
         let customers = source(&plans, "Customers", false, "jakarta.persistence");
         for expected in [
             "package shop.db;\n",
-            "import jakarta.persistence.Column;\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.GeneratedValue;\nimport jakarta.persistence.GenerationType;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.Table;\nimport java.math.BigDecimal;\nimport java.time.OffsetDateTime;\nimport java.util.UUID;\n",
+            "import jakarta.persistence.Column;\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.GeneratedValue;\nimport jakarta.persistence.GenerationType;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.OneToMany;\nimport jakarta.persistence.Table;\nimport java.math.BigDecimal;\nimport java.time.OffsetDateTime;\nimport java.util.LinkedHashSet;\nimport java.util.Set;\nimport java.util.UUID;\n",
+            "    @OneToMany(mappedBy = \"customer\")\n    private Set<OrderLines> orderLines = new LinkedHashSet<>();\n",
+            "    public Set<OrderLines> getOrderLines() {\n        return orderLines;\n    }\n\n    public void setOrderLines(Set<OrderLines> orderLines) {\n        this.orderLines = orderLines;\n    }\n",
             "@Entity\n@Table(name = \"customers\")\npublic class Customers {\n",
             "    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n",
             "    @Column(nullable = false, unique = true, length = 120)\n    private String email;\n",
@@ -1495,7 +1972,7 @@ mod tests {
         ] {
             assert!(customers.contains(expected), "{expected}\n{customers}");
         }
-        assert!(customers.ends_with("    var token: UUID? = null\n}\n"), "{customers}");
+        assert!(customers.ends_with("    var token: UUID? = null\n\n    @OneToMany(mappedBy = \"customer\")\n    var orderLines: MutableSet<OrderLines> = mutableSetOf()\n}\n"), "{customers}");
         let lines = source(&plans, "OrderLines", true, "jakarta.persistence");
         assert!(lines.contains("    @JoinColumn(name = \"customer_id\", nullable = false)\n    var customer: Customers? = null\n"), "{lines}");
     }
@@ -1550,17 +2027,252 @@ mod tests {
         let sql = "CREATE TABLE a (id int PRIMARY KEY);\nCREATE TABLE b (id int PRIMARY KEY, a_id int NOT NULL UNIQUE REFERENCES a (id));";
         let (_, plans, _) = build_for(sql, SqlDialect::PostgreSql, &["a", "b"]);
         let b = source(&plans, "B", false, "jakarta.persistence");
-        assert!(b.contains("@JoinColumn(name = \"a_id\", nullable = false, unique = true)\n    private A a;"), "{b}");
+        assert!(b.contains("@OneToOne(fetch = FetchType.LAZY)\n    @JoinColumn(name = \"a_id\", nullable = false)\n    private A a;"), "{b}");
+        let a = source(&plans, "A", false, "jakarta.persistence");
+        assert!(a.contains("    @OneToOne(mappedBy = \"a\")\n    private B b;\n"), "{a}");
     }
 
     #[test]
     fn duplicate_class_names_and_attribute_collisions_are_refused() {
         let _host = MockHost::install();
-        let sql = "CREATE TABLE foo_bar (id int PRIMARY KEY);\nCREATE TABLE foo__bar (id int PRIMARY KEY);\nCREATE TABLE t (id int PRIMARY KEY, a_b int, `aB` int, class int);";
+        let sql = "CREATE TABLE foo_bar (id int PRIMARY KEY);\nCREATE TABLE foo__bar (id int PRIMARY KEY);\nCREATE TABLE t (id int PRIMARY KEY, a_b int, a__b int, class int);";
         let (_, plans, refused) = build_for(sql, SqlDialect::MySql, &["foo_bar", "foo__bar", "t"]);
         assert_eq!(plans.len(), 1);
         assert!(refused.iter().any(|r| r.contains("produced by two tables")), "{refused:?}");
         assert!(refused.iter().any(|r| r.starts_with("t: column")), "{refused:?}");
+    }
+
+    const RELATIONS: &str = "CREATE TABLE authors (id bigserial PRIMARY KEY, name varchar(80) NOT NULL);\nCREATE TABLE books (id bigserial PRIMARY KEY, author_id bigint NOT NULL REFERENCES authors (id));\nCREATE TABLE tags (id bigserial PRIMARY KEY, label varchar(40));\nCREATE TABLE book_tags (book_id bigint NOT NULL REFERENCES books (id), tag_id bigint NOT NULL REFERENCES tags (id), PRIMARY KEY (book_id, tag_id));\nCREATE TABLE people (id bigserial PRIMARY KEY);\nCREATE TABLE passports (id bigserial PRIMARY KEY, person_id bigint NOT NULL UNIQUE REFERENCES people (id));\nCREATE TABLE users (id bigserial PRIMARY KEY, login varchar(40) NOT NULL);\nCREATE TABLE user_profiles (id bigint PRIMARY KEY REFERENCES users (id), bio text);\nCREATE TABLE lonely_links (a bigint NOT NULL REFERENCES authors (id), b bigint NOT NULL REFERENCES authors (id), PRIMARY KEY (a, b));\n";
+
+    #[test]
+    fn many_to_one_gets_an_initialised_inverse_collection_on_the_referenced_entity() {
+        let _host = MockHost::install();
+        let result = built(RELATIONS, SqlDialect::PostgreSql, &["authors", "books"], &Options::default());
+        assert!(result.refused.is_empty(), "{:?}", result.refused);
+        let authors = checked(&result.plans[0], false, "jakarta.persistence");
+        for expected in [
+            "import jakarta.persistence.OneToMany;\n",
+            "import java.util.LinkedHashSet;\nimport java.util.Set;\n",
+            "    @OneToMany(mappedBy = \"author\")\n    private Set<Books> books = new LinkedHashSet<>();\n",
+            "    public Set<Books> getBooks() {\n        return books;\n    }\n",
+        ] {
+            assert!(authors.contains(expected), "{expected}\n{authors}");
+        }
+        let kotlin = checked(&result.plans[0], true, "jakarta.persistence");
+        assert!(kotlin.contains("    @OneToMany(mappedBy = \"author\")\n    var books: MutableSet<Books> = mutableSetOf()\n"), "{kotlin}");
+        assert!(!kotlin.contains("java.util"), "{kotlin}");
+        let books = checked(&result.plans[1], false, "jakarta.persistence");
+        assert!(books.contains("@ManyToOne(fetch = FetchType.LAZY)\n    @JoinColumn(name = \"author_id\", nullable = false)\n    private Authors author;"), "{books}");
+        let alone = built(RELATIONS, SqlDialect::PostgreSql, &["books"], &Options::default());
+        assert!(!checked(&alone.plans[0], false, "jakarta.persistence").contains("OneToMany"), "no inverse without the referenced table");
+    }
+
+    #[test]
+    fn a_unique_foreign_key_is_a_one_to_one_with_the_inverse_on_the_other_entity() {
+        let _host = MockHost::install();
+        let result = built(RELATIONS, SqlDialect::PostgreSql, &["people", "passports"], &Options::default());
+        let passports = checked(&result.plans[1], false, "jakarta.persistence");
+        assert!(passports.contains("    @OneToOne(fetch = FetchType.LAZY)\n    @JoinColumn(name = \"person_id\", nullable = false)\n    private People person;\n"), "{passports}");
+        let people = checked(&result.plans[0], false, "jakarta.persistence");
+        assert!(people.contains("    @OneToOne(mappedBy = \"person\")\n    private Passports passports;\n"), "{people}");
+        let kotlin = checked(&result.plans[0], true, "jakarta.persistence");
+        assert!(kotlin.contains("@OneToOne(mappedBy = \"person\")\n    var passports: Passports? = null"), "{kotlin}");
+        let eager = built(RELATIONS, SqlDialect::PostgreSql, &["people", "passports"], &Options { default_fetch: true, ..Options::default() });
+        assert!(checked(&eager.plans[1], false, "jakarta.persistence").contains("    @OneToOne\n    @JoinColumn(name = \"person_id\", nullable = false)\n"));
+    }
+
+    #[test]
+    fn a_junction_table_between_two_selected_tables_is_a_many_to_many_and_not_an_entity() {
+        let _host = MockHost::install();
+        let result = built(RELATIONS, SqlDialect::PostgreSql, &["books", "tags", "book_tags"], &Options::default());
+        assert!(result.refused.is_empty(), "{:?}", result.refused);
+        assert_eq!(result.plans.iter().map(|p| p.class.as_str()).collect::<Vec<_>>(), ["Books", "Tags"]);
+        let books = checked(&result.plans[0], false, "jakarta.persistence");
+        assert!(
+            books.contains("    @ManyToMany\n    @JoinTable(name = \"book_tags\", joinColumns = {@JoinColumn(name = \"book_id\")}, inverseJoinColumns = {@JoinColumn(name = \"tag_id\")})\n    private Set<Tags> tags = new LinkedHashSet<>();\n"),
+            "{books}"
+        );
+        let tags = checked(&result.plans[1], false, "jakarta.persistence");
+        assert!(tags.contains("    @ManyToMany(mappedBy = \"tags\")\n    private Set<Books> books = new LinkedHashSet<>();\n"), "{tags}");
+        let kotlin = checked(&result.plans[0], true, "jakarta.persistence");
+        assert!(kotlin.contains("@JoinTable(name = \"book_tags\", joinColumns = [JoinColumn(name = \"book_id\")], inverseJoinColumns = [JoinColumn(name = \"tag_id\")])\n    var tags: MutableSet<Tags> = mutableSetOf()"), "{kotlin}");
+        assert!(books.contains("@ManyToOne") == false && result.plans[0].notes.iter().any(|n| n.contains("junction table book_tags is mapped as @ManyToMany")), "{:?}", result.plans[0].notes);
+        let missing = built(RELATIONS, SqlDialect::PostgreSql, &["books", "book_tags"], &Options::default());
+        assert!(missing.refused.iter().any(|r| r.contains("book_tags: composite primary key (book_id, tag_id)")), "{:?}", missing.refused);
+        let same_end = built(RELATIONS, SqlDialect::PostgreSql, &["authors", "lonely_links"], &Options::default());
+        assert!(same_end.refused.iter().any(|r| r.contains("lonely_links: composite primary key")), "both ends the same table stays refused: {:?}", same_end.refused);
+    }
+
+    #[test]
+    fn a_shared_key_chosen_as_a_normal_entity_maps_the_parent_with_maps_id() {
+        let _host = MockHost::install();
+        let parsed = ddl_parse::parse_ddl(RELATIONS, SqlDialect::PostgreSql).unwrap();
+        let position = |name: &str| parsed.snapshot.tables.iter().position(|t| t.name == name).unwrap();
+        let (users, profiles) = (position("users"), position("user_profiles"));
+        let options = Options { maps_id: HashMap::from([(profiles, users)]), ..Options::default() };
+        let result = build_with(&parsed, SqlDialect::PostgreSql, &[users, profiles], &options).unwrap();
+        let text = checked(&result.plans[1], false, "jakarta.persistence");
+        for expected in [
+            "    @Id\n    private Long id;\n",
+            "    @OneToOne(fetch = FetchType.LAZY, optional = false)\n    @MapsId\n    @JoinColumn(name = \"id\", nullable = false)\n    private Users users;\n",
+            "import jakarta.persistence.MapsId;\n",
+            "public Users getUsers()",
+        ] {
+            assert!(text.contains(expected), "{expected}\n{text}");
+        }
+        assert!(checked(&result.plans[1], true, "javax.persistence").contains("@MapsId\n    @JoinColumn(name = \"id\", nullable = false)\n    var users: Users? = null\n"));
+        let plain = build_with(&parsed, SqlDialect::PostgreSql, &[users, profiles], &Options::default()).unwrap();
+        assert!(!checked(&plain.plans[1], false, "jakarta.persistence").contains("MapsId"));
+        let alone = build_with(&parsed, SqlDialect::PostgreSql, &[profiles], &options).unwrap();
+        assert!(!checked(&alone.plans[0], false, "jakarta.persistence").contains("MapsId"), "the parent is not generated");
+    }
+
+    #[test]
+    fn a_column_named_like_a_keyword_gets_the_field_suffix_and_keeps_its_column_name() {
+        let _host = MockHost::install();
+        let result = built("CREATE TABLE t_words (id bigserial PRIMARY KEY, class varchar(20), object_id int, \"order\" int);", SqlDialect::PostgreSql, &["t_words"], &Options::default());
+        assert!(result.refused.is_empty(), "{:?}", result.refused);
+        let java = checked(&result.plans[0], false, "jakarta.persistence");
+        assert!(java.contains("    @Column(name = \"class\", length = 20)\n    private String classField;\n") || java.contains("    @Column(name = \"\\\"class\\\"\", length = 20)\n    private String classField;\n"), "{java}");
+        assert!(java.contains("private Integer objectId;") && java.contains("@Column(name = \"\\\"order\\\"\")\n    private Integer order;"), "{java}");
+        assert!(result.plans[0].notes.iter().any(|n| n.contains("`class` is a reserved word")), "{:?}", result.plans[0].notes);
+    }
+
+    #[test]
+    fn prefix_and_suffix_lists_strip_the_first_matching_entry() {
+        let list = |items: &[&str]| items.iter().map(|i| (*i).to_owned()).collect::<Vec<_>>();
+        let prefixes = list(&["tbl_", "old_"]);
+        assert_eq!(strip_affixes("tbl_alpha", &prefixes, &[]), "alpha");
+        assert_eq!(strip_affixes("OLD_beta", &prefixes, &[]), "beta");
+        assert_eq!(strip_affixes("gamma", &prefixes, &[]), "gamma");
+        assert_eq!(strip_affixes("tbl_old_x", &prefixes, &[]), "old_x");
+        assert_eq!(strip_affixes("users_tbl", &[], &list(&["_old", "_tbl"])), "users");
+        assert_eq!(strip_affixes("tbl_users_old", &prefixes, &list(&["_old"])), "users");
+        assert_eq!(strip_affixes("_tbl", &[], &list(&["_tbl"])), "_tbl");
+        let options = Options { table_prefixes: prefixes, table_suffixes: list(&["_tbl"]), singular: true, ..Options::default() };
+        let parsed = ddl_parse::parse_ddl("CREATE TABLE old_boxes_tbl (id int PRIMARY KEY);", SqlDialect::PostgreSql).unwrap();
+        assert_eq!(default_class(&parsed.snapshot.tables[0], &options), "Box");
+    }
+
+    #[test]
+    fn affix_list_prompt_rejects_empty_entries_and_bad_characters() {
+        let (host, _, _) = setup(PG);
+        for (answer, valid) in [("tbl_,old_", true), ("tbl_", true), ("tbl_,,old_", false), ("tbl_, ", false), ("tbl-", false), ("", false)] {
+            host.answer_next_prompt(Some(&[answer]));
+            assert_eq!(prompt_affixes("Prefixes").is_ok(), valid, "{answer:?}");
+        }
+    }
+
+    #[test]
+    fn comments_can_be_copied_as_the_hibernate_comment_annotation_as_well() {
+        let _host = MockHost::install();
+        let parsed = ddl_parse::parse_ddl(PG_OPTIONS, SqlDialect::PostgreSql).unwrap();
+        let ti = parsed.snapshot.tables.iter().position(|t| t.name == "tbl_orders").unwrap();
+        let keep = BTreeSet::from(["note".to_owned()]);
+        let only_annotation = Options { comment_annotation: true, columns: HashMap::from([(ti, keep.clone())]), ..Options::default() };
+        let planned = plan(&parsed, ti, SqlDialect::PostgreSql, &HashMap::new(), &only_annotation).unwrap();
+        let java = checked(&planned, false, "jakarta.persistence");
+        assert!(java.contains("    @org.hibernate.annotations.Comment(\"Free note\")\n    private String note;\n"), "{java}");
+        assert!(java.contains("@org.hibernate.annotations.Comment(\"Orders */ and /* x \\\\ <b> @tag\")\n@Entity\n"), "{java}");
+        assert!(!java.contains("/** "), "Javadoc not chosen: {java}");
+        let both = Options { comments: true, comment_annotation: true, kotlin: true, columns: HashMap::from([(ti, keep)]), ..Options::default() };
+        let kotlin = checked(&plan(&parsed, ti, SqlDialect::PostgreSql, &HashMap::new(), &both).unwrap(), true, "jakarta.persistence");
+        assert!(kotlin.contains("    /** Free note */\n    @org.hibernate.annotations.Comment(\"Free note\")\n    var note: String? = null\n"), "{kotlin}");
+        assert_eq!(string_text("a \"q\" \\ $x\n y", true).as_deref(), Some("a \\\"q\\\" \\\\ \\$x y"));
+        assert_eq!(string_text("a $x", false).as_deref(), Some("a $x"));
+        assert_eq!(string_text("  ", false), None);
+        assert_eq!(string_text(&"x".repeat(241), false), None);
+    }
+
+    #[test]
+    fn validation_annotations_follow_the_column_metadata_in_the_chosen_namespace() {
+        let _host = MockHost::install();
+        for package in ["jakarta.validation.constraints", "javax.validation.constraints"] {
+            let options = Options { validation: Some(package), ..Options::default() };
+            let result = built(PG, SqlDialect::PostgreSql, &["customers"], &options);
+            let java = checked(&result.plans[0], false, "jakarta.persistence");
+            assert!(java.contains(&format!("import {package}.NotNull;\nimport {package}.Size;\n")) || java.contains(&format!("import {package}.NotNull;")), "{java}");
+            assert!(java.contains("    @NotNull\n    @Size(max = 120)\n    @Column(nullable = false, unique = true, length = 120)\n    private String email;\n"), "{java}");
+            assert!(java.contains("    @NotNull\n    @Column(nullable = false)\n    private OffsetDateTime createdAt;\n"), "{java}");
+            assert!(java.contains("    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n") && !java.contains("@NotNull\n    @Id"), "keys carry no constraint: {java}");
+            assert!(!java.contains("@Size(max = 255)") && java.contains("    private byte[] avatar;"), "{java}");
+        }
+        let off = built(PG, SqlDialect::PostgreSql, &["customers"], &Options::default());
+        assert!(!checked(&off.plans[0], false, "jakarta.persistence").contains("NotNull"));
+        let clash = Options { validation: Some("jakarta.validation.constraints"), classes: HashMap::from([(0, "Size".to_owned())]), ..Options::default() };
+        assert!(taken("Size", &clash) && taken("NotNull", &clash) && !taken("Size", &Options::default()));
+    }
+
+    #[test]
+    fn uuid_generation_applies_to_uuid_keys_only_and_numeric_keys_keep_identity() {
+        let _host = MockHost::install();
+        let sql = "CREATE TABLE docs (id uuid PRIMARY KEY, title text);\nCREATE TABLE items (id bigserial PRIMARY KEY);";
+        let uuid = Options { id_generation: IdGeneration::Uuid, ..Options::default() };
+        let result = built(sql, SqlDialect::PostgreSql, &["docs", "items"], &uuid);
+        let docs = checked(&result.plans[0], false, "jakarta.persistence");
+        assert!(docs.contains("    @Id\n    @GeneratedValue(strategy = GenerationType.UUID)\n    private UUID id;\n"), "{docs}");
+        assert!(checked(&result.plans[1], false, "jakarta.persistence").contains("GenerationType.IDENTITY"));
+        let identity = built(sql, SqlDialect::PostgreSql, &["docs"], &Options::default());
+        assert!(!checked(&identity.plans[0], false, "jakarta.persistence").contains("GeneratedValue"));
+    }
+
+    #[test]
+    fn uuid_generation_needs_jakarta_and_a_literal_boot_3_1_or_hibernate_6_2() {
+        let pom = |version: &str| format!("<parent><artifactId>spring-boot-starter-parent</artifactId><version>{version}</version></parent>\n<dependency><artifactId>spring-boot-starter-data-jpa</artifactId></dependency>");
+        assert!(uuid_generation_proof("jakarta.persistence", &pom("3.3.5")).is_ok());
+        assert!(uuid_generation_proof("jakarta.persistence", &pom("3.1.0")).is_ok());
+        for refused in [pom("3.0.9"), pom("2.7.18"), "no build".to_owned(), String::new()] {
+            assert!(uuid_generation_proof("jakarta.persistence", &refused).is_err(), "{refused}");
+        }
+        assert!(format!("{:?}", uuid_generation_proof("javax.persistence", &pom("3.3.5"))).contains("javax.persistence has no GenerationType.UUID"));
+        let gradle = |hibernate: &str| format!("implementation(\"org.hibernate.orm:hibernate-core:{hibernate}\")\nid(\"org.springframework.boot\") version \"3.3.5\"");
+        assert!(uuid_generation_proof("jakarta.persistence", &gradle("6.2.7.Final")).is_ok());
+        assert!(uuid_generation_proof("jakarta.persistence", &gradle("6.1.7.Final")).is_err());
+        assert_eq!(version_pair(" \"3.3.5\""), Some((3, 3)));
+        assert_eq!(version_pair("6.2.7.Final"), Some((6, 2)));
+        assert_eq!(version_pair("6"), None);
+    }
+
+    #[test]
+    fn kotlin_is_proven_absent_only_without_literals_and_without_kotlin_sources() {
+        let facts_of = |host: &MockHost| crate::project_facts::detect(&host.invocation().project().unwrap(), "/project");
+        let absent = |host: &MockHost| kotlin_proven_absent(&host.invocation().project().unwrap(), "/project", &facts_of(host));
+        let pom = "<project><parent><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-parent</artifactId><version>3.3.5</version></parent></project>";
+        let host = MockHost::install().with_capabilities(&["project.read"]);
+        host.add_file("pom.xml", pom);
+        host.add_file("src/main/java/shop/A.java", "package shop;\nclass A {}\n");
+        assert_eq!(facts_of(&host).kotlin, crate::project_facts::Fact::Unknown);
+        assert!(absent(&host), "a Maven parent alone does not keep Kotlin Unknown");
+        host.add_file("src/test/kotlin/shop/T.kt", "package shop\nclass T\n");
+        assert!(!absent(&host), "a .kt source under the module");
+        let host = MockHost::install().with_capabilities(&["project.read"]);
+        host.add_file("pom.xml", &pom.replace("</project>", "<build><plugins><plugin><artifactId>kotlin-maven-plugin</artifactId></plugin></plugins></build></project>"));
+        assert!(!absent(&host), "a Kotlin plugin literal");
+        let host = MockHost::install().with_capabilities(&["project.read"]);
+        host.add_file("pom.xml", &pom.replace("</project>", "<kotlin.version>1.9</kotlin.version></project>"));
+        assert!(!absent(&host), "any Kotlin mention keeps it Unknown");
+        let host = MockHost::install().with_capabilities(&["project.read"]);
+        host.add_file("pom.xml", &pom.replace("</project>", "<dependencies><dependency><artifactId>x</artifactId><scope>import</scope></dependency></dependencies></project>"));
+        host.add_file("build.gradle.kts", "dependencies { implementation(libs.foo) }");
+        assert!(!absent(&host), "a version catalog could hide the plugin");
+        let host = MockHost::install().with_capabilities(&["project.read"]);
+        assert!(!absent(&host), "no build text at all");
+    }
+
+    #[test]
+    fn gradle_kotlin_plugin_declared_apply_false_at_the_root_does_not_make_a_java_module_kotlin() {
+        let host = MockHost::install().with_capabilities(&["project.read"]);
+        host.add_file("build.gradle.kts", "plugins {\n    kotlin(\"jvm\") version \"2.0.21\" apply false\n}\nallprojects { group = \"x\" }\n");
+        host.add_file("settings.gradle.kts", "include(\"entities\", \"app\")");
+        host.add_file("entities/build.gradle.kts", "plugins { `java-library` }\n");
+        host.add_file("entities/src/main/java/x/E.java", "package x;\nclass E {}\n");
+        host.add_file("app/src/main/kotlin/x/App.kt", "package x\nclass App\n");
+        let project = host.invocation().project().unwrap();
+        let facts = crate::project_facts::detect(&project, "/project/entities");
+        assert_eq!(facts.kotlin, crate::project_facts::Fact::Unknown);
+        assert!(kotlin_proven_absent(&project, "/project", &facts));
+        let app = crate::project_facts::detect(&project, "/project/app");
+        assert_eq!(app.kotlin, crate::project_facts::Fact::Yes);
     }
 
     const PG_OPTIONS: &str = "CREATE TYPE mood AS ENUM ('sad', 'happy');\nCREATE TYPE bad_mood AS ENUM ('not ok', 'x');\nCREATE TYPE dup AS ENUM ('a', 'a');\nCREATE TABLE tbl_orders (\n  id bigserial PRIMARY KEY,\n  col_name varchar(40) NOT NULL,\n  \"order\" integer,\n  mood mood NOT NULL,\n  note text,\n  customer_id integer\n);\nCOMMENT ON TABLE tbl_orders IS 'Orders */ and /* x \\ <b> @tag';\nCOMMENT ON COLUMN tbl_orders.note IS 'Free note';\nCOMMENT ON COLUMN tbl_orders.col_name IS '';\nCREATE INDEX idx_name ON tbl_orders (col_name, note);\nCREATE INDEX idx_desc ON tbl_orders (note DESC);\nCREATE INDEX idx_order ON tbl_orders (\"order\");\nCREATE UNIQUE INDEX uq_name_note ON tbl_orders (col_name, note);\nCREATE TABLE public.categories (id int PRIMARY KEY, label text);\nCREATE TABLE bad_enum (id int PRIMARY KEY, m bad_mood);\nCREATE TABLE dup_enum (id int PRIMARY KEY, m dup);\nCREATE TABLE statuses (id int PRIMARY KEY, kind mood);\n";
@@ -1719,8 +2431,8 @@ mod tests {
         let options = Options {
             comments: true,
             singular: true,
-            table_prefix: "tbl_".into(),
-            column_prefix: "col_".into(),
+            table_prefixes: vec!["tbl_".into()],
+            column_prefixes: vec!["col_".into()],
             columns: HashMap::from([(ti, keep)]),
             ..Options::default()
         };
@@ -1740,11 +2452,11 @@ mod tests {
 
         let renamed = Options { classes: HashMap::from([(ti, "Purchase".to_owned())]), ..options.clone() };
         assert_eq!(plan(&parsed, ti, SqlDialect::PostgreSql, &HashMap::new(), &renamed).unwrap().class, "Purchase");
-        let collide = Options { column_prefix: String::new(), table_prefix: "tbl_".into(), ..Options::default() };
+        let collide = Options { table_prefixes: vec!["tbl_".into()], ..Options::default() };
         assert!(plan(&parsed, ti, SqlDialect::PostgreSql, &HashMap::new(), &collide).unwrap_err().contains("mood"), "other refusals stay");
         let sql = "CREATE TABLE t (id int PRIMARY KEY, col_a int, a int);";
         let parsed = ddl_parse::parse_ddl(sql, SqlDialect::PostgreSql).unwrap();
-        let stripped = Options { column_prefix: "col_".into(), ..Options::default() };
+        let stripped = Options { column_prefixes: vec!["col_".into()], ..Options::default() };
         assert!(plan(&parsed, 0, SqlDialect::PostgreSql, &HashMap::new(), &stripped).unwrap_err().contains("attribute name `a` is produced by two columns"));
         let long = "x".repeat(MAX_COMMENT_CHARS + 1);
         assert!(doc_text(&long).is_none() && doc_text("  \n ").is_none());
@@ -1794,7 +2506,7 @@ mod tests {
         for answer in [&["statuses"][..], &["java"], &["shop.db"], &["tablePrefix"], &["bad prefix"]] {
             host.answer_next_prompt(Some(answer));
         }
-        assert!(format!("{:?}", plugin.resolve_file_action(&doc, action).unwrap_err()).contains("Choose a prefix"));
+        assert!(format!("{:?}", plugin.resolve_file_action(&doc, action).unwrap_err()).contains("Choose a comma-separated list"));
         let action = offered(&mut plugin, &doc);
         for answer in [&["statuses"][..], &["java"], &["shop.db"], &["singular"], &["not a class"]] {
             host.answer_next_prompt(Some(answer));
@@ -1910,6 +2622,22 @@ mod tests {
         host.add_file("src/main/java/shop/db/Other.java", "package shop.db;\nclass Other {}\n");
         host.add_file("build.gradle", JAVA_BUILD);
         assert_eq!(first_path(language_run(&host, &mut plugin, &doc, &[])), "/project/src/main/java/shop/db/Customers.java");
+    }
+
+    #[test]
+    fn language_is_not_asked_for_a_java_only_maven_module_with_a_parent_and_is_asked_once_a_kotlin_source_exists() {
+        let pom = "<project><parent><artifactId>spring-boot-starter-parent</artifactId><version>3.3.5</version></parent></project>";
+        let (host, mut plugin, doc) = setup(PG);
+        host.add_file("pom.xml", pom);
+        host.add_file("src/main/java/shop/Existing.java", "package shop;\nimport jakarta.persistence.Entity;\n@Entity\nclass Existing {}\n");
+        host.add_file("src/main/java/shop/db/Other.java", "package shop.db;\nclass Other {}\n");
+        assert_eq!(first_path(language_run(&host, &mut plugin, &doc, &[])), "/project/src/main/java/shop/db/Customers.java");
+        let (host, mut plugin, doc) = setup(PG);
+        host.add_file("pom.xml", pom);
+        host.add_file("src/main/java/shop/Existing.java", "package shop;\nimport jakarta.persistence.Entity;\n@Entity\nclass Existing {}\n");
+        host.add_file("src/main/java/shop/db/Other.java", "package shop.db;\nclass Other {}\n");
+        host.add_file("src/test/kotlin/shop/T.kt", "package shop\nclass T\n");
+        assert_eq!(first_path(language_run(&host, &mut plugin, &doc, &["java"])), "/project/src/main/java/shop/db/Customers.java");
     }
 
     #[test]
@@ -2061,8 +2789,10 @@ mod tests {
         }
         assert!(!java.contains("GeneratedValue"), "{java}");
         let kotlin = checked(&plans[1], true, "javax.persistence");
-        assert!(kotlin.contains("import org.hibernate.annotations.Immutable\n") && kotlin.contains("@Entity\n@Immutable\n@Table(name = \"account_mat\")\nclass AccountMat {"), "{kotlin}");
-        assert!(kotlin.contains("    var mail: String? = null"), "{kotlin}");
+        assert!(kotlin.contains("import org.hibernate.annotations.Immutable\n") && kotlin.contains("@Entity\n@Immutable\n@Table(name = \"account_mat\")\nclass AccountMat protected constructor() {"), "{kotlin}");
+        assert!(kotlin.contains("    var mail: String? = null\n        private set\n"), "{kotlin}");
+        assert!(java.contains("    protected AccountEmails() {\n    }\n") && java.contains("public Integer getId()") && java.contains("public String getEmail()"), "{java}");
+        assert!(!java.contains("void set") && !java.contains("public AccountEmails("), "getters only, one protected constructor: {java}");
         let blocked = Options { view_block: Some("Hibernate is not proven".into()), ..options };
         let Built3 { plans, refused, .. } = build_extra(&parsed, &["account_emails", "accounts"], &blocked);
         assert_eq!(plans.len(), 0, "accounts has jsonb");
@@ -2168,7 +2898,7 @@ mod tests {
         let Built3 { plans, .. } = build_extra(&parsed, &["accounts"], &options);
         let java = checked(&plans[0], false, "jakarta.persistence");
         assert!(java.contains("    @Column(columnDefinition = \"jsonb\")\n    private String meta;\n") && java.contains("@Column(columnDefinition = \"geometry(Point,4326)\")\n    private String shape;"), "{java}");
-        assert!(!java.contains("odd") && plans[0].deferred == ["odd (text[])"], "{:?}", plans[0].deferred);
+        assert!(!java.contains("\n    private Object odd") && java.contains("    // TODO: column odd has an unmapped SQL type; choose a Java type and uncomment\n    // @Column(name = \"odd\")\n    // private Object odd;\n") && plans[0].deferred == ["odd (text[])"], "{:?}\n{java}", plans[0].deferred);
         let kotlin = checked(&plans[0], true, "jakarta.persistence");
         assert!(kotlin.contains("@Column(columnDefinition = \"jsonb\")\n    var meta: String? = null"), "{kotlin}");
         assert!(safe_definition("numeric(10, 2)") && !safe_definition("text[]") && !safe_definition("a\"b") && !safe_definition("public.mood") && !safe_definition(""));
@@ -2186,7 +2916,8 @@ mod tests {
         }
         let result = plugin.resolve_file_action(&doc, action).unwrap();
         let FileOperation::Create { text, .. } = &result.operations[0] else { panic!() };
-        assert!(!text.contains("meta") && text.contains("@Column(columnDefinition = \"geometry(Point,4326)\")\n    private String shape;"), "{text}");
+        assert!(!text.contains("private String meta;") && text.contains("    // TODO: column meta has the unmapped SQL type jsonb; choose a Java type and uncomment\n    // @Column(name = \"meta\")\n    // private Object meta;\n"), "{text}");
+        assert!(text.contains("@Column(columnDefinition = \"geometry(Point,4326)\")\n    private String shape;"), "{text}");
 
         let action = offered(&mut plugin, &doc);
         for answer in [&["postgresql"][..], &["accounts"], &["java"], &["shop.db"], &["deferred"], &[], &["skip"], &["skip"]] {
@@ -2226,6 +2957,13 @@ mod tests {
             assert!(text[0].contains(&format!("@GeneratedValue(strategy = {expected})")) && !text[0].contains("IDENTITY"), "{}", text[0]);
             assert_eq!(text[1].replace(expected, "GenerationType.IDENTITY"), today[1]);
         }
+        host.set_setting("sqlImportIdGeneration", "\"uuid\"");
+        let mut uuid = Options::default();
+        import_defaults(&mut uuid).unwrap();
+        assert_eq!(uuid.id_generation, IdGeneration::Uuid);
+        host.set_setting("sqlImportIdGeneration", "\"random\"");
+        let message = format!("{:?}", import_defaults(&mut Options::default()).unwrap_err());
+        assert!(message.contains("identity, sequence, auto, uuid or none"), "{message}");
         host.set_setting("sqlImportIdGeneration", "\"none\"");
         let mut options = Options::default();
         import_defaults(&mut options).unwrap();
@@ -2254,11 +2992,11 @@ mod tests {
     fn generated_entities_compile_for_java_kotlin_and_both_namespaces() {
         let _host = MockHost::install();
         let base = std::env::temp_dir().join(format!("jpa-ddl-entities-{}", std::process::id()));
-        let option_pg = Options { singular: true, table_prefix: "tbl_".into(), column_prefix: "col_".into(), ..everything() };
+        let option_pg = Options { singular: true, table_prefixes: vec!["tbl_".into()], column_prefixes: vec!["col_".into()], comment_annotation: true, ..everything() };
         let boxes_columns = {
             let parsed = ddl_parse::parse_ddl(MY_OPTIONS, SqlDialect::MySql).unwrap();
             let ti = parsed.snapshot.tables.iter().position(|t| t.name == "tbl_boxes").unwrap();
-            Options { columns: HashMap::from([(ti, BTreeSet::from(["size", "rank", "code", "label"].map(str::to_owned)))]), ..everything() }
+            Options { columns: HashMap::from([(ti, BTreeSet::from(["size", "rank", "code", "label"].map(str::to_owned)))]), comment_annotation: true, ..everything() }
         };
         for (sql, dialect, names, options) in [
             (PG, SqlDialect::PostgreSql, &["customers", "order_lines", "registries"][..], Options::default()),
@@ -2266,6 +3004,8 @@ mod tests {
             (PG_OPTIONS, SqlDialect::PostgreSql, &["tbl_orders", "statuses", "public.categories"][..], option_pg),
             (MY_OPTIONS, SqlDialect::MySql, &["tbl_boxes"][..], boxes_columns),
             (EXTRA, SqlDialect::PostgreSql, &["account_emails", "account_mat", "accounts", "people", "employees", "managers", "clashes", "orders2"][..], Options::default()),
+            (RELATIONS, SqlDialect::PostgreSql, &["authors", "books", "tags", "book_tags", "people", "passports", "users", "user_profiles"][..], Options::default()),
+            (PG, SqlDialect::PostgreSql, &["customers", "order_lines"][..], Options { validation: Some("validation"), ..Options::default() }),
         ] {
             let mut parsed = ddl_parse::parse_ddl(sql, dialect).unwrap();
             let views = append_views(&mut parsed);
@@ -2282,16 +3022,27 @@ mod tests {
                     ..Options::default()
                 };
             }
+            if sql == RELATIONS {
+                let at = |name: &str| index(&parsed, name);
+                options.maps_id = HashMap::from([(at("user_profiles"), at("users"))]);
+            }
             let selected: Vec<usize> = names.iter().map(|n| parsed.snapshot.tables.iter().position(|t| t.name == *n).unwrap()).collect();
-            let Built3 { plans, refused, enums } = build_with(&parsed, dialect, &selected, &options).unwrap();
-            assert!(refused.is_empty(), "{refused:?}");
+            let validated = options.validation.is_some();
             for kotlin in [false, true] {
                 for ns in ["jakarta.persistence", "javax.persistence"] {
+                    let validation = if ns == "jakarta.persistence" { "jakarta.validation.constraints" } else { "javax.validation.constraints" };
+                    let for_ns = Options { validation: options.validation.map(|_| validation), ..options.clone() };
+                    let Built3 { plans, refused, enums } = build_with(&parsed, dialect, &selected, &for_ns).unwrap();
+                    assert!(refused.is_empty(), "{refused:?}");
                     let directory = base.join(format!("{dialect:?}-{kotlin}-{ns}"));
                     std::fs::create_dir_all(&directory).unwrap();
                     let api = std::env::var(if ns == "jakarta.persistence" { "JPA_JAKARTA_API" } else { "JPA_JAVAX_API" }).expect("explicit persistence API jar");
                     let hibernate = std::env::var("HIBERNATE_CORE_JAR").expect("HIBERNATE_CORE_JAR for the @Immutable views");
-                    let jar = format!("{api}:{hibernate}");
+                    let mut jar = format!("{api}:{hibernate}");
+                    if validated {
+                        let validation_api = std::env::var(if ns == "jakarta.persistence" { "JPA_JAKARTA_VALIDATION_API" } else { "JPA_JAVAX_VALIDATION_API" }).expect("validation API jar");
+                        jar = format!("{jar}:{validation_api}");
+                    }
                     let extension = if kotlin { "kt" } else { "java" };
                     let mut files: Vec<_> = plans
                         .iter()
@@ -2317,7 +3068,7 @@ mod tests {
                     } else {
                         let compiler = std::env::var("KOTLIN_COMPILER_CLASSPATH").expect("Kotlin compiler classpath");
                         let stdlib = std::env::var("KOTLIN_STDLIB").expect("Kotlin stdlib");
-                        let classpath = std::env::join_paths([std::path::Path::new(&api), std::path::Path::new(&hibernate), std::path::Path::new(&stdlib)]).unwrap();
+                        let classpath = std::env::join_paths(jar.split(':').chain(std::iter::once(stdlib.as_str())).map(std::path::Path::new)).unwrap();
                         let result = std::process::Command::new("java")
                             .args(["-classpath", &compiler, "org.jetbrains.kotlin.cli.jvm.K2JVMCompiler", "-no-stdlib", "-no-reflect", "-jvm-target", "17", "-classpath"])
                             .arg(classpath)

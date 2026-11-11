@@ -34,9 +34,6 @@
       ]
     },
     {
-      "pick": "java"
-    },
-    {
       "pick": "com.example.billing.domain"
     },
     {

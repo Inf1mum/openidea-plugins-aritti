@@ -7,7 +7,7 @@
     "G099-C3"
   ],
   "verifies": {
-    "G099-C3": "validation annotations inferred from column metadata: books.title varchar(120) not null yields @NotNull and @Size(max = 120). The plugin has no such setting; the scenario checks the generated output only."
+    "G099-C3": "validation annotations inferred from column metadata behind the sqlImportValidation setting (off by default, as the claim describes a setting): with the setting on and Bean Validation declared in the build (the setup adds spring-boot-starter-validation to the disposable pom), books.title varchar(120) not null yields @NotNull and @Size(max = 120) in the persistence namespace's validation package."
   },
   "fixture": "envers-flyway-liquibase",
   "kind": "fileaction",
@@ -16,6 +16,18 @@
       "write": {
         "path": "sql-import/rs.sql",
         "content": "create table authors (\n    id bigserial primary key,\n    name varchar(80) not null\n);\n\ncreate table books (\n    id bigserial primary key,\n    title varchar(120) not null,\n    author_id bigint not null references authors (id)\n);\n"
+      }
+    },
+    {
+      "settings": {
+        "sqlImportValidation": true
+      }
+    },
+    {
+      "replace": {
+        "file": "pom.xml",
+        "from": "    </dependencies>",
+        "to": "        <dependency>\n            <groupId>org.springframework.boot</groupId>\n            <artifactId>spring-boot-starter-validation</artifactId>\n        </dependency>\n    </dependencies>"
       }
     }
   ],
@@ -32,9 +44,6 @@
         "authors",
         "books"
       ]
-    },
-    {
-      "pick": "java"
     },
     {
       "pick": "com.example.billing.domain"

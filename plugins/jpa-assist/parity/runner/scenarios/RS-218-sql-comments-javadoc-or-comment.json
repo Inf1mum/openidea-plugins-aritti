@@ -33,9 +33,6 @@
       ]
     },
     {
-      "pick": "java"
-    },
-    {
       "pick": "com.example.billing.domain"
     },
     {
@@ -57,10 +54,6 @@
       {
         "kind": "pickMany",
         "titleContains": "Tables to generate"
-      },
-      {
-        "kind": "pick",
-        "titleContains": "Entity language"
       },
       {
         "kind": "pick",
