@@ -178,7 +178,6 @@ fn parse(text: &str) -> Result<(Vec<Request>, usize), &'static str> {
     requests.retain(|r| !ambiguous.contains(&r.token.to_ascii_lowercase()));
     requests.sort_by_key(|r| std::cmp::Reverse(r.time));
     let total = requests.len();
-    requests.truncate(MAX_ROWS);
     Ok((requests, total))
 }
 #[derive(Default)]
@@ -188,6 +187,7 @@ pub struct Snapshot {
     scope: String,
     rows: Option<Vec<Request>>,
     total: usize,
+    page: usize,
     status: String,
     details: Option<crate::profiler_details::Details>,
     selected: Option<String>,
@@ -318,6 +318,11 @@ impl Snapshot {
         if let Some(row)=self.rows.as_ref().and_then(|rows|rows.iter().find(|r|self.row_key(&r.token)==key)) {self.selected=Some(row.token.clone());}
     }
     pub fn close_details(&mut self) { self.details = None; }
+    /// Moves within the cached snapshot only; never re-reads the index.
+    pub fn turn_page(&mut self, forward: bool) {
+        let pages = self.rows.as_ref().map_or(0, |r| r.len().div_ceil(MAX_ROWS));
+        self.page = if forward { (self.page + 1).min(pages.saturating_sub(1)) } else { self.page.saturating_sub(1) };
+    }
     pub fn inspect(&mut self, ctx: &Invocation) -> Result<(), Error> {
         self.details = None;
         let project=ctx.project().ok_or(Error::Stale)?;
@@ -395,6 +400,7 @@ impl Snapshot {
             Ok((rows, total)) => {
                 self.rows = Some(rows);
                 self.total = total;
+                self.page = 0;
                 self.status="Explicit project-visible index snapshot; may have changed since refresh, not live runtime data.".into();
             }
             Err(reason) => {
@@ -475,9 +481,11 @@ impl Snapshot {
             return View::message("Profiler index ownership is unavailable or changed; cached rows/details are hidden. Refresh after restoring this source scope.").button(refresh).button(choose).button(discover);
         }
         if let Some(details)=&self.details { return details.view(); }
-        let Some(rows) = self.rows.as_ref() else {
+        let Some(all_rows) = self.rows.as_ref() else {
             return View::message(&self.status).button(refresh).button(choose).button(discover);
         };
+        let start = (self.page * MAX_ROWS).min(all_rows.len());
+        let rows = &all_rows[start..(start + MAX_ROWS).min(all_rows.len())];
         let columns = ["Time (UTC)", "Method", "Status", "URL", "IP", "Token"];
         let cells = |r: &Request| {
             vec![
@@ -504,10 +512,18 @@ impl Snapshot {
                 editable: false,
             })
         };
-        View::new(body).button(refresh).button(choose).button(discover).button(Button::new("inspect-profile-details", "Inspect Profile").icon("info")).status(&format!(
-            "{} Showing{} of{} valid unambiguous main requests (latest{}). Source: {}",
+        let mut view = View::new(body).button(refresh).button(choose).button(discover).button(Button::new("inspect-profile-details", "Inspect Profile").icon("info"));
+        if self.page > 0 {
+            view = view.button(Button::new("profiler-previous-page", "Newer Requests").icon("arrow-left"));
+        }
+        if start + rows.len() < all_rows.len() {
+            view = view.button(Button::new("profiler-next-page", "Older Requests").icon("arrow-right"));
+        }
+        view.status(&format!(
+            "{} Showing {}-{} of {} valid unambiguous main requests (newest first, {} per page). Source: {}",
             self.status,
-            rows.len(),
+            if rows.is_empty() { 0 } else { start + 1 },
+            start + rows.len(),
             self.total,
             MAX_ROWS,
             self.source
@@ -561,7 +577,7 @@ mod tests {
             assert_eq!(&args[..2],["-n","-d"]);
             assert!(args.iter().any(|s|s.contains("'allowed_classes' => false")));
             assert_eq!(&args[args.len()-4..],["--","/project","/project/var/cache/dev/profiler/ef/cd/abcdef","abcdef"]);
-            Ok(openidea_plugin::ProcessOutput{status:Some(0),stdout:r#"{"version":1,"token":"abcdef","collectors":[{"name":"time","class":"TimeDataCollector","metrics":{"duration":1.25}}]}"#.into(),stderr:String::new()})
+            Ok(openidea_plugin::ProcessOutput{status:Some(0),stdout:r#"{"version":2,"token":"abcdef","collectors":[{"name":"time","class":"TimeDataCollector","metrics":{"duration":1.25}}]}"#.into(),stderr:String::new()})
         });
         let mut state=Snapshot::default();let ctx=host.invocation();state.refresh(&ctx);
         state.select(&state.row_key("abcdef"),&ctx);state.inspect(&ctx).unwrap();
@@ -589,7 +605,7 @@ mod tests {
             .map(|i| format!("{i:06x},ip,GET,/u{i},{},,200\n", 1000 + i))
             .collect();
         let (rows, total) = parse(&text).unwrap();
-        assert_eq!((rows.len(), total), (100, 150));
+        assert_eq!((rows.len(), total), (150, 150));
         assert_eq!(rows[0].token, "000095");
         assert_eq!(timestamp(1700000000), "2023-11-14 22:13:20");
         assert!(parse(&(ROW.to_owned() + ROW)).unwrap().0.is_empty());
@@ -600,6 +616,35 @@ mod tests {
                 .is_empty()
         );
         assert!(parse("../foo,ip,GET,/x,1,,200\n").unwrap().0.is_empty());
+    }
+    #[test]
+    fn pages_walk_cached_rows_newest_first_without_rereading_the_index() {
+        let text: String = (0..250).map(|i| format!("{i:06x},ip,GET,/u{i},{},,200\n", 1000 + i)).collect();
+        let host = MockHost::install();
+        host.add_file(INDEX_FILE, &text);
+        let ctx = host.invocation();
+        let mut state = Snapshot::default();
+        state.refresh(&ctx);
+        let first = |s: &Snapshot| {
+            let View { body: Body::Table(t), toolbar: buttons, status, .. } = s.render(&ctx) else { panic!() };
+            (t.rows.len(), t.rows[0][5].clone(), buttons.iter().map(|b| b.id.clone()).collect::<Vec<_>>(), status)
+        };
+        let (n, token, ids, status) = first(&state);
+        assert_eq!((n, token.as_str()), (100, "0000f9"));
+        assert!(ids.contains(&"profiler-next-page".to_owned()) && !ids.contains(&"profiler-previous-page".to_owned()));
+        assert!(status.unwrap().contains("Showing 1-100 of 250"));
+        host.add_file(INDEX_FILE, "malformed");
+        state.turn_page(true);
+        state.turn_page(true);
+        state.turn_page(true);
+        let (n, token, ids, status) = first(&state);
+        assert_eq!((n, token.as_str()), (50, "000031"));
+        assert!(!ids.contains(&"profiler-next-page".to_owned()) && ids.contains(&"profiler-previous-page".to_owned()));
+        assert!(status.unwrap().contains("Showing 201-250 of 250"));
+        state.turn_page(false);
+        state.turn_page(false);
+        state.turn_page(false);
+        assert_eq!(first(&state).1, "0000f9");
     }
     #[test]
     fn csv_quoting_is_strict_and_subrequests_are_not_promoted() {

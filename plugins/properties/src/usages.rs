@@ -96,6 +96,9 @@ pub struct KeyIndex {
     /// Positive cached names by source file, so editor completion need not scan
     /// every unrelated key in the project.
     pub file_keys: BTreeMap<String, Vec<String>>,
+    /// False when the scan was truncated; `skipped` lists bundle files left out of it.
+    pub complete: bool,
+    pub skipped: Vec<String>,
 }
 
 /// One bounded metadata snapshot per request, never a source read or scan.
@@ -129,35 +132,49 @@ impl SourceOwnership {
 
 impl KeyIndex {
     pub fn build(project: &Project) -> Result<Self, Error> {
-        let mut index = Self { root: project.root()?, ..Self::default() };
+        let mut index = Self { root: project.root()?, complete: true, ..Self::default() };
         let ownership = SourceOwnership::current(&index.root).ok_or(Error::Stale)?;
         let started = std::time::Instant::now();
         let mut bytes = 0usize;
-        for path in project.find_files("**/*.properties", 5000)? {
+        let paths = project.find_files("**/*.properties", 5000)?;
+        index.complete = paths.len() < 5000;
+        let skip = |index: &mut Self, path: &String| {
+            if index.skipped.len() < 4096 {
+                index.skipped.push(path.clone());
+            } else {
+                index.complete = false;
+            }
+        };
+        for path in paths {
             if started.elapsed() > std::time::Duration::from_millis(250) {
+                index.complete = false;
                 break;
             }
-            if !ownership.contains(&path) { continue; }
-            let Ok(stat) = project.stat(&path) else { continue };
+            if !ownership.contains(&path) { skip(&mut index, &path); continue; }
+            let Ok(stat) = project.stat(&path) else { skip(&mut index, &path); continue };
             if stat.kind != openidea_plugin::FileKind::File || stat.size > 128 << 10 {
+                skip(&mut index, &path);
                 continue;
             }
-            if stat.size > ((8 << 20) - bytes) as u64 { break; }
-            let Ok(text) = project.read_file(&path) else { continue };
+            if stat.size > ((8 << 20) - bytes) as u64 { index.complete = false; break; }
+            let Ok(text) = project.read_file(&path) else { skip(&mut index, &path); continue };
             if text.len() > 128 << 10 {
+                skip(&mut index, &path);
                 continue;
             }
             bytes = bytes.saturating_add(text.len());
             if bytes > 8 << 20 {
+                index.complete = false;
                 break;
             }
             let properties = parse(&text);
             if properties.len() > 4096 {
+                skip(&mut index, &path);
                 continue;
             }
             index.files.push(path.clone());
             for p in properties {
-                let Some(key) = p.exact_key(&text) else { continue; };
+                let Some(key) = p.exact_key(&text) else { skip(&mut index, &path); continue; };
                 index.file_keys.entry(path.clone()).or_default().push(key.clone());
                 index.keys.entry(key).or_default().push(Declaration {
                     location: Location { path: path.clone(), range: range_of(&text, &p.key) },

@@ -1788,6 +1788,10 @@ impl Views for Main {
                     self.profiler_snapshot.close_details();
                     refresh_profiler_view();
                 }
+                ViewEvent::Button(id) if id == "profiler-previous-page" || id == "profiler-next-page" => {
+                    self.profiler_snapshot.turn_page(id == "profiler-next-page");
+                    refresh_profiler_view();
+                }
                 ViewEvent::Button(id) if id == "refresh-profiler" => {
                     self.profiler_snapshot.refresh(ctx);
                     ui_kit::web::refresh_view(PROFILER_VIEW, include_str!("ui_config.json"));

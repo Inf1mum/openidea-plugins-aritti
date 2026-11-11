@@ -164,6 +164,9 @@ fn collect(project: &Project, root: &str, doc: &Document, key: &str) -> Result<S
             let Some(context) = source::context(&source, at) else {
                 continue;
             };
+            if context.indirect && context.contains(&doc.path) && text.get(context.span.clone()) == Some(key) {
+                return Err("The key is held by a source constant or @PropertyKey parameter; rename it manually. No partial rename is prepared.".into());
+            }
             if context.contains(&doc.path)
                 && text.get(context.span.clone()) == Some(key)
                 && !spans.contains(&context.span)
@@ -617,6 +620,20 @@ mod tests {
             host::input("unused confirmation", None).unwrap().as_deref(),
             Some("not-consumed")
         );
+    }
+    #[test]
+    fn constant_held_and_property_key_literals_make_rename_refuse_without_partial_edits() {
+        let held = [
+            "import java.util.ResourceBundle; class K { static final String KEY = \"hello\"; String f(){return ResourceBundle.getBundle(\"messages\").getString(KEY);} }",
+            "import org.jetbrains.annotations.PropertyKey; class K { static String m(@PropertyKey(resourceBundle = \"messages\") String key){return key;} String f(){return K.m(\"hello\");} }",
+        ];
+        for source in held {
+            let (host, _, doc) = setup();
+            host.add_file("/project/src/main/java/K.java", source);
+            let project = project_for(&doc.path).unwrap();
+            let error = collect(&project, "/project", &doc, "hello").err().expect("must refuse");
+            assert!(error.to_string().contains("rename it manually"), "{source}");
+        }
     }
     #[test]
     fn nested_module_test_resources_keep_bundle_namespace_source_set_and_unicode_ranges() {

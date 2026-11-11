@@ -17,7 +17,7 @@ try {
     $value = unserialize($raw, ['allowed_classes' => false, 'max_depth' => 32]);
     if (!is_array($value) || ($value['token'] ?? null) !== $argv[3] || !is_array($value['data'] ?? null) || count($value['data']) > 128) { exit(5); }
     $rows = [];
-    $keys = ['time', 'duration', 'memory', 'memory_limit', 'peak_memory', 'query_count', 'query_time', 'error_count', 'exception_count', 'status_code'];
+    $keys = ['time', 'duration', 'memory', 'memory_limit', 'peak_memory', 'query_count', 'query_time', 'error_count', 'exception_count', 'status_code', 'start_time', 'deprecation_count', 'warning_count', 'scream_count'];
     foreach ($value['data'] as $name => $collector) {
         if (!is_string($name) || !preg_match('/^[a-zA-Z0-9_.-]{1,80}$/D', $name)) { continue; }
         $fields = (array) $collector;
@@ -35,6 +35,14 @@ try {
         foreach (['logs', 'exceptions', 'templates', 'events'] as $field) {
             if (is_array($data[$field] ?? null)) { $metrics['stored_'.$field] = count($data[$field]); }
         }
+        if (is_bool($data['stopwatch_installed'] ?? null)) { $metrics['stopwatch_installed'] = (int) $data['stopwatch_installed']; }
+        $totals = $data['total']['statistics'] ?? null;
+        if ($name === 'cache' && is_array($totals)) {
+            foreach (['calls', 'time', 'reads', 'writes', 'deletes', 'hits', 'misses'] as $key) {
+                $n = $totals[$key] ?? null;
+                if ((is_int($n) || is_float($n)) && is_finite((float) $n) && $n >= 0 && $n <= 1.0e15) { $metrics['cache_'.$key] = $n; }
+            }
+        }
         if (!isset($metrics['query_count']) && is_array($data['queries'] ?? null)) {
             $count = 0;
             foreach ($data['queries'] as $queries) {
@@ -44,5 +52,5 @@ try {
         }
         $rows[] = ['name' => $name, 'class' => $class, 'metrics' => (object) $metrics];
     }
-    echo json_encode(['version' => 1, 'token' => $argv[3], 'collectors' => $rows], JSON_THROW_ON_ERROR);
+    echo json_encode(['version' => 2, 'token' => $argv[3], 'collectors' => $rows], JSON_THROW_ON_ERROR);
 } catch (Throwable $e) { exit(5); }

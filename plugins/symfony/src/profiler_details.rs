@@ -22,7 +22,7 @@ fn parse(text: &str, token: &str) -> Result<Details, Error> {
     }
     let parsed: Details = serde_json::from_str(text)
         .map_err(|_| Error::Invalid("Unsupported profile summary.".into()))?;
-    if parsed.version != 1
+    if parsed.version != 2
         || parsed.token != token
         || parsed.collectors.len() > 128
         || parsed.collectors.iter().any(|c| {
@@ -38,7 +38,7 @@ fn parse(text: &str, token: &str) -> Result<Details, Error> {
                     .class
                     .bytes()
                     .all(|b| b.is_ascii_alphanumeric() || b"_\\".contains(&b))
-                || c.metrics.len() > 14
+                || c.metrics.len() > 32
                 || c.metrics.iter().any(|(key, n)| {
                     ![
                         "time",
@@ -55,6 +55,18 @@ fn parse(text: &str, token: &str) -> Result<Details, Error> {
                         "stored_exceptions",
                         "stored_templates",
                         "stored_events",
+                        "start_time",
+                        "deprecation_count",
+                        "warning_count",
+                        "scream_count",
+                        "stopwatch_installed",
+                        "cache_calls",
+                        "cache_time",
+                        "cache_reads",
+                        "cache_writes",
+                        "cache_deletes",
+                        "cache_hits",
+                        "cache_misses",
                     ]
                     .contains(&key.as_str())
                         || !n.is_finite()
@@ -151,7 +163,7 @@ mod tests {
     use super::*;
     #[test]
     fn strict_summary_rejects_identity_secrets_and_unbounded_metrics() {
-        let valid = r#"{"version":1,"token":"abcdef","collectors":[{"name":"time","class":"TimeDataCollector","metrics":{"duration":2.5}}]}"#;
+        let valid = r#"{"version":2,"token":"abcdef","collectors":[{"name":"time","class":"TimeDataCollector","metrics":{"duration":2.5}}]}"#;
         let result = parse(valid, "abcdef").unwrap();
         assert_eq!(result.collectors.len(), 1);
         assert!(parse(valid, "123abc").is_err());
@@ -159,7 +171,9 @@ mod tests {
             valid.replace("duration", "password"),
             valid.replace("2.5", "-1"),
             valid.replace("TimeDataCollector", "secret@email"),
-            valid.replace("\"version\":1", "\"version\":2"),
+            valid.replace("\"version\":2", "\"version\":1"),
+            valid.replace("\"version\":2", "\"version\":3"),
+            valid.replace("duration", "cache_secret"),
         ] {
             assert!(parse(&value, "abcdef").is_err());
         }

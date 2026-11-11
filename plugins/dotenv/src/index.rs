@@ -87,6 +87,10 @@ pub struct Index {
     pub complete: bool,
     pub declarations: Vec<Declaration>,
     pub usages: Vec<Usage>,
+    /// Folders of indexed Compose files: the project directory whose `.env` Compose interpolates from.
+    pub compose_folders: std::collections::HashSet<String>,
+    /// Files some Compose `env_file:` names; their keys reach containers, not interpolation.
+    pub env_file_paths: std::collections::HashSet<String>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -95,6 +99,14 @@ enum Source {
     Dockerfile,
     Compose,
     Code,
+}
+
+pub fn folder_of(path: &str) -> &str {
+    path.rsplit_once(['/', '\\']).map_or("", |(folder, _)| folder)
+}
+
+pub fn is_compose_file(path: &str) -> bool {
+    source(path) == Some(Source::Compose)
 }
 
 pub fn file_name(path: &str) -> &str {
@@ -217,7 +229,14 @@ impl Index {
                 self.usages.extend(nested_usages(path, text));
             }
             Some(Source::Dockerfile) => self.declarations.extend(docker_declarations(path, text, docker::dockerfile(text))),
-            Some(Source::Compose) => self.declarations.extend(docker_declarations(path, text, docker::compose(text))),
+            Some(Source::Compose) => {
+                self.declarations.extend(docker_declarations(path, text, docker::compose(text)));
+                self.usages.extend(docker::compose_interpolations(text).into_iter().map(|i| Usage {
+                    key: i.name,
+                    location: Location { path: path.to_owned(), range: range(text, i.range) },
+                }));
+                self.compose_folders.insert(folder_of(path).to_owned());
+            }
             Some(Source::Code) => self.usages.extend(code_usages(path, text)),
             None => {}
         }
@@ -265,6 +284,7 @@ impl Index {
                 self.complete = false;
                 continue;
             };
+            self.env_file_paths.insert(path.clone());
             if self.declarations.iter().any(|d| d.location.path == path) {
                 continue;
             }

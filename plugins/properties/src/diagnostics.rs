@@ -3,7 +3,8 @@
 use crate::{
     Properties,
     checks::{Settings, lint},
-    props,
+    props, source,
+    usages::SourceOwnership,
 };
 use openidea_plugin::diagnostics::{DiagnosticsProvider, Document};
 use openidea_plugin::{Diagnostic, Position, Range, Severity, host};
@@ -39,8 +40,38 @@ impl Coordinates {
         Range::new(self.at(start), self.at(end))
     }
 }
+impl Properties {
+    /// Only a warm index of a completely read, owned bundle can prove a `@PropertyKey` literal unresolved.
+    fn property_key_diagnostics(&self, doc: &Document) -> Vec<Diagnostic> {
+        let Some(root) = host::project_of(&doc.path).and_then(|project| project.root().ok()) else {
+            return Vec::new();
+        };
+        let (Some(index), Some(ownership)) = (self.index.as_ref().filter(|index| index.root == root), SourceOwnership::current(&root)) else {
+            return Vec::new();
+        };
+        let positions = Coordinates::new(&doc.text);
+        source::property_key_contexts(doc)
+            .into_iter()
+            .filter(|context| context.scope_known(index, &ownership) && context.resolved(index) && context.keys(index).is_some())
+            .filter(|context| context.declarations(index, &doc.text[context.span.clone()]).is_empty())
+            .take(MAX_PROBLEMS)
+            .map(|context| {
+                let key: String = doc.text[context.span.clone()].chars().take(128).collect();
+                Diagnostic::new(
+                    positions.range(context.span.start, context.span.end),
+                    Severity::Warning,
+                    format!("Cannot resolve property key '{key}' in bundle '{}'.", context.bundle),
+                )
+                .code("PropertyKeyUnresolved")
+            })
+            .collect()
+    }
+}
 impl DiagnosticsProvider for Properties {
     fn diagnostics(&mut self, doc: &Document) -> Vec<Diagnostic> {
+        if matches!(doc.language.as_str(), "java" | "kotlin") {
+            return self.property_key_diagnostics(doc);
+        }
         if doc.language != "properties" || !doc.path.ends_with(".properties") || doc.text.len() > MAX_TEXT {
             return Vec::new();
         }

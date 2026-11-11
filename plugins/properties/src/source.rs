@@ -11,6 +11,7 @@ const MAX_SOURCE: usize = 128 << 10;
 pub(crate) struct Context {
     pub span: Range<usize>,
     pub bundle: String,
+    pub indirect: bool,
     prefix: String,
 }
 fn plain<'a>(t: &Tok<'a>, kotlin: bool) -> Option<&'a str> {
@@ -44,7 +45,7 @@ fn owned_context(doc: &Document, kotlin: bool, base: &str, span: Range<usize>) -
     if owners.next().is_some() {
         return None;
     }
-    Some(Context { span, bundle: base.into(), prefix: format!("{module}/src/{set}/resources/{}", base.replace('.', "/")) })
+    Some(Context { span, bundle: base.into(), indirect: false, prefix: format!("{module}/src/{set}/resources/{}", base.replace('.', "/")) })
 }
 fn ident(value: &str) -> bool {
     let mut bytes = value.bytes();
@@ -305,15 +306,16 @@ fn local_context(doc: &Document, toks: &[Tok], f: &java::JavaFile, at: usize, ko
     owned_context(doc, kotlin, base, key.at + 1..key.end() - 1)
 }
 
-pub(crate) fn context(doc: &Document, at: usize) -> Option<Context> {
+fn eligible(doc: &Document) -> bool {
     let kotlin = doc.language == "kotlin";
-    if !(doc.language == "java" && doc.path.ends_with(".java") || kotlin && doc.path.ends_with(".kt"))
-        || doc.text.len() > MAX_SOURCE
-        || !normalized(&doc.path)
-        || !doc.text.is_char_boundary(at)
-    {
-        return None;
-    }
+    (doc.language == "java" && doc.path.ends_with(".java") || kotlin && doc.path.ends_with(".kt"))
+        && doc.text.len() <= MAX_SOURCE
+        && normalized(&doc.path)
+}
+/// Tokens and declarations of a bounded, balanced source with no supertypes
+/// and no star imports; anything else is outside the proven subset.
+fn parsed(doc: &Document) -> Option<(Vec<Tok<'_>>, java::JavaFile)> {
+    let kotlin = doc.language == "kotlin";
     if !kotlin && doc.text.contains("\\u") {
         return None;
     }
@@ -363,6 +365,15 @@ pub(crate) fn context(doc: &Document, at: usize) -> Option<Context> {
     if f.types.iter().any(|t| t.supers().next().is_some()) || f.imports.len() > 256 || f.imports.iter().any(|i| i.path.ends_with(".*")) {
         return None;
     }
+    Some((toks, f))
+}
+
+pub(crate) fn context(doc: &Document, at: usize) -> Option<Context> {
+    let kotlin = doc.language == "kotlin";
+    if !eligible(doc) || !doc.text.is_char_boundary(at) {
+        return None;
+    }
+    let (toks, f) = parsed(doc)?;
     let in_import = |t: &Tok| f.imports.iter().any(|i| i.at <= t.at && t.at < i.end);
     let imports: Vec<_> = f.imports.iter().filter(|i| !i.is_static && i.path.rsplit('.').next() == Some("ResourceBundle")).collect();
     let imported = imports.len() == 1 && imports[0].path == "java.util.ResourceBundle" && {
@@ -426,7 +437,278 @@ pub(crate) fn context(doc: &Document, at: usize) -> Option<Context> {
         }
         return owned_context(doc, kotlin, base, span);
     }
+    if let Some(context) = constant_context(doc, &toks, at, kotlin, &qualifier, short_unshadowed, java_unshadowed) {
+        return Some(context);
+    }
+    if let Some(context) = annotated(doc, &toks, &f, kotlin, Some(at)).into_iter().next() {
+        return Some(context);
+    }
     local_context(doc, &toks, &f, at, kotlin, short_unshadowed, java_unshadowed)
+}
+/// A same-file constant (`static final String K = "x"` / `const val K = "x"`)
+/// whose every other mention is the sole argument of one proven direct
+/// `ResourceBundle.getBundle("b").getString(K)` call. Anything else stays quiet.
+fn constant_context(
+    doc: &Document,
+    toks: &[Tok],
+    at: usize,
+    kotlin: bool,
+    qualifier: &dyn Fn(usize) -> bool,
+    short: bool,
+    full: bool,
+) -> Option<Context> {
+    let lit = toks.iter().position(|t| t.at < at && at < t.end() && plain(t, kotlin).is_some())?;
+    let texts = |from: usize, to: usize| toks.get(from..to).map(|s| s.iter().map(|t| t.s).collect::<Vec<_>>());
+    let name = if kotlin {
+        match (lit.checked_sub(4).and_then(|f| texts(f, lit)), lit.checked_sub(6).and_then(|f| texts(f, lit))) {
+            (Some(s), _) if s[0] == "const" && s[1] == "val" && s[3] == "=" => lit - 2,
+            (_, Some(s)) if s[0] == "const" && s[1] == "val" && s[3] == ":" && s[4] == "String" && s[5] == "=" => lit - 4,
+            _ => return None,
+        }
+    } else {
+        let s = lit.checked_sub(5).and_then(|f| texts(f, lit))?;
+        if s[..3] != ["static", "final", "String"] || s[4] != "=" {
+            return None;
+        }
+        lit - 2
+    };
+    if !ident(toks[name].s) || toks.get(lit + 1).is_some_and(|t| !matches!(t.s, ";" | "}") && (!kotlin || !doc.text[toks[lit].end()..t.at].contains('\n'))) {
+        return None;
+    }
+    let mut base = None;
+    for i in (0..toks.len()).filter(|&i| toks[i].s == toks[name].s && i != name) {
+        let q = i.checked_sub(9)?;
+        let call = toks.get(q..=i + 1)?;
+        let qualified = q >= 4 && toks[q - 4..q].iter().map(|t| t.s).eq(["java", ".", "util", "."]);
+        let start = if qualified { q - 4 } else { q };
+        if !qualifier(q)
+            || start > 0 && matches!(toks[start - 1].s, "." | "@" | "import")
+            || !(if qualified { full } else { short })
+            || call[3].s != "("
+            || call[5].s != ")"
+            || call[6].s != "."
+            || !["getString", "getObject", "getStringArray"].contains(&call[7].s)
+            || call[8].s != "("
+            || call[10].s != ")"
+        {
+            return None;
+        }
+        let this = plain(&call[4], kotlin).filter(|b| bundle_name(b))?;
+        if base.replace(this).is_some_and(|b| b != this) {
+            return None;
+        }
+    }
+    let mut context = owned_context(doc, kotlin, base?, toks[lit].at + 1..toks[lit].end() - 1)?;
+    context.indirect = true;
+    Some(context)
+}
+
+const PROPERTY_KEY: &str = "org.jetbrains.annotations.PropertyKey";
+
+struct Decl {
+    owner: String,
+    owner_span: Range<usize>,
+    name: Option<String>,
+    arity: usize,
+    index: usize,
+    bundle: String,
+}
+/// The bundle of an exact, unshadowed `@PropertyKey(resourceBundle = "b")` on a `String` parameter.
+fn property_key_bundle(text: &str, f: &java::JavaFile, p: &java::Param) -> Option<String> {
+    let marked: Vec<_> = p.annotations.iter().filter(|a| a.name == "PropertyKey").collect();
+    let [a] = marked[..] else {
+        return None;
+    };
+    let alias = |i: &java::Import| text[i.end..].split('\n').next().unwrap_or("").trim_start().starts_with("as ");
+    let named: Vec<_> = f.imports.iter().filter(|i| i.path.rsplit('.').next() == Some("PropertyKey")).collect();
+    let spelled = match &text[a.at + 1..a.name_at] {
+        "" => matches!(named[..], [i] if i.path == PROPERTY_KEY && !i.is_static && !alias(i)),
+        "org.jetbrains.annotations." => named.iter().all(|i| i.path == PROPERTY_KEY && !i.is_static && !alias(i)),
+        _ => false,
+    };
+    if !spelled
+        || f.types.iter().any(|t| t.name == "PropertyKey")
+        || f.imports.iter().any(|i| text[i.end..].split('\n').next().unwrap_or("").trim_start().starts_with("as PropertyKey"))
+        || !p.ty.args.is_empty()
+        || p.ty.array
+        || !["String", "java.lang.String"].contains(&p.ty.text.trim_end_matches('?'))
+        || a.args.len() != 1
+    {
+        return None;
+    }
+    let arg = a.arg("resourceBundle")?;
+    let [s] = &arg.strings[..] else {
+        return None;
+    };
+    let exact = text.get(s.at - 1..s.end + 1) == Some(arg.text.as_str()) && text.get(s.at..s.end) == Some(s.value.as_str());
+    (exact && bundle_name(&s.value)).then(|| s.value.clone())
+}
+/// A parameter list without varargs or defaults, so arity equals position count.
+fn fixed_arity(toks: &[Tok], name_at: usize) -> bool {
+    let Some(i) = toks.iter().position(|t| t.at == name_at) else {
+        return false;
+    };
+    if toks.get(i + 1).is_none_or(|t| t.s != "(") || i > 0 && toks[i - 1].s == "." {
+        return false;
+    }
+    let list = &toks[i + 2..java::closing(toks, i + 1).max(i + 2)];
+    let mut depth = 0i32;
+    for (k, t) in list.iter().enumerate() {
+        match t.s {
+            "(" | "[" | "{" => depth += 1,
+            ")" | "]" | "}" => depth -= 1,
+            "=" | "vararg" if depth == 0 => return false,
+            "." if depth == 0 && list.get(k + 1).is_some_and(|n| n.s == ".") => return false,
+            _ => {}
+        }
+    }
+    true
+}
+/// Top-level, non-overloaded methods/constructors with exactly one annotated parameter.
+fn declarations(text: &str, toks: &[Tok], f: &java::JavaFile) -> Vec<Decl> {
+    let mut out = Vec::new();
+    for t in f.types.iter().filter(|t| t.outer.is_none()) {
+        for m in t.members.iter().filter(|m| m.kind != java::MemberKind::Field) {
+            let marked: Vec<_> = m.params.iter().enumerate().filter(|(_, p)| p.annotation("PropertyKey").is_some()).collect();
+            let [(index, param)] = marked[..] else {
+                continue;
+            };
+            let ctor = m.kind == java::MemberKind::Constructor;
+            let twins = t.members.iter().filter(|o| o.kind == m.kind && (ctor || o.name == m.name)).count();
+            let Some(bundle) = property_key_bundle(text, f, param) else {
+                continue;
+            };
+            if twins == 1 && fixed_arity(toks, m.at) {
+                out.push(Decl {
+                    owner: t.name.clone(),
+                    owner_span: t.start..t.end,
+                    name: (!ctor).then(|| m.name.clone()),
+                    arity: m.params.len(),
+                    index,
+                    bundle,
+                });
+            }
+        }
+    }
+    out
+}
+fn module_of(path: &str) -> Option<(&str, &'static str)> {
+    let marks = [("/src/main/java/", "main"), ("/src/main/kotlin/", "main"), ("/src/test/java/", "test"), ("/src/test/kotlin/", "test")];
+    let mut found = marks.iter().filter_map(|(m, set)| path.rsplit_once(m).map(|(root, _)| (root, *set)));
+    let owner = found.next()?;
+    found.next().is_none().then_some(owner)
+}
+/// Declarations of one project class found by import/package path in the same module; exactly one file or none.
+fn external_declarations(doc: &Document, f: &java::JavaFile, ty: &str) -> Vec<Decl> {
+    let qualified = f.resolve(ty);
+    let (Some((module, set)), Some(project)) = (module_of(&doc.path), openidea_plugin::host::project_of(&doc.path)) else {
+        return Vec::new();
+    };
+    let relative = qualified.replace('.', "/");
+    let sets: &[&str] = if set == "test" { &["test", "main"] } else { &["main"] };
+    let mut hits = Vec::new();
+    for set in sets {
+        for (dir, ext) in [("java", "java"), ("kotlin", "kt")] {
+            let path = format!("{module}/src/{set}/{dir}/{relative}.{ext}");
+            if let Ok(text) = project.read_file(&path) {
+                hits.push((path, text));
+            }
+        }
+    }
+    let [(path, text)] = &hits[..] else {
+        return Vec::new();
+    };
+    let declaring = Document {
+        path: path.clone(),
+        language: if path.ends_with(".kt") { "kotlin" } else { "java" }.into(),
+        version: 0,
+        text: text.clone(),
+    };
+    let Some((toks, df)) = eligible(&declaring).then(|| parsed(&declaring)).flatten() else {
+        return Vec::new();
+    };
+    let package = qualified.rsplit_once('.').map_or("", |(package, _)| package);
+    if df.package != package || df.types.iter().filter(|t| t.name == ty).count() != 1 {
+        return Vec::new();
+    }
+    declarations(text, &toks, &df).into_iter().filter(|d| d.owner == ty).collect()
+}
+/// String literals passed to the `@PropertyKey` parameter of a proven project
+/// method/constructor: unqualified same-class calls, `Type.method(..)` and
+/// `new Type(..)`/`Type(..)` where `Type` is declared in this file or by import/package
+/// in the same module. Instance receivers, overloads, varargs and defaults stay quiet.
+fn annotated(doc: &Document, toks: &[Tok], f: &java::JavaFile, kotlin: bool, only: Option<usize>) -> Vec<Context> {
+    let mut found = Vec::new();
+    let local = declarations(&doc.text, toks, f);
+    let mut external: std::collections::HashMap<String, Vec<Decl>> = std::collections::HashMap::new();
+    let calls = if kotlin { spring_text::kotlin::calls(&doc.text) } else { java::calls(&doc.text) };
+    for call in calls.iter().filter(|c| !c.chained) {
+        if only.is_some_and(|at| !call.args.iter().any(|a| a.string.as_ref().is_some_and(|s| s.at <= at && at <= s.end))) {
+            continue;
+        }
+        let Ok(ci) = toks.binary_search_by_key(&call.at, |t| t.at) else {
+            continue;
+        };
+        let before = |n: usize| ci.checked_sub(n).map(|i| toks[i].s);
+        let (qualifier, ctor) = match (&call.receiver, call.is_new) {
+            (None, true) if before(1) != Some(".") => (Some(call.name.as_str()), true),
+            (None, false) if before(1) != Some(".") => (None, false),
+            (Some(r), false)
+                if before(1) == Some(".")
+                    && before(2) == Some(r.as_str())
+                    && before(3) != Some(".")
+                    && r.starts_with(|c: char| c.is_uppercase()) =>
+            {
+                (Some(r.as_str()), false)
+            }
+            _ => continue,
+        };
+        let in_file = |ty: &str| f.types.iter().filter(|t| t.name == ty).count();
+        let decl = match qualifier {
+            Some(ty) if in_file(ty) == 1 => local.iter().find(|d| d.owner == ty && d.name.as_deref() == (!ctor).then_some(call.name.as_str())),
+            Some(ty) if in_file(ty) == 0 && external.len() < 16 => external
+                .entry(ty.to_owned())
+                .or_insert_with(|| external_declarations(doc, f, ty))
+                .iter()
+                .find(|d| d.name.as_deref() == (!ctor).then_some(call.name.as_str())),
+            Some(_) => None,
+            None => {
+                let named = f.types.iter().flat_map(|t| &t.members).filter(|m| m.name == call.name).count();
+                local.iter().find(|d| named == 1 && d.name.as_deref() == Some(call.name.as_str()) && d.owner_span.contains(&call.at))
+            }
+        };
+        let Some(decl) = decl.filter(|d| d.arity == call.args.len()) else {
+            continue;
+        };
+        let Some(string) = call.args[decl.index].string.as_ref() else {
+            continue;
+        };
+        if only.is_some_and(|at| !(string.at <= at && at <= string.end)) {
+            continue;
+        }
+        let Ok(ti) = toks.binary_search_by_key(&(string.at - 1), |t| t.at) else {
+            continue;
+        };
+        let arg = &call.args[decl.index];
+        if plain(&toks[ti], kotlin).is_none() || arg.at != toks[ti].at || arg.end != toks[ti].end() {
+            continue;
+        }
+        if let Some(mut context) = owned_context(doc, kotlin, &decl.bundle, string.at..string.end) {
+            context.indirect = true;
+            found.push(context);
+        }
+    }
+    found
+}
+/// Every proven `@PropertyKey` literal of a source, for diagnostics.
+pub(crate) fn property_key_contexts(doc: &Document) -> Vec<Context> {
+    if !eligible(doc) || !doc.text.contains("(") {
+        return Vec::new();
+    }
+    let Some((toks, f)) = parsed(doc) else {
+        return Vec::new();
+    };
+    annotated(doc, &toks, &f, doc.language == "kotlin", None)
 }
 impl Context {
     pub(crate) fn contains(&self, path: &str) -> bool {
@@ -458,6 +740,10 @@ impl Context {
             }
         }
         Some(keys)
+    }
+    /// Every physical file of this bundle was indexed: no skipped, oversized or truncated source.
+    pub(crate) fn resolved(&self, index: &KeyIndex) -> bool {
+        index.complete && index.files.iter().any(|p| self.contains(p)) && !index.skipped.iter().any(|p| self.contains(p))
     }
     pub(crate) fn is_default(&self, path: &str) -> bool {
         path == format!("{}.properties", self.prefix)
@@ -592,6 +878,141 @@ mod tests {
         let wrong = Document { language: "java".into(), ..d };
         assert!(p.definition(&wrong, at(&wrong)).is_empty());
         assert!(!include_str!("../plugin.toml").contains("contributes.documentIndexers"));
+    }
+    #[test]
+    fn same_file_constant_keys_resolve_only_when_every_use_is_one_proven_getter() {
+        let _h = host();
+        let mut p = Properties::default();
+        let java = "import java.util.ResourceBundle; class App { static final String KEY = \"owned.key\"; String f(){return ResourceBundle.getBundle(\"pkg.messages\").getString(KEY);} }";
+        let kotlin = "import java.util.ResourceBundle\nconst val KEY: String = \"owned.key\"\nfun f() = ResourceBundle.getBundle(\"pkg.messages\").getString(KEY)";
+        let kotlin_plain = "const val KEY = \"owned.key\"\nfun f() = java.util.ResourceBundle.getBundle(\"pkg.messages\").getObject(KEY)";
+        for (source, is_kotlin) in [(java, false), (kotlin, true), (kotlin_plain, true)] {
+            let d = doc(source, is_kotlin);
+            p.key_index(&d.path).unwrap();
+            let c = context(&d, text::offset(&d.text, at(&d)).unwrap()).unwrap();
+            assert!(c.indirect);
+            assert_eq!(&d.text[c.span.clone()], "owned.key");
+            assert_eq!(c.bundle, "pkg.messages");
+            assert_eq!(p.definition(&d, at(&d)).len(), 2);
+        }
+    }
+    #[test]
+    fn constant_keys_with_other_uses_mixed_bundles_or_no_use_stay_quiet() {
+        let _h = host();
+        for (source, kotlin) in [
+            ("class App { static final String KEY = \"owned.key\"; }", false),
+            ("import java.util.ResourceBundle; class App { static final String KEY = \"owned.key\"; String f(){return ResourceBundle.getBundle(\"pkg.messages\").getString(KEY);} String g(){return KEY;} }", false),
+            ("import java.util.ResourceBundle; class App { static final String KEY = \"owned.key\"; String f(){return ResourceBundle.getBundle(\"pkg.messages\").getString(KEY);} String g(){return ResourceBundle.getBundle(\"pkg.other\").getString(KEY);} }", false),
+            ("import java.util.ResourceBundle; class App { final String KEY = \"owned.key\"; String f(){return ResourceBundle.getBundle(\"pkg.messages\").getString(KEY);} }", false),
+            ("import java.util.ResourceBundle; class App { static final String KEY = \"owned.key\"; String f(String KEY){return ResourceBundle.getBundle(\"pkg.messages\").getString(KEY);} }", false),
+            ("import java.util.ResourceBundle\nval KEY = \"owned.key\"\nfun f() = ResourceBundle.getBundle(\"pkg.messages\").getString(KEY)", true),
+            ("import other.ResourceBundle\nconst val KEY = \"owned.key\"\nfun f() = ResourceBundle.getBundle(\"pkg.messages\").getString(KEY)", true),
+        ] {
+            let d = doc(source, kotlin);
+            assert!(context(&d, d.text.find("owned.key").unwrap() + 1).is_none(), "{source}");
+        }
+    }
+    const PK_IMPORT: &str = "import org.jetbrains.annotations.PropertyKey;";
+    const PK_PARAM: &str = "@PropertyKey(resourceBundle = \"pkg.messages\") String key";
+    fn warm(_h: &MockHost, source: &Document) -> Properties {
+        let mut p = Properties::default();
+        p.key_index(&source.path).unwrap();
+        p
+    }
+    #[test]
+    fn property_key_literals_resolve_definition_hover_completion_for_same_file_calls() {
+        let h = host();
+        let java = format!(
+            "{PK_IMPORT} class Msg {{ static String get({PK_PARAM}) {{ return key; }} static String two({PK_PARAM}, Object a) {{ return key; }} String f(){{ return Msg.get(\"owned.key\") + get(\"owned.key\") + new Msg().ctor(1) ; }} }}"
+        );
+        let d = doc(&java, false);
+        let mut p = warm(&h, &d);
+        for needle in ["Msg.get(\"owned.key", " get(\"owned.key"] {
+            let pos = text::position(&d.text, d.text.find(needle).unwrap() + needle.len() - 3);
+            assert_eq!(p.definition(&d, pos).len(), 2, "{needle}");
+            assert!(p.hover(&d, pos).unwrap().markdown.contains("Right"));
+            assert_eq!(p.completion(&d, pos, None).len(), 1);
+        }
+        let kotlin = "import org.jetbrains.annotations.PropertyKey\nclass Msg {\n fun get(@PropertyKey(resourceBundle = \"pkg.messages\") key: String): String = key\n fun f() = get(\"owned.key\")\n}";
+        let d = doc(kotlin, true);
+        assert_eq!(p.definition(&d, at(&d)).len(), 2);
+        let fqn = "class Msg { static String get(@org.jetbrains.annotations.PropertyKey(resourceBundle = \"pkg.messages\") String key){return key;} String f(){return get(\"owned.key\");} }";
+        let d = doc(fqn, false);
+        assert_eq!(p.definition(&d, at(&d)).len(), 2);
+    }
+    #[test]
+    fn property_key_calls_resolve_declarations_in_other_project_files_exactly_once() {
+        let h = host();
+        h.add_file(
+            "module/src/main/java/app/Msg.java",
+            &format!("package app; {PK_IMPORT} public class Msg {{ public Msg({PK_PARAM}) {{}} public static String get({PK_PARAM}) {{ return key; }} }}"),
+        );
+        let mut d = doc("package app; class Use { Object f(){ new Msg(\"owned.key\"); return Msg.get(\"owned.key\"); } }", false);
+        d.path = "/project/module/src/main/java/app/Use.java".into();
+        let mut p = warm(&h, &d);
+        let call = text::position(&d.text, d.text.find("Msg.get(\"owned").unwrap() + 12);
+        assert_eq!(p.definition(&d, call).len(), 2);
+        let ctor = text::position(&d.text, d.text.find("Msg(\"owned").unwrap() + 7);
+        assert_eq!(p.definition(&d, ctor).len(), 2);
+        h.add_file("module/src/test/java/app/Msg.java", "package app; class Msg {}");
+        let t = Document { path: "/project/module/src/test/java/app/Use.java".into(), language: "java".into(), version: 2, text: d.text.clone() };
+        assert!(p.definition(&t, call).is_empty(), "main and test declarations are ambiguous");
+        h.add_file("module/src/main/java/app/Msg.java", &format!("package other; {PK_IMPORT} class Msg {{ static String get({PK_PARAM}) {{ return key; }} }}"));
+        assert!(p.definition(&d, call).is_empty(), "package mismatch");
+    }
+    #[test]
+    fn property_key_stays_quiet_for_shadowed_aliased_ambiguous_or_instance_shapes() {
+        let h = host();
+        let _ = &h;
+        let call = "String f(){return Msg.get(\"owned.key\");}";
+        let cases = [
+            format!("class Msg {{ static String get({PK_PARAM}) {{return key;}} {call} }}"),
+            format!("import foo.PropertyKey; class Msg {{ static String get({PK_PARAM}) {{return key;}} {call} }}"),
+            format!("import org.jetbrains.annotations.*; class Msg {{ static String get({PK_PARAM}) {{return key;}} {call} }}"),
+            format!("{PK_IMPORT} @interface PropertyKey {{}} class Msg {{ static String get({PK_PARAM}) {{return key;}} {call} }}"),
+            format!("{PK_IMPORT} class Msg {{ static String get({PK_PARAM}) {{return key;}} static String get({PK_PARAM}, int n) {{return key;}} {call} }}"),
+            format!("{PK_IMPORT} class Msg {{ static String get({PK_PARAM}, Object... rest) {{return key;}} String f(){{return Msg.get(\"owned.key\", 1);}} }}"),
+            format!("{PK_IMPORT} class Msg {{ static String get({PK_PARAM}) {{return key;}} String f(Msg msg){{return msg.get(\"owned.key\");}} }}"),
+            format!("{PK_IMPORT} class Msg {{ static String get({PK_PARAM}) {{return key;}} String f(){{return Msg.get(\"owned.key\", 2);}} }}"),
+            format!("{PK_IMPORT} class Msg {{ static String get(@PropertyKey(resourceBundle = \"pkg.\" + \"messages\") String key) {{return key;}} {call} }}"),
+            format!("{PK_IMPORT} class Msg {{ static String get(@PropertyKey(resourceBundle = \"missing.bundle\") String key) {{return key;}} {call} }}")
+                .replace("\"missing.bundle\"", "\"bad-name\""),
+            format!("{PK_IMPORT} class Msg {{ static String get(@PropertyKey(resourceBundle = \"pkg.messages\") Object key) {{return key;}} {call} }}"),
+            format!("{PK_IMPORT} class Msg {{ static String get({PK_PARAM}) {{return key;}} String f(String key){{return Msg.get(key + \"owned.key\");}} }}"),
+        ];
+        for source in &cases {
+            let d = doc(source, false);
+            assert!(context(&d, d.text.rfind("owned.key").unwrap() + 1).is_none_or(|c| !c.indirect), "{source}");
+        }
+        let alias = "import org.jetbrains.annotations.PropertyKey as PK\nclass Msg { fun get(@PK(resourceBundle = \"pkg.messages\") key: String) = key\n fun f() = get(\"owned.key\") }";
+        let d = doc(alias, true);
+        assert!(context(&d, d.text.rfind("owned.key").unwrap() + 1).is_none());
+        let defaults = "import org.jetbrains.annotations.PropertyKey\nclass Msg { fun get(@PropertyKey(resourceBundle = \"pkg.messages\") key: String, n: Int = 1) = key\n fun f() = get(\"owned.key\") }";
+        let d = doc(defaults, true);
+        assert!(context(&d, d.text.rfind("owned.key").unwrap() + 1).is_none());
+    }
+    #[test]
+    fn property_key_diagnostics_require_a_completely_indexed_owned_bundle() {
+        use openidea_plugin::diagnostics::DiagnosticsProvider;
+        let h = host();
+        let source = format!("{PK_IMPORT} class Msg {{ static String get({PK_PARAM}) {{return key;}} String f(){{return get(\"owned.key\") + get(\"gone.key\");}} }}");
+        let d = doc(&source, false);
+        let mut p = Properties::default();
+        assert!(p.diagnostics(&d).is_empty(), "cold index");
+        p.key_index(&d.path).unwrap();
+        let found = p.diagnostics(&d);
+        assert_eq!(found.len(), 1);
+        assert!(found[0].message.contains("gone.key") && found[0].message.contains("pkg.messages"));
+        assert_eq!(found[0].code.as_deref(), Some("PropertyKeyUnresolved"));
+        h.add_file("module/src/main/resources/pkg/messages_fr.properties", &"a=b\n".repeat(40000));
+        let mut p = Properties::default();
+        p.key_index(&d.path).unwrap();
+        assert!(p.diagnostics(&d).is_empty(), "an unreadable locale file makes the bundle unresolved");
+        let missing = format!("{PK_IMPORT} class Msg {{ static String get(@PropertyKey(resourceBundle = \"pkg.absent\") String key) {{return key;}} String f(){{return get(\"gone.key\");}} }}");
+        let d = doc(&missing, false);
+        let mut p = Properties::default();
+        p.key_index(&d.path).unwrap();
+        assert!(p.diagnostics(&d).is_empty(), "no physical bundle file");
     }
     #[test]
     fn exact_quarkus_annotation_never_borrows_a_proven_bundle_call_in_the_same_document() {

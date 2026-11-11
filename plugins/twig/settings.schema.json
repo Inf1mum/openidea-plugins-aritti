@@ -76,6 +76,22 @@
       "type": "boolean",
       "title": "Build exact static macro/block/import models for navigation, highlights and reviewed Rename (no unchecked native indexed edits)",
       "default": true
+    },
+    "templateNamespaces": {
+      "type": "array",
+      "title": "Twig loader namespaces",
+      "description": "Map @namespace/name.twig template names to project-relative directories (no .., no absolute paths; at most 32 entries). A namespace mapped twice is ignored.",
+      "default": [],
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "required": ["namespace", "path"],
+        "additionalProperties": false,
+        "properties": {
+          "namespace": { "type": "string", "title": "Namespace (without @)", "minLength": 1, "maxLength": 128 },
+          "path": { "type": "string", "title": "Project-relative directory", "minLength": 1, "maxLength": 128 }
+        }
+      }
     }
   }
 }

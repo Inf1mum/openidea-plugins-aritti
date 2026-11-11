@@ -487,7 +487,7 @@ impl FileActions for Twig {
         };
         let edges = graph(doc);
         let Some((key, range)) = selected(&edges, selection.start) else {
-            return vec![];
+            return crate::macro_rename::offered(doc, selection).into_iter().collect();
         };
         let Some(token) = lease(&mut self.reviewed_symbols, doc, key, range) else {
             return vec![];
@@ -505,6 +505,9 @@ impl FileActions for Twig {
         action: FileAction,
     ) -> Result<FileAction, Error> {
         let _scope = delimiters::Syntax::scope().ok_or(Error::Stale)?;
+        if action.data.as_deref().is_some_and(|d| d.starts_with(crate::macro_rename::PREFIX)) {
+            return crate::macro_rename::resolve(doc, action);
+        }
         let token = action.data.as_deref().ok_or(Error::Stale)?;
         let pending = self
             .reviewed_symbols

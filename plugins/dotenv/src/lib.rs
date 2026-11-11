@@ -380,6 +380,47 @@ mod tests {
         assert_eq!(plugin.definition(&env, Position::new(0, 1))[0].path, "/p/worker.py");
     }
 
+    fn compose_project() -> MockHost {
+        let host = MockHost::install();
+        host.set_project_root(Some("/p"));
+        host.add_file(".env", "WEB_PORT=80\nUNUSED=1\nAPP_KEY=x\nDB_PASSWORD=y\nCOMPOSE_PROJECT_NAME=p\n");
+        host.add_file("compose.yaml", "services:\n  web:\n    ports: [\"${WEB_PORT}:80\"]\n    image: ${IMAGE}\n    command: ${TAG:-x} ${MISSING}\n    environment:\n      - DB_PASSWORD\n");
+        host.add_file("app.php", "<?php env('APP_KEY');");
+        host
+    }
+
+    #[test]
+    fn compose_interpolations_link_to_dotenv_keys_with_info_hints_only() {
+        use openidea_plugin::diagnostics::DiagnosticsProvider;
+        let _host = compose_project();
+        let mut plugin = walked();
+        let text = host::project_of("/p/compose.yaml").unwrap().read_file("/p/compose.yaml").unwrap();
+        let compose = doc("/p/compose.yaml", "yaml", &text);
+        let hints: Vec<_> = plugin.diagnostics(&compose).into_iter().map(|d| (d.severity, d.message)).collect();
+        assert_eq!(hints.len(), 2);
+        assert!(hints.iter().all(|(s, _)| *s == Severity::Info));
+        assert!(hints[0].1.contains("IMAGE") && hints[1].1.contains("MISSING"));
+
+        let env = doc("/p/.env", "dotenv", "WEB_PORT=80\nUNUSED=1\nAPP_KEY=x\nDB_PASSWORD=y\nCOMPOSE_PROJECT_NAME=p\n");
+        let unused: Vec<_> = plugin.diagnostics(&env).into_iter().map(|d| (d.severity, d.message)).collect();
+        assert_eq!(unused.len(), 1);
+        assert!(unused[0].0 == Severity::Info && unused[0].1.contains("UNUSED"));
+        let usages: Vec<_> = plugin.definition(&env, Position::new(0, 2)).into_iter().map(|l| l.path).collect();
+        assert_eq!(usages, ["/p/compose.yaml"]);
+
+        plugin.projects.get_mut("/p").unwrap().complete = false;
+        assert!(plugin.diagnostics(&compose).is_empty() && plugin.diagnostics(&env).is_empty());
+    }
+
+    #[test]
+    fn env_file_targets_are_not_reported_unused() {
+        use openidea_plugin::diagnostics::DiagnosticsProvider;
+        let host = compose_project();
+        host.add_file("compose.yaml", "services:\n  web:\n    env_file: .env\n");
+        let env = doc("/p/.env", "dotenv", "UNUSED=1\n");
+        assert!(walked().diagnostics(&env).is_empty());
+    }
+
     #[test]
     fn publishes_problems_and_offers_their_fixes() {
         let _host = project();
@@ -433,9 +474,16 @@ mod tests {
 
 impl openidea_plugin::diagnostics::DiagnosticsProvider for DotEnv {
     fn diagnostics(&mut self, doc: &Document) -> Vec<Diagnostic> {
-        if !is_env_file(&doc.path) || doc.text.len() > index::MAX_SOURCE_BYTES {
+        if doc.text.len() > index::MAX_SOURCE_BYTES {
             return Vec::new();
         }
+        if index::is_compose_file(&doc.path) {
+            return self.undefined_compose_variables(doc);
+        }
+        if !is_env_file(&doc.path) {
+            return Vec::new();
+        }
+        let unused = self.unused_compose_keys(doc);
         self.inspect(&doc.path, &doc.text)
             .into_iter()
             .map(|p| {
@@ -444,6 +492,63 @@ impl openidea_plugin::diagnostics::DiagnosticsProvider for DotEnv {
                     lint::Level::Warning => Severity::Warning,
                 };
                 Diagnostic::new(range(&doc.text, p.range), severity, p.message).code(p.code)
+            })
+            .chain(unused)
+            .collect()
+    }
+}
+
+/// Cache-only Info hints about Compose interpolation. Compose also reads the
+/// shell and `--env-file`, so these are never warnings and stay quiet unless
+/// the cache is complete and holds the project-directory `.env`.
+impl DotEnv {
+    fn cached_index(&self, path: &str) -> Option<&Index> {
+        let root = host::project_of(path).and_then(|project| project.root().ok())?;
+        self.projects.get(&root).filter(|index| index.complete)
+    }
+
+    fn undefined_compose_variables(&self, doc: &Document) -> Vec<Diagnostic> {
+        let Some(index) = self.cached_index(&doc.path) else {
+            return Vec::new();
+        };
+        let env_path = format!("{}/.env", index::folder_of(&doc.path));
+        let defined: HashSet<&str> = index.declarations.iter().filter(|d| d.location.path == env_path).map(|d| d.key.as_str()).collect();
+        if defined.is_empty() {
+            return Vec::new();
+        }
+        docker::compose_interpolations(&doc.text)
+            .into_iter()
+            .filter(|i| !i.has_operator && !defined.contains(i.name.as_str()) && !i.name.starts_with("COMPOSE_"))
+            .map(|i| {
+                let message = format!("`{}` is not set in the project-directory .env; Compose may still read it from the shell or --env-file.", i.name);
+                Diagnostic::new(range(&doc.text, i.range), Severity::Info, message).code("ComposeUndefinedVariable")
+            })
+            .collect()
+    }
+
+    fn unused_compose_keys(&self, doc: &Document) -> Vec<Diagnostic> {
+        if index::file_name(&doc.path) != ".env" {
+            return Vec::new();
+        }
+        let Some(index) = self.cached_index(&doc.path) else {
+            return Vec::new();
+        };
+        if !index.compose_folders.contains(index::folder_of(&doc.path)) || index.env_file_paths.contains(&doc.path) {
+            return Vec::new();
+        }
+        let tokens = parse::lex(&doc.text);
+        parse::properties(&doc.text, &tokens)
+            .into_iter()
+            .filter(|p| {
+                let key = p.name(&doc.text);
+                !key.starts_with("COMPOSE_")
+                    && !key.starts_with("DOCKER_")
+                    && !index.usages.iter().any(|u| u.key == key)
+                    && !index.declarations.iter().any(|d| d.key == key && !is_env_file(&d.location.path))
+            })
+            .map(|p| {
+                let message = format!("`{}` is not referenced by Compose interpolation, code or container environment.", p.name(&doc.text));
+                Diagnostic::new(range(&doc.text, p.key), Severity::Info, message).code("ComposeUnusedKey")
             })
             .collect()
     }

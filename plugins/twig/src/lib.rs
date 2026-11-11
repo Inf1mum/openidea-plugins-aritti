@@ -4,6 +4,7 @@
 
 mod checks;
 mod reviewed_symbols;
+mod macro_rename;
 mod template_index;
 mod signatures;
 mod formatting;
@@ -101,10 +102,33 @@ fn extension_source(root:&str,path:&str)->bool {
 }
 fn same_owner(root:&str,path:&str)->bool {canonical(root,path)&&project_of(path).and_then(|p|p.root().ok()).as_deref()==Some(root)}
 
+/// `templateNamespaces` entries as (namespace, project-relative directory): bounded, relative, no `..`.
+fn template_namespaces() -> Vec<(String, String)> {
+    let raw = host::setting("templateNamespaces").unwrap_or_default();
+    let entries: Vec<serde_json::Value> = if raw.len() > 16 << 10 { Vec::new() } else { serde_json::from_str(&raw).unwrap_or_default() };
+    let safe = |value: &str, allow_slash: bool| {
+        !value.is_empty()
+            && value.len() <= 128
+            && !value.starts_with('/')
+            && !value.contains(['\\', ':', '*', '?', '[', ']', '@'])
+            && !value.chars().any(char::is_control)
+            && (allow_slash || !value.contains('/'))
+            && value.trim_end_matches('/').split('/').all(|p| !p.is_empty() && !matches!(p, "." | ".."))
+    };
+    entries
+        .into_iter()
+        .take(32)
+        .filter_map(|e| {
+            let field = |key: &str| e.get(key).and_then(|v| v.as_str()).map(str::to_owned);
+            Some((field("namespace")?.trim_start_matches('@').to_owned(), field("path")?.trim_end_matches('/').to_owned()))
+        })
+        .filter(|(namespace, path)| safe(namespace, false) && safe(path, true))
+        .collect()
+}
+
 fn template_path(project: &Project, name: &str) -> Option<String> {
     if name.is_empty()
         || name.starts_with('/')
-        || name.starts_with('@')
         || name.contains(['\\', ':', '*', '?', '[', ']'])
         || name.chars().any(char::is_control)
         || name.split('/').any(|p| p.is_empty() || matches!(p, "." | ".."))
@@ -112,8 +136,21 @@ fn template_path(project: &Project, name: &str) -> Option<String> {
         return None;
     }
     let root = project.root().ok()?;
-    let direct=format!("templates/{name}");let full=format!("{root}/{direct}");
-    if !same_owner(&root,&full)||project.stat(&direct).ok()?.kind!=openidea_plugin::FileKind::File{return None;}
+    let direct = match name.strip_prefix('@') {
+        None => format!("templates/{name}"),
+        Some(namespaced) => {
+            let (namespace, rest) = namespaced.split_once('/')?;
+            let mapped = template_namespaces().into_iter().filter(|(n, _)| n == namespace).collect::<Vec<_>>();
+            if mapped.len() != 1 {
+                return None;
+            }
+            format!("{}/{rest}", mapped[0].1)
+        }
+    };
+    let full = format!("{root}/{direct}");
+    if !same_owner(&root, &full) || project.stat(&direct).ok()?.kind != openidea_plugin::FileKind::File {
+        return None;
+    }
     Some(full)
 }
 
@@ -376,7 +413,7 @@ impl Providers for Twig {
         }
 
         if let Some((name, _)) = navigate::template_at(&doc.text, offset) {
-            if is_symfony(&project) {
+            if is_symfony(&project) && !name.starts_with('@') {
                 return Vec::new();
             }
 
@@ -1468,6 +1505,38 @@ mod project_tests {
         assert!(twig.definition(&d, p).is_empty());
         let (d, p) = at("{% import 'forms.html.twig' as f %}{{ f.^ }}");
         assert!(twig.completion(&d, p, None).is_empty());
+    }
+    #[test]
+    fn configured_namespaces_resolve_template_literals_and_macros_with_bounded_paths() {
+        let host = host();
+        host.add_file("lib/ui/forms.html.twig", "{% macro input(a) %}{% endmacro %}");
+        host.add_file("elsewhere/forms.html.twig", "x");
+        let mut twig = Twig::default();
+        let (d, p) = at("{% include '@ui/forms.ht^ml.twig' %}");
+        assert!(twig.definition(&d, p).is_empty());
+        host.set_setting("templateNamespaces", r#"[{"namespace":"@ui","path":"lib/ui/"}]"#);
+        assert!(twig.definition(&d, p)[0].path.ends_with("/lib/ui/forms.html.twig"));
+        for kind in ["extends", "embed", "use", "import", "from"] {
+            let tail = match kind { "import" => " as f", "from" => " import input", "use" => "", _ => "" };
+            let (d, p) = at(&format!("{{% {kind} '@ui/forms.ht^ml.twig'{tail} %}}"));
+            assert_eq!(twig.definition(&d, p).len(), 1, "{kind}");
+        }
+        let (d, p) = at("{% import '@ui/forms.html.twig' as f %}{{ f.in^put() }}");
+        assert!(twig.definition(&d, p)[0].path.ends_with("/lib/ui/forms.html.twig"));
+        host.add_file("symfony.lock", "{}");
+        let (d, p) = at("{% include '@ui/forms.ht^ml.twig' %}");
+        assert_eq!(twig.definition(&d, p).len(), 1);
+        for bad in [
+            r#"[{"namespace":"ui","path":"../elsewhere"}]"#,
+            r#"[{"namespace":"ui","path":"/abs"}]"#,
+            r#"[{"namespace":"ui","path":"lib/../elsewhere"}]"#,
+            r#"[{"namespace":"u/i","path":"lib/ui"}]"#,
+            r#"[{"namespace":"ui","path":"lib/ui"},{"namespace":"ui","path":"elsewhere"}]"#,
+            "not json",
+        ] {
+            host.set_setting("templateNamespaces", bad);
+            assert!(twig.definition(&d, p).is_empty(), "{bad}");
+        }
     }
     #[test]
     fn use_and_embed_targets_and_used_blocks_resolve_only_when_unambiguous() {

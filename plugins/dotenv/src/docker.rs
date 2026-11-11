@@ -227,6 +227,66 @@ fn compose_direct(text: &str) -> Vec<Entry> {
     out
 }
 
+/// A Compose `$VAR` / `${VAR…}` reference: the variable name's byte range and
+/// whether the braced form carries an operator (`-`, `:-`, `?`, `:?`, `+`, `:+`).
+pub struct Interpolation {
+    pub name: String,
+    pub range: Range<usize>,
+    pub has_operator: bool,
+}
+
+fn is_name_byte(b: u8, first: bool) -> bool {
+    b == b'_' || b.is_ascii_alphabetic() || (!first && b.is_ascii_digit())
+}
+
+/// Interpolations of a Compose file, per
+/// docs.docker.com/compose/how-tos/environment-variables/variable-interpolation.
+/// `$$` is a literal dollar; comments and malformed braces are left alone.
+pub fn compose_interpolations(text: &str) -> Vec<Interpolation> {
+    let mut out = Vec::new();
+    if text.len() > 256 * 1024 {
+        return out;
+    }
+    let mut offset = 0;
+    for line in text.split_inclusive('\n') {
+        let line_start = offset;
+        offset += line.len();
+        let code = line.split(" #").next().unwrap_or(line);
+        if code.trim_start().starts_with('#') {
+            continue;
+        }
+        let bytes = code.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] != b'$' {
+                i += 1;
+                continue;
+            }
+            let braced = bytes.get(i + 1) == Some(&b'{');
+            let start = i + 1 + usize::from(braced);
+            let mut end = start;
+            while end < bytes.len() && is_name_byte(bytes[end], end == start) {
+                end += 1;
+            }
+            i = if bytes.get(i + 1) == Some(&b'$') { i + 2 } else { end.max(i + 1) };
+            if end == start {
+                continue;
+            }
+            let has_operator = if braced {
+                match &bytes[end..] {
+                    [b'}', ..] => false,
+                    [b':', b'-' | b'?' | b'+', ..] | [b'-' | b'?' | b'+', ..] => true,
+                    _ => continue,
+                }
+            } else {
+                false
+            };
+            out.push(Interpolation { name: code[start..end].to_owned(), range: line_start + start..line_start + end, has_operator });
+        }
+    }
+    out
+}
+
 /// Read physical-source declarations and local YAML anchor references. Alias
 /// expansion preserves declaration locations; it does not infer runtime scope.
 pub fn compose(text: &str) -> Vec<Entry> {
@@ -451,6 +511,18 @@ pub fn compose_env_files(text: &str) -> Vec<String> { compose_env_file_graph(tex
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recognises_compose_interpolation_forms_and_skips_the_rest() {
+        let text = "a: ${A}\nb: ${B:-x} ${C-x} ${D:?e} ${E?e} ${F:+r} ${G+r}\nc: $H $$I $${J} ${K%x} ${}\n# ${L}\nd: ${M:-${N}} # ${O}\n";
+        let found = compose_interpolations(text);
+        assert!(found.iter().all(|i| text[i.range.clone()] == i.name));
+        let names: Vec<_> = found.iter().map(|i| (i.name.as_str(), i.has_operator)).collect();
+        assert_eq!(
+            names,
+            [("A", false), ("B", true), ("C", true), ("D", true), ("E", true), ("F", true), ("G", true), ("H", false), ("M", true), ("N", false)]
+        );
+    }
 
     fn keys(text: &str, entries: Vec<Entry>) -> Vec<(String, String, String)> {
         entries.into_iter().map(|(k, v, r)| (k, v, text[r].to_owned())).collect()

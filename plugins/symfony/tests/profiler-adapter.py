@@ -37,6 +37,22 @@ class ProfilerAdapter(unittest.TestCase):
             self.assertNotIn(b'password', result.stdout)
             self.assertNotIn(b'secret', result.stdout)
 
+    def test_time_cache_and_logger_shapes_are_decoded_and_bounded(self):
+        generator = '''class C { protected $data; function __construct($d){$this->data=$d;} }
+        echo serialize(['token'=>'abcdef','data'=>[
+         'time'=>new C(['events'=>[1,2,3],'stopwatch_installed'=>true,'start_time'=>1.7e12]),
+         'cache'=>new C(['instances'=>['calls'=>'x'],'total'=>['statistics'=>['calls'=>4,'time'=>0.5,'reads'=>3,'writes'=>1,'deletes'=>0,'hits'=>2,'misses'=>'bad','evil'=>9]]]),
+         'logger'=>new C(['error_count'=>1,'deprecation_count'=>2,'warning_count'=>3,'scream_count'=>-1,'logs'=>[1]])]]);'''
+        self.path.write_bytes(subprocess.check_output([PHP, '-n', '-r', generator]))
+        result = self.run_adapter()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        summary = json.loads(result.stdout)
+        self.assertEqual(summary['version'], 2)
+        m = {c['name']: c['metrics'] for c in summary['collectors']}
+        self.assertEqual(m['time'], {'start_time': 1.7e12, 'stored_events': 3, 'stopwatch_installed': 1})
+        self.assertEqual(m['cache'], {'cache_calls': 4, 'cache_time': 0.5, 'cache_reads': 3, 'cache_writes': 1, 'cache_deletes': 0, 'cache_hits': 2})
+        self.assertEqual(m['logger'], {'error_count': 1, 'deprecation_count': 2, 'warning_count': 3, 'stored_logs': 1})
+
     def test_malformed_wrong_token_and_decompression_limit_are_refused(self):
         for raw in [b'not a profile', gzip.compress(b'x'*1048577), b'x'*1048577]:
             self.path.write_bytes(raw)
