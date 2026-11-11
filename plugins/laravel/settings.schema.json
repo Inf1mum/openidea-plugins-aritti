@@ -100,6 +100,21 @@
       "title": "Report env() calls outside the config directory (they return null once the configuration is cached)",
       "default": true
     },
+    "checkSecurity": {
+      "type": "boolean",
+      "title": "Report request data passed unfiltered to create(), update() or fill() and variables in raw SQL",
+      "default": true
+    },
+    "upgradeInspection": {
+      "type": "boolean",
+      "title": "Show code that breaks on the next Laravel major version",
+      "default": true
+    },
+    "missingTranslationInspection": {
+      "type": "boolean",
+      "title": "Report translation keys that some locales have and others lack",
+      "default": true
+    },
     "routeHints": {
       "type": "boolean",
       "default": true,

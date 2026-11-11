@@ -6,6 +6,22 @@
 //! MIT) has are ported from its public source; the rest follows Laravel's own
 //! documentation. See README.md for what was and wasn't ported.
 
+pub(crate) const VIEW_MARKER: &str = "icons/marker-view.svg";
+pub(crate) const CONTROLLER_MARKER: &str = "icons/marker-controller.svg";
+pub(crate) const CONFIG_DEFAULTS_MARKER: &str = "icons/marker-config-defaults.svg";
+pub(crate) const USED_BY_MARKER: &str = "icons/marker-used-by.svg";
+pub(crate) const RENDERED_BY_MARKER: &str = "icons/marker-rendered-by.svg";
+pub(crate) const SECTION_PARENT_MARKER: &str = "icons/marker-section-parent.svg";
+pub(crate) const SECTION_CHILD_MARKER: &str = "icons/marker-section-child.svg";
+pub(crate) const STACK_PARENT_MARKER: &str = "icons/marker-stack-parent.svg";
+pub(crate) const STACK_PUSH_MARKER: &str = "icons/marker-stack-push.svg";
+pub(crate) const MIGRATION_MARKER: &str = "icons/marker-migration.svg";
+pub(crate) const MODEL_MARKER: &str = "icons/marker-model.svg";
+pub(crate) const MODEL_SUPPORT_MARKER: &str = "icons/marker-model-support.svg";
+pub(crate) const LISTENER_MARKER: &str = "icons/marker-listener.svg";
+pub(crate) const EVENT_MARKER: &str = "icons/marker-event.svg";
+pub(crate) const ROUTE_MARKER: &str = "icons/marker-route.svg";
+
 mod actions;
 mod about;
 mod artisan_metadata;
@@ -28,7 +44,14 @@ mod console_editor;
 mod directives;
 mod eloquent_checks;
 mod eloquent_members;
+mod feature_test;
 mod function_checks;
+mod security_checks;
+mod pest_completion;
+mod php_snippets;
+mod socialite_completion;
+mod tool_config;
+mod upgrade_checks;
 mod generate;
 mod generator_plan;
 mod generator_presets;
@@ -385,6 +408,16 @@ pub fn problems(index: &Index, language: &str, text: &str, check_routes: bool) -
                     crate::ui_text::format("root.formatted.4e520e6ec5", "Translation key \"{name}\" is missing.", &[("name", &format!("{}", name))]),
                 ));
             }
+            Kind::Translation if enabled("missingTranslationInspection") && !incomplete_locales(index, name).is_empty() => {
+                let locales = incomplete_locales(index, name).join(", ");
+                found.push(problem(
+                    text,
+                    reference.start..reference.end,
+                    "translation-missing-in-locale",
+                    Severity::Info,
+                    crate::ui_text::format("root.formatted.missingInLocale", "Translation key \"{name}\" is missing in: {locales}.", &[("name", name), ("locales", &locales)]),
+                ));
+            }
             Kind::Route if check_routes && !index.routes.contains_key(name) => {
                 found.push(problem(
                     text,
@@ -499,9 +532,37 @@ fn function_problems(project: &Project, path: &str, language: &str, text: &str) 
     };
     let relative = path.strip_prefix(&format!("{root}/")).unwrap_or(path);
 
+    let security = if enabled("checkSecurity") { security_checks::findings(relative, language, text) } else { Vec::new() };
+
     function_checks::env_outside_config(relative, language, text)
         .into_iter()
+        .chain(security)
         .map(|finding|{let message=if finding.code=="env-outside-config"{crate::ui_text::t("editor.final.envOutsideConfig",&finding.message)}else{finding.message};problem(text,finding.start..finding.end,finding.code,finding.severity,message)})
+        .collect()
+}
+
+fn pest_items(doc: &Document, offset: usize) -> Option<Vec<CompletionItem>> {
+    let (kind, start, end) = pest_completion::context(&doc.text, offset)?;
+    let project = project_for(&doc.path)?;
+    let replace = range_of(&doc.text, start, end);
+
+    Some(pest_completion::names(&project, kind).into_iter().map(|name| {
+        let mut item = CompletionItem::new(&name, CompletionKind::Reference);
+        item.replace = Some(replace);
+        item
+    }).collect())
+}
+
+fn upgrade_problems(index: &Index, language: &str, text: &str) -> Vec<Diagnostic> {
+    if !enabled("upgradeInspection") {
+        return Vec::new();
+    }
+
+    let installed = index.metadata.framework_version.map(|(major, _, _)| major);
+
+    upgrade_checks::findings(installed, language, text)
+        .into_iter()
+        .map(|finding| problem(text, finding.start..finding.end, finding.code, finding.severity, finding.message))
         .collect()
 }
 
@@ -574,6 +635,52 @@ fn missing_translation(index: &Index, name: &str) -> bool {
     index.translation_files.contains_key(file)
 }
 
+const SEARCH_LIMIT: usize = 5000;
+
+/// One picker over every route name, view, component, config key, translation and env key.
+fn search_names(index: &Index) -> Result<(), Error> {
+    let sections: [(&str, &Names); 6] = [
+        ("route", &index.routes),
+        ("view", &index.views),
+        ("component", &index.components),
+        ("config", &index.config),
+        ("translation", &index.translations),
+        ("env", &index.env),
+    ];
+
+    let choices: Vec<_> = sections
+        .iter()
+        .flat_map(|(kind, names)| names.iter().map(move |(name, entry)| (kind, name, entry)))
+        .filter(|(_, _, entry)| !entry.path.is_empty())
+        .take(SEARCH_LIMIT)
+        .map(|(kind, name, _)| openidea_plugin::PickItem::new(&format!("{kind}\u{1f}{name}"), name).description(kind))
+        .collect();
+
+    let Some(chosen) = host::pick(crate::ui_text::text("search.names", "Search routes, views, config, translations and env keys"), &choices)? else {
+        return Ok(());
+    };
+    let Some((kind, name)) = chosen.split_once('\u{1f}') else {
+        return Ok(());
+    };
+    let Some((_, names)) = sections.iter().find(|(section, _)| *section == kind) else {
+        return Ok(());
+    };
+
+    if let Some(entry) = names.get(name) {
+        host::open_location(&entry.path, entry.at.line, entry.at.character)?;
+    }
+    Ok(())
+}
+
+/// Locales that lack `name` although another locale has it.
+fn incomplete_locales(index: &Index, name: &str) -> Vec<String> {
+    if name.contains("::") || !index.translations.contains_key(name) || index.translations_by_locale.len() < 2 {
+        return Vec::new();
+    }
+
+    index.translations_by_locale.iter().filter(|(_, names)| !names.contains_key(name)).map(|(locale, _)| locale.clone()).collect()
+}
+
 #[derive(Default)]
 pub struct Main {
     artisan_terminals: generate::Terminals,
@@ -584,6 +691,8 @@ pub struct Main {
     request_promotions:request_promotion::State,
     /// By project root.
     indexes: BTreeMap<String, Index>,
+    /// `php` version by project root; `None` when `php` could not run.
+    php_versions: std::cell::RefCell<BTreeMap<String, Option<String>>>,
     pending_indexes: BTreeSet<String>,
     index_builders: BTreeMap<String, index::Builder>,
     index_progress: BTreeMap<String, (usize, usize)>,
@@ -652,6 +761,7 @@ impl Main {
                 let mut found = Vec::new();
                 found.extend(eloquent_problems(project, index, path, language, &text));
                 found.extend(function_problems(project, path, language, &text));
+                found.extend(upgrade_problems(index, language, &text));
                 found.extend(livewire_method_problems(project, index, path, language, &text));
                 found.extend(route_controller_problems(project, index, path, language, &text));
                 found.sort_by_key(|d| (d.range.start.line, d.range.start.character));
@@ -776,11 +886,37 @@ impl Main {
     }
 }
 
+impl Main {
+    /// The Laravel version of the project that owns `path`, and the PHP that runs it, in the status bar.
+    fn show_version_status(&self, path: &str) {
+        let project = project_for(path);
+        let root = project.as_ref().and_then(|project| project.root().ok());
+        let version = root.as_ref().and_then(|root| self.indexes.get(root)).and_then(|index| index.metadata.framework_version);
+
+        let (Some((major, minor, _)), Some(project), Some(root)) = (version, project, root) else {
+            host::remove_status_item("laravel-version");
+            return;
+        };
+
+        let php = self.php_versions.borrow_mut().entry(root).or_insert_with(|| {
+            let output = project.run_process("php", &["-r".to_owned(), "echo PHP_VERSION;".to_owned()], None).ok()?;
+            (output.status == Some(0)).then(|| output.stdout.trim().to_owned()).filter(|version| !version.is_empty())
+        }).clone();
+        let text = match php {
+            Some(php) => format!("Laravel {major}.{minor} · PHP {php}"),
+            None => format!("Laravel {major}.{minor}"),
+        };
+
+        host::set_status_item("laravel-version", &openidea_plugin::StatusItem { text, tooltip: None, command: None });
+    }
+}
+
 impl Plugin for Main {
     fn activate(&mut self, _ctx: &Context) -> Result<(), Error> {
         for kind in [EventKind::FileSaved, EventKind::FileOpened, EventKind::TerminalExited, EventKind::Scheduled, EventKind::SettingsChanged, EventKind::VcsChanged] {
             host::subscribe(kind)?;
         }
+        host::subscribe(EventKind::EditorFocused)?;
         host::subscribe_paths("files-changed", &["**/*.php", "**/*.json", "**/*.sql", "**/*.js", "**/*.ts", "**/*.mjs", "**/*.mts", ".env*", "resources/**/*"])?;
         self.index_all();
         Ok(())
@@ -923,6 +1059,13 @@ impl Plugin for Main {
                     ui_kit::web::reveal_view(artisan_workspace::VIEW,include_str!("ui_config.json"))?;
                     host::notify(NotificationLevel::Info,SOURCE,&crate::ui_text::format("root.formatted.79812948ba", "Refresh Artisan command metadata to configure {name}.", &[("name", &format!("{}", name))]));
                 }
+                Ok(None)
+            }
+            "search-names" => {
+                let project = ctx.project().ok_or(Error::Stale)?;
+                self.advance_index(&project);
+                let index = self.view_index(ctx).ok_or(Error::Stale)?;
+                search_names(index)?;
                 Ok(None)
             }
             "route-search" => {
@@ -1139,8 +1282,10 @@ impl Plugin for Main {
                     saved.insert(path);
                 }
                 Event::FileOpened(path) => {
+                    self.show_version_status(&path);
                     opened.insert(path);
                 }
+                Event::EditorFocused(Some(path)) => self.show_version_status(&path),
                 _ => {}
             }
         }
@@ -1370,6 +1515,14 @@ impl Main {
 
 impl Providers for Main {
     fn completion(&mut self, doc: &Document, at: Position, _trigger: Option<&str>) -> Vec<CompletionItem> {
+        if let Some(offset) = text::offset(&doc.text, at) && let Some(found) = tool_config::completion(&doc.path, &doc.text, offset) {
+            let replace = range_of(&doc.text, found.start, found.end);
+            return found.names.iter().map(|name| {
+                let mut item = CompletionItem::new(name, CompletionKind::Property);
+                item.replace = Some(replace);
+                item
+            }).collect();
+        }
         self.advance_document_index(&doc.path);
         if let Some(index)=self.index_for(&doc.path){let items=package_integrations::completion(index,doc,at);if !items.is_empty(){return items;}}
         if js::is_script(&doc.path, &doc.language) {
@@ -1395,6 +1548,31 @@ impl Providers for Main {
         };
         if language=="blade" {let bare=components::bare_completion(index,doc,at);if !bare.is_empty(){return bare;}}
         if language=="blade" {let values=components::value_completion(index,doc,at);if !values.is_empty(){return values;}}
+        if language == "php" && let Some(items) = pest_items(doc, offset) { return items; }
+        if language == "php" && let Some((start, end)) = socialite_completion::context(&doc.text, offset) {
+            let replace = range_of(&doc.text, start, end);
+            return socialite_completion::providers().iter().map(|name| {
+                let mut item = CompletionItem::new(name, CompletionKind::Reference);
+                item.replace = Some(replace);
+                item
+            }).collect();
+        }
+        if language == "php" && let Some((start, prefix)) = php_snippets::context(&doc.text, offset) {
+            let replace = range_of(&doc.text, start, offset);
+            let snippets: Vec<_> = php_snippets::matching(prefix).map(|(label, detail, body, imports)| {
+                let mut item = CompletionItem::new(label, CompletionKind::Snippet);
+                item.detail = Some((*detail).into());
+                item.insert_text = (*body).into();
+                item.snippet = true;
+                item.replace = Some(replace);
+                item.additional_edits = imports.iter().filter_map(|fqcn| php::insert_use(&doc.text, fqcn)).filter(|edit| !edit.text.is_empty()).map(|edit| {
+                    let at = text::position(&doc.text, edit.offset);
+                    TextEdit { range: Range::new(at, at), text: edit.text }
+                }).collect();
+                item
+            }).collect();
+            if !snippets.is_empty() { return snippets; }
+        }
         if language=="php" {let items=route_attributes::completion(index,doc,at);if !items.is_empty(){return items;}}
         if language=="php"{if let Some(items)=route_completion::short_controllers(index,doc,at){return items;}}
         if language=="php" {let items=route_completion::completion(index,doc,at);if !items.is_empty(){return items;}}
@@ -1591,6 +1769,34 @@ impl Providers for Main {
             ));
         }
 
+        if language == "php" && enabled("checkSecurity") && let Ok(root) = project_for(&doc.path).map_or(Err(()), |p| p.root().map_err(|_| ())) {
+            let relative = doc.path.strip_prefix(&format!("{root}/")).unwrap_or(&doc.path);
+            found.extend(security_checks::findings(relative, &doc.language, &doc.text).into_iter().filter(|f| f.start <= offset && offset <= f.end).filter_map(|finding| {
+                let replacement = finding.replacement?;
+                Some(CodeAction {
+                    title: crate::ui_text::format("root.formatted.acc1548281", "Replace with {replacement}", &[("replacement", &replacement)]),
+                    kind: Some("quickfix".into()),
+                    preferred: true,
+                    edits: vec![(doc.path.clone(), vec![TextEdit { range: range_of(&doc.text, finding.start, finding.end), text: replacement }])],
+                    data: None,
+                })
+            }));
+        }
+
+        if language == "php" && enabled("upgradeInspection") && let Some(index) = self.index_for(&doc.path) {
+            let installed = index.metadata.framework_version.map(|(major, _, _)| major);
+            found.extend(upgrade_checks::findings(installed, &doc.language, &doc.text).into_iter().filter(|f| f.start <= offset && offset <= f.end).filter_map(|finding| {
+                let replacement = finding.replacement?;
+                Some(CodeAction {
+                    title: crate::ui_text::format("root.formatted.acc1548281", "Replace with {replacement}", &[("replacement", &replacement)]),
+                    kind: Some("quickfix".into()),
+                    preferred: true,
+                    edits: vec![(doc.path.clone(), vec![TextEdit { range: range_of(&doc.text, finding.start, finding.end), text: replacement }])],
+                    data: None,
+                })
+            }));
+        }
+
         if language == "php"
             && let Some((range, text)) = unused::remove_model_phpdocs(&doc.text, offset)
         {
@@ -1702,7 +1908,7 @@ fn php_markers(index: &Index, project: &Project, doc: &Document) -> Vec<LineMark
         if let Some(target) = target.and_then(location) {
             markers.push(LineMarker {
                 line: line_of(reference.start),
-                icon: None,
+                icon: Some(if matches!(reference.kind, Kind::View) { VIEW_MARKER } else { CONTROLLER_MARKER }.into()),
                 tooltip: format!("{label} {name}"),
                 target: Some(target),
             });
@@ -1774,14 +1980,14 @@ fn blade_markers(index: &Index, project: &Project, doc: &Document) -> Vec<LineMa
         let users = index.users_of(view);
         if let Some(first) = users.first().and_then(|v| index.views.get(*v)) {
             let target = Location { path: first.path.clone(), range: Range::new(Position::new(0, 0), Position::new(0, 0)) };
-            marker(0, "implemented", crate::ui_text::format("root.formatted.c7a29e7f7e", "Used by {users}", &[("users", &format!("{}", users.join(", ")))]), Some(target));
+            marker(0, USED_BY_MARKER, crate::ui_text::format("root.formatted.c7a29e7f7e", "Used by {users}", &[("users", &format!("{}", users.join(", ")))]), Some(target));
         }
 
         let renders: Vec<&index::Render> = index.renders.iter().filter(|r| r.view == view).collect();
         if let Some(first) = renders.first() {
             let callers: Vec<&str> = renders.iter().map(|r| r.caller.as_str()).collect();
             let target = Location { path: first.path.clone(), range: Range::new(first.at, first.at) };
-            marker(0, "navigate", crate::ui_text::format("root.formatted.80621090a6", "Rendered by {callers}", &[("callers", &format!("{}", callers.join(", ")))]), Some(target));
+            marker(0, RENDERED_BY_MARKER, crate::ui_text::format("root.formatted.80621090a6", "Rendered by {callers}", &[("callers", &format!("{}", callers.join(", ")))]), Some(target));
         }
     }
 
@@ -1795,28 +2001,28 @@ fn blade_markers(index: &Index, project: &Project, doc: &Document) -> Vec<LineMa
         let line = line_of(*offset);
         let parent = parents.iter().find_map(|p| locate(index, project, p, sections_and_yields, name));
         if let Some(parent) = parent {
-            marker(line, "overriding", crate::ui_text::format("root.formatted.dbd29333be", "Parent section \"{name}\"", &[("name", &format!("{}", name))]), Some(parent));
+            marker(line, SECTION_PARENT_MARKER, crate::ui_text::format("root.formatted.dbd29333be", "Parent section \"{name}\"", &[("name", &format!("{}", name))]), Some(parent));
         }
     }
 
     for (name, offset) in facts.sections.iter().chain(&facts.yields) {
         let child = descendants.iter().find_map(|d| locate(index, project, d, only_sections, name));
         if let Some(child) = child {
-            marker(line_of(*offset), "overridden", crate::ui_text::format("root.formatted.f06d126755", "Section \"{name}\" is filled by another view", &[("name", &format!("{}", name))]), Some(child));
+            marker(line_of(*offset), SECTION_CHILD_MARKER, crate::ui_text::format("root.formatted.f06d126755", "Section \"{name}\" is filled by another view", &[("name", &format!("{}", name))]), Some(child));
         }
     }
 
     for (name, offset) in &facts.pushes {
         let stack = parents.iter().find_map(|p| locate(index, project, p, only_stacks, name));
         if let Some(stack) = stack {
-            marker(line_of(*offset), "implementing", crate::ui_text::format("root.formatted.f72ffdea96", "Stack \"{name}\"", &[("name", &format!("{}", name))]), Some(stack));
+            marker(line_of(*offset), STACK_PARENT_MARKER, crate::ui_text::format("root.formatted.f72ffdea96", "Stack \"{name}\"", &[("name", &format!("{}", name))]), Some(stack));
         }
     }
 
     for (name, offset) in &facts.stacks {
         let push = descendants.iter().find_map(|d| locate(index, project, d, only_pushes, name));
         if let Some(push) = push {
-            marker(line_of(*offset), "implemented", crate::ui_text::format("root.formatted.c0d995cb9b", "Stack \"{name}\" is pushed to by another view", &[("name", &format!("{}", name))]), Some(push));
+            marker(line_of(*offset), STACK_PUSH_MARKER, crate::ui_text::format("root.formatted.c0d995cb9b", "Stack \"{name}\" is pushed to by another view", &[("name", &format!("{}", name))]), Some(push));
         }
     }
 
@@ -2453,5 +2659,32 @@ impl openidea_plugin::endpoints::EndpointsProvider for Main {
             endpoints.extend(published);
         }
         Ok(endpoints)
+    }
+}
+
+#[cfg(test)]
+mod marker_icon_guard {
+    #[test]
+    fn marker_icons_are_declared_in_the_manifest() {
+        let manifest = include_str!("../plugin.toml");
+        for icon in [crate::VIEW_MARKER, crate::CONTROLLER_MARKER, crate::CONFIG_DEFAULTS_MARKER, crate::USED_BY_MARKER, crate::RENDERED_BY_MARKER, crate::SECTION_PARENT_MARKER, crate::SECTION_CHILD_MARKER, crate::STACK_PARENT_MARKER, crate::STACK_PUSH_MARKER, crate::MIGRATION_MARKER, crate::MODEL_MARKER, crate::MODEL_SUPPORT_MARKER, crate::LISTENER_MARKER, crate::EVENT_MARKER, crate::ROUTE_MARKER] {
+            assert!(manifest.contains(&format!("icon = \"{icon}\"")), "{icon}");
+            assert!(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(icon).is_file(), "{icon}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod incomplete_locale_tests {
+    use super::*;
+
+    #[test]
+    fn a_key_lacking_in_one_locale_names_it() {
+        let mut index = Index::default();
+        index.translations.add("app.hi", None, "/p/lang/en/app.php", Position::default(), 0);
+        index.translations_by_locale.entry("en".into()).or_default().add("app.hi", None, "/p/lang/en/app.php", Position::default(), 0);
+        index.translations_by_locale.entry("fr".into()).or_default();
+        assert_eq!(incomplete_locales(&index, "app.hi"), ["fr"]);
+        assert!(incomplete_locales(&index, "app.bye").is_empty());
     }
 }

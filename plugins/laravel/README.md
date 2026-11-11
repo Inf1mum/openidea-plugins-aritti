@@ -1313,3 +1313,15 @@ Virtual resource attributes are not offered as writable factory inputs.
 
 The New Model wizard still emits selected relations as raw `whenLoaded` values;
 indexed resource wrappers and inferred factory mappings remain separate gaps.
+
+## Checks and helpers
+
+- **Security** (`checkSecurity`): request data passed unfiltered to `create()`, `update()` and `fill()` (with a quick fix to `$request->validated()` when a Form Request is in use), variables in raw SQL, `$guarded = []`, `Model::unguard()` and URIs excluded from CSRF verification.
+- **Upgrade** (`upgradeInspection`): code removed in a Laravel major the project has not reached yet, with a rename fix where one exists.
+- **Translations** (`missingTranslationInspection`): keys that some locales have and others lack.
+- **Completion**: Pest dataset and group names, Socialite drivers, `pint.json` and `phpstan.neon`, and 26 PHP snippets that add their imports.
+- **Generate a feature test** from a controller method (Pest or PHPUnit), with a request body built from the Form Request rules.
+- **Laravel: Search Names…** searches route names, views, components, config, translations and env keys in one list.
+- The status bar shows the Laravel version and the PHP version.
+
+Ideas for these checks come from [yzPeedro/laravel-openidea](https://github.com/yzPeedro/laravel-openidea) (MIT); no code was copied.

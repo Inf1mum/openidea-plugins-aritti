@@ -234,6 +234,7 @@ impl FileActions for Main {
         found.extend(crate::bulk::actions(self,doc));
         found.extend(crate::request_promotion::actions(self,doc,selection));
         found.extend(crate::request_creation::actions(self,doc,selection));
+        found.extend(crate::feature_test::actions(self,doc,selection));
         found.extend(crate::view_extract::actions(self,doc,selection));
         let missing = (|| {
         let Ok((_, root)) = owner(doc, None) else {
@@ -317,6 +318,7 @@ impl FileActions for Main {
         if crate::vendor_overrides::handles(&action){return crate::vendor_overrides::resolve(self,doc,action);}
         if action.data.as_deref().is_some_and(|key|key.starts_with("bulk-phpdocs:") || key.starts_with("bulk-generate:")){return crate::bulk::resolve(self,doc,action);}
         if action.data.as_deref().is_some_and(|key|key.starts_with("request-promote:")){return crate::request_promotion::resolve(self,doc,action);}
+        if action.data.as_deref().is_some_and(|key|key.starts_with("feature-test:")){return crate::feature_test::resolve(self,doc,action);}
         if action.data.as_deref().is_some_and(|key|key.starts_with("request-create:")){return crate::request_creation::resolve(self,doc,action);}
         if action.data.as_deref().is_some_and(|key|key.starts_with("extract-view:")){return crate::view_extract::resolve(self,doc,action);}
         let result = (|| {

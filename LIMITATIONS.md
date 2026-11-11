@@ -380,6 +380,19 @@ Branch `arnaud-ritti/implement-new-feature`. Mock host only; nothing below is ve
 - **Not done (B):** rows LA14, 21, 24, 25, 29 and 30. **Blade (`aritti.blade`)** is unchanged.
 - **Not verified in the IDE:** template placeholders, the `process:tee` write paths and the indexer links.
 
+### Productivity checks added from the yzPeedro/laravel-openidea review (2026-11-11)
+
+- **Security inspections** (`checkSecurity`): `$request->all()` passed to `create/update/fill…` (quick fix to `$request->validated()` only when the file has a `FooRequest $request` parameter), variables in raw SQL (`whereRaw`, `DB::select`, `DB::raw`…), empty `$guarded`, `Model::unguard()` and URIs in a `VerifyCsrfToken` `$except` or `validateCsrfTokens(except:)`. Text-based: no type resolution, so a variable that is not a Form Request is never rewritten. `vendor/`, `tests/` and `database/` are skipped. No hub listing.
+- **Upgrade inspections** (`upgradeInspection`): six hand-written changes (`dispatch_now`, `Bus::dispatchNow`, `assertDeleted`, `$routeMiddleware`, `$dates`, `HasUuids`), shown only when the installed major is lower than the one that removes them. Not generated from the upgrade guides; check each entry before adding more.
+- **Translations missing in a locale** (`missingTranslationInspection`): info hint only, no quick fix that adds the key to the other locales.
+- **Pest** dataset and group names are read from `tests/**/*.php` (513 files, 128 KiB each).
+- **Pint / PHPStan**: completion lists in `pint.json` and `phpstan*.neon` are short fixed lists, not the full rule sets.
+- **Socialite** driver names are a fixed list.
+- **Snippets**: 26 PHP snippets at statement start, with imports through `insert_use`; Blade has its own list.
+- **Status bar**: Laravel version plus the PHP of the host `php` binary, read once per project; a Docker-only project shows the Laravel version alone.
+- **Generate feature test**: a reviewed no-overwrite file creation for the first route that serves the controller method; request fields come from the Form Request `rules()` when the parameter type ends in `Request`, with sample values guessed from the rule text.
+- **Laravel: Search Names…** is a picker over route names, views, components, config, translations and env keys (5000 entries), not a hub section.
+
 ## aritti.dotenv (port of ru.adelf.idea.dotenv)
 
 ### Not implemented

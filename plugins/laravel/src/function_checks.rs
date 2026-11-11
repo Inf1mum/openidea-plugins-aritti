@@ -82,7 +82,7 @@ pub fn env_outside_config(relative_path: &str, language: &str, text: &str) -> Ve
 }
 
 /// The index after the heredoc or nowdoc that starts at `start` (the end of the text when it isn't closed).
-fn heredoc_end(masked: &str, start: usize) -> usize {
+pub(crate) fn heredoc_end(masked: &str, start: usize) -> usize {
     let after = &masked[start + 3..];
     let header_end = after.find('\n').unwrap_or(after.len());
     let label = after[..header_end].trim().trim_matches(|c| c == '\'' || c == '"');

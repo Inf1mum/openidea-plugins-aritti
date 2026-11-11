@@ -992,9 +992,8 @@ fn eloquent_checks_publish_and_clear_when_the_file_is_fixed() {
     let path = "/project/app/Http/Controllers/C.php";
 
     plugin.handle_events(&[Event::FileOpened(path.into())], &host.invocation());crate::tests::finish_indexing(&mut plugin);
-    let found = &host.diagnostics()[path];
+    let found: Vec<_> = host.diagnostics()[path].iter().filter(|d| d.code.as_deref() == Some("guarded-attribute-assignment")).cloned().collect();
     assert_eq!(found.len(), 1);
-    assert_eq!(found[0].code.as_deref(), Some("guarded-attribute-assignment"));
 
     host.add_file("app/Http/Controllers/C.php", "<?php\nnamespace App\\Http;\nuse App\\Models\\Post;\nPost::create($request->validated());\n");
     plugin.handle_events(&[Event::FileOpened(path.into())], &host.invocation());crate::tests::finish_indexing(&mut plugin);
@@ -1002,6 +1001,7 @@ fn eloquent_checks_publish_and_clear_when_the_file_is_fixed() {
 
     host.add_file("app/Http/Controllers/C.php", "<?php\nnamespace App\\Http;\nuse App\\Models\\Post;\nPost::create($request->all());\n");
     host.set_setting("checkEloquent", "false");
+    host.set_setting("checkSecurity", "false");
     plugin.handle_events(&[Event::FileOpened(path.into())], &host.invocation());crate::tests::finish_indexing(&mut plugin);
     assert!(host.diagnostics().get(path).is_none_or(Vec::is_empty));
 }
@@ -1013,7 +1013,7 @@ fn guarded_mass_assignment_in(relative: &str) -> Vec<Diagnostic> {
     let path = format!("/project/{relative}");
 
     plugin.handle_events(&[Event::FileOpened(path.clone())], &host.invocation());crate::tests::finish_indexing(&mut plugin);
-    host.diagnostics().get(&path).cloned().unwrap_or_default()
+    host.diagnostics().get(&path).cloned().unwrap_or_default().into_iter().filter(|d| d.code.as_deref() == Some("guarded-attribute-assignment")).collect()
 }
 
 #[test]
