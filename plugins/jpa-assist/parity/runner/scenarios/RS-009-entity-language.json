@@ -4,10 +4,12 @@
     "G014"
   ],
   "claimIds": [
+    "G014-C1",
     "G014-C2"
   ],
   "verifies": {
-    "G014-C2": "with the entityLanguage setting at kotlin the Entity language prompt marks Kotlin (and not Java) as the default option and, after the user accepts it, the created source is a .kt file. C1 is not claimed: the picker offers Java and Kotlin, but this action also shows the picker in a Java-only project (RS-008), which contradicts 'appears only when the Kotlin dependency is detected'. The Entity Declaration settings page itself is a desktop surface and is not covered."
+    "G014-C1": "the Kotlin Gradle fixture detects Kotlin, so the Entity language picker appears and offers Java and Kotlin. This is the 'appears when the Kotlin dependency is detected' half; RS-008 covers the Java-only project where it does not appear.",
+    "G014-C2": "with the entityLanguage setting at kotlin the Entity language prompt marks Kotlin (and not Java) as the default option and, after the user accepts it, the created source is a .kt file. The Entity Declaration settings page itself is a desktop surface and is not covered."
   },
   "fixture": "boot-jpa-kotlin-jakarta",
   "kind": "fileaction",

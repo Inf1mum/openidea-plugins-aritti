@@ -1256,7 +1256,12 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> R
         }
     }
 
-    let kotlin = crate::choose_entity_language()?.ok_or(Error::Cancelled)?;
+    let setting = host::setting_string("entityLanguage");
+    let module_dir = doc.path.rsplit_once('/').map_or(pending.root.as_str(), |(dir, _)| dir);
+    let kotlin = match crate::project_facts::decided_language(setting.as_deref(), &crate::project_facts::detect_cached(project, module_dir)) {
+        Some(kotlin) => kotlin,
+        None => crate::choose_entity_language()?.ok_or(Error::Cancelled)?,
+    };
     let found = sources(project, &pending.root, kotlin)?;
     let package = prompt_package(&found)?;
     let ns = match detect_namespace(project, &found.files) {
@@ -1877,6 +1882,64 @@ mod tests {
         assert_eq!(host.editor_text(), PG);
     }
 
+    fn language_run(host: &MockHost, plugin: &mut JpaAssist, doc: &Document, answers: &[&str]) -> Result<FileAction, Error> {
+        crate::project_facts::invalidate_all();
+        let action = offered(plugin, doc);
+        host.answer_next_prompt(Some(&["customers"]));
+        for answer in answers {
+            host.answer_next_prompt(Some(&[answer]));
+        }
+        host.answer_next_prompt(Some(&["shop.db"]));
+        for _ in 0..3 {
+            host.answer_next_prompt(Some(&[]));
+        }
+        host.answer_next_prompt(Some(&[]));
+        plugin.resolve_file_action(doc, action)
+    }
+    fn first_path(result: Result<FileAction, Error>) -> String {
+        let FileOperation::Create { path, .. } = &result.unwrap().operations[0] else { panic!() };
+        path.clone()
+    }
+    const JAVA_BUILD: &str = "plugins { id 'java' }\n";
+    const KOTLIN_BUILD: &str = "plugins { id 'org.jetbrains.kotlin.jvm' version '2.0.0' }\n";
+
+    #[test]
+    fn language_is_not_asked_when_kotlin_is_not_detected() {
+        let (host, mut plugin, doc) = setup(PG);
+        host.add_file("src/main/java/shop/Existing.java", "package shop;\nimport jakarta.persistence.Entity;\n@Entity\nclass Existing {}\n");
+        host.add_file("src/main/java/shop/db/Other.java", "package shop.db;\nclass Other {}\n");
+        host.add_file("build.gradle", JAVA_BUILD);
+        assert_eq!(first_path(language_run(&host, &mut plugin, &doc, &[])), "/project/src/main/java/shop/db/Customers.java");
+    }
+
+    #[test]
+    fn language_is_not_asked_for_kotlin_only_modules_under_auto_and_is_asked_otherwise() {
+        let (host, mut plugin, doc) = setup(PG);
+        host.add_file("src/main/kotlin/shop/K.kt", "package shop\nimport jakarta.persistence.Entity\n@Entity class K\n");
+        host.add_file("src/main/kotlin/shop/db/Other.kt", "package shop.db\nclass Other\n");
+        host.add_dir("src/main/kotlin");
+        host.add_file("build.gradle", KOTLIN_BUILD);
+        host.set_setting("entityLanguage", "\"auto\"");
+        assert_eq!(first_path(language_run(&host, &mut plugin, &doc, &[])), "/project/src/main/kotlin/shop/db/Customers.kt");
+
+        let (host, mut plugin, doc) = setup(PG);
+        host.add_file("src/main/kotlin/shop/K.kt", "package shop\nimport jakarta.persistence.Entity\n@Entity class K\n");
+        host.add_file("src/main/kotlin/shop/db/Other.kt", "package shop.db\nclass Other\n");
+        host.add_file("build.gradle", KOTLIN_BUILD);
+        assert_eq!(first_path(language_run(&host, &mut plugin, &doc, &["kotlin"])), "/project/src/main/kotlin/shop/db/Customers.kt", "default java setting still asks");
+
+        let (host, mut plugin, doc) = setup(PG);
+        project(&host, "jakarta.persistence");
+        host.add_file("build.gradle", KOTLIN_BUILD);
+        host.set_setting("entityLanguage", "\"auto\"");
+        assert_eq!(first_path(language_run(&host, &mut plugin, &doc, &["java"])), "/project/src/main/java/shop/db/Customers.java", "both languages ask");
+
+        let (host, mut plugin, doc) = setup(PG);
+        host.add_file("src/main/java/shop/Existing.java", "package shop;\nimport jakarta.persistence.Entity;\n@Entity\nclass Existing {}\n");
+        host.add_file("src/main/java/shop/db/Other.java", "package shop.db;\nclass Other {}\n");
+        assert_eq!(first_path(language_run(&host, &mut plugin, &doc, &["java"])), "/project/src/main/java/shop/db/Customers.java", "unknown kotlin asks");
+    }
+
     #[test]
     fn cancellation_collision_ambiguous_roots_and_drift_create_nothing() {
         let (host, mut plugin, doc) = setup(PG);
@@ -2012,7 +2075,7 @@ mod tests {
         project(&host, "jakarta.persistence");
         host.add_file("pom.xml", HIBERNATE_POM);
         let action = offered(&mut plugin, &doc);
-        for answer in [&["postgresql"][..], &["account_emails"], &["java"], &["shop.db"], &["email"], &[], &[], &[]] {
+        for answer in [&["postgresql"][..], &["account_emails"], &["shop.db"], &["email"], &[], &[], &[]] {
             host.answer_next_prompt(Some(answer));
         }
         let result = plugin.resolve_file_action(&doc, action).unwrap();
@@ -2020,7 +2083,7 @@ mod tests {
         assert!(text.contains("@Immutable") && text.contains("    @Id\n    @Column(length = 80)\n    private String email;"), "{text}");
 
         let action = offered(&mut plugin, &doc);
-        for answer in [&["postgresql"][..], &["account_emails"], &["java"], &["shop.db"], &["id", "email"]] {
+        for answer in [&["postgresql"][..], &["account_emails"], &["shop.db"], &["id", "email"]] {
             host.answer_next_prompt(Some(answer));
         }
         assert!(format!("{:?}", plugin.resolve_file_action(&doc, action).unwrap_err()).contains("exactly one id column"));
@@ -2028,7 +2091,7 @@ mod tests {
         let (host, mut plugin, doc) = setup(EXTRA);
         project(&host, "jakarta.persistence");
         let action = offered(&mut plugin, &doc);
-        for answer in [&["postgresql"][..], &["account_emails"], &["java"], &["shop.db"], &[], &[]] {
+        for answer in [&["postgresql"][..], &["account_emails"], &["shop.db"], &[], &[]] {
             host.answer_next_prompt(Some(answer));
         }
         let message = format!("{:?}", plugin.resolve_file_action(&doc, action).unwrap_err());

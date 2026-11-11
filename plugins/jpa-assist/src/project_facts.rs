@@ -253,6 +253,18 @@ pub fn prefers_kotlin(setting: Option<&str>, facts: &ProjectFacts) -> bool {
     }
 }
 
+/// Language without asking, or `None` when the picker is needed. The picker appears only where Kotlin is
+/// detected or unknown (G014-C1): Kotlin `No` is Java; Kotlin `Yes` and Java `No` is Kotlin under `auto`.
+/// An explicit `kotlin` setting always keeps the picker (its default is then Kotlin).
+pub fn decided_language(setting: Option<&str>, facts: &ProjectFacts) -> Option<bool> {
+    match (setting, facts.kotlin, facts.java) {
+        (Some("kotlin"), _, _) => None,
+        (_, Fact::No, _) => Some(false),
+        (Some("auto"), Fact::Yes, Fact::No) => Some(true),
+        _ => None,
+    }
+}
+
 pub fn kotlin_default(ctx: &Invocation) -> bool {
     let setting = host::setting_string("entityLanguage");
     match setting.as_deref() {
@@ -410,6 +422,23 @@ mod tests {
         assert_eq!(gate(Feature::Flyway, "<artifactId>flyway-core</artifactId>"), Gate::Allowed);
         assert!(matches!(gate(Feature::Flyway, ""), Gate::Refused(m) if m.contains("above this file")));
         assert!(matches!(gate(Feature::SpringDataJpa, "x"), Gate::Refused(m) if m.starts_with("Spring Data JPA is not provably")));
+    }
+
+    #[test]
+    fn decided_language_asks_only_where_kotlin_is_detected_or_unknown() {
+        let facts = |kotlin, java| ProjectFacts { kotlin, java, ..from_text("m", "", "", false, false) };
+        let (yes, no, unknown) = (Fact::Yes, Fact::No, Fact::Unknown);
+        for setting in [None, Some("java"), Some("auto")] {
+            assert_eq!(decided_language(setting, &facts(no, yes)), Some(false), "{setting:?}");
+            assert_eq!(decided_language(setting, &facts(no, unknown)), Some(false), "{setting:?}");
+            assert_eq!(decided_language(setting, &facts(yes, yes)), None, "{setting:?}");
+            assert_eq!(decided_language(setting, &facts(unknown, yes)), None, "{setting:?}");
+            assert_eq!(decided_language(setting, &facts(unknown, unknown)), None, "{setting:?}");
+        }
+        assert_eq!(decided_language(Some("auto"), &facts(yes, no)), Some(true));
+        assert_eq!(decided_language(Some("java"), &facts(yes, no)), None);
+        assert_eq!(decided_language(None, &facts(yes, no)), None);
+        assert_eq!(decided_language(Some("kotlin"), &facts(no, yes)), None);
     }
 
     #[test]

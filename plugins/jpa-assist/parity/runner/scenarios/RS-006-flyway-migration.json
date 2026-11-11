@@ -3,34 +3,24 @@
   "rows": [
     "G108",
     "G110",
-    "G112",
-    "G120"
+    "G112"
   ],
   "claimIds": [
     "G108-C2",
     "G110-C1",
     "G112-C1",
     "G112-C3",
-    "G120-C1",
-    "G120-C2"
+    "G112-C5"
   ],
   "verifies": {
     "G108-C2": "after a baseline snapshot, the model drops Client.notes, adds nullable Client.score and tightens Client.email to NOT NULL. The reviewed SQL labels the added nullable column [Safe], the NOT NULL over possibly-NULL rows [NeedsBackfill] and the dropped column [DataLoss]; the levels are named differently from SAFE/CAUTION/DANGER but follow the documented definitions (cannot lose data / needs review over existing NULLs / can lose data by dropping a column). Both withheld levels are emitted only after the pickMany opt-in.",
     "G110-C1": "the NeedsBackfill step asks for a value and the SQL contains UPDATE client SET email = <answered value> WHERE email IS NULL before ALTER COLUMN email SET NOT NULL",
     "G112-C1": "the diff is Model (current entity sources) against Snapshot (db/jpa-schema-baseline.json) and the generated SQL upgrades the snapshot state to the model (add score, drop notes, set NOT NULL). Database as source or target is not offered, so only the Model/Snapshot pairing is covered.",
     "G112-C3": "the Flyway migration is shown in a Create Flyway migration confirm containing the exact SQL file and is saved as a new V<version>__<description>.sql script only after confirmation",
-    "G120-C1": "flywayVersionPattern #date(yyyyMMdd).#increment(1, 1, 0000) is honoured: the generated file name carries the 4-digit zero-padded decimal format of the increment token (…0003). The start/step arithmetic is not stated by the documentation and is not asserted. The changelog-name half of the claim is not covered.",
-    "G120-C2": "the #date(yyyyMMdd) token is replaced by the date answered at the host prompt (20240131), so the file is V20240131.0003__model_changes.sql; only the yyyyMMdd pattern is exercised"
+    "G112-C5": "with no flywayVersionPattern the Flyway migration is saved as a new SQL file whose name is auto-filled by the Flyway naming (prefix V, version, separator __, description): the fixture holds V1__init.sql, V2__add_invoice_status.sql and the Java migration V3__BackfillInvoiceStatus.java, and the default is V4__model_changes.sql, not a V3 that would collide with the Java migration (Flyway rejects two migrations of one version). Only the SQL-file target is covered; scratch file, clipboard and query console are not offered."
   },
   "fixture": "envers-flyway-liquibase",
   "kind": "fileaction",
-  "setup": [
-    {
-      "settings": {
-        "flywayVersionPattern": "#date(yyyyMMdd).#increment(1, 1, 0000)"
-      }
-    }
-  ],
   "preActions": [
     {
       "title": "Create schema baseline…",
@@ -85,9 +75,6 @@
       "input": "model_changes"
     },
     {
-      "input": "20240131"
-    },
-    {
       "confirm": "yes"
     },
     {
@@ -125,11 +112,6 @@
         "name": "migration description"
       },
       {
-        "kind": "input",
-        "titleContains": "Date for the file name",
-        "name": "date for the #date token"
-      },
-      {
         "kind": "confirm",
         "titleContains": "incomplete",
         "name": "unknown facts are reported, not guessed"
@@ -143,7 +125,7 @@
     ],
     "createdFiles": [
       {
-        "path": "src/main/resources/db/migration/V20240131.0003__model_changes.sql",
+        "path": "src/main/resources/db/migration/V4__model_changes.sql",
         "contains": [
           "ADD COLUMN \"score\"",
           "[Safe]",
@@ -156,7 +138,7 @@
       }
     ],
     "resultFile": {
-      "path": "src/main/resources/db/migration/V20240131.0003__model_changes.sql",
+      "path": "src/main/resources/db/migration/V4__model_changes.sql",
       "matches": [
         "\\[Safe\\][^\\n]*\\n(--[^\\n]*\\n)*ALTER TABLE \"client\" ADD COLUMN \"score\"",
         "\\[NeedsBackfill\\][^\\n]*\\n(--[^\\n]*\\n)*UPDATE \"client\" SET \"email\"[^\\n]*\\n\\n(--[^\\n]*\\n)*ALTER TABLE \"client\" ALTER COLUMN \"email\" SET NOT NULL",
@@ -167,12 +149,12 @@
   "checks": {
     "preview": {
       "paths": [
-        "V20240131.0003__model_changes.sql"
+        "V4__model_changes.sql"
       ]
     },
     "undo": true,
     "cancelEach": true,
     "stale": true
   },
-  "note": "Flyway migration generated from a model-vs-baseline diff with three kinds of change; the baseline is created by a pre-action in the same disposable copy."
+  "note": "Flyway migration with the default name, generated from a model-vs-baseline diff with three kinds of change; the baseline is created by a pre-action in the same disposable copy. The fixture's existing Java migration V3 must make the default version 4."
 }
