@@ -63,27 +63,22 @@ pub fn brackets(text: &str) -> Vec<Finding> {
     let mut findings = Vec::new();
     let mut i = 0;
 
-    while i + 1 < bytes.len() {
-        let closer = match &bytes[i..i + 2] {
-            b"{{" => "}}",
-            b"{%" => "%}",
-            b"{#" => {
-                i = text[i..].find("#}").map_or(bytes.len(), |end| i + end + 2);
-                continue;
-            }
-            _ => {
-                i += 1;
-                continue;
-            }
-        };
-
+    let syntax=crate::delimiters::Syntax::current();
+    while i < bytes.len() {
+        if bytes[i..].starts_with(syntax.values[4].as_bytes()) {
+            i=text[i+syntax.values[4].len()..].find(&syntax.values[5]).map_or(bytes.len(),|end|i+syntax.values[4].len()+end+syntax.values[5].len());continue;
+        }
+        let (is_tag,open_len,closer)=if bytes[i..].starts_with(syntax.values[0].as_bytes()) {(true,syntax.values[0].len(),syntax.values[1].as_str())}
+            else if bytes[i..].starts_with(syntax.values[2].as_bytes()){(false,syntax.values[2].len(),syntax.values[3].as_str())}
+            else {i+=1;continue;};
         let start = i;
         let mut stack: Vec<(u8, usize)> = Vec::new();
-        let mut j = i + 2;
+        let mut j = i + open_len;
         let mut ended = false;
         let mut reported = false;
 
         while j < bytes.len() {
+            if stack.is_empty() && bytes[j..].starts_with(closer.as_bytes()) {ended=true;break;}
             let b = bytes[j];
             match b {
                 b'\'' | b'"' => {
@@ -130,20 +125,20 @@ pub fn brackets(text: &str) -> Vec<Finding> {
         }
 
         if ended {
-            let body = text[start + 2..j].trim_matches(['-', '~', ' ']);
-            let skips = closer == "%}" && (body == "verbatim" || body == "raw");
-            i = if skips { text[j..].find("{% end").map_or(bytes.len(), |end| j + end) } else { j + 2 };
+            let body = text[start + open_len..j].trim_matches(['-', '~', ' ']);
+            let skips = is_tag && (body == "verbatim" || body == "raw");
+            i = if skips { text[j..].find(&format!("{} end",syntax.values[0])).map_or(bytes.len(), |end| j + end) } else { j + closer.len() };
             continue;
         }
 
         if !reported {
-            if let Some((open, at)) = stack.last().filter(|_| j < bytes.len() || closer == "}}" || closer == "%}") {
+            if let Some((open, at)) = stack.last().filter(|_| j < bytes.len() || !closer.is_empty()) {
                 if text[start..].contains(closer) {
                     findings.push(Finding { code: BRACKET, range: *at..*at + 1, message: format!("\"{}\" is never closed.", *open as char) });
                 }
             }
         }
-        i = start + 2;
+        i = start + open_len;
     }
 
     findings

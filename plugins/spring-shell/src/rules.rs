@@ -5,6 +5,7 @@ use std::collections::HashSet;
 const LEGACY: &str = "org.springframework.shell.standard.ShellMethod";
 const AVAILABILITY: &str = "org.springframework.shell.standard.ShellMethodAvailability";
 const MODERN: &str = "org.springframework.shell.command.annotation.Command";
+const CORE_COMMAND: &str = "org.springframework.shell.core.command.annotation.Command";
 const OPTION: &str = "org.springframework.shell.command.annotation.Option";
 
 fn import_name<'a>(text: &'a str, import: &'a java::Import) -> (&'a str, bool) {
@@ -85,7 +86,14 @@ pub(super) fn literals<'a>(a: &'a Annotation, name: &str) -> Option<Vec<&'a Str>
         && arg.strings.iter().all(|s| !s.value.contains('$')))
     .then(|| arg.strings.iter().collect())
 }
+pub(super) fn modern_field(f: &JavaFile, text: &str, a: &Annotation) -> Option<&'static str> {
+    if a.name != "Command" { return None; }
+    if owned(f, text, a, MODERN) { Some("command") }
+    else if owned(f, text, a, CORE_COMMAND) { Some("name") }
+    else { None }
+}
 pub(super) fn supported(f: &JavaFile, text: &str, a: &Annotation) -> bool {
+    if a.name == "Command" { return modern_field(f, text, a).is_some(); }
     let qualified = match a.name.as_str() {
         "ShellMethod" => LEGACY,
         "ShellMethodAvailability" => AVAILABILITY,
@@ -93,6 +101,7 @@ pub(super) fn supported(f: &JavaFile, text: &str, a: &Annotation) -> bool {
         "ShellCommandGroup" => "org.springframework.shell.standard.ShellCommandGroup",
         "Command" => MODERN,
         "CommandAvailability" => "org.springframework.shell.command.annotation.CommandAvailability",
+        "CommandGroup" => "org.springframework.shell.core.command.annotation.CommandGroup",
         "Option" => OPTION,
         _ => return false,
     };
@@ -566,7 +575,7 @@ mod tests {
             );
             let d = doc(&text, false);
             let parsed = parse_source(&d.path, &text);
-            assert!(commands(&parsed, &text).is_empty());
+            assert_eq!(commands(&parsed, &text).len(), usize::from(package.starts_with("org.springframework.shell.core")));
             assert!(ShellTools::default().diagnostics(&d).is_empty());
         }
     }
@@ -702,7 +711,6 @@ mod tests {
         for text in [
             "import org.springframework.shell.standard.*; class C { @ShellMethod void run(){} }",
             "import custom.ShellMethod; import custom.ShellMethodAvailability; class C { @ShellMethod void run(){} @ShellMethodAvailability(\"missing\") String gate(){return null;} }",
-            "import org.springframework.shell.core.command.annotation.Command; import org.springframework.shell.core.command.annotation.Option; class C { @Command void run(@Option(arityMin=2,arityMax=1) String value){} }",
         ] {
             let d = doc(text, false);
             let parsed = parse_source(&d.path, text);

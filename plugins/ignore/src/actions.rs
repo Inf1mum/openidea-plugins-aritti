@@ -59,6 +59,29 @@ fn source_unchanged(doc: &Document, root: &str) -> Result<Project, Error> {
     Ok(project)
 }
 
+fn choose_template_block(before: &str) -> Result<String, Error> {
+    let mut items: Vec<_> = TEMPLATES.iter().map(|(name, _)| PickItem::new(&format!("t:{name}"), name)).collect();
+    items.extend(user_templates().iter().map(|n| PickItem::new(&format!("u:{n}"), n)));
+    let keys = host::pick_many("Ignore templates", &items)?.ok_or(Error::Cancelled)?;
+    if keys.is_empty() { return Err(Error::Cancelled); }
+    if keys.len() > 16 || keys.iter().collect::<HashSet<_>>().len() != keys.len()
+        || keys.iter().any(|k| !items.iter().any(|i| i.key == *k)) {
+        return Err("Choose up to 16 distinct current templates.".into());
+    }
+    let mut block = String::new();
+    for key in keys {
+        let (label, content) = template_content(&key)?;
+        let header = format!("### {label} template");
+        if before.lines().any(|line| line == header) {
+            return Err("A selected template header is already present; review the file before appending again.".into());
+        }
+        block.push_str(&format!("{header}\n{content}"));
+        if !block.ends_with('\n') { block.push('\n'); }
+        if block.len() > MAX { return Err("Selected templates exceed 256 KiB.".into()); }
+    }
+    Ok(block)
+}
+
 impl FileActions for IgnorePlugin {
     fn file_actions(&mut self, doc: &Document, _selection: Range) -> Vec<FileAction> {
         let Some((project, root, relative)) = project_of(&doc.path) else { return Vec::new() };
@@ -66,7 +89,10 @@ impl FileActions for IgnorePlugin {
             return Vec::new();
         }
         let mut out = Vec::new();
-        if !preferences::creatable_names().is_empty() {out.push(lazy(doc,&root,"Create exact-name ignore file…".into(),"create","",0));}
+        if !preferences::creatable_names().is_empty() {
+            out.push(lazy(doc,&root,"Create exact-name ignore file…".into(),"create","",0));
+            out.push(lazy(doc,&root,"Create ignore file from templates…".into(),"create-templates","",0));
+        }
         if dialect(&doc.path).is_none() {
             let target = format!("{root}/.gitignore");
             if let Ok(content) = project.read_file(&target) {
@@ -106,8 +132,11 @@ impl FileActions for IgnorePlugin {
         }
         let project = current(doc, root)?;
         let kind = p[3].as_str().ok_or("Invalid operation.")?;
-        if kind == "create" {
-            let names=preferences::creatable_names();
+        if matches!(kind, "create" | "create-templates") {
+            let mut names=preferences::creatable_names();
+            if kind == "create-templates" {
+                names.retain(|name| dialect(name).is_some_and(|d| d.syntax == check::Syntax::Glob));
+            }
             if names.is_empty() {return Err("No enabled Ignore Create actions are available.".into());}
             let items: Vec<_> = names.iter().map(|n| PickItem::new(n, n)).collect();
             let name = host::pick("Ignore file type (exact filename)", &items)?.ok_or(Error::Cancelled)?;
@@ -118,7 +147,9 @@ impl FileActions for IgnorePlugin {
             let folder = directory(&project, root, &folder)?;
             let target = format!("{folder}/{name}");
             vacant(&project, &target)?;
-            let content = if name == ".gitignore" {
+            let content = if kind == "create-templates" {
+                choose_template_block("")?
+            } else if name == ".gitignore" {
                 include_str!("../file-templates/gitignore").to_owned()
             } else if name == ".hgignore" {
                 "syntax: glob\n".into()
@@ -162,33 +193,7 @@ impl FileActions for IgnorePlugin {
                 {
                     return Err(Error::Stale);
                 }
-                let mut items: Vec<_> = TEMPLATES.iter().map(|(name, _)| PickItem::new(&format!("t:{name}"), name)).collect();
-                items.extend(user_templates().iter().map(|n| PickItem::new(&format!("u:{n}"), n)));
-                let keys = host::pick_many("Ignore templates to append", &items)?.ok_or(Error::Cancelled)?;
-                if keys.is_empty() {
-                    return Err(Error::Cancelled);
-                }
-                if keys.len() > 16
-                    || keys.iter().collect::<HashSet<_>>().len() != keys.len()
-                    || keys.iter().any(|k| !items.iter().any(|i| i.key == *k))
-                {
-                    return Err("Choose up to 16 distinct current templates.".into());
-                }
-                let mut block = String::new();
-                for key in keys {
-                    let (label, content) = template_content(&key)?;
-                    let header = format!("### {label} template");
-                    if doc.text.lines().any(|l| l == header) {
-                        return Err("A selected template header is already present; review the file before appending again.".into());
-                    }
-                    block.push_str(&format!("{header}\n{content}"));
-                    if !block.ends_with('\n') {
-                        block.push('\n')
-                    }
-                    if block.len() > MAX {
-                        return Err("Selected templates exceed 256 KiB.".into());
-                    }
-                }
+                let block = choose_template_block(&doc.text)?;
                 let edit = append(&doc.text, &block, true);
                 (doc.path.clone(), doc.text.clone(), edit)
             }
@@ -253,6 +258,39 @@ mod tests {
         assert!(!host.invocation().project().unwrap().exists(path).unwrap());
         assert!(host.process_runs().is_empty());
     }
+    #[test]
+    fn creates_reviewed_template_combination_without_touching_destination() {
+        let (host, mut plugin, doc) = setup("/project/a.txt", "");
+        let a = action(&mut plugin, &doc, "Create ignore file from templates");
+        for answer in [Some(&[".gitignore"][..]), Some(&[""][..]), Some(&["t:Rust", "t:Node"][..]), Some(&[][..])] {
+            host.answer_next_prompt(answer);
+        }
+        let result = plugin.resolve_file_action(&doc, a).unwrap();
+        let FileOperation::Create {path, text, overwrite} = &result.operations[0] else {panic!()};
+        assert_eq!(path, "/project/.gitignore");
+        assert!(text.contains("### Rust template\n") && text.contains("### Node template\n"));
+        assert!(!overwrite);
+        assert!(!host.invocation().project().unwrap().exists(path).unwrap());
+        assert_eq!(result.open.as_deref(), Some(path.as_str()));
+    }
+
+    #[test]
+    fn template_creation_rejects_duplicates_unknown_templates_and_cancel() {
+        for selected in [Some(&["t:Rust", "t:Rust"][..]), Some(&["t:unknown"][..]), None, Some(&[][..])] {
+            let (host, mut plugin, doc) = setup("/project/a.txt", "");
+            let a = action(&mut plugin, &doc, "Create ignore file from templates");
+            host.answer_next_prompt(Some(&[".gitignore"]));
+            host.answer_next_prompt(Some(&[""]));
+            host.answer_next_prompt(selected);
+            assert!(plugin.resolve_file_action(&doc, a).is_err());
+            assert!(!host.invocation().project().unwrap().exists("/project/.gitignore").unwrap());
+        }
+        let (host, mut plugin, doc) = setup("/project/a.txt", "");
+        let a = action(&mut plugin, &doc, "Create ignore file from templates");
+        host.answer_next_prompt(Some(&[".hgignore"]));
+        assert!(plugin.resolve_file_action(&doc, a).is_err());
+    }
+
     #[test]
     fn creation_cancellation_collision_and_directory_escape_are_safe() {
         for stage in 0..3 {

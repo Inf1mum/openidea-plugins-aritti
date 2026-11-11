@@ -7,13 +7,18 @@ use super::*;
 fn yaml_full_path_is_not_the_replaceable_leaf_token() {
     let text = "app:\n  pool:\n    max-size: 8\n";
     let keys = config::yaml(text);
-    let key = keys.iter().find(|key| key.key == "app.pool.max-size").unwrap();
+    let key = keys
+        .iter()
+        .find(|key| key.key == "app.pool.max-size")
+        .unwrap();
     assert_eq!(&text[key.at..key.end], "max-size");
     assert_ne!(&text[key.at..key.end], key.key);
     let mut replaced = text.to_owned();
     replaced.replace_range(key.at..key.end, "app.pool.min-size");
     assert!(
-        !config::yaml(&replaced).iter().any(|key| key.key == "app.pool.min-size"),
+        !config::yaml(&replaced)
+            .iter()
+            .any(|key| key.key == "app.pool.min-size"),
         "replacing a leaf with a full key changes its owner path"
     );
 }
@@ -33,7 +38,11 @@ fn properties_escapes_and_relaxed_keys_do_not_have_one_source_spelling() {
 fn java_binding_name_is_derived_not_an_exact_identifier_anchor() {
     let text = "import org.springframework.boot.context.properties.ConfigurationProperties; @ConfigurationProperties(prefix=\"app\") class Pool { private int maxPoolSize; public int getMaxPoolSize() { return maxPoolSize; } }";
     let meta = meta::parse_java(text).unwrap();
-    assert!(meta.props.iter().any(|property| property.name == "app.max-pool-size"));
+    assert!(
+        meta.props
+            .iter()
+            .any(|property| property.name == "app.max-pool-size")
+    );
     assert!(!text.contains("app.max-pool-size"));
     assert_eq!(meta::dashed("maxPoolSize"), "max-pool-size");
 }
@@ -63,7 +72,10 @@ fn exact_property_token_range_uses_utf16_but_still_needs_semantic_owner() {
     let span = range(text, key.at, key.end);
     assert_eq!(span.start, Position::new(0, 0));
     assert_eq!(span.end, Position::new(0, 8));
-    assert_eq!(&text[offset(text, span.start).unwrap()..offset(text, span.end).unwrap()], "😀.label");
+    assert_eq!(
+        &text[offset(text, span.start).unwrap()..offset(text, span.end).unwrap()],
+        "😀.label"
+    );
     assert!(span.start != span.end);
 }
 
@@ -72,6 +84,9 @@ fn boot_does_not_register_automatic_index_rename_without_an_owner_model() {
     let manifest = include_str!("../plugin.toml");
     assert!(!manifest.contains("contributes.documentIndexers"));
     let source = include_str!("lib.rs");
-    let registration = source.lines().find(|line| line.starts_with("register_plugin!(")).unwrap();
+    let registration = source
+        .lines()
+        .find(|line| line.starts_with("register_plugin!("))
+        .unwrap();
     assert!(!registration.contains("indexing"));
 }

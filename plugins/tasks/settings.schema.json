@@ -32,7 +32,7 @@
     },
     "githubQuery": {
       "type": "string",
-      "title": "GitHub: extra search qualifiers (label:bug, milestone:v2…)",
+      "title": "GitHub: extra search qualifiers (label:bug, milestone:v2\u2026)",
       "default": ""
     },
     "gitlabProject": {
@@ -69,6 +69,70 @@
       "type": "string",
       "title": "Jira JQL query",
       "default": "assignee = currentUser() and resolution = Unresolved order by updated"
+    },
+    "searchClosedIssues": {
+      "type": "boolean",
+      "title": "Include closed GitHub, GitLab, Codeberg and Lighthouse issues in explicit Search Issues",
+      "default": false
+    },
+    "lighthouseHost": {
+      "type": "string",
+      "title": "Lighthouse Cloud tenant host, such as acme.lighthouseapp.com",
+      "default": ""
+    },
+    "lighthouseProject": {
+      "type": "string",
+      "title": "Lighthouse project ID (positive numeric ID)",
+      "default": ""
+    },
+    "fogbugzHost": {
+      "type": "string",
+      "title": "FogBugz exact tenant host, such as acme.fogbugz.com",
+      "default": ""
+    },
+    "fogbugzProfile": {
+      "type": "string",
+      "title": "Absolute path to externally provisioned0600 FogBugz credential profile (token stays outside plugin)",
+      "default": ""
+    },
+    "selfHostedProfiles": {
+      "type": "array",
+      "title": "Approved self-hosted tracker credential profiles",
+      "description": "Nonsecret descriptors for explicit Redmine/Mantis searches through Python3. Credential JSON stays in an external0600 file.",
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "required": [
+          "family",
+          "baseUrl",
+          "profilePath"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "family": {
+            "type": "string",
+            "enum": [
+              "redmine",
+              "mantis"
+            ],
+            "default": "redmine"
+          },
+          "baseUrl": {
+            "type": "string",
+            "default": ""
+          },
+          "profilePath": {
+            "type": "string",
+            "default": ""
+          }
+        },
+        "default": {
+          "family": "redmine",
+          "baseUrl": "",
+          "profilePath": ""
+        }
+      },
+      "default": []
     }
   }
 }

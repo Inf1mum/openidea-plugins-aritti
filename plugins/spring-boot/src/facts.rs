@@ -6,10 +6,27 @@ use std::collections::{BTreeMap, BTreeSet};
 /// Enums of Spring Boot's and the JDK's types that keys in the bundled metadata have, as written in configuration.
 const KNOWN: &[(&str, &[&str])] = &[
     ("Access", &["none", "read-only", "unrestricted"]),
-    ("TimeUnit", &["nanoseconds", "microseconds", "milliseconds", "seconds", "minutes", "hours", "days"]),
-    ("DatabaseInitializationMode", &["always", "embedded", "never"]),
+    (
+        "TimeUnit",
+        &[
+            "nanoseconds",
+            "microseconds",
+            "milliseconds",
+            "seconds",
+            "minutes",
+            "hours",
+            "days",
+        ],
+    ),
+    (
+        "DatabaseInitializationMode",
+        &["always", "embedded", "never"],
+    ),
     ("Show", &["never", "when-authorized", "always"]),
-    ("ErrorProperties.IncludeAttribute", &["never", "always", "on-param"]),
+    (
+        "ErrorProperties.IncludeAttribute",
+        &["never", "always", "on-param"],
+    ),
     ("WebApplicationType", &["none", "servlet", "reactive"]),
     ("Cookie.SameSite", &["none", "lax", "strict"]),
     ("Ssl.ClientAuth", &["none", "want", "need"]),
@@ -35,11 +52,19 @@ pub fn read(path: &str, text: &str) -> Option<Facts> {
                 name = format!("{}.{name}", file.types[i].name);
                 outer = file.types[i].outer;
             }
-            if package.is_empty() { name } else { format!("{package}.{name}") }
+            if package.is_empty() {
+                name
+            } else {
+                format!("{package}.{name}")
+            }
         })
         .collect();
     let enums = enum_constants(text);
-    Some(Facts { package, types, enums })
+    Some(Facts {
+        package,
+        types,
+        enums,
+    })
 }
 
 fn is_ident(b: u8) -> bool {
@@ -58,11 +83,19 @@ fn enum_constants(text: &str) -> Vec<(String, Vec<String>)> {
             continue;
         }
         let mut rest = text[from..].trim_start();
-        if let Some(after) = rest.strip_prefix("class").filter(|r| r.starts_with(char::is_whitespace)) {
+        if let Some(after) = rest
+            .strip_prefix("class")
+            .filter(|r| r.starts_with(char::is_whitespace))
+        {
             rest = after.trim_start();
         }
-        let name: String = rest.chars().take_while(|c| is_ident(*c as u8) && c.is_ascii()).collect();
-        let Some(open) = rest.find('{').filter(|_| !name.is_empty()) else { continue };
+        let name: String = rest
+            .chars()
+            .take_while(|c| is_ident(*c as u8) && c.is_ascii())
+            .collect();
+        let Some(open) = rest.find('{').filter(|_| !name.is_empty()) else {
+            continue;
+        };
         let body_at = text.len() - rest.len() + open + 1;
         out.push((name, constants(&text[body_at..])));
     }
@@ -75,8 +108,12 @@ fn constants(body: &str) -> Vec<String> {
     let mut entries = Vec::new();
     while i < bytes.len() {
         match bytes[i] {
-            b'/' if bytes.get(i + 1) == Some(&b'/') => i += body[i..].find('\n').unwrap_or(bytes.len() - i),
-            b'/' if bytes.get(i + 1) == Some(&b'*') => i += body[i..].find("*/").map_or(bytes.len() - i, |e| e + 1),
+            b'/' if bytes.get(i + 1) == Some(&b'/') => {
+                i += body[i..].find('\n').unwrap_or(bytes.len() - i)
+            }
+            b'/' if bytes.get(i + 1) == Some(&b'*') => {
+                i += body[i..].find("*/").map_or(bytes.len() - i, |e| e + 1)
+            }
             b'"' => {
                 i += 1;
                 while i < bytes.len() && bytes[i] != b'"' {
@@ -107,10 +144,16 @@ fn constants(body: &str) -> Vec<String> {
         .filter_map(|entry| {
             let mut entry = strip_comments(entry);
             while let Some(annotated) = entry.trim_start().strip_prefix('@') {
-                let end = annotated.find(char::is_whitespace).unwrap_or(annotated.len());
+                let end = annotated
+                    .find(char::is_whitespace)
+                    .unwrap_or(annotated.len());
                 entry = annotated[end..].to_owned();
             }
-            let name: String = entry.trim_start().chars().take_while(|c| c.is_ascii() && is_ident(*c as u8)).collect();
+            let name: String = entry
+                .trim_start()
+                .chars()
+                .take_while(|c| c.is_ascii() && is_ident(*c as u8))
+                .collect();
             (!name.is_empty()).then_some(name)
         })
         .collect()
@@ -145,14 +188,24 @@ pub fn dashed(constant: &str) -> String {
 }
 
 fn relaxed(value: &str) -> String {
-    value.chars().filter(|c| c.is_alphanumeric()).flat_map(char::to_lowercase).collect()
+    value
+        .chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
 }
 
 impl Summary {
     pub fn merge<'a>(facts: impl Iterator<Item = &'a Facts>, complete: bool) -> Self {
-        let mut s = Summary { complete, ..Summary::default() };
+        let mut s = Summary {
+            complete,
+            ..Summary::default()
+        };
         for (name, values) in KNOWN {
-            s.enums.insert((*name).to_owned(), values.iter().map(|v| (*v).to_owned()).collect());
+            s.enums.insert(
+                (*name).to_owned(),
+                values.iter().map(|v| (*v).to_owned()).collect(),
+            );
         }
         for f in facts {
             s.types.extend(f.types.iter().cloned());
@@ -160,7 +213,8 @@ impl Summary {
                 s.packages.insert(f.package.clone());
             }
             for (name, constants) in &f.enums {
-                s.enums.insert(name.clone(), constants.iter().map(|c| dashed(c)).collect());
+                s.enums
+                    .insert(name.clone(), constants.iter().map(|c| dashed(c)).collect());
             }
         }
         s
@@ -169,7 +223,10 @@ impl Summary {
     /// The values of the enum named `ty` (`Mode`, `Outer.Mode`), as written in configuration.
     pub fn enum_values(&self, ty: &str) -> Option<&Vec<String>> {
         let last = ty.rsplit('.').next().unwrap_or(ty);
-        self.enums.get(last).or_else(|| self.enums.get(ty)).filter(|v| !v.is_empty())
+        self.enums
+            .get(last)
+            .or_else(|| self.enums.get(ty))
+            .filter(|v| !v.is_empty())
     }
 
     /// Whether `value` is one of the enum's constants under Spring's relaxed matching.
@@ -189,7 +246,13 @@ mod tests {
         let src = "package com.acme;\npublic class Outer {\n  enum Mode { FAST, SAFE_MODE(\"x, y\"), // c\n  /* d */ LAST; int code; }\n}\nenum class Kt { A, B }\n";
         let facts = read("A.java", src).unwrap();
         assert!(facts.types.contains(&"com.acme.Outer".to_owned()));
-        assert_eq!(facts.enums[0], ("Mode".to_owned(), vec!["FAST".to_owned(), "SAFE_MODE".to_owned(), "LAST".to_owned()]));
+        assert_eq!(
+            facts.enums[0],
+            (
+                "Mode".to_owned(),
+                vec!["FAST".to_owned(), "SAFE_MODE".to_owned(), "LAST".to_owned()]
+            )
+        );
         assert_eq!(facts.enums[1].0, "Kt");
         let summary = Summary::merge([&facts].into_iter(), true);
         assert_eq!(summary.accepts("Outer.Mode", "safe-mode"), Some(true));

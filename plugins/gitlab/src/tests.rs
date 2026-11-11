@@ -3293,21 +3293,21 @@ mod ci_aid_tests {
 }
 
 #[test]
-fn section_buttons_list_the_six_sections_with_the_active_one_marked() {
+fn section_buttons_list_the_sections_with_the_active_one_marked() {
     let host = setup();
     let mut plugin = selected(&host);
 
     let view = plugin.render(DETAILS, None, &host.invocation()).unwrap();
 
     let ids: Vec<&str> = section_buttons(&view).into_iter().map(|(id, _)| id).collect();
-    assert_eq!(ids, ["section:overview", "section:changes", "section:commits", "section:files", "section:pipelines", "section:timeline"]);
+    assert_eq!(ids, ["section:overview", "section:description", "section:changes", "section:commits", "section:files", "section:pipelines", "section:timeline"]);
     assert_eq!(section_buttons(&view)[0].1, "● Overview");
-    assert_eq!(section_buttons(&view)[1].1, "Changes");
+    assert_eq!(section_buttons(&view)[1].1, "Description");
 
     let view = changes_view(&mut plugin, &host).unwrap();
 
     assert_eq!(section_buttons(&view)[0].1, "Overview");
-    assert_eq!(section_buttons(&view)[1].1, "● Changes (1)");
+    assert_eq!(section_buttons(&view)[2].1, "● Changes (1)");
 }
 
 #[test]
@@ -4050,6 +4050,21 @@ mod job_trace_snapshot_tests {
     fn payload(h:&MockHost)->serde_json::Value {h.view_messages().iter().filter_map(|(_,m)|serde_json::from_str::<serde_json::Value>(m).ok()).find(|v|v["channel"]=="gitlab-content-open").unwrap()["payload"].clone()}
     fn action(h:&MockHost,p:&mut GitLab,key:&str,kind:&str)->serde_json::Value {let m=serde_json::json!({"op":"content-tab-action","requestId":"trace-1","key":key,"action":kind}).to_string();p.handle(DETAILS,ViewEvent::Message(m),&h.invocation()).unwrap();serde_json::from_str::<serde_json::Value>(&h.view_messages().last().unwrap().1).unwrap()["payload"].clone()}
     #[test]
+    fn managed_glab_trace_requires_membership_and_uses_exact_job_repository() {
+        let (h,mut p,fixture)=prepared(); let mut caps=CAPS.to_vec(); caps.push("process:glab"); let h=h.with_capabilities(&caps);
+        h.on_process("glab", |args,_| {assert_eq!(args,["version"]);Ok(ProcessOutput{status:Some(0),stdout:"glab 1.130.0 (9b430a11f)\n".into(),stderr:String::new()})});
+        h.answer_next_prompt(Some(&["ok"])); p.follow_job_log(&h.invocation()).unwrap();
+        let tabs=h.log_tabs();assert_eq!(tabs.len(),1);assert_eq!(tabs[0].log.program,"glab");
+        assert_eq!(tabs[0].log.args,["ci","trace","301","--repo","https://gitlab.com/g/p"]);
+        fixture.member.set(false);let count=h.process_runs().len();assert!(p.follow_job_log(&h.invocation()).is_err());assert_eq!(h.log_tabs().len(),1);assert_eq!(h.process_runs().len(),count);
+    }
+    #[test]
+    fn managed_glab_trace_cancellation_does_not_open_a_log_tab() {
+        let (h,mut p,_)=prepared();let mut caps=CAPS.to_vec();caps.push("process:glab");let h=h.with_capabilities(&caps);
+        h.on_process("glab", |_,_|Ok(ProcessOutput{status:Some(0),stdout:"glab version 1.84.0\n".into(),stderr:String::new()}));
+        h.answer_next_prompt(None);p.follow_job_log(&h.invocation()).unwrap();assert!(h.log_tabs().is_empty());
+    }
+    #[test]
     fn explicit_trace_snapshot_is_readonly_scoped_and_cached_reload_performs_no_fetch() {
         let (h,mut p,_)=prepared();let reply=open(&h,&mut p);assert!(reply.get("error").is_none(),"{reply}");let tab=payload(&h);assert_eq!(tab["readOnly"],true);assert_eq!(tab["fileName"],"gitlab-job-301.log");assert_eq!(tab["language"],"plaintext");let content=tab["content"].as_str().unwrap();assert!(content.contains("compile ok")&&content.contains("Job: #301")&&content.contains("not a live stream"));
         let key=tab["key"].as_str().unwrap();let requests=h.requests().len();assert_eq!(action(&h,&mut p,key,"reload")["content"],content);assert_eq!(h.requests().len(),requests);assert!(h.process_runs().is_empty());assert!(h.terminals().is_empty());
@@ -4404,5 +4419,91 @@ mod grouped_ui_parity_tests {
         let stale=send(&mut plugin,&host,LIST,json!({"op":"event","event":{"kind":"button","key":"new-token"}}));
         assert!(stale["error"].is_string());assert_eq!(host.opened_urls().len(),1);
         assert!(host.view_messages().iter().all(|(view,_)|view==LIST));
+    }
+}
+
+#[test]
+fn rerequest_review_uses_assigned_reviewer_global_id_and_requires_graphql_acknowledgement() {
+    let h=setup();
+    h.on_fetch(|request| {
+        if request.url.split('?').next().unwrap().ends_with("/merge_requests/7") {return ok(&MR.replace("\"reviewers\": []",r#""reviewers": [{"id":42,"username":"reviewer","name":"Reviewer"}]"#));}
+        if request.url.ends_with("/api/graphql") {return ok(r#"{"data":{"mergeRequestReviewerRereview":{"errors":[]}}}"#);}
+        gitlab(request)
+    });
+    let mut plugin=selected(&h);h.answer_next_prompt(Some(&["42"]));h.answer_next_prompt(Some(&["ok"]));
+    plugin.run_command("rerequest-review",&h.invocation(),None).unwrap();
+    let posted:Vec<_>=h.requests().into_iter().filter(|request|request.url.ends_with("/api/graphql")).collect();assert_eq!(posted.len(),1);
+    let body:serde_json::Value=serde_json::from_slice(posted[0].body.as_ref().unwrap()).unwrap();
+    assert_eq!(body["variables"],serde_json::json!({"projectPath":"g/p","iid":"7","userId":"gid://gitlab/User/42"}));
+    h.on_fetch(|_|ok("{}"));assert!(api::Project("g/p").rerequest_review(7,42).is_err());
+}
+#[test]
+fn rerequest_review_cancelled_picker_sends_no_mutation() {
+    let h=setup();h.on_fetch(|request| {
+        if request.url.split('?').next().unwrap().ends_with("/merge_requests/7") {return ok(&MR.replace("\"reviewers\": []",r#""reviewers": [{"id":42,"username":"reviewer","name":"Reviewer"}]"#));}gitlab(request)
+    });
+    let mut plugin=selected(&h);h.answer_next_prompt(None);plugin.run_command("rerequest-review",&h.invocation(),None).unwrap();
+    assert!(h.requests().iter().all(|request|request.method=="GET"));
+}
+
+#[test]
+fn account_slots_use_declared_secret_placeholders_and_expire_previous_identity() {
+    let h=setup();let mut plugin=selected(&h);plugin.ensure_account().unwrap();let previous=selection_scope(&gitlab_project(&h.invocation()).unwrap());
+    plugin.me=Some(User{id:9,username:"primary".into(),name:"Primary".into()});
+    h.set_secret("secondary-token","second-private-token");h.set_setting("accountSlot",r#""secondary""#);plugin.ensure_account().unwrap();
+    assert!(plugin.me.is_none()&&plugin.projects.is_none()&&plugin.content_snapshots.is_empty());
+    assert_ne!(selection_scope(&gitlab_project(&h.invocation()).unwrap()),previous);
+    assert!(plugin.checked_selection(&gitlab_project(&h.invocation()).unwrap(),&h.invocation()).is_err());
+    assert_eq!(api::authorization(),"Bearer {{secret:secondary-token}}");
+    assert!(!api::authorization().contains("second-private-token"));
+}
+#[test]
+fn account_slot_change_cannot_reuse_an_unsent_primary_comment() {
+    let h=setup();let mut plugin=selected(&h);plugin.ensure_account().unwrap();storage::set(COMMENT_KEY,"Unsent primary comment").unwrap();
+    h.set_setting("accountSlot",r#""secondary""#);let before=h.requests().len();
+    assert!(plugin.run_command("rerequest-review",&h.invocation(),None).is_err());assert_eq!(h.requests().len(),before);
+    assert_eq!(storage::get(COMMENT_KEY).unwrap().as_deref(),Some("Unsent primary comment"));
+    h.set_setting("accountSlot",r#""primary""#);plugin.ensure_account().unwrap();
+}
+
+#[test]
+fn description_markdown_is_sanitized_and_only_snapshot_links_open(){
+    let h=setup();let mut mr:serde_json::Value=serde_json::from_str(MR).unwrap();mr["description"]=serde_json::json!("# Description\n\n**Readable** ![pixel](https://tracking.invalid/pixel) [Docs](https://docs.example.com/guide)\n\n<script>untrusted()</script>");let mr=mr.to_string();
+    h.on_fetch(move|request|if request.url.split('?').next().unwrap().ends_with("/merge_requests/7"){ok(&mr)}else{gitlab(request)});
+    let mut plugin=selected(&h);let view=render_in(&mut plugin,Section::Description,&h);let Body::Html(html)=view.body else{panic!("Markdown description")};
+    assert!(html.contains("<strong>Readable</strong>")&&html.contains("[Image: pixel]")&&html.contains("&lt;script&gt;"));assert!(!html.contains("<img")&&!html.contains("<script>untrusted()"));
+    plugin.open_markdown_link(&h.invocation(),"https://docs.example.com/guide").unwrap();assert_eq!(h.opened_urls(),["https://docs.example.com/guide"]);assert!(plugin.open_markdown_link(&h.invocation(),"https://forged.invalid/").is_err());assert_eq!(h.opened_urls().len(),1);
+    assert!(h.requests().iter().all(|request|!request.url.contains("tracking.invalid")));
+}
+
+mod source_cli_checkout {
+    use super::*;
+    const SHA:&str="0123456789abcdef0123456789abcdef01234567";
+    fn prepared()->(MockHost,GitLab){
+        let h=setup();let mut caps=CAPS.to_vec();caps.push("process:glab");let h=h.with_capabilities(&caps);
+        h.on_fetch(|r|if r.url.split('?').next()==Some("https://gitlab.com/api/v4/projects/g%2Fp/merge_requests/7") {ok(&MR.replace("\"source_project_id\": 5","\"source_project_id\": 9").replace("\"abc123\"",&format!("\"{SHA}\"")))}else{gitlab(r)});
+        h.on_process("glab",|args,_|{assert_eq!(args,["version"]);Ok(ProcessOutput{status:Some(0),stdout:"glab 1.130.0 (9b430a11f)\n".into(),stderr:String::new()})});
+        let p=selected(&h);(h,p)
+    }
+    #[test]
+    fn fork_checkout_launches_exact_reviewed_cli_without_force(){
+        let(h,mut p)=prepared();h.answer_next_prompt(Some(&["ok"]));
+        p.run_command("checkout-source-cli",&h.invocation(),None).unwrap();
+        let terminals=h.terminals();assert_eq!(terminals.len(),1);assert_eq!(terminals[0].program,"glab");
+        assert_eq!(terminals[0].args,["mr","checkout","7","--repo","https://gitlab.com/g/p","--branch","review/mr-7-0123456789ab"]);
+        assert!(writes(&h).is_empty());assert!(!git_runs(&h).iter().any(|args|args.starts_with("fetch ")||args.starts_with("checkout ")));
+    }
+    #[test]
+    fn canceled_review_never_probes_or_launches_cli(){let(h,mut p)=prepared();h.answer_next_prompt(None);p.checkout_source_cli(&h.invocation()).unwrap();assert!(h.process_runs().is_empty());assert!(h.terminals().is_empty());}
+    #[test]
+    fn dirty_worktree_refuses_even_version_probe(){let(h,mut p)=prepared();let mut s=status("main");s.changed_files=1;h.set_vcs_status(Some(s));assert!(p.checkout_source_cli(&h.invocation()).is_err());assert!(h.process_runs().is_empty());assert!(h.terminals().is_empty());}
+    #[test]
+    fn unsupported_cli_profile_never_launches(){let(h,mut p)=prepared();h.on_process("glab",|_,_|Ok(ProcessOutput{status:Some(0),stdout:"glab 1.129.0\n".into(),stderr:String::new()}));h.answer_next_prompt(Some(&["ok"]));assert!(p.checkout_source_cli(&h.invocation()).is_err());assert!(h.terminals().is_empty());}
+    #[test]
+    fn moving_source_identity_refuses_launch(){
+        let(h,mut p)=prepared();let moved=std::rc::Rc::new(std::cell::Cell::new(false));let m=moved.clone();
+        h.on_process("glab",move|_,_|{m.set(true);Ok(ProcessOutput{status:Some(0),stdout:"glab 1.130.0\n".into(),stderr:String::new()})});
+        h.on_fetch(move|r|if r.url.split('?').next()==Some("https://gitlab.com/api/v4/projects/g%2Fp/merge_requests/7"){let sha=if moved.get(){"ffffffffffffffffffffffffffffffffffffffff"}else{SHA};ok(&MR.replace("\"source_project_id\": 5","\"source_project_id\": 9").replace("\"abc123\"",&format!("\"{sha}\"")))}else{gitlab(r)});
+        h.answer_next_prompt(Some(&["ok"]));assert!(p.checkout_source_cli(&h.invocation()).is_err());assert!(h.terminals().is_empty());
     }
 }

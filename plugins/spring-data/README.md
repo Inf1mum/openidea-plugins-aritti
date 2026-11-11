@@ -2,12 +2,11 @@
 
 Spring Data repository support for Java and Kotlin projects in OpenIDEA:
 
-API 1.4 native SQL injections cover source-owned Java JPA `@Query` methods with
-`nativeQuery = true` and one direct, unescaped string literal. Ranges preserve the
-physical source coordinates. JPQL, SpEL, concatenations, text blocks, transformed
-escapes and Kotlin strings stay outside this injection subset. A configured SQL
-language server is required for embedded LSP features; no database schema/type
-model or embedded Rename/formatting is supplied.
+API 1.4 query injections cover owned contiguous Java/Kotlin JPA Query
+value/countQuery literals and NativeQuery annotations. Native queries use SQL;
+non-native queries use the JPQL language supplied by JPA Assist. Escaped,
+concatenated, interpolated and dynamic source stays outside physical mapping.
+Physical routing is separate from type-aware query analysis and native embedded coloring.
 
 - **Derived query checks**: repository methods without `@Query`/`@NativeQuery`/`@Procedure` are parsed the way Spring Data parses them (`find|read|get|query|search|stream|count|exists|delete|remove` … `By`, criteria split on `And`/`Or`, operator keywords, `IgnoreCase`/`AllIgnoreCase`, `OrderBy … Asc|Desc`). Each property path is resolved on the domain class (longest camel-case prefix first, `_` as explicit separator, nested types, collections unwrapped): an unknown property is a warning at that part of the name. The criteria must take as many arguments as the method declares (`Between` 2, `IsNull`/`True`/`Empty`… 0, others 1; `Pageable`, `Sort`, `Limit`, `ScrollPosition`, `Class` don't count).
 - **Completion** of derived query names: after `findBy`, `countBy`, `findAllByNameAnd`… the entity's properties (and nested ones one level deep), then operator keywords, `And`/`Or`/`OrderBy`, `Asc`/`Desc`.
@@ -73,7 +72,7 @@ file templates remain available for manual cases. Native tests verify returned
 operations and guards against the v0.1.39 host contract; desktop preview,
 application, dirty-buffer lifecycle and undo have not been exercised.
 
-Not ported: language injection and highlighting in `@Query`, a preview of the resolved query, other store specifics (geo `Near`/`Within` arguments aren't counted, nested MongoDB documents aren't followed), navigation to repository fragments other than `<Repository>Impl`.
+Not ported: complete typed query-language tooling and a preview of the resolved query, other store specifics (geo `Near`/`Within` arguments aren't counted, nested MongoDB documents aren't followed), navigation to repository fragments other than `<Repository>Impl`.
 
 ```sh
 cargo test
@@ -126,3 +125,82 @@ Data99 adds hover over an explicitly owned literal JPA Query annotation and para
 Three added tests cover UTF16 positions/range filtering/current text/FQN, duplicate/dynamic/foreign/native suppression, and cache/settings/project/size gates. Full99 and pinned API1.3 build/check are recorded. Public Spring Data3.5 Param/Query contracts identify named alias binding and declared query/native semantics; the original explicit JPA provider uses exact annotation FQNs. This is a source presentation subset, not a database plan or runtime resolution. P18.1/3 and native acceptance remain separately tracked.
 
 Data101 adds source-owned repository identifier hover over a known cached domain match. It shows the declared domain and bounded escaped source path/line, and distinguishes complete-within-cache from incomplete/stale positive inventories. It never infers the persistence identifier type, custom base semantics or effective runtime activation. Unlike query/criterion hints, this positive metadata display may survive an incomplete inventory when the particular current-owner domain fact is known; stale/foreign owners, cold/unknown domains and disabled hints remain quiet. Two regressions cover Unicode ranges, no source re-read, owner/cold/unknown gates, partial provenance, Markdown-safe paths and half-open bounds. Full101 tests/pinned API1.3 build/check and native limits are recorded separately.
+
+### JPA repository creation
+
+Proved source-local JPA entities now offer an additional **Generate JpaRepository**
+FileAction alongside CrudRepository. Java and Kotlin output uses the qualified
+Spring Data JPA interface with the existing proved domain and scalar ID types.
+The existing name prompt, concrete source preview, collision checks, stale-source
+checks, cancellation and non-overwriting atomic host operation apply to both
+actions. MongoDB and JDBC entities retain the common CrudRepository action and do not receive JpaRepository.
+This does not install Spring Data JPA, infer composite identifiers or resolve a
+classpath.
+
+A **Generate IdentifierProjection** action creates a closed interface projection
+for the proved scalar identifier property, using its actual field/record/getter
+property name and boxed type. It supports Java getters and Kotlin read-only
+properties, with the same reviewed atomic creation checks. This is an identifier
+projection subset, not arbitrary nested/SpEL/DTO projections.
+
+**Generate InterfaceProjection** lets you select several admitted current-source
+scalar properties for a closed interface projection. Java fields, record components
+and plain bean getters are supported; Kotlin constructor/body properties retain
+source nullability. Unknown, transient, static or conflicting properties are
+omitted; explicit access overrides and inherited entity layouts stay outside the
+model. The chosen names must come from the displayed source list; duplicates and
+nested/transformed paths are rejected. The generated interface is reviewed and
+created through the same non-overwriting atomic FileAction.
+
+**Generate JpaRepositoryWithEntityGraph** creates a new JPA repository with a
+`findById` override annotated with selected direct source association paths. Only
+canonical JPA association/embedded/element-collection annotations establish offered
+paths. Unknown namespaces, transient/static members, explicit access overrides and
+arbitrary nested paths do not manufacture graph attributes. Java and Kotlin are
+supported. This does not mutate an existing repository or infer library graphs.
+
+**Generate JpaRepositoryWithFinder** creates a new repository with a reviewed
+finder using up to eight selected direct source properties joined with And. Enter
+property names for equality, or `property:Operator`. All scalars support Equals,
+Not, In, NotIn, IsNull and IsNotNull; String supports Like, NotLike, Containing,
+StartingWith and EndingWith; known numeric types support comparison operators and
+Between; Boolean supports True and False. The complete method is checked against
+the derived-query grammar, preserving argument counts and actual property
+boundaries. In/NotIn emit Collection parameters; Between emits lower/upper
+parameters. Nested or underscore paths, repeated properties and unsupported
+type/operator combinations are withheld. Property casing must survive JavaBeans
+capitalization/decapitalization unchanged: ordinary camel names and acronyms such
+as URL are admitted; Name/aB-style ambiguous spellings are withheld.
+
+**Generate JpaRepositoryWithPagedFinder** returns Page with an explicit Pageable
+parameter; **Generate JpaRepositoryWithSortedFinder** returns List with Sort.
+Generated parameter names avoid collisions. Java and Kotlin retain source types.
+
+**Add finder to existing JpaRepository** inserts a reviewed List-returning
+finder into a same-package, same-language existing interface with one exact fully
+qualified JpaRepository parent for the current source entity and identifier.
+Explicit interface bodies only; generic/custom parents, wildcard/foreign domain
+imports, Kotlin aliases and duplicate method names are refused. Existing content and CRLF are
+preserved; source and target snapshots are rechecked before the atomic edit.
+Cancellation returns no edit. Modifying queries, custom parent semantics and
+arbitrary runtime query validation remain separate work.
+
+### JPQL and native-query physical ranges
+
+Canonical JPA Query value/countQuery literals now inject `jpql` by default or
+`sql` with an exact nativeQuery=true flag. Canonical NativeQuery literals inject
+SQL. Java and Kotlin contiguous strings are supported; escaped, concatenated,
+interpolated and dynamic flags are withheld. JPQL provider routing uses a
+registered JPQL language, provided by JPA Assist; standalone Data does not install
+a JPQL server or persistence-unit type model. The released embedded-color renderer
+loads only built-in CodeMirror grammars and does not consume plugin SyntaxProvider
+tokens for injected spans. Native embedded JPQL coloring therefore remains a host
+renderer gap; existing source-model query completion/diagnostics and physical
+provider routing remain independently usable.
+
+Released-host renderer qualification: physical injection ranges route embedded
+provider documents, but API 1.4's `languageVisuals.ts` embedded-color path loads
+only built-in CodeMirror grammars. It does not call a plugin SyntaxProvider for
+injected spans. Independent language lexer output and provider routing are
+implemented; native embedded coloring remains a concrete host-renderer gap. No
+JavaScript/SQL grammar substitution or incorrect semantic token kinds are used.

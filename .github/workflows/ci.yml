@@ -83,3 +83,14 @@ jobs:
       - run: cargo test
 
       - run: cargo build --release --target wasm32-wasip2
+
+      - name: Validate fresh non-Laravel packages with released API 1.4
+        if: matrix.name != 'laravel'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download v0.1.40 --repo l0ng-ai/openidea \
+            --pattern openidea-plugin-linux-x86_64.gz --dir "$RUNNER_TEMP"
+          gzip -dc "$RUNNER_TEMP/openidea-plugin-linux-x86_64.gz" > "$RUNNER_TEMP/openidea-plugin"
+          chmod +x "$RUNNER_TEMP/openidea-plugin"
+          "$RUNNER_TEMP/openidea-plugin" build

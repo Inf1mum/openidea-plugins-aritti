@@ -65,6 +65,9 @@ pub struct Field {
     pub name: String,
     pub range: Range,
     pub args: Vec<String>,
+    /// Exact SDL argument type references, including list/non-null wrappers.
+    pub argument_types: Vec<(String,String)>,
+    pub type_reference: String,
     /// The named type of the field, without list and non-null wrappers.
     pub ty: String,
 }
@@ -84,6 +87,11 @@ pub struct Schema {
     pub types: Vec<GqlType>,
     /// `schema { query: MyQuery }`: (operation, type).
     pub roots: Vec<(String, String)>,
+    /// A schema definition (not merely an extension) disables implicit operation roots.
+    pub explicit_definition:bool,
+    /// Explicit custom scalar/enum declarations are leaf values.
+    pub leaf_types: Vec<String>,
+    pub union_types: Vec<String>,
 }
 
 type Tok<'a> = (usize, &'a str);
@@ -154,6 +162,16 @@ fn close(toks: &[Tok], open: usize) -> usize {
     toks.len()
 }
 
+fn read_type(toks:&[Tok],from:usize)->Option<(String,usize)>{
+    let mut end=from;let mut lists=0;
+    while toks.get(end).is_some_and(|t|t.1=="["){lists+=1;if lists>64{return None}end+=1;}
+    if !is_name(toks.get(end)?.1){return None}end+=1;
+    if toks.get(end).is_some_and(|t|t.1=="!"){end+=1;}
+    for _ in 0..lists {if toks.get(end)?.1!="]"{return None}end+=1;if toks.get(end).is_some_and(|t|t.1=="!"){end+=1;}}
+    if toks.get(end).is_some_and(|t|matches!(t.1,"!"|"["|"]")){return None}
+    Some((toks[from..end].iter().map(|t|t.1).collect::<String>(),end))
+}
+
 /// The fields of a `{…}` body (or the arguments of a `(…)` list): names followed by `(` or `:`.
 fn fields(text: &str, toks: &[Tok]) -> Vec<Field> {
     let mut out = Vec::new();
@@ -170,10 +188,13 @@ fn fields(text: &str, toks: &[Tok]) -> Vec<Field> {
             "(" | "[" | "{" => k = close(toks, k) + 1,
             _ if is_name(s) && matches!(toks.get(k + 1).map(|t| t.1), Some("(" | ":")) => {
                 let mut args = Vec::new();
+                let mut argument_types=Vec::new();
                 k += 1;
                 if toks[k].1 == "(" {
                     let c = close(toks, k);
-                    args = fields(text, &toks[k + 1..c]).into_iter().map(|f| f.name).collect();
+                    let parameters=fields(text, &toks[k + 1..c]);
+                    argument_types=parameters.iter().map(|f|(f.name.clone(),f.type_reference.clone())).collect();
+                    args=parameters.into_iter().map(|f|f.name).collect();
                     k = c + 1;
                 }
                 let mut j = k + 1;
@@ -184,7 +205,8 @@ fn fields(text: &str, toks: &[Tok]) -> Vec<Field> {
                     Some(t) if t.1 == ":" => toks.get(j).map(|t| t.1).filter(|t| is_name(t)).unwrap_or_default(),
                     _ => "",
                 };
-                out.push(Field { name: s.to_owned(), range: range(text, at, at + s.len()), args, ty: ty.to_owned() });
+                let type_reference=read_type(toks,k+1).map(|(ty,_)|ty).unwrap_or_default();
+                out.push(Field { name: s.to_owned(), range: range(text, at, at + s.len()), args, argument_types, type_reference, ty: ty.to_owned() });
             }
             _ => k += 1,
         }
@@ -193,7 +215,7 @@ fn fields(text: &str, toks: &[Tok]) -> Vec<Field> {
 }
 
 /// The object, interface and input types of an SDL text and its `schema` block.
-/// Operations, fragments, enums, unions and scalars are skipped.
+/// Operations/fragments are skipped; scalar/enum leaves and union shapes are retained.
 pub fn parse_schema(text: &str) -> Schema {
     let toks = tokens(text);
     let mut out = Schema::default();
@@ -201,6 +223,16 @@ pub fn parse_schema(text: &str) -> Schema {
     while k < toks.len() {
         let s = toks[k].1;
         match s {
+            "scalar" | "enum" | "union" => {
+                if let Some((_,name))=toks.get(k+1).filter(|(_,name)|is_name(name)) {
+                    if s=="union" {out.union_types.push((*name).into())} else {out.leaf_types.push((*name).into())}
+                }
+                if s=="enum" {
+                    let mut body=k+2;
+                    while body<toks.len()&&toks[body].1!="{"&&!DEFINITIONS.contains(&toks[body].1){body+=1}
+                    k=if toks.get(body).is_some_and(|t|t.1=="{"){close(&toks,body)+1}else{k+2};
+                } else {k+=2;}
+            }
             "type" | "interface" | "input" | "schema" => {
                 let name = toks.get(k + 1).copied().filter(|t| s != "schema" && is_name(t.1));
                 let mut j = k + if name.is_some() { 2 } else { 1 };
@@ -219,6 +251,7 @@ pub fn parse_schema(text: &str) -> Schema {
                     &[]
                 };
                 if s == "schema" {
+                    out.explicit_definition |= k==0||toks[k-1].1!="extend";
                     for w in body.windows(3).filter(|w| w[1].1 == ":") {
                         out.roots.push((w[0].1.to_owned(), w[2].1.to_owned()));
                     }
@@ -241,7 +274,7 @@ pub fn parse_schema(text: &str) -> Schema {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Handler {
-    /// `query`, `mutation` or `subscription` for a root mapping: its type is the schema's root type.
+    /// Shortcut annotation operation; its parent remains the fixed annotation type.
     pub op: Option<String>,
     pub ty: String,
     pub field: String,
@@ -283,6 +316,19 @@ fn field_attrs(a: &Annotation) -> &'static [&'static str] {
     if ROOTS.iter().any(|r| r.0 == a.name) { &["name", "value"] } else { &["field", "value"] }
 }
 
+fn literal_annotation(a: &Annotation, allowed: &[&str], aliases: &[&str]) -> bool {
+    a.args.iter().filter(|arg| !(a.name=="BatchMapping"&&arg.name=="maxBatchSize")).all(|arg| allowed.contains(&arg.name.as_str()) && arg.strings.len()==1 && java::tokens(&arg.text).len()==1 && !arg.text.contains(['\\','$']) && arg.text.trim().starts_with('"') && !arg.text.trim().starts_with("\"\"\""))
+        && a.args.iter().filter(|arg|aliases.contains(&arg.name.as_str())).count()<=1
+        && a.args.iter().enumerate().all(|(i,arg)|!a.args[..i].iter().any(|before|before.name==arg.name))
+}
+fn owned_annotation(file:&java::JavaFile,text:&str,simple:&str,package:&str)->bool {
+    !file.types.iter().any(|t|t.name==simple) && !java::tokens(text).windows(2).any(|p|p[0].s=="typealias"&&p[1].s==simple) && !file.imports.iter().any(|i|{
+        let tail=text.get(i.end..).unwrap_or("").split('\n').next().unwrap_or("");let tokens=java::tokens(tail);
+        let alias=match tokens.as_slice(){[a,name,..] if a.s=="as"=>Some(name.s),_=>None};
+        !i.is_static && (alias==Some(simple) || i.path.rsplit('.').next()==Some(simple) && (i.path!=format!("{package}.{simple}")||alias.is_some()))
+    })
+}
+
 /// The handler methods of a Java source's controllers.
 pub fn handlers(text: &str) -> Vec<Handler> {
     handlers_in(text, false)
@@ -293,19 +339,25 @@ pub fn handlers_in(text: &str, is_kotlin: bool) -> Vec<Handler> {
     let file = if is_kotlin { kotlin::parse(text) } else { java::parse(text) };
     let span = |at: usize, s: &str| range(text, at, at + s.len());
     let mut out = Vec::new();
-    for c in file.types.iter().filter(|t| t.has(&["Controller", "RestController"])) {
+    for c in file.types.iter().filter(|t| t.annotations.iter().any(|a| matches!(a.name.as_str(),"Controller"|"RestController") && owned_annotation(&file,text,&a.name,if a.name=="Controller"{"org.springframework.stereotype"}else{"org.springframework.web.bind.annotation"}))) {
+        if c.annotation("SchemaMapping").is_some_and(|a| !owned_annotation(&file,text,"SchemaMapping","org.springframework.graphql.data.method.annotation") || !literal_annotation(a,&["typeName","field","value"],&["field","value"])) {continue}
         for m in c.methods() {
             for a in &m.annotations {
+                if !owned_annotation(&file,text,&a.name,"org.springframework.graphql.data.method.annotation") || !literal_annotation(a,if ROOTS.iter().any(|r|r.0==a.name){&["name","value"]}else{&["typeName","field","value"]},field_attrs(a)) {continue}
                 let Some((op, ty)) = target(c, m, a) else { continue };
                 let (field, at) = match a.strings(field_attrs(a)).first().filter(|s| !s.value.is_empty()) {
                     Some(s) => (s.value.clone(), range(text, s.at, s.end)),
                     None => (m.name.clone(), span(m.at, &m.name)),
                 };
+                let gql_name=|s:&str| !s.is_empty() && s.len()<=128 && s.bytes().enumerate().all(|(i,b)|b.is_ascii_alphabetic()||b==b'_'||i>0&&b.is_ascii_digit());
+                if !gql_name(&ty)||!gql_name(&field){continue}
                 let args = m
                     .params
                     .iter()
                     .filter_map(|p| {
-                        let named = p.annotation("Argument")?.strings(&["name", "value"]).first().copied();
+                        let annotation=p.annotation("Argument")?;
+                        if !owned_annotation(&file,text,"Argument","org.springframework.graphql.data.method.annotation") || !literal_annotation(annotation,&["name","value"],&["name","value"]) {return None}
+                        let named = annotation.strings(&["name", "value"]).first().copied();
                         match named.filter(|s| !s.value.is_empty()) {
                             Some(s) => Some((s.value.clone(), range(text, s.at, s.end))),
                             // An unnamed `@Argument Map` may stand for all the arguments.
@@ -331,11 +383,11 @@ pub fn handlers_in(text: &str, is_kotlin: bool) -> Vec<Handler> {
 }
 
 fn schema_file(path: &str, text: &str) -> Option<Schema> {
-    if path.replace('\\', "/").contains("/node_modules/") {
+    if path.replace('\\', "/").contains("/node_modules/") || path.replace('\\', "/").contains(DOCUMENT_DIR) {
         return None;
     }
     let schema = parse_schema(text);
-    (!schema.types.is_empty() || !schema.roots.is_empty()).then_some(schema)
+    (!schema.types.is_empty() || schema.explicit_definition || !schema.roots.is_empty() || !schema.leaf_types.is_empty() || !schema.union_types.is_empty()).then_some(schema)
 }
 
 fn java_file(path: &str, text: &str) -> Option<Vec<Handler>> {
@@ -353,12 +405,12 @@ fn root_type(schemas: &Index<Schema>, op: &str) -> String {
         .flat_map(|(_, s)| &s.roots)
         .find(|(o, _)| o == op)
         .map(|(_, t)| t.clone())
-        .or_else(|| ROOTS.iter().find(|r| r.1 == op).map(|r| r.2.to_owned()))
+        .or_else(|| (!schemas.iter().any(|(_,s)|s.explicit_definition)).then(||ROOTS.iter().find(|r|r.1==op).map(|r|r.2.to_owned())).flatten())
         .unwrap_or_default()
 }
 
-fn type_of(h: &Handler, schemas: &Index<Schema>) -> String {
-    h.op.as_deref().map_or_else(|| h.ty.clone(), |op| root_type(schemas, op))
+fn type_of(h: &Handler, _schemas: &Index<Schema>) -> String {
+    h.ty.clone()
 }
 
 /// The schema's declarations of `ty.field`, files under `resources/graphql/` first.
@@ -715,8 +767,7 @@ impl Providers for GraphQlTools {
             Slot::TypeName => {
                 (types.filter(|t| t.kind != "input").map(|t| (t.name.clone(), t.kind.clone())).collect(), CompletionKind::Class)
             }
-            Slot::Field(op, ty) => {
-                let ty = op.map_or(ty, |op| root_type(schemas, op));
+            Slot::Field(_op, ty) => {
                 let fields = types.filter(|t| t.name == ty).flat_map(|t| &t.fields);
                 (fields.map(|f| (f.name.clone(), ty.clone())).collect(), CompletionKind::Field)
             }
@@ -813,6 +864,82 @@ fn endpoint_rows(settings: &[Setting]) -> Vec<(String, String, Option<Range>)> {
         );
     }
     rows
+}
+
+pub struct RequestDraft {
+    pub path:String,
+    pub operation:String,
+    pub field:String,
+    pub query:String,
+    pub variables:Vec<(String,String)>,
+}
+
+impl GraphQlTools {
+    /// Positive operation ownership for source actions; no nonroot action is advertised.
+    pub fn source_operations(&mut self,doc:&Document)->Vec<(Range,String)>{
+        if !is_code(doc)||doc.text.len()>128<<10{return Vec::new()}
+        let Some(project)=project_of(&doc.path)else{return Vec::new()};let schemas=self.schemas.get(&project,PROVIDER_BUDGET);
+        if !schemas.complete(){return Vec::new()}
+        handlers_in(&doc.text,doc.language=="kotlin").into_iter().filter_map(|h|{
+            let mut operations=Vec::new();
+            for (op,default) in [("query","Query"),("mutation","Mutation"),("subscription","Subscription")] {
+                let mut roots=schemas.iter().flat_map(|(_,s)|&s.roots).filter(|(o,_)|o==op).map(|(_,t)|t.as_str()).collect::<Vec<_>>();roots.sort();roots.dedup();
+                let root=match roots.as_slice(){[] if !schemas.iter().any(|(_,s)|s.explicit_definition)=>default,[one]=>*one,_=>continue};
+                if h.ty==root&&h.op.as_deref().is_none_or(|o|o==op)&&!schema_fields(schemas,root,&h.field).is_empty(){operations.push(op)}
+            }
+            (operations.len()==1).then(||(h.method,operations[0].to_owned()))
+        }).collect()
+    }
+    /// Builds a request from one admitted current source handler and a complete
+    /// local SDL model. Unknown or conflicting schema contracts are refused.
+    pub fn request_draft(&mut self,doc:&Document,handler:&Handler)->Result<RequestDraft,Error>{self.operation_draft(doc,handler,false)}
+    pub fn subscription_draft(&mut self,doc:&Document,handler:&Handler)->Result<RequestDraft,Error>{self.operation_draft(doc,handler,true)}
+    fn operation_draft(&mut self,doc:&Document,handler:&Handler,subscription:bool)->Result<RequestDraft,Error>{
+        let project=project_of(&doc.path).ok_or_else(||Error::Failed("Open the GraphQL project first.".into()))?;
+        self.schemas.reset(); self.settings.reset();
+        let schemas=self.schemas.get(&project,spring_text::index::COMMAND_BUDGET);
+        if !schemas.complete(){return Err(Error::Failed("GraphQL schema index is incomplete; refresh before generating a request.".into()))}
+        let admitted=|op:&str|if subscription{op=="subscription"}else{matches!(op,"query"|"mutation")};
+        let operation = if let Some(op)=handler.op.as_deref() {
+            if !admitted(op){return Err(Error::Invalid("Handler operation does not match the selected GraphQL workflow.".into()))} op
+        } else {
+            let mut operations=schemas.iter().flat_map(|(_,s)|&s.roots).filter(|(_,ty)|ty==&handler.ty).map(|(op,_)|op.as_str()).collect::<Vec<_>>();
+            for (op,ty) in [("query","Query"),("mutation","Mutation"),("subscription","Subscription")] {
+                if handler.ty==ty && !schemas.iter().any(|(_,s)|s.explicit_definition||s.roots.iter().any(|(o,_)|o==op)){operations.push(op)}
+            }
+            operations.sort();operations.dedup();
+            if operations.len()!=1||!admitted(operations[0]){return Err(Error::Invalid("SchemaMapping parent is not one unambiguous selected operation root.".into()))}
+            operations[0]
+        };
+        let mut roots=schemas.iter().flat_map(|(_,s)|&s.roots).filter(|(op,_)|op==operation).map(|(_,ty)|ty.clone()).collect::<Vec<_>>();roots.sort();roots.dedup();
+        if roots.len()>1{return Err(Error::Failed("GraphQL schema has conflicting operation root declarations.".into()))}
+        if roots.is_empty()&&schemas.iter().any(|(_,s)|s.explicit_definition){return Err(Error::Invalid("The explicit schema does not declare the selected operation root.".into()))}
+        let root=roots.first().cloned().unwrap_or_else(||match operation{"query"=>"Query","mutation"=>"Mutation",_=>"Subscription"}.into());
+        if handler.ty!=root{return Err(Error::Failed("The annotation parent type is not the current SDL operation root; use an explicit root SchemaMapping.".into()))}
+        let fields=schemas.iter().flat_map(|(_,s)|&s.types).filter(|t|t.name==root).flat_map(|t|&t.fields).filter(|f|f.name==handler.field).collect::<Vec<_>>();
+        let field=fields.first().ok_or_else(||Error::Failed("The current GraphQL schema does not declare this handler field.".into()))?;
+        if field.type_reference.is_empty()||field.argument_types.iter().any(|(_,ty)|ty.is_empty())||field.argument_types.iter().enumerate().any(|(i,(name,_))|field.argument_types[..i].iter().any(|(before,_)|before==name)){return Err(Error::Failed("GraphQL field has an unsupported or malformed type reference.".into()))}
+        if fields.iter().any(|f|f.type_reference!=field.type_reference||f.argument_types!=field.argument_types){return Err(Error::Failed("GraphQL field declarations have conflicting signatures.".into()))}
+        let leaf=["String","ID","Int","Float","Boolean"].contains(&field.ty.as_str())||schemas.iter().any(|(_,s)|s.leaf_types.contains(&field.ty));
+        let object=schemas.iter().any(|(_,s)|s.types.iter().any(|t|t.name==field.ty&&matches!(t.kind.as_str(),"type"|"interface"))||s.union_types.contains(&field.ty));
+        if !leaf&&!object{return Err(Error::Failed("GraphQL return type is not declared in the current SDL.".into()))}
+        let variables=field.argument_types.iter().filter(|(_,ty)|ty.ends_with('!')).cloned().collect::<Vec<_>>();
+        let definitions=variables.iter().map(|(name,ty)|format!("${name}: {ty}")).collect::<Vec<_>>().join(", ");
+        let arguments=variables.iter().map(|(name,_)|format!("{name}: ${name}")).collect::<Vec<_>>().join(", ");
+        let query=format!("{operation} OpenIdeaRequest{} {{\n  {}{}{}\n}}",if definitions.is_empty(){String::new()}else{format!("({definitions})")},field.name,if arguments.is_empty(){String::new()}else{format!("({arguments})")},if object{" { __typename }"}else{""});
+        if subscription{return Ok(RequestDraft{path:String::new(),operation:operation.into(),field:field.name.clone(),query,variables})}
+        let settings=self.settings.get(&project,spring_text::index::COMMAND_BUDGET);
+        if !settings.complete(){return Err(Error::Failed("GraphQL configuration index is incomplete.".into()))}
+        let mut values=Vec::new();
+        for (_,entries) in settings.iter(){for entry in entries {
+            if values.iter().any(|v:&Setting|v.key==entry.key&&v.value!=entry.value) && ["spring.graphql.path","server.servlet.contextpath"].contains(&entry.key.as_str()) {return Err(Error::Failed("GraphQL HTTP path varies across configuration sources; choose an explicit active context.".into()))}
+            if !values.iter().any(|v:&Setting|v.key==entry.key){values.push(entry.clone())}
+        }}
+        let row=endpoint_rows(&values).into_iter().find(|(label,_,_)|label.starts_with("POST ")).ok_or_else(||Error::Failed("GraphQL HTTP endpoint is unavailable.".into()))?;
+        let path=row.0.trim_start_matches("POST ").to_owned();
+        if !path.starts_with('/')||path.starts_with("//")||path.chars().any(|c|c.is_whitespace()||c.is_control())||path.contains(['$','{','}', '\\', '?', '#']){return Err(Error::Failed("GraphQL HTTP path is unresolved or invalid.".into()))}
+        Ok(RequestDraft{path,operation:operation.into(),field:field.name.clone(),query,variables})
+    }
 }
 
 impl GraphQlTools {
@@ -1009,6 +1136,76 @@ class BookController {
 }
 "#;
 
+    #[test]
+    fn malformed_and_excessive_sdl_type_wrappers_are_not_request_signatures(){
+        for source in ["type Query { field: String!! }".to_owned(),format!("type Query {{ field: {}String{} }}","[".repeat(10000),"]".repeat(10000))] {
+            let schema=parse_schema(&source);assert!(schema.types[0].fields[0].type_reference.is_empty());
+        }
+    }
+    #[test]
+    fn request_draft_uses_exact_schema_root_argument_wrappers_and_configured_path(){
+        let host=MockHost::install();
+        host.add_file("src/main/resources/graphql/schema.graphqls","union Result=Book | Author type Query { find(ids:[ID!]!, optional:Int): Result } type Book {id:ID} type Author {id:ID}");
+        host.add_file("src/main/resources/application.properties","server.servlet.context-path=/app\nspring.graphql.path=/api/gql\n");
+        let d=doc("/project/C.java","java","@Controller class C { @QueryMapping(\"find\") Result search(@Argument List<String> ids){} }");
+        let h=handlers(&d.text).remove(0);let draft=GraphQlTools::default().request_draft(&d,&h).unwrap();
+        assert_eq!(draft.path,"/app/api/gql");assert!(draft.query.contains("$ids: [ID!]!"));assert!(draft.query.contains("find(ids: $ids) { __typename }"));assert!(!draft.query.contains("optional"));
+    }
+    #[test]
+    fn foreign_dynamic_and_conflicting_mapping_sources_do_not_create_handlers(){
+        for source in [
+            "import foreign.QueryMapping; @Controller class C { @QueryMapping String find(){} }",
+            "import foreign.Controller; @Controller class C { @QueryMapping String find(){} }",
+            "@Controller class C { @QueryMapping(NAME) String find(){} }",
+            r#"@Controller class C { @QueryMapping("x\ny") String find(){} }"#,
+            "@Controller class C { @QueryMapping(\"bad field\") String find(){} }",
+            "@Controller class C { @QueryMapping(value=\"a\",name=\"b\") String find(){} }",
+            "@Controller @SchemaMapping(typeName=TYPE) class C { @SchemaMapping String find(){} }",
+        ] {assert!(handlers(source).is_empty(),"{source}");}
+        let h=handlers("@Controller class C { @QueryMapping String find(@Argument(NAME) String wrong){} }").remove(0);assert!(h.args.is_empty());
+        let batch=handlers("@Controller class C { @BatchMapping(typeName=\"Book\",maxBatchSize=LIMIT) Object author(List<Book> books){} }");assert_eq!(batch.len(),1);assert_eq!(batch[0].ty,"Book");
+        assert!(handlers_in("import other.X as QueryMapping\n@Controller class C { @QueryMapping fun find():String=\"x\" }",true).is_empty());
+    }
+    #[test]
+    fn shortcut_parent_is_fixed_and_custom_sdl_root_does_not_remap_it(){
+        let host=MockHost::install();host.add_file("src/main/resources/graphql/schema.graphqls","schema {query: Root} type Root { find: String } type Query { find: String }");
+        let d=doc("/project/C.java","java","@Controller class C { @QueryMapping String find(){} }");let h=handlers(&d.text).remove(0);
+        assert_eq!(h.ty,"Query");
+        let mut tools=GraphQlTools::default();
+        let project=project_of(&d.path).unwrap();let schemas=tools.schemas.get(&project,spring_text::index::COMMAND_BUDGET);
+        assert_eq!(type_of(&h,schemas),"Query");
+        assert!(tools.request_draft(&d,&h).is_err());
+        let explicit=doc("/project/C.java","java","@Controller class C { @SchemaMapping(typeName=\"Root\",field=\"find\") String search(){} }");
+        let h=handlers(&explicit.text).remove(0);let draft=tools.request_draft(&explicit,&h).unwrap();assert_eq!(draft.operation,"query");assert!(draft.query.contains("find"));
+    }
+    #[test]
+    fn subscription_document_uses_exact_sdl_and_never_chooses_http_transport(){
+        let host=MockHost::install();host.add_file("src/main/resources/graphql/schema.graphqls","type Subscription { changed(ids:[ID!]!): Item } type Item {id:ID}");
+        let d=doc("/project/C.java","java","@Controller class C { @SubscriptionMapping Item changed(){} }");let h=handlers(&d.text).remove(0);let mut tools=GraphQlTools::default();
+        let draft=tools.subscription_draft(&d,&h).unwrap();assert!(draft.path.is_empty());assert_eq!(draft.operation,"subscription");assert!(draft.query.contains("$ids: [ID!]!"));assert!(draft.query.contains("changed(ids: $ids) { __typename }"));assert!(tools.request_draft(&d,&h).is_err());
+        host.add_file("src/main/resources/graphql/schema.graphqls","schema {subscription: Events} type Events {changed:String}");assert!(tools.subscription_draft(&d,&h).is_err());
+        let d=doc("/project/C.java","java","@Controller class C { @SchemaMapping(typeName=\"Events\",field=\"changed\") String observe(){} }");let h=handlers(&d.text).remove(0);assert!(tools.subscription_draft(&d,&h).unwrap().query.starts_with("subscription "));
+    }
+    #[test]
+    fn generated_client_document_directory_is_not_reindexed_as_schema(){
+        assert!(schema_file("/project/graphql-documents/subscription-type.graphql","subscription { type { name } }").is_none());
+        assert!(schema_file("/project/src/main/resources/graphql/schema.graphqls","type Subscription {changed:String}").is_some());
+    }
+    #[test]
+    fn explicit_schema_does_not_invent_undeclared_subscription_roots(){
+        let host=MockHost::install();host.add_file("src/main/resources/graphql/schema.graphqls","schema {query: Query} type Query {now:String} type Subscription {changed:String}");
+        let d=doc("/project/C.java","java","@Controller class C {@SubscriptionMapping String changed(){} }");let h=handlers(&d.text).remove(0);let mut tools=GraphQlTools::default();assert!(tools.subscription_draft(&d,&h).is_err());assert!(tools.source_operations(&d).is_empty());
+        host.add_file("src/main/resources/graphql/schema.graphqls","type Query {now:String} extend schema {subscription: Subscription} type Subscription {changed:String}");assert!(tools.subscription_draft(&d,&h).is_ok());
+    }
+    #[test]
+    fn request_draft_keeps_scalar_results_leaf_and_refuses_conflicting_schema_or_paths(){
+        let host=MockHost::install();host.add_file("src/main/resources/graphql/schema.graphqls","scalar Date enum Status {OPEN CLOSED} type Query { today: Date state: Status }");
+        let d=doc("/project/C.java","java","@Controller class C { @QueryMapping Date today(){} }");let h=handlers(&d.text).remove(0);let mut tools=GraphQlTools::default();
+        let draft=tools.request_draft(&d,&h).unwrap();assert!(!draft.query.contains("__typename"));assert!(draft.variables.is_empty());
+        host.add_file("src/main/resources/graphql/other.graphqls","type Query {today: String}");assert!(tools.request_draft(&d,&h).is_err());
+        host.add_file("src/main/resources/graphql/other.graphqls","");
+        host.add_file("src/main/resources/application.properties","spring.graphql.path=/graphql\n");host.add_file("src/main/resources/application-dev.properties","spring.graphql.path=/other\n");assert!(tools.request_draft(&d,&h).is_err());
+    }
     #[test]
     fn parses_sdl() {
         let s = parse_schema(SCHEMA);
@@ -1319,7 +1516,7 @@ class BookController {
         assert_eq!(problems.iter().filter_map(|d| d.code.as_deref()).collect::<Vec<_>>(), ["unknown-graphql-argument"]);
     }
 
-    const DOC_SCHEMA: &str = "schema { query: RootQuery subscription: Subscription }\ntype RootQuery { bookById(id: ID): Book other: Book }\ntype Subscription { bookAdded: Book }\ntype Mutation { addBook: Book }\ntype Book { id: ID title: String }";
+    const DOC_SCHEMA: &str = "schema { query: RootQuery mutation: Mutation subscription: Subscription }\ntype RootQuery { bookById(id: ID): Book other: Book }\ntype Subscription { bookAdded: Book }\ntype Mutation { addBook: Book }\ntype Book { id: ID title: String }";
 
     fn doc_links(path: &str, language: &str, text: &str, needle: &str) -> Vec<Location> {
         let host = MockHost::install();

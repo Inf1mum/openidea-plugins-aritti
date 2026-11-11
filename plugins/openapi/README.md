@@ -474,3 +474,65 @@ supported target subset. No complete usages or Rename graph is established.
 ## Unreleased follow-up
 
 Use **OpenAPI: Find Component Occurrences in This Document** on a component key or local `$ref`. The picker includes the declaration and exact local references, including references into that component. External incoming references and global Rename are outside this command.
+
+## Generate a client, server or documentation
+
+**OpenAPI: Generate Client, Server or Documentation…** integrates an independently
+installed, approved `swagger-codegen` stable3.x executable. Its installed `langs`
+catalog supplies the generator picker. Input supports Swagger2.0/OpenAPI3.0;
+3.1/3.2 generation is not admitted by this profile.
+
+Generation runs in a new owned `.openidea/codegen-stage-*` directory, never in the
+final destination. The review shows source, generator, staging and final paths.
+The command requires saved project inputs, revalidates ownership/source and opens
+a keyed native terminal. After a successful matching terminal exit and expected
+CLI metadata, focus the original unchanged specification and select **Apply staged
+generated API directory…** from code actions. This returns a reviewed native
+workspace directory Rename, refusing an existing final destination; one Undo
+reverses the move. Stop a running generator in its native terminal. **Forget
+Completed Generation Stage** clears tracking after completion/cancellation while
+leaving files intact for manual inspection/removal. Reloading the plugin loses
+in-memory tracking; staged files remain in the project.
+
+`--skip-overwrite true` protects ordinary staged files, but the generator can
+rewrite its own metadata. Staging plus the native final-directory operation
+protects existing final output. The adapter requires optional `project.write` and
+`process:swagger-codegen`; it never installs tools. The approved external process
+has its own authority to resolve referenced inputs; review those inputs first.
+
+**OpenAPI: Generate With Options or Templates…** additionally retrieves the selected
+installed generator's `config-help -l` option names/descriptions. Choose known
+options and values, a project-owned custom template directory (or bundled defaults)
+and the supported default/Mustache/Handlebars template engine. Review includes the
+actual values and directory before launch. Complex additional-property strings
+containing comma/equals are refused because the CLI uses those separators; arbitrary
+JSON configuration import is not supplied by this interactive adapter.
+
+**OpenAPI: Export Comparison as Markdown** exports the currently owned comparison
+summary to `<spec>.comparison.md` beside the compared specification, with the
+existing overwrite review. Without `project.write`, it copies the report to the
+clipboard. Editing either compared source invalidates export until comparison is
+run again. The report describes the existing structural comparison scope; it is
+not a complete semantic compatibility proof.
+
+**OpenAPI: Find Component Usages in Project** follows exact physical component
+identity through local and relative-file `$ref` values, including admitted array
+references and descendants. The picker includes the declaration and source-backed
+incoming references, with file/line navigation. Read failures, unsupported source
+models and discovery limits are explicitly marked partial; remote/encoded URI
+identities are not treated as local paths. This remains read-only and does not
+claim safe Rename or references from ignored/external projects.
+
+At the root `openapi`/`swagger` key, quick fixes add missing info/paths sections
+and (OpenAPI3 only) components, preserving existing source. Ambiguous duplicate
+owners do not offer additions.
+
+On a physical component key or `$ref`, **Rename component in visible project
+sources…** offers an explicit reviewed workspace edit. It checks every discovered
+JSON/YAML source, declaration collision, exact reference spans, discovery limits
+and unchanged source before returning edits. Unsupported/dynamic/discriminator
+ownership, security-scheme names, transformed/encoded component names and unknown
+source models refuse the entire edit. New names use plain letters, digits,
+underscore and dash. Ignored files, external projects and runtime-generated
+references remain outside this explicitly visible-source operation; this is not
+native global indexed Rename.

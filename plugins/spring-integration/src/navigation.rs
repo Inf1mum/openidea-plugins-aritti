@@ -394,7 +394,13 @@ fn rename_sites(doc: &Document, at: Position) -> Option<(String, Vec<Range>)> {
             if e.parent != Some(0) || xml::namespace(&elements,i) != Some(NAMESPACE) { return None; }
             let allowed: &[&str] = match e.local() {
                 "channel" | "publish-subscribe-channel" => &["id"],
-                "bridge" => &["id", "input-channel", "output-channel"],
+                "bridge" => &["id", "input-channel", "output-channel", "error-channel"],
+                // A flat endpoint's literal channel-valued attributes are owned
+                // by this same local bean namespace. Expressions, nested
+                // endpoints and other namespaces remain outside this inventory.
+                "service-activator" | "transformer" | "filter" | "splitter" | "aggregator" => &[
+                    "id", "input-channel", "output-channel", "error-channel", "discard-channel", "ref", "method",
+                ],
                 _ => return None,
             };
             if e.attrs.iter().any(|a| !allowed.contains(&a.name.as_str()) || !literal(&a.value)) { return None; }
@@ -403,6 +409,9 @@ fn rename_sites(doc: &Document, at: Position) -> Option<(String, Vec<Range>)> {
     let selected = selected(&tokens, at)?;
     if selected.collides || matches!(selected.name.as_str(), "nullChannel" | "errorChannel")
         || tokens.iter().filter(|t|t.declaration && t.name == selected.name).count()!=1 { return None; }
+    // A handler ref with the same spelling is a bean reference too. This
+    // channel-only action cannot prove that handler contract, so fail closed.
+    if elements.iter().flat_map(|e| &e.attrs).any(|a| a.name=="ref" && a.value==selected.name) { return None; }
     let sites: Vec<_> = tokens.iter().filter(|t|t.name==selected.name).map(|t|t.range).collect();
     Some((selected.name.clone(), sites))
 }
@@ -446,7 +455,7 @@ impl ChannelRenames {
         let at=openidea_plugin::text::position(&after,from);
         let changed=Document {text:after.clone(),..doc.clone()};
         if !rename_sites(&changed,at).is_some_and(|(name,spans)|name==new && spans.len()==sites.len()) { return Err(Error::Stale); }
-        let review=format!("Source: {}\nVersion: {}\nChannel: {old} → {new}\nExact edits: {}\n\nThis changes only this physical XML document's literal channel and bridge references. External references, runtime contexts, imports and global Rename are excluded.\n\nBEFORE:\n{}\n\nAFTER:\n{after}",doc.path,doc.version,sites.len(),doc.text);
+        let review=format!("Source: {}\nVersion: {}\nChannel: {old} → {new}\nExact edits: {}\n\nThis changes only this physical XML document's literal channel and supported flat endpoint references. External references, runtime contexts, imports and global Rename are excluded.\n\nBEFORE:\n{}\n\nAFTER:\n{after}",doc.path,doc.version,sites.len(),doc.text);
         current_rename(&root,doc)?;
         if !ui_kit::prompts::confirm_exact("Rename channel in this document?",&review)? { return Err(Error::Cancelled); }
         current_rename(&root,doc)?;
@@ -467,6 +476,22 @@ mod channel_rename_tests {
         let result=owner.resolve_file_action(&d,a).unwrap();assert_eq!(result.edits[0].1.len(),2);
         assert!(result.edits[0].1.iter().all(|e|e.text=="incoming"));
         assert!(owner.resolve_file_action(&d,replay).is_err());assert!(h.process_runs().is_empty() && h.requests().is_empty());
+    }
+    #[test]
+    fn flat_endpoint_channels_are_renamed_without_changing_handler_or_method() {
+        let mut d=doc();d.text=d.text.replace("</beans>","<i:service-activator id='service' input-channel='in' output-channel='out' error-channel='in' ref='handler' method='in'/><i:filter input-channel='out' discard-channel='in' ref='filter'/></beans>");
+        let h=MockHost::install();h.add_file(&d.path,&d.text);let mut owner=crate::structure::Structure::default();
+        let at=openidea_plugin::text::position(&d.text,d.text.find("error-channel='in'").unwrap()+15);
+        let a=owner.file_actions(&d,Range::new(at,at)).into_iter().find(|a|a.title=="Rename literal channel in this document…").unwrap();
+        h.answer_next_prompt(Some(&["incoming"]));h.answer_next_prompt(Some(&["yes"]));
+        let result=owner.resolve_file_action(&d,a).unwrap();assert_eq!(result.edits[0].1.len(),5);
+        let mut after=d.text.clone();for edit in result.edits[0].1.iter().rev() {
+            let from=openidea_plugin::text::offset(&d.text,edit.range.start).unwrap();let to=openidea_plugin::text::offset(&d.text,edit.range.end).unwrap();after.replace_range(from..to,&edit.text);
+        }
+        assert!(after.contains("method='in'"));assert!(after.contains("ref='handler'"));
+        assert!(after.contains("discard-channel='incoming'"));assert!(after.contains("output-channel='out'"));
+        let same_handler=Document{text:d.text.replace("ref='handler'","ref='in'"),..d.clone()};assert!(rename_sites(&same_handler,selection(&same_handler).start).is_none());
+        let dynamic=Document{text:d.text.replace("method='in'","expression='payload.in'"),..d.clone()};assert!(rename_sites(&dynamic,selection(&dynamic).start).is_none());
     }
     #[test]
     fn ambiguous_unknown_scope_collision_and_stale_source_refuse() {

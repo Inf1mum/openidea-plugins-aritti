@@ -23,6 +23,7 @@ mod ownership;
 mod path_matcher;
 mod modern_matcher;
 mod debug_call;
+mod injections;
 
 pub(crate) const METHOD_SECURITY: [&str; 4] = ["PreAuthorize", "PostAuthorize", "PreFilter", "PostFilter"];
 const ROLE_PREFIX: &str = "ROLE_";
@@ -933,7 +934,7 @@ impl Plugin for SecurityTools {
     }
 }
 
-register_plugin!(SecurityTools, providers, diagnostics, hover, inlay_hints, file_actions);
+register_plugin!(SecurityTools, providers, diagnostics, hover, inlay_hints, file_actions, injections);
 
 #[cfg(test)]
 mod tests {

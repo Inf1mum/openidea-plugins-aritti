@@ -169,7 +169,8 @@ so your kubeconfig is never modified. To use another kubeconfig file (or several
 Settings › Plugins › Kube Explorer; otherwise kubectl uses its default.
 
 Not ported: cluster-backed checks (unknown resources or fields against the
-live API), CRD-aware validation and `requirements.yaml` (Helm 2). The key tables cover
+live API) and `requirements.yaml` (Helm 2). Local CRD schemas now support the
+bounded editor assistance described below. The built-in key tables cover
 the kinds listed above only.
 
 Cluster browsing/operations require the optional `process:kubectl` grant. The
@@ -867,3 +868,78 @@ tooltips. Secondary pod/log actions use the trailing More Resource Actions picke
 Resource callbacks use fixed-size action/scope proofs within the host's 64-byte
 button-ID bound, including long resource names; host reselect does not invalidate
 them, while changed targets/scopes and altered actions refuse.
+
+## Kustomization field completion
+
+In `kustomization.yaml`, `kustomization.yml` and `Kustomization`, root key
+completion offers documented SIG CLI fields, omits existing keys, and replaces
+the whole partial key. Results are sorted deterministically. Nested mappings,
+values, comments, flow-style documents and multiple YAML documents stay quiet.
+This complements the existing Kustomize render/apply actions; it does not add
+full nested schema validation. Local block-list resources/components/patch paths
+now offer relative indexed/opened-project-file completion, Go to Declaration and gutters.
+Directory references require a unique Kustomization file; paths outside the
+project, remote URLs, ambiguous directory files and nested-project targets are
+refused. Source literals and target existence are rechecked at invocation. Provider
+text is limited to 256 KiB. Filename hints are warmed during indexing/open/save
+(no project discovery in editor requests); gutters check at most16 targets per
+request, while Go to Declaration resolves the selected reference directly.
+
+
+## Local CRD, JSON and Helm schema assistance
+
+Indexed/opened local `apiextensions.k8s.io/v1` CRDs contribute structural-schema
+property and enum/boolean completion for matching group/version/kind resources.
+Only a unique same-project definition whose current source still matches its
+indexed snapshot is used. Changed, duplicate or foreign-project definitions
+withdraw assistance. Current source diagnostics validate types, required fields,
+enums, explicit additional-property rejection, numeric bounds, string length and
+supported patterns, collection sizes/uniqueness, read-only and deprecated fields.
+Unsupported schema composition, remote references and CEL validation stay quiet;
+this does not reproduce server admission or runtime defaults. Cache limits are64
+CRD source files of128KiB each; providers do not run kubectl or fetch schemas.
+
+JSON resources now have physical-range built-in key diagnostics and root/spec/
+metadata completion through the same conservative kind tables, plus duplicate-key
+warnings. Built-in Pod/Service enum choices and local CRD property/enum assistance
+are available. UTF-16 locations preserve multibyte source spelling. JSONC comments and trailing commas are masked without changing byte offsets;
+completion stays quiet inside comments and diagnostics retain original UTF-16
+source locations. Malformed JSON/JSONC stays quiet rather than receiving guessed
+structural diagnostics.
+YAML modeline refactors are never offered to JSON documents.
+
+Local chart `values.schema.json` contributes guarded `values.yaml` completion and
+live diagnostics. The optional code action **Use local Helm values schema in YAML language server** adds a relative schema directive for an installed YAML
+language server's broader schema support, keeping existing directives intact.
+Chart dependency fields/conditions/tags also receive local assistance; provider
+requests do not run Helm. Full chart rendering still uses the explicit existing
+Helm template/lint commands.
+
+## Local label and data-key occurrences
+
+Explicitly namespaced Pod/workload labels and supported complete selectors have
+exact source navigation and gutters. Named ConfigMap/Secret key references share
+kind/resource/namespace ownership and support data-key completion. **Find Local
+Label or Data-Key Occurrences** opens a read-only source picker, revalidating the
+source version and destination after selection. No cluster process or network
+request is needed. The cache retains structural facts and source fingerprints,
+not Secret values. Dynamic/generated identity, absent namespaces, duplicate
+resource declarations and unsupported scalar spellings withhold authority.
+These source associations do not enable automatic indexed Rename.
+
+
+For broader local CRD JSON Schema support, **Use local CRD schema in YAML language
+server…** previews an undoable sibling-schema creation and relative directive.
+The action binds resource version/text and source schema, refuses existing/open
+schema destinations, preserves CRLF and percent-encodes filenames. A changed CRD
+or resource invalidates the operation. Nullable and int-or-string OpenAPI forms
+are represented as JSON Schema alternatives. An installed YAML language server
+then supplies its supported schema semantics; plugin validators do not claim CEL
+or server admission.
+
+**Read Local Helm Dependency Catalog** reads installed Helm repository indexes
+explicitly (`helm repo list` and bounded `helm search repo --versions`). It does
+not update repositories or fetch network data. Repository signatures and current
+chart dependency identity bind the dated ten-minute cache. Version completion is
+withdrawn after dependency identity changes or expiry; updating repository indexes
+remains a separate explicit Helm action.

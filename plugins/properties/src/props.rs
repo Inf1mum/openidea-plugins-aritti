@@ -320,16 +320,39 @@ io is it iu iw ja ji jv ka kg ki kj kk kl km kn ko kr ks ku kv kw ky la lb lg li
 mt my na nb nd ne ng nl nn no nr nv ny oc oj om or os pa pi pl ps pt qu rm rn ro ru rw sa sc sd se sg si sk sl sm sn so \
 sq sr ss st su sv sw ta te tg th ti tk tl tn to tr ts tt tw ty ug uk ur uz ve vi vo wa wo xh yi yo za zh zu";
 
+/// Shared bundle discovery/creation grammar: ISO 639 language, optional title-case
+/// script, optional ISO-style region, and legacy Java variant segments. Variants
+/// without a region retain Java's empty-region separator (`en__POSIX`).
+pub fn valid_locale(locale: &str) -> bool {
+    if locale.len() > 96 { return false; }
+    let pieces: Vec<_> = locale.split('_').collect();
+    let Some(language) = pieces.first() else { return false; };
+    let language_ok = match language.len() {
+        2 => ISO_639_1.split(' ').any(|code| code == *language),
+        3 => crate::locale_codes::ISO_639_2.split(' ').any(|code| code == *language),
+        _ => false,
+    };
+    if !language_ok { return false; }
+    let mut at = 1;
+    if let Some(script) = pieces.get(at) {
+        let bytes = script.as_bytes();
+        if bytes.len() == 4 && bytes[0].is_ascii_uppercase() && bytes[1..].iter().all(u8::is_ascii_lowercase) { at += 1; }
+    }
+    if at == pieces.len() { return true; }
+    let region = pieces[at];
+    let valid_region = (region.len() == 2 && region.bytes().all(|b| b.is_ascii_uppercase()))
+        || (region.len() == 3 && region.bytes().all(|b| b.is_ascii_digit()));
+    // An empty region is valid only when at least one variant follows it.
+    if !valid_region && !(region.is_empty() && at + 1 < pieces.len()) { return false; }
+    at += 1;
+    pieces[at..].iter().all(|part| !part.is_empty() && part.len() <= 32 && part.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'))
+}
+
 /// `PropertiesUtil.getDefaultBaseName`: `messages_fr_CA` → (`messages`, `fr_CA`).
-// ponytail: two-letter ISO 639-1 codes only; IntelliJ also accepts the JDK's three-letter ones (add them if a bundle needs it).
 pub fn split_locale(stem: &str) -> (&str, &str) {
     for (i, _) in stem.match_indices('_') {
         let suffix = &stem[i + 1..];
-        let language = suffix.split('_').next().unwrap_or_default();
-        let rest_ok = suffix.chars().all(|c| c.is_alphanumeric() || matches!(c, '_' | '-'));
-        if rest_ok && language.len() == 2 && ISO_639_1.split(' ').any(|code| code == language) {
-            return (&stem[..i], suffix);
-        }
+        if valid_locale(suffix) { return (&stem[..i], suffix); }
     }
     (stem, "")
 }
@@ -363,6 +386,17 @@ pub fn locale_name(suffix: &str) -> &str {
 mod tests {
     use super::*;
 
+    #[test]
+    fn creation_and_discovery_share_three_letter_script_region_variant_grammar() {
+        for locale in ["eng", "deu", "ger", "zho_Hans_CN", "zh_Hant_TW", "eng_Latn_US_POSIX", "en__POSIX", "en_Latn__POSIX", "es_419", "fr_CA_extra", "sr_Cyrl", "en_US_WINDOWS_VISTA"] {
+            assert!(valid_locale(locale), "{locale}");
+            let path = format!("my_messages_{locale}");
+            assert_eq!(split_locale(&path), ("my_messages", locale));
+        }
+        for locale in ["", "qqq", "xx", "ENG", "en_hans_CN", "en_Latn_cn", "en_", "en__", "en_US_", "en_US_../bad", "en_US_😀", "en_Latn_POSIX", "eng/US"] {
+            assert!(!valid_locale(locale), "{locale}");
+        }
+    }
     #[test]
     fn parses_separators_comments_and_continuations() {
         let text = "# c\n! c\na=1\nb : 2\nc 3\nd\\=x=4\nlong=one \\\n    two\nempty\n";

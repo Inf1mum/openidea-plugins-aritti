@@ -23,7 +23,8 @@ fn tag_blocks(text: &str) -> impl Iterator<Item = (Range<usize>, &str)> {
     let tags = if parsed.tags.len() <= 4096 { parsed.tags } else { Vec::new() };
     tags.into_iter().filter_map(move |tag| {
         let range = tag.range;
-        let raw = text.get(range.clone())?.strip_prefix("{%")?.strip_suffix("%}")?;
+        let syntax=crate::delimiters::Syntax::current();
+        let raw = syntax.tag_body(text.get(range.clone())?)?;
         let body = raw.trim_start_matches(['-', '~']).trim_end_matches(['-', '~']).trim();
         Some((range, body))
     })
@@ -37,21 +38,15 @@ pub fn code_at(text: &str, offset: usize, allow_string: bool) -> bool {
     }
     let parsed = crate::lex(text);
     let mut inside = false;
+    let mut boundary=0usize;
     for token in parsed.tokens {
         if token.range.start > offset {
             break;
         }
-        let raw = &text[token.range.clone()];
-        if token.kind == openidea_plugin::syntax::Highlight::Punctuation {
-            if raw.starts_with("{{") || raw.starts_with("{%") {
-                inside = true;
-            }
-            if raw.ends_with("}}") || raw.ends_with("%}") {
-                if token.range.start <= offset && offset < token.range.end {
-                    return false;
-                }
-                inside = false;
-            }
+        if let Some((_,open))=parsed.boundaries.get(boundary).filter(|(range,_)|*range==token.range) {
+            boundary+=1;
+            if !open && token.range.start<=offset && offset<token.range.end {return false;}
+            inside=*open;
         }
         if token.range.start <= offset && offset < token.range.end {
             return inside
@@ -270,7 +265,7 @@ pub fn template_at(text: &str, offset: usize) -> Option<(String, Range<usize>)> 
         .into_iter().find(|word| before.ends_with(word) && before[..before.len()-word.len()].bytes().next_back().is_none_or(|b| !is_word(b) && b != b'.'))?;
     let after = text[token.range.end..].trim_start();
     let keyword = |word: &str| after.strip_prefix(word).is_some_and(|rest| rest.starts_with(char::is_whitespace));
-    let closed = after.starts_with("%}") || after.starts_with("-%}") || after.starts_with("~%}");
+    let closed = after.trim_start_matches(['-','~']).starts_with(&crate::delimiters::Syntax::current().values[1]);
     let complete = if introducer.ends_with('(') {
         after.starts_with(')') || after.starts_with(',')
     } else {

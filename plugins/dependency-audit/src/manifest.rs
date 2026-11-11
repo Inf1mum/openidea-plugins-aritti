@@ -46,6 +46,8 @@ pub enum Kind {
     PnpmLock,
     CargoLock,
     PoetryLock,
+    UvLock,
+    PipfileLock,
     Requirements,
 }
 
@@ -62,6 +64,8 @@ pub const GLOBS: &[&str] = &[
     "**/pnpm-lock.yaml",
     "**/Cargo.lock",
     "**/poetry.lock",
+    "**/uv.lock",
+    "**/Pipfile.lock",
     "**/requirements.txt",
 ];
 
@@ -115,6 +119,8 @@ pub fn kind(path: &str) -> Option<Kind> {
         "pnpm-lock.yaml" => Some(Kind::PnpmLock),
         "Cargo.lock" => Some(Kind::CargoLock),
         "poetry.lock" => Some(Kind::PoetryLock),
+        "uv.lock" => Some(Kind::UvLock),
+        "Pipfile.lock" => Some(Kind::PipfileLock),
         "requirements.txt" => Some(Kind::Requirements),
         _ => None,
     }
@@ -143,6 +149,8 @@ pub fn parse(path: &str, text: &str, lock: Option<&str>) -> Vec<Dep> {
         Some(Kind::PnpmLock) => pnpm_lock(path, text),
         Some(Kind::CargoLock) => toml_lock(path, text, Ecosystem::CratesIo, true),
         Some(Kind::PoetryLock) => toml_lock(path, text, Ecosystem::PyPI, false),
+        Some(Kind::UvLock) => uv_lock(path, text),
+        Some(Kind::PipfileLock) => pipfile_lock(path, text),
         Some(Kind::Requirements) => requirements(path, text),
         None => Vec::new(),
     }
@@ -392,7 +400,11 @@ fn package_json(path: &str, text: &str, lock: Option<&str>) -> Vec<Dep> {
             }
             let locked = lock
                 .as_ref()
-                .and_then(|l| l.get("packages")?.get(format!("node_modules/{name}"))?.get("version")?.as_str());
+                .and_then(|l| {
+                    l.get("packages").and_then(|p| p.get(format!("node_modules/{name}")))
+                        .or_else(|| (l.get("lockfileVersion").and_then(Value::as_u64) == Some(1)).then(|| l.get("dependencies")?.get(name)).flatten())
+                        .and_then(|entry| entry.get("version")?.as_str())
+                });
             let version = match locked {
                 Some(version) => version,
                 None if is_exact(spec) => spec,
@@ -447,6 +459,9 @@ fn package_lock(path: &str, text: &str) -> Vec<Dep> {
     let Ok(root) = serde_json::from_str::<Value>(text) else {
         return Vec::new();
     };
+    if root.get("lockfileVersion").and_then(Value::as_u64) == Some(1) {
+        return package_lock_v1(path, text);
+    }
     let (Some(packages), Some(base)) = (root.get("packages").and_then(Value::as_object), section_start(text, "packages")) else {
         return Vec::new();
     };
@@ -474,6 +489,81 @@ fn package_lock(path: &str, text: &str) -> Vec<Dep> {
         });
     }
 
+    deps
+}
+
+/// Object members with exact physical source ranges. The document is parsed
+/// before this runs; serde's stream offsets keep repeated nested package names
+/// distinct and handle quoted/escaped strings without text-search guesses.
+pub(crate) fn object_members(text: &str, start: usize) -> Option<Vec<(String, (usize, usize), usize)>> {
+    let mut at = start;
+    while text.as_bytes().get(at).is_some_and(u8::is_ascii_whitespace) { at += 1; }
+    if text.as_bytes().get(at) != Some(&b'{') { return None; }
+    at += 1;
+    let mut entries = Vec::new();
+    let mut names = HashSet::new();
+    loop {
+        while text.as_bytes().get(at).is_some_and(u8::is_ascii_whitespace) { at += 1; }
+        if text.as_bytes().get(at) == Some(&b'}') { return Some(entries); }
+        let key_start = at;
+        let mut key = serde_json::Deserializer::from_str(text.get(at..)?).into_iter::<String>();
+        let name = key.next()?.ok()?; if !names.insert(name.clone()) { return None; } at += key.byte_offset(); let key_end = at;
+        at = after_colon(text, at)?;
+        let value_at = at;
+        let mut value = serde_json::Deserializer::from_str(text.get(at..)?).into_iter::<Value>();
+        value.next()?.ok()?; at += value.byte_offset();
+        entries.push((name, (key_start + 1, key_end - 1), value_at));
+        if entries.len() > 10_000 { return None; }
+        while text.as_bytes().get(at).is_some_and(u8::is_ascii_whitespace) { at += 1; }
+        match text.as_bytes().get(at) { Some(b',') => at += 1, Some(b'}') => return Some(entries), _ => return None }
+    }
+}
+
+fn package_lock_v1(path: &str, text: &str) -> Vec<Dep> {
+    fn walk(path: &str, text: &str, at: usize, depth: usize, deps: &mut Vec<Dep>) -> Option<()> {
+        if depth > 32 { return None; }
+        for (name, span, start) in object_members(text, at)? {
+            let members = object_members(text, start)?;
+            let version = members.iter().find(|(name,_,_)| name == "version").and_then(|(_,_,at)| {
+                serde_json::Deserializer::from_str(&text[*at..]).into_iter::<String>().next()?.ok()
+            });
+            if let Some(version) = version.filter(|version| is_version(version)) {
+                deps.push(Dep { path:path.into(), ecosystem:Ecosystem::Npm, name, version, at:span, version_at:None });
+                if deps.len() > 10_000 { return None; }
+            }
+            if let Some((_,_,at)) = members.iter().find(|(name,_,_)| name == "dependencies") {
+                walk(path, text, *at, depth + 1, deps)?;
+            }
+        }
+        Some(())
+    }
+    let Some(members) = object_members(text, 0) else { return Vec::new(); };
+    let Some((_,_,at)) = members.iter().find(|(name,_,_)| name == "dependencies") else { return Vec::new(); };
+    let mut deps = Vec::new();
+    if walk(path,text,*at,0,&mut deps).is_none() { return Vec::new(); }
+    deps
+}
+
+fn pipfile_lock(path: &str, text: &str) -> Vec<Dep> {
+    let Ok(root) = serde_json::from_str::<Value>(text) else {return Vec::new();};
+    let Some(sources) = root.pointer("/_meta/sources").and_then(Value::as_array) else {return Vec::new();};
+    let pypi_sources: HashSet<_> = sources.iter().filter(|source| source.get("verify_ssl").and_then(Value::as_bool) == Some(true)
+        && matches!(source.get("url").and_then(Value::as_str), Some("https://pypi.org/simple"|"https://pypi.org/simple/")))
+        .filter_map(|source|source.get("name").and_then(Value::as_str)).collect();
+    if pypi_sources.is_empty() {return Vec::new();}
+    let Some(sections) = object_members(text,0) else {return Vec::new();};
+    let mut deps=Vec::new();
+    for (section,_,at) in sections.into_iter().filter(|(name,_,_)|matches!(name.as_str(),"default"|"develop")) {
+        let Some(packages)=object_members(text,at) else {return Vec::new();};
+        for (name,span,_) in packages {
+            let Some(entry)=root.get(&section).and_then(|section|section.get(&name)).and_then(Value::as_object) else {continue;};
+            if ["git","path","file","editable"].iter().any(|key|entry.contains_key(*key)) {continue;}
+            let registry=match entry.get("index").and_then(Value::as_str) {Some(index)=>pypi_sources.contains(index),None=>sources.len()==1&&pypi_sources.len()==1};
+            let Some(version)=entry.get("version").and_then(Value::as_str).and_then(|v|v.strip_prefix("==")).filter(|v|is_version(v)) else {continue;};
+            if registry {deps.push(Dep{path:path.into(),ecosystem:Ecosystem::PyPI,name,version:version.into(),at:span,version_at:None});}
+            if deps.len()>10_000 {return Vec::new();}
+        }
+    }
     deps
 }
 
@@ -787,6 +877,46 @@ fn toml_lock(path: &str, text: &str, ecosystem: Ecosystem, registry_only: bool) 
     deps
 }
 
+/// uv's resolved package records. Only canonical PyPI registry identities are
+/// admitted: path, editable, Git and URL distributions are not OSV PyPI identities.
+/// This intentionally does not evaluate markers, extras or dependency reachability.
+fn uv_lock(path: &str, text: &str) -> Vec<Dep> {
+    let mut deps = Vec::new();
+    let mut package: Option<(&str, usize, &str, bool)> = None;
+    let flush = |package: &mut Option<(&str, usize, &str, bool)>, deps: &mut Vec<Dep>| {
+        if let Some((name, at, version, registry)) = package.take()
+            && registry && !name.is_empty() && is_version(version)
+        {
+            deps.push(lock_dep(path, Ecosystem::PyPI, name, version, at));
+        }
+    };
+    for (at, line) in lines(text) {
+        let line_trimmed = line.trim();
+        if line_trimmed.starts_with('[') {
+            flush(&mut package, &mut deps);
+            if line_trimmed == "[[package]]" { package = Some(("", 0, "", false)); }
+            continue;
+        }
+        let Some(record) = package.as_mut() else { continue; };
+        if let Some((name, start)) = toml_string(line, at, "name") {
+            (record.0, record.1) = (name, start);
+        } else if let Some((version, _)) = toml_string(line, at, "version") {
+            record.2 = version;
+        } else if let Some((key, value)) = line_trimmed.split_once('=')
+            && key.trim() == "source"
+        {
+            // uv emits a one-line inline table with one source-kind field.
+            // Additional fields, escapes and dynamic/non-registry forms stay unknown.
+            record.3 = value.trim().strip_prefix('{').and_then(|v| v.strip_suffix('}'))
+                .and_then(|v| v.trim().split_once('='))
+                .is_some_and(|(key, value)| key.trim() == "registry"
+                    && matches!(value.trim(), "\"https://pypi.org/simple\"" | "\"https://pypi.org/simple/\""));
+        }
+    }
+    flush(&mut package, &mut deps);
+    deps
+}
+
 fn requirements(path: &str, text: &str) -> Vec<Dep> {
     let mut deps = Vec::new();
     for (at, line) in lines(text) {
@@ -947,6 +1077,55 @@ mod tests {
         assert!(deps.iter().all(|d| d.version_at.is_none()));
         let lodash = named(&deps, "lodash");
         assert_eq!(&PACKAGE_LOCK[lodash.at.0..lodash.at.1], "node_modules/lodash");
+    }
+
+    #[test]
+    fn npm_v1_nested_versions_have_distinct_source_locations_and_manifest_resolution() {
+        let lock = r#"{"lockfileVersion":1,"dependencies":{"lodash":{"version":"4.17.21","dependencies":{"lodash":{"version":"3.10.1"},"@scope/pkg":{"version":"1.2.3"}}},"local":{"version":"file:../local"}}}"#;
+        let deps = parse("/p/package-lock.json",lock,None);
+        assert_eq!(sorted(&deps), [("@scope/pkg","1.2.3"),("lodash","3.10.1"),("lodash","4.17.21")]);
+        let lodash:Vec<_> = deps.iter().filter(|dep| dep.name == "lodash").collect();
+        assert_ne!(lodash[0].at,lodash[1].at);
+        for dep in deps { assert_eq!(&lock[dep.at.0..dep.at.1],dep.name);assert!(dep.version_at.is_none()); }
+        let package = r#"{"dependencies":{"lodash":"^4.17.0"}}"#;
+        let direct = parse("/p/package.json",package,Some(lock));assert_eq!(found(&direct),[("lodash","4.17.21")]);
+    }
+
+    #[test]
+    fn pipfile_lock_uses_resolved_pypi_versions_and_physical_section_spans() {
+        let text=r#"{"_meta":{"sources":[{"name":"pypi","url":"https://pypi.org/simple","verify_ssl":true},{"name":"private","url":"https://private.example/simple","verify_ssl":true}]},"default":{"requests":{"version":"==2.31.0","index":"pypi"},"local":{"version":"==1.0","path":"."},"private":{"version":"==1.0","index":"private"}},"develop":{"requests":{"version":"==2.32.0","index":"pypi"},"unknown":{"version":"==1.0"}}}"#;
+        let deps=parse("/p/Pipfile.lock",text,None);assert_eq!(sorted(&deps),[("requests","2.31.0"),("requests","2.32.0")]);assert_ne!(deps[0].at,deps[1].at);
+        for dep in deps {assert_eq!(&text[dep.at.0..dep.at.1],"requests");assert_eq!(dep.ecosystem,Ecosystem::PyPI);assert!(dep.version_at.is_none());}
+        assert!(GLOBS.contains(&"**/Pipfile.lock"));
+    }
+    #[test]
+    fn uv_lock_admits_only_pypi_registry_packages_with_exact_spans() {
+        let text = r#"version = 1
+[[package]]
+name = "Requests"
+version = "2.31.0"
+source = { registry = "https://pypi.org/simple" }
+[package.metadata]
+name = "not-a-package"
+version = "99.0"
+[[package]]
+name = "local"
+version = "1.0"
+source = { editable = "." }
+[[package]]
+name = "private"
+version = "2.0"
+source = { registry = "https://private.example/simple" }
+[[package]]
+name = "urllib3"
+version = "2.0.0"
+source = { registry = "https://pypi.org/simple/" }
+"#;
+        let deps = parse("/p/uv.lock", text, None);
+        assert_eq!(sorted(&deps), [("Requests", "2.31.0"), ("urllib3", "2.0.0")]);
+        assert_eq!(deps[0].ecosystem, Ecosystem::PyPI);
+        for dep in deps { assert_eq!(&text[dep.at.0..dep.at.1], dep.name); assert!(dep.version_at.is_none()); }
+        assert!(GLOBS.contains(&"**/uv.lock"));
     }
 
     #[test]

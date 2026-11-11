@@ -73,7 +73,7 @@ fn with_cached_feature(text: String) -> Result<String, Error> {
     let mut items = vec![PickItem::new("none", "No additional feature")];
     items.extend(candidates.iter().enumerate().map(|(index, (reference, name))| {
         PickItem::new(&format!("feature-{index}"), reference)
-            .description(&format!("Cached registry name: {name}. Defaults available; any cached Boolean/enum options require separate review. Availability/options are not verified."))
+            .description(&format!("Cached registry name: {name}. Defaults available; any cached Boolean/enum/string options require separate review. Availability/options are not verified."))
     }));
     let selected = host::pick("Optional cached GHCR feature", &items)?.ok_or(Error::Cancelled)?;
     if selected == "none" { return Ok(text); }
@@ -119,7 +119,7 @@ impl FileActions for Main {
         let project = current_project(doc, root)?;
         let mut items: Vec<_> = TEMPLATES.iter().map(|(id, label, _)| PickItem::new(id, label)).collect();
         items.push(PickItem::new("dockerfile", "Existing project Dockerfile").description("Preview a bounded existing Dockerfile; create only the configuration. Build context is the project root."));
-        items.push(PickItem::new("compose-json", "Existing project Compose JSON").description("Strict JSON only; choose a declared service and enter an explicit container workspace path."));
+        items.push(PickItem::new("compose-json", "Existing project Compose YAML or JSON").description("Strict JSON or unambiguous YAML; choose a declared service and enter an explicit container workspace path."));
         let key = host::pick("Dev Container configuration source", &items)?.ok_or(Error::Cancelled)?;
         let default_name = if key == "dockerfile" { "Dockerfile project" } else if key == "compose-json" { "Compose project" } else {
             TEMPLATES.iter().find(|(id, ..)| *id == key).map(|(_, name, _)| *name).ok_or("Unknown bundled template.")?
@@ -134,7 +134,7 @@ impl FileActions for Main {
             Some(crate::dockerfile::Snapshot::capture(&project, &path)?)
         } else { None };
         let compose = if key == "compose-json" {
-            let path = host::input("Existing Compose JSON inside this project", Some("compose.json"))?.ok_or(Error::Cancelled)?;
+            let path = host::input("Existing Compose YAML or JSON inside this project", Some("compose.json"))?.ok_or(Error::Cancelled)?;
             Some(crate::compose::Snapshot::capture(&project, &path)?)
         } else { None };
         let text = with_cached_feature(match (&dockerfile, &compose) {
@@ -147,7 +147,7 @@ impl FileActions for Main {
         if !ui_kit::prompts::confirm_exact(
             "Create Dev Container configuration?",
             &format!(
-                "Destination: {}\n\n{}\nCreates this file only. Feature options are explicitly selected from cached Boolean/enum metadata or omitted for feature defaults; metadata does not verify current availability, image compatibility, options or runtime behavior. No image/feature is pulled and no container is started. Review the generated configuration before using Start.{}",
+                "Destination: {}\n\n{}\nCreates this file only. Feature options are explicitly selected from cached Boolean/enum/string metadata or omitted for feature defaults; metadata does not verify current availability, image compatibility, options or runtime behavior. No image/feature is pulled and no container is started. Review the generated configuration before using Start.{}",
                 serde_json::to_string(&absolute).unwrap_or_default(),
                 text,
                 source_preview

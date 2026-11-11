@@ -7,6 +7,7 @@ use openidea_plugin::{
 
 impl Injections for crate::Twig {
     fn injections(&mut self, doc: &Document) -> Vec<Injection> {
+        let Some(_syntax)=crate::delimiters::Syntax::scope() else {return vec![];};
         if doc.language != "twig"
             || !doc.path.ends_with(".twig")
             || doc.text.len() > crate::MAX_SYNTAX_BYTES
@@ -25,17 +26,17 @@ impl Injections for crate::Twig {
 
 fn bodies(text: &str) -> Vec<(usize, usize, &'static str)> {
     let bytes = text.as_bytes();
+    let syntax=crate::delimiters::Syntax::current();
     let mut lexer = crate::Lexer {
         text,
         bytes,
         out: crate::Lexed::default(),
+        syntax:crate::delimiters::Syntax::current(),
     };
     let mut out = vec![];
     let mut i = 0;
     while i < bytes.len() && out.len() < 128 {
-        if [b"{{", b"{%", b"{#"]
-            .iter()
-            .any(|s| bytes[i..].starts_with(*s))
+        if [0,2,4].iter().any(|n|bytes[i..].starts_with(lexer.syntax.values[*n].as_bytes()))
         {
             i = lexer.twig(i).max(i + 1);
             continue;
@@ -70,9 +71,10 @@ fn bodies(text: &str) -> Vec<(usize, usize, &'static str)> {
         let body = &text[end + 1..close];
         if header[name_end..].trim().is_empty()
             && !body.trim().is_empty()
-            && !["{{", "{%", "{#", "<?", "<!--", "<script", "<style"]
+            && !["<?", "<!--", "<script", "<style"]
                 .iter()
                 .any(|s| body.to_ascii_lowercase().contains(s))
+            && ![0,2,4].iter().any(|n|body.contains(&syntax.values[*n]))
         {
             if let Some(language) = match raw {
                 "script" => Some("javascript"),
@@ -84,6 +86,23 @@ fn bodies(text: &str) -> Vec<(usize, usize, &'static str)> {
         }
         i = after;
     }
+    // PhpStorm's documented automatic Twig JavaScript blocks. Only a complete
+    // physical body without template holes or nested HTML is an injected island.
+    let parsed=crate::lex(text);
+    if parsed.tags.len() <= 4096 && parsed.unterminated.is_empty() {
+        for pair in parsed.tags.windows(2) {
+            let [open,close]=pair else {continue;};
+            let body_of=|range:std::ops::Range<usize>| syntax.tag_body(&text[range]).map(|s|s.trim_matches([' ', '\r','\n','\t','-','~']));
+            let Some(header)=body_of(open.range.clone()) else {continue;};
+            let Some(footer)=body_of(close.range.clone()) else {continue;};
+            if !matches!((header,footer),("block javascript","endblock"|"endblock javascript")|("script","endscript")) {continue;}
+            let start=open.range.end;let end=close.range.start;
+            let body=&text[start..end];let lower=body.to_ascii_lowercase();
+            if out.len()>=128 || body.trim().is_empty() || ["<?","<!--","<script","<style"].iter().any(|s|lower.contains(s)) || [0,2,4].iter().any(|n|body.contains(&syntax.values[*n])) {continue;}
+            out.push((start,end,"javascript"));
+        }
+    }
+    out.sort_by_key(|(start,_,_)|*start);
     out
 }
 fn tag_end(bytes: &[u8], start: usize) -> Option<usize> {
@@ -123,7 +142,16 @@ fn closing(bytes: &[u8], from: usize, name: &str) -> Option<(usize, usize)> {
 mod tests {
     use super::*;
     #[test]
+    fn documented_javascript_blocks_use_exact_physical_ranges_without_template_holes() {
+        let text="😀{%- block javascript -%}const café = 1;{% endblock javascript %} {% script %}run();{% endscript %}";
+        let found=bodies(text);assert_eq!(found.len(),2);assert_eq!(&text[found[0].0..found[0].1],"const café = 1;");assert_eq!(&text[found[1].0..found[1].1],"run();");
+        for text in ["{% block javascript %}{{ value }}{% endblock %}","{% block javascript %}{% if a %}x(){% endif %}{% endblock %}","{% block javascript %}<script>x()</script>{% endblock %}","{# {% block javascript %}x(){% endblock %} #}","{% block javascript %}x()"] {
+            let found=bodies(text);assert!(found.len()<=1,"{text}");if found.len()==1 {assert_eq!(&text[found[0].0..found[0].1],"x()");}
+        }
+    }
+    #[test]
     fn islands_preserve_physical_utf16_and_crlf() {
+        let _host=openidea_plugin::mock::MockHost::install();
         let text = "😀\r\n{% block body %}<SCRIPT>const café = 1;</SCRIPT><style>p {color:red}</style>{% endblock %}";
         let doc = Document {
             path: "/p/a.twig".into(),

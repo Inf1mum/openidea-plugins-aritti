@@ -381,7 +381,7 @@ pane filters by method/status and shows selected request metadata/provenance;
 the native fallback retains its read-only table. URL userinfo is removed, while
 query/fragment presence is shown without their contents. IP and profiler token
 remain visible only in the project-owned review; rows do not execute URLs or
-look up serialized profiles. Selected details explicitly label **Open target: source
+automatically look up serialized profiles. Selected details explicitly label **Open target: source
 index row; no collector/profile page**. Packaged Open/double-click/Enter rechecks
 the fresh invocation root, current key membership, exact source-file owner, ordinary
 file/byte/parser bounds and unique current record against its cached physical line
@@ -440,14 +440,14 @@ Parsing accepts at most10000 physical records and16 KiB per record, then retains
 the latest100 valid unambiguous main requests. Strict single-line CSV supports
 quoted commas/escaped quotes; multiline/malformed/extra-column data refuses the
 refresh rather than adopting a misleading partial parse. Unsupported IDs and
-case-insensitive duplicate hex tokens are omitted; no missing-profile inference
+case-insensitive duplicate tokens are omitted; no missing-profile inference
 is made. UTC timestamps, method/status and literal index facts are not collector
 panels or effective application state.
 
 Original comparison: retained `LocalProfilerIndex.java` separates recent-index
 selection from bounded hash-owned raw-profile lookup. The original
 `SymfonyProfilerRequestDetailRenderer.kt` separates overview/detail and paginates
-sanitized collector data. This delivery reproduces only the explicit request
+sanitized collector data. The original snapshot delivery reproduced only the explicit request
 list/selected index-summary workflow, not PHP serialized data decoding, request
 headers/bodies, DB/logger/Twig collectors, remote profiler or runtime execution.
 The retained7219 gallery emphasizes service/template completion, so it supplies
@@ -847,3 +847,50 @@ appends missed by the value-bearing translation index; full YAML alias/merge
 semantics and an atomic apply lease remain unproved.
 
 Symfony now uses one UI-kit window with Symfony, Profiler and Twig Namespace Paths tabs. Existing route/service sections, profiler source checks and project-owned Twig path drafts remain in their original handlers.
+
+
+## Current local profiler collector inspection
+
+**Inspect Profile** uses the selected request, or asks for one when none is selected.
+It rechecks the current project, chosen index source and fresh request membership
+before and after the adapter runs. **Back to Requests** returns to the index.
+Rendering and row selection never run the adapter. Open/activation retains the
+existing source-index navigation behavior.
+
+The optional approved `process:php` executable runs with `-n`, a 64 MiB memory limit
+and a two-second PHP execution limit. It does not bootstrap the application, load
+Composer or allow profile object classes during unserialization. Raw and GZIP
+Symfony file-storage profiles are bounded to 1 MiB input and decoded data, with a
+32-level serialized-data limit and at most 128 collectors. Only collector names,
+types and a fixed allowlist of nonnegative numeric metrics enter the UI; headers,
+request payloads, SQL, messages and arbitrary strings remain withheld. PHP 8+
+and built-in zlib are needed for GZIP. Missing/denied tools or malformed profiles
+leave inspection unavailable rather than running application code.
+
+Seven-column legacy CSV and eight-column `virtual_type` CSV are accepted. Only
+request profiles are retained; command/message profiles are not shown as HTTP
+requests. Safe alphanumeric/underscore/dash profiler tokens follow the source
+storage contract, including short tokens. Tokens remain source-scoped and
+case-insensitive collisions are withheld conservatively.
+
+This is a sanitized local collector overview, not full original detail-renderer
+parity, remote profiler transport, live collector updates or PHP semantic
+ownership. Symfony service/route/template indexed Rename remains explicitly
+partial. Native acceptance of the new inspection action is outstanding.
+
+
+## Read-only source occurrence review
+
+**Symfony: Find Source Occurrences** starts from a plain literal route, service
+or template reference under the caret. It requires a known source declaration
+and scans fresh project-owned PHP/Twig/config YAML text for admitted reference
+contexts, then offers exact file/line/column navigation. Comments, raw blocks,
+escaped/dynamic literals and other reference families are excluded. The command
+rechecks the original editor and chosen source before navigation; it publishes
+no automatic Rename/edit graph.
+
+The review is bounded to 500 files, 128 KiB per file, 8 MiB total, three seconds
+and 512 occurrences. Skipped/unreadable/oversized/capped sources are labeled
+**Partial**. The results are physical source-pattern candidates, not a complete
+runtime usage set: PHP receiver types, XML namespace ownership, transformed
+aliases, runtime loaders and generated sources still need their own models.

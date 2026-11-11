@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 
 pub(crate) fn evidence(path: &str) -> &'static str {
     match kind(path) {
-        Some(Kind::PackageLock | Kind::ComposerLock | Kind::YarnLock | Kind::PnpmLock | Kind::CargoLock | Kind::PoetryLock) => {
+        Some(Kind::PackageLock | Kind::ComposerLock | Kind::YarnLock | Kind::PnpmLock | Kind::CargoLock | Kind::PoetryLock | Kind::UvLock | Kind::PipfileLock) => {
             "Lockfile entry"
         }
         Some(Kind::PackageJson | Kind::ComposerJson) => "Manifest declaration (uses a sibling lockfile when available)",
@@ -20,7 +20,7 @@ pub(crate) fn ecosystem(row: &Row) -> &str {
         Some(Kind::PackageJson | Kind::PackageLock | Kind::YarnLock | Kind::PnpmLock) => "npm",
         Some(Kind::ComposerJson | Kind::ComposerLock) => "Packagist",
         Some(Kind::CargoLock) => "crates.io",
-        Some(Kind::PoetryLock | Kind::Requirements) => "PyPI",
+        Some(Kind::PoetryLock | Kind::UvLock | Kind::PipfileLock | Kind::Requirements) => "PyPI",
         _ => "Unknown",
     })
 }
@@ -77,6 +77,7 @@ fn detail_known(advisory: &osv::Advisory) -> bool {
 }
 
 fn advisory_fixes(row: &Row, advisory: &osv::Advisory) -> String {
+    if advisory.known_malicious() { return "Remove/replace after advisory review; no automatic upgrade".into(); }
     let name = if ecosystem(row) == "PyPI" { manifest::normalise_pypi(&row.name) } else { row.name.clone() };
     let fixes = advisory.fixed.get(&format!("{}:{name}", ecosystem(row))).cloned().unwrap_or_default();
     if !fixes.is_empty() {
@@ -147,6 +148,7 @@ pub(crate) fn resource_body(root: &str, report: &Report, failure: Option<&ScanFa
         if severity != "Unknown" && advisories.iter().any(|a| a.severity.is_none()) {
             severity.push_str(" + unknown");
         }
+        if advisories.iter().any(osv::Advisory::known_malicious) { severity="Known malicious".into(); }
         let sources = if row.sources.is_empty() {
             vec![Declaration { path: row.path.clone(), line: row.line, evidence: evidence(&row.path).into() }]
         } else {
@@ -158,7 +160,7 @@ pub(crate) fn resource_body(root: &str, report: &Report, failure: Option<&ScanFa
         let mut details = vec![
             json!({"label":"Directory","value":directory}),
             json!({"label":"Declarations / lockfile evidence","value":source_text}),
-            json!({"label":"Source","value":"OSV.dev; no resolved build-module or exploitable-API analysis"}),
+            json!({"label":"Source","value":"OSV.dev package/version evidence; effective-build provenance is shown per source when available; no call analysis in this report"}),
             json!({"label":"Report scan","value":age(report.scanned_at)}),
             json!({"label":"Report coverage","value":match (report.files_scanned,report.dependencies_checked) {
                 (Some(files),Some(dependencies)) => format!("{files} dependency files; {dependencies} unique package/version coordinates; {} skipped files. Discovery is bounded to 200 matches per supported glob.",report.files_skipped),
@@ -173,6 +175,10 @@ pub(crate) fn resource_body(root: &str, report: &Report, failure: Option<&ScanFa
             details.push(json!({"label":"Last rescan failed","value":format!("{} — {}", age(Some(failure.at)), failure.message)}));
         }
         for advisory in &advisories {
+            details.push(json!({"label":format!("{} evidence class",advisory.id),"value":advisory.classification()}));
+            if advisory.known_malicious() {
+                details.push(json!({"label":"Known-malicious source","value":format!("OpenSSF malicious-packages MAL namespace, delivered by OSV.dev. Reporters: {}. Package/version match does not establish execution or absence of other malware.",if advisory.malicious_reporters.is_empty(){"Not recorded".into()}else{advisory.malicious_reporters.join(", ")})}));
+            }
             details.push(json!({"label":format!("{} summary",advisory.id),"value":if advisory.summary.is_empty() { "Details unavailable; rescan to retry." } else { &advisory.summary }}));
         }
         let key = dependency_key(row);
@@ -194,7 +200,7 @@ pub(crate) fn resource_body(root: &str, report: &Report, failure: Option<&ScanFa
             if !push_row(
                 &mut items,
                 &mut bytes,
-                json!({"key":format!("advisory:{key}|{}",advisory.id),"label":format!("{} · {}",row.name,advisory.id),"cells":["Advisory",row.name,ecosystem(row),row.version,advisory_fixes(row,&advisory),advisory.severity.as_deref().unwrap_or("Unknown"),advisory.id,relative(&row.path)],"details":facts}),
+                json!({"key":format!("advisory:{key}|{}",advisory.id),"label":format!("{} · {}",row.name,advisory.id),"cells":["Advisory",row.name,ecosystem(row),row.version,advisory_fixes(row,&advisory),if advisory.known_malicious(){"Known malicious"}else{advisory.severity.as_deref().unwrap_or("Unknown")},advisory.id,relative(&row.path)],"details":facts}),
             ) {
                 break 'rows;
             }

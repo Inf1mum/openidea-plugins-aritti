@@ -332,4 +332,56 @@ their known source checks. No generic erasure/type inference is performed.
 
 ## Unreleased follow-up
 
-Use **Spring Shell: Find Literal Command or Availability Occurrences** in a supported closed Java ShellComponent. Command keys/selectors and availability indicator method names are kept separate; wildcard selectors are excluded. The existing reviewed local rename action remains the editing workflow.
+Use **Spring Shell: Find Literal Command or Availability Occurrences** in a supported closed Java or Kotlin command class. Command keys/selectors and availability indicator method names are kept separate; wildcard selectors are excluded. The existing reviewed local rename action remains the editing workflow.
+
+### Explicit command aliases and multiword keys
+
+The reviewed local Java command-key rename and occurrence picker admit multiple
+explicit `@ShellMethod` aliases and normalized space-separated command words.
+Selecting one alias changes only its exact declaration and availability selectors;
+other aliases and command-side indicator method names keep their identity, including
+camelCase Java availability indicators such as `isReady`. Duplicate
+aliases, ambiguous declarations, dynamic keys and noncanonical whitespace remain
+unavailable. This extends the existing closed single-class operation, not the
+runtime registry or cross-file host Rename graph.
+
+### Modern commands and implicit names
+
+Source indexing and description hover support explicitly owned Spring Shell 3.x
+`command`/`alias` mappings and 4.x `name`/`alias` mappings. The 3.x class command
+prefix and class alias prefix remain separate. The 4.x `CommandGroup.prefix`
+contributes to command names; aliases retain their declared independent names.
+`@Command("description")` in 4.x describes the command rather than naming it.
+Global environment prefixes and effective runtime registration remain unknown.
+
+Core 4.x availability-provider completion, navigation and gutter targets use the
+`org.springframework.shell.core.command.availability.AvailabilityProvider`
+interface; they never borrow the legacy provider interface by simple name.
+
+Reviewed local key changes work for closed Java/Kotlin legacy command classes
+and supported unprefixed modern classes. An implicit method-derived command name
+is changed by adding an explicit annotation key/name; the method identifier stays
+unchanged. Legacy literal availability selectors change in the same reviewed edit.
+Unknown class prefixes, duplicate routes, dynamic names, inheritance and unsafe
+source expressions withhold these transactions. Cross-file host Rename is not
+registered; the preview identifies the local source scope.
+
+The 4.x option profile checks duplicate explicit singular `longName`/`shortName`
+values and literal standard primitive defaults on `@Option` and `@Argument`.
+It preserves the separate 3.x plural-name/arity contracts. Dynamic values,
+unknown/custom conversions and empty defaults stay quiet.
+
+### Native local occurrence surfaces
+
+The native editor highlights source-owned command keys/selectors and availability
+indicator names in the current admitted class. Native code lenses show local
+occurrence counts and open the existing read-only occurrence picker independently
+of the current caret. Lens invocations revalidate document text/version/path and
+project identity; stale or restarted sessions refuse old arguments.
+
+These are native highlights and lenses, not an exported automatic string Rename
+graph. API 1.4 DocumentIndexer anchors have no read-only or new-name-validation
+policy; the host would insert arbitrary rename text into every anchor. Reviewed
+key edits remain the safe editing workflow, including implicit keys whose source
+method spelling differs from the command name. Global native Find Usages remains
+separate from this supported local occurrence view.

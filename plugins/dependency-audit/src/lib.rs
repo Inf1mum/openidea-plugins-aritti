@@ -1,6 +1,10 @@
 //! Dependency Audit for OpenIDEA: checks dependencies against OSV.dev.
 
 mod manifest;
+mod npm_graph;
+mod build_resolution;
+mod call_analysis;
+mod sbt_resolution;
 mod live;
 mod commit;
 mod osv;
@@ -68,6 +72,10 @@ fn owned_lock(project: &Project, path: &str) -> Option<String> {
 pub struct DependencyAudit {
     expansion: Expansion,
     display_owner: Option<String>,
+    npm_graph: Option<npm_graph::Snapshot>,
+    build_resolution:build_resolution::State,
+    call_analysis:call_analysis::State,
+    sbt_resolution:sbt_resolution::State,
     targets: HashMap<String, Target>,
     display: Display,
     live: live::Live,
@@ -219,6 +227,8 @@ fn stored_report(project: &Project) -> Result<Option<Report>, Error> {
                     row.fix = row.advisories.iter().filter_map(|id| row.details.iter().find(|a|a.id==*id).cloned().or_else(||cached_advisory(id)))
                         .filter_map(|a|osv::nearest_fix(&row.version,a.fixed.get(&key)?)).max_by(|a,b|compare(a,b));
                 }
+                if row.advisories.iter().any(|id| row.details.iter().find(|a|a.id==*id).cloned()
+                    .unwrap_or_else(||osv::Advisory{id:id.clone(),..Default::default()}).known_malicious()) { row.fix=None; }
                 (!row.advisories.is_empty()).then_some(row)
             })
             .collect();
@@ -497,6 +507,10 @@ impl Plugin for DependencyAudit {
         } else { arg };
         if matches!(id,"ignore-finding" | "review-ignores") { return self.scoped_command(id,ctx,arg); }
         if matches!(id,"preview-upgrade" | "open-advisory") { return self.resource_command(id,ctx,arg); }
+        if id == "resolve-sbt-dependencies"{self.sbt_resolution.start(ctx)?;return Ok(None);}
+        if id == "analyze-vulnerable-calls"{self.call_analysis.start(ctx)?;return Ok(None);}
+        if id == "resolve-build-dependencies"{self.build_resolution.start(ctx)?;return Ok(None);}
+        if id == "inspect-npm-graph" { self.npm_graph=Some(npm_graph::Snapshot::capture(ctx)?);host::reveal_view(npm_graph::VIEW)?;host::refresh_view(npm_graph::VIEW);return Ok(None); }
         if id != "scan" {
             return Err(Error::NotFound(format!("command {id}")));
         }
@@ -518,6 +532,7 @@ impl Plugin for DependencyAudit {
         let cleared=events.iter().any(|event| matches!(event, Event::FileSaved(_) | Event::FilesChanged(_)));
         let owner=ctx.project().and_then(|p|p.root().ok()).filter(|root|!root.is_empty());
         let owner_changed=events.iter().any(|event|matches!(event,Event::EditorFocused(_))) && owner!=self.display_owner;
+        if (cleared || owner_changed) && self.npm_graph.is_some() {host::refresh_view(npm_graph::VIEW);}
         if cleared || owner_changed {
             self.live.clear();
             self.display_owner=owner;
@@ -616,7 +631,11 @@ impl DependencyAudit {
 }
 
 impl Views for DependencyAudit {
-    fn render(&mut self, _view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
+    fn render(&mut self, view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
+        if view==sbt_resolution::VIEW{return Ok(self.sbt_resolution.render(ctx));}
+        if view==call_analysis::VIEW{return Ok(self.call_analysis.render(ctx));}
+        if view==build_resolution::VIEW{return Ok(self.build_resolution.render(ctx));}
+        if view==npm_graph::VIEW {return Ok(self.npm_graph.as_ref().map(|s|s.render(ctx)).unwrap_or_else(||View::message("Run Dependency Audit: Inspect npm Lockfile Graph from package-lock.json.")));}
         (|| -> Result<View, Error> {
             self.targets.clear();
             let Some(project) = ctx.project() else {
@@ -660,6 +679,10 @@ impl Views for DependencyAudit {
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {
+        if view==sbt_resolution::VIEW{match event{ViewEvent::Button(key)if key=="sbt-poll"=>return self.sbt_resolution.poll(ctx),ViewEvent::Button(key)if key=="sbt-cancel"=>return self.sbt_resolution.cancel(ctx),ViewEvent::Button(key)if key=="sbt-audit"=>{let e=self.sbt_resolution.evidence(ctx)?;let p=ctx.project().ok_or(Error::Stale)?;return sbt_resolution::audit_evidence(&p,e);},_=>return Ok(())}}
+        if view==call_analysis::VIEW{match event{ViewEvent::Button(key)if key=="calls-poll"=>return self.call_analysis.poll(ctx),ViewEvent::Button(key)if key=="calls-cancel"=>return self.call_analysis.cancel(ctx),_=>return Ok(())}}
+        if view==build_resolution::VIEW{match event{ViewEvent::Button(key)if key=="resolution-poll"=>return self.build_resolution.poll(ctx),ViewEvent::Button(key)if key=="resolution-cancel"=>return self.build_resolution.cancel(ctx),ViewEvent::Button(key)if key=="resolution-audit"=>{let evidence=self.build_resolution.evidence(ctx)?;let project=ctx.project().ok_or(Error::Stale)?;return build_resolution::audit_evidence(&project,evidence);},_=>return Ok(())}}
+        if view==npm_graph::VIEW {if let Some(snapshot)=self.npm_graph.as_mut(){return snapshot.handle(event,ctx);}return Ok(());}
         if ui_kit::web::handle(self, view, &event, ctx, include_str!("ui_config.json"))? {
             return Ok(());
         }

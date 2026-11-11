@@ -15,6 +15,7 @@ use crate::safe;
 pub const SERVER: &str = "https://gitlab.com";
 pub const SERVER_HOST: &str = "gitlab.com";
 pub const TOKEN: &str = "token";
+pub(crate) fn token() -> &'static str { if host::setting_string("accountSlot").as_deref()==Some("secondary") {"secondary-token"} else {TOKEN} }
 
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(default)]
@@ -375,7 +376,7 @@ fn error_message(body: &str) -> String {
 
 /// The IDE fills the placeholder; the plugin never sees the token.
 pub(crate) fn authorization() -> String {
-    format!("Bearer {{{{secret:{TOKEN}}}}}")
+    format!("Bearer {{{{secret:{}}}}}",token())
 }
 
 fn send(method: &str, url: String, body: Option<Value>) -> Result<Value, Error> {
@@ -785,6 +786,19 @@ impl Project<'_> {
 
     pub fn remove_award(&self, iid: u64, note_id: Option<u64>, award_id: u64) -> Result<(), Error> {
         rest("DELETE", &format!("{}/{award_id}", self.awards_path(iid, note_id)), None).map(drop)
+    }
+
+    /// GitLab's documented re-review mutation; variables preserve repository
+    /// and reviewer identity without interpolating user-controlled GraphQL.
+    pub fn rerequest_review(&self, iid: u64, reviewer: u64) -> Result<(), Error> {
+        if iid == 0 || reviewer == 0 {return Err("Invalid review request identity.".into());}
+        let body = json!({"query":"mutation($projectPath: ID!, $iid: String!, $userId: UserID!) { mergeRequestReviewerRereview(input: {projectPath: $projectPath, iid: $iid, userId: $userId}) { errors } }",
+            "variables":{"projectPath":self.0,"iid":iid.to_string(),"userId":format!("gid://gitlab/User/{reviewer}")}});
+        let response=send("POST",format!("{SERVER}/api/graphql"),Some(body))?;
+        if response["errors"].as_array().is_some_and(|errors|!errors.is_empty()) {return Err("GitLab rejected the re-review request.".into());}
+        let errors=response["data"]["mergeRequestReviewerRereview"]["errors"].as_array().ok_or("GitLab did not acknowledge the re-review request.")?;
+        if !errors.is_empty() {return Err("GitLab could not re-request review. Refresh reviewers or open the merge request on GitLab.".into());}
+        Ok(())
     }
 
     /// REST has no draft flag; the original uses this same mutation.

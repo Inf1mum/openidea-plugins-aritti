@@ -144,11 +144,11 @@ fn thread_html(d: &Discussion, drafts: &[&DraftNote]) -> String {
     };
 
     for n in &d.notes {
-        html.push_str(&format!("<div class=\"note\"><b>{}</b> <pre>{}</pre></div>", escape(&n.author.username), escape(&n.body)));
+        html.push_str(&format!("<div class=\"note\"><b>{}</b> {}</div>", escape(&n.author.username), crate::markdown::fragment(&n.body,"https://gitlab.com/")));
     }
 
     for draft in drafts {
-        html.push_str(&format!("<div class=\"note draft\"><b>Pending</b> <pre>{}</pre></div>", escape(&draft.note)));
+        html.push_str(&format!("<div class=\"note draft\"><b>Pending</b> {}</div>", crate::markdown::fragment(&draft.note,"https://gitlab.com/")));
     }
 
     let id = escape(&d.id);
@@ -196,7 +196,7 @@ fn commit_summary(iid: u64, commit: &str, files: usize) -> String {
 pub fn render_html(page: &Page) -> String {
     let read_only = if page.commit.is_some() { " data-read-only" } else { "" };
     let mut html =
-        format!("<style>{THEME_DEFAULTS}{CONTROLS}{STYLE}</style><body data-review-context=\"{}\" data-anchor=\"{}\"{read_only}>", escape(page.context), escape(page.anchor.unwrap_or("")));
+        format!("<style>{THEME_DEFAULTS}{CONTROLS}{STYLE}{}</style><body data-review-context=\"{}\" data-anchor=\"{}\"{read_only}>", crate::markdown::STYLE, escape(page.context), escape(page.anchor.unwrap_or("")));
     let summary = match page.commit {
         Some(commit) => commit_summary(page.iid, commit, page.diffs.len()),
         None => summary(page.iid, page.diffs.len()),
@@ -378,6 +378,7 @@ document.addEventListener('keydown', (e) => {
 
 document.addEventListener('click', (e) => {
   const t = e.target;
+  const markdownLink=t.closest&&t.closest('a[data-markdown-url]');if(markdownLink){e.preventDefault();send({type:'markdown-link',url:markdownLink.dataset.markdownUrl});return;}
   if (t.classList.contains('ln')) {
     const tr = t.closest('tr');
     if (tr.classList.contains('hunk') || document.body.dataset.readOnly !== undefined) return;

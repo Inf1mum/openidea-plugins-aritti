@@ -7,10 +7,13 @@ mod generate;
 mod indexing;
 mod resource_completion;
 mod namespace_values;
+mod xpath;
 mod resource_paths;
 mod annotation_owners;
 mod schema_qnames;
 mod xml_refs;
+mod xml_contracts;
+mod typed_xml;
 mod xml_resources;
 
 use openidea_plugin::diagnostics::DiagnosticsProvider;
@@ -420,6 +423,8 @@ pub struct WsTools {
     java: Indexes<Vec<Endpoint>>,
     generation: generate::Generation,
     schemas: Indexes<SchemaFile>,
+    xpath_packages: Indexes<xpath::PackageNamespaces>,
+    xml_types: Indexes<Vec<typed_xml::SourceType>>,
     resource_paths: resource_paths::Paths,
     watching: bool,
     unreadable_schemas: BTreeSet<String>,
@@ -431,6 +436,8 @@ impl Default for WsTools {
             java: Indexes::new(SOURCE_GLOBS, scan_java),
             generation:generate::Generation::default(),
             schemas: Indexes::new(SCHEMA_GLOBS, scan_schemas),
+            xpath_packages: Indexes::new(&["**/package-info.java"],xpath::scan_package),
+            xml_types: Indexes::new(SOURCE_GLOBS,typed_xml::scan_source),
             resource_paths: resource_paths::Paths::default(),
             watching: false,
             unreadable_schemas: BTreeSet::new(),
@@ -516,11 +523,13 @@ impl Providers for WsTools {
     }
 
     fn definition(&mut self, doc: &Document, at: Position) -> Vec<Location> {
+        if let Some(locations)=namespace_values::definition(self,doc,at){return locations;}
+        if let Some(locations)=xpath::definition(self,doc,at){return locations;}
         if doc.language == "xml" {
+            if let Some(locations)=typed_xml::definition(self,doc,at){return locations;}
             if let Some((path, _)) = xml_resources::references(doc).into_iter().find(|(_, r)| r.start <= at && at < r.end) {
                 return self.cached_resource_definition(doc, &path);
             }
-            if let Some(locations)=namespace_values::definition(self,doc,at){return locations;}
             let local = xml_refs::definition(doc, at);
             if !local.is_empty() { return local; }
             let Some((path, _)) = sws_resources(&doc.text).into_iter().find(|(_, location)| contains(*location, at)) else {
@@ -557,9 +566,12 @@ impl Providers for WsTools {
     }
 
     fn completion(&mut self, doc: &Document, at: Position, _trigger: Option<&str>) -> Vec<CompletionItem> {
+        if let Some(items)=namespace_values::completion(self,doc,at){return items;}
+        if let Some(items)=xpath::completion(self,doc,at){return items;}
         if doc.language == "xml" {
+            if let Some(items)=typed_xml::completion(self,doc,at){return items;}
+            if let Some(items)=xml_contracts::completion(doc,at){return items;}
             if let Some(items)=resource_completion::completion(self,doc,at){return items;}
-            if let Some(items)=namespace_values::completion(self,doc,at){return items;}
             return xml_refs::completion(doc, at);
         }
         let text = &doc.text;
@@ -589,14 +601,15 @@ impl Providers for WsTools {
 impl DiagnosticsProvider for WsTools {
     fn diagnostics(&mut self, doc: &Document) -> Vec<Diagnostic> {
         if doc.language == "xml" {
+            let mut problems=xml_contracts::diagnostics(doc);
             // Current unsaved schema facts update only this cached file; no scan.
             let Some(index) = self.schemas.for_cached_document(&doc.path, &doc.text) else {
-                return Vec::new();
+                return problems;
             };
             if !self.watching || !complete_schemas(index) || !self.unreadable_schemas.is_empty() {
-                return Vec::new();
+                return problems;
             }
-            return sws_resources(&doc.text)
+            problems.extend(sws_resources(&doc.text)
                 .into_iter()
                 .filter(|(path, _)| {
                     !index.files().keys().any(|file| RESOURCE_DIRS.iter().any(|dir| file.ends_with(&format!("{dir}/{path}"))))
@@ -605,7 +618,8 @@ impl DiagnosticsProvider for WsTools {
                     Diagnostic::new(location, Severity::Warning, format!("`{path}` is not in src/main/resources or src/test/resources."))
                         .code("missing-resource")
                 })
-                .collect();
+                .collect::<Vec<_>>());
+            return problems;
         }
         if !matches!(doc.language.as_str(), "java" | "kotlin") || doc.text.len() > MAX_DOCUMENT_BYTES || !self.watching {
             return Vec::new();
@@ -664,6 +678,8 @@ impl Plugin for WsTools {
                 break;
             }
             self.schemas.get(&project, budget.min(Duration::from_millis(250)));
+            self.xpath_packages.get(&project, deadline.saturating_duration_since(Instant::now()).min(Duration::from_millis(250)));
+            self.xml_types.get(&project,deadline.saturating_duration_since(Instant::now()).min(Duration::from_millis(250)));
             self.resource_paths.warm(&project, deadline.saturating_duration_since(Instant::now()).min(Duration::from_millis(250)));
         }
         Ok(())
@@ -699,12 +715,16 @@ impl Plugin for WsTools {
                     self.unreadable_schemas.remove(path);
                     self.schemas.update_existing(&project, path, None);
                     self.java.update_existing(&project, path, None);
+                    self.xpath_packages.update_existing(&project,path,None);
+                    self.xml_types.update_existing(&project,path,None);
                 } else {
                     match project.read_file(path) {
                         Ok(text) => {
                             self.unreadable_schemas.remove(path);
                             self.schemas.update_existing(&project, path, Some(&text));
                             self.java.update_existing(&project, path, Some(&text));
+                            self.xpath_packages.update_existing(&project,path,Some(&text));
+                            self.xml_types.update_existing(&project,path,Some(&text));
                         }
                         Err(_) => {
                             if SCHEMA_GLOBS.iter().any(|glob| spring_text::index::glob_matches(glob, path)) {
@@ -712,6 +732,8 @@ impl Plugin for WsTools {
                             }
                             self.schemas.reset();
                             self.java.reset();
+                            self.xpath_packages.reset();
+                            self.xml_types.reset();
                             continue;
                         }
                     }
@@ -722,12 +744,25 @@ impl Plugin for WsTools {
                     return;
                 }
                 self.schemas.get(&project, budget.min(Duration::from_millis(250)));
+                self.xpath_packages.get(&project,deadline.saturating_duration_since(Instant::now()).min(Duration::from_millis(250)));
+                self.xml_types.get(&project,deadline.saturating_duration_since(Instant::now()).min(Duration::from_millis(250)));
             }
         }
     }
 
     fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
-        if id == "qname-occurrences" { return indexing::occurrences(ctx); }
+        if id == "refresh-models" {
+            let project=ctx.project().ok_or("Open a project to refresh Spring WS source models.")?;
+            if !self.watching {host::subscribe_paths("files-changed",WATCH_GLOBS)?;self.watching=true;}
+            let deadline=Instant::now()+COMMAND_BUDGET;
+            let mut ready=self.xml_types.get(&project,deadline.saturating_duration_since(Instant::now())).fresh();
+            let remaining=deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero(){ready=false;}else{ready&=self.xpath_packages.get(&project,remaining).fresh();}
+            let remaining=deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero(){ready=false;}else{ready&=self.schemas.get(&project,remaining).fresh();}
+            return Ok(Some(if ready{"XML and XPath source models refreshed."}else{"Source model refresh is incomplete. Run Refresh Source Models again to continue; unavailable or capped inventories remain partial."}.into()));
+        }
+        if id == "qname-occurrences" { return indexing::occurrences(self,ctx); }
         Err(Error::NotFound(format!("command {id}")))
     }
 }

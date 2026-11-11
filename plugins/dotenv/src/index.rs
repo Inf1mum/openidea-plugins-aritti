@@ -243,20 +243,12 @@ impl Index {
         if source(compose_path) != Some(Source::Compose) {
             return;
         }
-        // The line parser does not resolve aliases/merge keys. Conservatively
-        // mark such discovery unknown instead of proving missing declarations.
-        if text.lines().any(|line| {
-            let line = line.trim_start();
-            line.starts_with("<<:")
-                || ["env_file:", "environment:"]
-                    .iter()
-                    .any(|key| line.strip_prefix(key).is_some_and(|rest| rest.trim_start().starts_with(['*', '&'])))
-                || line.strip_prefix('-').is_some_and(|rest| rest.trim_start().starts_with(['*', '&']))
-        }) {
-            self.complete = false;
-        }
+        // Resolve env_file aliases/merges with explicit parser budgets. The
+        // completeness bit also checks that every expanded environment key has
+        // a physical declaration covered by the source-range model.
         let folder = compose_path.rsplit_once(['/', '\\']).map_or("", |(folder, _)| folder);
-        let files = docker::compose_env_files(text);
+        let (files, graph_complete, optional) = docker::compose_env_file_graph(text);
+        if !graph_complete { self.complete=false; }
         if files.len() > 128 {
             self.complete = false;
         }
@@ -280,6 +272,7 @@ impl Index {
                 Ok(env) if env.len() <= MAX_SOURCE_BYTES => {
                     self.declarations.extend(env_declarations(&path, &env).into_iter().map(|d| Declaration { primary: true, ..d }))
                 }
+                Err(openidea_plugin::Error::NotFound(_)) if optional.contains(&file) => {},
                 _ => self.complete = false,
             }
             self.bound_facts();
@@ -514,5 +507,19 @@ mod tests {
             let index = compose_index(path);
             assert!(index.declarations.iter().all(|d| d.key != "OUT"), "{path}");
         }
+    }
+}
+
+#[cfg(test)]
+mod optional_input_tests {
+    use super::*;
+    use std::time::Duration;
+    use openidea_plugin::mock::MockHost;
+    #[test]
+    fn resolved_alias_and_missing_optional_files_are_complete_source_discovery() {
+        let h=MockHost::install();h.set_project_root(Some("/p"));h.add_file(".env","A=1\n");
+        h.add_file("compose.yml","x-file: &file {path: missing.env, required: false}\nx-service: &service {env_file: [*file]}\nservices: {app: {<<: *service}}\n");
+        let project=h.invocation().project().unwrap();let index=Index::full(&project,"/p",Instant::now()+Duration::from_secs(5));
+        assert!(index.complete);assert!(index.declarations.iter().any(|d|d.key=="A"));
     }
 }

@@ -3,13 +3,22 @@ use crate::generate;
 use openidea_plugin::Error;
 use std::collections::BTreeSet;
 pub(crate) const MAX_BYTES: usize = 128 << 10;
-struct Change { start: usize, end: usize, label: String, author: String }
+struct Change { start: usize, end: usize, label: String, author: String, category: &'static str }
 pub(crate) struct Changelog { pub source: String, changes: Vec<Change> }
 impl Changelog {
     pub fn parse(source: &str) -> Result<Self, Error> {
         let invalid = || Error::Invalid("Generated output must be bounded UTF-8 core Liquibase XML with1–512 unique literal changesets and no external-file/opaque root dependencies.".into());
         if source.len() > MAX_BYTES { return Err(invalid()); }
-        let log = generate::xml_log(source)?;
+        // Liquibase4.29.2's stock XML serializer emits version1.1. Validate its
+        // XML1.0-compatible subset without rewriting the retained candidate. The
+        // replacement is byte-length preserving, so exact fragment offsets remain
+        // valid. NEL/LS normalization and XML1.1-only control references are not
+        // admitted by this source-only adapter.
+        let validation = if source.starts_with("<?xml version=\"1.1\"") {
+            if source.contains(['\u{85}', '\u{2028}']) { return Err(invalid()); }
+            source.replacen("<?xml version=\"1.1\"", "<?xml version=\"1.0\"", 1)
+        } else { source.to_owned() };
+        let log = generate::xml_log(&validation)?;
         if log.opaque || !log.includes.is_empty() { return Err(invalid()); }
         let mut reader = quick_xml::Reader::from_str(source);
         let mut depth = 0usize;
@@ -50,11 +59,15 @@ impl Changelog {
             if !children.iter().any(|e| crate::catalog::change_type(e.local()).is_some())
                 || children.iter().any(|e| crate::catalog::change_type(e.local()).is_none() && !matches!(e.local(), "comment" | "rollback" | "preConditions" | "validCheckSum")) { return Err(invalid()); }
             let kinds = children.iter().filter(|e| crate::catalog::change_type(e.local()).is_some()).take(4).map(|e| e.local()).collect::<Vec<_>>().join(", ");
-            changes.push(Change { start: element.start, end: element.end, label: format!("{id} ({author}) · {kinds}"), author });
+            let category = if children.iter().any(|e| e.local().starts_with("drop") || e.local() == "delete") { "drop-delete" }
+                else if children.iter().filter(|e| crate::catalog::change_type(e.local()).is_some()).all(|e| e.local().starts_with("create") || e.local().starts_with("add")) { "add-create" }
+                else { "other-sql" };
+            changes.push(Change { category, start: element.start, end: element.end, label: format!("{id} ({author}) · {kinds}"), author });
         }
         Ok(Self { source: source.into(), changes })
     }
     pub fn labels(&self) -> impl Iterator<Item = &str> { self.changes.iter().map(|change| change.label.as_str()) }
+    pub fn category(&self, index: usize) -> Option<&'static str> { self.changes.get(index).map(|change| change.category) }
     pub fn len(&self) -> usize { self.changes.len() }
     pub fn author_matches(&self, author: &str) -> bool { self.changes.iter().all(|change| change.author == author) }
     pub fn subset(&self, chosen: &BTreeSet<usize>) -> Result<String, Error> {
@@ -99,4 +112,15 @@ mod tests {
         assert!(Changelog::parse(&sample().replace("</databaseChangeLog>", "")).is_err());
         assert!(Changelog::parse(&" ".repeat(MAX_BYTES + 1)).is_err());
     }
+    #[test]
+    fn observed_cli_xml11_declaration_keeps_exact_source_but_not_xml11_only_text() {
+        let source = include_str!("../tests/fixtures/liquibase-4.29.2/generated.xml");
+        let log = Changelog::parse(source).unwrap();
+        assert_eq!(log.source, source);
+        assert!(log.subset(&BTreeSet::from([0])).unwrap().starts_with("<?xml version=\"1.1\""));
+        assert!(Changelog::parse(&source.replace("CUSTOMER", "CUS\u{85}TOMER")).is_err());
+        assert!(Changelog::parse(&source.replace("CUSTOMER", "CUS\u{2028}TOMER")).is_err());
+        assert!(Changelog::parse(&source.replace("CUSTOMER", "CUS&#x1;TOMER")).is_err());
+    }
+
 }

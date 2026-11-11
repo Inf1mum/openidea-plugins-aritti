@@ -52,24 +52,25 @@ fn is_identifier(b: u8) -> bool {
 }
 
 fn slot_at(text: &str, start: usize) -> Option<Slot> {
+    let syntax=crate::delimiters::Syntax::current();
     let before = &text[..start];
-    let opener = ["{{", "{%", "{#"].iter().filter_map(|o| before.rfind(o).map(|at| (at, *o))).max_by_key(|(at, _)| *at);
-    let closer = ["}}", "%}", "#}"].iter().filter_map(|c| before.rfind(c)).max();
+    let opener = [syntax.values[2].as_str(),syntax.values[0].as_str(),syntax.values[4].as_str()].iter().filter_map(|o| before.rfind(o).map(|at| (at, *o))).max_by_key(|(at, _)| *at);
+    let closer = [syntax.values[3].as_str(),syntax.values[1].as_str(),syntax.values[5].as_str()].iter().filter_map(|c| before.rfind(c)).max();
 
     let Some((open_at, opener)) = opener.filter(|(at, _)| closer.is_none_or(|c| c < *at)) else {
         return Some(Slot::Html);
     };
-    if opener == "{#" {
+    if opener == syntax.values[4] {
         return None;
     }
 
-    let inside = before[open_at + 2..].trim_start_matches(['-', '~']);
+    let inside = before[open_at + opener.len()..].trim_start_matches(['-', '~']);
     if inside.bytes().filter(|b| matches!(b, b'\'' | b'"')).count() % 2 == 1 {
         return None;
     }
 
     let inside = inside.trim_end();
-    if opener == "{%" && inside.is_empty() {
+    if opener == syntax.values[0] && inside.is_empty() {
         return Some(Slot::Tag);
     }
 
@@ -135,7 +136,7 @@ fn snippets(replace: Range, empty_word: bool) -> Vec<CompletionItem> {
         .map(|(label, body)| {
             let mut item = CompletionItem::new(label, CompletionKind::Snippet);
             item.snippet = true;
-            item.insert_text = (*body).to_owned();
+            item.insert_text = crate::delimiters::Syntax::current().snippet(body);
             item.replace = Some(replace);
             item
         })

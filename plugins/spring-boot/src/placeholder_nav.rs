@@ -35,9 +35,18 @@ fn model(doc: &Document) -> Option<(Vec<Key>, Vec<Reference>)> {
     // This source model uses LF/CRLF physical lines and the shared lexical
     // parser. It cannot prove uniqueness across bare CR or form-feed key
     // separators, nor treat Unicode whitespace as Java Properties indentation.
-    if doc.text.as_bytes().iter().enumerate().any(|(i,b)| *b==b'\r' && doc.text.as_bytes().get(i+1)!=Some(&b'\n'))
+    if doc
+        .text
+        .as_bytes()
+        .iter()
+        .enumerate()
+        .any(|(i, b)| *b == b'\r' && doc.text.as_bytes().get(i + 1) != Some(&b'\n'))
         || doc.text.contains('\u{c}')
-        || doc.text.split('\n').any(|line|line.chars().take_while(|c|c.is_whitespace()).any(|c|!c.is_ascii()))
+        || doc.text.split('\n').any(|line| {
+            line.chars()
+                .take_while(|c| c.is_whitespace())
+                .any(|c| !c.is_ascii())
+        })
     {
         return None;
     }
@@ -150,7 +159,7 @@ fn live_source(ctx: &Invocation) -> Result<(String, Document, Position), Error> 
     if !root.starts_with('/')
         || root == "/"
         || !doc.path.starts_with(&format!("{root}/"))
-        || source_scope(&doc.path).map(|(_,owner)|owner).as_deref() != Some(root.as_str())
+        || source_scope(&doc.path).map(|(_, owner)| owner).as_deref() != Some(root.as_str())
     {
         return Err(Error::Stale);
     }
@@ -223,6 +232,130 @@ pub(crate) fn occurrences(ctx: &Invocation) -> Result<Option<String>, Error> {
     Ok(Some("Navigated within this current source file. Effective profiles/imports/runtime ownership and global usages/Rename remain unresolved.".into()))
 }
 
+/// An explicitly requested physical-source graph. Profile/import/runtime
+/// relationships are displayed as file provenance, never merged into ownership.
+pub(crate) fn project_occurrences(ctx: &Invocation) -> Result<Option<String>, Error> {
+    let (root, doc, at) = live_source(ctx)?;
+    let off = offset(&doc.text, at).ok_or(Error::Stale)?;
+    let (keys, references) =
+        model(&doc).ok_or("Current source is outside the literal properties model.")?;
+    let name = references
+        .iter()
+        .find(|r| r.from <= off && off < r.to)
+        .map(|r| r.key.as_str())
+        .or_else(|| {
+            keys.iter()
+                .find(|k| k.at <= off && off < k.end)
+                .map(|k| k.key.as_str())
+        })
+        .filter(|name| literal(name))
+        .ok_or("Place the caret on a literal property key or placeholder.")?;
+    let project = ctx.project().ok_or(Error::Stale)?;
+    let mut paths = std::collections::BTreeSet::new();
+    paths.insert(doc.path.clone());
+    for glob in ["**/application*.properties", "**/bootstrap*.properties"] {
+        let found = project.find_files(glob, 129)?;
+        if found.len() > 128 {
+            return Err("Configuration source inventory exceeds 128 files; narrow the project before searching.".into());
+        }
+        for path in found {
+            if source_scope(&path).map(|(_, owner)| owner).as_deref() == Some(root.as_str()) {
+                paths.insert(path);
+            }
+        }
+    }
+    if paths.len() > 128 {
+        return Err("Configuration source inventory exceeds 128 files.".into());
+    }
+    let mut locations = Vec::new();
+    let mut snapshots = std::collections::BTreeMap::new();
+    let mut total = 0usize;
+    for path in paths {
+        let text = if path == doc.path {
+            doc.text.clone()
+        } else {
+            project.read_file(&path)?
+        };
+        total += text.len();
+        if total > 1024 * 1024 {
+            return Err("Configuration source inventory exceeds 1 MiB.".into());
+        }
+        let file = Document {
+            path: path.clone(),
+            language: "properties".into(),
+            text: text.clone(),
+            version: 0,
+        };
+        let (keys, refs)=model(&file).ok_or("A configuration file is outside the bounded literal model; source search was not presented as complete.")?;
+        for key in keys
+            .iter()
+            .filter(|k| k.key == name && file.text.get(k.at..k.end) == Some(name))
+        {
+            locations.push((
+                path.clone(),
+                range(&text, key.at, key.end),
+                "Declaration spelling",
+            ));
+        }
+        for reference in refs.iter().filter(|r| r.key == name) {
+            locations.push((
+                path.clone(),
+                range(&text, reference.from, reference.to),
+                "Placeholder spelling",
+            ));
+        }
+        if locations.len() > 1024 {
+            return Err("Too many property occurrences for a bounded source search.".into());
+        }
+        snapshots.insert(path, text);
+    }
+    let items: Vec<_> = locations
+        .iter()
+        .enumerate()
+        .map(|(i, (path, range, kind))| {
+            PickItem::new(
+                &i.to_string(),
+                &format!(
+                    "{kind} · {}:{}",
+                    path.strip_prefix(&format!("{root}/")).unwrap_or(path),
+                    range.start.line + 1
+                ),
+            )
+            .description(if path == &doc.path {
+                "Current editor source; profile/import/runtime binding unresolved"
+            } else {
+                "Saved file source; profile/import/runtime binding unresolved"
+            })
+        })
+        .collect();
+    if items.is_empty() {
+        return Ok(Some(format!(
+            "No exact literal source occurrences for {name}."
+        )));
+    }
+    let Some(selected) = host::pick(
+        &format!("Project source occurrences: {name} · {}", items.len()),
+        &items,
+    )?
+    else {
+        return Ok(None);
+    };
+    let (path, range, _) = selected
+        .parse::<usize>()
+        .ok()
+        .and_then(|i| locations.get(i))
+        .ok_or(Error::Stale)?;
+    unchanged(ctx, &root, &doc)?;
+    if source_scope(path).map(|(_, owner)| owner).as_deref() != Some(root.as_str()) {
+        return Err(Error::Stale);
+    }
+    if path != &doc.path && project.read_file(path)? != snapshots[path] {
+        return Err(Error::Stale);
+    }
+    host::open_location(path, range.start.line, range.start.character)?;
+    Ok(Some("Navigated to an exact physical source occurrence. Active profiles, imported/remote/environment values and effective binding remain unresolved; no Rename anchors were published.".into()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -241,48 +374,93 @@ mod tests {
     }
     #[test]
     fn registered_placeholder_shortcuts_reject_malformed_and_unknown_current_scope() {
-        let h=MockHost::install();let mut tools=BootTools::default();
-        for path in ["/project//application.properties","/project/\napplication.properties"] {
-            let d=Document{path:path.into(),..doc("app.name=secret\nx=${app.name}")};
-            assert!(tools.definition(&d,at(&d,"app.name")).is_empty(),"{path:?}");
-            assert!(tools.hover(&d,at(&d,"app.name")).is_none(),"{path:?}");
+        let h = MockHost::install();
+        let mut tools = BootTools::default();
+        for path in [
+            "/project//application.properties",
+            "/project/\napplication.properties",
+        ] {
+            let d = Document {
+                path: path.into(),
+                ..doc("app.name=secret\nx=${app.name}")
+            };
+            assert!(
+                tools.definition(&d, at(&d, "app.name")).is_empty(),
+                "{path:?}"
+            );
+            assert!(tools.hover(&d, at(&d, "app.name")).is_none(), "{path:?}");
         }
-        let d=doc("app.name=secret\nx=${app.name}");
-        assert_eq!(tools.definition(&d,at(&d,"app.name")).len(),1);
-        for i in 0..65 {h.add_project(&format!("/other-{i}"));}
-        assert!(tools.definition(&d,at(&d,"app.name")).is_empty());
-        assert!(tools.hover(&d,at(&d,"app.name")).is_none());
-        assert!(h.opened_locations().is_empty() && h.requests().is_empty() && h.process_runs().is_empty());
+        let d = doc("app.name=secret\nx=${app.name}");
+        assert_eq!(tools.definition(&d, at(&d, "app.name")).len(), 1);
+        for i in 0..65 {
+            h.add_project(&format!("/other-{i}"));
+        }
+        assert!(tools.definition(&d, at(&d, "app.name")).is_empty());
+        assert!(tools.hover(&d, at(&d, "app.name")).is_none());
+        assert!(
+            h.opened_locations().is_empty()
+                && h.requests().is_empty()
+                && h.process_runs().is_empty()
+        );
     }
     #[test]
     fn nested_project_reassignment_refuses_captured_source_and_accepts_fresh_local_owner() {
-        let text="app.name=secret\r\nlabel=😀 ${app.name:fallback}\r\n";
-        let h=command_host(text,Position::new(0,3));
-        h.open_editor("/project/nested/application.properties","properties",text,&[(0,3,0,3)]);
-        let (root,captured,_)=live_source(&h.invocation()).unwrap();
-        assert_eq!(root,"/project");
+        let text = "app.name=secret\r\nlabel=😀 ${app.name:fallback}\r\n";
+        let h = command_host(text, Position::new(0, 3));
+        h.open_editor(
+            "/project/nested/application.properties",
+            "properties",
+            text,
+            &[(0, 3, 0, 3)],
+        );
+        let (root, captured, _) = live_source(&h.invocation()).unwrap();
+        assert_eq!(root, "/project");
         h.add_project("/project/nested");
-        assert!(unchanged(&h.invocation(),&root,&captured).is_err());
+        assert!(unchanged(&h.invocation(), &root, &captured).is_err());
         h.answer_next_prompt(Some(&["1"]));
-        assert!(BootTools::default().run_command("current-file-placeholder-occurrences",&h.invocation(),None).is_err());
+        assert!(
+            BootTools::default()
+                .run_command(
+                    "current-file-placeholder-occurrences",
+                    &h.invocation(),
+                    None
+                )
+                .is_err()
+        );
         assert!(h.opened_locations().is_empty());
         h.set_project_root(Some("/project/nested"));
         h.answer_next_prompt(Some(&["1"]));
-        BootTools::default().run_command("current-file-placeholder-occurrences",&h.invocation(),None).unwrap();
-        assert_eq!(h.opened_locations(),vec![("/project/nested/application.properties".into(),1,11)]);
+        BootTools::default()
+            .run_command(
+                "current-file-placeholder-occurrences",
+                &h.invocation(),
+                None,
+            )
+            .unwrap();
+        assert_eq!(
+            h.opened_locations(),
+            vec![("/project/nested/application.properties".into(), 1, 11)]
+        );
         assert!(h.requests().is_empty() && h.process_runs().is_empty());
     }
     #[test]
     fn source_local_physical_bare_cr_cannot_hide_duplicate_declarations() {
-        let _h=MockHost::install();let d=doc("app.name=first\rapp.name=second\nx=${app.name}");
-        assert!(definition(&d,at(&d,"app.name")).is_none(),"unsupported physical line grammar cannot prove unique source declaration");
+        let _h = MockHost::install();
+        let d = doc("app.name=first\rapp.name=second\nx=${app.name}");
+        assert!(
+            definition(&d, at(&d, "app.name")).is_none(),
+            "unsupported physical line grammar cannot prove unique source declaration"
+        );
     }
     #[test]
     fn source_local_physical_whitespace_cannot_invent_literal_declarations() {
-        let _h=MockHost::install();
-        for text in ["\u{a0}app.name=first\nx=${app.name}","app.name=first\napp.name\u{c}=second\nx=${app.name}"] {
-            let d=doc(text);
-            assert!(definition(&d,at(&d,"app.name")).is_none(),"{text:?}");
+        let _h = MockHost::install();
+        for text in [
+            "\u{a0}app.name=first\nx=${app.name}",
+            "app.name=first\napp.name\u{c}=second\nx=${app.name}",
+        ] {
+            let d = doc(text);
+            assert!(definition(&d, at(&d, "app.name")).is_none(), "{text:?}");
         }
     }
     #[test]
@@ -383,6 +561,51 @@ mod tests {
         );
         h
     }
+    #[test]
+    fn project_source_graph_retains_profile_file_provenance_without_values() {
+        let text = "app.name=unsaved-secret\nlabel=😀 ${app.name}\n";
+        let h = command_host(text, Position::new(0, 3));
+        h.add_file(
+            "application-dev.properties",
+            "app.name=profile-secret\nx=${app.name:fallback}\n",
+        );
+        h.add_file("other.properties", "app.name=excluded-secret");
+        h.answer_next_prompt(Some(&["1"]));
+        let result = BootTools::default()
+            .run_command("project-placeholder-occurrences", &h.invocation(), None)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            h.opened_locations(),
+            vec![("/project/application-dev.properties".into(), 1, 4)]
+        );
+        assert!(
+            !result.contains("secret") && result.contains("effective binding remain unresolved")
+        );
+        assert!(h.requests().is_empty() && h.process_runs().is_empty());
+    }
+    #[test]
+    fn project_source_graph_refuses_incomplete_input_and_separates_nested_project() {
+        let h = command_host("app.name=one\nx=${app.name}", Position::new(0, 3));
+        h.add_file("application-dev.properties", "app.name=one\rapp.name=two");
+        assert!(
+            BootTools::default()
+                .run_command("project-placeholder-occurrences", &h.invocation(), None)
+                .is_err()
+        );
+        assert!(h.opened_locations().is_empty());
+        let h = command_host("app.name=one\nx=${app.name}", Position::new(0, 3));
+        h.add_project("/project/nested");
+        h.add_file("nested/application.properties", "app.name=nested");
+        h.answer_next_prompt(Some(&["2"]));
+        assert!(
+            BootTools::default()
+                .run_command("project-placeholder-occurrences", &h.invocation(), None)
+                .is_err()
+        );
+        assert!(h.opened_locations().is_empty());
+    }
+
     #[test]
     fn public_current_file_picker_navigates_exact_utf16_unsaved_occurrences_both_directions() {
         let text =

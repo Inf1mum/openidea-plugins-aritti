@@ -43,6 +43,8 @@ fn closed_identity(task: &Task) -> bool {
         return false;
     };
     match task.tracker.as_deref() {
+        Some("fogbugz") => crate::fogbugz::identity(task),
+        Some("redmine"|"mantis") => crate::self_hosted::identity(task),
         Some("github") | Some("forgejo") => {
             let github = task.tracker.as_deref() == Some("github");
             let prefix = if github { "https://api.github.com/repos/" } else { "https://codeberg.org/api/v1/repos/" };
@@ -83,6 +85,13 @@ fn closed_identity(task: &Task) -> bool {
             task.id.len()==24&&task.id.bytes().all(|b|b.is_ascii_hexdigit())&&short_link.len()==8&&short_link.bytes().all(|b|b.is_ascii_alphanumeric())
                 &&api==format!("https://api.trello.com/1/cards/{}",task.id)&&web==format!("https://trello.com/c/{short_link}")
         }
+        Some("lighthouse") => {
+            let Some((server,path))=api.strip_prefix("https://").and_then(|s|s.split_once('/')) else{return false;};
+            let parts:Vec<_>=path.split('/').collect();
+            if parts.len()!=4||parts[0]!="projects"||parts[2]!="tickets"||!server.ends_with(".lighthouseapp.com") {return false;}
+            let (Some(project),Some(number))=(parts[1].parse::<u64>().ok().filter(|n|*n>0),parts[3].strip_suffix(".xml").and_then(|n|n.parse::<u64>().ok()).filter(|n|*n>0)) else{return false;};
+            task.id==crate::trackers::lighthouse_id(server,project,number)&&api==format!("https://{server}/projects/{project}/tickets/{number}.xml")&&web==format!("https://{server}/projects/{project}/tickets/{number}")
+        }
         Some("jira") | Some("youtrack") => {
             if task.id.is_empty() || !task.id.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_')) {
                 return false;
@@ -118,7 +127,8 @@ fn escape(text: &str) -> String {
 pub fn hover(search: &Search, doc: &Document, at: Position) -> Option<Hover> {
     let root = host::project_of(&doc.path)?.root().ok()?;
     let (task, _, range) = selected(search, &root, doc, at)?;
-    Some(Hover::new(format!("**{}** — {}\n\nTracker: {} · {}\n\nCached explicit search result (up to 120 seconds old); status is not live. Use Tasks: Open/Activate Cached Issue at Caret for reviewed actions.",escape(&task.id),escape(&task.summary),escape(task.tracker.as_deref()?),escape(task.url.as_deref()?))).range(range))
+    let description = if task.description.is_empty() { String::new() } else { format!("\n\n{}{}", escape(&task.description), if task.description.chars().count() > 2048 { "… (open task description for more)" } else { "" }) };
+    Some(Hover::new(format!("**{}** — {}{}\n\nTracker: {} · {}\n\nCached explicit search result (up to 120 seconds old); status is not live. Use Tasks: Open/Activate Cached Issue at Caret for reviewed actions.",escape(&task.id),escape(&task.summary),description,escape(task.tracker.as_deref()?),escape(task.url.as_deref()?))).range(range))
 }
 fn same_source(ctx: &Invocation, root: &str, doc: &Document) -> Result<(), Error> {
     if ctx.project().and_then(|p| p.root().ok()).as_deref() != Some(root)
@@ -239,7 +249,7 @@ mod tests {
             MockHost::install().with_capabilities(&["project.read", "editor.read", "storage", "vcs.read", "secrets", "net:api.github.com"]);
         host.set_secret("github-token", "secret");
         host.set_vcs_remotes(&[("origin", "git@github.com:acme/tool.git")]);
-        host.on_fetch(|_|Ok(HttpResponse{status:200,headers:vec![],body:serde_json::json!({"items":[{"number":1,"title":"Fix <script> [link](url)","html_url":"https://github.com/acme/tool/issues/1","url":"https://api.github.com/repos/acme/tool/issues/1","repository_url":"https://api.github.com/repos/acme/tool"}]}).to_string().into_bytes()}));
+        host.on_fetch(|_|Ok(HttpResponse{status:200,headers:vec![],body:serde_json::json!({"items":[{"number":1,"title":"Fix <script> [link](url)","body":"Description <img> [unsafe](javascript:evil)","html_url":"https://github.com/acme/tool/issues/1","url":"https://api.github.com/repos/acme/tool/issues/1","repository_url":"https://api.github.com/repos/acme/tool"}]}).to_string().into_bytes()}));
         host.answer_next_prompt(Some(&["fix"]));
         host.answer_next_prompt(Some(&["0"]));
         let mut search = Search::default();
@@ -261,6 +271,7 @@ mod tests {
         let h = plugin.hover(&d, Position::new(0, 6)).unwrap();
         assert_eq!(h.range, Some(Range::new(Position::new(0, 3), Position::new(0, 9))));
         assert!(h.markdown.contains("\\<script\\>") && h.markdown.contains("\\[link\\]\\(url\\)"));
+        assert!(h.markdown.contains("Description \\<img\\> \\[unsafe\\]\\(javascript:evil\\)"));
         assert!(h.markdown.contains("Cached explicit search"));
         assert_eq!(host.requests().len(), before);
         assert!(host.process_runs().is_empty());

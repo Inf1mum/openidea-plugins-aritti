@@ -7,6 +7,7 @@ const NEW: &str = "new-changelog";
 const SET: &str = "new-changeset";
 const INCLUDE: &str = "include-existing";
 const GENERATED: &str = "save-generated:";
+const GENERATED_GROUPS: &str = "save-generated-groups:";
 fn root(project: &Project) -> Result<String, Error> {
     let root = project.root()?;
     if !root.starts_with('/') || root.len() > 4096 || root.split('/').any(|p| matches!(p, "." | "..")) {
@@ -145,6 +146,10 @@ impl FileActions for Liquibase {
                 ..FileAction::default()
             })
             .collect();
+        if let Some(key) = self.generated_groups_key(&root) {
+            actions.push(FileAction { title: "Save grouped offline migrations…".into(), kind: Some("refactor.rewrite".into()),
+                data: Some(serde_json::json!([root, doc.path, doc.version, fingerprint(&doc.text), format!("{GENERATED_GROUPS}{key}")]).to_string()), ..FileAction::default() });
+        }
         if let Some(key) = self.generated_action_key(&root) {
             actions.push(FileAction { title: "Save reviewed offline changesets…".into(), kind: Some("refactor.rewrite".into()), data: Some(serde_json::json!([root, doc.path, doc.version, fingerprint(&doc.text), format!("{GENERATED}{key}")]).to_string()), ..FileAction::default() });
         }
@@ -166,6 +171,26 @@ impl FileActions for Liquibase {
         let project = current_project(doc, expected)?;
         let kind = data[4].as_str().ok_or(Error::Stale)?;
         let parent = generate::parent_log(&doc.path, &doc.text).ok();
+        if let Some(key) = kind.strip_prefix(GENERATED_GROUPS) {
+            let source = self.prepared_generated_groups(&project, expected, key)?;
+            let mut targets = BTreeSet::new(); let mut operations = Vec::new(); let mut preview = source.provenance.clone();
+            for (index, (label, text)) in source.groups.iter().enumerate() {
+                let Some(input) = host::input(&format!("Destination XML for {label}"), Some(&format!("db/migration-{}.xml", index + 1)))? else { return Err(Error::Cancelled); };
+                let target = path(expected, &input)?;
+                if !target.ends_with(".xml") || !targets.insert(target.clone()) { return Err("Choose distinct XML output files for migration groups.".into()); }
+                owned(expected, &target)?; vacant(&project, &target)?;
+                preview.push_str(&format!("\n\nGroup: {label}\nCreate: {target}\n{text}"));
+                operations.push(FileOperation::Create { path: target, text: text.clone(), overwrite: false });
+            }
+            preview.push_str("\nOne atomic non-overwriting workspace action; no CLI or database apply. Groups are saved in label order; dependencies and execution order require review.");
+            if !ui_kit::prompts::confirm_exact("Save these grouped offline migrations?", &preview)? { return Err(Error::Cancelled); }
+            let current = current_project(doc, expected)?;
+            let fresh = self.prepared_generated_groups(&current, expected, key)?;
+            if fresh.groups != source.groups { return Err(Error::Stale); }
+            for target in &targets { owned(expected, target)?; vacant(&current, target)?; }
+            let open = targets.iter().next().cloned();
+            return Ok(done("Save grouped offline migrations", vec![], operations, open));
+        }
         if let Some(key) = kind.strip_prefix(GENERATED) {
             if key.len() != 64 || !key.bytes().all(|b| b.is_ascii_hexdigit()) { return Err(Error::Stale); }
             let source = self.prepared_generated(&project, expected, key)?;

@@ -1,0 +1,118 @@
+@import url("./tokens.css");
+@import url("./components.css");
+/* Embedded resource composition. Native window chrome belongs to the host.
+   Hallmark · pre-emit critique: P4 H4 E4 S5 R5 V3 */
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;overflow-x:clip}
+body{display:flex;flex-direction:column;background:var(--ui-bg);color:var(--ui-fg);font:var(--ui-text)/var(--ui-leading) var(--ui-font)}
+button,input,select,textarea{font:inherit}
+button{white-space:nowrap}
+[hidden]{display:none!important}
+.shell{display:flex;flex:1;flex-direction:column;min-height:0;min-width:0}
+/* Reuse kit tabs, toolbar and controls; only their composition lives here. */
+#view-tabs,#sections{flex:none;overflow-x:auto;overflow-y:hidden;border-bottom:1px solid var(--ui-separator);background:var(--ui-toolbar-bg,var(--ui-bg))}
+#view-tabs>button,#sections>button{flex:none}
+#view-tabs>button{display:inline-flex;align-items:center;gap:6px}
+#view-tabs .tab-count{color:var(--ui-muted);font-weight:400;font-variant-numeric:tabular-nums}
+#view-tabs>button[aria-selected=true],#sections>button[aria-current=page]{border-bottom-color:var(--ui-accent)}
+main{display:flex;flex-direction:column;flex:1;min-width:0;min-height:0}
+.toolbar{flex:none;border-bottom:1px solid var(--ui-separator)}
+.toolbar:empty{display:none}
+.filters{display:flex;align-items:center;gap:var(--ui-space-2);flex-wrap:wrap;flex:none;padding:var(--ui-space-1) var(--ui-space-2);border-bottom:1px solid var(--ui-separator)}
+.search{position:relative;display:flex;align-items:center;flex:1;min-width:130px}
+.search input{width:100%;padding-left:28px}
+.search-icon{position:absolute;left:8px;display:flex;pointer-events:none;color:var(--ui-muted)}
+#facets{display:flex;flex-wrap:wrap;gap:var(--ui-space-1);min-width:0}
+#facets label{width:160px;min-width:0;max-width:100%;flex:0 1 160px}
+#facets .ui-select-shell{width:100%;max-width:100%}
+#clear{flex:none;color:var(--ui-muted)}
+.workspace{display:flex;flex:1;min-height:0;min-width:0}
+#content{flex:1;min-width:0;overflow:auto;position:relative}
+#details{width:min(560px,calc(100vw - 32px));max-height:calc(100vh - 32px);overflow:auto;padding:0}
+.resource-facts{margin:0;overflow-wrap:anywhere}
+.resource-facts dt{color:var(--ui-muted);margin-top:var(--ui-space-2);font-size:var(--ui-text-small)}
+.resource-facts dt:first-child{margin-top:0}
+.resource-facts dd{margin:2px 0;white-space:pre-wrap;min-width:0}
+#details .ui-dialog-footer{display:flex;justify-content:flex-end;padding:var(--ui-space-3)}
+.ui-table{width:100%}
+table.resources{min-width:650px}
+thead{position:sticky;top:0;z-index:1;background:var(--ui-bg)}
+th{white-space:nowrap}
+th .ui-button{border:0;border-radius:0;background:none;text-align:left;justify-content:flex-start;width:100%;height:24px;min-height:24px;padding:3px var(--ui-space-2)}
+.ui-table th:has(>button){padding:0}
+td{max-width:560px;vertical-align:top;overflow-wrap:anywhere}
+td.category{white-space:nowrap;overflow-wrap:normal;word-break:normal}
+tr[tabindex]{cursor:pointer}
+tbody tr:hover{background:var(--ui-hover)}
+.mono{font-family:var(--ui-mono)}
+.pager{display:flex;gap:var(--ui-space-2);align-items:center;justify-content:flex-end;padding:var(--ui-space-1) var(--ui-space-2);position:sticky;bottom:0;background:var(--ui-bg);border-top:1px solid var(--ui-separator)}
+.form{display:grid;gap:var(--ui-space-2);padding:var(--ui-space-3);max-width:760px}
+.form>.ui-field{grid-template-columns:minmax(110px,160px) minmax(0,1fr);align-items:center;gap:var(--ui-space-2)}
+.form .field-label{overflow-wrap:anywhere}
+.form input:not([type=checkbox]),.form textarea,.form .ui-select-shell{width:100%;min-width:0}
+.form textarea{min-height:96px;resize:vertical;font-family:var(--ui-mono)}
+.form output{white-space:pre-wrap;overflow-wrap:anywhere;color:var(--ui-muted)}
+.form label.checkbox{display:flex;align-items:center;gap:var(--ui-space-2)}
+.tree-cell{display:flex;align-items:center;gap:var(--ui-space-1);min-width:0;height:16px}
+.tree-node-slot,.tree-toggle.ui-button{flex:0 0 16px;width:16px;height:16px;min-width:16px;min-height:16px}
+.tree-toggle.ui-button{border:0;background:none;padding:0}
+.tree-cell>.view-icon{flex:0 0 16px}
+.tree-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.resource-tree--plain thead{display:none}
+.legacy{display:block;position:relative;min-height:100%;height:100%}
+footer{flex:none;padding:var(--ui-space-1) var(--ui-space-2);border-top:1px solid var(--ui-separator);color:var(--ui-muted);font-size:var(--ui-text-small);overflow-wrap:anywhere}
+footer:empty{display:none}
+.request-progress{position:absolute;top:0;left:0;z-index:3;margin:0;height:3px}
+.view-icon{width:16px;height:16px;flex-shrink:0;vertical-align:-3px}
+td>.view-icon{margin-right:6px}
+th .view-icon{width:12px;height:12px}
+@media(max-width:480px){
+  .form>.ui-field{grid-template-columns:minmax(0,1fr);gap:var(--ui-space-1)}
+}
+/* The workspace scrolls within the dock; keep the status line at its bottom
+   even in shallow panels rather than reserving a fixed content height. */
+
+.form .field-controls{display:flex;align-items:center;flex-wrap:wrap;gap:var(--ui-space-2);min-width:0}
+.form .field-controls>input{flex:1 1 100px;width:0;min-width:0}
+.form .field-controls>.ui-button{flex:none}
+
+/* Code remains selectable and horizontally scrollable instead of wrapping into prose. */
+#details.has-code-preview{width:min(960px,calc(100vw - 32px));max-height:calc(100dvh - 32px);overflow:hidden}
+#details.has-code-preview[open]{display:flex;flex-direction:column}
+#details.has-code-preview .ui-dialog-body{min-height:0;overflow:auto}
+#details.has-code-preview .ui-dialog-header,#details.has-code-preview .ui-dialog-footer{flex:none}
+#details .ui-dialog-header h2{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.code-preview{min-width:0;margin:4px 0 12px;border:1px solid var(--ui-border);border-radius:4px;background:var(--ui-bg);white-space:normal}
+.code-preview-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:4px 8px;border-bottom:1px solid var(--ui-separator);font:var(--ui-text-small)/var(--ui-leading) var(--ui-font)}
+.code-preview-toolbar>span{margin-right:auto;color:var(--ui-muted)}
+.code-preview-toolbar>button{padding:3px 6px;height:24px;min-height:24px}
+.code-preview pre.ui-code-sample{margin:0;padding:10px;max-height:52dvh;border-radius:0;box-shadow:none;white-space:pre;overflow:auto;font:13px/20px var(--ui-mono);tab-size:2;overflow-wrap:normal;word-break:normal}
+.code-preview pre.code-preview-wrap{white-space:pre-wrap;overflow-wrap:anywhere}
+.code-token[data-tone=key],.code-token[data-tone=keyword]{color:var(--openidea-syn-keyword,var(--ui-link))}
+.code-token[data-tone=string],.code-token[data-tone=added]{color:var(--openidea-syn-string,var(--ui-success))}
+.code-token[data-tone=number]{color:var(--openidea-syn-number,var(--ui-info))}
+.code-token[data-tone=comment]{color:var(--ui-muted)}
+.code-token[data-tone=removed]{color:var(--ui-danger)}
+
+/* Optional resource-column presentation follows native table typography. */
+.ui-table td.resource-code{font-family:var(--ui-mono);font-weight:400;white-space:nowrap}
+.ui-table td.resource-text,.ui-table td.resource-locale,.ui-table td.resource-muted{font-family:var(--ui-font);font-weight:400}
+.ui-table td.resource-locale,.ui-table td.resource-muted{color:var(--ui-muted);white-space:nowrap}
+.ui-table th.resource-locale,.ui-table td.resource-locale{width:1%;min-width:64px}
+.ui-table td.resource-text{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:420px}
+.ui-table td.resource-muted{overflow:hidden;text-overflow:ellipsis;max-width:240px}
+.resource-identity{display:flex;align-items:center;gap:var(--ui-space-2);min-width:0}
+.resource-identity>.view-icon{flex:0 0 16px}
+.resource-cell-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:560px}
+
+/* Bound styled cell content so code cannot paint into adjacent columns. */
+table.resource-table--bounded{table-layout:fixed}
+.resource-table--bounded td{overflow:hidden}
+.resource-cell-value{display:block;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.resource-table--bounded .resource-cell-label{max-width:100%}
+
+/* Command workspaces have their own two scroll panes. */
+#content:has(>.command-workspace-host){overflow:hidden}
+.command-workspace-host{min-height:0;height:100%;overflow:hidden}
+main:has(.command-workspace-host){overflow:hidden}
+.workspace:has(.command-workspace-host){flex:1 1 0%;min-height:0}

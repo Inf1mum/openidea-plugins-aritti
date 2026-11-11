@@ -1,4 +1,4 @@
-//! Explicit flat, single-job physical-source step rename. No indexed Rename.
+//! Explicit flat, single-job physical-source step/decision rename. No indexed Rename.
 use crate::*;
 use openidea_plugin::file_actions::FileAction;
 use openidea_plugin::text::{offset, position};
@@ -12,6 +12,7 @@ struct Site { from: usize, to: usize, role: String }
 struct Context {
     job: String,
     old: String,
+    kind: String,
     declaration: Site,
     references: Vec<Site>,
     states: Vec<(String, String)>,
@@ -73,13 +74,13 @@ fn context(doc: &Document, selection: Range) -> Option<Context> {
             let id = element.attrs.iter().find(|a| a.name=="id" && literal(&a.value))?;
             *counts.entry(id.value.clone()).or_default() += 1;
             states.push((element.local().to_owned(),id.value.clone()));
-            if element.local()=="step" && id.holds(caret) {
-                selected=Some((i,id.value.clone(),Site { from:id.value_at,to:id.value_end,role:"step declaration id".into() }));
+            if id.holds(caret) {
+                selected=Some((element.local().to_owned(),id.value.clone(),Site { from:id.value_at,to:id.value_end,role:format!("{} declaration id",element.local()) }));
             }
         }
     }
     if counts.values().any(|count|*count!=1) { return None; }
-    let (_,old,declaration)=selected?;
+    let (kind,old,declaration)=selected?;
     // Refuse another physical ID outside this direct-state identity too.
     if elements.iter().flat_map(|e|e.attrs.iter()).filter(|a|a.local()=="id" && a.value==old).count()!=1 {return None;}
     let mut references=Vec::new();
@@ -96,7 +97,7 @@ fn context(doc: &Document, selection: Range) -> Option<Context> {
         }
     }
     if references.len()+1>64 { return None; }
-    Some(Context {job:job_id,old,declaration,references,states,occupied})
+    Some(Context {job:job_id,old,kind,declaration,references,states,occupied})
 }
 fn normalized(path:&str)->bool {
     path.starts_with('/') && path.len()<=512 && path!="/" && !path.contains(['\\','*','?','[',']','{','}'])
@@ -109,7 +110,7 @@ fn usage_context(doc:&Document,selection:Range)->Option<Context> {
     if selection.start!=selection.end || doc.language!="xml" || doc.text.len()>32*1024 {return None;}
     let caret=offset(&doc.text,selection.start)?;let elements=xml::elements(&doc.text);
     let value=elements.iter().flat_map(|e|e.attrs.iter()).find(|a|a.holds(caret) && matches!(a.name.as_str(),"next"|"to"|"restart"))?.value.as_str();
-    for element in elements.iter().filter(|e|e.local()=="step") {
+    for element in elements.iter().filter(|e|matches!(e.local(),"step"|"decision")) {
         if let Some(id)=element.attrs.iter().find(|a|a.name=="id" && a.value==value) {
             let p=position(&doc.text,id.value_at);let found=context(doc,Range::new(p,p))?;
             if found.references.iter().any(|site|site.from<=caret && caret<=site.to) {return Some(found);}
@@ -132,7 +133,7 @@ fn usage_items(doc:&Document,model:&Context,sites:&[Site])->Vec<openidea_plugin:
     sites.iter().enumerate().map(|(index,site)| {
         let r=range(&doc.text,site.from,site.to);
         openidea_plugin::PickItem::new(&format!("site:{index}"),&format!("{} · {}:{}–{}:{}",site.role,r.start.line+1,r.start.character+1,r.end.line+1,r.end.character+1))
-            .description(&format!("{} · UTF-16 range · source version {} · physical job {} · step {}",doc.path,doc.version,model.job,model.old))
+            .description(&format!("{} · UTF-16 range · source version {} · physical job {} · {} {}",doc.path,doc.version,model.job,model.kind,model.old))
     }).collect()
 }
 fn unchanged_usage_source(ctx:&Invocation,root:&str,doc:&Document,selection:Range,model:&Context)->Result<(),Error> {
@@ -144,42 +145,43 @@ fn unchanged_usage_source(ctx:&Invocation,root:&str,doc:&Document,selection:Rang
 /// from Providers; only this user command reads its focused editor snapshot.
 pub(crate) fn usages(ctx:&Invocation)->Result<Option<String>,Error> {
     let (root,doc,selection)=focused_source(ctx)?;
-    let model=usage_context(&doc,selection).ok_or("Place one caret on a unique direct step ID or its proved next/to/restart reference in a supported flat single-job XML document.")?;
+    let model=usage_context(&doc,selection).ok_or("Place one caret on a unique direct step/decision ID or its proved next/to/restart reference in a supported flat single-job XML document.")?;
     let mut sites=vec![model.declaration.clone()];sites.extend(model.references.clone());sites.sort_by_key(|site|site.from);
     let items=usage_items(&doc,&model,&sites);
-    let Some(choice)=host::pick(&format!("This document only: step {} · job {} · {} reference(s) + declaration",model.old,model.job,model.references.len()),&items)? else{return Ok(None);};
+    let Some(choice)=host::pick(&format!("This document only: {} {} · job {} · {} reference(s) + declaration",model.kind,model.old,model.job,model.references.len()),&items)? else{return Ok(None);};
     let site=choice.strip_prefix("site:").and_then(|id|id.parse::<usize>().ok()).and_then(|index|sites.get(index)).ok_or(Error::Stale)?;
     unchanged_usage_source(ctx,&root,&doc,selection,&model)?;
     let destination=range(&doc.text,site.from,site.to).start;
     host::open_location(&doc.path,destination.line,destination.character)?;
-    Ok(Some("Navigated to a proved source-local step occurrence in this document. Other documents, bean references, job/channel/module usages and imported/inherited/runtime contexts are excluded; no global indexed Find Usages/Rename graph is published.".into()))
+    Ok(Some("Navigated to a proved source-local Batch state occurrence in this document. Other documents, bean references, job/channel/module usages and imported/inherited/runtime contexts are excluded; no global indexed Find Usages/Rename graph is published.".into()))
 }
 #[derive(Clone)]
 struct Pending { root:String, doc:Document, selection:Range, context:Context }
 fn current(pending:&Pending,doc:&Document)->Result<(),Error> {
     if *doc!=pending.doc || crate::source_scope::Scope::for_path(&doc.path).is_none() {return Err(Error::Stale);}
     let project=host::project_of(&doc.path).ok_or(Error::Stale)?;
-    if project.root()?!=pending.root || project.read_file(&doc.path)?!=doc.text || context(doc,pending.selection).as_ref()!=Some(&pending.context) {return Err(Error::Stale);}
+    if project.root()?!=pending.root || project.read_file(&doc.path)?!=doc.text || usage_context(doc,pending.selection).as_ref()!=Some(&pending.context) {return Err(Error::Stale);}
     Ok(())
 }
 #[derive(Default)]
 pub(crate) struct Rename { next:u64, pending:BTreeMap<String,Pending> }
 impl Rename {
     pub(crate) fn actions(&mut self,doc:&Document,selection:Range)->Vec<FileAction> {
-        let Some(context)=context(doc,selection) else{return vec![];};
+        let Some(context)=usage_context(doc,selection) else{return vec![];};
         if crate::source_scope::Scope::for_path(&doc.path).is_none() {return vec![];}
         let Some(root)=host::project_of(&doc.path).and_then(|p|p.root().ok()) else{return vec![];};
         if !normalized(&root) || !normalized(&doc.path) || !doc.path.starts_with(&format!("{root}/")) {return vec![];}
         let Some(next)=self.next.checked_add(1) else{return vec![];};self.next=next;
         if self.pending.len()>=4 {self.pending.clear();}
         let token=format!("batch-step-rename:{next}:{}",doc.version);
+        let title=if context.kind=="decision" {"Rename Batch decision in this document…"} else {TITLE};
         self.pending.insert(token.clone(),Pending {root,doc:doc.clone(),selection,context});
-        vec![FileAction {title:TITLE.into(),kind:Some("refactor".into()),data:Some(token),..Default::default()}]
+        vec![FileAction {title:title.into(),kind:Some("refactor".into()),data:Some(token),..Default::default()}]
     }
     pub(crate) fn resolve(&mut self,doc:&Document,action:FileAction)->Result<FileAction,Error> {
         let pending=self.pending.remove(action.data.as_deref().ok_or(Error::Stale)?).ok_or(Error::Stale)?;
         current(&pending,doc)?;
-        let Some(new)=host::input("New literal step ID in this document",Some(&pending.context.old))? else{return Err(Error::Cancelled);};
+        let Some(new)=host::input(&format!("New literal {} ID in this document",pending.context.kind),Some(&pending.context.old))? else{return Err(Error::Cancelled);};
         if !literal(&new) || new==pending.context.old || pending.context.occupied.contains(&new) {return Err(Error::Invalid("Use a different unique ASCII step ID (1–128 bytes; letter/underscore first, then letters/digits/_.-). Existing IDs, names, aliases and target literals cannot be reused.".into()));}
         current(&pending,doc)?;
         let mut sites=vec![pending.context.declaration.clone()];sites.extend(pending.context.references.clone());sites.sort_by_key(|site|site.from);
@@ -197,11 +199,11 @@ impl Rename {
         let rebuilt=context(&changed,Range::new(p,p)).ok_or(Error::Stale)?;
         let expected:Vec<_>=pending.context.states.iter().map(|(kind,name)|(kind.clone(),if *name==pending.context.old {new.clone()}else{name.clone()})).collect();
         if rebuilt.old!=new || rebuilt.job!=pending.context.job || rebuilt.states!=expected || rebuilt.references.len()!=pending.context.references.len() {return Err(Error::Stale);}
-        let review=format!("Source: {}\nVersion: {}\nPhysical single job: {}\nStep: {} → {}\nExact edits: {} (one declaration, {} direct transition references)\n\n{delta}\nScope: only this document's flat physical job and direct step/decision next/to/restart literals. Other files, bean references, Java/Kotlin, imported/inherited/runtime contexts are excluded. No global Rename, execution, reachability or type validation.\n\nComplete BEFORE XML ({} bytes):\n{}\n\nComplete AFTER XML ({} bytes):\n{after}",doc.path,doc.version,pending.context.job,pending.context.old,new,sites.len(),pending.context.references.len(),doc.text.len(),doc.text,after.len());
-        if !ui_kit::prompts::confirm_exact("Rename Batch step in this document?",&review)? {return Err(Error::Cancelled);}
+        let review=format!("Source: {}\nVersion: {}\nPhysical single job: {}\nState: {} → {}\nExact edits: {} (one declaration, {} direct transition references)\n\n{delta}\nScope: only this document's flat physical job and direct step/decision next/to/restart literals. Other files, bean references, Java/Kotlin, imported/inherited/runtime contexts are excluded. No global Rename, execution, reachability or type validation.\n\nComplete BEFORE XML ({} bytes):\n{}\n\nComplete AFTER XML ({} bytes):\n{after}",doc.path,doc.version,pending.context.job,pending.context.old,new,sites.len(),pending.context.references.len(),doc.text.len(),doc.text,after.len());
+        if !ui_kit::prompts::confirm_exact(&format!("Rename Batch {} in this document?",pending.context.kind),&review)? {return Err(Error::Cancelled);}
         current(&pending,doc)?;
         let edits=sites.into_iter().map(|site|openidea_plugin::TextEdit {range:range(&doc.text,site.from,site.to),text:new.clone()}).collect();
-        Ok(FileAction {title:format!("Rename local Batch step {} to {new}",pending.context.old),kind:Some("refactor".into()),edits:vec![(doc.path.clone(),edits)],..Default::default()})
+        Ok(FileAction {title:format!("Rename local Batch {} {} to {new}",pending.context.kind,pending.context.old),kind:Some("refactor".into()),edits:vec![(doc.path.clone(),edits)],..Default::default()})
     }
 }
 
@@ -226,6 +228,31 @@ mod tests {
         assert_eq!(apply(&d,&resolved),d.text.replace("'process'","'renamed'"));assert!(apply(&d,&resolved).contains("next='finish'"));
         assert_eq!(host.invocation().project().unwrap().read_file(&d.path).unwrap(),d.text);assert!(host.process_runs().is_empty() && host.requests().is_empty());
         assert!(matches!(owner.resolve_file_action(&d,replay),Err(Error::Stale)));
+    }
+    #[test]
+    fn decision_rename_from_incoming_reference_preserves_step_and_decider_names() {
+        let d=document("<b:job id='job'><b:step id='load' next='branch'/><b:decision id='branch' decider='branch'><b:next on='CONTINUE' to='finish'/><b:stop on='PAUSE' restart='branch'/></b:decision><b:step id='finish'/></b:job>");
+        let h=MockHost::install();h.add_file(&d.path,&d.text);
+        let at=position(&d.text,d.text.find("next='branch'").unwrap()+6);
+        let mut owner=structure::Structure::default();
+        let action=owner.file_actions(&d,Range::new(at,at)).into_iter().find(|a|a.title=="Rename Batch decision in this document…").unwrap();
+        h.answer_next_prompt(Some(&["choose_path"]));h.answer_next_prompt(Some(&["yes"]));
+        let resolved=owner.resolve_file_action(&d,action).unwrap();
+        assert_eq!(resolved.edits[0].1.len(),3);
+        let after=apply(&d,&resolved);
+        assert!(after.contains("id='choose_path' decider='branch'"));
+        assert!(after.contains("next='choose_path'"));assert!(after.contains("restart='choose_path'"));
+        assert!(after.contains("to='finish'"));assert_eq!(h.invocation().project().unwrap().read_file(&d.path).unwrap(),d.text);
+    }
+    #[test]
+    fn step_rename_can_start_at_each_proved_transition_reference() {
+        let d=document(BODY);let model=context(&d,selection(&d)).unwrap();
+        for site in model.references {
+            let h=MockHost::install();h.add_file(&d.path,&d.text);let mut owner=structure::Structure::default();
+            let at=position(&d.text,site.from);let action=owner.file_actions(&d,Range::new(at,at)).into_iter().find(|a|a.title==TITLE).unwrap();
+            h.answer_next_prompt(Some(&["updated"]));h.answer_next_prompt(Some(&["yes"]));
+            assert_eq!(apply(&d,&owner.resolve_file_action(&d,action).unwrap()),d.text.replace("'process'","'updated'"));
+        }
     }
     #[test]
     fn self_loop_zero_incoming_default_namespace_and_unrelated_strings_preserve_exact_bytes() {

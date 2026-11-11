@@ -11,10 +11,12 @@ mod complete;
 mod config;
 mod execution;
 mod generate;
+mod hibernate_schema;
 mod indexer;
 mod info;
 mod naming;
 mod navigation;
+mod table_navigation;
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -37,10 +39,13 @@ pub struct Flyway {
     browser_selection: Option<native_browser::Selection>,
     browser_expansion: spring_text::tree::Expansion,
     navigation: navigation::State,
+    table_navigation: table_navigation::State,
     generation: Option<generate::Draft>,
+    hibernate_schema: Option<hibernate_schema::Candidate>,
     comparison: comparison::Review,
     /// Placeholder names by project root.
     placeholders: BTreeMap<String, Vec<String>>,
+    placeholder_syntax: BTreeMap<String, config::PlaceholderSyntax>,
     /// Paths this instance published problems for.
     flagged: BTreeSet<String>,
     /// Project roots scanned by this instance; problems from before it started are unknown.
@@ -91,8 +96,10 @@ impl Flyway {
         let config = load(project);
         let files = migration_files(project, &config);
         self.navigation.warm(project, &config);
+        self.table_navigation.warm(project, &files);
         let root = project.root().unwrap_or_default();
         self.placeholders.insert(root.clone(), config.placeholders.clone());
+        self.placeholder_syntax.insert(root.clone(), config.placeholder_syntax.clone());
         let vendors = vendor_prefixes(&config.locations, &root);
         let results = checks::check(&root, &files, &config.naming, &vendors);
         (config, files, results)
@@ -251,11 +258,12 @@ impl Plugin for Flyway {
     fn deactivate(&mut self) {self.comparison.cancel_owned();}
 
     fn activate(&mut self, _ctx: &openidea_plugin::Context) -> Result<(), Error> {
-        let _ = host::subscribe_paths("files-changed", &["**/*.sql", "**/*.conf", "**/*.toml", "**/application*"]);
+        let _ = host::subscribe_paths("files-changed", &["**/*.sql", "**/*.conf", "**/*.toml", "**/application*", "**/*.class", "**/*.jar", "**/*.java", "**/*.kt", "**/hibernate-schema.json"]);
         Ok(())
     }
     fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
         match id {
+            "hibernate-schema" => self.generate_hibernate_schema(ctx),
             "review-comparison" => {
                 self.comparison.begin(ctx)?;
                 ui_kit::web::reveal_view(comparison::VIEW, include_str!("ui_config.json"))?;
@@ -298,6 +306,10 @@ impl Plugin for Flyway {
     fn handle_events(&mut self, events: &[Event], _ctx: &Invocation) {
         self.execution.closed_roots();
         self.comparison.invalidate(events);
+        if self.hibernate_schema.as_ref().is_some_and(|candidate| events.iter().any(|event| match event {
+            Event::FileSaved(path) => candidate.affected(path),
+            Event::FilesChanged(batch) => batch.created.iter().chain(&batch.modified).chain(&batch.removed).any(|path| candidate.affected(path)), _ => false,
+        })) { self.hibernate_schema = None; }
         let affected = self.info_scope.as_ref().is_some_and(|proof| events.iter().any(|event| match event {
             Event::FileSaved(path) => proof.affected(path) || self.targets.values().any(|source|source==path),
             Event::FilesChanged(batch) => batch.created.iter().chain(&batch.modified).chain(&batch.removed).any(|path|proof.affected(path)
@@ -306,9 +318,11 @@ impl Plugin for Flyway {
         }));
         if affected {self.info_cache=None;self.info_scope=None;self.targets.clear();self.targets_root=None;refresh_migrations();}
         for event in events {
+            if let Event::FileSaved(path) = event { self.table_navigation.invalidate(path); }
             if let Event::FilesChanged(batch) = event {
                 for path in batch.created.iter().chain(&batch.modified).chain(&batch.removed) {
                     self.navigation.invalidate(path);
+                    self.table_navigation.invalidate(path);
                 }
             }
         }
@@ -355,9 +369,10 @@ impl Providers for Flyway {
                     .iter()
                     .filter(|(root, _)| doc.path.starts_with(&format!("{}/", root.trim_end_matches('/'))))
                     .max_by_key(|(root, _)| root.len())
-                    .map(|(_, names)| names.as_slice())
-                    .unwrap_or_default();
-                complete::placeholders(&doc.text, at, project)
+                    .map(|(root, names)| (names.as_slice(), self.placeholder_syntax.get(root)));
+                let default = config::PlaceholderSyntax::default();
+                let (names, syntax) = project.map(|(names, syntax)| (names, syntax.unwrap_or(&default))).unwrap_or((&[], &default));
+                complete::configured_placeholders(&doc.text, at, names, syntax)
             }
             "ini" if is_flyway_config(&doc.path) => complete::conf_keys(&doc.text, at),
             "toml" if is_flyway_config(&doc.path) => complete::toml_keys(&doc.text, at),
@@ -746,6 +761,20 @@ mod tests {
         assert!(flyway.completion(&conf("/project/app.conf"), Position::new(0, 7), None).is_empty());
     }
 
+    #[test]
+    fn configured_placeholder_completion_refreshes_and_is_project_scoped() {
+        let host = host();
+        host.add_file("flyway.conf", "flyway.placeholderPrefix=<<\nflyway.placeholderSuffix=>>\nflyway.placeholders.tenant=acme\n");
+        let mut flyway = Flyway::default();
+        flyway.handle_events(&[Event::FileOpened(format!("{DIR}/V1__init.sql"))], &host.invocation());
+        let doc = Document { path: format!("{DIR}/V3__x.sql"), language: "sql".into(), version: 1, text: "<<te".into() };
+        assert!(flyway.completion(&doc, Position::new(0, 4), None).iter().any(|item| item.insert_text == "tenant>>"));
+        host.add_file("flyway.conf", "flyway.placeholderReplacement=false\nflyway.placeholders.tenant=acme\n");
+        flyway.handle_events(&[Event::FileSaved("/project/flyway.conf".into())], &host.invocation());
+        let disabled = Document { text: "${te".into(), ..doc };
+        assert!(flyway.completion(&disabled, Position::new(0, 4), None).is_empty());
+    }
+
     const INFO_JSON: &str = r#"{"schemaName":"public","schemaVersion":"2","flywayVersion":"10.17.0","migrations":[
       {"category":"Versioned","version":"1","description":"init","type":"SQL","installedOn":"2024-01-01 10:00:00","state":"Success","filepath":"/project/src/main/resources/db/migration/V1__init.sql"},
       {"category":"Versioned","version":"2","description":"add users","type":"SQL","state":"Failed"},
@@ -949,7 +978,7 @@ mod tests {
             .filter_map(|l| l.strip_prefix("path = \"").or_else(|| l.strip_prefix("icon = \"")))
             .map(|l| l.trim_end_matches('"'))
             .collect();
-        assert!(paths.iter().filter(|p| p.starts_with("templates/")).count() == 5);
+        assert!(paths.iter().filter(|p| p.starts_with("templates/")).count() == 7);
         for path in paths {
             let full = format!("{}/{path}", env!("CARGO_MANIFEST_DIR"));
             if path.contains('/') || path.ends_with(".svg") {

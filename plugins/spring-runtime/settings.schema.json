@@ -27,7 +27,7 @@
     },
     "snapshotInlays": {
       "type": "boolean",
-      "title": "Show cached exact-key snapshot observations in configuration",
+      "title": "Show cached exact-key snapshot observations in configuration and @Value annotations",
       "default": true
     },
     "refreshBudgetMs": {

@@ -22,7 +22,7 @@ fn literal_targets(f: &JavaFile, text: &str) -> std::collections::HashSet<(u32, 
                 let literal = if let Some(a) = m.annotation("ShellMethod").filter(|a| rules::supported(f, text, a)) {
                     a.arg("key").is_none_or(literal_values)
                 } else {
-                    m.annotation("Command").is_some_and(|a| a.arg("command").is_none_or(literal_values))
+                    m.annotation("Command").is_some_and(|a| rules::modern_field(f, text, a).is_some_and(|field| a.arg(field).is_none_or(literal_values)))
                         && t.annotation("Command").is_none_or(|a| a.arg("command").is_none_or(literal_values))
                 };
                 literal.then(|| {
@@ -55,7 +55,9 @@ fn method_description<'a>(f: &'a JavaFile, text: &str, command: &Command) -> Opt
             }
             let a = m.annotation("Command").filter(|a| rules::supported(f, text, a))?;
             // An unknown explicit override must not be replaced with the class description.
-            return if a.arg("description").is_some() {
+            return if rules::modern_field(f, text, a) == Some("name") && a.arg("description").is_none() {
+                description(a, "value")
+            } else if a.arg("description").is_some() {
                 description(a, "description")
             } else {
                 t.annotation("Command").filter(|a| rules::supported(f, text, a)).and_then(|a| description(a, "description"))
@@ -114,7 +116,7 @@ impl HoverProvider for ShellTools {
         if !holds(span) {
             return None;
         }
-        if (a.name == "ShellMethod" && arg.name == "key") || (a.name == "Command" && arg.name == "command") {
+        if (a.name == "ShellMethod" && arg.name == "key") || (a.name == "Command" && (rules::modern_field(&f, &doc.text, a) == Some(arg.name.as_str()) || arg.name == "alias")) {
             let method = f.types.iter().flat_map(|t| t.methods()).find(|m| m.annotations.iter().any(|own| own.at == a.at))?;
             let target = range(&doc.text, method.at, method.at + method.name.len());
             return render(declared.iter().filter(|c| c.target == target).collect(), span);

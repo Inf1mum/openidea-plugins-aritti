@@ -613,6 +613,9 @@ impl Providers for Liquibase {
         if doc.path.ends_with(".sql") {
             return complete::sql(&doc.text, caret, true);
         }
+        if doc.path.ends_with(".json") {
+            return complete::json(&doc.text, caret);
+        }
         if doc.path.ends_with(".xml") {
             return complete::xml(&doc.text, caret);
         }
@@ -1271,6 +1274,44 @@ mod tests {
 
         assert!(complete_at_end("/project/db/a.sql", "--liquibase formatted sql\nselect 1 -- ").is_empty());
         assert!(complete_at_end("/project/schema.sql", "select 1;\n--").is_empty());
+    }
+
+    #[test]
+    fn json_completion_uses_current_parent_and_preserves_existing_values() {
+        let _host = MockHost::install();
+        let path = "/project/db/a.json";
+        let prefix = r#"{"databaseChangeLog":[{"changeSet":{"id":"a","author":"ann","changes":[{"alterSequence":{"seq"#;
+        let items = complete_at_end(path, prefix);
+        assert!(labels(&items).contains(&"sequenceName"));
+        assert_eq!(item(&items, "sequenceName").insert_text, "sequenceName\": $0");
+        let text = format!("{prefix}\": \"😀\"}}}}]}}}}]}}");
+        let caret = prefix.len();
+        let items = Liquibase::default().completion(&doc(path, &text), openidea_plugin::text::position(&text, caret), None);
+        assert_eq!(item(&items, "sequenceName").insert_text, "sequenceName");
+        assert!(!item(&items, "sequenceName").snippet);
+        assert!(complete_at_end(path, r#"{"databaseChangeLog":[{"changeSet":{"comment":"seq"#).is_empty());
+        assert!(complete_at_end(path, r#"{"databaseChangeLog":[],"other":{"seq"#).is_empty());
+        let xml = "<databaseChangeLog><changeSet id='a' author='ann'><mergeColumns ";
+        assert!(labels(&complete_at_end("/project/db/a.xml", xml)).contains(&"finalColumnName"));
+    }
+
+    #[test]
+    fn formatted_sql_changeset_attributes_keep_values_and_ignore_other_sql() {
+        let _host = MockHost::install();
+        let path = "/project/db/a.sql";
+        let text = "--liquibase formatted sql\n--changeset ann:1 dbms:postgresql run";
+        let items = complete_at_end(path, text);
+        assert!(labels(&items).contains(&"runOnChange"));
+        assert!(!labels(&items).contains(&"dbms"));
+        assert_eq!(item(&items, "runOnChange").insert_text, "runOnChange:$0");
+        let text = "--liquibase formatted sql\n--changeset ann:1 endDelim:$$";
+        let caret = text.len() - 3;
+        let items = Liquibase::default().completion(&doc(path, text), openidea_plugin::text::position(text, caret), None);
+        assert_eq!(item(&items, "endDelimiter").insert_text, "endDelimiter");
+        assert!(!item(&items, "endDelimiter").snippet);
+        assert!(complete_at_end(path, "--liquibase formatted sql\n--changeset ann:1 dbms:post").is_empty());
+        assert!(complete_at_end(path, "--liquibase formatted sql\nselect 1; --changeset ann:1 run").is_empty());
+        assert!(complete_at_end(path, "--liquibase formatted sql\n--changeset ann: ").is_empty());
     }
 
     #[test]

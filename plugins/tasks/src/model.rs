@@ -33,6 +33,11 @@ pub struct Task {
     pub api: Option<String>,
     #[serde(skip)]
     pub source_reference:Option<SourceReference>,
+    /// Non-secret optimistic concurrency/credential-profile binding from the approved bridge.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fogbugz: Option<crate::fogbugz::Identity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub self_hosted: Option<crate::self_hosted::Identity>,
     #[serde(default)]
     pub closed: bool,
     #[serde(default)]

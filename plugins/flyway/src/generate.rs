@@ -1,5 +1,6 @@
 //! Prepared naming preview and atomic, non-overwriting editor FileActions.
 use super::*;
+mod source;
 use openidea_plugin::file_actions::{FileAction, FileActions, FileOperation};
 use openidea_plugin::views::{Field, FieldValue};
 use openidea_plugin::{FileKind, Range};
@@ -291,7 +292,7 @@ impl Flyway {
 }
 impl FileActions for Flyway {
     fn file_actions(&mut self, doc: &Document, _selection: Range) -> Vec<FileAction> {
-        if doc.text.len() > MAX_TEXT || !(doc.language == "sql" || is_flyway_config(&doc.path) || is_config_file(&doc.path)) {
+        if doc.text.len() > MAX_TEXT || !(matches!(doc.language.as_str(), "sql" | "java" | "kotlin") || is_flyway_config(&doc.path) || is_config_file(&doc.path)) {
             return Vec::new();
         }
         let Some(project) = project_of(&doc.path) else { return Vec::new() };
@@ -300,8 +301,16 @@ impl FileActions for Flyway {
             return Vec::new();
         }
         let mut actions = Vec::new();
+        if let Some(key) = self.hibernate_schema.as_ref().and_then(|candidate| candidate.key(&root)) {
+            actions.push(FileAction { title: "Save Hibernate schema SQL as migration…".into(), kind: Some("refactor.rewrite".into()),
+                data: Some(serde_json::json!([root, doc.path, doc.version, fingerprint(&doc.text), format!("{}{key}", hibernate_schema::ACTION)]).to_string()), ..FileAction::default() });
+        }
         for (kind, title) in [
             (CREATE, "Create Flyway SQL migration…"),
+            (source::JAVA, "Create Flyway Java migration…"),
+            (source::KOTLIN, "Create Flyway Kotlin migration…"),
+            (source::JAVA_CALLBACK, "Create Flyway Java callback…"),
+            (source::SQL_CALLBACK, "Create Flyway SQL callback…"),
             (PREPARED, "Create Flyway migration from prepared form…"),
             (RENAME, "Rename Flyway migration…"),
         ] {
@@ -336,6 +345,26 @@ impl FileActions for Flyway {
         let project = context(doc, expected)?;
         source_current(&project, doc)?;
         let kind = data[4].as_str().ok_or(Error::Stale)?;
+        if let Some(key) = kind.strip_prefix(hibernate_schema::ACTION) {
+            let snapshot = self.hibernate_schema.clone().ok_or(Error::Stale)?;
+            snapshot.fresh(&project, key)?;
+            self.begin_generation(&project)?;
+            let mut draft = self.generation.clone().ok_or(Error::Stale)?;
+            draft.version = host::input("Migration version", Some(&draft.version))?.ok_or(Error::Cancelled)?;
+            draft.description = host::input("Migration description", Some("initial schema"))?.ok_or(Error::Cancelled)?;
+            draft.directory = host::input("Migration directory inside configured locations", Some(&draft.directory))?.ok_or(Error::Cancelled)?;
+            let config = unchanged(&project, &draft)?; let target = candidate(&draft)?;
+            collision(&project, &config, &target, None)?;
+            if !ui_kit::prompts::confirm_exact("Create migration from this Hibernate snapshot?", &format!("{}\n\nCreate: {target}\n\nExact captured creation SQL:\n{}\n\nOne non-overwriting undoable workspace Create. This does not execute SQL, compare a live DB or configure a persistence unit. Review dialect/database compatibility and dependencies before any later migration run.", snapshot.provenance(), ui_kit::prompts::readable_source(&snapshot.sql)))? { return Err(Error::Cancelled); }
+            let project = context(doc, expected)?; source_current(&project, doc)?;
+            if unchanged(&project, &draft)? != config { return Err(Error::Stale); }
+            snapshot.fresh(&project, key)?;
+            collision(&project, &config, &target, None)?;
+            return Ok(FileAction { title: "Save Hibernate schema SQL as migration".into(), kind: action.kind, operations: vec![FileOperation::Create { path: target.clone(), text: snapshot.sql, overwrite: false }], open: Some(target), ..FileAction::default() });
+        }
+        if matches!(kind, source::JAVA | source::KOTLIN | source::JAVA_CALLBACK | source::SQL_CALLBACK) {
+            return source::resolve(self, doc, action, &project, expected, kind);
+        }
         if kind == RENAME {
             let config = configuration(&project)?;
             if !inventory(&project, &config)?.contains(&doc.path) {
@@ -465,6 +494,52 @@ mod tests {
         );
         let preview = confirmation("/project/sql/V2__a.sql", &sql());
         assert!(preview.contains("/project/sql/V2__a.sql") && preview.contains(&sql()) && preview.contains("undoable"));
+    }
+    #[test]
+    fn parameterized_java_kotlin_and_callback_generation_are_exact_undoable_creates() {
+        for (kind, extension, package_line) in [(source::JAVA, "java", "package com.acme;"), (source::KOTLIN, "kt", "package com.acme")] {
+            let (host, mut plugin, doc) = setup();
+            let selected = action(&mut plugin, &doc, kind);
+            for answer in ["2", "add customers", "src/main/java", "com.acme", "Yes"] { host.answer_next_prompt(Some(&[answer])); }
+            let resolved = plugin.resolve_file_action(&doc, selected).unwrap();
+            let FileOperation::Create { path, text, overwrite } = &resolved.operations[0] else { panic!("create"); };
+            assert_eq!(path, &format!("/project/src/main/java/com/acme/V2__add_customers.{extension}"));
+            assert!(!overwrite);
+            assert!(text.starts_with(package_line) && text.contains("V2__add_customers") && text.contains("BaseJavaMigration"));
+            assert!(!text.contains("$NAME$") && !text.contains("$END$"));
+            assert!(host.process_runs().is_empty());
+        }
+        let (host, mut plugin, doc) = setup();
+        let selected = action(&mut plugin, &doc, source::JAVA_CALLBACK);
+        host.answer_next_prompt(Some(&["AuditCallback"]));
+        host.answer_next_prompt(Some(&["3", "4"]));
+        for answer in ["false", "src/main/java", "com.acme", "Yes"] { host.answer_next_prompt(Some(&[answer])); }
+        let resolved = plugin.resolve_file_action(&doc, selected).unwrap();
+        let FileOperation::Create { text, .. } = &resolved.operations[0] else { panic!("create"); };
+        assert!(text.contains("event == Event.BEFORE_MIGRATE || event == Event.AFTER_MIGRATE"));
+        assert!(text.contains("return false;") && text.contains("class AuditCallback implements Callback"));
+        let (host, mut plugin, doc) = setup();
+        let selected = action(&mut plugin, &doc, source::SQL_CALLBACK);
+        for answer in ["4", "audit", "src/main/resources/db/migration", "Yes"] { host.answer_next_prompt(Some(&[answer])); }
+        let resolved = plugin.resolve_file_action(&doc, selected).unwrap();
+        assert_eq!(resolved.open.as_deref(), Some("/project/src/main/resources/db/migration/afterMigrate__audit.sql"));
+    }
+    #[test]
+    fn source_generation_cancellation_keyword_packages_and_version_conflicts_never_write() {
+        for stage in 0..5 {
+            let (host, mut plugin, doc) = setup();
+            let selected = action(&mut plugin, &doc, source::JAVA);
+            for answer in ["2", "add", "src/main/java", "com.acme"].iter().take(stage) { host.answer_next_prompt(Some(&[answer])); }
+            assert!(matches!(plugin.resolve_file_action(&doc, selected), Err(Error::Cancelled)));
+            assert!(host.process_runs().is_empty());
+        }
+        for (version, package) in [("1_0", "com.acme"), ("2", "com.class")] {
+            let (host, mut plugin, doc) = setup();
+            let selected = action(&mut plugin, &doc, source::JAVA);
+            for answer in [version, "add", "src/main/java", package] { host.answer_next_prompt(Some(&[answer])); }
+            assert!(plugin.resolve_file_action(&doc, selected).is_err());
+            assert!(host.process_runs().is_empty());
+        }
     }
     #[test]
     fn cancel_at_each_stage_and_denied_project_access_do_not_return_operations() {

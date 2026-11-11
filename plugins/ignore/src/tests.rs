@@ -595,3 +595,12 @@ fn packaged_template_activation_describes_insertion_and_requires_an_owned_glob_e
     host.open_editor("/project/source.rs","rust","",&[]);assert_eq!(activation(&model(&mut plugin))["activationEnabled"],false);
     assert_eq!(host.editor_text(), "");
 }
+
+#[test]
+fn pattern_inspections_preserve_significant_gitignore_spaces() {
+    let dialect = crate::check::dialect(".gitignore").unwrap();
+    let checks = crate::check::check("name\n name\nname\\ \n", dialect);
+    assert!(!checks.iter().any(|p| p.code == "duplicate-entry" || p.code == "cover-entry"), "{checks:?}");
+    let checks = crate::check::check("name   \nname\n", dialect);
+    assert!(checks.iter().any(|p| p.code == "duplicate-entry"));
+}

@@ -162,8 +162,56 @@ fn action_items(doc: &Document, at: Position, action: &str) -> Vec<CompletionIte
     vec![item]
 }
 
+// SIG CLI's documented Kustomization root fields. This intentionally does not
+// interpret patches, execute plugins, or claim nested schema validation.
+const KUSTOMIZATION_KEYS: &[&str] = &[
+    "apiVersion", "kind", "resources", "components", "namespace", "namePrefix", "nameSuffix",
+    "labels", "commonAnnotations", "images", "replicas", "patches", "replacements",
+    "configMapGenerator", "secretGenerator", "generatorOptions", "generators", "transformers",
+    "validators", "configurations", "crds", "openapi", "helmCharts", "helmGlobals", "sortOptions", "buildMetadata",
+];
+
+fn kustomization_items(doc: &Document, at: Position, caret: usize) -> Option<Vec<CompletionItem>> {
+    let name = doc.path.rsplit(['/', '\\']).next()?;
+    if !matches!(name, "kustomization.yaml" | "kustomization.yml" | "Kustomization") {
+        return None;
+    }
+    let start = doc.text[..caret].rfind('\n').map_or(0, |i| i + 1);
+    let end = doc.text[caret..].find(['\n', '\r']).map_or(doc.text.len(), |i| caret + i);
+    let typed = &doc.text[start..caret];
+    let tail = &doc.text[caret..end];
+    if !typed.bytes().all(|c| c.is_ascii_alphabetic()) || !tail.bytes().all(|c| c.is_ascii_alphabetic()) {
+        return Some(Vec::new());
+    }
+    // Multiple YAML documents and flow maps have different ownership; do not
+    // pretend a root-key suggestion is valid in those contexts.
+    if doc.text.lines().any(|line| matches!(line.trim(), "---" | "..."))
+        || doc.text.trim_start().starts_with(['{', '[']) {
+        return Some(Vec::new());
+    }
+    let present: std::collections::BTreeSet<_> = doc.text.lines().enumerate()
+        .filter(|(line, _)| *line != at.line as usize)
+        .filter_map(|(_, line)| {
+            if line.starts_with(char::is_whitespace) { return None; }
+            line.split_once(':').map(|(key, _)| key.trim_matches(['\"', '\'']))
+        }).collect();
+    let replace = Range::new(Position::new(at.line, 0), Position::new(at.line, (end - start) as u32));
+    let mut keys: Vec<_> = KUSTOMIZATION_KEYS.iter().filter(|key| key.starts_with(typed) && !present.contains(**key)).collect();
+    keys.sort_unstable();
+    Some(keys.into_iter().map(|key| {
+        let mut item = CompletionItem::new(*key, CompletionKind::Property);
+        item.insert_text = format!("{key}: $0");
+        item.snippet = true;
+        item.detail = Some("Kustomization field".into());
+        item.replace = Some(replace);
+        item
+    }).collect())
+}
+
 pub fn items(doc: &Document, at: Position) -> Vec<CompletionItem> {
+    if doc.text.len() > 256 * 1024 { return Vec::new(); }
     let Some(caret) = offset(&doc.text, at) else { return Vec::new() };
+    if let Some(items) = kustomization_items(doc, at, caret) { return items; }
     match inside_action(&doc.text[..caret]) {
         Some(open) => action_items(doc, at, &doc.text[open + 2..caret]),
         None => manifest_items(doc, at),
@@ -196,6 +244,24 @@ mod tests {
         host.add_file("chart/values.yaml", "image:\n  repository: nginx\n  tag: 1\nreplicas: 2\n");
         host.add_file("chart/templates/_helpers.tpl", "{{- define \"c.name\" -}}c{{- end -}}\n{{- define \"c.labels\" -}}l{{- end -}}\n");
         host
+    }
+
+    #[test]
+    fn kustomization_root_keys_are_contextual_and_replace_the_full_partial_key() {
+        let _host = project();
+        let mut d = doc("apiVersion: kustomize.config.k8s.io/v1beta1\nresources: []\nreplicas\n");
+        d.path = "/p/kustomization.yaml".into();
+        let items = items(&d, Position::new(2, 3));
+        assert_eq!(labels(&items), ["replacements", "replicas"]);
+        assert_eq!(items[0].replace, Some(Range::new(Position::new(2, 0), Position::new(2, 8))));
+        d.text = "resources: []\n".into();
+        let found = super::items(&d, Position::new(1, 0));
+        assert!(!labels(&found).contains(&"resources"));
+        assert!(labels(&found).contains(&"patches"));
+        for text in ["# res", "resources: res", "  res", "resources:\n- res", "---\nres", "{res}"] {
+            d.text = text.into();
+            assert!(super::items(&d, at_end(text)).is_empty(), "{text}");
+        }
     }
 
     #[test]

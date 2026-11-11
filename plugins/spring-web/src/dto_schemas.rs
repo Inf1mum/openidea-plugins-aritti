@@ -1,0 +1,802 @@
+//! Positive written DTO shapes, without assuming an application's serializer.
+use openidea_plugin::{Error, Project};
+use serde_json::{Value, json};
+use spring_text::java::{JavaFile, TypeRef};
+use std::collections::{BTreeMap, BTreeSet};
+use std::time::{Duration, Instant};
+
+pub struct Sources {
+    files: BTreeMap<String, (String, JavaFile)>,
+    uncertain_packages: BTreeSet<String>,
+}
+impl Sources {
+    pub fn collect(project: &Project) -> Result<Self, Error> {
+        let start = Instant::now();
+        let mut paths = BTreeSet::new();
+        for glob in ["**/*.java", "**/*.kt"] {
+            let found = project.find_files(glob, 10_000)?;
+            if found.len() >= 10_000 {
+                return Err(Error::Failed(
+                    "DTO source discovery was capped; export requires a complete source snapshot."
+                        .into(),
+                ));
+            }
+            paths.extend(found);
+        }
+        let mut files = BTreeMap::new();
+        let mut bytes = 0usize;
+        for path in paths {
+            let text = project.read_file(&path)?;
+            bytes += text.len();
+            if text.len() > 256 << 10 || bytes > 8 << 20 || start.elapsed() > Duration::from_secs(3)
+            {
+                return Err(Error::Failed(
+                    "DTO source snapshot exceeded its bounded export budget.".into(),
+                ));
+            }
+            let parsed = spring_text::parse_source(&path, &text);
+            files.insert(path, (text, parsed));
+        }
+        Ok(Self::new(files))
+    }
+    fn new(files: BTreeMap<String, (String, JavaFile)>) -> Self {
+        let uncertain_packages = files
+            .iter()
+            .filter(|(path, _)| path.ends_with(".kt"))
+            .filter(|(_, (text, file))| {
+                spring_text::java::tokens(text)
+                    .iter()
+                    .any(|t| t.s == "typealias")
+                    || file.imports.iter().any(|i| {
+                        spring_text::java::tokens(
+                            text.get(i.end..)
+                                .unwrap_or("")
+                                .split('\n')
+                                .next()
+                                .unwrap_or(""),
+                        )
+                        .first()
+                        .is_some_and(|t| t.s == "as")
+                    })
+            })
+            .map(|(_, (_, file))| file.package.clone())
+            .collect();
+        Self {
+            files,
+            uncertain_packages,
+        }
+    }
+    #[cfg(test)]
+    fn from_files(files: &[(&str, &str)]) -> Self {
+        Self::new(
+            files
+                .iter()
+                .map(|(path, text)| {
+                    (
+                        path.to_string(),
+                        (text.to_string(), spring_text::parse_source(path, text)),
+                    )
+                })
+                .collect(),
+        )
+    }
+    pub fn text(&self, path: &str) -> Option<String> {
+        self.files.get(path).map(|(text, _)| text.clone())
+    }
+    pub fn routes(&self) -> Vec<ui_kit::routes::Route> {
+        let mut routes = Vec::new();
+        for (path, (text, _)) in &self.files {
+            let Some(info) = crate::endpoints::file_info(path, text) else {
+                continue;
+            };
+            for endpoint in info.endpoints {
+                let class = info
+                    .methods
+                    .iter()
+                    .find(|m| m.range == endpoint.range)
+                    .map(|m| m.ty.clone())
+                    .or_else(|| endpoint.handler.as_ref().and_then(|h| h.ty.clone()))
+                    .unwrap_or_else(|| {
+                        path.rsplit(['/', '\\'])
+                            .next()
+                            .unwrap_or(path)
+                            .split('.')
+                            .next()
+                            .unwrap_or_default()
+                            .to_owned()
+                    });
+                routes.push(ui_kit::routes::Route {
+                    method: if endpoint.verb.is_empty() {
+                        "ANY".into()
+                    } else {
+                        endpoint.verb
+                    },
+                    path: endpoint.path,
+                    handler: ui_kit::routes::Handler {
+                        class,
+                        member: endpoint
+                            .handler
+                            .as_ref()
+                            .map(|h| h.method.clone())
+                            .or_else(|| {
+                                info.methods
+                                    .iter()
+                                    .find(|m| m.range == endpoint.range)
+                                    .map(|m| m.name.clone())
+                            }),
+                    },
+                    name: None,
+                    location: Some(openidea_plugin::Location {
+                        path: path.clone(),
+                        range: endpoint.range,
+                    }),
+                });
+            }
+        }
+        routes.sort_by(|a, b| {
+            (&a.path, &a.method, &a.handler.class).cmp(&(&b.path, &b.method, &b.handler.class))
+        });
+        routes
+    }
+    pub fn schemas(&self) -> Schemas<'_> {
+        Schemas {
+            sources: self,
+            components: serde_json::Map::new(),
+        }
+    }
+}
+pub struct Schemas<'a> {
+    sources: &'a Sources,
+    pub components: serde_json::Map<String, Value>,
+}
+impl Schemas<'_> {
+    pub fn schema(&mut self, ty: &TypeRef, context: &JavaFile) -> Option<Value> {
+        self.resolve(ty, context, 0)
+    }
+    fn kotlin(&self, file: &JavaFile) -> bool {
+        self.sources
+            .files
+            .iter()
+            .any(|(path, (_, parsed))| path.ends_with(".kt") && parsed == file)
+    }
+    fn owner(&self, ty: &TypeRef, file: &JavaFile, expected: &str) -> bool {
+        let head = ty.text.split(['<', '[', '?']).next().unwrap_or("").trim();
+        if head.contains('.') {
+            return head == expected;
+        }
+        if file.types.iter().any(|t| t.name == ty.name)
+            || self.sources.files.values().any(|(_, other)| {
+                other.package == file.package
+                    && other
+                        .types
+                        .iter()
+                        .any(|t| t.outer.is_none() && t.name == ty.name)
+            })
+        {
+            return false;
+        }
+        let named = file
+            .imports
+            .iter()
+            .filter(|i| !i.is_static && i.path.rsplit('.').next() == Some(ty.name.as_str()))
+            .collect::<Vec<_>>();
+        if !named.is_empty() {
+            return named.len() == 1 && named[0].path == expected;
+        }
+        expected.starts_with("java.lang.")
+            || expected.starts_with("kotlin.")
+            || self.kotlin(file)
+                && [
+                    "java.util.List",
+                    "java.util.Set",
+                    "java.util.Collection",
+                    "java.util.Iterable",
+                    "java.util.Map",
+                ]
+                .contains(&expected)
+            || file
+                .imports
+                .iter()
+                .any(|i| i.path == format!("{}.*", expected.rsplit_once('.').unwrap().0))
+    }
+    fn resolve(&mut self, ty: &TypeRef, file: &JavaFile, depth: usize) -> Option<Value> {
+        if self.sources.uncertain_packages.contains(&file.package) {
+            return None;
+        }
+        if depth > 8 || ty.text.len() > 256 || ty.text.contains(['\\', '$']) {
+            return None;
+        }
+        let simple = ty.name.as_str();
+        let primitive = match simple {
+            "int" | "long" | "short" | "byte" => Some("integer"),
+            "double" | "float" => Some("number"),
+            "boolean" => Some("boolean"),
+            "char" => Some("string"),
+            "String" | "Character" if self.owner(ty, file, &format!("java.lang.{simple}")) => {
+                Some("string")
+            }
+            "Integer" | "Long" | "Short" | "Byte"
+                if self.owner(ty, file, &format!("java.lang.{simple}")) =>
+            {
+                Some("integer")
+            }
+            "Double" | "Float" if self.owner(ty, file, &format!("java.lang.{simple}")) => {
+                Some("number")
+            }
+            "Boolean" if self.owner(ty, file, "java.lang.Boolean") => Some("boolean"),
+            "Int" | "Char" if self.owner(ty, file, &format!("kotlin.{simple}")) => {
+                Some(if simple == "Int" { "integer" } else { "string" })
+            }
+            _ => None,
+        };
+        let mut schema = if let Some(kind) = primitive {
+            json!({"type":kind})
+        } else if ["List", "Set", "Collection", "Iterable"].contains(&simple)
+            && ty.args.len() == 1
+            && self.owner(
+                ty,
+                file,
+                &format!(
+                    "{}.{simple}",
+                    if simple == "Iterable" {
+                        "java.lang"
+                    } else {
+                        "java.util"
+                    }
+                ),
+            )
+        {
+            json!({"type":"array","items":self.resolve(&ty.args[0],file,depth+1).unwrap_or_else(||json!({"x-java-type":ty.args[0].text}))})
+        } else if simple == "Map"
+            && ty.args.len() == 2
+            && self.owner(ty, file, "java.util.Map")
+            && ty.args[0].name == "String"
+            && self.owner(&ty.args[0], file, "java.lang.String")
+        {
+            json!({"type":"object","additionalProperties":self.resolve(&ty.args[1],file,depth+1).unwrap_or_else(||json!({"x-java-type":ty.args[1].text}))})
+        } else {
+            if !ty.args.is_empty() {
+                return None;
+            }
+            self.object(ty, file, depth + 1)?
+        };
+        if ty.array {
+            let dimensions = ty.text.matches('[').count().max(1);
+            if dimensions > 4 {
+                return None;
+            }
+            for _ in 0..dimensions {
+                schema = json!({"type":"array","items":schema})
+            }
+        }
+        if ty.text.trim().ends_with('?') {
+            if schema.get("$ref").is_some() {
+                schema = json!({"type":"object","allOf":[schema],"nullable":true})
+            } else {
+                schema["nullable"] = json!(true)
+            }
+        }
+        Some(schema)
+    }
+    fn object(&mut self, ty: &TypeRef, context: &JavaFile, depth: usize) -> Option<Value> {
+        let head = ty.text.split(['<', '[', '?']).next()?.trim();
+        let named = context
+            .imports
+            .iter()
+            .filter(|i| !i.is_static && i.path.rsplit('.').next() == Some(ty.name.as_str()))
+            .map(|i| i.path.clone())
+            .collect::<Vec<_>>();
+        if named.len() > 1 {
+            return None;
+        }
+        let target = if head.contains('.') {
+            head.to_owned()
+        } else if let Some(import) = named.first() {
+            import.clone()
+        } else {
+            format!(
+                "{}{}{}",
+                context.package,
+                if context.package.is_empty() { "" } else { "." },
+                ty.name
+            )
+        };
+        if target.len() > 256
+            || !target
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_'))
+        {
+            return None;
+        }
+        let found = self
+            .sources
+            .files
+            .iter()
+            .flat_map(|(path, (text, file))| {
+                file.types
+                    .iter()
+                    .filter(move |t| t.outer.is_none())
+                    .map(move |t| (path, text, file, t))
+            })
+            .filter(|(_, _, file, t)| {
+                format!(
+                    "{}{}{}",
+                    file.package,
+                    if file.package.is_empty() { "" } else { "." },
+                    t.name
+                ) == target
+            })
+            .collect::<Vec<_>>();
+        let [(path, text, file, decl)] = found.as_slice() else {
+            return None;
+        };
+        if !matches!(decl.kind.as_str(), "record" | "class" | "enum")
+            || !decl.annotations.is_empty()
+            || decl
+                .methods()
+                .any(|m| m.annotations.iter().any(|a| a.name.starts_with("Json")))
+            || decl.supers().next().is_some()
+            || text.contains("\\u")
+            || decl.end > text.len()
+        {
+            return None;
+        }
+        let declaration = text.get(decl.start..decl.end)?;
+        let mut braces = 0usize;
+        for token in spring_text::java::tokens(declaration) {
+            match token.s {
+                "{" => braces += 1,
+                "}" => {
+                    if braces == 0 {
+                        return None;
+                    }
+                    braces -= 1
+                }
+                _ => {}
+            }
+        }
+        let kotlin = path.ends_with(".kt");
+        if braces != 0 || !kotlin && !declaration.trim_end().ends_with('}') {
+            return None;
+        }
+        if kotlin
+            && (!decl.modifiers.iter().any(|m| m == "data")
+                || declaration.contains('@')
+                || spring_text::java::tokens(declaration)
+                    .iter()
+                    .any(|t| matches!(t.s, "private" | "protected" | "internal" | "typealias")))
+        {
+            return None;
+        }
+        if decl.kind == "enum" {
+            let tokens = spring_text::java::tokens(declaration);
+            let start = tokens.iter().position(|t| t.s == "{")? + 1;
+            let body = tokens.get(start..tokens.len().checked_sub(1)?)?;
+            let mut values = Vec::new();
+            let mut need_name = true;
+            for (i, token) in body.iter().enumerate() {
+                if token.s == ";" && i + 1 == body.len() {
+                    break;
+                }
+                if need_name {
+                    if !token.is_ident() {
+                        return None;
+                    }
+                    if values.contains(&token.s) {
+                        return None;
+                    }
+                    values.push(token.s);
+                    need_name = false
+                } else if token.s == "," {
+                    need_name = true
+                } else {
+                    return None;
+                }
+            }
+            if values.is_empty() || values.len() > 256 {
+                return None;
+            }
+            let key = target.clone();
+            if self.components.len() >= 128 && !self.components.contains_key(&key) {
+                return None;
+            }
+            self.components.insert(key.clone(),json!({"type":"string","enum":values,"x-openidea-source":{"path":path,"type":target},"description":"Written enum constant names; custom enum serialization is not evaluated."}));
+            return Some(json!({"$ref":format!("#/components/schemas/{key}")}));
+        }
+        let header = declaration.split('{').next()?;
+        let tokens = spring_text::java::tokens(header);
+        if tokens
+            .windows(2)
+            .any(|p| p[0].at + decl.start == decl.at && p[1].s == "<")
+            || header.contains("typealias")
+        {
+            return None;
+        }
+        if decl.kind == "record" {
+            if decl.components.len() > 256
+                || decl.components.is_empty()
+                || decl.components.iter().any(|p| !p.annotations.is_empty())
+            {
+                return None;
+            }
+        } else {
+            let fields = decl.fields().filter(|f| {
+                (kotlin || f.modifiers.iter().any(|m| m == "public"))
+                    && !f
+                        .modifiers
+                        .iter()
+                        .any(|m| matches!(m.as_str(), "static" | "transient"))
+            });
+            let fields = fields.collect::<Vec<_>>();
+            if fields
+                .iter()
+                .any(|f| !f.annotations.is_empty() || f.ty.is_none())
+            {
+                return None;
+            }
+            if fields.len() + decl.methods().filter(|m| getter(m).is_some()).count() > 256 {
+                return None;
+            }
+            if fields.is_empty() && !decl.methods().any(|m| getter(m).is_some()) {
+                return None;
+            }
+        }
+        let key = target.clone();
+        let reference = json!({"$ref":format!("#/components/schemas/{key}")});
+        if self.components.contains_key(&key) {
+            return Some(reference);
+        }
+        if self.components.len() >= 128 {
+            return None;
+        }
+        // Placeholder makes recursive source objects terminate without dropping their identity.
+        self.components.insert(key.clone(), json!({}));
+        let mut properties = serde_json::Map::new();
+        if decl.kind == "record" {
+            for param in &decl.components {
+                properties.insert(
+                    param.name.clone(),
+                    self.resolve(&param.ty, file, depth)
+                        .unwrap_or_else(|| json!({"x-java-type":param.ty.text})),
+                );
+            }
+        } else {
+            for field in decl.fields().filter(|f| {
+                (kotlin || f.modifiers.iter().any(|m| m == "public"))
+                    && !f
+                        .modifiers
+                        .iter()
+                        .any(|m| matches!(m.as_str(), "static" | "transient"))
+            }) {
+                let ty = field.ty.as_ref()?;
+                properties.insert(
+                    field.name.clone(),
+                    self.resolve(ty, file, depth)
+                        .unwrap_or_else(|| json!({"x-java-type":ty.text})),
+                );
+            }
+            for method in decl.methods() {
+                if let Some((name, ty)) = getter(method) {
+                    let shape = self
+                        .resolve(ty, file, depth)
+                        .unwrap_or_else(|| json!({"x-java-type":ty.text}));
+                    if properties.get(&name).is_some_and(|before| before != &shape) {
+                        properties.insert(
+                            name,
+                            json!({"x-openidea-unresolved":"Conflicting written property types"}),
+                        );
+                    } else {
+                        properties.insert(name, shape);
+                    }
+                }
+            }
+        }
+        self.components.insert(key,json!({"type":"object","properties":properties,"description":"Positive written DTO shape; serializer configuration, validation and runtime inclusion are not evaluated.","x-openidea-source":{"path":path,"type":target}}));
+        Some(reference)
+    }
+}
+
+fn getter(method: &spring_text::java::Member) -> Option<(String, &TypeRef)> {
+    if !method.params.is_empty()
+        || !method.modifiers.iter().any(|m| m == "public")
+        || method.modifiers.iter().any(|m| m == "static")
+        || !method.annotations.is_empty()
+    {
+        return None;
+    }
+    let ty = method.ty.as_ref()?;
+    let suffix = if let Some(name) = method.name.strip_prefix("get") {
+        if ty.name == "void" {
+            return None;
+        }
+        name
+    } else if let Some(name) = method.name.strip_prefix("is") {
+        if !matches!(ty.name.as_str(), "boolean" | "Boolean") {
+            return None;
+        }
+        name
+    } else {
+        return None;
+    };
+    if !suffix.starts_with(|c: char| c.is_ascii_uppercase()) {
+        return None;
+    }
+    let mut chars = suffix.chars();
+    let first = chars.next()?;
+    let second = chars.next();
+    if second.is_some_and(|c| c.is_ascii_uppercase()) {
+        return None;
+    }
+    let name = {
+        format!(
+            "{}{}",
+            first.to_ascii_lowercase(),
+            &suffix[first.len_utf8()..]
+        )
+    };
+    Some((name, ty))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn named(name: &str) -> TypeRef {
+        TypeRef {
+            name: name.into(),
+            text: name.into(),
+            ..Default::default()
+        }
+    }
+    #[test]
+    fn record_shapes_preserve_arrays_maps_recursion_and_source_identity() {
+        let source = "package demo; import java.util.List; import java.util.Map; record Person(String name,int age,Person parent,List<Person> children,Map<String,Integer> counts,String[][] tags) {}";
+        let sources = Sources::from_files(&[("/p/Person.java", source)]);
+        let context = spring_text::java::parse("package demo;");
+        let mut schemas = sources.schemas();
+        assert_eq!(
+            schemas.schema(&named("Person"), &context),
+            Some(json!({"$ref":"#/components/schemas/demo.Person"}))
+        );
+        let object = &schemas.components["demo.Person"];
+        let p = &object["properties"];
+        assert_eq!(p["name"]["type"], "string");
+        assert_eq!(p["age"]["type"], "integer");
+        assert_eq!(p["parent"]["$ref"], "#/components/schemas/demo.Person");
+        assert_eq!(
+            p["children"]["items"]["$ref"],
+            "#/components/schemas/demo.Person"
+        );
+        assert_eq!(p["counts"]["additionalProperties"]["type"], "integer");
+        assert_eq!(p["tags"]["items"]["items"]["type"], "string");
+        assert!(object.get("required").is_none());
+        assert_eq!(object["x-openidea-source"]["path"], "/p/Person.java");
+    }
+    #[test]
+    fn public_fields_are_positive_and_opaque_properties_do_not_invent_library_shapes() {
+        let sources = Sources::from_files(&[(
+            "/p/Dto.java",
+            "package demo; class Dto {public String title; public External other; private String hidden; public static int shared; public transient int transientValue;}",
+        )]);
+        let mut schemas = sources.schemas();
+        assert!(
+            schemas
+                .schema(&named("Dto"), &spring_text::java::parse("package demo;"))
+                .is_some()
+        );
+        let p = &schemas.components["demo.Dto"]["properties"];
+        assert_eq!(p["title"]["type"], "string");
+        assert_eq!(p["other"], json!({"x-java-type":"External"}));
+        assert_eq!(p.as_object().unwrap().len(), 2);
+    }
+    #[test]
+    fn ambiguous_generic_annotated_inherited_and_custom_accessor_shapes_stay_unknown() {
+        for source in [
+            "package demo; @JsonSerialize class Dto {public String x;}",
+            "package demo; class Dto extends Base {public String x;}",
+            "package demo; class Dto<T> {public T x;}",
+            "package demo; record Dto(@JsonProperty(\"other\") String x) {}",
+            "package demo; record Dto(String x) {@JsonValue public String value(){return x;}}",
+        ] {
+            let sources = Sources::from_files(&[("/p/Dto.java", source)]);
+            let mut schemas = sources.schemas();
+            assert!(
+                schemas
+                    .schema(&named("Dto"), &spring_text::java::parse("package demo;"))
+                    .is_none(),
+                "{source}"
+            );
+            assert!(schemas.components.is_empty());
+        }
+        let sources = Sources::from_files(&[
+            ("/a/Dto.java", "package demo; record Dto(String x) {}"),
+            ("/b/Dto.java", "package demo; record Dto(int x) {}"),
+        ]);
+        assert!(
+            sources
+                .schemas()
+                .schema(&named("Dto"), &spring_text::java::parse("package demo;"))
+                .is_none()
+        );
+        let sources = Sources::from_files(&[
+            ("/a/Dto.java", "package a; record Dto(String x) {}"),
+            ("/b/Dto.java", "package b; record Dto(int x) {}"),
+        ]);
+        let context = spring_text::java::parse("import a.Dto; import b.Dto;");
+        assert!(sources.schemas().schema(&named("Dto"), &context).is_none());
+    }
+    #[test]
+    fn bean_getters_and_kotlin_data_properties_have_positive_written_shapes() {
+        let sources = Sources::from_files(&[
+            (
+                "/p/Bean.java",
+                "package demo; class Bean {private String name;public String getName(){return name;} public boolean isReady(){return true;} public String getURL(){return null;} public static int getGlobal(){return 1;} public int getBad(int x){return x;} }",
+            ),
+            (
+                "/p/Data.kt",
+                "package demo\ndata class Data(val name:String,val counts:List<Int>,val note:String?)",
+            ),
+        ]);
+        let mut schemas = sources.schemas();
+        assert!(
+            schemas
+                .schema(&named("Bean"), &spring_text::java::parse("package demo;"))
+                .is_some()
+        );
+        let p = &schemas.components["demo.Bean"]["properties"];
+        assert_eq!(p["name"]["type"], "string");
+        assert_eq!(p["ready"]["type"], "boolean");
+        assert!(p.get("URL").is_none());
+        assert_eq!(p.as_object().unwrap().len(), 2);
+        assert!(
+            schemas
+                .schema(&named("Data"), &spring_text::java::parse("package demo;"))
+                .is_some()
+        );
+        let p = &schemas.components["demo.Data"]["properties"];
+        assert_eq!(p["counts"]["items"]["type"], "integer");
+        assert_eq!(p["note"]["nullable"], true);
+        let sources = Sources::from_files(&[(
+            "/p/Data.kt",
+            "package demo\ndata class Data(private val secret:String)",
+        )]);
+        assert!(
+            sources
+                .schemas()
+                .schema(&named("Data"), &spring_text::java::parse("package demo;"))
+                .is_none()
+        );
+    }
+    #[test]
+    fn malformed_types_and_local_shadowed_primitives_are_not_fabricated() {
+        let sources =
+            Sources::from_files(&[("/p/Dto.java", "package demo; record Dto(String name) {")]);
+        assert!(
+            sources
+                .schemas()
+                .schema(&named("Dto"), &spring_text::java::parse("package demo;"))
+                .is_none()
+        );
+        let sources = Sources::from_files(&[
+            ("/p/String.java", "package demo; record String(int code) {}"),
+            ("/p/Dto.java", "package demo; record Dto(String name) {}"),
+        ]);
+        let mut schemas = sources.schemas();
+        assert!(
+            schemas
+                .schema(&named("Dto"), &spring_text::java::parse("package demo;"))
+                .is_some()
+        );
+        assert_eq!(
+            schemas.components["demo.Dto"]["properties"]["name"]["$ref"],
+            "#/components/schemas/demo.String"
+        );
+    }
+    #[test]
+    fn enum_constants_are_source_names_and_kotlin_alias_context_stays_unknown() {
+        let sources = Sources::from_files(&[
+            ("/p/Status.java", "package demo; enum Status {OPEN,CLOSED;}"),
+            ("/p/Dto.java", "package demo; record Dto(Status status) {}"),
+        ]);
+        let mut schemas = sources.schemas();
+        assert!(
+            schemas
+                .schema(&named("Dto"), &spring_text::java::parse("package demo;"))
+                .is_some()
+        );
+        assert_eq!(
+            schemas.components["demo.Status"]["enum"],
+            json!(["OPEN", "CLOSED"])
+        );
+        let sources = Sources::from_files(&[(
+            "/p/Data.kt",
+            "package demo\nimport external.Value as String\ndata class Data(val value:String)",
+        )]);
+        assert!(
+            sources
+                .schemas()
+                .schema(&named("Data"), &spring_text::java::parse("package demo;"))
+                .is_none()
+        );
+        let sources = Sources::from_files(&[(
+            "/p/Data.kt",
+            "package demo\ntypealias String = Int\ndata class Data(val value:String)",
+        )]);
+        assert!(
+            sources
+                .schemas()
+                .schema(&named("Data"), &spring_text::java::parse("package demo;"))
+                .is_none()
+        );
+    }
+    #[test]
+    fn media_unknown_shapes_are_extensions_and_oversized_snapshot_cannot_export() {
+        use openidea_plugin::{Plugin, mock::MockHost};
+        let host = MockHost::install();
+        host.add_file(
+            "src/demo/Dto.java",
+            "package demo; record Dto(String name) {}",
+        );
+        host.add_file("src/demo/Api.java","package demo; @RestController class Api {@PostMapping(\"/items\") Dto save(@RequestBody Dto body){return body;}}");
+        crate::WebTools::default()
+            .run_command("copy-endpoints-openapi", &host.invocation(), None)
+            .unwrap();
+        let exported: Value = serde_json::from_str(&host.clipboard().unwrap()).unwrap();
+        let op = &exported["paths"]["/items"]["post"];
+        assert_eq!(
+            op["x-spring-source-request-schema"]["$ref"],
+            "#/components/schemas/demo.Dto"
+        );
+        assert_eq!(
+            op["x-spring-source-response-schema"]["$ref"],
+            "#/components/schemas/demo.Dto"
+        );
+        assert!(op.get("requestBody").is_none());
+        assert!(op["responses"]["default"].get("content").is_none());
+        let previous = host.clipboard();
+        host.add_file("src/TooLarge.java", &" ".repeat((256 << 10) + 1));
+        assert!(
+            crate::WebTools::default()
+                .run_command("copy-endpoints-openapi", &host.invocation(), None)
+                .is_err()
+        );
+        assert_eq!(host.clipboard(), previous);
+    }
+    #[test]
+    fn fresh_registered_openapi_command_attaches_declared_dto_media_shapes() {
+        use openidea_plugin::{Plugin, mock::MockHost};
+        let host = MockHost::install();
+        host.add_file(
+            "src/demo/Dto.java",
+            "package demo; public record Dto(String name,int count) {}",
+        );
+        host.add_file("src/demo/Api.java","package demo; @RestController class Api { @PostMapping(value=\"/items\",consumes=\"application/json\",produces=\"application/json\") Dto save(@RequestBody Dto body){return body;} }");
+        crate::WebTools::default()
+            .run_command("copy-endpoints-openapi", &host.invocation(), None)
+            .unwrap();
+        let exported: Value = serde_json::from_str(&host.clipboard().unwrap()).unwrap();
+        let operation = &exported["paths"]["/items"]["post"];
+        assert_eq!(
+            operation["requestBody"]["content"]["application/json"]["schema"]["$ref"],
+            "#/components/schemas/demo.Dto"
+        );
+        assert_eq!(
+            operation["responses"]["default"]["content"]["application/json"]["schema"]["$ref"],
+            "#/components/schemas/demo.Dto"
+        );
+        assert_eq!(
+            exported["components"]["schemas"]["demo.Dto"]["properties"]["count"]["type"],
+            "integer"
+        );
+        host.add_file(
+            "src/demo/Dto.java",
+            "package demo; public record Dto(boolean ready) {}",
+        );
+        crate::WebTools::default()
+            .run_command("copy-endpoints-openapi", &host.invocation(), None)
+            .unwrap();
+        let exported: Value = serde_json::from_str(&host.clipboard().unwrap()).unwrap();
+        let p = &exported["components"]["schemas"]["demo.Dto"]["properties"];
+        assert_eq!(p["ready"]["type"], "boolean");
+        assert!(p.get("count").is_none());
+    }
+}

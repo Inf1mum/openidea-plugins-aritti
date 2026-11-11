@@ -363,6 +363,36 @@ impl Proof {
 }
 
 impl Proof {
+    pub(crate) fn component_base(&self, pointer: &str) -> Option<String> {
+        let parts: Vec<_> = pointer.strip_prefix('/')?.split('/').collect();
+        if parts.len() < 3 || parts[0] != "components" || parts[2].is_empty()
+            || !["schemas","responses","parameters","examples","requestBodies","headers","securitySchemes","links","callbacks","pathItems"].contains(&parts[1]) { return None; }
+        let base = format!("/components/{}/{}", parts[1], parts[2]);
+        self.pointer_location(&base)?; Some(base)
+    }
+    pub(crate) fn complete_refactor_references(&self) -> Option<Vec<spec::Ref>> {
+        fn count(node: Node<'_>) -> Option<usize> {
+            let mut total = 0usize;
+            if let Some(items) = node.array() {for item in items {total += count(item)?;}}
+            for (name,value) in node.entries() {
+                if matches!(name,"discriminator"|"$dynamicRef"|"$recursiveRef"|"$anchor"|"$dynamicAnchor") {return None;}
+                if name=="$ref" && value.string().is_some() {total+=1;}
+                total+=count(value)?;
+            }
+            (total<=512).then_some(total)
+        }
+        let root=match &self.root {Root::Json(value)=>Node::Json(value),Root::Yaml(value)=>Node::Yaml(value)};
+        let total=count(root)?;let candidates=spec::refs(&self.text);
+        if candidates.len()!=total {return None;}
+        if candidates.iter().any(|reference|!self.navigation_ref_at(reference.at).is_some_and(|owned|owned.at==reference.at&&owned.end==reference.end&&owned.target==reference.target)) {return None;}
+        Some(candidates)
+    }
+    pub(crate) fn physical_references(&self) -> Option<Vec<spec::Ref>> {
+        let candidates = spec::refs(&self.text);
+        if candidates.len() > 512 { return None; }
+        Some(candidates.into_iter().filter(|reference| self.navigation_ref_at(reference.at)
+            .is_some_and(|owned| owned.at == reference.at && owned.end == reference.end && owned.target == reference.target)).collect())
+    }
     /// Exact physical-source occurrences; refs to descendants count as uses of
     /// their owning component, while a similarly prefixed component does not.
     pub(crate) fn component_occurrences(&self, caret: usize) -> Option<Vec<(String, openidea_plugin::Range)>> {

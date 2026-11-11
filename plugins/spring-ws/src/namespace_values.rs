@@ -29,7 +29,7 @@ fn whitespace_children(text: &str, parent: &xml::Element, children: &[&xml::Elem
     };
     tail[..close].trim().is_empty() && tail[close..] == format!("</{}>", parent.name)
 }
-fn sites(text: &str) -> Vec<(String, Range)> {
+fn xml_sites(text: &str) -> Vec<(String, Range)> {
     if text.len() > 32768 || !generate::xml_valid(text) {
         return vec![];
     }
@@ -159,6 +159,9 @@ fn sites(text: &str) -> Vec<(String, Range)> {
     }
     result
 }
+fn sites(doc:&Document)->Vec<(String,Range)> {
+    if doc.language=="xml" {xml_sites(&doc.text)} else {xpath::namespace_sites(doc)}
+}
 fn inventory(nav: &mut WsTools, doc: &Document) -> Option<BTreeMap<String, BTreeSet<String>>> {
     if !nav.watching || !nav.unreadable_schemas.is_empty() {
         return None;
@@ -194,7 +197,7 @@ fn inventory(nav: &mut WsTools, doc: &Document) -> Option<BTreeMap<String, BTree
     Some(result)
 }
 pub(crate) fn definition(nav: &mut WsTools, doc: &Document, at: Position) -> Option<Vec<Location>> {
-    let (uri, _) = sites(&doc.text)
+    let (uri, _) = sites(doc)
         .into_iter()
         .find(|(_, r)| contains(*r, at))?;
     let Some(map) = inventory(nav, doc) else {
@@ -216,7 +219,7 @@ pub(crate) fn completion(
     doc: &Document,
     at: Position,
 ) -> Option<Vec<CompletionItem>> {
-    let (value, r) = sites(&doc.text)
+    let (value, r) = sites(doc)
         .into_iter()
         .find(|(_, r)| r.start <= at && at <= r.end)?;
     let start = offset(&doc.text, r.start)?;

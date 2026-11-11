@@ -70,6 +70,11 @@ pub struct Mapping {
     pub handler: String,
     /// The handler method's class and name, when it is one.
     pub method: Option<(String, String)>,
+    /// Exact method/path pairs reported by requestMappingConditions; legacy snapshots have none.
+    #[serde(default)]
+    pub requests: Vec<(String, String)>,
+    #[serde(default)]
+    pub examples: crate::request_conditions::RequestExamples,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -100,6 +105,21 @@ pub struct Cache {
     pub manager: String,
     pub name: String,
     pub target: String,
+}
+
+fn mapping_requests(conditions: &Value) -> Vec<(String, String)> {
+    let Some(methods) = conditions.get("methods").and_then(Value::as_array) else { return Vec::new() };
+    let Some(paths) = conditions.get("patterns").and_then(Value::as_array) else { return Vec::new() };
+    if methods.is_empty() || paths.is_empty() || methods.len().saturating_mul(paths.len()) > 32 { return Vec::new() }
+    let mut result = Vec::new();
+    for method in methods {
+        let Some(method) = method.as_str().filter(|m| matches!(*m, "GET"|"HEAD"|"POST"|"PUT"|"PATCH"|"DELETE"|"OPTIONS"|"TRACE")) else { return Vec::new() };
+        for path in paths {
+            let Some(path) = path.as_str().filter(|p| p.starts_with('/') && !p.starts_with("//") && p.len() <= 2048 && !p.chars().any(|c| c.is_control() || c.is_whitespace())) else { return Vec::new() };
+            if !result.iter().any(|pair| pair == &(method.to_owned(),path.to_owned())) { result.push((method.into(),path.into())); }
+        }
+    }
+    result
 }
 
 fn entries(v: &Value) -> impl Iterator<Item = (&String, &Value)> {
@@ -194,6 +214,8 @@ impl Snapshot {
                         for h in items(list) {
                             let method = &h["details"]["handlerMethod"];
                             self.mappings.push(Mapping {
+                                examples: crate::request_conditions::read(&h["details"]["requestMappingConditions"]),
+                                requests: mapping_requests(&h["details"]["requestMappingConditions"]),
                                 group: group.clone(),
                                 predicate: text(&h["predicate"]),
                                 handler: text(&h["handler"]),

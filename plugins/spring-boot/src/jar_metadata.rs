@@ -10,6 +10,8 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     time::{Duration, Instant},
 };
+#[path = "jar_versions.rs"]
+mod versions;
 const CACHE: &str = "~/.m2/repository";
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Dependency {
@@ -164,7 +166,11 @@ fn dependencies(text: &str) -> Result<Vec<Dependency>, Error> {
                 return Err(invalid("DTD/CDATA POM forms are unsupported."));
             }
             Ok(quick_xml::events::Event::Text(text)) if depth == 0 => {
-                if text.as_ref().bytes().any(|b| !matches!(b, b' ' | b'\t' | b'\r' | b'\n')) {
+                if text
+                    .as_ref()
+                    .bytes()
+                    .any(|b| !matches!(b, b' ' | b'\t' | b'\r' | b'\n'))
+                {
                     return Err(invalid("Non-whitespace text outside the POM root."));
                 }
             }
@@ -193,6 +199,8 @@ fn dependencies(text: &str) -> Result<Vec<Dependency>, Error> {
     if elements.len() > 4096 {
         return Err(invalid("POM element limit exceeded."));
     }
+    let properties = versions::properties(text)?;
+    let managed = versions::managed(text)?;
     let mut result = vec![];
     let mut keys = BTreeSet::new();
     for (i, e) in elements
@@ -227,7 +235,10 @@ fn dependencies(text: &str) -> Result<Vec<Dependency>, Error> {
                 break;
             };
             let value = text[child.tag_end..close].trim();
-            if !literal(value) || fields.insert(child.local(), value).is_some() {
+            if (!literal(value)
+                && !(child.local() == "version" && versions::resolve(value, &properties).is_some()))
+                || fields.insert(child.local(), value).is_some()
+            {
                 supported = false;
                 break;
             }
@@ -238,11 +249,20 @@ fn dependencies(text: &str) -> Result<Vec<Dependency>, Error> {
         {
             continue;
         }
-        let (Some(group), Some(artifact), Some(version)) = (
-            fields.get("groupId"),
-            fields.get("artifactId"),
-            fields.get("version"),
-        ) else {
+        let (Some(group), Some(artifact)) = (fields.get("groupId"), fields.get("artifactId"))
+        else {
+            continue;
+        };
+        let version = fields
+            .get("version")
+            .and_then(|v| versions::resolve(v, &properties))
+            .or_else(|| {
+                managed
+                    .iter()
+                    .find(|d| d.group == *group && d.artifact == *artifact)
+                    .map(|d| d.version.clone())
+            });
+        let Some(version) = version else {
             continue;
         };
         if group
@@ -258,7 +278,7 @@ fn dependencies(text: &str) -> Result<Vec<Dependency>, Error> {
         let dep = Dependency {
             group: (*group).into(),
             artifact: (*artifact).into(),
-            version: (*version).into(),
+            version,
             scope: scope.into(),
         };
         if !keys.insert(format!("{}:{}", group, artifact)) {
@@ -280,42 +300,64 @@ struct Snapshot {
     dep: Dependency,
     meta: Meta,
     entries: Vec<String>,
+    version_sources: Vec<(String, String)>,
 }
 #[derive(Default)]
 pub struct State {
-    snapshots: BTreeMap<String, Snapshot>,
+    snapshots: BTreeMap<String, Vec<Snapshot>>,
+    // Version awareness outlives positive-fact TTL; expiration must not revive
+    // an unrelated bundled3.5 baseline for the same observed POM.
+    version_scopes: BTreeMap<String, (String, String, Vec<String>)>,
 }
 impl State {
     pub fn invalidate(&mut self, path: &str) {
-        self.snapshots.retain(|_, s| s.pom != path);
+        self.version_scopes.retain(|_, (pom, _, catalogs)| {
+            pom != path && !catalogs.iter().any(|catalog| catalog == path)
+        });
+        self.snapshots.retain(|_, snapshots| {
+            !snapshots.iter().any(|s| {
+                s.pom == path || s.version_sources.iter().any(|(source, _)| source == path)
+            })
+        });
     }
     pub fn catalog(&self, path: &str) -> Catalog {
         let mut c = Catalog::default();
         if let Some(root) = host::project_of(path).and_then(|p| p.root().ok()) {
-            if let Some(s) = self
-                .snapshots
-                .get(&root)
-                .filter(|s| s.at.elapsed() < Duration::from_secs(600))
-            {
-                c.add(&s.meta);
+            if let Some(snapshots) = self.snapshots.get(&root) {
+                for snapshot in snapshots
+                    .iter()
+                    .filter(|s| s.at.elapsed() < Duration::from_secs(600))
+                {
+                    c.add(&snapshot.meta);
+                }
             }
         }
         c
     }
+    /// A selected version-qualified Spring artifact is not a complete runtime
+    /// catalog. Never supplement it with authoritative bundled3.5 keys.
+    pub fn version_scoped(&self, path: &str) -> bool {
+        host::project_of(path)
+            .and_then(|p| p.root().ok())
+            .is_some_and(|root| self.version_scopes.contains_key(&root))
+    }
+
+    pub fn bundled(&self, path: &str) -> &'static Catalog {
+        if self.version_scoped(path) {
+            static EMPTY: std::sync::OnceLock<Catalog> = std::sync::OnceLock::new();
+            EMPTY.get_or_init(Catalog::default)
+        } else {
+            super::meta::bundled()
+        }
+    }
     pub fn provenance(&self, path: &str) -> Option<String> {
         let root = host::project_of(path)?.root().ok()?;
-        let s = self
-            .snapshots
-            .get(&root)
-            .filter(|s| s.at.elapsed() < Duration::from_secs(600))?;
-        Some(format!(
-            "Selected Maven dependency snapshot: {} ({} scope), {} · SHA-256 {} · entries {}. Declared source provenance; resolved/runtime classpath is unverified.",
-            s.dep.gav(),
-            s.dep.scope,
-            s.jar,
-            s.hash,
-            s.entries.join(", ")
-        ))
+        let snapshots = self.snapshots.get(&root)?;
+        let descriptions=snapshots.iter().filter(|s|s.at.elapsed()<Duration::from_secs(600)).map(|s|format!(
+            "Selected Maven dependency snapshot: {} ({} scope), {} · SHA-256 {} · entries {}. Version catalog sources: {}. Declared source provenance; resolved/runtime classpath is unverified.",
+            s.dep.gav(),s.dep.scope,s.jar,s.hash,s.entries.join(", "),s.version_sources.iter().map(|(path,digest)|format!("{path} SHA-256 {digest}")).collect::<Vec<_>>().join("; ")
+        )).collect::<Vec<_>>();
+        (!descriptions.is_empty()).then(|| descriptions.join("\n\n"))
     }
     pub fn import(&mut self, ctx: &Invocation) -> Result<Option<String>, Error> {
         let result = self.import_at(ctx, CACHE);
@@ -324,9 +366,11 @@ impl State {
                 .project()
                 .and_then(|p| p.root().ok())
                 .is_some_and(|root| {
-                    self.snapshots
-                        .get(&root)
-                        .is_some_and(|s| s.at.elapsed() < Duration::from_secs(600))
+                    self.snapshots.get(&root).is_some_and(|snapshots| {
+                        snapshots
+                            .iter()
+                            .any(|s| s.at.elapsed() < Duration::from_secs(600))
+                    })
                 })
         {
             host::notify(
@@ -348,17 +392,38 @@ impl State {
         }
         let source = project.read_file(&pom)?;
         let pom_digest = format!("{:x}", Sha256::digest(source.as_bytes()));
-        if self
-            .snapshots
-            .get(&root)
-            .is_some_and(|snapshot| snapshot.pom_digest != pom_digest)
-        {
+        if self.snapshots.get(&root).is_some_and(|snapshots| {
+            snapshots
+                .iter()
+                .any(|snapshot| snapshot.pom_digest != pom_digest)
+        }) {
             self.snapshots.remove(&root);
         }
-        let dependencies = dependencies(&source)?;
+        if self
+            .version_scopes
+            .get(&root)
+            .is_some_and(|(_, digest, _)| *digest != pom_digest)
+        {
+            self.version_scopes.remove(&root);
+        }
+        let mut dependencies = dependencies(&source)?;
+        let (catalogs, catalog_sources) = versions::cache_catalog(&source, cache)?;
+        for catalog in catalogs {
+            if !dependencies
+                .iter()
+                .any(|d| d.group == catalog.group && d.artifact == catalog.artifact)
+            {
+                dependencies.push(catalog);
+            }
+        }
+        if dependencies.len() > 512 {
+            return Err(invalid(
+                "Declared metadata dependency catalog exceeds512 candidates.",
+            ));
+        }
         if dependencies.is_empty() {
             return Err(invalid(
-                "No supported direct literal JAR dependencies in the current root POM.",
+                "No supported direct/version-property JAR dependencies or locally cached official parent/BOM catalog entries in the current root POM.",
             ));
         }
         let choices: Vec<_> = dependencies
@@ -384,9 +449,14 @@ impl State {
             return Err(invalid("Selected JAR must be a file of at most 8 MiB."));
         }
         let review = format!(
-            "Read local dependency JAR metadata?\n\nProject: {root}\nPOM: {pom}\nDeclared dependency: {}\nDeclared scope: {}\nExact archive: {jar}\n\nReads only META-INF/spring-configuration-metadata.json and additional-spring-configuration-metadata.json from this selected archive. No extraction, code execution, build or network. This is a source-declared snapshot, not a resolved/runtime classpath. Replaces this project's previous selected JAR snapshot only on success.",
+            "Read local dependency JAR metadata?\n\nProject: {root}\nPOM: {pom}\nDeclared dependency/catalog entry: {}\nDeclared scope: {}\nVersion catalogs: {}\nExact archive: {jar}\n\nReads only META-INF/spring-configuration-metadata.json and additional-spring-configuration-metadata.json from this selected archive. No extraction, code execution, build or network. This is a source-declared snapshot, not a resolved/runtime classpath. Retains other selected artifact snapshots; replaces only this artifact on success. Conflicting metadata is refused.",
             selected.gav(),
-            selected.scope
+            selected.scope,
+            catalog_sources
+                .iter()
+                .map(|(path, hash)| format!("{path} SHA-256 {hash}"))
+                .collect::<Vec<_>>()
+                .join("; ")
         );
         if !ui_kit::prompts::confirm_exact("Read selected Maven JAR metadata", &review)? {
             return Ok(None);
@@ -400,6 +470,14 @@ impl State {
                 || project.read_file(&pom)? != source
             {
                 return Err(invalid("Project/POM changed. Select the dependency again."));
+            }
+            for (path, digest) in &catalog_sources {
+                let raw = host::fs::read_bytes(path)?;
+                if format!("{:x}", Sha256::digest(raw)) != *digest {
+                    return Err(invalid(
+                        "Declared parent/BOM version catalog changed; read metadata again.",
+                    ));
+                }
             }
             Ok(())
         };
@@ -418,26 +496,84 @@ impl State {
         ensure()?;
         let count = meta.props.len();
         let entries = entries.into_iter().map(|(name, _)| name).collect();
-        self.snapshots
-            .retain(|_, snapshot| snapshot.at.elapsed() < Duration::from_secs(600));
+        self.snapshots.retain(|_, snapshots| {
+            snapshots.retain(|snapshot| snapshot.at.elapsed() < Duration::from_secs(600));
+            !snapshots.is_empty()
+        });
         if !self.snapshots.contains_key(&root) && self.snapshots.len() >= 8 {
             return Err(invalid(
                 "Eight project snapshots are already retained; reload before importing another project.",
             ));
         }
-        self.snapshots.insert(
-            root,
-            Snapshot {
-                at: Instant::now(),
-                pom,
-                pom_digest,
-                jar,
-                hash: format!("{:x}", Sha256::digest(&bytes)),
-                dep: selected,
-                meta,
-                entries,
-            },
-        );
+        if matches!(
+            selected.group.as_str(),
+            "org.springframework.boot" | "org.springframework.cloud"
+        ) && !self.version_scopes.contains_key(&root)
+            && self.version_scopes.len() >= 8
+        {
+            return Err(invalid(
+                "Eight version source scopes are retained; reload before importing another project.",
+            ));
+        }
+        let retained = self.snapshots.entry(root.clone()).or_default();
+        let other = retained
+            .iter()
+            .filter(|snapshot| {
+                snapshot.dep.group != selected.group || snapshot.dep.artifact != selected.artifact
+            })
+            .collect::<Vec<_>>();
+        if other.len() >= 16
+            || other.iter().map(|s| s.meta.props.len()).sum::<usize>() + meta.props.len() > 32768
+        {
+            return Err(invalid(
+                "Selected artifact metadata snapshot budget exceeded.",
+            ));
+        }
+        for snapshot in other {
+            if snapshot.meta.props.iter().any(|old| {
+                meta.props
+                    .iter()
+                    .any(|new| canonical(&old.name) == canonical(&new.name) && old != new)
+            }) || snapshot.meta.hints.iter().any(|(old, values)| {
+                meta.hints.iter().any(|(new, new_values)| {
+                    canonical(old) == canonical(new) && values != new_values
+                })
+            }) {
+                return Err(invalid(
+                    "Selected artifact metadata conflicts with a retained snapshot; no new facts installed.",
+                ));
+            }
+        }
+        retained.retain(|snapshot| {
+            snapshot.dep.group != selected.group || snapshot.dep.artifact != selected.artifact
+        });
+        if matches!(
+            selected.group.as_str(),
+            "org.springframework.boot" | "org.springframework.cloud"
+        ) {
+            self.version_scopes.insert(
+                root,
+                (
+                    pom.clone(),
+                    pom_digest.clone(),
+                    catalog_sources
+                        .iter()
+                        .map(|(path, _)| path.clone())
+                        .collect(),
+                ),
+            );
+        }
+        retained.push(Snapshot {
+            at: Instant::now(),
+            pom,
+            pom_digest,
+            jar,
+            hash: format!("{:x}", Sha256::digest(&bytes)),
+            dep: selected,
+            meta,
+            entries,
+            version_sources: catalog_sources,
+        });
         host::notify(
             openidea_plugin::NotificationLevel::Info,
             "Spring Boot JAR metadata",
@@ -466,6 +602,8 @@ fn parse_entries(entries: &[(String, String)]) -> Result<Meta, Error> {
     let mut names = BTreeSet::new();
     let mut hint_names = BTreeSet::new();
     for (_, text) in entries {
+        let mut document_names = BTreeSet::new();
+        let mut document_hints = BTreeSet::new();
         let v: serde_json::Value =
             serde_json::from_str(text).map_err(|_| invalid("Metadata is not valid JSON."))?;
         if !v.is_object()
@@ -504,9 +642,21 @@ fn parse_entries(entries: &[(String, String)]) -> Result<Meta, Error> {
                 || !p.name.bytes().all(|b| {
                     b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b'_' | b'[' | b']')
                 })
-                || !names.insert(canonical(&p.name))
+                || !document_names.insert(canonical(&p.name))
             {
                 return Err(invalid("Ambiguous or unsupported metadata property names."));
+            }
+            if !names.insert(canonical(&p.name)) {
+                if result
+                    .props
+                    .iter()
+                    .any(|old| canonical(&old.name) == canonical(&p.name) && old == &p)
+                {
+                    continue;
+                }
+                return Err(invalid(
+                    "The main/additional metadata documents disagree on a property.",
+                ));
             }
             result.props.push(p);
         }
@@ -520,9 +670,19 @@ fn parse_entries(entries: &[(String, String)]) -> Result<Meta, Error> {
                 || values
                     .iter()
                     .any(|v| v.len() > 1024 || v.chars().any(char::is_control))
-                || !hint_names.insert(canonical(&name))
+                || !document_hints.insert(canonical(&name))
             {
                 return Err(invalid("Ambiguous or oversized metadata hints."));
+            }
+            if !hint_names.insert(canonical(&name)) {
+                if result.hints.iter().any(|(old, old_values)| {
+                    canonical(old) == canonical(&name) && old_values == &values
+                }) {
+                    continue;
+                }
+                return Err(invalid(
+                    "The main/additional metadata documents disagree on a hint.",
+                ));
             }
             result.hints.push((name, values));
         }
@@ -569,6 +729,260 @@ mod tests {
         h.answer_next_prompt(if confirm { Some(&["ok"]) } else { None });
     }
     #[test]
+    fn version_properties_and_direct_managed_versions_are_exact_not_maven_execution() {
+        let source=POM.replace("<modelVersion>","<properties><config.version>1.2.3</config.version><alias>${config.version}</alias></properties><modelVersion>").replace("<version>1.2.3</version>","<version>${alias}</version>");
+        assert_eq!(dependencies(&source).unwrap()[0].version, "1.2.3");
+        let managed=POM.replace("<dependencies>","<dependencyManagement><dependencies>").replace("</dependencies>","</dependencies></dependencyManagement>").replace("</project>","<dependencies><dependency><groupId>org.example</groupId><artifactId>config</artifactId></dependency></dependencies></project>");
+        assert_eq!(dependencies(&managed).unwrap()[0].version, "1.2.3");
+        assert!(
+            dependencies(&source.replace(
+                "<config.version>1.2.3</config.version>",
+                "<config.version>${alias}</config.version>"
+            ))
+            .unwrap()
+            .is_empty()
+        );
+        assert!(
+            dependencies(&source.replace(
+                "<alias>${config.version}</alias>",
+                "<alias>${config.version}</alias><alias>4</alias>"
+            ))
+            .is_err()
+        );
+    }
+    #[test]
+    fn declared_boot_parent_and_cloud_bom_versions_coexist_as_reviewed_local_snapshots() {
+        let h = setup();
+        let source = "<project><parent><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-parent</artifactId><version>4.0.0</version></parent><dependencyManagement><dependencies><dependency><groupId>org.springframework.cloud</groupId><artifactId>spring-cloud-dependencies</artifactId><version>2025.0.0</version><type>pom</type><scope>import</scope></dependency></dependencies></dependencyManagement></project>";
+        h.add_file("pom.xml", source);
+        for (path, text) in [
+            (
+                "org/springframework/boot/spring-boot-starter-parent/4.0.0/spring-boot-starter-parent-4.0.0.pom",
+                "<project><parent><groupId>org.springframework.boot</groupId><artifactId>spring-boot-dependencies</artifactId><version>4.0.0</version></parent><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-parent</artifactId><version>4.0.0</version></project>",
+            ),
+            (
+                "org/springframework/boot/spring-boot-dependencies/4.0.0/spring-boot-dependencies-4.0.0.pom",
+                "<project><groupId>org.springframework.boot</groupId><artifactId>spring-boot-dependencies</artifactId><version>4.0.0</version><dependencyManagement><dependencies><dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-autoconfigure</artifactId><version>${project.version}</version></dependency></dependencies></dependencyManagement></project>",
+            ),
+            (
+                "org/springframework/cloud/spring-cloud-dependencies/2025.0.0/spring-cloud-dependencies-2025.0.0.pom",
+                "<project><groupId>org.springframework.cloud</groupId><artifactId>spring-cloud-dependencies</artifactId><version>2025.0.0</version><properties><context.version>4.3.0</context.version></properties><dependencyManagement><dependencies><dependency><groupId>org.springframework.cloud</groupId><artifactId>spring-cloud-context</artifactId><version>${context.version}</version></dependency></dependencies></dependencyManagement></project>",
+            ),
+        ] {
+            h.add_external_file(&format!("/m2/{path}"), text);
+        }
+        for (path, key) in [
+            (
+                "org/springframework/boot/spring-boot-autoconfigure/4.0.0/spring-boot-autoconfigure-4.0.0.jar",
+                "boot.versioned.feature",
+            ),
+            (
+                "org/springframework/cloud/spring-cloud-context/4.3.0/spring-cloud-context-4.3.0.jar",
+                "cloud.versioned.feature",
+            ),
+        ] {
+            let json =
+                format!(r#"{{"properties":[{{"name":"{key}","type":"java.lang.Boolean"}}]}}"#);
+            let bytes = super::super::jar_archive::fixture(&[(
+                "META-INF/spring-configuration-metadata.json",
+                json.as_bytes(),
+                8,
+            )]);
+            h.add_external_file(&format!("/m2/{path}"), "");
+            host::fs::write_bytes(&format!("/m2/{path}"), &bytes).unwrap();
+        }
+        let mut state = State::default();
+        answer(&h, true);
+        state.import_at(&h.invocation(), "/m2").unwrap();
+        h.answer_next_prompt(Some(&["1"]));
+        h.answer_next_prompt(Some(&["ok"]));
+        state.import_at(&h.invocation(), "/m2").unwrap();
+        let catalog = state.catalog("/project/application.properties");
+        let lookup = spring_text::metadata::Lookup(vec![&catalog]);
+        assert!(lookup.prop("boot.versioned.feature").is_some());
+        assert!(lookup.prop("cloud.versioned.feature").is_some());
+        assert!(state.version_scoped("/project/application.properties"));
+        assert!(
+            spring_text::metadata::Lookup(vec![state.bundled("/project/application.properties")])
+                .prop("server.port")
+                .is_none()
+        );
+        let provenance = state.provenance("/project/application.properties").unwrap();
+        assert!(
+            provenance.contains("spring-boot-autoconfigure:4.0.0")
+                && provenance.contains("spring-cloud-context:4.3.0")
+                && provenance.contains("dependency presence unverified")
+        );
+        assert!(h.process_runs().is_empty() && h.requests().is_empty());
+        state.invalidate("/project/pom.xml");
+        let cleared = state.catalog("/project/application.properties");
+        assert!(
+            spring_text::metadata::Lookup(vec![&cleared])
+                .prop("boot.versioned.feature")
+                .is_none()
+        );
+    }
+    #[test]
+    fn version_scoped_provider_lookup_drops_bundled_keys_and_withholds_incomplete_absence_findings()
+    {
+        use openidea_plugin::{Position, diagnostics::DiagnosticsProvider, providers::Providers};
+        let h = setup();
+        h.add_file(
+            "pom.xml",
+            &POM.replace("org.example", "org.springframework.boot")
+                .replace(
+                    "<artifactId>config</artifactId>",
+                    "<artifactId>spring-boot</artifactId>",
+                )
+                .replace("1.2.3", "4.1.2"),
+        );
+        let path = "/m2/org/springframework/boot/spring-boot/4.1.2/spring-boot-4.1.2.jar";
+        h.add_external_file(path, "");
+        let bytes = super::super::jar_archive::fixture(&[(
+            "META-INF/spring-configuration-metadata.json",
+            JSON.as_bytes(),
+            8,
+        )]);
+        host::fs::write_bytes(path, &bytes).unwrap();
+        answer(&h, true);
+        let mut state = State::default();
+        state.import_at(&h.invocation(), "/m2").unwrap();
+        state.snapshots.get_mut("/project").unwrap()[0].at =
+            Instant::now() - Duration::from_secs(600);
+        assert!(state.version_scoped("/project/application.properties"));
+        assert!(
+            spring_text::metadata::Lookup(vec![state.bundled("/project/application.properties")])
+                .prop("server.port")
+                .is_none()
+        );
+        state.snapshots.get_mut("/project").unwrap()[0].at = Instant::now();
+        let mut tools = crate::BootTools {
+            jars: state,
+            ..Default::default()
+        };
+        let doc = |text: &str| Document {
+            path: "/project/application.properties".into(),
+            language: "properties".into(),
+            version: 1,
+            text: text.into(),
+        };
+        assert!(
+            spring_text::metadata::Lookup(vec![super::super::meta::bundled()])
+                .prop("server.port")
+                .is_some()
+        );
+        assert!(
+            tools
+                .completion(&doc("server.po"), Position::new(0, 9), None)
+                .iter()
+                .all(|item| item.label != "server.port")
+        );
+        assert!(
+            tools
+                .hover(&doc("server.port=8080"), Position::new(0, 3))
+                .is_none()
+        );
+        assert!(
+            tools
+                .completion(&doc("custom.jar.fea"), Position::new(0, 14), None)
+                .iter()
+                .any(|item| item.label == "custom.jar.feature")
+        );
+        assert!(
+            tools
+                .diagnostics(&doc("custom.jar.typo=true"))
+                .iter()
+                .all(|finding| finding.code.as_deref() != Some("unknown-property"))
+        );
+        assert!(h.process_runs().is_empty() && h.requests().is_empty());
+    }
+    #[test]
+    #[ignore = "requires explicit SPRING_METADATA_REAL_FIXTURE with downloaded official POM/JAR fixture"]
+    fn real_versioned_boot_cloud_metadata_fixture() {
+        let directory = std::env::var("SPRING_METADATA_REAL_FIXTURE")
+            .expect("set explicit downloaded fixture directory");
+        let h =
+            MockHost::install().with_capabilities(&["project.read", "fs.write:/m2", "fs.read:/m2"]);
+        h.add_file(
+            "pom.xml",
+            &std::fs::read_to_string(format!("{directory}/project-pom.xml")).unwrap(),
+        );
+        let base = std::path::Path::new(&directory).join("m2");
+        let mut queue = vec![base.clone()];
+        let mut count = 0;
+        while let Some(path) = queue.pop() {
+            for entry in std::fs::read_dir(path).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    queue.push(path);
+                } else {
+                    count += 1;
+                    assert!(count <= 80);
+                    let relative = path.strip_prefix(&base).unwrap().to_str().unwrap();
+                    let target = format!("/m2/{relative}");
+                    h.add_external_file(&target, "");
+                    host::fs::write_bytes(&target, &std::fs::read(path).unwrap()).unwrap();
+                }
+            }
+        }
+        let source = h
+            .invocation()
+            .project()
+            .unwrap()
+            .read_file("pom.xml")
+            .unwrap();
+        let (candidates, _) = versions::cache_catalog(&source, "/m2").unwrap();
+        let mut state = State::default();
+        for artifact in ["spring-boot", "spring-cloud-context"] {
+            let index = candidates
+                .iter()
+                .position(|d| d.artifact == artifact)
+                .unwrap()
+                .to_string();
+            h.answer_next_prompt(Some(&[&index]));
+            h.answer_next_prompt(Some(&["ok"]));
+            state.import_at(&h.invocation(), "/m2").unwrap();
+        }
+        let catalog = state.catalog("/project/application.properties");
+        let lookup = spring_text::metadata::Lookup(vec![&catalog]);
+        assert!(lookup.prop("spring.main.banner-mode").is_some());
+        assert!(
+            lookup
+                .prop("spring.cloud.refresh.on-restart.enabled")
+                .is_some()
+        );
+        assert_eq!(state.snapshots["/project"].len(), 2);
+        for snapshot in &state.snapshots["/project"] {
+            println!(
+                "{} props={} SHA-256={} catalog_sources={}",
+                snapshot.dep.gav(),
+                snapshot.meta.props.len(),
+                snapshot.hash,
+                snapshot.version_sources.len()
+            );
+        }
+        assert!(h.requests().is_empty() && h.process_runs().is_empty());
+    }
+    #[test]
+    fn identical_generated_and_additional_records_deduplicate_but_conflicts_remain_errors() {
+        let entries = vec![
+            (
+                "META-INF/spring-configuration-metadata.json".into(),
+                JSON.into(),
+            ),
+            (
+                "META-INF/additional-spring-configuration-metadata.json".into(),
+                JSON.into(),
+            ),
+        ];
+        let parsed = parse_entries(&entries).unwrap();
+        assert_eq!(parsed.props.len(), 1);
+        assert_eq!(parsed.hints.len(), 1);
+        let mut conflict = entries;
+        conflict[1].1 = JSON.replace("java.lang.Boolean", "java.lang.String");
+        assert!(parse_entries(&conflict).is_err());
+    }
+    #[test]
     fn commented_pom_selects_only_live_literal_dependency() {
         let text = format!("<!-- <project><dependencies><dependency>fake</dependency></dependencies></project> -->\n{}\n<!-- trailing comment -->", POM.replace("<dependencies>", "<!-- dependency inventory --><dependencies><!-- <dependency><groupId>evil</groupId><artifactId>fake</artifactId><version>1</version></dependency> -->"));
         assert_eq!(dependencies(&text).unwrap(), dependencies(POM).unwrap());
@@ -577,7 +991,12 @@ mod tests {
         answer(&h, true);
         let mut state = State::default();
         state.import_at(&h.invocation(), "/m2").unwrap();
-        assert!(state.provenance("/project/application.properties").unwrap().contains("org.example:config:1.2.3"));
+        assert!(
+            state
+                .provenance("/project/application.properties")
+                .unwrap()
+                .contains("org.example:config:1.2.3")
+        );
         assert!(h.requests().is_empty() && h.process_runs().is_empty());
     }
     #[test]
@@ -588,16 +1007,27 @@ mod tests {
             format!("<!-- bad--comment -->{POM}"),
             format!("<!-- unterminated {POM}"),
             format!("<!DOCTYPE project SYSTEM 'https://example.invalid/pom.dtd'>{POM}"),
-            POM.replace("<groupId>org.example</groupId>", "<groupId><![CDATA[org.example]]></groupId>"),
+            POM.replace(
+                "<groupId>org.example</groupId>",
+                "<groupId><![CDATA[org.example]]></groupId>",
+            ),
         ] {
             assert!(dependencies(&text).is_err(), "{text}");
         }
-        for value in ["org.<!--comment-->example", "org.<?p x?>example", "org.&#101;xample"] {
-            assert!(dependencies(&POM.replace("org.example", value)).unwrap().is_empty());
+        for value in [
+            "org.<!--comment-->example",
+            "org.<?p x?>example",
+            "org.&#101;xample",
+        ] {
+            assert!(
+                dependencies(&POM.replace("org.example", value))
+                    .unwrap()
+                    .is_empty()
+            );
         }
     }
     #[test]
-    fn literal_direct_root_dependencies_only_no_profiles_bom_properties_or_path_injection() {
+    fn direct_root_dependencies_reject_unbound_properties_profiles_and_path_injection() {
         let d = dependencies(POM).unwrap();
         assert_eq!(d.len(), 1);
         assert_eq!(
@@ -719,7 +1149,8 @@ mod tests {
         answer(&h, true);
         let mut state = State::default();
         state.import_at(&h.invocation(), "/m2").unwrap();
-        state.snapshots.get_mut("/project").unwrap().at = Instant::now() - Duration::from_secs(600);
+        state.snapshots.get_mut("/project").unwrap()[0].at =
+            Instant::now() - Duration::from_secs(600);
         assert!(
             state
                 .provenance("/project/application.properties")

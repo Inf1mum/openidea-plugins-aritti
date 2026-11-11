@@ -9,10 +9,20 @@ fn bad() -> Error {
     Error::Invalid("Unsupported, malformed or oversized JAR/metadata archive.".into())
 }
 fn u16at(b: &[u8], at: usize) -> Result<usize, Error> {
-    Ok(u16::from_le_bytes(b.get(at..at + 2).ok_or_else(bad)?.try_into().map_err(|_| bad())?) as usize)
+    Ok(u16::from_le_bytes(
+        b.get(at..at + 2)
+            .ok_or_else(bad)?
+            .try_into()
+            .map_err(|_| bad())?,
+    ) as usize)
 }
 fn u32at(b: &[u8], at: usize) -> Result<usize, Error> {
-    Ok(u32::from_le_bytes(b.get(at..at + 4).ok_or_else(bad)?.try_into().map_err(|_| bad())?) as usize)
+    Ok(u32::from_le_bytes(
+        b.get(at..at + 4)
+            .ok_or_else(bad)?
+            .try_into()
+            .map_err(|_| bad())?,
+    ) as usize)
 }
 fn sig(b: &[u8], at: usize, s: &[u8]) -> bool {
     b.get(at..at + 4) == Some(s)
@@ -23,7 +33,10 @@ pub fn metadata(bytes: &[u8]) -> Result<Vec<(String, String)>, Error> {
     }
     let eocd = (bytes.len().saturating_sub(4118)..=bytes.len() - 22)
         .rev()
-        .find(|&at| sig(bytes, at, b"PK\x05\x06") && u16at(bytes, at + 20).is_ok_and(|n| at + 22 + n == bytes.len()))
+        .find(|&at| {
+            sig(bytes, at, b"PK\x05\x06")
+                && u16at(bytes, at + 20).is_ok_and(|n| at + 22 + n == bytes.len())
+        })
         .ok_or_else(bad)?;
     let count = u16at(bytes, eocd + 10)?;
     let central_size = u32at(bytes, eocd + 12)?;
@@ -75,17 +88,27 @@ pub fn metadata(bytes: &[u8]) -> Result<Vec<(String, String)>, Error> {
         {
             return Err(bad());
         }
-        let end = at.checked_add(46 + names + extra + comment).filter(|end| *end <= eocd).ok_or_else(bad)?;
-        let name = std::str::from_utf8(bytes.get(at + 46..at + 46 + names).ok_or_else(bad)?).map_err(|_| bad())?;
+        let end = at
+            .checked_add(46 + names + extra + comment)
+            .filter(|end| *end <= eocd)
+            .ok_or_else(bad)?;
+        let name = std::str::from_utf8(bytes.get(at + 46..at + 46 + names).ok_or_else(bad)?)
+            .map_err(|_| bad())?;
         if name.starts_with('/')
             || name.contains(['\\', ':'])
             || name.chars().any(char::is_control)
-            || name.trim_end_matches('/').split('/').any(|p| p.is_empty() || p == "." || p == "..")
+            || name
+                .trim_end_matches('/')
+                .split('/')
+                .any(|p| p.is_empty() || p == "." || p == "..")
             || !seen.insert(name.to_string())
         {
             return Err(bad());
         }
-        expanded = expanded.checked_add(size).filter(|n| *n <= 64 * 1024 * 1024).ok_or_else(bad)?;
+        expanded = expanded
+            .checked_add(size)
+            .filter(|n| *n <= 64 * 1024 * 1024)
+            .ok_or_else(bad)?;
         if !sig(bytes, local, b"PK\x03\x04")
             || u16at(bytes, local + 6)? != flags
             || u16at(bytes, local + 8)? != method
@@ -97,10 +120,20 @@ pub fn metadata(bytes: &[u8]) -> Result<Vec<(String, String)>, Error> {
         if local_extra > 4096 {
             return Err(bad());
         }
-        let start = local.checked_add(30 + names + local_extra).ok_or_else(bad)?;
-        let stop = start.checked_add(compressed).filter(|n| *n <= central).ok_or_else(bad)?;
+        let start = local
+            .checked_add(30 + names + local_extra)
+            .ok_or_else(bad)?;
+        let stop = start
+            .checked_add(compressed)
+            .filter(|n| *n <= central)
+            .ok_or_else(bad)?;
         let region_stop = if flags & 8 != 0 {
-            let descriptor = stop + if sig(bytes, stop, b"PK\x07\x08") { 4 } else { 0 };
+            let descriptor = stop
+                + if sig(bytes, stop, b"PK\x07\x08") {
+                    4
+                } else {
+                    0
+                };
             if u32at(bytes, descriptor)? != crc as usize
                 || u32at(bytes, descriptor + 4)? != compressed
                 || u32at(bytes, descriptor + 8)? != size
@@ -117,7 +150,9 @@ pub fn metadata(bytes: &[u8]) -> Result<Vec<(String, String)>, Error> {
             return Err(bad());
         }
         if flags & 8 == 0
-            && (u32at(bytes, local + 14)? != crc as usize || u32at(bytes, local + 18)? != compressed || u32at(bytes, local + 22)? != size)
+            && (u32at(bytes, local + 14)? != crc as usize
+                || u32at(bytes, local + 18)? != compressed
+                || u32at(bytes, local + 22)? != size)
         {
             return Err(bad());
         }
@@ -142,7 +177,11 @@ pub fn metadata(bytes: &[u8]) -> Result<Vec<(String, String)>, Error> {
             } else {
                 let mut decoder = flate2::bufread::DeflateDecoder::new(payload);
                 let mut data = vec![];
-                decoder.by_ref().take((MAX_META + 1) as u64).read_to_end(&mut data).map_err(|_| bad())?;
+                decoder
+                    .by_ref()
+                    .take((MAX_META + 1) as u64)
+                    .read_to_end(&mut data)
+                    .map_err(|_| bad())?;
                 if decoder.total_in() != compressed as u64 {
                     return Err(bad());
                 }
@@ -151,7 +190,10 @@ pub fn metadata(bytes: &[u8]) -> Result<Vec<(String, String)>, Error> {
             if data.len() != size || crc32fast::hash(&data) != crc {
                 return Err(bad());
             }
-            out.push((name.to_string(), String::from_utf8(data).map_err(|_| bad())?));
+            out.push((
+                name.to_string(),
+                String::from_utf8(data).map_err(|_| bad())?,
+            ));
         }
         at = end;
     }
@@ -179,7 +221,8 @@ pub(crate) fn fixture(entries: &[(&str, &[u8], u16)]) -> Vec<u8> {
     let mut central = vec![];
     for (name, data, method) in entries {
         let compressed = if *method == 8 {
-            let mut encoder = flate2::write::DeflateEncoder::new(vec![], flate2::Compression::default());
+            let mut encoder =
+                flate2::write::DeflateEncoder::new(vec![], flate2::Compression::default());
             encoder.write_all(data).unwrap();
             encoder.finish().unwrap()
         } else {
@@ -230,10 +273,23 @@ mod tests {
     #[test]
     fn stored_and_deflated_metadata_only_no_nested_layout_guessing() {
         for method in [0, 8] {
-            let bytes = fixture(&[(MAIN, b"{\"properties\":[]}", method), ("other.class", b"not read", method)]);
-            assert_eq!(metadata(&bytes).unwrap(), [(MAIN.into(), "{\"properties\":[]}".into())]);
+            let bytes = fixture(&[
+                (MAIN, b"{\"properties\":[]}", method),
+                ("other.class", b"not read", method),
+            ]);
+            assert_eq!(
+                metadata(&bytes).unwrap(),
+                [(MAIN.into(), "{\"properties\":[]}".into())]
+            );
         }
-        assert!(metadata(&fixture(&[("BOOT-INF/classes/META-INF/spring-configuration-metadata.json", b"{}", 0)])).is_err());
+        assert!(
+            metadata(&fixture(&[(
+                "BOOT-INF/classes/META-INF/spring-configuration-metadata.json",
+                b"{}",
+                0
+            )]))
+            .is_err()
+        );
     }
     #[test]
     fn malformed_truncated_crc_duplicate_and_path_tricks_are_rejected() {

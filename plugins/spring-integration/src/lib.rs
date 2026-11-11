@@ -12,6 +12,8 @@ mod channel_generation;
 mod batch_navigation;
 mod batch_actions;
 mod batch_step_rename;
+mod import_tree;
+mod batch_runtime;
 mod java_hover;
 mod source_scope;
 
@@ -559,7 +561,9 @@ impl Views for Integration {
 impl Plugin for Integration {
     fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
         match id {
-            "integration.current-file-channel-occurrences" => navigation::occurrences(ctx),
+            "integration.current-file-channel-occurrences" => {
+                if ctx.editor().is_some_and(|editor|editor.language()=="java") {java_hover::occurrences(ctx)} else {navigation::occurrences(ctx)}
+            },
             _ => Err(Error::NotFound(format!("command {id}"))),
         }
     }

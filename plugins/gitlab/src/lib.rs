@@ -7,8 +7,10 @@
 //! Create Snippet.
 
 mod api;
+mod markdown;
 mod attributes;
 mod branch;
+mod fork_checkout;
 mod ci;
 mod ci_data;
 mod content_tabs;
@@ -204,7 +206,7 @@ fn gitlab_project(ctx: &Invocation) -> Result<Repo, Error> {
 }
 
 fn selection_scope(repo: &Repo) -> String {
-    serde_json::to_string(&(&repo.path, &repo.status.root, &repo.remote)).unwrap_or_default()
+    serde_json::to_string(&(&repo.path, &repo.status.root, &repo.remote, api::token())).unwrap_or_default()
 }
 
 fn relative_path<'a>(root: &str, path: &'a str) -> Option<&'a str> {
@@ -413,6 +415,7 @@ pub struct GitLab {
     loaded: Option<(String, String)>,
     /// Root, GitLab project and remote owning all in-memory MR caches.
     cache_scope: Option<String>,
+    account_scope: Option<String>,
     list: Vec<MergeRequest>,
     threads: BTreeMap<u64, Vec<Discussion>>,
     events: BTreeMap<u64, Vec<TimelineEvent>>,
@@ -456,6 +459,17 @@ pub struct GitLab {
 }
 
 impl GitLab {
+    fn ensure_account(&mut self) -> Result<(), Error> {
+        let account=api::token();
+        if self.account_scope.as_deref()==Some(account) {return Ok(());}
+        if self.account_scope.is_none() {self.account_scope=Some(account.into());return Ok(());}
+        if self.account_scope.is_some() && storage::get(COMMENT_KEY)?.is_some_and(|draft|!draft.trim().is_empty()) {
+            return Err("Finish or clear the current account's unsent comment before switching account slots. Restore its account setting to continue the draft.".into());
+        }
+        self.me=None;self.projects=None;self.default_branches.clear();self.content_snapshots.clear();self.content_snapshot_order.clear();self.content_origin_frame=None;self.cache_scope=None;
+        self.account_scope=Some(account.into());Ok(())
+    }
+
     fn me(&mut self) -> Result<User, Error> {
         if let Some(me) = &self.me {
             return Ok(me.clone());
@@ -477,6 +491,7 @@ impl GitLab {
     }
 
     fn ensure_view_owner(&mut self, ctx: &Invocation) -> Result<(), Error> {
+        self.ensure_account()?;
         let repo = gitlab_project(ctx);
         let scope = repo.as_ref().ok().map(selection_scope);
         if self.cache_scope != scope {
@@ -852,6 +867,7 @@ impl GitLab {
         let section = Section::stored();
         let view = match section {
             Section::Overview => self.render_details(ctx),
+            Section::Description => self.render_markdown_description(ctx),
             Section::Changes => self.render_changes(ctx),
             Section::Commits => self.render_commits(ctx),
             Section::Files => self.render_files(ctx),
@@ -882,14 +898,35 @@ impl GitLab {
             }
         }
 
+        if let ViewEvent::Message(raw)=&event{if raw.len()<=8192{if let Ok(message)=serde_json::from_str::<serde_json::Value>(raw){if message["type"]=="markdown-link"{return self.open_markdown_link(ctx,message["url"].as_str().ok_or(Error::Stale)?);}}}}
         match Section::stored() {
-            Section::Overview => self.handle_details(event, ctx),
+            Section::Overview | Section::Description => self.handle_details(event, ctx),
             Section::Changes => self.handle_changes(event, ctx),
             Section::Commits => self.handle_commits(event),
             Section::Files => self.handle_files(event, ctx),
             Section::Pipelines => self.handle_pipelines(event, ctx),
             Section::Timeline => self.handle_timeline(event, ctx),
         }
+    }
+
+    fn open_markdown_link(&self,ctx:&Invocation,url:&str)->Result<(),Error>{
+        let repo=gitlab_project(ctx)?;let iid=self.checked_selection(&repo,ctx)?;
+        let details=self.details.as_ref().filter(|details|details.mr.iid==iid).ok_or(Error::Stale)?;
+        let base=format!("https://gitlab.com/{}/-/merge_requests/{iid}",repo.path);
+        let mut links=markdown::links(details.mr.description.as_deref().unwrap_or_default(),&base);
+        for note in self.threads.get(&iid).into_iter().flatten().flat_map(|thread|&thread.notes){links.extend(markdown::links(&note.body,"https://gitlab.com/"));links.extend(markdown::links(&note.body,&base));}
+        for draft in &details.drafts{links.extend(markdown::links(&draft.note,"https://gitlab.com/"));}
+        if !links.iter().any(|known|known==url){return Err("Markdown link no longer belongs to the selected merge request snapshot.".into());}
+        host::open_url(url)
+    }
+
+    fn render_markdown_description(&mut self,ctx:&Invocation)->Result<View,Error>{
+        let repo=gitlab_project(ctx)?;let iid=self.checked_selection(&repo,ctx)?;self.ensure_details(&repo.path,iid)?;
+        let details=self.details.as_ref().ok_or("Refresh merge request details first.")?;
+        let base=format!("https://gitlab.com/{}/-/merge_requests/{iid}",repo.path);
+        let mut text=details.mr.description.clone().unwrap_or_default();
+        if let Some(thread)=self.thread(iid){for note in &thread.notes{text.push_str(&format!("\n\n---\n\n### @{}\n\n{}",note.author.username,note.body));}}
+        Ok(View::new(Body::Html(markdown::document(&text,&base))).button(Button::new("refresh","Refresh Description").icon("refresh")).status("Cached GitLab Markdown; images are shown as text and links open only on explicit activation."))
     }
 
     fn render_details(&mut self, ctx: &Invocation) -> Result<View, Error> {
@@ -960,6 +997,7 @@ impl GitLab {
                 view = view.button(Button::new("review", "Add Me as Reviewer").icon("github-review"));
             }
 
+            view = view.button(Button::new("rerequest-review", "Re-request Review…").icon("github-review").enabled(!mr.reviewers.is_empty()));
             view = view.button(Button::new("edit", "Edit Labels, People, Milestone").icon("edit"));
             for (key, label) in attributes::ATTRIBUTES {
                 view = view.button(Button::new(&format!("edit-attribute:{key}"), label).icon("edit"));
@@ -1025,6 +1063,7 @@ impl GitLab {
         if let Some(attribute) = button.strip_prefix("edit-attribute:") {
             return self.edit_context_attribute(ctx, attribute);
         }
+        if button == "rerequest-review" { return self.rerequest_review(ctx); }
         if button == "open-existing-worktree" {
             self.open_existing_worktree(ctx)?;
             return Ok(());
@@ -1378,7 +1417,7 @@ fn selected_files(ctx: &Invocation) -> Vec<(String, String)> {
 }
 
 fn create_snippet(ctx: &Invocation) -> Result<Option<String>, Error> {
-    if !host::secret_is_set(api::TOKEN) {
+    if !host::secret_is_set(api::token()) {
         return Err(NO_TOKEN.into());
     }
 
@@ -1436,6 +1475,7 @@ impl Plugin for GitLab {
     }
 
     fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
+        self.ensure_account()?;
         api::begin_budget();
         match id {
             "new-token" => host::open_url(&api::new_token_url())?,
@@ -1443,13 +1483,15 @@ impl Plugin for GitLab {
             "copy-link" => copy_link(&file_link(ctx)?)?,
             "create-snippet" => return create_snippet(ctx),
             "share-project" => {
-                if !host::secret_is_set(api::TOKEN) {
+                if !host::secret_is_set(api::token()) {
                     return Err(NO_TOKEN.into());
                 }
 
                 return repo::share(ctx);
             }
             "edit-merge-request" => return self.edit_merge_request(ctx),
+            "checkout-source-cli" => return self.checkout_source_cli(ctx),
+            "rerequest-review" => { self.rerequest_review(ctx)?; return Ok(None); },
             "show-branch-merge-request" => {
                 self.ensure_view_owner(ctx)?;
                 self.update_branch(ctx, true)?;
@@ -1472,9 +1514,10 @@ impl Plugin for GitLab {
     }
 
     fn handle_events(&mut self, events: &[Event], ctx: &Invocation) {
+        if self.ensure_account().is_err() { return; }
         api::begin_budget();
         self.check_ci_files(events, ctx);
-        if !host::secret_is_set(api::TOKEN) {
+        if !host::secret_is_set(api::token()) {
             return;
         }
 
@@ -1500,7 +1543,7 @@ impl GitLab {
     }
 
     fn edit_merge_request(&mut self, ctx: &Invocation) -> Result<Option<String>, Error> {
-        if !host::secret_is_set(api::TOKEN) {
+        if !host::secret_is_set(api::token()) {
             return Err(NO_TOKEN.into());
         }
 
@@ -1517,11 +1560,28 @@ impl GitLab {
         Ok(message)
     }
 
+    fn rerequest_review(&mut self, ctx: &Invocation) -> Result<(), Error> {
+        if !host::secret_is_set(api::token()) {return Err(NO_TOKEN.into());}
+        let repo=gitlab_project(ctx)?;let iid=self.checked_selection(&repo,ctx)?;
+        let mr=self.checked_merge_request(&repo,ctx,iid)?;
+        if mr.state!="opened" || mr.reviewers.is_empty() {return Err("Select an open merge request with assigned reviewers.".into());}
+        let mut ids=std::collections::HashSet::new();
+        if mr.reviewers.iter().any(|user|user.id==0 || user.username.is_empty() || !ids.insert(user.id)) {return Err("Refresh the ambiguous reviewer list before requesting review.".into());}
+        let items:Vec<_>=mr.reviewers.iter().map(|user|PickItem::new(&user.id.to_string(),&format!("@{} — {}",user.username,user.name))).collect();
+        let Some(choice)=host::pick("Re-request review from an assigned reviewer",&items)? else {return Ok(());};
+        let reviewer=mr.reviewers.iter().find(|user|user.id.to_string()==choice).ok_or(Error::Stale)?;
+        if !host::confirm("Re-request review",&format!("Request another review from @{} for {} !{iid}?",reviewer.username,repo.path))? {return Ok(());}
+        let current=self.checked_merge_request(&repo,ctx,iid)?;
+        if current.state!="opened" || current.sha!=mr.sha || !current.reviewers.iter().any(|user|user.id==reviewer.id&&user.username==reviewer.username) {return Err(Error::Stale);}
+        api::Project(&repo.path).rerequest_review(iid,reviewer.id)?;
+        self.loaded=None;self.reload_merge_request(iid);self.status=Some(format!("Review re-requested from @{}.",reviewer.username));refresh_mr_view(DETAILS);Ok(())
+    }
+
     fn edit_context_attribute(&mut self, ctx: &Invocation, attribute: &str) -> Result<(), Error> {
         if !attributes::ATTRIBUTES.iter().any(|(key, _)| *key == attribute) {
             return Err(Error::NotFound(format!("attribute {attribute}")));
         }
-        if !host::secret_is_set(api::TOKEN) {
+        if !host::secret_is_set(api::token()) {
             return Err(NO_TOKEN.into());
         }
         let repo = gitlab_project(ctx)?;
@@ -1592,7 +1652,7 @@ impl GitLab {
 
     /// Opens a registered exact-head checkout without fetching, adding or switching branches.
     fn open_existing_worktree(&mut self, ctx: &Invocation) -> Result<Option<String>, Error> {
-        if !host::secret_is_set(api::TOKEN) {
+        if !host::secret_is_set(api::token()) {
             return Err(NO_TOKEN.into());
         }
         let repo = gitlab_project(ctx)?;
@@ -1646,7 +1706,7 @@ impl GitLab {
     }
 
     fn open_worktree(&mut self, ctx: &Invocation) -> Result<Option<String>, Error> {
-        if !host::secret_is_set(api::TOKEN) {
+        if !host::secret_is_set(api::token()) {
             return Err(NO_TOKEN.into());
         }
 
@@ -1673,7 +1733,7 @@ impl GitLab {
     }
 
     fn update_merge_request_branch(&mut self, ctx: &Invocation) -> Result<Option<String>, Error> {
-        if !host::secret_is_set(api::TOKEN) {
+        if !host::secret_is_set(api::token()) {
             return Err(NO_TOKEN.into());
         }
 
@@ -1705,7 +1765,7 @@ impl GitLab {
     }
 
     fn create_merge_request(&mut self, ctx: &Invocation) -> Result<Option<String>, Error> {
-        if !host::secret_is_set(api::TOKEN) {
+        if !host::secret_is_set(api::token()) {
             return Err(NO_TOKEN.into());
         }
 
@@ -1921,6 +1981,7 @@ impl GitLab {
         Ok(View::new(Body::Tree(items))
             .button(retry.icon("rerun"))
             .button(Button::new(&self.pipeline_button_key(ctx, "open-job-trace-snapshot")?,"Open Job Trace Snapshot").icon("file").enabled(self.trace_transport&&job.is_some()))
+            .button(Button::new(&self.pipeline_button_key(ctx, "follow-job-log")?, "Follow Job Log (glab)").icon("console").enabled(job.is_some()))
             .button(Button::new(&self.pipeline_button_key(ctx, "cancel")?, &cancel).icon("stop").enabled(cancellable))
             .button(Button::new(&self.pipeline_button_key(ctx, "browser")?, "Open on GitLab").icon("external-link").enabled(pipeline.is_some()))
             .button(refresh)
@@ -1977,11 +2038,11 @@ impl GitLab {
         let event = if let ViewEvent::Button(key) = event {
             if let Some(payload) = key.strip_prefix("pipeline-action:").filter(|payload| payload.len() <= 2 * 1024 * 1024) {
                 let (_, _, _, _, kind): (String, Option<u64>, Option<u64>, Option<u64>, String) = serde_json::from_str(payload).map_err(|_| Error::Stale)?;
-                if !matches!(kind.as_str(), "retry" | "cancel" | "browser" | "open-job-trace-snapshot") || self.pipeline_button_key(ctx, &kind)? != key {
+                if !matches!(kind.as_str(), "retry" | "cancel" | "browser" | "open-job-trace-snapshot" | "follow-job-log") || self.pipeline_button_key(ctx, &kind)? != key {
                     return Err("This pipeline control belongs to another source row; refresh Pipelines.".into());
                 }
                 ViewEvent::Button(kind)
-            } else if matches!(key.as_str(), "retry" | "cancel" | "browser" | "open-job-trace-snapshot") {
+            } else if matches!(key.as_str(), "retry" | "cancel" | "browser" | "open-job-trace-snapshot" | "follow-job-log") {
                 return Ok(());
             } else { ViewEvent::Button(key) }
         } else { event };
@@ -2009,6 +2070,9 @@ impl GitLab {
             ViewEvent::Button(id) if id == "refresh" => {
                 self.pipelines = None;
                 self.pipeline_status = None;
+            }
+            ViewEvent::Button(id) if id == "follow-job-log" => {
+                return self.follow_job_log(ctx);
             }
             ViewEvent::Button(id) if id == "open-job-trace-snapshot" => {
                 let (pipeline,job)=self.pipeline_target();let (Some(pipeline),Some(job))=(pipeline,job) else{return Err("Select one listed pipeline job first.".into());};
@@ -2178,9 +2242,10 @@ impl Providers for GitLab {
 
 impl Views for GitLab {
     fn render(&mut self, view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
+        self.ensure_account()?;
         (|| -> Result<View, Error> {
             api::begin_budget();
-            if !host::secret_is_set(api::TOKEN) {
+            if !host::secret_is_set(api::token()) {
                 return Ok(View::message(NO_TOKEN).button(Button::new("new-token", "Create Access Token").icon("external-link")));
             }
 
@@ -2200,6 +2265,7 @@ impl Views for GitLab {
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {
+        self.ensure_account()?;
         if self.handle_content_action(view, &event, ctx)? {
             return Ok(());
         }

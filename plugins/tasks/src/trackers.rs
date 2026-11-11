@@ -30,7 +30,11 @@ pub struct Tracker {
     fetch: fn(&Tracker, &Scope) -> Result<Vec<Task>, Error>,
 }
 
-const TRACKERS: [Tracker; 6] = [
+const TRACKERS: [Tracker; 10] = [
+    Tracker { id: "redmine", name: "Redmine (local credential bridge)", secrets: &[], headers: &[], fetch: |_,scope| crate::self_hosted::search(scope,"redmine") },
+    Tracker { id: "mantis", name: "MantisBT (local credential bridge)", secrets: &[], headers: &[], fetch: |_,scope| crate::self_hosted::search(scope,"mantis") },
+    Tracker { id: "fogbugz", name: "FogBugz (local credential bridge)", secrets: &[], headers: &[], fetch: |_,scope| crate::fogbugz::search(scope) },
+    Tracker { id: "lighthouse", name: "Lighthouse", secrets: &["lighthouse-token"], headers: &[("X-LighthouseToken", "{{secret:lighthouse-token}}")], fetch: lighthouse },
     Tracker {
         id: "github",
         name: "GitHub",
@@ -91,6 +95,8 @@ pub fn fetch_all(scope: &Scope) -> Fetched {
     let mut fetched = Fetched::default();
 
     for tracker in &TRACKERS {
+        // Approved external credential bridges run only inside explicit Search Issues.
+        if matches!(tracker.id,"fogbugz"|"redmine"|"mantis") { continue; }
         if !tracker.secrets.iter().all(|s| host::secret_is_set(s)) {
             continue;
         }
@@ -122,7 +128,8 @@ pub fn name(task: &Task) -> &str {
 
 /// The Close Task form offers "Update issue state" for these.
 pub fn can_update_state(task: &Task) -> bool {
-    matches!(task.tracker.as_deref(), Some("github" | "gitlab" | "forgejo" | "youtrack" | "jira"))
+    if matches!(task.tracker.as_deref(),Some("redmine"|"mantis")) {return crate::self_hosted::identity(task) && task.self_hosted.as_ref().is_some_and(|p|p.can_close) && !task.closed;}
+    (task.tracker.as_deref()==Some("fogbugz") && crate::fogbugz::identity(task) && task.fogbugz.as_ref().is_some_and(|p| p.can_close) && !task.closed) || matches!(task.tracker.as_deref(), Some("github" | "gitlab" | "forgejo" | "youtrack" | "jira" | "lighthouse"))
 }
 
 pub fn can_post_time(task: &Task) -> bool {
@@ -131,9 +138,18 @@ pub fn can_post_time(task: &Task) -> bool {
 
 /// TaskRepository.setTaskState with the tracker's resolved state.
 pub fn close_issue(task: &Task) -> Result<(), Error> {
+    if matches!(task.tracker.as_deref(),Some("redmine"|"mantis")) {return crate::self_hosted::close(task);}
+    if task.tracker.as_deref()==Some("fogbugz") { return crate::fogbugz::close(task); }
     let (tracker, api) = issue_api(task)?;
 
     match tracker.id {
+        "lighthouse" => {
+            let site=site("lighthouseHost","Lighthouse")?;
+            let project=setting("lighthouseProject").and_then(|s|s.parse::<u64>().ok()).filter(|p|*p>0).ok_or("Configure Lighthouse project ID.")?;
+            let number=api.strip_prefix(&format!("https://{site}/projects/{project}/tickets/")).and_then(|s|s.strip_suffix(".xml")).and_then(|s|s.parse::<u64>().ok()).filter(|n|*n>0).ok_or("Invalid Lighthouse ticket number.")?;
+            if !cloud_host(&site,".lighthouseapp.com") || task.id!=lighthouse_id(&site,project,number) || api!=format!("https://{site}/projects/{project}/tickets/{number}.xml") || task.url.as_deref()!=Some(format!("https://{site}/projects/{project}/tickets/{number}").as_str()) {return Err(Error::Stale);}
+            lighthouse_request(tracker,"PUT",api,Some("<ticket><state>resolved</state></ticket>")).map(drop)
+        }
         "github" | "forgejo" => send(tracker, "PATCH", api, Some(json!({ "state": "closed" }))).map(drop),
         "gitlab" => send(tracker, "PUT", &format!("{api}?state_event=close"), None).map(drop),
         "youtrack" => {
@@ -188,6 +204,11 @@ fn repositories(scope: &Scope, tracker: &str, setting_key: &str, remote_host: &s
     setting(setting_key).or_else(|| remote_path(scope.remotes, remote_host)).into_iter().collect()
 }
 
+// Closed tracker hits are opt-in for explicit search only; periodic listings stay open-only.
+fn include_closed(scope: &Scope) -> bool {
+    scope.query.is_some() && host::setting_bool("searchClosedIssues") == Some(true)
+}
+
 fn github(tracker: &Tracker, scope: &Scope) -> Result<Vec<Task>, Error> {
     let repos = repositories(scope, "github", "githubRepository", "github.com");
 
@@ -195,7 +216,8 @@ fn github(tracker: &Tracker, scope: &Scope) -> Result<Vec<Task>, Error> {
         return Err("No github.com remote. Set the repository in Settings › Plugins › Tasks.".into());
     }
 
-    let mut query = format!("{} is:issue is:open", repos.iter().map(|r| format!("repo:{r}")).collect::<Vec<_>>().join(" "));
+    let mut query = format!("{} is:issue{}", repos.iter().map(|r| format!("repo:{r}")).collect::<Vec<_>>().join(" "),
+        if include_closed(scope) { "" } else { " is:open" });
 
     if host::setting_bool("githubAssignedOnly") == Some(true) {
         query.push_str(" assignee:@me");
@@ -212,7 +234,7 @@ fn github(tracker: &Tracker, scope: &Scope) -> Result<Vec<Task>, Error> {
     let url = format!("https://api.github.com/search/issues?q={}&sort=updated&per_page={LIMIT}&page={}", encode(&query), scope.page);
     let first_name = repos[0].rsplit('/').next().unwrap_or(&repos[0]).to_owned();
 
-    Ok(items(&send(tracker, "GET", &url, None)?["items"], |issue| {
+    Ok(issue_items(&send(tracker, "GET", &url, None)?["items"], |issue| {
         let repo_name = issue["repository_url"].as_str().and_then(|u| u.rsplit('/').next()).unwrap_or(&first_name);
 
         Some(Task::issue(
@@ -236,9 +258,10 @@ fn gitlab(tracker: &Tracker, scope: &Scope) -> Result<Vec<Task>, Error> {
     let mut found = Vec::new();
 
     for base in bases {
-        let url = format!("{base}?state=opened&order_by=updated_at&per_page={LIMIT}{search}&page={}", scope.page);
+        let state = if include_closed(scope) { "all" } else { "opened" };
+        let url = format!("{base}?state={state}&order_by=updated_at&per_page={LIMIT}{search}&page={}", scope.page);
 
-        found.extend(items(&send(tracker, "GET", &url, None)?, |issue| {
+        found.extend(issue_items(&send(tracker, "GET", &url, None)?, |issue| {
             let id = match single {
                 true => format!("#{}", issue["iid"].as_u64()?),
                 false => issue["references"]["full"].as_str()?.to_owned(),
@@ -272,13 +295,14 @@ fn forgejo(tracker: &Tracker, scope: &Scope) -> Result<Vec<Task>, Error> {
     let mut found = Vec::new();
 
     for repo in &repos {
+        let state = if include_closed(scope) { "all" } else { "open" };
         let url = format!(
-            "https://codeberg.org/api/v1/repos/{repo}/issues?type=issues&state=open&sort=updated&limit={LIMIT}{search}&page={}",
+            "https://codeberg.org/api/v1/repos/{repo}/issues?type=issues&state={state}&sort=updated&limit={LIMIT}{search}&page={}",
             scope.page
         );
         let prefix = if repos.len() > 1 { repo.as_str() } else { "" };
 
-        found.extend(items(&send(tracker, "GET", &url, None)?, |issue| {
+        found.extend(issue_items(&send(tracker, "GET", &url, None)?, |issue| {
             Some(Task::issue(
                 "forgejo",
                 &format!("{prefix}#{}", issue["number"].as_u64()?),
@@ -296,12 +320,12 @@ fn youtrack(tracker: &Tracker, scope: &Scope) -> Result<Vec<Task>, Error> {
     let site = site("youtrackHost", "YouTrack")?;
     let query = scope.query.map(str::to_owned).or_else(|| setting("youtrackQuery")).unwrap_or_default();
     let url = format!(
-        "https://{site}/api/issues?query={}&fields=idReadable,summary&$top={LIMIT}&$skip={}",
+        "https://{site}/api/issues?query={}&fields=idReadable,summary,description&$top={LIMIT}&$skip={}",
         encode(&query),
         (scope.page.saturating_sub(1)) * LIMIT
     );
 
-    Ok(items(&send(tracker, "GET", &url, None)?, |issue| {
+    Ok(issue_items(&send(tracker, "GET", &url, None)?, |issue| {
         let id = issue["idReadable"].as_str()?;
 
         Some(Task::issue(
@@ -330,7 +354,7 @@ fn jira_page(tracker: &Tracker, scope: &Scope, cursor: Option<&str>) -> Result<S
         None => setting("jiraQuery").unwrap_or_default(),
     };
     let mut url = format!(
-        "https://{site}/rest/api/3/search/jql?jql={}&maxResults={LIMIT}&fields=summary",
+        "https://{site}/rest/api/3/search/jql?jql={}&maxResults={LIMIT}&fields=summary,description",
         encode(&jql)
     );
 
@@ -362,7 +386,7 @@ fn jira_page(tracker: &Tracker, scope: &Scope, cursor: Option<&str>) -> Result<S
     {
         return Err("Inconsistent Jira pagination metadata.".into());
     }
-    let issues = items(&response["issues"], |issue| {
+    let issues = issue_items(&response["issues"], |issue| {
         let key = issue["key"].as_str()?;
 
         Some(Task::issue(
@@ -383,17 +407,17 @@ fn jira_page(tracker: &Tracker, scope: &Scope, cursor: Option<&str>) -> Result<S
 fn trello(tracker: &Tracker, scope: &Scope) -> Result<Vec<Task>, Error> {
     let (url, cards_at) = match scope.query {
         Some(text) => (
-            format!("https://api.trello.com/1/search?query={}&modelTypes=cards&cards_limit={LIMIT}&cards_page={}&card_fields=name,url,shortLink", encode(text),scope.page.saturating_sub(1)),
+            format!("https://api.trello.com/1/search?query={}&modelTypes=cards&cards_limit={LIMIT}&cards_page={}&card_fields=name,url,shortLink,desc", encode(text),scope.page.saturating_sub(1)),
             "cards",
         ),
-        None => ("https://api.trello.com/1/members/me/cards?filter=visible&fields=name,url,shortLink".to_owned(), ""),
+        None => ("https://api.trello.com/1/members/me/cards?filter=visible&fields=name,url,shortLink,desc".to_owned(), ""),
     };
     let response = send(tracker, "GET", &url, None)?;
     let cards = if cards_at.is_empty() { &response } else { &response[cards_at] };
 
     let raw=cards.as_array().ok_or("Trello response lacks a cards array.")?;
     if scope.query.is_some() && raw.len()>LIMIT as usize {return Err("Trello returned more than the requested page limit.".into());}
-    let parsed=items(cards, |card| {
+    let parsed=issue_items(cards, |card| {
         let id = card["id"].as_str()?;
 
         let mut task=Task::issue("trello",id,card["name"].as_str()?,card["url"].as_str()?,&format!("https://api.trello.com/1/cards/{id}"));
@@ -435,6 +459,51 @@ fn send(tracker: &Tracker, method: &str, url: &str, body: Option<Value>) -> Resu
     }
 
     serde_json::from_slice(&response.body).map_err(|e| format!("Unexpected response: {e}.").into())
+}
+
+// Issue descriptions are displayed only as plaintext; never execute tracker HTML/Markdown.
+fn issue_items(list: &Value, item: impl Fn(&Value) -> Option<Task>) -> Vec<Task> {
+    items(list, |raw| {
+        let mut task = item(raw)?;
+        let description = match task.tracker.as_deref() {
+            Some("github" | "forgejo") => &raw["body"],
+            Some("gitlab" | "youtrack") => &raw["description"],
+            Some("jira") => &raw["fields"]["description"],
+            Some("trello") => &raw["desc"],
+            _ => &Value::Null,
+        };
+        task.description = description_text(description);
+        Some(task)
+    })
+}
+fn description_text(value: &Value) -> String {
+    const LIMIT: usize = 32 * 1024 - 64;
+    fn append(out: &mut String, text: &str) {
+        for c in text.chars().filter(|c| *c == '\n' || *c == '\t' || !c.is_control()) {
+            if out.len() + c.len_utf8() > LIMIT { break; }
+            out.push(c);
+        }
+    }
+    fn visit(value: &Value, out: &mut String, depth: usize, budget: &mut usize) {
+        if depth > 32 { *budget = 0; return; }
+        if *budget == 0 || out.len() >= LIMIT { return; }
+        *budget -= 1;
+        match value["type"].as_str() {
+            Some("text") => if let Some(text) = value["text"].as_str() { append(out, text); },
+            Some("hardBreak") => append(out, "\n"),
+            _ => {},
+        }
+        if let Some(children) = value["content"].as_array() {
+            for child in children { visit(child, out, depth+1, budget); }
+        }
+        if matches!(value["type"].as_str(), Some("paragraph" | "heading" | "listItem" | "codeBlock")) && !out.ends_with('\n') { append(out, "\n"); }
+    }
+    let mut out = String::new();
+    let mut budget = 4096;
+    if let Some(text) = value.as_str() { append(&mut out, text); }
+    else if value["type"] == "doc" { visit(value, &mut out, 0, &mut budget); }
+    if out.len() >= LIMIT || budget == 0 || value.as_str().is_some_and(|s| s.len() > LIMIT) { out.push_str("\n[Description truncated]"); }
+    out.trim().to_owned()
 }
 
 fn items<T>(list: &Value, item: impl Fn(&Value) -> Option<T>) -> Vec<T> {
@@ -499,17 +568,26 @@ impl SearchTarget {
     pub fn paginated(&self) -> bool {
         matches!(
             self.tracker,
-            "github" | "gitlab" | "forgejo" | "youtrack" | "jira" | "trello"
+            "github" | "gitlab" | "forgejo" | "youtrack" | "jira" | "trello" | "lighthouse" | "redmine" | "mantis"
         )
     }
 }
 pub fn search_targets(scope: &Scope) -> Result<Vec<SearchTarget>, Error> {
     let mut targets = Vec::new();
+    let bridge_profiles=crate::self_hosted::profiles()?;
     for tracker in &TRACKERS {
+        if matches!(tracker.id,"redmine"|"mantis") {
+            for profile in bridge_profiles.iter().filter(|p|p.family==tracker.id) {
+                targets.push(SearchTarget {tracker:tracker.id,server:crate::self_hosted::server(&profile.base_url).ok_or(Error::Stale)?.into(),repository:Some(profile.base_url.clone()),label:format!("{} · {}",tracker.name,profile.base_url)});
+                if targets.len()>16 {return Err("Issue search supports at most16server/profile selections.".into());}
+            }
+            continue;
+        }
         if !tracker.secrets.iter().all(|secret| host::secret_is_set(secret)) {
             continue;
         }
         let (server, repos) = match tracker.id {
+            "fogbugz" => { let Some(server)=crate::fogbugz::configured_host() else {continue;}; (server,Vec::new()) },
             "github" => ("api.github.com".into(), repositories(scope, "github", "githubRepository", "github.com")),
             "gitlab" => ("gitlab.com".into(), repositories(scope, "gitlab", "gitlabProject", "gitlab.com")),
             "forgejo" => ("codeberg.org".into(), repositories(scope, "forgejo", "forgejoRepository", "codeberg.org")),
@@ -525,12 +603,18 @@ pub fn search_targets(scope: &Scope) -> Result<Vec<SearchTarget>, Error> {
                 };
                 (server, Vec::new())
             }
+            "lighthouse" => {
+                let Ok(server)=site("lighthouseHost","Lighthouse") else {continue;};
+                let Ok(project)=lighthouse_project(scope) else {continue;};
+                (server,vec![project.to_string()])
+            }
             "trello" => ("api.trello.com".into(), Vec::new()),
             _ => continue,
         };
         let allowed = match tracker.id {
             "youtrack" => cloud_host(&server, ".youtrack.cloud"),
             "jira" => cloud_host(&server, ".atlassian.net"),
+            "lighthouse" => cloud_host(&server,".lighthouseapp.com"),
             _ => true,
         };
         if !allowed {
@@ -571,12 +655,12 @@ fn cloud_host(host: &str, suffix: &str) -> bool {
 /// credential-bearing remote URLs. Presence of a secret is not its identity.
 pub fn search_signature(scope: &Scope) -> Result<String, Error> {
     let targets = search_targets(scope)?;
-    let settings = ["githubQuery", "youtrackQuery", "jiraQuery"].map(|key| setting(key).unwrap_or_default());
+    let settings = ["githubQuery", "youtrackQuery", "jiraQuery", "fogbugzProfile"].map(|key| setting(key).unwrap_or_default());
     if settings.iter().any(|value| value.len() > 4096) {
         return Err("Tracker query setting exceeds 4096 bytes.".into());
     }
     let identities: Vec<_> = targets.iter().map(|target| (target.tracker, &target.server, &target.repository)).collect();
-    Ok(json!([identities, settings, host::setting_bool("githubAssignedOnly")]).to_string())
+    Ok(json!([identities, settings, host::setting_bool("githubAssignedOnly"), host::setting_bool("searchClosedIssues"), crate::self_hosted::profiles()?]).to_string())
 }
 #[derive(Clone)]
 pub struct SearchPage {
@@ -672,6 +756,8 @@ pub fn search_page_cursor(
                 .is_some_and(|tail| !tail.is_empty() && tail.bytes().all(|b| b.is_ascii_digit()))
         };
         let endpoint = match target.tracker {
+            "redmine"|"mantis" => crate::self_hosted::identity(&issue) && issue.self_hosted.as_ref().is_some_and(|p|p.family==target.tracker&&Some(&p.base_url)==target.repository.as_ref()&&crate::self_hosted::server(&p.base_url)==Some(target.server.as_str())),
+            "fogbugz" => crate::fogbugz::identity(&issue) && issue.fogbugz.as_ref().is_some_and(|p| p.host==target.server),
             "github" => path.rsplit_once("/issues/").is_some_and(|(base, tail)| {
                 base.starts_with("repos/")
                     && !tail.is_empty()
@@ -700,6 +786,9 @@ pub fn search_page_cursor(
                         .bytes()
                         .all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b))
             }
+            "lighthouse" => target.repository.as_ref().and_then(|project|project.parse::<u64>().ok()).is_some_and(|project| {
+                path.strip_prefix(&format!("projects/{project}/tickets/")).and_then(|s|s.strip_suffix(".xml")).and_then(|s|s.parse::<u64>().ok()).filter(|n|*n>0).is_some_and(|number|issue.id==lighthouse_id(&target.server,project,number)&&path==format!("projects/{project}/tickets/{number}.xml")&&web==format!("https://{}/projects/{project}/tickets/{number}",target.server))
+            }),
             "trello" => {
                 path == format!("1/cards/{}", issue.id)
                     && issue
@@ -885,5 +974,189 @@ mod trello_page_contract_tests {
         for body in [serde_json::json!({}),serde_json::json!({"cards":[{"id":"broken"}]})] {
             h.on_fetch(move |_|Ok(openidea_plugin::HttpResponse{status:200,headers:vec![],body:body.to_string().into_bytes()}));assert!(search_page_cursor(&query,&target,1,None).is_err());
         }
+    }
+}
+
+#[cfg(test)]
+mod closed_search_tests {
+    use super::*;
+    use openidea_plugin::{mock::MockHost, HttpResponse};
+    #[test]
+    fn closed_issue_option_changes_explicit_queries_but_never_refresh() {
+        let host = MockHost::install().with_capabilities(&["secrets", "net:*"]);
+        for token in ["github-token", "gitlab-token", "forgejo-token"] { host.set_secret(token, "fixture"); }
+        host.on_fetch(|_| Ok(HttpResponse { status: 200, headers: vec![], body: b"[]".to_vec() }));
+        let repositories = BTreeMap::from([
+            ("github".into(), vec!["acme/tool".into()]),
+            ("gitlab".into(), vec!["acme/tool".into()]),
+            ("forgejo".into(), vec!["acme/tool".into()]),
+        ]);
+        let scope = Scope { remotes: &[], query: Some("bug"), page: 1, repositories: &repositories };
+        let signature = search_signature(&scope).unwrap();
+        host.set_setting("searchClosedIssues", "true");
+        assert_ne!(signature, search_signature(&scope).unwrap(), "cached pages must not cross closed-filter changes");
+        for target in search_targets(&scope).unwrap() { search_page(&scope, &target, 1).unwrap(); }
+        let requests = host.requests();
+        assert!(requests.iter().any(|r| r.url.contains("gitlab.com") && r.url.contains("state=all")));
+        assert!(requests.iter().any(|r| r.url.contains("codeberg.org") && r.url.contains("state=all")));
+        assert!(requests.iter().any(|r| r.url.contains("api.github.com") && !r.url.contains("is%3Aopen")));
+        let before = requests.len();
+        let listing = Scope { query: None, ..scope };
+        fetch_all(&listing);
+        let requests = host.requests();
+        let refresh = &requests[before..];
+        assert!(refresh.iter().any(|r| r.url.contains("gitlab.com") && r.url.contains("state=opened")));
+        assert!(refresh.iter().any(|r| r.url.contains("codeberg.org") && r.url.contains("state=open")));
+        assert!(refresh.iter().any(|r| r.url.contains("api.github.com") && r.url.contains("is%3Aopen")));
+    }
+}
+
+#[cfg(test)]
+mod issue_description_tests {
+    use super::*;
+    use openidea_plugin::{mock::MockHost, HttpResponse};
+    #[test]
+    fn tracker_search_retains_bounded_plaintext_description() {
+        let h = MockHost::install().with_capabilities(&["secrets", "net:api.github.com"]);
+        h.set_secret("github-token", "fixture");
+        h.set_setting("githubRepository", "\"acme/tool\"");
+        h.on_fetch(|_| Ok(HttpResponse { status: 200, headers: vec![], body: br#"{"items":[{"number":1,"title":"Bug","body":"Trace\n at example.App.main(App.java:7)","html_url":"https://github.com/acme/tool/issues/1","url":"https://api.github.com/repos/acme/tool/issues/1"}]}"#.to_vec() }));
+        let issues = fetch_all(&Scope { remotes: &[], query: None, page: 1, repositories: &BTreeMap::new() });
+        assert_eq!(issues.issues[0].description, "Trace\n at example.App.main(App.java:7)");
+    }
+    #[test]
+    fn jira_document_text_is_flattened_without_link_markup_or_execution() {
+        let doc = json!({"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"First"},{"type":"hardBreak"},{"type":"text","text":"line","marks":[{"type":"link","attrs":{"href":"javascript:ignored"}}]}]},{"type":"paragraph","content":[{"type":"text","text":"Next"}]}]});
+        assert_eq!(description_text(&doc), "First\nline\nNext");
+        let text = description_text(&Value::String("é".repeat(40_000)));
+        assert!(text.len() <= 32 * 1024 && text.ends_with("[Description truncated]"));
+        assert_eq!(description_text(&Value::String("safe\0text".into())), "safetext");
+    }
+}
+
+pub(crate) fn lighthouse_id(site: &str, project: u64, number: u64) -> String {
+    format!("LH-{}-{project}-{number}",site.split('.').next().unwrap_or_default())
+}
+fn lighthouse_project(scope: &Scope) -> Result<u64, Error> {
+    let projects = repositories(scope, "lighthouse", "lighthouseProject", "lighthouseapp.com");
+    let [project] = projects.as_slice() else { return Err("Configure one numeric Lighthouse project ID.".into()); };
+    project.parse::<u64>().ok().filter(|id|*id>0 && id.to_string()==*project)
+        .ok_or_else(|| "Use a positive numeric Lighthouse project ID.".into())
+}
+fn lighthouse_request(tracker: &Tracker, method: &str, url: &str, body: Option<&str>) -> Result<String, Error> {
+    let mut request=HttpRequest{method:method.into(),url:url.into(),..HttpRequest::default()};
+    for (name,value) in tracker.headers { request=request.header(name,value); }
+    request=request.header("Accept","application/xml");
+    if let Some(body)=body { request=request.header("Content-Type","application/xml");request.body=Some(body.as_bytes().to_vec()); }
+    let response=host::fetch(&request)?;
+    if response.body.len()>1<<20 {return Err("Lighthouse response exceeds 1 MiB.".into());}
+    if !(200..300).contains(&response.status) {return Err(format!("Lighthouse HTTP {}. Check token, account and project.",response.status).into());}
+    String::from_utf8(response.body).map_err(|_| "Lighthouse returned non-UTF8 XML.".into())
+}
+fn lighthouse(tracker: &Tracker, scope: &Scope) -> Result<Vec<Task>, Error> {
+    let site=site("lighthouseHost","Lighthouse")?;
+    if !cloud_host(&site,".lighthouseapp.com") {return Err("Use a Lighthouse Cloud tenant host.".into());}
+    let project=lighthouse_project(scope)?;
+    let query=format!("{}sort:updated {}",if include_closed(scope){""}else{"state:open "},scope.query.unwrap_or_default());
+    let url=format!("https://{site}/projects/{project}/tickets.xml?q={}&limit={LIMIT}&page={}",encode(&query),scope.page);
+    parse_lighthouse(&lighthouse_request(tracker,"GET",&url,None)?,&site,project)
+}
+fn parse_lighthouse(xml: &str, site: &str, project: u64) -> Result<Vec<Task>, Error> {
+    use quick_xml::{Reader, events::Event};
+    if xml.len()>1<<20 {return Err("Lighthouse XML exceeds 1 MiB.".into());}
+    let mut reader=Reader::from_str(xml);
+    let mut stack:Vec<String>=Vec::new();
+    let mut fields:BTreeMap<String,String>=BTreeMap::new();
+    let mut out=Vec::new();
+    let mut root=false;
+    loop {
+        match reader.read_event().map_err(|_|"Malformed Lighthouse XML.")? {
+            Event::Start(e) => {
+                let name=e.name().as_ref().to_owned();
+                if stack.is_empty() {if root||name!="tickets" {return Err("Lighthouse response is not a tickets list.".into());}root=true;}
+                if stack.len()>=16 {return Err("Lighthouse XML nesting exceeds its limit.".into());}
+                if stack.len()==1&&name=="ticket" {fields.clear();}
+                if stack.len()==2&&stack[1]=="ticket"&&matches!(name.as_str(),"number"|"project-id"|"title"|"body") {
+                    if fields.insert(name.clone(),String::new()).is_some() {return Err("Lighthouse returned duplicate ticket fields.".into());}
+                }
+                stack.push(name);
+            }
+            Event::End(e) => {
+                let name=e.name().as_ref().to_owned();
+                if stack.last().map(String::as_str)!=Some(name.as_str()) {return Err("Mismatched Lighthouse XML.".into());}
+                if stack.len()==2&&name=="ticket" {
+                    if out.len()>=LIMIT as usize {return Err("Lighthouse exceeded the requested page limit.".into());}
+                    let number=fields.get("number").and_then(|n|n.parse::<u64>().ok()).filter(|n|*n>0).ok_or("Lighthouse ticket has no valid number.")?;
+                    if fields.get("project-id").and_then(|n|n.parse::<u64>().ok())!=Some(project) {return Err("Lighthouse ticket belongs to another project.".into());}
+                    let title=fields.get("title").filter(|t|!t.is_empty()&&t.len()<=4096&&!t.chars().any(char::is_control)).ok_or("Lighthouse ticket has an invalid title.")?;
+                    let mut task=Task::issue("lighthouse",&lighthouse_id(site,project,number),title,&format!("https://{site}/projects/{project}/tickets/{number}"),&format!("https://{site}/projects/{project}/tickets/{number}.xml"));
+                    task.description=description_text(&Value::String(fields.get("body").cloned().unwrap_or_default()));out.push(task);
+                }
+                stack.pop();
+            }
+            Event::Text(text) => {
+                if stack.is_empty() && !text.as_ref().trim().is_empty() {return Err("Text outside Lighthouse XML root.".into());}
+                if stack.len()==3&&stack[1]=="ticket" {
+                    if let Some(field)=fields.get_mut(&stack[2]) {
+                        let text=text.xml10_content();
+                        field.push_str(&quick_xml::escape::unescape(&text).map_err(|_|"Invalid Lighthouse entity.")?);
+                    }
+                }
+            }
+            Event::GeneralRef(reference) => {
+                let encoded=format!("&{};",reference.as_ref());
+                let decoded=quick_xml::escape::unescape(&encoded).map_err(|_|"Invalid Lighthouse entity reference.")?;
+                if stack.len()==3&&stack[1]=="ticket" {if let Some(field)=fields.get_mut(&stack[2]) {field.push_str(&decoded);}}
+            }
+            Event::CData(text) => if stack.len()==3&&stack[1]=="ticket" {if let Some(field)=fields.get_mut(&stack[2]) {field.push_str(&text.xml10_content());}},
+            Event::DocType(_)=>return Err("Lighthouse XML DTDs are unsupported.".into()),
+            Event::Eof=>break,
+            Event::Empty(e) => {if stack.is_empty() {if root||e.name().as_ref()!="tickets" {return Err("Lighthouse response is not a tickets list.".into());}root=true;} else if stack.len()==1&&e.name().as_ref()=="ticket" {return Err("Lighthouse returned an empty ticket record.".into());}},
+            _=>{},
+        }
+    }
+    if !root||!stack.is_empty() {return Err("Incomplete Lighthouse XML.".into());}
+    Ok(out)
+}
+
+#[cfg(test)]
+mod lighthouse_tests {
+    use super::*;
+    use openidea_plugin::{mock::MockHost,HttpResponse};
+    const XML:&str=r#"<tickets><ticket><number type="integer">7</number><project-id type="integer">42</project-id><title>Fix &amp; test</title><body><![CDATA[Trace <raw>]]></body><versions><ticket><title>old version</title></ticket></versions></ticket></tickets>"#;
+    #[test]
+    fn cloud_search_uses_header_secret_scoped_project_and_bounded_pagination() {
+        let h=MockHost::install().with_capabilities(&["secrets","net:acme.lighthouseapp.com"]);
+        h.set_secret("lighthouse-token","fixture");h.set_setting("lighthouseHost","\"acme.lighthouseapp.com\"");h.set_setting("lighthouseProject","\"42\"");
+        h.on_fetch(|_|Ok(HttpResponse{status:200,headers:vec![],body:XML.as_bytes().to_vec()}));
+        let repositories=BTreeMap::new();let scope=Scope{remotes:&[],repositories:&repositories,query:Some("bug & fix"),page:1};
+        let target=search_targets(&scope).unwrap().remove(0);
+        let results=search_page(&scope,&target,2).unwrap();
+        assert_eq!(results[0].summary,"Fix & test");assert_eq!(results[0].description,"Trace <raw>");
+        assert_eq!(results[0].api.as_deref(),Some("https://acme.lighthouseapp.com/projects/42/tickets/7.xml"));
+        let request=&h.requests()[0];assert!(request.url.contains("page=2")&&request.url.contains("limit=50")&&request.url.contains("bug%20%26%20fix"));
+        assert!(request.headers.iter().any(|(key,value)|key=="X-LighthouseToken"&&value=="fixture"));
+        assert!(!request.url.contains("fixture"));
+        h.set_setting("lighthouseHost","\"acme.lighthouseapp.com.evil.example\"");
+        assert!(search_targets(&scope).unwrap().is_empty());
+    }
+    #[test]
+    fn incomplete_or_foreign_xml_never_becomes_a_partial_ticket_page() {
+        assert!(parse_lighthouse(&XML.replace("<project-id type=\"integer\">42","<project-id type=\"integer\">43"),"acme.lighthouseapp.com",42).is_err());
+        for xml in ["<!DOCTYPE tickets><tickets/>","<tickets><ticket/></tickets>","<tickets><ticket><number>7</number></ticket></tickets>","<tickets>","<error>denied</error>"] {
+            assert!(parse_lighthouse(xml,"acme.lighthouseapp.com",42).is_err(),"{xml}");
+        }
+        assert!(parse_lighthouse("<tickets/>","acme.lighthouseapp.com",42).unwrap().is_empty());
+    }
+    #[test]
+    fn resolve_uses_exact_current_tenant_and_ticket_identity() {
+        let h=MockHost::install().with_capabilities(&["secrets","net:acme.lighthouseapp.com"]);
+        h.set_secret("lighthouse-token","fixture");h.set_setting("lighthouseHost","\"acme.lighthouseapp.com\"");h.set_setting("lighthouseProject","\"42\"");
+        h.on_fetch(|_|Ok(HttpResponse{status:200,headers:vec![],body:Vec::new()}));
+        let task=Task::issue("lighthouse","LH-acme-42-7","Issue","https://acme.lighthouseapp.com/projects/42/tickets/7","https://acme.lighthouseapp.com/projects/42/tickets/7.xml");
+        close_issue(&task).unwrap();assert_eq!(h.requests()[0].method,"PUT");
+        assert_eq!(h.requests()[0].body.as_deref(),Some(b"<ticket><state>resolved</state></ticket>".as_slice()));
+        let before=h.requests().len();h.set_setting("lighthouseProject","\"43\"");
+        assert!(close_issue(&task).is_err());assert_eq!(h.requests().len(),before);
     }
 }

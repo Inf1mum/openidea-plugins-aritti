@@ -401,3 +401,65 @@ native acceptance.
 ## Unreleased follow-up
 
 Use **Spring WS: Find Observed QName Occurrences** on a known `@PayloadRoot` local name or XSD/WSDL element name. It lists bounded, namespace-matched observations in the current project and rechecks the selected source before opening it. This is read-only navigation, separate from global Find Usages/Rename.
+
+### Interceptor bean reference assistance
+
+Within a closed Spring Beans XML document, `beans:ref bean="…"` children of
+`<sws:interceptors>` and its `<sws:payloadRoot>` / `<sws:soapAction>` selectors
+receive same-document bean-id completion and definition navigation. Namespace
+ownership, duplicate-id suppression and context import/profile guards match the
+existing marshaller reference behavior. This identifies written local bean ids;
+it does not infer interceptor types or the effective runtime application context.
+
+### XPath namespace and root-element assistance
+
+Explicit Java/Kotlin `@Namespace` and `@Namespaces` URI values navigate and
+complete against the warm, owned schema inventory. Direct annotations override
+container entries; method bindings override matching class prefixes while
+preserving other class bindings, following Spring's `NamespaceUtils` order.
+Adjacent same-package `package-info.java` bindings are loaded through a watched,
+project-owned fresh cache. Providers stay quiet when that authority is cold,
+denied, mismatched or removed; explicit class/method bindings retain their own
+source authority. The occurrence command reads sibling package authority afresh
+and rechecks selected source and target identities after its picker.
+
+A plain `@XPathParam("/p:Request/…")` absolute root links/completes its local name
+against global schema elements in the proved namespace. Descendant searches,
+predicates, dynamic expressions and unknown prefixes remain quiet. The bounded
+read-only QName occurrence command includes these roots and explicit XML
+`<sws:interceptors><sws:payloadRoot namespaceUri="…" localPart="…">` selectors.
+It does not evaluate XPath or claim complete cross-project Rename authority.
+
+### XML contracts and source type assistance
+
+The current Spring-WS 2.0 vocabulary receives current-document required-attribute
+and schema-child checks, plus canonical SOAP-binding boolean completion/checks.
+Foreign owners and explicitly older/custom schema selections stay quiet. These
+checks work independently of a warmed filesystem inventory.
+
+`annotation-driven` marshaller/unmarshaller references include local OXM
+`jaxb2-marshaller` IDs. CXF JAX-WS bus references and explicit `#implementor` /
+`#serviceBean` IDs navigate/complete within the same admitted XML context; edits
+replace the ID portion while preserving `#`.
+
+OXM bound-class names and CXF implementation/service class attributes navigate
+and complete against a fresh watched project-source type inventory. OXM and
+implementation-only roles omit interfaces; serviceClass admits declared source
+interfaces. Duplicate names, foreign project facts, missing watch authority and
+cold caches withhold targets. This is source navigation, not effective runtime
+assignability or complete library classpath resolution. JAXB declarations also
+check for required bound-class names and incompatible/missing binding sources.
+
+XPath namespace-prefix assistance covers ordinary steps, descendant selectors,
+attributes and predicates. It navigates to physical package/class/method prefix
+declarations and skips string contents and XPath axes. Child local names are not
+presented as global schema element references.
+
+Use **Spring WS: Refresh Source Models** to warm or continue the bounded XML
+type/package/schema inventories explicitly. Incomplete or capped results remain
+partial; editor completion does not start a new source scan.
+
+JAXB `context-path` values also navigate to observed project package declarations
+and complete one colon-separated package component at a time. The replacement
+keeps neighboring components and separators intact. Source packages do not prove
+that JAXB `ObjectFactory`/`jaxb.index` resources are present on the runtime classpath.

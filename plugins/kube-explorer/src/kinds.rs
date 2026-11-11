@@ -300,6 +300,16 @@ fn value_range(value: &Value) -> (usize, usize) {
     (value.start, value.end)
 }
 
+/// Current conservative kind-table keys, shared by JSON completion.
+pub(crate) fn completion_keys(api:&str,kind:&str,spec:bool)->Vec<&'static str> {
+    let (group,version)=api.rsplit_once('/').unwrap_or(("",api));
+    if version!="v1"{return vec![];}
+    let Some(entry)=find_kind(group,kind) else{return vec![];};
+    if spec{return entry.spec.unwrap_or_default().to_vec();}
+    let mut keys=vec!["apiVersion","kind","metadata"];
+    keys.extend(entry.top);keys
+}
+
 pub fn check(doc: &Doc, text: &str) -> Vec<Issue> {
     let (Some(api_version), Some(kind)) = (&doc.api_version, &doc.kind) else { return Vec::new() };
     let (group, version) = api_version.text.rsplit_once('/').unwrap_or(("", api_version.text.as_str()));

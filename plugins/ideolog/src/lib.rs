@@ -6,6 +6,9 @@
 //! tag pycharm/263.7307.101).
 
 mod log;
+mod live_tail;
+mod folding;
+mod jvm;
 mod pattern_editor;
 mod patterns;
 mod semantic;
@@ -34,6 +37,8 @@ const MAX_DOCUMENT_BYTES: usize = 512 << 10;
 pub struct Ideolog {
     pattern_editor: pattern_editor::Editor,
     viewer: viewer::Viewer,
+    jvm: jvm::Adapter,
+    tail: live_tail::LiveTail,
     /// The `customPatterns` setting it was built from, and the config.
     config: Option<(String, Rc<Config>)>,
 }
@@ -89,16 +94,21 @@ impl Plugin for Ideolog {
         Ok(())
     }
     fn deactivate(&mut self) {
+        self.stop_tail();
         let _ = host::clear_decorations(semantic::DECORATION_SET);
     }
     fn handle_events(&mut self, events: &[HostEvent], ctx: &Invocation) {
-        if !events.is_empty() { let _ = host::clear_decorations(semantic::DECORATION_SET); }
+        if !events.is_empty() { self.tail_lifecycle(ctx); self.invalidate_jvm_tokens(); let _ = host::clear_decorations(semantic::DECORATION_SET); }
         if events.iter().any(|e| matches!(e, HostEvent::EditorFocused(_) | HostEvent::FileOpened(_))) {
             self.show_format(ctx);
         }
     }
 
     fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
+        if id == "extend-log-selection" { self.extend_log_selection(ctx)?; return Ok(None); }
+        if id == "live-tail" { host::reveal_view(live_tail::VIEW)?; return Ok(None); }
+        if id == "stop-tail" { self.stop_tail(); return Ok(None); }
+        if id == "capture-jvm" { self.capture_jvm(ctx)?; return Ok(None); }
         if id == "mark-log-source" { semantic::mark(self, ctx)?; return Ok(None); }
         if id == "clear-log-source" { host::clear_decorations(semantic::DECORATION_SET)?; return Ok(None); }
         if id == "capture-log" {self.capture_log(ctx)?;return Ok(None);}
@@ -200,6 +210,8 @@ impl Views for Ideolog {
     fn render(&mut self, view: &str, _viewport: Option<Viewport>, _ctx: &Invocation) -> Result<View, Error> {
         (|| -> Result<View, Error> {
             match view {
+                live_tail::VIEW => Ok(self.render_tail()),
+                "jvm-observations" => self.render_jvm(_ctx),
                 viewer::VIEW => self.render_log(_viewport,_ctx),
                 patterns::VIEW => Ok(patterns::render(&self.pattern_editor)),
                 _ => Err(Error::NotFound(view.into())),
@@ -209,6 +221,8 @@ impl Views for Ideolog {
 
     fn handle(&mut self, view: &str, event: ViewEvent, _ctx: &Invocation) -> Result<(), Error> {
         if ui_kit::web::handle(self, view, &event, _ctx, include_str!("ui_config.json"))? { return Ok(()); }
+        if view==live_tail::VIEW { if let ViewEvent::Message(raw)=event { return self.tail_message(&raw,_ctx); } return Ok(()); }
+        if view=="jvm-observations" { return self.handle_jvm(event,_ctx); }
         if view==viewer::VIEW {return self.handle_log(event,_ctx);}
         let result = match view {
             patterns::VIEW => patterns::handle(&mut self.pattern_editor, event),
@@ -230,7 +244,7 @@ fn project_of(path: &str) -> Option<Project> {
     Some(project)
 }
 
-openidea_plugin::register_plugin!(Ideolog, providers, views, syntax, semantic_tokens);
+openidea_plugin::register_plugin!(Ideolog, providers, views, syntax, semantic_tokens, language_features);
 
 /// The document up to the last line break within [`MAX_DOCUMENT_BYTES`].
 fn head(text: &str) -> &str {

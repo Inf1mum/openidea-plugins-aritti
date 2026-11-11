@@ -49,7 +49,7 @@ impl Catalogue {
                             id: id.to_owned(),
                             name: d["name"].as_str().unwrap_or(id).to_owned(),
                             description: text(&d["description"]),
-                            range: d["compatibilityRange"].as_str().map(str::to_owned),
+                            range: crate::compatibility::declared_range(d).map(str::to_owned),
                         })
                     })
                     .collect(),
@@ -187,7 +187,7 @@ impl Launcher {
         };
         let unverified=|d:&Dependency|d.range.as_ref().is_some_and(|r|boot.as_ref().is_none_or(|b|crate::compatibility::allows(b,r).is_none()));
         let matches =
-            |d: &Dependency| needle.as_ref().is_none_or(|n| d.name.to_lowercase().contains(n) || d.description.to_lowercase().contains(n));
+            |d: &Dependency| needle.as_ref().is_none_or(|n| d.id.to_lowercase().contains(n) || d.name.to_lowercase().contains(n) || d.description.to_lowercase().contains(n));
 
         let mut items = vec![TreeItem::new(SELECTED, &format!("Selected ({})", chosen.len())).icon("check")];
         for id in &chosen {
@@ -316,6 +316,41 @@ mod strict_range_tests {
     use super::*;
     use openidea_plugin::{mock::MockHost,views::Body};
     use serde_json::json;
+    #[test]
+    fn current_client_version_range_filters_and_blocks_generation_for_excluded_selection() {
+        let host = MockHost::install().with_capabilities(&["storage"]);
+        let mut launcher = Launcher::default();
+        let _ = launcher.changed();
+        launcher.metadata = Some(json!({"bootVersion":{"default":"4.1.2","values":[{"id":"4.1.2"}]},"dependencies":{"values":[{"name":"Tools","values":[
+            {"id":"modern","name":"Modern","versionRange":"[4.0.0,4.3.0-M1)"},
+            {"id":"legacy","name":"Legacy","versionRange":"[3.0.0,4.0.0)"}
+        ]}]}}));
+        launcher.set("dependencies", "legacy");
+        let (view, _) = launcher.dependencies_tree();
+        let Body::Tree(rows) = view.body else { panic!("tree") };
+        assert!(rows.iter().any(|row| row.key == "dep:modern"));
+        assert!(!rows.iter().any(|row| row.key == "dep:legacy"));
+        assert!(rows.iter().any(|row| row.key == "sel:legacy" && row.detail.as_deref().unwrap_or_default().contains("not compatible")));
+        assert!(launcher.compatibility_problem().unwrap().contains("legacy"));
+        assert!(host.requests().is_empty());
+    }
+    #[test]
+    fn catalogue_search_matches_dependency_ids_not_just_display_text() {
+        let host = MockHost::install().with_capabilities(&["storage"]);
+        let mut launcher = Launcher::default();
+        let _ = launcher.changed();
+        launcher.metadata = Some(json!({"bootVersion":{"default":"3.5.0"},"dependencies":{"values":[{"name":"Web","values":[
+            {"id":"data-jpa","name":"Persistence","description":"Relational storage"},
+            {"id":"web","name":"Spring Web","description":"MVC"}
+        ]}]}}));
+        launcher.dependencies.search = Some("DATA-JPA".into());
+        let (view, status) = launcher.dependencies_tree();
+        let Body::Tree(rows) = view.body else { panic!("tree") };
+        assert!(rows.iter().any(|row| row.key == "dep:data-jpa"));
+        assert!(!rows.iter().any(|row| row.key == "dep:web"));
+        assert!(status.contains("1 matches"));
+        assert!(host.requests().is_empty());
+    }
     #[test]
     fn version_parse_never_silently_keeps_numeric_prefix_or_overflowed_qualifier() {
         for version in ["3.5.bad","3.18446744073709551616.0","3.5.0-RC18446744073709551616","3.5.0-M","3.5.0-custom","+3.5.0"] {assert_eq!(compare_versions(version,"3.5.0"),None,"{version}");assert_eq!(crate::compatibility::allows(version,"[3.0.0,4.0.0)"),None);}

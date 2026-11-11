@@ -13,7 +13,7 @@ and `GitTaskHandler` from `plugins/git4idea`). Apache-2.0, © JetBrains s.r.o. (
 - Status bar: the active task. Click it to copy its commit message (`commitMessageFormat`, default `{id} {summary}`).
 - Commands: Close Active Task (⌥⇧W, with the Close form's last choices), Open Active Task in Browser (⌥⇧B),
   Copy Commit Message, Update Issues.
-- Trackers: GitHub, gitlab.com, codeberg.org, YouTrack Cloud, Jira Cloud and Trello. Each one is used once its token
+- Trackers: GitHub, gitlab.com, codeberg.org, YouTrack Cloud, Jira Cloud, Trello and Lighthouse Cloud. Each one is used once its token
   is set in Settings › Plugins › Tasks, and issues are updated every 20 minutes. Closing a task can resolve GitHub,
   GitLab, Codeberg, YouTrack and Jira issues; work time can be posted to YouTrack and Jira.
 
@@ -68,7 +68,7 @@ response bodies to 1 MiB. Network timeouts/cancellation remain the host's respon
 Original comparison: `TaskSearchSupport.getRepositoriesTasks` (pinned Issue Trackers source /
 decompiled `tasks-core/.../actions/TaskSearchSupport.java`) distinguishes local/cache hits from
 server requests and accepts offset/limit/force-request. This slice adapts that separation to native
-input/pick controls; it does not add the original live choose-by-name popup or closed-issue search.
+input/pick controls; it does not add the original live choose-by-name popup. Closed GitHub/GitLab/Codeberg search is supported through `searchClosedIssues`; see below.
 No live tracker requests or desktop acceptance are claimed by the deterministic tests.
 
 ## Permissions
@@ -278,3 +278,96 @@ the active task regardless of another row selection. Selected-task close remains
 labelled in Task Actions. Open/Close forms show the reviewed task as a read-only value
 above their branch/issue choices. This preserves the documented meaning of active versus
 selected tasks without adding a second picker before an already-known task.
+
+## Closed tracker issue search
+
+Enable **Include closed GitHub, GitLab and Codeberg issues in Search Issues**
+(`searchClosedIssues`) to include resolved issues in explicit server searches.
+The default is off. Automatic Refresh/Update Issues remains open-only. Changing
+this setting invalidates the active search ownership signature, so cached pages
+cannot be reused under another closed-issue policy. YouTrack and Jira retain their
+configured native query semantics; this setting does not rewrite JQL or YouTrack
+query expressions. Selecting a closed server hit creates/activates a local task;
+it does not reopen the remote issue.
+
+## Issue descriptions
+
+Tracker results retain plain descriptions from GitHub, GitLab, Codeberg,
+YouTrack and Trello. Jira Cloud descriptions are flattened from Atlassian
+Document Format to plaintext (text nodes, line breaks and paragraph boundaries);
+formatting marks, links and embedded resources are not executed or fetched.
+Descriptions are bounded to32KiB, with explicit truncation markers. Existing
+Show Task Description tabs and cached issue hover use this data; hover escapes
+Markdown and shows a bounded excerpt. Refresh updates task descriptions together
+with summaries. These are cached server snapshots, not live status guarantees.
+
+## Lighthouse Cloud
+
+Configure `lighthouseHost` (`acme.lighthouseapp.com`), one positive numeric
+`lighthouseProject` and the `lighthouse-token` secret. Grant the optional
+`net:*.lighthouseapp.com` permission. The adapter sends the token only through
+`X-LighthouseToken`, uses documented ticket XML endpoints and keeps every request
+bound to that tenant/project. Explicit searches use the standard page controls;
+automatic refresh is open-only. `searchClosedIssues` also includes resolved
+Lighthouse tickets in explicit search.
+
+IDs use `LH-<tenant>-<project>-<number>` to avoid confusing the same ticket number
+in another tracker, project or account. Cached descriptions/hover and browser
+navigation retain the exact ticket identity. Close Task can set the documented
+`resolved` state; it rechecks the current tenant/project and exact API/web paths
+before sending that update. Responses are capped at1MiB/50 tickets; malformed,
+foreign-project and incomplete XML pages are refused, including DTDs. No external
+XML entities are resolved and raw response error bodies are not logged.
+
+Protocol references: [Lighthouse API basics](https://help.lighthouseapp.com/kb/api/api-basics)
+and [ticket search/update](https://help.lighthouseapp.com/kb/api/tickets).
+The public login endpoint was reachable on2026-11-10; implementation acceptance
+uses deterministic fixtures and the actual released host capability matcher,
+not an authenticated customer account. The support site's expired TLS certificate
+was observed during documentation retrieval; runtime TLS verification is retained.
+
+FogBugz Cloud is available in **Search Issues…** through an optional approved
+Python3 transport. Configure `fogbugzHost` as an exact tenant such as
+`acme.fogbugz.com` and `fogbugzProfile` as the absolute path of an externally
+provisioned private JSON profile. The helper requires an owned regular0600 file
+without symlinks and uses the official XML form-POST API. The token stays inside
+the helper; native settings/storage receive only an opaque profile fingerprint,
+issue number and latest-event identity. See [profile setup and transport
+contract](adapters/README.md).
+
+Each explicit search reviews the tenant/profile/query and admits at most50
+validated results. The XML API has no supported offset; refine a larger query.
+Startup and periodic refresh never launch the credential helper. FogBugz results
+participate in the native task/branch/context workflow and cached source issue
+references. Close Task offers remote state update only for a validated closable
+issue. Its final review binds the tenant/issue/event/profile; the helper freshly
+checks permissions and event identity, submits optimistic `ixBugEvent`, and
+verifies closed state. TLS verification is mandatory and every redirect is
+refused. A timed-out mutation requires checking the remote issue before retrying.
+Live authenticated customer-tenant acceptance remains separate from the actual
+local HTTP/XML fixture tests.
+
+Self-hosted **Redmine** and **MantisBT** servers are available through the same
+approved Python3 permission. Add up to16 nonsecret `selfHostedProfiles`
+descriptors containing `family`, exact HTTPS `baseUrl` and absolute
+`profilePath`. The external owned0600 profile contains the API key and optional
+explicit close-status ID; no API key enters native settings/storage. Multiple
+installations under different URL prefixes retain distinct task identities.
+[Setup, supported query parameters and server contracts](adapters/SELF_HOSTED.md)
+include the exact profile format.
+
+Search Issues offers those servers with actual documented filter parameters and
+up to five50-result pages. Redmine uses server status metadata and offset/limit;
+Mantis requires a project and reads that project's status/workflow metadata.
+Neither bridge invents free-text query support or closed-state semantics when
+required metadata is unavailable. Startup/periodic refresh never runs either
+helper, and retains imported rows.
+
+Close Task reviews the exact installation/project/issue/target status and stored
+profile/revision. Redmine freshly checks allowed closed statuses before PUT and
+verifies the result; its API offers no documented compare-and-swap guarantee
+between that last read and write. Mantis verifies a strong ETag and uses
+`If-Match` for PATCH. Both recheck credentials and current revision, refuse
+foreign identities and verify the returned closed state. Failed/uncertain writes
+are never retried automatically. These protocols have actual HTTP fixture tests;
+live authenticated installation acceptance remains separate.

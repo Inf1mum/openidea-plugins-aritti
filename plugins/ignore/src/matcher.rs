@@ -13,10 +13,23 @@ pub struct Rule {
     pub dir_only: bool,
 }
 
+/// The meaningful bytes of a gitignore-style pattern.
+pub fn pattern_text(entry: &str) -> &str {
+    // Git ignores unescaped trailing spaces, but leading spaces belong to
+    // the pattern. A backslash protects the immediately following space.
+    let mut end = entry.len();
+    while entry.as_bytes().get(end.wrapping_sub(1)) == Some(&b' ') {
+        let slashes = entry[..end - 1].bytes().rev().take_while(|b| *b == b'\\').count();
+        if slashes % 2 == 1 { break; }
+        end -= 1;
+    }
+    &entry[..end]
+}
+
 impl Rule {
     /// `None` for blank lines and comments.
     pub fn parse(entry: &str) -> Option<Self> {
-        let entry = entry.trim();
+        let entry = pattern_text(entry);
         if entry.is_empty() || entry.starts_with('#') {
             return None;
         }
@@ -153,8 +166,17 @@ pub type Sources = Vec<(String, String, String)>;
 /// The entry that ignores `path` (relative to the project root) and the name
 /// of its file; `None` when the last matching entry is a negation or none
 /// matches.
-// ponytail: a negation re-includes files under an ignored directory, which git doesn't; fine for a hint.
 pub fn ignored_by<'a>(sources: &'a Sources, path: &str) -> Option<(&'a str, &'a str)> {
+    // Git does not traverse excluded directories. A child negation (including
+    // one in a nested ignore file) cannot restore a file until every parent is
+    // included. Evaluate the directory chain before the leaf.
+    for (end, _) in path.match_indices('/') {
+        if let Some(hit) = decision(sources, &path[..end], true) { return Some(hit); }
+    }
+    decision(sources, path, false)
+}
+
+fn decision<'a>(sources: &'a Sources, path: &str, is_dir: bool) -> Option<(&'a str, &'a str)> {
     let mut verdict = None;
     for (dir, name, text) in sources {
         let relative = match dir.as_str() {
@@ -166,7 +188,7 @@ pub fn ignored_by<'a>(sources: &'a Sources, path: &str) -> Option<(&'a str, &'a 
         };
         for line in text.lines() {
             let Some(rule) = Rule::parse(line) else { continue };
-            if rule.matches(relative, false) {
+            if rule.matches(relative, is_dir) {
                 verdict = (!rule.negated).then_some((name.as_str(), line.trim()));
             }
         }
@@ -180,6 +202,29 @@ mod tests {
 
     fn matches(entry: &str, path: &str) -> bool {
         Rule::parse(entry).unwrap().matches(path, false)
+    }
+
+    #[test]
+    fn spaces_follow_git_pattern_rules() {
+        assert!(matches(" spaced", " spaced"));
+        assert!(!matches(" spaced", "spaced"));
+        assert!(matches("name   ", "name"));
+        assert!(matches(r"name\ ", "name "));
+        assert!(!matches(r"name\ ", "name"));
+        assert!(matches(" #literal", " #literal"));
+        assert!(Rule::parse("   ").is_none());
+    }
+
+    #[test]
+    fn child_negation_cannot_restore_an_excluded_parent() {
+        let mut sources = vec![("".into(), ".gitignore".into(), "build/\n!build/keep.txt\n".into())];
+        assert_eq!(ignored_by(&sources, "build/keep.txt"), Some((".gitignore", "build/")));
+        sources.push(("build".into(), "build/.gitignore".into(), "!keep.txt\n".into()));
+        assert!(ignored_by(&sources, "build/keep.txt").is_some());
+        sources[0].2 = "build/*\n!build/keep.txt\n".into();
+        assert_eq!(ignored_by(&sources, "build/keep.txt"), None);
+        sources[0].2 = "build/\n!build/\nbuild/*\n!build/keep.txt\n".into();
+        assert_eq!(ignored_by(&sources, "build/keep.txt"), None);
     }
 
     #[test]

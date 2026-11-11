@@ -22,6 +22,8 @@ impl SemanticTokens for Ideolog {
         if doc.language != "log" {
             return Vec::new();
         }
+        let gap = host::setting_number(TIME_GAP).unwrap_or(0.0);
+        if let Some(tokens) = self.cached_jvm_tokens(doc, gap) { return tokens; }
         let text = bounded_head(&doc.text);
         if text.is_empty() {
             return Vec::new();
@@ -68,7 +70,9 @@ pub(super) fn mark(plugin: &mut Ideolog, ctx: &openidea_plugin::Invocation) -> R
         }
         Some(token)
     }).collect();
-    let items: Vec<_> = convert(text, admitted).into_iter().map(|mapped| {
+    let doc = Document { path: path.clone(), language: "log".into(), text: document.text.clone(), version: document.version };
+    let mapped = plugin.reviewed_jvm_tokens(&doc, gap).unwrap_or_else(||convert(text, admitted));
+    let items: Vec<_> = mapped.into_iter().map(|mapped| {
         let style = match mapped.kind {
             TokenKind::Keyword => "error",
             TokenKind::EnumMember => "warning",

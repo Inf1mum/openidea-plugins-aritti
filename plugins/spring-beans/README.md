@@ -414,3 +414,31 @@ owners. Autowired model facts and constructor-injection rewrites require canonic
 source ownership; foreign or shadowed Autowired annotations cannot drive that edit.
 Other raw inspection annotation roles and effective context semantics remain
 separate limitations.
+
+### Physical SpEL injections
+
+Core contributes a `spel` language with no filename/extension associations and an
+independently written bounded lexical highlighter. Canonically owned Java/Kotlin
+Value template bodies, cache/event expressions and ConditionalOnExpression values
+publish exact physical SpEL ranges. Supported Spring XML property/constructor/
+shortcut expressions also publish ranges when their namespace and raw attribute
+bytes are known. Java/Kotlin escapes, concatenation, text blocks, Kotlin string
+templates and entity-decoded XML are withheld rather than remapped incorrectly.
+The embedded language offers keyword and standard root/this context-variable
+completion. This adds syntax assistance, not runtime evaluation, inferred member
+types, an embedded language server or expression-aware refactoring.
+
+Released-host renderer qualification: physical injection ranges route embedded
+provider documents, but API 1.4's `languageVisuals.ts` embedded-color path loads
+only built-in CodeMirror grammars. It does not call a plugin SyntaxProvider for
+injected spans. Independent language lexer output and provider routing are
+implemented; native embedded coloring remains a concrete host-renderer gap. No
+JavaScript/SQL grammar substitution or incorrect semantic token kinds are used.
+
+### Source navigation chooser
+
+When a source line has several known injection, usage or related-file targets,
+the gutter opens a native picker. Single-target arrows remain direct. The chooser
+rechecks the originating document/version, project and all candidate source
+snapshots before opening a target. Results describe source candidates; runtime
+conditions and library beans remain outside that model.

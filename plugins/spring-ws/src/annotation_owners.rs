@@ -96,7 +96,7 @@ impl Owners {
         }
         Self { shadowed, imports }
     }
-    fn known(&self, text: &str, a: &Annotation, expected: &str) -> bool {
+    pub(crate) fn known(&self, text: &str, a: &Annotation, expected: &str) -> bool {
         let Some(tail) = text.get(a.at..) else {
             return false;
         };

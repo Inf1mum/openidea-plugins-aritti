@@ -1,0 +1,48 @@
+# Merge into the opted-in project's .openidea/settings.toml after replacing paths.
+# One broker owns Java semantic state and Qute types for this project.
+[languageServers.openidea-qute-broker]
+command = "/absolute/path/to/python3"
+args = ["/absolute/path/to/quarkus/adapters/qute_jdt_broker.py", "--profile", "/absolute/path/to/qute-profile.json", "--state-dir", "/absolute/path/to/private/qute-state"]
+languages = ["java", "qute-html"]
+rootMarkers = ["pom.xml", "build.gradle", "build.gradle.kts"]
+
+[languageServers.openidea-qute-broker.initializationOptions.settings.qute.validation]
+enabled = true
+
+[languageServers.openidea-qute-broker.settings.qute.validation]
+enabled = true
+
+[languageServers.openidea-qute-broker.settings.java.configuration]
+updateBuildConfiguration = "automatic"
+
+# This project opts into the broker's private JDT session instead of running two
+# Java servers with independent unsaved buffers. Java's native language is retained.
+[languageServers.jdtls]
+enabled = false
+
+# Optional exact source template associations; generic HTML stays HTML.
+# *.qute.html already uses the contributed Qute HTML language.
+[files.fileTypeOverrides]
+"src/main/resources/templates/Templates/hello.html" = "qute-html"
+
+# Optional three-server profile: add "quarkus-properties" to languages above and
+# replace the profile argument with a profile created with --with-microprofile.
+# Add configuration file overrides under the existing [files.fileTypeOverrides]:
+# "src/main/resources/application.properties" = "quarkus-properties"
+
+[languageServers.openidea-qute-broker.initializationOptions.settings.microprofile.tools.validation]
+enabled = true
+[languageServers.openidea-qute-broker.initializationOptions.settings.microprofile.tools.inlayHint]
+enabled = true
+[languageServers.openidea-qute-broker.initializationOptions.settings.microprofile.tools.inlayHint.converters]
+enabled = true
+[languageServers.openidea-qute-broker.initializationOptions.settings.microprofile.tools.inlayHint.defaultValues]
+enabled = true
+[languageServers.openidea-qute-broker.settings.microprofile.tools.validation]
+enabled = true
+[languageServers.openidea-qute-broker.settings.microprofile.tools.inlayHint]
+enabled = true
+[languageServers.openidea-qute-broker.settings.microprofile.tools.inlayHint.converters]
+enabled = true
+[languageServers.openidea-qute-broker.settings.microprofile.tools.inlayHint.defaultValues]
+enabled = true

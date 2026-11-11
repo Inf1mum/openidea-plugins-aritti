@@ -24,6 +24,11 @@
       "type": "boolean",
       "title": "Complete properties and values in devcontainer.json",
       "default": true
+    },
+    "checkPropertyValues": {
+      "type": "boolean",
+      "title": "Check known property types and enum values in devcontainer.json",
+      "default": true
     }
   }
 }

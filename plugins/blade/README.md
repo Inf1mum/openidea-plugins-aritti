@@ -142,3 +142,9 @@ Malformed argument recovery shares a per-document linear scan budget (eight time
 ## Native embedded JavaScript and CSS (API 1.4)
 
 Literal closed, attribute-free script/style bodies now publish bounded physical UTF16 injection ranges. The host can highlight these ranges and route configured installed embedded language servers. Blade/PHP holes, ambiguous tags and unsupported script/style modes remain excluded; directive/PHP ownership stays with the existing lexer. This does not add full PHP semantics or embedded formatting/Rename.
+
+
+Matching directive navigation is bidirectional: a recognized block opener now
+navigates to its exact current-text matching closer, as well as the existing
+closer-to-opener direction. Unclosed/crossed blocks remain unresolved. This reads
+no project files and does not publish named Laravel symbol or Rename anchors.

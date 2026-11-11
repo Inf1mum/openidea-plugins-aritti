@@ -67,4 +67,14 @@ with tempfile.TemporaryDirectory(prefix="native-ui-sync-") as temporary:
     assert 'must load the shared UI kit' in invoke('--check', good=False).stderr
     entry.write_text('<body data-ui-raw>' + markup + '</body>')
     assert 'cannot opt out' in invoke('--check', good=False).stderr
+    # Explicit selection must never touch an excluded package, even when stale.
+    manifest.write_text(base + 'web="web/resources/hub.html"\n')
+    standalone_manifest = standalone / 'plugin.toml'
+    standalone_manifest.write_text('id="aritti.standalone"\nname="Standalone"\n[[contributes.customEditors]]\nid="preview"\nweb="web/index.html"\n')
+    entry.write_text(markup)
+    invoke('--plugin', 'example')
+    generated.write_text('stale excluded package')
+    invoke('--exclude', 'example', '--check')
+    assert generated.read_text() == 'stale excluded package'
+    assert 'Unknown plugins' in invoke('--plugin', 'missing', good=False).stderr
 print("PASS: native retirement, no-write check, custom/modified asset safety, standalone-only materialization and local-kit enforcement")

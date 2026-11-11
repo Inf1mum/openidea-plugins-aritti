@@ -27,7 +27,7 @@ const NAMESPACE: &str = "http://www.springframework.org/schema/batch";
 /// Elements a transition can lead to.
 const STATES: [&str; 4] = ["step", "flow", "split", "decision"];
 /// Attributes of the batch namespace that name a bean.
-const BEAN_ATTRS: [&str; 13] = [
+const BEAN_ATTRS: [&str; 18] = [
     "ref",
     "reader",
     "writer",
@@ -39,6 +39,11 @@ const BEAN_ATTRS: [&str; 13] = [
     "transaction-manager",
     "task-executor",
     "job-launcher",
+    "job-operator",
+    "job-parameters-extractor",
+    "incrementer",
+    "aggregator",
+    "handler",
     "partitioner",
     "chunk-completion-policy",
 ];
@@ -386,6 +391,7 @@ fn file_kind(doc: &Document) -> Option<&'static str> {
     match doc.language.as_str() {
         "xml" if doc.text.contains(NAMESPACE) => Some("xml"),
         "java" if doc.text.contains("batch") => Some("java"),
+        "kotlin" if doc.text.contains("batch") => Some("kotlin"),
         _ if config::is_config_file(&doc.path) => Some("config"),
         _ => None,
     }
@@ -435,7 +441,7 @@ impl Batch {
             "xml" => {
                 let mut found = xml_problems(&doc.text, index);
                 if host::setting_bool("springBatch.checkChunk").unwrap_or(true) { found.extend(chunk_problems(&doc.text)); }
-                found.extend(xml_rules::problems(&doc.text));
+                found.extend(xml_rules::configured_problems(&doc.text,host::setting_string("springBatch.xmlCompatibility").as_deref()));
                 found.extend(scope::xml_problems(&doc.text));
                 found
             }
@@ -445,6 +451,7 @@ impl Batch {
                 found.extend(scope::java_problems(&doc.text));
                 found
             }
+            "kotlin" => Vec::new(),
             _ => config_problems(doc, index),
         }
     }
@@ -573,7 +580,7 @@ impl Providers for Batch {
     fn completion(&mut self, doc: &Document, at: Position, _trigger: Option<&str>) -> Vec<CompletionItem> {
         if let Some(caret) = offset(&doc.text, at)
             && let Some((from, to)) = parameter_key_at(&doc.text, caret)
-            && matches!(file_kind(doc), Some("xml" | "java"))
+            && matches!(file_kind(doc), Some("xml" | "java" | "kotlin"))
         {
             if !parameter_context(&doc.path,&doc.text,from,to) {return Vec::new();}
             let Some(index) = self.index(doc) else { return Vec::new() };
@@ -648,7 +655,7 @@ impl Providers for Batch {
                 if host::setting_bool("springBatch.checkChunk").unwrap_or(true) {
                     found.extend(chunk_problems(&doc.text));
                 }
-                found.extend(xml_rules::problems(&doc.text));
+                found.extend(xml_rules::configured_problems(&doc.text,host::setting_string("springBatch.xmlCompatibility").as_deref()));
                 found.extend(scope::xml_problems(&doc.text));
                 found
             }
@@ -657,6 +664,7 @@ impl Providers for Batch {
                 found.extend(scope::java_problems(&doc.text));
                 found
             }
+            Some("kotlin") => Vec::new(),
             _ => config_problems(doc, index),
         };
         publish(&doc.path, &problems);
@@ -990,6 +998,12 @@ public class BatchConfig {
         assert_eq!(line(b.definition(&d, at(JOB_XML, "\"csvReader\""))), [("import.xml".into(), 19)]);
     }
 
+    #[test]
+    fn modern_operator_and_additional_schema_bean_refs_are_indexed_at_exact_source_ranges() {
+        let text=format!("<beans xmlns='http://www.springframework.org/schema/beans' xmlns:b='{NAMESPACE}' xmlns:f='urn:foreign'><b:job id='j' incrementer='sequence'><b:step id='s'><b:job ref='nested' job-operator='operator' job-parameters-extractor='extractor' f:job-operator='foreign'/></b:step><b:step id='p'><b:partition handler='handler' aggregator='aggregator'/></b:step></b:job></beans>");
+        let (_,links)=parse_xml(&text);let values:Vec<_>=links.iter().filter(|l|l.kind==LinkKind::Bean).map(|l|l.value.as_str()).collect();assert_eq!(values,["sequence","nested","operator","extractor","handler","aggregator"]);
+        for link in links {let from=offset(&text,link.range.start).unwrap();let to=offset(&text,link.range.end).unwrap();assert_eq!(&text[from..to],link.value);}
+    }
     #[test]
     fn completes_states_and_beans() {
         let _host = setup();

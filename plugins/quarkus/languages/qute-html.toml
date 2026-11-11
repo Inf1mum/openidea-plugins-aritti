@@ -1,0 +1,9 @@
+id = "qute-html"
+name = "Qute HTML"
+extensions = ["qute.html"]
+block-comment = ["{!", "!}"]
+indent = { tab-size = 2, insert-spaces = true }
+ui-mode = "HTML"
+tree-sitter = "html"
+# The optional broker is configured by the user as one shared Java/Qute server.
+# Generic *.html and Java language ownership are not replaced by this definition.

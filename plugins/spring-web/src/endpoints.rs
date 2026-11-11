@@ -46,13 +46,13 @@ pub fn file_info(path: &str, text: &str) -> Option<FileInfo> {
         for m in class.methods() {
             let name_range = range(text, m.at, m.at + m.name.len());
             info.methods.push(MethodDecl { ty: class.name.clone(), name: m.name.clone(), range: name_range });
-            if !class.has(&["Controller", "RestController"])
-                || class.annotation("RequestMapping").is_some_and(|a| !crate::literal_paths(a))
+            if !class.annotations.iter().any(|a| matches!(a.name.as_str(),"Controller"|"RestController") && file.from_spring(&a.name))
+                || class.annotation("RequestMapping").is_some_and(|a| !crate::literal_paths(a) || !file.from_spring("RequestMapping"))
             {
                 continue;
             }
             let maps: Vec<_> = m.annotations.iter().filter(|a| crate::MAPPINGS.contains(&a.name.as_str())).collect();
-            if maps.is_empty() || !maps.iter().all(|a| crate::literal_paths(a)) {
+            if maps.is_empty() || !maps.iter().all(|a| crate::literal_paths(a) && file.from_spring(&a.name)) {
                 continue;
             }
             for (verb, path) in java::mappings(class, m) {
@@ -218,6 +218,9 @@ pub fn typed_requests(path: &str, text: &str) -> Vec<Request> {
 }
 
 fn scan_requests(path: &str, text: &str, typing: bool) -> Vec<Request> {
+    if path.ends_with(".http") || path.ends_with(".rest") {
+        return http_requests(text, typing);
+    }
     if !path.contains("/src/test/") {
         return Vec::new();
     }
@@ -270,6 +273,41 @@ fn scan_requests(path: &str, text: &str, typing: bool) -> Vec<Request> {
         if path.starts_with('/') || (typing && !url.value.contains("://")) {
             out.push(Request { verb, path: path.to_owned(), at: url.at, end: url.end });
         }
+    }
+    out
+}
+
+/// Read request lines only at the beginning of an HTTP request block. Body text
+/// cannot manufacture references; query/fragment bytes remain outside edits.
+fn http_requests(text: &str, typing: bool) -> Vec<Request> {
+    let mut out = Vec::new();
+    let mut waiting = true;
+    let mut base = 0;
+    for line in text.split_inclusive('\n') {
+        let clean = line.trim();
+        if clean.starts_with("###") { waiting = true; }
+        else if waiting && !clean.is_empty() && !clean.starts_with('#') && !clean.starts_with("//") && !clean.starts_with('@') {
+            waiting = false;
+            let mut words = clean.split_whitespace();
+            if let (Some(verb), Some(url)) = (words.next(), words.next()) {
+                if VERBS.contains(&verb) {
+                    let prefix = if url.starts_with('/') { Some(0) }
+                    else if let Some((scheme, rest)) = url.split_once("://") {
+                        if matches!(scheme, "http" | "https") { rest.find('/').map(|n| scheme.len() + 3 + n) } else { None }
+                    } else if url.starts_with("{{") {
+                        url.find("}}").and_then(|n| url[n + 2..].find('/').map(|x| n + 2 + x))
+                    } else { None };
+                    if let Some(prefix) = prefix {
+                        let path = url[prefix..].split(['?', '#']).next().unwrap_or("");
+                        if typing || !path.contains("{{") {
+                            let at = base + line.find(url).unwrap() + prefix;
+                            out.push(Request { verb: verb.into(), path: path.into(), at, end: at + path.len() });
+                        }
+                    }
+                }
+            }
+        }
+        base += line.len();
     }
     out
 }

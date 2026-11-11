@@ -45,6 +45,13 @@ fn query() -> Result<Option<String>, Error> {
     }
     Ok(Some(query.into()))
 }
+fn contextual_query(target:&SearchTarget,current:&str)->Result<Option<String>,Error> {
+    if !matches!(target.tracker,"redmine"|"mantis") {return Ok(Some(current.into()));}
+    let title=if target.tracker=="redmine" {"Redmine filters (project_id, issue_id, assigned_to_id, status_id)"} else {"Mantis filters (required project_id, optional filter_id)"};
+    let initial=if current.contains('=') {current.to_owned()} else if target.tracker=="redmine"&&current.bytes().all(|b|b.is_ascii_digit())&&!current.is_empty(){format!("issue_id={current}")} else if target.tracker=="redmine" {"assigned_to_id=me&status_id=open".into()}else{"project_id=1".into()};
+    let Some(value)=host::input(title,Some(&initial))? else{return Ok(None);};
+    if value.trim().is_empty(){return Ok(None);}if value.len()>256||value.chars().any(char::is_control){return Err(invalid("Use at most256bytes of documented tracker filter parameters without controls."));}Ok(Some(value))
+}
 fn choose(targets: &[SearchTarget]) -> Result<Option<usize>, Error> {
     if targets.len() == 1 {
         return Ok(Some(0));
@@ -82,7 +89,7 @@ impl Search {
                     .entry(issue.id.clone())
                     .and_modify(|previous| {
                         if previous.as_ref().is_some_and(|(task, scope)| {
-                            task.tracker != issue.tracker || task.api != issue.api || task.url != issue.url || task.source_reference!=issue.source_reference || scope != &entry.scope
+                            task.tracker != issue.tracker || task.api != issue.api || task.url != issue.url || task.source_reference!=issue.source_reference || task.fogbugz!=issue.fogbugz || task.self_hosted!=issue.self_hosted || scope != &entry.scope
                         }) {
                             *previous = None;
                         }
@@ -125,6 +132,7 @@ impl Search {
         let Some(mut selected) = choose(&targets)? else {
             return Ok(None);
         };
+        if matches!(targets[selected].tracker,"redmine"|"mantis") {let Some(next)=contextual_query(&targets[selected],&query)? else{return Ok(None);};query=next;}
         let (mut page, mut force) = (1, false);
         let mut cursor: Option<String> = None;
         for _ in 0..MAX_STEPS {
@@ -300,7 +308,8 @@ impl Search {
                     force = false;
                 }
                 "@query" => {
-                    let Some(next) = query_input()? else {
+                    let next=if matches!(target.tracker,"redmine"|"mantis") {contextual_query(target,&query)?}else{query_input()?};
+                    let Some(next) = next else {
                         return Ok(None);
                     };
                     query = next;
@@ -313,6 +322,7 @@ impl Search {
                         return Ok(None);
                     };
                     selected = next;
+                    if matches!(targets[selected].tracker,"redmine"|"mantis") {let Some(next)=contextual_query(&targets[selected],&query)? else{return Ok(None);};query=next;}
                     page = 1;
                     cursor = None;
                     force = false;

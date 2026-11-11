@@ -9,6 +9,8 @@ use spring_text::{contains, range, xml};
 use std::collections::BTreeMap;
 const BEANS: &str = "http://www.springframework.org/schema/beans";
 const MAX_ITEMS: usize = 256;
+const OXM:&str="http://www.springframework.org/schema/oxm";
+const CXF:&str="http://cxf.apache.org/jaxws";
 fn literal(value: &str) -> bool {
     !value.is_empty() && value.len() <= 128 && value.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
 }
@@ -51,7 +53,7 @@ fn model(text: &str) -> Option<Model> {
     let mut references = Vec::new();
     for (i, e) in elements.iter().enumerate().skip(1) {
         let namespace = xml_namespace(&elements, i);
-        if e.parent == Some(0) && e.local() == "bean" && namespace == Some(BEANS) {
+        if e.parent == Some(0) && (e.local() == "bean" && namespace == Some(BEANS) || e.local()=="jaxb2-marshaller" && namespace==Some(OXM)) {
             if e.attrs.iter().any(|a| a.name == "name") {
                 return None;
             }
@@ -68,7 +70,41 @@ fn model(text: &str) -> Option<Model> {
                 return None;
             }
         }
-        if e.parent == Some(0) && e.local() == "marshalling-endpoints" && namespace == Some(SWS_NAMESPACE) {
+        // The Spring-WS interceptor vocabulary accepts direct Beans ref
+        // children, including scoped payloadRoot/soapAction interceptors.
+        // Resolve only the written local bean id; no interceptor type inference.
+        let interceptor_ref = namespace == Some(BEANS) && e.local() == "ref"
+            && e.parent.is_some_and(|parent| {
+                let owner = &elements[parent];
+                xml_namespace(&elements, parent) == Some(SWS_NAMESPACE)
+                    && (owner.local() == "interceptors" && owner.parent == Some(0)
+                        || matches!(owner.local(), "payloadRoot" | "soapAction")
+                            && owner.parent.is_some_and(|grandparent| {
+                                let group = &elements[grandparent];
+                                group.local() == "interceptors" && group.parent == Some(0)
+                                    && xml_namespace(&elements, grandparent) == Some(SWS_NAMESPACE)
+                            }))
+            });
+        if interceptor_ref && e.attrs.len() == 1 {
+            if let Some(a) = e.attrs.iter().find(|a| a.name == "bean") {
+                if a.value.is_empty() || literal(&a.value) {
+                    references.push((a.value.clone(), range(text, a.value_at, a.value_end)));
+                    if references.len() > MAX_ITEMS { return None; }
+                }
+            }
+        }
+        if e.parent==Some(0) && namespace==Some(CXF) && matches!(e.local(),"endpoint"|"server"|"client") {
+            for a in &e.attrs {
+                let bean=if a.name=="bus" {Some((a.value.as_str(),a.value_at))}
+                    else if (e.local()=="endpoint"&&a.name=="implementor" || e.local()=="server"&&a.name=="serviceBean") && a.value.starts_with('#') {Some((&a.value[1..],a.value_at+1))}
+                    else {None};
+                if let Some((name,start))=bean.filter(|(name,_)|name.is_empty()||literal(name)) {
+                    references.push((name.into(),range(text,start,a.value_end)));
+                    if references.len()>MAX_ITEMS{return None;}
+                }
+            }
+        }
+        if e.parent == Some(0) && matches!(e.local(), "marshalling-endpoints" | "annotation-driven") && namespace == Some(SWS_NAMESPACE) {
             for a in e.attrs.iter().filter(|a| matches!(a.name.as_str(), "marshaller" | "unmarshaller")) {
                 if a.value.len() <= 128 && (a.value.is_empty() || literal(&a.value)) {
                     references.push((a.value.clone(), range(text, a.value_at, a.value_end)));
@@ -133,6 +169,24 @@ mod tests {
     }
     fn last(d: &Document) -> Position {
         position(&d.text, d.text.rfind("codec").unwrap())
+    }
+    #[test]
+    fn interceptor_reference_children_resolve_only_in_the_sws_vocabulary() {
+        let body = r#"<b:bean id="audit" class="example.Audit"/><s:interceptors><b:ref bean="audit"/><s:payloadRoot namespaceUri="urn:test" localPart="Request"><b:ref bean="audit"/></s:payloadRoot><s:soapAction value="urn:action"><b:ref bean="audit"/></s:soapAction></s:interceptors>"#;
+        let d = document(body);
+        let observed = model(&d.text).unwrap();
+        assert_eq!(observed.references.len(), 3);
+        for (_, span) in observed.references {
+            let targets = definition(&d, span.start);
+            assert_eq!(targets.len(), 1);
+            assert_eq!(targets[0].range, observed.beans["audit"]);
+            assert_eq!(completion(&d, span.start).iter().map(|c| c.label.as_str()).collect::<Vec<_>>(), ["audit"]);
+        }
+        for foreign in [body.replace("s:interceptors", "b:interceptors"), body.replace("<b:ref", "<s:ref")] {
+            assert!(model(&document(&foreign).text).unwrap().references.is_empty());
+        }
+        let unrelated = document(r#"<b:bean id="audit"/><b:ref bean="audit"/>"#);
+        assert!(model(&unrelated.text).unwrap().references.is_empty());
     }
     #[test]
     fn exact_local_marshaller_and_unmarshaller_targets_have_utf16_source_ranges() {
@@ -281,6 +335,69 @@ mod unknown_bean_identity {
                 r#"<beans xmlns="http://www.springframework.org/schema/beans" xmlns:s="http://www.springframework.org/schema/web-services"><bean id="codec"/><bean id="{id}"/><s:marshalling-endpoints marshaller="codec"/></beans>"#
             );
             assert!(model(&text).is_none());
+        }
+    }
+}
+
+/// Explicit Spring-WS payload-root interceptor selectors reference the same
+/// global element identity as source PayloadRoot and absolute XPath roots.
+pub(crate) fn payload_qnames(doc:&Document)->Vec<(String,String,Range)> {
+    if doc.language!="xml" || doc.text.len()>32768 || !generate::xml_valid(&doc.text) {return vec![];}
+    let es=xml::elements(&doc.text);
+    if es.len()>512 || es.first().is_none_or(|e|e.local()!="beans") || xml_namespace(&es,0)!=Some(BEANS) {return vec![];}
+    let mut out=vec![];
+    for (i,e) in es.iter().enumerate() {
+        if e.local()!="payloadRoot" || xml_namespace(&es,i)!=Some(SWS_NAMESPACE) {continue;}
+        let Some(parent)=e.parent else {continue;};
+        if es[parent].local()!="interceptors" || es[parent].parent!=Some(0) || xml_namespace(&es,parent)!=Some(SWS_NAMESPACE) {continue;}
+        let Some(uri)=e.attrs.iter().find(|a|a.name=="namespaceUri") else {continue;};
+        let Some(local)=e.attrs.iter().find(|a|a.name=="localPart") else {continue;};
+        if !crate::schema_qnames::local(&local.value) || uri.value.len()>1024
+            || uri.value.chars().any(|c|c.is_whitespace()||c.is_control())
+            || uri.value.contains(['&','$','\\']) || uri.value.contains("#{") {continue;}
+        out.push((uri.value.clone(),local.value.clone(),range(&doc.text,local.value_at,local.value_end)));
+    }
+    out
+}
+
+#[cfg(test)]
+mod annotation_driven_tests {
+    use super::*;
+    use crate::WsTools;
+    use openidea_plugin::{mock::MockHost,providers::Providers,text::position};
+    #[test]
+    fn current_annotation_driven_marshaller_attributes_resolve_local_ids() {
+        let _h=MockHost::install().with_capabilities(&[]);
+        let text=format!("<b:beans xmlns:b='{BEANS}' xmlns:s='{SWS_NAMESPACE}'><b:bean id='codec'/><s:annotation-driven marshaller='codec' unmarshaller='codec'/></b:beans>");
+        let doc=Document{path:"/project/context.xml".into(),text:text.clone(),language:"xml".into(),version:1};
+        let at=position(&text,text.find("marshaller='codec'").unwrap()+12);
+        let locations=WsTools::default().definition(&doc,at);assert_eq!(locations.len(),1);
+        let values=WsTools::default().completion(&doc,at,None);assert_eq!(values.len(),1);assert_eq!(values[0].label,"codec");
+        let foreign=Document{text:text.replace("s:annotation-driven","b:annotation-driven"),..doc};assert!(WsTools::default().definition(&foreign,at).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod oxm_cxf_reference_tests {
+    use super::*;
+    use crate::WsTools;
+    use openidea_plugin::{mock::MockHost,providers::Providers,text::{position,offset}};
+    #[test]
+    fn oxm_marshaller_ids_and_cxf_explicit_bean_references_keep_their_written_roles() {
+        let _h=MockHost::install().with_capabilities(&[]);
+        let text=format!("<b:beans xmlns:b='{BEANS}' xmlns:s='{SWS_NAMESPACE}' xmlns:o='{OXM}' xmlns:c='{CXF}'><o:jaxb2-marshaller id='codec' context-path='com.acme'/><b:bean id='bus'/><b:bean id='service'/><s:annotation-driven marshaller='codec'/><c:endpoint bus='bus' implementor='#service'/><c:server serviceBean='#service'/></b:beans>");
+        let doc=Document{path:"/project/context.xml".into(),text:text.clone(),language:"xml".into(),version:1};
+        for needle in ["marshaller='codec'","bus='bus'","implementor='#service'","serviceBean='#service'"] {
+            let start=text.find(needle).unwrap()+needle.find('=').unwrap()+2+usize::from(needle.contains('#'));let at=position(&text,start);
+            let definitions=WsTools::default().definition(&doc,at);assert_eq!(definitions.len(),1,"{needle}");
+            let values=WsTools::default().completion(&doc,at,None);assert_eq!(values.len(),3);assert!(values.iter().all(|v|!v.label.starts_with('#')));
+            if needle.contains('#') {let span=values[0].replace.unwrap();assert_eq!(&text[offset(&text,span.start).unwrap()..offset(&text,span.end).unwrap()],"service");assert_eq!(text.as_bytes()[offset(&text,span.start).unwrap()-1],b'#');}
+        }
+        for changed in [text.replace("c:endpoint","b:endpoint"),text.replace("xmlns:c=", "xmlns:foreign=").replace("c:","foreign:")] {
+            let foreign=Document{text:changed.clone(),..doc.clone()};let at=position(&changed,changed.find("#service").unwrap()+1);
+            // Renaming the prefix preserves ownership only when its URI remains CXF.
+            let locations=WsTools::default().definition(&foreign,at);
+            if changed.contains("<b:endpoint"){assert!(locations.is_empty());}else{assert_eq!(locations.len(),1);}
         }
     }
 }

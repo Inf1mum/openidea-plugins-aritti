@@ -104,7 +104,7 @@ impl GitLab {
         if !valid_frame_id(frame) {
             return Err("Open snapshots from the packaged Merge Request view in this window.".into());
         }
-        if !host::secret_is_set(api::TOKEN) {
+        if !host::secret_is_set(api::token()) {
             return Err(crate::NO_TOKEN.into());
         }
         let repo = gitlab_project(ctx)?;
@@ -210,6 +210,31 @@ impl GitLab {
         api::require_read_budget()?;
         let mut jobs=api.pipeline_jobs(pipeline)?.into_iter().filter(|j|j.id==job);let selected=jobs.next().ok_or("Current pipeline/job membership is unverified. Refresh the Pipelines pane.")?;
         if jobs.next().is_some() {return Err("Ambiguous job membership.".into());}Ok(selected)
+    }
+
+    /// Optional approved CLI adapter: native host owns following, restart and
+    /// cancellation. glab credentials/configuration are independent of our token.
+    pub(crate) fn follow_job_log(&mut self, ctx: &Invocation) -> Result<(), Error> {
+        let repo = gitlab_project(ctx)?;
+        let iid = self.checked_selection(&repo, ctx)?;
+        let before = self.checked_merge_request(&repo, ctx, iid)?;
+        let (pipeline, job) = self.pipeline_target();
+        let (Some(pipeline), Some(job)) = (pipeline, job) else { return Err("Select a listed pipeline job first.".into()); };
+        Self::job_membership(&repo.path, iid, pipeline.id, job.id)?;
+        let probe = ctx.project().ok_or(Error::Stale)?.run_process("glab", &["version".into()], None)?;
+        if probe.status != Some(0) || probe.stdout.len() > 4096 || !probe.stdout.lines().any(|line| line.strip_prefix("glab ").map(|version| version.strip_prefix("version ").unwrap_or(version)).and_then(|version| version.split_whitespace().next()).is_some_and(|version| version.starts_with("1.") && version.split('.').all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit())))) {
+            return Err("Install and approve GitLab CLI glab 1.x, authenticate it separately, then retry.".into());
+        }
+        let repository = format!("https://gitlab.com/{}", repo.path);
+        if !host::confirm("Follow GitLab job log", &format!("Repository: {repository}\nMerge request: !{iid}\nPipeline: #{}\nJob: #{} ({})\n\nThe approved glab CLI follows this job using its own credentials and configuration. The native log tab owns output, restart and cancellation. This does not assert the pipeline runs the current MR head.", pipeline.id, job.id, job.name))? { return Ok(()); }
+        let current = gitlab_project(ctx)?;
+        if selection_scope(&current) != selection_scope(&repo) || self.checked_selection(&current, ctx)? != iid
+            || self.checked_merge_request(&current, ctx, iid)?.sha != before.sha { return Err(Error::Stale); }
+        Self::job_membership(&repo.path, iid, pipeline.id, job.id)?;
+        let args = vec!["ci".into(), "trace".into(), job.id.to_string(), "--repo".into(), repository];
+        let log = openidea_plugin::details::ProcessLog { program: "glab".into(), args, toggles: Vec::new() };
+        let hash = selection_scope(&repo).bytes().fold(0xcbf29ce484222325_u64, |hash,b| (hash ^ u64::from(b)).wrapping_mul(0x100000001b3));
+        host::open_log_tab(&format!("gitlab-job-{hash:016x}-{iid}-{}-{}",pipeline.id,job.id), &format!("GitLab job #{}",job.id), &log)
     }
 
     fn store_snapshot(&mut self, key: String, snapshot: Snapshot) -> Result<(), Error> {

@@ -10,7 +10,7 @@ that previews upgrades before returning edits to the host. Editing never trigger
 | `pom.xml` | `<dependency>` entries with a literal version or a `${property}` defined in the same file |
 | `build.gradle`, `build.gradle.kts` | `'group:artifact:1.2.3'` string coordinates with a literal version |
 | `package.json` | the version in `package-lock.json` next to it; else an exact version (`"4.17.21"`) in `dependencies` or `devDependencies` |
-| `package-lock.json` | every locked package (lockfile v2 and v3) |
+| `package-lock.json` | every locked package (lockfile v1, v2 and v3; v1 traversal is bounded to 32 nested levels and 10,000 entries) |
 | `composer.json` | the version in `composer.lock` next to it; else an exact version in `require` or `require-dev` |
 | `composer.lock` | every locked package |
 | `libs.versions.toml` | `[libraries]` entries as Maven dependencies: `module` or `group`+`name` with a literal `version` or a `version.ref` from `[versions]`, or `"g:a:version"`; entries without a resolvable version are skipped |
@@ -19,6 +19,8 @@ that previews upgrades before returning edits to the host. Editing never trigger
 | `Cargo.lock` | every registry crate (workspace members and path or git packages are skipped) |
 | `requirements.txt` | `name==version` pins (PyPI) |
 | `poetry.lock` | every locked PyPI package |
+| `Pipfile.lock` | exact `==` versions from declared verified canonical PyPI indexes in default/develop groups; private/ambiguous/Git/path records skipped |
+| `uv.lock` | resolved packages from the canonical PyPI registry; editable, Git, URL and private-registry packages are skipped |
 
 A manifest with a lockfile is checked at the locked versions, so `^4.17.15` is judged by what is
 installed, not by the range.
@@ -234,3 +236,81 @@ Dependency122 POM version extraction refuses non-self-closing elements without t
 Dependency123 POM version evidence inherits default namespace ownership from the single project root. Unnamespaced and canonical Maven roots remain supported; foreign roots, rebound dependency/version/property namespaces and prefixed/foreign ancestry do not supply editable Maven spans. Registered command tests cover foreign root/container/version shapes; canonical namespace positive source parsing remains passing. This does not add general prefix resolution or full XML/Maven model validation.
 
 Dependency125 POM dependency-shaped plugin configuration/custom payload no longer becomes Maven edit authority. A16-ancestor source-site guard admits project dependencies/dependencyManagement and build plugin/pluginManagement dependency declarations, including profile source variants. The positive matrix checks eight structural variants; arbitrary configuration payload stays unresolved. This does not determine active profiles, resolved models or runtime plugin configuration semantics.
+
+## Inspect npm lockfile dependencies
+
+**Dependency Audit: Inspect npm Lockfile Graph** opens a native read-only tree
+for the current `package-lock.json` v2/v3 buffer. Each package lists its declared
+normal, optional and peer edges (plus root dev dependencies), resolved through
+nearest physical `node_modules` entries. Activating a resolved package/edge goes
+to that lockfile entry. Linked workspaces and missing targets are labelled
+unresolved. This is lockfile evidence, not a proof of active platform/peer/optional
+resolution or an installed runtime graph. Input is bounded to 512KiB, 2,000 package
+records and 8,000 edges; source edits/project switches withhold stale navigation.
+No package manager or network request runs for this inspection.
+
+## Resolve effective Maven or Gradle dependencies
+
+**Dependency Audit: Resolve Effective Build Dependencies…** offers explicitly
+reviewed local profiles for **Maven3.9.16** (Dependency Plugin3.8.1 JSON tree export)
+and **Gradle9.9.1** (owned init-script export of a selected resolvable configuration,
+`runtimeClasspath` by default). Independently install/approve those exact tool
+versions. Optional permissions are `process:mvn`, `process:gradle` and `project.write`.
+No wrapper or installer is run automatically.
+
+The approved build executes project plugins and may contact configured repositories;
+review precedes even the version probe. Managed processes write fresh observations
+under `.openidea/dependency-audit-resolve-*`. The native Dependency Resolution view
+provides Poll and Cancel, then **Audit Resolved Dependencies** after a successful
+complete export. Only that explicit audit queries OSV; editor providers remain
+cache-only. Failed, foreign, truncated or stale-source exports retain the prior
+report. Resolution does not install, upgrade or edit dependency declarations.
+
+Maven captures the reactor's parent/property/BOM-effective and transitive versions,
+excluding internal reactor coordinates. Gradle captures external module versions
+for each module's requested configuration, excludes internal project components and
+labels unavailable configurations as skipped. Module provenance stays in the report;
+source navigation is to the associated build file/root POM, not a fabricated exact
+declaration span. Observations are dated; this is not a vulnerable-call model or
+proof that all configurations/platforms have been inspected. Reviews bound source
+snapshots to500 files/4MiB, exports to4MiB and10,000 coordinates. Broader tool versions,
+remote/Windows paths and build inputs beyond captured project files require separate
+qualification. Generated resolver artifacts remain for inspection.
+
+
+OSV's exact `MAL-<year>-<number>` namespace is surfaced as known-malicious package
+report evidence from OpenSSF via OSV.dev, with upstream reporter names and the
+report/query dates. Unknown advisory namespaces do not imply maliciousness or
+safety. Withdrawn records are historical. Matching a package/version does not
+establish execution; no automatic upgrade is suggested for known-malicious
+records (including retained older reports). Advisory review and dependency
+removal/replacement remain explicit user actions. This public dataset does not
+claim complete malware coverage or equivalence to proprietary intelligence.
+
+### Optional vulnerable-call analysis
+
+`Analyze Vulnerable Calls…` runs a reviewed, locally approved **OSV-Scanner2.7.1** process for Go or experimental Rust. Install the official CLI and the selected language toolchain yourself; the plugin neither installs tools nor runs project wrappers. The review explains execution, dependency downloads and external query risks before even probing the version. Go uses govulncheck; Rust compiles dependencies and may execute build scripts. Java, Kotlin, Python and other languages remain **Unknown** in this adapter.
+
+The native Call Analysis view polls/cancels the owned process and retains separate dated, source-bound call evidence. It never changes the existing vulnerability report. Each advisory is Called, Uncalled or Unknown only from its own explicit scanner analysis record; missing facts and alias-only records stay Unknown. Uncalled is not a safety guarantee. A scan with no explicit advisory call facts keeps previous evidence and reports Unknown. Invalid, failed, stale, oversized or foreign output retains previous evidence. Source capture is bounded to500 files/512KiB and persisted evidence to512KiB; configured external dependencies/toolchain inputs are not fully captured. Dirty project buffers prevent launch/import; changed captured sources visibly mark older evidence stale.
+
+Runtime qualification on Darwin arm64 with the official2.7.1 binary and Go1.27.4 produced both Called and Uncalled for GO-2022-1059 by changing only a harmless fixture call. Rust1.99.1 compiled the disposable fixture, but the scanner rejected its Mach-O output with `bad magic number` (exit127). Rust remains experimental and no successful Darwin Rust analysis is claimed; partial JSON from that failure is never accepted. This supported public evidence does not establish equivalence to Mend's intelligence or all original call-analysis languages.
+
+### Optional sbt effective resolution
+
+`Resolve sbt Dependencies…` supports the approved official **sbt2.0.12** runner/runtime with Java17+ and a root `build.sbt` plus exact `project/build.properties` version. Review precedes the runner probe or build execution. The managed `--server --batch` session loads the executable Scala build and its plugins, may contact configured repositories and writes ordinary sbt/build caches. No project wrapper runs and no build definition is edited. Global settings/JVM options and arbitrary external build inputs are outside the bounded captured source set.
+
+The owned temporary session command evaluates `update` for every owned project reference. Its versioned export includes non-evicted effective module coordinates across reported configurations, exact cross-versioned internal project identities, and a complete module/record footer. Internal project modules are excluded from OSV queries. External project base directories, incomplete resolution, duplicate/foreign records, missing artifacts and exceeded bounds refuse import. All reported configurations are inspected, including sbt's internal/tool configurations; this does not claim that every coordinate executes in the application.
+
+The native sbt Resolution view polls/cancels the owned process. After successful completion, `Audit Resolved Dependencies` separately queries OSV using the existing report pipeline. Dirty buffers or changed captured build sources prevent acceptance; failed resolution/queries preserve the previous report. Root `build.sbt` navigation is honest module/configuration provenance, not an exact dependency declaration span. Editor providers remain cache-only.
+
+The official2.0.12 distribution was verified against its publisher SHA256 and qualified on a disposable three-module Darwin/Java26 build: a shared Guava version property, transitive failureaccess, a Test-scoped JUnit dependency and `app.dependsOn(core)`. The final export contained317 configuration records /62 external coordinates and no internal project coordinate. Other sbt versions and platforms require separate qualification; sbt1.x is not admitted by this profile.
+
+The separate **Rust source-built Mach-O/dSYM adapter** choice requires the optional
+`process:osv-scanner-macho` grant and exact `2.7.1-openidea-macho.1` executable.
+It is a separately named source build with an owned patch to pinned OSV-Scanner;
+it is not the unchanged official binary. Reproducible build, upstream license
+and qualification instructions are retained under `adapters/osv-scanner-macho/`.
+The official2.7.1 Rust profile still reports Darwin's ELF-reader failure as
+Unknown. The source-built profile remains experimental package advisory/DWARF
+call evidence, not proof of exploitability or safety. Both profiles use the same
+saved-source checks and refuse changed sources or missing/failed call evidence.

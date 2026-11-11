@@ -59,6 +59,11 @@
       "type": "boolean",
       "title": "Check legacy @StreamListener / @SendTo channels, return values and @BootstrapConfiguration classes",
       "default": true
+    },
+    "springWeb.thymeleafSpelInjection": {
+      "type": "boolean",
+      "title": "Enable Thymeleaf SpringEL support (requires Spring Beans)",
+      "default": false
     }
   }
 }

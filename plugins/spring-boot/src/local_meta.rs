@@ -15,13 +15,25 @@ pub fn is_metadata_file(path: &str) -> bool {
 }
 
 const TOP_LEVEL: &[&str] = &["groups", "properties", "hints", "ignored"];
-const PROPERTY_FIELDS: &[&str] = &["name", "type", "description", "sourceType", "sourceMethod", "defaultValue", "deprecation"];
+const PROPERTY_FIELDS: &[&str] = &[
+    "name",
+    "type",
+    "description",
+    "sourceType",
+    "sourceMethod",
+    "defaultValue",
+    "deprecation",
+];
 const GROUP_FIELDS: &[&str] = &["name", "type", "description", "sourceType", "sourceMethod"];
 const HINT_FIELDS: &[&str] = &["name", "values", "providers"];
 
 #[derive(Debug)]
 enum Node {
-    Str { at: usize, end: usize, value: String },
+    Str {
+        at: usize,
+        end: usize,
+        value: String,
+    },
     Obj(Vec<Member>),
     Arr(Vec<Node>),
     /// A number, boolean or null, by its bytes.
@@ -44,7 +56,10 @@ struct Scanner<'a> {
 impl Scanner<'_> {
     fn skip_blanks(&mut self) {
         while self.text[self.at..].starts_with(|c: char| c.is_whitespace()) {
-            self.at += self.text[self.at..].chars().next().map_or(1, char::len_utf8);
+            self.at += self.text[self.at..]
+                .chars()
+                .next()
+                .map_or(1, char::len_utf8);
         }
     }
 
@@ -74,7 +89,9 @@ impl Scanner<'_> {
         }
         self.skip_blanks();
         match self.text.as_bytes().get(self.at)? {
-            b'"' => self.string().map(|(at, end, value)| Node::Str { at, end, value }),
+            b'"' => self
+                .string()
+                .map(|(at, end, value)| Node::Str { at, end, value }),
             b'{' => {
                 self.at += 1;
                 let mut members = Vec::new();
@@ -90,7 +107,12 @@ impl Scanner<'_> {
                                 return None;
                             }
                             self.at += 1;
-                            members.push(Member { key, at, end, value: self.value(depth + 1)? });
+                            members.push(Member {
+                                key,
+                                at,
+                                end,
+                                value: self.value(depth + 1)?,
+                            });
                         }
                     }
                 }
@@ -113,8 +135,13 @@ impl Scanner<'_> {
             }
             _ => {
                 let start = self.at;
-                while self.text[self.at..].starts_with(|c: char| !matches!(c, ',' | '}' | ']') && !c.is_whitespace()) {
-                    self.at += self.text[self.at..].chars().next().map_or(1, char::len_utf8);
+                while self.text[self.at..]
+                    .starts_with(|c: char| !matches!(c, ',' | '}' | ']') && !c.is_whitespace())
+                {
+                    self.at += self.text[self.at..]
+                        .chars()
+                        .next()
+                        .map_or(1, char::len_utf8);
                 }
                 Some(Node::Other(start, self.at))
             }
@@ -131,7 +158,9 @@ fn parse(text: &str) -> Option<Vec<Member>> {
 
 fn valid_type(ty: &str) -> bool {
     let first_ok = ty.starts_with(|c: char| c.is_alphabetic() || c == '_' || c == '$');
-    let chars_ok = ty.chars().all(|c| c.is_alphanumeric() || "_$.<>,?[] ".contains(c));
+    let chars_ok = ty
+        .chars()
+        .all(|c| c.is_alphanumeric() || "_$.<>,?[] ".contains(c));
     let mut depth = 0i32;
     let balanced = ty.chars().all(|c| {
         depth += i32::from(c == '<') - i32::from(c == '>');
@@ -141,25 +170,40 @@ fn valid_type(ty: &str) -> bool {
 }
 
 fn string_of<'n>(members: &'n [Member], key: &str) -> Option<(&'n Member, &'n str)> {
-    members.iter().find(|m| m.key == key).and_then(|m| match &m.value {
-        Node::Str { value, .. } => Some((m, value.as_str())),
-        _ => None,
-    })
+    members
+        .iter()
+        .find(|m| m.key == key)
+        .and_then(|m| match &m.value {
+            Node::Str { value, .. } => Some((m, value.as_str())),
+            _ => None,
+        })
 }
 
 fn entries<'n>(top: &'n [Member], list: &str) -> impl Iterator<Item = &'n [Member]> {
-    top.iter().filter(move |m| m.key == list).filter_map(|m| match &m.value {
-        Node::Arr(items) => Some(items),
-        _ => None,
-    }).flatten().filter_map(|n| match n {
-        Node::Obj(members) => Some(members.as_slice()),
-        _ => None,
-    })
+    top.iter()
+        .filter(move |m| m.key == list)
+        .filter_map(|m| match &m.value {
+            Node::Arr(items) => Some(items),
+            _ => None,
+        })
+        .flatten()
+        .filter_map(|n| match n {
+            Node::Obj(members) => Some(members.as_slice()),
+            _ => None,
+        })
 }
 
 fn unknown_fields(members: &[Member], allowed: &[&str], what: &str, out: &mut Vec<Finding>) {
-    for m in members.iter().filter(|m| !allowed.contains(&m.key.as_str())) {
-        out.push(Finding::new(m.at, m.end, "unknown-metadata-field", format!("`{}` is not a field of a metadata {what}.", m.key)));
+    for m in members
+        .iter()
+        .filter(|m| !allowed.contains(&m.key.as_str()))
+    {
+        out.push(Finding::new(
+            m.at,
+            m.end,
+            "unknown-metadata-field",
+            format!("`{}` is not a field of a metadata {what}.", m.key),
+        ));
     }
 }
 
@@ -176,31 +220,62 @@ fn simple(ty: &str) -> &str {
     ty.rsplit('.').next().unwrap_or(ty)
 }
 
-fn literal_of<'n>(text: &'n str, members: &'n [Member], key: &str) -> Option<(usize, usize, &'n str)> {
-    members.iter().find(|m| m.key == key).and_then(|m| match &m.value {
-        Node::Str { at, end, value } => Some((*at, *end, value.as_str())),
-        Node::Other(at, end) => Some((*at, *end, &text[*at..*end])),
-        _ => None,
-    })
+fn literal_of<'n>(
+    text: &'n str,
+    members: &'n [Member],
+    key: &str,
+) -> Option<(usize, usize, &'n str)> {
+    members
+        .iter()
+        .find(|m| m.key == key)
+        .and_then(|m| match &m.value {
+            Node::Str { at, end, value } => Some((*at, *end, value.as_str())),
+            Node::Other(at, end) => Some((*at, *end, &text[*at..*end])),
+            _ => None,
+        })
 }
 
 fn unresolved_class(ty: &str, facts: &Summary) -> bool {
-    let plain = ty.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'$'));
-    let Some((package, _)) = ty.rsplit_once('.').filter(|_| plain) else { return false };
-    facts.complete && facts.packages.contains(package) && !facts.types.contains(&ty.replace('$', "."))
+    let plain = ty
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'$'));
+    let Some((package, _)) = ty.rsplit_once('.').filter(|_| plain) else {
+        return false;
+    };
+    facts.complete
+        && facts.packages.contains(package)
+        && !facts.types.contains(&ty.replace('$', "."))
 }
 
-fn deprecation(text: &str, property: &[Member], cx: &Context, own: &BTreeSet<String>, out: &mut Vec<Finding>) {
-    let Some(member) = property.iter().find(|m| m.key == "deprecation") else { return };
+fn deprecation(
+    text: &str,
+    property: &[Member],
+    cx: &Context,
+    own: &BTreeSet<String>,
+    out: &mut Vec<Finding>,
+) {
+    let Some(member) = property.iter().find(|m| m.key == "deprecation") else {
+        return;
+    };
     let Node::Obj(fields) = &member.value else {
-        out.push(Finding::new(member.at, member.end, "invalid-metadata-deprecation", "`deprecation` is an object with `reason`, `replacement`, `level` and `since`."));
+        out.push(Finding::new(
+            member.at,
+            member.end,
+            "invalid-metadata-deprecation",
+            "`deprecation` is an object with `reason`, `replacement`, `level` and `since`.",
+        ));
         return;
     };
     unknown_fields(fields, DEPRECATION_FIELDS, "deprecation", out);
     if let Some((at, end, level)) = literal_of(text, fields, "level")
         && !matches!(level, "warning" | "error")
     {
-        out.push(Finding::new(at, end, "invalid-metadata-deprecation", format!("`{level}` is not a deprecation level; use `warning` or `error`.")));
+        out.push(Finding::new(
+            at,
+            end,
+            "invalid-metadata-deprecation",
+            format!("`{level}` is not a deprecation level; use `warning` or `error`."),
+        ));
     }
     if let Some((at, end, replacement)) = literal_of(text, fields, "replacement")
         && !replacement.is_empty()
@@ -212,17 +287,29 @@ fn deprecation(text: &str, property: &[Member], cx: &Context, own: &BTreeSet<Str
 }
 
 pub fn check(text: &str, cx: &Context) -> Vec<Finding> {
-    let Some(top) = parse(text) else { return Vec::new() };
+    let Some(top) = parse(text) else {
+        return Vec::new();
+    };
     let mut out = Vec::new();
     for m in top.iter().filter(|m| !TOP_LEVEL.contains(&m.key.as_str())) {
-        out.push(Finding::new(m.at, m.end, "unknown-metadata-field", format!("`{}` is not a section of a metadata file.", m.key)));
+        out.push(Finding::new(
+            m.at,
+            m.end,
+            "unknown-metadata-field",
+            format!("`{}` is not a section of a metadata file.", m.key),
+        ));
     }
-    let own: BTreeSet<String> = entries(&top, "properties").filter_map(|p| string_of(p, "name")).map(|(_, n)| n.to_owned()).collect();
+    let own: BTreeSet<String> = entries(&top, "properties")
+        .filter_map(|p| string_of(p, "name"))
+        .map(|(_, n)| n.to_owned())
+        .collect();
     let mut seen = BTreeSet::new();
     for property in entries(&top, "properties") {
         deprecation(text, property, cx, &own, &mut out);
-        if let (Some((_, ty)), Some((at, end, default))) = (string_of(property, "type"), literal_of(text, property, "defaultValue"))
-            && valid_type(ty)
+        if let (Some((_, ty)), Some((at, end, default))) = (
+            string_of(property, "type"),
+            literal_of(text, property, "defaultValue"),
+        ) && valid_type(ty)
             && let Some(error) = values::problem(simple(ty), default, cx.facts)
         {
             out.push(Finding::new(at, end, "invalid-metadata-default", error));
@@ -231,25 +318,48 @@ pub fn check(text: &str, cx: &Context) -> Vec<Finding> {
         if let Some((name, value)) = string_of(property, "name")
             && !seen.insert(value.to_owned())
         {
-            out.push(Finding::new(value_span(name).0, value_span(name).1, "duplicate-metadata-name", format!("`{value}` is defined twice.")));
+            out.push(Finding::new(
+                value_span(name).0,
+                value_span(name).1,
+                "duplicate-metadata-name",
+                format!("`{value}` is defined twice."),
+            ));
         }
         if let Some((member, ty)) = string_of(property, "type")
             && !valid_type(ty)
         {
             let (at, end) = value_span(member);
-            out.push(Finding::new(at, end, "invalid-metadata-type", format!("`{ty}` is not a Java type name.")));
+            out.push(Finding::new(
+                at,
+                end,
+                "invalid-metadata-type",
+                format!("`{ty}` is not a Java type name."),
+            ));
         } else if let Some((member, ty)) = string_of(property, "type")
             && unresolved_class(ty, cx.facts)
         {
             let (at, end) = value_span(member);
-            out.push(Finding::new(at, end, "unresolved-metadata-type", format!("No class `{ty}` in the project.")));
+            out.push(Finding::new(
+                at,
+                end,
+                "unresolved-metadata-type",
+                format!("No class `{ty}` in the project."),
+            ));
         }
         if let Some((name, _)) = string_of(property, "name")
             && !property.iter().any(|m| m.key == "description")
             && !property.iter().any(|m| m.key == "deprecation")
         {
             let (at, end) = value_span(name);
-            out.push(Finding::new(at, end, "missing-metadata-description", "The property has no description.").with_severity(Severity::Hint));
+            out.push(
+                Finding::new(
+                    at,
+                    end,
+                    "missing-metadata-description",
+                    "The property has no description.",
+                )
+                .with_severity(Severity::Hint),
+            );
         }
     }
     for group in entries(&top, "groups") {
@@ -264,7 +374,15 @@ pub fn check(text: &str, cx: &Context) -> Vec<Finding> {
             && !value.ends_with(".values")
         {
             let (at, end) = value_span(name);
-            out.push(Finding::new(at, end, "unknown-hint-property", format!("The hint names `{value}`, which no property defines.")).with_severity(Severity::Info));
+            out.push(
+                Finding::new(
+                    at,
+                    end,
+                    "unknown-hint-property",
+                    format!("The hint names `{value}`, which no property defines."),
+                )
+                .with_severity(Severity::Info),
+            );
         }
     }
     out
@@ -279,23 +397,40 @@ fn value_span(m: &Member) -> (usize, usize) {
 
 /// The edit that adds a string property `key` to the metadata file `text`; `None` when the file is not the usual shape.
 pub fn define_key(text: &str, key: &str) -> Option<(usize, usize, String)> {
-    if text.len()>128<<10 || key.len()>256 {return None;}
-    let json:serde_json::Value=serde_json::from_str(text).ok()?;
-    if !json.is_object() {return None;}
+    if text.len() > 128 << 10 || key.len() > 256 {
+        return None;
+    }
+    let json: serde_json::Value = serde_json::from_str(text).ok()?;
+    if !json.is_object() {
+        return None;
+    }
     let top = parse(text)?;
     // The range scanner deliberately does not decode JSON escapes. Do not let
     // an escaped/duplicate field hide another effective properties container.
-    let mut fields=BTreeSet::new();
-    if top.iter().any(|member|member.key.contains('\\') || !fields.insert(member.key.as_str())) {return None;}
-    let encoded=serde_json::to_string(key).ok()?;
-    let entry = format!("{{\n      \"name\": {encoded},\n      \"type\": \"java.lang.String\",\n      \"description\": \"\"\n    }}");
+    let mut fields = BTreeSet::new();
+    if top
+        .iter()
+        .any(|member| member.key.contains('\\') || !fields.insert(member.key.as_str()))
+    {
+        return None;
+    }
+    let encoded = serde_json::to_string(key).ok()?;
+    let entry = format!(
+        "{{\n      \"name\": {encoded},\n      \"type\": \"java.lang.String\",\n      \"description\": \"\"\n    }}"
+    );
     let Some(list) = top.iter().find(|m| m.key == "properties") else {
         let close = text.rfind('}')?;
         let sep = if top.is_empty() { "" } else { "," };
         let before = text[..close].trim_end().len();
-        return Some((before, close, format!("{sep}\n  \"properties\": [\n    {entry}\n  ]\n")));
+        return Some((
+            before,
+            close,
+            format!("{sep}\n  \"properties\": [\n    {entry}\n  ]\n"),
+        ));
     };
-    let Node::Arr(items) = &list.value else { return None };
+    let Node::Arr(items) = &list.value else {
+        return None;
+    };
     let open = text[list.end..].find('[')? + list.end;
     let close = matching_bracket(text, open)?;
     let before = text[..close].trim_end().len();
@@ -315,24 +450,41 @@ mod tests {
 
     fn codes(text: &str) -> Vec<&'static str> {
         let facts = Summary::merge([].iter(), false);
-        check(text, &Context { defined: &|_| true, facts: &facts }).iter().map(|f| f.code).collect()
+        check(
+            text,
+            &Context {
+                defined: &|_| true,
+                facts: &facts,
+            },
+        )
+        .iter()
+        .map(|f| f.code)
+        .collect()
     }
 
     #[test]
     fn define_key_serializes_literal_name_without_json_injection() {
-        let key="app.bad\"name\\tail\nline";let text="{\"properties\": []}";
-        let (from,to,insert)=define_key(text,key).unwrap();
-        let out=format!("{}{}{}",&text[..from],insert,&text[to..]);
-        let value:serde_json::Value=serde_json::from_str(&out).expect("generated edit must remain JSON");
-        assert_eq!(value["properties"][0]["name"].as_str(),Some(key));
+        let key = "app.bad\"name\\tail\nline";
+        let text = "{\"properties\": []}";
+        let (from, to, insert) = define_key(text, key).unwrap();
+        let out = format!("{}{}{}", &text[..from], insert, &text[to..]);
+        let value: serde_json::Value =
+            serde_json::from_str(&out).expect("generated edit must remain JSON");
+        assert_eq!(value["properties"][0]["name"].as_str(), Some(key));
     }
     #[test]
     fn define_key_requires_complete_unambiguous_json_source() {
-        for text in ["{} trailing }","{\"properties\": [1,]}","{\"properties\": [1 2]}","{\"properties\": [],\"properties\": []}",r#"{"propert\u0069es": []}"#] {
-            assert!(define_key(text,"app.x").is_none(),"{text}");
+        for text in [
+            "{} trailing }",
+            "{\"properties\": [1,]}",
+            "{\"properties\": [1 2]}",
+            "{\"properties\": [],\"properties\": []}",
+            r#"{"propert\u0069es": []}"#,
+        ] {
+            assert!(define_key(text, "app.x").is_none(), "{text}");
         }
-        assert!(define_key("{}",&"a".repeat(257)).is_none());
-        assert!(define_key(&format!("{}{{}}"," ".repeat(128<<10)),"app.x").is_none());
+        assert!(define_key("{}", &"a".repeat(257)).is_none());
+        assert!(define_key(&format!("{}{{}}", " ".repeat(128 << 10)), "app.x").is_none());
     }
     #[test]
     fn reports_shape_problems_only() {
@@ -343,15 +495,21 @@ mod tests {
             {"name": "a.d", "type": "not a type!", "description": "x"},
             {"name": "a.e", "type": "String", "deprecation": {"reason": "r"}}
         ], "hints": [{"name": "a.b", "values": [{"value": "x"}], "extra": 1}], "oops": []}"#;
-        assert_eq!(codes(text), [
-            "unknown-metadata-field",
-            "unknown-metadata-field",
-            "duplicate-metadata-name",
-            "missing-metadata-description",
-            "invalid-metadata-type",
-            "unknown-metadata-field",
-        ]);
-        assert!(codes(r#"{"properties": [{"name": "x.y", "type": "String", "description": "d"}]}"#).is_empty());
+        assert_eq!(
+            codes(text),
+            [
+                "unknown-metadata-field",
+                "unknown-metadata-field",
+                "duplicate-metadata-name",
+                "missing-metadata-description",
+                "invalid-metadata-type",
+                "unknown-metadata-field",
+            ]
+        );
+        assert!(
+            codes(r#"{"properties": [{"name": "x.y", "type": "String", "description": "d"}]}"#)
+                .is_empty()
+        );
         assert!(codes("{ broken").is_empty());
     }
 
@@ -364,26 +522,51 @@ mod tests {
             {"name": "a.flag", "type": "boolean", "description": "d", "deprecation": true},
             {"name": "a.cls", "type": "com.acme.Gone", "description": "d"}
         ], "hints": [{"name": "a.missing", "values": []}, {"name": "a.port.values", "values": []}]}"#;
-        let facts = Summary::merge([&crate::facts::Facts { package: "com.acme".into(), types: vec!["com.acme.Here".into()], enums: vec![] }].into_iter(), true);
+        let facts = Summary::merge(
+            [&crate::facts::Facts {
+                package: "com.acme".into(),
+                types: vec!["com.acme.Here".into()],
+                enums: vec![],
+            }]
+            .into_iter(),
+            true,
+        );
         let known = |name: &str| name == "a.known";
-        let found: Vec<&str> = check(text, &Context { defined: &known, facts: &facts }).iter().map(|f| f.code).collect();
-        assert_eq!(found, [
-            "invalid-metadata-default",
-            "unknown-metadata-field",
-            "invalid-metadata-deprecation",
-            "unknown-metadata-replacement",
-            "invalid-metadata-deprecation",
-            "unresolved-metadata-type",
-            "unknown-hint-property",
-        ]);
+        let found: Vec<&str> = check(
+            text,
+            &Context {
+                defined: &known,
+                facts: &facts,
+            },
+        )
+        .iter()
+        .map(|f| f.code)
+        .collect();
+        assert_eq!(
+            found,
+            [
+                "invalid-metadata-default",
+                "unknown-metadata-field",
+                "invalid-metadata-deprecation",
+                "unknown-metadata-replacement",
+                "invalid-metadata-deprecation",
+                "unresolved-metadata-type",
+                "unknown-hint-property",
+            ]
+        );
     }
 
     #[test]
     fn defines_a_key_in_existing_or_empty_lists() {
-        let text = "{\n  \"properties\": [\n    {\"name\": \"a\", \"description\": \"d\"}\n  ]\n}\n";
+        let text =
+            "{\n  \"properties\": [\n    {\"name\": \"a\", \"description\": \"d\"}\n  ]\n}\n";
         let (from, to, add) = define_key(text, "x.y").unwrap();
         let out = format!("{}{add}{}", &text[..from], &text[to..]);
-        assert!(codes(&out).iter().all(|c| *c == "missing-metadata-description"));
+        assert!(
+            codes(&out)
+                .iter()
+                .all(|c| *c == "missing-metadata-description")
+        );
         assert!(out.contains("\"x.y\"") && out.contains("\"a\""));
         assert!(parse(&out).is_some());
 

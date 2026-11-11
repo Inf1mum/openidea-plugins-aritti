@@ -6,6 +6,8 @@ use std::ops::Range;
 use openidea_plugin::Severity;
 
 pub const UNKNOWN_PROPERTY: &str = "unknown-property";
+pub const INVALID_PROPERTY_VALUE: &str = "invalid-property-value";
+
 pub const FEATURES_MALFORMED: &str = "features-malformed";
 pub const FOLDER_STRUCTURE: &str = "folder-structure";
 
@@ -106,6 +108,62 @@ pub fn missing_properties(text: &str, offset: usize) -> Vec<&'static str> {
 
     KNOWN.iter().copied().filter(|name| !present.iter().any(|key| key == name)).collect()
 }
+
+/// Schema-backed completion in known nested objects. Arbitrary extension/env keys
+/// remain quiet. Reuse the JSONC scanner so comments and unfinished values obey
+/// the same caret rules as top-level completion.
+pub fn nested_choices(text: &str, offset: usize) -> Option<(bool, Vec<(&'static str, bool)>)> {
+    let bytes = text.as_bytes();
+    let root = first_token(text).start;
+    let owner = members(bytes, root).into_iter().find(|m|
+        bytes.get(m.value_range.start) == Some(&b'{') && m.value_range.start < offset && offset <= m.value_range.end)?;
+    let mut start = owner.value_range.start;
+    let properties: &[&str] = match owner.key.as_str() {
+        "build" => &["dockerfile", "context", "args", "target", "cacheFrom", "options"],
+        "hostRequirements" => &["cpus", "memory", "storage", "gpu"],
+        "otherPortsAttributes" => PORT_ATTRIBUTES,
+        "portsAttributes" => {
+            let port = members(bytes, start).into_iter().find(|m|
+                bytes.get(m.value_range.start) == Some(&b'{') && m.value_range.start < offset && offset <= m.value_range.end)?;
+            start = port.value_range.start;
+            PORT_ATTRIBUTES
+        }
+        _ => return None,
+    };
+    match context_at(&text[start..], offset - start)? {
+        Context::Key => {
+            let present = members(bytes, start);
+            Some((true, properties.iter().copied().filter(|name|
+                !present.iter().any(|m| m.key == *name && !(m.key_range.start < offset && offset <= m.key_range.end)))
+                .map(|name| (name, false)).collect()))
+        }
+        Context::Value { key } => {
+            let values: &[(&str, bool)] = if properties == PORT_ATTRIBUTES {
+                match key.as_str() {
+                    "protocol" => &[("http", true), ("https", true)],
+                    "onAutoForward" => &[("notify", true), ("openBrowser", true), ("openBrowserOnce", true), ("openPreview", true), ("silent", true), ("ignore", true)],
+                    "requireLocalPort" | "elevateIfNeeded" => &[("true", false), ("false", false)],
+                    _ => &[],
+                }
+            } else { &[] };
+            Some((false, values.to_vec()))
+        }
+    }
+}
+
+/// Known feature option object and JSONC-aware context at the caret.
+pub fn feature_option_context(text: &str, offset: usize) -> Option<(String, Context, Vec<String>)> {
+    let bytes = text.as_bytes();
+    let root = first_token(text).start;
+    let features = members(bytes, root).into_iter().find(|m| m.key == "features" && bytes.get(m.value_range.start)==Some(&b'{'))?;
+    let feature = members(bytes, features.value_range.start).into_iter().find(|m|
+        bytes.get(m.value_range.start)==Some(&b'{') && m.value_range.start < offset && offset <= m.value_range.end)?;
+    let present = members(bytes,feature.value_range.start).into_iter()
+        .filter(|m| !(m.key_range.start < offset && offset <= m.key_range.end)).map(|m|m.key).collect();
+    Some((feature.key, context_at(&text[feature.value_range.start..],offset-feature.value_range.start)?, present))
+}
+
+const PORT_ATTRIBUTES: &[&str] = &["label", "protocol", "onAutoForward", "requireLocalPort", "elevateIfNeeded"];
 
 /// The string (quotes included) holding `offset` when it is a key of the top-level `features` object.
 pub fn feature_key_at(text: &str, offset: usize) -> Option<Range<usize>> {
@@ -277,6 +335,7 @@ pub fn check(text: &str) -> Vec<Finding> {
             continue;
         }
 
+        check_property_value(text,&member,&mut findings);
         if let Some(known) = typo_of(&member.key) {
             findings.push(Finding::warning(
                 member.key_range.clone(),
@@ -287,6 +346,45 @@ pub fn check(text: &str) -> Vec<Finding> {
     }
 
     findings
+}
+
+fn check_property_value(text:&str,member:&Member,findings:&mut Vec<Finding>) {
+    let raw=&text[member.value_range.clone()];
+    if let Ok(value)=serde_json::from_str::<serde_json::Value>(raw) {
+        let choices=value_choices(&member.key);
+        if !choices.is_empty() {
+            let valid=choices.iter().any(|(choice,quoted)|if *quoted{value.as_str()==Some(*choice)}else{value.as_bool()==choice.parse::<bool>().ok()});
+            if !valid {findings.push(Finding::warning(member.value_range.clone(),INVALID_PROPERTY_VALUE,format!("Invalid value for `{}`; choose {}.",member.key,choices.iter().map(|(v,_)|*v).collect::<Vec<_>>().join(", "))));}
+            return;
+        }
+        let kind=match member.key.as_str() {
+            "image"|"dockerFile"|"context"|"service"|"workspaceFolder"|"workspaceMount"|"name"|"containerUser"|"remoteUser"=>Some((value.is_string(),"string")),
+            "build"|"containerEnv"|"remoteEnv"|"customizations"|"portsAttributes"|"otherPortsAttributes"|"hostRequirements"|"secrets"=>Some((value.is_object(),"object")),
+            "runServices"|"forwardPorts"|"overrideFeatureInstallOrder"|"mounts"|"capAdd"|"securityOpt"|"runArgs"=>Some((value.is_array(),"array")),
+            "dockerComposeFile"=>Some((value.is_string()||value.is_array(),"string or array")),
+            "initializeCommand"|"onCreateCommand"|"updateContentCommand"|"postCreateCommand"|"postStartCommand"|"postAttachCommand"=>Some((value.is_string()||value.is_array()||value.is_object(),"string, array or object")),
+            _=>None,
+        };
+        if let Some((false,expected))=kind {findings.push(Finding::warning(member.value_range.clone(),INVALID_PROPERTY_VALUE,format!("`{}` expects a {expected}.",member.key)));}
+    }
+    if text.as_bytes().get(member.value_range.start)!=Some(&b'{'){return;}
+    let children=members(text.as_bytes(),member.value_range.start);
+    if member.key=="portsAttributes" {
+        for child in children {
+            if text.as_bytes().get(child.value_range.start)==Some(&b'{'){check_port_values(text,child.value_range.start,findings);}
+        }
+    }else if member.key=="otherPortsAttributes" {check_port_values(text,member.value_range.start,findings);}
+}
+fn check_port_values(text:&str,start:usize,findings:&mut Vec<Finding>) {
+    for member in members(text.as_bytes(),start) {
+        let Ok(value)=serde_json::from_str::<serde_json::Value>(&text[member.value_range.clone()])else{continue;};
+        let valid=match member.key.as_str() {
+            "protocol"=>value.as_str().is_some_and(|s|["http","https"].contains(&s)),
+            "onAutoForward"=>value.as_str().is_some_and(|s|["notify","openBrowser","openBrowserOnce","openPreview","silent","ignore"].contains(&s)),
+            "label"=>value.is_string(),"requireLocalPort"|"elevateIfNeeded"=>value.is_boolean(),_=>true,
+        };
+        if !valid {findings.push(Finding::warning(member.value_range.clone(),INVALID_PROPERTY_VALUE,format!("Invalid port attribute `{}`.",member.key)));}
+    }
 }
 
 fn check_features(text: &str, member: &Member, findings: &mut Vec<Finding>) {

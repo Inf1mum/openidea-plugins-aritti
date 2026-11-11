@@ -7,9 +7,10 @@ use openidea_plugin::{
     Diagnostic, Error, Event, Invocation, Location, LogLevel, NotificationLevel, PickItem, Position, Project, Range, Severity, StatusItem,
     TextEdit, host, text,
 };
-use std::collections::HashSet;
+use std::collections::{HashSet,HashMap};
 
 mod actions;
+mod unused;
 mod check;
 mod decorations;
 mod git_inventory;
@@ -440,8 +441,10 @@ struct IgnorePlugin {
     preferences: preferences::State,
     show_preferences: bool,
     inventory: git_inventory::State,
+    unused: unused::State,
     directories: decorations::Directories,
     checked_paths: HashSet<String>,
+    cached_checks: HashMap<String,(String,Vec<Diagnostic>)>,
     selected: Option<String>,
     expanded: HashSet<String>,
 }
@@ -517,15 +520,17 @@ impl openidea_plugin::Plugin for IgnorePlugin {
         let settings = host::subscribe(openidea_plugin::EventKind::SettingsChanged);
         let vcs = host::subscribe(openidea_plugin::EventKind::VcsChanged);
         let files = host::subscribe_paths("files-changed", &["**/*"]);
+        self.unused.configure(files.is_ok());
         self.directories.configure(files.is_ok());
         self.file_hints.configure(settings.is_ok() && vcs.is_ok() && files.is_ok());
         Ok(())
     }
 
-    fn deactivate(&mut self) {self.directories.configure(false); self.file_hints.configure(false); let _ = self.file_hints.clear();}
+    fn deactivate(&mut self) {self.unused.configure(false);self.directories.configure(false); self.file_hints.configure(false); let _ = self.file_hints.clear();}
 
     fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
         match id {
+            "find-unused-complete" => self.unused.capture(ctx),
             "publish-git-sample-hints" => self.file_hints.publish(&self.inventory, ctx),
             "clear-git-sample-hints" => self.file_hints.clear().map(|_| None),
             "git-inventory-start" => { self.file_hints.clear()?; self.inventory.start(ctx) },
@@ -546,6 +551,7 @@ impl openidea_plugin::Plugin for IgnorePlugin {
     }
 
     fn handle_events(&mut self, events: &[Event], ctx: &Invocation) {
+        self.unused.invalidate(events);
         self.file_hints.changed(events, ctx);
         self.directories.events(events);
         for event in events {
@@ -584,7 +590,12 @@ impl openidea_plugin::Plugin for IgnorePlugin {
                         let _ = host::publish_diagnostics(path, &[]);
                         continue;
                     }
-                    if let Err(e) = host::publish_diagnostics(path, &diagnostics(&text, dialect)) {
+                    let items=diagnostics(&text,dialect);
+                    if self.cached_checks.len()>=8 {self.cached_checks.clear();}
+                    if text.len()<=64<<10&&text.lines().count()<=512 {
+                        self.cached_checks.insert(path.clone(),(text.clone(),items.clone()));
+                    }
+                    if let Err(e) = host::publish_diagnostics(path, &items) {
                         host::log(LogLevel::Warn, &format!("{path}: {e}"));
                     }
                 }
@@ -634,10 +645,15 @@ impl Providers for IgnorePlugin {
         if !preferences::checks(&doc.path) {
             return Vec::new();
         }
-        match dialect(&doc.path) {
+        let mut actions=match dialect(&doc.path) {
             Some(dialect) => quick_fixes(doc, selection.start.line, dialect),
             None => Vec::new(),
-        }
+        };
+        actions.extend(self.unused.actions(doc,selection));actions
+    }
+    fn resolve_code_action(&mut self,doc:&Document,action:CodeAction)->Result<CodeAction,Error> {
+        if !preferences::checks(&doc.path){return Err(Error::Stale);}
+        if action.data.as_deref().is_some_and(|data|data.starts_with("[\"unused-snapshot\"")){self.unused.resolve(doc,action)}else{Ok(action)}
     }
 
     fn definition(&mut self, doc: &Document, at: Position) -> Vec<Location> {
@@ -767,8 +783,19 @@ impl Views for IgnorePlugin {
     }
 }
 
+impl openidea_plugin::diagnostics::DiagnosticsProvider for IgnorePlugin {
+    fn diagnostics(&mut self,doc:&Document)->Vec<Diagnostic> {
+        if doc.text.len()>128<<10||!preferences::checks(&doc.path){return Vec::new();}
+        if dialect(&doc.path).is_none(){return Vec::new();}
+        // The legacy coverage matcher is potentially expensive. Events warm
+        // source-identical checks; live providers only clone bounded cached facts.
+        let mut diagnostics=self.cached_checks.get(&doc.path).filter(|(text,_)|text==&doc.text).map(|(_,items)|items.clone()).unwrap_or_default();
+        diagnostics.extend(self.unused.diagnostics(doc));diagnostics
+    }
+}
+
 // API 1.3 registers the optional exports on the same component.
-openidea_plugin::register_plugin!(IgnorePlugin, providers, views, syntax, semantic_tokens, file_actions);
+openidea_plugin::register_plugin!(IgnorePlugin, providers, views, syntax, semantic_tokens, file_actions, diagnostics);
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests;

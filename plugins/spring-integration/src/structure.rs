@@ -36,6 +36,8 @@ pub struct Structure {
     batch_links: crate::batch_actions::Links,
     batch_step_rename: crate::batch_step_rename::Rename,
     channel_renames: crate::navigation::ChannelRenames,
+    import_renames: crate::import_tree::Renames,
+    batch_runtime:crate::batch_runtime::Runtime,
     watching: bool,
 }
 
@@ -51,6 +53,8 @@ impl Default for Structure {
             batch_links: Default::default(),
             batch_step_rename: Default::default(),
             channel_renames: Default::default(),
+            import_renames: Default::default(),
+            batch_runtime:Default::default(),
             watching: false,
         }
     }
@@ -82,7 +86,7 @@ impl Structure {
     }
 
     fn wants_integration(&mut self, doc: &Document) -> bool {
-        matches!(doc.language.as_str(), "java" | "xml") && self.applicable(doc).integration
+        matches!(doc.language.as_str(), "java" | "kotlin" | "xml") && self.applicable(doc).integration
     }
 
     fn wants_batch(&mut self, doc: &Document) -> bool {
@@ -90,7 +94,7 @@ impl Structure {
     }
 
     fn wants_modulith(&mut self, doc: &Document) -> bool {
-        doc.language == "java" && self.applicable(doc).modulith
+        matches!(doc.language.as_str(),"java"|"kotlin") && self.applicable(doc).modulith
     }
 }
 
@@ -116,6 +120,7 @@ impl Providers for Structure {
     }
 
     fn definition(&mut self, doc: &Document, at: Position) -> Vec<Location> {
+        if let Some(found)=crate::java_hover::definition(doc,at) {return found;}
         if doc.language == "xml" && !crate::xml_namespaces::document_valid(&doc.text) { return vec![]; }
         if let Some(found) = crate::navigation::definition(doc, at) { return found; }
         if let Some(found)=crate::batch_navigation::definition(doc,at){return found;}
@@ -126,6 +131,7 @@ impl Providers for Structure {
         if self.wants_batch(doc) {
             found.extend(self.batch.definition(doc, at));
         }
+        if self.wants_modulith(doc) {found.extend(self.modulith.definition(doc,at));}
         found
     }
 
@@ -265,13 +271,13 @@ impl DiagnosticsProvider for Structure {
         // Gating itself is cached. Do not call applicable(), which reads build files.
         let Some((_, applies)) = self.applies.get(&root).copied() else { return Vec::new() };
         let mut found = Vec::new();
-        if applies.integration && matches!(doc.language.as_str(), "java" | "xml") {
+        if applies.integration && matches!(doc.language.as_str(), "java" | "kotlin" | "xml") {
             found.extend(self.integration.live_diagnostics(doc));
         }
         if applies.batch {
             found.extend(self.batch.live_diagnostics(doc));
         }
-        if applies.modulith && doc.language == "java" {
+        if applies.modulith && matches!(doc.language.as_str(),"java"|"kotlin") {
             found.extend(self.modulith.live_diagnostics(doc));
         }
         found.truncate(5000);
@@ -283,7 +289,7 @@ impl Plugin for Structure {
     fn activate(&mut self, _ctx: &openidea_plugin::Context) -> Result<(), Error> {
         let _ = host::subscribe_paths(
             "file-opened",
-            &["**/*.java", "**/*.xml", "**/application*.properties", "**/application*.yml", "**/application*.yaml"],
+            &["**/*.java", "**/*.kt", "**/*.xml", "**/application*.properties", "**/application*.yml", "**/application*.yaml"],
         );
         let saved = host::subscribe_paths(
             "file-saved",
@@ -352,6 +358,8 @@ impl Plugin for Structure {
     }
 
     fn run_command(&mut self, id: &str, ctx: &Invocation, arg: Option<&str>) -> Result<Option<String>, Error> {
+        if id.starts_with("batch.runtime-") {return self.batch_runtime.run_command(id,ctx);}
+        if id=="integration.import-tree-occurrences" {return crate::import_tree::occurrences(ctx);}
         if id=="batch.current-file-step-usages" {return crate::batch_step_rename::usages(ctx);}
         let module = id.split_once('.').map(|(module, _)| module);
         match module {
@@ -806,6 +814,51 @@ mod tests {
     }
 
     #[test]
+    fn registered_kotlin_integration_navigation_completion_and_live_fix_use_owned_source_model() {
+        let host=MockHost::install();host.add_file("/project/pom.xml","spring-integration-core");
+        let source="package app\nimport org.springframework.context.annotation.Bean\nimport org.springframework.messaging.MessageChannel\nimport org.springframework.integration.annotation.ServiceActivator\nclass Channels {\n @Bean fun orders(): MessageChannel = TODO()\n @ServiceActivator(inputChannel=\"orders\", outputChannel=\"missing\") fun consume() {}\n}";
+        let document=doc("/project/src/app/Channels.kt","kotlin",source);host.add_file(&document.path,source);let mut owner=Structure::default();owner.activate(&host.context("aritti.spring-integration")).unwrap();assert!(host.path_subscriptions()["file-opened"].iter().any(|glob|glob=="**/*.kt"));owner.handle_events(&[openidea_plugin::Event::FileOpened(document.path.clone())],&host.invocation());assert!(owner.diagnostics(&document).iter().any(|d|d.code.as_deref()==Some("unconsumed-channel")));
+        let at=position(source,source.find("inputChannel=\"orders\"").unwrap()+15);
+        let found=owner.definition(&document,at);assert_eq!(found.len(),1);assert_eq!(found[0].path,document.path);assert!(owner.completion(&document,at,None).iter().any(|item|item.label=="orders"));
+        assert!(owner.diagnostics(&document).iter().any(|d|d.code.as_deref()==Some("unconsumed-channel")));
+        let fixed=Document{text:source.replace("outputChannel=\"missing\"","outputChannel=\"orders\""),..document.clone()};assert!(!owner.diagnostics(&fixed).iter().any(|d|d.code.as_deref()==Some("unconsumed-channel")));
+        let foreign=Document{text:source.replace("org.springframework.integration.annotation.ServiceActivator","other.ServiceActivator"),..document};assert!(owner.definition(&foreign,at).is_empty());
+    }
+    #[test]
+    fn kotlin_parameter_completion_uses_owned_builder_facts_without_java_only_diagnostics() {
+        let host=MockHost::install();host.add_file("/project/pom.xml","spring-batch-core");
+        let source="package app\nimport org.springframework.batch.core.JobParametersBuilder\nimport org.springframework.beans.factory.annotation.Value\nclass Params {\n @Value(\"#{jobParameters['r']}\") val parameter: String = \"\"\n fun parameters() { JobParametersBuilder().addString(\"runId\",\"1\") }\n}";
+        let document=doc("/project/src/app/Params.kt","kotlin",source);host.add_file(&document.path,source);let mut owner=Structure::default();owner.warm_live(&host.invocation().project().unwrap());let at=position(source,source.find("['r']").unwrap()+2);
+        let items=owner.completion(&document,at,None);assert!(items.iter().any(|item|item.label=="runId"),"{items:?}");assert!(owner.diagnostics(&document).is_empty());
+    }
+    #[test]
+    fn registered_kotlin_modulith_metadata_navigation_and_live_boundary_diagnostics_are_reachable() {
+        let host=MockHost::install();host.add_file("/project/pom.xml","spring-modulith");
+        host.add_file("/project/src/main/kotlin/app/Main.kt","package app\nimport org.springframework.boot.autoconfigure.SpringBootApplication\n@SpringBootApplication class Main");
+        host.add_file("/project/src/main/kotlin/app/orders/Api.kt","package app.orders\nclass Api");host.add_file("/project/src/main/kotlin/app/orders/internal/Repository.kt","package app.orders.internal\nclass Repository");
+        let metadata="package app.shipping\nimport org.springframework.modulith.PackageInfo\nimport org.springframework.modulith.ApplicationModule\n@PackageInfo @ApplicationModule(allowedDependencies=[\"orders\"]) class Metadata";let document=doc("/project/src/main/kotlin/app/shipping/Metadata.kt","kotlin",metadata);host.add_file(&document.path,metadata);
+        let mut owner=Structure::default();owner.warm_live(&host.invocation().project().unwrap());let at=position(metadata,metadata.find("\"orders\"").unwrap()+2);assert!(owner.completion(&document,at,None).iter().any(|item|item.label=="orders::*"));let locations=owner.definition(&document,at);assert_eq!(locations.len(),1);assert!(locations[0].path.ends_with("/orders/Api.kt"));
+        let source="package app.shipping\nimport app.orders.internal.Repository\nclass Shipping";let shipping=doc("/project/src/main/kotlin/app/shipping/Shipping.kt","kotlin",source);assert!(owner.diagnostics(&shipping).iter().any(|d|d.code.as_deref()==Some("module-internal")));
+    }
+    #[test]
+    fn merged_batch_live_checks_use_explicit_compatibility_without_inferring_unversioned_schema() {
+        let host=MockHost::install();host.add_file("/project/pom.xml","spring-batch-core");
+        let source="<beans xmlns='http://www.springframework.org/schema/beans' xmlns:b='http://www.springframework.org/schema/batch'><b:job id='j'><b:step id='s'><b:tasklet ref='worker' throttle-limit='4'/></b:step></b:job></beans>";
+        let document=doc("/project/jobs.xml","xml",source);host.add_file(&document.path,source);let mut owner=Structure::default();owner.warm_live(&host.invocation().project().unwrap());
+        assert!(!owner.diagnostics(&document).iter().any(|d|d.code.as_deref()==Some("unsupported-batch-schema-attribute")));
+        host.set_setting("springBatch.xmlCompatibility",r#""6""#);
+        let found=owner.diagnostics(&document);assert!(found.iter().any(|d|d.code.as_deref()==Some("unsupported-batch-schema-attribute")&&d.message.contains("throttle-limit")));assert_eq!(found.iter().filter(|d|d.code.as_deref()==Some("batch-xml-deprecated")).count(),1);
+    }
+    #[test]
+    fn registered_named_interface_file_action_routes_reviewed_foreign_type_annotation() {
+        use openidea_plugin::file_actions::FileActions;
+        let host=MockHost::install();host.add_file("/project/pom.xml","spring-modulith");
+        host.add_file("/project/src/app/Main.java","package app; @SpringBootApplication public class Main {}");
+        host.add_file("/project/src/app/orders/internal/Repository.java","package app.orders.internal; public class Repository {}");
+        let document=doc("/project/src/app/shipping/Shipping.java","java","package app.shipping; import app.orders.internal.Repository; public class Shipping {}");host.add_file(&document.path,&document.text);let mut owner=Structure::default();owner.warm_live(&host.invocation().project().unwrap());
+        let at=position(&document.text,document.text.find("app.orders.internal.Repository").unwrap()+1);let action=owner.file_actions(&document,Range::new(at,at)).into_iter().find(|a|a.title=="Expose imported type as a named interface…").unwrap();host.answer_next_prompt(Some(&["repository"]));host.answer_next_prompt(Some(&["yes"]));let resolved=owner.resolve_file_action(&document,action).unwrap();assert_eq!(resolved.edits[0].0,"/project/src/app/orders/internal/Repository.java");assert!(resolved.edits[0].1[0].text.contains("org.springframework.modulith.NamedInterface"));assert!(resolved.operations.is_empty());
+    }
+    #[test]
     fn section_buttons_switch_the_structure_window() {
         let host = setup(INTEGRATION_POM);
         let mut structure = Structure::default();
@@ -1032,6 +1085,8 @@ impl openidea_plugin::file_actions::FileActions for Structure {
         actions.extend(self.batch_links.actions(doc, selection));
         actions.extend(self.batch_step_rename.actions(doc, selection));
         actions.extend(self.channel_renames.actions(doc, selection));
+        actions.extend(self.import_renames.actions(doc, selection));
+        actions.extend(self.modulith.expose_actions(doc,selection));
         actions
     }
     fn resolve_file_action(
@@ -1039,6 +1094,10 @@ impl openidea_plugin::file_actions::FileActions for Structure {
         doc: &Document,
         action: openidea_plugin::file_actions::FileAction,
     ) -> Result<openidea_plugin::file_actions::FileAction, Error> {
+        if action.data.as_deref().is_some_and(|data| data.starts_with("modulith-expose-interface:")) {return self.modulith.resolve_expose(doc,action);}
+        if action.data.as_deref().is_some_and(|data| data.starts_with("integration-import-tree:")) {
+            return self.import_renames.resolve(doc,action);
+        }
         if action.data.as_deref().is_some_and(|data| data.starts_with("integration-channel-rename:")) {
             return self.channel_renames.resolve(doc,action);
         }

@@ -43,6 +43,21 @@ pub(crate) fn allows(boot: &str, range: &str) -> Option<bool> {
     Some(dependencies::in_range(boot, range))
 }
 
+/// Initializr client metadata uses versionRange; older snapshots used compatibilityRange.
+/// Both are accepted only when they agree, avoiding precedence-dependent requests.
+pub(crate) fn declared_range(value: &serde_json::Value) -> Option<&str> {
+    value["versionRange"].as_str().or_else(|| value["compatibilityRange"].as_str())
+}
+fn valid_range(value: &serde_json::Value) -> bool {
+    for key in ["versionRange", "compatibilityRange"] {
+        if value.get(key).is_some_and(|v| !v.is_null() && v.as_str().is_none_or(|s| s.len() > 256)) { return false; }
+    }
+    match (value["versionRange"].as_str(), value["compatibilityRange"].as_str()) {
+        (Some(a),Some(b)) => a == b,
+        _ => true,
+    }
+}
+
 pub(crate) fn valid_metadata(metadata: &serde_json::Value) -> bool {
     let text = |object: &serde_json::Value, key: &str, limit: usize| match object.get(key) {
         None | Some(serde_json::Value::Null) => true,
@@ -65,7 +80,7 @@ pub(crate) fn valid_metadata(metadata: &serde_json::Value) -> bool {
             }
             let mut ids = std::collections::BTreeSet::new();
             for option in options {
-                if option.get("compatibilityRange").is_some_and(|v|!v.is_null()&&!v.is_string()) {return false;}
+                if !valid_range(option) {return false;}
                 let Some(id) = option["id"].as_str().filter(|id| !id.is_empty() && id.len() <= 256) else {
                     return false;
                 };
@@ -81,7 +96,7 @@ pub(crate) fn valid_metadata(metadata: &serde_json::Value) -> bool {
                 }
                 if !ids.insert(id)
                     || !text(option, "name", 512)
-                    || option["compatibilityRange"].as_str().is_some_and(|range| range.len() > 256)
+                    || declared_range(option).is_some_and(|range| range.len() > 256)
                 {
                     return false;
                 }
@@ -104,7 +119,7 @@ pub(crate) fn valid_metadata(metadata: &serde_json::Value) -> bool {
     }
     let mut ids = std::collections::BTreeSet::new();
     for dependency in groups.into_iter().flatten().flat_map(|group| group["values"].as_array().into_iter().flatten()) {
-        if dependency.get("compatibilityRange").is_some_and(|v|!v.is_null()&&!v.is_string()) {return false;}
+        if !valid_range(dependency) {return false;}
         let Some(id) = dependency["id"].as_str().filter(|id| !id.is_empty() && id.len() <= 256) else {
             return false;
         };
@@ -112,7 +127,7 @@ pub(crate) fn valid_metadata(metadata: &serde_json::Value) -> bool {
             || !ids.insert(id)
             || !text(dependency, "name", 512)
             || !text(dependency, "description", 8192)
-            || dependency["compatibilityRange"].as_str().is_some_and(|v| v.len() > 256)
+            || declared_range(dependency).is_some_and(|v| v.len() > 256)
         {
             return false;
         }
@@ -180,7 +195,7 @@ impl Launcher {
                     "{key} `{selected}` is not offered by the saved server metadata. Refresh or select an offered value."
                 ));
             };
-            if option["compatibilityRange"].as_str().is_some_and(|range| allows(boot, range) == Some(false)) {
+            if declared_range(option).is_some_and(|range| allows(boot, range) == Some(false)) {
                 return Some(format!("{key} `{selected}` is outside the server's declared range for Spring Boot {boot}."));
             }
         }
@@ -191,7 +206,7 @@ impl Launcher {
                 .flatten()
                 .flat_map(|group| group["values"].as_array().into_iter().flatten())
                 .find(|d| d["id"].as_str() == Some(id));
-            if dependency.and_then(|d| d["compatibilityRange"].as_str()).is_some_and(|range| allows(boot, range) == Some(false)) {
+            if dependency.and_then(|d| declared_range(d)).is_some_and(|range| allows(boot, range) == Some(false)) {
                 return Some(format!("Dependency `{id}` is outside the server's declared range for Spring Boot {boot}."));
             }
         }
@@ -202,6 +217,20 @@ impl Launcher {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn current_version_ranges_are_validated_and_conflicting_legacy_aliases_are_rejected() {
+        use serde_json::json;
+        let mut metadata = json!({"bootVersion":{"default":"4.1.2","values":[{"id":"4.1.2"}]},"dependencies":{"values":[{"name":"Developer Tools","values":[{"id":"modulith","versionRange":"[4.0.0,4.3.0-M1)"}]}]}});
+        assert!(valid_metadata(&metadata));
+        let dependency = &mut metadata["dependencies"]["values"][0]["values"][0];
+        assert_eq!(declared_range(dependency), Some("[4.0.0,4.3.0-M1)"));
+        dependency["compatibilityRange"] = json!("[4.0.0,4.3.0-M1)");
+        assert!(valid_metadata(&metadata));
+        metadata["dependencies"]["values"][0]["values"][0]["compatibilityRange"] = json!("[1.0.0,2.0.0)");
+        assert!(!valid_metadata(&metadata));
+        metadata["dependencies"]["values"][0]["values"][0]["versionRange"] = json!(false);
+        assert!(!valid_metadata(&metadata));
+    }
     #[test]
     fn ranges_observe_boundaries_and_unknown_qualifiers() {
         assert_eq!(allows("3.5.0", "[3.5.0,4.0.0)"), Some(true));

@@ -21,6 +21,10 @@ pub(crate) fn index_source(doc: &IndexedDocument) -> Edges {
         return edges;
     }
     if doc.path.ends_with(".java") || doc.path.ends_with(".kt") {
+        let source = Document {path:doc.path.clone(),text:doc.text.clone(),language:if doc.path.ends_with(".kt"){ "kotlin" } else { "java" }.into(),version:0};
+        for (namespace,local,range) in xpath::references(&source) {
+            edges.references.push(Anchor{key:key(&namespace,&local),range});
+        }
         for endpoint in endpoints_with_syntax(
             &parse_source(&doc.path, &doc.text),
             &doc.text,
@@ -35,6 +39,11 @@ pub(crate) fn index_source(doc: &IndexedDocument) -> Edges {
                     range: endpoint.local_range,
                 });
             }
+        }
+    } else if doc.path.ends_with(".xml") {
+        let source = Document {path:doc.path.clone(),text:doc.text.clone(),language:"xml".into(),version:0};
+        for (namespace,local,range) in xml_refs::payload_qnames(&source) {
+            edges.references.push(Anchor{key:key(&namespace,&local),range});
         }
     } else if doc.path.ends_with(".xsd") || doc.path.ends_with(".wsdl") {
         let (schemas, complete) = schema_qnames::read(&doc.text);
@@ -103,7 +112,26 @@ mod tests {
     }
 }
 
-pub(crate) fn occurrences(ctx: &Invocation) -> Result<Option<String>, Error> {
+fn observed_edges(_nav:&mut WsTools,doc:&IndexedDocument)->Edges {
+    let mut edges=index_source(doc);
+    let language=if doc.path.ends_with(".java"){"java"}else if doc.path.ends_with(".kt"){"kotlin"}else{"xml"};
+    let source=Document{path:doc.path.clone(),text:doc.text.clone(),language:language.into(),version:0};
+    let package=(|| {
+        if !matches!(language,"java"|"kotlin"){return None;}
+        let path=format!("{}/package-info.java",doc.path.rsplit_once('/')?.0);
+        let project=project_of(&doc.path)?;
+        if project_of(&path)?.root().ok()!=project.root().ok() {return None;}
+        if project.stat(&path).ok()?.size>32768 {return None;}
+        Some((path.clone(),project.read_file(&path).ok()?))
+    })();
+    let refs=match package {Some((path,text))=>xpath::references_with_package_source(&source,&path,&text),None=>xpath::references(&source)};
+    for (namespace,local,range) in refs {
+        let key=key(&namespace,&local);
+        if !edges.references.iter().any(|a|a.key==key&&a.range==range){edges.references.push(Anchor{key,range});}
+    }
+    edges
+}
+pub(crate) fn occurrences(nav:&mut WsTools,ctx: &Invocation) -> Result<Option<String>, Error> {
     let project = ctx.project().ok_or(Error::Stale)?;
     let root = project.root()?;
     let editor = ctx
@@ -131,7 +159,7 @@ pub(crate) fn occurrences(ctx: &Invocation) -> Result<Option<String>, Error> {
         text: snapshot.text.clone(),
         symbols: vec![],
     };
-    let edges = index_source(&doc);
+    let edges = observed_edges(nav,&doc);
     let selected = edges
         .definitions
         .iter()
@@ -139,9 +167,10 @@ pub(crate) fn occurrences(ctx: &Invocation) -> Result<Option<String>, Error> {
         .find(|a| a.range.start <= caret && caret < a.range.end)
         .ok_or("Select a proved literal QName local name; unknown bindings cannot be searched.")?;
     let key = selected.key.clone();
+    let selected_span=selected.range;
     let deadline = Instant::now() + Duration::from_secs(2);
     let mut files = std::collections::BTreeSet::from([path.clone()]);
-    for glob in ["**/*.java", "**/*.kt", "**/*.xsd", "**/*.wsdl"] {
+    for glob in ["**/*.java", "**/*.kt", "**/*.xsd", "**/*.wsdl", "**/*.xml"] {
         if Instant::now() >= deadline {
             break;
         }
@@ -183,7 +212,7 @@ pub(crate) fn occurrences(ctx: &Invocation) -> Result<Option<String>, Error> {
             continue;
         }
         bytes += source.len();
-        let edges = index_source(&IndexedDocument {
+        let edges = observed_edges(nav,&IndexedDocument {
             path: file.clone(),
             text: source.clone(),
             symbols: vec![],
@@ -240,6 +269,12 @@ pub(crate) fn occurrences(ctx: &Invocation) -> Result<Option<String>, Error> {
     if fresh != *source {
         return Err(Error::Stale);
     }
+    // Package annotations are external source authority. Re-read the admitted
+    // sibling package-info and re-establish both QName identities after the picker.
+    let current_edges=observed_edges(nav,&IndexedDocument{path:path.clone(),text:snapshot.text.clone(),symbols:vec![]});
+    if !current_edges.definitions.iter().chain(&current_edges.references).any(|a|a.key==key&&a.range==selected_span){return Err(Error::Stale);}
+    let target_edges=observed_edges(nav,&IndexedDocument{path:destination.clone(),text:fresh,symbols:vec![]});
+    if !target_edges.definitions.iter().chain(&target_edges.references).any(|a|a.key==key&&a.range==*span){return Err(Error::Stale);}
     host::open_location(destination, span.start.line, span.start.character)?;
     Ok(None)
 }

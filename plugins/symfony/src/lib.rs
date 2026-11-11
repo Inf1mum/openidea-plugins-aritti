@@ -23,12 +23,14 @@ mod php_checks;
 mod php_text;
 mod practice_checks;
 mod profiler;
+mod profiler_details;
 mod query_builder_checks;
 mod refs;
 mod rewrites;
 mod route_defs;
 mod route_duplicates;
 mod source_xml;
+mod source_occurrences;
 mod service_gen;
 mod service_file_actions;
 mod service_edit_actions;
@@ -965,6 +967,7 @@ impl Plugin for Main {
 
     fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
         match id {
+            "find-source-occurrences" => source_occurrences::run(self,ctx),
             "twig-paths" => {
                 ui_kit::web::reveal_view(namespace_paths::VIEW, include_str!("ui_config.json"))?;
                 Ok(None)
@@ -1777,10 +1780,19 @@ impl Views for Main {
                 ViewEvent::Button(id) if id == "choose-profiler-source" => {
                     if profiler::choose_source(ctx)? { refresh_profiler_view(); }
                 }
+                ViewEvent::Button(id) if id == "inspect-profile-details" => {
+                    self.profiler_snapshot.inspect(ctx)?;
+                    refresh_profiler_view();
+                }
+                ViewEvent::Button(id) if id == "close-profile-details" => {
+                    self.profiler_snapshot.close_details();
+                    refresh_profiler_view();
+                }
                 ViewEvent::Button(id) if id == "refresh-profiler" => {
                     self.profiler_snapshot.refresh(ctx);
                     ui_kit::web::refresh_view(PROFILER_VIEW, include_str!("ui_config.json"));
                 }
+                ViewEvent::Select(key) => self.profiler_snapshot.select(&key, ctx),
                 ViewEvent::Activate(key) => self.profiler_snapshot.open(&key, ctx)?,
                 _ => {}
             }
@@ -2545,7 +2557,7 @@ mod tests {
         let View { body: Body::List(rows), status, .. } = plugin.render(VIEW, None, &ctx).unwrap() else { panic!("not a list") };
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].label, "/blog");
-        assert_eq!(rows[0].detail.as_deref(), Some("[ANY] BlogController \u{b7} blog_index"));
+        assert_eq!(rows[0].detail.as_deref(), Some("[ANY] BlogController@index \u{b7} blog_index"));
         assert_eq!(status.as_deref(), Some("1 endpoints"));
 
         plugin.handle(VIEW, ViewEvent::Activate(rows[0].key.clone()), &ctx).unwrap();
@@ -2564,8 +2576,8 @@ mod tests {
 
         let View { body: Body::List(rows), .. } = plugin.render(VIEW, None, &host.invocation()).unwrap() else { panic!("not a list") };
         let details: Vec<_> = rows.iter().map(|row| (row.label.as_str(), row.detail.clone().unwrap())).collect();
-        assert!(details.contains(&("/users/{id}", "[GET] UserController \u{b7} app_user_show".to_owned())), "{details:?}");
-        assert!(details.contains(&("/users/{id}", "[POST] UserController \u{b7} app_user_show".to_owned())), "{details:?}");
+        assert!(details.contains(&("/users/{id}", "[GET] UserController@show \u{b7} app_user_show".to_owned())), "{details:?}");
+        assert!(details.contains(&("/users/{id}", "[POST] UserController@show \u{b7} app_user_show".to_owned())), "{details:?}");
     }
 
     #[test]

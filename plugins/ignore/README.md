@@ -364,3 +364,44 @@ Ignore Templates has a right-aligned Preferences gear with a tooltip. It opens t
 Deleting a user template uses the native confirmation modal, leaving the list visible. Cancel changes nothing; confirmation rechecks the selected template and its stored content before deleting the template and favorite marker. The previous inline confirmation screen/event is retired.
 
 Create User Template uses a native input modal prefilled with the focused filename. Cancel leaves storage unchanged; empty/duplicate names are rejected. The captured document/version and editor identity are rechecked before saving its content, and the list remains visible. The old inline naming form and Save/Cancel event path are retired.
+
+### Git pattern whitespace and excluded parents
+
+The lexical matcher preserves leading spaces and escaped trailing spaces as
+pattern bytes; unescaped trailing spaces are ignored. Duplicate/redundancy checks
+use the same spelling policy for glob dialects. A child negation cannot restore
+a file beneath an excluded directory: every parent must first be included, as in
+Git. Nested ignore files cannot override an excluded ancestor. This improves the
+source-only fallback; it does not replace the separate bounded Git inventory or
+prove which files exist.
+
+### Create from multiple templates
+
+**Create ignore file from templates…** is an atomic intention available from a
+project editor. Choose a supported glob-dialect filename and existing directory,
+then up to 16 bundled/user templates. The exact combined content and destination
+are reviewed before the host creates and opens the file. Dismissal, duplicate or
+unknown selections, existing files/buffers and changed source context return no
+operation. Regexp dialects are excluded from this glob-template workflow.
+
+## Complete-snapshot unused-entry inspection
+
+**Ignore: Find Unused Entries from Complete Directory Snapshot…** explicitly
+reviews and runs an optional `python3` helper in isolated mode (`-I -S`). It scans
+the focused `.gitignore` directory twice, including hidden/ignored paths and Git
+metadata. It follows no symlinks and refuses errors, unsupported filesystem names
+or kinds, concurrent changes and limits (4096 entries,512 directories, depth24,
+8seconds,1MiB result). The helper writes its final complete result atomically into
+plugin-private storage; managed stdout loss cannot turn a partial scan into a
+complete inventory. It imports no project application and changes no project file.
+
+For admitted complete inventories, unmatched entries appear as native snapshot
+hints and offer an exact reviewed, undoable removal action. ASCII glob matching
+conservatively ignores case to avoid false absence across case-sensitive and
+case-insensitive filesystems. Unsupported pattern forms are counted and withheld.
+This checks whether names match any existing path, not whether a rule is currently
+Git's winning rule or whether future generated files will need it. Providers use
+only source/version/owner-bound cached results, never filesystem scans or processes.
+Eligibility lasts120seconds and observed source/filesystem changes withdraw it;
+results describe capture time, so rerun to refresh. Older Git sample observations
+remain positive-only and do not feed absence diagnostics.

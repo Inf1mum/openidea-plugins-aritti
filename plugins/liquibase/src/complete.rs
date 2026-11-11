@@ -112,12 +112,47 @@ pub fn yaml(text: &str, at: usize) -> Vec<CompletionItem> {
         .collect()
 }
 
+/// Complete JSON property names using the same bounded source-key scanner as
+/// changelog discovery. A synthetic key proves the parent even in unfinished JSON;
+/// string values, malformed prefixes and unsupported scopes produce no suggestions.
+pub fn json(text: &str, at: usize) -> Vec<CompletionItem> {
+    if text.len() > 128 << 10 || at > text.len() || !text.is_char_boundary(at) { return Vec::new(); }
+    let mut quote = None;
+    let mut escaped = false;
+    for (byte, ch) in text[..at].char_indices() {
+        if escaped { escaped = false; continue; }
+        if quote.is_some() && ch == '\\' { escaped = true; continue; }
+        if ch == '"' { quote = if quote.is_some() { None } else { Some(byte) }; }
+    }
+    let Some(open) = quote else { return Vec::new(); };
+    if !text[open + 1..at].bytes().all(|b| b.is_ascii_alphanumeric()) { return Vec::new(); }
+    const MARKER: &str = "__openidea_completion_key__";
+    let probe = format!("{}{}\":null", &text[..open + 1], MARKER);
+    let keys = crate::json::keys(&probe);
+    let Some(key) = keys.iter().find(|key| key.at == open + 1 && key.key.ends_with(MARKER)) else { return Vec::new(); };
+    let Some(parent) = key.key.strip_suffix(&format!(".{MARKER}")) else { return Vec::new(); };
+    let rest = &text[at..];
+    let word_end = at + rest.find(|c: char| !c.is_ascii_alphanumeric()).unwrap_or(rest.len());
+    let closed = text[word_end..].starts_with('"');
+    let has_value = closed && text[word_end + 1..].trim_start().starts_with(':');
+    let end = word_end + usize::from(closed && !has_value);
+    keys_under(&without_indices(parent)).into_iter().map(|(name, _)| CompletionItem {
+        insert_text: if has_value { name.into() } else { format!("{name}\": $0") },
+        snippet: !has_value,
+        replace: Some(range(text, open + 1, end)),
+        ..CompletionItem::new(name, CompletionKind::Property)
+    }).collect()
+}
+
 /// `--liquibase formatted sql` on the first line and, in a changelog, the `--changeset`, `--rollback`
 /// and `--comment` lines.
 pub fn sql(text: &str, at: usize, changelog: bool) -> Vec<CompletionItem> {
     let line_start = text[..at].rfind('\n').map_or(0, |i| i + 1);
     let before = &text[line_start..at];
     let typed = before.trim_start();
+    if changelog && let Some(rest) = typed.strip_prefix("--changeset").filter(|rest| rest.starts_with(char::is_whitespace)) {
+        return sql_changeset_attributes(text, at, rest);
+    }
     let letters = typed.strip_prefix("--").or_else(|| typed.strip_prefix('-'));
     if !letters.is_some_and(|l| l.bytes().all(|b| b.is_ascii_alphabetic())) {
         return Vec::new();
@@ -140,6 +175,33 @@ pub fn sql(text: &str, at: usize, changelog: bool) -> Vec<CompletionItem> {
         items.push(item("--comment", "--comment: ", false));
     }
     items
+}
+
+/// Formatted SQL uses `key:value`, unlike XML/YAML attributes. Complete only
+/// after a literal author:id and a whitespace-separated attribute boundary.
+fn sql_changeset_attributes(text: &str, at: usize, rest: &str) -> Vec<CompletionItem> {
+    let rest = rest.trim_start();
+    let Some(identity_end) = rest.find(char::is_whitespace) else { return Vec::new(); };
+    let identity = &rest[..identity_end];
+    let Some((author, id)) = identity.split_once(':') else { return Vec::new(); };
+    if author.is_empty() || id.is_empty() || identity.contains(['\'', '"']) { return Vec::new(); }
+    let attrs = &rest[identity_end..];
+    let typed = attrs.rsplit(char::is_whitespace).next().unwrap_or_default();
+    if !typed.bytes().all(|b| b.is_ascii_alphanumeric()) { return Vec::new(); }
+    let from = at - typed.len();
+    let end = at + text[at..].find(|c: char| !c.is_ascii_alphanumeric()).unwrap_or(text.len() - at);
+    let existing_value = text[end..].starts_with(':');
+    let existing = &attrs[..attrs.len() - typed.len()];
+    const ATTRIBUTES: &[&str] = &["context", "contextFilter", "labels", "dbms", "runAlways", "runOnChange",
+        "runInTransaction", "failOnError", "ignore", "logicalFilePath", "runWith", "runWithSpoolFile",
+        "splitStatements", "stripComments", "endDelimiter", "rollbackEndDelimiter", "rollbackSplitStatements"];
+    ATTRIBUTES.iter().filter(|key| !existing.split_whitespace().any(|part| part.split_once(':').is_some_and(|(name, _)| name.eq_ignore_ascii_case(key))))
+        .map(|key| CompletionItem {
+            insert_text: if existing_value { (*key).into() } else { format!("{key}:$0") },
+            snippet: !existing_value,
+            replace: Some(range(text, from, end)),
+            ..CompletionItem::new(*key, CompletionKind::Property)
+        }).collect()
 }
 
 const CHANGELOG_EXTENSIONS: [&str; 5] = ["xml", "yaml", "yml", "json", "sql"];

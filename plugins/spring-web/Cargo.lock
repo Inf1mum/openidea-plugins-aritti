@@ -141,6 +141,7 @@ dependencies = [
  "openidea-plugin-aritti-spring-messaging",
  "openidea-plugin-aritti-spring-webflow",
  "openidea-plugin-aritti-spring-websocket",
+ "serde_json",
  "spring-text",
  "ui-kit",
 ]

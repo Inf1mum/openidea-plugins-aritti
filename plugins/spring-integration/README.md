@@ -7,13 +7,13 @@ One **Spring Structure** tool window (right) with four sections, plus the editor
 - **Modules**: Spring Modulith application modules with named interfaces, allowed and actual dependencies; checks for internal types and unlisted dependencies, `allowedDependencies` completion, quick fix to make a module open.
 - **Diagram**: the module dependency diagram; the command "Spring Modulith: Copy Module Diagram (PlantUML)" copies it.
 
-A module whose dependency is not in the root build file (`spring-integration`, `spring-batch`, `spring-modulith`; multi-module builds and version catalogs count as unsure) does no work. The command ids and storage keys of the absorbed modules are prefixed `batch.` and `modulith.`; their old settings values are not migrated.
+Source editor sections are gated by dependencies in the root build file (`spring-integration`, `spring-batch`, `spring-modulith`; multi-module builds and version catalogs count as unsure). Explicitly configured Batch runtime profiles instead use their validated artifact/classpath contract. The command ids and storage keys of the absorbed modules are prefixed `batch.` and `modulith.`; their old settings values are not migrated.
 
 ## Spring Integration
 
-Spring Integration message channels in OpenIDEA, for Java and XML configuration:
+Spring Integration message channels in OpenIDEA, for Java, supported Kotlin annotations and XML configuration:
 
-- **Channel index**: channels come from `@Bean` methods returning a `…Channel` type, `MessageChannels.direct/queue/publishSubscribe/executor/flux/priority/rendezvous("x")`, the DSL's `.channel("x")` and `.channel(c -> c.queue("x"))`, and `<int:channel id>` / `<int:publish-subscribe-channel id>` in any integration namespace.
+- **Channel index**: channels come from explicitly owned `@Bean` methods returning Spring `MessageChannel`, `PollableChannel` or `SubscribableChannel`, `MessageChannels.direct/queue/publishSubscribe/executor/flux/priority/rendezvous("x")`, the supported contiguous DSL's `.channel("x")`, and `<int:channel id>` / `<int:publish-subscribe-channel id>` in any integration namespace.
 - **Endpoints**: `@ServiceActivator`, `@Transformer`, `@Filter`, `@Router`, `@Splitter`, `@Aggregator`, `@BridgeFrom`, `@BridgeTo`, `@InboundChannelAdapter`, `@Publisher`, `@MessagingGateway`, `@Gateway` channel attributes, `IntegrationFlow.from("x")`, and the XML `input-channel`, `output-channel`, `channel`, `request-channel`, `reply-channel`, `default-request-channel`, `default-reply-channel`, `discard-channel`, `error-channel` attributes. Each is read as consuming or producing (`input-channel`, `replyChannel` and the `channel` of an outbound adapter consume; `outputChannel`, `requestChannel`, `discardChannel` produce).
 - **Go to Definition** on a channel name opens its declarations, or the endpoints consuming it when nothing declares it (Spring Integration creates input channels on demand). On an XML `ref` it opens the bean (XML `<bean id>` or a Java/Kotlin bean name).
 - **Completion** of known channel names, and of bean names in `ref`.
@@ -401,8 +401,8 @@ imports, generic/inherited configurations or detected namespace-root shadows. It
 arrays, resolve composed annotations/classpaths, check application activation, or
 infer effective runtime wiring. All prior ownership/version/collision/inventory
 checks repeat around prompts and after review. Source intents stay bounded and
-single-use. Kotlin is now declared only for code-actions and language activation;
-no additional Kotlin diagnostics, hover or completion is implied. Native combined
+single-use. Kotlin source providers now also expose the supported annotation-based
+Integration and Batch parameter features described below. Native combined
 preview/apply/undo acceptance remains unverified; P20.4 stays partial.
 
 ## P20.4 local Batch step transition link
@@ -623,3 +623,41 @@ contexts and global indexed Find Usages/Rename remain partial or absent.
 ## Unreleased follow-up
 
 On a channel ID or bridge reference in a simple XML channel/bridge document, choose **Rename literal channel in this document…**. The action validates a unique new name and shows the complete before/after document before returning edits. Imports, profiles, nested endpoints and competing registrations are excluded.
+
+### Source-local Batch and channel refactoring
+
+The reviewed document rename action supports direct Batch step and decision IDs in a flat, single-job XML document. It is available from the declaration or a proved `next`, `to` or `restart` reference, and previews all exact changes before returning undoable edits. The existing Find Step or Decision Usages command uses the same physical-source inventory. Nested flows, imports, inheritance and runtime contexts remain outside this action.
+
+Channel rename also covers literal channel-valued attributes on flat service activator, transformer, filter, splitter and aggregator endpoints. Handler `ref` and `method` values are preserved; dynamic expressions, unsupported attributes and a handler reference colliding with the selected channel cause the action to be withheld. These are explicitly document-scoped operations, not global indexed Rename.
+
+Modulith boundary diagnostics and dependency graphs also include qualified project type names in explicit field declarations, `new`, `instanceof`, `extends`, `implements`, `throws`, annotations and class literals. Candidates must exactly match a declared project top-level type. Comments, strings, unknown types and ordinary receiver calls do not establish a dependency. This remains a source model: generic arguments, casts, nested types, arbitrary expression resolution and library types are not claimed.
+
+The **Find Channel Usages in XML Import Tree** command follows literal relative imports and alias chains from the active XML root, then navigates exact physical occurrences. The **Rename channel in this XML import tree…** action returns one reviewed multi-file workspace edit, including alias targets while preserving alias names. Admission is limited to 16 files / 256 KiB, supported flat channels/endpoints/aliases and one project; profiles, wildcards, classpath imports, nested endpoints and unresolved or colliding aliases are rejected. The complete forward tree is reread around review; reverse imports and other contexts are explicitly excluded.
+
+Java **Go to Declaration** and **Current File Channel Occurrences** use current-text, explicitly owned `@Bean`/`MessageChannel` declarations and literal `@ServiceActivator` channel names. They do not require a warmed project index and do not infer imported or runtime contexts.
+
+Selecting an alias in the XML import-tree rename action renames that alias declaration and its direct users, preserving the underlying channel and other alias names. The review explicitly distinguishes alias rename from channel ID rename.
+
+Modulith dependency completion includes `module::*`, and Go to Declaration on `allowedDependencies` navigates module declarations, named-interface packages/types and wildcard owners. On source refresh, declared module package directories receive native `O` (open) / `C` (closed) badges with explanatory tooltips. Badges use the fresh admitted Java/Kotlin source model, require an existing directory in the owning project, and are cleared when the source cache is reset. Full Kotlin/runtime type semantics and desktop badge acceptance remain separate.
+
+On a proved cross-module internal-type import, **Expose imported type as a named interface…** offers a reviewed annotation edit to the unique public project type. Choose a new interface name; the action uses the fully qualified Spring annotation, preserves imports/package/visibility, refuses existing annotations or shadowed qualifiers, and rereads source/model facts around confirmation. It does not move files or overwrite a package descriptor. Calling modules may separately need to allow the new named interface.
+
+Batch XML checks distinguish top-level declarations from inline subjobs, partition steps and anonymous split flows. Required IDs/flow parents and merge booleans follow the reviewed schema context. **Spring Batch XML compatibility** defaults to Auto (common checks only); explicitly selecting 5 or 6 enables version-specific migration diagnostics. Modern official `spring-batch.xsd` URLs are unversioned and do not prove a runtime version. Compatibility 6 reports removed `throttle-limit`/subjob `job-launcher`, the replacement `job-operator`, and the XML namespace deprecation; unknown explicit schema URLs suppress version assumptions. Additional operator/incrementer/extractor/handler/aggregator bean references participate in supported source navigation.
+
+For an implicit closed module with no package descriptor, **Open imported type’s module…** previews a new fully qualified `@ApplicationModule(type = ...OPEN)` descriptor. The action states that this exposes the entire module, requires an owned existing package directory, and uses a non-overwriting atomic file create. Existing descriptors are preserved.
+
+### Optional reviewed Batch CLI runtime
+
+Configure `springBatch.runtimeProfile` as `runner-5.2.6` or `operator-6.0.6`, list explicit project-relative classpath directories/JARs (one per line), and select the exact compiled context plus its Java/Kotlin source. Runner also accepts an exact XML classpath resource and matching source. Profiles are disabled by default and require the optional approved `java` executable.
+
+**Validate Configured CLI Profile** uses an embedded Java helper to inspect actual classpath artifacts without loading application code. It checks the pinned official core JAR, unique launcher/context, compiled binary name, runtime-selected multi-release entries and bounded source/classpath fingerprints. Manifest-added classpaths, escaping paths and shadowed launchers are refused. Helper sources are materialized and verified in the plugin's private data directory.
+
+**Run Reviewed Job Operation** shows the actual argv, cwd, source and artifact identity, then validates again before starting an owned process. Runner supports start/next/stop/restart/abandon; Operator also supports recover. Up to three launch processes leave a fourth slot for control requests. **Poll CLI Output** reads all owned sessions; display output is bounded without stopping business execution. **Cancel CLI Process** ends one selected local process and does not send a Batch stop. A detected project switch ends old owned CLI processes before accepting another project's runtime command.
+
+**Inspect Execution Repository State** separately reviews context startup and queries an exact execution ID through the configured `JobExplorer`/`JobRepository`. It returns job/instance/status/times and an observation time. This is an explicit point-in-time query, never an automatic editor/poll request. A CLI stop acknowledgement does not establish STOPPED; the execution query is separate.
+
+Artifact fingerprints identify the selected compiled context and dependencies. They do not establish source build provenance or effective datasource identity; invoking the selected context includes its startup code and configured database connections. Real reproducible disposable qualification is documented in `tests/runtime-cli/README.md`; native OpenIDEA desktop acceptance remains separate.
+
+Existing Kotlin Integration channel navigation/completion/markers and live source diagnostics are now registered through the merged providers. Kotlin Batch parameter-key completion uses the owned source builder/expression model. Java-only Batch migration and scope checks are withheld for Kotlin. Declared Kotlin roots, types, imports and @PackageInfo metadata now participate in the Modulith source model; full type/classpath/Kotlin DSL semantics remain separate.
+
+Modulith source support includes Kotlin application roots, declared types/imports and literal `@PackageInfo` metadata for module/interface declarations. Metadata dependency completion, validation and source navigation work for supported Java package descriptors and representative metadata classes. Unsupported aliases/constants/interpolation or conflicting package metadata visibly mark the model incomplete and withhold negative boundary conclusions and badges. Ordinary Kotlin casts do not invalidate unrelated package metadata. Reviewed type-exposure edits support unique public Java and Kotlin target types. Creating an absent module package descriptor remains restricted to Java source roots.

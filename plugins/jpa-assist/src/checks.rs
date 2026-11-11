@@ -673,7 +673,7 @@ pub fn inspect_attribute_signatures_owned(text: &str, kotlin: bool, class: &Clas
     let plain_owner = plain_type_owner(text, kotlin, class);
     let local_setters = persistence_only && plain_owner && class.body_end.is_some() && class.kind == crate::model::Kind::Entity
         && declaration_keyword(&masked, 0, &["class"]).is_some_and(|(at, _)| words(&masked[..at], "abstract").next().is_none());
-    attribute_signature_findings(text, kotlin, &|ty| {
+    let mut findings = attribute_signature_findings(text, kotlin, &|ty| {
         !kotlin && ty.ends_with("[]") || scalar_type_owned(plain_owner, kotlin, class, ty)
     }, &|ty| {
         const JDK_COLLECTIONS: &[&str] = &[
@@ -687,7 +687,19 @@ pub fn inspect_attribute_signatures_owned(text: &str, kotlin: bool, class: &Clas
         let imports: Vec<_> = class.imports.iter().filter(|i| i.rsplit('.').next() == Some(ty)).collect();
         let [import] = imports.as_slice() else { return false; };
         JDK_COLLECTIONS.contains(&import.as_str())
-    }, local_setters.then_some(true), local_setters && literal_property_access(text, class), true)
+    }, local_setters.then_some(true), local_setters && literal_property_access(text, class), true);
+    if class.kind == crate::model::Kind::Embeddable && class.body_end.is_some() {
+        let Some(at) = owned_class_start(text, &masked, class) else { return findings; };
+        let members = class_members(&masked, kotlin);
+        if members.len() <= 1024 {
+            let all = declaration_annotations(&masked, annotations(&masked), &members, at);
+            for annotation in all.iter().filter(|a| a.start > at && matches!(a.name, "Id" | "EmbeddedId")) {
+                findings.push(Finding::new(annotation.start, annotation.end(), Severity::Warning,
+                    "jpa-embeddable-identifier", "An embeddable source class must not declare Id or EmbeddedId; its owning entity declares the identifier. Effective XML mappings are not resolved."));
+            }
+        }
+    }
+    findings
 }
 
 fn declaration_annotations<'a>(masked: &str, all: Vec<Annotation<'a>>, members: &[(usize, usize)], class_at: usize) -> Vec<Annotation<'a>> {

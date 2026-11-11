@@ -40,6 +40,13 @@ impl Links {
     }
     pub(crate) fn resolve(&mut self, doc: &Document, action: FileAction) -> Result<FileAction, Error> {
         let pending = self.pending.remove(action.data.as_deref().ok_or(Error::Stale)?).ok_or(Error::Stale)?;
+        if *doc!=pending.doc {return Err(Error::Stale);}
+        // The full BEFORE source is mandatory in the concrete review. If it
+        // alone cannot fit, refuse before prompts or budgeted reparsing; a
+        // scheduling timeout must not obscure this deterministic size limit.
+        if doc.text.len()>ui_kit::prompts::MAX_CONFIRM_BYTES {
+            return Err(Error::Invalid("The complete preview exceeds the host's confirmation limit; reduce the operation before applying it.".into()));
+        }
         current(&pending, doc)?;
         let items: Vec<_> = pending.context.candidates.iter().map(|name| openidea_plugin::PickItem::new(name, name).description("Unique direct state in the same physical source job/flow")).collect();
         let Some(selected) = host::pick("Batch step next: choose another local state", &items)? else { return Err(Error::Cancelled); };
@@ -218,7 +225,9 @@ mod tests {
         let d = doc(&format!("<!--{}--><b:job id='j'><b:step id='a' next=''/><b:step id='b'/></b:job>","x".repeat(20<<10)));
         let h=MockHost::install();h.add_file(&d.path,&d.text);let mut owner=structure::Structure::default();let lazy=action(&mut owner,&d);
         h.answer_next_prompt(Some(&["b"]));h.answer_next_prompt(Some(&["yes"]));
-        assert!(matches!(owner.resolve_file_action(&d,lazy),Err(Error::Invalid(message)) if message.contains("preview")));
+        let result=owner.resolve_file_action(&d,lazy);
+        assert!(matches!(&result,Err(Error::Invalid(message)) if message.contains("preview")),"{result:?}");
+        assert_eq!(host::pick("Choice still pending",&[openidea_plugin::PickItem::new("b","b")]).unwrap(),Some("b".into()));
         assert!(host::confirm("Still pending", "Oversized review did not consume confirmation").unwrap());
         assert_eq!(h.invocation().project().unwrap().read_file(&d.path).unwrap(),d.text);
     }

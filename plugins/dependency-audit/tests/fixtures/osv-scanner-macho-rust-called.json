@@ -1,0 +1,99 @@
+{
+  "results": [
+    {
+      "source": {
+        "path": "/project/Cargo.lock",
+        "type": "lockfile"
+      },
+      "packages": [
+        {
+          "package": {
+            "name": "macho-call-fixture",
+            "version": "0.1.0",
+            "ecosystem": "crates.io",
+            "purl": "pkg:cargo/macho-call-fixture@0.1.0"
+          },
+          "groups": []
+        },
+        {
+          "package": {
+            "name": "smallvec",
+            "version": "0.6.9",
+            "ecosystem": "crates.io",
+            "purl": "pkg:cargo/smallvec@0.6.9"
+          },
+          "groups": [
+            {
+              "ids": [
+                "RUSTSEC-2018-0018",
+                "GHSA-55m5-whcv-c49c",
+                "GHSA-66p5-j55p-32r9"
+              ],
+              "aliases": [
+                "CVE-2018-25023",
+                "GHSA-55m5-whcv-c49c",
+                "GHSA-66p5-j55p-32r9",
+                "RUSTSEC-2018-0018"
+              ],
+              "max_severity": "7.5"
+            },
+            {
+              "ids": [
+                "RUSTSEC-2019-0009",
+                "GHSA-mm7v-vpv8-xfc3"
+              ],
+              "aliases": [
+                "CVE-2019-15551",
+                "GHSA-mm7v-vpv8-xfc3",
+                "RUSTSEC-2019-0009"
+              ],
+              "experimental_analysis": {
+                "RUSTSEC-2019-0009": {
+                  "called": true,
+                  "unimportant": false
+                }
+              },
+              "max_severity": "9.8"
+            },
+            {
+              "ids": [
+                "RUSTSEC-2019-0012",
+                "GHSA-69gw-hgj3-45m7"
+              ],
+              "aliases": [
+                "CVE-2019-15554",
+                "GHSA-69gw-hgj3-45m7",
+                "RUSTSEC-2019-0012"
+              ],
+              "experimental_analysis": {
+                "RUSTSEC-2019-0012": {
+                  "called": true,
+                  "unimportant": false
+                }
+              },
+              "max_severity": "9.8"
+            },
+            {
+              "ids": [
+                "RUSTSEC-2021-0003",
+                "GHSA-43w2-9j62-hq99"
+              ],
+              "aliases": [
+                "CVE-2021-25900",
+                "GHSA-43w2-9j62-hq99",
+                "RUSTSEC-2021-0003"
+              ],
+              "experimental_analysis": {
+                "RUSTSEC-2021-0003": {
+                  "called": false,
+                  "unimportant": false
+                }
+              },
+              "max_severity": "9.8"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

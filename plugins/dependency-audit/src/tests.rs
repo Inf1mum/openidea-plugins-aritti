@@ -1408,3 +1408,21 @@ fn dependency_row_exposes_advisories_and_exact_ignores_without_losing_upgrade() 
     let records=scoped::load("/project");assert_eq!(records.len(),1);assert!(host.storage()["scoped-ignores:/project"].contains("GHSA-35JH-R3H4-6JHM"));
     assert_eq!(host.requests().len(),requests);assert!(host.process_runs().is_empty());
 }
+
+#[test]
+fn known_malicious_evidence_is_dated_visible_and_never_inherits_an_old_upgrade() {
+    let host=MockHost::install().with_capabilities(CAPS);
+    host.add_file("requirements.txt","0-8==0.0.0.1\n");
+    let advisory=osv::parse_advisory(include_str!("../tests/fixtures/known-malicious-osv.json")).unwrap();
+    let row=json!({"path":"/project/requirements.txt","line":0,"name":"0-8","version":"0.0.0.1","ecosystem":"PyPI","fix":"99.0","advisories":[advisory.id],"details":[advisory]});
+    host::storage::set("scan:/project",&json!({"rows":[row],"scanned_at":123}).to_string()).unwrap();
+    let report=stored_report(&host.invocation().project().unwrap()).unwrap().unwrap();
+    assert!(report.rows[0].fix.is_none(),"historical fix must not override malicious-package review");
+    let Body::Other{data,..}=resource_body("/project",&report,None) else{panic!()};
+    assert!(data.contains("Known malicious"));
+    assert!(data.contains("OpenSSF"));
+    assert!(data.contains("reversing-labs"));
+    assert!(data.contains("123"));
+    assert!(!data.contains("99.0"));
+    assert!(host.requests().is_empty(),"render remains cache-only");
+}

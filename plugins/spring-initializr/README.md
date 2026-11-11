@@ -4,7 +4,7 @@ Starts Spring Boot projects from OpenIDEA through a Spring Initializr server:
 
 - Spring Initializr tool window (right): server URL (default `https://start.spring.io`), build (Maven, Gradle - Groovy, Gradle - Kotlin), language, Spring Boot version (blank for the server's default), group, artifact, name and package name (both follow the artifact until you change them; the package is `group.artifact` lower-cased without `-`), description, packaging, Java version and dependencies (comma-separated ids such as `web,data-jpa`). The form is kept per project and server in plugin storage; Reset restores form defaults in the current scope.
 - Generate Project opens `<server>/starter.zip?…` in the browser, which downloads the project zip. Explore in Browser opens the server's page (`<server>/#!…`) with the same options. Blank options are left out. The status line says what's missing (an http(s) server URL, a group or an artifact).
-- Generate with Spring Boot CLI opens an IDE terminal running `spring init` with the form's explicit service (`--target`), build, type, language, Boot and Java versions, packaging, group, artifact, name, description, package name and dependencies, plus `--extract` into a directory named after the artifact (in the terminal's working directory). It needs the optional `process:spring` and `project.read` capabilities, an identifiable open project, and the Spring Boot CLI on the PATH; without the capability, a notification says so and the browser download runs instead. Group, artifact, name, versions and package name are checked against letters, digits, `.`, `_` and `-`, and the button reports a refusal otherwise. Values reach `spring init` as separate program arguments, never through a shell line, so none can inject a command. The current launcher does not track the CLI result or open the generated project; managed CLI staging/completion remains implementation work; the separate source-only ZIP import below does not execute this CLI.
+- Generate with Spring Boot CLI opens an IDE terminal running `spring init` with the form's explicit service (`--target`), build, type, language, Boot and Java versions, packaging, group, artifact, name, description, package name and dependencies, plus `--extract` into a directory named after the artifact (in the terminal's working directory). It needs the optional `process:spring` and `project.read` capabilities, an identifiable open project, and the Spring Boot CLI on the PATH; without the capability, a notification says so and the browser download runs instead. Group, artifact, name, versions and package name are checked against letters, digits, `.`, `_` and `-`, and the button reports a refusal otherwise. Values reach `spring init` as separate program arguments, never through a shell line, so none can inject a command. Keyed terminal completion and separate managed CLI controls track the result. After a successful exit, Review and Open Generated Folder independently inspects the physical tree, presents its hash/file manifest, rechecks it and requests normal project trust/open. The separate source-only ZIP import does not execute this CLI.
 - The Spring Initializr: Open start.spring.io command opens the site.
 
 - Spring Boot version is a select in the Project form, populated from the server catalogue. Server default shows the advertised default; saved versions remain visible if no longer advertised and still undergo compatibility validation.
@@ -14,9 +14,9 @@ Starts Spring Boot projects from OpenIDEA through a Spring Initializr server:
 
 The form, dependency choices and browser download work without project access; CLI generation is a project-bound action.
 
-Generating the project is done by the browser or the CLI, not by the plugin; only the Project/Dependencies catalogue, Add Starters preparation and explicit source-only import preparation make requests, and only to start.spring.io.
+Generation is available through browser download, Spring CLI, or the reviewed complete ZIP adapter. Plugin requests target start.spring.io only.
 
-Not implemented: arbitrary/outside-project destination, complete archive/mode-preserving extraction or native New Project integration (the browser path still requires manual extraction/opening); the dependency list and Boot version picker for servers other than start.spring.io (the manifest allows one host).
+Not implemented: native New Project integration, arbitrary ZIP timestamp/nonstandard permission preservation beyond normalized644/755, and catalogue/Boot choices for servers other than start.spring.io. The complete ZIP adapter supports outside-project destinations; the browser path remains manual download/extraction.
 
 ```sh
 cargo test
@@ -407,3 +407,64 @@ capability checks. A changed form, project scope or saved-state snapshot while
 the picker is open refuses the selection. Project, Dependencies and CLI run
 remain separate sections; dependency search/selection and managed CLI controls
 stay directly accessible.
+
+
+### Current Initializr client metadata
+
+Dependency compatibility reads the current `versionRange` field as well as
+legacy `compatibilityRange` snapshots. Conflicting aliases or malformed range
+values reject metadata refresh and preserve the previous catalogue. The same
+range drives dependency visibility, generation validation and strict source-only
+import checks. Search also matches dependency IDs, case-insensitively, so an ID
+such as `data-jpa` remains discoverable when its display name uses different
+wording.
+
+### Generate and open the complete ZIP
+
+**More Actions → Generate and Open…** (also the **Generate and Open Complete
+Project** command) downloads the official server ZIP and uses an optional approved
+`python3` executable, Python3.8 or newer, in isolated mode. Choose an existing
+parent anywhere the approved process can access, including outside the current
+project. A project-free invocation is supported. After download/inspection, review
+the canonical destination, archive SHA-256 and complete file/directory manifest
+before any destination writes occur.
+
+The adapter retains binary wrappers and empty directories. Executable files get
+mode755 and other files644; special modes, links, traversal, case-colliding names,
+encrypted archives and file/directory conflicts are refused. It supports up to
+512 entries, 8MiB compressed and 32MiB expanded, with at most4MiB per file; the
+complete review must fit the host's16KiB confirmation limit. No generated wrapper,
+build or project script is executed. The downloaded ZIP occupies one bounded
+private cache file; a competing generation changes its digest and invalidates the
+review.
+
+Extraction goes into a newly allocated private staging directory in the selected
+parent. A kernel-exclusive rename commits the whole tree without merging or
+replacing an occupied destination. Supported profiles are macOS `renamex_np`,
+Linux libc `renameat2`, and Windows's non-replacing `os.rename`; an unavailable
+profile fails visibly. Failures leave staging for explicit inspection and never
+open a partial project. Successful commit requests the IDE's normal project
+trust/open flow in a new window. This does not grant trust, configure an installed
+JDK or automatically import/execute a build. The original source-only atomic
+FileAction import remains available independently.
+
+
+After a successful managed or keyed-terminal Spring CLI exit, **CLI run → Review
+and Open Generated Folder…** uses the same approved Python3 profile to inspect
+the current physical folder. It rejects links, special files/permissions,
+metadata directories and oversized trees, shows a complete path/size/mode/hash
+manifest and verifies the tree again after approval before requesting the normal
+trust/open flow. CLI exit0 alone never opens a folder or certifies a successful
+build. Failed/cancelled or foreign-project runs cannot use this action.
+
+Native task cancellation is checked between acquisition, inspection, review,
+extraction and opening. Cancellation during the adapter can leave a
+`.initializr-*` staging folder in the chosen parent, or a fully committed project
+if commit already occurred; neither is deleted automatically and no cancelled
+operation opens a project.
+
+Starting a new managed or keyed-terminal generation retires the preceding
+successful-run candidate. A later failed/closed terminal cannot accidentally
+reopen the previous operation's output. Keyed completion still requires its exact
+operation key and native terminal ID, and source-tree review is separate from
+exit status.

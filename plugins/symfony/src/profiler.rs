@@ -83,7 +83,7 @@ fn fields(line: &str) -> Option<Vec<String>> {
     Some(out)
 }
 fn valid_token(token: &str) -> bool {
-    (6..=64).contains(&token.len()) && token.bytes().all(|b| b.is_ascii_hexdigit())
+    (1..=64).contains(&token.len()) && token.bytes().all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b))
 }
 /// Credentials/query/fragment never enter the snapshot or rendering model.
 fn display_url(raw: &str) -> String {
@@ -130,7 +130,12 @@ fn parse(text: &str) -> Result<(Vec<Request>, usize), &'static str> {
         if line.len() > 16 * 1024 || line.chars().any(|c| c.is_control() && c != '\t') {
             return Err("Malformed or unsupported index record; refresh refused.");
         }
-        let f = fields(line).ok_or("Malformed or multiline CSV; refresh refused.")?;
+        let mut f = fields(line).ok_or("Malformed or multiline CSV; refresh refused.")?;
+        // Symfony 6.4+ appends virtual_type; older storage has seven columns.
+        if f.len() == 8 {
+            let kind=f.pop().unwrap();
+            if !kind.is_empty() && kind != "request" { continue; }
+        }
         let [token, ip, method, url, time, parent, status] = <[String; 7]>::try_from(f)
             .map_err(|_| "Unsupported index columns; refresh refused.")?;
         if !parent.is_empty() {
@@ -184,6 +189,8 @@ pub struct Snapshot {
     rows: Option<Vec<Request>>,
     total: usize,
     status: String,
+    details: Option<crate::profiler_details::Details>,
+    selected: Option<String>,
 }
 const PATH_SETTING: &str = "profilerIndexPath";
 fn configured_source() -> Result<String, &'static str> {
@@ -304,6 +311,33 @@ fn source_scope(root: &str, source: &str) -> String {
     )
 }
 impl Snapshot {
+    pub fn select(&mut self, key: &str, ctx:&Invocation) {
+        self.selected=None;
+        let Some(root)=ctx.project().and_then(|p|p.root().ok()) else {return;};
+        if root!=self.root || project_source(&root).ok().as_deref()!=Some(self.source.as_str()) {return;}
+        if let Some(row)=self.rows.as_ref().and_then(|rows|rows.iter().find(|r|self.row_key(&r.token)==key)) {self.selected=Some(row.token.clone());}
+    }
+    pub fn close_details(&mut self) { self.details = None; }
+    pub fn inspect(&mut self, ctx: &Invocation) -> Result<(), Error> {
+        self.details = None;
+        let project=ctx.project().ok_or(Error::Stale)?;
+        let root=project.root()?;
+        let source=project_source(&root).map_err(|_|Error::Stale)?;
+        if root != self.root || source != self.source || !owned_index(&root,&source) {return Err(Error::Stale);}
+        let rows=self.rows.as_ref().ok_or(Error::Stale)?;
+        let items:Vec<_>=rows.iter().map(|r|PickItem::new(&r.token,&format!("{} {} {}",r.token,r.method,r.url))).collect();
+        let token=if let Some(token)=&self.selected {token.clone()} else {
+            let Some(token)=host::pick("Inspect local profiler collectors",&items)? else {return Ok(());};token
+        };
+        let prior=rows.iter().find(|r|r.token==token).ok_or(Error::Stale)?;
+        let (fresh,_)=load(&project,&source).map_err(|_|Error::Stale)?;
+        if project_source(&root).ok().as_deref()!=Some(source.as_str()) || !fresh.iter().any(|r|r==prior) {return Err(Error::Stale);}
+        let details=crate::profiler_details::load(&project,&root,&source,&token)?;
+        let (after,_)=load(&project,&source).map_err(|_|Error::Stale)?;
+        if project_source(&root).ok().as_deref()!=Some(source.as_str()) || !after.iter().any(|r|r==prior) {return Err(Error::Stale);}
+        self.details=Some(details);Ok(())
+    }
+
     /// Metadata-only invalidation: never adopt new CSV records on filesystem events.
     pub(crate) fn invalidate_changes(&mut self, paths: &BTreeSet<&str>, roots: &BTreeSet<String>, overflow: bool) -> bool {
         if self.root.is_empty() { return false; }
@@ -314,15 +348,17 @@ impl Snapshot {
         let target = index_path(&self.root, &self.source);
         let affected = overflow || paths.iter().any(|path| {
             let path = path.trim_end_matches('/');
-            !path.is_empty() && (target == path || target.strip_prefix(path).is_some_and(|rest| rest.starts_with('/')))
+            !path.is_empty() && (target == path || target.strip_prefix(path).is_some_and(|rest| rest.starts_with('/')) || self.details.is_some() && target.rsplit_once('/').is_some_and(|(parent,_)| path.starts_with(&format!("{parent}/"))))
         });
         if !affected || self.rows.is_none() { return false; }
         let status = "STALE filesystem change observed; cached rows/details retained until explicit refresh.";
-        if self.status == status { return false; }
+        let removed_details=self.details.take().is_some();
+        if self.status == status { return removed_details; }
         self.status = status.into();
         true
     }
     pub fn refresh(&mut self, ctx: &Invocation) {
+        self.details = None;
         let Some(project) = ctx.project() else {
             *self = Self::default();
             return;
@@ -438,6 +474,7 @@ impl Snapshot {
         if !owned_index(&root, &source) {
             return View::message("Profiler index ownership is unavailable or changed; cached rows/details are hidden. Refresh after restoring this source scope.").button(refresh).button(choose).button(discover);
         }
+        if let Some(details)=&self.details { return details.view(); }
         let Some(rows) = self.rows.as_ref() else {
             return View::message(&self.status).button(refresh).button(choose).button(discover);
         };
@@ -467,7 +504,7 @@ impl Snapshot {
                 editable: false,
             })
         };
-        View::new(body).button(refresh).button(choose).button(discover).status(&format!(
+        View::new(body).button(refresh).button(choose).button(discover).button(Button::new("inspect-profile-details", "Inspect Profile").icon("info")).status(&format!(
             "{} Showing{} of{} valid unambiguous main requests (latest{}). Source: {}",
             self.status,
             rows.len(),
@@ -506,6 +543,47 @@ mod tests {
     use openidea_plugin::mock::MockHost;
     const ROW: &str = "abcdef,127.0.0.1,GET,https://user:password@example.test/page?token=secret#private,1700000000,,200\n";
     #[test]
+    fn selected_profile_is_not_run_when_permission_is_denied_and_cancel_is_inert() {
+        let host=MockHost::install();host.add_file(INDEX_FILE,ROW);host.add_file("var/cache/dev/profiler/ef/cd/abcdef","profile");
+        let mut state=Snapshot::default();let ctx=host.invocation();state.refresh(&ctx);
+        host.answer_next_prompt(None);state.inspect(&ctx).unwrap();assert!(host.process_runs().is_empty());
+        state.select(&state.row_key("abcdef"),&ctx);
+        assert!(matches!(state.inspect(&ctx),Err(Error::Denied(_))));assert!(state.details.is_none());assert!(host.process_runs().is_empty());
+        state.select("request:foreign:abcdef",&ctx);assert!(state.selected.is_none());
+    }
+    #[test]
+    fn explicit_collector_adapter_requires_fresh_owned_request_and_has_inert_render() {
+        let host=MockHost::install().with_capabilities(&["project.read","process:php","storage"]);
+        host.add_file(INDEX_FILE,ROW);
+        host.add_file("var/cache/dev/profiler/ef/cd/abcdef","profile");
+        host.on_process("php",|args,stdin| {
+            assert!(stdin.is_none());
+            assert_eq!(&args[..2],["-n","-d"]);
+            assert!(args.iter().any(|s|s.contains("'allowed_classes' => false")));
+            assert_eq!(&args[args.len()-4..],["--","/project","/project/var/cache/dev/profiler/ef/cd/abcdef","abcdef"]);
+            Ok(openidea_plugin::ProcessOutput{status:Some(0),stdout:r#"{"version":1,"token":"abcdef","collectors":[{"name":"time","class":"TimeDataCollector","metrics":{"duration":1.25}}]}"#.into(),stderr:String::new()})
+        });
+        let mut state=Snapshot::default();let ctx=host.invocation();state.refresh(&ctx);
+        state.select(&state.row_key("abcdef"),&ctx);state.inspect(&ctx).unwrap();
+        let Body::Table(table)=state.render(&ctx).body else {panic!()};assert_eq!(table.columns[0],"Collector");assert_eq!(table.rows.len(),2);
+        assert_eq!(host.process_runs().len(),1);state.render(&ctx);assert_eq!(host.process_runs().len(),1);
+        let paths=BTreeSet::from(["/project/var/cache/dev/profiler/ef/cd/abcdef"]);let roots=BTreeSet::from(["/project".into()]);
+        assert!(state.invalidate_changes(&paths,&roots,false));assert!(state.details.is_none());
+        state.inspect(&ctx).unwrap();assert!(state.details.is_some());
+        assert!(state.invalidate_changes(&paths,&roots,false));assert!(state.details.is_none());
+        assert_eq!(host.process_runs().len(),2);
+        state.close_details();let Body::Table(table)=state.render(&ctx).body else {panic!()};assert_eq!(table.columns[0],"Time (UTC)");
+        host.add_file(INDEX_FILE,"abcdef,ip,POST,/changed,1,,500\n");
+        host.answer_next_prompt(Some(&["abcdef"]));assert!(matches!(state.inspect(&ctx),Err(Error::Stale)));assert_eq!(host.process_runs().len(),2);
+    }
+    #[test]
+    fn modern_storage_virtual_type_preserves_requests_and_omits_command_profiles() {
+        let (rows, total)=parse("abcdef,ip,GET,/page,1,,200,request\n123abc,ip,GET,/command,2,,200,command\nabc123,ip,GET,/legacy,3,,200\n").unwrap();
+        assert_eq!(total,2);assert_eq!(rows.iter().map(|r|r.token.as_str()).collect::<Vec<_>>(),["abc123","abcdef"]);
+        for token in ["a","custom-TOKEN_1"] {assert_eq!(parse(&format!("{token},ip,GET,/page,1,,200,request\n")).unwrap().0[0].token,token);}
+        assert!(!valid_token("../outside"));
+    }
+    #[test]
     fn latest_bounded_unambiguous_rows_and_timestamp() {
         let text: String = (0..150)
             .map(|i| format!("{i:06x},ip,GET,/u{i},{},,200\n", 1000 + i))
@@ -537,7 +615,7 @@ mod tests {
         for bad in [
             "abcdef,ip,GET,\"/a\n/b\",1,,200\n",
             "abcdef,ip,GET,\"/a\"oops,1,,200",
-            "abcdef,ip,GET,/a,1,,200,extra",
+            "abcdef,ip,GET,/a,1,,200,request,extra",
         ] {
             assert!(parse(bad).is_err(), "{bad}");
         }

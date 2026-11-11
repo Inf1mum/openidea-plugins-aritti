@@ -1,0 +1,208 @@
+{
+  "at": "2026-11-10T23:58:25.913430+00:00",
+  "version": "osv-scanner version: 2.7.1-openidea-macho.1\nosv-scalibr version: 0.5.3\ncommit: n/a\nbuilt at: n/a\n",
+  "platform": "Darwin arm64",
+  "rust": "rustc 1.99.1 (58cf8f9c3 2026-10-13)\n",
+  "results": [
+    {
+      "mode": "called",
+      "argv": [
+        "/private/tmp/parity-osv-scanner-macho/osv-scanner-macho",
+        "scan",
+        "source",
+        "--call-analysis=rust",
+        "--no-call-analysis=go",
+        "--format=json",
+        "--all-vulns",
+        "--all-packages",
+        "--output-file=/private/tmp/parity-osv-scanner-macho-packaged-fixture2/rust-called-result.json",
+        "/private/tmp/parity-osv-scanner-macho-packaged-fixture2/rust-fixture"
+      ],
+      "status": 1,
+      "facts": [
+        {
+          "package": {
+            "name": "smallvec",
+            "version": "0.6.9",
+            "ecosystem": "crates.io",
+            "purl": "pkg:cargo/smallvec@0.6.9"
+          },
+          "ids": [
+            "RUSTSEC-2018-0018",
+            "GHSA-55m5-whcv-c49c",
+            "GHSA-66p5-j55p-32r9"
+          ],
+          "analysis": null
+        },
+        {
+          "package": {
+            "name": "smallvec",
+            "version": "0.6.9",
+            "ecosystem": "crates.io",
+            "purl": "pkg:cargo/smallvec@0.6.9"
+          },
+          "ids": [
+            "RUSTSEC-2019-0009",
+            "GHSA-mm7v-vpv8-xfc3"
+          ],
+          "analysis": {
+            "RUSTSEC-2019-0009": {
+              "called": true,
+              "unimportant": false
+            }
+          }
+        },
+        {
+          "package": {
+            "name": "smallvec",
+            "version": "0.6.9",
+            "ecosystem": "crates.io",
+            "purl": "pkg:cargo/smallvec@0.6.9"
+          },
+          "ids": [
+            "RUSTSEC-2019-0012",
+            "GHSA-69gw-hgj3-45m7"
+          ],
+          "analysis": {
+            "RUSTSEC-2019-0012": {
+              "called": true,
+              "unimportant": false
+            }
+          }
+        },
+        {
+          "package": {
+            "name": "smallvec",
+            "version": "0.6.9",
+            "ecosystem": "crates.io",
+            "purl": "pkg:cargo/smallvec@0.6.9"
+          },
+          "ids": [
+            "RUSTSEC-2021-0003",
+            "GHSA-43w2-9j62-hq99"
+          ],
+          "analysis": {
+            "RUSTSEC-2021-0003": {
+              "called": false,
+              "unimportant": false
+            }
+          }
+        }
+      ],
+      "output": "/private/tmp/parity-osv-scanner-macho-packaged-fixture2/rust-called-result.json",
+      "log": "/private/tmp/parity-osv-scanner-macho-packaged-fixture2/rust-called.log"
+    },
+    {
+      "mode": "uncalled",
+      "argv": [
+        "/private/tmp/parity-osv-scanner-macho/osv-scanner-macho",
+        "scan",
+        "source",
+        "--call-analysis=rust",
+        "--no-call-analysis=go",
+        "--format=json",
+        "--all-vulns",
+        "--all-packages",
+        "--output-file=/private/tmp/parity-osv-scanner-macho-packaged-fixture2/rust-uncalled-result.json",
+        "/private/tmp/parity-osv-scanner-macho-packaged-fixture2/rust-fixture"
+      ],
+      "status": 1,
+      "facts": [
+        {
+          "package": {
+            "name": "smallvec",
+            "version": "0.6.9",
+            "ecosystem": "crates.io",
+            "purl": "pkg:cargo/smallvec@0.6.9"
+          },
+          "ids": [
+            "RUSTSEC-2018-0018",
+            "GHSA-55m5-whcv-c49c",
+            "GHSA-66p5-j55p-32r9"
+          ],
+          "analysis": null
+        },
+        {
+          "package": {
+            "name": "smallvec",
+            "version": "0.6.9",
+            "ecosystem": "crates.io",
+            "purl": "pkg:cargo/smallvec@0.6.9"
+          },
+          "ids": [
+            "RUSTSEC-2019-0009",
+            "GHSA-mm7v-vpv8-xfc3"
+          ],
+          "analysis": {
+            "RUSTSEC-2019-0009": {
+              "called": false,
+              "unimportant": false
+            }
+          }
+        },
+        {
+          "package": {
+            "name": "smallvec",
+            "version": "0.6.9",
+            "ecosystem": "crates.io",
+            "purl": "pkg:cargo/smallvec@0.6.9"
+          },
+          "ids": [
+            "RUSTSEC-2019-0012",
+            "GHSA-69gw-hgj3-45m7"
+          ],
+          "analysis": {
+            "RUSTSEC-2019-0012": {
+              "called": false,
+              "unimportant": false
+            }
+          }
+        },
+        {
+          "package": {
+            "name": "smallvec",
+            "version": "0.6.9",
+            "ecosystem": "crates.io",
+            "purl": "pkg:cargo/smallvec@0.6.9"
+          },
+          "ids": [
+            "RUSTSEC-2021-0003",
+            "GHSA-43w2-9j62-hq99"
+          ],
+          "analysis": {
+            "RUSTSEC-2021-0003": {
+              "called": false,
+              "unimportant": false
+            }
+          }
+        }
+      ],
+      "output": "/private/tmp/parity-osv-scanner-macho-packaged-fixture2/rust-uncalled-result.json",
+      "log": "/private/tmp/parity-osv-scanner-macho-packaged-fixture2/rust-uncalled.log"
+    }
+  ],
+  "source_profile": {
+    "upstream": "https://github.com/google/osv-scanner",
+    "tag": "v2.7.1",
+    "commit": "02f96a40691c2d155fdda799af436e111231e365",
+    "source_url": "https://codeload.github.com/google/osv-scanner/tar.gz/02f96a40691c2d155fdda799af436e111231e365",
+    "source_sha256": "233b21687cfffa0ec93c4afb00605a0449f4ba01ef93b28d558fc801709a61c8",
+    "profile": "2.7.1-openidea-macho.1",
+    "go": "go1.27.4",
+    "platform": "darwin/arm64",
+    "changed_files": [
+      "internal/sourceanalysis/rust.go",
+      "internal/sourceanalysis/rust_openidea_test.go",
+      "internal/sourceanalysis/__snapshots__/rust_test.snap"
+    ],
+    "patch_sha256": "7c5017b0f90d3f133ccb40989c89020f19452c4bd878706460948b5a420c09ee",
+    "license": "Apache-2.0",
+    "signature_note": "Official HTTPS source archive pinned by commit and locally recorded SHA256. GitHub reports annotated tag signature unknown_key; no independent signature-verification claim.",
+    "patched_sha256": {
+      "internal/sourceanalysis/rust.go": "e498443f86b096d06737d7ecc112a44e803023d5dddfa2a4952078d927436ae5",
+      "internal/sourceanalysis/rust_openidea_test.go": "b80018eca008aba32ea0c365744a8ef195f77c9fc105cee606aabb888b59fca5",
+      "internal/sourceanalysis/__snapshots__/rust_test.snap": "0126c428c80399bf7eae00b3316d17f964d165b1aceb2ced7c308808e8b5aa66"
+    }
+  },
+  "binary_sha256": "c019bc93643f74e1cc8632687c324b6515252153a12ac6c95daab66defa141c1"
+}

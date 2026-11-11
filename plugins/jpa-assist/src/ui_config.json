@@ -1,6 +1,8 @@
 {
   "title": "JPA Assist",
-  "views": {},
+  "views": {
+    "source-diagram": "Source Diagram"
+  },
   "actions": [],
   "project_independent": false,
   "project_bound_buttons": []

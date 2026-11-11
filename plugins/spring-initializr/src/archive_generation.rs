@@ -1,0 +1,144 @@
+//! Complete ZIP import through an explicitly approved, isolated Python adapter.
+use super::*;
+use openidea_plugin::{HttpRequest, host::Command};
+use serde_json::{Value, json};
+const ADAPTER: &str = include_str!("archive_adapter.py");
+fn adapter(ctx: &Invocation, request: &Value) -> Result<Value,Error> {
+    let output=host::run_command(&Command::new("python3").args(["-I","-c",ADAPTER]),ctx.project().as_ref(),Some(&request.to_string()))?;
+    if output.status!=Some(0) {
+        return Err(Error::Failed(format!("Archive adapter refused or failed. No project was opened. Any staging directory is retained for review. {}",ui_kit::prompts::readable_source(&output.stderr.chars().take(2048).collect::<String>()))));
+    }
+    if output.stdout.len()>256<<10 {return Err(Error::Invalid("Archive adapter result exceeds 256 KiB.".into()));}
+    crate::strict_json::parse(&output.stdout,256<<10).map_err(|_|Error::Invalid("Malformed archive adapter result.".into()))
+}
+fn preview(proof:&Value,archive:bool)->Result<String,Error> {
+    let files=proof["files"].as_array().filter(|files|!files.is_empty()&&files.len()<=512).ok_or(Error::Stale)?;
+    let mut text=format!("Destination: {}\nArchive SHA-256: {}\nAdapter: Python {} / {}\n\n",proof["target"].as_str().ok_or(Error::Stale)?,proof["sha256"].as_str().ok_or(Error::Stale)?,proof["python"].as_str().ok_or(Error::Stale)?,proof["platform"].as_str().ok_or(Error::Stale)?);
+    for file in files {text.push_str(&format!("{} · {} bytes · mode {} · SHA-256 {}\n",file["path"].as_str().ok_or(Error::Stale)?,file["bytes"],file["mode"],file["sha256"].as_str().ok_or(Error::Stale)?));}
+    if let Some(dirs)=proof["directories"].as_array() {for directory in dirs {text.push_str(&format!("Directory: {}\n",directory.as_str().ok_or(Error::Stale)?));}}
+    if archive {text.push_str("\nAll archive files, including binary wrappers, are extracted as data into a private staging directory. Executable bits are retained; regular modes are normalized to 644/755. No wrapper, build, project script or generated executable is run. The complete staged tree is committed with an exclusive directory rename. An occupied destination is never merged/replaced. Failed staging is retained; no automatic cleanup. After commit, request the normal project trust/open flow in a new window.");}
+    Ok(text)
+}
+impl Launcher {
+    pub(crate) fn review_cli_tree(&mut self,ctx:&Invocation,root:&str,target:&str)->Result<(),Error> {
+        if ctx.project().and_then(|p|p.root().ok()).as_deref()!=Some(root) || self.owner!=format!("project:{root}") {return Err(Error::Stale)}
+        let proof=adapter(ctx,&json!({"operation":"inspect-tree","target":target}))?;
+        if proof["target"].as_str()!=Some(target) || !proof["files"].as_array().is_some_and(|files|files.iter().any(|f|matches!(f["path"].as_str(),Some("pom.xml"|"build.gradle"|"build.gradle.kts")))) {return Err(Error::Invalid("No root build descriptor in the generated folder.".into()))}
+        let message=format!("{}\n\nThis is the current physical tree after a successful CLI exit, not verification of the build or of server-generated source identity. No generated executable or build is run. Open through the normal IDE trust flow?",preview(&proof,false)?);
+        if !ui_kit::prompts::confirm_exact("Open reviewed CLI result?",&message)? {return Ok(())}
+        if ctx.project().and_then(|p|p.root().ok()).as_deref()!=Some(root) || self.owner!=format!("project:{root}") {return Err(Error::Stale)}
+        let verified=adapter(ctx,&json!({"operation":"verify-tree","target":target,"proof":proof}))?;
+        if verified!=proof {return Err(Error::Stale)}
+        host::open_project(target,true)
+    }
+    pub(crate) fn generate_archive(&mut self,ctx:&Invocation)->Result<Option<String>,Error> {
+        let _=self.changed();
+        if self.server!=START {return Err(Error::Invalid("Complete archive generation uses the declared start.spring.io service.".into()));}
+        self.load_metadata(false);
+        if let Some(problem)=self.problem() {return Err(Error::Invalid(problem));}
+        let artifact=self.get("artifactId");
+        if artifact.is_empty() || artifact.len()>128 || artifact.starts_with('.') || !artifact.bytes().all(|b|b.is_ascii_alphanumeric()||b"._-".contains(&b)) {return Err(Error::Invalid("Use one plain artifact directory name.".into()));}
+        let owner=self.owner.clone();let query=self.query();let metadata=self.metadata.clone();
+        let root=ctx.project().and_then(|p|p.root().ok());
+        let Some(parent)=host::pick_directory("Choose a parent for a NEW generated project",root.as_deref())? else {return Ok(None)};
+        let request=format!("Download: {START}/starter.zip?{query}\nParent: {parent}\nNew folder: {artifact}\n\nThe optional approved python3 executable will validate and extract the full archive with its standard library, including binary wrappers and executable scripts. Nothing from the generated archive is executed. A complete file/hash manifest and canonical destination are reviewed before extraction. Existing destinations are refused.");
+        if !ui_kit::prompts::confirm_exact("Prepare complete Spring project?",&request)? {return Ok(None)}
+        if self.owner!=owner || self.server!=START || self.query()!=query || self.metadata!=metadata {return Err(Error::Stale)}
+        let task=host::begin_task("Generating reviewed Spring project",true);
+        if task.is_cancelled(){return Err(Error::Cancelled)}
+        let response=host::fetch(&HttpRequest::get(&format!("{START}/starter.zip?{query}")))?;
+        if task.is_cancelled(){return Err(Error::Cancelled)}
+        if response.status!=200 || response.body.is_empty() || response.body.len()>8<<20 {return Err(Error::Invalid("Project ZIP failed or exceeds 8 MiB; no destination files were created.".into()));}
+        let archive=format!("{}/generation-archive.zip",host::fs::plugin_dir()?.trim_end_matches('/'));
+        host::fs::write_bytes(&archive,&response.body)?;
+        let mut request=json!({"operation":"inspect","archive":archive,"parent":parent,"artifact":artifact});
+        let proof=adapter(ctx,&request)?;
+        if task.is_cancelled(){return Err(Error::Cancelled)}
+        let descriptor=match self.get("type").as_str(){"maven-project"=>"pom.xml","gradle-project"=>"build.gradle","gradle-project-kotlin"=>"build.gradle.kts",_=>return Err(Error::Invalid("Unsupported generated build type.".into()))};
+        if !proof["files"].as_array().is_some_and(|files|files.iter().any(|file|file["path"].as_str()==Some(descriptor))) {return Err(Error::Invalid("The archive does not contain the selected root build descriptor.".into()));}
+        if !ui_kit::prompts::confirm_exact("Generate and open reviewed Spring project?",&preview(&proof,true)?)? {return Ok(None)}
+        if self.owner!=owner || self.server!=START || self.query()!=query || self.metadata!=metadata {return Err(Error::Stale)}
+        if task.is_cancelled(){return Err(Error::Cancelled)}
+        request["operation"]=json!("extract");request["proof"]=proof.clone();
+        let result=adapter(ctx,&request)?;
+        if task.is_cancelled(){return Err(Error::Cancelled)}
+        let target=proof["target"].as_str().ok_or(Error::Stale)?;
+        if result["committed"]!=true || result["target"].as_str()!=Some(target) || result["sha256"]!=proof["sha256"] {return Err(Error::Stale)}
+        host::open_project(target,true)?;
+        Ok(Some(format!("Generated {} archive files at {target}; requested normal project trust/open. No wrapper or build executed.",result["files"])))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{io::{Cursor,Write},process::{Command as NativeCommand,Stdio},hash::BuildHasher};
+    struct Scratch(std::path::PathBuf);
+    impl Scratch {fn new()->Self {let random=std::collections::hash_map::RandomState::new();let path=std::env::temp_dir().join(format!("initializr-archive-test-{:016x}",random.hash_one(0u8)));std::fs::create_dir(&path).unwrap();Self(std::fs::canonicalize(path).unwrap())}}
+    impl Drop for Scratch {fn drop(&mut self){let _=std::fs::remove_dir_all(&self.0);}}
+    fn zip(entries:&[(&str,&[u8],u32)])->Vec<u8> {
+        let mut zip=zip::ZipWriter::new(Cursor::new(Vec::new()));
+        for (name,data,mode) in entries {zip.start_file(*name,zip::write::SimpleFileOptions::default().unix_permissions(*mode)).unwrap();zip.write_all(data).unwrap();}
+        zip.finish().unwrap().into_inner()
+    }
+    fn run(request:&Value)->std::process::Output {
+        let mut child=NativeCommand::new("python3").args(["-I","-c",ADAPTER]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().expect("Python3 adapter integration tests require Python3");
+        child.stdin.take().unwrap().write_all(request.to_string().as_bytes()).unwrap();child.wait_with_output().unwrap()
+    }
+    #[test]
+    fn command_download_review_extract_and_open_are_separate_and_cancellation_never_extracts() {
+        use openidea_plugin::mock::MockHost;
+        for mode in 0..4 {
+            let host=MockHost::install().with_capabilities(&["storage","project.read","net:start.spring.io","process:python3"]);
+            if mode==3 {host.set_project_root(None);}
+            let mut launcher=Launcher::default();launcher.bind(&host.invocation()).unwrap();let _=launcher.changed();
+            launcher.metadata=Some(json!({"bootVersion":{"default":"3.5.16","values":[{"id":"3.5.16"}]},"dependencies":{"values":[]}}));
+            host.on_fetch(|request| {assert!(request.url.starts_with("https://start.spring.io/starter.zip?"));Ok(openidea_plugin::HttpResponse{status:200,headers:vec![],body:b"archive inspected by scripted adapter".to_vec()})});
+            host.on_process("python3",move |args,stdin| {
+                assert_eq!(&args[..2],["-I","-c"]);assert_eq!(args[2],ADAPTER);
+                let request:Value=serde_json::from_str(stdin.unwrap()).unwrap();
+                let proof=json!({"parent":"/outside","identity":[1,2],"target":"/outside/demo","python":"3.12.0","platform":"darwin","sha256":"reviewed-sha","directories":[],"files":[{"path":"pom.xml","bytes":10,"mode":420,"sha256":"source-sha"}]});
+                let result=if request["operation"]=="inspect" {proof} else {
+                    assert_eq!(request["proof"],proof);
+                    if mode==2 {return Ok(openidea_plugin::ProcessOutput{status:Some(1),stdout:String::new(),stderr:"Destination exists; no merge or overwrite".into()})}
+                    json!({"target":"/outside/demo","sha256":"reviewed-sha","files":1,"committed":true})
+                };
+                Ok(openidea_plugin::ProcessOutput{status:Some(0),stdout:result.to_string(),stderr:String::new()})
+            });
+            host.answer_next_prompt(Some(&["/outside"]));host.answer_next_prompt(Some(&[]));host.answer_next_prompt(if mode==1 {None} else {Some(&[])});
+            let result=launcher.generate_archive(&host.invocation());
+            assert_eq!(result.is_ok(),mode!=2);
+            assert_eq!(host.process_runs().len(),if mode==1 {1} else {2});
+            assert_eq!(host.opened_projects().len(),usize::from(matches!(mode,0|3)));
+            if matches!(mode,0|3) {assert_eq!(host.opened_projects(),vec![("/outside/demo".into(),true)]);}
+        }
+    }
+    #[test]
+    fn actual_generated_tree_review_detects_changed_bytes_and_links() {
+        let scratch=Scratch::new();let target=scratch.0.join("demo");std::fs::create_dir(&target).unwrap();std::fs::write(target.join("pom.xml"),b"original").unwrap();
+        let mut request=json!({"operation":"inspect-tree","target":target});let inspected=run(&request);assert!(inspected.status.success(),"{}",String::from_utf8_lossy(&inspected.stderr));request["proof"]=serde_json::from_slice(&inspected.stdout).unwrap();request["operation"]=json!("verify-tree");assert!(run(&request).status.success());
+        std::fs::write(target.join("pom.xml"),b"changed").unwrap();assert!(!run(&request).status.success());
+        #[cfg(unix)] {std::os::unix::fs::symlink("pom.xml",target.join("link")).unwrap();request["operation"]=json!("inspect-tree");assert!(!run(&request).status.success());}
+    }
+    #[test]
+    fn actual_python_adapter_preserves_binary_wrappers_executable_bits_and_never_overwrites() {
+        let scratch=Scratch::new();let archive=scratch.0.join("project.zip");
+        std::fs::write(&archive,zip(&[("pom.xml",b"<project/>",0o644),("mvnw",b"#!/bin/sh\necho must-not-run",0o755),(".mvn/wrapper/maven-wrapper.jar",&[0,255,128,10],0o644)])).unwrap();
+        let mut request=json!({"operation":"inspect","archive":archive,"parent":scratch.0,"artifact":"demo"});
+        let inspected=run(&request);assert!(inspected.status.success(),"{}",String::from_utf8_lossy(&inspected.stderr));let proof:Value=serde_json::from_slice(&inspected.stdout).unwrap();assert_eq!(proof["files"].as_array().unwrap().len(),3);
+        request["operation"]=json!("extract");request["proof"]=proof;
+        let extracted=run(&request);assert!(extracted.status.success(),"{}",String::from_utf8_lossy(&extracted.stderr));
+        assert_eq!(std::fs::read(scratch.0.join("demo/.mvn/wrapper/maven-wrapper.jar")).unwrap(),[0,255,128,10]);
+        #[cfg(unix)] {use std::os::unix::fs::PermissionsExt;assert_eq!(std::fs::metadata(scratch.0.join("demo/mvnw")).unwrap().permissions().mode()&0o777,0o755);}
+        let again=run(&request);assert!(!again.status.success());assert_eq!(std::fs::read(scratch.0.join("demo/pom.xml")).unwrap(),b"<project/>");
+    }
+    #[test]
+    fn actual_adapter_rejects_traversal_case_collisions_and_changed_archive_after_review() {
+        let scratch=Scratch::new();let archive=scratch.0.join("project.zip");let mut request=json!({"operation":"inspect","archive":archive,"parent":scratch.0,"artifact":"demo"});
+        for entries in [vec![("../outside",&b"bad"[..],0o644)],vec![("Foo/file",&b"one"[..],0o644),("foo/other",&b"two"[..],0o644)],vec![(".git/config",&b"bad"[..],0o644)]] {
+            std::fs::write(&archive,zip(&entries)).unwrap();assert!(!run(&request).status.success());assert!(!scratch.0.join("demo").exists());
+        }
+        std::fs::write(&archive,zip(&[("pom.xml",b"original",0o644)])).unwrap();let output=run(&request);assert!(output.status.success());request["proof"]=serde_json::from_slice(&output.stdout).unwrap();request["operation"]=json!("extract");
+        std::fs::write(&archive,zip(&[("pom.xml",b"changed",0o644)])).unwrap();assert!(!run(&request).status.success());assert!(!scratch.0.join("demo").exists());
+    }
+}

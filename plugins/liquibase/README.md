@@ -138,7 +138,7 @@ changelog sits under one, then the project root.
 
 ## Completion
 
-In YAML changelogs, keys are offered by where the caret is:
+In YAML and JSON changelogs, keys are offered by where the caret is:
 
 | Under | Offers |
 |---|---|
@@ -154,7 +154,17 @@ already followed by a colon is replaced without adding a second one.
 
 In formatted SQL, typing `--` offers `--liquibase formatted sql` on the first
 line and, in a changelog, `--changeset author:id`, `--rollback` and
-`--comment`.
+`--comment`. After a literal `--changeset author:id `, attribute names are
+completed with formatted-SQL `key:value` syntax, including execution, context,
+label and delimiter controls. Existing attributes are omitted and existing
+values are preserved. Completion describes syntax; it does not enable licensed
+executors or validate database-specific SQL.
+
+JSON completion replaces the current quoted property name, including in an
+unfinished document. Existing values are preserved; new keys get a value
+placeholder. String values and unrelated JSON objects stay quiet. Core change
+attributes now include sequence, procedure, lookup, merge, constraint-removal,
+remarks and CSV-update controls checked against the public latest XSD.
 
 In XML changelogs the plugin completes, inside a `<changeSet>` only, the
 elements after `<` (change types, `comment`, `rollback`, `column`,
@@ -575,3 +585,38 @@ filename and line. New opens that exact source for the reviewed editor action,
 rather than reusing an unrelated active editor. Advanced source reset, execution
 and offline review stay under More. Repeated include nodes say “already shown”;
 this is browser traversal state, not a database execution result.
+
+## Verified CLI serializer compatibility (2026-11-10)
+
+Official Liquibase OSS4.29.2 was exercised against disposable H2 source/target
+databases, then against scrubbed local JSON snapshots. Snapshot, text diff and
+XML diff-changelog completed successfully. Captured fixture outputs now exercise
+the actual parser and selected-changeset handoff. The stock serializer emits an
+XML1.1 declaration: the generated-source reader accepts its XML1.0-compatible
+subset while preserving exact source bytes and rejecting XML1.1-only line/control
+semantics. This fixes real generated output previously rejected by the reader.
+
+Command-specific environment URL overrides were also reproduced:4.29.2 can
+prefer `LIQUIBASE_COMMAND_DIFF_URL` over the generic explicit `--url`. Managed
+offline commands now reserve command-specific URL/diff-type variables and, for
+generation, output/author variables to the reviewed values. API1.4 rejects a
+collision with an inherited key before spawning. Other ambient JVM/extensions
+and platform-specific behavior remain outside this bounded runtime receipt;
+it is not a general clean-environment or offline sandbox guarantee.
+
+## Organizing generated migrations
+
+The generated-source review now has **Organize Migrations…**: create/switch/remove
+migration groups, move complete changesets with the selection picker, ignore
+changesets and restore ignored ones. A changeset belongs to at most one group;
+each group preserves original source order. Operation-class selection separates
+add/create, drop/delete and other/SQL based on the actual serialized change
+names. These are lexical classes, not a risk score or dependency analysis.
+
+The active group can be saved through the existing reviewed action. When multiple
+groups exist, **Save grouped offline migrations…** prompts for distinct XML
+paths, previews every exact output and returns all non-overwriting Creates in one
+atomic workspace action. Group names/selection/source changes invalidate old
+save actions. Ignored changesets are excluded; ordering and omitted dependencies
+must be reviewed before any later execution. Grouping itself neither starts a
+CLI nor writes source files.

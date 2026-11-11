@@ -24,6 +24,9 @@ const WATCH: &[&str] = &[
     "**/build.gradle",
     "**/build.gradle.kts",
     "**/.env",
+    "**/gradle/libs.versions.toml",
+    "**/settings.gradle",
+    "**/settings.gradle.kts",
     "**/src/main/resources/templates/**",
 ];
 #[derive(Clone)]
@@ -38,6 +41,10 @@ pub(crate) struct State {
     pub(super) removed_builds: BTreeSet<String>,
     pub(super) build_events_lost: bool,
     env: BTreeMap<String, Option<BTreeSet<String>>>,
+}
+
+fn is_build_input(path: &str) -> bool {
+    BUILD_FILES.iter().chain(["gradle/libs.versions.toml", "settings.gradle", "settings.gradle.kts"].iter()).any(|file| path.ends_with(&format!("/{file}")))
 }
 
 impl QuarkusTools {
@@ -123,7 +130,7 @@ impl QuarkusTools {
                 if !WATCH.iter().any(|glob| spring_text::index::glob_matches(glob, path)) {
                     continue;
                 }
-                if BUILD_FILES.iter().any(|file| path.ends_with(&format!("/{file}"))) {
+                if is_build_input(path) {
                     self.modules.clear();
                     self.qute.modules.clear();
                 }
@@ -151,7 +158,7 @@ impl QuarkusTools {
         }
     }
     fn observe_build_changes(&mut self, events: &[Event]) {
-        let build = |path: &str| BUILD_FILES.iter().any(|name| path.ends_with(&format!("/{name}")));
+        let build = |path: &str| is_build_input(path);
         for event in events {
             let (removed, changed): (Vec<&String>, Vec<&String>) = match event {
                 Event::FilesChanged(batch) => (
@@ -257,6 +264,7 @@ impl QuarkusTools {
 }
 impl DiagnosticsProvider for QuarkusTools {
     fn diagnostics(&mut self, doc: &Document) -> Vec<Diagnostic> {
+        if matches!(doc.language.as_str(), "html" | "plaintext" | "qute-html") { return self.qute_diagnostics(doc); }
         let Some(root) = self.cached_module(doc) else {
             return Vec::new();
         };
@@ -277,7 +285,7 @@ impl DiagnosticsProvider for QuarkusTools {
             };
             java_checks::check(&doc.text, &ctx).into_iter().map(|problem| problem.finding.diagnostic(&doc.text)).collect()
         } else if is_quarkus_config(&doc.path)
-            && matches!(doc.language.as_str(), "properties" | "yaml")
+            && matches!(doc.language.as_str(), "properties" | "quarkus-properties" | "yaml")
             && config::keys(&doc.path, &doc.text).len() <= 512
         {
             problems(
@@ -358,7 +366,11 @@ impl HoverProvider for QuarkusTools {
 }
 impl InlayHints for QuarkusTools {
     fn inlay_hints(&mut self, doc: &Document, requested: Range) -> Vec<InlayHint> {
-        if self.cached_module(doc).is_none() || !is_quarkus_config(&doc.path) || !matches!(doc.language.as_str(), "properties" | "yaml") {
+        if doc.language=="java" {
+            if self.cached_module(doc).is_none() {return Vec::new();}
+            return source_features::inlays(doc,requested);
+        }
+        if self.cached_module(doc).is_none() || !is_quarkus_config(&doc.path) || !matches!(doc.language.as_str(), "properties" | "quarkus-properties" | "yaml") {
             return Vec::new();
         }
         let (project, _, ambiguous) = self.cached_catalog(doc);

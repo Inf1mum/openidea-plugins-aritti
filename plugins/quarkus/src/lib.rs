@@ -3,6 +3,7 @@
 
 pub mod checks;
 mod build_source;
+mod source_features;
 mod indexer;
 mod jar_archive;
 mod jar_metadata;
@@ -216,7 +217,21 @@ impl QuarkusTools {
         let found = loop {
             let named = BUILD_FILES.iter().any(|file| {
                 let path = format!("{dir}/{file}");
-                !self.live.removed_builds.contains(&path) && project.read_file(&path).is_ok_and(|text| build_source::declares(file, &text))
+                !self.live.removed_builds.contains(&path) && project.read_file(&path).is_ok_and(|text| {
+                    if build_source::declares(file, &text) { return true; }
+                    let catalog_path = format!("{dir}/gradle/libs.versions.toml");
+                    if self.live.removed_builds.contains(&catalog_path) || !matches!(*file, "build.gradle" | "build.gradle.kts") { return false; }
+                    // Custom catalogue declarations can replace libs or rename its accessor.
+                    for settings in ["settings.gradle", "settings.gradle.kts"] {
+                        let settings_path = format!("{dir}/{settings}");
+                        match project.read_file(&settings_path) {
+                            Ok(settings) => if settings.len() > 128 << 10 || spring_text::java::tokens(&settings).iter().any(|t| matches!(t.s, "versionCatalogs" | "defaultLibrariesExtensionName")) { return false; },
+                            Err(Error::NotFound(_)) => {},
+                            Err(_) => return false,
+                        }
+                    }
+                    project.read_file(&catalog_path).is_ok_and(|catalog| build_source::declares_catalog(file, &text, &catalog))
+                })
             });
             if named {
                 break true;
@@ -410,6 +425,8 @@ impl Providers for QuarkusTools {
     }
 
     fn completion(&mut self, doc: &Document, at: Position, _trigger: Option<&str>) -> Vec<CompletionItem> {
+        let qute = self.qute_completion(doc, at);
+        if !qute.is_empty() { return qute; }
         if doc.path.ends_with(".java") {
             let Some(at) = offset(&doc.text, at) else {
                 return Vec::new();
@@ -448,7 +465,8 @@ impl Plugin for QuarkusTools {
         self.live_events(events);
     }
 
-    fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
+    fn run_command(&mut self, id: &str, ctx: &Invocation, arg: Option<&str>) -> Result<Option<String>, Error> {
+        if id==source_features::COMMAND { source_features::inspect(ctx,arg)?;return Ok(None); }
         if id == "prepare-local-starter" { return self.prepare_starter(ctx); }
         if id == "open-reviewed-starter" { return self.open_starter(ctx); }
         if id == "read-dependency-jar-metadata" {
@@ -464,7 +482,16 @@ impl Plugin for QuarkusTools {
     }
 }
 
-register_plugin!(QuarkusTools, providers, indexing, diagnostics, hover, inlay_hints, file_actions);
+impl openidea_plugin::language_features::LanguageFeatures for QuarkusTools {
+    fn folding(&mut self, doc: &Document) -> Vec<openidea_plugin::language_features::FoldRange> { self.qute_folding(doc) }
+    fn code_lenses(&mut self,doc:&Document)->Vec<openidea_plugin::language_features::CodeLens> {
+        if self.cached_module(doc).is_none() {return Vec::new();} source_features::lenses(doc)
+    }
+    fn document_symbols(&mut self,doc:&Document)->Vec<openidea_plugin::language_features::DocumentSymbol> {
+        if self.cached_module(doc).is_none() {return Vec::new();} source_features::symbols(doc)
+    }
+}
+register_plugin!(QuarkusTools, providers, indexing, diagnostics, hover, inlay_hints, file_actions, language_features);
 
 #[cfg(test)]
 mod tests {
@@ -1454,5 +1481,50 @@ mod annotation_fix_owner_receipts {
     #[test]
     fn gauge_scope_fix_does_not_bind_to_existing_foreign_import() {
         let actions=fixes("import other.ApplicationScoped; import jakarta.enterprise.context.RequestScoped; import org.eclipse.microprofile.metrics.annotation.Gauge; @RequestScoped class App {@Gauge int value(){return 1;}}");let action=actions.iter().find(|a|a.title=="Use @ApplicationScoped").unwrap();let edits:Vec<_>=action.edits.iter().flat_map(|(_,edits)|edits).collect();assert!(edits.iter().any(|e|e.text=="@jakarta.enterprise.context.ApplicationScoped"));assert!(!edits.iter().any(|e|e.text.contains("import jakarta.enterprise.context.ApplicationScoped")));
+    }
+}
+
+#[cfg(test)]
+mod gradle_catalog_tests {
+    use super::*;
+    use openidea_plugin::Event;
+    use openidea_plugin::mock::MockHost;
+    #[test]
+    fn conventional_catalog_alias_enables_module_and_changes_invalidate_proof() {
+        let host = MockHost::install().with_capabilities(&["project.read", "events"]);
+        host.add_file("build.gradle.kts", "plugins { alias(libs.plugins.quarkus.core) }");
+        host.add_file("gradle/libs.versions.toml", "[plugins]\nquarkus-core = { id = \"io.quarkus\", version = \"3.40.1\" }\n");
+        let mut tools = QuarkusTools::default();
+        let path = "/project/src/main/resources/application.properties";
+        assert!(tools.uses_quarkus(path));
+        host.add_file("gradle/libs.versions.toml", "[plugins]\nquarkus-core = { id = \"other.framework\", version = \"1\" }\n");
+        tools.live_events(&[Event::FileSaved("/project/gradle/libs.versions.toml".into())]);
+        assert!(!tools.uses_quarkus(path));
+        host.add_file("gradle/libs.versions.toml", "[plugins]\nquarkus-core = { id = \"io.quarkus\", version = \"3.40.1\" }\n");
+        tools.live_events(&[Event::FileSaved("/project/gradle/libs.versions.toml".into())]);
+        assert!(tools.uses_quarkus(path));
+        host.add_file("settings.gradle.kts", "dependencyResolutionManagement { versionCatalogs { create(\"libs\") {} } }");
+        tools.live_events(&[Event::FileSaved("/project/settings.gradle.kts".into())]);
+        assert!(!tools.uses_quarkus(path));
+    }
+    #[test]
+    fn catalog_requires_real_plugin_block_and_exact_alias_identity() {
+        let cat = "[plugins]\nquarkus = { id = \"io.quarkus\", version.ref = \"quarkus\" }\n";
+        assert!(build_source::declares_catalog("build.gradle.kts", "plugins { alias(libs.plugins.quarkus) }", cat));
+        for text in ["// plugins { alias(libs.plugins.quarkus) }", "dependencies { alias(libs.plugins.quarkus) }", "plugins { alias(libs.plugins.other) }", "plugins { alias(libs.plugins.quarkus + foo) }", "plugins { alias(libs.plugins.quarkus) apply false }", "plugins { alias(libs.plugins.quarkus) "] {
+            assert!(!build_source::declares_catalog("build.gradle.kts", text, cat), "{text}");
+        }
+        assert!(!build_source::declares_catalog("build.gradle.kts", "plugins { alias(libs.plugins.quarkus) }", "not valid toml"));
+    }
+}
+
+#[cfg(test)]
+mod unapplied_plugin_tests {
+    #[test]
+    fn deferred_gradle_plugins_do_not_establish_module_ownership() {
+        for (file, text) in [("build.gradle.kts", "plugins { id(\"io.quarkus\") apply false }"), ("build.gradle", "plugins { id 'io.quarkus' apply false }")] {
+            assert!(!crate::build_source::declares(file, text));
+        }
+        assert!(crate::build_source::declares("build.gradle.kts", "plugins { id(\"io.quarkus\") apply true }"));
     }
 }

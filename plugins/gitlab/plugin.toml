@@ -12,6 +12,9 @@ authors = ["Arnaud Ritti <arnaud.ritti@gmail.com>", "JetBrains s.r.o. and contri
 homepage = "https://github.com/JetBrains/intellij-community/tree/master/plugins/gitlab"
 license = "Apache-2.0"
 change-notes = """\
+Bounded CommonMark descriptions/diff comments escape raw HTML, block unsafe links and remote image fetching, with shared native tokens and snapshot-bound link activation. \
+Re-request assigned review with fresh owner/head checks; two declared credential slots isolate identity and snapshot caches. \
+Optional approved glab 1.x adapter follows a freshly validated selected job in a native managed log tab. \
 Pipeline effect controls bind exact source target and cancel-confirm phase before retry, browser or trace actions. \
 Files row and bulk viewed controls carry source context to reject stale MR callbacks. \
 Diff rendering uses checked line counters and withholds guessed malformed-hunk positions. \
@@ -36,7 +39,7 @@ activation = ["on-view:merge-requests", "on-event:vcs-changed", "on-event:file-o
 required = ["vcs.read", "editor.read", "net:gitlab.com", "secrets", "storage"]
 # clipboard: Copy Link and the snippet URL. project.read: jump to a line, review threads in the editor.
 # events: the current branch's merge request. process:git: check out, clone, share.
-optional = ["clipboard", "project.read", "events", "process:git"]
+optional = ["clipboard", "project.read", "events", "process:git", "process:glab"]
 
 [contributes.settings]
 schema = "settings.schema.json"
@@ -149,3 +152,18 @@ command = "create-merge-request"
 id = "gitlab-ci"
 patterns = [".gitlab-ci.yml", ".gitlab-ci.yaml", "*.gitlab-ci.yml", "*.gitlab-ci.yaml", "*.gitlab-ci.*.yml", "*.gitlab-ci.*.yaml"]
 icon = "icons/gitlab.svg"
+
+[[contributes.commands]]
+id = "rerequest-review"
+title = "GitLab: Re-request Review…"
+category = "GitLab"
+
+[[contributes.secrets]]
+name = "secondary-token"
+label = "Secondary GitLab.com personal access token"
+description = "Optional second account; select secondary in the account slot setting. api and read_user scopes are required."
+
+[[contributes.commands]]
+id = "checkout-source-cli"
+title = "GitLab: Check Out Merge Request Source (glab)…"
+category = "GitLab"

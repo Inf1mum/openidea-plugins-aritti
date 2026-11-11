@@ -1,0 +1,24 @@
+Reference Database: null @ offline:h2?snapshot=reference.json (Default Schema: PUBLIC)
+Comparison Database: null @ offline:h2?snapshot=target.json (Default Schema: PUBLIC)
+Compared Schemas: PUBLIC
+Product Name: EQUAL
+Product Version: EQUAL
+Missing Column(s): 
+     PUBLIC.CUSTOMER.ID
+     PUBLIC.CUSTOMER.NAME
+Unexpected Column(s): 
+     PUBLIC.LEGACY.ID
+Changed Column(s): NONE
+Missing Index(s): 
+     CUSTOMER_NAME ON PUBLIC.CUSTOMER(NAME)
+     PRIMARY_KEY_5 UNIQUE  ON PUBLIC.CUSTOMER(ID)
+Unexpected Index(s): NONE
+Changed Index(s): NONE
+Missing Table(s): 
+     CUSTOMER
+Unexpected Table(s): 
+     LEGACY
+Changed Table(s): NONE
+Missing View(s): NONE
+Unexpected View(s): NONE
+Changed View(s): NONE

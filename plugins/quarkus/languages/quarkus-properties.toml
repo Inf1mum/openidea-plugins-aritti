@@ -1,0 +1,8 @@
+id = "quarkus-properties"
+name = "Quarkus Properties"
+extensions = []
+line-comment = "#"
+indent = { tab-size = 4, insert-spaces = true }
+ui-mode = "Properties files"
+# Opted-in official MicroProfile LS profile only. Exact fileTypeOverrides select
+# application/profile files; generic Properties ownership remains user-selected.

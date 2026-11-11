@@ -17,6 +17,7 @@ const fixtures={
  'gitlab/merge-request':{body:{kind:'resources',columns:['Job','Status'],facets:[1],items:[{key:'j:42',cells:['Build','Failed']}]},toolbar:[button('pipeline-action:retry','Retry Job','rerun'),button('pipeline-action:browser','Open on GitLab','external-link')]},
  'gitlab/gitlab-projects':{body:tree('Project','folder')},
  'spring-integration/structure':{body:graph,toolbar:[button('graph-zoom-out','Zoom Out','zoom-out'),button('graph-zoom-in','Zoom In','zoom-in')]},
+ 'jpa-assist/source-diagram':{body:graph},
  'spring-beans/beans':{body:tree('userService','class')},
  'spring-runtime/runtime-graph':{body:graph,toolbar:[button('graph-observations','Inspect Snapshot List','list')]},
  'ignore/templates':{body:{kind:'tree',items:[{key:'g:user',label:'User templates',icon:'folder',expandable:true,expanded:true},{key:'u:mine',parent:'g:user',label:'.gitignore',icon:'file-ignored',activationLabel:'Add to Ignore File',activationIcon:'add',activationEnabled:true}]},toolbar:[button('new','Create User Template','plus'),button('delete','Delete User Template','trash'),button('star','Unstar','star'),button('preferences','Preferences','settings')]},
@@ -41,7 +42,7 @@ Object.assign(fixtures, {
   {key:'diagnostics',label:'Environment',value:{kind:'readonly-text',data:{text:'Use Check Environment to read installed DDEV and Docker versions.'}}},
   {key:'binary-help',label:'DDEV executable',value:{kind:'readonly-text',data:{text:'Choose and approve the executable in plugin permissions.'}}},
   {key:'steps',label:'Setup',value:{kind:'readonly-text',data:{text:'Install DDEV, configure the project and start it from Services.'}}}
- ]},toolbar:[button('diagnose','Check Environment','refresh'),button('config','Configure Project','settings'),button('show-services','Show Services','open-in-tool-window'),button('save-settings','Save Preferences','check'),button('reset-settings','Reset Changes','undo'),button('open-guide','Installation Guide','external-link'),button('report-issue','Report Plugin Issue','help')]},
+ ]},toolbar:[button('diagnose','Check Environment','refresh'),button('config','Configure Project','settings'),button('show-services','Show Services','open-in-tool-window'),button('save-settings','Save Preferences','check'),button('reset-settings','Reset Changes','undo'),button('open-docs','DDEV Documentation','help')]},
  'openapi/try-response':{body:{kind:'form',fields:[{key:'review',label:'Request / Response',value:{kind:'readonly-text',data:{text:'GET http://127.0.0.1:8080/users\nNot sent'}}}]},toolbar:[button('send:fixture','Send Reviewed Request','run')]},
  'symfony/twig-paths':{body:{kind:'form',fields:[{key:'paths',label:'Namespace paths',value:{kind:'multiline',text:'App: templates/'}}]},toolbar:[button('save','Save','check')]},
  'kube-explorer/resource-watch':{body:{kind:'form',fields:[{key:'status',label:'Status',value:{kind:'label',data:'No resource watch prepared'}}]}},
@@ -61,6 +62,7 @@ const chrome={
  'gitlab/merge-request':[button('refresh','Refresh','refresh')],
  'gitlab/gitlab-projects':[button('refresh','Refresh','refresh')],
  'spring-integration/structure':[button('refresh','Refresh','refresh')],
+ 'jpa-assist/source-diagram':[button('diagram-refresh','Refresh Source Diagram','refresh')],
  'spring-beans/beans':[button('refresh','Refresh','refresh')],
  'spring-runtime/runtime-graph':[], 'ignore/templates':[],
  'spring-initializr/initializr':[button('more-actions','More Actions…','more-horizontal')],
@@ -79,6 +81,7 @@ try {
  await page.addInitScript(()=>{window.sent=[];const listeners=[];window.openidea={postMessage:s=>window.sent.push(JSON.parse(s)),onMessage:f=>listeners.push(f)};window.receive=m=>listeners.forEach(f=>f(JSON.stringify(m)));});
  for(const plugin of readdirSync('plugins')) {
   if(process.env.UI_QA_PLUGIN && plugin !== process.env.UI_QA_PLUGIN) continue;
+  if((process.env.UI_QA_EXCLUDE||'').split(',').includes(plugin))continue;
   const path=`plugins/${plugin}/src/ui_config.json`;if(!existsSync(path))continue;const config=JSON.parse(readFileSync(path,'utf8'));
   for(const [view,title]of Object.entries(config.views)) {
    const id=`${plugin}/${view}`,fixture=fixtures[id];assert.ok(fixture,`missing UI fixture for ${id}`);
@@ -90,8 +93,8 @@ try {
     await page.waitForFunction(()=>[...document.querySelectorAll('#toolbar button:has(svg),.field-controls>button:has(svg)')].every(button=>button.title));
     assert.equal(await page.locator('body>header').count(),0,`${id}: native host owns title`);
     if(plugin==='ddev') {
-     assert.equal(await page.locator('#toolbar button').count(),7,'DDEV keeps all setup actions');
-     assert.equal(await page.locator('#toolbar button.ui-icon-button').count(),7,'DDEV toolbar stays compact');
+     assert.equal(await page.locator('#toolbar button').count(),6,'DDEV keeps all setup actions');
+     assert.equal(await page.locator('#toolbar button.ui-icon-button').count(),6,'DDEV toolbar stays compact');
      assert.equal(await page.locator('#toolbar button').evaluateAll(buttons=>new Set(buttons.map(button=>Math.round(button.getBoundingClientRect().top))).size),1,'DDEV actions fit one row at narrow dock widths');
     }
     assert.equal(await page.getByRole('button',{name:'Unavailable',exact:true}).count(),0,`${id}: unavailable action is hidden`);
@@ -138,7 +141,7 @@ try {
    receipt.push({plugin,view,title,layouts:4,status:'passed'});
   }
  }
- assert.equal(receipt.length,Object.keys(fixtures).filter(id=>!process.env.UI_QA_PLUGIN || id.startsWith(`${process.env.UI_QA_PLUGIN}/`)).length);assert.deepEqual(errors,[]);
+ assert.equal(receipt.length,Object.keys(fixtures).filter(id=>(!process.env.UI_QA_PLUGIN || id.startsWith(`${process.env.UI_QA_PLUGIN}/`)) && !(process.env.UI_QA_EXCLUDE||'').split(',').includes(id.split('/')[0])).length);assert.deepEqual(errors,[]);
  writeFileSync(resolve(output,`${engine}-receipt.json`),JSON.stringify(receipt,null,2)+'\n');
  console.log(`PASS ${engine}: all ${receipt.length} custom hubs, ${receipt.length*4} light/dark dock layouts, native icons/tooltips, row density, right-aligned overflow and contextual action policies`);
 } finally {await browser.close();}

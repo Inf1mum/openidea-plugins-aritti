@@ -370,3 +370,73 @@ Chromium and WebKit run the actual grouped hub and controls driver, covering
 pending Start navigation, a fresh frame on return, and hidden-pane Stop. These
 checks use deterministic transports; no new live Actuator or desktop acceptance
 is claimed.
+
+
+### Observation search and HTTP request templates
+
+Observations has **Search Observations…** and **Clear Search** controls. Search
+matches cached titles, endpoint categories and retained details without network
+access. It shows the visible/retained row count, keeps the query while browsing
+the same snapshot scope, and clears it on project/URL/auth scope changes.
+
+Select a mapping observation with explicit Actuator `requestMappingConditions`
+methods and patterns, then use **Copy HTTP Requests** (optional clipboard
+permission). The copied HTTP-client template includes each reported method/path
+pair, an editable application URL and reminders to fill path variables, headers,
+parameters and bodies. The application address is not inferred from the Actuator
+management address. No HTTP request is sent. Predicate-only, unrestricted-method,
+malformed and legacy mappings without structured conditions do not invent GET
+requests. A stale selection cannot copy another scope's request.
+
+The **HTTP Method** picker limits Observations to mappings with that explicit
+method in structured Actuator metadata. **All observations** restores every
+category. It never classifies a mapping by searching its predicate text, and
+mappings with missing/unrestricted method metadata remain unavailable under a
+specific-method filter. Method selection is retained within the same scope and
+clears on project/URL/auth changes.
+
+
+**Create HTTP Request File…** reviews the selected mapping's complete template,
+then creates a new plain `.http` file in the current project root and opens it.
+Existing files are never replaced; a cancelled review creates nothing. The
+optional `project.write` capability is required.
+
+**Send Local Request…** lets you choose a reported mapping,
+replace its path variables with a concrete localhost/127.0.0.1 URL, and review the
+exact method, URL, explicitly entered headers and UTF-8 body before sending.
+Headers and body each have an8KiB editing bound; transport headers such as Host
+and Content-Length are controlled by the host and cannot be overridden. No
+Actuator credentials are reused automatically. Larger bodies can be composed in
+the exported HTTP-client file. The selected observation's
+**HTTP Response** detail shows the response status, byte count and up to64KiB of
+plain response text; response headers are omitted. Last response data stays only
+in memory and is retired with the observation scope. HTTP4xx/5xx are shown as
+responses, not cached snapshot refresh failures. No render or editor provider
+sends an application request.
+
+
+**Open GET in Browser…** is available only for an explicitly reported GET mapping.
+It asks for a concrete local application URL and reviews it before opening the
+normal browser, whose own cookies and authentication apply. It neither guesses
+an origin from the Actuator URL nor substitutes unresolved path patterns.
+
+
+Structured Actuator request conditions are retained as bounded review clauses:
+required/negated headers and parameters, consumed media types and produced media
+types. Literal positive header/parameter values supply editable request examples;
+query values are percent-encoded and a single concrete consumed/produced media
+type supplies a Content-Type/Accept example. Missing fields or negation flags
+remain labelled unreported/unsupported. Negated conditions never become positive
+request defaults. Required unspecified header values use an explicit placeholder
+that must be replaced before sending. Body schemas are not inferred.
+
+Select a bean observation and use **Related Beans…** to choose a reported injected
+bean or dependent in the same reported context. Only verified dependency arrays
+and unique context/name owners produce source candidates. Source opening still
+requires one exact qualified current-project class; no library/parent-context or
+Java assignability semantics are invented. The observation details list the same
+bounded related candidates. Rendering and the chooser never refresh Actuator.
+
+Cached snapshot-labeled inlays also cover exact-key Java/Kotlin `@Value` placeholders at physical closing-string anchors. They reuse current project/URL/auth-mode ownership and redaction/provenance gates, never fetch on editor requests, and do not present annotation defaults as observed values. Foreign annotations, concatenations and incomplete source literals are withheld.
+
+**Tools → Configure Database from Runtime Snapshot** creates an owned native connection from one exact captured `/env` property source. Supported targets are simple PostgreSQL/MySQL/MariaDB TCP JDBC URLs, including bracketed IPv6. The review shows project, capture time, source and target; masked/unresolved fields, URL options, embedded credentials and ambiguous identities require manual setup. Captured nonempty passwords can be stored directly in the native secure store without displaying them. Target-bound IDs prevent changed host/database/user targets from inheriting a previous credential. This action does not connect, read schemas or execute SQL, and does not claim to clone the application's currently active connection.

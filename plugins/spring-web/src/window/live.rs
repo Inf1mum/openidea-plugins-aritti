@@ -19,6 +19,7 @@ const GLOBS: &[&str] = &[
     "**/*.gradle.kts",
     "**/*.toml",
 ];
+const TEMPLATE_GLOBS:&[&str]=&["**/*.html","**/*.jsp","**/*.ftlh","**/*.ftl","**/*.mustache","**/*.peb","**/*.jte","**/*.kte"];
 fn bounded(path: &str, text: &str) -> Option<bool> {
     Some(
         text.len() <= MAX_TEXT
@@ -78,6 +79,7 @@ impl Endpoints {
         self.live.bounds.get(project, part());
         if applies.web {
             self.web.versioning.get(project, part());
+            self.web.models.get(project, part());
         }
         if applies.websocket {
             self.websocket.live_warm(project, part());
@@ -96,7 +98,8 @@ impl Endpoints {
         }
     }
     pub(super) fn activate_live(&mut self) {
-        self.live.watching = host::subscribe_paths("files-changed", GLOBS).is_ok();
+        let globs=GLOBS.iter().chain(TEMPLATE_GLOBS).copied().collect::<Vec<_>>();
+        self.live.watching = host::subscribe_paths("files-changed", &globs).is_ok();
         let _ = host::subscribe(EventKind::FileOpened);
         let _ = host::subscribe(EventKind::FileSaved);
         let deadline = Instant::now() + Duration::from_secs(3);
@@ -122,12 +125,17 @@ impl Endpoints {
                 if Instant::now() >= deadline {
                     return;
                 }
-                if !GLOBS.iter().any(|g| spring_text::index::glob_matches(g, path)) {
+                let template=TEMPLATE_GLOBS.iter().any(|glob|spring_text::index::glob_matches(glob,path));
+                if !template && !GLOBS.iter().any(|g| spring_text::index::glob_matches(g, path)) {
                     continue;
                 }
                 let Some(project) = project_of(path) else {
                     continue;
                 };
+                if template {
+                    if let Ok(root)=project.root(){let prefix=format!("{root}\n");self.web.listings.retain(|key,_|!key.starts_with(&prefix));}
+                    continue;
+                }
                 let text = if removed {
                     None
                 } else {
@@ -136,6 +144,9 @@ impl Endpoints {
                         Err(_) => {
                             self.live.bounds.reset();
                             self.web.versioning.reset();
+                            self.web.models.reset();
+                            self.web.endpoints.reset();
+                            self.web.settings.reset();
                             self.websocket.live_reset();
                             self.messaging.live_reset();
                             self.graphql.live_reset();
@@ -147,6 +158,9 @@ impl Endpoints {
                 };
                 self.live.bounds.update_existing(&project, path, text.as_deref());
                 self.web.versioning.update_existing(&project, path, text.as_deref());
+                self.web.models.update_existing(&project,path,text.as_deref());
+                self.web.endpoints.update_existing(&project,path,text.as_deref());
+                self.web.settings.update_existing(&project,path,text.as_deref());
                 self.websocket.live_update(&project, path, text.as_deref());
                 self.messaging.live_update(&project, path, text.as_deref());
                 self.graphql.live_update(&project, path, text.as_deref());

@@ -8,6 +8,7 @@ struct CommandName {
     class: String,
     name: String,
     definition: Range,
+    insertion: Option<(Range, String, String)>,
     uses: Vec<Range>,
     names: BTreeSet<String>,
 }
@@ -24,10 +25,16 @@ pub(super) struct State {
 fn name(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 64
-        && value.as_bytes()[0].is_ascii_lowercase()
-        && value
-            .bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        && value.split(' ').all(|word| {
+            !word.is_empty()
+                && word.as_bytes()[0].is_ascii_lowercase()
+                && word.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        })
+}
+fn method_name(value: &str) -> bool {
+    let mut bytes = value.bytes();
+    bytes.next().is_some_and(|b| b.is_ascii_alphabetic() || b == b'_' || b == b'$')
+        && bytes.all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'$')
 }
 fn strings<'a>(doc: &Document, a: &'a Annotation, field: &str) -> Option<Vec<&'a Str>> {
     let arg = a.arg(field)?;
@@ -45,7 +52,7 @@ fn strings<'a>(doc: &Document, a: &'a Annotation, field: &str) -> Option<Vec<&'a
         .all(|s| {
             s.at < s.end
                 && doc.text.get(s.at..s.end) == Some(s.value.as_str())
-                && (name(&s.value) || s.value == "*")
+                && (name(&s.value) || method_name(&s.value) || s.value == "*")
         })
         .then(|| arg.strings.iter().collect())
 }
@@ -96,9 +103,24 @@ fn closed_java(text: &str) -> bool {
     }
     true
 }
+fn key_insertion(doc:&Document,a:&Annotation,field:&str)->Option<(Range,String,String)> {
+    let name_end=a.name_at+a.name.len();
+    let tail=doc.text.get(name_end..a.end)?;
+    let tokens=java::tokens(tail);
+    if a.args.is_empty() {
+        return Some((range(&doc.text,name_end,a.end),format!("({field}=\""),"\")".into()));
+    }
+    let open=tokens.first().filter(|t|t.s=="(")?.at+name_end+1;
+    let named=tokens.get(1).is_some_and(|t|t.is_ident()) && tokens.get(2).is_some_and(|t|t.s=="=");
+    Some((range(&doc.text,open,open),format!("{field}=\""),if named {"\", ".into()} else {"\", value=".into()}))
+}
 fn model(doc: &Document) -> Vec<CommandName> {
-    if doc.language != "java"
-        || !doc.path.ends_with(".java")
+    let legacy=model_source(doc, false);
+    if legacy.is_empty() {modern_model(doc,false)} else {legacy}
+}
+fn model_source(doc: &Document, _observe_implicit: bool) -> Vec<CommandName> {
+    if !((doc.language == "java" && doc.path.ends_with(".java"))
+        || (doc.language == "kotlin" && doc.path.ends_with(".kt")))
         || doc.text.len() > 64 << 10
         || !closed_java(&doc.text)
     {
@@ -186,20 +208,24 @@ fn model(doc: &Document) -> Vec<CommandName> {
                     valid = false;
                     break;
                 }
-                let Some(keys) =
-                    strings(doc, a, "key").filter(|v| v.len() == 1 && name(&v[0].value))
-                else {
-                    valid = false;
-                    break;
-                };
-                let s = keys[0];
-                if defs
-                    .insert(s.value.clone(), range(&doc.text, s.at, s.end))
-                    .is_some()
-                {
-                    valid = false;
-                    break;
+                if a.arg("key").is_none() && m.name.is_ascii() {
+                    let key = kebab(&m.name);
+                    let Some(insertion)=key_insertion(doc,a,"key") else {valid=false;break;};
+                    if !name(&key) || defs.insert(key, (range(&doc.text, m.at, m.at + m.name.len()),Some(insertion))).is_some() {
+                        valid = false;
+                    }
+                } else {
+                    let Some(keys) = strings(doc, a, "key")
+                        .filter(|v| !v.is_empty() && v.iter().all(|s| name(&s.value)))
+                    else { valid = false; break; };
+                    for s in keys {
+                        if defs.insert(s.value.clone(), (range(&doc.text, s.at, s.end),None)).is_some() {
+                            valid = false;
+                            break;
+                        }
+                    }
                 }
+                if !valid { break; }
                 // This annotation role names an indicator method, never the command key.
                 if let Some(a) = m.annotation("ShellMethodAvailability") {
                     let Some(values) =
@@ -242,7 +268,7 @@ fn model(doc: &Document) -> Vec<CommandName> {
             continue;
         }
         let names: BTreeSet<String> = defs.keys().cloned().collect();
-        for (n, definition) in defs {
+        for (n, (definition,insertion)) in defs {
             out.push(CommandName {
                 class: f.qualified(ti),
                 uses: refs
@@ -252,6 +278,7 @@ fn model(doc: &Document) -> Vec<CommandName> {
                     .collect(),
                 name: n,
                 definition,
+                insertion,
                 names: names.clone(),
             });
             if out.len() == 64 {
@@ -260,6 +287,45 @@ fn model(doc: &Document) -> Vec<CommandName> {
         }
     }
     out
+}
+// Modern explicit keys/aliases have no legacy availability-selector role.
+// Offer only source-local declaration edits; no runtime/global Rename graph.
+fn modern_model(doc:&Document,observations:bool)->Vec<CommandName> {
+    if !matches!(doc.language.as_str(),"java"|"kotlin") || doc.text.len()>64<<10 || !closed_java(&doc.text) {return vec![];}
+    let Some(f)=document_model(doc) else{return vec![];};
+    if f.types.len()!=1 || java::tokens(&doc.text).iter().any(|t|matches!(t.s,"<"|"\\")) {return vec![];}
+    let ty=&f.types[0];
+    if ty.kind!="class" || ty.outer.is_some() || ty.supers().next().is_some() {return vec![];}
+    if ty.annotations.len()!=1 || !ty.annotations.iter().all(|a|
+        (rules::modern_field(&f,&doc.text,a)==Some("command") && a.arg("command").is_none() && a.arg("alias").is_none())
+        || (a.name=="Component" && rules::owned(&f,&doc.text,a,"org.springframework.stereotype.Component"))) {return vec![];}
+    if ty.methods().any(|m| ty.methods().filter(|other|other.name==m.name).count()!=1
+        || m.annotations.iter().any(|a|rules::modern_field(&f,&doc.text,a).is_none()
+            && !(a.name=="CommandAvailability"&&rules::supported(&f,&doc.text,a)))) {return vec![];}
+    for method in ty.methods() {
+        for a in &method.annotations {
+            if let Some(field)=rules::modern_field(&f,&doc.text,a) {
+                if [field,"alias"].iter().any(|field|a.arg(field).is_some() && rules::literals(a,field).is_none()) {return vec![];}
+            }
+        }
+    }
+    let commands=commands(&f,&doc.text);
+    let names:BTreeSet<_>=commands.iter().map(|c|c.key.clone()).collect();
+    if names.len()!=commands.len() {return vec![];}
+    commands.into_iter().filter_map(|command| {
+        let start=offset(&doc.text,command.anchor.start)?;let end=offset(&doc.text,command.anchor.end)?;
+        let physical=doc.text.get(start..end)?;
+        let explicit=start>0 && doc.text.as_bytes().get(start-1)==Some(&b'"')
+            && doc.text.as_bytes().get(end)==Some(&b'"') && physical==command.key;
+        let insertion=if !explicit && command.anchor==command.target {
+            let method=ty.methods().find(|m|range(&doc.text,m.at,m.at+m.name.len())==command.target)?;
+            let annotation=method.annotation("Command")?;
+            let field=rules::modern_field(&f,&doc.text,annotation)?;
+            if annotation.arg(field).is_some() {None} else {key_insertion(doc,annotation,field)}
+        } else {None};
+        if !name(&command.key) || (!observations && !explicit && insertion.is_none()) {return None;}
+        Some(CommandName{class:command.class,name:command.key,definition:command.anchor,insertion,uses:vec![],names:names.clone()})
+    }).collect()
 }
 fn selected(span: Range, selection: Range) -> bool {
     if selection.start == selection.end {
@@ -288,8 +354,9 @@ fn rename_preview(
         })
         .collect::<Vec<_>>()
         .join("\n");
+    let old_label=if command.insertion.is_some(){"Old derived command key"}else{"Old literal"};
     format!(
-        "Local physical-source edit only. Runtime/global registry, other files and host indexed usages/Rename are unresolved.\n\nOld literal: \"{}\"\nNew literal: \"{}\"\nExact spans: {} (UTF-16, 1-based, end-exclusive)\n{}\n\nFile: {}\nVersion: {}\nClass: {}\n\nWildcards and command-side indicator method names remain unchanged.\n\nComplete resulting source:\n{}",
+        "Local physical-source edit only. Runtime/global registry, other files and host indexed usages/Rename are unresolved.\n\n{old_label}: \"{}\"\nNew literal: \"{}\"\nExact spans: {} (UTF-16, 1-based, end-exclusive)\n{}\n\nFile: {}\nVersion: {}\nClass: {}\n\nWildcards and command-side indicator method names remain unchanged.\n\nComplete resulting source:\n{}",
         command.name,
         new,
         edits.len(),
@@ -332,7 +399,7 @@ impl ShellTools {
                 },
             );
             out.push(FileAction {
-                title: "Preview rename local explicit Shell command key…".into(),
+                title: "Preview rename local Shell command key…".into(),
                 kind: Some("refactor.rename".into()),
                 data: Some(token),
                 ..Default::default()
@@ -367,17 +434,15 @@ impl ShellTools {
         if project.read_file(&doc.path)? != doc.text {
             return Err(Error::Stale);
         }
-        let new=host::input("New explicit local Shell command key (lowercase ASCII letters/digits/hyphens, starting with a letter; max64)",Some(&pending.command.name))?.ok_or(Error::Cancelled)?;
+        let new=host::input("New local Shell command key (space-separated lowercase words using letters/digits/hyphens, each starting with a letter; max64)",Some(&pending.command.name))?.ok_or(Error::Cancelled)?;
         if !name(&new) || new == pending.command.name || pending.command.names.contains(&new) {
             return Err(Error::Invalid("Use a different non-colliding lowercase literal command key, at most64 characters.".into()));
         }
-        let mut edits: Vec<_> = std::iter::once(pending.command.definition)
-            .chain(pending.command.uses.iter().copied())
-            .map(|range| TextEdit {
-                range,
-                text: new.clone(),
-            })
-            .collect();
+        let declaration=match &pending.command.insertion {
+            Some((range,before,after))=>TextEdit{range:*range,text:format!("{before}{new}{after}")},
+            None=>TextEdit{range:pending.command.definition,text:new.clone()},
+        };
+        let mut edits:Vec<_>=std::iter::once(declaration).chain(pending.command.uses.iter().map(|range|TextEdit{range:*range,text:new.clone()})).collect();
         edits.sort_by_key(|e| (e.range.start.line, e.range.start.character));
         let mut after = doc.text.clone();
         for e in edits.iter().rev() {
@@ -388,7 +453,7 @@ impl ShellTools {
             );
         }
         let preview = rename_preview(doc, &pending.command, &new, &edits, &after);
-        if !ui_kit::prompts::confirm_exact("Rename explicit local Shell command key?", &preview)? {
+        if !ui_kit::prompts::confirm_exact("Rename local Shell command key?", &preview)? {
             return Err(Error::Cancelled);
         }
         if !fresh(doc) || project.read_file(&doc.path)? != doc.text {
@@ -396,7 +461,7 @@ impl ShellTools {
         }
         self.command_renames.pending.remove(token);
         Ok(FileAction {
-            title: "Rename explicit local Shell command key".into(),
+            title: "Rename local Shell command key".into(),
             kind: Some("refactor.rename".into()),
             edits: vec![(doc.path.clone(), edits)],
             ..Default::default()
@@ -525,12 +590,52 @@ mod tests {
         assert_eq!(h.fetches(), 0);
     }
     #[test]
+    fn camelcase_indicator_methods_do_not_block_command_identity() {
+        let _h = MockHost::install();
+        let text = TEXT.replace("Availability(\"run\") void execute", "Availability(\"isReady\") void execute")
+            .replace("Availability run()", "Availability isReady()");
+        let commands = model(&doc(&text));
+        assert_eq!(commands.len(), 2);
+        let indexed = public_edges(&openidea_plugin::indexing::Document {
+            path: "/project/C.java".into(), text: text.clone(), symbols: vec![],
+        });
+        let indicator = indexed.definitions.iter().find(|a| a.key.contains(":indicator:")).unwrap();
+        assert_eq!(&text[offset(&text, indicator.range.start).unwrap()..offset(&text, indicator.range.end).unwrap()], "isReady");
+        assert_eq!(indexed.references.iter().filter(|a| a.key == indicator.key).count(), 1);
+        assert!(indexed.definitions.iter().any(|a| !a.key.contains(":indicator:") && a.key.ends_with(":run")));
+    }
+    #[test]
+    fn multiword_alias_rename_updates_only_selected_alias_and_its_selectors() {
+        let h = MockHost::install();
+        let text = TEXT.replace("key=\"run\"", "key={\"run task\",\"rt\"}")
+            .replace("Availability({\"run\"})", "Availability({\"run task\",\"rt\"})");
+        h.add_file("C.java", &text);
+        let d = doc(&text);
+        let commands = model(&d);
+        assert_eq!(commands.len(), 3);
+        let command = commands.iter().find(|c| c.name == "run task").unwrap();
+        assert_eq!(command.uses.len(), 1);
+        let mut tools = ShellTools::default();
+        let action = tools.command_rename_actions(&d, command.definition).remove(0);
+        h.answer_next_prompt(Some(&["execute task"]));
+        h.answer_next_prompt(Some(&["yes"]));
+        let resolved = tools.resolve_file_action(&d, action).unwrap();
+        assert_eq!(resolved.edits[0].1.len(), 2);
+        for edit in &resolved.edits[0].1 {
+            assert_eq!(&text[offset(&text, edit.range.start).unwrap()..offset(&text, edit.range.end).unwrap()], "run task");
+            assert_eq!(edit.text, "execute task");
+        }
+        for invalid in [" run", "run ", "run  task", "run\ttask", "run 1task"] {
+            assert!(!name(invalid));
+        }
+        assert!(h.process_runs().is_empty());
+    }
+    #[test]
     fn incomplete_alias_duplicate_foreign_inherited_generic_and_selector_owners_refuse() {
         let _h = MockHost::install();
         for text in [
-            TEXT.replace("key=\"run\"", "key={\"run\",\"alias\"}"),
+            TEXT.replace("key=\"run\"", "key={\"run\",\"run\"}"),
             TEXT.replace("key=\"run\"", "key=PREFIX"),
-            TEXT.replace("key=\"run\",", ""),
             TEXT.replace("key=\"other\"", "key=\"run\""),
             TEXT.replace("Availability({\"run\"})", "Availability(KEY)"),
             TEXT.replace("Availability({\"run\"})", "Availability({\"run\",\"*\"})"),
@@ -571,7 +676,7 @@ mod tests {
             "run",
             "UPPER",
             "-start",
-            "two words",
+            "two  words",
             "quote\"",
             "back\\slash",
             "new\nline",
@@ -707,9 +812,9 @@ mod tests {
 /// scope prevents equal command keys in unrelated ShellComponents from merging.
 pub(super) fn public_edges(doc: &openidea_plugin::indexing::Document) -> openidea_plugin::indexing::Edges {
         use openidea_plugin::indexing::{Anchor, Edges};
-        let source = Document { path: doc.path.clone(), text: doc.text.clone(), language: if doc.path.ends_with(".java") { "java" } else { "unknown" }.into(), version: 0 };
+        let source = Document { path: doc.path.clone(), text: doc.text.clone(), language: if doc.path.ends_with(".java") { "java" } else if doc.path.ends_with(".kt") { "kotlin" } else { "unknown" }.into(), version: 0 };
         let mut edges = Edges::default();
-        let commands = model(&source);
+        let commands = {let legacy=model_source(&source,true);if legacy.is_empty(){modern_model(&source,true)}else{legacy}};
         if commands.is_empty() { return edges; }
         // Indicator method names are a separate role from command keys. Never
         // merge a selector merely because it spells the same word as a method.
@@ -759,14 +864,14 @@ mod public_anchor_tests {
     }
 }
 
-pub(super) fn occurrences(ctx: &Invocation) -> Result<Option<String>,Error> {
-    let editor=ctx.editor().ok_or("Open a supported Java ShellComponent and select a literal command or availability name.")?;
+pub(super) fn occurrences(ctx: &Invocation,at_override:Option<Position>) -> Result<Option<String>,Error> {
+    let editor=ctx.editor().ok_or("Open a supported Java or Kotlin ShellComponent and select a literal command or availability name.")?;
     let snapshot=editor.document()?;let path=editor.path();
-    let at=editor.selections()?.first().map(|r|r.start).ok_or(Error::Stale)?;
+    let at=if let Some(at)=at_override{at}else{editor.selections()?.first().map(|r|r.start).ok_or(Error::Stale)?};
     let project=ctx.project().ok_or(Error::Stale)?;let root=project.root()?;
     if root=="/" || !path.starts_with(&format!("{root}/")) || host::project_of(&path).and_then(|p|p.root().ok()).as_deref()!=Some(root.as_str()) {return Err(Error::Stale);}
     let edges=public_edges(&openidea_plugin::indexing::Document {path:path.clone(),text:snapshot.text.clone(),symbols:vec![]});
-    let selected=edges.definitions.iter().chain(&edges.references).find(|a|a.range.start<=at && at<a.range.end).ok_or("Select a supported literal command or availability name in a closed Java source scope.")?;
+    let selected=edges.definitions.iter().chain(&edges.references).find(|a|a.range.start<=at && at<a.range.end).ok_or("Select a supported literal command or availability name in a closed Java or Kotlin source scope.")?;
     let mut spans:Vec<_>=edges.definitions.iter().chain(&edges.references).filter(|a|a.key==selected.key).map(|a|a.range).collect();
     spans.sort_by_key(|r|(r.start.line,r.start.character));
     let items:Vec<_>=spans.iter().enumerate().map(|(i,r)|openidea_plugin::PickItem::new(&i.to_string(),&format!("Literal occurrence · {}:{}",r.start.line+1,r.start.character+1)).description("Current document only; command selectors and indicator method names have separate identity")).collect();
@@ -792,5 +897,107 @@ mod occurrence_command_tests {
         assert_eq!(h.opened_locations().last(),Some(&(String::from("/project/C.java"),destination.line,destination.character)));
         h.answer_next_prompt(Some(&["999"]));assert!(ShellTools::default().run_command("command-occurrences",&h.invocation(),None).is_err());
         assert_eq!(h.opened_locations().len(),1);assert!(h.requests().is_empty() && h.process_runs().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod kotlin_implicit_tests {
+    use super::*;
+    use openidea_plugin::{file_actions::FileActions, mock::MockHost};
+    #[test]
+    fn kotlin_explicit_aliases_use_reviewed_closed_source_transactions() {
+        let h = MockHost::install();
+        let text = "import org.springframework.shell.standard.ShellComponent\nimport org.springframework.shell.standard.ShellMethod\nimport org.springframework.shell.standard.ShellMethodAvailability\n@ShellComponent class C { @ShellMethod(key=[\"run task\",\"rt\"]) fun runTask() {} @ShellMethodAvailability(\"run task\") fun ready(): Availability { return Availability.available() } }";
+        let d = Document { path: "/project/C.kt".into(), text: text.into(), language: "kotlin".into(), version: 8 };
+        h.add_file("C.kt", text);
+        let commands = model(&d);
+        assert_eq!(commands.len(), 2);
+        let command = commands.iter().find(|c| c.name == "run task").unwrap();
+        assert_eq!(command.uses.len(), 1);
+        let mut tools = ShellTools::default();
+        let action = tools.command_rename_actions(&d, command.definition).remove(0);
+        h.answer_next_prompt(Some(&["execute task"]));
+        h.answer_next_prompt(Some(&["yes"]));
+        let resolved = tools.resolve_file_action(&d, action).unwrap();
+        assert_eq!(resolved.edits[0].1.len(), 2);
+        assert!(resolved.edits[0].1.iter().all(|e| e.text == "execute task"));
+        for replacement in ["import foreign.ShellMethod\n", "import org.springframework.shell.standard.ShellMethod as Other\n"] {
+            let foreign = Document {text: text.replace("import org.springframework.shell.standard.ShellMethod\n", replacement), ..d.clone()};
+            assert!(model(&foreign).is_empty());
+        }
+    }
+    #[test]
+    fn implicit_occurrences_use_method_declaration_without_exposing_method_rename() {
+        let _h = MockHost::install();
+        let text = "import org.springframework.shell.standard.ShellComponent; import org.springframework.shell.standard.ShellMethod; import org.springframework.shell.standard.ShellMethodAvailability; @ShellComponent class C { @ShellMethod(value=\"Run\") void runTask() {} @ShellMethodAvailability(\"run-task\") Availability ready(){return null;} }";
+        let d = Document {path:"/project/C.java".into(),text:text.into(),language:"java".into(),version:1};
+        assert!(model(&d)[0].insertion.is_some());
+        let edges = public_edges(&openidea_plugin::indexing::Document {path:d.path,text:text.into(),symbols:vec![]});
+        assert_eq!(edges.definitions.len(), 1);
+        assert_eq!(edges.references.len(), 1);
+        assert_eq!(edges.definitions[0].key, edges.references[0].key);
+        let span = edges.definitions[0].range;
+        assert_eq!(&text[offset(text,span.start).unwrap()..offset(text,span.end).unwrap()],"runTask");
+    }
+}
+
+#[cfg(test)]
+mod modern_transaction_tests {
+    use super::*;
+    use openidea_plugin::{file_actions::FileActions,mock::MockHost};
+    #[test]
+    fn java_core_and_kotlin_modern_aliases_offer_only_explicit_local_key_edits() {
+        let h=MockHost::install();
+        for (language,path,text) in [
+            ("java","/project/C.java","import org.springframework.stereotype.Component; import org.springframework.shell.core.command.annotation.Command; @Component class C { @Command(name=\"run task\",alias={\"rt\",\"execute task\"}) void runTask(){} @Command void showTasks(){} }"),
+            ("kotlin","/project/C.kt","import org.springframework.shell.command.annotation.Command\n@Command class C { @Command(command=\"run task\",alias=[\"rt\",\"execute task\"]) fun runTask(){} @Command fun showTasks(){} }")
+        ] {
+            h.add_file(path,text);
+            let d=Document{path:path.into(),language:language.into(),text:text.into(),version:1};
+            let models=model(&d);assert_eq!(models.len(),4);
+            let alias=models.iter().find(|m|m.name=="rt").unwrap();
+            let mut nav=ShellTools::default();let action=nav.command_rename_actions(&d,alias.definition).remove(0);
+            h.answer_next_prompt(Some(&["run-now"]));h.answer_next_prompt(Some(&["yes"]));
+            let result=nav.resolve_file_action(&d,action).unwrap();assert_eq!(result.edits[0].1.len(),1);
+            let edit=&result.edits[0].1[0];assert_eq!(&text[offset(text,edit.range.start).unwrap()..offset(text,edit.range.end).unwrap()],"rt");
+            assert_eq!(edit.text,"run-now");
+            let observations=modern_model(&d,true);assert_eq!(observations.len(),4);
+            assert!(models.iter().find(|m|m.name=="show-tasks").unwrap().insertion.is_some());
+        }
+    }
+    #[test]
+    fn modern_prefixes_dynamic_keys_and_duplicate_routes_do_not_offer_partial_transactions() {
+        let base="import org.springframework.shell.command.annotation.Command; @Command class C { @Command(command=\"run\",alias=\"go\") void run(){} }";
+        for text in [base.replace("@Command class", "@Command(command=\"prefix\") class"),base.replace("command=\"run\"","command=PREFIX"),base.replace("alias=\"go\"","alias=\"run\""),base.replace("import org.springframework.shell.command.annotation.Command;","import foreign.Command;")] {
+            let d=Document{path:"/project/C.java".into(),language:"java".into(),text,version:1};
+            assert!(model(&d).is_empty());
+        }
+    }
+}
+
+#[cfg(test)]
+mod implicit_transaction_tests {
+    use super::*;
+    use openidea_plugin::{file_actions::FileActions,mock::MockHost};
+    #[test]
+    fn implicit_command_rename_materializes_a_key_and_preserves_method_and_description() {
+        let h=MockHost::install();
+        for (language,path,text) in [
+            ("java","/project/C.java","import org.springframework.shell.standard.ShellComponent; import org.springframework.shell.standard.ShellMethod; import org.springframework.shell.standard.ShellMethodAvailability; @ShellComponent class C { @ShellMethod(\"Run task\") void runTask(){} @ShellMethodAvailability(\"run-task\") Availability ready(){return null;} }"),
+            ("java","/project/C.java","import org.springframework.stereotype.Component; import org.springframework.shell.core.command.annotation.Command; @Component class C { @Command void runTask(){} }"),
+            ("kotlin","/project/C.kt","import org.springframework.shell.standard.ShellComponent\nimport org.springframework.shell.standard.ShellMethod\n@ShellComponent class C { @ShellMethod(value=\"Run task\") fun runTask(){} }")
+        ] {
+            h.add_file(path,text);
+            let d=Document{path:path.into(),language:language.into(),text:text.into(),version:1};
+            let old=model(&d).into_iter().find(|m|m.name=="run-task").unwrap();assert!(old.insertion.is_some());
+            let mut nav=ShellTools::default();let action=nav.command_rename_actions(&d,old.definition).remove(0);
+            h.answer_next_prompt(Some(&["execute task"]));h.answer_next_prompt(Some(&["yes"]));
+            let resolved=nav.resolve_file_action(&d,action).unwrap();
+            let mut after=text.to_owned();for edit in resolved.edits[0].1.iter().rev(){after.replace_range(offset(text,edit.range.start).unwrap()..offset(text,edit.range.end).unwrap(),&edit.text);}
+            assert!(after.contains("runTask()"));
+            assert!(!after.contains("run-task"));
+            if text.contains("Run task") {assert!(after.contains("value=\"Run task\""));}
+            let fresh=Document{text:after,..d};let new=model(&fresh).into_iter().find(|m|m.name=="execute task").unwrap();assert!(new.insertion.is_none());
+        }
     }
 }

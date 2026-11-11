@@ -29,6 +29,12 @@ impl Providers for Blade {
                     stack.clear();
                     continue;
                 }
+                if opener.range.start <= offset && offset < opener.range.start + 1 + opener.name.len() {
+                    return vec![Location {
+                        path: doc.path.clone(),
+                        range: Range::new(text::position(&doc.text,directive.range.start),text::position(&doc.text,directive.range.start+1+directive.name.len())),
+                    }];
+                }
                 if directive.range.start <= offset && offset < directive.range.start + 1 + directive.name.len() {
                     return vec![Location {
                         path: doc.path.clone(),
@@ -53,6 +59,16 @@ mod tests {
     }
     fn target(text: &str, needle: &str) -> Vec<Location> {
         Blade.definition(&doc(text), text::position(text, text.rfind(needle).unwrap() + 2))
+    }
+    #[test]
+    fn opener_navigation_finds_its_exact_matching_closer_in_unsaved_text() {
+        let host=MockHost::install().with_capabilities(&[]);
+        let source="😀 @if($outer) @foreach($items as $item) @endforeach @endif";
+        let found=Blade.definition(&doc(source),text::position(source,source.find("@if").unwrap()+2));
+        assert_eq!(found.len(),1);assert_eq!(text::offset(source,found[0].range.start).unwrap(),source.find("@endif").unwrap());
+        assert_eq!(&source[text::offset(source,found[0].range.start).unwrap()..text::offset(source,found[0].range.end).unwrap()],"@endif");
+        assert!(Blade.definition(&doc("@if($x)"),Position::new(0,2)).is_empty());
+        assert!(host.process_runs().is_empty());
     }
     #[test]
     fn php_argument_comment_cannot_steal_closing_directive_owner() {

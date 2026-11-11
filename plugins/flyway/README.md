@@ -169,7 +169,11 @@ is the supported parser shape.
 
 - In SQL files, after `${`: Flyway's built-in placeholders
   (`flyway:defaultSchema`, `flyway:user`, `flyway:timestamp`…) and the
-  `flyway.placeholders.*` names from the project's config.
+  `flyway.placeholders.*` names from the project's config. The scanned config
+  now supplies literal `placeholderPrefix`/`placeholderSuffix` delimiters,
+  including multi-character and comma delimiters. `placeholderReplacement=false`
+  disables placeholder suggestions; a config save refreshes the owning project.
+  This is editor assistance, not proof of effective CLI configuration.
 - In `flyway.conf` (and `flyway-*.conf`): `flyway.*` keys, written as
   `key=`.
 - In `flyway.toml`: keys under `[flyway]`, and the connection keys under
@@ -429,3 +433,53 @@ Selecting a source-linked migration enables Open and seeds New's directory from
 that migration's configured location. The generation form shows a target filename
 and readable SQL preview; empty templates are explicitly identified as empty.
 Stale or foreign selections cannot open or seed another source.
+
+## Source table navigation
+
+Go to Definition on unquoted table names in admitted migration SQL now links
+`FROM`, `JOIN`, `UPDATE`, `INSERT INTO`, `ALTER/DROP/TRUNCATE TABLE` and
+`REFERENCES` uses to cached `CREATE TABLE` declarations in the configured
+migration files. Schema-qualified names match exactly; an unqualified name is
+not guessed to belong to another schema. Declarations themselves do not link.
+Comments and string literals are excluded. Quoted identifiers, dollar-quoted
+SQL and malformed/oversized sources are withheld rather than assigned guessed
+identity. Navigation is project-scoped, bounded and refreshed on migration/config
+open/save; external file notifications withdraw affected caches. It is neither
+runtime table introspection nor a Rename graph or entity-class mapping.
+
+## Parameterized source generators
+
+Editor FileActions now offer Java/Kotlin migrations and Java/SQL callbacks in
+addition to SQL migrations. Migration actions prompt for version, description,
+source directory and package; callback actions prompt for supported event(s),
+class/description and, for Java, transaction handling. The final preview returns
+one non-overwriting undoable Create. No files or processes are created during
+resolution. Numeric versions are compared across SQL/Java/Kotlin sources in the
+same known module; incomplete source discovery refuses creation. Java/Kotlin
+packages and class names must be literal non-keyword identifiers. These actions
+create source skeletons; callback scanning locations, classpath, dependencies and
+runtime edition/version support still need project configuration.
+
+For literal Java `@Entity` plus `@Table(name=..., schema=...)` mappings whose
+annotations resolve to explicit Jakarta/javax persistence imports, SQL table
+navigation additionally offers the entity class. Qualified persistence wildcard
+imports are admitted only without competing wildcard imports/local annotation
+owners. Association stays inside the known source module. Implicit physical
+naming strategies, constants, Kotlin metadata, XML mappings and classpath models
+are not guessed, and this navigation never supplies Rename identity.
+
+## Optional compiled Hibernate model adapter
+
+**Generate Reviewed Offline Hibernate Schema SQL…** captures creation DDL from
+explicitly selected compiled annotated classes using checksum-pinned
+Hibernate6.6.49 or Hibernate7.4.15 runtimes and an explicit dialect choice. Each
+version offers16 qualified presets, including PostgreSQL, MySQL and MariaDB; the
+latest profile also accepts Jakarta Persistence3.2 annotations. An exact classpath/source inspection precedes the
+trusted-code approval: metadata can instantiate project converters/custom types
+or contributors with arbitrary side effects. No application bootstrap or JDBC
+operation is requested by the adapter. The result stays a dated, instance-owned
+preview until **Save Hibernate schema SQL as migration…** returns one exact
+non-overwriting undoable Create. Source/compiled inputs are checked again before
+saving. The preview records the actual dialect and its stock default database version.
+Live DB diff and automatic effective application models require separate support. See [setup, contract and explicit runtime
+fixture](adapters/README.md).

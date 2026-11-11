@@ -84,23 +84,24 @@ fn confirm(doc: &Document, root: &str, before: &[(String, String)], title: &str,
 }
 
 fn locale_target(doc: &Document, locale: &str) -> Result<String, Error> {
-    let parts: Vec<_> = locale.split('_').collect();
-    let valid = match parts.as_slice() {
-        [language] => language.len() == 2 && language.bytes().all(|b| b.is_ascii_lowercase()),
-        [language, country] => {
-            language.len() == 2
-                && language.bytes().all(|b| b.is_ascii_lowercase())
-                && ((country.len() == 2 && country.bytes().all(|b| b.is_ascii_uppercase()))
-                    || (country.len() == 3 && country.bytes().all(|b| b.is_ascii_digit())))
-        }
-        _ => false,
-    };
+    let valid = props::valid_locale(locale);
     let base = split_locale(stem(&doc.path)).0;
     let new_stem = format!("{base}_{locale}");
     if !valid || split_locale(&new_stem) != (base, locale) {
-        return Err("Use a known two-letter language, optionally _COUNTRY or _123 (for example fr or fr_CA).".into());
+        return Err("Use an ISO 639 language, optional _Script and _REGION, then optional variants (eng, zh_Hans_CN, en_US_POSIX).".into());
     }
     Ok(format!("{}/{}.properties", dir(&doc.path), new_stem))
+}
+
+fn ascii_properties(source: &str) -> String {
+    let mut result = String::new();
+    for ch in source.chars() {
+        if ch.is_ascii() { result.push(ch); }
+        else {
+            for unit in ch.encode_utf16(&mut [0u16; 2]) { result.push_str(&format!("\\u{unit:04X}")); }
+        }
+    }
+    result
 }
 
 fn vacant(project: &Project, target: &str) -> Result<(), Error> {
@@ -139,6 +140,7 @@ impl FileActions for Properties {
             let key = prop.exact_key(&doc.text).unwrap();
             if !key.is_empty() && key.len() <= 512 && !key.chars().any(char::is_control) {
                 if scoped_rename::offered(doc) {
+                    actions.push(FileAction {title: "Change key with compiler-proved Java contracts…".into(), kind: Some("refactor.rename".into()), data: Some(serde_json::json!([root, doc.path, doc.version, format!("rename-compiler\n{key}")]).to_string()), ..FileAction::default() });
                     actions.push(FileAction {
                         title: "Change bundle key and local JDK literals…".into(),
                         kind: Some("refactor.rename".into()),
@@ -161,11 +163,30 @@ impl FileActions for Properties {
             });
         }
         actions.push(FileAction {
-            title: "Create locale file…".into(),
+            title: "Create locale files…".into(),
             kind: Some("refactor.rewrite".into()),
             data: Some(serde_json::json!([root, doc.path, doc.version, "create-locale"]).to_string()),
             ..FileAction::default()
         });
+        for (title, operation, offered) in [
+            ("Convert property keys and values to Unicode escapes…", "unicode-escape", !doc.text.is_ascii()),
+            ("Convert Unicode escapes to native property text…", "unicode-unescape", doc.text.contains("\\u")),
+        ] {
+            if offered {
+                actions.push(FileAction { title: title.into(), kind: Some("refactor.rewrite".into()),
+                    data: Some(serde_json::json!([root, doc.path, doc.version, operation]).to_string()), ..FileAction::default() });
+            }
+        }
+        if !split_locale(stem(&doc.path)).1.is_empty() {
+            for (title, operation) in [("Rename this locale file…", "rename-locale"), ("Remove this locale file…", "remove-locale")] {
+                actions.push(FileAction {
+                    title: title.into(), kind: Some("refactor.rewrite".into()),
+                    data: Some(serde_json::json!([root, doc.path, doc.version, operation]).to_string()),
+                    ..FileAction::default()
+                });
+            }
+        }
+        if let Some(action) = self.draft_action(doc) { actions.push(action); }
         actions
     }
 
@@ -182,31 +203,95 @@ impl FileActions for Properties {
             return Err(Error::Stale);
         }
         let operation = parts[3].as_str().ok_or("Invalid operation.")?;
-        if operation == "create-locale" {
-            let locale = host::input("Locale (fr or fr_CA; creates an empty ASCII-content file)", None)?.ok_or(Error::Cancelled)?;
-            let target = locale_target(doc, locale.trim())?;
+        if let Some(serial) = operation.strip_prefix("apply-grid\n").and_then(|s|s.parse::<u64>().ok()) {
+            return self.bundle_draft.as_ref().ok_or(Error::Stale)?.resolve(doc,serial);
+        }
+        if operation == "unicode-escape" || operation == "unicode-unescape" {
+            let mut changes = Vec::new();
+            for property in parse(&doc.text) {
+                for (span, key) in [(property.key, true), (property.value, false)] {
+                    let raw = &doc.text[span.clone()];
+                    let replacement = if operation == "unicode-escape" {
+                        ascii_properties(raw)
+                    } else {
+                        let decoded = props::unescape_exact(raw).ok_or("A property contains invalid Unicode; no conversion was prepared.")?;
+                        if key { props::escape_key(&decoded) } else { props::escape_value(&decoded) }
+                    };
+                    // Verify logical data, including surrogate pairs, before editing source spellings.
+                    if props::unescape_exact(raw).is_none() || props::unescape_exact(raw) != props::unescape_exact(&replacement) {
+                        return Err("Conversion would change a property key or value; no conversion was prepared.".into());
+                    }
+                    if replacement != raw { changes.push((span, replacement)); }
+                }
+            }
+            if changes.is_empty() { return Err("No property keys or values need conversion.".into()); }
+            let edits = vec![(doc.path.clone(), to_edits(&doc.text, changes))];
+            confirm(doc, root, &before, &action.title, &edits)?;
+            return Ok(FileAction { title: action.title, kind: action.kind, edits, ..FileAction::default() });
+        }
+        if operation == "rename-locale" || operation == "remove-locale" {
+            if split_locale(stem(&doc.path)).1.is_empty() {
+                return Err("Choose a localized bundle file; the default bundle cannot be removed or renamed by this action.".into());
+            }
             let project = host::project_of(&doc.path).ok_or(Error::Stale)?;
-            vacant(&project, &target)?;
-            let text = format!("# Locale: {}\n", locale.trim());
+            let target = if operation == "rename-locale" {
+                let locale = host::input("New locale (eng, zh_Hans_CN or en_US_POSIX)", Some(split_locale(stem(&doc.path)).1))?.ok_or(Error::Cancelled)?;
+                let target = locale_target(doc, locale.trim())?;
+                if target == doc.path { return Err("Choose a different locale.".into()); }
+                vacant(&project, &target)?;
+                Some(target)
+            } else { None };
+            let preview = format!("{} {}{}\n\nCurrent file content:\n{}\n\nOnly this locale file changes; bundle keys and code references do not change.",
+                if target.is_some() { "Rename" } else { "Remove" }, serde_json::to_string(&doc.path).unwrap_or_default(),
+                target.as_ref().map(|p| format!(" → {}", serde_json::to_string(p).unwrap_or_default())).unwrap_or_default(),
+                ui_kit::prompts::readable_source(&doc.text));
+            if preview.len() > ui_kit::prompts::MAX_CONFIRM_BYTES { return Err("The file review exceeds 16 KiB; no locale operation is prepared.".into()); }
+            if !ui_kit::prompts::confirm_exact(&action.title, &preview)? { return Err(Error::Cancelled); }
+            unchanged(doc, root, &before)?;
+            let (operations, open) = if let Some(target) = target {
+                vacant(&project, &target)?;
+                (vec![FileOperation::Rename { from: doc.path.clone(), to: target.clone() }], Some(target))
+            } else { (vec![FileOperation::Delete { path: doc.path.clone() }], None) };
+            return Ok(FileAction { title: action.title, operations, open, ..FileAction::default() });
+        }
+        if operation == "create-locale" {
+            let input = host::input("Locales (comma-separated: eng, zh_Hans_CN, en_US_POSIX; empty ASCII-content files)", None)?.ok_or(Error::Cancelled)?;
+            let locales: Vec<_> = input.split(',').map(str::trim).collect();
+            if locales.is_empty() || locales.len() > 32 {
+                return Err("Choose between 1 and 32 locales.".into());
+            }
+            let project = host::project_of(&doc.path).ok_or(Error::Stale)?;
+            let mut planned = Vec::new();
+            for locale in locales {
+                let target = locale_target(doc, locale)?;
+                if planned.iter().any(|(path, _)| path == &target) {
+                    return Err("Each locale must occur only once; no files were created.".into());
+                }
+                vacant(&project, &target)?;
+                planned.push((target, format!("# Locale: {locale}\n")));
+            }
+            let preview = planned.iter().map(|(path, text)| format!("{}\n{text}", serde_json::to_string(path).unwrap_or_default())).collect::<Vec<_>>().join("\n");
+            if preview.len() > 16 * 1024 {
+                return Err("The locale preview exceeds 16 KiB; create fewer locales at once.".into());
+            }
             if !ui_kit::prompts::confirm_exact(
-                "Create locale file?",
-                &format!(
-                    "{}\n\n{text}\nNo translations are copied. The host applies its new-file encoding defaults; content is ASCII.",
-                    serde_json::to_string(&target).unwrap_or_default()
-                ),
+                "Create locale files?",
+                &format!("{preview}\nNo translations are copied. The host applies its new-file encoding defaults; content is ASCII."),
             )? {
                 return Err(Error::Cancelled);
             }
             unchanged(doc, root, &before)?;
-            vacant(&project, &target)?;
+            for (target, _) in &planned { vacant(&project, target)?; }
+            let open = planned.first().map(|(path, _)| path.clone());
             return Ok(FileAction {
                 title: action.title,
-                operations: vec![FileOperation::Create { path: target.clone(), text, overwrite: false }],
-                open: Some(target),
+                operations: planned.into_iter().map(|(path, text)| FileOperation::Create { path, text, overwrite: false }).collect(),
+                open,
                 ..FileAction::default()
             });
         }
         let operation: Vec<_> = operation.splitn(3, '\n').collect();
+        if let ["rename-compiler",key] = operation.as_slice() { return compiler_graph::resolve(doc, action, root, before, key); }
         if let ["rename-local",key] = operation.as_slice() {
             return scoped_rename::resolve(doc,action,root,before,key);
         }
@@ -487,7 +572,7 @@ mod tests {
     #[test]
     fn locale_creation_is_ascii_utf8_nonoverwriting_and_name_validated() {
         let (host, mut plugin, doc) = setup();
-        for bad in ["../fr", "fr/CA", "xx", "fr_ca", "eng", "fr_CA_extra", "fr\nCA", ""] {
+        for bad in ["../fr", "fr/CA", "xx", "fr_ca", "qqq", "fr_CA_", "fr\nCA", ""] {
             assert!(locale_target(&doc, bad).is_err(), "{bad:?}");
         }
         assert!(locale_target(&doc, "es_419").unwrap().ends_with("messages_es_419.properties"));
@@ -503,6 +588,137 @@ mod tests {
         assert!(!host.invocation().project().unwrap().exists(path).unwrap());
         host.open_editor(path, "properties", "unsaved", &[]);
         assert!(vacant(&host.invocation().project().unwrap(), path).is_err());
+    }
+    #[test]
+    fn extended_locales_participate_in_complete_atomic_bundle_inventory() {
+        let (host, _, doc) = setup();
+        for locale in ["eng", "zh_Hans_CN", "en__POSIX", "eng_Latn_US_WINDOWS"] {
+            host.add_file(&format!("/project/messages_{locale}.properties"), "hello=translation\n");
+        }
+        host.add_file("/project/messages_qqq.properties", "not=this bundle\n");
+        let (_, files) = snapshot(&doc).unwrap();
+        assert_eq!(files.len(), 6);
+        for locale in ["eng", "zh_Hans_CN", "en__POSIX", "eng_Latn_US_WINDOWS"] {
+            assert!(files.iter().any(|(path,_)| path == &format!("/project/messages_{locale}.properties")));
+        }
+        assert!(!files.iter().any(|(path,_)| path.ends_with("_qqq.properties")));
+    }
+    #[test]
+    fn locale_creation_supports_three_letter_languages_scripts_and_variants() {
+        let (host, mut plugin, doc) = setup();
+        let a = action(&mut plugin, &doc, "Create locale");
+        host.answer_next_prompt(Some(&["eng, zh_Hans_CN, en__POSIX"]));
+        host.answer_next_prompt(Some(&[]));
+        let resolved = plugin.resolve_file_action(&doc, a).unwrap();
+        assert_eq!(resolved.operations.len(), 3);
+        for (operation, locale) in resolved.operations.iter().zip(["eng", "zh_Hans_CN", "en__POSIX"]) {
+            let FileOperation::Create { path, .. } = operation else { panic!() };
+            assert_eq!(split_locale(stem(path)), ("messages", locale));
+        }
+    }
+    #[test]
+    fn multiple_locale_creation_is_one_nonoverwriting_transaction() {
+        let (host, mut plugin, doc) = setup();
+        let a = action(&mut plugin, &doc, "Create locale");
+        host.answer_next_prompt(Some(&["de, fr_CA, es_419"]));
+        host.answer_next_prompt(Some(&[]));
+        let resolved = plugin.resolve_file_action(&doc, a).unwrap();
+        assert_eq!(resolved.operations.len(), 3);
+        for (operation, locale) in resolved.operations.iter().zip(["de", "fr_CA", "es_419"]) {
+            let FileOperation::Create { path, text, overwrite } = operation else { panic!() };
+            assert_eq!(path, &format!("/project/messages_{locale}.properties"));
+            assert_eq!(text, &format!("# Locale: {locale}\n"));
+            assert!(!overwrite);
+        }
+        assert_eq!(resolved.open.as_deref(), Some("/project/messages_de.properties"));
+        assert!(host.process_runs().is_empty());
+    }
+    #[test]
+    fn multiple_locales_reject_duplicates_invalid_and_existing_before_confirmation() {
+        for input in ["de,de", "de,", "de,../it", "de,fr", "de,fr_ca"] {
+            let (host, mut plugin, doc) = setup();
+            let a = action(&mut plugin, &doc, "Create locale");
+            host.answer_next_prompt(Some(&[input]));
+            assert!(plugin.resolve_file_action(&doc, a).is_err(), "{input}");
+            assert!(!host.invocation().project().unwrap().exists("/project/messages_de.properties").unwrap());
+        }
+    }
+    #[test]
+    fn multiple_locale_creation_cancellation_and_count_limit_never_write() {
+        let (host, mut plugin, doc) = setup();
+        let a = action(&mut plugin, &doc, "Create locale");
+        host.answer_next_prompt(Some(&["de,es_419"]));
+        host.answer_next_prompt(None);
+        assert!(matches!(plugin.resolve_file_action(&doc, a), Err(Error::Cancelled)));
+        assert!(!host.invocation().project().unwrap().exists("/project/messages_de.properties").unwrap());
+        let a = action(&mut plugin, &doc, "Create locale");
+        let input = vec!["de"; 33].join(",");
+        host.answer_next_prompt(Some(&[&input]));
+        assert!(plugin.resolve_file_action(&doc, a).is_err());
+        let a = action(&mut plugin, &doc, "Create locale");
+        host.open_editor("/project/messages_es_419.properties", "properties", "unsaved", &[]);
+        host.answer_next_prompt(Some(&["de,es_419"]));
+        assert!(plugin.resolve_file_action(&doc, a).is_err());
+        assert!(!host.invocation().project().unwrap().exists("/project/messages_de.properties").unwrap());
+    }
+    #[test]
+    fn localized_file_rename_and_remove_review_the_exact_file_only() {
+        for rename in [true, false] {
+            let (host, mut plugin, mut doc) = setup();
+            doc.path = "/project/messages_fr.properties".into();
+            doc.text = "hello=Bonjour\nkeep=original\n".into();
+            let a = action(&mut plugin, &doc, if rename { "Rename this locale" } else { "Remove this locale" });
+            if rename { host.answer_next_prompt(Some(&["fr_CA"])); }
+            host.answer_next_prompt(Some(&[]));
+            let resolved = plugin.resolve_file_action(&doc, a).unwrap();
+            assert_eq!(resolved.operations.len(), 1);
+            if rename {
+                assert!(matches!(&resolved.operations[0], FileOperation::Rename { from, to } if from == &doc.path && to == "/project/messages_fr_CA.properties"));
+            } else {
+                assert!(matches!(&resolved.operations[0], FileOperation::Delete { path } if path == &doc.path));
+            }
+            assert!(host.process_runs().is_empty());
+        }
+    }
+    #[test]
+    fn locale_management_rejects_defaults_collisions_and_cancellation() {
+        let (host, mut plugin, mut doc) = setup();
+        let actions = plugin.file_actions(&doc, Range::default());
+        assert!(!actions.iter().any(|a| a.title.starts_with("Remove this locale")));
+        doc.path = "/project/messages_fr.properties".into();
+        doc.text = "hello=Bonjour\nkeep=original\n".into();
+        let a = action(&mut plugin, &doc, "Rename this locale");
+        host.answer_next_prompt(Some(&["fr"]));
+        assert!(plugin.resolve_file_action(&doc, a).is_err());
+        let a = action(&mut plugin, &doc, "Remove this locale");
+        host.answer_next_prompt(None);
+        assert!(matches!(plugin.resolve_file_action(&doc, a), Err(Error::Cancelled)));
+        assert!(host.invocation().project().unwrap().exists(&doc.path).unwrap());
+    }
+    #[test]
+    fn unicode_conversion_preserves_logical_keys_values_and_structural_escapes() {
+        for escape in [true, false] {
+            let (host, mut plugin, mut doc) = setup();
+            doc.text = if escape { "# untouched é\nclé\\=😀= café\\nline\n" } else { r"# untouched \u00E9
+cl\u00E9\u003D\uD83D\uDE00= caf\u00E9\nline
+" }.into();
+            host.add_file(&doc.path, &doc.text);
+            let a = action(&mut plugin, &doc, if escape { "Convert property keys" } else { "Convert Unicode escapes" });
+            host.answer_next_prompt(Some(&[]));
+            let resolved = plugin.resolve_file_action(&doc, a).unwrap();
+            assert_eq!(resolved.edits.len(), 1);
+            let mut after = doc.text.clone();
+            let mut edits = resolved.edits[0].1.clone();
+            edits.sort_by_key(|e| std::cmp::Reverse(offset(&doc.text, e.range.start).unwrap()));
+            for edit in edits { after.replace_range(offset(&doc.text, edit.range.start).unwrap()..offset(&doc.text, edit.range.end).unwrap(), &edit.text); }
+            let before_props = parse(&doc.text); let after_props = parse(&after);
+            assert_eq!(before_props.len(), after_props.len());
+            for (before, after_prop) in before_props.iter().zip(&after_props) {
+                assert_eq!(before.exact_key(&doc.text), after_prop.exact_key(&after));
+                assert_eq!(props::unescape_exact(&doc.text[before.value.clone()]), props::unescape_exact(&after[after_prop.value.clone()]));
+            }
+            assert_eq!(doc.text.lines().next(), after.lines().next(), "comments stay untouched");
+        }
     }
     #[test]
     fn locale_creation_cancels_and_refuses_existing_locale() {

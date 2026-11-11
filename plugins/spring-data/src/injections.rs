@@ -1,84 +1,96 @@
-//! Only native SQL with a direct physical Java string. JPQL stays plugin-owned.
+//! Physical source JPA query literals. JPQL syntax is supplied by JPA Assist.
 use openidea_plugin::{
     Range,
     injections::{Document, Injection, Injections},
     text::position,
 };
 use spring_text::java;
-
 impl Injections for crate::DataTools {
     fn injections(&mut self, doc: &Document) -> Vec<Injection> {
-        if doc.language != "java" || !doc.path.ends_with(".java") || doc.text.len() > 128 << 10 {
+        let kotlin = doc.language == "kotlin";
+        if !matches!(doc.language.as_str(), "java" | "kotlin")
+            || (kotlin && !doc.path.ends_with(".kt"))
+            || (!kotlin && !doc.path.ends_with(".java"))
+            || doc.text.len() > 128 << 10
+        {
             return vec![];
         }
-        // This existing source model removes ambiguous annotation/repository owners.
         let file = crate::live::repository_file(doc);
-        let mut out = vec![];
+        let mut out = Vec::new();
         for ty in &file.types {
             for method in ty.methods() {
                 for annotation in &method.annotations {
-                    if annotation.name != "Query"
-                        || annotation
-                            .args
-                            .iter()
-                            .filter(|a| a.name == "nativeQuery")
-                            .count()
-                            != 1
-                        || !annotation
-                            .arg("nativeQuery")
-                            .is_some_and(|a| a.text.trim() == "true")
-                    {
+                    if !matches!(annotation.name.as_str(), "Query" | "NativeQuery") {
                         continue;
                     }
-                    // NativeQuery is JPA-specific. A foreign Query must not borrow its flag.
+                    let expected = format!(
+                        "org.springframework.data.jpa.repository.{}",
+                        annotation.name
+                    );
                     let written: String = java::tokens(
                         &doc.text[annotation.at + 1..annotation.name_at + annotation.name.len()],
                     )
                     .iter()
-                    .map(|t| t.s)
+                    .map(|token| token.s)
                     .collect();
-                    if written != "org.springframework.data.jpa.repository.Query"
-                        && !(written == "Query"
-                            && file.imports.iter().any(|i| {
-                                !i.is_static
-                                    && i.path == "org.springframework.data.jpa.repository.Query"
-                            }))
+                    if written != expected
+                        && !(written == annotation.name
+                            && file
+                                .imports
+                                .iter()
+                                .any(|i| !i.is_static && i.path == expected))
                     {
                         continue;
                     }
-                    if annotation.args.iter().filter(|a| a.name == "value").count() != 1 {
-                        continue;
-                    }
-                    let Some(arg) = annotation.arg("value") else {
-                        continue;
+                    let flags: Vec<_> = annotation
+                        .args
+                        .iter()
+                        .filter(|a| a.name == "nativeQuery")
+                        .collect();
+                    let native = match flags.as_slice() {
+                        [] => annotation.name == "NativeQuery",
+                        [flag] if annotation.name == "Query" => match flag.text.trim() {
+                            "true" => true,
+                            "false" => false,
+                            _ => continue,
+                        },
+                        _ => continue,
                     };
-                    let [literal] = arg.strings.as_slice() else {
-                        continue;
-                    };
-                    let Some(body) = doc.text.get(literal.at..literal.end) else {
-                        continue;
-                    };
-                    let Some(raw) = doc.text.get(arg.at..arg.end) else {
-                        continue;
-                    };
-                    if body.is_empty()
-                        || body != literal.value
-                        || body.contains(['\\', '\r', '\n'])
-                        || body.contains("#{")
-                        || body.contains("${")
-                        || raw.trim() != format!("\"{body}\"")
-                    {
-                        continue;
-                    }
-                    out.push(Injection {
-                        range: Range::new(
-                            position(&doc.text, literal.at),
-                            position(&doc.text, literal.end),
-                        ),
-                        language: "sql".into(),
-                    });
-                    if out.len() >= 128 {
-                        return out;
+                    for key in ["value", "countQuery"] {
+                        let arguments: Vec<_> =
+                            annotation.args.iter().filter(|a| a.name == key).collect();
+                        let [argument] = arguments.as_slice() else {
+                            continue;
+                        };
+                        let [literal] = argument.strings.as_slice() else {
+                            continue;
+                        };
+                        let Some(body) = doc.text.get(literal.at..literal.end) else {
+                            continue;
+                        };
+                        let Some(raw) = doc.text.get(argument.at..argument.end) else {
+                            continue;
+                        };
+                        if body.is_empty()
+                            || body != literal.value
+                            || body.contains(['\\', '\r', '\n'])
+                            || body.contains("#{")
+                            || body.contains("${")
+                            || kotlin && body.contains('$')
+                            || raw.trim() != format!("\"{body}\"")
+                        {
+                            continue;
+                        }
+                        out.push(Injection {
+                            range: Range::new(
+                                position(&doc.text, literal.at),
+                                position(&doc.text, literal.end),
+                            ),
+                            language: if native { "sql" } else { "jpql" }.into(),
+                        });
+                        if out.len() >= 128 {
+                            return out;
+                        }
                     }
                 }
             }
@@ -111,10 +123,49 @@ mod tests {
         assert_eq!(ranges[0].language, "sql");
     }
     #[test]
-    fn jpql_transformed_and_foreign_strings_stay_quiet() {
-        for arg in [
+    fn jpql_queries_count_queries_and_nativequery_keep_distinct_languages() {
+        for input in [
             "\"select u from User u\"",
-            "value=\"select u\",nativeQuery=false",
+            "value=\"select u from User u\",nativeQuery=false",
+        ] {
+            let ranges = crate::DataTools::default().injections(&doc(input));
+            assert_eq!(ranges.len(), 1);
+            assert_eq!(ranges[0].language, "jpql");
+        }
+        let ranges = crate::DataTools::default().injections(&doc(
+            "value=\"select u from User u\",countQuery=\"select count(u) from User u\"",
+        ));
+        assert_eq!(ranges.len(), 2);
+        assert!(ranges.iter().all(|r| r.language == "jpql"));
+        let mut source = doc("\"select * from users\"");
+        source.text = source
+            .text
+            .replace(
+                "org.springframework.data.jpa.repository.Query",
+                "org.springframework.data.jpa.repository.NativeQuery",
+            )
+            .replace("@Query", "@NativeQuery");
+        let ranges = crate::DataTools::default().injections(&source);
+        assert_eq!(ranges.len(), 1);
+        assert_eq!(ranges[0].language, "sql");
+    }
+    #[test]
+    fn kotlin_jpa_query_literal_is_contiguous_and_interpolated_query_is_withheld() {
+        let mut d = doc("\"select u from User u\"");
+        d.language = "kotlin".into();
+        d.path = "/p/Repo.kt".into();
+        d.text="import org.springframework.data.jpa.repository.JpaRepository\nimport org.springframework.data.jpa.repository.Query\ninterface Repo : JpaRepository<User,Long> { @Query(\"select u from User u\") fun one(): User }".into();
+        let ranges = crate::DataTools::default().injections(&d);
+        assert_eq!(ranges.len(), 1);
+        assert_eq!(ranges[0].language, "jpql");
+        d.text = d
+            .text
+            .replace("select u from User u", "select u from $entity u");
+        assert!(crate::DataTools::default().injections(&d).is_empty());
+    }
+    #[test]
+    fn transformed_and_foreign_strings_stay_quiet() {
+        for arg in [
             "value=\"select \\u0061\",nativeQuery=true",
             "value=\"select \"+\"a\",nativeQuery=true",
             "value=\"select :#{#x}\",nativeQuery=true",

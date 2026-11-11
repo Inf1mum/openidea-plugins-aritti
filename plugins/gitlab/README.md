@@ -514,3 +514,60 @@ or alternate-server authority is introduced.
 Requests, Details and Projects share one UI-kit tabbed GitLab window. Logical view IDs and project ownership guards remain unchanged; revealing a specific view selects its custom tab.
 
 GitLab now uses one UI-kit window with GitLab, Details and Projects tabs. Logical view IDs and command workflows remain unchanged; navigation and scoped snapshot editor replies route through that one container.
+
+## Follow a job log with GitLab CLI
+
+Select a listed pipeline job, then **Follow Job Log (glab)**. This optional
+adapter requires an approved `glab` 1.x executable (`process:glab`) authenticated
+separately from the plugin token. It verifies current MR/pipeline/job membership,
+checks the CLI version and confirms the exact repository/job before opening a
+native managed log tab running `glab ci trace <job-id> --repo <repository-url>`.
+The tab owns output, restart and cancellation; process errors stay visible there.
+The CLI uses its own credentials/configuration, including host overrides; the
+plugin does not export its token. The existing bounded Job Trace Snapshot remains
+available without glab. Native log tabs do not currently run in remote projects.
+
+**GitLab: Re-request Review…** (also in the open MR details toolbar) selects an
+assigned reviewer, confirms the request, rechecks current repository/MR/head and
+reviewer membership, then uses GitLab's documented re-review mutation. Cancellation
+sends no mutation. Unsupported/rejected server responses are reported rather than
+claimed as successful requests.
+
+## Two account slots
+
+The **GitLab.com account slot** setting selects the existing primary token or the
+optional secondary token. Each is a declared IDE secret; the plugin receives only
+secret placeholders. Switching slots expires account identity, project lists,
+selected-MR ownership and snapshot caches, so an old account's controls cannot act
+as the new account. Finish or clear an unsent comment before switching; restoring
+the previous slot lets you finish that draft. The CLI log adapter continues to use
+its independent glab authentication. This covers two declared gitlab.com accounts,
+not arbitrary self-hosted servers or an unbounded account manager.
+
+## Markdown descriptions and comments
+
+The Details **Description** section renders bounded CommonMark, tables, task lists,
+strikethrough and code blocks from the cached MR description/selected discussion.
+Diff comments and pending notes use the same renderer and shared UI tokens. Raw
+HTML is displayed as text. Only HTTP(S) links without embedded credentials survive;
+clicks must still belong to the selected MR snapshot before opening externally.
+Images display their alternative text and never create an automatically fetched
+image element. Large inputs are visibly truncated. Refresh Description uses the
+existing owner-bound MR refresh. GitLab-specific mentions, custom emoji/math and
+server-side markup extensions are not claimed by this CommonMark renderer.
+
+**Reviewed fork/source checkout:** `GitLab: Check Out Merge Request Source (glab)…`
+uses the separately approved official `glab1.130.0` checkout profile. Select a
+merge request in this project's list, save editor buffers and commit/stash local
+changes, then review the target project, source project ID/branch and complete
+head. The command rechecks ownership, selection, source identity, local Git state
+and installed version before opening a native terminal running `glab mr checkout
+<iid> --repo https://gitlab.com/<target> --branch review/mr-<iid>-<head-prefix>`.
+The official CLI resolves a fork source project (or target MR ref fallback) and
+uses its own credentials, Git transports, configuration and hooks. No `--force`
+is passed. It may update branch tracking/configuration and prompts about conflicts;
+inspect the terminal and resulting commit. A remote change after review can be
+fetched: this is source-branch checkout, not an exact-head snapshot. Native Stop
+cancels the process; already fetched refs/configuration may remain. Live account
+acceptance and native terminal interaction remain separate from the disposable
+local API/Git fixture qualification.

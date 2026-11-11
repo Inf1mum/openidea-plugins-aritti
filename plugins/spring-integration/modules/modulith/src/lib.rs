@@ -2,7 +2,7 @@
 //! project (direct sub-packages of the `@SpringBootApplication`/`@Modulithic`
 //! package), warns about imports of another module's internal types and of
 //! modules a module doesn't allow, and lists the modules in a tool window.
-//! Text-based, Java only: imports are what counts, not fully qualified uses.
+//! Text-based, Java only: imports and proved project-qualified type positions.
 
 use openidea_plugin::providers::{CodeAction, CompletionItem, CompletionKind, Document, LineMarker, Providers};
 use openidea_plugin::text::offset;
@@ -18,6 +18,10 @@ use spring_text::{contains, range};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
+
+mod expose;
+#[path = "../../../src/source_scope.rs"]
+mod source_scope;
 
 const DIAGRAM_VIEW: &str = "diagram";
 const COPY_DOCS: &str = "copy-docs";
@@ -48,6 +52,11 @@ pub struct ModuleDecl {
 pub struct Unit {
     pub package: String,
     pub imports: Vec<String>,
+    /// Qualified type-position candidates, checked against declared project types.
+    pub qualified_uses: Vec<String>,
+    pub public_types:BTreeSet<String>,
+    /// Unsupported Kotlin aliases/metadata cannot establish absence facts.
+    pub uncertain:bool,
     /// Top-level types: name, name range, `@NamedInterface` name.
     pub types: Vec<(String, Range, Option<String>)>,
     /// Application root packages declared here (`@SpringBootApplication`, `@Modulithic` + `additionalPackages`).
@@ -83,7 +92,8 @@ fn module_decl(a: &Annotation, text: &str) -> ModuleDecl {
 }
 
 pub fn scan(path: &str, text: &str) -> Option<Unit> {
-    let f = java::parse(text);
+    let kotlin=path.ends_with(".kt");
+    let f = spring_text::parse_source(path,text);
     if f.package.is_empty() {
         return None;
     }
@@ -102,12 +112,21 @@ pub fn scan(path: &str, text: &str) -> Option<Unit> {
         let more = t.annotation("Modulithic").map(|a| a.strings(&["additionalPackages"])).unwrap_or_default();
         roots.extend(more.into_iter().map(|s| s.value.clone()));
     }
-    let info = path.ends_with("package-info.java").then(|| Info {
-        named_interface: f.package_annotations.iter().find(|a| a.name == "NamedInterface").map(|a| interface_name(a, &f.package)),
-        module: f.package_annotations.iter().find(|a| a.name == "ApplicationModule").map(|a| module_decl(a, text)),
+    let metadata:Vec<_>=f.types.iter().filter(|t|t.outer.is_none()&&t.has(&["PackageInfo"])).collect();
+    let annotations=if path.ends_with("package-info.java") {Some(&f.package_annotations)}else if metadata.len()==1 {Some(&metadata[0].annotations)}else {None};
+    let info=annotations.map(|annotations|Info{named_interface:annotations.iter().find(|a|a.name=="NamedInterface").map(|a|interface_name(a,&f.package)),module:annotations.iter().find(|a|a.name=="ApplicationModule").map(|a|module_decl(a,text))});
+    let tokens=java::tokens(text);
+    let aliases=tokens.iter().any(|t|t.s=="typealias") || tokens.iter().filter(|t|t.s=="import").any(|token| {
+        let tail=&text[token.at..];let end=tail.find(['\n','\r',';']).unwrap_or(tail.len());let declaration=java::tokens(&tail[..end]);
+        declaration.len()==1||declaration.last().is_some_and(|t|t.s==".")||declaration.iter().any(|t|t.s=="as")
     });
+    let uncertain=metadata.len()>1 || kotlin&&(aliases || f.types.iter().flat_map(|t|&t.annotations).filter(|a|matches!(a.name.as_str(),"SpringBootApplication"|"Modulithic"|"NamedInterface"|"ApplicationModule")).flat_map(|a|&a.args).filter(|arg|matches!(arg.name.as_str(),"value"|"name"|"additionalPackages"|"allowedDependencies"|"displayName")).any(|arg| {
+        arg.strings.iter().any(|value|value.value.contains('$')||text.get(value.at..value.end)!=Some(value.value.as_str())) || java::tokens(&arg.text).iter().any(|token|token.string().is_none()&&!matches!(token.s,"["|"]"|"{"|"}"|","))
+    }));
     let imports = f.imports.iter().map(|i| i.path.clone()).collect();
-    Some(Unit { package: f.package, imports, types, roots, info })
+    let qualified_uses=qualified_type_uses(text,&f).into_iter().map(|(name,_,_)|name).collect();
+    let public_types=f.types.iter().filter(|t|t.outer.is_none()&&(t.modifiers.iter().any(|m|m=="public")||kotlin&&!t.modifiers.iter().any(|m|matches!(m.as_str(),"private"|"protected"|"internal")))).map(|t|t.name.clone()).collect();
+    Some(Unit { package: f.package, imports, qualified_uses, public_types, uncertain, types, roots, info })
 }
 
 /// Tests may reach into modules; Spring Modulith verifies production code.
@@ -151,20 +170,26 @@ pub struct Model {
     pub roots: Vec<String>,
     pub modules: BTreeMap<String, Module>,
     packages: BTreeSet<String>,
+    declared_types: BTreeSet<String>,
+    uncertain:bool,
 }
 
 impl Model {
     pub fn build(index: &Index<Unit>) -> Self {
         let units: Vec<(&str, &Unit)> = index.iter().filter(|(p, _)| !is_test(p)).collect();
+        let mut metadata=BTreeMap::<&str,usize>::new();for (_,unit) in &units {if unit.info.as_ref().is_some_and(|info|info.module.is_some()||info.named_interface.is_some()) {*metadata.entry(&unit.package).or_default()+=1;}}
         let mut model = Model {
             roots: units.iter().find(|(_, u)| !u.roots.is_empty()).map(|(_, u)| u.roots.clone()).unwrap_or_default(),
+            uncertain:metadata.values().any(|count|*count>1),
             ..Model::default()
         };
         for (path, u) in units {
+            model.uncertain|=u.uncertain;
             model.packages.insert(u.package.clone());
             let Some((name, base)) = model.module_of(&u.package) else { continue };
             let m = model.modules.entry(name.clone()).or_insert_with(|| Module { name, base, ..Module::default() });
             for (ty, r, named) in &u.types {
+                model.declared_types.insert(format!("{}.{ty}",u.package));
                 m.location.get_or_insert_with(|| Location { path: path.into(), range: *r });
                 if let Some(n) = named {
                     m.exposed.push((n.clone(), format!("{}.{ty}", u.package)));
@@ -195,6 +220,7 @@ impl Model {
 
     /// The module an import of module `from` reaches into, and what's wrong with it.
     pub fn check(&self, from: &str, import: &str) -> Option<(&Module, Option<Violation>)> {
+        if self.uncertain {return None;}
         let segments: Vec<&str> = import.split('.').filter(|s| *s != "*").collect();
         let split = segments.iter().position(|s| !s.starts_with(|c: char| c.is_lowercase())).unwrap_or(segments.len());
         let package = segments[..split].join(".");
@@ -227,16 +253,45 @@ impl Model {
     }
 }
 
+/// Lexical qualified names only in explicit type positions. Candidates do not
+/// establish Java resolution: callers require an exact project declaration.
+fn qualified_type_uses(text:&str,file:&JavaFile)->Vec<(String,usize,usize)> {
+    if text.len()>256*1024 {return Vec::new();}
+    let tokens=java::tokens(text);if tokens.len()>32768 {return Vec::new();}
+    let mut out=Vec::new();let mut i=0;
+    while i<tokens.len() {
+        let first=tokens[i];
+        if !first.is_ident() || !first.s.starts_with(|c:char|c.is_ascii_lowercase())
+            || i>0 && matches!(tokens[i-1].s,"."|"package"|"import"|"static")
+            || file.imports.iter().any(|import| import.at<=first.at && first.at<import.end) {i+=1;continue;}
+        let mut end=i;let mut parts=vec![first.s];let mut type_end=None;
+        while end+2<tokens.len() && tokens[end+1].s=="." && tokens[end+2].is_ident() {
+            end+=2;parts.push(tokens[end].s);
+            if tokens[end].s.starts_with(|c:char|c.is_ascii_uppercase()) {type_end=Some(end);break;}
+            if parts.len()>32 {break;}
+        }
+        if let Some(last)=type_end {
+            let before=i.checked_sub(1).map(|n|tokens[n].s);
+            let after=tokens.get(last+1).map(|t|t.s);
+            let explicit=matches!(before,Some("new"|"instanceof"|"extends"|"implements"|"throws"|"@"))
+                || tokens.get(last+1).is_some_and(|t|t.is_ident() && !matches!(t.s,"class"|"return"))
+                || after==Some(".") && tokens.get(last+2).is_some_and(|t|t.s=="class");
+            if explicit && parts.len()>1 {out.push((parts.join("."),first.at,tokens[last].end()));}
+            i=last+1;
+        } else {i+=1;}
+        if out.len()>=1024 {break;}
+    }
+    out
+}
+
 /// The problems of a Java file: `(range, module reached, violation)` per import.
 fn violations<'m>(model: &'m Model, path: &str, f: &JavaFile, text: &str) -> Vec<(Range, &'m Module, Violation)> {
     let Some((from, _)) = model.module_of(&f.package).filter(|_| !is_test(path)) else { return Vec::new() };
-    f.imports
-        .iter()
-        .filter_map(|i| {
-            let (b, v) = model.check(&from, &i.path)?;
-            Some((range(text, i.at, i.end), b, v?))
-        })
-        .collect()
+    let mut uses:Vec<_>=f.imports.iter().map(|i|(i.path.clone(),i.at,i.end)).collect();
+    uses.extend(qualified_type_uses(text,f).into_iter().filter(|(name,_,_)|model.declared_types.contains(name)));
+    uses.into_iter().filter_map(|(name,at,end)| {
+        let (b,v)=model.check(&from,&name)?;Some((range(text,at,end),b,v?))
+    }).collect()
 }
 
 fn message(import: &str, b: &Module, v: &Violation, from: &str) -> String {
@@ -251,12 +306,12 @@ fn message(import: &str, b: &Module, v: &Violation, from: &str) -> String {
 
 /// The `allowedDependencies` literals of a `package-info.java`.
 fn allowed_literals(f: &JavaFile) -> Vec<&Str> {
-    f.package_annotations.iter().filter(|a| a.name == "ApplicationModule").flat_map(|a| a.strings(&["allowedDependencies"])).collect()
+    f.package_annotations.iter().chain(f.types.iter().filter(|ty|ty.outer.is_none()&&ty.has(&["PackageInfo"])).flat_map(|ty|&ty.annotations)).filter(|a| a.name == "ApplicationModule").flat_map(|a| a.strings(&["allowedDependencies"])).collect()
 }
 
 /// Nothing until the project has been read once: a named interface not read yet would look internal.
 fn diagnostics(model: &Model, complete: bool, path: &str, f: &JavaFile, text: &str) -> Vec<Diagnostic> {
-    if !complete {
+    if !complete || model.uncertain {
         return Vec::new();
     }
     let from = model.module_of(&f.package).map(|m| m.0).unwrap_or_default();
@@ -267,7 +322,7 @@ fn diagnostics(model: &Model, complete: bool, path: &str, f: &JavaFile, text: &s
             Diagnostic::new(r, Severity::Warning, message(&text_of(text, r), b, &v, &from)).code(code)
         })
         .collect();
-    if path.ends_with("package-info.java") {
+    if path.ends_with("package-info.java")||f.types.iter().any(|ty|ty.outer.is_none()&&ty.has(&["PackageInfo"])) {
         for s in allowed_literals(f).into_iter().filter(|s| !model.knows(&s.value)) {
             let message = format!("`{}` is not an application module or named interface.", s.value);
             out.push(Diagnostic::new(range(text, s.at, s.end), Severity::Warning, message).code("unknown-module"));
@@ -285,51 +340,86 @@ fn text_of(text: &str, r: Range) -> String {
 pub struct ModulithTools {
     indexes: Indexes<Unit>,
     expansion: Expansion,
+    decoration_sets:BTreeSet<String>,
+    expose:expose::Exposes,
 }
 
 impl Default for ModulithTools {
     fn default() -> Self {
-        Self { indexes: Indexes::new(&["**/*.java"], scan), expansion: Expansion::default() }
+        Self { indexes: Indexes::new(&["**/*.java","**/*.kt"], scan), expansion: Expansion::default(),decoration_sets:BTreeSet::new(),expose:Default::default() }
     }
 }
 
 impl ModulithTools {
-    pub fn warm_project(&mut self, project: &Project, budget: std::time::Duration) { self.indexes.get(project, budget); }
-    pub fn reset_live(&mut self) { self.indexes.reset(); }
+    fn index(&mut self,doc:&Document)->Option<&Index<Unit>> {
+        let scope=source_scope::Scope::for_path(&doc.path)?;let index=self.indexes.for_document(&doc.path,&doc.text,PROVIDER_BUDGET)?;let scope=scope.refresh_for_path(&doc.path)?;scope.prune(index).then_some(&*index)
+    }
+    pub fn expose_actions(&mut self,doc:&Document,selection:Range)->Vec<openidea_plugin::file_actions::FileAction> {
+        let Some(scope)=source_scope::Scope::for_path(&doc.path) else{return vec![];};let Some(index)=self.indexes.for_cached_document(&doc.path,&doc.text) else{return vec![];};if !scope.prune(index) {return vec![];}self.expose.actions(index,doc,selection)
+    }
+    pub fn resolve_expose(&mut self,doc:&Document,action:openidea_plugin::file_actions::FileAction)->Result<openidea_plugin::file_actions::FileAction,Error> {self.expose.resolve(doc,action)}
+    pub fn warm_project(&mut self, project: &Project, budget: std::time::Duration) {
+        use std::hash::{Hash,Hasher};
+        let Ok(root)=project.root() else{return;};let mut hash=std::collections::hash_map::DefaultHasher::new();root.hash(&mut hash);
+        let set=format!("modulith.modules.{:016x}",hash.finish());
+        let _=host::clear_file_decorations(&set);self.decoration_sets.insert(set.clone());
+        let index=self.indexes.get(project,budget);let Some(scope)=source_scope::Scope::current(&root) else{return;};if !scope.prune(index) {return;}if !index.fresh() || index.files().len()>1000 {return;}
+        let model=Model::build(index);if model.uncertain {return;}let mut badges=BTreeMap::<String,bool>::new();let mut attempted=BTreeSet::new();
+        for (path,unit) in index.iter().filter(|(path,_)|!is_test(path)) {
+            let Some((name,base))=model.module_of(&unit.package) else{continue;};let Some(module)=model.modules.get(&name) else{continue;};
+            let Some(directory)=path.rsplit_once('/').map(|(dir,_)|dir) else{continue;};
+            let package_path=unit.package.replace('.',"/");let Some(source)=directory.strip_suffix(&package_path).filter(|prefix|prefix.ends_with('/')) else{continue;};
+            let directory=format!("{source}{}",base.replace('.',"/"));
+            if !attempted.insert(directory.clone()) {continue;}if attempted.len()>128 {return;}
+            if host::project_of(&directory).and_then(|p|p.root().ok()).as_deref()!=Some(root.as_str()) || !directory.starts_with(&format!("{root}/")) {continue;}
+            if !project.stat(&directory).is_ok_and(|stat|stat.kind==openidea_plugin::FileKind::Directory) {continue;}
+            badges.insert(directory,module.open);
+        }
+        if badges.len()>128 {return;}
+        for (path,open) in badges {
+            let item=openidea_plugin::FileDecoration{badge:Some(if open {"O"}else{"C"}.into()),style:if open {"added"}else{"muted"}.into(),tooltip:Some(format!("Spring Modulith: {} module (current declared project source model)",if open {"open"}else{"closed"}))};
+            if host::set_file_decoration(&path,&set,&item).is_err() {let _=host::clear_file_decorations(&set);break;}
+        }
+    }
+    pub fn reset_live(&mut self) {
+        for set in std::mem::take(&mut self.decoration_sets) {let _=host::clear_file_decorations(&set);}
+        self.indexes.reset();
+    }
 
     /// Cached project model plus current text; no file discovery on the typing path.
     pub fn live_diagnostics(&mut self, doc: &Document) -> Vec<Diagnostic> {
+        let Some(scope)=source_scope::Scope::for_path(&doc.path) else{return Vec::new();};
         let Some(index) = self.indexes.for_cached_document(&doc.path, &doc.text) else { return Vec::new() };
+        let Some(scope)=scope.refresh_for_path(&doc.path) else{return Vec::new();};if !scope.prune(index) {return Vec::new();}
         if !index.fresh() || index.files().len() > 1000 { return Vec::new(); }
         let model = Model::build(index);
-        diagnostics(&model, true, &doc.path, &java::parse(&doc.text), &doc.text)
+        diagnostics(&model, true, &doc.path, &spring_text::parse_source(&doc.path,&doc.text), &doc.text)
     }
 }
 
 impl Providers for ModulithTools {
     fn line_markers(&mut self, doc: &Document) -> Vec<LineMarker> {
-        let Some(index) = self.indexes.for_document(&doc.path, &doc.text, PROVIDER_BUDGET) else { return Vec::new() };
+        let Some(index) = self.index(doc) else { return Vec::new() };
         let model = Model::build(index);
-        let problems = diagnostics(&model, index.complete(), &doc.path, &java::parse(&doc.text), &doc.text);
+        let problems = diagnostics(&model, index.complete(), &doc.path, &spring_text::parse_source(&doc.path,&doc.text), &doc.text);
         publish(&doc.path, &problems);
         Vec::new()
     }
 
     fn completion(&mut self, doc: &Document, at: Position, _trigger: Option<&str>) -> Vec<CompletionItem> {
-        if !doc.path.ends_with("package-info.java") {
-            return Vec::new();
-        }
-        let f = java::parse(&doc.text);
+        let f=spring_text::parse_source(&doc.path,&doc.text);
+        if !doc.path.ends_with("package-info.java")&&!f.types.iter().any(|ty|ty.outer.is_none()&&ty.has(&["PackageInfo"])) {return Vec::new();}
         let Some(at) = offset(&doc.text, at) else { return Vec::new() };
         let Some(s) = allowed_literals(&f).into_iter().find(|s| s.holds(at)) else { return Vec::new() };
-        let Some(index) = self.indexes.for_document(&doc.path, &doc.text, PROVIDER_BUDGET) else { return Vec::new() };
-        let model = Model::build(index);
+        let Some(index) = self.index(doc) else { return Vec::new() };
+        let model = Model::build(index);if model.uncertain {return Vec::new();}
         let own = model.module_of(&f.package).map(|m| m.0);
         let replace = Some(range(&doc.text, s.at, s.end));
         let mut out = Vec::new();
         for m in model.modules.values().filter(|m| Some(&m.name) != own.as_ref()) {
             let detail = m.display_name.clone().unwrap_or_else(|| m.base.clone());
             out.push(CompletionItem { detail: Some(detail), replace, ..CompletionItem::new(&m.name, CompletionKind::Module) });
+            out.push(CompletionItem {detail:Some("all named interfaces".into()),replace,..CompletionItem::new(&format!("{}::*",m.name),CompletionKind::Interface)});
             for i in m.interface_names() {
                 let label = format!("{}::{i}", m.name);
                 out.push(CompletionItem {
@@ -342,10 +432,34 @@ impl Providers for ModulithTools {
         out
     }
 
+    fn definition(&mut self,doc:&Document,at:Position)->Vec<Location> {
+        if !matches!(doc.language.as_str(),"java"|"kotlin") {return Vec::new();}
+        let file=spring_text::parse_source(&doc.path,&doc.text);if !doc.path.ends_with("package-info.java")&&!file.types.iter().any(|ty|ty.outer.is_none()&&ty.has(&["PackageInfo"])) {return Vec::new();}
+        let Some(at)=offset(&doc.text,at) else{return Vec::new();};
+        let Some(literal)=allowed_literals(&file).into_iter().find(|s|s.holds(at)) else{return Vec::new();};
+        let dependency=literal.value.split_whitespace().collect::<String>();
+        let Some(index)=self.index(doc) else{return Vec::new();};
+        if !index.fresh() {return Vec::new();}
+        let model=Model::build(index);if model.uncertain||!model.knows(&dependency) {return Vec::new();}
+        let (name,interface)=dependency.split_once("::").map_or((dependency.as_str(),None),|(m,i)|(m,Some(i)));
+        let Some(module)=model.modules.get(name) else{return Vec::new();};
+        if let Some(interface)=interface.filter(|i|*i!="*") {
+            let mut locations=Vec::new();
+            for (path,unit) in index.iter().filter(|(path,unit)|!is_test(path)&&model.module_of(&unit.package).is_some_and(|(m,_)|m==name)) {
+                if unit.info.as_ref().is_some_and(|info|info.named_interface.as_deref()==Some(interface)) {
+                    let declaration=unit.types.iter().find(|(_,_,name)|name.as_deref()==Some(interface)).map(|(_,range,_)|*range).unwrap_or_default();locations.push(Location{path:path.into(),range:declaration});
+                } else {for (_,range,named) in &unit.types {if named.as_deref()==Some(interface) {locations.push(Location{path:path.into(),range:*range});}}}
+                if locations.len()>64 {return Vec::new();}
+            }
+            return locations;
+        }
+        module.location.clone().into_iter().collect()
+    }
+
     fn code_actions(&mut self, doc: &Document, selection: Range) -> Vec<CodeAction> {
-        let Some(index) = self.indexes.for_document(&doc.path, &doc.text, PROVIDER_BUDGET) else { return Vec::new() };
+        let Some(index) = self.index(doc) else { return Vec::new() };
         let model = Model::build(index);
-        violations(&model, &doc.path, &java::parse(&doc.text), &doc.text)
+        violations(&model, &doc.path, &spring_text::parse_source(&doc.path,&doc.text), &doc.text)
             .into_iter()
             .filter(|(r, _, v)| *v == Violation::Internal && contains(*r, selection.start))
             .filter_map(|(_, b, _)| {
@@ -378,7 +492,7 @@ fn dependencies<'m>(model: &'m Model, index: &Index<Unit>) -> Dependencies<'m> {
         let Some((from, _)) = model.module_of(&u.package) else { continue };
         let Some(a) = model.modules.get(&from) else { continue };
         let found = dependencies.entry(a.name.as_str()).or_default();
-        for i in &u.imports {
+        for i in u.imports.iter().chain(u.qualified_uses.iter().filter(|name|model.declared_types.contains(*name))) {
             if let Some((b, v)) = model.check(&from, i) {
                 let worst = found.entry(b.name.as_str()).or_insert(None);
                 if worst.is_none() {
@@ -443,7 +557,7 @@ impl ModulithTools {
     pub fn diagram_snapshot(&mut self, ctx: &Invocation) -> Result<(Vec<Node>,Vec<Edge>,Vec<(String,Location)>,String),Error> {
         let project=ctx.project().ok_or(Error::Stale)?;
         if project.root()?.is_empty(){return Err(Error::Stale);}
-        let index=self.indexes.get(&project,COMMAND_BUDGET);
+        let index=self.indexes.get(&project,COMMAND_BUDGET);let scope=source_scope::Scope::current(&project.root()?).ok_or(Error::Stale)?;if !scope.prune(index) {return Err(Error::Stale);}
         if index.scanning(){refresh(&id(DIAGRAM_VIEW));}
         let model=Model::build(index);
         let (nodes,edges)=diagram_of(&model,index);
@@ -451,6 +565,7 @@ impl ModulithTools {
         let status=if model.modules.is_empty(){
             if !index.complete(){"Scanning application-module source…".into()}else if model.roots.is_empty(){"No @SpringBootApplication or @Modulithic source root found.".into()}else{"No application-module source candidates.".into()}
         }else{format!("{} modules · {} dependencies{} · cached lexical Modulith source model",nodes.len(),edges.len(),if index.complete(){""}else{" · scanning…"})};
+        let status=if model.uncertain {format!("{status} · unresolved package/alias metadata; boundary diagnostics withheld")}else{status};
         Ok((nodes,edges,sources,status))
     }
 }
@@ -459,7 +574,7 @@ impl Views for ModulithTools {
     fn render(&mut self, view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
         (|| -> Result<View, Error> {
             let Some(project) = ctx.project() else { return Ok(View::message("Open a project to see its application modules.")) };
-            let index = self.indexes.get(&project, COMMAND_BUDGET);
+            let index = self.indexes.get(&project, COMMAND_BUDGET);let scope=source_scope::Scope::current(&project.root()?).ok_or(Error::Stale)?;if !scope.prune(index) {return Err(Error::Stale);}
             let complete = index.complete();
             if index.scanning() {
                 refresh(view);
@@ -508,6 +623,7 @@ impl Views for ModulithTools {
             }
             self.expansion.apply(&mut items);
             let mut status = format!("{} modules in {}", model.modules.len(), model.roots.join(", "));
+            if model.uncertain {status.push_str(" · unresolved package/alias metadata; boundary diagnostics withheld");}
             if !complete {
                 status.push_str(" · scanning…");
             }
@@ -700,6 +816,87 @@ class Shipper {}
     }
 
     #[test]
+    fn qualified_project_types_drive_diagnostics_and_dependency_graph() {
+        let host=setup();let text="package com.acme.shipping; class Qualified { com.acme.order.internal.OrderRepository repository; Object item = new com.acme.inventory.Inventory(); Class<?> type = com.acme.inventory.spi.Hook.class; }";
+        let d=doc("shipping/Qualified.java",text);host.add_file(&d.path,&d.text);let mut tools=ModulithTools::default();
+        tools.warm_project(&host.invocation().project().unwrap(),COMMAND_BUDGET);
+        let problems=tools.live_diagnostics(&d);
+        assert_eq!(problems.iter().filter(|p|p.code.as_deref()==Some("module-internal")).count(),1);
+        assert_eq!(problems.iter().filter(|p|p.code.as_deref()==Some("module-not-allowed")).count(),2);
+        assert!(problems.iter().any(|p|p.range.start==pos(text,"com.acme.order.internal.OrderRepository")));
+        let index=tools.indexes.get(&host.invocation().project().unwrap(),COMMAND_BUDGET);let model=Model::build(index);
+        let refs=scan(&d.path,text).unwrap().qualified_uses;assert_eq!(refs.len(),3);
+        assert!(refs.iter().all(|name|model.declared_types.contains(name)));
+        let graph=dependencies(&model,index);assert!(graph["shipping"].contains_key("order"));assert!(graph["shipping"].contains_key("inventory"));
+    }
+    #[test]
+    fn qualified_type_candidates_skip_comments_strings_unknown_types_and_receivers() {
+        let host=setup();let text=r#"package com.acme.shipping;
+        // com.acme.order.internal.OrderRepository ignored;
+        class Qualified {
+          String value = "com.acme.order.internal.OrderRepository";
+          com.acme.order.internal.Missing unknown;
+          void call() { com.acme.order.internal.OrderRepository.execute(); }
+        }"#;
+        let d=doc("shipping/Qualified.java",text);host.add_file(&d.path,text);let mut tools=ModulithTools::default();
+        tools.warm_project(&host.invocation().project().unwrap(),COMMAND_BUDGET);
+        assert!(tools.live_diagnostics(&d).is_empty());
+        let candidates=qualified_type_uses(text,&java::parse(text));assert_eq!(candidates.len(),1);assert_eq!(candidates[0].0,"com.acme.order.internal.Missing");
+        let test_doc=Document {path:"/project/src/test/java/com/acme/shipping/Test.java".into(),text:"package com.acme.shipping; class Test {com.acme.order.internal.OrderRepository value;}".into(),..d};
+        assert!(tools.live_diagnostics(&test_doc).is_empty());
+    }
+    #[test]
+    fn allowed_dependencies_navigate_modules_interfaces_and_wildcards() {
+        let _host=setup();let mut tools=ModulithTools::default();
+        let text="@ApplicationModule(allowedDependencies={\"order\",\"inventory::api\",\"inventory::hooks\",\"inventory::*\",\"unknown\"})\npackage com.acme.shipping;";
+        let d=doc("shipping/package-info.java",text);
+        let module=tools.definition(&d,pos(text,"order"));assert_eq!(module.len(),1);assert!(module[0].path.ends_with("/order/package-info.java"));
+        let interface=tools.definition(&d,pos(text,"inventory::api"));assert_eq!(interface.len(),1);assert!(interface[0].path.ends_with("/inventory/api/package-info.java"));
+        let exposed=tools.definition(&d,pos(text,"inventory::hooks"));assert_eq!(exposed.len(),1);assert!(exposed[0].path.ends_with("/inventory/spi/Hook.java"));
+        let wildcard=tools.definition(&d,pos(text,"inventory::*"));assert_eq!(wildcard.len(),1);assert!(wildcard[0].path.contains("/inventory/"));
+        assert!(tools.definition(&d,pos(text,"unknown")).is_empty());
+        let completions=tools.completion(&d,pos(text,"unknown"),None);let wildcard=completions.iter().find(|c|c.label=="inventory::*").unwrap();assert_eq!(wildcard.detail.as_deref(),Some("all named interfaces"));assert!(wildcard.replace.is_some());
+    }
+    #[test]
+    fn project_module_badges_use_declared_state_and_withdraw_on_reset() {
+        let host=setup();for module in ["order","inventory","shipping"] {host.add_dir(&format!("{SRC}{module}"));}let mut tools=ModulithTools::default();let project=host.invocation().project().unwrap();tools.warm_project(&project,COMMAND_BUDGET);
+        let badges=host.file_decorations();assert!(!badges.is_empty());
+        let order=badges.iter().find(|((_,path),_)|path.ends_with("/com/acme/order")).unwrap().1;assert_eq!(order.badge.as_deref(),Some("C"));assert_eq!(order.style,"muted");
+        tools.reset_live();assert!(host.file_decorations().is_empty());
+        host.add_file("src/main/java/com/acme/order/package-info.java","@ApplicationModule(type = ApplicationModule.Type.OPEN) package com.acme.order;");
+        tools.warm_project(&project,COMMAND_BUDGET);let badges=host.file_decorations();let order=badges.iter().find(|((_,path),_)|path.ends_with("/com/acme/order")).unwrap().1;assert_eq!(order.badge.as_deref(),Some("O"));assert_eq!(order.style,"added");
+        tools.reset_live();host.add_project(&format!("{SRC}order"));tools.warm_project(&project,COMMAND_BUDGET);assert!(!host.file_decorations().keys().any(|(_,path)|path.ends_with("/com/acme/order")));
+    }
+    #[test]
+    fn kotlin_roots_types_and_package_info_metadata_form_one_source_module_model() {
+        let host=MockHost::install();
+        host.add_file("/project/src/main/kotlin/app/Main.kt","package app\nimport org.springframework.boot.autoconfigure.SpringBootApplication\n@SpringBootApplication class Main");
+        host.add_file("/project/src/main/kotlin/app/orders/internal/Repository.kt","package app.orders.internal\nclass Repository");
+        host.add_file("/project/src/main/kotlin/app/orders/api/Api.kt","package app.orders.api\nclass Api");
+        host.add_file("/project/src/main/kotlin/app/orders/api/Metadata.kt","package app.orders.api\nimport org.springframework.modulith.PackageInfo\nimport org.springframework.modulith.NamedInterface\n@PackageInfo @NamedInterface(\"api\") class Metadata");
+        host.add_file("/project/src/main/kotlin/app/shipping/Metadata.kt","package app.shipping\nimport org.springframework.modulith.PackageInfo\nimport org.springframework.modulith.ApplicationModule\n@PackageInfo @ApplicationModule(allowedDependencies=[\"orders::api\"]) class Metadata");
+        let source="package app.shipping\nimport app.orders.internal.Repository\nimport app.orders.api.Api\nclass Shipping";
+        let d=Document{path:"/project/src/main/kotlin/app/shipping/Shipping.kt".into(),language:"kotlin".into(),text:source.into(),version:1};host.add_file(&d.path,source);let mut tools=ModulithTools::default();tools.warm_project(&host.invocation().project().unwrap(),COMMAND_BUDGET);
+        let found=tools.live_diagnostics(&d);assert_eq!(found.len(),1,"{found:?}");assert_eq!(found[0].code.as_deref(),Some("module-internal"));
+        let index=tools.indexes.get(&host.invocation().project().unwrap(),COMMAND_BUDGET);let model=Model::build(index);assert_eq!(model.roots,["app"]);assert_eq!(model.modules.len(),2);assert_eq!(model.modules["shipping"].allowed,Some(vec!["orders::api".into()]));assert!(model.modules["orders"].interfaces.iter().any(|(name,package)|name=="api"&&package=="app.orders.api"));
+        let fixed=Document{text:source.replace("import app.orders.internal.Repository\n",""),version:2,..d};assert!(tools.live_diagnostics(&fixed).is_empty());
+        let path="/project/src/main/kotlin/app/shipping/Metadata.kt";let text=host.invocation().project().unwrap().read_file(path).unwrap();let metadata=Document{path:path.into(),language:"kotlin".into(),text:text.clone(),version:1};let at=pos(&text,"orders::api");
+        assert!(tools.completion(&metadata,at,None).iter().any(|item|item.label=="orders::*"));let locations=tools.definition(&metadata,at);assert_eq!(locations.len(),1);assert!(locations[0].path.ends_with("/orders/api/Metadata.kt"));
+        let invalid=Document{text:text.replace("orders::api","missing"),version:2,..metadata};assert!(tools.live_diagnostics(&invalid).iter().any(|d|d.code.as_deref()==Some("unknown-module")));
+    }
+    #[test]
+    fn unsupported_kotlin_alias_metadata_withholds_negative_boundary_facts() {
+        let host=setup();host.add_file("src/main/java/com/acme/inventory/api/KotlinMetadata.kt","package com.acme.inventory.api\nimport org.springframework.modulith.PackageInfo\nimport org.springframework.modulith.NamedInterface as API\n@PackageInfo @API(\"another\") class KotlinMetadata");let mut tools=ModulithTools::default();tools.warm_project(&host.invocation().project().unwrap(),COMMAND_BUDGET);
+        let d=doc("shipping/Shipper.java",SHIPPER);assert!(tools.live_diagnostics(&d).is_empty());let view=tools.render(VIEW,None,&host.invocation()).unwrap();assert!(view.status.unwrap().contains("unresolved package/alias"));
+    }
+    #[test]
+    fn kotlin_constant_expression_and_duplicate_package_metadata_are_not_absence_evidence() {
+        let unit=scan("/project/Metadata.kt","package app.orders\n@PackageInfo @NamedInterface(API_NAME) class Metadata").unwrap();assert!(unit.uncertain);
+        let cast=scan("/project/Cast.kt","package app.orders\nclass Cast { fun cast(value: Any): String = value as String }").unwrap();assert!(!cast.uncertain);
+        let _host=setup();let mut index=Index::new(&["**/*.java","**/*.kt"],scan);
+        index.update("/project/Main.kt","package app\n@SpringBootApplication class Main");index.update("/project/One.kt","package app.orders\n@PackageInfo @ApplicationModule class One");index.update("/project/Two.kt","package app.orders\n@PackageInfo @NamedInterface(\"api\") class Two");let model=Model::build(&index);assert!(model.uncertain);assert!(model.check("shipping","app.orders.Internal").is_none());
+    }
+    #[test]
     fn reads_package_info() {
         let u = scan("/p/package-info.java", "@ApplicationModule(\n  type = ApplicationModule.Type.OPEN)\npackage a.b;").unwrap();
         let m = u.info.unwrap().module.unwrap();
@@ -760,7 +957,7 @@ class Shipper {}
         assert_eq!(found, [("unknown-module", pos(text, "billing")), ("unknown-module", pos(text, "order::x"))]);
 
         let labels: Vec<_> = tools.completion(&d, pos(text, "billing"), None).into_iter().map(|i| i.label).collect();
-        assert_eq!(labels, ["inventory", "inventory::api", "inventory::hooks", "order"]);
+        assert_eq!(labels, ["inventory", "inventory::*", "inventory::api", "inventory::hooks", "order", "order::*"]);
     }
 
     #[test]

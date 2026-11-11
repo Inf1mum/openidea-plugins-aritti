@@ -13,6 +13,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 ui-kit = { path = "../../crates/ui-kit" }
 fancy-regex = "0.20.0"
+serde_json = "1"
 openidea-plugin = { git = "https://github.com/l0ng-ai/openidea", tag = "v0.1.40" }
 
 [profile.release]
@@ -21,6 +22,3 @@ lto = true
 strip = true
 codegen-units = 1
 panic = "abort"
-
-[dev-dependencies]
-serde_json = "1"

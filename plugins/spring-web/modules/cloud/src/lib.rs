@@ -4,6 +4,8 @@
 //! Text-based, Java and Kotlin: names and paths match as written.
 
 mod checks;
+mod gateway_dsl;
+pub use gateway_dsl::GatewayRoute;
 
 use openidea_plugin::providers::{CompletionItem, CompletionKind, Document, LineMarker, Providers};
 use openidea_plugin::text::offset;
@@ -24,7 +26,7 @@ const CONFIG_GLOBS: &[&str] = &[
     "**/bootstrap*.properties",
 ];
 /// Words a Java file needs to hold anything this plugin indexes.
-const JAVA_HINTS: [&str; 9] = ["FeignClient", "Controller", "Function", "Consumer", "Supplier", "send(", "Factory", "@Input", "@Output"];
+const JAVA_HINTS: [&str; 10] = ["FeignClient", "Controller", "Function", "Consumer", "Supplier", "send(", "Factory", "@Input", "@Output", "RouteLocatorBuilder"];
 const FUNCTIONAL: [&str; 3] = ["Function", "Consumer", "Supplier"];
 const BINDINGS: &str = "spring.cloud.stream.bindings.";
 const FUNCTION_BINDINGS: &str = "spring.cloud.stream.function.bindings.";
@@ -117,6 +119,8 @@ pub struct FunctionBean {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct JavaFacts {
+    /// Literal source-owned Gateway routes; never controller/server endpoints.
+    pub gateway_routes: Vec<GatewayRoute>,
     /// Feign client methods.
     pub clients: Vec<Endpoint>,
     /// Controller methods.
@@ -129,6 +133,8 @@ pub struct JavaFacts {
     pub sent: Vec<String>,
     /// Names of the project's own route predicate and gateway filter factories.
     pub factories: Vec<String>,
+    /// Source-proven factory kind; true means predicate, false means filter.
+    pub factory_kinds: Vec<(String, bool)>,
     /// Legacy Stream channels declared by `@Input` / `@Output` methods, and the interfaces declaring them.
     pub channels: Vec<String>,
     pub channel_interfaces: Vec<String>,
@@ -143,7 +149,7 @@ pub fn java_facts(text: &str) -> JavaFacts {
 pub fn facts_in(path: &str, text: &str) -> JavaFacts {
     let file = parse_source(path, text);
     let span = |at: usize, s: &str| range(text, at, at + s.len());
-    let mut out = JavaFacts::default();
+    let mut out = JavaFacts { gateway_routes: gateway_dsl::routes(path, text), ..Default::default() };
     for c in &file.types {
         if let Some(feign) = c.annotation("FeignClient") {
             let prefix = feign.strings(&["path"]).first().map(|s| s.value.clone()).unwrap_or_default();
@@ -197,10 +203,13 @@ pub fn facts_in(path: &str, text: &str) -> JavaFacts {
                 })
             }));
         }
-        let factory = ["RoutePredicateFactory", "GatewayFilterFactory"].iter().find_map(|s| c.name.strip_suffix(s));
-        let extends_factory = c.supers().any(|s| s.name.ends_with("PredicateFactory") || s.name.ends_with("FilterFactory"));
-        if let Some(name) = factory.or(extends_factory.then_some(c.name.as_str())) {
-            out.factories.push(name.to_owned());
+        for (suffix, predicate) in [("RoutePredicateFactory", true), ("GatewayFilterFactory", false)] {
+            let named = c.name.strip_suffix(suffix);
+            let inherited = c.supers().any(|s| s.name.ends_with(suffix));
+            if let Some(name) = named.or(inherited.then_some(c.name.as_str())) {
+                out.factories.push(name.to_owned());
+                out.factory_kinds.push((name.to_owned(), predicate));
+            }
         }
     }
     for b in java::bean_names(&file) {
@@ -310,6 +319,7 @@ fn composed(entry: &[Name]) -> String {
 
 /// `predicates` or `filters` when `key` is an item of a route's list, and whether it is a WebMVC route.
 fn route_list(key: &str) -> Option<(&'static str, bool)> {
+    let key = key.strip_suffix(".name").unwrap_or(key);
     let index = |s: &str| -> Option<usize> {
         let close = s.strip_prefix('[')?.find(']')? + 1;
         s[1..close].bytes().all(|b| b.is_ascii_digit()).then_some(close + 1)
@@ -419,13 +429,20 @@ enum Slot {
     /// A binding name after `spring.cloud.stream.bindings.`.
     Binding,
     /// A route predicate or filter name.
-    Route(&'static str),
+    Route(&'static str, bool),
 }
 
 /// What is typed at byte `at` of a configuration file, and where it starts.
 fn config_slot(path: &str, text: &str, at: usize) -> Option<(Slot, usize)> {
     let line_start = text[..at].rfind('\n').map_or(0, |i| i + 1);
     let before = &text[line_start..at];
+    for key in config::keys(path, text) {
+        if key.key.ends_with(".name") && key.value_at <= at && at <= key.value_end {
+            if let Some((list, _)) = route_list(&key.key) {
+                return Some((Slot::Route(list, true), key.value_at));
+            }
+        }
+    }
     let word_from = |seps: &[char]| before.rfind(seps).map_or(line_start, |i| line_start + i + 1);
     if config::keys(path, text).iter().any(|k| k.key == DEFINITION && k.at >= line_start && k.end <= at) {
         return Some((Slot::Function, word_from(&[';', '|', '=', ':', ' ', '"', '\''])));
@@ -447,7 +464,7 @@ fn config_slot(path: &str, text: &str, at: usize) -> Option<(Slot, usize)> {
     match value {
         Some(value) if !value.contains('=') => {
             let list = route_list(&key)?.0;
-            Some((Slot::Route(list), at - value.trim_start().len()))
+            Some((Slot::Route(list, key.ends_with(".name")), at - value.trim_start().len()))
         }
         Some(_) => None,
         None => {
@@ -597,7 +614,7 @@ impl CloudTools {
                     continue;
                 }
                 let shipped: &[&str] = if list == "predicates" { &PREDICATES } else { &FILTERS };
-                if shipped.contains(&name) || java.iter().any(|(_, f)| f.factories.iter().any(|n| n == name)) {
+                if shipped.contains(&name) || java.iter().any(|(_, f)| f.factory_kinds.iter().any(|(n, predicate)| n == name && *predicate == (list == "predicates"))) {
                     continue;
                 }
                 let kind = if list == "predicates" { "route predicate" } else { "gateway filter" };
@@ -624,10 +641,21 @@ impl Providers for CloudTools {
             replace,
             ..CompletionItem::new(&label, kind)
         };
-        if let Slot::Route(list) = slot {
+        if let Slot::Route(list, expanded) = slot {
+            let suffix = if expanded { "" } else { "=" };
             let (names, detail): (&[&str], _) =
                 if list == "predicates" { (&PREDICATES, "Route predicate") } else { (&FILTERS, "Gateway filter") };
-            return names.iter().map(|n| item(format!("{n}="), CompletionKind::Function, detail.into())).collect();
+            let mut items: Vec<_> = names.iter().map(|n| item(format!("{n}{suffix}"), CompletionKind::Function, detail.into())).collect();
+            if let Some((java, _)) = self.indexes(doc) {
+                for (name, predicate) in java.iter().flat_map(|(_, f)| &f.factory_kinds) {
+                    if *predicate == (list == "predicates") {
+                        items.push(item(format!("{name}{suffix}"), CompletionKind::Function, format!("Project {detail}")));
+                    }
+                }
+            }
+            items.sort_by(|a, b| a.label.cmp(&b.label));
+            items.dedup_by(|a, b| a.label == b.label);
+            return items;
         }
         let Some((java, config)) = self.indexes(doc) else { return Vec::new() };
         let mut items: Vec<CompletionItem> = Vec::new();
@@ -712,8 +740,10 @@ impl CloudTools {
         let mut files: Vec<(&str, &Vec<Endpoint>)> =
             index.iter().filter(|(_, f)| !f.clients.is_empty()).map(|(p, f)| (p, &f.clients)).collect();
         files.sort_by_key(|(path, _)| *path);
-        if files.is_empty() {
-            let text = if complete { "No Feign clients found." } else { "Scanning…" };
+        let mut gateway_files: Vec<_> = index.iter().filter(|(_, f)| !f.gateway_routes.is_empty()).collect();
+        gateway_files.sort_by_key(|(path, _)| *path);
+        if files.is_empty() && gateway_files.is_empty() {
+            let text = if complete { "No Feign clients or supported Java Gateway routes found." } else { "Scanning…" };
             return View::message(text).button(refresh);
         }
         let mut items = Vec::new();
@@ -729,8 +759,22 @@ impl CloudTools {
                 items.push(TreeItem::new(&key, &label).parent(&file_key).detail(&c.label).icon("send"));
             }
         }
+        let mut route_total = 0;
+        for (path, facts) in gateway_files {
+            let file_key = format!("gateway:{path}");
+            let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
+            items.push(TreeItem::new(&file_key, &format!("Gateway · {name}")).detail(&facts.gateway_routes.len().to_string()).icon("file"));
+            for route in &facts.gateway_routes {
+                route_total += 1;
+                let key = format!("c:{}:{}:{path}", route.range.start.line, route.range.start.character);
+                let detail = format!("{} → {} · methods: {} · paths: {}", route.id, route.uri,
+                    if route.methods.is_empty() { "unconstrained".into() } else { route.methods.join(", ") },
+                    if route.paths.is_empty() { "unconstrained".into() } else { route.paths.join(", ") });
+                items.push(TreeItem::new(&key, &route.id).parent(&file_key).detail(&detail).icon("send"));
+            }
+        }
         self.expansion.apply(&mut items);
-        View::new(Body::Tree(items)).button(refresh).status(&format!("{total} client methods"))
+        View::new(Body::Tree(items)).button(refresh).status(&format!("{total} client methods · {route_total} source Gateway routes"))
     }
 }
 
@@ -1125,6 +1169,33 @@ class StreamFunctions {
     }
 
     #[test]
+    fn expanded_gateway_names_complete_without_shortcut_separator() {
+        let _host = setup();
+        let mut tools = CloudTools::default();
+        let labels = complete(&mut tools, "application.properties", "properties", "spring.cloud.gateway.routes[0].filters[0].name=To^\n");
+        assert!(labels.contains(&"Token".to_owned()), "{labels:?}");
+        assert!(labels.contains(&"StripPrefix".to_owned()));
+        assert!(labels.iter().all(|label| !label.ends_with('=')));
+        let yaml = "spring:\n  cloud:\n    gateway:\n      routes:\n        - id: test\n          filters:\n            - name: To^\n              args:\n                value: 1\n";
+        let labels = complete(&mut tools, "application.yml", "yaml", yaml);
+        assert!(labels.contains(&"Token".to_owned()), "{labels:?}");
+        assert!(labels.iter().all(|label| !label.ends_with('=')));
+    }
+
+    #[test]
+    fn project_gateway_completion_keeps_predicate_and_filter_factories_separate() {
+        let host = setup();
+        host.add_file("src/main/java/Factories.java", "class TenantRoutePredicateFactory extends AbstractRoutePredicateFactory<Object> {}\nclass AuditGatewayFilterFactory extends AbstractGatewayFilterFactory<Object> {}");
+        let mut tools = CloudTools::default();
+        let predicates = complete(&mut tools, "application.properties", "properties", "spring.cloud.gateway.routes[0].predicates[0]=Te^\n");
+        assert!(predicates.contains(&"Tenant=".to_owned()), "{predicates:?}");
+        assert!(!predicates.contains(&"Audit=".to_owned()));
+        let filters = complete(&mut tools, "application.properties", "properties", "spring.cloud.gateway.routes[0].filters[0]=Au^\n");
+        assert!(filters.contains(&"Audit=".to_owned()), "{filters:?}");
+        assert!(!filters.contains(&"Tenant=".to_owned()));
+    }
+
+    #[test]
     fn completes_functions_bindings_and_route_names() {
         let _host = setup();
         let mut tools = CloudTools::default();
@@ -1156,7 +1227,9 @@ class StreamFunctions {
         assert_eq!(labels.len(), PREDICATES.len());
         assert!(labels.contains(&"Method=".to_owned()));
         let text = "spring.cloud.gateway.server.webflux.routes[0].filters[1]=Strip^\n";
-        assert_eq!(complete(&mut tools, "application.properties", "properties", text).len(), FILTERS.len());
+        let labels = complete(&mut tools, "application.properties", "properties", text);
+        assert_eq!(labels.len(), FILTERS.len() + 1);
+        assert!(labels.contains(&"Token=".to_owned()));
         assert!(complete(&mut tools, "application.yml", "yaml", &YAML.replace("Path=/users/**", "Path=/us^ers/**")).is_empty());
         assert!(complete(&mut tools, "messages.properties", "properties", "spring.cloud.stream.bindings.^").is_empty());
     }
@@ -1165,7 +1238,7 @@ class StreamFunctions {
     fn matches_route_lists_and_bindings() {
         assert_eq!(route_list("spring.cloud.gateway.routes[0].predicates[12]"), Some(("predicates", false)));
         assert_eq!(route_list("spring.cloud.gateway.server.webmvc.routes[3].filters[0]"), Some(("filters", true)));
-        assert_eq!(route_list("spring.cloud.gateway.routes[0].filters[0].name"), None);
+        assert_eq!(route_list("spring.cloud.gateway.routes[0].filters[0].name"), Some(("filters", false)));
         assert_eq!(route_list("spring.cloud.gateway.routes[0].uri"), None);
         assert_eq!(function_of("process-in-0"), Some("process"));
         assert_eq!(function_of("my-fn-out-12"), Some("my-fn"));
@@ -1382,6 +1455,33 @@ class StreamFunctions {
         let Body::Tree(items) = view.body else { panic!("not a tree") };
         let labels: Vec<_> = items.iter().map(|i| (i.label.as_str(), i.detail.as_deref())).collect();
         assert_eq!(labels, [("Users.java", Some("1")), ("GET /users/{id}", Some("Users.get()"))]);
+    }
+
+    #[test]
+    fn gateway_dsl_is_visible_with_source_navigation_and_never_a_server_endpoint() {
+        let host = MockHost::install();
+        let text = "import org.springframework.context.annotation.Bean;\nimport org.springframework.cloud.gateway.route.RouteLocator;\nimport org.springframework.cloud.gateway.route.builder.RouteLocatorBuilder;\nclass Gateway { @Bean RouteLocator routes(RouteLocatorBuilder builder) { return builder.routes().route(\"users\", r -> r.path(\"/users/**\").and().method(\"GET\").uri(\"lb://users\")).build(); } }";
+        host.add_file("src/main/java/Gateway.java", text);
+        let facts = facts_in("Gateway.java", text);
+        assert_eq!(facts.gateway_routes.len(), 1);
+        assert!(facts.servers.is_empty());
+        assert!(facts.clients.is_empty());
+        let project = host.invocation().project().unwrap();
+        let mut tools = CloudTools::default();
+        let view = tools.feign_view("cloud", &project, std::time::Duration::from_secs(3));
+        let Body::Tree(items) = view.body else { panic!("not a tree") };
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].label, "Gateway · Gateway.java");
+        assert_eq!(items[1].label, "users");
+        assert_eq!(items[1].detail.as_deref(), Some("users → lb://users · methods: GET · paths: /users/**"));
+        let at = facts.gateway_routes[0].range.start;
+        assert_eq!(items[1].key, format!("c:{}:{}:/project/src/main/java/Gateway.java", at.line, at.character));
+        tools.handle("cloud", ViewEvent::Activate(items[1].key.clone()), &host.invocation()).unwrap();
+        assert_eq!(host.opened_locations(), [("/project/src/main/java/Gateway.java".into(), at.line, at.character)]);
+        // A changed DSL source is reparsed; the obsolete literal cannot survive the index update.
+        tools.live_update(&project, "/project/src/main/java/Gateway.java", Some(&text.replace("\"users\"", "id")));
+        let updated = tools.feign_view("cloud", &project, std::time::Duration::from_secs(3));
+        assert!(matches!(updated.body, Body::Message(_)));
     }
 
     #[cfg(feature = "embedded")]

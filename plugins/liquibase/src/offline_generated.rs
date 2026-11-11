@@ -9,9 +9,12 @@ pub(super) struct Document {
     base: String,
     key: String,
     selected: BTreeSet<usize>,
+    groups: BTreeMap<String, BTreeSet<usize>>,
+    active: String,
     text: String,
     at: Instant,
 }
+pub(crate) struct PreparedGroups { pub groups: Vec<(String, String)>, pub provenance: String }
 pub(crate) struct Prepared { pub text: String, pub provenance: String }
 fn hash(parts: &[&str]) -> String {
     let mut hash = Sha256::new();
@@ -45,14 +48,22 @@ pub(super) fn capture(state: &mut State, plan: &Plan) -> Result<(), Error> {
     if !log.author_matches(&request.author) { return Err(Error::Stale); }
     let base = hash(&[&plan.root, &plan.reference.path, &plan.reference.text, &plan.target.path, &plan.target.text, &request.output, &text]);
     let key = hash(&[&base, &text]);
-    let selected = (0..log.len()).collect();
-    state.generated = Some(Document { plan: plan.clone(), log, base, key, selected, text, at: Instant::now() });
+    let selected: BTreeSet<_> = (0..log.len()).collect();
+    let groups = BTreeMap::from([("Migration 1".to_owned(), selected.clone())]);
+    state.generated = Some(Document { plan: plan.clone(), log, base, key, selected, groups, active: "Migration 1".into(), text, at: Instant::now() });
     state.generated_view = true;
     state.selected = None;
     state.review = None;
     state.visible = 0..0;
     Ok(())
 }
+fn update(document: &mut Document) -> Result<(), Error> {
+    document.selected = document.groups.get(&document.active).cloned().ok_or(Error::Stale)?;
+    document.text = if document.selected.is_empty() { String::new() } else { document.log.subset(&document.selected)? };
+    document.key = hash(&[&document.base, &document.text, &serde_json::to_string(&document.groups).map_err(|_| Error::Stale)?, &document.active]);
+    Ok(())
+}
+fn assigned(document: &Document) -> BTreeSet<usize> { document.groups.values().flat_map(|indexes| indexes.iter().copied()).collect() }
 fn source_owned(project: &Project, document: &Document) -> Result<(), Error> {
     if project.root()? != document.plan.root || !host::projects()?.iter().any(|p| p.root().ok().as_deref() == Some(document.plan.root.as_str())) { return Err(Error::Stale); }
     for source in [&document.plan.reference, &document.plan.target] {
@@ -62,7 +73,7 @@ fn source_owned(project: &Project, document: &Document) -> Result<(), Error> {
     Ok(())
 }
 fn provenance(document: &Document) -> String {
-    format!("Project: {}\nReference: {} [editor-text SHA256 {:x}]\nTarget: {} [editor-text SHA256 {:x}]\n{} selected /{} observed changesets · {}s old\nLiquibase4.29.2 offline diff-changelog contract; installed version/edition and full schema coverage unverified. Selection preserves source order; omitted changeset dependencies, SQL correctness, current database state and runtime parameters are NOT validated. Generated source may contain sensitive schema/default values and is not rewritten/redacted. No update/rollback/database execution occurs on preview or save.", document.plan.root, document.plan.reference.path, Sha256::digest(document.plan.reference.text.as_bytes()), document.plan.target.path, Sha256::digest(document.plan.target.text.as_bytes()), document.selected.len(), document.log.len(), document.at.elapsed().as_secs())
+    format!("Project: {}\nReference: {} [editor-text SHA256 {:x}]\nTarget: {} [editor-text SHA256 {:x}]\n{} selected /{} observed changesets · {}s old\nLiquibase4.29.2 offline diff-changelog contract; installed version/edition and full schema coverage unverified. Selection preserves source order; omitted changeset dependencies, SQL correctness, current database state and runtime parameters are NOT validated. Generated source may contain sensitive schema/default values and is not rewritten/redacted. No update/rollback/database execution occurs on preview or save.", document.plan.root, document.plan.reference.path, Sha256::digest(document.plan.reference.text.as_bytes()), document.plan.target.path, Sha256::digest(document.plan.target.text.as_bytes()), document.selected.len(), document.log.len(), document.at.elapsed().as_secs()) + &format!("\nActive migration group: {}\nGroups: {}\nIgnored changesets: {}\nOperation classes are lexical categories, not SQL safety or dependency analysis.", document.active, document.groups.iter().map(|(name, indexes)| format!("{name}: {}", indexes.len())).collect::<Vec<_>>().join("; "), document.log.len() - assigned(document).len())
 }
 pub(super) fn owner(state: &State) -> Option<&str> { state.generated.as_ref().map(|document| document.plan.root.as_str()) }
 pub(super) fn body(state: &State, root: &str) -> Option<Body> {
@@ -78,6 +89,18 @@ pub(super) fn body(state: &State, root: &str) -> Option<Body> {
     ]))
 }
 impl Liquibase {
+    pub(crate) fn generated_groups_key(&self, root: &str) -> Option<String> {
+        if self.offline.running.is_some() { return None; }
+        self.offline.generated.as_ref().filter(|document| document.plan.root == root && document.groups.len() > 1 && document.groups.values().any(|indexes| !indexes.is_empty())).map(|document| document.key.clone())
+    }
+    pub(crate) fn prepared_generated_groups(&self, project: &Project, root: &str, key: &str) -> Result<PreparedGroups, Error> {
+        if self.offline.running.is_some() { return Err(Error::Stale); }
+        let document = self.offline.generated.as_ref().filter(|document| document.plan.root == root && document.key == key).ok_or(Error::Stale)?;
+        source_owned(project, document)?;
+        let groups = document.groups.iter().filter(|(_, indexes)| !indexes.is_empty()).map(|(name, indexes)| Ok((name.clone(), document.log.subset(indexes)?))).collect::<Result<Vec<_>, Error>>()?;
+        if groups.is_empty() { return Err(Error::Stale); }
+        Ok(PreparedGroups { groups, provenance: provenance(document) })
+    }
     pub(crate) fn generated_action_key(&self, root: &str) -> Option<String> {
         if self.offline.running.is_some() { return None; }
         self.offline.generated.as_ref().filter(|d| d.plan.root == root && !d.selected.is_empty()).map(|d| d.key.clone())
@@ -104,17 +127,71 @@ impl Liquibase {
             let index = available.get(key.as_str()).ok_or(Error::Stale)?;
             if !indexes.insert(*index) { return Err(Error::Stale); }
         }
-        let text = document.log.subset(&indexes)?;
-        let key = hash(&[&base, &text]);
+        if indexes.is_empty() { return Err("Select at least one changeset; use Organize to ignore/remove groups.".into()); }
         let document = self.offline.generated.as_mut().ok_or(Error::Stale)?;
-        document.key = key;
-        document.selected = indexes;
-        document.text = text;
+        for values in document.groups.values_mut() { values.retain(|index| !indexes.contains(index)); }
+        document.groups.insert(document.active.clone(), indexes);
+        update(document)?;
         self.offline.generated_view = true;
         self.offline.visible = 0..0;
         ui_kit::web::refresh_view(VIEW, include_str!("ui_config.json"));
         Ok(())
     }
+    pub(crate) fn organize_generated_changesets(&mut self, ctx: &Invocation) -> Result<(), Error> {
+        if self.offline.running.is_some() { return Err(Error::Stale); }
+        let project = ctx.project().ok_or(Error::Stale)?;
+        let document = self.offline.generated.as_ref().ok_or(Error::Stale)?;
+        source_owned(&project, document)?;
+        let expected = document.key.clone();
+        let choices = [PickItem::new("new", "Add migration group"), PickItem::new("switch", "Switch active migration group"),
+            PickItem::new("remove", "Remove active group and ignore its changesets"), PickItem::new("ignore", "Ignore chosen changesets"),
+            PickItem::new("restore", "Restore ignored changesets to active group"), PickItem::new("category", "Move an operation class to active group")];
+        let Some(action) = host::pick("Organize generated migrations", &choices)? else { return Ok(()); };
+        let mut groups = document.groups.clone(); let mut active = document.active.clone();
+        match action.as_str() {
+            "new" => {
+                if groups.len() >= 32 { return Err("At most32 migration groups.".into()); }
+                let Some(name) = host::input("Migration group label", Some(&format!("Migration {}", groups.len() + 1)))? else { return Ok(()); };
+                if name.trim().is_empty() || name.len() > 80 || name.chars().any(char::is_control) || groups.contains_key(&name) { return Err("Use a unique nonempty bounded group label.".into()); }
+                groups.insert(name.clone(), BTreeSet::new()); active = name;
+            },
+            "switch" => {
+                let choices: Vec<_> = groups.keys().map(|name| PickItem::new(name, name)).collect();
+                let Some(name) = host::pick("Active migration group", &choices)? else { return Ok(()); };
+                if !groups.contains_key(&name) { return Err(Error::Stale); } active = name;
+            },
+            "remove" => {
+                if groups.len() <= 1 { return Err("Keep at least one migration group; ignore individual changesets instead.".into()); }
+                groups.remove(&active); active = groups.keys().next().ok_or(Error::Stale)?.clone();
+            },
+            "ignore" | "restore" => {
+                let assigned = assigned(document);
+                let choices: Vec<_> = document.log.labels().enumerate().filter(|(index, _)| if action == "restore" { !assigned.contains(index) } else { assigned.contains(index) })
+                    .map(|(index, label)| PickItem::new(&index.to_string(), label)).collect();
+                let Some(chosen) = host::pick_many(if action == "restore" { "Restore ignored changesets" } else { "Ignore changesets (excluded from saved groups)" }, &choices)? else { return Ok(()); };
+                let available: BTreeSet<_> = choices.iter().map(|item| item.key.as_str()).collect();
+                let mut indexes = BTreeSet::new();
+                for key in chosen { if !available.contains(key.as_str()) || !indexes.insert(key.parse::<usize>().map_err(|_| Error::Stale)?) { return Err(Error::Stale); } }
+                for values in groups.values_mut() { values.retain(|index| !indexes.contains(index)); }
+                if action == "restore" { groups.get_mut(&active).ok_or(Error::Stale)?.extend(indexes); }
+            },
+            "category" => {
+                let Some(category) = host::pick("Operation class (not SQL risk/dependency analysis)", &[PickItem::new("drop-delete", "Drop/delete"), PickItem::new("add-create", "Add/create"), PickItem::new("other-sql", "Other/SQL")])? else { return Ok(()); };
+                if !matches!(category.as_str(), "drop-delete" | "add-create" | "other-sql") { return Err(Error::Stale); }
+                let indexes: BTreeSet<_> = (0..document.log.len()).filter(|index| document.log.category(*index) == Some(category.as_str())).collect();
+                for values in groups.values_mut() { values.retain(|index| !indexes.contains(index)); }
+                groups.get_mut(&active).ok_or(Error::Stale)?.extend(indexes);
+            },
+            _ => return Err(Error::Stale),
+        }
+        let document = self.offline.generated.as_ref().filter(|document| document.key == expected).ok_or(Error::Stale)?;
+        source_owned(&project, document)?;
+        let document = self.offline.generated.as_mut().ok_or(Error::Stale)?;
+        document.groups = groups; document.active = active; update(document)?;
+        self.offline.generated_view = true; self.offline.visible = 0..0;
+        ui_kit::web::refresh_view(VIEW, include_str!("ui_config.json")); Ok(())
+    }
+
 }
 
 #[cfg(test)]
@@ -147,6 +224,58 @@ mod tests {
     }
     fn action(plugin: &mut Liquibase, doc: &EditorDocument) -> openidea_plugin::file_actions::FileAction {
         plugin.file_actions(doc, Range::default()).into_iter().find(|action| action.title == "Save reviewed offline changesets…").unwrap()
+    }
+    #[test]
+    fn grouped_candidates_move_ignore_restore_and_save_multiple_files_atomically() {
+        let (host, mut plugin) = setup(); answers(&host);
+        plugin.start_offline_generation(&host.invocation()).unwrap(); finish(&host, &mut plugin, &sample());
+        let doc = editor(&host);
+        let initial = action(&mut plugin, &doc);
+        host.answer_next_prompt(Some(&["new"])); host.answer_next_prompt(Some(&["Data"]));
+        plugin.organize_generated_changesets(&host.invocation()).unwrap();
+        assert!(plugin.generated_action_key("/project").is_none(), "empty active group has no single-file save action");
+        let base = plugin.offline.generated.as_ref().unwrap().base.clone();
+        host.answer_next_prompt(Some(&[&format!("generated:{base}:1")]));
+        plugin.choose_generated_changesets(&host.invocation()).unwrap();
+        let grouped = plugin.prepared_generated_groups(&host.invocation().project().unwrap(), "/project", &plugin.generated_groups_key("/project").unwrap()).unwrap();
+        assert_eq!(grouped.groups.len(), 2);
+        assert_eq!(grouped.groups[0].0, "Data");
+        assert!(grouped.groups[0].1.contains("ALTER TABLE") && !grouped.groups[0].1.contains("createTable"));
+        assert!(grouped.groups[1].1.contains("createTable") && !grouped.groups[1].1.contains("ALTER TABLE"));
+        assert!(matches!(plugin.resolve_file_action(&doc, initial), Err(Error::Stale)));
+        let action = plugin.file_actions(&doc, Range::default()).into_iter().find(|action| action.title == "Save grouped offline migrations…").unwrap();
+        for answer in ["db/data.xml", "db/schema.xml"] { host.answer_next_prompt(Some(&[answer])); } host.answer_next_prompt(Some(&[]));
+        let resolved = plugin.resolve_file_action(&doc, action).unwrap();
+        assert_eq!(resolved.operations.len(), 2);
+        assert!(resolved.operations.iter().all(|operation| matches!(operation, FileOperation::Create { overwrite: false, .. })));
+        assert!(!host.invocation().project().unwrap().exists("db/data.xml").unwrap());
+        let before = plugin.generated_groups_key("/project").unwrap();
+        host.answer_next_prompt(Some(&["ignore"])); host.answer_next_prompt(Some(&["0"]));
+        plugin.organize_generated_changesets(&host.invocation()).unwrap();
+        let document = plugin.offline.generated.as_ref().unwrap();
+        assert_eq!(assigned(document), BTreeSet::from([1]));
+        assert_ne!(document.key, before);
+        host.answer_next_prompt(Some(&["restore"])); host.answer_next_prompt(Some(&["0"]));
+        plugin.organize_generated_changesets(&host.invocation()).unwrap();
+        assert_eq!(plugin.offline.generated.as_ref().unwrap().selected, BTreeSet::from([0, 1]));
+    }
+    #[test]
+    fn organizer_cancel_forged_choices_and_category_selection_preserve_ownership() {
+        let (host, mut plugin) = setup(); answers(&host);
+        plugin.start_offline_generation(&host.invocation()).unwrap(); finish(&host, &mut plugin, &sample());
+        let before = plugin.generated_action_key("/project").unwrap();
+        host.answer_next_prompt(None); plugin.organize_generated_changesets(&host.invocation()).unwrap();
+        assert_eq!(plugin.generated_action_key("/project").unwrap(), before);
+        host.answer_next_prompt(Some(&["switch"])); host.answer_next_prompt(Some(&["forged"]));
+        assert!(plugin.organize_generated_changesets(&host.invocation()).is_err());
+        assert_eq!(plugin.generated_action_key("/project").unwrap(), before);
+        host.answer_next_prompt(Some(&["new"])); host.answer_next_prompt(Some(&["Schema"])); plugin.organize_generated_changesets(&host.invocation()).unwrap();
+        host.answer_next_prompt(Some(&["category"])); host.answer_next_prompt(Some(&["add-create"])); plugin.organize_generated_changesets(&host.invocation()).unwrap();
+        let document = plugin.offline.generated.as_ref().unwrap();
+        assert_eq!(document.selected, BTreeSet::from([0]));
+        assert!(document.text.contains("createTable") && !document.text.contains("ALTER TABLE"));
+        host.add_file("ref.json", "changed");
+        assert!(plugin.prepared_generated_groups(&host.invocation().project().unwrap(), "/project", &document.key).is_err());
     }
     #[test]
     fn explicit_generation_captures_xml_and_returns_one_exact_nonoverwriting_fileaction_without_direct_source_write() {

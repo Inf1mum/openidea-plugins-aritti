@@ -1,4 +1,4 @@
-//! Optional cached Boolean/enum form. Metadata is not a registry descriptor or
+//! Optional cached Boolean/enum/string form. Metadata is not a registry descriptor or
 //! runtime verification; creation only serializes explicitly selected values.
 use openidea_plugin::{Error, PickItem, host};
 use serde_json::{Map, Value};
@@ -37,30 +37,16 @@ fn supported(raw: &Value) -> Map<String, Value> {
                 }
             }
             "string" => {
-                if description.get("proposals").is_some() {
-                    continue;
+                if description.get("enum").is_some() && description.get("proposals").is_some() {continue;}
+                let field=if description.get("enum").is_some(){"enum"}else{"proposals"};
+                if let Some(raw)=description.get(field) {
+                    let Some(values)=raw.as_array() else{continue;};
+                    let mut seen=std::collections::BTreeSet::new();
+                    if values.is_empty() || values.len()>16 || !values.iter().all(|v|v.as_str().is_some_and(|s|s.len()<=128 && !s.chars().any(char::is_control) && seen.insert(s))){continue;}
+                    if field=="enum" && description.get("default").is_some_and(|v|!values.contains(v)){continue;}
+                    option.insert(field.into(),values.clone().into());
                 }
-                let Some(values) = description.get("enum").and_then(Value::as_array) else {
-                    continue;
-                };
-                let mut seen = std::collections::BTreeSet::new();
-                if values.is_empty()
-                    || values.len() > 16
-                    || !values.iter().all(|v| {
-                        v.as_str().is_some_and(|s| {
-                            s.len() <= 128 && !s.chars().any(char::is_control) && seen.insert(s)
-                        })
-                    })
-                {
-                    continue;
-                }
-                if description
-                    .get("default")
-                    .is_some_and(|v| !values.contains(v))
-                {
-                    continue;
-                }
-                option.insert("enum".into(), values.clone().into());
+                if description.get("default").is_some_and(|v|!v.as_str().is_some_and(|s|s.len()<=4096&&!s.contains('\0'))){continue;}
             }
             _ => continue,
         }
@@ -133,7 +119,7 @@ pub(crate) fn cache_from_index(body: &str, index: &str) -> Option<String> {
     (cache.len() <= MAX_CACHE).then_some(cache)
 }
 
-fn cached(reference: &str) -> Map<String, Value> {
+pub(crate) fn cached(reference: &str) -> Map<String, Value> {
     let Ok(Some(index)) = host::storage::get("feature-index") else {
         return Map::new();
     };
@@ -168,7 +154,7 @@ pub(crate) fn choose(reference: &str) -> Result<Value, Error> {
     }
     let mode=host::pick("Cached feature options — unverified metadata",&[
         PickItem::new("defaults","Use feature defaults (omit options)"),
-        PickItem::new("configure","Review cached Boolean/enum options").description("Only a bounded subset is offered. Other options stay omitted. No availability/compatibility verification."),
+        PickItem::new("configure","Review cached feature options").description("Boolean, enum and string options are supported. Metadata availability/compatibility is unverified."),
     ])?.ok_or(Error::Cancelled)?;
     match mode.as_str() {
         "defaults" => return Ok(selected.into()),
@@ -179,7 +165,7 @@ pub(crate) fn choose(reference: &str) -> Result<Value, Error> {
         let values = if option["type"] == "boolean" {
             vec![Value::Bool(true), Value::Bool(false)]
         } else {
-            option["enum"].as_array().ok_or(Error::Stale)?.clone()
+            option.get("enum").or_else(||option.get("proposals")).and_then(Value::as_array).cloned().unwrap_or_default()
         };
         let default = option
             .get("default")
@@ -196,10 +182,17 @@ pub(crate) fn choose(reference: &str) -> Result<Value, Error> {
                 .enumerate()
                 .map(|(n, value)| PickItem::new(&format!("value-{n}"), &value.to_string())),
         );
+        let freeform=option["type"]=="string" && option.get("enum").is_none();
+        if freeform{items.push(PickItem::new("custom","Enter a string value…"));}
         let key = host::pick(&format!("Cached option {id} for {reference}"), &items)?
             .ok_or(Error::Cancelled)?;
         if key == "omit" {
             continue;
+        }
+        if freeform && key=="custom" {
+            let value=host::input(&format!("Value for feature option {id}"),option.get("default").and_then(Value::as_str))?.ok_or(Error::Cancelled)?;
+            if value.len()>4096 || value.contains('\0'){return Err("Feature option values must be at most4096 bytes and contain no NUL.".into());}
+            selected.insert(id,Value::String(value));continue;
         }
         let n = key
             .strip_prefix("value-")
@@ -223,6 +216,19 @@ mod tests {
         host
     }
     #[test]
+    fn string_proposals_and_custom_values_are_explicit_and_cancelable() {
+        let host=setup();
+        host::storage::set(CACHE_KEY,&serde_json::json!({"index":INDEX,"features":{REFERENCE:{"version":{"type":"string","proposals":["latest","stable"],"default":"latest"}}}}).to_string()).unwrap();
+        for answer in ["configure","custom","my version with spaces"]{host.answer_next_prompt(Some(&[answer]));}
+        assert_eq!(choose(REFERENCE).unwrap(),serde_json::json!({"version":"my version with spaces"}));
+        for answer in ["configure","value-1"]{host.answer_next_prompt(Some(&[answer]));}
+        assert_eq!(choose(REFERENCE).unwrap(),serde_json::json!({"version":"stable"}));
+        for answer in ["configure","custom"]{host.answer_next_prompt(Some(&[answer]));}host.answer_next_prompt(None);
+        assert!(matches!(choose(REFERENCE),Err(Error::Cancelled)));
+        assert!(host.process_runs().is_empty()&&host.requests().is_empty());
+    }
+
+    #[test]
     fn public_refresh_retains_metadata_from_same_index_request_without_fetching_descriptors() {
         let host = MockHost::install().with_capabilities(&["project.read", "storage", "net:containers.dev"]);
         host.on_fetch(|request| {assert_eq!(request.url,crate::features::INDEX_URL);Ok(openidea_plugin::HttpResponse{status:200,headers:vec![],body:serde_json::json!({"collections":[{"features":[{"id":"ghcr.io/acme/features/tool","majorVersion":"1","name":"Tool","options":{"enabled":{"type":"boolean","default":true},"version":{"type":"string","enum":["stable","next"],"default":"stable"}}}]}]}).to_string().into_bytes()})});
@@ -240,7 +246,7 @@ mod tests {
     fn supported_descriptor_subset_is_bounded_and_type_checked() {
         let raw = serde_json::json!({"bool":{"type":"boolean","default":true,"description":"a\u{1b}b"},"enum":{"type":"string","enum":["one","two"],"default":"one"},"free":{"type":"string","proposals":["latest"]},"badBool":{"type":"boolean","default":"true"},"badDefault":{"type":"string","enum":["a"],"default":"b"},"duplicate":{"type":"string","enum":["a","a"]},"bad id":{"type":"boolean"},"badControl":{"type":"string","enum":["a\n"]}});
         let admitted = supported(&raw);
-        assert_eq!(admitted.len(), 2);
+        assert_eq!(admitted.len(), 3);
         assert_eq!(admitted["bool"]["description"], "a b");
         let mut many = Map::new();
         for n in 0..100 {

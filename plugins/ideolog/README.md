@@ -2,7 +2,7 @@
 
 One shared UI-kit window contains the Ideolog, Log Snapshot tabs. Commands select their corresponding custom tab; existing actions, drafts and ownership checks remain in their original handlers. See [tab migration and parity validation](../../docs/custom-plugin-groups-2026-11-10.md).
 
-One UI-kit tool window contains Patterns and Log Snapshot. Pattern forms keep their draft/save/conflict controls. The optional captured snapshot exposes Previous/Next Events in 100-row pages with exact source-line activation, off-page rejection and retained position across tab switches. Capturing remains explicit; changing tabs never reads or tails the log.
+Ideolog offers Patterns and Log Snapshot, plus optional JVM Observations and Live Log Tail surfaces. Pattern forms keep their draft/save/conflict controls. The optional captured snapshot exposes Previous/Next Events in 100-row pages with exact source-line activation, off-page rejection and retained position across tab switches. Capturing remains explicit; changing tabs never reads or tails the log.
 
 OpenIDEA port of JetBrains' [Ideolog](https://github.com/JetBrains/ideolog) (MIT), from tag
 `pycharm/263.7307.101` (`41beb53`), the version on the JetBrains Marketplace.
@@ -65,8 +65,8 @@ Open logs pick up a change when they're edited or reopened.
 OpenIDEA's built-in `Log` file type now owns `.log` by default. The plugin no
 longer shadows it with a filename glob. **Log (Ideolog)** remains available as a
 manual file-type choice for its existing custom-language lexical highlighting,
-folding and outline. Commands and stack-frame links support both types. The
-built-in semantic overlay does not itself publish custom folds or outline.
+folding and outline. Commands and stack-frame links support both types. API1.4 folding now supplies multiline-event folds for the built-in Log editor.
+Built-in document outline remains a separate feature.
 The API 1.3 provider returns Ideolog's existing event,
 field and match highlighting tokens, including captured timestamps, levels, messages and
 stack-trace continuation lines. **On v0.1.39 the built-in editor does not render the
@@ -89,8 +89,10 @@ its existing lexical highlighting, folding and outline path, with its 512 KiB li
 No OpenIDEA API for these yet:
 
 - Hiding, whitelisting or highlighting values and columns, hiding lines above/below or containing
-  a substring: the editor has no API to fold, hide or re-colour on demand.
-- Extend selection: plugins can't set the selection.
+  a substring in the native editor: native line visibility/whitelist hooks remain unavailable.
+  The owned Live Log Tail supplies literal text filtering and inverse filtering.
+- Native scrollbar stripe and arbitrary font/background styling remain separate from source decorations.
+  API1.4 selection ranges and Extend Log Selection are implemented below.
 - Error stripe heat map: API1.4 source decorations do not expose the original scrollbar heatmap contract.
 - Large file editor, terminal and TextMate integrations.
 
@@ -217,6 +219,127 @@ Compared with JetBrains' public `LogParsingPatternSettingsDialog` and `LogHighli
 
 The native Patterns table now exposes recognizable Log Formats and Highlighting sections, selected-row editing/removal/reordering, an explicit enabled toggle and named log-format restrictions. Format UUIDs remain internal identities; duplicate display names are disambiguated. The regex widgets remain native text fields, not IntelliJ regex editors.
 
-Timestamp formats support fixed numeric `yyyy`, `MM`, `dd`, `HH`, `mm`, `ss`, `SSS`, quoted literals and `Z`/`X`/`XX`/`XXX` offsets. A pattern requires hour/minute/second fields; absent/empty preserves automatic parsing. Preview confirms whether the sample timestamp matches the selected format; the same parser is used for actual gap computation. Unsupported tokens such as locale month/day names are rejected for new edits; imported unsupported formats remain readable but produce configuration errors and no computed gap. This is not full Java SimpleDateFormat support.
+Timestamp formats support fixed numeric `yyyy`, `MM`, `dd`, `HH` (or `hh` with `a`), `mm`, `ss`, `SSS`, quoted literals and `Z`/`X`/`XX`/`XXX` offsets. A pattern requires hour/minute/second fields; absent/empty preserves automatic parsing. Preview confirms whether the sample timestamp matches the selected format; the same parser is used for actual gap computation. Unsupported tokens such as locale month/day names are rejected for new edits; imported unsupported formats remain readable but produce configuration errors and no computed gap. This is not full Java SimpleDateFormat support.
 
 Background/bold/italic/stripe widgets and arbitrary color semantics remain missing. Original MIT Ideolog parsing/highlighting dialog fields were rechecked against retained Marketplace263.7307.101 decompilation; supplementary public source is commit aa342f00d580c074c27ad32e67b46c7670df9b02. Native UI adaptation does not establish full visual or behavior parity.
+
+### Twelve-hour timestamp formats (2026-11-10)
+
+Custom timestamp formats accept `hh:mm:ss a`, including case-insensitive ASCII
+`AM`/`PM` markers, dates, milliseconds and numeric zone offsets. Midnight/noon
+and time gaps use the same normalized timestamp scale as 24-hour formats.
+Ambiguous `hh` without `a`, `HH` with `a`, invalid twelve-hour values and extra
+text are rejected. Preview and imported custom format processing use the same
+parser. Locale-specific day-period words, month names, named zones and general
+Java SimpleDateFormat semantics remain unsupported.
+
+### Numeric width and fixed-zone timestamp formats (2026-11-10)
+
+Single-letter `M`, `d`, `H`, `h`, `m`, and `s` accept one or two digits; double-letter
+forms retain fixed two-digit parsing. `k`/`kk` accepts 1–24 (24 means midnight),
+and `K`/`KK` accepts 0–11 with `a`. `S` reads one to three millisecond digits;
+`SS` and `SSS` read exactly two and three (these are millisecond numbers, not decimal
+fraction scaling). Variable-width adjacent numeric fields are rejected unless
+separated to avoid ambiguous ownership of digits. `z` through `zzzz` accepts UTC,
+GMT and GMT offsets in `GMT+02:00` form; region names/ambiguous abbreviations are
+not guessed. RFC822 `Z` through `ZZZ` keeps numeric `+0200` spelling.
+
+### Optional JVM regex and date observations (2026-11-10)
+
+**Ideolog: Capture JVM Regex and Date Observations** runs an approved Java17+
+executable for an explicitly selected custom `LogParsingPattern`. It accepts raw
+imported patterns from `customPatterns`, including Java regex constructs and
+SimpleDateFormat fields unsupported by the local editor parser. Choose an explicit
+BCP47 locale and Java timezone ID, or leave either empty to use the JVM default.
+The review names the source, format, regex, date pattern, scope and local tool.
+No Java tool or application is installed or bootstrapped automatically.
+
+The native **JVM Observations** table shows event source lines, epoch milliseconds,
+time gaps, timestamp/severity/category/message captures and the actual Java
+version/locale/timezone. Java `Pattern.find()` capture order, non-overlapping
+groups and multiline final-message extension follow the original parser behavior.
+Java SimpleDateFormat retains its default lenient parse behavior, including its
+locale-aware names and timezone rules. After explicit capture, the built-in Log semantic provider can reuse exact-source
+observations for uniquely located timestamp, recognized severity and category
+fields. Syntax and semantic providers never launch a subprocess.
+
+Capture requires an owned project log no larger than64KiB/512lines, with4096bytes
+per line. One bounded JVM child handles the whole snapshot, with a64MiB heap,
+15second deadline, cancellation and256KiB stdout/8KiB stderr limits. Display cells
+are truncated to512UTF16 code units. Helper source and a bounded input file live
+in plugin-private storage; input contents are cleared on every normal return or
+error. Empty input-file metadata may remain until plugin uninstall. No project
+build, project classpath or framework bootstrap is invoked. The approved tool
+inherits the host's process environment. Missing/denied Java, unsupported versions,
+invalid patterns, timeouts and oversized output retain previous observations.
+
+Observation activation rechecks project ownership, the exact current source,
+version where available and stored pattern configuration before navigating.
+Snapshots remain memory-only and do not imply live-tail, editor renderer or
+arbitrary custom-highlighting-rule parity.
+
+### Exact-source JVM highlighting cache (2026-11-10)
+
+For a successfully captured built-in Log document, cached JVM observations supply
+semantic timestamp, recognized error/warning severity and category tokens. Actual
+JVM time gaps drive the existing gap-color category. A field is admitted only when
+it occurs exactly once in its original first physical line; repeated, multiline,
+potentially truncated and overlapping fields are withheld rather than guessed.
+Ranges use UTF16 coordinates, including astral characters before a capture.
+
+Cache use requires the same document path, full text, version, deepest project
+owner, warmed custom-format configuration and current customPatterns setting.
+Delivered file/settings/focus lifecycle events withdraw live cache eligibility
+while retaining the explicit observation table. **Mark Current Log Source** can
+re-admit an unchanged snapshot after warming current stored configuration and
+subscribing to lifecycle events; it uses the same cached JVM fields for native
+source marks. Re-capture when the source or custom format changes.
+
+Providers read neither files nor pattern storage and run no Java process. Stored
+format changes in another plugin instance become visible after a configuration
+refresh or delivered lifecycle event; the live cache does not claim independent
+cross-instance storage observation. The custom `ideolog` language retains its
+existing syntax provider. Java custom-highlighting-rule colors and full-line
+style rendering remain outside this cached-field integration.
+
+## Owned live tail, filtering and API1.4 editor features (2026-11-11)
+
+Open a saved project UTF8 log, choose **Ideolog: Open Live Log Tail**, and press
+**Start** to review an approved Java17+ file-following session. The shared-kit panel
+shows complete raw lines, a case-insensitive literal text filter, inverse **Hide
+matches**, **Follow** scrolling and **Stop**. Leaving/hiding the panel requests Stop.
+**Ideolog: Stop Live Log Tail** also stops a remaining session after a panel reload.
+Filtering is confined to the owned panel; it does not hide native editor lines.
+
+The Java helper uses secure directory-relative read handles with symlinks refused.
+It begins within the final64KiB of the selected file and follows appends for at
+most5minutes/1MiB per explicitly started session. Each helper read is4096bytes;
+only complete UTF8 lines up to4096bytes are admitted. The view retains at most
+512lines/128KiB. File identity changes and observed truncation reset the displayed
+generation; a missing replacement gets a2second rotation grace before stopping.
+Changes that truncate and regrow between polls without changing file identity or
+the retained prefix are not promised to be detected.
+
+Visible correlated panel messages drain output at1second intervals. The backend
+checks project ownership and unsaved-source state, bounds frames/output, rejects
+stale controller messages and stops its child on cancellation, source invalidation
+or plugin shutdown. The child self-expires even if the panel loses its controller.
+Helper source is written only to plugin-private storage; no project/application
+bootstrap or automatic tool installation occurs. Source file contents are never
+written. Platforms without SecureDirectoryStream or usable file identity refuse
+the profile; a Windows live-tail profile is not supplied.
+
+The builtin **Log** language now receives generic API1.4 folding ranges for
+multiline events/stacktraces. Exact-source JVM observations can supply fold groups
+when the local parser cannot express their custom format. Providers reuse warmed
+configuration and current text with size/line/deadline limits and no subprocesses.
+**Ideolog: Extend Log Selection** and the generic selection-range provider expand
+from a captured field through its physical line, event and document. UTF16 carets
+are validated; explicit selection changes recheck source version/text and use the
+current editor API rather than file edits.
+
+Verification includes actual Java file append, truncation, delayed rotation,
+outside-root symlink rejection, process cancellation and lease expiry; a real
+headless Chromium panel fixture checks filter/invert, safe text rendering, visible
+polling, hide-stop and380px layout. These are runtime helper/browser receipts,
+not installed-desktop acceptance.

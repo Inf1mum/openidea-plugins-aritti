@@ -3,10 +3,17 @@
 //! plugin's `syntax-provider`. Detection comes from `languages/twig.toml`.
 
 mod checks;
+mod reviewed_symbols;
+mod template_index;
+mod signatures;
+mod formatting;
+mod comments;
+mod delimiters;
 mod injections;
 mod indexing;
 mod complete;
 mod navigate;
+mod macro_arguments;
 mod hover;
 
 use std::collections::BTreeMap;
@@ -33,6 +40,7 @@ const EXTENSION_FILES: u32 = 1500;
 
 #[derive(Default)]
 pub struct Twig {
+    reviewed_symbols:reviewed_symbols::State,
     /// Filters, functions and tests registered in the project's PHP, by absolute file path.
     extensions: BTreeMap<String, Vec<Extension>>,
 }
@@ -126,6 +134,16 @@ fn macros_of(project: &Project, current: &Document, template: &str) -> Option<(S
     Some((path, text))
 }
 
+fn resolved_macro(doc:&Document,call:usize,receiver:Option<&str>,name:&str)->Option<(navigate::Macro,String)> {
+    let project=project_of(&doc.path);
+    let (template,name)=if receiver==Some("_self") {Some(("_self".to_owned(),name.to_owned()))}
+        else if !project.as_ref().is_some_and(is_symfony) {navigate::binding(&doc.text,call,receiver,name)} else {None}?;
+    let (path,text)=if template=="_self" {(doc.path.clone(),doc.text.clone())}else{macros_of(project.as_ref()?,doc,&template)?};
+    if path!=doc.path && !checks::check(&text).is_empty(){return None;}
+    let mut found=navigate::macros(&text).into_iter().filter(|m|m.name==name);let result=found.next()?;if found.next().is_some(){return None;}
+    Some((result,path))
+}
+
 fn in_twig_code(text: &str, offset: usize) -> bool {
     navigate::code_at(text, offset, false)
 }
@@ -172,12 +190,13 @@ fn macro_items(project: &Project, doc: &Document, offset: usize) -> Vec<Completi
 
 /// The template of a `{% from 'x' import …` tag the caret is inside the name list of.
 fn from_import_template(text: &str, offset: usize) -> Option<String> {
-    let tag_start = text[..offset].rfind("{%")?;
-    if text[tag_start..offset].contains("%}") {
+    let syntax=delimiters::Syntax::current();
+    let tag_start = text[..offset].rfind(&syntax.values[0])?;
+    if text[tag_start..offset].contains(&syntax.values[1]) {
         return None;
     }
 
-    let body = text[tag_start + 2..offset].trim_start_matches(['-', '~']).trim_start();
+    let body = text[tag_start + syntax.values[0].len()..offset].trim_start_matches(['-', '~']).trim_start();
     let rest = body.strip_prefix("from")?.trim_start();
     let quote = rest.chars().next().filter(|c| matches!(c, '\'' | '"'))?;
     let inner = &rest[1..];
@@ -228,13 +247,16 @@ impl Plugin for Twig {
         }
     }
 
-    fn run_command(&mut self, id: &str, _ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
+    fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
+        if id=="source-symbol-occurrences" {return if let Some(arg)=_arg{reviewed_symbols::occurrences(&mut self.reviewed_symbols,ctx,arg)}else{reviewed_symbols::occurrences_at_caret(&mut self.reviewed_symbols,ctx)};}
+        if id=="toggle-comment" {return comments::toggle(ctx);}
         Err(Error::NotFound(format!("command {id}")))
     }
 }
 
 impl SyntaxProvider for Twig {
     fn highlights(&mut self, _language: &str, text: &str) -> Vec<Token> {
+        let Some(_syntax)=delimiters::Syntax::scope() else {return Vec::new();};
         if text.len() > MAX_SYNTAX_BYTES {
             return Vec::new();
         }
@@ -244,10 +266,12 @@ impl SyntaxProvider for Twig {
     }
 
     fn outline(&mut self, _language: &str, text: &str) -> Vec<Symbol> {
+        let Some(_syntax)=delimiters::Syntax::scope() else {return Vec::new();};
         structure(text).0
     }
 
     fn folding(&mut self, _language: &str, text: &str) -> Vec<Fold> {
+        let Some(_syntax)=delimiters::Syntax::scope() else {return Vec::new();};
         structure(text).1
     }
 }
@@ -266,6 +290,7 @@ fn macro_locations(path: &str, text: &str, name: &str) -> Vec<Location> {
 
 impl Providers for Twig {
     fn completion(&mut self, doc: &Document, at: openidea_plugin::Position, _trigger: Option<&str>) -> Vec<CompletionItem> {
+        let Some(_syntax)=delimiters::Syntax::scope() else {return Vec::new();};
         if doc.language != "twig" || !doc.path.ends_with(".twig") || doc.text.len() > 128 << 10 {
             return Vec::new();
         }
@@ -275,6 +300,22 @@ impl Providers for Twig {
         let project = project_of(&doc.path);
 
         let symfony = project.as_ref().is_some_and(is_symfony);
+        if let Some(slot) = macro_arguments::slot(&doc.text, offset).filter(|_|macro_arguments::supported(project.as_ref())) {
+            let binding = if slot.receiver.as_deref() == Some("_self") {
+                Some(("_self".to_owned(),slot.name.clone()))
+            } else if !symfony {
+                navigate::binding(&doc.text,slot.call,slot.receiver.as_deref(),&slot.name)
+            } else {None};
+            if let Some((template,name)) = binding {
+                let source = if template=="_self" {Some(doc.text.clone())} else {
+                    project.as_ref().and_then(|p|macros_of(p,doc,&template)).map(|(_,text)|text)
+                };
+                if let Some(source) = source {
+                    let found:Vec<_>=navigate::macros(&source).into_iter().filter(|m|m.name==name).collect();
+                    if found.len()==1 {return macro_arguments::items(&doc.text,&slot,&found[0].arguments);}
+                }
+            }
+        }
         let macros = if symfony { Vec::new() } else { project.as_ref().map(|p| macro_items(p, doc, offset)).unwrap_or_default() };
         if !macros.is_empty() {
             return macros;
@@ -292,12 +333,15 @@ impl Providers for Twig {
     }
 
     fn definition(&mut self, doc: &Document, at: openidea_plugin::Position) -> Vec<Location> {
+        let Some(_syntax)=delimiters::Syntax::scope() else {return Vec::new();};
         if doc.language != "twig" || !doc.path.ends_with(".twig") || doc.text.len() > 128 << 10 {
             return Vec::new();
         }
         let Some(offset) = offset(&doc.text, at) else {
             return Vec::new();
         };
+        if let Some(target)=signatures::definition(doc,at) {return vec![target];}
+        let symbols=reviewed_symbols::definition(doc,at);if !symbols.is_empty(){return symbols;}
         if let Some((Some(receiver), name, _)) = navigate::dotted_at(&doc.text, offset) {
             if receiver == "_self" && navigate::code_at(&doc.text, offset, false) {
                 return macro_locations(&doc.path, &doc.text, &name);
@@ -404,6 +448,7 @@ fn is_symfony(project: &Project) -> bool {
 
 impl openidea_plugin::diagnostics::DiagnosticsProvider for Twig {
     fn diagnostics(&mut self, doc: &openidea_plugin::providers::Document) -> Vec<Diagnostic> {
+        let Some(_syntax)=delimiters::Syntax::scope() else {return vec![Diagnostic::new(EditorRange::new(openidea_plugin::Position::new(0,0),openidea_plugin::Position::new(0,0)),Severity::Error,"Invalid Twig delimiter settings: use 1–16 byte non-whitespace delimiters and distinct opening delimiters without shared prefixes.").code("invalid-delimiter-settings")];};
         if doc.language!="twig" || !doc.path.ends_with(".twig") || doc.text.len()>128<<10 || !host::setting_bool("diagnostics").unwrap_or(true) {return Vec::new();}
         let text=doc.text.as_str();
         let parsed=lex(text);if parsed.tags.len()>MAX_STRUCTURE_TAGS || parsed.tokens.len()>MAX_SYNTAX_TOKENS{return Vec::new();}
@@ -430,7 +475,7 @@ impl openidea_plugin::diagnostics::DiagnosticsProvider for Twig {
 }
 
 // API 1.3 registers the optional exports on the same component.
-openidea_plugin::register_plugin!(Twig, injections, providers, syntax, diagnostics, hover, indexing);
+openidea_plugin::register_plugin!(Twig, injections, providers, syntax, diagnostics, hover, indexing, language_features, file_actions);
 
 const KEYWORDS: &[&str] =
     &["and", "or", "not", "in", "is", "matches", "starts", "ends", "with", "as", "only", "ignore", "missing", "if", "else", "for"];
@@ -452,6 +497,7 @@ struct Lexed {
     tokens: Vec<Token>,
     tags: Vec<Tag>,
     comments: Vec<Range<usize>>,
+    boundaries: Vec<(Range<usize>,bool)>,
     /// Openers (`{{`, `{%`, `{#`) whose closer is missing.
     unterminated: Vec<Range<usize>>,
 }
@@ -468,6 +514,7 @@ struct Lexer<'a> {
     text: &'a str,
     bytes: &'a [u8],
     out: Lexed,
+    syntax: delimiters::Syntax,
 }
 
 fn is_identifier_start(b: u8) -> bool {
@@ -479,18 +526,18 @@ fn is_identifier(b: u8) -> bool {
 }
 
 fn lex(text: &str) -> Lexed {
-    let mut lexer = Lexer { text, bytes: text.as_bytes(), out: Lexed::default() };
+    let mut lexer = Lexer { text, bytes: text.as_bytes(), out: Lexed::default(),syntax:delimiters::Syntax::current() };
     lexer.html(0);
     lexer.out
 }
 
 impl Lexer<'_> {
     fn at(&self, i: usize, s: &str) -> bool {
-        self.bytes[i..].starts_with(s.as_bytes())
+        self.bytes[i..].starts_with(self.syntax.expand(s).as_bytes())
     }
 
     fn find(&self, from: usize, s: &str) -> Option<usize> {
-        self.text[from..].find(s).map(|i| from + i)
+        self.text[from..].find(self.syntax.expand(s)).map(|i| from + i)
     }
 
     fn html(&mut self, mut i: usize) {
@@ -546,6 +593,7 @@ impl Lexer<'_> {
             } else {
                 let name_start = i;
                 while i < self.bytes.len()
+                    && !["{{","{%","{#"].iter().any(|s|self.at(i,s))
                     && !matches!(self.bytes[i], b' ' | b'\t' | b'\n' | b'\r' | b'=' | b'>' | b'/' | b'"' | b'\'' | b'{' | b'<')
                 {
                     i += 1;
@@ -586,11 +634,11 @@ impl Lexer<'_> {
     /// A Twig comment, print or tag starting at `start`; returns its end.
     fn twig(&mut self, start: usize) -> usize {
         if self.at(start, "{#") {
-            let closer = self.find(start + 2, "#}");
+            let closer = self.find(start + self.syntax.values[4].len(), "#}");
             if closer.is_none() {
-                self.out.unterminated.push(start..start + 2);
+                self.out.unterminated.push(start..start + self.syntax.values[4].len());
             }
-            let end = closer.map_or(self.bytes.len(), |e| e + 2);
+            let end = closer.map_or(self.bytes.len(), |e| e + self.syntax.values[5].len());
             self.out.push(start..end, Highlight::Comment);
             self.out.comments.push(start..end);
             return end;
@@ -598,11 +646,13 @@ impl Lexer<'_> {
 
         let is_tag = self.at(start, "{%");
         let close = if is_tag { "%}" } else { "}}" };
-        let mut i = start + 2;
+        let open_len=self.syntax.expand(if is_tag {"{%"} else {"{{"}).len();
+        let mut i = start + open_len;
         if self.bytes.get(i).is_some_and(|b| *b == b'-' || *b == b'~') {
             i += 1;
         }
         self.out.push(start..i, Highlight::Punctuation);
+        self.out.boundaries.push((start..i,true));
 
         let mut tag_name: Option<String> = None;
         let mut argument = None;
@@ -617,9 +667,10 @@ impl Lexer<'_> {
             let b = self.bytes[i];
 
             let trimmed_close = (b == b'-' || b == b'~') && self.at(i + 1, close);
-            if self.at(i, close) || trimmed_close {
-                let end = i + close.len() + usize::from(trimmed_close);
+            if groups.is_empty() && (self.at(i, close) || trimmed_close) {
+                let end = i + self.syntax.expand(close).len() + usize::from(trimmed_close);
                 self.out.push(i..end, Highlight::Punctuation);
+                self.out.boundaries.push((i..end,false));
                 i = end;
                 closed = true;
                 break;
@@ -725,7 +776,7 @@ impl Lexer<'_> {
         }
 
         if !closed {
-            self.out.unterminated.push(start..start + 2);
+            self.out.unterminated.push(start..start + open_len);
         }
 
         if let Some(name) = tag_name {
@@ -780,14 +831,14 @@ impl Lexer<'_> {
     fn find_tag(&self, from: usize, name: &str) -> Option<usize> {
         let mut at = from;
         while let Some(open) = self.find(at, "{%") {
-            let inside = self.text[open + 2..].trim_start_matches(['-', '~']).trim_start();
+            let inside = self.text[open + self.syntax.values[0].len()..].trim_start_matches(['-', '~']).trim_start();
             if let Some(rest) = inside.strip_prefix(name) {
                 let rest = rest.trim_start();
-                if ["%}", "-%}", "~%}"].iter().any(|close| rest.starts_with(close)) {
+                if rest.trim_start_matches(['-','~']).starts_with(&self.syntax.values[1]) {
                     return Some(open);
                 }
             }
-            at = open + 2;
+            at = open + self.syntax.values[0].len();
         }
         None
     }
@@ -1050,6 +1101,7 @@ mod tests {
 
     #[test]
     fn syntax_export_limits_are_explicit_and_do_not_leak_partial_structure_parents() {
+        let _host=openidea_plugin::mock::MockHost::install();
         let mut plugin = Twig::default();
         let huge = "x".repeat(MAX_SYNTAX_BYTES + 1);
         assert!(plugin.highlights("twig", &huge).is_empty());

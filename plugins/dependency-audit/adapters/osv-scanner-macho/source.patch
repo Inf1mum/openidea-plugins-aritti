@@ -1,0 +1,1220 @@
+--- a/internal/sourceanalysis/rust.go
++++ b/internal/sourceanalysis/rust.go
+@@ -5,6 +5,8 @@
+ 	"context"
+ 	"debug/dwarf"
+ 	"debug/elf"
++	"debug/macho"
++	"encoding/json"
+ 	"errors"
+ 	"fmt"
+ 	"io"
+@@ -44,6 +46,7 @@
+ 	// - There is function level vuln info, and it **is** called    (true)
+ 	// - There is **no** functional level vuln info, so we don't know whether it is called (doesn't exist)
+ 	isCalledVulnMap := map[string]bool{}
++	unknownVulnMap := map[string]bool{}
+ 
+ 	for _, path := range binaryPaths {
+ 		var readAt io.ReaderAt
+@@ -52,14 +55,14 @@
+ 			buf, err := extractRlibArchive(path)
+ 			if err != nil {
+ 				cmdlogger.Errorf("failed to analyse '%s': %s", path, err)
+-				continue
++				return
+ 			}
+ 			readAt = bytes.NewReader(buf.Bytes())
+ 		} else {
+ 			f, err := os.Open(path)
+ 			if err != nil {
+ 				cmdlogger.Errorf("failed to read binary '%s': %s", path, err)
+-				continue
++				return
+ 			}
+ 			// This is fine to defer til the end of the function as there's
+ 			// generally single digit number of binaries in a project
+@@ -67,10 +70,10 @@
+ 			readAt = f
+ 		}
+ 
+-		calls, err := functionsFromDWARF(readAt)
++		calls, err := functionsFromDWARFPath(readAt, path)
+ 		if err != nil {
+ 			cmdlogger.Errorf("failed to analyse '%s': %s", path, err)
+-			continue
++			return
+ 		}
+ 
+ 		for _, pv := range pkgs {
+@@ -99,52 +102,161 @@
+ 						continue
+ 					}
+ 					for _, f := range affectedFunctions {
+-						if funcName, ok := f.(string); ok {
++						if funcName, ok := f.(string); ok && canonicalRustAdvisoryFunction(funcName) {
+ 							_, called := calls[funcName]
+ 							// Once one advisory marks this vuln as called, always mark as called
+ 							isCalledVulnMap[v.GetId()] = isCalledVulnMap[v.GetId()] || called
++						} else {
++							unknownVulnMap[v.GetId()] = true
+ 						}
+ 					}
+ 				}
+ 			}
+ 		}
+ 
+-		for _, pv := range pkgs {
+-			for groupIdx := range pv.Groups {
+-				for _, vulnID := range pv.Groups[groupIdx].IDs {
+-					analysis := &pv.Groups[groupIdx].ExperimentalAnalysis
+-					if *analysis == nil {
+-						*analysis = make(map[string]models.AnalysisInfo)
+-					}
+-
+-					called, hasFuncInfo := isCalledVulnMap[vulnID]
+-					if hasFuncInfo {
+-						(*analysis)[vulnID] = models.AnalysisInfo{
+-							Called: called,
+-						}
+-					}
++	}
++
++	for _, pv := range pkgs {
++		for groupIdx := range pv.Groups {
++			for _, vulnID := range pv.Groups[groupIdx].IDs {
++				analysis := &pv.Groups[groupIdx].ExperimentalAnalysis
++				if *analysis == nil {
++					*analysis = make(map[string]models.AnalysisInfo)
+ 				}
+-			}
+-		}
+-	}
++
++				called, hasFuncInfo := isCalledVulnMap[vulnID]
++				if hasFuncInfo && !unknownVulnMap[vulnID] {
++					(*analysis)[vulnID] = models.AnalysisInfo{
++						Called: called,
++					}
++				}
++			}
++		}
++	}
++}
++
++// OpenIDEA MachO profile: one adjacent Cargo bundle, bounded UUID matching.
++func functionsFromDWARFPath(readAt io.ReaderAt, path string) (map[string]struct{}, error) {
++	calls, original := functionsFromDWARF(readAt)
++	if original == nil {
++		return calls, nil
++	}
++	mf, err := macho.NewFile(readAt)
++	if err != nil {
++		return nil, original
++	}
++	uuid := machoUUID(mf)
++	if len(uuid) != 16 {
++		return nil, fmt.Errorf("MachO binary UUID missing; analysis unknown")
++	}
++	bundle := path + ".dSYM"
++	info, err := os.Lstat(bundle)
++	if err != nil {
++		return nil, fmt.Errorf("missing adjacent dSYM; analysis unknown: %w", err)
++	}
++	if info.Mode()&os.ModeSymlink != 0 {
++		// Cargo links the public executable's bundle to deps/<hashed>.dSYM.
++		target, e := os.Readlink(bundle)
++		if e != nil || filepath.IsAbs(target) || filepath.Dir(target) != "deps" || !strings.HasSuffix(filepath.Base(target), ".dSYM") {
++			return nil, fmt.Errorf("unowned dSYM link; analysis unknown")
++		}
++		depsInfo, depsErr := os.Lstat(filepath.Join(filepath.Dir(path), "deps"))
++		if depsErr != nil || !depsInfo.IsDir() || depsInfo.Mode()&os.ModeSymlink != 0 {
++			return nil, fmt.Errorf("unowned Cargo deps directory; analysis unknown")
++		}
++		bundle = filepath.Join(filepath.Dir(path), target)
++	}
++	for _, part := range []string{bundle, filepath.Join(bundle, "Contents"), filepath.Join(bundle, "Contents/Resources"), filepath.Join(bundle, "Contents/Resources/DWARF")} {
++		info, e := os.Lstat(part)
++		if e != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
++			return nil, fmt.Errorf("invalid dSYM directory; analysis unknown")
++		}
++	}
++	dir := filepath.Join(bundle, "Contents/Resources/DWARF")
++	entries, err := os.ReadDir(dir)
++	if err != nil || len(entries) == 0 || len(entries) > 8 {
++		return nil, fmt.Errorf("missing/oversized dSYM catalog; analysis unknown")
++	}
++	matches := 0
++	var output map[string]struct{}
++	for _, entry := range entries {
++		dsym := filepath.Join(dir, entry.Name())
++		info, err := os.Lstat(dsym)
++		if err != nil || !info.Mode().IsRegular() || info.Size() > 256<<20 {
++			return nil, fmt.Errorf("invalid or oversized dSYM artifact; analysis unknown")
++		}
++		f, err := os.Open(dsym)
++		if err != nil {
++			return nil, err
++		}
++		df, err := macho.NewFile(f)
++		if err != nil {
++			f.Close()
++			return nil, fmt.Errorf("malformed dSYM artifact; analysis unknown: %w", err)
++		}
++		if bytes.Equal(uuid, machoUUID(df)) {
++			matches++
++			dd, e := df.DWARF()
++			if e != nil {
++				f.Close()
++				return nil, fmt.Errorf("invalid dSYM DWARF; analysis unknown: %w", e)
++			}
++			output, e = functionsFromDebugData(dd)
++			if e != nil {
++				f.Close()
++				return nil, e
++			}
++		}
++		f.Close()
++	}
++	if matches != 1 {
++		return nil, fmt.Errorf("expected one UUID-matched dSYM artifact, found %d; analysis unknown", matches)
++	}
++	return output, nil
++}
++func machoUUID(f *macho.File) []byte {
++	if f == nil {
++		return nil
++	}
++	for _, load := range f.Loads {
++		raw := load.Raw()
++		if len(raw) == 24 && f.ByteOrder.Uint32(raw[:4]) == 0x1b && f.ByteOrder.Uint32(raw[4:8]) == 24 {
++			return raw[8:24]
++		}
++	}
++	return nil
+ }
+ 
+ func functionsFromDWARF(readAt io.ReaderAt) (map[string]struct{}, error) {
++	file, err := elf.NewFile(readAt)
++	if err != nil {
++		mf, me := macho.NewFile(readAt)
++		if me != nil {
++			return nil, fmt.Errorf("failed to read ELF or MachO binary: %w", err)
++		}
++		dd, de := mf.DWARF()
++		if de != nil {
++			return nil, fmt.Errorf("failed to extract MachO debug symbols: %w", de)
++		}
++		return functionsFromDebugData(dd)
++	}
++	dwarfData, err := file.DWARF()
++	if err != nil {
++		return nil, fmt.Errorf("failed to extract debug symbols from binary: %w", err)
++	}
++	return functionsFromDebugData(dwarfData)
++}
++
++func functionsFromDebugData(dwarfData *dwarf.Data) (map[string]struct{}, error) {
+ 	output := map[string]struct{}{}
+-	file, err := elf.NewFile(readAt)
+-	if err != nil {
+-		return nil, fmt.Errorf("failed to read binary: %w", err)
+-	}
+-	dwarfData, err := file.DWARF()
+-	if err != nil {
+-		return nil, fmt.Errorf("failed to extract debug symbols from binary: %w", err)
+-	}
+ 	entryReader := dwarfData.Reader()
+ 
+ 	for {
+ 		entry, err := entryReader.Next()
++		if err != nil && !errors.Is(err, io.EOF) {
++			return nil, fmt.Errorf("error parsing binary DWARF data: %w", err)
++		}
+ 		if errors.Is(err, io.EOF) || entry == nil {
+-			// We've reached the end of DWARF entries
+ 			break
+ 		}
+ 		if err != nil {
+@@ -162,17 +274,35 @@
+ 				continue
+ 			}
+ 
+-			val, err := demangle.ToString(field.Val.(string), demangle.NoClones)
++			symbol, ok := field.Val.(string)
++			if !ok {
++				return nil, fmt.Errorf("invalid DWARF linkage name; analysis unknown")
++			}
++			val, err := demangle.ToString(symbol, demangle.NoClones)
+ 			if err != nil {
+-				// most likely not a rust function, so just ignore it
++				if strings.HasPrefix(symbol, "_R") || strings.HasPrefix(symbol, "_ZN") {
++					return nil, fmt.Errorf("unsupported Rust linkage; analysis unknown: %w", err)
++				}
+ 				continue
+ 			}
+ 
+-			val = cleanRustFunctionSymbols(val)
++			output[legacyRustSymbols(val)] = struct{}{}
++			rawSpelling := val
++			canonical, e := demangle.ToString(symbol, demangle.NoClones, demangle.NoTemplateParams)
++			if e != nil {
++				return nil, fmt.Errorf("unsupported canonical Rust linkage; analysis unknown: %w", e)
++			}
++			val = cleanRustFunctionSymbols(canonical)
++			if val == "" {
++				return nil, fmt.Errorf("malformed Rust function spelling %q; analysis unknown", rawSpelling)
++			}
+ 			output[val] = struct{}{}
+ 		}
+ 	}
+ 
++	if len(output) == 0 {
++		return nil, fmt.Errorf("no Rust function linkage names in debug data; analysis unknown")
++	}
+ 	return output, nil
+ }
+ 
+@@ -228,10 +358,17 @@
+ }
+ 
+ func rustBuildSource(source models.SourceInfo) ([]string, error) {
+-	projectBaseDir := filepath.Dir(source.Path)
++	absoluteBase, pathErr := filepath.Abs(filepath.Dir(source.Path))
++	if pathErr != nil {
++		return nil, pathErr
++	}
++	projectBaseDir, pathErr := filepath.EvalSymlinks(absoluteBase)
++	if pathErr != nil {
++		return nil, fmt.Errorf("cannot resolve project directory: %w", pathErr)
++	}
+ 
+ 	// TODO: This will be moved to enrichers which does have context.
+-	cmd := exec.CommandContext(context.TODO(), "cargo", "build", "--workspace", "--all-targets", "--release")
++	cmd := exec.CommandContext(context.TODO(), "cargo", "build", "--workspace", "--all-targets", "--release", "--message-format=json")
+ 	cmd.Env = append(cmd.Environ(), RustFlagsEnv)
+ 	cmd.Dir = projectBaseDir
+ 	if errors.Is(cmd.Err, exec.ErrDot) {
+@@ -253,52 +390,142 @@
+ 	}
+ 
+ 	outputDir := filepath.Join(projectBaseDir, "target", "release")
+-	entries, err := os.ReadDir(outputDir)
+-	if err != nil {
+-		return nil, fmt.Errorf("failed to read \"%s\" dir: %w", outputDir, err)
+-	}
+-
++	if stdoutBuffer.Len() > 4<<20 {
++		return nil, fmt.Errorf("Cargo artifact output exceeds4MiB; analysis unknown")
++	}
+ 	resultBinaryPaths := []string{}
+-	for _, de := range entries {
+-		// We only want .d files, which is generated for each output binary from cargo
+-		// These files contains a string to the full path of output binary/library file.
+-		// This is a reasonably reliable way to identify the output in a cross-platform way.
+-		if de.IsDir() || !strings.HasSuffix(de.Name(), ".d") {
++	seen := map[string]bool{}
++	for _, line := range bytes.Split(stdoutBuffer.Bytes(), []byte("\n")) {
++		if len(bytes.TrimSpace(line)) == 0 {
+ 			continue
+ 		}
+-
+-		file, err := os.ReadFile(filepath.Join(outputDir, de.Name()))
+-		if err != nil {
+-			return nil, fmt.Errorf("failed to read \"%s\": %w", filepath.Join(outputDir, de.Name()), err)
+-		}
+-
+-		fileSplit := strings.Split(string(file), ": ")
+-		if len(fileSplit) != 2 {
+-			// TODO: this can probably be fixed with more effort
+-			return nil, errors.New("file path contains ': ', which is unsupported")
+-		}
+-		resultBinaryPaths = append(resultBinaryPaths, fileSplit[0])
++		var artifact struct {
++			Reason     string   `json:"reason"`
++			Manifest   string   `json:"manifest_path"`
++			Executable string   `json:"executable"`
++			Filenames  []string `json:"filenames"`
++		}
++		if err := json.Unmarshal(line, &artifact); err != nil {
++			return nil, fmt.Errorf("malformed Cargo artifact message; analysis unknown: %w", err)
++		}
++		if artifact.Reason != "compiler-artifact" || !strings.HasPrefix(filepath.Clean(artifact.Manifest), filepath.Clean(projectBaseDir)+string(os.PathSeparator)) {
++			continue
++		}
++		paths := []string{}
++		if artifact.Executable != "" {
++			paths = append(paths, artifact.Executable)
++		}
++		for _, name := range artifact.Filenames {
++			if strings.HasSuffix(name, ".rlib") {
++				paths = append(paths, name)
++			}
++		}
++		for _, name := range paths {
++			if filepath.Clean(name) != name || !strings.HasPrefix(name, outputDir+string(os.PathSeparator)) {
++				return nil, fmt.Errorf("unowned Cargo artifact; analysis unknown")
++			}
++			info, err := os.Lstat(name)
++			if err != nil || !info.Mode().IsRegular() || info.Size() > 512<<20 {
++				return nil, fmt.Errorf("missing/symlinked/oversized Cargo artifact; analysis unknown")
++			}
++			if !seen[name] {
++				seen[name] = true
++				resultBinaryPaths = append(resultBinaryPaths, name)
++			}
++			if len(resultBinaryPaths) > 64 {
++				return nil, fmt.Errorf("too many Cargo artifacts; analysis unknown")
++			}
++		}
++	}
++	if len(resultBinaryPaths) == 0 {
++		return nil, fmt.Errorf("no owned executable/library Cargo artifacts; analysis unknown")
+ 	}
+ 
+ 	return resultBinaryPaths, nil
+ }
+ 
+-// cleanRustFunctionSymbols takes in demanged rust symbols and makes them fit format of
+-// the common function level advisory information
++// cleanRustFunctionSymbols normalizes both legacy Rust and v0 receiver spelling.
++// The advisory identifies a method independently of array/generic parameters.
+ func cleanRustFunctionSymbols(val string) string {
+-	// Used to remove generics from functions and types as they are not included in function calls
+-	// in advisories:
+-	// E.g.: `smallvec::SmallVec<A>::new` => `smallvec::SmallVec::new`
+-	//
+-	// Usage: antiGenericRegex.ReplaceAllString(val, "")
+-	var antiGenericRegex = cachedregexp.MustCompile(`<[\w,]+>`)
+-	val = antiGenericRegex.ReplaceAllString(val, "")
+-
+-	// Used to remove fully qualified trait implementation indicators from the function type,
+-	// since those are generally not included in advisory:
+-	// E.g.: `<libflate::gzip::MultiDecoder as std::io::Read>::read` => `libflate::gzip::MultiDecoder::read`
+-	var antiTraitImplRegex = cachedregexp.MustCompile(`<(.*) as .*>`)
+-	val = antiTraitImplRegex.ReplaceAllString(val, "$1")
+-
+-	return val
+-}
++	if strings.HasPrefix(val, "<") {
++		depth := 0
++		for i, r := range val {
++			if r == '<' {
++				depth++
++			}
++			if r == '>' && (i == 0 || val[i-1] != '-') {
++				depth--
++			}
++			if depth == 0 {
++				receiver := val[1:i]
++				// A trait receiver uses `<Type as Trait>::method`.
++				genericDepth := 0
++				for at := 0; at < len(receiver); at++ {
++					if receiver[at] == '<' {
++						genericDepth++
++					}
++					if receiver[at] == '>' && (at == 0 || receiver[at-1] != '-') {
++						genericDepth--
++					}
++					if genericDepth == 0 && strings.HasPrefix(receiver[at:], " as ") {
++						receiver = receiver[:at]
++						break
++					}
++				}
++				val = receiver + val[i+1:]
++				break
++			}
++		}
++	}
++	var output strings.Builder
++	depth := 0
++	for index, r := range val {
++		if r == '<' {
++			depth++
++			continue
++		}
++		if r == '>' && (index == 0 || val[index-1] != '-') {
++			if depth == 0 {
++				return ""
++			}
++			depth--
++			continue
++		}
++		if depth == 0 {
++			output.WriteRune(r)
++		}
++	}
++	if depth != 0 {
++		return ""
++	}
++	result := strings.TrimSuffix(output.String(), "::")
++	for strings.Contains(result, "::::") {
++		result = strings.ReplaceAll(result, "::::", "::")
++	}
++	return result
++}
++
++// Unknown advisory spellings must not turn into negative call facts.
++func canonicalRustAdvisoryFunction(name string) bool {
++	parts := strings.Split(name, "::")
++	if len(parts) < 2 {
++		return false
++	}
++	for _, part := range parts {
++		if part == "" {
++			return false
++		}
++		for i, c := range part {
++			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || (i > 0 && c >= '0' && c <= '9')) {
++				return false
++			}
++		}
++	}
++	return true
++}
++
++// Preserve every previously admitted legacy spelling alongside canonical aliases.
++func legacyRustSymbols(val string) string {
++	val = cachedregexp.MustCompile(`<[\w,]+>`).ReplaceAllString(val, "")
++	return cachedregexp.MustCompile(`<(.*) as .*>`).ReplaceAllString(val, "$1")
++}
+--- /dev/null
++++ b/internal/sourceanalysis/rust_openidea_test.go
+@@ -0,0 +1,205 @@
++package sourceanalysis
++
++import (
++	"bytes"
++	"debug/dwarf"
++	"debug/macho"
++	"encoding/binary"
++	"github.com/ianlancetaylor/demangle"
++	"os"
++	"path/filepath"
++	"strings"
++	"testing"
++)
++
++func TestOpenIDEAMalformedBinaryIsUnknown(t *testing.T) {
++	if _, err := functionsFromDWARF(bytes.NewReader([]byte("not executable"))); err == nil {
++		t.Fatal("malformed binary admitted")
++	}
++}
++func TestOpenIDEAMissingDebugIsUnknown(t *testing.T) {
++	binary := os.Getenv("OPENIDEA_MACHO_FIXTURE")
++	if binary == "" {
++		t.Skip("set OPENIDEA_MACHO_FIXTURE to real Rust fixture executable")
++	}
++	data, err := os.ReadFile(binary)
++	if err != nil {
++		t.Fatal(err)
++	}
++	path := filepath.Join(t.TempDir(), "fixture")
++	if err := os.WriteFile(path, data, 0600); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := functionsFromDWARFPath(bytes.NewReader(data), path); err == nil {
++		t.Fatal("missing debug became known")
++	}
++	bundle := path + ".dSYM/Contents/Resources/DWARF"
++	if err := os.MkdirAll(bundle, 0700); err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(filepath.Join(bundle, "fixture"), []byte("malformed"), 0600); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := functionsFromDWARFPath(bytes.NewReader(data), path); err == nil {
++		t.Fatal("malformed debug became known")
++	}
++}
++func TestOpenIDEARealRustSymbols(t *testing.T) {
++	p := os.Getenv("OPENIDEA_MACHO_FIXTURE")
++	if p == "" {
++		t.Skip("fixture unset")
++	}
++	f, e := os.Open(p)
++	if e != nil {
++		t.Fatal(e)
++	}
++	defer f.Close()
++	calls, e := functionsFromDWARFPath(f, p)
++	if e != nil {
++		t.Fatal(e)
++	}
++	for name := range calls {
++		if strings.Contains(name, "smallvec") {
++			t.Log(name)
++		}
++	}
++}
++
++func TestOpenIDEARustV0ArrayReceiver(t *testing.T) {
++	for _, name := range []string{"<smallvec::SmallVec<[u8; 1]>>::grow", "smallvec::SmallVec<A>::grow"} {
++		if got := cleanRustFunctionSymbols(name); got != "smallvec::SmallVec::grow" {
++			t.Fatalf("%q => %q", name, got)
++		}
++	}
++}
++
++func TestOpenIDEATruncatedAfterValidSymbolIsUnknown(t *testing.T) {
++	// One valid function, then an undefined abbreviation. The old nil-entry-first
++	// reader loop could silently publish the earlier symbol and negative facts.
++	abbrev := []byte{1, 0x11, 1, 0, 0, 2, 0x2e, 0, 0x6e, 8, 0, 0, 0}
++	body := []byte{4, 0, 0, 0, 0, 0, 8, 1, 2}
++	body = append(body, []byte("_ZN8smallvec8SmallVec4grow17h1234567890abcdefE")...)
++	body = append(body, 0, 3)
++	info := make([]byte, 4)
++	binary.LittleEndian.PutUint32(info, uint32(len(body)))
++	info = append(info, body...)
++	data, err := dwarf.New(abbrev, nil, nil, info, nil, nil, nil, nil)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if _, err := functionsFromDebugData(data); err == nil {
++		t.Fatal("truncated debug after valid symbol was admitted")
++	}
++}
++func TestOpenIDEAEmptyFunctionsAreUnknown(t *testing.T) {
++	abbrev := []byte{1, 0x11, 0, 0, 0, 0}
++	body := []byte{4, 0, 0, 0, 0, 0, 8, 1}
++	info := make([]byte, 4)
++	binary.LittleEndian.PutUint32(info, uint32(len(body)))
++	info = append(info, body...)
++	data, err := dwarf.New(abbrev, nil, nil, info, nil, nil, nil, nil)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if _, err := functionsFromDebugData(data); err == nil {
++		t.Fatal("empty function debug admitted")
++	}
++}
++func TestOpenIDEAConservativeNames(t *testing.T) {
++	for input, want := range map[string]string{
++		"<smallvec::SmallVec<[u8; 1]>>::grow":                       "smallvec::SmallVec::grow",
++		"smallvec::SmallVec<A>::grow":                               "smallvec::SmallVec::grow",
++		"<foo::Type<alloc::Vec<u8>> as core::Trait<Other>>::method": "foo::Type::method",
++		"foo::Type<alloc::Vec<[u8; 2]>>::method":                    "foo::Type::method",
++		"foo::Type<A::method":                                       "",
++	} {
++		if got := cleanRustFunctionSymbols(input); got != want {
++			t.Errorf("%q => %q expected%q", input, got, want)
++		}
++	}
++	for _, name := range []string{"x::Type<T>::method", "<x::Type as Trait>::method", "x::method[0]", "x", "x::"} {
++		if canonicalRustAdvisoryFunction(name) {
++			t.Errorf("unsupported advisory admitted:%q", name)
++		}
++	}
++	if !canonicalRustAdvisoryFunction("smallvec::SmallVec::grow") {
++		t.Fatal("plain advisory rejected")
++	}
++}
++func TestOpenIDEADebugUUIDAndAmbiguity(t *testing.T) {
++	path := os.Getenv("OPENIDEA_MACHO_FIXTURE")
++	if path == "" {
++		t.Skip("fixture unset")
++	}
++	binaryData, err := os.ReadFile(path)
++	if err != nil {
++		t.Fatal(err)
++	}
++	bundle, err := filepath.EvalSymlinks(path + ".dSYM")
++	if err != nil {
++		t.Fatal(err)
++	}
++	entries, err := os.ReadDir(filepath.Join(bundle, "Contents/Resources/DWARF"))
++	if err != nil || len(entries) != 1 {
++		t.Fatal("expected fixture dSYM")
++	}
++	debugData, err := os.ReadFile(filepath.Join(bundle, "Contents/Resources/DWARF", entries[0].Name()))
++	if err != nil {
++		t.Fatal(err)
++	}
++	mf, err := macho.NewFile(bytes.NewReader(debugData))
++	if err != nil {
++		t.Fatal(err)
++	}
++	uuid := machoUUID(mf)
++	marker := append([]byte{0x1b, 0, 0, 0, 24, 0, 0, 0}, uuid...)
++	offset := bytes.Index(debugData, marker)
++	if offset < 0 {
++		t.Fatal("UUID load missing")
++	}
++	for _, mode := range []string{"wrong-uuid", "duplicate-uuid"} {
++		t.Run(mode, func(t *testing.T) {
++			target := filepath.Join(t.TempDir(), "fixture")
++			if err := os.WriteFile(target, binaryData, 0600); err != nil {
++				t.Fatal(err)
++			}
++			dir := target + ".dSYM/Contents/Resources/DWARF"
++			if err := os.MkdirAll(dir, 0700); err != nil {
++				t.Fatal(err)
++			}
++			data := append([]byte{}, debugData...)
++			if mode == "wrong-uuid" {
++				data[offset+8] ^= 0xff
++			}
++			if err := os.WriteFile(filepath.Join(dir, "a"), data, 0600); err != nil {
++				t.Fatal(err)
++			}
++			if mode == "duplicate-uuid" {
++				if err := os.WriteFile(filepath.Join(dir, "b"), data, 0600); err != nil {
++					t.Fatal(err)
++				}
++			}
++			if _, err := functionsFromDWARFPath(bytes.NewReader(binaryData), target); err == nil {
++				t.Fatal("invalid UUID ownership admitted")
++			}
++		})
++	}
++}
++
++func TestOpenIDEAForLifetimeFunctionArrow(t *testing.T) {
++	input := "<test::bench::Bencher>::bench::<for<'a> fn(&'a mut test::bench::Bencher) -> core::result::Result<(), alloc::string::String>>"
++	if got := cleanRustFunctionSymbols(input); got != "test::bench::Bencher::bench" {
++		t.Fatalf("%q", got)
++	}
++}
++
++func TestOpenIDEAStructuredRustV0GenericSuppression(t *testing.T) {
++	symbol := "_RNvMs7_Cs7hsKmrfQnq6_8smallvecINtB5_8SmallVecAhj1_E4growCs9nebUFs6gOJ_18macho_call_fixture"
++	name, err := demangle.ToString(symbol, demangle.NoClones, demangle.NoTemplateParams)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if cleanRustFunctionSymbols(name) != "smallvec::SmallVec::grow" {
++		t.Fatal(name)
++	}
++}
+--- a/internal/sourceanalysis/__snapshots__/rust_test.snap
++++ b/internal/sourceanalysis/__snapshots__/rust_test.snap
+@@ -43,6 +43,7 @@
+   "core::fmt::Arguments::new_v1_formatted": {},
+   "core::fmt::num::\u003cimpl core::fmt::Debug for i32\u003e::fmt": {},
+   "core::fmt::num::\u003cimpl core::fmt::Debug for usize\u003e::fmt": {},
++  "core::fmt::num::fmt": {},
+   "core::mem::drop": {},
+   "core::mem::maybe_uninit::MaybeUninit::assume_init": {},
+   "core::mem::size_of_val_raw": {},
+@@ -52,12 +53,24 @@
+   "core::num::\u003cimpl usize\u003e::checked_mul": {},
+   "core::num::\u003cimpl usize\u003e::overflowing_add": {},
+   "core::num::\u003cimpl usize\u003e::overflowing_mul": {},
++  "core::num::checked_add": {},
++  "core::num::checked_mul": {},
++  "core::num::overflowing_add": {},
++  "core::num::overflowing_mul": {},
++  "core::num::wrapping_neg": {},
++  "core::num::wrapping_sub": {},
+   "core::panicking::assert_failed": {},
+   "core::ptr::const_ptr::\u003cimpl *const T\u003e::add": {},
+   "core::ptr::const_ptr::\u003cimpl *const T\u003e::as_ref": {},
+   "core::ptr::const_ptr::\u003cimpl *const T\u003e::guaranteed_eq": {},
+   "core::ptr::const_ptr::\u003cimpl *const T\u003e::is_null": {},
+   "core::ptr::const_ptr::\u003cimpl *const T\u003e::offset": {},
++  "core::ptr::const_ptr::add": {},
++  "core::ptr::const_ptr::as_ref": {},
++  "core::ptr::const_ptr::guaranteed_eq": {},
++  "core::ptr::const_ptr::is_null": {},
++  "core::ptr::const_ptr::offset": {},
++  "core::ptr::drop_in_place": {},
+   "core::ptr::drop_in_place\u003c\u0026usize\u003e": {},
+   "core::ptr::drop_in_place\u003c(alloc::string::String,usize)\u003e": {},
+   "core::ptr::drop_in_place\u003c(regex::dfa::State,u32)\u003e": {},
+@@ -173,6 +186,9 @@
+   "core::ptr::mut_ptr::\u003cimpl *mut T\u003e::drop_in_place": {},
+   "core::ptr::mut_ptr::\u003cimpl *mut T\u003e::offset": {},
+   "core::ptr::mut_ptr::\u003cimpl *mut T\u003e::sub": {},
++  "core::ptr::mut_ptr::drop_in_place": {},
++  "core::ptr::mut_ptr::offset": {},
++  "core::ptr::mut_ptr::sub": {},
+   "core::ptr::non_null::NonNull::as_ref": {},
+   "core::ptr::read": {},
+   "core::ptr::write": {},
+@@ -260,6 +276,10 @@
+   "()::fmt": {},
+   "*const T::fmt": {},
+   "*mut T::fmt": {},
++  "::drop::DropGuard::drop": {},
++  "::from::StringError::description": {},
++  "::from::StringError::fmt": {},
++  "::to_vec::DropGuard::drop": {},
+   "\u003cT as alloc::slice::hack::ConvertVec\u003e::to_vec::DropGuard::drop": {},
+   "\u003calloc::boxed::Box\u003cdyn core::error::Error+core::marker::Send+core::marker::Sync\u003e as core::convert::From\u003calloc::string::String\u003e\u003e::from::StringError::description": {},
+   "\u003calloc::boxed::Box\u003cdyn core::error::Error+core::marker::Send+core::marker::Sync\u003e as core::convert::From\u003calloc::string::String\u003e\u003e::from::StringError::fmt": {},
+@@ -335,7 +355,9 @@
+   "alloc::borrow::Cow::as_ref": {},
+   "alloc::borrow::Cow::deref": {},
+   "alloc::borrow::Cow::into_owned": {},
++  "alloc::boxed::Box::clone": {},
+   "alloc::boxed::Box::fmt": {},
++  "alloc::boxed::Box::from": {},
+   "alloc::boxed::Box::from_raw": {},
+   "alloc::boxed::Box::from_raw_in": {},
+   "alloc::boxed::Box::into_raw": {},
+@@ -359,16 +381,32 @@
+   "alloc::collections::btree::navigate::\u003cimpl alloc::collections::btree::node::Handle\u003calloc::collections::btree::node::NodeRef\u003calloc::collections::btree::node::marker::Dying,K,V,alloc::collections::btree::node::marker::Leaf\u003e,alloc::collections::btree::node::marker::Edge\u003e\u003e::deallocating_next_unchecked": {},
+   "alloc::collections::btree::navigate::\u003cimpl alloc::collections::btree::node::Handle\u003calloc::collections::btree::node::NodeRef\u003calloc::collections::btree::node::marker::Dying,K,V,alloc::collections::btree::node::marker::Leaf\u003e,alloc::collections::btree::node::marker::Edge\u003e\u003e::deallocating_next_unchecked::{{closure}}": {},
+   "alloc::collections::btree::navigate::\u003cimpl alloc::collections::btree::node::NodeRef\u003cBorrowType,K,V,alloc::collections::btree::node::marker::LeafOrInternal\u003e\u003e::first_leaf_edge": {},
++  "alloc::collections::btree::navigate::LazyLeafRange::deallocating_end": {},
++  "alloc::collections::btree::navigate::LazyLeafRange::deallocating_next_unchecked": {},
+   "alloc::collections::btree::navigate::LazyLeafRange::init_front": {},
++  "alloc::collections::btree::navigate::LazyLeafRange::take_front": {},
+   "alloc::collections::btree::navigate::LazyLeafRange\u003calloc::collections::btree::node::marker::Dying,K,V\u003e::deallocating_end": {},
+   "alloc::collections::btree::navigate::LazyLeafRange\u003calloc::collections::btree::node::marker::Dying,K,V\u003e::deallocating_next_unchecked": {},
+   "alloc::collections::btree::navigate::LazyLeafRange\u003calloc::collections::btree::node::marker::Dying,K,V\u003e::take_front": {},
++  "alloc::collections::btree::navigate::deallocating_end": {},
++  "alloc::collections::btree::navigate::deallocating_next": {},
++  "alloc::collections::btree::navigate::deallocating_next_unchecked": {},
++  "alloc::collections::btree::navigate::deallocating_next_unchecked::{{closure}}": {},
++  "alloc::collections::btree::navigate::first_leaf_edge": {},
++  "alloc::collections::btree::navigate::next_leaf_edge": {},
++  "alloc::collections::btree::node::Handle::descend": {},
++  "alloc::collections::btree::node::Handle::drop_key_val": {},
++  "alloc::collections::btree::node::Handle::force": {},
++  "alloc::collections::btree::node::Handle::right_kv": {},
+   "alloc::collections::btree::node::Handle\u003calloc::collections::btree::node::NodeRef,alloc::collections::btree::node::marker::Edge\u003e::right_kv": {},
+   "alloc::collections::btree::node::Handle\u003calloc::collections::btree::node::NodeRef\u003cBorrowType,K,V,alloc::collections::btree::node::marker::Internal\u003e,alloc::collections::btree::node::marker::Edge\u003e::descend": {},
+   "alloc::collections::btree::node::Handle\u003calloc::collections::btree::node::NodeRef\u003cBorrowType,K,V,alloc::collections::btree::node::marker::LeafOrInternal\u003e,Type\u003e::force": {},
+   "alloc::collections::btree::node::Handle\u003calloc::collections::btree::node::NodeRef\u003calloc::collections::btree::node::marker::Dying,K,V,NodeType\u003e,alloc::collections::btree::node::marker::KV\u003e::drop_key_val": {},
+   "alloc::collections::btree::node::NodeRef::ascend": {},
+   "alloc::collections::btree::node::NodeRef::ascend::{{closure}}": {},
++  "alloc::collections::btree::node::NodeRef::deallocate_and_ascend": {},
++  "alloc::collections::btree::node::NodeRef::force": {},
++  "alloc::collections::btree::node::NodeRef::keys": {},
+   "alloc::collections::btree::node::NodeRef::len": {},
+   "alloc::collections::btree::node::NodeRef\u003cBorrowType,K,V,alloc::collections::btree::node::marker::LeafOrInternal\u003e::force": {},
+   "alloc::collections::btree::node::NodeRef\u003calloc::collections::btree::node::marker::Dying,K,V,alloc::collections::btree::node::marker::LeafOrInternal\u003e::deallocate_and_ascend": {},
+@@ -376,6 +414,9 @@
+   "alloc::collections::btree::search::\u003cimpl alloc::collections::btree::node::NodeRef\u003cBorrowType,K,V,alloc::collections::btree::node::marker::LeafOrInternal\u003e\u003e::search_tree": {},
+   "alloc::collections::btree::search::\u003cimpl alloc::collections::btree::node::NodeRef\u003e::find_key_index": {},
+   "alloc::collections::btree::search::\u003cimpl alloc::collections::btree::node::NodeRef\u003e::search_node": {},
++  "alloc::collections::btree::search::find_key_index": {},
++  "alloc::collections::btree::search::search_node": {},
++  "alloc::collections::btree::search::search_tree": {},
+   "alloc::ffi::c_str::CString::as_bytes_with_nul": {},
+   "alloc::ffi::c_str::CString::clone": {},
+   "alloc::ffi::c_str::CString::deref": {},
+@@ -424,7 +465,15 @@
+   "alloc::slice::merge::get_and_increment": {},
+   "alloc::slice::merge_sort": {},
+   "alloc::slice::merge_sort::collapse": {},
++  "alloc::slice::sort_by": {},
++  "alloc::slice::sort_by::{{closure}}": {},
++  "alloc::slice::sort_by_key": {},
++  "alloc::slice::sort_by_key::{{closure}}": {},
++  "alloc::slice::to_owned": {},
++  "alloc::slice::to_vec": {},
++  "alloc::slice::to_vec_in": {},
+   "alloc::str::\u003cimpl alloc::borrow::ToOwned for str\u003e::to_owned": {},
++  "alloc::str::to_owned": {},
+   "alloc::string::String::deref": {},
+   "alloc::string::String::fmt": {},
+   "alloc::string::String::from": {},
+@@ -505,11 +554,16 @@
+   "core::any::TypeId::eq": {},
+   "core::array::\u003cimpl core::clone::Clone for [T; N]\u003e::clone": {},
+   "core::array::\u003cimpl core::ops::index::Index for [T; N]\u003e::index": {},
++  "core::array::clone": {},
+   "core::array::equality::\u003cimpl core::cmp::PartialEq\u003c[A; N]\u003e for \u0026[B]\u003e::ne": {},
+   "core::array::equality::\u003cimpl core::cmp::PartialEq\u003c[A; N]\u003e for [B]\u003e::ne": {},
+   "core::array::equality::\u003cimpl core::cmp::PartialEq\u003c[B; N]\u003e for [A; N]\u003e::eq": {},
+   "core::array::equality::\u003cimpl core::cmp::PartialEq\u003c[B; N]\u003e for [A; N]\u003e::ne": {},
++  "core::array::equality::eq": {},
++  "core::array::equality::ne": {},
++  "core::array::index": {},
+   "core::bool::\u003cimpl bool\u003e::then": {},
++  "core::bool::then": {},
+   "core::cell::BorrowMutError::fmt": {},
+   "core::cell::BorrowRefMut::drop": {},
+   "core::cell::BorrowRefMut::new": {},
+@@ -539,13 +593,22 @@
+   "core::char::methods::\u003cimpl char\u003e::is_grapheme_extended": {},
+   "core::char::methods::\u003cimpl char\u003e::len_utf8": {},
+   "core::char::methods::\u003cimpl char\u003e::to_digit": {},
++  "core::char::methods::encode_utf8": {},
+   "core::char::methods::encode_utf8_raw": {},
++  "core::char::methods::escape_debug": {},
++  "core::char::methods::escape_debug_ext": {},
++  "core::char::methods::escape_unicode": {},
++  "core::char::methods::is_control": {},
++  "core::char::methods::is_digit": {},
++  "core::char::methods::is_grapheme_extended": {},
+   "core::char::methods::len_utf8": {},
++  "core::char::methods::to_digit": {},
+   "core::clone::impls::\u003cimpl core::clone::Clone for \u0026T\u003e::clone": {},
+   "core::clone::impls::\u003cimpl core::clone::Clone for bool\u003e::clone": {},
+   "core::clone::impls::\u003cimpl core::clone::Clone for u32\u003e::clone": {},
+   "core::clone::impls::\u003cimpl core::clone::Clone for u64\u003e::clone": {},
+   "core::clone::impls::\u003cimpl core::clone::Clone for u8\u003e::clone": {},
++  "core::clone::impls::clone": {},
+   "core::cmp::Ord::max": {},
+   "core::cmp::Ord::min": {},
+   "core::cmp::PartialEq::ne": {},
+@@ -573,6 +636,13 @@
+   "core::cmp::impls::\u003cimpl core::cmp::PartialOrd for usize\u003e::lt": {},
+   "core::cmp::impls::\u003cimpl core::cmp::PartialOrd for usize\u003e::partial_cmp": {},
+   "core::cmp::impls::\u003cimpl core::cmp::PartialOrd\u003c\u0026B\u003e for \u0026A\u003e::ge": {},
++  "core::cmp::impls::cmp": {},
++  "core::cmp::impls::eq": {},
++  "core::cmp::impls::ge": {},
++  "core::cmp::impls::gt": {},
++  "core::cmp::impls::lt": {},
++  "core::cmp::impls::ne": {},
++  "core::cmp::impls::partial_cmp": {},
+   "core::cmp::max": {},
+   "core::cmp::max_by": {},
+   "core::cmp::min": {},
+@@ -580,6 +650,7 @@
+   "core::convert::num::\u003cimpl core::convert::From for u32\u003e::from": {},
+   "core::convert::num::\u003cimpl core::convert::From for u64\u003e::from": {},
+   "core::convert::num::\u003cimpl core::convert::From for usize\u003e::from": {},
++  "core::convert::num::from": {},
+   "core::core_arch::simd::i32x4::new": {},
+   "core::core_arch::x86::pclmulqdq::mm_clmulepi64_si128": {},
+   "core::core_arch::x86::sse2::mm_and_si128": {},
+@@ -670,12 +741,14 @@
+   "core::fmt::num::GenericRadix::fmt_int": {},
+   "core::fmt::num::LowerHex::digit": {},
+   "core::fmt::num::UpperHex::digit": {},
++  "core::fmt::num::fmt": {},
+   "core::fmt::num::imp::\u003cimpl core::fmt::Display for i32\u003e::fmt": {},
+   "core::fmt::num::imp::\u003cimpl core::fmt::Display for u16\u003e::fmt": {},
+   "core::fmt::num::imp::\u003cimpl core::fmt::Display for u32\u003e::fmt": {},
+   "core::fmt::num::imp::\u003cimpl core::fmt::Display for u64\u003e::fmt": {},
+   "core::fmt::num::imp::\u003cimpl core::fmt::Display for u8\u003e::fmt": {},
+   "core::fmt::num::imp::\u003cimpl core::fmt::Display for usize\u003e::fmt": {},
++  "core::fmt::num::imp::fmt": {},
+   "core::fmt::num::imp::fmt_u64": {},
+   "core::fmt::pointer_fmt_inner": {},
+   "core::fmt::run": {},
+@@ -717,6 +790,8 @@
+   "core::iter::adapters::take_while::TakeWhile::try_fold::check::{{closure}}": {},
+   "core::iter::range::\u003cimpl core::iter::traits::double_ended::DoubleEndedIterator for core::ops::range::Range\u003e::next_back": {},
+   "core::iter::range::\u003cimpl core::iter::traits::iterator::Iterator for core::ops::range::Range\u003e::next": {},
++  "core::iter::range::next": {},
++  "core::iter::range::next_back": {},
+   "core::iter::sources::from_fn::FromFn::clone": {},
+   "core::iter::sources::from_fn::FromFn::next": {},
+   "core::iter::sources::once::Once::next": {},
+@@ -812,19 +887,47 @@
+   "core::num::\u003cimpl usize\u003e::wrapping_mul": {},
+   "core::num::\u003cimpl usize\u003e::wrapping_sub": {},
+   "core::num::can_not_overflow": {},
++  "core::num::checked_add": {},
++  "core::num::checked_mul": {},
++  "core::num::checked_sub": {},
+   "core::num::error::IntErrorKind::fmt": {},
+   "core::num::error::ParseIntError::fmt": {},
++  "core::num::from_be": {},
++  "core::num::from_be_bytes": {},
++  "core::num::from_le_bytes": {},
++  "core::num::from_ne_bytes": {},
++  "core::num::from_str": {},
+   "core::num::from_str_radix": {},
++  "core::num::is_utf8_char_boundary": {},
++  "core::num::leading_zeros": {},
++  "core::num::next_power_of_two": {},
++  "core::num::one_less_than_next_power_of_two": {},
++  "core::num::overflowing_add": {},
++  "core::num::overflowing_mul": {},
++  "core::num::overflowing_sub": {},
++  "core::num::saturating_add": {},
++  "core::num::saturating_sub": {},
++  "core::num::swap_bytes": {},
++  "core::num::unchecked_add": {},
++  "core::num::unchecked_sub": {},
+   "core::num::wrapping::Wrapping::add": {},
+   "core::num::wrapping::Wrapping::add_assign": {},
+   "core::num::wrapping::Wrapping::div": {},
+   "core::num::wrapping::Wrapping::mul": {},
++  "core::num::wrapping_add": {},
++  "core::num::wrapping_div": {},
++  "core::num::wrapping_mul": {},
++  "core::num::wrapping_neg": {},
++  "core::num::wrapping_shr": {},
++  "core::num::wrapping_sub": {},
+   "core::ops::function::Fn::call": {},
+   "core::ops::function::FnMut::call_mut": {},
+   "core::ops::function::FnOnce::call_once": {},
+   "core::ops::function::FnOnce::call_once{{vtable.shim}}": {},
+   "core::ops::function::impls::\u003cimpl core::ops::function::FnMut for \u0026mut F\u003e::call_mut": {},
+   "core::ops::function::impls::\u003cimpl core::ops::function::FnOnce for \u0026mut F\u003e::call_once": {},
++  "core::ops::function::impls::call_mut": {},
++  "core::ops::function::impls::call_once": {},
+   "core::ops::range::Range::fmt": {},
+   "core::ops::range::Range::get": {},
+   "core::ops::range::Range::get_unchecked": {},
+@@ -851,6 +954,8 @@
+   "core::option::Option::as_ref": {},
+   "core::option::Option::branch": {},
+   "core::option::Option::clone": {},
++  "core::option::Option::cloned": {},
++  "core::option::Option::copied": {},
+   "core::option::Option::eq": {},
+   "core::option::Option::expect": {},
+   "core::option::Option::fmt": {},
+@@ -899,6 +1004,17 @@
+   "core::ptr::const_ptr::\u003cimpl *const T\u003e::read": {},
+   "core::ptr::const_ptr::\u003cimpl *const T\u003e::sub": {},
+   "core::ptr::const_ptr::\u003cimpl *const T\u003e::sub_ptr": {},
++  "core::ptr::const_ptr::add": {},
++  "core::ptr::const_ptr::align_offset": {},
++  "core::ptr::const_ptr::align_offset::rt_impl": {},
++  "core::ptr::const_ptr::copy_to_nonoverlapping": {},
++  "core::ptr::const_ptr::guaranteed_eq": {},
++  "core::ptr::const_ptr::is_null": {},
++  "core::ptr::const_ptr::offset": {},
++  "core::ptr::const_ptr::read": {},
++  "core::ptr::const_ptr::sub": {},
++  "core::ptr::const_ptr::sub_ptr": {},
++  "core::ptr::drop_in_place": {},
+   "core::ptr::drop_in_place\u003c\u0026mut std::io::Write::write_fmt::Adapter\u003calloc::vec::Vec\u003e\u003e": {},
+   "core::ptr::drop_in_place\u003c(gimli::read::unit::UnitOffset,addr2line::lazy::LazyCell\u003ccore::result::Result\u003caddr2line::function::Function\u003cgimli::read::endian_slice::EndianSlice\u003cgimli::endianity::LittleEndian\u003e\u003e,gimli::read::Error\u003e\u003e)\u003e": {},
+   "core::ptr::drop_in_place\u003c(smallvec::SmallVec\u003c[u64; 16]\u003e,usize)\u003e": {},
+@@ -1138,6 +1254,19 @@
+   "core::ptr::mut_ptr::\u003cimpl *mut T\u003e::wrapping_offset": {},
+   "core::ptr::mut_ptr::\u003cimpl *mut T\u003e::wrapping_sub": {},
+   "core::ptr::mut_ptr::\u003cimpl *mut T\u003e::write": {},
++  "core::ptr::mut_ptr::add": {},
++  "core::ptr::mut_ptr::guaranteed_eq": {},
++  "core::ptr::mut_ptr::is_null": {},
++  "core::ptr::mut_ptr::offset": {},
++  "core::ptr::mut_ptr::sub": {},
++  "core::ptr::mut_ptr::sub_ptr": {},
++  "core::ptr::mut_ptr::with_addr": {},
++  "core::ptr::mut_ptr::wrapping_add": {},
++  "core::ptr::mut_ptr::wrapping_byte_offset": {},
++  "core::ptr::mut_ptr::wrapping_byte_sub": {},
++  "core::ptr::mut_ptr::wrapping_offset": {},
++  "core::ptr::mut_ptr::wrapping_sub": {},
++  "core::ptr::mut_ptr::write": {},
+   "core::ptr::non_null::NonNull::as_ref": {},
+   "core::ptr::null_mut": {},
+   "core::ptr::read": {},
+@@ -1156,6 +1285,7 @@
+   "core::result::Result::map": {},
+   "core::result::Result::map_err": {},
+   "core::result::Result::ok": {},
++  "core::result::Result::read_error": {},
+   "core::result::Result::unwrap": {},
+   "core::result::Result::unwrap_or": {},
+   "core::result::Result::unwrap_or_default": {},
+@@ -1191,9 +1321,25 @@
+   "core::slice::\u003cimpl [T]\u003e::split_last": {},
+   "core::slice::\u003cimpl [T]\u003e::starts_with": {},
+   "core::slice::\u003cimpl [T]\u003e::swap": {},
++  "core::slice::align_to": {},
++  "core::slice::as_chunks": {},
++  "core::slice::binary_search_by": {},
++  "core::slice::binary_search_by_key": {},
++  "core::slice::binary_search_by_key::{{closure}}": {},
++  "core::slice::chunks_exact": {},
+   "core::slice::cmp::\u003cimpl core::cmp::PartialEq\u003c[B]\u003e for [A]\u003e::eq": {},
++  "core::slice::cmp::eq": {},
++  "core::slice::copy_from_slice": {},
++  "core::slice::copy_from_slice::len_mismatch_fail": {},
++  "core::slice::ends_with": {},
++  "core::slice::first": {},
++  "core::slice::get": {},
++  "core::slice::get_unchecked": {},
++  "core::slice::get_unchecked_mut": {},
+   "core::slice::index::\u003cimpl core::ops::index::Index for [T]\u003e::index": {},
+   "core::slice::index::\u003cimpl core::ops::index::IndexMut for [T]\u003e::index_mut": {},
++  "core::slice::index::index": {},
++  "core::slice::index::index_mut": {},
+   "core::slice::index::range": {},
+   "core::slice::index::slice_end_index_len_fail": {},
+   "core::slice::index::slice_end_index_len_fail_rt": {},
+@@ -1201,6 +1347,8 @@
+   "core::slice::index::slice_index_order_fail_rt": {},
+   "core::slice::index::slice_start_index_len_fail": {},
+   "core::slice::index::slice_start_index_len_fail_rt": {},
++  "core::slice::is_empty": {},
++  "core::slice::iter": {},
+   "core::slice::iter::\u003cimpl core::iter::traits::collect::IntoIterator for \u0026[T]\u003e::into_iter": {},
+   "core::slice::iter::Chunks::next": {},
+   "core::slice::iter::ChunksExact::new": {},
+@@ -1223,11 +1371,17 @@
+   "core::slice::iter::IterMut::next": {},
+   "core::slice::iter::IterMut::next_back": {},
+   "core::slice::iter::IterMut::pre_dec_end": {},
++  "core::slice::iter::into_iter": {},
++  "core::slice::iter_mut": {},
++  "core::slice::last": {},
++  "core::slice::last_mut": {},
+   "core::slice::memchr::contains_zero_byte": {},
+   "core::slice::memchr::memchr": {},
+   "core::slice::memchr::memchr_aligned": {},
+   "core::slice::memchr::memchr_naive": {},
+   "core::slice::memchr::repeat_byte": {},
++  "core::slice::reverse": {},
++  "core::slice::reverse::revswap": {},
+   "core::slice::sort::CopyOnDrop::drop": {},
+   "core::slice::sort::break_patterns": {},
+   "core::slice::sort::break_patterns::{{closure}}": {},
+@@ -1245,6 +1399,15 @@
+   "core::slice::sort::recurse": {},
+   "core::slice::sort::shift_head": {},
+   "core::slice::sort::shift_tail": {},
++  "core::slice::sort_unstable_by_key": {},
++  "core::slice::sort_unstable_by_key::{{closure}}": {},
++  "core::slice::split_at": {},
++  "core::slice::split_at_mut": {},
++  "core::slice::split_at_mut_unchecked": {},
++  "core::slice::split_at_unchecked": {},
++  "core::slice::split_last": {},
++  "core::slice::starts_with": {},
++  "core::slice::swap": {},
+   "core::str::\u003cimpl str\u003e::bytes": {},
+   "core::str::\u003cimpl str\u003e::char_indices": {},
+   "core::str::\u003cimpl str\u003e::chars": {},
+@@ -1261,6 +1424,10 @@
+   "core::str::\u003cimpl str\u003e::split": {},
+   "core::str::\u003cimpl str\u003e::starts_with": {},
+   "core::str::\u003cimpl str\u003e::trim_start_matches": {},
++  "core::str::bytes": {},
++  "core::str::char_indices": {},
++  "core::str::chars": {},
++  "core::str::contains": {},
+   "core::str::converts::from_utf8": {},
+   "core::str::count::char_count_general_case": {},
+   "core::str::count::char_count_general_case::{{closure}}": {},
+@@ -1268,8 +1435,16 @@
+   "core::str::count::count_chars": {},
+   "core::str::count::do_count_chars": {},
+   "core::str::count::sum_bytes_in_usize": {},
++  "core::str::ends_with": {},
+   "core::str::error::Utf8Error::error_len": {},
+   "core::str::error::Utf8Error::fmt": {},
++  "core::str::find": {},
++  "core::str::floor_char_boundary": {},
++  "core::str::floor_char_boundary::{{closure}}": {},
++  "core::str::get": {},
++  "core::str::get_unchecked": {},
++  "core::str::is_char_boundary": {},
++  "core::str::is_empty": {},
+   "core::str::iter::Bytes::any": {},
+   "core::str::iter::Bytes::next": {},
+   "core::str::iter::Bytes::rposition": {},
+@@ -1284,6 +1459,7 @@
+   "core::str::iter::SplitInternal::next_inclusive": {},
+   "core::str::lossy::Utf8Chunks::next": {},
+   "core::str::lossy::Utf8Chunks::next::safe_get": {},
++  "core::str::parse": {},
+   "core::str::pattern::CharPredicateSearcher::next_match": {},
+   "core::str::pattern::CharSearcher::next_match": {},
+   "core::str::pattern::MultiCharEqPattern::into_searcher": {},
+@@ -1303,6 +1479,8 @@
+   "core::str::pattern::TwoWaySearcher::reverse_maximal_suffix": {},
+   "core::str::slice_error_fail": {},
+   "core::str::slice_error_fail_rt": {},
++  "core::str::split": {},
++  "core::str::starts_with": {},
+   "core::str::traits::\u003cimpl core::cmp::PartialEq for str\u003e::eq": {},
+   "core::str::traits::\u003cimpl core::ops::index::Index for str\u003e::index": {},
+   "core::str::traits::\u003cimpl core::slice::index::SliceIndex for core::ops::range::Range\u003e::get": {},
+@@ -1314,7 +1492,12 @@
+   "core::str::traits::\u003cimpl core::slice::index::SliceIndex for core::ops::range::RangeInclusive\u003e::index": {},
+   "core::str::traits::\u003cimpl core::slice::index::SliceIndex for core::ops::range::RangeTo\u003e::get": {},
+   "core::str::traits::\u003cimpl core::slice::index::SliceIndex for core::ops::range::RangeTo\u003e::index": {},
++  "core::str::traits::eq": {},
++  "core::str::traits::get": {},
++  "core::str::traits::get_unchecked": {},
++  "core::str::traits::index": {},
+   "core::str::traits::str_index_overflow_fail": {},
++  "core::str::trim_start_matches": {},
+   "core::str::validations::contains_nonascii": {},
+   "core::str::validations::next_code_point": {},
+   "core::str::validations::run_utf8_validation": {},
+@@ -1373,6 +1556,9 @@
+   "crc32fast::specialized::pclmulqdq::calculate": {},
+   "crc32fast::specialized::pclmulqdq::get": {},
+   "crc32fast::specialized::pclmulqdq::reduce128": {},
++  "dyn core::any::Any+core::marker::Send::downcast_ref": {},
++  "dyn core::any::Any::downcast_ref": {},
++  "dyn core::any::Any::is": {},
+   "gimli::common::DebugInfoOffset::cmp": {},
+   "gimli::common::DebugInfoOffset::eq": {},
+   "gimli::common::DebugInfoOffset::partial_cmp": {},
+@@ -1472,6 +1658,7 @@
+   "gimli::read::line::parse_directory_v5": {},
+   "gimli::read::line::parse_file_v5": {},
+   "gimli::read::loclists::\u003cimpl gimli::common::DebugLocListsBase\u003e::default_for_encoding_and_file": {},
++  "gimli::read::loclists::default_for_encoding_and_file": {},
+   "gimli::read::reader::Reader::read_address": {},
+   "gimli::read::reader::Reader::read_i8": {},
+   "gimli::read::reader::Reader::read_initial_length": {},
+@@ -1505,6 +1692,7 @@
+   "gimli::read::str::DebugLineStr::get_str": {},
+   "gimli::read::str::DebugStr::get_str": {},
+   "gimli::read::str::DebugStrOffsets::get_str_offset": {},
++  "gimli::read::str::default_for_encoding_and_file": {},
+   "gimli::read::unit::Attribute::exprloc_value": {},
+   "gimli::read::unit::Attribute::offset_value": {},
+   "gimli::read::unit::Attribute::u16_value": {},
+@@ -1548,6 +1736,7 @@
+   "i32::is_minus_one": {},
+   "isize::is_minus_one": {},
+   "libc::unix::linux_like::linux::gnu::\u003cimpl libc::unix::linux_like::linux::gnu::b64::x86_64::siginfo_t\u003e::si_addr": {},
++  "libc::unix::linux_like::linux::gnu::si_addr": {},
+   "libc::unix::linux_like::linux::makedev": {},
+   "libflate::bit::BitReader::check_last_error": {},
+   "libflate::bit::BitReader::fill_next_u8": {},
+@@ -1811,6 +2000,10 @@
+   "std::backtrace_rs::symbolize::gimli::elf::locate_build_id": {},
+   "std::backtrace_rs::symbolize::gimli::elf::locate_debugaltlink": {},
+   "std::backtrace_rs::symbolize::gimli::elf::locate_debuglink": {},
++  "std::backtrace_rs::symbolize::gimli::elf::new": {},
++  "std::backtrace_rs::symbolize::gimli::elf::new::{{closure}}": {},
++  "std::backtrace_rs::symbolize::gimli::elf::new_debug": {},
++  "std::backtrace_rs::symbolize::gimli::elf::new_debug::{{closure}}": {},
+   "std::backtrace_rs::symbolize::gimli::libs_dl_iterate_phdr::callback": {},
+   "std::backtrace_rs::symbolize::gimli::libs_dl_iterate_phdr::native_libraries": {},
+   "std::backtrace_rs::symbolize::gimli::mmap": {},
+@@ -1879,6 +2072,7 @@
+   "std::io::error::Error::new": {},
+   "std::io::error::ErrorKind::eq": {},
+   "std::io::error::ErrorKind::fmt": {},
++  "std::io::error::fmt": {},
+   "std::io::error::repr_bitpacked::Repr::data": {},
+   "std::io::error::repr_bitpacked::Repr::drop": {},
+   "std::io::error::repr_bitpacked::Repr::new_custom": {},
+@@ -1893,6 +2087,10 @@
+   "std::io::impls::\u003cimpl std::io::Read for \u0026mut R\u003e::read_exact": {},
+   "std::io::impls::\u003cimpl std::io::Write for \u0026mut W\u003e::write_all": {},
+   "std::io::impls::\u003cimpl std::io::Write for alloc::vec::Vec\u003e::write_all": {},
++  "std::io::impls::read": {},
++  "std::io::impls::read_buf": {},
++  "std::io::impls::read_exact": {},
++  "std::io::impls::write_all": {},
+   "std::io::readbuf::BorrowedBuf::filled": {},
+   "std::io::readbuf::BorrowedCursor::append": {},
+   "std::io::readbuf::BorrowedCursor::init_ref": {},
+@@ -1981,6 +2179,7 @@
+   "std::path::State::eq": {},
+   "std::path::State::partial_cmp": {},
+   "std::path::StripPrefixError::fmt": {},
++  "std::path::as_ref": {},
+   "std::path::has_physical_root": {},
+   "std::path::iter_after": {},
+   "std::personality::dwarf::DwarfReader::read": {},
+@@ -2016,6 +2215,10 @@
+   "std::sys::unix::alloc::\u003cimpl core::alloc::global::GlobalAlloc for std::alloc::System\u003e::dealloc": {},
+   "std::sys::unix::alloc::\u003cimpl core::alloc::global::GlobalAlloc for std::alloc::System\u003e::realloc": {},
+   "std::sys::unix::alloc::aligned_malloc": {},
++  "std::sys::unix::alloc::alloc": {},
++  "std::sys::unix::alloc::alloc_zeroed": {},
++  "std::sys::unix::alloc::dealloc": {},
++  "std::sys::unix::alloc::realloc": {},
+   "std::sys::unix::args::imp::ARGV_INIT_ARRAY::init_wrapper": {},
+   "std::sys::unix::cleanup": {},
+   "std::sys::unix::cvt": {},
+@@ -2089,6 +2292,7 @@
+   "std::sys::unix::time::Timespec::to_timespec": {},
+   "std::sys::unix::time::inner::\u003cimpl std::sys::unix::time::SystemTime\u003e::now": {},
+   "std::sys::unix::time::inner::\u003cimpl std::sys::unix::time::Timespec\u003e::now": {},
++  "std::sys::unix::time::inner::now": {},
+   "std::sys_common::backtrace::_print::DisplayBacktrace::fmt": {},
+   "std::sys_common::backtrace::_rust_begin_short_backtrace": {},
+   "std::sys_common::backtrace::_rust_end_short_backtrace": {},

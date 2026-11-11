@@ -4,6 +4,7 @@
 //! project-owned atomic FileActions and explicit reviewed-folder navigation.
 
 mod cli;
+mod archive_generation;
 mod import_project;
 mod compatibility;
 mod add_starters;
@@ -536,6 +537,7 @@ impl Launcher {
             View::new(Body::Form(fields)).status(&status)
         };
         view = view
+            .button(generate(Button::new("generate-archive", "Generate and Open…").icon("folder-open")))
             .button(generate(Button::new("generate", "Generate Project").icon("export")))
             .button(generate(Button::new("cli", "Generate with Spring Boot CLI").icon("terminal")))
             .button(generate(Button::new("explore", "Explore in Browser").icon("external-link")))
@@ -578,7 +580,7 @@ struct MoreActions {
 }
 
 fn secondary_action(id: &str) -> bool {
-    matches!(id, "cli" | "explore" | "prepare-import" | "open-reviewed-import" | "pickBoot" | "reset" | "reload-saved" | "refreshCatalogue")
+    matches!(id, "generate-archive" | "cli" | "explore" | "prepare-import" | "open-reviewed-import" | "pickBoot" | "reset" | "reload-saved" | "refreshCatalogue")
 }
 
 impl MoreActions {
@@ -617,6 +619,7 @@ impl Views for Launcher {
             match event {
                 ViewEvent::Field(key, value) if FIELDS.iter().any(|f| f.0 == key) => self.set(&key, &value),
                 ViewEvent::Button(b) if b=="managed-cli-start" => self.start_managed_cli(_ctx)?,
+                ViewEvent::Button(b) if b=="managed-cli-open" => self.open_generated_cli(_ctx)?,
                 ViewEvent::Button(b) if b=="managed-cli-check" => self.check_managed_cli(_ctx)?,
                 ViewEvent::Button(b) if b=="managed-cli-cancel" => self.cli.cancel("Cancelled by user")?,
                 ViewEvent::Button(b) if b == "more-actions" => {
@@ -627,6 +630,7 @@ impl Views for Launcher {
                 ViewEvent::Button(b) if b == "reset" => self.reset(),
                 ViewEvent::Button(b) if b == "reload-saved" => self.reload_saved()?,
                 ViewEvent::Button(b) if b == "pickBoot" => self.pick_boot_version()?,
+                ViewEvent::Button(b) if b == "generate-archive" => { self.generate_archive(_ctx)?; },
                 ViewEvent::Button(b) if b == "prepare-import" => {if let Some(message)=self.prepare_import(_ctx)? {host::notify(NotificationLevel::Info,"Source-only import",&message);}},
                 ViewEvent::Button(b) if b == "open-reviewed-import" => {self.open_reviewed_import(_ctx)?;},
                 ViewEvent::Button(b) if self.problem().is_none() && b == "generate" => host::open_url(&self.starter_url())?,
@@ -651,6 +655,7 @@ impl Plugin for Launcher {
     fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
         self.bind(ctx)?;
         match id {
+            "generate-archive" => self.generate_archive(ctx),
             "prepare-import" => self.prepare_import(ctx),
             "open-reviewed-import" => self.open_reviewed_import(ctx),
             "add-starters" => self.add_starters(ctx),

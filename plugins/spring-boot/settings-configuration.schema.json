@@ -20,6 +20,13 @@
       "default": false,
       "group": "Static build facts",
       "description": "Uses explicit build declarations only; transitive/effective drivers are unknown. No database connection is opened."
+    },
+    "springBoot.nativeRunProfiles": {
+      "type": "boolean",
+      "title": "Offer native Boot Maven/Gradle run profiles",
+      "default": false,
+      "group": "Project build execution",
+      "description": "Discovery reads direct Boot build plugin declarations. Selecting Run executes the project build using the explicitly granted system mvn/gradle executable. Project plugins and build logic can execute. No wrapper, automatic execution or debugger attach is supplied."
     }
   }
 }

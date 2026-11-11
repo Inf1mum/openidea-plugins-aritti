@@ -1,0 +1,11 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: OpenIDEA Quarkus editor configuration overlay
+Bundle-SymbolicName: openidea.quarkus.config.overlay;singleton:=true
+Bundle-Version: 1.0.0
+Bundle-RequiredExecutionEnvironment: JavaSE-21
+Require-Bundle: org.eclipse.core.runtime,org.eclipse.core.resources,
+ org.eclipse.jdt.core,org.eclipse.jdt.ls.core,org.eclipse.lsp4mp.jdt.core
+Import-Package: com.google.gson
+Bundle-ActivationPolicy: lazy
+

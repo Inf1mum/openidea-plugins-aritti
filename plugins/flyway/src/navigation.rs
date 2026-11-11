@@ -394,7 +394,8 @@ impl State {
 }
 impl Flyway {
     pub(crate) fn source_definition(&mut self, doc: &Document, at: Position) -> Vec<Location> {
-        self.navigation.destinations(doc, at)
+        let placeholders = self.navigation.destinations(doc, at);
+        if placeholders.is_empty() { self.table_navigation.definition(doc, at) } else { placeholders }
     }
     pub(crate) fn source_markers(&mut self, doc: &Document) -> Vec<LineMarker> {
         let _ = self.source_definition(doc, Position::new(0, 0));

@@ -12,7 +12,7 @@ GitTaskHandler of plugins/git4idea), Apache-2.0."""
 authors = ["Arnaud RITTI <arnaud.ritti@gmail.com>", "JetBrains s.r.o. and contributors (original Issue Trackers plugin)"]
 homepage = "https://github.com/JetBrains/intellij-community/tree/master/plugins/tasks"
 license = "Apache-2.0"
-change-notes = """\
+change-notes = """Unreleased: explicit multi-profile self-hosted Redmine/MantisBT search with actual metadata/pagination and reviewed close (Redmine allowed-status fresh reads; Mantis strong ETag); credentials stay in externally provisioned private Python bridge profiles. Unreleased: explicit FogBugz Cloud search and reviewed optimistic close through an approved Python3 credential-profile bridge; no token enters native settings/logs and automatic refresh never launches the helper. Unreleased: documented Lighthouse Cloud search, descriptions and reviewed close with tenant/project identity and optional secret-header transport. Unreleased: tracker descriptions are retained as bounded plaintext (Jira ADF flattened) for cached issue hover and task description tabs. Optional closed GitHub/GitLab/Codeberg search with cache-policy isolation; automatic issue refresh remains open-only. \
 Unreleased: native Tasks tree and scoped native review forms replace the packaged panel, with selection-aware Open/Switch/Reopen, explicit Close Active Task review, Search Issues and grouped Contexts entry points. Native window-scoped task status and owned open-editor named contexts with bounded active selection restoration (API 1.4). task/context storage now carries concrete owner/schema/revision, validates legacy records and bounds without silent reset, rejects stale rendered callbacks and supports explicit project-only recovery. Tasks: Search Issues asks for a query, searches every set-up tracker and opens the picked issue. Save, Load and Remove Context keep named lists of the open files. Add and Remove Repository read issues from several GitHub, GitLab or Codeberg repositories. \
 0.2.0: Tasks: Switch Task picks a task from a list; Close Active Task brings the Tasks view to the front. Needs OpenIDEA API 1.2. \
 0.1.0: first release, ported from com.intellij.tasks 263.7307.108 (intellij-community idea/263.7307.112). \
@@ -37,6 +37,7 @@ optional = [
     "vcs.read",
     "vcs.write",
     "process:git",
+    "process:python3",
     "events",
     "clipboard",
     "secrets",
@@ -46,6 +47,7 @@ optional = [
     "net:*.youtrack.cloud",
     "net:*.atlassian.net",
     "net:api.trello.com",
+    "net:*.lighthouseapp.com",
 ]
 
 [[contributes.secrets]]
@@ -211,3 +213,7 @@ category = "Tasks"
 id = "review-issue-branch-at-caret"
 title = "Tasks: Review Cached Issue Activation and Branch Options at Caret"
 category = "Tasks"
+
+[[contributes.secrets]]
+name = "lighthouse-token"
+label = "Lighthouse API Token"

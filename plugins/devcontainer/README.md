@@ -61,11 +61,16 @@ read as JSONC; files above 256 KB are skipped). Each group has a setting.
 ## Completion
 
 In a `devcontainer.json`, completion offers the top-level properties not yet present and the values of
-`shutdownAction`, `userEnvProbe`, `waitFor` and the boolean properties. Nested objects and arrays are not
-completed. Keys of the `features` object are completed with feature ids (`ghcr.io/devcontainers/features/node:1`)
+`shutdownAction`, `userEnvProbe`, `waitFor` and the boolean properties. Schema-backed nested key completion covers `build`, `hostRequirements`,
+`otherPortsAttributes`, and each entry of `portsAttributes`. Port attributes also
+complete protocol/on-auto-forward enums and boolean values. Existing properties
+are omitted and editing an existing property preserves its value. Arbitrary
+extension/environment keys and arrays remain quiet. Keys of the `features` object are completed with feature ids (`ghcr.io/devcontainers/features/node:1`)
 from the public index at `containers.dev/static/devcontainer-index.json`. The index is downloaded only by
 Dev Container: Refresh Feature List and kept in storage, so completion is empty until you run it once and
-may lag behind the registry. It needs the optional `storage` and `net:containers.dev` permissions. The index
+may lag behind the registry. Bounded cached feature Boolean/enum options also
+complete inside the selected feature object; the cache must match the current
+feature index and unsupported descriptors remain quiet. It needs the optional `storage` and `net:containers.dev` permissions. The index
 layout was read from the live file; the download itself is not verified in a live IDE. A setting switches it off. The provider is declared for the `json` and `jsonc`
 language ids; `jsonc` is not verified in a live IDE.
 
@@ -232,7 +237,7 @@ feature options/defaults, installation code or runtime behavior. Options are not
 inferred from a name. The standard features object and OCI references are described
 in the official [Features specification](https://github.com/devcontainers/spec/blob/main/docs/specs/devcontainer-features.md)
 and [base schema](https://github.com/devcontainers/spec/blob/main/schemas/devContainer.base.schema.json).
-This is a bounded source generator. Existing Dockerfile and Compose JSON forms
+This is a bounded source generator. Existing Dockerfile and Compose forms
 are described below; general YAML/remote templates and free-form option schemas
 remain separate.
 
@@ -257,19 +262,18 @@ with destination vacancy and ownership. It returns one non-overwriting config
 Create operation and never writes/edits the Dockerfile, builds or runs a tool.
 Source/editor changes must be saved before Start. Included context files, ignore
 rules, build args/stages, base images, syntax and compatibility are not validated.
-This adds a bounded Dockerfile form; the Compose JSON sibling form is below.
+This adds a bounded Dockerfile form; the Compose sibling form is below.
 
-## Reviewed configuration from existing Compose JSON
+## Reviewed configuration from an existing Compose file
 
-**Existing project Compose JSON** reads one owned strict JSON file up to8KiB and
-offers1–64 explicitly declared services. Duplicate keys (including escaped key
-aliases) anywhere in the JSON refuse; YAML and multi-file resolution are outside
-this form. Select a declared service and enter a literal absolute container
+**Existing project Compose YAML or JSON** reads one owned source file up to8KiB and
+offers1–64 explicitly declared services. Duplicate decoded keys anywhere in the source refuse; YAML aliases/tags and
+multi-file resolution are outside this form. Select a declared service and enter a literal absolute container
 workspace path. Mounts, running containers and workspace existence are unverified.
 The existing bundled Compose template receives the destination-relative source
 path, chosen service/name/workspace and optional reviewed cached feature.
 
-The final review includes complete current Compose JSON and exact generated config.
+The final review includes complete current Compose source and exact generated config.
 Resolution repeats source owner/stat/text and destination owner/vacancy checks,
 then returns only a non-overwriting config Create. It never edits Compose source
 or starts services. Includes, interpolation, overrides, profiles, dependencies,
@@ -280,7 +284,7 @@ or validated. Save source/editor changes before Start. Docker officially support
 defines the selected service and workspace fields. No native acceptance is added.
 
 
-## Optional cached true/false and listed feature options
+## Optional cached Boolean, enum and string feature options
 
 Refresh Feature List retains a bounded subset of the public index's declared
 Boolean and string-enum options in a separate optional cache. Its exact stored
@@ -292,6 +296,7 @@ reports a warning after names refresh.
 
 After selecting a feature, choose feature defaults or review cached options. Each
 option offers Omit (use the feature's own default) plus explicit typed choices.
+Free-form string options also offer an explicit input.
 Cancel returns no creation operation. No cached default is automatically written.
 The exact final config shows every selected Boolean/string value. Existing bundled
 feature options are preserved. Cache data may be stale and does not verify current
@@ -303,11 +308,34 @@ stores at most512KiB including the name-index binding. Reads retrieve the whole
 storage value before size admission. At most64 option definitions per feature are
 examined and8 supported options offered; enum lists have1–16 unique strings up
 to128bytes each. Option IDs, descriptions and defaults are bounded/type checked.
-String proposals/free-form values, unsupported types and invalid descriptors are
-omitted. These are form scope limits, not constraints on the broader standard.
+String proposals are offered as suggestions; an explicit custom-string input is
+available for non-enum string options. Defaults stay omitted unless explicitly
+selected. Values are bounded to4096 bytes and serialized as JSON; Cancel aborts
+creation. Unsupported types and invalid descriptors remain omitted.
 
 ## Reviewed native Run Targets (API 1.4)
 
 Tools offers a root-relative Run Target and an experimental mapped project-root tooling target. Preparation inspects a bounded approved local Unix Docker endpoint and exact running container/bind identity. Modal approval only prepares a snapshot: a separate fresh **Register once** button rechecks project/config/container facts before native registration. It never automatically selects a target or launches a command. Plans expire after120seconds; changed configuration and controlled container lifecycle actions withdraw matching registrations.
 
 Mapped mode preserves stdin and declares the verified project bind for configured target language servers. It requires an installed server and manual host target selection. Absolute paths, arbitrary cwd, per-launch container reinspection and a general remote IDE backend are not promised. Existing finite managed CLI commands retain their approval and bounded-output behavior; registration does not make destructive Rebuild freely rerunnable. Native release/container/LSP acceptance remains separate from source tests and Wasm builds.
+
+
+## Known property value diagnostics
+
+Current-document checks now validate known scalar enum choices, common root
+property shapes and port attribute types/enums. The **Check known property types
+and enum values** setting controls this group independently of typo/feature
+checks. Valid JSONC comments and trailing commas remain supported by the existing
+scanner; malformed/incomplete or unsupported composite values stay quiet rather
+than receiving speculative type errors. This is a conservative specification
+model, not a complete Dev Container JSON Schema implementation.
+
+
+Compose `.yaml`/`.yml` sources now use a bounded literal YAML parser alongside
+strict JSON. Quoted service names, flow/block mappings and ordinary scalar/list
+values are accepted. Aliases, tags, duplicate decoded keys, complex mapping keys,
+multiple documents and non-finite values are refused. Only literal service names
+are extracted; interpolation, includes/extends/overrides, profiles, environment
+files and runtime mount/dependency semantics are not resolved. Source bytes,
+metadata and project ownership are rechecked after review before configuration
+creation; no Compose source is edited and no container command runs.

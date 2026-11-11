@@ -66,10 +66,10 @@ changes after resolution use the host's workspace-edit preconditions rather than
 an extra plugin-owned lock. There is no atomic guarantee across an external
 filesystem change racing the host application.
 
-**Create locale file…** adds an empty locale beside the current bundle, with a
-preview of its path and ASCII comment. It accepts a known two-letter language,
-optionally an uppercase two-letter country or three-digit region (`fr`, `fr_CA`,
-`es_419`). Existing paths and unsaved destination buffers are refused; create
+**Create locale files…** adds empty locales beside the current bundle in one atomic workspace edit, with a
+preview of its path and ASCII comment. It accepts up to 32 comma-separated locales, each a known ISO 639-1 or ISO 639-2 language,
+optionally a title-case script, uppercase two-letter country or three-digit region,
+and Java variant segments (`eng`, `zh_Hans_CN`, `en_US_POSIX`, `en__POSIX`). Existing paths and unsaved destination buffers are refused; create
 uses `overwrite: false`. New files contain ASCII text; the host applies its new-file encoding defaults.
 No translation is copied or invented, and no encoding selector is supplied. Existing-file edits retain host encoding/BOM behavior;
 unrepresentable characters fail the workspace edit rather than changing encoding.
@@ -80,8 +80,8 @@ Desktop multi-file application and undo remain unverified for this change.
 Original-aligned scope: the pinned Properties 263.7307.108 evidence identifies
 `AddNewPropertyFileAction` and `CreateResourceBundleDialogComponent`, whose dialog
 validates file names/existing destinations and creates chosen locale files in one
-write command. This implementation supplies native intention prompts for one new
-locale and atomic selected-locale writes; it does not reproduce that full dialog
+write command. This implementation supplies native intention prompts for multiple new
+locales and atomic selected-locale writes; it does not reproduce that full dialog
 or claim original-specific bundle-grid screenshot parity.
 
 ## Property hover and Rename ownership
@@ -411,3 +411,96 @@ Set property value across selected locales intention remains the cross-file
 editing path. This adapts the original key/value/destination-selection workflow
 without claiming the full original internationalization dialog or inline
 all-locale editor. Toolbar glyphs use the released native icon registry.
+
+### Batch locale creation (2026-11-10)
+
+The create-locale intention accepts `de, fr_CA, es_419` and reviews all paths and
+ASCII file contents together. Duplicate locales, invalid names, existing files
+and open destination buffers refuse the whole transaction. Source and all target
+vacancies are rechecked after confirmation. All creates use `overwrite: false`;
+no locale is written during planning and host Undo covers the resulting edit.
+The first locale opens after application. This closes the single-locale-at-a-time
+limitation; virtual bundle grouping, native grid editing and encoding selection
+remain outside this delivery.
+
+### Locale management and Unicode conversion (2026-11-10)
+
+Localized files offer **Rename this locale file…** and **Remove this locale
+file…** intentions. Both review the exact current content and source path; Rename
+validates the new locale and refuses existing or open-buffer destinations. The
+default bundle cannot be deleted/renamed through these actions. Source snapshots
+and destination vacancy are checked again after confirmation, and operations are
+returned as native undoable FileActions rather than written directly. These are
+file-level locale operations, not bundle-key or runtime locale refactorings.
+
+**Convert property keys and values to Unicode escapes…** and **Convert Unicode
+escapes to native property text…** provide reviewed, version-bound source edits.
+Non-BMP characters use UTF-16 surrogate pairs when escaping. Native conversion
+re-escapes key delimiters, leading whitespace and control characters, and verifies
+that decoded keys/values remain unchanged. Comments are retained verbatim. Malformed
+or unrepresentable Unicode refuses conversion. This changes source spelling only;
+it does not change the host's file encoding.
+
+### Shared locale model (2026-11-10)
+
+Creation, locale-file rename, sibling bundle discovery and explicit JDK bundle
+reference filtering now share one locale parser. It admits known ISO 639-1 and
+ISO 639-2 languages (including bibliographic/terminological alternatives), optional
+script, region and Java-style variant segments. An absent region before a variant
+retains the double underscore (`en__POSIX`). Script-only locales are supported
+(`sr_Cyrl`). Empty/dangling variants, incorrect script/region case, unknown
+languages and path separators are refused. Total suffix length is limited to96
+bytes and each variant to32 ASCII alphanumeric/hyphen bytes. This is resource
+bundle filename handling, not runtime locale negotiation or locale alias conversion.
+
+ISO 639-2 identifiers are pinned to MIT `wooorm/iso-639-2` revision
+`1bd9b9e1b29f3bda2c8e72a16ff09d284f07caa6`; attribution/license is in NOTICE.
+The reserved private-use `qaa-qtz` range is not treated as assigned language codes.
+
+## Editable multi-locale draft grid
+
+Resource Bundle now offers **Edit All Locales…**. This switches the native grid
+into an explicitly **STAGED** mode: edit any locale value, rename a key across
+visible bundle locales, or insert/remove property rows. Source files remain
+unchanged while cells are edited. Duplicate keys, incomplete inventories,
+foreign owners and bounded source/layout overflows refuse entry or mutation.
+
+**Continue to Apply…** opens the source editor. Open Context Actions (Alt+Enter)
+and select **Apply staged bundle changes…** to review the exact before/after
+source replacements and apply one atomic workspace edit. One native Undo reverses
+that transaction. The extra intention step is required because the API does not
+submit a workspace FileAction from a view callback. Key changes update this bundle
+only; code references remain unchanged and that distinction is included in review.
+
+Cancel preserves the draft. If any source changes, the staged grid becomes
+read-only and retains its input until explicitly discarded. After observing every
+proposed source text in the complete bundle inventory, the grid retires its draft
+and shows the source-backed overview. Drafts are memory-only and are lost on plugin
+reload; **Discard Staged Changes…** never changes source files. Locale creation
+and the existing reviewed single-file controls remain separate workflows.
+
+The optional **Inspect Compiler-Proved Java Bundle Usages…** command and
+**Change key with compiler-proved Java contracts…** intention use an approved
+Java17+ JDK source launcher. They analyze actual canonical JDK `ResourceBundle`
+and `org.jetbrains.annotations.PropertyKey` bindings, including final fields,
+exactly bound effectively-final local aliases, overloaded parameters, annotated fields/assignments/returns and
+Java-escaped literals. The compiler receives explicit current editor snapshots,
+with annotation processing, implicit source loading and class generation
+disabled. An optional exact JAR profile supplies dependency classes; its profile
+and JAR hashes are reviewed and rechecked. See [compiler profile setup](adapters/README.md). Application classes and static initializers never run.
+
+This declared-source graph includes ignored Java files in the focused conventional
+`src/main/java` or `src/test/java` tree. A complete graph requires ordinary bounded
+sources (400files,128KiB/file,4MiB total), a complete physical sibling locale
+inventory, and no Kotlin/dynamic/unresolved contracts. Missing dependencies,
+class-based bundle collisions, custom bundle loaders and ambiguous contracts
+refuse compiler Rename. This is a finite source operation; reflection, framework
+conventions, other modules/source sets and runtime classloaders remain outside it.
+The lazy intention rechecks physical inventories, source hashes, all unsaved
+snapshots and semantic edges before and after an exact bounded edit review. The
+host applies the resulting multi-file action atomically with Undo. No live
+provider starts Java; missing/denied Java leaves existing local tools available.
+
+API1.4 line folds now cover current-buffer multiline property continuations,
+contiguous comment blocks and consecutive dotted-prefix groups. Single-line
+value folding still needs editor support.

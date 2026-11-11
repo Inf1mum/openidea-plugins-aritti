@@ -1,0 +1,1226 @@
+{
+  "scope": "Rust tests, fresh Wasm builds, released-host component checks and staged installer validation; not desktop parity",
+  "excluded": [
+    "laravel"
+  ],
+  "packages": [
+    {
+      "plugin": "blade",
+      "steps": {
+        "test": {
+          "exit": 0,
+          "seconds": 0.3
+        },
+        "wasm": {
+          "exit": 0,
+          "seconds": 0.12
+        },
+        "component": {
+          "exit": 0
+        },
+        "package": {
+          "exit": 0
+        },
+        "source_stability": {
+          "exit": 0,
+          "reason": "Source fingerprints must remain stable during verification"
+        }
+      },
+      "source_before": "0b9d1bfdf57e4decf2a5f10b03ef901611493a6e386d845fd8311258b0a9a190",
+      "shared_before": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "tools": {
+        "checker": "cc01d6559fafce8e77a9eb6a66ebbdee942a1ccf65ab0d0642c0fb0d728e8745",
+        "cli": "94845a0d8ed08c12066543a3bb2d507e7aade7000808c51be87d6deabc1ddffc",
+        "runner": "b36a6222d9b09d4e63328f9035276d1a2b380356b626fd618492563aa84c58ff",
+        "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)"
+      },
+      "tests": {
+        "passed": 65,
+        "failed": 0
+      },
+      "artifact": {
+        "path": "/Users/aritti/Projects/openidea-plugins/plugins/blade/target/wasm32-wasip2/release/openidea_plugin_blade.wasm",
+        "sha256": "22c29ee663877a35a16d8996b1f95d691603639c91eb1e5e19c08e4e4e74ea91"
+      },
+      "source_after": "0b9d1bfdf57e4decf2a5f10b03ef901611493a6e386d845fd8311258b0a9a190",
+      "shared_after": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "pass": true
+    },
+    {
+      "plugin": "ddev",
+      "steps": {
+        "test": {
+          "exit": 0,
+          "seconds": 1.01
+        },
+        "wasm": {
+          "exit": 0,
+          "seconds": 0.17
+        },
+        "component": {
+          "exit": 0
+        },
+        "package": {
+          "exit": 0
+        },
+        "source_stability": {
+          "exit": 0,
+          "reason": "Source fingerprints must remain stable during verification"
+        }
+      },
+      "source_before": "c5707dd7b708c2b3f7f63cbd8a25d908c62bbe17c75ff501adac4263686478f2",
+      "shared_before": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "tools": {
+        "checker": "cc01d6559fafce8e77a9eb6a66ebbdee942a1ccf65ab0d0642c0fb0d728e8745",
+        "cli": "94845a0d8ed08c12066543a3bb2d507e7aade7000808c51be87d6deabc1ddffc",
+        "runner": "b36a6222d9b09d4e63328f9035276d1a2b380356b626fd618492563aa84c58ff",
+        "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)"
+      },
+      "tests": {
+        "passed": 110,
+        "failed": 0
+      },
+      "artifact": {
+        "path": "/Users/aritti/Projects/openidea-plugins/plugins/ddev/target/wasm32-wasip2/release/openidea_plugin_ddev.wasm",
+        "sha256": "ef774670ca902bb7cbdd4b95a7d9dfd60727f6cca5938036c45e1e3b539d6746"
+      },
+      "source_after": "c5707dd7b708c2b3f7f63cbd8a25d908c62bbe17c75ff501adac4263686478f2",
+      "shared_after": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "pass": true
+    },
+    {
+      "plugin": "dependency-audit",
+      "steps": {
+        "test": {
+          "exit": 0,
+          "seconds": 1.4
+        },
+        "wasm": {
+          "exit": 0,
+          "seconds": 0.11
+        },
+        "component": {
+          "exit": 0
+        },
+        "package": {
+          "exit": 0
+        },
+        "source_stability": {
+          "exit": 0,
+          "reason": "Source fingerprints must remain stable during verification"
+        }
+      },
+      "source_before": "cc730adadf92b104602440429d540bd4bbb8a679023777d65545eda1f3984a59",
+      "shared_before": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "tools": {
+        "checker": "cc01d6559fafce8e77a9eb6a66ebbdee942a1ccf65ab0d0642c0fb0d728e8745",
+        "cli": "94845a0d8ed08c12066543a3bb2d507e7aade7000808c51be87d6deabc1ddffc",
+        "runner": "b36a6222d9b09d4e63328f9035276d1a2b380356b626fd618492563aa84c58ff",
+        "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)"
+      },
+      "tests": {
+        "passed": 161,
+        "failed": 0
+      },
+      "artifact": {
+        "path": "/Users/aritti/Projects/openidea-plugins/plugins/dependency-audit/target/wasm32-wasip2/release/openidea_plugin_dependency_audit.wasm",
+        "sha256": "7d642fca09ac07aa11dda369d8c632fcda98d1f553dad944a309e902032d7e93"
+      },
+      "source_after": "cc730adadf92b104602440429d540bd4bbb8a679023777d65545eda1f3984a59",
+      "shared_after": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "pass": true
+    },
+    {
+      "plugin": "devcontainer",
+      "steps": {
+        "test": {
+          "exit": 0,
+          "seconds": 0.27
+        },
+        "wasm": {
+          "exit": 0,
+          "seconds": 0.12
+        },
+        "component": {
+          "exit": 0
+        },
+        "package": {
+          "exit": 0
+        },
+        "source_stability": {
+          "exit": 0,
+          "reason": "Source fingerprints must remain stable during verification"
+        }
+      },
+      "source_before": "d9db16de5a49aebba07f2ce94deb66a6a919cf6d77c57d6d76fc7e2f15f2be0c",
+      "shared_before": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "tools": {
+        "checker": "cc01d6559fafce8e77a9eb6a66ebbdee942a1ccf65ab0d0642c0fb0d728e8745",
+        "cli": "94845a0d8ed08c12066543a3bb2d507e7aade7000808c51be87d6deabc1ddffc",
+        "runner": "b36a6222d9b09d4e63328f9035276d1a2b380356b626fd618492563aa84c58ff",
+        "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)"
+      },
+      "tests": {
+        "passed": 159,
+        "failed": 0
+      },
+      "artifact": {
+        "path": "/Users/aritti/Projects/openidea-plugins/plugins/devcontainer/target/wasm32-wasip2/release/openidea_plugin_devcontainer.wasm",
+        "sha256": "dd1ceaffe534018542a54661b3b91ae4b3e0671fea7b14f6825ac6dc014d72d7"
+      },
+      "source_after": "d9db16de5a49aebba07f2ce94deb66a6a919cf6d77c57d6d76fc7e2f15f2be0c",
+      "shared_after": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "pass": true
+    },
+    {
+      "plugin": "dotenv",
+      "steps": {
+        "test": {
+          "exit": 0,
+          "seconds": 0.5
+        },
+        "wasm": {
+          "exit": 0,
+          "seconds": 0.14
+        },
+        "component": {
+          "exit": 0
+        },
+        "package": {
+          "exit": 0
+        },
+        "source_stability": {
+          "exit": 0,
+          "reason": "Source fingerprints must remain stable during verification"
+        }
+      },
+      "source_before": "423ae19fa0671522ca78391c7e326f8a731d38776062766197a844db200e1ecb",
+      "shared_before": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "tools": {
+        "checker": "cc01d6559fafce8e77a9eb6a66ebbdee942a1ccf65ab0d0642c0fb0d728e8745",
+        "cli": "94845a0d8ed08c12066543a3bb2d507e7aade7000808c51be87d6deabc1ddffc",
+        "runner": "b36a6222d9b09d4e63328f9035276d1a2b380356b626fd618492563aa84c58ff",
+        "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)"
+      },
+      "tests": {
+        "passed": 59,
+        "failed": 0
+      },
+      "artifact": {
+        "path": "/Users/aritti/Projects/openidea-plugins/plugins/dotenv/target/wasm32-wasip2/release/openidea_plugin_dotenv.wasm",
+        "sha256": "3b5505c01e6806d025f9b12a7a9c3dd059a3654cb891959d88ca87e586ac69f5"
+      },
+      "source_after": "423ae19fa0671522ca78391c7e326f8a731d38776062766197a844db200e1ecb",
+      "shared_after": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "pass": true
+    },
+    {
+      "plugin": "flyway",
+      "steps": {
+        "test": {
+          "exit": 0,
+          "seconds": 1.14
+        },
+        "wasm": {
+          "exit": 0,
+          "seconds": 0.11
+        },
+        "component": {
+          "exit": 0
+        },
+        "package": {
+          "exit": 0
+        },
+        "source_stability": {
+          "exit": 0,
+          "reason": "Source fingerprints must remain stable during verification"
+        }
+      },
+      "source_before": "96cedcca179e9c98266fb65107f7873d9ff2fac1a5d41cfc4955a1b9769301fe",
+      "shared_before": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "tools": {
+        "checker": "cc01d6559fafce8e77a9eb6a66ebbdee942a1ccf65ab0d0642c0fb0d728e8745",
+        "cli": "94845a0d8ed08c12066543a3bb2d507e7aade7000808c51be87d6deabc1ddffc",
+        "runner": "b36a6222d9b09d4e63328f9035276d1a2b380356b626fd618492563aa84c58ff",
+        "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)"
+      },
+      "tests": {
+        "passed": 132,
+        "failed": 0
+      },
+      "artifact": {
+        "path": "/Users/aritti/Projects/openidea-plugins/plugins/flyway/target/wasm32-wasip2/release/openidea_plugin_aritti_flyway.wasm",
+        "sha256": "cd82fa0d4bdb5aa8b2b9afb8af504855aed5ef61f942d6bdd09ba0dc5904d626"
+      },
+      "source_after": "96cedcca179e9c98266fb65107f7873d9ff2fac1a5d41cfc4955a1b9769301fe",
+      "shared_after": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "pass": true
+    },
+    {
+      "plugin": "gitlab",
+      "steps": {
+        "test": {
+          "exit": 0,
+          "seconds": 0.69
+        },
+        "wasm": {
+          "exit": 0,
+          "seconds": 0.15
+        },
+        "component": {
+          "exit": 0
+        },
+        "package": {
+          "exit": 0
+        },
+        "source_stability": {
+          "exit": 0,
+          "reason": "Source fingerprints must remain stable during verification"
+        }
+      },
+      "source_before": "8f04ef23f84b8204122aabf4750c7351841782c68854b2848f65820585309b1a",
+      "shared_before": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "tools": {
+        "checker": "cc01d6559fafce8e77a9eb6a66ebbdee942a1ccf65ab0d0642c0fb0d728e8745",
+        "cli": "94845a0d8ed08c12066543a3bb2d507e7aade7000808c51be87d6deabc1ddffc",
+        "runner": "b36a6222d9b09d4e63328f9035276d1a2b380356b626fd618492563aa84c58ff",
+        "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)"
+      },
+      "tests": {
+        "passed": 299,
+        "failed": 0
+      },
+      "artifact": {
+        "path": "/Users/aritti/Projects/openidea-plugins/plugins/gitlab/target/wasm32-wasip2/release/openidea_plugin_gitlab.wasm",
+        "sha256": "e7c78561f560d05bbe2a30c9f342edcad9560673da1aab0bcaca222021247136"
+      },
+      "source_after": "8f04ef23f84b8204122aabf4750c7351841782c68854b2848f65820585309b1a",
+      "shared_after": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "pass": true
+    },
+    {
+      "plugin": "ideolog",
+      "steps": {
+        "test": {
+          "exit": 0,
+          "seconds": 4.77
+        },
+        "wasm": {
+          "exit": 0,
+          "seconds": 0.13
+        },
+        "component": {
+          "exit": 0
+        },
+        "package": {
+          "exit": 0
+        },
+        "source_stability": {
+          "exit": 0,
+          "reason": "Source fingerprints must remain stable during verification"
+        }
+      },
+      "source_before": "e6ce615d357b34d3aa741428a6fa5e4e315b753ac7cb108b4cfbc96844ffbf89",
+      "shared_before": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "tools": {
+        "checker": "cc01d6559fafce8e77a9eb6a66ebbdee942a1ccf65ab0d0642c0fb0d728e8745",
+        "cli": "94845a0d8ed08c12066543a3bb2d507e7aade7000808c51be87d6deabc1ddffc",
+        "runner": "b36a6222d9b09d4e63328f9035276d1a2b380356b626fd618492563aa84c58ff",
+        "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)"
+      },
+      "tests": {
+        "passed": 113,
+        "failed": 0
+      },
+      "artifact": {
+        "path": "/Users/aritti/Projects/openidea-plugins/plugins/ideolog/target/wasm32-wasip2/release/openidea_plugin_ideolog.wasm",
+        "sha256": "275ac5ab60e9a74ea62262626befd8e196e66f3c9db0900104beb7de3095a874"
+      },
+      "source_after": "e6ce615d357b34d3aa741428a6fa5e4e315b753ac7cb108b4cfbc96844ffbf89",
+      "shared_after": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "pass": true
+    },
+    {
+      "plugin": "ignore",
+      "steps": {
+        "test": {
+          "exit": 0,
+          "seconds": 0.68
+        },
+        "wasm": {
+          "exit": 0,
+          "seconds": 0.11
+        },
+        "component": {
+          "exit": 0
+        },
+        "package": {
+          "exit": 0
+        },
+        "source_stability": {
+          "exit": 0,
+          "reason": "Source fingerprints must remain stable during verification"
+        }
+      },
+      "source_before": "a883365815ce20ae47ede55d9cfb1236790a2708ddfdd25a780aea4ac08c58b9",
+      "shared_before": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "tools": {
+        "checker": "cc01d6559fafce8e77a9eb6a66ebbdee942a1ccf65ab0d0642c0fb0d728e8745",
+        "cli": "94845a0d8ed08c12066543a3bb2d507e7aade7000808c51be87d6deabc1ddffc",
+        "runner": "b36a6222d9b09d4e63328f9035276d1a2b380356b626fd618492563aa84c58ff",
+        "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)"
+      },
+      "tests": {
+        "passed": 135,
+        "failed": 0
+      },
+      "artifact": {
+        "path": "/Users/aritti/Projects/openidea-plugins/plugins/ignore/target/wasm32-wasip2/release/openidea_plugin_ignore.wasm",
+        "sha256": "d16b8229d656a9d16c6aaf897ccb9ea4c686a770cb500a1588779765c15fc9f3"
+      },
+      "source_after": "a883365815ce20ae47ede55d9cfb1236790a2708ddfdd25a780aea4ac08c58b9",
+      "shared_after": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "pass": true
+    },
+    {
+      "plugin": "jpa-assist",
+      "steps": {
+        "test": {
+          "exit": 0,
+          "seconds": 1.32
+        },
+        "wasm": {
+          "exit": 0,
+          "seconds": 0.12
+        },
+        "component": {
+          "exit": 0
+        },
+        "package": {
+          "exit": 0
+        },
+        "source_stability": {
+          "exit": 0,
+          "reason": "Source fingerprints must remain stable during verification"
+        }
+      },
+      "source_before": "ac0a921241200284c306a5c161d655cfcc4163e1f275adb2bd2f50d83e8c34b0",
+      "shared_before": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "tools": {
+        "checker": "cc01d6559fafce8e77a9eb6a66ebbdee942a1ccf65ab0d0642c0fb0d728e8745",
+        "cli": "94845a0d8ed08c12066543a3bb2d507e7aade7000808c51be87d6deabc1ddffc",
+        "runner": "b36a6222d9b09d4e63328f9035276d1a2b380356b626fd618492563aa84c58ff",
+        "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)"
+      },
+      "tests": {
+        "passed": 315,
+        "failed": 0
+      },
+      "artifact": {
+        "path": "/Users/aritti/Projects/openidea-plugins/plugins/jpa-assist/target/wasm32-wasip2/release/openidea_plugin_jpa_assist.wasm",
+        "sha256": "16a8c84c7d67343ffa5f82ae0a72339a6e85709815fe70e5a4c598b05611878e"
+      },
+      "source_after": "ac0a921241200284c306a5c161d655cfcc4163e1f275adb2bd2f50d83e8c34b0",
+      "shared_after": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "pass": true
+    },
+    {
+      "plugin": "kube-explorer",
+      "steps": {
+        "test": {
+          "exit": 0,
+          "seconds": 1.23
+        },
+        "wasm": {
+          "exit": 0,
+          "seconds": 0.1
+        },
+        "component": {
+          "exit": 0
+        },
+        "package": {
+          "exit": 0
+        },
+        "source_stability": {
+          "exit": 0,
+          "reason": "Source fingerprints must remain stable during verification"
+        }
+      },
+      "source_before": "f2db25bdb1ec298b0c689f0a272483a1c34763cf97a9b8f11dd56fb21adeb762",
+      "shared_before": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "tools": {
+        "checker": "cc01d6559fafce8e77a9eb6a66ebbdee942a1ccf65ab0d0642c0fb0d728e8745",
+        "cli": "94845a0d8ed08c12066543a3bb2d507e7aade7000808c51be87d6deabc1ddffc",
+        "runner": "b36a6222d9b09d4e63328f9035276d1a2b380356b626fd618492563aa84c58ff",
+        "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)"
+      },
+      "tests": {
+        "passed": 509,
+        "failed": 0
+      },
+      "artifact": {
+        "path": "/Users/aritti/Projects/openidea-plugins/plugins/kube-explorer/target/wasm32-wasip2/release/openidea_plugin_kube_explorer.wasm",
+        "sha256": "c0a29cb76f1286dd30364146742e19b8e12b745db83a1c1c0408d26042222b22"
+      },
+      "source_after": "f2db25bdb1ec298b0c689f0a272483a1c34763cf97a9b8f11dd56fb21adeb762",
+      "shared_after": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "pass": true
+    },
+    {
+      "plugin": "liquibase",
+      "steps": {
+        "test": {
+          "exit": 0,
+          "seconds": 0.54
+        },
+        "wasm": {
+          "exit": 0,
+          "seconds": 0.13
+        },
+        "component": {
+          "exit": 0
+        },
+        "package": {
+          "exit": 0
+        },
+        "source_stability": {
+          "exit": 0,
+          "reason": "Source fingerprints must remain stable during verification"
+        }
+      },
+      "source_before": "01f8cdc439ac99cf732c62ed75364ca89079592ab9d7297f68689074064e6266",
+      "shared_before": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "tools": {
+        "checker": "cc01d6559fafce8e77a9eb6a66ebbdee942a1ccf65ab0d0642c0fb0d728e8745",
+        "cli": "94845a0d8ed08c12066543a3bb2d507e7aade7000808c51be87d6deabc1ddffc",
+        "runner": "b36a6222d9b09d4e63328f9035276d1a2b380356b626fd618492563aa84c58ff",
+        "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)"
+      },
+      "tests": {
+        "passed": 169,
+        "failed": 0
+      },
+      "artifact": {
+        "path": "/Users/aritti/Projects/openidea-plugins/plugins/liquibase/target/wasm32-wasip2/release/openidea_plugin_aritti_liquibase.wasm",
+        "sha256": "4dee84f0c3c05c57818f2b9b4cf3e2b2c6c5e14852cbfe12bf3334d36f07ade0"
+      },
+      "source_after": "01f8cdc439ac99cf732c62ed75364ca89079592ab9d7297f68689074064e6266",
+      "shared_after": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "pass": true
+    },
+    {
+      "plugin": "openapi",
+      "steps": {
+        "test": {
+          "exit": 0,
+          "seconds": 3.83
+        },
+        "wasm": {
+          "exit": 0,
+          "seconds": 0.13
+        },
+        "component": {
+          "exit": 0
+        },
+        "package": {
+          "exit": 0
+        },
+        "source_stability": {
+          "exit": 0,
+          "reason": "Source fingerprints must remain stable during verification"
+        }
+      },
+      "source_before": "e90a2d907588eb29661f915b11a7e13c62db677f46dd36b1cf8bccf3a93f0987",
+      "shared_before": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "tools": {
+        "checker": "cc01d6559fafce8e77a9eb6a66ebbdee942a1ccf65ab0d0642c0fb0d728e8745",
+        "cli": "94845a0d8ed08c12066543a3bb2d507e7aade7000808c51be87d6deabc1ddffc",
+        "runner": "b36a6222d9b09d4e63328f9035276d1a2b380356b626fd618492563aa84c58ff",
+        "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)"
+      },
+      "tests": {
+        "passed": 239,
+        "failed": 0
+      },
+      "artifact": {
+        "path": "/Users/aritti/Projects/openidea-plugins/plugins/openapi/target/wasm32-wasip2/release/openidea_plugin_aritti_openapi.wasm",
+        "sha256": "9f40e14f439a640f6fceb49bf6c3b4aa5f9e6c12da9585851e3c2224110f3ae1"
+      },
+      "source_after": "e90a2d907588eb29661f915b11a7e13c62db677f46dd36b1cf8bccf3a93f0987",
+      "shared_after": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "pass": true
+    },
+    {
+      "plugin": "properties",
+      "steps": {
+        "test": {
+          "exit": 0,
+          "seconds": 0.96
+        },
+        "wasm": {
+          "exit": 0,
+          "seconds": 0.11
+        },
+        "component": {
+          "exit": 0
+        },
+        "package": {
+          "exit": 0
+        },
+        "source_stability": {
+          "exit": 0,
+          "reason": "Source fingerprints must remain stable during verification"
+        }
+      },
+      "source_before": "fe66c3e5ebfa69447fdb636f2b153df214832a984224272309100e4256f858a8",
+      "shared_before": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "tools": {
+        "checker": "cc01d6559fafce8e77a9eb6a66ebbdee942a1ccf65ab0d0642c0fb0d728e8745",
+        "cli": "94845a0d8ed08c12066543a3bb2d507e7aade7000808c51be87d6deabc1ddffc",
+        "runner": "b36a6222d9b09d4e63328f9035276d1a2b380356b626fd618492563aa84c58ff",
+        "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)"
+      },
+      "tests": {
+        "passed": 137,
+        "failed": 0
+      },
+      "artifact": {
+        "path": "/Users/aritti/Projects/openidea-plugins/plugins/properties/target/wasm32-wasip2/release/openidea_plugin_properties.wasm",
+        "sha256": "c9b4cd96f434749252c5f1f9758e6c5bee6352a73896124e70ec756953ada2f9"
+      },
+      "source_after": "fe66c3e5ebfa69447fdb636f2b153df214832a984224272309100e4256f858a8",
+      "shared_after": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "pass": true
+    },
+    {
+      "plugin": "quarkus",
+      "steps": {
+        "test": {
+          "exit": 0,
+          "seconds": 0.41
+        },
+        "wasm": {
+          "exit": 0,
+          "seconds": 0.12
+        },
+        "component": {
+          "exit": 0
+        },
+        "package": {
+          "exit": 0
+        },
+        "source_stability": {
+          "exit": 0,
+          "reason": "Source fingerprints must remain stable during verification"
+        }
+      },
+      "source_before": "2042ffe3ec60f2468d43825c8779c596278ba90de8734b8c9fc9ca0b37774824",
+      "shared_before": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "tools": {
+        "checker": "cc01d6559fafce8e77a9eb6a66ebbdee942a1ccf65ab0d0642c0fb0d728e8745",
+        "cli": "94845a0d8ed08c12066543a3bb2d507e7aade7000808c51be87d6deabc1ddffc",
+        "runner": "b36a6222d9b09d4e63328f9035276d1a2b380356b626fd618492563aa84c58ff",
+        "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)"
+      },
+      "tests": {
+        "passed": 180,
+        "failed": 0
+      },
+      "artifact": {
+        "path": "/Users/aritti/Projects/openidea-plugins/plugins/quarkus/target/wasm32-wasip2/release/openidea_plugin_aritti_quarkus.wasm",
+        "sha256": "a81611aa7ffacd2d022736e949787a8bc0a8386d5f875f812e8a1cad98693f90"
+      },
+      "source_after": "2042ffe3ec60f2468d43825c8779c596278ba90de8734b8c9fc9ca0b37774824",
+      "shared_after": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "pass": true
+    },
+    {
+      "plugin": "spring-beans",
+      "steps": {
+        "test": {
+          "exit": 0,
+          "seconds": 1.15
+        },
+        "wasm": {
+          "exit": 0,
+          "seconds": 0.12
+        },
+        "component": {
+          "exit": 0
+        },
+        "package": {
+          "exit": 0
+        },
+        "source_stability": {
+          "exit": 0,
+          "reason": "Source fingerprints must remain stable during verification"
+        }
+      },
+      "source_before": "01193f7cca5cb195715e26d794f02ffc9b14e89ab3a3471220b3f9a20603c396",
+      "shared_before": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "tools": {
+        "checker": "cc01d6559fafce8e77a9eb6a66ebbdee942a1ccf65ab0d0642c0fb0d728e8745",
+        "cli": "94845a0d8ed08c12066543a3bb2d507e7aade7000808c51be87d6deabc1ddffc",
+        "runner": "b36a6222d9b09d4e63328f9035276d1a2b380356b626fd618492563aa84c58ff",
+        "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)"
+      },
+      "tests": {
+        "passed": 374,
+        "failed": 0
+      },
+      "artifact": {
+        "path": "/Users/aritti/Projects/openidea-plugins/plugins/spring-beans/target/wasm32-wasip2/release/openidea_plugin_aritti_spring_beans.wasm",
+        "sha256": "c29f713d24a01e33834cdee6ee99b9a5c7daa59a8015c434274ad8988b7ac663"
+      },
+      "source_after": "01193f7cca5cb195715e26d794f02ffc9b14e89ab3a3471220b3f9a20603c396",
+      "shared_after": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "pass": true
+    },
+    {
+      "plugin": "spring-boot",
+      "steps": {
+        "test": {
+          "exit": 0,
+          "seconds": 0.5
+        },
+        "wasm": {
+          "exit": 0,
+          "seconds": 0.11
+        },
+        "component": {
+          "exit": 0
+        },
+        "package": {
+          "exit": 0
+        },
+        "source_stability": {
+          "exit": 0,
+          "reason": "Source fingerprints must remain stable during verification"
+        }
+      },
+      "source_before": "52f5f75da4d8024865de6de158519a1c8a8d5f26ffb0530d85fb64081e675f0b",
+      "shared_before": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "tools": {
+        "checker": "cc01d6559fafce8e77a9eb6a66ebbdee942a1ccf65ab0d0642c0fb0d728e8745",
+        "cli": "94845a0d8ed08c12066543a3bb2d507e7aade7000808c51be87d6deabc1ddffc",
+        "runner": "b36a6222d9b09d4e63328f9035276d1a2b380356b626fd618492563aa84c58ff",
+        "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)"
+      },
+      "tests": {
+        "passed": 172,
+        "failed": 0
+      },
+      "artifact": {
+        "path": "/Users/aritti/Projects/openidea-plugins/plugins/spring-boot/target/wasm32-wasip2/release/openidea_plugin_aritti_spring_boot.wasm",
+        "sha256": "b312ebef1f0a6bf288db8bc02b785cd793dcff4d75eb4da7de5e2d20013f6aad"
+      },
+      "source_after": "52f5f75da4d8024865de6de158519a1c8a8d5f26ffb0530d85fb64081e675f0b",
+      "shared_after": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "pass": true
+    },
+    {
+      "plugin": "spring-data",
+      "steps": {
+        "test": {
+          "exit": 0,
+          "seconds": 0.32
+        },
+        "wasm": {
+          "exit": 0,
+          "seconds": 0.11
+        },
+        "component": {
+          "exit": 0
+        },
+        "package": {
+          "exit": 0
+        },
+        "source_stability": {
+          "exit": 0,
+          "reason": "Source fingerprints must remain stable during verification"
+        }
+      },
+      "source_before": "f15febd8f380c8abd13633565c3cfedbd02faeb1da91644bb98bd0c339d3c0f7",
+      "shared_before": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "tools": {
+        "checker": "cc01d6559fafce8e77a9eb6a66ebbdee942a1ccf65ab0d0642c0fb0d728e8745",
+        "cli": "94845a0d8ed08c12066543a3bb2d507e7aade7000808c51be87d6deabc1ddffc",
+        "runner": "b36a6222d9b09d4e63328f9035276d1a2b380356b626fd618492563aa84c58ff",
+        "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)"
+      },
+      "tests": {
+        "passed": 121,
+        "failed": 0
+      },
+      "artifact": {
+        "path": "/Users/aritti/Projects/openidea-plugins/plugins/spring-data/target/wasm32-wasip2/release/openidea_plugin_aritti_spring_data.wasm",
+        "sha256": "d69f8e115b1a54ebf1ff05c6e50962a413d3b59428c0cd1b9dee018969396922"
+      },
+      "source_after": "f15febd8f380c8abd13633565c3cfedbd02faeb1da91644bb98bd0c339d3c0f7",
+      "shared_after": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "pass": true
+    },
+    {
+      "plugin": "spring-initializr",
+      "steps": {
+        "test": {
+          "exit": 0,
+          "seconds": 0.81
+        },
+        "wasm": {
+          "exit": 0,
+          "seconds": 0.11
+        },
+        "component": {
+          "exit": 0
+        },
+        "package": {
+          "exit": 0
+        },
+        "source_stability": {
+          "exit": 0,
+          "reason": "Source fingerprints must remain stable during verification"
+        }
+      },
+      "source_before": "3c82645b866e9616f0b1f75633eaa876a5b98cae978f3e859730a2ada455192d",
+      "shared_before": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "tools": {
+        "checker": "cc01d6559fafce8e77a9eb6a66ebbdee942a1ccf65ab0d0642c0fb0d728e8745",
+        "cli": "94845a0d8ed08c12066543a3bb2d507e7aade7000808c51be87d6deabc1ddffc",
+        "runner": "b36a6222d9b09d4e63328f9035276d1a2b380356b626fd618492563aa84c58ff",
+        "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)"
+      },
+      "tests": {
+        "passed": 134,
+        "failed": 0
+      },
+      "artifact": {
+        "path": "/Users/aritti/Projects/openidea-plugins/plugins/spring-initializr/target/wasm32-wasip2/release/openidea_plugin_aritti_spring_initializr.wasm",
+        "sha256": "889774ba6c088b4e9ac6b02482456ce1f1a22013548c4eceb96d9103a2be8169"
+      },
+      "source_after": "3c82645b866e9616f0b1f75633eaa876a5b98cae978f3e859730a2ada455192d",
+      "shared_after": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "pass": true
+    },
+    {
+      "plugin": "spring-integration",
+      "steps": {
+        "test": {
+          "exit": 0,
+          "seconds": 0.89
+        },
+        "wasm": {
+          "exit": 0,
+          "seconds": 0.14
+        },
+        "component": {
+          "exit": 0
+        },
+        "package": {
+          "exit": 0
+        },
+        "source_stability": {
+          "exit": 0,
+          "reason": "Source fingerprints must remain stable during verification"
+        }
+      },
+      "source_before": "b726c75bcc2bf0fd88388b2022e1c63a48089fa1e71171946395b7601b052faf",
+      "shared_before": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "tools": {
+        "checker": "cc01d6559fafce8e77a9eb6a66ebbdee942a1ccf65ab0d0642c0fb0d728e8745",
+        "cli": "94845a0d8ed08c12066543a3bb2d507e7aade7000808c51be87d6deabc1ddffc",
+        "runner": "b36a6222d9b09d4e63328f9035276d1a2b380356b626fd618492563aa84c58ff",
+        "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)"
+      },
+      "tests": {
+        "passed": 170,
+        "failed": 0
+      },
+      "artifact": {
+        "path": "/Users/aritti/Projects/openidea-plugins/plugins/spring-integration/target/wasm32-wasip2/release/openidea_plugin_aritti_spring_integration.wasm",
+        "sha256": "ca2535899328ea610b9cf4e2225d0402b8f1133678ccf5bfd78bf3c1fb891c88"
+      },
+      "source_after": "b726c75bcc2bf0fd88388b2022e1c63a48089fa1e71171946395b7601b052faf",
+      "shared_after": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "pass": true
+    },
+    {
+      "plugin": "spring-osgi",
+      "steps": {
+        "test": {
+          "exit": 0,
+          "seconds": 0.18
+        },
+        "wasm": {
+          "exit": 0,
+          "seconds": 0.11
+        },
+        "component": {
+          "exit": 0
+        },
+        "package": {
+          "exit": 0
+        },
+        "source_stability": {
+          "exit": 0,
+          "reason": "Source fingerprints must remain stable during verification"
+        }
+      },
+      "source_before": "8aa19a274c0081d5701649ef859837abaab7aa779b33a20eb9b4f4e344550b72",
+      "shared_before": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "tools": {
+        "checker": "cc01d6559fafce8e77a9eb6a66ebbdee942a1ccf65ab0d0642c0fb0d728e8745",
+        "cli": "94845a0d8ed08c12066543a3bb2d507e7aade7000808c51be87d6deabc1ddffc",
+        "runner": "b36a6222d9b09d4e63328f9035276d1a2b380356b626fd618492563aa84c58ff",
+        "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)"
+      },
+      "tests": {
+        "passed": 62,
+        "failed": 0
+      },
+      "artifact": {
+        "path": "/Users/aritti/Projects/openidea-plugins/plugins/spring-osgi/target/wasm32-wasip2/release/openidea_plugin_aritti_spring_osgi.wasm",
+        "sha256": "c280938ae3de623c655d2b0a686b15afe0e35090c6b648924acf6de69f02354e"
+      },
+      "source_after": "8aa19a274c0081d5701649ef859837abaab7aa779b33a20eb9b4f4e344550b72",
+      "shared_after": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "pass": true
+    },
+    {
+      "plugin": "spring-runtime",
+      "steps": {
+        "test": {
+          "exit": 0,
+          "seconds": 0.84
+        },
+        "wasm": {
+          "exit": 0,
+          "seconds": 0.16
+        },
+        "component": {
+          "exit": 0
+        },
+        "package": {
+          "exit": 0
+        },
+        "source_stability": {
+          "exit": 0,
+          "reason": "Source fingerprints must remain stable during verification"
+        }
+      },
+      "source_before": "401671ec1ab168a3e95890fffb3d366a69ed15a40a53a644ccca411f1c895f12",
+      "shared_before": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "tools": {
+        "checker": "cc01d6559fafce8e77a9eb6a66ebbdee942a1ccf65ab0d0642c0fb0d728e8745",
+        "cli": "94845a0d8ed08c12066543a3bb2d507e7aade7000808c51be87d6deabc1ddffc",
+        "runner": "b36a6222d9b09d4e63328f9035276d1a2b380356b626fd618492563aa84c58ff",
+        "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)"
+      },
+      "tests": {
+        "passed": 78,
+        "failed": 0
+      },
+      "artifact": {
+        "path": "/Users/aritti/Projects/openidea-plugins/plugins/spring-runtime/target/wasm32-wasip2/release/openidea_plugin_aritti_spring_runtime.wasm",
+        "sha256": "72eda3ce98aeac0a10d1dc7bda83a72318736d9f159f877ff3ff3a67821b306d"
+      },
+      "source_after": "401671ec1ab168a3e95890fffb3d366a69ed15a40a53a644ccca411f1c895f12",
+      "shared_after": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "pass": true
+    },
+    {
+      "plugin": "spring-security",
+      "steps": {
+        "test": {
+          "exit": 0,
+          "seconds": 0.18
+        },
+        "wasm": {
+          "exit": 0,
+          "seconds": 0.24
+        },
+        "component": {
+          "exit": 0
+        },
+        "package": {
+          "exit": 0
+        },
+        "source_stability": {
+          "exit": 0,
+          "reason": "Source fingerprints must remain stable during verification"
+        }
+      },
+      "source_before": "9fbad4b9258e28be33ca033a1d77e403bd0544e67c2c51529574af10a69bd815",
+      "shared_before": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "tools": {
+        "checker": "cc01d6559fafce8e77a9eb6a66ebbdee942a1ccf65ab0d0642c0fb0d728e8745",
+        "cli": "94845a0d8ed08c12066543a3bb2d507e7aade7000808c51be87d6deabc1ddffc",
+        "runner": "b36a6222d9b09d4e63328f9035276d1a2b380356b626fd618492563aa84c58ff",
+        "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)"
+      },
+      "tests": {
+        "passed": 100,
+        "failed": 0
+      },
+      "artifact": {
+        "path": "/Users/aritti/Projects/openidea-plugins/plugins/spring-security/target/wasm32-wasip2/release/openidea_plugin_aritti_spring_security.wasm",
+        "sha256": "5b5082db1a1421b54e4455610638ad0d6b2b1ada0819daa6b90117d7c5cda7a5"
+      },
+      "source_after": "9fbad4b9258e28be33ca033a1d77e403bd0544e67c2c51529574af10a69bd815",
+      "shared_after": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "pass": true
+    },
+    {
+      "plugin": "spring-shell",
+      "steps": {
+        "test": {
+          "exit": 0,
+          "seconds": 0.57
+        },
+        "wasm": {
+          "exit": 0,
+          "seconds": 0.1
+        },
+        "component": {
+          "exit": 0
+        },
+        "package": {
+          "exit": 0
+        },
+        "source_stability": {
+          "exit": 0,
+          "reason": "Source fingerprints must remain stable during verification"
+        }
+      },
+      "source_before": "480cb2856d18f54ce4b72b60cdf28e746ed8ef6dc417b666b5d4f97775f65b51",
+      "shared_before": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "tools": {
+        "checker": "cc01d6559fafce8e77a9eb6a66ebbdee942a1ccf65ab0d0642c0fb0d728e8745",
+        "cli": "94845a0d8ed08c12066543a3bb2d507e7aade7000808c51be87d6deabc1ddffc",
+        "runner": "b36a6222d9b09d4e63328f9035276d1a2b380356b626fd618492563aa84c58ff",
+        "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)"
+      },
+      "tests": {
+        "passed": 94,
+        "failed": 0
+      },
+      "artifact": {
+        "path": "/Users/aritti/Projects/openidea-plugins/plugins/spring-shell/target/wasm32-wasip2/release/openidea_plugin_aritti_spring_shell.wasm",
+        "sha256": "689605579414918ba71262e2def45fa255f338aec388559a203cf873db966bc4"
+      },
+      "source_after": "480cb2856d18f54ce4b72b60cdf28e746ed8ef6dc417b666b5d4f97775f65b51",
+      "shared_after": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "pass": true
+    },
+    {
+      "plugin": "spring-web",
+      "steps": {
+        "test": {
+          "exit": 0,
+          "seconds": 0.68
+        },
+        "wasm": {
+          "exit": 0,
+          "seconds": 0.15
+        },
+        "component": {
+          "exit": 0
+        },
+        "package": {
+          "exit": 0
+        },
+        "source_stability": {
+          "exit": 0,
+          "reason": "Source fingerprints must remain stable during verification"
+        }
+      },
+      "source_before": "5a7d5d98b69722168c69a5b74454f0d03fd6c9faf08b2aa9a94a7b9cb0bd9769",
+      "shared_before": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "tools": {
+        "checker": "cc01d6559fafce8e77a9eb6a66ebbdee942a1ccf65ab0d0642c0fb0d728e8745",
+        "cli": "94845a0d8ed08c12066543a3bb2d507e7aade7000808c51be87d6deabc1ddffc",
+        "runner": "b36a6222d9b09d4e63328f9035276d1a2b380356b626fd618492563aa84c58ff",
+        "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)"
+      },
+      "tests": {
+        "passed": 166,
+        "failed": 0
+      },
+      "artifact": {
+        "path": "/Users/aritti/Projects/openidea-plugins/plugins/spring-web/target/wasm32-wasip2/release/openidea_plugin_aritti_spring_web.wasm",
+        "sha256": "8b5ce443be3921c18b4ad0572c1b53d0f674b2f1f676f8f9f124c9f7138b3622"
+      },
+      "source_after": "5a7d5d98b69722168c69a5b74454f0d03fd6c9faf08b2aa9a94a7b9cb0bd9769",
+      "shared_after": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "pass": true
+    },
+    {
+      "plugin": "spring-ws",
+      "steps": {
+        "test": {
+          "exit": 0,
+          "seconds": 0.45
+        },
+        "wasm": {
+          "exit": 0,
+          "seconds": 0.11
+        },
+        "component": {
+          "exit": 0
+        },
+        "package": {
+          "exit": 0
+        },
+        "source_stability": {
+          "exit": 0,
+          "reason": "Source fingerprints must remain stable during verification"
+        }
+      },
+      "source_before": "02babf25543cb1898382aa2440710ae5e46d7689a4a89405867ebfcc5afac30e",
+      "shared_before": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "tools": {
+        "checker": "cc01d6559fafce8e77a9eb6a66ebbdee942a1ccf65ab0d0642c0fb0d728e8745",
+        "cli": "94845a0d8ed08c12066543a3bb2d507e7aade7000808c51be87d6deabc1ddffc",
+        "runner": "b36a6222d9b09d4e63328f9035276d1a2b380356b626fd618492563aa84c58ff",
+        "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)"
+      },
+      "tests": {
+        "passed": 125,
+        "failed": 0
+      },
+      "artifact": {
+        "path": "/Users/aritti/Projects/openidea-plugins/plugins/spring-ws/target/wasm32-wasip2/release/openidea_plugin_aritti_spring_ws.wasm",
+        "sha256": "9da18ebdcbbf5506e4bc19b407b4028ed4b891c2a1e411259478dcd907ab43f8"
+      },
+      "source_after": "02babf25543cb1898382aa2440710ae5e46d7689a4a89405867ebfcc5afac30e",
+      "shared_after": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "pass": true
+    },
+    {
+      "plugin": "symfony",
+      "steps": {
+        "test": {
+          "exit": 0,
+          "seconds": 1.35
+        },
+        "wasm": {
+          "exit": 0,
+          "seconds": 0.16
+        },
+        "component": {
+          "exit": 0
+        },
+        "package": {
+          "exit": 0
+        },
+        "source_stability": {
+          "exit": 0,
+          "reason": "Source fingerprints must remain stable during verification"
+        }
+      },
+      "source_before": "8644cfd33e8c5d964d5b5769db0491257c6754eee1c5ad432d8184ab03519ced",
+      "shared_before": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "tools": {
+        "checker": "cc01d6559fafce8e77a9eb6a66ebbdee942a1ccf65ab0d0642c0fb0d728e8745",
+        "cli": "94845a0d8ed08c12066543a3bb2d507e7aade7000808c51be87d6deabc1ddffc",
+        "runner": "b36a6222d9b09d4e63328f9035276d1a2b380356b626fd618492563aa84c58ff",
+        "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)"
+      },
+      "tests": {
+        "passed": 557,
+        "failed": 0
+      },
+      "artifact": {
+        "path": "/Users/aritti/Projects/openidea-plugins/plugins/symfony/target/wasm32-wasip2/release/openidea_plugin_symfony.wasm",
+        "sha256": "0c19ca6894dd2fe858a98316d3b6d8e160f1b74b41b784bf15415ddb89fd9683"
+      },
+      "source_after": "8644cfd33e8c5d964d5b5769db0491257c6754eee1c5ad432d8184ab03519ced",
+      "shared_after": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "pass": true
+    },
+    {
+      "plugin": "tasks",
+      "steps": {
+        "test": {
+          "exit": 0,
+          "seconds": 0.39
+        },
+        "wasm": {
+          "exit": 0,
+          "seconds": 0.12
+        },
+        "component": {
+          "exit": 0
+        },
+        "package": {
+          "exit": 0
+        },
+        "source_stability": {
+          "exit": 0,
+          "reason": "Source fingerprints must remain stable during verification"
+        }
+      },
+      "source_before": "79e73b70ed48120d8f4674f09be5e54762c182e8b57cbedd5532e1a9d730c91d",
+      "shared_before": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "tools": {
+        "checker": "cc01d6559fafce8e77a9eb6a66ebbdee942a1ccf65ab0d0642c0fb0d728e8745",
+        "cli": "94845a0d8ed08c12066543a3bb2d507e7aade7000808c51be87d6deabc1ddffc",
+        "runner": "b36a6222d9b09d4e63328f9035276d1a2b380356b626fd618492563aa84c58ff",
+        "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)"
+      },
+      "tests": {
+        "passed": 100,
+        "failed": 0
+      },
+      "artifact": {
+        "path": "/Users/aritti/Projects/openidea-plugins/plugins/tasks/target/wasm32-wasip2/release/openidea_plugin_tasks.wasm",
+        "sha256": "c4223d29cebc59fa3e37c487cdeddd29d15cfa9973c2bbbc1815841a7a201dbf"
+      },
+      "source_after": "79e73b70ed48120d8f4674f09be5e54762c182e8b57cbedd5532e1a9d730c91d",
+      "shared_after": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "pass": true
+    },
+    {
+      "plugin": "twig",
+      "steps": {
+        "test": {
+          "exit": 0,
+          "seconds": 0.31
+        },
+        "wasm": {
+          "exit": 0,
+          "seconds": 0.1
+        },
+        "component": {
+          "exit": 0
+        },
+        "package": {
+          "exit": 0
+        },
+        "source_stability": {
+          "exit": 0,
+          "reason": "Source fingerprints must remain stable during verification"
+        }
+      },
+      "source_before": "c42d140cf7fc63907851e7b70fe98c12e2227cd0a26e59ee7612a9efebe13cda",
+      "shared_before": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "tools": {
+        "checker": "cc01d6559fafce8e77a9eb6a66ebbdee942a1ccf65ab0d0642c0fb0d728e8745",
+        "cli": "94845a0d8ed08c12066543a3bb2d507e7aade7000808c51be87d6deabc1ddffc",
+        "runner": "b36a6222d9b09d4e63328f9035276d1a2b380356b626fd618492563aa84c58ff",
+        "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)"
+      },
+      "tests": {
+        "passed": 88,
+        "failed": 0
+      },
+      "artifact": {
+        "path": "/Users/aritti/Projects/openidea-plugins/plugins/twig/target/wasm32-wasip2/release/openidea_plugin_twig.wasm",
+        "sha256": "d6c5c27b4f413132f0f91131e215e348bcf27646ca820c14cb3533f6d3c21af2"
+      },
+      "source_after": "c42d140cf7fc63907851e7b70fe98c12e2227cd0a26e59ee7612a9efebe13cda",
+      "shared_after": "1072f9ec28d8b35fde9a960917653b9ed70317e6c0b90510ca9e3f3e1b747299",
+      "pass": true
+    }
+  ]
+}

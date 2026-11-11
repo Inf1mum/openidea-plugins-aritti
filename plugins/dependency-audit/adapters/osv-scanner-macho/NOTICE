@@ -1,0 +1,10 @@
+OSV-Scanner source-build adapter
+Upstream: https://github.com/google/osv-scanner
+Copyright 2022 Google LLC
+Upstream source is licensed under Apache License, Version 2.0; LICENSE retained.
+This separately named/versioned experimental profile modifies Rust source analysis
+for bounded UUID-matched MachO/dSYM reading, current Cargo artifact ownership,
+conservative modern Rust symbol aliases and fail-closed unknown handling.
+No upstream binary or third-party dependency source is redistributed here.
+Builds obtain upstream dependencies under their own licenses through pinned go.sum.
+No endorsement by Google, OpenSSF or upstream maintainers is implied.

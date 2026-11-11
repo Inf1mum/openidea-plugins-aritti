@@ -1,0 +1,11 @@
+[package]
+name = "openidea-parity-package-checker"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+ide-plugin = { git = "https://github.com/l0ng-ai/openidea", rev = "37c2a6048eea89d4f6db645622612358b643862b" }
+ide-extension = { git = "https://github.com/l0ng-ai/openidea", rev = "37c2a6048eea89d4f6db645622612358b643862b" }

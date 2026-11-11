@@ -15,6 +15,10 @@ mod yaml_pointer;
 mod yaml_hover;
 mod pointer_status;
 mod component_occurrences;
+mod component_rename;
+mod codegen;
+mod codegen_options;
+mod section_actions;
 mod yaml_scan;
 
 use checks::Fetched;
@@ -30,6 +34,7 @@ use ui_kit::routes::{self, Handler, Route, RouteEvent, RouteList};
 #[derive(Default)]
 pub struct OpenApi {
     try_http: try_http::State,
+    codegen: codegen::State,
     project_files: Vec<String>,
     /// Status line and changes of the last comparison.
     comparison: Option<Comparison>,
@@ -464,6 +469,7 @@ impl Plugin for OpenApi {
     }
 
     fn handle_events(&mut self, events: &[Event], _ctx: &Invocation) {
+        self.codegen.observe(events);
         if self.comparison.as_ref().is_some_and(|comparison| events.iter().any(|event| {
             let changed = |path: &str| !path.is_empty() && (path == comparison.path || path == comparison.base_path
                 || comparison.path.starts_with(&format!("{}/", path.trim_end_matches('/')))
@@ -522,12 +528,33 @@ impl Plugin for OpenApi {
             }
             return Ok(None);
         }
+        if id == "export-comparison" {
+            let comparison = self.comparison.as_ref().filter(|comparison| comparison.current(ctx))
+                .ok_or("Run a current OpenAPI comparison before exporting its report.")?;
+            if !comparison.base_path.starts_with("HEAD:")
+                && ctx.project().ok_or(Error::Stale)?.read_file(&comparison.base_path)? != comparison.base {
+                return Err(Error::Stale);
+            }
+            let code = |value: &str| format!("`{}`", value.replace('`', "’").replace(['\r','\n'], " "));
+            let mut report = format!("# OpenAPI comparison\n\nBaseline: {}\n\nCurrent: {}\n\n{}\n\n", code(&comparison.base_path), code(&comparison.path), code(&comparison.status));
+            if comparison.items.is_empty() { report.push_str("No differences.\n"); }
+            for item in &comparison.items {
+                report.push_str(&format!("- {}", code(&item.label)));
+                if let Some(detail) = &item.detail { report.push_str(&format!(" — {}", code(detail))); }
+                report.push('\n');
+            }
+            return save_or_copy(&sibling_file(&comparison.path, "{stem}.comparison.md"), &report, "OpenAPI comparison report");
+        }
         if id == "compare-specs" {
             return self.compare_specs(ctx);
         }
         if id == "export-self-contained" {
             return self.export_self_contained(ctx);
         }
+        if id == "generate-code" { return codegen::run(ctx,&mut self.codegen); }
+        if id == "forget-codegen-stage" {return self.codegen.forget(ctx);}
+        if id == "generate-code-configured" { return codegen::run_configured(ctx,&mut self.codegen); }
+        if id == "component-project-usages" { return component_occurrences::project_usages(ctx); }
         if id == "component-occurrences" { return component_occurrences::run(ctx); }
         if id == "copy-reference" {
             return self.copy_reference(ctx);
@@ -868,6 +895,9 @@ mod sibling_ownership_tests {
 }
 
 impl Providers for OpenApi {
+    fn resolve_code_action(&mut self,doc:&Document,action:CodeAction)->Result<CodeAction,Error>{
+        if action.data.as_deref().is_some_and(|data|data.contains("physical-component-rename")){component_rename::resolve(doc,action)}else{Ok(action)}
+    }
     fn completion(&mut self, doc: &Document, at: Position, _trigger: Option<&str>) -> Vec<CompletionItem> {
         if !spec::maybe_spec(&doc.text) && !is_spec_name(&doc.path) {
             return Vec::new();
@@ -1003,6 +1033,8 @@ impl Providers for OpenApi {
             });
         }
 
+        actions.extend(section_actions::actions(doc, selection));
+        if let Some(rename)=component_rename::offer(doc,selection){actions.push(rename);}
         actions
     }
 }
@@ -1389,7 +1421,7 @@ impl openidea_plugin::hover::HoverProvider for OpenApi {
     }
 }
 
-register_plugin!(OpenApi, providers, views, endpoints, diagnostics, hover);
+register_plugin!(OpenApi, providers, views, endpoints, diagnostics, hover, file_actions);
 
 #[cfg(test)]
 mod tests {
@@ -1562,10 +1594,13 @@ mod tests {
         let tagged = PETSTORE.replace("      operationId: listPets\n", "      operationId: listPets\n      tags:\n        - Pets\n");
         host.add_file("/project/api/openapi.yaml", &tagged);
         host.add_file("/project/k8s.yml", "kind: Pod\n");
-        let view = OpenApi::default().render(ENDPOINTS, None, &host.invocation()).unwrap();
+        let mut plugin = OpenApi::default();
+        let view = plugin.render(ENDPOINTS, None, &host.invocation()).unwrap();
         let Body::List(items) = view.body else { panic!("expected a list") };
         assert_eq!(items.iter().map(|i| i.label.as_str()).collect::<Vec<_>>(), ["/pets", "/pets/{petId}", "/pets/{petId}"]);
-        assert_eq!(items[0].detail.as_deref(), Some("[GET] Pets"));
+        assert_eq!(items[0].detail.as_deref(), Some("[GET] Pets@listPets"));
+        plugin.handle(ENDPOINTS, ViewEvent::Activate(items[0].key.clone()), &host.invocation()).unwrap();
+        assert_eq!(host.opened_locations(), [("/project/api/openapi.yaml".to_owned(), 8, 4)]);
         assert_eq!(items[0].icon.as_deref(), Some("web"));
         assert_eq!(items[2].icon.as_deref(), Some("web"));
     }
@@ -1611,7 +1646,7 @@ mod tests {
         host.add_file("/project/b/openapi.json", json);
         let view = OpenApi::default().render(ENDPOINTS, None, &host.invocation()).unwrap();
         let Body::List(items) = view.body else { panic!("expected a list") };
-        let tagged: Vec<_> = items.iter().filter(|i| i.detail.as_deref() == Some("[GET] Pets")).collect();
+        let tagged: Vec<_> = items.iter().filter(|i| i.detail.as_deref() == Some("[GET] Pets@listPets")).collect();
         assert_eq!(tagged.len(), 2, "{:?}", items.iter().map(|i| &i.detail).collect::<Vec<_>>());
     }
 
@@ -1621,7 +1656,7 @@ mod tests {
         host.add_file("/project/api/openapi.yaml", PETSTORE);
         let view = OpenApi::default().render(ENDPOINTS, None, &host.invocation()).unwrap();
         let Body::List(items) = view.body else { panic!("expected a list") };
-        assert!(items.iter().all(|i| i.detail.as_deref().unwrap().ends_with("(no tag)")));
+        assert_eq!(items.iter().map(|i| i.detail.as_deref().unwrap()).collect::<Vec<_>>(), ["[GET] (no tag)@listPets", "[GET] (no tag)@showPet", "[DELETE] (no tag)@deletePet"]);
     }
 
     #[test]
@@ -1646,6 +1681,20 @@ mod tests {
         host.answer_next_prompt(Some(&["/project/spec/base.yaml"]));
         let mut plugin=OpenApi::default();plugin.run_command("compare-specs",&host.invocation(),None).unwrap();
         (host,plugin)
+    }
+    #[test]
+    fn exports_current_comparison_markdown_and_rejects_stale_source() {
+        let (host, mut plugin) = prepared_comparison();
+        plugin.run_command("export-comparison", &host.invocation(), None).unwrap();
+        let report = host.clipboard().unwrap();
+        assert!(report.starts_with("# OpenAPI comparison\n"));
+        assert!(report.contains("/project/spec/base.yaml") && report.contains("GET /pets"));
+        host.type_in_editor("changed source");
+        assert!(plugin.run_command("export-comparison", &host.invocation(), None).is_err());
+        assert_eq!(host.clipboard().unwrap(), report);
+        let (host, mut plugin) = prepared_comparison();
+        host.add_file("/project/spec/base.yaml", "changed baseline");
+        assert!(plugin.run_command("export-comparison", &host.invocation(), None).is_err());
     }
     fn comparison_messages(host: &MockHost) -> usize {
         host.view_messages().iter().filter(|(view,raw)| view==ENDPOINTS && serde_json::from_str::<serde_json::Value>(raw).is_ok_and(|message| message["channel"]=="ui-kit-refresh" && message["targetView"]==COMPARE)).count()
@@ -2435,7 +2484,7 @@ mod tests {
         assert_eq!(titles, ["Extract inline schema to components/schemas", "Add the OpenAPI schema for the YAML language server"]);
         assert_eq!(actions[0].edits[0].1.len(), 1);
         let elsewhere = OpenApi::default().code_actions(&named("/p/openapi.yaml", text), Range::default());
-        assert_eq!(elsewhere.len(), 1);
+        assert_eq!(elsewhere.iter().map(|action|action.title.as_str()).collect::<Vec<_>>(), ["Add the OpenAPI schema for the YAML language server", "Add OpenAPI info section", "Add OpenAPI paths section"]);
     }
 
     #[test]

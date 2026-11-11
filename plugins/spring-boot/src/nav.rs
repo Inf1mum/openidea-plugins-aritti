@@ -2,21 +2,28 @@
 //! `spring.config.import` and resource-valued keys to their files; logger packages,
 //! profile names, `${}` placeholders, classes, enum constants and resources in values.
 
-use openidea_plugin::providers::{CompletionItem, CompletionKind};
-use openidea_plugin::Range;
 use crate::facts::Summary;
 use crate::values::element_type;
+use openidea_plugin::Range;
+use openidea_plugin::providers::{CompletionItem, CompletionKind};
 use spring_text::config::{self, Key, canonical, yaml_parent};
 use spring_text::metadata::Lookup;
 use spring_text::range;
 use std::collections::BTreeSet;
 
-pub const PROFILE_KEYS: &[&str] = &["spring.profiles.active", "spring.profiles.include", "spring.config.activate.on-profile"];
+pub const PROFILE_KEYS: &[&str] = &[
+    "spring.profiles.active",
+    "spring.profiles.include",
+    "spring.config.activate.on-profile",
+];
 pub const SOURCE_GLOBS: &[&str] = &["**/*.java", "**/*.kt"];
 
 /// The package of a Java or Kotlin source.
 pub fn package_of(_path: &str, text: &str) -> Option<String> {
-    let line = text.lines().map(str::trim).find(|l| l.starts_with("package "))?;
+    let line = text
+        .lines()
+        .map(str::trim)
+        .find(|l| l.starts_with("package "))?;
     let name = line.strip_prefix("package ")?.trim_end_matches(';').trim();
     (!name.is_empty()).then(|| name.to_owned())
 }
@@ -38,17 +45,29 @@ pub fn cursor(path: &str, text: &str, at: usize) -> Option<Cursor> {
         return Some(match line.find(['=', ':']) {
             Some(sep) => {
                 let after = &line[sep + 1..];
-                Cursor::Value { key: line[..sep].trim().to_owned(), value_at: line_start + sep + 1 + after.len() - after.trim_start().len() }
+                Cursor::Value {
+                    key: line[..sep].trim().to_owned(),
+                    value_at: line_start + sep + 1 + after.len() - after.trim_start().len(),
+                }
             }
             None => {
                 let typed_at = line_start + line.len() - line.trim_start().len();
-                Cursor::Key { path: text[typed_at..at].to_owned(), typed_at }
+                Cursor::Key {
+                    path: text[typed_at..at].to_owned(),
+                    typed_at,
+                }
             }
         });
     }
     let (parent, typed) = yaml_parent(text, at);
     let typed_at = at - typed.len();
-    let join = |a: &str, b: &str| if a.is_empty() || b.is_empty() { format!("{a}{b}") } else { format!("{a}.{b}") };
+    let join = |a: &str, b: &str| {
+        if a.is_empty() || b.is_empty() {
+            format!("{a}{b}")
+        } else {
+            format!("{a}.{b}")
+        }
+    };
     Some(match typed.find(": ") {
         Some(colon) => {
             let value = &typed[colon + 1..];
@@ -57,13 +76,23 @@ pub fn cursor(path: &str, text: &str, at: usize) -> Option<Cursor> {
                 value_at: typed_at + colon + 1 + value.len() - value.trim_start().len(),
             }
         }
-        None if typed.is_empty() && !parent.is_empty() => Cursor::Key { path: format!("{parent}."), typed_at },
-        None => Cursor::Key { path: join(&parent, &typed), typed_at },
+        None if typed.is_empty() && !parent.is_empty() => Cursor::Key {
+            path: format!("{parent}."),
+            typed_at,
+        },
+        None => Cursor::Key {
+            path: join(&parent, &typed),
+            typed_at,
+        },
     })
 }
 
 fn item(label: &str, insert: &str, kind: CompletionKind, replace: Range) -> CompletionItem {
-    CompletionItem { insert_text: insert.to_owned(), replace: Some(replace), ..CompletionItem::new(label, kind) }
+    CompletionItem {
+        insert_text: insert.to_owned(),
+        replace: Some(replace),
+        ..CompletionItem::new(label, kind)
+    }
 }
 
 /// Every package and its parents: `com.acme.web` gives `com`, `com.acme`, `com.acme.web`.
@@ -94,16 +123,25 @@ pub struct Context<'a> {
     pub resources: &'a dyn Fn() -> Vec<String>,
 }
 
-pub const LOCATION_KEYS: &[&str] = &["spring.config.import", "spring.config.additional-location", "spring.config.location"];
+pub const LOCATION_KEYS: &[&str] = &[
+    "spring.config.import",
+    "spring.config.additional-location",
+    "spring.config.location",
+];
 
 fn base_key(key: &str) -> &str {
-    key.strip_suffix(']').and_then(|k| k.rsplit_once('[')).map_or(key, |(base, _)| base)
+    key.strip_suffix(']')
+        .and_then(|k| k.rsplit_once('['))
+        .map_or(key, |(base, _)| base)
 }
 
 fn wants_resources(cx: &Context, key: &str) -> bool {
     let base = base_key(key);
     let ty = cx.lookup.prop(base).map_or("", |p| p.ty.as_str());
-    LOCATION_KEYS.iter().any(|k| canonical(k) == canonical(base)) || element_type(ty).unwrap_or(ty) == "Resource"
+    LOCATION_KEYS
+        .iter()
+        .any(|k| canonical(k) == canonical(base))
+        || element_type(ty).unwrap_or(ty) == "Resource"
 }
 
 /// Classes, enum constants and resources for the value being typed, from the key's type.
@@ -116,13 +154,21 @@ fn typed_values(cx: &Context, key: &str, value_at: usize, typed: &str) -> Vec<Co
     let start = value_at + segment_at + blanks;
     if element == "Class" || element.starts_with("Class<") {
         let replace = range(cx.text, start, cx.at);
-        return cx.facts.types.iter().map(|t| item(t, t, CompletionKind::Class, replace)).collect();
+        return cx
+            .facts
+            .types
+            .iter()
+            .map(|t| item(t, t, CompletionKind::Class, replace))
+            .collect();
     }
     if cx.lookup.values(base).is_empty()
         && let Some(values) = cx.facts.enum_values(element)
     {
         let replace = range(cx.text, start, cx.at);
-        return values.iter().map(|v| item(v, v, CompletionKind::EnumMember, replace)).collect();
+        return values
+            .iter()
+            .map(|v| item(v, v, CompletionKind::EnumMember, replace))
+            .collect();
     }
     if !wants_resources(cx, key) {
         return Vec::new();
@@ -139,16 +185,32 @@ fn typed_values(cx: &Context, key: &str, value_at: usize, typed: &str) -> Vec<Co
     let replace = range(cx.text, start + skipped, cx.at);
     (cx.resources)()
         .iter()
-        .map(|r| item(r, &if with_scheme { format!("classpath:{r}") } else { r.clone() }, CompletionKind::File, replace))
+        .map(|r| {
+            item(
+                r,
+                &if with_scheme {
+                    format!("classpath:{r}")
+                } else {
+                    r.clone()
+                },
+                CompletionKind::File,
+                replace,
+            )
+        })
         .collect()
 }
 
 /// Placeholder keys, logger packages and profile names where the caret is.
 pub fn completion(cx: &Context) -> Vec<CompletionItem> {
-    let Some(cursor) = cursor(cx.path, cx.text, cx.at) else { return Vec::new() };
+    let Some(cursor) = cursor(cx.path, cx.text, cx.at) else {
+        return Vec::new();
+    };
     match cursor {
         Cursor::Key { path, .. } => {
-            let Some(prefix) = path.get(..path.len().min("logging.level.".len())).filter(|p| p.eq_ignore_ascii_case("logging.level.")) else {
+            let Some(prefix) = path
+                .get(..path.len().min("logging.level.".len()))
+                .filter(|p| p.eq_ignore_ascii_case("logging.level."))
+            else {
                 return Vec::new();
             };
             let key_in_yaml = !cx.path.ends_with(".properties");
@@ -167,7 +229,10 @@ pub fn completion(cx: &Context) -> Vec<CompletionItem> {
                 let own = config::keys(cx.path, cx.text);
                 let mut names: BTreeSet<&str> = own.iter().map(|k: &Key| k.key.as_str()).collect();
                 names.extend(cx.lookup.all().map(|p| p.name.as_str()));
-                return names.into_iter().map(|n| item(n, n, CompletionKind::Property, replace)).collect();
+                return names
+                    .into_iter()
+                    .map(|n| item(n, n, CompletionKind::Property, replace))
+                    .collect();
             }
             if !PROFILE_KEYS.iter().any(|k| canonical(k) == canonical(&key)) {
                 return typed_values(cx, &key, value_at, typed);
@@ -175,7 +240,10 @@ pub fn completion(cx: &Context) -> Vec<CompletionItem> {
             let from = typed.rfind(',').map_or(0, |c| c + 1);
             let blanks = typed[from..].len() - typed[from..].trim_start().len();
             let replace = range(cx.text, value_at + from + blanks, cx.at);
-            cx.profiles.iter().map(|p| item(p, p, CompletionKind::Value, replace)).collect()
+            cx.profiles
+                .iter()
+                .map(|p| item(p, p, CompletionKind::Value, replace))
+                .collect()
         }
     }
 }
@@ -184,7 +252,9 @@ pub fn completion(cx: &Context) -> Vec<CompletionItem> {
 pub fn profile_of(path: &str) -> Option<String> {
     let name = path.rsplit(['/', '\\']).next()?;
     let stem = name.rsplit_once('.')?.0;
-    let profile = stem.strip_prefix("application-").or_else(|| stem.strip_prefix("bootstrap-"))?;
+    let profile = stem
+        .strip_prefix("application-")
+        .or_else(|| stem.strip_prefix("bootstrap-"))?;
     (!profile.is_empty()).then(|| profile.to_owned())
 }
 
@@ -199,7 +269,9 @@ pub enum Target {
 
 /// The target of the value under `at`, for the key it belongs to.
 pub fn target(path: &str, text: &str, at: usize, lookup: &Lookup) -> Option<Target> {
-    let key = config::keys(path, text).into_iter().find(|k| k.value_at <= at && at <= k.value_end && !k.value.is_empty())?;
+    let key = config::keys(path, text)
+        .into_iter()
+        .find(|k| k.value_at <= at && at <= k.value_end && !k.value.is_empty())?;
     let base = key.key.split('[').next().unwrap_or(&key.key);
     let value = &text[key.value_at..key.value_end];
     if value.contains("${") || value.contains('*') {
@@ -207,11 +279,15 @@ pub fn target(path: &str, text: &str, at: usize, lookup: &Lookup) -> Option<Targ
     }
     let ty = lookup.prop(base).map_or("", |p| p.ty.as_str());
     let resource = element_type(ty).unwrap_or(ty) == "Resource";
-    let sourced = LOCATION_KEYS.iter().any(|k| canonical(k) == canonical(base));
+    let sourced = LOCATION_KEYS
+        .iter()
+        .any(|k| canonical(k) == canonical(base));
     if sourced || resource {
         let offset = at - key.value_at;
         let from = value[..offset].rfind(',').map_or(0, |c| c + 1);
-        let to = value[offset..].find(',').map_or(value.len(), |c| offset + c);
+        let to = value[offset..]
+            .find(',')
+            .map_or(value.len(), |c| offset + c);
         let one = value[from..to].trim().trim_matches(['"', '\'']);
         let one = one.strip_prefix("optional:").unwrap_or(one);
         let location = match one.split_once(':') {
@@ -221,39 +297,58 @@ pub fn target(path: &str, text: &str, at: usize, lookup: &Lookup) -> Option<Targ
             None => one,
         };
         let location = location.trim_start_matches("./").trim_start_matches('/');
-        return (!location.is_empty() && !location.ends_with('/')).then(|| Target::File(format!("**/{location}")));
+        return (!location.is_empty() && !location.ends_with('/'))
+            .then(|| Target::File(format!("**/{location}")));
     }
-    let class_valued = lookup.prop(base).is_some_and(|p| p.ty == "Class" || p.ty.starts_with("Class<"));
+    let class_valued = lookup
+        .prop(base)
+        .is_some_and(|p| p.ty == "Class" || p.ty.starts_with("Class<"));
     let name = value.trim().trim_matches(['"', '\'']);
-    let valid = name.split('.').all(|s| s.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '$') && !s.is_empty());
+    let valid = name.split('.').all(|s| {
+        s.chars()
+            .all(|c| c.is_alphanumeric() || c == '_' || c == '$')
+            && !s.is_empty()
+    });
     (class_valued && valid).then(|| Target::Class(name.replace('$', ".")))
 }
 
 /// One exact declared type spelling, after matching its package/enclosing owners.
 /// This is source navigation, not resolved classpath or binding ownership.
 pub fn declaration(path: &str, text: &str, requested: &str) -> Option<Range> {
-    if text.len() > 128 << 10 {return None;}
-    let file=spring_text::parse_source(path,text);
-    let mut found=Vec::new();
+    if text.len() > 128 << 10 {
+        return None;
+    }
+    let file = spring_text::parse_source(path, text);
+    let mut found = Vec::new();
     for ty in &file.types {
-        let mut name=ty.name.clone();
-        let mut outer=ty.outer;
-        let mut depth=0;
-        while let Some(i)=outer {
-            depth+=1;
-            if depth>32 {return None;}
-            let parent=file.types.get(i)?;
-            name=format!("{}.{}",parent.name,name);
-            outer=parent.outer;
+        let mut name = ty.name.clone();
+        let mut outer = ty.outer;
+        let mut depth = 0;
+        while let Some(i) = outer {
+            depth += 1;
+            if depth > 32 {
+                return None;
+            }
+            let parent = file.types.get(i)?;
+            name = format!("{}.{}", parent.name, name);
+            outer = parent.outer;
         }
-        let qualified=if file.package.is_empty() {name} else {format!("{}.{}",file.package,name)};
-        if (requested.contains('.') && qualified==requested || !requested.contains('.') && ty.name==requested)
-            && text.get(ty.at..ty.at+ty.name.len())==Some(ty.name.as_str())
+        let qualified = if file.package.is_empty() {
+            name
+        } else {
+            format!("{}.{}", file.package, name)
+        };
+        if (requested.contains('.') && qualified == requested
+            || !requested.contains('.') && ty.name == requested)
+            && text.get(ty.at..ty.at + ty.name.len()) == Some(ty.name.as_str())
         {
-            found.push(range(text,ty.at,ty.at+ty.name.len()));
+            found.push(range(text, ty.at, ty.at + ty.name.len()));
         }
     }
-    match found.as_slice() {[one]=>Some(*one),_=>None}
+    match found.as_slice() {
+        [one] => Some(*one),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -263,8 +358,20 @@ mod tests {
 
     fn catalog() -> Catalog {
         let mut c = Catalog::default();
-        let prop = |name: &str, ty: &str| Prop { name: name.into(), ty: ty.into(), ..Prop::default() };
-        c.add(&Meta { props: vec![prop("acme.handler", "Class<?>"), prop("acme.mode", "Mode"), prop("acme.template", "Resource"), prop("acme.handlers", "List<Class<?>>")], hints: vec![] });
+        let prop = |name: &str, ty: &str| Prop {
+            name: name.into(),
+            ty: ty.into(),
+            ..Prop::default()
+        };
+        c.add(&Meta {
+            props: vec![
+                prop("acme.handler", "Class<?>"),
+                prop("acme.mode", "Mode"),
+                prop("acme.template", "Resource"),
+                prop("acme.handlers", "List<Class<?>>"),
+            ],
+            hints: vec![],
+        });
         c
     }
 
@@ -274,32 +381,76 @@ mod tests {
         let packages = vec!["com.acme.web".to_owned()];
         let profiles = vec!["dev".to_owned(), "prod".to_owned()];
         let facts = Summary::merge(
-            [&crate::facts::Facts { package: "com.acme".into(), types: vec!["com.acme.Handler".into()], enums: vec![("Mode".into(), vec!["FAST".into(), "SAFE_MODE".into()])] }].into_iter(),
+            [&crate::facts::Facts {
+                package: "com.acme".into(),
+                types: vec!["com.acme.Handler".into()],
+                enums: vec![("Mode".into(), vec!["FAST".into(), "SAFE_MODE".into()])],
+            }]
+            .into_iter(),
             true,
         );
         let resources = || vec!["extra.yml".to_owned(), "static/a.txt".to_owned()];
-        let cx = Context { path, text, at: text.len(), lookup: &lookup, packages: &packages, profiles: &profiles, facts: &facts, resources: &resources };
+        let cx = Context {
+            path,
+            text,
+            at: text.len(),
+            lookup: &lookup,
+            packages: &packages,
+            profiles: &profiles,
+            facts: &facts,
+            resources: &resources,
+        };
         completion(&cx).into_iter().map(|i| i.insert_text).collect()
     }
 
     #[test]
     fn completes_loggers_profiles_and_placeholders() {
-        assert_eq!(complete("application.properties", "logging.level.com.a"), ["com=", "com.acme=", "com.acme.web="]);
-        assert_eq!(complete("application.yml", "logging:\n  level:\n    com.a"), ["com: ", "com.acme: ", "com.acme.web: "]);
+        assert_eq!(
+            complete("application.properties", "logging.level.com.a"),
+            ["com=", "com.acme=", "com.acme.web="]
+        );
+        assert_eq!(
+            complete("application.yml", "logging:\n  level:\n    com.a"),
+            ["com: ", "com.acme: ", "com.acme.web: "]
+        );
         assert!(complete("application.properties", "logging.lev").is_empty());
-        assert_eq!(complete("application.properties", "spring.profiles.active=dev,"), ["dev", "prod"]);
-        assert_eq!(complete("application.yml", "spring:\n  profiles:\n    active: "), ["dev", "prod"]);
-        assert!(complete("application.properties", "acme.x=1\nother=${ac").contains(&"acme.x".to_owned()));
+        assert_eq!(
+            complete("application.properties", "spring.profiles.active=dev,"),
+            ["dev", "prod"]
+        );
+        assert_eq!(
+            complete("application.yml", "spring:\n  profiles:\n    active: "),
+            ["dev", "prod"]
+        );
+        assert!(
+            complete("application.properties", "acme.x=1\nother=${ac")
+                .contains(&"acme.x".to_owned())
+        );
         assert!(complete("application.properties", "other=${a}").is_empty());
     }
 
     #[test]
     fn completes_classes_enums_and_resources_in_values() {
-        assert_eq!(complete("application.properties", "acme.handler=com.a"), ["com.acme.Handler"]);
-        assert_eq!(complete("application.yml", "acme:\n  mode: "), ["fast", "safe-mode"]);
-        assert_eq!(complete("application.properties", "acme.template="), ["classpath:extra.yml", "classpath:static/a.txt"]);
-        assert_eq!(complete("application.properties", "acme.template=classpath:st"), ["extra.yml", "static/a.txt"]);
-        assert_eq!(complete("application.properties", "spring.config.import=optional:"), ["classpath:extra.yml", "classpath:static/a.txt"]);
+        assert_eq!(
+            complete("application.properties", "acme.handler=com.a"),
+            ["com.acme.Handler"]
+        );
+        assert_eq!(
+            complete("application.yml", "acme:\n  mode: "),
+            ["fast", "safe-mode"]
+        );
+        assert_eq!(
+            complete("application.properties", "acme.template="),
+            ["classpath:extra.yml", "classpath:static/a.txt"]
+        );
+        assert_eq!(
+            complete("application.properties", "acme.template=classpath:st"),
+            ["extra.yml", "static/a.txt"]
+        );
+        assert_eq!(
+            complete("application.properties", "spring.config.import=optional:"),
+            ["classpath:extra.yml", "classpath:static/a.txt"]
+        );
         assert!(complete("application.properties", "acme.other=").is_empty());
     }
 
@@ -309,12 +460,27 @@ mod tests {
         let lookup = Lookup(vec![&c]);
         let text = "spring.config.import=optional:classpath:extra.yml,file:./x/y.properties\nacme.handler=com.acme.Handler\nacme.other=${X}\n";
         let at = |needle: &str| text.find(needle).unwrap() + 2;
-        assert_eq!(target("application.properties", text, at("extra"), &lookup), Some(Target::File("**/extra.yml".into())));
-        assert_eq!(target("application.properties", text, at("x/y"), &lookup), Some(Target::File("**/x/y.properties".into())));
-        assert_eq!(target("application.properties", text, at("com.acme.H"), &lookup), Some(Target::Class("com.acme.Handler".into())));
-        assert_eq!(target("application.properties", text, at("${X"), &lookup), None);
+        assert_eq!(
+            target("application.properties", text, at("extra"), &lookup),
+            Some(Target::File("**/extra.yml".into()))
+        );
+        assert_eq!(
+            target("application.properties", text, at("x/y"), &lookup),
+            Some(Target::File("**/x/y.properties".into()))
+        );
+        assert_eq!(
+            target("application.properties", text, at("com.acme.H"), &lookup),
+            Some(Target::Class("com.acme.Handler".into()))
+        );
+        assert_eq!(
+            target("application.properties", text, at("${X"), &lookup),
+            None
+        );
         let template = "acme.template=classpath:tpl/mail.html\nacme.handler=com.acme.Handler\n";
-        assert_eq!(target("application.properties", template, 25, &lookup), Some(Target::File("**/tpl/mail.html".into())));
+        assert_eq!(
+            target("application.properties", template, 25, &lookup),
+            Some(Target::File("**/tpl/mail.html".into()))
+        );
         let bare = "acme.template=mail.html\n";
         assert_eq!(target("application.properties", bare, 16, &lookup), None);
         let vault = "spring.config.import=vault://secret\n";
@@ -325,6 +491,9 @@ mod tests {
     fn reads_profile_and_package() {
         assert_eq!(profile_of("/p/application-dev.yml").as_deref(), Some("dev"));
         assert_eq!(profile_of("/p/application.yml"), None);
-        assert_eq!(package_of("A.java", "// x\npackage com.acme;\nclass A {}").as_deref(), Some("com.acme"));
+        assert_eq!(
+            package_of("A.java", "// x\npackage com.acme;\nclass A {}").as_deref(),
+            Some("com.acme")
+        );
     }
 }

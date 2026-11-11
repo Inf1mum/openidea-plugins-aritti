@@ -7,16 +7,31 @@ use std::collections::BTreeMap;
 fn native_pages_preserve_every_legacy_key_type_default_and_keep_runtime_values_out() {
     let legacy: Value = serde_json::from_str(include_str!("../settings.schema.json")).unwrap();
     let mut migrated = BTreeMap::new();
-    for source in [include_str!("../settings-java.schema.json"), include_str!("../settings-configuration.schema.json")] {
+    for source in [
+        include_str!("../settings-java.schema.json"),
+        include_str!("../settings-configuration.schema.json"),
+    ] {
         let page: Value = serde_json::from_str(source).unwrap();
         for (key, field) in page["properties"].as_object().unwrap() {
-            assert!(migrated.insert(key.clone(), field.clone()).is_none(), "duplicate persisted key {key}");
+            assert!(
+                migrated.insert(key.clone(), field.clone()).is_none(),
+                "duplicate persisted key {key}"
+            );
             assert!(!field["group"].as_str().unwrap().is_empty());
             assert!(!field["description"].as_str().unwrap().is_empty());
-            assert_eq!(field["type"], "boolean", "no effective runtime values are static setting fields");
+            assert_eq!(
+                field["type"], "boolean",
+                "no effective runtime values are static setting fields"
+            );
         }
     }
-    assert_eq!(migrated.len(), legacy["properties"].as_object().unwrap().len());
+    assert_eq!(
+        migrated.len(),
+        legacy["properties"].as_object().unwrap().len() + 1
+    );
+    let run = migrated.get("springBoot.nativeRunProfiles").expect("new opt-in native run setting");
+    assert_eq!(run["type"], "boolean");
+    assert_eq!(run["default"], false);
     for (key, field) in legacy["properties"].as_object().unwrap() {
         let migrated = migrated.get(key).expect("legacy key retained");
         assert_eq!(migrated["type"], field["type"], "{key}");
@@ -41,7 +56,9 @@ fn settings_metadata_action_requires_an_invoking_project_and_never_substitutes_r
     let host = MockHost::install().with_capabilities(&["project.read"]);
     host.set_project_root(None);
     let mut boot = BootTools::default();
-    let error = boot.run_command("read-dependency-jar-metadata", &host.invocation(), None).unwrap_err();
+    let error = boot
+        .run_command("read-dependency-jar-metadata", &host.invocation(), None)
+        .unwrap_err();
     assert!(error.to_string().contains("Open the owning Maven project"));
     assert!(host.requests().is_empty());
 }

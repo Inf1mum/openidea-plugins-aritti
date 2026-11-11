@@ -15,6 +15,7 @@ struct TypeFact {
     qualified: String,
     group: String,
     attributes: usize,
+    identifier: Option<(String, String)>,
 }
 #[derive(Default)]
 pub struct State {
@@ -97,7 +98,9 @@ impl State {
         if files.len() >= MAX_FILES || files.values().map(|(_, c)| c.attributes).sum::<usize>() + class.attributes.len() > 4096 {
             files.clear();
         }
-        let fact = TypeFact { qualified: format!("{}.{}", class.package.as_deref().unwrap(), class.name), group, attributes: class.attributes.len() };
+        let doc = Document {path:path.into(),language:if path.ends_with(".java") {"java"} else {"kotlin"}.into(),text:text.into(),version:0};
+        let identifier = crate::local_repository::identifier(&doc).map(|id|(id,text.to_owned()));
+        let fact = TypeFact { identifier, qualified: format!("{}.{}", class.package.as_deref().unwrap(), class.name), group, attributes: class.attributes.len() };
         files.insert(path.into(), (Instant::now(), fact));
     }
     fn known(&self, root: &str, current: &Class, name: &str) -> bool {
@@ -174,7 +177,24 @@ impl State {
                     }));
                 }
             }
-            if setting("checkAttributeTypes") { findings.extend(crate::local_versions::findings(doc)); }
+            if setting("checkAttributeTypes") { findings.extend(crate::local_versions::findings(doc)); findings.extend(crate::local_identifiers::findings(doc)); }
+            if setting("checkAttributeTypes") {
+                if let Some(finding)=crate::local_repository::missing_identifier(doc) {findings.push(finding);}
+                if let Some(root)=&root {
+                    if let Some((entity,id,from,to))=crate::local_repository::repository(doc) {
+                        let facts:Vec<_>=self.roots.get(root).into_iter().flat_map(|files|files.iter()).filter(|(_, (time,fact))|time.elapsed()<TTL && fact.qualified==entity).collect();
+                        if let [(path,(_,fact))]=facts.as_slice() {
+                            if let Some((declared,source))=&fact.identifier {
+                                let source_root=format!("{}/src/main/java/",root.trim_end_matches('/'));
+                                let expected=format!("{}{}.java",source_root,entity.replace('.',"/"));
+                                let source_owned=path.as_str()==expected && doc.path.starts_with(&source_root);
+                                let fresh=source_owned && host::project_of(path).filter(|p|p.root().ok().as_deref()==Some(root.as_str())).and_then(|p|p.read_file(path).ok()).as_deref()==Some(source.as_str());
+                                if fresh && declared!=&id { findings.push(Finding::new(from,to,openidea_plugin::Severity::Warning,"jpa-source-repository-id",format!("Repository identifier {id} differs from the current saved source identifier {declared} of {entity}. XML/provider mapping is unresolved."))); }
+                            }
+                        }
+                    }
+                }
+            }
             findings.extend(crate::local_graph::findings(doc));
             findings.extend(crate::local_listener::findings(doc));
             findings.extend(crate::local_listener::callback_findings(doc));
@@ -1443,6 +1463,21 @@ mod tests {
         ] {let found=plugin.diagnostics(&doc(path,&unknown));assert!(!has(&found,"attribute-type") && !has(&found,"jpa-attribute-multiple-relations"),"{unknown}");}
         host.set_setting("jpaAssist.checkAttributeTypes","false");host.set_setting("jpaAssist.checkAttributeSignatures","false");let found=plugin.diagnostics(&doc(path,source));assert!(!has(&found,"attribute-type") && !has(&found,"jpa-attribute-multiple-relations"));
         assert!(host.requests().is_empty() && host.process_runs().is_empty());
+    }
+
+    #[test]
+    fn owned_embeddable_identifiers_are_live_and_current_source_scoped() {
+        let host=MockHost::install(); let mut plugin=JpaAssist::default();
+        let path="/project/Key.java";
+        let source="/* 🦉 */ @jakarta.persistence.Embeddable class Key { @jakarta.persistence.Id long id; }";
+        let found=plugin.diagnostics(&doc(path,source));
+        let f=found.iter().find(|d|d.code.as_deref()==Some("jpa-embeddable-identifier")).unwrap();
+        let a=openidea_plugin::text::offset(source,f.range.start).unwrap(); let b=openidea_plugin::text::offset(source,f.range.end).unwrap();
+        assert_eq!(&source[a..b],"@jakarta.persistence.Id");
+        for unknown in [source.replace("persistence.Embeddable","persistence.Entity"),source.replace("persistence.Embeddable","vendor.Embeddable"),source.replace("@jakarta.persistence.Id", ""),source.replace("class Key {","class Key { void helper() {"),source.replace("@jakarta.persistence.Id long id;","@jakarta.persistence.NamedAttributeNode(value=@jakarta.persistence.Id) long id;")] {
+            assert!(!has(&plugin.diagnostics(&doc(path,&unknown)),"jpa-embeddable-identifier"),"{unknown}");
+        }
+        host.set_setting("jpaAssist.checkAttributeSignatures","false");assert!(!has(&plugin.diagnostics(&doc(path,source)),"jpa-embeddable-identifier"));
     }
 
 }

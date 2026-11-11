@@ -17,8 +17,28 @@ pub struct Advisory {
     pub severity: Option<String>,
     #[serde(default)]
     pub aliases: Vec<String>,
+    #[serde(default)]
+    pub withdrawn: bool,
+    /// Reporter names from OpenSSF's source records, never executable URLs.
+    #[serde(default)]
+    pub malicious_reporters: Vec<String>,
     /// Keyed `"{ecosystem}:{name}"` in OSV spelling.
     pub fixed: BTreeMap<String, Vec<String>>,
+}
+
+impl Advisory {
+    pub fn known_malicious(&self) -> bool {
+        let mut parts = self.id.split('-');
+        !self.withdrawn && parts.next() == Some("MAL")
+            && parts.next().is_some_and(|year| year.len() == 4 && year.bytes().all(|b| b.is_ascii_digit()))
+            && parts.next().is_some_and(|number| !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit()))
+            && parts.next().is_none()
+    }
+    pub fn classification(&self) -> &'static str {
+        if self.withdrawn { "Withdrawn advisory; historical evidence only" }
+        else if self.known_malicious() { "Known-malicious package report (OpenSSF MAL namespace via OSV.dev)" }
+        else { "Package vulnerability report via OSV.dev; maliciousness unknown" }
+    }
 }
 
 pub fn parse_advisory(json: &str) -> Option<Advisory> {
@@ -56,6 +76,11 @@ pub fn parse_advisory(json: &str) -> Option<Advisory> {
         summary: text(&value["summary"]).unwrap_or_default(),
         severity,
         aliases: value["aliases"].as_array().into_iter().flatten().filter_map(|a| text(a)).collect(),
+        withdrawn: value["withdrawn"].as_str().is_some_and(|v| !v.is_empty()),
+        malicious_reporters: value["database_specific"]["malicious-packages-origins"].as_array().into_iter().flatten()
+            .take(32).filter_map(|origin| origin["source"].as_str())
+            .filter(|source| !source.is_empty() && source.len() <= 128 && !source.chars().any(char::is_control))
+            .map(str::to_string).collect(),
         fixed,
     })
 }
@@ -115,12 +140,14 @@ pub struct Finding {
 
 impl Finding {
     pub fn fix(&self) -> Option<String> {
+        if self.advisories.iter().any(Advisory::known_malicious) { return None; }
         let key = format!("{}:{}", self.dep.ecosystem.osv(), self.dep.ecosystem.osv_name(&self.dep.name));
 
         self.advisories.iter().filter_map(|a| nearest_fix(&self.dep.version, a.fixed.get(&key)?)).max_by(|a, b| compare(a, b))
     }
 
     pub fn severity(&self) -> Severity {
+        if self.advisories.iter().any(Advisory::known_malicious) { return Severity::Error; }
         let levels: Vec<Severity> = self.advisories.iter().map(|a| level(a.severity.as_deref())).collect();
 
         [Severity::Error, Severity::Warning, Severity::Info].into_iter().find(|s| levels.contains(s)).unwrap_or(Severity::Warning)
@@ -144,7 +171,11 @@ impl Finding {
             (None, false) => "No fixed version is known.".to_string(),
         };
 
-        format!("{} {} has known vulnerabilities: {advisories}. {outcome}", self.dep.name, self.dep.version)
+        if self.advisories.iter().any(Advisory::known_malicious) {
+            format!("{} {} has known-malicious package evidence: {advisories}. Source: OpenSSF MAL reports via OSV.dev; this is package/version evidence, not local code execution analysis. Review the advisory and remove or replace the dependency; no automatic upgrade is recommended.", self.dep.name, self.dep.version)
+        } else {
+            format!("{} {} has known vulnerabilities: {advisories}. {outcome}", self.dep.name, self.dep.version)
+        }
     }
 }
 
@@ -633,5 +664,31 @@ mod advisory_identity_tests {
         assert_eq!(result.id,id);
         assert!(result.summary.is_empty());
         assert!(!host.storage().contains_key(&format!("adv:{id}")));
+    }
+}
+
+#[cfg(test)]
+mod malicious_tests {
+    use super::*;
+    #[test]
+    fn real_openssf_record_classifies_package_evidence_and_reporter() {
+        let record=parse_advisory(include_str!("../tests/fixtures/known-malicious-osv.json")).unwrap();
+        assert!(record.known_malicious());
+        assert_eq!(record.malicious_reporters,vec!["reversing-labs"]);
+        assert!(record.classification().contains("OpenSSF"));
+        let dep=crate::manifest::Dep{ name:"0-8".into(),version:"0.0.0.1".into(),ecosystem:crate::manifest::Ecosystem::PyPI,at:(0,1),path:"/project/requirements.txt".into(),version_at:None};
+        let finding=Finding{dep,advisories:vec![record]};
+        assert_eq!(finding.severity(),Severity::Error);
+        assert!(finding.fix().is_none());
+        assert!(finding.message().contains("not local code execution analysis"));
+    }
+    #[test]
+    fn namespace_is_exact_and_withdrawn_is_historical() {
+        for id in ["MAL-fake-1","MAL-2025-x","MAL-2025-1-more","GHSA-MAL-2025-1"] {
+            assert!(!Advisory{id:id.into(),..Default::default()}.known_malicious());
+        }
+        let record=parse_advisory(r#"{"id":"MAL-2025-1","withdrawn":"2026-01-01T00:00:00Z"}"#).unwrap();
+        assert!(!record.known_malicious());
+        assert!(record.classification().contains("Withdrawn"));
     }
 }

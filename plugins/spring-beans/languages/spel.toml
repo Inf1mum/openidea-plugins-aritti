@@ -1,0 +1,4 @@
+id = "spel"
+name = "Spring Expression Language"
+extensions = []
+indent = { tab-size = 4, insert-spaces = true }

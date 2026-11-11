@@ -277,3 +277,21 @@ as the imported framework type. The annotation debug action uses the same bound.
 The conservative bound may also withhold source with a comparison `<` token; no
 generic or flow/type resolver is claimed. All99 tests and pinned API1.3 package
 check pass. Original96/92 evidence remains dated; no new native acceptance.
+
+### Physical method-security expression ranges
+
+Canonical PreAuthorize/PostAuthorize/PreFilter/PostFilter Java/Kotlin annotation
+literals publish exact contiguous `spel` ranges. Embedded provider routing uses the SpEL language
+provided by Spring Beans Navigator when installed; the released embedded-color
+renderer does not consume its plugin syntax tokens, so embedded coloring is not
+claimed. Foreign/ambiguous imports,
+wildcards, concatenated/escaped/interpolated strings and dynamic source are
+withheld. This adds physical lexical syntax, not typed permission-root evaluation,
+debugger authorization changes or an embedded expression language server.
+
+Released-host renderer qualification: physical injection ranges route embedded
+provider documents, but API 1.4's `languageVisuals.ts` embedded-color path loads
+only built-in CodeMirror grammars. It does not call a plugin SyntaxProvider for
+injected spans. Independent language lexer output and provider routing are
+implemented; native embedded coloring remains a concrete host-renderer gap. No
+JavaScript/SQL grammar substitution or incorrect semantic token kinds are used.

@@ -224,8 +224,8 @@ category = "Kube Explorer"
 # ⌥⏎ on a manifest: add the Kubernetes schema for the YAML language server.
 # Completion: k* manifest abbreviations, and Helm .Values keys and include names.
 [[contributes.providers]]
-kinds = ["code-actions", "completion", "definition", "line-markers"]
-languages = ["yaml"]
+kinds = ["code-actions", "completion", "definition", "line-markers", "diagnostics"]
+languages = ["yaml", "json", "jsonc"]
 
 [[contributes.menus]]
 menu = "editor.context"
@@ -676,3 +676,21 @@ view = "kube"
 command = "tree-review-config"
 when = "viewItemKind == svc-cluster || viewItemKind == svc-cluster-open || viewItemKind == svc-cluster-global || viewItemKind == svc-cluster-global-open || viewItemKind == svc-offline || viewItemKind == svc-cluster-all || viewItemKind == svc-cluster-all-open"
 submenu = "Kubeconfig"
+
+[[contributes.commands]]
+id = "source-occurrences"
+title = "Kube Explorer: Find Local Label or Data-Key Occurrences"
+category = "Kube Explorer"
+
+[[contributes.menus]]
+menu = "editor.context"
+command = "source-occurrences"
+
+[[contributes.commands]]
+id = "helm-refresh-dependency-catalog"
+title = "Kube Explorer: Read Local Helm Dependency Catalog"
+category = "Kube Explorer"
+
+[[contributes.menus]]
+menu = "tools"
+command = "helm-refresh-dependency-catalog"

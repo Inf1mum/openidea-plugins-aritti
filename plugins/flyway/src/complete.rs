@@ -41,17 +41,25 @@ fn replacing(text: &str, from: usize, at: usize, item: &mut CompletionItem) {
     item.replace = Some(Range::new(position(text, from), position(text, at)));
 }
 
+#[cfg(test)]
 pub fn placeholders(text: &str, at: usize, project: &[String]) -> Vec<CompletionItem> {
+    configured_placeholders(text, at, project, &crate::config::PlaceholderSyntax::default())
+}
+
+pub fn configured_placeholders(text: &str, at: usize, project: &[String], syntax: &crate::config::PlaceholderSyntax) -> Vec<CompletionItem> {
+    if !syntax.enabled || syntax.prefix.is_empty() || syntax.suffix.is_empty()
+        || syntax.prefix.len() > 64 || syntax.suffix.len() > 64
+        || syntax.prefix.chars().chain(syntax.suffix.chars()).any(char::is_control)
+        || at > text.len() || !text.is_char_boundary(at) { return Vec::new(); }
     let before = &text[line_start(text, at)..at];
-    // ponytail: ${ … } only; custom placeholderPrefix/Suffix are not read
-    let Some(open) = before.rfind("${") else { return Vec::new() };
-    let typed = &before[open + 2..];
+    let Some(open) = before.rfind(&syntax.prefix) else { return Vec::new() };
+    let typed = &before[open + syntax.prefix.len()..];
     if !typed.chars().all(|c| c.is_ascii_alphanumeric() || "_.:-".contains(c)) {
         return Vec::new();
     }
 
     let from = at - typed.len();
-    let end = if text[at..].starts_with('}') { at + 1 } else { at };
+    let end = if text[at..].starts_with(&syntax.suffix) { at + syntax.suffix.len() } else { at };
     let defaults = DEFAULT_PLACEHOLDERS.iter().map(|(name, detail)| (*name, *detail, CompletionKind::Constant));
     let custom = project
         .iter()
@@ -63,7 +71,7 @@ pub fn placeholders(text: &str, at: usize, project: &[String]) -> Vec<Completion
         .map(|(name, detail, kind)| {
             let mut item = CompletionItem::new(name, kind);
             item.detail = Some(detail.to_owned());
-            item.insert_text = format!("{name}}}");
+            item.insert_text = format!("{name}{}", syntax.suffix);
             item.filter_text = Some(name.to_owned());
             replacing(text, from, end, &mut item);
             item
@@ -170,4 +178,20 @@ mod tests {
         let other = "[flyway.placeholders]\nte";
         assert!(toml_keys(other, other.len()).is_empty());
     }
+    #[test]
+    fn configured_delimiters_replace_a_complete_suffix_with_utf16_ranges() {
+        let syntax = crate::config::PlaceholderSyntax { prefix: "<<".into(), suffix: ">>".into(), enabled: true };
+        let text = "😀 <<ten>>";
+        let items = configured_placeholders(text, text.len() - 2, &["tenant".into()], &syntax);
+        let tenant = items.iter().find(|item| item.label == "tenant").unwrap();
+        assert_eq!(tenant.insert_text, "tenant>>");
+        assert_eq!(tenant.replace, Some(Range::new(Position::new(0, 5), Position::new(0, 10))));
+        assert!(configured_placeholders("${ten", 5, &[], &syntax).is_empty());
+        assert!(configured_placeholders("<<tenant>> ", 11, &[], &syntax).is_empty());
+        let disabled = crate::config::PlaceholderSyntax { enabled: false, ..syntax.clone() };
+        assert!(configured_placeholders("<<ten", 5, &[], &disabled).is_empty());
+        let empty = crate::config::PlaceholderSyntax { prefix: String::new(), ..syntax };
+        assert!(configured_placeholders("ten", 3, &[], &empty).is_empty());
+    }
+
 }

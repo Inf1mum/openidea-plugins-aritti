@@ -6,9 +6,11 @@
 
 mod commit_message;
 mod git;
+mod fogbugz;
 mod issue_context;
 mod model;
 mod search;
+mod self_hosted;
 mod state;
 mod trackers;
 mod view_scope;
@@ -668,7 +670,15 @@ impl Tasks {
                     return Err("The issue ID now belongs to a different task/server.".into());
                 }
             } else {
-                tasks.issues.push(issue);
+                tasks.issues.push(issue.clone());
+            }
+            // A fresh explicit credential-bridge search renews its non-secret
+            // event/profile proof while preserving local task time/branch/context.
+            if matches!(issue.tracker.as_deref(),Some("fogbugz"|"redmine"|"mantis")) {
+                if let Some(existing)=tasks.tasks.iter_mut().chain(tasks.issues.iter_mut()).find(|t|t.id==id) {
+                    existing.summary=issue.summary.clone(); existing.description=issue.description.clone();
+                    existing.url=issue.url.clone(); existing.api=issue.api.clone(); existing.fogbugz=issue.fogbugz.clone(); existing.self_hosted=issue.self_hosted.clone();
+                }
             }
             Ok(())
         })?;
@@ -1090,12 +1100,15 @@ fn refresh_issues(project: &Project, quiet: bool) -> Result<(), Error> {
         for task in &mut tasks.tasks {
             if let Some(issue) = fetched.issues.iter().find(|i| i.id == task.id && i.tracker == task.tracker) {
                 task.summary = issue.summary.clone();
+                task.description = issue.description.clone();
                 task.url = issue.url.clone();
                 task.api = issue.api.clone();
             }
         }
 
+        let retained_bridge: Vec<_> = tasks.issues.iter().filter(|t| matches!(t.tracker.as_deref(),Some("fogbugz"|"redmine"|"mantis"))).cloned().collect();
         tasks.issues = fetched.issues;
+        tasks.issues.extend(retained_bridge);
         Ok(())
     })
 }

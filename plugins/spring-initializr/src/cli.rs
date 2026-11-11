@@ -34,23 +34,27 @@ struct Run {
     output: String,
     status: String,
     at: Instant,
+    exit: Option<i32>,
 }
 pub(crate) struct Terminal {
     pub(crate) key: String,
     id: String,
     root: String,
+    target: String,
     pub(crate) args: Vec<String>,
 }
 #[derive(Default)]
 pub(crate) struct State {
     pub(crate) terminal: Option<Terminal>,
     run: Option<Run>,
+    completed_terminal: Option<Proof>,
 }
 impl State {
     pub(crate) fn running(&self) -> bool {
         self.run.as_ref().is_some_and(|r| r.child.is_some())
     }
     pub(crate) fn cancel(&mut self, reason: &str) -> Result<(), Error> {
+        self.completed_terminal = None;
         let Some(run) = self.run.as_mut() else {
             return Ok(());
         };
@@ -107,6 +111,7 @@ impl State {
                 break;
             }
             if let Some(code) = chunk.status {
+                run.exit = Some(code);
                 run.status = format!(
                     "CLI exited with status {code}. Generated files are NOT validated; no cleanup or project opening performed."
                 );
@@ -146,7 +151,7 @@ impl State {
                 ));
             }
         }
-        let status=if let Some(t)=&self.terminal {format!("Native terminal active for {}: spring {}. Use its native terminal controls to stop/close it. Completion does not validate generated files.",t.root,serde_json::to_string(&t.args).unwrap_or_default())} else {self.run.as_ref().map(|r|format!("{} Elapsed {}s. Check polls only when requested; Cancel or window close stops a still-running CLI. Existing/partial generated files are never removed automatically.",r.status,r.at.elapsed().as_secs())).unwrap_or_else(||"No managed CLI run. The terminal launcher is separate; neither path certifies generated files.".into())};
+        let status=if let Some(t)=&self.terminal {format!("Native terminal active for {}: spring {}. Use its native terminal controls to stop/close it. Completion does not validate generated files.",t.root,serde_json::to_string(&t.args).unwrap_or_default())} else if let Some(completed)=&self.completed_terminal {format!("CLI completed successfully for {}. Review and verify the generated folder before opening; no build has been run.",completed.target)} else {self.run.as_ref().map(|r|format!("{} Elapsed {}s. Check polls only when requested; Cancel or window close stops a still-running CLI. Existing/partial generated files are never removed automatically.",r.status,r.at.elapsed().as_secs())).unwrap_or_else(||"No managed CLI run. The terminal launcher is separate; neither path certifies generated files.".into())};
         View::new(Body::Form(fields))
             .status(&status)
             .button(
@@ -154,6 +159,7 @@ impl State {
                     .icon("run")
                     .enabled(can_start && !self.running() && self.terminal.is_none()),
             )
+            .button(Button::new("managed-cli-open", "Review and Open Generated Folder…").icon("folder-open").enabled(self.run.as_ref().is_some_and(|run|run.exit==Some(0)) || self.completed_terminal.is_some()))
             .button(
                 Button::new("managed-cli-check", "Check status / output")
                     .icon("refresh")
@@ -225,7 +231,9 @@ impl Launcher {
         let hash = proof.root.bytes().chain(proof.target.bytes()).fold(0xcbf29ce484222325u64, |h,b| (h ^ u64::from(b)).wrapping_mul(0x100000001b3));
         let key = format!("initializr-{hash:016x}");
         let id = host::open_terminal_session(&key, "Spring Initializr: spring init", &Command::new("spring").args(&args))?;
-        self.cli.terminal = Some(Terminal { key, id, root: proof.root, args });
+        self.cli.completed_terminal = None;
+        self.cli.run = None;
+        self.cli.terminal = Some(Terminal { key, id, root: proof.root, target:proof.target, args });
         Ok(())
     }
     pub(crate) fn finish_cli_terminal(&mut self, event: &openidea_plugin::Event, ctx: &Invocation) {
@@ -233,8 +241,13 @@ impl Launcher {
         let Some(terminal) = self.cli.terminal.as_ref() else { return };
         if exit.key != terminal.key || exit.id != terminal.id { return }
         let root = terminal.root.clone();
+        let args = terminal.args.clone();
+        let target = terminal.target.clone();
         self.cli.terminal = None;
         if ctx.project().and_then(|p| p.root().ok()).as_deref() != Some(root.as_str()) { return }
+        if exit.status==Some(0) && !exit.closed {
+            self.cli.completed_terminal=Some(Proof{root:root.clone(),target,args});
+        }
         let outcome = if exit.closed { "Terminal closed".into() } else { format!("CLI exited with status {:?}", exit.status) };
         host::notify(NotificationLevel::Info, "Spring Initializr", &format!("{outcome}. Generated files are NOT validated; no cleanup or project opening performed."));
         host::refresh_view("initializr");
@@ -264,12 +277,14 @@ impl Launcher {
             return Err(Error::Stale);
         }
         let child = spawn(&Command::new("spring").args(&proof.args), &project)?;
+        self.cli.completed_terminal = None;
         self.cli.run = Some(Run {
             proof,
             child: Some(child),
             output: String::new(),
             status: "Running; no generated-tree validity claim.".into(),
             at: Instant::now(),
+            exit: None,
         });
         if let Err(error) = self
             .cli
@@ -285,6 +300,11 @@ impl Launcher {
             return Err(error);
         }
         Ok(())
+    }
+    pub(crate) fn open_generated_cli(&mut self,ctx:&Invocation)->Result<(),Error> {
+        let proof=self.cli.completed_terminal.clone().or_else(||self.cli.run.as_ref().filter(|run|run.exit==Some(0)).map(|run|run.proof.clone())).ok_or_else(||Error::Invalid("No successful completed CLI generation in this session.".into()))?;
+        if self.cli.running() || self.cli.terminal.is_some() {return Err(Error::Stale)}
+        self.review_cli_tree(ctx,&proof.root,&proof.target)
     }
     pub(crate) fn check_managed_cli(&mut self, ctx: &Invocation) -> Result<(), Error> {
         if self.cli.run.as_ref().is_some_and(|r| {
@@ -404,6 +424,16 @@ mod tests {
         assert!(h.terminals().is_empty());
         assert!(h.requests().is_empty());
         assert!(h.opened_projects().is_empty());
+    }
+    #[test]
+    fn successful_cli_requires_separate_review_and_fresh_tree_verification_before_open() {
+        for code in [0,7] {
+            let (host,mut launcher)=setup();let host=host.with_capabilities(&["storage","project.read","process:spring","process:python3"]);
+            start(&host,&mut launcher,vec![Ok(Chunk{stdout:String::new(),stderr:String::new(),status:Some(code)})],Rc::new(Cell::new(0)));
+            launcher.check_managed_cli(&host.invocation()).unwrap();assert!(host.opened_projects().is_empty());
+            host.on_process("python3",|_,stdin| {let request:serde_json::Value=serde_json::from_str(stdin.unwrap()).unwrap();assert_eq!(request["target"],"/project/demo");let proof=serde_json::json!({"target":"/project/demo","python":"3.14.6","platform":"darwin","sha256":"tree-hash","files":[{"path":"pom.xml","bytes":8,"mode":420,"sha256":"file-hash"}],"directories":[]});if request["operation"]=="verify-tree" {assert_eq!(request["proof"],proof);}Ok(openidea_plugin::ProcessOutput{status:Some(0),stdout:proof.to_string(),stderr:String::new()})});
+            host.answer_next_prompt(Some(&[]));let result=launcher.open_generated_cli(&host.invocation());assert_eq!(result.is_ok(),code==0);assert_eq!(host.opened_projects().len(),usize::from(code==0));
+        }
     }
     #[test]
     fn exit_zero_and_nonzero_never_certify_files_or_open_project() {
@@ -570,6 +600,15 @@ mod tests {
         assert_eq!(killed.get(), 1);
         assert!(l.cli.running());
         assert!(l.cli.run.as_ref().unwrap().status.contains("unknown"));
+    }
+    #[test]
+    fn starting_a_new_cli_retires_prior_success_and_failed_terminal_never_reuses_it() {
+        let (host,mut launcher)=setup();
+        start(&host,&mut launcher,vec![Ok(Chunk{stdout:String::new(),stderr:String::new(),status:Some(0)})],Rc::new(Cell::new(0)));
+        launcher.check_managed_cli(&host.invocation()).unwrap();assert_eq!(launcher.cli.run.as_ref().unwrap().exit,Some(0));
+        let args=launcher.cli_args().unwrap();launcher.open_cli_terminal(&host.invocation(),args).unwrap();assert!(launcher.cli.run.is_none());
+        let terminal=launcher.cli.terminal.as_ref().unwrap();let event=openidea_plugin::Event::Other{kind:"terminal-exited".into(),data:serde_json::json!({"key":terminal.key,"id":terminal.id,"status":7,"closed":false}).to_string()};
+        launcher.finish_cli_terminal(&event,&host.invocation());assert!(launcher.cli.completed_terminal.is_none());assert!(launcher.open_generated_cli(&host.invocation()).is_err());assert!(host.opened_projects().is_empty());
     }
     #[test]
     fn keyed_terminal_completion_requires_exact_operation_and_preserves_unverified_output() {

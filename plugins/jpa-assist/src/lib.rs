@@ -20,6 +20,11 @@ mod live;
 mod local_graph;
 mod local_callbacks;
 mod local_versions;
+mod local_identifiers;
+mod local_repository;
+mod jpql_language;
+mod source_diagram;
+mod query_console;
 mod local_listener;
 mod model;
 mod queries;
@@ -377,6 +382,8 @@ fn owned_callback_source(doc: &Document) -> Option<(Class, &'static str)> {
 #[derive(Default)]
 pub struct JpaAssist {
     generation: file_actions::Generation,
+    diagram: source_diagram::State,
+    console: query_console::Console,
     live: live::State,
     repository_completion: repository_completion::State,
     /// Java and Kotlin files per project root, listed once per instance.
@@ -1068,6 +1075,7 @@ fn publish_context(path: Option<&str>) {
 }
 
 impl Plugin for JpaAssist {
+    fn deactivate(&mut self) { self.console.deactivate(); }
     fn activate(&mut self, _ctx: &Context) -> Result<(), Error> {
         let _ = host::subscribe(EventKind::EditorFocused);
         let _ = host::subscribe(EventKind::FileOpened);
@@ -1079,6 +1087,8 @@ impl Plugin for JpaAssist {
 
     fn run_command(&mut self, id: &str, ctx: &Invocation, arg: Option<&str>) -> Result<Option<String>, Error> {
         match id {
+            "jpql-console-run"|"jpql-console-status"|"jpql-console-cancel"=>{self.console.run(id,ctx)?;Ok(None)},
+            "source-diagram"=>{self.refresh_source_diagram(ctx)?;ui_kit::web::reveal_view(source_diagram::VIEW,include_str!("ui_config.json"))?;Ok(None)},
             "structure-source" => { self.navigate_structure(arg.ok_or(Error::Stale)?, ctx)?; Ok(None) }
             "find-attribute-usages" => {file_actions::find_attribute_usages(ctx)?; Ok(None)}
             "copy-ddl" => {
@@ -1137,6 +1147,8 @@ impl Plugin for JpaAssist {
     }
 
     fn handle_events(&mut self, events: &[Event], _ctx: &Invocation) {
+        self.source_diagram_events(events);
+
         if self.structure_located.is_some() && events.iter().any(|event| matches!(event,
             Event::EditorFocused(_) | Event::FileOpened(_) | Event::FileSaved(_) | Event::FilesChanged(_))) {
             self.structure_located = None;
@@ -1250,6 +1262,8 @@ impl Providers for JpaAssist {
     }
 
     fn completion(&mut self, doc: &Document, at: Position, _trigger: Option<&str>) -> Vec<CompletionItem> {
+        if doc.language=="jpql" {return jpql_language::completion(doc,at);}
+
         if doc.path.ends_with(".xml") {
             return self.class_element_completion(doc, at);
         }
@@ -1436,6 +1450,8 @@ impl JpaAssist {
 impl Views for JpaAssist {
     fn render(&mut self, _view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
         (|| -> Result<View, Error> {
+            if _view==query_console::VIEW { let Some(project)=ctx.project() else{return Ok(View::message("Open the owning project for JPQL Console."));};return Ok(self.console.view(&project.root()?)); }
+            if _view==source_diagram::VIEW{return self.render_source_diagram(ctx);}
             if _view != "structure" { return Err(Error::NotFound(_view.into())); }
             let Some(project) = ctx.project() else {
                 self.locations.clear();
@@ -1506,6 +1522,9 @@ impl Views for JpaAssist {
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, _ctx: &Invocation) -> Result<(), Error> {
+        if ui_kit::web::handle(self,view,&event,_ctx,include_str!("ui_config.json"))?{return Ok(());}
+        if view==query_console::VIEW { if let ViewEvent::Button(id)=event {self.console.run(&id,_ctx)?;} return Ok(()); }
+        if view==source_diagram::VIEW{return self.handle_source_diagram(event,_ctx);}
         if view != "structure" { return Err(Error::NotFound(view.into())); }
         match event {
             ViewEvent::Button(id) if id == "locate-open-file" => self.locate_opened_structure_entity(_ctx)?,
@@ -1552,7 +1571,7 @@ impl DiagnosticsProvider for JpaAssist {
     }
 }
 
-register_plugin!(JpaAssist, providers, diagnostics, hover, views, file_actions);
+register_plugin!(JpaAssist, providers, diagnostics, hover, views, file_actions, syntax, injections);
 
 #[cfg(test)]
 mod tests {

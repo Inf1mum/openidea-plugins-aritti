@@ -71,7 +71,11 @@ fn validate(owner: &str, tasks: &TaskList) -> Result<(), Error> {
     for list in [&tasks.tasks, &tasks.issues] {
         let mut ids = std::collections::BTreeSet::new();
         for t in list {
-            if t.seconds_spent > u32::MAX as u64
+            if (matches!(t.tracker.as_deref(),Some("redmine"|"mantis")) && !crate::self_hosted::identity(t))
+                || (!matches!(t.tracker.as_deref(),Some("redmine"|"mantis")) && t.self_hosted.is_some())
+                || (t.tracker.as_deref()==Some("fogbugz") && !crate::fogbugz::identity(t))
+                || (t.tracker.as_deref()!=Some("fogbugz") && t.fogbugz.is_some())
+                || t.seconds_spent > u32::MAX as u64
                 || t.seconds_posted > u32::MAX as u64
                 || t.id.is_empty()
                 || t.id.len() > 128

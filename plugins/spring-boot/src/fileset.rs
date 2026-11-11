@@ -13,7 +13,11 @@ pub const GLOBS: &[&str] = &[
     "**/bootstrap*.yaml",
 ];
 
-const LOCATION_KEYS: &[&str] = &["spring.config.import", "spring.config.location", "spring.config.additional-location"];
+const LOCATION_KEYS: &[&str] = &[
+    "spring.config.import",
+    "spring.config.location",
+    "spring.config.additional-location",
+];
 const EXTENSIONS: &[&str] = &["properties", "yml", "yaml"];
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -47,9 +51,16 @@ pub fn read(path: &str, text: &str) -> Option<Locations> {
         let base = key.key.split('[').next().unwrap_or(&key.key);
         let base = canonical(base);
         if LOCATION_KEYS.contains(&base.as_str()) {
-            found.tails.extend(key.value.split([',', ';']).filter_map(tail_of));
+            found
+                .tails
+                .extend(key.value.split([',', ';']).filter_map(tail_of));
         } else if base == "spring.config.name" {
-            found.names.extend(key.value.split(',').map(|n| n.trim().to_owned()).filter(|n| !n.is_empty() && !n.contains("${")));
+            found.names.extend(
+                key.value
+                    .split(',')
+                    .map(|n| n.trim().to_owned())
+                    .filter(|n| !n.is_empty() && !n.contains("${")),
+            );
         }
     }
     (!found.tails.is_empty() || !found.names.is_empty()).then_some(found)
@@ -61,14 +72,23 @@ pub fn is_configuration<'a>(path: &str, sets: impl Iterator<Item = &'a Locations
         return true;
     }
     let file = path.rsplit(['/', '\\']).next().unwrap_or(path);
-    let Some((stem, extension)) = file.rsplit_once('.') else { return false };
+    let Some((stem, extension)) = file.rsplit_once('.') else {
+        return false;
+    };
     if !EXTENSIONS.contains(&extension) {
         return false;
     }
     let normalized = path.replace('\\', "/");
     sets.into_iter().any(|set| {
-        set.tails.iter().any(|t| normalized == *t || normalized.ends_with(&format!("/{t}")))
-            || set.names.iter().any(|n| stem == n || stem.strip_prefix(n.as_str()).is_some_and(|rest| rest.starts_with('-')))
+        set.tails
+            .iter()
+            .any(|t| normalized == *t || normalized.ends_with(&format!("/{t}")))
+            || set.names.iter().any(|n| {
+                stem == n
+                    || stem
+                        .strip_prefix(n.as_str())
+                        .is_some_and(|rest| rest.starts_with('-'))
+            })
     })
 }
 
@@ -83,7 +103,10 @@ mod tests {
         assert_eq!(set.tails, ["extra.yml", "conf/more.properties"]);
         assert_eq!(set.names, ["myapp"]);
         let sets = [set];
-        assert!(is_configuration("/p/src/main/resources/extra.yml", sets.iter()));
+        assert!(is_configuration(
+            "/p/src/main/resources/extra.yml",
+            sets.iter()
+        ));
         assert!(is_configuration("/p/conf/more.properties", sets.iter()));
         assert!(is_configuration("/p/myapp-dev.yaml", sets.iter()));
         assert!(!is_configuration("/p/other.yml", sets.iter()));
@@ -93,7 +116,11 @@ mod tests {
 
     #[test]
     fn reads_yaml_sequences() {
-        let text = "spring:\n  config:\n    import:\n      - classpath:a.yml\n      - optional:b.yml\n";
-        assert_eq!(read("application.yml", text).unwrap().tails, ["a.yml", "b.yml"]);
+        let text =
+            "spring:\n  config:\n    import:\n      - classpath:a.yml\n      - optional:b.yml\n";
+        assert_eq!(
+            read("application.yml", text).unwrap().tails,
+            ["a.yml", "b.yml"]
+        );
     }
 }

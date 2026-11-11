@@ -78,6 +78,28 @@ fn model(doc:&Document)->Option<Vec<Token>> {
     out.retain(|t|occupied.get(&t.name)==Some(&1));
     Some(out)
 }
+pub(crate) fn definition(doc:&Document,at:Position)->Option<Vec<Location>> {
+    let tokens=model(doc)?;let selected=tokens.iter().find(|t|t.range.start<=at&&at<t.range.end)?;
+    let declarations:Vec<_>=tokens.iter().filter(|t|t.declaration&&t.name==selected.name).collect();
+    Some(match declarations.as_slice() { [declaration] if !selected.declaration=>vec![Location{path:doc.path.clone(),range:declaration.range}],_=>vec![] })
+}
+pub(crate) fn occurrences(ctx:&Invocation)->Result<Option<String>,Error> {
+    let root=ctx.project().ok_or(Error::Stale)?.root()?;let editor=ctx.editor().ok_or("Open Java channel configuration and grant optional editor.read.")?;
+    let source=editor.document()?;let doc=Document{path:editor.path(),language:editor.language(),text:source.text,version:source.version};
+    if crate::source_scope::Scope::for_path(&doc.path).is_none()||host::project_of(&doc.path).and_then(|p|p.root().ok()).as_deref()!=Some(root.as_str()) {return Err(Error::Stale);}
+    let selections=editor.selections()?;let [selection]=selections.as_slice() else{return Err(Error::Invalid("Use a single caret.".into()));};
+    if selection.start!=selection.end {return Err(Error::Invalid("Use a collapsed caret on a supported Java channel name.".into()));}
+    let tokens=model(&doc).ok_or("Use literal Spring Bean/ServiceActivator names with explicit supported MessageChannel ownership.")?;
+    let selected=tokens.iter().find(|t|t.range.start<=selection.start&&selection.start<t.range.end).ok_or("Place the caret on a supported channel name.")?;
+    if tokens.iter().filter(|t|t.declaration&&t.name==selected.name).count()!=1 {return Err(Error::Invalid("Channel declaration is ambiguous in this source.".into()));}
+    let sites:Vec<_>=tokens.iter().filter(|t|t.name==selected.name).collect();
+    let items:Vec<_>=sites.iter().enumerate().map(|(i,t)|openidea_plugin::PickItem::new(&format!("site:{i}"),&format!("{} · {}:{}",if t.declaration {"Bean declaration"}else{"ServiceActivator channel"},t.range.start.line+1,t.range.start.character+1)).description(&doc.path)).collect();
+    let Some(choice)=host::pick(&format!("Java channel {}: {} current-file occurrences",selected.name,sites.len()),&items)? else{return Ok(None);};
+    let target=choice.strip_prefix("site:").and_then(|v|v.parse::<usize>().ok()).and_then(|i|sites.get(i)).ok_or(Error::Stale)?;
+    let current=editor.document()?;if current.text!=doc.text||current.version!=doc.version||editor.path()!=doc.path||host::project_of(&doc.path).and_then(|p|p.root().ok()).as_deref()!=Some(root.as_str()) {return Err(Error::Stale);}
+    host::open_location(&doc.path,target.range.start.line,target.range.start.character)?;
+    Ok(Some("Navigated to a proved current-file Java channel occurrence. Only the supported Bean declaration and ServiceActivator channel literals are included; other annotations, files and runtime contexts are excluded.".into()))
+}
 pub(crate) fn hover(doc:&Document,at:Position)->Option<Hover> {
     let tokens=model(doc)?;
     let selected=tokens.iter().find(|t|t.range.start<=at&&at<t.range.end)?;
@@ -95,6 +117,21 @@ mod tests {
         Document{path:"/project/src/app/Channels.java".into(),language:"java".into(),version:7,text:format!("package app;\r\nimport org.springframework.context.annotation.Configuration;\r\nimport org.springframework.context.annotation.Bean;\r\nimport org.springframework.messaging.MessageChannel;\r\nimport org.springframework.integration.annotation.ServiceActivator;\r\n@Configuration class Channels {{\r\n{body}\r\n}}")}
     }
     fn at(d:&Document,value:&str)->Position {openidea_plugin::text::position(&d.text,d.text.rfind(value).unwrap())}
+    #[test]
+    fn registered_java_definition_uses_current_channel_source_and_exact_ranges() {
+        let host=MockHost::install().with_capabilities(&[]);let d=doc(r#"@Bean(name="orders") MessageChannel input(){return null;} /*😀*/ @ServiceActivator(inputChannel="orders") void consume(){}"#);
+        let mut owner=structure::Structure::default();let destination=owner.definition(&d,at(&d,"orders"));assert_eq!(destination.len(),1);assert_eq!(destination[0].path,d.path);
+        let from=openidea_plugin::text::offset(&d.text,destination[0].range.start).unwrap();let to=openidea_plugin::text::offset(&d.text,destination[0].range.end).unwrap();assert_eq!(&d.text[from..to],"orders");
+        let changed=Document{text:d.text.replacen(r#"name="orders""#,r#"name="other""#,1),..d.clone()};assert!(definition(&changed,at(&changed,"orders")).is_none());
+        assert!(host.process_runs().is_empty()&&host.requests().is_empty());
+    }
+    #[test]
+    fn registered_java_occurrences_command_navigates_without_network_or_source_mutation() {
+        let host=MockHost::install();let d=doc(r#"@Bean MessageChannel orders(){return null;} @ServiceActivator(inputChannel="orders", outputChannel="orders") void consume(){}"#);
+        let p=at(&d,"orders");host.open_editor(&d.path,"java",&d.text,&[(p.line,p.character,p.line,p.character)]);host.answer_next_prompt(Some(&["site:0"]));
+        let mut owner=structure::Structure::default();let result=owner.run_command("integration.current-file-channel-occurrences",&host.invocation(),None).unwrap().unwrap();assert!(result.contains("Java channel occurrence"));assert_eq!(host.opened_locations().len(),1);assert_eq!(host.editor_text(),d.text);
+        assert!(host.process_runs().is_empty()&&host.requests().is_empty());
+    }
     #[test]
     fn registered_positive_java_hover_is_current_source_only_with_exact_utf16_ranges() {
         let h=MockHost::install().with_capabilities(&[]);let mut owner=structure::Structure::default();

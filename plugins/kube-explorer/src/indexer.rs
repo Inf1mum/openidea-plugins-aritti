@@ -525,6 +525,10 @@ pub(crate) fn deployment_isolation(path: &str) -> Option<bool> {
 impl DocumentIndexer for KubeExplorer {
     fn index(&mut self, doc: &Document) -> Edges {
         self.navigation.warm(&doc.path, &doc.text);
+        self.crd_schema.warm(&doc.path, &doc.text);
+        self.label_refs.warm(&doc.path,&doc.text);
+        self.kustomize_paths.warm(&doc.path);
+        self.helm_assistance.warm(&doc.path,&doc.text);
         // A valid declaration span does not establish reference closure or one
         // deployment identity. Keep the export empty to clear older host graphs.
         Edges::default()

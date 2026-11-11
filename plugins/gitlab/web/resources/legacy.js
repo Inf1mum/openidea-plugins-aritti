@@ -56,6 +56,7 @@ document.addEventListener('keydown', (e) => {
 
 document.addEventListener('click', (e) => {
   const t = e.target;
+  const markdownLink=t.closest&&t.closest('a[data-markdown-url]');if(markdownLink){e.preventDefault();send({type:'markdown-link',url:markdownLink.dataset.markdownUrl});return;}
   if (t.classList.contains('ln')) {
     const tr = t.closest('tr');
     if (tr.classList.contains('hunk') || document.body.dataset.readOnly !== undefined) return;

@@ -7,6 +7,7 @@ const BUTTON_PREFIX: &str = "section:";
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Section {
     Overview,
+    Description,
     Changes,
     Commits,
     Files,
@@ -15,11 +16,12 @@ pub enum Section {
 }
 
 impl Section {
-    pub const ALL: [Section; 6] = [Section::Overview, Section::Changes, Section::Commits, Section::Files, Section::Pipelines, Section::Timeline];
+    pub const ALL: [Section; 7] = [Section::Overview, Section::Description, Section::Changes, Section::Commits, Section::Files, Section::Pipelines, Section::Timeline];
 
     pub fn id(self) -> &'static str {
         match self {
             Section::Overview => "overview",
+            Section::Description => "description",
             Section::Changes => "changes",
             Section::Commits => "commits",
             Section::Files => "files",
@@ -31,6 +33,7 @@ impl Section {
     pub fn label(self) -> &'static str {
         match self {
             Section::Overview => "Overview",
+            Section::Description => "Description",
             Section::Changes => "Changes",
             Section::Commits => "Commits",
             Section::Files => "Files",
@@ -67,7 +70,7 @@ pub struct Badges {
 
 fn button_label(section: Section, active: bool, badges: &Badges) -> String {
     let badge = match section {
-        Section::Overview | Section::Timeline => None,
+        Section::Overview | Section::Description | Section::Timeline => None,
         Section::Changes => badges.changes.map(|n| n.to_string()),
         Section::Commits => badges.commits.map(|n| n.to_string()),
         Section::Files => badges.files.map(|n| n.to_string()),

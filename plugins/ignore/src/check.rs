@@ -51,8 +51,12 @@ pub fn check(text: &str, dialect: Dialect) -> Vec<Problem> {
     for raw in text.split_inclusive('\n') {
         let line_end = line_start + raw.len();
         let line = raw.trim_end_matches(['\n', '\r']);
-        let entry = line.trim();
-        let start = line_start + (line.len() - line.trim_start().len());
+        let entry = if syntax == Syntax::Glob && !dialect.switchable {
+            crate::matcher::pattern_text(line)
+        } else {
+            line.trim()
+        };
+        let start = line_start + (entry.as_ptr() as usize - line.as_ptr() as usize);
         let end = start + entry.len();
         let whole_line = line_range(text, line_start, line_end);
         line_start = line_end;
@@ -351,7 +355,7 @@ mod tests {
 
     #[test]
     fn reports_duplicates_after_the_first_occurrence() {
-        assert_eq!(codes("a\nb\n  a  \n", GIT), ["duplicate-entry"]);
+        assert_eq!(codes("a\nb\na  \n", GIT), ["duplicate-entry"]);
         let problem = &check("a\nb\na\n", GIT)[0];
         assert_eq!((problem.start, problem.end), (4, 5));
     }

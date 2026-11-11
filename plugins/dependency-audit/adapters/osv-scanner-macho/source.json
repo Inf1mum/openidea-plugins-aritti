@@ -1,0 +1,23 @@
+{
+  "upstream": "https://github.com/google/osv-scanner",
+  "tag": "v2.7.1",
+  "commit": "02f96a40691c2d155fdda799af436e111231e365",
+  "source_url": "https://codeload.github.com/google/osv-scanner/tar.gz/02f96a40691c2d155fdda799af436e111231e365",
+  "source_sha256": "233b21687cfffa0ec93c4afb00605a0449f4ba01ef93b28d558fc801709a61c8",
+  "profile": "2.7.1-openidea-macho.1",
+  "go": "go1.27.4",
+  "platform": "darwin/arm64",
+  "changed_files": [
+    "internal/sourceanalysis/rust.go",
+    "internal/sourceanalysis/rust_openidea_test.go",
+    "internal/sourceanalysis/__snapshots__/rust_test.snap"
+  ],
+  "patch_sha256": "7c5017b0f90d3f133ccb40989c89020f19452c4bd878706460948b5a420c09ee",
+  "license": "Apache-2.0",
+  "signature_note": "Official HTTPS source archive pinned by commit and locally recorded SHA256. GitHub reports annotated tag signature unknown_key; no independent signature-verification claim.",
+  "patched_sha256": {
+    "internal/sourceanalysis/rust.go": "e498443f86b096d06737d7ecc112a44e803023d5dddfa2a4952078d927436ae5",
+    "internal/sourceanalysis/rust_openidea_test.go": "b80018eca008aba32ea0c365744a8ef195f77c9fc105cee606aabb888b59fca5",
+    "internal/sourceanalysis/__snapshots__/rust_test.snap": "0126c428c80399bf7eae00b3316d17f964d165b1aceb2ced7c308808e8b5aa66"
+  }
+}

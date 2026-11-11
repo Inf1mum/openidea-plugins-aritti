@@ -58,44 +58,56 @@ Existing navigation and live providers are preserved.
 
 **Spring Boot: Read Metadata from Selected Maven Dependency JAR…** reads one JAR
 from the standard `~/.m2/repository` layout, after optional
-`fs.read:~/.m2/repository` is granted. It lists only supported direct literal
-root `pom.xml` dependencies, derives the exact group/artifact/version path and
-shows the project, current POM, declared scope and archive before reading bytes.
+`fs.read:~/.m2/repository` is granted. It derives exact paths from supported
+root `pom.xml` declarations and shows the project, current POM, GAV/scope,
+version-catalog paths/hashes and selected archive before reading JAR bytes.
 POM reads use the project's visible text, including unsaved content. The same
-project and unchanged POM are checked after review and after parsing. No Maven,
-Gradle, Java, shell, network, home/cache discovery or extraction is performed.
-The filesystem API enforces its real canonical path grant; a stat preflight checks
-permission/type/size, then metadata is read only after confirmation.
+project, unchanged POM and declared version-catalog hashes are checked after
+review and parsing. No Maven, Gradle, Java, shell, network, cache enumeration or
+extraction is performed. The filesystem API enforces its canonical path grant.
 
-Supported source declarations have literal groupId/artifactId/version, ordinary
+Direct dependency versions may be literal, exact `${property}` aliases from root
+POM properties, or exact root dependencyManagement versions. Property expansion is
+bounded and cycles/duplicate properties are refused. For declared
+`org.springframework.boot` / `org.springframework.cloud` parents and imported
+BOMs, the command can read their exact locally cached POMs, follow bounded official
+parent/BOM references and offer version-qualified managed JAR entries. Literal
+inherited parent versions are supported. Every cached POM must match its declared
+GAV. These are **declared catalog candidates**, not proof that a managed artifact
+is an active dependency or that all Maven precedence/profile rules are resolved.
+Missing cached catalogs supply no facts. Gradle, arbitrary inherited properties,
+profiles, systemPath, alternate repositories, timestamped snapshots and effective
+runtime/transitive resolution remain outside this adapter.
+
+Supported direct declarations have literal groupId/artifactId, ordinary
 compile/runtime/provided/test scopes, JAR/default type, no classifier and no true
-optional flag. Dependency-management/BOM/property interpolation, profiles, parent
-resolution, Gradle, systemPath, alternate local repositories, timestamped snapshots,
-transitives and inferred runtime classpaths are not resolved. Malformed, duplicate,
-foreign-namespace or oversized POMs are rejected; this bounded parser also rejects
-DTD/entity/CDATA coordinate forms instead of interpreting them. Well-formed XML
-comments between elements and before/after the root are ignored; commented-out
-dependencies never authorize an archive read. Comments or processing instructions
-inside coordinate text remain unsupported. Invalid comments and non-whitespace
-content outside the root are rejected. A declaration is
-**provenance**, not proof that an artifact is on the effective runtime classpath.
+optional flag. Malformed, duplicate, foreign-namespace or oversized POMs are
+rejected; DTD/entity/CDATA coordinate forms are not interpreted. XML comments
+between elements are ignored; comments inside coordinate text are unsupported.
 
 Only top-level `META-INF/spring-configuration-metadata.json` and
 `META-INF/additional-spring-configuration-metadata.json` are consumed. Both can
-contribute disjoint keys/hints; duplicate canonical names are rejected instead of
-guessing precedence. Existing project-local metadata wins over the selected JAR,
-which wins over bundled fallback metadata. Completion, known-property checks and
-hover use the in-memory JAR catalog; that lookup performs no filesystem read or
-discovery. Archives are read only by the explicit command. Existing source
-completion/navigation behavior is unchanged.
+contribute disjoint keys/hints. Identical normalized records repeated across the
+generated and additional files are deduplicated, matching real Boot/Cloud JARs;
+duplicates within one document and conflicting cross-document records are refused.
+Project-local metadata wins over selected JAR metadata. Selected artifact snapshots
+can coexist; conflicting retained metadata is refused rather than choosing an
+arbitrary artifact. Completion and hover use the in-memory catalog only.
+
+Selecting a version-qualified Boot/Cloud artifact removes the bundled 3.5 fallback
+for that source scope. Positive facts remain limited to the selected archives;
+complete-catalog absence findings are withheld. Expiring positive facts does not
+silently revive the unrelated 3.5 baseline. Without a selected version scope,
+bundled metadata stays explicitly labeled as a packaged snapshot, not the
+project's resolved version or a latest-complete catalog.
 For a key supplied by the JAR, hover labels the declared GAV/scope, exact archive,
 entry names and SHA-256 fingerprint, with an explicit unverified-classpath caveat.
 No classes are loaded and no library enum/type resolution or Rename anchors are added.
 
-The snapshot is one selected JAR/project, up to eight exact project roots, with a
-10-minute lifetime. It is session-only and disappears on reload/idle reclaim;
+Up to 16 selected artifacts/project coexist across at most eight exact project
+roots, with a 10-minute positive-fact lifetime and 32768-property aggregate bound. It is session-only and disappears on reload/idle reclaim;
 import again explicitly. POM open/save/change notifications invalidate the matching
-snapshot when events are granted. Provider requests never reread the POM or archive;
+snapshots when events are granted. Provider requests never reread the POM or archive;
 unobserved unsaved/source/cache changes remain historical snapshot limitations.
 A cancelled, denied, missing, corrupt or unsupported replacement retains the previous
 still-valid snapshot within the same POM source scope and imports no partial data.
@@ -103,7 +115,8 @@ An explicit command that observes changed POM bytes invalidates the previous
 digest-bound snapshot even when the new import fails. Expired/invalidated snapshots do
 not supply facts. There is no persistent path that silently reopens an archive.
 
-Bounds: 256 KiB POM, 4,096 XML elements, nesting 32 and 128 direct dependencies;
+Bounds: 256 KiB/POM, 4,096 XML elements, nesting 32 and 128 direct dependencies;
+64 official version-catalog POMs / 2 MiB combined and 512 offered candidates;
 8 MiB archive (the host byte API itself caps at 16 MiB), 2,048 entries, 256-byte
 UTF-8 entry names, 1 MiB central directory, 4 KiB per-entry extra/comment fields
 and archive comment; 64 MiB total declared expansion. Metadata is limited to
@@ -124,6 +137,16 @@ avoids pretending those APIs provide an IDE dependency graph. Deterministic mock
 workflow tests use an injected `/m2` root because the pinned MockHost does not
 expand `~/`; production is fixed to the declared Maven grant. Native grant/canonical
 symlink behavior and desktop acceptance remain separate verification steps.
+
+Disposable official-byte fixture (2026-11-11): the explicit ignored test
+`real_versioned_boot_cloud_metadata_fixture` imported actual Maven Central
+spring-boot 4.1.2 metadata (105 properties) and spring-cloud-context 5.0.4 metadata
+(30 properties), using declared Boot parent 4.1.2 / Cloud train 2025.1.4 and 20 cached
+POM snapshots. It verified both catalogs coexist. Receipts and exact hashes are
+recorded under `/tmp/spring-versioned-metadata-real`. This exercises real archive
+bytes through the importer/MockHost; native filesystem grant and desktop UI
+acceptance remain separate. The test requires an explicit
+`SPRING_METADATA_REAL_FIXTURE` directory and performs no download itself.
 
 ## P17.2 current-file placeholder source candidates
 
@@ -167,7 +190,7 @@ compatibility receipt; the manifest loads only the two page schemas.
 There was no scalar-list setting to convert into a table. The new configuration
 page links the existing explicit **Read static metadata from a selected Maven
 dependency JAR** command. It still requires an open project, a supported literal
-Maven dependency, user selection/confirmation and the existing optional filesystem
+Maven dependency or declared cached official Boot/Cloud catalog entry, user selection/confirmation and the existing optional filesystem
 grant. Viewing Settings starts no JAR read, scan, process or network operation.
 These are inspection switches and static-source import controls; environment,
 Actuator values, effective profiles and metadata defaults are not editable runtime
@@ -197,7 +220,8 @@ project-local current/cached metadata, selected dependency-JAR snapshot (with th
 existing GAV/scope/archive/entry/hash provenance), or bundled fallback. Bundled
 origin is read from the packaged TSV header, including its dataset versions;
 it is not presented as the project's resolved Spring Boot/Cloud version. Existing
-project-local → selected JAR → bundled precedence is unchanged. These labels use
+project-local → selected JAR precedence remains; bundled fallback is excluded for
+a selected version-qualified Boot/Cloud source scope. These labels use
 cached/static data only and never expose the current configured/runtime value.
 All existing grants, explicit review, root/source/TTL/event invalidation and
 archive size/CRC/entry bounds remain. Native import/hover acceptance is separate.
@@ -288,3 +312,84 @@ ambiguous or inherited targets stay opaque as declared types. Other declared
 fields remain available. Java metadata expansion is capped at512 properties; an
 oversized expansion publishes no partial Java metadata. This does not resolve
 module/classpath types or establish semantic Rename ownership.
+
+### Project property source occurrences
+
+**Spring Boot: Project Property Source Occurrences** finds exact raw declaration
+and placeholder spellings in supported `application*.properties` and
+`bootstrap*.properties` files owned by the current project. The current editor
+text is used for its file; other rows explicitly describe saved-file source.
+The chooser retains profile and file provenance rather than merging declarations
+into an invented effective owner. Values and defaults are not displayed. Source
+identity is checked again before navigation. The search fails visibly on unreadable,
+oversized or unsupported configuration inputs; nested registered projects are
+excluded. Limits are 128 files, 1 MiB total source and 1024 occurrences.
+
+This is a read-only exact physical-source graph, not global semantic usages or
+Rename. YAML, escaped/relaxed names, imported/remote sources, Java binding sites
+and runtime/environment precedence remain unresolved.
+
+### Database setup from current configuration
+
+**Spring Boot: Configure Database from Current Source** reviews an owned native
+Database source from literal current-editor `spring.datasource.url`, username and
+password values in one properties/YAML document. Grant optional `database.sources`
+to use it. Simple PostgreSQL, MySQL/MariaDB, ClickHouse HTTP, Oracle thin service and
+SQL Server databaseName JDBC forms, explicit/default ports and bracketed IPv6
+are supported. Other SQL Server transport/authentication properties are refused. Passwords go directly to the native secure
+credential store and are excluded from source descriptors and confirmation text.
+
+The confirmation identifies driver/host/port/database/user and rechecks current
+source/project identity before setup. It does not connect, introspect or execute
+SQL. Source files/profile variants remain separately owned sources; runtime profile
+precedence, imports and environment overrides are not inferred. Duplicate keys,
+placeholders, encoded/aliased/typed values, embedded credentials, URL parameters
+and unsupported URL formats require manual setup. If no password is declared, an
+existing stored credential for the same source/target is left unchanged. Target
+or user changes create a separately owned source; old sources remain available
+for manual cleanup. Password rotation retains the same target identity. Long
+source paths are shortened only in the native display name.
+
+### Reviewed static-source property Rename
+
+The **Rename exact static property … with preview** FileAction prepares one
+undoable multi-file edit for an admitted literal key. It inventories host-visible
+application/profile/bootstrap configurations and conventional Java/Kotlin source
+roots of the current source module, follows literal local config imports and
+PropertySource/TestPropertySource locations, and updates exact declarations and
+placeholder/@Value spellings. Canonical single-import aliases and Kotlin use-site
+annotations are supported. The concrete confirmation lists every physical
+file/line/column spelling change without exposing values.
+
+A complete bounded inventory and all snapshots are rechecked after confirmation.
+Duplicate/relaxed destination collisions, encoded or malformed source, unreadable
+required local imports and unresolved actual binding ownership withhold the
+operation. Nested YAML renames preserve the existing dotted parent. Known
+framework, dependency metadata, local metadata and ConfigurationProperties-bound
+keys are withheld because renaming their source configuration alone would leave
+their binding declarations unchanged. Dynamic/external/environment/getProperty/
+meta-annotation references and nonconventional or host-hidden source roots are
+explicitly outside this static refactor, rather than guessed runtime owners.
+Limits are 256 files, 128 KiB per file, 4 MiB total, 2048 edits and the host's exact
+confirmation size. Resolution itself does not write files.
+
+### Owned native Boot run profiles
+
+Enable `springBoot.nativeRunProfiles` to expose **Spring Boot: Maven
+spring-boot:run (project build)** and **Spring Boot: Gradle bootRun (project
+build)** in native Run. Discovery reads only the registered project root’s saved
+build declarations: a direct Maven build/plugins Boot plugin or a literal applied
+Boot plugin plus Java, Java Library, Application or JVM Kotlin plugin in the root
+Gradle plugins block. Kotlin `java`, `application` and `kotlin("jvm")` accessors
+are recognized only in Kotlin builds without a locally shadowing helper.
+Plugin-management-only, nested,
+aliased, dynamic, inactive or ambiguous declarations do not establish a profile.
+
+Starting the selected profile runs the system `mvn --batch-mode --file pom.xml
+spring-boot:run` or `gradle --console=plain bootRun` in that root. Grant the matching
+optional process capability. This executes the project build and application;
+discovery itself never runs a compiler, process, wrapper or network request.
+Maven/Gradle must be on the native host PATH. App arguments, profiles and JVM
+options come from the project build; this adapter does not infer active profiles,
+edit unrelated saved run configurations or attach a debugger. Native Run owns
+start/stop/rerun and logs. Refresh native runs after changing the build or opt-in.

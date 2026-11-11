@@ -118,7 +118,7 @@ fn annotation_target(a: &source::Annotation, text: &str) -> Option<Target> {
 impl QuarkusTools {
     pub(crate) fn source_definition(&mut self, doc: &Document, at: Position) -> Vec<Location> {
         let java = doc.language == "java" && doc.path.ends_with(".java");
-        let config = matches!(doc.language.as_str(), "properties" | "yaml") && is_quarkus_config(&doc.path);
+        let config = matches!(doc.language.as_str(), "properties" | "quarkus-properties" | "yaml") && is_quarkus_config(&doc.path);
         if !(java || config) || doc.path.split('/').any(|p| matches!(p, "." | "..")) {
             return vec![];
         }

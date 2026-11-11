@@ -359,7 +359,7 @@ impl Launcher {
                 .as_array()
                 .and_then(|values| values.iter().find(|v| v["id"].as_str() == Some(selected)))
                 .ok_or("Every import choice must be advertised by saved metadata.")?;
-            if option["compatibilityRange"].as_str().is_some_and(|range| compatibility::allows(&boot, range) != Some(true)) {
+            if compatibility::declared_range(option).is_some_and(|range| compatibility::allows(&boot, range) != Some(true)) {
                 return Err("Import choice compatibility is unknown or excluded.".into());
             }
         }
@@ -374,7 +374,7 @@ impl Launcher {
                 .flat_map(|g| g["values"].as_array().into_iter().flatten())
                 .find(|d| d["id"].as_str() == Some(id))
                 .ok_or("Import dependency ID is not advertised by metadata.")?;
-            if dep["compatibilityRange"].as_str().is_some_and(|r| compatibility::allows(&boot, r) != Some(true)) {
+            if compatibility::declared_range(dep).is_some_and(|r| compatibility::allows(&boot, r) != Some(true)) {
                 return Err("Import dependency compatibility is unknown or excluded.".into());
             }
         }

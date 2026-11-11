@@ -51,8 +51,7 @@ In a Symfony project (`symfony.lock`, or `symfony/framework-bundle` in
 plugin leaves it out there. Route, template and translation completion also
 comes from `aritti.symfony`.
 
-There is no formatter: OpenIDEA only runs Prettier and Ruff from a language
-definition, and neither understands Twig.
+The opt-in API 1.4 formatting provider below supplies reviewed Twig spacing formatting. The language-definition Prettier/Ruff fallback does not understand Twig.
 
 ```sh
 cargo test
@@ -134,7 +133,7 @@ imported macros is now delegated along with other names in Symfony projects to
 avoid duplicate providers. Symfony's configured roots/namespaces, PHP/Twig variable
 context and cross-template framework references remain that plugin's responsibility.
 
-No document indexer or Rename graph is published. A macro can be imported through
+Historical reference audit (superseded for the current static-source subset below): no document indexer or Rename graph was published. A macro can be imported through
 aliases in other templates; block names participate in inheritance and `use`
 traits; variables have lexical bindings and context supplied externally. A
 current-document spelling cannot establish all those references. Safe indexed
@@ -219,8 +218,8 @@ requests and separately opened nested PHP projects cannot reuse an outer cache.
 Completion remains cached positive heuristic data and can be stale until refresh;
 these bounds do not establish complete PHP/runtime registration or a closed index.
 
-A real nested-target regression was reproduced and fixed. No host document indexer
-or replaceable Rename anchors are added: aliased macros/named external arguments,
+Historical navigation pass: a real nested-target regression was reproduced and fixed. No host document indexer
+or replaceable native Rename anchors were added in that historical pass: aliased macros/named external arguments,
 block inheritance/traits, included context variables and interpolation still lack
 a complete common declaration/reference identity. P29.2 remains partial for its
 indexed usages/Rename scope. This source navigation hardening is not closure of
@@ -241,3 +240,139 @@ Twig51 subscribes to typed PHP files-changed notifications and invalidates match
 ## Unreleased follow-up
 
 Local for-loop variables now have document-scoped index anchors, including nested shadowing and outer-variable references in an inner loop iterable. The supported subset is a complete template containing only `for`/`endfor` statement tags; assignments, other tag scopes and dynamic context access disable this graph.
+
+
+## Current local references and JavaScript blocks
+
+The private local loop binding model now supports `for key, value in items` and nested
+`if`/`elseif`/`else` bodies, keeping each binding scoped to its owning loop.
+Iterable references resolve to outer bindings before the new loop bindings enter
+scope. Duplicate binding names, crossed/unclosed scopes, assignments, loop `else`
+and dynamic context access still withhold the graph. This does not close macro,
+block-inheritance or cross-template usages/Rename ownership.
+
+Automatic JavaScript injections also recognize complete `{% block javascript %}`
+and `{% script %}` bodies, matching the documented original workflow. The physical
+body must contain no Twig holes/nested tags or HTML script/style wrapper; comments,
+raw/verbatim text, empty and unclosed bodies stay excluded. Existing closed HTML
+script/style islands remain supported. Injected language services still require
+an installed/configured server and matching host support.
+
+Twig 3.15+ literal imported macros and current-buffer `_self` macros also offer named
+argument completion inside calls. Suggestions preserve existing `:`/`=` separators,
+exclude supplied positional/named arguments, and use exact current-document ranges.
+Duplicate declarations, ambiguous imports, dynamic receivers and malformed signatures
+withhold argument suggestions. A known older installed Twig version in composer.lock
+disables this assistance. External template resolution remains owned by Symfony
+in Symfony projects; `_self` assistance remains available there.
+
+
+## Custom Twig delimiters
+
+Settings `tagOpen`/`tagClose`, `variableOpen`/`variableClose` and
+`commentOpen`/`commentClose` configure the application’s Twig lexer syntax.
+Defaults are `{%`/`%}`, `{{`/`}}` and `{#`/`#}`. Values must be nonempty,
+1–16 bytes and contain no whitespace, controls, quotes or backslashes; opening
+values must be distinct without one being a prefix of another. Invalid settings
+withhold syntax/reference providers and produce an explicit settings diagnostic.
+
+Lexer tokens, folds, structure, diagnostics, completion/snippets, macro
+navigation/named arguments, hover, local binding anchors and injected ranges all
+consume actual source delimiters. Original physical byte/UTF-16 coordinates are
+preserved even with unequal-width or Unicode delimiters; no normalized copy is
+used as edit coordinates. Settings are snapshotted for each request and restored
+when it returns. Configure the same delimiters in Twig itself. Framework-aware
+Symfony providers and the host’s static comment-toggle language declaration
+remain separate owners; the static declaration still uses `{#`/`#}`.
+
+
+**Twig: Toggle Comment** provides a configured-syntax comment action independently
+of the host’s static comment shortcut. It wraps one selected range or the current
+line, or removes one enclosing Twig comment. Edits use the current document
+version, preserve Unicode/CRLF text and reselect the content. Incomplete comments,
+nested-closer selections, multiple selections and raw/verbatim contexts refuse
+rather than produce misleading comment markup. The command needs optional
+`editor.read`/`editor.write`; no process or project writes are used.
+
+
+## Read-only source occurrences and reviewed Rename
+
+`staticTemplateReferences` builds private exact source models (default on).
+Unique macro declarations, matching `endmacro name`, `_self.name`, literal
+namespace/from imports, local aliases and literal block inheritance retain
+physical-source identities. Namespace aliases and explicit `from … import
+original as local` bindings remain separate from exported macro names.
+
+**The public DocumentIndexer returns no anchors.** Released API 1.4 uses those
+anchors for unchecked native Rename: the frontend accepts any nonempty new name,
+and the host inserts it literally without a plugin name-policy callback. A quote,
+interpolation sequence, keyword or colliding name could corrupt Twig or change
+binding ownership. Source ownership alone does not make that replacement safe.
+This includes the older local-loop anchors; they are also withheld. The empty
+registered indexer lets the host retire earlier published records after reindex.
+
+Go to Definition remains available through the definition provider and private
+models, including local loop bindings, macros, aliases, named block ends and
+literal block references. Native read-only highlights and occurrence-count lenses
+use the same models. Lens actions recheck opaque source snapshots and open
+**Twig: Review Static Source Occurrences** independently of caret position.
+The command also works directly at an admitted symbol under the caret.
+
+**Preview Rename Static Twig Symbol…** is a reviewed FileAction for local loop
+bindings/import aliases and admitted macro/block source families. It validates a
+new non-reserved identifier (letters/digits/underscore; leading letter/underscore;
+maximum64 UTF-8 bytes), rejects quotes/interpolation, and constructs a virtual
+rewritten source graph before returning edits. If occurrence identity changes,
+a name collides, a reference is captured or a binding disconnects, it refuses.
+The preview lists exact file/line/column replacements and other spellings left
+unchanged outside the admitted scope. Cancellation returns no edits. Source text,
+project ownership, inventory membership and settings are rechecked after review;
+the host applies the returned workspace edit atomically with undo. Optional
+`project.write` is needed to apply the action.
+
+The reviewed scope is explicitly static, not all runtime usages. Dynamic imports
+or members, ambiguous/duplicate names, shadowing assignments, malformed/control
+imports and unsupported trait/embed/namespaced block models remain excluded.
+Conventional cross-template resolution remains outside Symfony configured-loader
+ownership. Review scans at most64 owned sources/2 MiB,128local import bindings,
+16affected files and256spans; the complete exact preview must fit15KiB (below the host’s16KiB confirmation clipping limit). Each source is at most64KiB, parent chains at most8,
+and each graph callback caches at most16sources/1MiB. Exceeding a bound refuses
+rename rather than silently truncating edits. Native global Find Usages with
+read-only anchors and plugin-validated native Rename require a host/API hook.
+
+Macro signature help uses unique current-source `_self`/literal-import owners,
+tracks positional/named parameters and incomplete quoted values, and withholds
+named-argument assistance for a known installed Twig older than3.15. Parameter
+Go to Definition resolves current macro-body reads and named arguments to exact
+physical parameter spellings. Parameter Rename remains a separate scope.
+
+## Reviewed optional formatter
+
+The formatting provider is off until `formatterEnabled` is enabled and
+`formatterPhar` is set to an absolute official **Twig-CS-Fixer 4.1.1** PHAR path.
+Acquire the release from
+[the official project](https://github.com/VincentLanglet/Twig-CS-Fixer/releases/tag/4.1.1).
+The adapter requires this exact reviewed SHA-256:
+`4d099a3be74ea41b0c8f1b2a7033c53a77e7d0dfba36725c2bbaaa19453ed2e5`.
+It needs the optional approved `process:php`, plus `editor.read` to establish the
+active current document; it does not download/install a tool automatically.
+
+The official CLI’s `fix` command writes files, so the adapter instead calls its
+in-memory `Fixer::fixFile` using the official Twig spacing rules inside that
+pinned PHAR. PHP runs with `-n`, 128 MiB and a two-second execution limit. No
+project configuration, application autoload, formatter cache or external source
+file is read/written by the adapter. Formatting receives current text over stdin
+and returns one full-document edit; the host applies it transactionally. Before
+returning an edit, the plugin rechecks active source text, project, settings and
+all literal HTML/string/Twig tokens. Any semantic/literal-data change is refused.
+Unicode and CRLF text are preserved.
+
+This adapter formats standard Twig delimiter/operator/punctuation/macro-argument
+spacing; it does not rename identifiers, convert templates, or rewrite rendered
+HTML indentation. Range formatting and custom-delimiter formatting are explicitly
+unavailable because this reviewed official tokenizer does not support those
+contracts. PHP/tool denial, wrong release bytes, malformed input, stale source or
+unexpected output returns an error with no edit.
+
+Run the explicit real-tool test with:
+`TWIG_CS_FIXER_PHAR=/absolute/path/twig-cs-fixer.phar python3 tests/formatter-adapter.py`.

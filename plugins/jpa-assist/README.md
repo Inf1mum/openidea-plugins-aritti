@@ -693,3 +693,93 @@ The reference is JetBrains' [Persistence tool window](https://www.jetbrains.com/
 source-linked entity/field browsing and navigation are preserved. Persistence-unit,
 converter and effective ORM grouping, database/runtime mappings and native screenshot
 parity are not claimed. The packaged structure HTML bridge is no longer used.
+
+### Source identifier conflicts
+
+Live diagnostics now report an owned, closed Java entity that declares an
+multiple `@EmbeddedId` fields, including
+exact source ranges for the conflicting attributes. The check uses current
+document text under `checkAttributeTypes`; fixing the source clears it immediately.
+Multiple plain `@Id` fields remain legal composite-key candidates and are not
+reported by this check. Inherited, property-access, incomplete, foreign-annotation
+and ambiguous layouts remain unknown. This checks the source annotation contract,
+not effective XML or provider mapping.
+
+Contract: [Jakarta Persistence EmbeddedId](https://jakarta.ee/specifications/persistence/3.2/apidocs/jakarta.persistence/jakarta/persistence/EmbeddedId.html).
+
+Owned Embeddable classes also report directly attached `@Id`/`@EmbeddedId`
+annotations under `checkAttributeSignatures`; entity identity belongs on the
+owning entity. Nested method bodies and annotation-value metadata cannot borrow
+that class role. XML/provider mappings remain unresolved.
+
+### Saved source repository identifier compatibility
+
+Live `jpa-source-repository-id` warnings compare a canonical, fully qualified
+CrudRepository/JpaRepository entity and boxed scalar ID argument with one unique
+fresh saved Java entity source identifier already supplied to the plugin. Both
+files must belong to the same current project under `src/main/java`, and the
+entity package/path must match its qualified name. No discovery, network or build
+process runs in the live request. A cold/expired/duplicate fact, changed saved
+source, inheritance, generic/property-access/ambiguous identifiers, foreign
+annotations or unproved scalar types remain unknown and produce no warning.
+The result describes differing source declarations; effective XML and provider
+mapping remain unresolved. `checkAttributeTypes` controls this source check.
+
+A complete plain current Java Entity with no superclass and no source
+Id/EmbeddedId/IdClass also receives an informational source-absence note. This
+does not assert that the runtime model lacks an identifier: XML/provider mappings
+remain explicitly unresolved. Adding a source identifier or moving to an unknown
+inherited/incomplete/generic source layout withdraws the note.
+
+### JPQL lexical language and named-query injection
+
+JPA Assist contributes `jpql` without filename/extension associations, an
+independent bounded lexical highlighter and keyword completion. Canonical
+current-source NamedQuery/NamedQueries query literals in owned classes inject
+JPQL; NamedNativeQuery literals inject SQL. Only contiguous unescaped physical
+strings are admitted. Foreign owners, dynamic/concatenated/escaped strings and
+unknown source ownership are withheld. This does not evaluate queries or resolve
+a persistence unit, provider dialect, schema or classpath. The JPQL language can
+also serve the physical JPQL query ranges published by Spring Data Tools.
+
+Released-host renderer qualification: physical injection ranges route embedded
+provider documents, but API 1.4's `languageVisuals.ts` embedded-color path loads
+only built-in CodeMirror grammars. It does not call a plugin SyntaxProvider for
+injected spans. Independent language lexer output and provider routing are
+implemented; native embedded coloring remains a concrete host-renderer gap. No
+JavaScript/SQL grammar substitution or incorrect semantic token kinds are used.
+
+### Source Diagram
+
+**JPA: Source Diagram** opens the Persistence group’s source-only entity diagram.
+Refresh explicitly scans bounded Java/Kotlin sources and shows declared entities,
+embeddables, mapped superclasses, proven direct associations and inheritance.
+Qualified names and main/test module ownership keep duplicate simple names apart.
+Unresolved targets, partial inventory and suppressed edges are reported in the
+view; XML mappings, libraries, provider overrides and the database are unknown.
+Clicking a node rechecks source-set membership and every captured source snapshot
+before navigation. Refresh after editing sources.
+
+### Direct EntityManager query literals
+
+JPQL/SQL provider routing also covers literal createQuery/createNativeQuery
+arguments on direct method parameters explicitly declared with the fully qualified
+jakarta.persistence.EntityManager or javax.persistence.EntityManager type. This
+Java-only source subset requires flat method bodies and no parameter reassignment,
+qualified foreign receiver, wildcard import or namespace shadow. Escapes, text
+blocks and concatenation are withheld to preserve exact physical ranges. It does
+not infer field/local/factory receiver types or persistence-unit query semantics.
+The embedded renderer limitation described above still applies.
+
+### Reviewed JPQL Console
+
+The native **JPQL Console** in the Persistence group runs an explicitly reviewed
+SELECT using a manually supplied JDBC target and compiled model. Optional
+process:java is required. New-file templates provide separate Hibernate6.6.49
+and7.4.15 profiles; replace their example paths/target/credentials before use.
+No connection starts until the exact profile, query, parameters, source/runtime
+fingerprints and JDBC target are reviewed and approved. Results are bounded scalar
+projections in a native table; Refresh Status and Cancel manage this owned child.
+The supplied H2 fixtures qualify both pinned Hibernate versions; other databases
+remain unqualified. Read-only/rollback are requested and do not sandbox trusted
+project/driver/database code. See [adapter setup and limits](adapters/README.md).

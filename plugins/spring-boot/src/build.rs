@@ -1,11 +1,16 @@
 //! What the project's build files declare: JDBC drivers and the Reactor debug agent.
 //! Read as text, so only dependencies written in the build files are seen.
 
-use spring_text::finding::Finding;
 use openidea_plugin::Severity;
+use spring_text::finding::Finding;
 use std::collections::BTreeSet;
 
-pub const BUILD_GLOBS: &[&str] = &["**/pom.xml", "**/build.gradle", "**/build.gradle.kts", "**/libs.versions.toml"];
+pub const BUILD_GLOBS: &[&str] = &[
+    "**/pom.xml",
+    "**/build.gradle",
+    "**/build.gradle.kts",
+    "**/libs.versions.toml",
+];
 
 /// JDBC URL scheme → text that names its driver in a build file.
 const DRIVERS: &[(&str, &[&str])] = &[
@@ -28,8 +33,15 @@ pub struct Facts {
 
 pub fn read(_path: &str, text: &str) -> Option<Facts> {
     let lower = text.to_ascii_lowercase();
-    let drivers = DRIVERS.iter().filter(|(_, names)| names.iter().any(|n| lower.contains(n))).map(|(scheme, _)| *scheme).collect();
-    Some(Facts { drivers, reactor_agent: lower.contains("reactor-tools") })
+    let drivers = DRIVERS
+        .iter()
+        .filter(|(_, names)| names.iter().any(|n| lower.contains(n)))
+        .map(|(scheme, _)| *scheme)
+        .collect();
+    Some(Facts {
+        drivers,
+        reactor_agent: lower.contains("reactor-tools"),
+    })
 }
 
 /// The build files of a project, merged; `None` until every one was read.
@@ -54,7 +66,9 @@ pub fn missing_driver(url: &str, build: &Summary) -> Option<String> {
     let scheme = url.strip_prefix("jdbc:")?.split(':').next()?;
     let (known, _) = DRIVERS.iter().find(|(s, _)| *s == scheme)?;
     (!build.drivers.contains(known)).then(|| {
-        format!("No `{known}` JDBC driver is declared in the build files; it may come in transitively.")
+        format!(
+            "No `{known}` JDBC driver is declared in the build files; it may come in transitively."
+        )
     })
 }
 

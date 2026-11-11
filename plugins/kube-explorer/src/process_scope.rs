@@ -220,6 +220,25 @@ mod tests {
         assert!(kube.process_scope.root().is_none());
     }
     #[test]
+    fn rendering_a_denied_invoking_project_is_inert_without_global_process_fallback() {
+        let (h,mut kube)=setup();
+        let key=row(&mut kube,&h,"pods","web");
+        let invocation=h.invocation();
+        let h=h.with_capabilities(&["storage","process:kubectl"]);
+        let before=h.process_runs().len();
+        for view in [TREE,PANEL] {
+            let rendered=kube.render(view,None,&invocation).unwrap();
+            let Body::Message(message)=rendered.body else{panic!("denied views must be inert")};
+            assert!(message.contains("project.read"));
+            assert!(rendered.toolbar.is_empty());
+            assert_eq!(h.process_runs().len(),before);
+        }
+        assert!(matches!(kube.handle(TREE,ViewEvent::Select(key),&invocation),Err(Error::Denied(_))));
+        assert!(kube.process_scope.root().is_none());
+        assert_eq!(h.process_runs().len(),before);
+    }
+
+    #[test]
     fn foreign_and_nested_editor_owners_refuse_before_source_process_or_edit() {
         let (h,mut kube)=setup();h.add_project("/project/nested");
         for path in ["/foreign/pod.yaml","/project/nested/pod.yaml"] {

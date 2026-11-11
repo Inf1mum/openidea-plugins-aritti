@@ -11,6 +11,12 @@ mod ui_group;
 mod chart_actions;
 mod checks;
 mod complete;
+mod kustomize;
+mod crd_schema;
+mod crd_export;
+mod helm_assistance;
+mod json_assistance;
+mod label_refs;
 mod cluster_completion;
 mod watch;
 mod process_scope;
@@ -133,6 +139,10 @@ pub struct KubeExplorer {
     process_scope: process_scope::Binding,
     resource_scope: process_scope::Resources,
     navigation: navigation::Cache,
+    label_refs: label_refs::Cache,
+    kustomize_paths: kustomize::Cache,
+    crd_schema: crd_schema::Cache,
+    helm_assistance: helm_assistance::Cache,
     cluster_completion: cluster_completion::Cache,
     watch: watch::Watch,
     yaml_editors: yaml_editor::Editors,
@@ -1360,19 +1370,15 @@ fn project_of(path: &str) -> Option<(String, openidea_plugin::Project)> {
 }
 
 /// Publishes the manifest problems of an opened or saved YAML file of an open project.
-fn inspect(path: &str) {
+fn inspect_text(path: &str, text: &str, cache: &crd_schema::Cache, crossfile:bool) -> Vec<openidea_plugin::Diagnostic> {
     if !(path.ends_with(".yaml") || path.ends_with(".yml") || path.ends_with(".tpl")) || config::is_non_kubernetes(path) {
-        return;
+        return Vec::new();
     }
     let Some((root, project)) = project_of(path) else {
-        return;
-    };
-    let Ok(text) = project.read_file(path) else {
-        return;
+        return Vec::new();
     };
     if text.len() > MAX_BYTES {
-        let _ = host::publish_diagnostics(path, &[]);
-        return;
+        return Vec::new();
     }
     let in_chart = chart_file(path).is_some_and(|chart| project.read_file(&chart).is_ok());
     let directory = path.rsplit_once('/').map_or("", |(dir, _)| dir);
@@ -1384,12 +1390,27 @@ fn inspect(path: &str) {
         setting.and_then(host::setting_bool) != Some(false)
     };
     let mut findings = checks::for_file(path, &text, in_chart, patch_context);
-    if in_chart && chart_file(path).is_some_and(|chart| chart.ends_with("/Chart.yaml")) {
+    if crossfile && in_chart && chart_file(path).is_some_and(|chart| chart.ends_with("/Chart.yaml")) {
         let chart_dir = chart_file(path).map(|chart| chart.trim_end_matches("/Chart.yaml").to_owned()).unwrap_or_default();
         findings.extend(helm::check(&text, &helm::Chart::load(&project, &root, &chart_dir, &text)));
     }
-    let diagnostics: Vec<_> = findings.iter().filter(|finding| enabled(finding.code)).map(|finding| finding.diagnostic(&text)).collect();
-    let _ = host::publish_diagnostics(path, &diagnostics);
+    let mut diagnostics: Vec<_> = findings.iter().filter(|finding| enabled(finding.code)).map(|finding| finding.diagnostic(&text)).collect();
+    diagnostics.extend(cache.diagnostics(&Document {path:path.into(),language:"yaml".into(),version:0,text:text.into()}));
+    diagnostics
+}
+fn inspect(path: &str, cache:&crd_schema::Cache) {
+    if let Some(project)=host::project_of(path) && let Ok(text)=project.read_file(path) {
+        let _=host::publish_diagnostics(path,&inspect_text(path,&text,cache,true));
+    }
+}
+impl openidea_plugin::diagnostics::DiagnosticsProvider for KubeExplorer {
+    fn diagnostics(&mut self,doc:&Document)->Vec<openidea_plugin::Diagnostic>{
+        if matches!(doc.language.as_str(),"json"|"jsonc"){
+            let mut found=json_assistance::diagnostics(doc);found.extend(self.crd_schema.diagnostics(doc));return found;
+        }
+        let mut found=inspect_text(&doc.path,&doc.text,&self.crd_schema,false);
+        found.extend(self.helm_assistance.diagnostics(doc));found
+    }
 }
 
 fn escape_html(text: &str) -> String {
@@ -1412,6 +1433,7 @@ impl Plugin for KubeExplorer {
         self.yaml_editors.clear();
         self.watch.clear();
         self.cluster_completion.clear();
+        self.crd_schema.clear(); self.helm_assistance.clear(); self.label_refs.clear(); self.kustomize_paths.clear();
         self.retire_forward("Plugin instance deactivated"); self.log_view = None;
         self.details = None; self.revealed = None; self.editing_secret = None; self.draft = None; self.pending_delete = None; self.rich_owner = None;
     }
@@ -1420,14 +1442,22 @@ impl Plugin for KubeExplorer {
         self.watch.closed_roots();
         for event in events {
             match event {
-                Event::FilesChanged(_) => self.navigation.clear(),
+                Event::FilesChanged(_) => {self.navigation.clear(); self.crd_schema.clear(); self.helm_assistance.clear(); self.label_refs.clear(); self.kustomize_paths.clear();},
                 Event::FileSaved(path) => {
                     self.navigation.warm_file(path);
-                    inspect(path);
+                    self.label_refs.warm_file(path);
+                    self.kustomize_paths.warm(path);
+                    self.crd_schema.warm_file(path);
+                    self.helm_assistance.warm_file(path);
+                    inspect(path, &self.crd_schema);
                 }
                 Event::FileOpened(path) => {
                     self.navigation.warm_file(path);
-                    inspect(path);
+                    self.label_refs.warm_file(path);
+                    self.kustomize_paths.warm(path);
+                    self.crd_schema.warm_file(path);
+                    self.helm_assistance.warm_file(path);
+                    inspect(path, &self.crd_schema);
                 }
                 _ => {}
             }
@@ -1436,6 +1466,12 @@ impl Plugin for KubeExplorer {
 
     /// The IDE drops a command's result text: it is shown in a notification.
     fn run_command(&mut self,id:&str,ctx:&Invocation,arg:Option<&str>)->Result<Option<String>,Error>{
+        if id=="source-occurrences" {return self.label_refs.show_occurrences(ctx);}
+        if id=="helm-refresh-dependency-catalog" {
+            let count=self.helm_assistance.refresh_dependency_catalog(ctx)?;
+            host::notify(NotificationLevel::Info,"Helm dependency catalog",&format!("Cached {count} chart versions from the local Helm repository indexes. Refresh repositories separately to retrieve new versions."));
+            return Ok(None);
+        }
         // These explicit global/disconnected operations do not consume a project
         // process binding or require a usable source/workspace identity.
         if matches!(id,"helm-repo-update"|"helm-repo-cache"|"import-pasted-kubeconfig"|"review-imported-kubeconfigs"|"how-to-install-kubectl"|"helm-parameters"|"edit-debug-images"|"telepresence-connect"|"telepresence-quit"|"open-resource-watch") {
@@ -1642,19 +1678,32 @@ impl KubeExplorer {
 
 impl Providers for KubeExplorer {
     fn definition(&mut self, doc: &Document, at: Position) -> Vec<openidea_plugin::Location> {
-        self.navigation.definition(doc, at)
+        let mut found = kustomize::definition(doc, at);
+        found.extend(self.navigation.definition(doc, at));
+        found.extend(self.label_refs.definition(doc,at));
+        found
     }
     fn line_markers(&mut self, doc: &Document) -> Vec<openidea_plugin::providers::LineMarker> {
-        self.navigation.markers(doc)
+        let mut found = kustomize::markers(doc);
+        found.extend(self.navigation.markers(doc));
+        found.extend(self.label_refs.markers(doc));
+        found
     }
     fn completion(&mut self, doc: &Document, at: Position, _trigger: Option<&str>) -> Vec<CompletionItem> {
+        if matches!(doc.language.as_str(),"json"|"jsonc"){return json_assistance::completion(doc,at,&self.crd_schema);}
         let mut items = self.cluster_completion.items(doc, at, &self.context, &self.namespace);
         items.extend(complete::items(doc, at));
+        items.extend(kustomize::completion(doc, at,&self.kustomize_paths));
+        items.extend(self.crd_schema.items(doc, at));
+        items.extend(self.label_refs.completion(doc,at));
+        items.extend(self.helm_assistance.completion(doc,at));
         items
     }
 
     fn code_actions(&mut self, doc: &Document, selection: Range) -> Vec<CodeAction> {
+        if matches!(doc.language.as_str(),"json"|"jsonc"){return vec![];}
         let mut actions = schema::code_actions(doc);
+        actions.extend(self.helm_assistance.code_actions(doc));
         actions.extend(convert::code_actions(doc, selection));
         actions.extend(chart_actions::code_actions(doc, selection));
         actions
@@ -1674,7 +1723,17 @@ impl Views for KubeExplorer {
                 }
                 Ok(rendered)
             })
-        })().map(ui_kit::actions::available)
+        })().or_else(|error| match error {
+            Error::Denied(capability) if capability.starts_with("project.read") => {
+                // A concrete invoking project must never silently downgrade to
+                // global CLI execution when its optional read grant is absent.
+                // Rendering remains usable as an inert explanation; events and
+                // commands retain their existing strict ownership checks.
+                Ok(View::message("Project access is unavailable. Allow the optional project.read permission in plugin settings to use Kubernetes for this project. Kubernetes can also run in a window with no open project.")
+                    .status("Project access unavailable"))
+            }
+            error => Err(error),
+        }).map(ui_kit::actions::available)
     }
     fn handle(&mut self,view:&str,event:ViewEvent,ctx:&Invocation)->Result<(),Error>{self.with_process_scope(ctx,|this|this.handle_in(view,event,ctx))}
 }
@@ -1740,7 +1799,7 @@ impl KubeExplorer {
 }
 
 // API 1.3 registers the optional exports on the same component.
-openidea_plugin::register_plugin!(KubeExplorer, providers, views, indexing, details);
+openidea_plugin::register_plugin!(KubeExplorer, providers, views, indexing, details, diagnostics, file_actions);
 
 #[cfg(test)]
 mod tests {
@@ -3347,8 +3406,12 @@ mod rich_panel_owner_tests {
         kube.handle(TREE,ViewEvent::Select(kube.test_resource_key("res:secrets/demo",&host.invocation())),&host.invocation()).unwrap();
         kube.handle(TREE,ViewEvent::Button(kube.test_control_key("show-secret")),&host.invocation()).unwrap();
         let host=host.with_capabilities(&["process:kubectl","storage"]);
-        assert!(matches!(kube.render(PANEL,None,&host.invocation()),Err(Error::Denied(_))));
+        let before=host.process_runs().len();
+        let rendered=kube.render(PANEL,None,&host.invocation()).unwrap();
+        assert!(matches!(&rendered.body,Body::Message(message) if message.contains("project.read")));
+        assert!(rendered.toolbar.is_empty());
         assert!(kube.revealed.is_none());
+        assert_eq!(host.process_runs().len(),before);
     }
     #[test]
     fn kubeconfig_choice_change_drops_sensitive_details_without_discovery() {

@@ -263,11 +263,29 @@ fn primary_wins_between_candidates() {
 
 #[test]
 fn beans_show_where_they_are_injected() {
-    let _host = setup();
+    use openidea_plugin::language_features::LanguageFeatures;
+    let host = setup();
     let mut n = warmed_navigator();
-    let markers = n.checked_markers(&java("AppConfig.java", CONFIG));
-    let clock = markers.iter().find(|m| m.line == 5 && m.icon.as_deref() == Some("implemented")).unwrap();
-    assert_eq!(clock.tooltip, "Injected into legacy, mail, reportService, sms, userController");
+    let path = java("AppConfig.java", CONFIG).path;
+    host.open_editor(&path, "java", CONFIG, &[(5, 0, 5, 0)]);
+    let editor = host.invocation().editor().unwrap();
+    let current = editor.document().unwrap();
+    let doc = Document {path, language: "java".into(), text: current.text, version: current.version};
+    let action = n.gutter_actions(&doc).into_iter().find(|a| a.line == 5).unwrap();
+    assert!(action.tooltip.contains("7 cached Spring source targets"), "{}", action.tooltip);
+    assert!(n.checked_markers(&doc).iter().all(|m| m.line != 5 || m.icon.as_deref() != Some("implemented")));
+    let selected = n.with_doc(&doc, |world, model| {
+        let bean = model.beans.iter().find(|b| b.range.start.line == 5).unwrap();
+        let users = world.users(&doc.path, bean);
+        let names: BTreeSet<_> = users.iter().map(|(_, name)| name.as_str()).collect();
+        assert_eq!(names, BTreeSet::from(["legacy", "mail", "reportService", "sms", "userController"]));
+        users.iter().position(|(location, _)| location.path.ends_with("/UserController.java")).unwrap().to_string()
+    });
+    host.answer_next_prompt(Some(&[&selected]));
+    n.run_command(&action.command, &host.invocation(), action.argument.as_deref()).unwrap();
+    let opened = host.opened_locations();
+    assert_eq!(opened.len(), 1);
+    assert!(opened[0].0.ends_with("/UserController.java"));
 }
 
 #[test]

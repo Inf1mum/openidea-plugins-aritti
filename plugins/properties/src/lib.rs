@@ -6,12 +6,16 @@
 //! plugin computes on top of the PSI.
 
 mod atomic;
+mod bundle_draft;
 mod checks;
+mod compiler_graph;
 mod diagnostics;
 mod format;
+mod folding;
 mod find_usages;
 mod hover;
 mod props;
+mod locale_codes;
 mod source;
 mod scoped_rename;
 mod usages;
@@ -182,6 +186,8 @@ pub struct Properties {
     bundle_bindings: HashMap<String, views::BundleBinding>,
     bundle_revert: Option<views::BundleRevert>,
     bundle_incomplete_only: bool,
+    bundle_draft: Option<bundle_draft::Draft>,
+    bundle_serial: u64,
     structure_flat: bool,
     structure_sorted: bool,
     /// Prefix groups of the structure view the user collapsed.
@@ -442,11 +448,13 @@ impl Properties {
 impl Plugin for Properties {
     fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
         match id {
+            "discard-staged-grid" => self.discard_grid(ctx),
             "copy-key" => self.copy(ctx, false),
             "copy-value" => self.copy(ctx, true),
             "reformat" => self.reformat(ctx),
             "find-unused" => self.find_unused(ctx),
             "find-owned-usages" => find_usages::run(ctx),
+            "inspect-java-contracts" => compiler_graph::inspect(ctx),
             _ => Err(Error::NotFound(format!("command {id}"))),
         }
     }
@@ -691,7 +699,7 @@ impl Providers for Properties {
     }
 }
 
-register_plugin!(Properties, providers, views, file_actions, hover, diagnostics);
+register_plugin!(Properties, providers, views, file_actions, hover, diagnostics, language_features);
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {

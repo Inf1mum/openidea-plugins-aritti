@@ -28,6 +28,11 @@ pub fn settings(path: &str, text: &str) -> Vec<(String, String)> {
 }
 
 fn push_values(pairs: &mut Vec<(String, String)>, key: &str, value: &str) {
+    // Delimiters are literal scalars: comma and spaces can be part of them.
+    if matches!(canonical(key).as_str(), "flyway.placeholderprefix" | "flyway.placeholdersuffix") {
+        pairs.push((key.to_owned(), value.to_owned()));
+        return;
+    }
     for item in value.split(',').map(str::trim).filter(|item| !item.is_empty()) {
         pairs.push((key.to_owned(), item.to_owned()));
     }
@@ -103,9 +108,20 @@ fn unquote(value: &str) -> &str {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Config {
+    pub placeholder_syntax: PlaceholderSyntax,
     pub locations: Vec<String>,
     pub naming: Naming,
     pub placeholders: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PlaceholderSyntax {
+    pub prefix: String,
+    pub suffix: String,
+    pub enabled: bool,
+}
+impl Default for PlaceholderSyntax {
+    fn default() -> Self { Self { prefix: "${".into(), suffix: "}".into(), enabled: true } }
 }
 
 fn push_unique(list: &mut Vec<String>, value: &str) {
@@ -127,6 +143,9 @@ impl Config {
             let key = canonical(key);
             let naming = &mut config.naming;
             match key.strip_prefix("flyway.") {
+                Some("placeholderprefix") => config.placeholder_syntax.prefix = value.clone(),
+                Some("placeholdersuffix") => config.placeholder_syntax.suffix = value.clone(),
+                Some("placeholderreplacement") => config.placeholder_syntax.enabled = !value.eq_ignore_ascii_case("false"),
                 Some("locations") => push_unique(&mut config.locations, value),
                 Some("sqlmigrationprefix") => naming.versioned = value.clone(),
                 Some("undosqlmigrationprefix") => naming.undo = value.clone(),
@@ -367,4 +386,13 @@ mod tests {
         assert!(!is_flyway_config("/project/app.conf"));
         assert!(!is_flyway_config("/project/flyway.sql"));
     }
+    #[test]
+    fn literal_placeholder_delimiters_are_not_split_as_location_lists() {
+        let text = "[flyway]\nplaceholderPrefix = \"<,\"\nplaceholderSuffix = \",>\"\nplaceholderReplacement = false\n";
+        let config = Config::from_settings(&settings("flyway.toml", text), true);
+        assert_eq!(config.placeholder_syntax.prefix, "<,");
+        assert_eq!(config.placeholder_syntax.suffix, ",>");
+        assert!(!config.placeholder_syntax.enabled);
+    }
+
 }

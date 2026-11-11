@@ -73,10 +73,11 @@ Declarations:
   OTHER="x y"` and `ENV KEY value`, continued with `\`.
 - Compose files (`docker-compose.yml`, `docker-compose.yaml`, `compose.yml`,
   `compose.yaml`): `environment:` as a list (`- KEY=value`), a mapping
-  (`KEY: value`) or a one-line flow collection (`[A=1, B]`, `{A: 1, B: ~}`);
+  (`KEY: value`) or a flow collection (`[A=1, B]`, `{A: 1, B: ~}`, including multi-line collections);
   and the keys of the files named by `env_file:` (a scalar, a list or the
   `- path: x` long form, paths relative to the compose file), read when the
-  compose file is indexed. A missing file is ignored.
+  compose file is indexed. Flow lists of env_file paths may span multiple lines
+  and contain quoted commas/comments. A missing file is ignored.
 
 Usages in code are matched on the text right before the key, compared
 lowercased. The key follows a `"`, `'` or `` ` `` (blanks before the quote
@@ -128,9 +129,16 @@ and project overrides are preserved:
   marker (`package.json`, `composer.json`, `go.mod`, `Cargo.toml`,
   `Dockerfile`, …). Any other env file is known only once it has been opened
   or saved.
-- Compose files are read line by line: a flow collection must fit on one line,
-  and anchors aren't resolved (`environment: *env`, `<<: *common` and the
-  anchored block they point to are skipped, never turned into keys). Keys in Dockerfiles and compose files are
+- Compose environment flow collections support multiple lines, comments and quoted
+  commas/closing delimiters while preserving physical source ranges. Nested
+  collections are rejected. Local scalar mapping/list anchors are resolved when
+  used by `environment: *env` or `<<: *common` (including merge sequences).
+  Explicit environment keys override merged keys; the first anchor wins duplicate
+  merge keys. Declaration locations point to the physical anchored key. Forward,
+  cyclic, nested and alias-dependent environment declarations are not expanded by
+  the physical-range model. env_file paths use a separate bounded YAML graph
+  parser and support aliases and nested service merges. These candidates do not establish runtime ownership or complete
+  discovery. Anchor expansion is capped at 256 KiB, 4,096 lines and 128 names. Keys in Dockerfiles and compose files are
   declarations only: `$KEY` there isn't a usage, and Go to Declaration doesn't
   work from those files.
 - Semantic Rename/host Find Usages indexing remains withheld. Lexical matches across
@@ -231,3 +239,21 @@ computed in one forward pass, including long interpolation-heavy lines. Other
 languages and oversized documents return no tokens. Native built-in-language
 colour/theme acceptance is pending; complete original lexical colours are not
 asserted by passing source/package tests.
+
+## Compose env_file graph discovery
+
+`env_file` source discovery now expands local YAML anchors, aliases and nested
+merge graphs, including scalar/list/long-form paths. Explicit mapping entries
+retain YAML merge precedence. Missing long-form `required: false` files do not
+make discovery incomplete unless another source requires the same path. Paths
+remain confined to the project; interpolated, unresolved or unsupported inputs
+keep discovery incomplete. This discovers source candidates and does not infer
+active Compose services or effective runtime variable precedence.
+
+The pure YAML parser has explicit limits:256KiB source, depth32,20,000 nodes,
+100,000 events,128 anchors/aliases,1MiB total scalar/retained anchor bytes,
+20,000 replay events and128 expansions per anchor. Cycles, undefined aliases,
+duplicate mapping keys, unsupported tags and budget exhaustion refuse complete
+discovery. Tests exercise actual parser alias bombs, deep graphs, node/input
+limits and expanded scalar-byte accounting before JSON-tree construction.
+Filesystem includes/property interpolation are not enabled in the parser.

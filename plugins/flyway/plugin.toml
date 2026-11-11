@@ -4,7 +4,7 @@ version = "0.2.0" # x-release-please-version
 description = "Flyway database migrations in OpenIDEA. Checks migration file names (V, U, R and B prefixes, version, separator, suffix, as configured in flyway.toml, flyway.conf or spring.flyway.*) and reports duplicate versions across migration locations. Copies the next migration version, runs Flyway info, validate, migrate, repair and clean (CLI or Maven) in a terminal, and completes ${…} placeholders in SQL and keys in flyway.conf and flyway.toml. Independent implementation, not affiliated with JetBrains or Redgate."
 authors = ["Arnaud RITTI <arnaud.ritti@gmail.com>"]
 license = "MIT"
-change-notes = "Unreleased: native migration browser with source navigation, scoped Filter/Clear and reviewed Actions picker; no packaged web wrapper. Unreleased: managed comparison readiness and a tested finite Child orchestration core; runtime Start/Continue remain blocked pending an authoritative installed offline CLI profile. Existing imported SQL review stays available. Unreleased: offline local diffText JSON comparison review with selected source/target SQL definitions and an exact non-executing 13.12.1 Enterprise CLI recipe; no database diff/migration execution. Unreleased: New Migration prepares an editable naming form and read-only target preview; atomic editor FileActions create from the bundled SQL template or rename migrations after concrete confirmation and collision/staleness checks. Removed process:tee. New › Flyway SQL Migration, Java Migration, Kotlin Migration, Java Callback and SQL Callback templates; Flyway icon on V*__*.sql, U*__*.sql and R__*.sql files. Read-only cached placeholder navigation and gutter markers use one source-established Flyway configuration and owned migration locations. Incomplete table/entity and placeholder Rename graph anchors are withheld; full SQL/type resolution is not claimed. CLI commands now review bounded source provenance and unresolved target before launch; Clean always requires concrete confirmation. Cached rendering never runs Info. Managed finite output offers scoped Status/Cancel; terminal compatibility remains. 0.1.0: first release. Migration name and duplicate version checks on open and save and with Flyway: Check Migrations; Copy Next Migration Version; info, validate, migrate, repair and clean in a terminal (flyway or mvn); completion of placeholders in SQL and of keys in flyway.conf and flyway.toml."
+change-notes = "Unreleased: optional reviewed checksum-pinned Hibernate6.6.49/7.4.15 compiled metadata creation-DDL adapter with16 tested explicit dialect presets per runtime and JPA3.2 fixture coverage; trusted converters/contributors disclosed; preview-only SQL then exact atomic migration FileAction, no app bootstrap or JDBC action requested. Unreleased: parameterized Java/Kotlin migration and SQL/Java callback FileActions; qualified literal JPA table-to-entity navigation alongside migration declarations. Unreleased: literal configured placeholder delimiters and replacement disabling in project-scoped SQL completion; bounded source table navigation from migration uses to CREATE TABLE definitions, without Rename or database identity claims. Unreleased: native migration browser with source navigation, scoped Filter/Clear and reviewed Actions picker; no packaged web wrapper. Unreleased: managed comparison readiness and a tested finite Child orchestration core; runtime Start/Continue remain blocked pending an authoritative installed offline CLI profile. Existing imported SQL review stays available. Unreleased: offline local diffText JSON comparison review with selected source/target SQL definitions and an exact non-executing 13.12.1 Enterprise CLI recipe; no database diff/migration execution. Unreleased: New Migration prepares an editable naming form and read-only target preview; atomic editor FileActions create from the bundled SQL template or rename migrations after concrete confirmation and collision/staleness checks. Removed process:tee. New › Flyway SQL Migration, Java Migration, Kotlin Migration, Java Callback and SQL Callback templates; Flyway icon on V*__*.sql, U*__*.sql and R__*.sql files. Read-only cached placeholder navigation and gutter markers use one source-established Flyway configuration and owned migration locations. Incomplete table/entity and placeholder Rename graph anchors are withheld; full SQL/type resolution is not claimed. CLI commands now review bounded source provenance and unresolved target before launch; Clean always requires concrete confirmation. Cached rendering never runs Info. Managed finite output offers scoped Status/Cancel; terminal compatibility remains. 0.1.0: first release. Migration name and duplicate version checks on open and save and with Flyway: Check Migrations; Copy Next Migration Version; info, validate, migrate, repair and clean in a terminal (flyway or mvn); completion of placeholders in SQL and of keys in flyway.conf and flyway.toml."
 categories = ["frameworks", "linters"]
 icon = "icon.svg"
 engines.openidea = "^1.4"
@@ -14,7 +14,7 @@ activation = ["on-event:file-opened", "on-event:file-saved", "on-event:files-cha
 [capabilities]
 required = ["project.read", "events"]
 # clipboard: Copy Next Migration Version. FileActions create/rename without a process.
-optional = ["clipboard", "process:flyway", "process:mvn"]
+optional = ["clipboard", "process:flyway", "process:mvn", "process:java"]
 
 # flyway.conf is the `ini` language, flyway.toml `toml`; the code filters by file name.
 [[contributes.providers]]
@@ -23,7 +23,7 @@ languages = ["sql", "ini", "toml"]
 
 [[contributes.providers]]
 kinds = ["code-actions"]
-languages = ["sql", "ini", "toml", "properties", "yaml"]
+languages = ["sql", "ini", "toml", "properties", "yaml", "java", "kotlin"]
 
 [[contributes.commands]]
 id = "check"
@@ -134,3 +134,20 @@ category = "Flyway"
 id = "review-comparison"
 title = "Flyway: Review Local Comparison Report..."
 category = "Flyway"
+
+[[contributes.commands]]
+id = "hibernate-schema"
+title = "Flyway: Generate Reviewed Offline Hibernate Schema SQL…"
+category = "Flyway"
+
+[[contributes.fileTemplates]]
+id = "hibernate-profile"
+name = "Offline Hibernate Schema Adapter Profile"
+extension = "json"
+path = "templates/hibernate-profile.json"
+
+[[contributes.fileTemplates]]
+id = "hibernate7-profile"
+name = "Offline Hibernate 7 Schema Adapter Profile"
+extension = "json"
+path = "templates/hibernate7-profile.json"

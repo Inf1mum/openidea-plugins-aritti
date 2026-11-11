@@ -23,7 +23,7 @@ const SECTIONS: &[SectionDef] = &[
 const SECTION_KEY: &str = "endpoints.section";
 const APPLIES_TTL: Duration = Duration::from_secs(30);
 
-const WEB_LANGUAGES: [&str; 3] = ["java", "kotlin", "xml"];
+const WEB_LANGUAGES: [&str; 6] = ["java", "kotlin", "xml", "http", "html", "jsp"];
 const WEBSOCKET_LANGUAGES: [&str; 8] = ["java", "kotlin", "javascript", "javascriptreact", "typescript", "typescriptreact", "vue", "xml"];
 const MESSAGING_LANGUAGES: [&str; 3] = ["java", "kotlin", "xml"];
 const GRAPHQL_LANGUAGES: [&str; 3] = ["java", "kotlin", "graphql"];
@@ -50,6 +50,7 @@ pub struct Endpoints {
     websocket: WebSocketTools,
     messaging: Messaging,
     graphql: GraphQlTools,
+    subscriptions:crate::graphql_subscriptions::Runtime,
     webflow: WebFlow,
     cloud: CloudTools,
     sections: Switcher,
@@ -65,6 +66,7 @@ impl Default for Endpoints {
             websocket: WebSocketTools::default(),
             messaging: Messaging::default(),
             graphql: GraphQlTools::default(),
+            subscriptions:Default::default(),
             webflow: WebFlow::default(),
             cloud: CloudTools::default(),
             sections: Switcher::new(SECTION_KEY, SECTIONS),
@@ -265,6 +267,9 @@ impl Plugin for Endpoints {
         Ok(())
     }
     fn run_command(&mut self, id: &str, ctx: &Invocation, arg: Option<&str>) -> Result<Option<String>, Error> {
+        if matches!(id,crate::graphql_subscriptions::START|crate::graphql_subscriptions::POLL|crate::graphql_subscriptions::CANCEL){self.subscriptions.run_command(id,ctx)?;return Ok(None)}
+        if id==crate::subscription_drafts::COMMAND {crate::subscription_drafts::run(&mut self.graphql,ctx,arg)?;return Ok(None)}
+        if id==crate::source_lenses::GRAPHQL_COMMAND {crate::source_lenses::run_graphql(&mut self.graphql,ctx,arg)?;return Ok(None)}
         self.web.run_command(id, ctx, arg)
     }
 
@@ -519,5 +524,26 @@ mod transition_owner_tests {
         let view=owner.render("endpoints",None,&h.invocation()).unwrap();
         let openidea_plugin::views::Body::Html(html)=view.body else{panic!("packaged graph")};
         assert!(html.contains("webflow-graph.css"));assert!(!html.contains("<script>"));assert!(!html.contains("<style>"));
+    }
+}
+
+impl openidea_plugin::language_features::LanguageFeatures for Endpoints {
+    fn code_lenses(&mut self,doc:&Document)->Vec<openidea_plugin::language_features::CodeLens>{
+        if !matches!(doc.language.as_str(),"java"|"kotlin"){return Vec::new()}
+        let mut lenses=if self.wants_web(doc){crate::source_lenses::lenses(doc)}else{Vec::new()};
+        if self.wants_cloud(doc){lenses.extend(crate::source_lenses::feign_lenses(doc));}
+        if self.wants_graphql(doc){
+            let operations=self.graphql.source_operations(doc);
+            lenses.extend(crate::source_lenses::graphql_lenses(doc).into_iter().filter(|l|operations.iter().any(|(range,op)|*range==l.range&&matches!(op.as_str(),"query"|"mutation"))));
+            lenses.extend(crate::subscription_drafts::lenses(doc).into_iter().filter(|l|operations.iter().any(|(range,op)|*range==l.range&&op=="subscription")));
+        }lenses
+    }
+}
+
+impl openidea_plugin::language_features::Injections for Endpoints {
+    fn injections(&mut self,doc:&Document)->Vec<openidea_plugin::language_features::Injection>{
+        if doc.language=="html" && host::setting_bool("springWeb.thymeleafSpelInjection").unwrap_or(false) && self.wants_web(doc) {
+            crate::template_links::injections(&doc.text)
+        } else { Vec::new() }
     }
 }

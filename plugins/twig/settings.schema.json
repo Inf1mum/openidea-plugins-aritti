@@ -19,6 +19,63 @@
       "type": "boolean",
       "title": "Show Twig language and unique current-template macro source documentation",
       "default": true
+    },
+    "tagOpen": {
+      "type": "string",
+      "title": "Tag opening delimiter",
+      "default": "{%",
+      "minLength": 1,
+      "maxLength": 16
+    },
+    "tagClose": {
+      "type": "string",
+      "title": "Tag closing delimiter",
+      "default": "%}",
+      "minLength": 1,
+      "maxLength": 16
+    },
+    "variableOpen": {
+      "type": "string",
+      "title": "Variable opening delimiter",
+      "default": "{{",
+      "minLength": 1,
+      "maxLength": 16
+    },
+    "variableClose": {
+      "type": "string",
+      "title": "Variable closing delimiter",
+      "default": "}}",
+      "minLength": 1,
+      "maxLength": 16
+    },
+    "commentOpen": {
+      "type": "string",
+      "title": "Comment opening delimiter",
+      "default": "{#",
+      "minLength": 1,
+      "maxLength": 16
+    },
+    "commentClose": {
+      "type": "string",
+      "title": "Comment closing delimiter",
+      "default": "#}",
+      "minLength": 1,
+      "maxLength": 16
+    },
+    "formatterEnabled": {
+      "type": "boolean",
+      "title": "Enable reviewed official Twig-CS-Fixer 4.1.1 spacing formatter",
+      "default": false
+    },
+    "formatterPhar": {
+      "type": "string",
+      "title": "Absolute path to official Twig-CS-Fixer 4.1.1 PHAR (exact release hash required)",
+      "default": ""
+    },
+    "staticTemplateReferences": {
+      "type": "boolean",
+      "title": "Build exact static macro/block/import models for navigation, highlights and reviewed Rename (no unchecked native indexed edits)",
+      "default": true
     }
   }
 }

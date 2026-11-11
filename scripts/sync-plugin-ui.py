@@ -175,8 +175,17 @@ def check_page_kit(package, page):
 
 
 def main():
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--check',action='store_true');args=parser.parse_args();changed=[];count=0
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--check',action='store_true')
+    parser.add_argument('--plugin',action='append',default=[],help='Only synchronize this plugin (repeatable)')
+    parser.add_argument('--exclude',action='append',default=[],help='Exclude this plugin (repeatable)')
+    args=parser.parse_args();changed=[];count=0
+    known={p.parent.name for p in (ROOT/'plugins').glob('*/plugin.toml')}
+    unknown=(set(args.plugin)|set(args.exclude))-known
+    if unknown:parser.error('Unknown plugins: '+', '.join(sorted(unknown)))
     for manifest_path in sorted((ROOT/'plugins').glob('*/plugin.toml')):
+        if args.plugin and manifest_path.parent.name not in args.plugin:continue
+        if manifest_path.parent.name in args.exclude:continue
         manifest=tomllib.loads(manifest_path.read_text());data=config(manifest, manifest_path.parent)
         package=manifest_path.parent
         pages=web_pages(manifest)

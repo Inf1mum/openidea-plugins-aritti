@@ -21,6 +21,8 @@ mod live_templates;
 mod model;
 mod resources;
 mod sites;
+mod spel;
+mod gutter;
 mod target_checks;
 mod xml_actions;
 mod xml_checks;
@@ -484,6 +486,7 @@ enum Report {
 
 pub struct Navigator {
     indexes: Indexes,
+    gutter: gutter::State,
     expansion: Expansion,
     xml_generation: xml_file_actions::Generation,
     property_generation: property_file_actions::Generation,
@@ -498,6 +501,7 @@ impl Default for Navigator {
     fn default() -> Self {
         Self {
             indexes: Indexes::new(GLOBS, model::parse),
+            gutter: gutter::State::default(),
             expansion: Expansion::default(),
             xml_generation: xml_file_actions::Generation::default(),
             property_generation: property_file_actions::Generation::default(),
@@ -650,8 +654,13 @@ impl Providers for Navigator {
                     world.files.get(path).map(|model| model.navigation.clone())
                 })
                 .markers(&model.navigation);
+            let mut chooser_lines=BTreeSet::new();
+            let mut by_line:BTreeMap<u32,BTreeSet<(String,Position,Position)>>=BTreeMap::new();
+            for marker in &markers {if let Some(target)=&marker.target{by_line.entry(marker.line).or_default().insert((target.path.clone(),target.range.start,target.range.end));}}
+            chooser_lines.extend(by_line.into_iter().filter(|(_,targets)|targets.len()>1).map(|(line,_)|line));
             for inj in &model.injections {
                 let found = world.candidates(inj);
+                if found.len()>1 {chooser_lines.insert(inj.range.start.line);continue;}
                 let Some((path, first)) = found.first() else {
                     continue;
                 };
@@ -667,6 +676,7 @@ impl Providers for Navigator {
             }
             for bean in &model.beans {
                 let users = world.users(&doc.path, bean);
+                if users.len()>1 {chooser_lines.insert(bean.range.start.line);continue;}
                 let Some((first, _)) = users.first() else {
                     continue;
                 };
@@ -679,6 +689,7 @@ impl Providers for Navigator {
                     target: Some(first.clone()),
                 });
             }
+            markers.retain(|marker|!chooser_lines.contains(&marker.line));
             markers
         })
     }
@@ -750,6 +761,7 @@ impl Providers for Navigator {
     }
 
     fn completion(&mut self, doc: &Document, at: Position, _trigger: Option<&str>) -> Vec<CompletionItem> {
+        if doc.language=="spel" {return spel::completion(doc,at);}
         let Some(cursor) = offset(&doc.text, at) else {
             return Vec::new();
         };
@@ -1291,6 +1303,7 @@ impl Plugin for Navigator {
 
     fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
         match id {
+            "choose-source-gutter-target"=>self.choose_source_gutter_target(ctx,_arg),
             "reindex" => {
                 let project = ctx.project().ok_or("Open a project first.")?;
                 self.indexes.reset_project(&project);
@@ -1312,7 +1325,7 @@ impl Plugin for Navigator {
 }
 
 // API 1.3 registers the optional exports on the same component.
-openidea_plugin::register_plugin!(Navigator, providers, views, indexing, diagnostics, file_actions, hover);
+openidea_plugin::register_plugin!(Navigator, providers, views, indexing, diagnostics, file_actions, hover, injections, syntax, language_features);
 
 #[cfg(test)]
 mod tests;

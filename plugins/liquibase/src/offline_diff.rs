@@ -237,6 +237,23 @@ fn args(reference: &Input, target: &Input, kind: &str) -> Result<Vec<String>, Er
         format!("--diff-types={kind}"),
     ])
 }
+// Command-specific environment keys take precedence over generic CLI URLs in
+// Liquibase4.29.2. API1.4 refuses inherited-key collisions before spawning, so
+// reserving the reviewed values also refuses an ambient command override.
+fn offline_command(plan: &Plan) -> Result<Command, Error> {
+    let prefix = if plan.generated.is_some() { "LIQUIBASE_COMMAND_DIFF_CHANGELOG" } else { "LIQUIBASE_COMMAND_DIFF" };
+    let mut command = Command::new("liquibase").args(&plan.args);
+    for (argument, name) in [("--url=", "URL"), ("--reference-url=", "REFERENCE_URL"), ("--diff-types=", "DIFF_TYPES")] {
+        let value = plan.args.iter().find_map(|arg| arg.strip_prefix(argument)).ok_or(Error::Stale)?;
+        command = command.env(&format!("{prefix}_{name}"), value);
+    }
+    if let Some(request) = &plan.generated {
+        command = command.env(&format!("{prefix}_CHANGELOG_FILE"), &request.output)
+            .env(&format!("{prefix}_AUTHOR"), &request.author);
+    }
+    Ok(command)
+}
+
 fn parse(output: &str, types: &str) -> Result<Vec<Item>, Error> {
     if output.len() > MAX_OUTPUT || output.chars().any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t')) {
         return Err(Error::Stale);
@@ -403,24 +420,25 @@ impl Liquibase {
             Sha256::digest(plan.target.text.as_bytes())
         );
         let review = format!(
-            "Working project: {:?}\n{}\nArgument contract: Liquibase4.29.2 text diff; installed CLI identity/version/edition are unverified.\nProgram: liquibase\nExact argv: {}\nOnly the selected local snapshot URLs are passed; no online URLs or credentials are accepted. No changelog/update or output-file flag is requested. Exact current buffers are copied into owner-only private staging, with snapshot connection identity fields removed and generated empty defaults. Still-matching staged inputs are overwritten empty on finish/Stop/failure; changed/unreadable slots are retained for owner review. Cleanup is a content check, not an atomic file-identity lock. Crash/reclaim can leave copies until cleanup/uninstall; 32 distinct staging identities maximum.\nThe approved CLI inherits environment/JVM/extensions. This is not a network/filesystem sandbox: ambient settings may affect behavior/output. Process permission authorizes that executable, not a verified database identity.\nOutput is bounded and partially redacted; stored snapshot credentials are not displayed. Inspect only; no DDL/changelog is generated. Instance-owned process may be lost after roughly five idle minutes. Status/Stop are explicit; no background timer.",
+            "Working project: {:?}\n{}\nArgument contract: Liquibase4.29.2 text diff; installed CLI identity/version/edition are unverified.\nProgram: liquibase\nExact argv: {}\nOnly the selected local snapshot URLs are passed; no online URLs or credentials are accepted. No changelog/update or output-file flag is requested. Exact current buffers are copied into owner-only private staging, with snapshot connection identity fields removed and generated empty defaults. Still-matching staged inputs are overwritten empty on finish/Stop/failure; changed/unreadable slots are retained for owner review. Cleanup is a content check, not an atomic file-identity lock. Crash/reclaim can leave copies until cleanup/uninstall; 32 distinct staging identities maximum.\nCommand-specific URL and diff-type environment keys are reserved to reviewed values; inherited collisions fail before spawn. The approved CLI otherwise inherits environment/JVM/extensions. This is not a network/filesystem sandbox: ambient settings may affect behavior/output. Process permission authorizes that executable, not a verified database identity.\nOutput is bounded and partially redacted; stored snapshot credentials are not displayed. Inspect only; no DDL/changelog is generated. Instance-owned process may be lost after roughly five idle minutes. Status/Stop are explicit; no background timer.",
             plan.root,
             sources,
             serde_json::to_string(&plan.args).unwrap_or_default()
         );
         let review = if let Some(request) = &plan.generated {
-            format!("Working project: {:?}\n{}\nArgument contract: Liquibase4.29.2 offline diff-changelog; installed identity/version/edition UNVERIFIED.\nProgram: liquibase\nExact argv: {}\nPrivate XML output: {}\nRequests generated source intended to bring target snapshot toward reference; project source is saved only by a later explicit FileAction. Exact reviewed buffers are privately staged with connection identity removed/empty defaults. The CLI may create auxiliary files; ambient environment/JVM/extensions are NOT sandboxed by process permission. Output is bounded and is not redacted/rewritten, so schema/default literals may be sensitive. Still-matching staged inputs and started-command output are overwritten empty on finish/Stop; changed/unreadable input slots are retained. Cleanup is not an atomic file-identity lock; crash/reclaim or auxiliary files can remain until manual cleanup.96 known staging/output files maximum.\nReview complete XML changesets after generation, then explicitly save an exact subset through a non-overwriting FileAction. Omitted dependencies, SQL correctness, full schema coverage and CLI output transport completeness are unverified. No update/rollback command is requested.", plan.root, sources, serde_json::to_string(&plan.args).unwrap_or_default(), request.output)
+            format!("Working project: {:?}\n{}\nArgument contract: Liquibase4.29.2 offline diff-changelog; installed identity/version/edition UNVERIFIED.\nProgram: liquibase\nExact argv: {}\nPrivate XML output: {}\nRequests generated source intended to bring target snapshot toward reference; project source is saved only by a later explicit FileAction. Exact reviewed buffers are privately staged with connection identity removed/empty defaults. Command-specific URL/diff-type/output/author environment keys are reserved to reviewed values; inherited collisions fail before spawn. The CLI may create auxiliary files; ambient environment/JVM/extensions are NOT sandboxed by process permission. Output is bounded and is not redacted/rewritten, so schema/default literals may be sensitive. Still-matching staged inputs and started-command output are overwritten empty on finish/Stop; changed/unreadable input slots are retained. Cleanup is not an atomic file-identity lock; crash/reclaim or auxiliary files can remain until manual cleanup.96 known staging/output files maximum.\nReview complete XML changesets after generation, then explicitly save an exact subset through a non-overwriting FileAction. Omitted dependencies, SQL correctness, full schema coverage and CLI output transport completeness are unverified. No update/rollback command is requested.", plan.root, sources, serde_json::to_string(&plan.args).unwrap_or_default(), request.output)
         } else { review };
         if !ui_kit::prompts::confirm_exact(if generating { "Generate this offline changelog candidate?" } else { "Run this offline snapshot diff?" }, &review)? {
             return Ok(());
         }
         let project = verify(ctx, &plan)?;
+        let command = offline_command(&plan)?;
         materialize(&plan)?;
         if !staged_unchanged(&plan) || verify(ctx, &plan).is_err() || generated::vacant(&plan).is_err() {
             cleanup(&plan);
             return Err(Error::Stale);
         }
-        let child = match host::start(&Command::new("liquibase").args(&plan.args), Some(&project)) {
+        let child = match host::start(&command, Some(&project)) {
             Ok(child) => child,
             Err(error) => {
                 cleanup(&plan);
@@ -601,7 +619,8 @@ impl Liquibase {
             view.status = Some(format!("{} · Observations {}–{} of {total}", view.status.as_deref().unwrap_or_default(), if visible.is_empty() {0} else {visible.start + 1}, visible.end));
         }
         Ok(if generated::owner(&self.offline) == Some(root.as_str()) {
-            view.button(Button::new(if self.offline.generated_view { "offline-select-generated" } else { "offline-show-generated" }, if self.offline.generated_view { "Choose Generated Changesets…" } else { "Review Generated Source" }).enabled(self.offline.running.is_none()))
+            view.button(Button::new("offline-organize-generated", "Organize Migrations…").enabled(self.offline.running.is_none()))
+                .button(Button::new(if self.offline.generated_view { "offline-select-generated" } else { "offline-show-generated" }, if self.offline.generated_view { "Choose Generated Changesets…" } else { "Review Generated Source" }).enabled(self.offline.running.is_none()))
         } else { view })
     }
     pub(crate) fn handle_offline_diff(&mut self, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {
@@ -626,6 +645,7 @@ impl Liquibase {
                 "offline-run" => return self.start_offline_diff(ctx),
                 "offline-generate" => return self.start_offline_generation(ctx),
                 "offline-select-generated" => return self.choose_generated_changesets(ctx),
+                "offline-organize-generated" => return self.organize_generated_changesets(ctx),
                 "offline-show-generated" => {
                     if generated::owner(&self.offline) != Some(current_root.as_str()) { return Err(Error::Stale); }
                     self.offline.generated_view = true;
@@ -679,6 +699,28 @@ mod tests {
     use super::*;
     use openidea_plugin::mock::MockHost;
     const REPORT: &str = "Reference Database: private-jdbc-url\nComparison Database: offline:h2\nProduct Name: EQUAL\nMissing Table(s): \n     CUSTOMER\nUnexpected Table(s): NONE\nChanged Table(s): \n     ACCOUNT\n          name changed\n";
+    #[test]
+    fn official_4292_h2_offline_output_and_snapshots_match_the_adapter_contract() {
+        let host = MockHost::install();
+        host.add_file("reference.json", include_str!("../tests/fixtures/liquibase-4.29.2/reference.json"));
+        host.add_file("target.json", include_str!("../tests/fixtures/liquibase-4.29.2/target.json"));
+        let project = host.invocation().project().unwrap();
+        let reference = input(&project, "/project", "/project/reference.json").unwrap();
+        let target = input(&project, "/project", "/project/target.json").unwrap();
+        assert_eq!(reference.db, "h2");
+        assert_eq!(target.db, "h2");
+        let items = parse(include_str!("../tests/fixtures/liquibase-4.29.2/diff.txt"), "tables,columns,indexes,views").unwrap();
+        assert!(items.iter().any(|item| item.kind == "Missing Table(s)" && item.object == "CUSTOMER"));
+        assert!(items.iter().any(|item| item.kind == "Unexpected Table(s)" && item.object == "LEGACY"));
+        assert!(items.iter().any(|item| item.kind == "Missing Column(s)" && item.object == "PUBLIC.CUSTOMER.NAME"));
+        assert_eq!(items.len(), 7);
+        let log = crate::generated_changelog::Changelog::parse(include_str!("../tests/fixtures/liquibase-4.29.2/generated.xml")).unwrap();
+        assert_eq!(log.len(), 3);
+        assert!(log.author_matches("parity"));
+        let selected = log.subset(&BTreeSet::from([0, 1])).unwrap();
+        assert!(selected.contains("CUSTOMER_NAME") && !selected.contains("dropTable"));
+    }
+
     fn snapshot() -> String {
         r#"{"snapshot":{"database":{"shortName":"h2","url":"private-jdbc-url","user":"private-user-value","password":"private-password-value"},"objects":{}}}"#.into()
     }
@@ -768,6 +810,11 @@ mod tests {
         let run = l.offline.running.as_ref().unwrap();
         assert!(run.plan.args.iter().any(|arg| arg.starts_with("--reference-url=offline:h2?snapshot=lb-diff-")));
         assert!(!format!("{:?}", run.plan.args).contains("private-password"));
+        let command = offline_command(&run.plan).unwrap();
+        assert_eq!(command.env.len(), 3);
+        assert!(command.env.iter().any(|(key, value)| key == "LIQUIBASE_COMMAND_DIFF_URL" && value.starts_with("offline:h2?snapshot=lb-diff-")));
+        assert!(command.env.iter().any(|(key, value)| key == "LIQUIBASE_COMMAND_DIFF_REFERENCE_URL" && value.starts_with("offline:h2?snapshot=lb-diff-")));
+
         let staged = run.plan.staged.clone();
         for (path, text) in &staged {
             assert_eq!(host::fs::read_bytes(path).unwrap(), text.as_bytes());

@@ -77,16 +77,40 @@ impl GraphQlTools {
         out
     }
     pub fn live_hover(&mut self, doc: &Document, at: Position) -> Option<openidea_plugin::hover::Hover> {
-        if doc.language=="java" {return super::mapping_docs::hover(doc,at);}
+        if matches!(doc.language.as_str(),"java"|"kotlin") {return super::mapping_docs::hover(doc,at);}
         if doc.language != "graphql" {return None;}
         let schema = parse_schema(&doc.text);
         for ty in schema.types {
             for field in ty.fields {
-                if contains(field.range, at) && !field.ty.is_empty() && field.name.len() <= 128 && field.ty.len() <= 128 {
-                    return Some(openidea_plugin::hover::Hover::new(format!("GraphQL schema declaration `{}.{}`\n\nNamed field type: `{}`.\n\nArguments: {}.\n\nSource declaration only; list/non-null wrappers and runtime resolver behavior are not inferred.",ty.name,field.name,field.ty,if field.args.is_empty(){"none".into()}else{field.args.join(", ")})).range(field.range));
+                if contains(field.range, at) && !field.type_reference.is_empty() && field.name.len() <= 128 && field.type_reference.len() <= 1024 && field.argument_types.len()<=64 {
+                    if field.argument_types.len()!=field.args.len()||field.argument_types.iter().any(|(name,ty)|name.len()>128||ty.is_empty()||ty.len()>1024){return None;}
+                    let arguments=field.argument_types.iter().map(|(name,ty)|format!("{name}: {ty}")).collect::<Vec<_>>().join(", ");
+                    let signature=if arguments.is_empty(){format!("{}: {}",field.name,field.type_reference)}else{format!("{}({arguments}): {}",field.name,field.type_reference)};
+                    if signature.len()>8192{return None;}
+                    return Some(openidea_plugin::hover::Hover::new(format!("GraphQL schema declaration `{}.{}`\n\nDeclared signature: `{signature}`.\n\nSource declaration only; list/non-null wrappers reproduce the written SDL. Runtime resolver behavior, schema merging and type inference are not established.",ty.name,field.name)).range(field.range));
                 }
             }
         }
         None
+    }
+}
+
+#[cfg(test)]
+mod declared_signature_hover_tests {
+    use super::*;
+    use openidea_plugin::{mock::MockHost,text::position};
+    fn doc(text:&str)->Document{Document{path:"/project/schema.graphqls".into(),language:"graphql".into(),text:text.into(),version:1}}
+    #[test]
+    fn sdl_hover_preserves_declared_list_and_nonnull_wrappers_for_fields_and_arguments(){
+        let h=MockHost::install().with_capabilities(&[]);
+        let text="type Query { books(ids: [ID!]!, filter: [[String!]]): [Book!]! } type Book { title: String! }";
+        let value=GraphQlTools::default().live_hover(&doc(text),position(text,text.find("books").unwrap())).unwrap();
+        assert!(value.markdown.contains("books(ids: [ID!]!, filter: [[String!]]): [Book!]!"));assert!(value.markdown.contains("wrappers reproduce the written SDL"));assert!(!value.markdown.contains("wrappers and runtime resolver behavior are not inferred"));
+        let simple=GraphQlTools::default().live_hover(&doc(text),position(text,text.find("title").unwrap())).unwrap();assert!(simple.markdown.contains("title: String!"));assert!(h.requests().is_empty()&&h.process_runs().is_empty());
+    }
+    #[test]
+    fn malformed_or_excessive_declared_signatures_are_not_presented_as_complete(){
+        for text in ["type Query { books: [Book!!] }", "type Query { books(ids: [ID!!]): Book }"] {assert!(GraphQlTools::default().live_hover(&doc(text),position(text,text.find("books").unwrap())).is_none(),"{text}");}
+        let args=(0..65).map(|i|format!("arg{i}: ID")).collect::<Vec<_>>().join(", ");let text=format!("type Query {{ books({args}): [Book!]! }}");assert!(GraphQlTools::default().live_hover(&doc(&text),position(&text,text.find("books").unwrap())).is_none());
     }
 }

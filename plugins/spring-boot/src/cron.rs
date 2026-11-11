@@ -9,8 +9,18 @@ const FIELDS: [(&str, u32, u32); 6] = [
     ("month", 1, 12),
     ("day-of-week", 0, 7),
 ];
-const MACROS: [&str; 7] = ["@yearly", "@annually", "@monthly", "@weekly", "@daily", "@midnight", "@hourly"];
-const MONTHS: [&str; 12] = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+const MACROS: [&str; 7] = [
+    "@yearly",
+    "@annually",
+    "@monthly",
+    "@weekly",
+    "@daily",
+    "@midnight",
+    "@hourly",
+];
+const MONTHS: [&str; 12] = [
+    "JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
+];
 const DAYS: [&str; 7] = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
 const DOM: usize = 3;
 const MONTH: usize = 4;
@@ -23,7 +33,10 @@ pub fn check(expr: &str) -> Option<String> {
         return None;
     }
     if expr.starts_with('@') {
-        return Some(format!("Unknown cron macro `{expr}`. Spring accepts {}.", MACROS.join(", ")));
+        return Some(format!(
+            "Unknown cron macro `{expr}`. Spring accepts {}.",
+            MACROS.join(", ")
+        ));
     }
     let fields: Vec<&str> = expr.split_whitespace().collect();
     if fields.len() != 6 {
@@ -32,7 +45,11 @@ pub fn check(expr: &str) -> Option<String> {
             fields.len()
         ));
     }
-    fields.iter().enumerate().find_map(|(i, f)| field(i, f).err().map(|e| format!("Cron {} `{f}`: {e}.", FIELDS[i].0)))
+    fields.iter().enumerate().find_map(|(i, f)| {
+        field(i, f)
+            .err()
+            .map(|e| format!("Cron {} `{f}`: {e}.", FIELDS[i].0))
+    })
 }
 
 /// Month and day names as numbers, the way Spring reads them (`MON` → 1, `SUN` → 7).
@@ -81,7 +98,11 @@ fn range(i: usize, item: &str) -> Result<(), String> {
                 let (a, b) = (number(i, a)?, number(i, b)?);
                 // Sunday is 0 as the start of a range (`SUN-SAT`).
                 let a = if i == DOW && a == 7 { 0 } else { a };
-                if a > b { Err(format!("range `{span}` ends before it starts")) } else { Ok(()) }
+                if a > b {
+                    Err(format!("range `{span}` ends before it starts"))
+                } else {
+                    Ok(())
+                }
             }
             None => number(i, span).map(|_| ()),
         },
@@ -96,7 +117,11 @@ fn number(i: usize, s: &str) -> Result<u32, String> {
         (DOW, _) => format!("`{s}` is not a number or a day name (MON-SUN)"),
         _ => format!("`{s}` is not a number"),
     })?;
-    if n < lo || n > hi { Err(format!("{n} is outside {lo}-{hi}")) } else { Ok(n) }
+    if n < lo || n > hi {
+        Err(format!("{n} is outside {lo}-{hi}"))
+    } else {
+        Ok(n)
+    }
 }
 
 /// `L`, `L-n`, `LW` or `nW` in the day-of-month.
@@ -107,7 +132,9 @@ fn last_or_weekday(value: &str) -> Result<(), String> {
     if let Some(offset) = value.strip_prefix("L-") {
         return match offset.parse::<u32>() {
             Ok(0..=30) => Ok(()),
-            _ => Err(format!("`L-{offset}`: the offset from the last day must be 0-30")),
+            _ => Err(format!(
+                "`L-{offset}`: the offset from the last day must be 0-30"
+            )),
         };
     }
     if let Some(day) = value.strip_suffix('W')

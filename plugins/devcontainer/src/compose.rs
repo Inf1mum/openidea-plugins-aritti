@@ -1,4 +1,4 @@
-//! Strict JSON Compose source facts only: no YAML inference, schema/runtime
+//! Strict JSON or unambiguous YAML Compose source facts: no schema/runtime
 //! validation, interpolation, overrides/includes resolution or mount detection.
 use openidea_plugin::{Error, FileKind, FileStat, PickItem, Project, host};
 use serde::de::{self, Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
@@ -61,6 +61,51 @@ impl<'de> Deserialize<'de> for Unique {
         d.deserialize_any(Strict)
     }
 }
+// YAML source follows the same strict ownership model: aliases, tags, merge
+// keys, duplicate decoded names, multiple documents and complex keys do not
+// establish a literal service inventory.
+#[derive(Default)]
+struct YamlGuard {frames:Vec<Option<(bool,std::collections::BTreeSet<String>)>>,nodes:usize,docs:usize,bad:bool}
+impl yaml_rust2::parser::EventReceiver for YamlGuard {
+    fn on_event(&mut self,event:yaml_rust2::parser::Event){
+        use yaml_rust2::parser::Event;
+        self.nodes+=1;if self.nodes>8192||self.frames.len()>32{self.bad=true;return;}
+        match event {
+            Event::DocumentStart=>{self.docs+=1;if self.docs>1{self.bad=true;}},
+            Event::Alias(_)=>self.bad=true,
+            Event::Scalar(value,_,anchor,tag)=>{
+                if anchor!=0||tag.is_some(){self.bad=true;}
+                if let Some(Some((key,seen)))=self.frames.last_mut(){if *key&&!seen.insert(value){self.bad=true;}*key=!*key;}
+            },
+            Event::MappingStart(anchor,ref tag)|Event::SequenceStart(anchor,ref tag)=>{
+                if anchor!=0||tag.is_some(){self.bad=true;}
+                if let Some(Some((key,_)))=self.frames.last_mut(){if *key{self.bad=true;}else{*key=true;}}
+                self.frames.push(if matches!(event,Event::MappingStart(..)){Some((true,Default::default()))}else{None});
+            },
+            Event::MappingEnd|Event::SequenceEnd=>{self.frames.pop();},_=>{},
+        }
+    }
+}
+fn yaml_json(value:&yaml_rust2::Yaml)->Option<Value>{
+    use yaml_rust2::Yaml;
+    Some(match value {
+        Yaml::Null=>Value::Null,Yaml::Boolean(b)=>Value::Bool(*b),Yaml::Integer(n)=>Value::Number((*n).into()),Yaml::Real(n)=>serde_json::from_str(n).ok()?,Yaml::String(s)=>Value::String(s.clone()),
+        Yaml::Array(v)=>Value::Array(v.iter().map(yaml_json).collect::<Option<_>>()?),
+        Yaml::Hash(v)=>{let mut out=serde_json::Map::new();for(k,v)in v{out.insert(k.as_str()?.into(),yaml_json(v)?);}Value::Object(out)},_=>return None,
+    })
+}
+fn parse_source(path:&str,source:&str)->Result<Value,Error>{
+    if path.ends_with(".yaml")||path.ends_with(".yml") {
+        let mut guard=YamlGuard::default();yaml_rust2::parser::Parser::new_from_str(source).load(&mut guard,true).map_err(|_|Error::Invalid("Unreadable Compose YAML.".into()))?;
+        if guard.bad{return Err("Use one unambiguous Compose YAML document without aliases, tags or duplicate keys.".into());}
+        let docs=yaml_rust2::YamlLoader::load_from_str(source).map_err(|_|Error::Invalid("Unreadable Compose YAML.".into()))?;
+        if docs.len()!=1{return Err("Choose one Compose YAML document.".into());}
+        yaml_json(&docs[0]).ok_or_else(||Error::Invalid("Compose YAML needs literal string mapping keys and finite JSON-compatible values.".into()))
+    }else{
+        let Unique(value)=serde_json::from_str(source).map_err(|_| Error::Invalid("Use strict JSON without duplicate keys, or choose a .yaml/.yml Compose file. Interpolation and multi-file merging are not resolved by this form.".into()))?;Ok(value)
+    }
+}
+
 const MAX_BYTES: usize = 8 * 1024;
 pub(crate) struct Snapshot {
     root: String,
@@ -73,7 +118,7 @@ impl Snapshot {
     pub(crate) fn capture(project: &Project, input: &str) -> Result<Self, Error> {
         if input.len() > 512 || input.chars().any(char::is_control) {
             return Err(
-                "Use a project Compose JSON path up to512bytes without control characters.".into(),
+                "Use a project Compose file path up to512bytes without control characters.".into(),
             );
         }
         let root = project.root()?;
@@ -82,20 +127,20 @@ impl Snapshot {
         let metadata = project.stat(&path)?;
         if metadata.kind != FileKind::File || metadata.size > MAX_BYTES as u64 {
             return Err(
-                "Choose an existing Compose JSON file up to8KiB for complete review.".into(),
+                "Choose an existing Compose YAML/JSON file up to8KiB for complete review.".into(),
             );
         }
         let source = project.read_file(&path)?;
         if source.len() > MAX_BYTES {
-            return Err("Compose JSON snapshot exceeds8KiB.".into());
+            return Err("Compose source snapshot exceeds8KiB.".into());
         }
-        let Unique(value)=serde_json::from_str(&source).map_err(|_| Error::Invalid("Use strict JSON without duplicate keys. YAML, comments, interpolation and multi-file merging are not resolved by this form.".into()))?;
+        let value=parse_source(&path,&source)?;
         let map = value
             .get("services")
             .and_then(Value::as_object)
-            .ok_or("Compose JSON needs an explicit services object.")?;
+            .ok_or("Compose source needs an explicit services object.")?;
         if map.is_empty() || map.len() > 64 {
-            return Err("Choose a Compose JSON file with1–64 explicitly declared services.".into());
+            return Err("Choose a Compose YAML/JSON file with1–64 explicitly declared services.".into());
         }
         let mut services = Vec::new();
         for (key, value) in map {
@@ -129,7 +174,7 @@ impl Snapshot {
         Ok(())
     }
     pub(crate) fn configuration(&self, target: &str, name: &str) -> Result<String, Error> {
-        let items:Vec<_>=self.services.iter().enumerate().map(|(n,service)| PickItem::new(&format!("service-{n}"),service).description("Declared in the reviewed JSON; mount, dependencies and runtime are unverified.")).collect();
+        let items:Vec<_>=self.services.iter().enumerate().map(|(n,service)| PickItem::new(&format!("service-{n}"),service).description("Declared in the reviewed source; mount, dependencies and runtime are unverified.")).collect();
         let key = host::pick("Compose service for this Dev Container", &items)?
             .ok_or(Error::Cancelled)?;
         let n = key
@@ -178,7 +223,7 @@ impl Snapshot {
     }
     pub(crate) fn preview(&self) -> String {
         format!(
-            "Existing Compose JSON snapshot: {}\n--- complete current text ---\n{}\n--- end Compose JSON ---\nOnly literal service names were extracted; this is not Compose schema validation. Workspace path is supplied by you, not verified against any mount/container. YAML, interpolation, includes, extends, overrides, profiles, dependencies, secrets, environment files, images, builds and readiness are not resolved or validated. Save source/editor changes before Start. No Compose source is written or service started.",
+            "Existing Compose source snapshot: {}\n--- complete current text ---\n{}\n--- end Compose source ---\nOnly literal service names were extracted; this is not Compose schema validation. Workspace path is supplied by you, not verified against any mount/container. Aliases, interpolation, includes, extends, overrides, profiles, dependencies, secrets, environment files, images, builds and readiness are not resolved or validated. Save source/editor changes before Start. No Compose source is written or service started.",
             serde_json::to_string(&format!(
                 "{}/{}",
                 self.root.trim_end_matches('/'),
@@ -200,6 +245,37 @@ mod tests {
         let project = host.invocation().project().unwrap();
         (host, project)
     }
+    #[test]
+    fn literal_yaml_services_generate_the_same_owned_configuration_as_json() {
+        let host=MockHost::install();
+        let source="services:\n  api:\n    image: busybox\n    ports: [8080]\n  db:\n    image: postgres\n";
+        host.add_file("containers/compose.yaml",source);let project=host.invocation().project().unwrap();
+        let snapshot=Snapshot::capture(&project,"containers/compose.yaml").unwrap();
+        host.answer_next_prompt(Some(&["service-0"]));host.answer_next_prompt(Some(&["/workspace/api"]));
+        let generated=snapshot.configuration(".devcontainer/devcontainer.json","YAML project").unwrap();
+        let value:Value=serde_json::from_str(&generated).unwrap();assert_eq!(value["service"],"api");assert_eq!(value["dockerComposeFile"],"../containers/compose.yaml");
+        assert!(snapshot.preview().contains(source));assert!(snapshot.validate(&project).is_ok());
+        host.add_file("containers/compose.yaml",&source.replace("busybox","ubuntu"));assert!(matches!(snapshot.validate(&project),Err(Error::Stale)));
+        assert!(host.process_runs().is_empty());
+    }
+    #[test]
+    fn adversarial_yaml_depth_cycles_and_byte_limits_refuse_before_conversion() {
+        let deep=format!("services: {{api: {{environment: {{KEY: {}0{}}}}}}}\n","[".repeat(128),"]".repeat(128));
+        let oversized=format!("services: {{api: {{image: \"{}\"}}}}\n","x".repeat(MAX_BYTES));
+        for source in [deep,oversized,"services: &root {api: {depends_on: *root}}\n".into()] {
+            let host=MockHost::install();host.add_file("compose.yaml",&source);let project=host.invocation().project().unwrap();
+            assert!(Snapshot::capture(&project,"compose.yaml").is_err());assert!(host.process_runs().is_empty());
+        }
+    }
+
+    #[test]
+    fn ambiguous_yaml_never_establishes_a_service_inventory() {
+        for source in ["services:\n  api: {}\n  'api': {}\n","services: &services {api: {}}\n","services:\n  api: !!map {}\n","services: {api: {}}\n---\nservices: {db: {}}\n","services: {123: {}}\n"] {
+            let host=MockHost::install();host.add_file("compose.yaml",source);let project=host.invocation().project().unwrap();
+            assert!(Snapshot::capture(&project,"compose.yaml").is_err(),"{source}");assert!(host.process_runs().is_empty());
+        }
+    }
+
     #[test]
     fn ambiguous_duplicate_keys_and_non_json_never_supply_service_facts() {
         for source in [

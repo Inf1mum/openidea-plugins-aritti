@@ -167,6 +167,7 @@ fn enabled_findings(path: &str, text: &str) -> Vec<checks::Finding> {
         .into_iter()
         .filter(|f| match f.code {
             UNKNOWN_PROPERTY => properties,
+            checks::INVALID_PROPERTY_VALUE => host::setting_bool("checkPropertyValues").unwrap_or(true),
             FEATURES_MALFORMED => features,
             _ => true,
         })
@@ -318,6 +319,44 @@ impl Providers for Main {
         };
         if let Some(key) = checks::feature_key_at(&doc.text, offset) {
             return feature_items(&doc.text, key);
+        }
+        if let Some((reference, context, present)) = checks::feature_option_context(&doc.text, offset) {
+            let options = feature_options::cached(&reference);
+            let span = checks::word_range(&doc.text, offset);
+            let replace = Range::new(position(&doc.text, span.start), position(&doc.text, span.end));
+            return match context {
+                Context::Key => options.into_iter().filter(|(key,_)| !present.contains(key)).map(|(key, option)| {
+                    let has_value = doc.text[span.end..].trim_start().starts_with(':');
+                    let mut item = CompletionItem::new(&key, CompletionKind::Property);
+                    item.insert_text = if has_value {format!("\"{key}\"")} else {format!("\"{key}\": $0")};
+                    item.snippet = !has_value;
+                    item.replace = Some(replace);
+                    item.detail = Some(format!("Cached feature option (unverified): {}", option["description"].as_str().unwrap_or("")));
+                    item
+                }).collect(),
+                Context::Value { key } => options.get(&key).into_iter().flat_map(|option| {
+                    if option["type"] == "boolean" {vec![serde_json::Value::Bool(true),serde_json::Value::Bool(false)]}
+                    else {option.get("enum").or_else(||option.get("proposals")).and_then(serde_json::Value::as_array).cloned().unwrap_or_default()}
+                }).filter_map(|value| {
+                    let insert = serde_json::to_string(&value).ok()?;
+                    let label = value.as_str().map(str::to_owned).unwrap_or_else(||insert.clone());
+                    let mut item = CompletionItem::new(&label, CompletionKind::EnumMember);
+                    item.insert_text = insert; item.replace = Some(replace);
+                    item.detail = Some("Cached feature option (unverified)".into());
+                    Some(item)
+                }).collect(),
+            };
+        }
+        if let Some((keys, choices)) = checks::nested_choices(&doc.text, offset) {
+            let span = checks::word_range(&doc.text, offset);
+            let replace = Range::new(position(&doc.text, span.start), position(&doc.text, span.end));
+            return choices.into_iter().map(|(value, quoted)| {
+                let mut item = CompletionItem::new(value, if keys { CompletionKind::Property } else { CompletionKind::EnumMember });
+                item.insert_text = if keys && doc.text[span.end..].trim_start().starts_with(':') { format!("\"{value}\"") } else if keys { format!("\"{value}\": $0") } else if quoted { format!("\"{value}\"") } else { value.to_owned() };
+                item.snippet = keys && !doc.text[span.end..].trim_start().starts_with(':');
+                item.replace = Some(replace);
+                item
+            }).collect();
         }
         let Some(context) = checks::context_at(&doc.text, offset) else {
             return vec![];
@@ -616,6 +655,19 @@ mod tests {
         );
 
         assert!(published(&host, FILE).is_empty());
+    }
+
+    #[test]
+    fn known_property_types_enum_values_and_nested_port_values_are_checked() {
+        let host=host();
+        open(&host,FILE,r#"{"image":3,"shutdownAction":"explode","portsAttributes":{"3000":{"protocol":"ftp","requireLocalPort":"yes"}}}"#);
+        assert_eq!(codes(&published(&host,FILE)),["invalid-property-value";4]);
+        host.set_setting("checkPropertyValues","false");
+        open(&host,FILE,r#"{"image":3,"shutdownAction":"explode"}"#);
+        assert!(published(&host,FILE).is_empty());
+        host.set_setting("checkPropertyValues","true");
+        open(&host,FILE,"{ /* JSONC */ \"image\":\"ubuntu\",\"shutdownAction\":\"none\",\"otherPortsAttributes\":{\"protocol\":\"http\",\"requireLocalPort\":true,},}");
+        assert!(published(&host,FILE).is_empty());
     }
 
     #[test]
@@ -967,6 +1019,55 @@ mod tests {
 
         assert_eq!(labels(&complete("{\"privileged\": |}")), ["true", "false"]);
         assert_eq!(labels(&complete("{\"privileged\": tr|,\n\"image\": 1}")), ["true", "false"]);
+    }
+
+    #[test]
+    fn cached_feature_option_completion_is_bound_to_the_current_feature_index() {
+        let _host = MockHost::install().with_capabilities(&["storage"]);
+        let index = "fixture index";
+        host::storage::set("feature-index",index).unwrap();
+        host::storage::set(feature_options::CACHE_KEY,&serde_json::json!({"index":index,"features":{
+            "ghcr.io/example/node:1":{"enabled":{"type":"boolean"},"version":{"type":"string","enum":["stable","next"]}}
+        }}).to_string()).unwrap();
+        assert_eq!(labels(&complete(r#"{"features":{"ghcr.io/example/node:1":{ |}}}"#)), ["enabled","version"]);
+        assert_eq!(labels(&complete(r#"{"features":{"ghcr.io/example/node:1":{"enabled": |}}}"#)), ["true","false"]);
+        let items=complete(r#"{"features":{"ghcr.io/example/node:1":{"version":"|"}}}"#);
+        assert_eq!(labels(&items), ["stable","next"]);
+        assert_eq!(items[0].insert_text,"\"stable\"");
+        assert!(complete(r#"{"features":{"other":{ |}}}"#).is_empty());
+        assert!(complete(r#"{"features":{"ghcr.io/example/node:1":{/* | */}}}"#).is_empty());
+        host::storage::set("feature-index","different index").unwrap();
+        assert!(complete(r#"{"features":{"ghcr.io/example/node:1":{ |}}}"#).is_empty());
+    }
+
+    #[test]
+    fn nested_build_and_host_requirements_complete_without_root_properties() {
+        let _host = host();
+        assert_eq!(labels(&complete(r#"{"build":{"dockerfile":"Dockerfile", |}}"#)), ["context", "args", "target", "cacheFrom", "options"]);
+        assert_eq!(labels(&complete(r#"{"hostRequirements":{ |}}"#)), ["cpus", "memory", "storage", "gpu"]);
+        assert!(complete(r#"{"build":{"args":{"|"}}}"#).is_empty());
+        assert!(complete(r#"{"build":{/* comment | */}}"#).is_empty());
+        assert!(labels(&complete(r#"{"build":{ "con|"}}"#)).contains(&"context"));
+        assert!(!complete(r#"{"build":{ |"#).is_empty());
+        let existing = complete(r#"{"build":{"con|text":".."}}"#);
+        let item = existing.iter().find(|i| i.label == "context").unwrap();
+        assert_eq!(item.insert_text, "\"context\"");
+        assert!(!item.snippet);
+    }
+
+    #[test]
+    fn port_attributes_complete_keys_enums_and_booleans_in_jsonc() {
+        let _host = host();
+        let items = complete(r#"{"portsAttributes":{"3000":{"label":"Web", |}}}"#);
+        assert_eq!(labels(&items), ["protocol", "onAutoForward", "requireLocalPort", "elevateIfNeeded"]);
+        assert_eq!(labels(&complete(r#"{"portsAttributes":{"db:5432":{"protocol":"|"}}}"#)), ["http", "https"]);
+        assert_eq!(labels(&complete(r#"{"otherPortsAttributes":{"requireLocalPort": |}}"#)), ["true", "false"]);
+        let items = complete("{\"name\":\"🐳\",\"otherPortsAttributes\":{ /* JSONC */ \"protocol\":\"h|\",}}");
+        assert_eq!(items[0].insert_text, "\"http\"");
+        let span = items[0].replace.unwrap();
+        assert_eq!(span.end.character - span.start.character, 3);
+        assert!(complete(r#"{"portsAttributes":{"|"}}"#).is_empty());
+        assert!(complete(r#"{"customizations":{"protocol":"|"}}"#).is_empty());
     }
 
     #[test]

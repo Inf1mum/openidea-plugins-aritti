@@ -466,6 +466,14 @@ impl Properties {
     fn render_bundle(&mut self, viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
         let (editor,doc,root) = owned_editor(ctx)?;
         let path = editor.path();
+        if let Some(draft) = self.bundle_draft.as_ref().filter(|draft| draft.root==root && draft.doc.path==path) {
+            if draft.changed() && draft.present(&doc) {
+                self.bundle_draft=None;
+                self.bundle=None;
+            } else {
+                return Ok(draft.render(&doc,viewport));
+            }
+        }
         let previous = self.bundle_bindings.remove(&path);
         let grid = self.bundle_grid(&path, &doc.text)?;
         let can_revert=self.bundle_revert.as_ref().is_some_and(|record|record.root==root && record.after==doc);
@@ -489,6 +497,7 @@ impl Properties {
             status.push_str(" · Select a property to edit this file or open a translation");
         }
         let mut view=View::new(Body::Table(table))
+            .button(Button::new("bundle-stage-start", "Edit All Locales…").icon("edit"))
             .button(Button::new("reload", "Reload Locales").icon("refresh"))
             .button(Button::new("incomplete", filter).icon("filter"))
             .button(Button::new("bundle-edit-value", "Edit Value…").icon("edit").enabled(selected.is_some()))
@@ -519,6 +528,45 @@ impl Properties {
     }
 
     fn handle_bundle(&mut self, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {
+        let stage_button=matches!(&event,ViewEvent::Button(id) if matches!(id.as_str(),"bundle-stage-start"|"bundle-stage-discard"|"bundle-stage-apply"));
+        if stage_button || self.bundle_draft.is_some() {
+            let (_,doc,root)=owned_editor(ctx)?;
+            if matches!(&event,ViewEvent::Button(id) if id=="bundle-stage-start") {
+                if self.bundle_draft.is_some() { return Err("Finish or discard the existing staged locale grid first.".into()); }
+                self.bundle_serial=self.bundle_serial.checked_add(1).ok_or(Error::Stale)?;
+                self.bundle_draft=Some(crate::bundle_draft::Draft::new(&doc,self.bundle_serial)?);
+                host::refresh_view(BUNDLE);
+                return Ok(());
+            }
+            if let Some(draft)=self.bundle_draft.as_ref().filter(|draft|draft.root==root&&draft.doc.path==doc.path) {
+                if let ViewEvent::Button(id)=&event {
+                    match id.as_str() {
+                        "bundle-stage-discard" => {
+                            if draft.changed() && !ui_kit::prompts::confirm_exact("Discard staged locale changes?","Only the in-memory grid draft will be discarded. Source files are unchanged by this action.")? {return Ok(());}
+                            self.bundle_draft=None; self.bundle=None; self.bundle_bindings.clear();
+                            host::refresh_view(BUNDLE);return Ok(());
+                        }
+                        "bundle-stage-apply" => {
+                            draft.current(&doc)?;
+                            if !draft.changed() {return Err("No staged translations to apply.".into());}
+                            // Do not synchronously execute native intentions here: their
+                            // provider callback would re-enter this still-running plugin.
+                            host::open_editor(&doc.path,None)?;
+                            host::notify(NotificationLevel::Info,"Apply staged bundle changes","In the text editor, open Context Actions (Alt+Enter) and choose Apply staged bundle changes… to review the exact atomic edit. The grid remains staged until source text matches.");
+                            return Ok(());
+                        }
+                        _ => return Err("Use Continue to Apply or Discard while a locale grid is staged.".into()),
+                    }
+                }
+                if event.table_select().is_some() || event.table_activate().is_some() {return Ok(());}
+                draft.current(&doc)?;
+                self.bundle_serial=self.bundle_serial.checked_add(1).ok_or(Error::Stale)?;
+                self.bundle_draft.as_mut().ok_or(Error::Stale)?.stage(&event,self.bundle_serial)?;
+                host::refresh_view(BUNDLE);return Ok(());
+            }
+            if stage_button {return Err(Error::Stale);}
+        }
+
         if matches!(&event,ViewEvent::Button(id) if id=="revert-reviewed") {
             let (editor,doc,root)=owned_editor(ctx)?;
             let record=self.bundle_revert.as_ref().ok_or("No reviewed bundle edit is available to revert.")?;

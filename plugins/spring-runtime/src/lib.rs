@@ -4,7 +4,9 @@
 //! beans, `@Value` keys and configuration keys it knows about in the editor.
 
 mod panes;
+mod request_conditions;
 mod snapshot;
+mod snapshot_database;
 mod graph;
 mod persistence;
 mod controls;
@@ -842,6 +844,13 @@ impl Views for Runtime {
         }
 
         match event {
+            ViewEvent::Button(b) if b == "snapshot-related-beans" && view == "runtime-snapshot" => { self.choose_related_bean(ctx)?; },
+            ViewEvent::Button(b) if b == "snapshot-method" && view == "runtime-snapshot" => { self.filter_pane_method(ctx)?; },
+            ViewEvent::Button(b) if b == "snapshot-open-browser" && view == "runtime-snapshot" => { self.open_pane_browser(ctx)?; },
+            ViewEvent::Button(b) if b == "snapshot-send-request" && view == "runtime-snapshot" => { self.send_pane_request(ctx)?; },
+            ViewEvent::Button(b) if b == "snapshot-create-request" && view == "runtime-snapshot" => { self.create_pane_requests(ctx)?; },
+            ViewEvent::Button(b) if b == "snapshot-copy-request" && view == "runtime-snapshot" => { self.copy_pane_requests(ctx)?; },
+            ViewEvent::Button(b) if (b == "snapshot-search" || b == "snapshot-search-clear") && view == "runtime-snapshot" => { self.search_panes(b == "snapshot-search-clear", ctx)?; },
             ViewEvent::Button(b) if b == "runtime-overview" && view == "runtime-snapshot" => {
                 let project = ctx.project().ok_or(Error::Stale)?;
                 let scope = Scope::current(&project)?;
@@ -894,6 +903,7 @@ impl Views for Runtime {
 impl Plugin for Runtime {
     fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
         match id {
+            "configure-snapshot-database"=>self.configure_snapshot_database(ctx),
             "runtime-controls"=>{ctx.project().ok_or(Error::Stale)?;crate::reveal_view(controls::VIEW)?;Ok(None)},
             "poll-start"=>{crate::reveal_view(controls::VIEW)?;Ok(Some("Start polling explicitly in the visible Runtime controls view.".into()))},
             "poll-stop"=>self.stop_polling(&ctx.project().ok_or(Error::Stale)?).map(Some),

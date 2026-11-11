@@ -13,6 +13,7 @@ use spring_text::{SOURCE_GLOBS, parse_source, range};
 
 mod actions;
 mod command_rename;
+mod native_occurrences;
 mod hover;
 mod options;
 mod literals;
@@ -38,6 +39,7 @@ pub struct Shell {
     pub groups: Vec<String>,
     /// Bean names, and whether the bean is an `AvailabilityProvider`.
     pub beans: Vec<(String, Range, bool)>,
+    pub core_beans: Vec<(String, Range, bool)>,
 }
 
 /// Spring Shell's default command name: `addUser` → `add-user`.
@@ -62,10 +64,9 @@ pub fn commands(f: &JavaFile, text: &str) -> Vec<Command> {
     let mut out = Vec::new();
     for (ti, t) in f.types.iter().enumerate() {
         let class = f.qualified(ti);
-        let prefix = t
-            .annotation("Command")
-            .filter(|a| rules::owned(f, text, a, "org.springframework.shell.command.annotation.Command"))
-            .map(|a| words(&a.strings(&["command"])));
+        let class_command = t.annotation("Command")
+            .filter(|a| rules::modern_field(f, text, a) == Some("command"));
+        let prefix = class_command.map(|a| words(&a.strings(&["command"])));
         for m in t.methods() {
             let target = range(text, m.at, m.at + m.name.len());
             let mut push = |key: String, anchor: Range| {
@@ -88,23 +89,42 @@ pub fn commands(f: &JavaFile, text: &str) -> Vec<Command> {
                     push(words(&[s]), range(text, s.at, s.end));
                 }
             } else if let Some(a) =
-                m.annotation("Command").filter(|a| rules::owned(f, text, a, "org.springframework.shell.command.annotation.Command"))
+                m.annotation("Command").filter(|a| rules::modern_field(f, text, a).is_some())
             {
-                if a.arg("command").is_some() && rules::literals(a, "command").is_none()
-                    || t.annotation("Command")
-                        .filter(|a| rules::supported(f, text, a))
-                        .is_some_and(|a| a.arg("command").is_some() && rules::literals(a, "command").is_none())
-                {
-                    continue;
-                }
-                let own = a.strings(&["command"]);
+                let field = rules::modern_field(f, text, a).unwrap();
+                let class_command = class_command.filter(|_| field == "command");
+                if a.arg(field).is_some() && rules::literals(a, field).is_none()
+                    || class_command.is_some_and(|a| a.arg("command").is_some() && rules::literals(a, "command").is_none())
+                { continue; }
+                let core_group = t.annotation("CommandGroup").filter(|a| rules::supported(f, text, a));
+                let core_prefix = if field == "name" {
+                    match core_group.filter(|a| a.arg("prefix").is_some()) {
+                        Some(group) => {
+                            let Some(values) = rules::literals(group, "prefix").filter(|v| v.len() == 1) else { continue; };
+                            words(&values)
+                        }
+                        None => String::new(),
+                    }
+                } else { String::new() };
+                let own = a.strings(&[field]);
                 let anchor = own.first().map_or(target, |s| range(text, s.at, s.end));
                 let own = words(&own);
-                let combined = options::normalized(&format!("{} {own}", prefix.as_deref().unwrap_or_default()));
-                if combined.is_empty() && !m.name.is_ascii() {
-                    continue;
-                }
+                let base = if field == "name" && own.is_empty() && m.name.is_ascii() { kebab(&m.name) } else { own };
+                let combined = options::normalized(&format!("{} {}", if field == "command" { prefix.as_deref().unwrap_or_default() } else { &core_prefix }, &base));
+                if combined.is_empty() && !m.name.is_ascii() { continue; }
                 push(if combined.is_empty() { kebab(&m.name) } else { combined }, anchor);
+                // Each method alias is a separate command; class aliases prefix
+                // v3 aliases only. v4 has no class-level Command configuration.
+                if let Some(aliases) = rules::literals(a, "alias") {
+                    let alias_prefix = class_command.and_then(|a| rules::literals(a, "alias"));
+                    if class_command.is_some_and(|a| a.arg("alias").is_some()) && alias_prefix.is_none() { continue; }
+                    let prefix = alias_prefix.map(|ss| words(&ss)).unwrap_or_default();
+                    for alias in aliases {
+                        let key = options::normalized(&format!("{prefix} {}", alias.value));
+                        if !key.is_empty() { push(key, range(text, alias.at, alias.end)); }
+                    }
+                }
+
             }
         }
     }
@@ -122,6 +142,7 @@ fn groups(f: &JavaFile, text: &str) -> Vec<String> {
         .flat_map(|a| {
             let name = match a.name.as_str() {
                 "ShellCommandGroup" => "value",
+                "CommandGroup" => "name",
                 "ShellMethod" | "Command" => "group",
                 _ => return Vec::new(),
             };
@@ -136,7 +157,10 @@ fn groups(f: &JavaFile, text: &str) -> Vec<String> {
 }
 
 fn beans(f: &JavaFile, text: &str) -> Vec<(String, Range, bool)> {
-    let provider_type = |ty: &java::TypeRef| rules::type_owned(f,text,ty,"org.springframework.shell.AvailabilityProvider");
+    beans_for(f,text,"org.springframework.shell.AvailabilityProvider")
+}
+fn beans_for(f: &JavaFile, text: &str, qualified:&str) -> Vec<(String, Range, bool)> {
+    let provider_type = |ty: &java::TypeRef| rules::type_owned(f,text,ty,qualified);
     let providers: Vec<_> = f.types.iter().enumerate().filter(|(_,t)| t.implements.iter().any(&provider_type)).map(|(i,_)|i).collect();
     java::bean_names(f)
         .into_iter()
@@ -240,7 +264,7 @@ fn scan(path: &str, text: &str) -> Option<Shell> {
     let Some(f) = source_model(path, text) else {
         return Some(Shell { incomplete: true, ..Default::default() });
     };
-    let shell = Shell { incomplete: false, commands: commands(&f, text), groups: groups(&f, text), beans: beans(&f, text) };
+    let shell = Shell { incomplete: false, commands: commands(&f, text), groups: groups(&f, text), beans: beans(&f, text), core_beans: beans_for(&f,text,"org.springframework.shell.core.command.availability.AvailabilityProvider") };
     (shell != Shell::default()).then_some(shell)
 }
 
@@ -248,13 +272,13 @@ fn all_commands(index: &Index<Shell>) -> impl Iterator<Item = (&str, &Command)> 
     index.iter().flat_map(|(p, s)| s.commands.iter().map(move |c| (p, c)))
 }
 
-fn all_beans(index: &Index<Shell>) -> impl Iterator<Item = (&str, &(String, Range, bool))> {
-    index.iter().flat_map(|(p, s)| s.beans.iter().map(move |b| (p, b)))
+fn all_beans_for(index:&Index<Shell>,core:bool)->impl Iterator<Item=(&str,&(String,Range,bool))> {
+    index.iter().flat_map(move |(p,s)| if core {&s.core_beans} else {&s.beans}.iter().map(move |b|(p,b)))
 }
 
-fn unique_provider_names(index:&Index<Shell>)->std::collections::BTreeSet<&str> {
+fn unique_provider_names_for(index:&Index<Shell>,core:bool)->std::collections::BTreeSet<&str> {
     let mut names:std::collections::BTreeMap<&str,(std::collections::BTreeSet<(&str,u32,u32)>,bool)>=std::collections::BTreeMap::new();
-    for (path,bean) in all_beans(index) {
+    for (path,bean) in all_beans_for(index,core) {
         let entry=names.entry(&bean.0).or_insert_with(||(std::collections::BTreeSet::new(),true));
         entry.0.insert((path,bean.1.start.line,bean.1.start.character));
         entry.1 &= bean.2;
@@ -291,7 +315,6 @@ fn analyze(doc: &Document, f: &JavaFile, index: &Index<Shell>) -> (Vec<Diagnosti
     let name_of = |m: &Member| at(m.at, m.at + m.name.len());
     let line_of = |m: &Member| position(text, m.at).line;
     let mine = commands(f, text);
-    let provider_names = unique_provider_names(index);
     let mut problems = Vec::new();
     let mut markers = Vec::new();
 
@@ -309,23 +332,17 @@ fn analyze(doc: &Document, f: &JavaFile, index: &Index<Shell>) -> (Vec<Diagnosti
         let legacy: Vec<&Member> =
             t.methods().filter(|m| m.annotation("ShellMethod").is_some_and(|a| rules::supported(f, text, a))).collect();
         for m in t.methods() {
-            for s in m
-                .annotation("CommandAvailability")
-                .filter(|a| rules::supported(f, text, a))
-                .and_then(|a| a.arg("provider"))
-                .filter(|arg| hover::literal_values(arg))
-                .into_iter()
-                .flat_map(|a| &a.strings)
-                .filter(|s| !s.value.contains('$'))
-            {
-                match all_beans(index).find(|(_, b)| b.0 == s.value && provider_names.contains(s.value.as_str())) {
-                    Some((path, b)) => markers.push(LineMarker {
-                        line: line_of(m),
-                        icon: None,
-                        tooltip: format!("Availability provider: {}", s.value),
-                        target: Some(Location { path: path.into(), range: b.1 }),
-                    }),
-                    None => {}
+            for (arg,core) in m.annotations.iter().filter_map(|a| {
+                if a.name=="CommandAvailability" && rules::supported(f,text,a) {a.arg("provider").map(|arg|(arg,false))}
+                else if rules::modern_field(f,text,a)==Some("name") {a.arg("availabilityProvider").map(|arg|(arg,true))}
+                else {None}
+            }).filter(|(arg,_)|hover::literal_values(arg) && !arg.text.contains('\\')) {
+                let names=unique_provider_names_for(index,core);
+                for s in &arg.strings {
+                    if s.value.contains('$') {continue;}
+                    if let Some((path,b))=all_beans_for(index,core).find(|(_,b)|b.0==s.value && names.contains(s.value.as_str())) {
+                        markers.push(LineMarker{line:line_of(m),icon:None,tooltip:format!("Availability provider: {}",s.value),target:Some(Location{path:path.into(),range:b.1})});
+                    }
                 }
             }
         }
@@ -380,12 +397,13 @@ fn class_at(f: &JavaFile, at: usize) -> String {
 pub struct ShellTools {
     actions: actions::State,
     command_renames: command_rename::State,
+    native_occurrences: native_occurrences::State,
     indexes: Indexes<Shell>,
 }
 
 impl Default for ShellTools {
     fn default() -> Self {
-        Self { actions: Default::default(), command_renames: Default::default(), indexes: Indexes::new(SOURCE_GLOBS, scan) }
+        Self { actions: Default::default(), command_renames: Default::default(), native_occurrences:Default::default(), indexes: Indexes::new(SOURCE_GLOBS, scan) }
     }
 }
 
@@ -440,6 +458,7 @@ impl Providers for ShellTools {
                     .collect();
             }
         }
+        if a.name=="Command" && arg.name=="availabilityProvider" && rules::modern_field(&f,&doc.text,a)!=Some("name") { return vec![]; }
         let Some(index) = self.indexes.for_document(&doc.path, &doc.text, PROVIDER_BUDGET) else {
             return Vec::new();
         };
@@ -448,8 +467,8 @@ impl Providers for ShellTools {
                 .into_iter()
                 .map(|(path, c)| Location { path: path.into(), range: c.target })
                 .collect(),
-            ("CommandAvailability", "provider") => {
-                all_beans(index).filter(|(_, b)| b.0 == s.value).map(|(path, b)| Location { path: path.into(), range: b.1 }).collect()
+            ("CommandAvailability", "provider") | ("Command", "availabilityProvider") => {
+                all_beans_for(index,a.name=="Command").filter(|(_, b)| b.0 == s.value).map(|(path, b)| Location { path: path.into(), range: b.1 }).collect()
             }
             _ => Vec::new(),
         }
@@ -487,6 +506,7 @@ impl Providers for ShellTools {
         let Some(index) = self.indexes.for_document(&doc.path, &doc.text, PROVIDER_BUDGET) else {
             return Vec::new();
         };
+        if a.name=="Command" && arg.name=="availabilityProvider" && rules::modern_field(&f,&doc.text,a)!=Some("name") {return vec![];}
         let mut out: Vec<CompletionItem> = match (a.name.as_str(), arg.name.as_str()) {
             ("ShellMethodAvailability", "value") => {
                 let class = class_at(&f, offset);
@@ -503,7 +523,7 @@ impl Providers for ShellTools {
             ("ShellMethod" | "Command", "group") | ("ShellCommandGroup", "value") => {
                 index.iter().flat_map(|(_, s)| &s.groups).map(|g| item(g, CompletionKind::Module, "command group", "0")).collect()
             }
-            ("CommandAvailability", "provider") => unique_provider_names(index).into_iter()
+            ("CommandAvailability", "provider") | ("Command", "availabilityProvider") => unique_provider_names_for(index,a.name=="Command").into_iter()
                 .map(|name| item(name, CompletionKind::Reference, "Declared AvailabilityProvider bean", "0"))
                 .collect(),
             _ => Vec::new(),
@@ -515,13 +535,13 @@ impl Providers for ShellTools {
 }
 
 impl Plugin for ShellTools {
-    fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
-        if id == "command-occurrences" { return command_rename::occurrences(ctx); }
+    fn run_command(&mut self, id: &str, ctx: &Invocation, arg: Option<&str>) -> Result<Option<String>, Error> {
+        if id == "command-occurrences" { return if let Some(arg)=arg{self.native_occurrences(ctx,arg)}else{command_rename::occurrences(ctx,None)}; }
         Err(Error::NotFound(format!("command {id}")))
     }
 }
 
-register_plugin!(ShellTools, providers, diagnostics, hover, file_actions);
+register_plugin!(ShellTools, providers, diagnostics, hover, file_actions, language_features);
 
 #[cfg(test)]
 mod tests {
@@ -1005,4 +1025,59 @@ mod availability_wrong_type_shadow_regressions {
    assert!(ShellTools::default().diagnostics(&exact).iter().any(|d|d.code.as_deref()==Some("availability-return-type")));
   }
  }
+}
+
+#[cfg(test)]
+mod modern_contract_tests {
+    use super::*;
+    use openidea_plugin::{hover::HoverProvider, mock::MockHost};
+    fn keys(text:&str,kotlin:bool)->Vec<String> {
+        let path=if kotlin {"/project/C.kt"} else {"/project/C.java"};
+        commands(&parse_source(path,text),text).into_iter().map(|c|c.key).collect()
+    }
+    #[test]
+    fn v3_aliases_are_separate_routes_with_the_class_alias_prefix() {
+        let text="import org.springframework.shell.command.annotation.Command; @Command(command=\"db\",alias=\"database\") class C { @Command(command={\"dump\",\"all\"},alias={\"export\",\"backup all\"}) void dump(){} }";
+        assert_eq!(keys(text,false),["db dump all","database export","database backup all"]);
+        assert_eq!(keys(&text.replace("alias=\"database\"", "alias=PREFIX"),false),["db dump all"]);
+    }
+    #[test]
+    fn v4_owned_names_aliases_implicit_methods_and_group_prefixes_work_in_java_and_kotlin() {
+        let java="import org.springframework.shell.core.command.annotation.Command; import org.springframework.shell.core.command.annotation.CommandGroup; @CommandGroup(name=\"Database\",prefix=\"db\") class C { @Command(name={\"dump\",\"all\"},alias={\"export\",\"backup all\"},description=\"Dump data\") void dump(){} @Command(\"Show tables\") void showTables(){} }";
+        assert_eq!(keys(java,false),["db dump all","export","backup all","db show-tables"]);
+        let kotlin="import org.springframework.shell.core.command.annotation.Command\nclass C { @Command(name=[\"dump\",\"all\"],alias=[\"export\",\"backup all\"]) fun dump(){} @Command fun showTables(){} }";
+        assert_eq!(keys(kotlin,true),["dump all","export","backup all","show-tables"]);
+        assert!(keys(&java.replace("prefix=\"db\"","prefix=PREFIX"),false).is_empty());
+        assert!(keys(&java.replace("org.springframework.shell.core.command.annotation.Command;","foreign.Command;"),false).is_empty());
+    }
+    #[test]
+    fn v4_hover_uses_value_as_description_and_aliases_share_method_identity() {
+        let _h=MockHost::install().with_capabilities(&[]);
+        let text="import org.springframework.shell.core.command.annotation.Command; class C { @Command(name=\"show\",alias=\"list\",value=\"List data\") void show(){} }";
+        let doc=Document {path:"/project/C.java".into(),language:"java".into(),version:1,text:text.into()};
+        let hover=ShellTools::default().hover(&doc,position(text,text.find("\"list\"").unwrap()+1)).unwrap();
+        assert!(hover.markdown.contains("show, list"));
+        assert!(hover.markdown.ends_with("List data"));
+    }
+}
+
+#[cfg(test)]
+mod core_provider_tests {
+    use super::*;
+    use openidea_plugin::mock::MockHost;
+    #[test]
+    fn core_availability_completion_and_markers_do_not_mix_legacy_interface_identity() {
+        let h=MockHost::install();
+        let text="import org.springframework.context.annotation.Bean; import org.springframework.shell.core.command.annotation.Command; class C { @Bean org.springframework.shell.core.command.availability.AvailabilityProvider ready(){return null;} @Bean org.springframework.shell.AvailabilityProvider legacy(){return null;} @Command(name=\"run\",availabilityProvider=\"ready\") void run(){} }";
+        h.add_file("src/main/java/C.java",text);
+        let d=Document{path:"/project/src/main/java/C.java".into(),text:text.into(),language:"java".into(),version:1};
+        let at=position(text,text.rfind("ready").unwrap());
+        let mut tools=ShellTools::default();
+        assert_eq!(tools.completion(&d,at,None).iter().map(|c|c.label.as_str()).collect::<Vec<_>>(),["ready"]);
+        assert_eq!(tools.definition(&d,at).len(),1);
+        let markers=tools.line_markers(&d);
+        assert!(markers.iter().any(|m|m.tooltip=="Availability provider: ready"));
+        assert!(!markers.iter().any(|m|m.tooltip.contains("legacy")));
+        assert!(h.process_runs().is_empty()&&h.requests().is_empty());
+    }
 }

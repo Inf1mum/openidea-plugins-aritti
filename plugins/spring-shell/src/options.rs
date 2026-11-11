@@ -415,7 +415,7 @@ fn aliases(doc: &Document, f: &JavaFile, out: &mut Vec<Diagnostic>) {
     };
 
     for t in &f.types {
-        let class = t.annotation("Command").filter(|a| rules::supported(f, &doc.text, a));
+        let class = t.annotation("Command").filter(|a| rules::modern_field(f, &doc.text, a) == Some("command"));
         let unknown_prefix = class.is_none() && (t.supers().next().is_some() || !t.annotations.is_empty());
         let class_command = match class {
             Some(a) if a.arg("command").is_some() => {
@@ -446,7 +446,7 @@ fn aliases(doc: &Document, f: &JavaFile, out: &mut Vec<Diagnostic>) {
                         }
                     }
                 }
-            } else if let (Some(prefix), Some(a)) = (&class_command, m.annotation("Command").filter(|a| rules::supported(f, &doc.text, a)))
+            } else if let (Some(prefix), Some(a)) = (&class_command, m.annotation("Command").filter(|a| rules::modern_field(f, &doc.text, a) == Some("command")))
             {
                 let values = if a.arg("command").is_none() { Some(Vec::new()) } else { literals::values(doc, a, "command") };
                 if let Some(values) = values {
@@ -479,7 +479,7 @@ fn aliases(doc: &Document, f: &JavaFile, out: &mut Vec<Diagnostic>) {
         };
         let prefix = Rc::new(Prefix::new(class_alias));
         for m in t.methods() {
-            let Some(a) = m.annotation("Command").filter(|a| rules::supported(f, &doc.text, a)) else {
+            let Some(a) = m.annotation("Command").filter(|a| rules::modern_field(f, &doc.text, a) == Some("command")) else {
                 continue;
             };
             let Some(values) = literals::values(doc, a, "alias") else {
@@ -557,7 +557,7 @@ pub(super) fn check(doc: &Document, f: &JavaFile) -> Vec<Diagnostic> {
     let mut out = Vec::new();
     for t in &f.types {
         for m in t.methods() {
-            if m.annotation("Command").is_some_and(|a| rules::supported(f, &doc.text, a)) {
+            if m.annotation("Command").is_some_and(|a| rules::modern_field(f, &doc.text, a) == Some("command")) {
                 names(doc, f, m, true, &mut out, &type_aliases);
             } else if m.annotation("ShellMethod").is_some_and(|a| rules::supported(f, &doc.text, a)) {
                 names(doc, f, m, false, &mut out, &type_aliases);
@@ -565,6 +565,7 @@ pub(super) fn check(doc: &Document, f: &JavaFile) -> Vec<Diagnostic> {
         }
     }
     aliases(doc, f, &mut out);
+    core_options(doc,f,&mut out);
     out
 }
 
@@ -648,7 +649,7 @@ mod tests {
     #[test]
     fn unknown_owners_values_modifiers_and_types_do_not_turn_into_format_assertions() {
         let _host = MockHost::install().with_capabilities(&[]);
-        for text in [format!("{MODERN}@Command class C {{ @Command void run(@Option(longNames=NAME,shortNames=SHORT,defaultValue=VALUE) int n){{}} }}"),"import other.Command; import other.Option; class C { @Command void run(@Option(longNames={\"x\",\"x\"},defaultValue=\"bad\") int x){} }".into(),"import org.springframework.shell.core.command.annotation.Command; import org.springframework.shell.core.command.annotation.Option; class C { @Command void run(@Option(defaultValue=\"bad\") int x){} }".into(),format!("{LEGACY}@org.springframework.shell.standard.ShellComponent class C {{ @ShellMethod(\"Run\") void run(@ShellOption(defaultValue=\"__NULL__\") int n){{}} }}")] {assert!(codes(&text).is_empty(),"{text}");}
+        for text in [format!("{MODERN}@Command class C {{ @Command void run(@Option(longNames=NAME,shortNames=SHORT,defaultValue=VALUE) int n){{}} }}"),"import other.Command; import other.Option; class C { @Command void run(@Option(longNames={\"x\",\"x\"},defaultValue=\"bad\") int x){} }".into(),"import org.springframework.shell.core.command.annotation.Command; import org.springframework.shell.core.command.annotation.Option; class C { @Command void run(@Option(defaultValue=VALUE) int x){} }".into(),format!("{LEGACY}@org.springframework.shell.standard.ShellComponent class C {{ @ShellMethod(\"Run\") void run(@ShellOption(defaultValue=\"__NULL__\") int n){{}} }}")] {assert!(codes(&text).is_empty(),"{text}");}
         let kotlin = "import org.springframework.shell.command.annotation.Command\nimport org.springframework.shell.command.annotation.Option\nimport kotlin.Int\n@Command class C { @Command(command=\"run\") fun run(@Option(defaultValue=\"bad\") x:Int) {} }";
         assert!(ShellTools::default().diagnostics(&doc(kotlin, true)).iter().any(|d| d.code.as_deref() == Some("option-default-format")));
     }
@@ -716,5 +717,70 @@ mod tests {
             r#"{MODERN}{LEGACY}@org.springframework.shell.standard.ShellComponent class Legacy {{ @ShellMethod(value="Run",key="same") void run(){{}} }} @Command class Modern {{ @Command(command="other",alias="same") void other(){{}} }}"#
         );
         assert_eq!(codes(&text).iter().filter(|c| c.as_str() == "duplicate-command-alias").count(), 2);
+    }
+}
+
+/// Spring Shell 4.x annotation contracts use singular option names, not 3.x
+/// longNames/shortNames/arity. Keep these profiles separate.
+fn core_options(doc:&Document,f:&JavaFile,out:&mut Vec<Diagnostic>) {
+    for method in f.types.iter().flat_map(|t|t.methods()).filter(|m|m.annotation("Command").is_some_and(|a|rules::modern_field(f,&doc.text,a)==Some("name"))) {
+        let mut names=BTreeMap::<(bool,String),Vec<Range>>::new();
+        for parameter in &method.params {
+            for a in &parameter.annotations {
+                let option=a.name=="Option" && rules::owned(f,&doc.text,a,"org.springframework.shell.core.command.annotation.Option");
+                let argument=a.name=="Argument" && rules::owned(f,&doc.text,a,"org.springframework.shell.core.command.annotation.Argument");
+                if !option && !argument {continue;}
+                if option {
+                    if let Some(values)=literals::values(doc,a,"longName").filter(|v|v.len()==1) {
+                        let value=&values[0];
+                        // Empty longName means runtime parameter-name fallback.
+                        if !value.value.is_empty() {names.entry((false,value.value.clone())).or_default().push(rules::literal_range(&doc.text,value));}
+                    }
+                    if let Some(values)=literals::characters(doc,a,"shortName").filter(|v|v.len()==1) {
+                        let (value,raw)=&values[0];
+                        if value!=" " {names.entry((true,value.clone())).or_default().push(range(&doc.text,raw.start,raw.end));}
+                    }
+                }
+                let Some(values)=literals::values(doc,a,"defaultValue").filter(|v|v.len()==1) else {continue;};
+                let value=&values[0];if value.value.is_empty(){continue;}
+                let Some(kind)=primitive(doc,f,parameter,&HashSet::new(),&BTreeMap::new()) else {continue;};
+                if default_valid(&value.value,kind)==Some(false) {
+                    diag(out,rules::literal_range(&doc.text,value),if option{"option-default-format"}else{"argument-default-format"},"Literal default does not match standard conversion for the declared primitive type. Custom converters and runtime defaults are not resolved.");
+                }
+            }
+        }
+        for (_,spans) in names.into_iter().filter(|(_,spans)|spans.len()>1) {
+            for span in spans {diag(out,span,"duplicate-option-name","Literal option name is repeated within this command before runtime naming modifiers.");}
+        }
+    }
+}
+#[cfg(test)]
+mod core_option_tests {
+    use super::*;
+    use openidea_plugin::mock::MockHost;
+    const IMPORTS:&str="import org.springframework.shell.core.command.annotation.Command; import org.springframework.shell.core.command.annotation.Option; import org.springframework.shell.core.command.annotation.Argument; ";
+    fn problems(source:&str)->Vec<Diagnostic> {
+        let d=Document{path:"/project/C.java".into(),language:"java".into(),text:source.into(),version:1};
+        ShellTools::default().diagnostics(&d)
+    }
+    #[test]
+    fn core_singular_names_and_option_argument_defaults_are_checked_without_v3_arity_rules() {
+        let _h=MockHost::install().with_capabilities(&[]);
+        let source=format!("{IMPORTS} class C {{ @Command(name=\"run\") void run(@Option(longName=\"count\",shortName='c',defaultValue=\"bad\") int count,@Option(longName=\"count\",shortName='c') int other,@Argument(index=0,defaultValue=\"huge\") long number){{}} }}");
+        let problems=problems(&source);
+        assert_eq!(problems.iter().filter(|d|d.code.as_deref()==Some("duplicate-option-name")).count(),4);
+        assert_eq!(problems.iter().filter(|d|d.code.as_deref()==Some("option-default-format")).count(),1);
+        assert_eq!(problems.iter().filter(|d|d.code.as_deref()==Some("argument-default-format")).count(),1);
+        assert!(!problems.iter().any(|d|d.code.as_deref()==Some("option-arity-range")));
+    }
+    #[test]
+    fn core_dynamic_foreign_empty_defaults_and_generic_types_remain_unknown() {
+        let _h=MockHost::install().with_capabilities(&[]);
+        for source in [
+            format!("{IMPORTS} class C {{ @Command void run(@Option(longName=NAME,shortName=SHORT,defaultValue=VALUE) int n){{}} }}"),
+            format!("{IMPORTS} class C {{ @Command void run(@Option(defaultValue=\"\") int n,@Argument(index=0,defaultValue=\"\") int a){{}} }}"),
+            format!("{IMPORTS} class C<Integer> {{ @Command void run(@Option(defaultValue=\"bad\") Integer n){{}} }}"),
+            format!("{} class C {{ @Command void run(@Option(defaultValue=\"bad\") int n){{}} }}",IMPORTS.replace("org.springframework.shell.core.command.annotation.Option;","foreign.Option;")),
+        ] {assert!(problems(&source).is_empty(),"{source}");}
     }
 }

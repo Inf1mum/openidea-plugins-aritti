@@ -259,7 +259,7 @@ fn scheduled(file: &JavaFile, text: &str, ctx: &Context, out: &mut Vec<Problem>)
                 && !value.value.contains(['{', '$']))
             .then_some((arg, value))
         };
-        if let Some((_, cron)) = literal("cron") {
+        if let Some((_, cron)) = literal("cron").filter(|(_, value)| !value.value.is_empty()) {
             let fields = cron.value.split_whitespace().count();
             let off = matches!(cron.value.as_str(), "off" | "disabled");
             if cron_fields_are_free(ctx) && !off && !(6..=7).contains(&fields) {
@@ -270,7 +270,8 @@ fn scheduled(file: &JavaFile, text: &str, ctx: &Context, out: &mut Vec<Problem>)
                 out.push(Problem { finding: Finding::new(cron.at, cron.end, "invalid-cron", message), fixes: Vec::new() });
             }
         }
-        if let Some((_, every)) = literal("every") {
+        if (a.arg("cron").is_none() || literal("cron").is_some_and(|(_, value)| value.value.is_empty()))
+            && let Some((_, every)) = literal("every") {
             let value = every.value.trim();
             if !matches!(value, "off" | "disabled") && !duration(value) {
                 let message = format!("`{value}` is not a duration such as `10s`, `5m` or `PT1H`.");
@@ -283,10 +284,6 @@ fn scheduled(file: &JavaFile, text: &str, ctx: &Context, out: &mut Vec<Problem>)
                 finding: Finding::new(a.at, a.name_at + a.name.len(), "scheduled-without-trigger", message),
                 fixes: Vec::new(),
             });
-        }
-        if a.arg("cron").is_some() && a.arg("every").is_some() {
-            let message = "@Scheduled takes either `cron` or `every`, not both.";
-            out.push(Problem { finding: Finding::new(a.at, a.end, "scheduled-both-triggers", message), fixes: Vec::new() });
         }
     }
 }
@@ -418,4 +415,12 @@ mod tests {
         assert!(fixed("import org.eclipse.microprofile.metrics.annotation.Gauge; import jakarta.enterprise.context.ApplicationScoped; @ApplicationScoped class M { @Gauge(name = \"a\") int ok() { return 1; } }").is_empty());
         assert!(fixed("import org.eclipse.microprofile.metrics.annotation.Gauge; class M { @Gauge(name = \"a\") int ok() { return 1; } }").is_empty());
     }
+    #[test]
+    fn scheduler_cron_takes_precedence_over_every_as_quarkus_specifies() {
+        let both = "import io.quarkus.scheduler.Scheduled; class Job { @Scheduled(cron=\"0 0/5 * * * ?\", every=\"not a duration\") void run() {} }";
+        assert!(run(both, &["other"], &[]).is_empty());
+        let fallback = "import io.quarkus.scheduler.Scheduled; class Job { @Scheduled(cron=\"\", every=\"10s\") void run() {} }";
+        assert!(run(fallback, &["other"], &[]).is_empty());
+    }
+
 }

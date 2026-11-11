@@ -49,6 +49,16 @@
       "type": "string",
       "title": "Clone directory (leave empty to clone next to the current project)",
       "default": ""
+    },
+    "accountSlot": {
+      "type": "string",
+      "title": "GitLab.com account slot",
+      "enum": [
+        "primary",
+        "secondary"
+      ],
+      "default": "primary",
+      "description": "Choose the declared primary or secondary personal access token. Finish unsent comments before switching."
     }
   }
 }

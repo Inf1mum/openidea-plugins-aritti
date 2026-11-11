@@ -1,5 +1,7 @@
 # Parity with IntelliJ IDEA plugins
 
+**Non-Laravel implementation (2026-11-10, in progress):** [current delivery, validation and residual inventories](docs/parity-implementation-2026-11-10-non-laravel/README.md). All 29 non-Laravel packages are in scope; full feasible parity remains open. Historical ratings and task counts below have not been promoted by these changes.
+
 **Current Laravel acceptance:** [feature ledger and current-host capability qualification](docs/laravel-parity-acceptance.md). The [public documentation comparison](#laravel-idea-public-documentation-comparison-current-source) remains a source inventory, not verified runtime parity.
 
 **API 1.4 released (v0.1.40, 2026-11-09):** [Current blocker requalification](docs/parity-2026-11-08-refresh/api14-release-requalification/README.md). Canonical packages now target SDK v0.1.40 / API1.4; see the [native migration record](docs/native-api-migration-implementation-2026-11-09.md). Historical parity counters and dated validation receipts have not been promoted by this source migration.

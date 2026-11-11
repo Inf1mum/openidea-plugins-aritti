@@ -100,6 +100,7 @@ fn documentation(kind: &str, name: &str) -> String {
 }
 impl HoverProvider for Twig {
     fn hover(&mut self, doc: &Document, at: openidea_plugin::Position) -> Option<Hover> {
+        let _syntax=crate::delimiters::Syntax::scope()?;
         if doc.language != "twig"
             || !doc.path.ends_with(".twig")
             || doc.text.len() > 128 << 10
