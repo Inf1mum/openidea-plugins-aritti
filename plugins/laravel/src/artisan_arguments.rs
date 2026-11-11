@@ -43,6 +43,21 @@ pub(crate) fn merge(mut base:Vec<String>, options:&str, trailing:&str, nonintera
     Ok(base)
 }
 
+
+// Exact authored messages are localized only after validation reaches a UI caller.
+pub(crate) fn ui_error(error:Error)->Error {
+    fn message(message:String)->String{match message.as_str(){
+        "Additional arguments exceed text limits." => crate::ui_text::t("native.dockerRoute.98f01d67be",&message),
+        "Additional options must start with an option; put trailing values in Additional arguments." => crate::ui_text::t("native.dockerRoute.8188ea2775",&message),
+        "Captured runs manage no-interaction and no-ansi automatically." => crate::ui_text::t("native.dockerRoute.7aa9d9330b",&message),
+        "Close the quoted argument." => crate::ui_text::t("native.dockerRoute.1049b20ec6",&message),
+        "Command arguments exceed limits." => crate::ui_text::t("native.artisan_workspace.eb45400b88",&message),
+        "Finish the escaped argument." => crate::ui_text::t("native.dockerRoute.912affd806",&message),
+        "Use at most 128 additional arguments." => crate::ui_text::t("native.dockerRoute.b82fcb4ae0",&message),
+        _=>message,
+    }}
+    match error{Error::Invalid(value)=>Error::Invalid(message(value)),Error::Failed(value)=>Error::Failed(message(value)),_=>error}
+}
 #[cfg(test)]mod tests{
     use super::*;
     #[test]fn quotes_unicode_empty_and_literal_shell_characters_are_preserved(){

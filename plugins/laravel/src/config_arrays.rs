@@ -66,6 +66,12 @@ fn returned(text: &str) -> Option<usize> {
     None
 }
 fn string_key(text: &str, range: Range<usize>) -> Option<(String, usize, usize)> {
+    let range = php::trimmed(text, range);
+    if let Some((key, _)) = literal_key(text, range.clone(), 0) {
+        if php::literal(text, range.clone()).is_none() {
+            return Some((key, range.start, range.len()));
+        }
+    }
     let (raw, offset) = php::literal(text, range)?;
     let single = text.as_bytes()[offset - 1] == b'\'';
     if !single && (raw.contains('$') || raw.contains('\\')) {
@@ -78,10 +84,56 @@ fn string_key(text: &str, range: Range<usize>) -> Option<(String, usize, usize)>
     };
     (!key.is_empty()).then_some((key, offset, raw.len()))
 }
+fn literal_key(text: &str, range: Range<usize>, depth: usize) -> Option<(String, usize)> {
+    if depth > 12 {
+        return None;
+    }
+    let range = php::trimmed(text, range);
+    if text.as_bytes().get(range.start) == Some(&b'(')
+        && php::closing(text, range.start) == Some(range.end.checked_sub(1)?)
+    {
+        return literal_key(text, range.start + 1..range.end - 1, depth + 1);
+    }
+    let mut at = range.start;
+    let mut parts = Vec::new();
+    let mut begin = at;
+    while at < range.end {
+        match text.as_bytes()[at] {
+            b'\'' | b'"' => at = php::string_end(text.as_bytes(), at),
+            b'(' => at = php::closing(text, at)? + 1,
+            b'.' => {
+                parts.push(begin..at);
+                begin = at + 1;
+                at += 1;
+            }
+            _ => at += 1,
+        }
+    }
+    if !parts.is_empty() {
+        parts.push(begin..range.end);
+        let mut key = String::new();
+        for part in parts {
+            key.push_str(&literal_key(text, part, depth + 1)?.0);
+        }
+        return Some((key, range.start));
+    }
+    let (raw, at) = php::literal(text, range)?;
+    let single = text.as_bytes()[at - 1] == b'\'';
+    if !single && (raw.contains('$') || raw.contains('\\')) {
+        return None;
+    }
+    let key = if single {
+        raw.replace("\\'", "'").replace("\\\\", "\\")
+    } else {
+        raw.to_owned()
+    };
+    (!key.is_empty()).then_some((key, at))
+}
 struct Walker<'a> {
     text: &'a str,
     out: Vec<Leaf>,
     complete: bool,
+    key_resolver: Option<&'a dyn Fn(Range<usize>) -> Option<String>>,
 }
 impl Walker<'_> {
     fn walk(&mut self, open: usize, prefix: &str, depth: usize) {
@@ -137,6 +189,21 @@ impl Walker<'_> {
                         }
                     });
                     Some((number.to_string(), range.start, range.len()))
+                } else if let Some(key) =
+                    self.key_resolver.and_then(|resolve| resolve(range.clone()))
+                {
+                    if let Ok(number) = key.parse::<i64>() {
+                        if number.to_string() == key {
+                            next = next.and_then(|n| {
+                                if number < 0 && n == 0 {
+                                    None
+                                } else {
+                                    Some(n.max(number.checked_add(1)?))
+                                }
+                            });
+                        }
+                    }
+                    Some((key, range.start, range.len()))
                 } else {
                     // Unknown keys may change subsequent implicit integer offsets.
                     next = None;
@@ -176,6 +243,15 @@ impl Walker<'_> {
 }
 /// Includes known entries even when an unsupported spread/key or bound prevents full coverage.
 pub fn paths(masked: &str, prefix: &str) -> (Vec<Leaf>, bool) {
+    paths_with_keys(masked, prefix, None)
+}
+/// A pure source-backed resolver may provide otherwise unknown scalar keys.
+/// Unresolved expressions retain the existing incomplete-array semantics.
+pub(crate) fn paths_with_keys(
+    masked: &str,
+    prefix: &str,
+    key_resolver: Option<&dyn Fn(Range<usize>) -> Option<String>>,
+) -> (Vec<Leaf>, bool) {
     if masked.len() > MAX_SOURCE || masked.contains("<<<") {
         return (vec![], false);
     }
@@ -186,6 +262,7 @@ pub fn paths(masked: &str, prefix: &str) -> (Vec<Leaf>, bool) {
         text: masked,
         out: vec![],
         complete: true,
+        key_resolver,
     };
     walker.walk(open, prefix, 0);
     (walker.out, walker.complete)

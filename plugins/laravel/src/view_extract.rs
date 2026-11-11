@@ -82,6 +82,495 @@ fn variable(s: &str) -> bool {
             .enumerate()
             .all(|(i, b)| b.is_ascii_alphabetic() || b == b'_' || i > 0 && b.is_ascii_digit())
 }
+/// Read-only expression grammar: literals, variable/property/index reads and operators.
+/// Caller-variable mutation, reference arguments and implicit runtime state are excluded.
+/// Zero-argument instance calls retain the same captured object without exposing
+/// caller variables to by-reference arguments.
+struct CaptureParser<'a> {
+    source: &'a str,
+    at: usize,
+    depth: usize,
+    vars: BTreeSet<String>,
+}
+impl<'a> CaptureParser<'a> {
+    fn ws(&mut self) {
+        while self
+            .source
+            .as_bytes()
+            .get(self.at)
+            .is_some_and(u8::is_ascii_whitespace)
+        {
+            self.at += 1;
+        }
+    }
+    fn take(&mut self, value: &str) -> bool {
+        self.ws();
+        if self.source[self.at..].starts_with(value) {
+            self.at += value.len();
+            true
+        } else {
+            false
+        }
+    }
+    fn identifier(&mut self) -> Option<&'a str> {
+        self.ws();
+        let start = self.at;
+        while self
+            .source
+            .as_bytes()
+            .get(self.at)
+            .is_some_and(|b| b.is_ascii_alphanumeric() || *b == b'_')
+        {
+            self.at += 1;
+        }
+        let name = &self.source[start..self.at];
+        variable(name).then_some(name)
+    }
+    fn atom(&mut self) -> Option<()> {
+        self.ws();
+        self.depth += 1;
+        if self.source[self.at..].starts_with("++") || self.source[self.at..].starts_with("--") {
+            return None;
+        }
+        if self.depth > 32 {
+            return None;
+        }
+        if self.take("!") || self.take("-") || self.take("+") {
+            self.atom()?;
+        } else if self.take("(") {
+            self.expression()?;
+            if !self.take(")") {
+                return None;
+            }
+        } else if self.take("[") {
+            if !self.take("]") {
+                loop {
+                    self.expression()?;
+                    if self.take("=>") {
+                        self.expression()?;
+                    }
+                    if self.take("]") {
+                        break;
+                    }
+                    if !self.take(",") {
+                        return None;
+                    }
+                    if self.take("]") {
+                        break;
+                    }
+                }
+            }
+        } else if self.take("$") {
+            let name = self.identifier()?;
+            if [
+                "loop",
+                "component",
+                "__env",
+                "__data",
+                "__path",
+                "GLOBALS",
+                "this",
+            ]
+            .contains(&name)
+            {
+                return None;
+            }
+            self.vars.insert(name.into());
+            if self.vars.len() > 32 {
+                return None;
+            }
+        } else if self
+            .source
+            .as_bytes()
+            .get(self.at)
+            .is_some_and(|b| matches!(b, b'\'' | b'"'))
+        {
+            let start = self.at;
+            let quote = self.source.as_bytes()[start];
+            let end = crate::php::string_end(self.source.as_bytes(), start);
+            if end <= start + 1
+                || self.source.as_bytes().get(end - 1) != Some(&quote)
+                || quote == b'"' && self.source[start + 1..end - 1].contains('$')
+            {
+                return None;
+            }
+            self.at = end;
+        } else if self
+            .source
+            .as_bytes()
+            .get(self.at)
+            .is_some_and(u8::is_ascii_digit)
+        {
+            while self
+                .source
+                .as_bytes()
+                .get(self.at)
+                .is_some_and(u8::is_ascii_digit)
+            {
+                self.at += 1;
+            }
+        } else {
+            let name = self.identifier()?;
+            if !["true", "false", "null"].contains(&name) {
+                return None;
+            }
+        }
+        loop {
+            if self.take("?->") || self.take("->") {
+                self.identifier()?;
+                if self.take("(") && !self.take(")") {
+                    return None;
+                }
+            } else if self.take("[") {
+                self.expression()?;
+                if !self.take("]") {
+                    return None;
+                }
+            } else {
+                break;
+            }
+        }
+        self.depth -= 1;
+        Some(())
+    }
+    fn expression(&mut self) -> Option<()> {
+        self.depth += 1;
+        if self.depth > 32 {
+            return None;
+        }
+        self.atom()?;
+        loop {
+            self.ws();
+            let remaining = &self.source[self.at..];
+            let Some(operator) = [
+                "===", "!==", "??", "==", "!=", "<=", ">=", "&&", "||", ".", "+", "-", "*", "/",
+                "%", "<", ">",
+            ]
+            .into_iter()
+            .find(|op| remaining.starts_with(op)) else {
+                break;
+            };
+            // ++/-- and assignment must never be interpreted as binary/unary pairs.
+            if remaining.starts_with("++") || remaining.starts_with("--") {
+                return None;
+            }
+            self.at += operator.len();
+            self.atom()?;
+        }
+        if self.take("?") {
+            if !self.take(":") {
+                self.expression()?;
+                if !self.take(":") {
+                    return None;
+                }
+            }
+            self.expression()?;
+        }
+        self.depth -= 1;
+        Some(())
+    }
+}
+fn captures(expression: &str) -> Option<Vec<String>> {
+    let mut parser = CaptureParser {
+        source: expression,
+        at: 0,
+        depth: 0,
+        vars: BTreeSet::new(),
+    };
+    parser.expression()?;
+    parser.ws();
+    if parser.vars.contains("slot") && expression.trim() != "$slot" {
+        return None;
+    }
+    (parser.at == expression.len()).then(|| parser.vars.into_iter().collect())
+}
+
+fn local_binding(name: &str) -> bool {
+    variable(name)
+        && ![
+            "GLOBALS",
+            "this",
+            "loop",
+            "slot",
+            "attributes",
+            "component",
+            "__env",
+            "__data",
+            "__path",
+            "_GET",
+            "_POST",
+            "_REQUEST",
+            "_SERVER",
+            "_SESSION",
+            "_COOKIE",
+            "_FILES",
+            "_ENV",
+        ]
+        .contains(&name)
+}
+fn php_block_facts(block: &str) -> Option<(Vec<String>, Vec<String>)> {
+    let body = block.strip_prefix("@php")?.strip_suffix("@endphp")?;
+    let code = crate::php::mask_comments(body);
+    let bytes = code.as_bytes();
+    let mut at = 0;
+    let mut start = 0;
+    let mut stack = Vec::new();
+    let mut reads = BTreeSet::new();
+    let mut writes = BTreeSet::new();
+    let mut statements = 0;
+    while at < bytes.len() {
+        if matches!(bytes[at], b'\'' | b'"') {
+            at = crate::php::string_end(bytes, at);
+            continue;
+        }
+        match bytes[at] {
+            b'(' => stack.push(b')'),
+            b'[' => stack.push(b']'),
+            b')' | b']' => {
+                if stack.pop() != Some(bytes[at]) {
+                    return None;
+                }
+            }
+            b'{' | b'}' | b'`' => return None,
+            b';' if stack.is_empty() => {
+                let statement = code[start..at].trim();
+                if !statement.is_empty() {
+                    statements += 1;
+                    if statements > 32 {
+                        return None;
+                    }
+                    if let Some(value) = statement.strip_prefix("echo ") {
+                        reads.extend(captures(value)?);
+                    } else {
+                        let (left, right) = statement.split_once('=')?;
+                        let name = left.trim().strip_prefix('$')?;
+                        if !local_binding(name) || right.trim_start().starts_with(['=', '>']) {
+                            return None;
+                        }
+                        reads.extend(captures(right)?);
+                        writes.insert(name.to_owned());
+                    }
+                }
+                start = at + 1;
+            }
+            _ => {}
+        }
+        if stack.len() > 32 {
+            return None;
+        }
+        at += 1;
+    }
+    if !stack.is_empty() || !code[start..].trim().is_empty() {
+        return None;
+    }
+    Some((reads.into_iter().collect(), writes.into_iter().collect()))
+}
+fn selected_writes(selected: &str) -> Option<Vec<String>> {
+    let mut writes = BTreeSet::new();
+    for span in crate::blade_php::ranges(selected)? {
+        if selected[span.clone()].starts_with("@php") {
+            writes.extend(php_block_facts(&selected[span])?.1);
+        }
+    }
+    let code = crate::php::mask_comments(selected);
+    for (_, tail) in code
+        .match_indices("@foreach")
+        .chain(code.match_indices("@forelse"))
+        .map(|(at, name)| (at, &code[at + name.len()..]))
+    {
+        let tail = tail.trim_start();
+        if !tail.starts_with('(') {
+            return None;
+        }
+        let end = crate::php::closing(tail, 0)?;
+        let (_, binding) = tail[1..end].split_once(" as ")?;
+        for binder in binding.split("=>") {
+            let name = binder.trim().strip_prefix('$')?;
+            if !local_binding(name) {
+                return None;
+            }
+            writes.insert(name.to_owned());
+        }
+    }
+    Some(writes.into_iter().collect())
+}
+fn writes_do_not_escape(doc: &Document, to: usize, writes: &[String]) -> bool {
+    if writes.is_empty() {
+        return true;
+    }
+    let suffix = &doc.text[to..];
+    if doc.text.contains("@extends")
+        || [
+            "@include",
+            "@each",
+            "@component",
+            "<x-",
+            "@php",
+            "<?",
+            "get_defined_vars",
+            "compact(",
+            "$$",
+        ]
+        .iter()
+        .any(|token| suffix.contains(token))
+    {
+        return false;
+    }
+    !writes.iter().any(|name| {
+        suffix
+            .match_indices(&format!("${name}"))
+            .any(|(at, token)| {
+                suffix
+                    .as_bytes()
+                    .get(at + token.len())
+                    .is_none_or(|b| !b.is_ascii_alphanumeric() && *b != b'_')
+            })
+    })
+}
+
+fn selected_captures(selected: &str) -> Option<Vec<String>> {
+    let bytes = selected.as_bytes();
+    let mut at = 0;
+    let mut stack: Vec<&str> = Vec::new();
+    let mut vars = BTreeSet::new();
+    while at < bytes.len() {
+        if bytes[at..].starts_with(b"@php") {
+            let span = crate::blade_php::ranges(selected)?
+                .into_iter()
+                .find(|span| span.start == at)?;
+            let (reads, writes) = php_block_facts(&selected[span.clone()])?;
+            vars.extend(reads);
+            vars.extend(writes);
+            at = span.end;
+            continue;
+        }
+        if bytes[at..].starts_with(b"{{") {
+            let end = echo_end(selected, at, false)?;
+            vars.extend(captures(selected[at + 2..end - 2].trim())?);
+            at = end;
+            continue;
+        }
+        if bytes[at] != b'@'
+            || at > 0 && (bytes[at - 1].is_ascii_alphanumeric() || bytes[at - 1] == b'_')
+        {
+            at += 1;
+            continue;
+        }
+        at += 1;
+        let start = at;
+        while bytes.get(at).is_some_and(u8::is_ascii_alphabetic) {
+            at += 1;
+        }
+        let name = selected.get(start..at)?;
+        let mut open = at;
+        while bytes.get(open).is_some_and(|b| matches!(b, b' ' | b'\t')) {
+            open += 1;
+        }
+        let args = if bytes.get(open) == Some(&b'(') {
+            at = crate::php::closing(selected, open)? + 1;
+            Some(crate::php::arguments(selected, open))
+        } else {
+            None
+        };
+        match name {
+            "foreach" | "forelse" => {
+                let args = args.as_ref()?;
+                if args.len() != 1 {
+                    return None;
+                }
+                let (iterable, binding) = selected[args[0].clone()].split_once(" as ")?;
+                vars.extend(captures(iterable)?);
+                for binder in binding.split("=>") {
+                    let name = binder.trim().strip_prefix('$')?;
+                    if !local_binding(name) {
+                        return None;
+                    }
+                    vars.insert(name.to_owned());
+                }
+                stack.push(name);
+            }
+            "empty" if args.is_none() && stack.last() == Some(&"forelse") => {}
+            "break" | "continue" => {
+                if !stack
+                    .iter()
+                    .any(|name| matches!(*name, "foreach" | "forelse"))
+                {
+                    return None;
+                }
+                if let Some(args) = args.as_ref() {
+                    if args.len() != 1 {
+                        return None;
+                    }
+                    vars.extend(captures(&selected[args[0].clone()])?);
+                }
+            }
+            "if" | "unless" | "isset" | "empty" => {
+                let args = args.as_ref()?;
+                if args.len() != 1 {
+                    return None;
+                }
+                vars.extend(captures(&selected[args[0].clone()])?);
+                stack.push(name);
+            }
+            "elseif" => {
+                if stack.last() != Some(&"if") {
+                    return None;
+                }
+                let args = args.as_ref()?;
+                if args.len() != 1 {
+                    return None;
+                }
+                vars.extend(captures(&selected[args[0].clone()])?);
+            }
+            "else" => {
+                if args.is_some() || stack.is_empty() {
+                    return None;
+                }
+            }
+            "endif" | "endunless" | "endisset" | "endempty" | "endforeach" | "endforelse" => {
+                if args.is_some() || stack.pop() != name.strip_prefix("end") {
+                    return None;
+                }
+            }
+            "class" | "style" | "json" => {
+                let args = args.as_ref()?;
+                if args.len() != 1 {
+                    return None;
+                }
+                vars.extend(captures(&selected[args[0].clone()])?);
+            }
+            "include" | "includeIf" => {
+                let args = args.as_ref()?;
+                if args.is_empty()
+                    || args.len() > 2
+                    || crate::php::literal(selected, args[0].clone()).is_none()
+                {
+                    return None;
+                }
+                if args.len() == 2 {
+                    vars.extend(captures(&selected[args[1].clone()])?);
+                }
+            }
+            "method" => {
+                let args = args.as_ref()?;
+                if args.len() != 1 || crate::php::literal(selected, args[0].clone()).is_none() {
+                    return None;
+                }
+            }
+            "csrf" => {
+                if args.is_some() {
+                    return None;
+                }
+            }
+            _ => return None,
+        }
+        if stack.len() > 32 || vars.len() > 32 {
+            return None;
+        }
+    }
+    stack.is_empty().then(|| vars.into_iter().collect())
+}
+
 fn overlaps(a: std::ops::Range<usize>, from: usize, to: usize) -> bool {
     a.start < to && from < a.end
 }
@@ -156,7 +645,11 @@ fn boundary(text: &str, from: usize, to: usize) -> Option<String> {
             span += 1;
         }
         if let Some(range) = opaque.get(span).filter(|range| range.contains(&at)) {
-            if overlaps(range.clone(), from, to) {
+            if overlaps(range.clone(), from, to)
+                && !(from <= range.start
+                    && range.end <= to
+                    && php_block_facts(&text[range.clone()]).is_some())
+            {
                 return None;
             }
             blank(&mut result, range.start, range.end);
@@ -212,10 +705,45 @@ fn boundary(text: &str, from: usize, to: usize) -> Option<String> {
         } else {
             None
         };
-        if overlaps(begin..at, from, to) {
+        if overlaps(begin..at, from, to)
+            && !(from <= begin
+                && at <= to
+                && matches!(
+                    name,
+                    "foreach"
+                        | "forelse"
+                        | "endforeach"
+                        | "endforelse"
+                        | "break"
+                        | "continue"
+                        | "if"
+                        | "unless"
+                        | "isset"
+                        | "empty"
+                        | "elseif"
+                        | "else"
+                        | "endif"
+                        | "endunless"
+                        | "endisset"
+                        | "endempty"
+                        | "class"
+                        | "style"
+                        | "json"
+                        | "include"
+                        | "includeIf"
+                        | "method"
+                        | "csrf"
+                ))
+        {
             return None;
         }
         match name {
+            "props" | "aware" => {
+                let args = arguments.as_ref()?;
+                if args.len() != 1 || crate::php::array_open(text, args[0].clone()).is_none() {
+                    return None;
+                }
+            }
             "extends" => {
                 let args = arguments.as_ref()?;
                 if args.len() != 1 || crate::php::literal(text, args[0].clone()).is_none() {
@@ -262,10 +790,28 @@ fn boundary(text: &str, from: usize, to: usize) -> Option<String> {
                 if arguments.is_none()
                     && stack.last().is_some_and(|(name, _)| *name == "forelse") => {}
             "if" | "unless" | "foreach" | "forelse" | "for" | "while" | "isset" | "empty"
-            | "auth" | "guest" | "env" | "production" | "once" | "hasSection"
-            | "sectionMissing" => stack.push((name, false)),
+            | "hasSection" | "sectionMissing" => {
+                if arguments.as_ref().is_none_or(Vec::is_empty) {
+                    return None;
+                }
+                stack.push((name, true));
+            }
+            "auth" | "guest" | "env" | "production" | "once" => stack.push((name, true)),
             "else" | "elseif" => {
-                if stack.last().is_none_or(|(_, safe)| *safe) {
+                if stack.last().is_none_or(|(name, _)| {
+                    !matches!(
+                        *name,
+                        "if" | "unless"
+                            | "isset"
+                            | "empty"
+                            | "auth"
+                            | "guest"
+                            | "env"
+                            | "production"
+                            | "hasSection"
+                            | "sectionMissing"
+                    )
+                }) {
                     return None;
                 }
             }
@@ -280,8 +826,9 @@ fn boundary(text: &str, from: usize, to: usize) -> Option<String> {
                     return None;
                 }
             }
-            "include" | "includeIf" | "includeWhen" | "includeUnless" | "includeFirst" | "each"
-            | "yield" | "stack" | "vite" | "json" | "method" => {
+            "break" | "continue" => {}
+            "class" | "style" | "include" | "includeIf" | "includeWhen" | "includeUnless"
+            | "includeFirst" | "each" | "yield" | "stack" | "vite" | "json" | "method" => {
                 arguments.as_ref()?;
             }
             "csrf" | "livewireStyles" | "livewireScripts" => {
@@ -316,8 +863,7 @@ fn fragment(doc: &Document, from: usize, to: usize) -> Option<Vec<String>> {
     }
     let text = &doc.text;
     let selected = &text[from..to];
-    if selected.contains('@')
-        || selected.contains("<?")
+    if selected.contains("<?")
         || selected.contains("{!!")
         || selected.contains("<!--")
         || selected.contains("{{--")
@@ -325,38 +871,23 @@ fn fragment(doc: &Document, from: usize, to: usize) -> Option<Vec<String>> {
     {
         return None;
     }
+    let writes = selected_writes(selected)?;
+    if !writes_do_not_escape(doc, to, &writes) {
+        return None;
+    }
     let boundary = boundary(text, from, to)?;
     let mut masked = boundary.as_bytes().to_vec();
     let mut cursor = 0;
-    let mut vars = BTreeSet::new();
+    let mut vars: BTreeSet<String> = selected_captures(selected)?.into_iter().collect();
     while let Some(open) = boundary[cursor..].find("{{").map(|n| cursor + n) {
         let end = echo_end(text, open, false)?;
         let raw = text[open + 2..end - 2].trim();
-        let name = raw.strip_prefix('$')?;
-        if !variable(name) {
-            return None;
-        }
+        let captured = captures(raw)?;
         if open < to && from < end {
-            if open < from
-                || end > to
-                || [
-                    "app",
-                    "errors",
-                    "loop",
-                    "slot",
-                    "attributes",
-                    "component",
-                    "__env",
-                    "__data",
-                    "__path",
-                    "GLOBALS",
-                    "this",
-                ]
-                .contains(&name)
-            {
+            if open < from || end > to {
                 return None;
             }
-            vars.insert(name.to_owned());
+            vars.extend(captured);
             if vars.len() > 32 {
                 return None;
             }
@@ -386,11 +917,19 @@ fn fragment(doc: &Document, from: usize, to: usize) -> Option<Vec<String>> {
             at += 1;
         }
         let name_at = at;
-        while bytes.get(at).is_some_and(u8::is_ascii_alphanumeric) {
+        while bytes
+            .get(at)
+            .is_some_and(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b':' | b'.'))
+        {
             at += 1;
         }
         let name = masked.get(name_at..at)?;
-        if !TAGS.contains(&name) {
+        let component_wrapper = name.starts_with("x-")
+            && name != "x-dynamic-component"
+            && name
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b':' | b'.'));
+        if !TAGS.contains(&name) && !component_wrapper {
             return None;
         }
         let mut quote = 0;
@@ -415,6 +954,8 @@ fn fragment(doc: &Document, from: usize, to: usize) -> Option<Vec<String>> {
         if !ended || quote != 0 {
             return None;
         }
+        // Component/slot wrappers remain in the caller. Moving their bindings is separate work.
+
         count += 1;
         if count > 2048 {
             return None;
@@ -444,6 +985,11 @@ fn fragment(doc: &Document, from: usize, to: usize) -> Option<Vec<String>> {
     }
     (stack.is_empty() && matched).then(|| vars.into_iter().collect())
 }
+fn lazy_captures(selected: &str) -> bool {
+    ["??", "&&", "||", "@"]
+        .iter()
+        .any(|operator| selected.contains(operator))
+}
 fn shadowed(index: &crate::index::Index, doc: &Document, component: bool) -> bool {
     index.directives.keys().any(|name| {
         name == "include" || component && name == "props" || doc.text.contains(&format!("@{name}"))
@@ -464,6 +1010,7 @@ fn target_plan(
     p: &Pending,
     doc: &Document,
     name: &str,
+    selected: Option<(&str, &str)>,
 ) -> Result<(String, String), Error> {
     let (project, _) = view_creation::owner(doc, Some(&p.root))?;
     let index = main
@@ -474,7 +1021,7 @@ fn target_plan(
     if p.component {
         if !component_name(name) || index.open_components || index.components.contains_key(name) {
             return Err(Error::Invalid(
-                "Use a new kebab-case anonymous component name with proven registration ownership."
+                crate::ui_text::text("native.view_extract.54710f1e9b", "Use a new kebab-case anonymous component name with proven registration ownership.")
                     .into(),
             ));
         }
@@ -497,8 +1044,15 @@ fn target_plan(
             &project,
             &format!("{}/app/View/Components/{class}.php", p.root),
         )?;
-    } else if !view_creation::valid_name(name) || index.views.contains_key(name) {
+    } else if view_creation::roots::split(name).is_none() || index.views.contains_key(name) {
         return Err(Error::Stale);
+    }
+    if !p.component {
+        return if let Some((target, proof)) = selected {
+            view_creation::roots::revalidate(&project, &p.root, doc, name, target, proof)
+        } else {
+            view_creation::roots::select(&project, &p.root, doc, name)
+        };
     }
     view_creation::validate(
         &project,
@@ -557,7 +1111,12 @@ pub(crate) fn actions(main: &mut Main, doc: &Document, selection: Range) -> Vec<
     if main.view_extractions.pending.len() >= 8 {
         main.view_extractions.pending.clear();
     }
-    let component_allowed = !index.open_components && !shadowed(index, doc, true);
+    let component_allowed = !index.open_components
+        && !shadowed(index, doc, true)
+        && !vars.iter().any(|name| name == "attributes")
+        && !lazy_captures(&doc.text[from..to])
+        && !doc.text[from..to].contains('@')
+        && !doc.text[from..to].contains("<x-");
     let mut result = Vec::new();
     for component in [false, true] {
         if component && !component_allowed {
@@ -581,11 +1140,16 @@ pub(crate) fn actions(main: &mut Main, doc: &Document, selection: Range) -> Vec<
         );
         result.push(FileAction {
             title: if component {
-                "Extract reviewed anonymous Blade component…"
+                crate::ui_text::t(
+                    "action.component-extract",
+                    "Extract reviewed anonymous Blade component…",
+                )
             } else {
-                "Extract reviewed HTML/simple-variable Blade view…"
-            }
-            .into(),
+                crate::ui_text::t(
+                    "action.view-extract",
+                    "Extract reviewed HTML/simple-variable Blade view…",
+                )
+            },
             kind: Some("refactor.extract".into()),
             data: Some(key),
             ..Default::default()
@@ -608,18 +1172,30 @@ pub(crate) fn resolve(
         .ok_or(Error::Stale)?;
     admitted(main, &p, doc)?;
     let name = host::input(
-        if p.component {
-            "New anonymous Blade component name (dot/kebab-case)"
+        &if p.component {
+            crate::ui_text::t(
+                "prompt.component-name",
+                "New anonymous Blade component name (dot/kebab-case)",
+            )
         } else {
-            "New conventional Blade view name"
+            crate::ui_text::t("prompt.view-name", "New conventional Blade view name")
         },
         None,
     )?
     .ok_or(Error::Cancelled)?;
     admitted(main, &p, doc)?;
-    let (target, config) = target_plan(main, &p, doc, &name)?;
+    let (target, config) = target_plan(main, &p, doc, &name, None)?;
     let data = if p.vars.is_empty() {
         String::new()
+    } else if lazy_captures(&doc.text[p.from..p.to]) {
+        format!(
+            ", array_intersect_key(get_defined_vars(), array_flip([{}]))",
+            p.vars
+                .iter()
+                .map(|name| format!("'{name}'"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
     } else {
         format!(
             ", [{}]",
@@ -634,17 +1210,27 @@ pub(crate) fn resolve(
         let attributes = p
             .vars
             .iter()
+            .filter(|name| name.as_str() != "slot")
             .map(|name| format!(" :{name}=\"${name}\""))
             .collect::<String>();
-        format!("<x-{name}{attributes} />")
+        if p.vars.iter().any(|name| name == "slot") {
+            format!("<x-{name}{attributes}>{{{{ $slot }}}}</x-{name}>")
+        } else {
+            format!("<x-{name}{attributes} />")
+        }
     } else {
         format!("@include('{name}'{data})")
     };
     let selected = &doc.text[p.from..p.to];
-    let content = if p.component && !p.vars.is_empty() {
+    let props: Vec<_> = p
+        .vars
+        .iter()
+        .filter(|name| name.as_str() != "slot")
+        .collect();
+    let content = if p.component && !props.is_empty() {
         format!(
             "@props([{}]){selected}",
-            p.vars
+            props
                 .iter()
                 .map(|name| format!("'{name}'"))
                 .collect::<Vec<_>>()
@@ -653,28 +1239,34 @@ pub(crate) fn resolve(
     } else {
         selected.into()
     };
-    let preview = format!(
-        "Project: {}\nSource: {}\nDocument version: {}\n\nCreate (no overwrite): {}\nExact new view contents:\n{}\n\nReplace this exact selected fragment with:\n{}\n\nSimple read-only variables passed explicitly: {}. No PHP statements, directives, component/raw contexts, assignments or implicit reserved variable scope is moved. Configured roots/namespaces, view composers/custom rendering, caller variable types and runtime behavior are not resolved.\n\nApply one undoable Create + source Edit atomically?",
-        p.root,
-        doc.path,
-        doc.version,
-        target,
-        content,
-        replacement,
-        p.vars.join(", ")
+    let preview = crate::ui_text::format(
+        "extraction.review",
+        "Project: {root}\nSource: {source}\nDocument version: {version}\n\nCreate (no overwrite): {target}\nExact new template contents:\n{content}\n\nReplace this exact selected fragment with:\n{replacement}\n\nCaptured names: {variables}. Supported read-only expressions and balanced directives remain intact. Parsed local assignments and loops move only when no outward binding use is observed; runtime/compiler bindings are excluded. Default slot content is forwarded for anonymous components. Custom PHP calls, unknown directives, configured roots/namespaces and dynamic rendering remain withheld. No PHP/Artisan/process executes during this edit.\n\nApply one undoable Create + source Edit atomically?",
+        &[
+            ("root", &p.root),
+            ("source", &doc.path),
+            ("version", &doc.version.to_string()),
+            ("target", &target),
+            ("content", &content),
+            ("replacement", &replacement),
+            ("variables", &p.vars.join(", ")),
+        ],
     );
     if !ui_kit::prompts::confirm_exact(
-        if p.component {
-            "Extract anonymous Blade component?"
+        &if p.component {
+            crate::ui_text::t(
+                "prompt.component-confirm",
+                "Extract anonymous Blade component?",
+            )
         } else {
-            "Extract local Blade fragment?"
+            crate::ui_text::t("prompt.view-confirm", "Extract local Blade fragment?")
         },
         &preview,
     )? {
         return Err(Error::Cancelled);
     }
     admitted(main, &p, doc)?;
-    let (current, current_config) = target_plan(main, &p, doc, &name)?;
+    let (current, current_config) = target_plan(main, &p, doc, &name, Some((&target, &config)))?;
     if current != target || current_config != config {
         return Err(Error::Stale);
     }
@@ -813,10 +1405,8 @@ mod tests {
         assert_eq!(main.resolve_file_action(&d, a).unwrap().edits.len(), 1);
         for source in [
             "<section>{{ $loop }}</section>",
-            "<section>{{ $user->name }}</section>",
             "<section>{{ $x = 1 }}</section>",
             "@verbatim<section>{{ $name }}</section>@endverbatim",
-            "<x-card><section>hi</section></x-card>",
             "<section><b>bad</section></b>",
             "<!-- <section>hidden</section> -->",
             "<section>{!! $name !!}</section>",
@@ -909,8 +1499,6 @@ mod tests {
     #[test]
     fn control_scopes_opaque_regions_directive_arguments_and_malformed_wrappers_are_withheld() {
         for (prefix, suffix) in [
-            ("@foreach($items as $name)", "@endforeach"),
-            ("@if($show)", "@endif"),
             ("@verbatim", "@endverbatim"),
             ("@php $x = '", "'; @endphp"),
             ("{{-- ", " --}}"),
@@ -1060,5 +1648,340 @@ mod tests {
                 "{text}"
             );
         }
+    }
+    #[test]
+    fn readonly_capture_grammar_rejects_mutation_and_implicit_slot_object_reads() {
+        assert_eq!(
+            captures("$user?->name ?? $fallback['label']").unwrap(),
+            vec!["fallback", "user"]
+        );
+        for expression in [
+            "++$x",
+            "--$x",
+            "$x++",
+            "$x = 1",
+            "$user->save($name)",
+            "$user->{$method}()",
+            "$this->title",
+            "$$name",
+            "$slot->attributes",
+            "($slot)->attributes",
+            "call($name)",
+            "$loop->index",
+        ] {
+            assert!(captures(expression).is_none(), "{expression}");
+        }
+        assert_eq!(
+            captures("$items->count() + $other?->count()").unwrap(),
+            vec!["items", "other"]
+        );
+    }
+    #[test]
+    fn extraction_inside_control_scopes_explicitly_preserves_bound_read_values() {
+        for (prefix, suffix) in [
+            ("@foreach($users as $user)", "@endforeach"),
+            ("@if($show)", "@else<p>Other</p>@endif"),
+        ] {
+            let source = format!(
+                "{prefix}<section>{{{{ $user->name }}}} {{{{ $fallback['label'] }}}}</section>{suffix}"
+            );
+            let (host, mut main, doc, selection) = setup(&source);
+            let lazy = main
+                .file_actions(&doc, selection)
+                .into_iter()
+                .find(|a| a.title.contains("Blade view"))
+                .unwrap();
+            host.answer_next_prompt(Some(&["partials.name"]));
+            host.answer_next_prompt(Some(&["yes"]));
+            let fixed = main.resolve_file_action(&doc, lazy).unwrap();
+            assert_eq!(
+                fixed.edits[0].1[0].text,
+                "@include('partials.name', ['fallback' => $fallback, 'user' => $user])"
+            );
+            let [FileOperation::Create { text, .. }] = fixed.operations.as_slice() else {
+                panic!("create");
+            };
+            assert!(text.contains("$user->name"));
+            assert!(text.contains("$fallback['label']"));
+            assert!(host.process_runs().is_empty());
+        }
+    }
+    #[test]
+    fn extracted_component_forwards_default_slot_and_declares_only_explicit_data_props() {
+        let source = "<section>{{ $title }}<div>{{ $slot }}</div></section>";
+        let (host, mut main, doc, selection) = setup(source);
+        let lazy = main
+            .file_actions(&doc, selection)
+            .into_iter()
+            .find(|a| a.title.contains("anonymous Blade component"))
+            .unwrap();
+        host.answer_next_prompt(Some(&["card"]));
+        host.answer_next_prompt(Some(&["yes"]));
+        let fixed = main.resolve_file_action(&doc, lazy).unwrap();
+        assert_eq!(
+            fixed.edits[0].1[0].text,
+            "<x-card :title=\"$title\">{{ $slot }}</x-card>"
+        );
+        let [FileOperation::Create { text, .. }] = fixed.operations.as_slice() else {
+            panic!("create");
+        };
+        assert_eq!(
+            text,
+            "@props(['title'])<section>{{ $title }}<div>{{ $slot }}</div></section>"
+        );
+    }
+    #[test]
+    fn ordinary_fragment_within_literal_component_and_named_slot_wrappers_keeps_wrappers_in_caller()
+    {
+        let source = "<x-card :user=\"$user\"><x-slot:title><section>{{ $title }}</section></x-slot:title></x-card>";
+        let (host, mut main, doc, selection) = setup(source);
+        let lazy = main
+            .file_actions(&doc, selection)
+            .into_iter()
+            .find(|action| action.title.contains("Blade view"))
+            .unwrap();
+        host.answer_next_prompt(Some(&["partials.title"]));
+        host.answer_next_prompt(Some(&["yes"]));
+        let fixed = main.resolve_file_action(&doc, lazy).unwrap();
+        assert_eq!(fixed.edits[0].1[0].range, selection);
+        assert_eq!(
+            fixed.edits[0].1[0].text,
+            "@include('partials.title', ['title' => $title])"
+        );
+        let mut rendered = doc.text.clone();
+        rendered.replace_range(
+            offset(&doc.text, selection.start).unwrap()..offset(&doc.text, selection.end).unwrap(),
+            &fixed.edits[0].1[0].text,
+        );
+        assert!(rendered.starts_with("<x-card :user=\"$user\"><x-slot:title>"));
+        assert!(rendered.ends_with("</x-slot:title></x-card>"));
+    }
+    #[test]
+    fn partial_extract_can_forward_existing_attribute_bag_without_rebinding_component_props() {
+        let source = "<section {{ $attributes }}>{{ $title }}</section>";
+        let (_host, mut main, doc, selection) = setup(source);
+        let actions = main.file_actions(&doc, selection);
+        assert!(actions.iter().any(|a| a.title.contains("Blade view")));
+        assert!(
+            !actions
+                .iter()
+                .any(|a| a.title.contains("anonymous Blade component"))
+        );
+    }
+    #[test]
+    fn short_circuit_reads_do_not_eagerly_evaluate_missing_variables_at_the_call_site() {
+        let source = "<section>{{ $user?->name ?? $fallback }}</section>";
+        let (host, mut main, doc, selection) = setup(source);
+        let actions = main.file_actions(&doc, selection);
+        assert!(
+            !actions
+                .iter()
+                .any(|action| action.title.contains("anonymous Blade component"))
+        );
+        let lazy = actions
+            .into_iter()
+            .find(|action| action.title.contains("Blade view"))
+            .unwrap();
+        host.answer_next_prompt(Some(&["partials.name"]));
+        host.answer_next_prompt(Some(&["yes"]));
+        let fixed = main.resolve_file_action(&doc, lazy).unwrap();
+        assert_eq!(
+            fixed.edits[0].1[0].text,
+            "@include('partials.name', array_intersect_key(get_defined_vars(), array_flip(['fallback', 'user'])))"
+        );
+    }
+    #[test]
+    fn balanced_selected_directives_capture_conditions_without_eager_optional_reads() {
+        let source = "@props(['title'])<section @class(['active' => $active])>@if($show)<b>{{ $title }}</b>@else<i>{{ $fallback ?? 'None' }}</i>@endif @csrf @method('PUT')</section>";
+        let (host, mut main, doc, selection) = setup(source);
+        let actions = main.file_actions(&doc, selection);
+        assert!(
+            !actions
+                .iter()
+                .any(|a| a.title.contains("anonymous Blade component"))
+        );
+        let lazy = actions
+            .into_iter()
+            .find(|a| a.title.contains("Blade view"))
+            .unwrap();
+        host.answer_next_prompt(Some(&["partials.conditional"]));
+        host.answer_next_prompt(Some(&["yes"]));
+        let fixed = main.resolve_file_action(&doc, lazy).unwrap();
+        assert!(
+            fixed.edits[0].1[0]
+                .text
+                .contains("array_flip(['active', 'fallback', 'show', 'title'])")
+        );
+        let [FileOperation::Create { text, .. }] = fixed.operations.as_slice() else {
+            panic!("create");
+        };
+        assert!(text.contains("@if($show)"));
+        assert!(text.contains("@class(['active' => $active])"));
+        assert!(text.contains("@csrf"));
+    }
+    #[test]
+    fn partial_directive_scopes_and_mutating_selected_expressions_are_refused() {
+        for source in [
+            "<section>@if($show){{ $name }}</section>@endif",
+            "<section>@if($show = true){{ $name }}@endif</section>",
+            "<section>@unknown($name)</section>",
+            "<section>{{ ++$counter }}</section>",
+        ] {
+            let (_host, mut main, doc, selection) = setup(source);
+            assert!(
+                main.file_actions(&doc, selection)
+                    .iter()
+                    .all(|a| !a.title.starts_with("Extract reviewed")),
+                "{source}"
+            );
+        }
+    }
+    #[test]
+    fn selected_local_php_and_foreach_keep_bindings_inside_the_extracted_template() {
+        for source in [
+            "<section>@php $title = $name ?? 'Fallback'; @endphp<b>{{ $title }}</b></section>",
+            "<section>@foreach($items as $key => $item)<b>{{ $item['name'] }}</b>@endforeach</section>",
+        ] {
+            let (host, mut main, doc, selection) = setup(source);
+            let lazy = main
+                .file_actions(&doc, selection)
+                .into_iter()
+                .find(|a| a.title.contains("Blade view"))
+                .unwrap_or_else(|| panic!("{source}"));
+            host.answer_next_prompt(Some(&["partials.content"]));
+            host.answer_next_prompt(Some(&["yes"]));
+            let fixed = main.resolve_file_action(&doc, lazy).unwrap();
+            assert!(fixed.edits[0].1[0].text.contains("get_defined_vars()"));
+            let [FileOperation::Create { text, .. }] = fixed.operations.as_slice() else {
+                panic!("create");
+            };
+            assert_eq!(text, source);
+        }
+    }
+    #[test]
+    fn selected_writes_that_escape_or_mutate_runtime_bindings_are_refused() {
+        for source in [
+            "<section>@php $title = $name; @endphp{{ $title }}</section><p>{{ $title }}</p>",
+            "<section>@php $__env = null; @endphp</section>",
+            "@extends('layout')<section>@foreach($items as $item){{ $item }}@endforeach</section>",
+            "<section>@foreach($items as &$item){{ $item }}@endforeach</section>",
+        ] {
+            let (_host, mut main, doc, selection) = setup(source);
+            assert!(
+                main.file_actions(&doc, selection)
+                    .iter()
+                    .all(|a| !a.title.starts_with("Extract reviewed")),
+                "{source}"
+            );
+        }
+    }
+    #[test]
+    #[ignore = "requires LARAVEL_EXTRACTION_FIXTURE disposable Laravel application and local PHP"]
+    fn generated_extractions_preserve_real_blade_rendering_for_controls_locals_loops_and_slots() {
+        let fixture =
+            std::env::var("LARAVEL_EXTRACTION_FIXTURE").expect("disposable Laravel fixture");
+        assert!(fixture.starts_with("/tmp/laravel-") && fixture.contains("acceptance"));
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let scratch = std::env::temp_dir().join(format!(
+            "laravel-extraction-acceptance-{}-{nonce}",
+            std::process::id()
+        ));
+        std::fs::create_dir(&scratch).unwrap();
+        std::fs::create_dir(scratch.join("compiled")).unwrap();
+        std::fs::create_dir(scratch.join("components")).unwrap();
+        std::fs::write(
+            scratch.join("components/parity-shell.blade.php"),
+            "@props(['title'])<article><h1>{{ $title }}</h1>{{ $heading }}{{ $slot }}</article>",
+        )
+        .unwrap();
+        let samples = [
+            (
+                "<section>@if($show)<b>{{ $title }}</b>@else<i>{{ $fallback ?? 'None' }}</i>@endif</section>",
+                serde_json::json!({"show":false,"title":"Unused"}),
+            ),
+            (
+                "<section>@php $title = $name ?? 'Guest'; @endphp<b>{{ $title }}</b></section>",
+                serde_json::json!({"name":"Bonjour 😀"}),
+            ),
+            (
+                "<section>@foreach($items as $item)<b>{{ $item['name'] }}</b>@endforeach</section>",
+                serde_json::json!({"items":[{"name":"A"},{"name":"B"}]}),
+            ),
+            (
+                "<section>{{ $items->count() }} {{ $items->first()->count() }}</section>",
+                serde_json::json!({"collection":true,"items":[[1,2],[3]]}),
+            ),
+            (
+                "<section>{{ $counter->next() }} {{ $counter->next() }}</section>",
+                serde_json::json!({"counter":true}),
+            ),
+            (
+                "<x-parity-shell :title=\"$title\"><x-slot:heading><b>{{ $heading }}</b></x-slot:heading><section>{{ $content }}</section></x-parity-shell>",
+                serde_json::json!({"title":"Title","heading":"Heading","content":"Content"}),
+            ),
+        ];
+        for (number, (source, data)) in samples.iter().enumerate() {
+            let (host, mut main, doc, mut selection) = setup(source);
+            if source.starts_with("<x-") {
+                selection = Range::new(position(source, 0), position(source, source.len()));
+            }
+            let lazy = main
+                .file_actions(&doc, selection)
+                .into_iter()
+                .find(|action| action.title.contains("Blade view"))
+                .unwrap_or_else(|| panic!("no extraction: {source}"));
+            host.answer_next_prompt(Some(&[&format!("partials.sample{number}")]));
+            host.answer_next_prompt(Some(&["yes"]));
+            let fixed = main.resolve_file_action(&doc, lazy).unwrap();
+            let edit = &fixed.edits[0].1[0];
+            let mut after = doc.text.clone();
+            after.replace_range(
+                offset(&doc.text, edit.range.start).unwrap()
+                    ..offset(&doc.text, edit.range.end).unwrap(),
+                &edit.text,
+            );
+            for operation in fixed.operations {
+                let FileOperation::Create {
+                    path,
+                    text,
+                    overwrite,
+                } = operation
+                else {
+                    panic!("create");
+                };
+                assert!(!overwrite);
+                let relative = path.strip_prefix("/project/resources/views/").unwrap();
+                let target = scratch.join(relative);
+                std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+                std::fs::write(target, text).unwrap();
+            }
+            std::fs::write(scratch.join("before.blade.php"), source).unwrap();
+            std::fs::write(scratch.join("after.blade.php"), after).unwrap();
+            std::fs::write(scratch.join("data.json"), serde_json::to_vec(data).unwrap()).unwrap();
+            let script = r#"require $argv[1].'/vendor/autoload.php';$app=require $argv[1].'/bootstrap/app.php';$app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();$app['config']->set('view.compiled',$argv[2].'/compiled');$view=$app->make('view');$view->getFinder()->setPaths([$argv[2]]);$data=json_decode(file_get_contents($argv[2].'/data.json'),true,512,JSON_THROW_ON_ERROR);if($data['collection']??false){$data['items']=collect($data['items'])->map(fn($row)=>collect($row));unset($data['collection']);}if($data['counter']??false){$data['counter']=new class{public int $value=0;public function next(){return ++$this->value;}};}$afterData=$data;if(isset($data['counter'])){$afterData['counter']=clone $data['counter'];}$before=$view->file($argv[2].'/before.blade.php',$data)->render();$after=$view->file($argv[2].'/after.blade.php',$afterData)->render();echo json_encode(['before'=>$before,'after'=>$after],JSON_THROW_ON_ERROR);"#;
+            let result = std::process::Command::new("php")
+                .arg("-r")
+                .arg(script)
+                .arg(&fixture)
+                .arg(&scratch)
+                .output()
+                .unwrap();
+            assert!(
+                result.status.success(),
+                "case {number}: {}\n{}",
+                String::from_utf8_lossy(&result.stderr),
+                String::from_utf8_lossy(&result.stdout)
+            );
+            let rendered: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+            assert_eq!(rendered["before"], rendered["after"], "case {number}");
+            // Every case gets its own compiler process; remove two caller cache files to avoid second-resolution mtime reuse.
+            for file in std::fs::read_dir(scratch.join("compiled")).unwrap() {
+                std::fs::remove_file(file.unwrap().path()).unwrap();
+            }
+        }
+        std::fs::remove_dir_all(&scratch).unwrap();
     }
 }

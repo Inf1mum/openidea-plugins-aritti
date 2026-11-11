@@ -29,13 +29,13 @@
     "command": "runtime-retry-failed",
     "when": "viewItemKind == failedjob",
     "icon": "rerun",
-    "label": "Retry Failed Job\u2026"
+    "label": "Retry Failed Job…"
   },
   {
     "menu": "viewItem.context",
     "view": "laravel-runtime",
     "command": "runtime-open-frame",
-    "label": "Open Error Stack Frame\u2026",
+    "label": "Open Error Stack Frame…",
     "icon": "file-php"
   },
   {
@@ -63,21 +63,28 @@
     "menu": "viewItem.context",
     "view": "laravel-models",
     "command": "model-create-fields",
-    "label": "Create Fields\u2026",
+    "label": "Create Fields…",
     "icon": "add"
   },
   {
     "menu": "viewItem.context",
     "view": "laravel-runtime",
     "command": "runtime-database-connect",
-    "label": "Connect Database\u2026",
+    "label": "Connect Database…",
     "icon": "database"
   },
   {
     "menu": "viewItem.context",
     "view": "laravel-runtime",
     "command": "runtime-database-remove",
-    "label": "Remove Database Connection\u2026",
+    "label": "Remove Database Connection…",
     "icon": "delete"
+  },
+  {
+    "menu": "viewItem.context",
+    "view": "laravel-external",
+    "command": "cloud-details-select",
+    "label": "Show Environment Details",
+    "icon": "info"
   }
 ]

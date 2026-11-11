@@ -89,13 +89,13 @@ fn read(project: &Project, root: &str, path: &str) -> Result<String, Error> {
     let stat = project.stat(path)?;
     if stat.kind != FileKind::File || stat.size > SOURCE as u64 {
         return Err(Error::Invalid(
-            "Source is outside the bounded regular-file scan.".into(),
+            crate::ui_text::text("native.sourceArtisan.de5cc7c1e8","Source is outside the bounded regular-file scan.").into(),
         ));
     }
     let text = project.read_file(path)?;
     if text.len() > SOURCE {
         return Err(Error::Invalid(
-            "Source exceeds the literal-match limit.".into(),
+            crate::ui_text::text("native.sourceArtisan.220bda4096","Source exceeds the literal-match limit.").into(),
         ));
     }
     Ok(text)
@@ -117,13 +117,13 @@ fn scan(project: &Project, root: &str, q: &Query) -> Result<Scan, Error> {
         let found = project.find_files(glob, (PATHS + 1) as u32)?;
         if found.len() > PATHS {
             return Err(Error::Invalid(
-                "Literal source-match discovery is incomplete (path limit).".into(),
+                crate::ui_text::text("native.sourceArtisan.4c5a0a4879","Literal source-match discovery is incomplete (path limit).").into(),
             ));
         }
         paths.extend(found);
         if paths.len() > PATHS {
             return Err(Error::Invalid(
-                "Literal source-match discovery is incomplete (path limit).".into(),
+                crate::ui_text::text("native.sourceArtisan.4c5a0a4879","Literal source-match discovery is incomplete (path limit).").into(),
             ));
         }
     }
@@ -152,7 +152,7 @@ fn scan(project: &Project, root: &str, q: &Query) -> Result<Scan, Error> {
         total = total.checked_add(source.len()).ok_or(Error::Stale)?;
         if total > TOTAL {
             return Err(Error::Invalid(
-                "Literal source-match scan is incomplete (total byte limit).".into(),
+                crate::ui_text::text("native.sourceArtisan.4639f02ce7","Literal source-match scan is incomplete (total byte limit).").into(),
             ));
         }
         let language = if path.ends_with(".blade.php") {
@@ -165,7 +165,7 @@ fn scan(project: &Project, root: &str, q: &Query) -> Result<Scan, Error> {
             if r.kind == q.kind && literal(&source, &r) == Some(q.name.as_str()) {
                 if result.matches.len() >= MATCHES {
                     return Err(Error::Invalid(
-                        "Literal source-match scan is incomplete (match limit).".into(),
+                        crate::ui_text::text("native.sourceArtisan.5977c6c911","Literal source-match scan is incomplete (match limit).").into(),
                     ));
                 }
                 result.matches.push(Match {
@@ -231,7 +231,7 @@ fn unchanged(
 pub(crate) fn run(ctx: &Invocation) -> Result<Option<String>, Error> {
     let editor = ctx
         .editor()
-        .ok_or("Open a PHP or Blade literal reference first.")?;
+        .ok_or(crate::ui_text::text("native.sourceArtisan.db276fb86a","Open a PHP or Blade literal reference first."))?;
     let path = editor.path();
     let project = crate::project_for(&path).ok_or(Error::Stale)?;
     let root = project.root()?;
@@ -244,7 +244,7 @@ pub(crate) fn run(ctx: &Invocation) -> Result<Option<String>, Error> {
     let doc = editor.document()?;
     if doc.text.len() > SOURCE {
         return Err(Error::Invalid(
-            "Active source exceeds the literal-match limit.".into(),
+            crate::ui_text::text("native.sourceArtisan.2a6a336d2b","Active source exceeds the literal-match limit.").into(),
         ));
     }
     let cursor = editor
@@ -254,12 +254,12 @@ pub(crate) fn run(ctx: &Invocation) -> Result<Option<String>, Error> {
         .ok_or(Error::Stale)?;
     let at = text::offset(&doc.text, cursor).ok_or(Error::Stale)?;
     let r = refs::reference_at(&language, &doc.text, at)
-        .ok_or("Choose a closed route/view/config/translation literal.")?;
+        .ok_or(crate::ui_text::text("native.sourceArtisan.82ce0df122","Choose a closed route/view/config/translation literal."))?;
     if at < r.start || at >= r.end {
         return Err(Error::Stale);
     }
     let name = literal(&doc.text, &r)
-        .ok_or("Choose a plain closed route/view/config/translation literal.")?
+        .ok_or(crate::ui_text::text("native.sourceArtisan.558f0fd6ce","Choose a plain closed route/view/config/translation literal."))?
         .to_owned();
     let q = Query {
         path,
@@ -270,29 +270,27 @@ pub(crate) fn run(ctx: &Invocation) -> Result<Option<String>, Error> {
         name,
     };
     let result = scan(&project, &root, &q)?;
-    let scope = "Conventional app/routes/views/config/lang/src source paths only; literal spelling matches, not semantic usages or Rename. Custom roots, effective registrations and whole-project unsaved-buffer coverage are unresolved.";
+    let scope = crate::ui_text::text("native.sourceArtisan.ed40884a6d","Conventional app/routes/views/config/lang/src source paths only; literal spelling matches, not semantic usages or Rename. Custom roots, effective registrations and whole-project unsaved-buffer coverage are unresolved.");
     if result.matches.is_empty() {
         host::notify(
             NotificationLevel::Info,
-            "Laravel literal source matches",
-            &format!("No matches recorded in supported sources. {scope}"),
+            crate::ui_text::text("native.sourceArtisan.022414fbc5","Laravel literal source matches"),
+            &crate::ui_text::format("native.sourceArtisan.f45dd46643","No matches recorded in supported sources. {scope}",&[("scope",&(scope).to_string())]),
         );
         return Ok(None);
     }
     if result.incomplete {
         host::notify(
             NotificationLevel::Warning,
-            "Laravel literal source matches",
-            &format!(
-                "Some candidate sources could not be safely inspected; results are incomplete. {scope}"
-            ),
+            crate::ui_text::text("native.sourceArtisan.022414fbc5","Laravel literal source matches"),
+            &crate::ui_text::format("native.sourceArtisan.35fe0ee606","Some candidate sources could not be safely inspected; results are incomplete. {scope}",&[("scope",&(scope).to_string())]),
         );
     }
     if !result.incomplete {
         host::notify(
             NotificationLevel::Info,
-            "Laravel literal source matches",
-            &format!("Explicit bounded source scan. {scope}"),
+            crate::ui_text::text("native.sourceArtisan.022414fbc5","Laravel literal source matches"),
+            &crate::ui_text::format("native.sourceArtisan.ba5e5044ee","Explicit bounded source scan. {scope}",&[("scope",&(scope).to_string())]),
         );
     }
     let items: Vec<_> = result
@@ -310,23 +308,10 @@ pub(crate) fn run(ctx: &Invocation) -> Result<Option<String>, Error> {
                     at.character + 1
                 ),
             )
-            .description(&format!(
-                "{} literal source candidate; conventional roots; no semantic binding",
-                label(q.kind).unwrap_or("unknown")
-            ))
+            .description(&crate::ui_text::format("native.sourceArtisan.b3f0c0b6dd","{kind} literal source candidate; conventional roots; no semantic binding",&[("kind",&(label(q.kind).unwrap_or("unknown")).to_string())]))
         })
         .collect();
-    let title = format!(
-        "{} recorded {} literal matches{} — {}",
-        result.matches.len(),
-        label(q.kind).unwrap_or("unknown"),
-        if result.incomplete {
-            " (incomplete)"
-        } else {
-            ""
-        },
-        q.name
-    );
+    let title = crate::ui_text::format("native.sourceArtisan.c98c11a626","{count} recorded {kind} literal matches{incomplete} — {name}",&[("count",&(result.matches.len()).to_string()),("kind",&(label(q.kind).unwrap_or("unknown")).to_string()),("incomplete",&(if result.incomplete{crate::ui_text::text("native.sourceArtisan.e711c2534b"," (incomplete)")}else{""}).to_string()),("name",&(q.name).to_string())]);
     let Some(chosen) = host::pick(&title, &items)? else {
         return Ok(None);
     };

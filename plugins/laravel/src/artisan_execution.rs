@@ -100,8 +100,9 @@ impl Job {
                     return Err(error);
                 }
             };
+            let drained=chunk.stdout.is_empty() && chunk.stderr.is_empty();
             self.record(chunk);
-            if self.child.is_none() || self.status.is_none() {
+            if self.child.is_none() || drained {
                 break;
             }
         }
@@ -172,6 +173,21 @@ mod tests {
         assert!(!job.running());
         job.poll(true).unwrap();
         assert!(host.process_runs().is_empty());
+    }
+    #[test]
+    fn running_process_drains_ready_chunks_before_exit_without_claiming_completion() {
+        let mock=MockHost::install().with_capabilities(&["project.read","process:php"]);
+        let project=mock.invocation().project().unwrap();
+        let mut job=Job::start(&project,"stream".into(),"app:stream".into(),json!({}),vec!["artisan".into(),"app:stream".into()]).unwrap();
+        let child=host::start(&host::Command::new("php"),Some(&project)).unwrap();
+        let payload="x".repeat(48*1024);
+        child.write(&payload).unwrap();job.child=Some(child);
+        job.poll(false).unwrap();
+        assert!(job.running());assert_eq!(job.status,None);
+        assert!(job.stdout.ends_with(&payload));
+        assert!(job.child.as_ref().unwrap().poll(16*1024).unwrap().stdout.is_empty());
+        job.poll(true).unwrap();assert!(!job.running());
+        assert!(mock.process_runs().is_empty());
     }
     #[test]
     fn output_clipping_preserves_unicode() {

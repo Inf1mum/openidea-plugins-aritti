@@ -442,11 +442,13 @@ pub(super) fn issues(source: &str, value: &Value) -> Vec<String> {
             ("complete", String),
             ("condition", Array),
             ("options", Object),
+            ("transformers", Array),
         ],
         &mut out,
     );
     for (index, completion) in items(&value["completions"]).enumerate() {
         let path = format!("completions[{index}]");
+        string_items(source,&format!("{path}.transformers"),&completion["transformers"],&mut out);
         object_items(
             source,
             &format!("{path}.condition"),
@@ -457,6 +459,11 @@ pub(super) fn issues(source: &str, value: &Value) -> Vec<String> {
                 ("parameterNames", Array),
                 ("methodNames", Array),
                 ("classFqn", Array),
+                ("classNames", Array),
+                ("classParentFqn", Array),
+                ("newClassNames", Array),
+                ("newClassParentFqn", Array),
+                ("keys", Array),
                 ("newClassFqn", Array),
                 ("parameters", Array),
                 ("place", String),
@@ -470,6 +477,11 @@ pub(super) fn issues(source: &str, value: &Value) -> Vec<String> {
                 "parameterNames",
                 "methodNames",
                 "classFqn",
+                "classNames",
+                "classParentFqn",
+                "newClassNames",
+                "newClassParentFqn",
+                "keys",
                 "newClassFqn",
             ] {
                 string_items(
@@ -484,7 +496,21 @@ pub(super) fn issues(source: &str, value: &Value) -> Vec<String> {
             source,
             &format!("{path}.options"),
             &completion["options"],
-            &[("strings", Array), ("dataFile", String), ("prefix", String)],
+            &[
+                ("strings", Array),
+                ("stringsWithLocation", Object),
+                ("dataFile", String),
+                ("prefix", String),
+                ("fetchClass", String),
+                ("fieldsFilter", Object),
+                ("eloquentFields", Object),
+                ("deep", Bool),
+                ("delimiter", String),
+                ("directory", String),
+                ("directories", Array),
+                ("recursive", Bool),
+                ("suffixToClear", String),
+            ],
             &mut out,
         );
         string_items(

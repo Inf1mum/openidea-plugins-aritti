@@ -16,10 +16,17 @@ const MAX_PAGES: usize = 20;
 const MAX_TOTAL: usize = MAX_ROWS * MAX_PAGES;
 const SENTRY_SECRET: &str = "sentry-token";
 const CLOUD_SECRET: &str = "cloud-token";
+#[path = "sentry_oauth.rs"]
+mod oauth;
+#[path = "external_cloud.rs"]
+mod cloud;
+pub(crate) use cloud::ui_error as cloud_ui_error;
 
 #[derive(Default)]
 pub(crate) struct State {
     projects: BTreeMap<String, Session>,
+    sentry_device: oauth::DeviceState,
+    cloud: cloud::Cloud,
 }
 #[derive(Default)]
 struct Session {
@@ -255,9 +262,14 @@ fn id(value: &Value) -> Result<String, Error> {
     Ok(id)
 }
 fn get(url: String, secret: &str) -> Result<(Value, Vec<(String, String)>), Error> {
+    if secret == SENTRY_SECRET {
+        oauth::ensure_access()?;
+    }
     if !host::secret_is_set(secret) {
-        return Err(Error::Invalid(format!(
-            "Set {secret} in Settings › Plugins › Laravel › Secrets first. Tokens stay in the host credential store."
+        return Err(Error::Invalid(crate::ui_text::format(
+            "runtime.boundary.afa74253ff",
+            "Set {secret} in Settings › Plugins › Laravel › Secrets first. Tokens stay in the host credential store.",
+            &[("secret", &(secret).to_string())],
         )));
     }
     let mut request = HttpRequest::get(&url)
@@ -266,29 +278,68 @@ fn get(url: String, secret: &str) -> Result<(Value, Vec<(String, String)>), Erro
     request.timeout_ms = Some(15_000);
     let response = host::fetch(&request).map_err(|error| match error {
         Error::Denied(_) => error,
-        _ => Error::Failed("External service request failed; retry explicitly.".into()),
+        _ => Error::Failed(
+            crate::ui_text::text(
+                "runtime.boundary.dfc3b48bc3",
+                "External service request failed; retry explicitly.",
+            )
+            .into(),
+        ),
     })?;
     if response.status != 200 {
         // Error bodies may echo credentials or sensitive server configuration.
         return Err(Error::Failed(
             match response.status {
-                401 => "External service rejected the token; update it in plugin Secrets.",
-                403 => "External service denied this resource or token scope.",
-                429 => "External service rate limit reached; retry later.",
-                _ => "External service returned an unsuccessful response.",
+                401 => crate::ui_text::text(
+                    "runtime.boundary.89dddd18a6",
+                    "External service rejected the token; update it in plugin Secrets.",
+                ),
+                403 => crate::ui_text::text(
+                    "runtime.boundary.8ef0cf8d91",
+                    "External service denied this resource or token scope.",
+                ),
+                429 => crate::ui_text::text(
+                    "runtime.boundary.8f08acc492",
+                    "External service rate limit reached; retry later.",
+                ),
+                _ => crate::ui_text::text(
+                    "runtime.boundary.6967c42f8f",
+                    "External service returned an unsuccessful response.",
+                ),
             }
             .into(),
         ));
     }
     if response.body.len() > MAX_BODY {
-        return Err(Error::Invalid("External response exceeds 2 MiB.".into()));
+        return Err(Error::Invalid(
+            crate::ui_text::text(
+                "runtime.boundary.af3377fc90",
+                "External response exceeds 2 MiB.",
+            )
+            .into(),
+        ));
     }
     let value = crate::strict_json::parse(
-        std::str::from_utf8(&response.body)
-            .map_err(|_| Error::Invalid("External response is not UTF-8.".into()))?,
+        std::str::from_utf8(&response.body).map_err(|_| {
+            Error::Invalid(
+                crate::ui_text::text(
+                    "runtime.boundary.d2892ca2a6",
+                    "External response is not UTF-8.",
+                )
+                .into(),
+            )
+        })?,
         MAX_BODY,
     )
-    .map_err(|_| Error::Invalid("External response is not valid unambiguous JSON.".into()))?;
+    .map_err(|_| {
+        Error::Invalid(
+            crate::ui_text::text(
+                "runtime.boundary.ffcaefadd6",
+                "External response is not valid unambiguous JSON.",
+            )
+            .into(),
+        )
+    })?;
     Ok((value, response.headers))
 }
 fn sentry_rows(value: &Value) -> Result<Vec<Value>, Error> {
@@ -346,16 +397,24 @@ fn org_key(root: &str) -> String {
 impl State {
     /// Configuration is project-specific and contains no token. No network call.
     pub(crate) fn configure_sentry(&mut self, ctx: &Invocation) -> Result<(), Error> {
+        self.configure_sentry_ui_inner(ctx).map_err(ui_error)
+    }
+    fn configure_sentry_ui_inner(&mut self, ctx: &Invocation) -> Result<(), Error> {
         let (_, root) = owner(ctx)?;
         let existing = host::storage::get(&org_key(&root))?.unwrap_or_default();
-        let Some(organization) =
-            host::input("Sentry organization slug (sentry.io)", Some(&existing))?
+        let Some(organization) = host::input(
+            crate::ui_text::text(
+                "runtime.boundary.70cf2bc29d",
+                "Sentry organization slug (sentry.io)",
+            ),
+            Some(&existing),
+        )?
         else {
             return Err(Error::Cancelled);
         };
         if !segment(&organization) {
             return Err(Error::Invalid(
-                "Enter a Sentry organization slug using letters, digits, hyphens or underscores."
+                crate::ui_text::text("runtime.boundary.01a3fd0780","Enter a Sentry organization slug using letters, digits, hyphens or underscores.")
                     .into(),
             ));
         }
@@ -371,6 +430,9 @@ impl State {
         Ok(())
     }
     pub(crate) fn refresh_sentry(&mut self, ctx: &Invocation) -> Result<(), Error> {
+        self.refresh_sentry_ui_inner(ctx).map_err(ui_error)
+    }
+    fn refresh_sentry_ui_inner(&mut self, ctx: &Invocation) -> Result<(), Error> {
         let (_, root) = owner(ctx)?;
         let organization = host::storage::get(&org_key(&root))?
             .filter(|s| segment(s))
@@ -392,6 +454,9 @@ impl State {
         Ok(())
     }
     pub(crate) fn load_more_sentry(&mut self, ctx: &Invocation) -> Result<(), Error> {
+        self.load_more_sentry_ui_inner(ctx).map_err(ui_error)
+    }
+    fn load_more_sentry_ui_inner(&mut self, ctx: &Invocation) -> Result<(), Error> {
         let (_, root) = owner(ctx)?;
         let session = self.projects.get(&root).ok_or(Error::Stale)?;
         let org = session.organization.clone();
@@ -417,6 +482,9 @@ impl State {
         Ok(())
     }
     pub(crate) fn refresh_cloud(&mut self, ctx: &Invocation) -> Result<(), Error> {
+        self.refresh_cloud_ui_inner(ctx).map_err(ui_error)
+    }
+    fn refresh_cloud_ui_inner(&mut self, ctx: &Invocation) -> Result<(), Error> {
         let (_, root) = owner(ctx)?;
         let base = "https://cloud.laravel.com/api/applications";
         let (value, _) = get(base.into(), CLOUD_SECRET)?;
@@ -425,15 +493,20 @@ impl State {
         if owner(ctx)?.1 != root {
             return Err(Error::Stale);
         }
-        let session = self.projects.entry(root).or_default();
+        let session = self.projects.entry(root.clone()).or_default();
         session.applications = applications;
         session.applications_page = Page::first(&session.applications_page, base.into(), next);
         session.environments.clear();
         session.environment_application = None;
         session.environments_page = Page::first(&session.environments_page, String::new(), None);
-        Ok(())
+        self.cloud.views.remove(&root);
+        self.cloud.epoch=self.cloud.epoch.wrapping_add(1);
+        self.cloud_restore_selection(ctx)
     }
     pub(crate) fn load_more_cloud(&mut self, ctx: &Invocation) -> Result<(), Error> {
+        self.load_more_cloud_ui_inner(ctx).map_err(ui_error)
+    }
+    fn load_more_cloud_ui_inner(&mut self, ctx: &Invocation) -> Result<(), Error> {
         let (_, root) = owner(ctx)?;
         let before = self
             .projects
@@ -457,10 +530,13 @@ impl State {
         }
         session.applications = merge(&session.applications, fresh)?;
         session.applications_page = page;
-        Ok(())
+        self.cloud_restore_selection(ctx)
     }
     /// Row key binds the captured application to project and snapshot revision.
     pub(crate) fn cloud_environments(&mut self, ctx: &Invocation, key: &str) -> Result<(), Error> {
+        self.cloud_environments_ui_inner(ctx, key).map_err(ui_error)
+    }
+    fn cloud_environments_ui_inner(&mut self, ctx: &Invocation, key: &str) -> Result<(), Error> {
         let (_, root) = owner(ctx)?;
         let session = self.projects.get(&root).ok_or(Error::Stale)?;
         let snapshot = selected(
@@ -495,9 +571,13 @@ impl State {
             })
             .collect();
         session.environments_page = Page::first(&session.environments_page, base, next);
+        self.cloud_application_selected(&root);
         Ok(())
     }
     pub(crate) fn load_more_environments(&mut self, ctx: &Invocation) -> Result<(), Error> {
+        self.load_more_environments_ui_inner(ctx).map_err(ui_error)
+    }
+    fn load_more_environments_ui_inner(&mut self, ctx: &Invocation) -> Result<(), Error> {
         let (_, root) = owner(ctx)?;
         let session = self.projects.get(&root).ok_or(Error::Stale)?;
         let app = session
@@ -557,6 +637,9 @@ impl State {
     }
     /// Unlink this project's org, retaining the shared credential for other projects.
     pub(crate) fn forget_sentry(&mut self, ctx: &Invocation) -> Result<(), Error> {
+        self.forget_sentry_ui_inner(ctx).map_err(ui_error)
+    }
+    fn forget_sentry_ui_inner(&mut self, ctx: &Invocation) -> Result<(), Error> {
         let (_, root) = owner(ctx)?;
         host::storage::delete(&org_key(&root))?;
         if let Some(session) = self.projects.get_mut(&root) {
@@ -568,6 +651,9 @@ impl State {
     }
     /// Fetch only a previously captured issue; output is reduced to safe display fields.
     pub(crate) fn sentry_details(&self, ctx: &Invocation, key: &str) -> Result<String, Error> {
+        self.sentry_details_ui_inner(ctx, key).map_err(ui_error)
+    }
+    fn sentry_details_ui_inner(&self, ctx: &Invocation, key: &str) -> Result<String, Error> {
         let (_, root) = owner(ctx)?;
         let session = self
             .projects
@@ -639,7 +725,7 @@ impl State {
             return vec![];
         };
         let mut rows = vec![
-            json!({"key":"external-info","cells":["Connections","Tokens are configured in plugin Secrets","Explicit refresh · Load More requests one page (20-page limit)"],"activationEnabled":false}),
+            json!({"key":"external-info","cells":[crate::ui_text::text("runtime.boundary.8f3509b64e","Connections"),crate::ui_text::text("runtime.boundary.b0881ba10e","Tokens are configured in plugin Secrets"),crate::ui_text::text("runtime.boundary.f6609b636c","Explicit refresh · Load More requests one page (20-page limit)")],"activationEnabled":false}),
         ];
         let Some(session) = self.projects.get(&root) else {
             return rows;
@@ -652,8 +738,10 @@ impl State {
         .iter()
         .any(|page| page.next.is_some() && page.pages >= MAX_PAGES)
         {
-            rows[0]["cells"][2] =
-                json!("Load limit reached (20 pages); results are incomplete. Refresh to restart.");
+            rows[0]["cells"][2] = json!(crate::ui_text::text(
+                "runtime.boundary.4b31731ade",
+                "Load limit reached (20 pages); results are incomplete. Refresh to restart."
+            ));
         }
         if host::secret_is_set(SENTRY_SECRET)
             && host::storage::get(&org_key(&root))
@@ -665,15 +753,19 @@ impl State {
             rows.extend(session.issues.iter().map(|issue|json!({"key":resource_key("sentry-issue",&root,session.issues_page.revision,issue["id"].as_str().unwrap_or_default()),"cells":["Sentry",issue["title"],format!("{} · {}",issue["project"].as_str().unwrap_or_default(),issue["status"].as_str().unwrap_or_default())],"activationEnabled":false})));
         }
         if host::secret_is_set(CLOUD_SECRET) {
-            rows.extend(session.applications.iter().map(|app|json!({"key":resource_key("cloud-app",&root,session.applications_page.revision,app["id"].as_str().unwrap_or_default()),"cells":["Cloud application",app["name"],app["slug"]],"activationEnabled":false})));
-            rows.extend(session.environments.iter().map(|env|json!({"key":resource_key("cloud-env",&root,session.environments_page.revision,env["id"].as_str().unwrap_or_default()),"cells":["Cloud environment",env["name"],env["status"]],"activationEnabled":false})));
+            rows.extend(session.applications.iter().map(|app|json!({"key":resource_key("cloud-app",&root,session.applications_page.revision,app["id"].as_str().unwrap_or_default()),"cells":[crate::ui_text::text("runtime.boundary.d29443bb01","Cloud application"),app["name"],app["slug"]],"activationEnabled":false})));
+            rows.extend(session.environments.iter().map(|env|json!({"key":resource_key("cloud-env",&root,session.environments_page.revision,env["id"].as_str().unwrap_or_default()),"cells":[crate::ui_text::text("runtime.boundary.5369a0cbef","Cloud environment"),env["name"],env["status"]],"activationEnabled":false})));
         }
         rows
     }
     /// Declared tokens are global to the plugin; disconnect clears every cached project.
     /// Nonsecret organization preferences survive reconnect; forget_sentry unlinks one project.
     pub(crate) fn disconnect_sentry(&mut self) -> Result<(), Error> {
+        self.disconnect_sentry_ui_inner().map_err(ui_error)
+    }
+    fn disconnect_sentry_ui_inner(&mut self) -> Result<(), Error> {
         host::secret_delete(SENTRY_SECRET)?;
+        oauth::disconnect(&mut self.sentry_device)?;
         for session in self.projects.values_mut() {
             session.issues.clear();
             session.issues_page = Page::first(&session.issues_page, String::new(), None);
@@ -681,6 +773,9 @@ impl State {
         Ok(())
     }
     pub(crate) fn disconnect_cloud(&mut self) -> Result<(), Error> {
+        self.disconnect_cloud_ui_inner().map_err(ui_error)
+    }
+    fn disconnect_cloud_ui_inner(&mut self) -> Result<(), Error> {
         host::secret_delete(CLOUD_SECRET)?;
         for session in self.projects.values_mut() {
             session.applications.clear();
@@ -691,6 +786,12 @@ impl State {
             session.environments_page =
                 Page::first(&session.environments_page, String::new(), None);
         }
+        let mut roots=self.projects.keys().cloned().collect::<std::collections::BTreeSet<_>>();
+        roots.extend(host::projects().unwrap_or_default().into_iter().filter_map(|project|project.root().ok()));
+        for root in roots{let _=host::storage::delete(&format!("external:cloud-application:{}",crate::artisan_metadata::hash(&root)));}
+        self.cloud.selected.clear();
+        self.cloud.views.clear();
+        self.cloud.epoch=self.cloud.epoch.wrapping_add(1);
         Ok(())
     }
 }
@@ -722,7 +823,7 @@ mod tests {
     }
     #[test]
     fn fetch_uses_host_secret_and_never_surfaces_server_error_bodies() {
-        let h = MockHost::install().with_capabilities(&["net:sentry.io", "secrets"]);
+        let h = MockHost::install().with_capabilities(&["net:sentry.io", "secrets", "storage"]);
         h.set_secret(SENTRY_SECRET, "private-token");
         h.on_fetch(|r| {
             assert!(
@@ -789,6 +890,7 @@ mod tests {
             "net:sentry.io",
             "net:cloud.laravel.com",
         ]);
+        h.declare_secret("sentry-refresh-token");
         h.set_secret(SENTRY_SECRET, "sentry-private");
         h.set_secret(CLOUD_SECRET, "cloud-private");
         h.answer_next_prompt(Some(&["acme"]));
@@ -1070,3 +1172,100 @@ mod tests {
         assert_eq!(h.requests().len(), count);
     }
 }
+
+// Exact authored failures are localized only at native UI delivery boundaries.
+fn ui_error(error: Error) -> Error {
+    let translate = |message: String| -> String {
+        match message.as_str() {
+            "External inventory reached 20 pages; refresh or narrow the service scope." => {
+                crate::ui_text::t("runtime.error.9ee7deed4647", &message)
+            }
+            "No more captured pages are available." => {
+                crate::ui_text::t("runtime.error.9162d6217c66", &message)
+            }
+            "External pagination repeated a previous page." => {
+                crate::ui_text::t("runtime.error.f0fd4a407a7f", &message)
+            }
+            "External pagination changed origin or resource." => {
+                crate::ui_text::t("runtime.error.3a2044b9842d", &message)
+            }
+            "External pagination query is too large." => {
+                crate::ui_text::t("runtime.error.ba8f1dc6c4db", &message)
+            }
+            "Malformed external pagination query." => {
+                crate::ui_text::t("runtime.error.3a70f7e87e45", &message)
+            }
+            "Duplicate external pagination parameter." => {
+                crate::ui_text::t("runtime.error.930fbb2d9ee3", &message)
+            }
+            "External pagination header exceeds its limit." => {
+                crate::ui_text::t("runtime.error.4e08efa0c1a7", &message)
+            }
+            "Duplicate Sentry next-page relation." => {
+                crate::ui_text::t("runtime.error.5d6c8bc6884a", &message)
+            }
+            "Malformed Sentry next-page URL." => {
+                crate::ui_text::t("runtime.error.4ecd744da350", &message)
+            }
+            "Invalid Sentry cursor." => crate::ui_text::t("runtime.error.b3f41c412600", &message),
+            "Unsupported Sentry pagination parameter." => {
+                crate::ui_text::t("runtime.error.a13f680ab228", &message)
+            }
+            "Sentry next-page URL has no cursor." => {
+                crate::ui_text::t("runtime.error.6ebdfff4b7aa", &message)
+            }
+            "Invalid Cloud next-page link." => {
+                crate::ui_text::t("runtime.error.a3539abe2d0a", &message)
+            }
+            "Unsupported Cloud pagination parameter." => {
+                crate::ui_text::t("runtime.error.7962dfcd7479", &message)
+            }
+            "Invalid Cloud page number." => {
+                crate::ui_text::t("runtime.error.4c369b73cb63", &message)
+            }
+            "Missing Cloud page number." => {
+                crate::ui_text::t("runtime.error.ef41ed97797d", &message)
+            }
+            "External inventory exceeds 2000 resources." => {
+                crate::ui_text::t("runtime.error.c7994b5e25c6", &message)
+            }
+            "Open a Laravel project first." => crate::ui_text::t("process.error0", &message),
+            "External service returned an oversized value." => {
+                crate::ui_text::t("runtime.error.e03b9b37c620", &message)
+            }
+            "External response has an invalid resource ID." => {
+                crate::ui_text::t("runtime.error.f99bd0952800", &message)
+            }
+            "Expected at most 100 Sentry issues." => {
+                crate::ui_text::t("runtime.error.3645d6cb72e8", &message)
+            }
+            "Duplicate Sentry issue ID." => {
+                crate::ui_text::t("runtime.error.ed8c2501a782", &message)
+            }
+            "Expected a Cloud JSON:API resource page of at most 100 records." => {
+                crate::ui_text::t("runtime.error.40162270f212", &message)
+            }
+            "Cloud resource has the wrong type." => {
+                crate::ui_text::t("runtime.error.014426ef869b", &message)
+            }
+            "Duplicate Cloud resource ID." => {
+                crate::ui_text::t("runtime.error.a7cf2211284a", &message)
+            }
+            "Configure this project's Sentry organization first." => {
+                crate::ui_text::t("runtime.error.e77590a6735c", &message)
+            }
+            _ => crate::ui_text::owned_error(&message, UI_ERROR_TEMPLATES).unwrap_or(message),
+        }
+    };
+    match error {
+        Error::Invalid(message) => Error::Invalid(translate(message)),
+        Error::Failed(message) => Error::Failed(translate(message)),
+        other => other,
+    }
+}
+
+// Explicit formats emitted by this module; only UI delivery uses locale state.
+const UI_ERROR_TEMPLATES: &[(&str, &str)] = &[(
+    "final.external_services.missingField",
+    "External response is missing {name}.",
+)];

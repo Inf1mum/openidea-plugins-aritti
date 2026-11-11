@@ -4,6 +4,8 @@
 
 #[path = "component_metadata.rs"]
 mod declarations;
+#[path="component_values.rs"] mod values;
+pub(crate) use values::{completion as value_completion,definition as value_definition};
 pub(crate) use declarations::{Metadata,parse_metadata as metadata,apply_metadata};
 use crate::index::separated;
 use crate::php;
@@ -114,7 +116,7 @@ fn context_impl(text:&str,at:usize,bare:Option<&std::collections::BTreeSet<Strin
     let length = rest.bytes().take_while(|b| word(*b)||*b==b':').count();
     let component = &rest[..length];
     let after = &rest[length..];
-    if !crate::refs::valid_tag_name(component,false) || !after.starts_with(char::is_whitespace) {
+    if !crate::refs::valid_tag_name(component,false)&&!bare.is_some_and(|names|names.contains(component)) || !after.starts_with(char::is_whitespace) {
         return None;
     }
 
@@ -133,7 +135,7 @@ fn bare_reference(index:&crate::Index,doc:&openidea_plugin::providers::Document,
     let visible=crate::refs::without_comments(&doc.text);if visible.len()!=doc.text.len(){return None;}
     let open=visible[..at].rfind('<')?;let start=open+1+usize::from(visible.as_bytes().get(open+1)==Some(&b'/'));
     let end=start+visible[start..].bytes().take_while(|b|word(*b)||*b==b':').count();if at<start||at>end{return None;}
-    let name=&visible[start..end];if !crate::refs::valid_tag_name(name,true)||!index.metadata.blade_components.bare_tags.iter().any(|candidate|candidate.starts_with(name)){return None;}
+    let name=&visible[start..end];if !index.metadata.blade_components.bare_tags.iter().any(|candidate|candidate.starts_with(name)){return None;}
     Some(crate::refs::Reference{kind:Kind::Component,start,end,class:None,closed:index.metadata.blade_components.bare_tags.contains(name)})
 }
 pub(crate) fn bare_completion(index:&crate::Index,doc:&openidea_plugin::providers::Document,at:openidea_plugin::Position)->Vec<openidea_plugin::providers::CompletionItem>{
@@ -142,7 +144,7 @@ pub(crate) fn bare_completion(index:&crate::Index,doc:&openidea_plugin::provider
     let Some(project)=crate::project_for(&doc.path)else{return vec![];};
     index.metadata.blade_components.bare_tags.iter().filter(|name|name.starts_with(typed)).filter_map(|name|{
         let entry=index.components.get(name)?;if !entry.path.is_empty()&&!crate::owns_current_path(&project,&entry.path){return None;}
-        let mut item=CompletionItem::new(name,CompletionKind::Class);item.detail=entry.detail.clone();item.replace=Some(Range::new(text::position(&doc.text,reference.start),text::position(&doc.text,reference.end)));Some(item)
+        let mut item=CompletionItem::new(name,CompletionKind::Class);item.detail=crate::package_integrations::presentation_detail(entry.detail.clone());item.replace=Some(Range::new(text::position(&doc.text,reference.start),text::position(&doc.text,reference.end)));Some(item)
     }).collect()
 }
 pub(crate) fn bare_definition(index:&crate::Index,doc:&openidea_plugin::providers::Document,at:openidea_plugin::Position)->Vec<openidea_plugin::Location>{
@@ -193,6 +195,9 @@ pub fn constructor_props(class: &str) -> Vec<Prop> {
 
 /// Public properties and `mount()` parameters of a Livewire component.
 pub fn livewire_props(class: &str) -> Vec<Prop> {
+    let span=crate::blade_php::ranges(class).and_then(|ranges|ranges.into_iter().find(|r|class[r.clone()].starts_with("<?php"))).filter(|r|class[..r.start].trim().is_empty());
+    let class=span.map_or(class,|r|&class[..r.end]);
+
     let masked = php::mask_comments(class);
     let mut props = Vec::new();
     let Some(structure)=crate::package_facts::code(class)else{return props;};

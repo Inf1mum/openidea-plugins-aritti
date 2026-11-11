@@ -55,21 +55,21 @@ pub struct Reference {
 }
 
 /// Where a string literal is: the call, the argument and the array key.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Site {
     /// `Route::get`, `->name`, `view`, `@include`; empty at top level.
-    callee: String,
-    callee_start: usize,
-    arg: usize,
+    pub(crate) callee: String,
+    pub(crate) callee_start: usize,
+    pub(crate) arg: usize,
     /// Array literals between the argument and the string.
-    depth: usize,
+    pub(crate) depth: usize,
     /// Index of the string in its array.
-    element: usize,
+    pub(crate) element: usize,
     /// The key the string is the value of.
-    key: Option<String>,
+    pub(crate) key: Option<String>,
     /// The key of the array the string's array is the value of.
-    outer_key: Option<String>,
-    array_open: Option<usize>,
+    pub(crate) outer_key: Option<String>,
+    pub(crate) array_open: Option<usize>,
 }
 
 const ROUTE_VERBS: &[&str] = &["get", "post", "put", "patch", "delete", "options", "any"];
@@ -97,6 +97,17 @@ const COLUMNS_METHODS: &[&str] = &["select", "addSelect", "groupBy"];
 const COLUMN_PROPERTIES: &[&str] = &["$fillable", "$guarded", "$hidden", "$visible", "$casts", "$dates"];
 const CONFIG_METHODS: &[&str] = &["get", "has", "set", "string", "integer", "float", "boolean", "array", "prepend", "push"];
 
+fn route_facade(text:&str,class:&str)->bool {
+    let class=class.trim();
+    if class.trim_start_matches('\\').eq_ignore_ascii_case("Illuminate\\Support\\Facades\\Route"){return class.starts_with('\\')||text.trim_start().starts_with("<?php")&&crate::eloquent_members::source_class_name(text,class).is_some_and(|name|name.eq_ignore_ascii_case("Illuminate\\Support\\Facades\\Route"));}
+    let synthetic;
+    let header=if text.contains("<?php"){text}else{synthetic=format!("<?php\n{text}");&synthetic};
+    let imported=php::insert_use(header,"Illuminate\\Support\\Facades\\Route");
+    if imported.as_ref().is_some_and(|import|import.text.is_empty()&&import.short_name.eq_ignore_ascii_case(class)){return true;}
+    if class.eq_ignore_ascii_case("Route")||class.eq_ignore_ascii_case("\\Route"){return imported.is_some();}
+    crate::eloquent_members::source_class_name(text,class).is_some_and(|name|name.eq_ignore_ascii_case("Illuminate\\Support\\Facades\\Route"))
+}
+
 impl Site {
     fn last_segment(&self) -> &str {
         self.callee.rsplit(['\\', '>', ':']).next().unwrap_or_default()
@@ -109,7 +120,7 @@ impl Site {
     }
 
     fn is_method(&self, names: &[&str]) -> bool {
-        self.callee.contains("->") && names.contains(&self.last_segment())
+        self.callee.contains("->") && names.iter().any(|name|self.last_segment().trim().eq_ignore_ascii_case(name))
     }
 
     fn is_static(&self, classes: &[&str], names: &[&str]) -> bool {
@@ -131,6 +142,10 @@ impl Site {
             _ => return false,
         };
         classes.contains(&class) && names.contains(&method)
+    }
+
+    fn is_route_static(&self,text:&str,names:&[&str])->bool {
+        self.callee.rsplit_once("::").is_some_and(|(class,method)|names.iter().any(|name|method.trim().eq_ignore_ascii_case(name))&&route_facade(text,class))
     }
 
     fn is_directive(&self, names: &[&str]) -> bool {
@@ -200,6 +215,7 @@ enum FrameKind {
     Brace,
 }
 
+#[derive(Clone, Debug)]
 pub struct Literal {
     /// The contents, between the quotes.
     pub start: usize,
@@ -368,11 +384,33 @@ fn named_argument(bytes: &[u8], colon: usize, lower: usize) -> Option<&str> {
 }
 
 /// `Route::` appears shortly before, in the same statement.
-fn in_route_chain(text: &str, before: usize) -> bool {
-    let from = text.floor_char_boundary(before.saturating_sub(600));
-    let window = &text[from..before];
-    let statement = window.rfind(';').map_or(window, |at| &window[at..]);
-    statement.contains("Route::")
+pub(crate) fn route_chain_at(text:&str,before:usize)->bool {in_route_chain(text,before)}
+fn in_route_chain(text:&str,before:usize)->bool {
+    #[derive(Clone,Copy)]enum Receiver{Registrar,Route,Resource}
+    fn registration(name:&str)->Option<Receiver>{match name{
+        "get"|"post"|"put"|"patch"|"delete"|"options"|"query"|"any"|"match"|"view"|"redirect"|"permanentredirect"|"fallback"=>Some(Receiver::Route),
+        "resource"|"apiresource"|"singleton"|"apisingleton"=>Some(Receiver::Resource),_=>None}}
+    fn builder(name:&str)->bool{matches!(name,"prefix"|"name"|"middleware"|"withoutmiddleware"|"namespace"|"controller"|"domain"|"can"|"scopebindings"|"withoutscopedbindings"|"where"|"missing")}
+    fn advance(receiver:Receiver,name:&str)->Option<Receiver>{match receiver{
+        Receiver::Registrar=>registration(name).or_else(||builder(name).then_some(receiver)),
+        Receiver::Route=>matches!(name,"name"|"middleware"|"withoutmiddleware"|"where"|"wherenumber"|"wherealpha"|"wherealphanumeric"|"whereuuid"|"whereulid"|"wherein"|"defaults"|"setdefaults"|"withtrashed"|"scopebindings"|"withoutscopedbindings"|"can"|"block").then_some(receiver),
+        Receiver::Resource=>matches!(name,"only"|"except"|"names"|"name"|"parameters"|"parameter"|"scoped"|"shallow"|"missing"|"withtrashed"|"middleware"|"withoutmiddleware"|"middlewarefor"|"withoutmiddlewarefor"|"creatable"|"destroyable").then_some(receiver)}}
+    let Some(code)=crate::package_facts::code(text)else{return false;};let Some(tail)=code.get(before..)else{return false;};
+    let Some(candidate)=tail.strip_prefix("->").or_else(||tail.strip_prefix("?->")).and_then(|tail|tail.split_once('(').map(|p|p.0.trim().to_ascii_lowercase()))else{return false;};
+    let mut end=before;let mut hops=Vec::<String>::new();
+    for _ in 0..32 {
+        let previous=code[..end].trim_end();if !previous.ends_with(')'){return false;}
+        let mut depth=0usize;let mut open=None;
+        for(at,byte)in previous.bytes().enumerate().rev(){match byte{b')'=>depth+=1,b'('=>{depth-=1;if depth==0{open=Some(at);break;}},_=>{}}}
+        let Some(open)=open else{return false;};let range=callee_before(code.as_bytes(),open,0);let start=range.start;let callee=code[range].trim();
+        if let Some((class,method))=callee.rsplit_once("::"){
+            if !route_facade(text,class.trim()){return false;}let method=method.trim().to_ascii_lowercase();
+            let mut receiver=if let Some(receiver)=registration(&method){receiver}else if builder(&method){Receiver::Registrar}else{return false;};
+            for hop in hops.iter().rev(){let Some(next)=advance(receiver,hop)else{return false;};receiver=next;}
+            return advance(receiver,&candidate).is_some();
+        }
+        let Some(method)=callee.strip_prefix("->").or_else(||callee.strip_prefix("?->"))else{return false;};hops.push(method.trim().to_ascii_lowercase());end=start;
+    }false
 }
 
 /// The model a query on a column belongs to: `Some(Some("User"))`, `Some(Some("table:users"))`,
@@ -542,14 +580,14 @@ fn after_redirect_helper(text: &str, before: usize) -> bool {
 fn classify(text: &str, language: &str, literal: &Literal, site: &Site) -> Option<(Kind, Option<String>)> {
     let direct = |i| site.direct(i);
     let blade = language == "blade";
-    let route_call = site.is_static(&["Route"], ROUTE_VERBS) || (site.is_method(ROUTE_VERBS) && in_route_chain(text, site.callee_start));
-    let route_resource_call = site.is_static(&["Route"], &["resource", "apiResource"])
-        || (site.is_method(&["resource", "apiResource"]) && in_route_chain(text, site.callee_start));
+    let route_call = site.is_route_static(text, ROUTE_VERBS) || (site.is_method(ROUTE_VERBS) && in_route_chain(text, site.callee_start));
+    let route_resource_call = site.is_route_static(text, &["resource", "apiResource","singleton","apiSingleton"])
+        || (site.is_method(&["resource", "apiResource","singleton","apiSingleton"]) && in_route_chain(text, site.callee_start));
     let chained = !blade && site.callee.contains("->") && in_route_chain(text, site.callee_start);
 
     if site.is_function(&["route", "to_route", "link_to_route"]) && direct(0)
         || site.is_static(&["Redirect", "URL"], &["route", "signedRoute", "temporarySignedRoute"]) && direct(0)
-        || site.is_static(&["Route"], &["has", "is", "currentRouteNamed"]) && site.string_or_list(0)
+        || site.is_route_static(text, &["has", "is", "currentRouteNamed"]) && site.string_or_list(0)
         || site.is_method(&["signedRoute", "temporarySignedRoute", "routeIs", "linkRoute", "visitRoute", "toRoute"]) && site.string_or_list(0)
         || site.is_method(&["route"]) && direct(0) && after_redirect_helper(text, site.callee_start)
     {
@@ -557,7 +595,7 @@ fn classify(text: &str, language: &str, literal: &Literal, site: &Site) -> Optio
     }
 
     let content_view = site.callee.ends_with("Content") && matches!(site.key.as_deref(), Some("view" | "markdown" | "text" | "html"));
-    let route_view = (site.is_static(&["Route"], &["view"]) || site.is_method(&["view"]) && chained) && direct(1);
+    let route_view = (site.is_route_static(text, &["view"]) || site.is_method(&["view"]) && chained) && direct(1);
     let plain_view = site.is_method(&["view", "markdown"]) && !chained && direct(0);
     if site.is_function(&["view"]) && direct(0)
         || site.is_static(&["View"], &["make", "exists", "first"]) && site.string_or_list(0)
@@ -593,7 +631,7 @@ fn classify(text: &str, language: &str, literal: &Literal, site: &Site) -> Optio
         return Some((Kind::Asset, None));
     }
 
-    let middleware_call = site.is_method(&["middleware", "withoutMiddleware"]) || site.is_static(&["Route"], &["middleware", "withoutMiddleware"]);
+    let middleware_call = site.is_method(&["middleware", "withoutMiddleware"]) || site.is_route_static(text, &["middleware", "withoutMiddleware"]);
     if middleware_call && site.string_or_list(0) || site.key.as_deref() == Some("middleware") || site.outer_key.as_deref() == Some("middleware") {
         return Some((Kind::Middleware, None));
     }
@@ -611,14 +649,15 @@ fn classify(text: &str, language: &str, literal: &Literal, site: &Site) -> Optio
     }
 
     if route_call && (direct(1) || site.arg == 1 && site.depth == 1 && site.key.as_deref() == Some("uses"))
-        || site.is_static(&["Route"], &["match"]) && direct(2)
+        || site.is_route_static(text, &["match"]) && direct(2)
         || site.is_function(&["action", "link_to_action"]) && direct(0)
         || site.is_static(&["Redirect", "URL"], &["action"]) && direct(0)
     {
         return Some((Kind::Action, None));
     }
 
-    if route_resource_call && direct(1) {
+    if (site.is_route_static(text,&["resources","apiResources","singletons","apiSingletons"])||site.is_method(&["resources","apiResources","singletons","apiSingletons"])&&in_route_chain(text,site.callee_start))&&site.arg==0&&site.depth==1&&site.key.is_some(){return Some((Kind::Controller,None));}
+    if route_resource_call && direct(1) || site.is_route_static(text,&["controller"])&&direct(0) || chained&&site.is_method(&["controller"])&&direct(0) {
         return Some((Kind::Controller, None));
     }
 
@@ -640,7 +679,7 @@ fn classify(text: &str, language: &str, literal: &Literal, site: &Site) -> Optio
         return Some((Kind::Livewire, None));
     }
 
-    if site.is_static(&["Inertia"], &["render"]) && direct(0) || site.is_function(&["inertia"]) && direct(0) || site.is_static(&["Route"], &["inertia"]) && direct(1)
+    if site.is_static(&["Inertia"], &["render"]) && direct(0) || site.is_function(&["inertia"]) && direct(0) || site.is_route_static(text, &["inertia"]) && direct(1)
     {
         return Some((Kind::Inertia, None));
     }
@@ -664,7 +703,7 @@ fn classify(text: &str, language: &str, literal: &Literal, site: &Site) -> Optio
         return Some((Kind::Section, None));
     }
 
-    if site.is_directive(&["push", "pushOnce", "prepend", "prependOnce", "stack"]) && direct(0) || site.is_directive(&["pushIf"]) && direct(1) {
+    if site.is_directive(&["push", "pushOnce", "prepend", "prependOnce", "stack", "hasStack"]) && direct(0) || site.is_directive(&["pushIf"]) && direct(1) {
         return Some((Kind::Stack, None));
     }
 
@@ -732,6 +771,18 @@ pub fn reference_at(language: &str, text: &str, at: usize) -> Option<Reference> 
     });
 
     found
+}
+
+/// A bounded literal's lexical call context, including unfinished strings.
+/// Consumers still prove framework bindings before using this context.
+pub(crate) fn literal_site_at(language:&str,text:&str,at:usize)->Option<(Literal,Site)> {
+    if text.len()>512*1024 || at>text.len() || !text.is_char_boundary(at) {return None;}
+    let from=window_start(language,text,at)?;let mut found=None;
+    walk(text,from,text.len(),true,false,|literal,site|{
+        if literal.start>at{return false;}
+        if at<=literal.end {found=Some((literal.clone(),site.clone()));return false;}
+        true
+    });found
 }
 
 /// The whole string literal at `at` and what it holds, for the actions that rewrite it.
@@ -884,7 +935,9 @@ pub fn blade_regions(text: &str) -> Vec<Range<usize>> {
             b'{' if bytes[i..].starts_with(b"{{") => text[i..].find("}}").map_or(bytes.len(), |n| i + n + 2),
             b'{' if bytes[i..].starts_with(b"{!!") => text[i..].find("!!}").map_or(bytes.len(), |n| i + n + 3),
             b'@' if i == 0 || !is_identifier(bytes[i - 1]) => {
-                let name_end = (i + 1..bytes.len()).find(|&j| !bytes[j].is_ascii_alphabetic()).unwrap_or(bytes.len());
+                let name_end = if bytes.get(i+1).is_some_and(|b|b.is_ascii_alphabetic()||*b==b'_') {
+                    (i + 2..bytes.len()).find(|&j| !is_identifier(bytes[j])).unwrap_or(bytes.len())
+                } else {i+1};
                 let after = text[name_end..].trim_start_matches([' ', '\t']);
                 let open = text.len() - after.len();
                 if name_end > i + 1 && after.starts_with('(') {
@@ -1016,6 +1069,9 @@ mod tests {
         assert_eq!(kind_at("blade", "@section('ti|tle', 'Home')"), some(Kind::Section, "title"));
         assert_eq!(kind_at("blade", "@yield('con|tent')"), some(Kind::Section, "content"));
         assert_eq!(kind_at("blade", "@push('scr|ipts')"), some(Kind::Stack, "scripts"));
+        assert_eq!(kind_at("blade", "@hasStack('scr|ipts')<script></script>@endif"), some(Kind::Stack, "scripts"));
+        assert_eq!(kind_at("blade", "{{-- @hasStack('scr|ipts') --}}"), None);
+        assert_eq!(kind_at("blade", "@verbatim @hasStack('scr|ipts') @endverbatim"), None);
         assert_eq!(kind_at("blade", "@lang('messages.wel|come')"), some(Kind::Translation, "messages.welcome"));
         assert_eq!(kind_at("blade", "<p>don't view('a|')</p>"), None);
     }
@@ -1141,4 +1197,31 @@ mod tests {
         assert_eq!(kind_at("blade","@php($x = view('re|al'))"),some(Kind::View,"real"));
     }
 
+}
+
+#[cfg(test)] mod literal_site_tests {
+    use super::*;
+    #[test] fn custom_directive_identifiers_include_underscore_and_digits_but_require_valid_start() {
+        let source="<p>@vendor_2('users') @_feature3('posts') @2bad('decoy')</p>";
+        let regions=blade_regions(source);let values:Vec<_>=regions.iter().map(|r|&source[r.clone()]).collect();
+        assert_eq!(values,["@vendor_2('users')","@_feature3('posts')"]);
+        let (literal,site)=literal_site_at("blade",source,source.find("users").unwrap()+1).unwrap();
+        assert_eq!(site.callee,"@vendor_2");assert_eq!(&source[literal.start..literal.end],"users");
+    }
+    #[test] fn completion_context_retains_unfinished_literal_and_array_key_position() {
+        let source="<?php route('posts.show', ['te";let(literal,site)=literal_site_at("php",source,source.len()).unwrap();
+        assert!(!literal.closed);assert_eq!(site.arg,1);assert_eq!(site.depth,1);assert_eq!(site.callee,"route");assert!(site.key.is_none());
+    }
+}
+
+#[cfg(test)] mod route_alias_context_tests {
+    use super::*;
+    fn kind(marked:&str)->Option<Kind>{let at=marked.find('|').unwrap();let source=marked.replacen('|',"",1);reference_at("php",&source,at).map(|r|r.kind)}
+    #[test]fn actual_route_aliases_bulk_resources_singletons_and_controller_groups_are_recognized(){
+        for source in ["<?php use Illuminate\\Support\\Facades\\Route as Router; Router::get('/x','P@sh|ow');","<?php use Illuminate\\Support\\Facades\\Route as Router; Router::prefix('a')->get('/x','P@sh|ow');"]{assert_eq!(kind(source),Some(Kind::Action),"{source}");}
+        for source in ["<?php Route::singleton('profile','Pro|file');","<?php Route::apiSingleton('profile','Pro|file');","<?php Route::resources(['posts'=>'Po|sts']);","<?php Route::apiResources(['posts'=>'Po|sts']);","<?php Route::singletons(['profile'=>'Pro|file']);","<?php Route::controller('Po|sts')->group(function(){});"]{assert_eq!(kind(source),Some(Kind::Controller),"{source}");}
+    }
+    #[test]fn unrelated_nested_receivers_and_unknown_macro_returns_do_not_acquire_route_context(){
+        for source in ["<?php consume(Route::prefix('x'),$client->get('/x','No|pe'));","<?php consume(Route::prefix('x'),(new Client)->get('/x','No|pe'));","<?php Route::customClient()->get('/x','No|pe');","<?php Route::get('/first',fn()=>1)->get('/x','No|pe');","<?php use Vendor\\Route; Route::get('/x','No|pe');"]{assert_eq!(kind(source),None,"{source}");}
+    }
 }

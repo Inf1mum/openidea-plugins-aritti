@@ -23,7 +23,7 @@ fn socket() -> Result<String, Error> {
 fn owner(ctx: &Invocation) -> Result<(Project, String), Error> {
     let project = ctx
         .project()
-        .ok_or("Open the owning Laravel project first.")?;
+        .ok_or(crate::ui_text::text("native.artisan_docker.7b35695466","Open the owning Laravel project first."))?;
     let root = project.root()?;
     if !canonical(&root)
         || !host::projects()?
@@ -84,6 +84,7 @@ struct Candidate {
     target: Target,
     proof: Value,
     label: String,
+    generic_label: bool,
     detail: String,
 }
 fn text<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
@@ -107,12 +108,7 @@ fn candidate_label(value: &Value, root: &str) -> String {
         };
         return format!("{kind} · {project} / {service}");
     }
-    format!(
-        "Container · {}",
-        text(value, "Name")
-            .unwrap_or("unnamed")
-            .trim_start_matches('/')
-    )
+    text(value, "Name").unwrap_or("").trim_start_matches('/').into()
 }
 fn candidates(root: &str, socket: &str, values: &[Value]) -> Result<Vec<Candidate>, Error> {
     let mut found = BTreeMap::new();
@@ -151,8 +147,9 @@ fn candidates(root: &str, socket: &str, values: &[Value]) -> Result<Vec<Candidat
                 continue;
             };
             let label = candidate_label(value, root);
+            let generic_label=!(text(value,"DdevRoot")==Some(root)&&text(value,"DdevName").is_some()||text(value,"ComposeProject").is_some()&&text(value,"ComposeService").is_some());
             let detail = format!(
-                "{} · {} · {}… · verified project bind mapping",
+                "{} · {} · {}…",
                 workdir,
                 socket,
                 &id[..12]
@@ -163,6 +160,7 @@ fn candidates(root: &str, socket: &str, values: &[Value]) -> Result<Vec<Candidat
                     target,
                     proof,
                     label,
+                    generic_label,
                     detail,
                 },
             );
@@ -255,6 +253,11 @@ fn values(raw: &str, requested: &[String]) -> Result<Vec<Value>, Error> {
     }
     Ok(values)
 }
+fn candidate_label_ui(candidate:&Candidate)->String{
+    if !candidate.generic_label{return candidate.label.clone();}
+    if candidate.label.is_empty(){return crate::ui_text::t("native.dockerRoute.unnamedContainer","Unnamed container");}
+    crate::ui_text::format("native.dockerRoute.containerName","Container · {name}",&[("name",&candidate.label)])
+}
 fn discover_with(
     ctx: &Invocation,
     mut run: impl FnMut(&Project, &[String]) -> Result<String, Error>,
@@ -276,7 +279,7 @@ fn discover_with(
     }
     if ids.is_empty() {
         return Err(Error::Invalid(
-            "No running containers on the configured local Docker endpoint.".into(),
+            crate::ui_text::text("native.dockerRoute.de7cc3198d","No running containers on the configured local Docker endpoint.").into(),
         ));
     }
     let values = values(&run(&project, &inspect_args(&socket, &ids))?, &ids)?;
@@ -285,17 +288,17 @@ fn discover_with(
     }
     let candidates = candidates(&root, &socket, &values)?;
     if candidates.is_empty() {
-        return Err(Error::Invalid("No running container has a verifiable bind mapping for this project. Compose, Sail and DDEV bind mounts are supported; volume-only/Mutagen project roots and foreign shadowing mounts require a bind-mounted target.".into()));
+        return Err(Error::Invalid(crate::ui_text::text("native.dockerRoute.932d948d9f","No running container has a verifiable bind mapping for this project. Compose, Sail and DDEV bind mounts are supported; volume-only/Mutagen project roots and foreign shadowing mounts require a bind-mounted target.").into()));
     }
     let items: Vec<_> = candidates
         .iter()
         .enumerate()
         .map(|(index, candidate)| {
-            PickItem::new(&format!("target:{index}"), &candidate.label)
-                .description(&candidate.detail)
+            PickItem::new(&format!("target:{index}"), &candidate_label_ui(candidate))
+                .description(&crate::ui_text::format("native.dockerRoute.1d717a8530","{detail} · verified project bind mapping",&[("detail",&(candidate.detail).to_string())]))
         })
         .collect();
-    let Some(chosen) = host::pick("Choose Docker Artisan target", &items)? else {
+    let Some(chosen) = host::pick(crate::ui_text::text("native.dockerRoute.d22300e678","Choose Docker Artisan target"), &items)? else {
         return Ok(None);
     };
     let candidate = candidates
@@ -317,22 +320,19 @@ fn discover_with(
     let raw = envelope.to_string();
     if raw.len() > 64 * 1024 {
         return Err(Error::Invalid(
-            "Selected Docker target proof exceeds 64 KiB.".into(),
+            crate::ui_text::text("native.dockerRoute.13c6a8b6b8","Selected Docker target proof exceeds 64 KiB.").into(),
         ));
     }
     host::storage::set(&key(&root), &raw)?;
     host::notify(
         NotificationLevel::Info,
         "Laravel",
-        &format!(
-            "Selected {} at {}. Refresh Docker commands to discover this target's Artisan definitions.",
-            candidate.label, candidate.target.workdir
-        ),
+        &crate::ui_text::format("native.dockerRoute.1471b62c63","Selected {label} at {workdir}. Refresh Docker commands to discover this target's Artisan definitions.",&[("label",&candidate_label_ui(candidate)),("workdir",&(candidate.target.workdir).to_string())]),
     );
     Ok(None)
 }
 pub(crate) fn discover(ctx: &Invocation) -> Result<Option<String>, Error> {
-    discover_with(ctx, run)
+    discover_with(ctx, run).map_err(super::ui_error)
 }
 pub(crate) fn clear_discovered_target(ctx: &Invocation) -> Result<Option<String>, Error> {
     let (_, root) = owner(ctx)?;
@@ -340,7 +340,7 @@ pub(crate) fn clear_discovered_target(ctx: &Invocation) -> Result<Option<String>
     host::notify(
         NotificationLevel::Info,
         "Laravel",
-        "Cleared this project's discovered Docker target; manual Docker settings apply again.",
+        crate::ui_text::text("native.dockerRoute.5435ca880c","Cleared this project's discovered Docker target; manual Docker settings apply again."),
     );
     Ok(None)
 }
@@ -418,6 +418,7 @@ mod tests {
     }
     #[test]
     fn compose_sail_and_ddev_labels_name_candidates_but_never_replace_mount_proof() {
+        let _ui_host=openidea_plugin::mock::MockHost::install();
         for (service, expected) in [("laravel.test", "Sail"), ("app", "Compose")] {
             let mut value = raw();
             value["ComposeService"] = json!(service);
@@ -449,6 +450,7 @@ mod tests {
     }
     #[test]
     fn ancestor_and_compatible_nested_binds_preserve_the_exact_project_mapping() {
+        let _ui_host=openidea_plugin::mock::MockHost::install();
         let mut value = raw();
         value["WorkingDir"] = json!("/workspace/project");
         value["Mounts"] = json!([
@@ -481,6 +483,7 @@ mod tests {
     }
     #[test]
     fn shadowed_duplicate_stopped_and_restarted_targets_are_not_adopted() {
+        let _ui_host=openidea_plugin::mock::MockHost::install();
         for mode in 0..4 {
             let mut value = raw();
             match mode {

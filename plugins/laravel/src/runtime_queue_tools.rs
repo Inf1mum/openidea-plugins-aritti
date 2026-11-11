@@ -8,7 +8,10 @@ use openidea_plugin::{Error, FileKind, Invocation, Project};
 use serde_json::{Value, json};
 
 pub(super) fn probe_args(section: &str, options: &Value) -> Result<Vec<String>, Error> {
-    if !matches!(section, "queue-status" | "workers" | "logs" | "schema" | "database-sources") {
+    if !matches!(
+        section,
+        "queue-status" | "workers" | "logs" | "schema" | "database-sources" | "model-connections"
+    ) {
         return Err(Error::Stale);
     }
     Ok(vec![
@@ -171,7 +174,10 @@ pub(super) fn parse(section: &str, raw: &str) -> Result<Vec<Value>, Error> {
                 display,
             ));
         }
-        let text: Vec<String> = lines.iter().filter_map(|line|line.as_str().map(str::to_owned)).collect();
+        let text: Vec<String> = lines
+            .iter()
+            .filter_map(|line| line.as_str().map(str::to_owned))
+            .collect();
         rows.extend(super::errors::rows(&text, truncated));
     } else {
         return Err(Error::Stale);
@@ -206,11 +212,27 @@ impl State {
         connection: Option<&str>,
         queue: Option<&str>,
     ) -> Result<(), Error> {
+        self.capture_queue_status_ui_inner(ctx, runner, connection, queue)
+            .map_err(ui_error)
+    }
+    fn capture_queue_status_ui_inner(
+        &mut self,
+        ctx: &Invocation,
+        runner: Runner,
+        connection: Option<&str>,
+        queue: Option<&str>,
+    ) -> Result<(), Error> {
         let mut options = json!({});
         for (name, value, limit) in [("connection", connection, 128), ("queue", queue, 256)] {
             if let Some(value) = value {
                 if value.is_empty() || value.len() > limit || value.chars().any(char::is_control) {
-                    return Err(Error::Invalid("Invalid queue target.".into()));
+                    return Err(Error::Invalid(
+                        crate::ui_text::text(
+                            "runtime.boundary.22b94e66c6",
+                            "Invalid queue target.",
+                        )
+                        .into(),
+                    ));
                 }
                 options[name] = json!(value);
             }
@@ -220,11 +242,18 @@ impl State {
         })
     }
     pub fn log_files(&self, ctx: &Invocation) -> Result<Vec<String>, Error> {
+        self.log_files_ui_inner(ctx).map_err(ui_error)
+    }
+    fn log_files_ui_inner(&self, ctx: &Invocation) -> Result<Vec<String>, Error> {
         let (project, root) = owner(ctx)?;
         let paths = project.find_files("storage/logs/**/*.log", 129)?;
         if paths.len() >= 129 {
             return Err(Error::Invalid(
-                "More than 128 project log files; specify one log path explicitly.".into(),
+                crate::ui_text::text(
+                    "runtime.boundary.f8f00f0197",
+                    "More than 128 project log files; specify one log path explicitly.",
+                )
+                .into(),
             ));
         }
         let mut files = vec![];
@@ -241,6 +270,15 @@ impl State {
         Ok(files)
     }
     pub fn capture_log(
+        &mut self,
+        ctx: &Invocation,
+        runner: Runner,
+        file: &str,
+    ) -> Result<(), Error> {
+        self.capture_log_ui_inner(ctx, runner, file)
+            .map_err(ui_error)
+    }
+    fn capture_log_ui_inner(
         &mut self,
         ctx: &Invocation,
         runner: Runner,
@@ -265,6 +303,15 @@ impl State {
     }
     /// The selected key belongs to one captured failed-job row. No bulk or arbitrary IDs.
     pub fn retry_failed(
+        &mut self,
+        ctx: &Invocation,
+        runner: Runner,
+        row_key: &str,
+    ) -> Result<String, Error> {
+        self.retry_failed_ui_inner(ctx, runner, row_key)
+            .map_err(ui_error)
+    }
+    fn retry_failed_ui_inner(
         &mut self,
         ctx: &Invocation,
         runner: Runner,
@@ -312,7 +359,10 @@ impl State {
                         .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
                     && !id.starts_with('-')
             })
-            .ok_or("The selected failed job has an unsupported retry identity.")?
+            .ok_or(crate::ui_text::text(
+                "runtime.boundary.3cf1396366",
+                "The selected failed job has an unsupported retry identity.",
+            ))?
             .to_owned();
         let before = stamp(&project)?;
         if before != snapshot.identity {
@@ -348,14 +398,28 @@ impl State {
         ]
         .map(str::to_owned);
         let preview = runner.argv(&project, &args, false)?;
-        let body = format!(
-            "Retry this selected failed job? Requeued work can execute immediately when a worker is running.\n\nProject: {root}\nRunner: {}\nFailed job: {id}\n{}\n\nExecutable: {}\nArgv: {}",
-            runner.name(),
-            selected["cells"][2].as_str().unwrap_or(""),
-            runner.name(),
-            json!(preview)
+        let body = crate::ui_text::format(
+            "runtime.boundary.b4b4ca1abb",
+            "Retry this selected failed job? Requeued work can execute immediately when a worker is running.\n\nProject: {root}\nRunner: {runner}\nFailed job: {id}\n{details}\n\nExecutable: {executable}\nArgv: {argv}",
+            &[
+                ("root", &(root).to_string()),
+                ("runner", &(runner.name()).to_string()),
+                ("id", &(id).to_string()),
+                (
+                    "details",
+                    &(selected["cells"][2].as_str().unwrap_or("")).to_string(),
+                ),
+                ("executable", &(runner.name()).to_string()),
+                ("argv", &(json!(preview)).to_string()),
+            ],
         );
-        if !confirm("Retry selected Laravel failed job?", &body)? {
+        if !confirm(
+            crate::ui_text::text(
+                "runtime.boundary.57564e0a51",
+                "Retry selected Laravel failed job?",
+            ),
+            &body,
+        )? {
             return Err(Error::Cancelled);
         }
         if owner(ctx)?.1 != root
@@ -384,14 +448,22 @@ impl State {
         while !output.is_char_boundary(end) {
             end -= 1;
         }
-        Ok(format!(
-            "Requested retry for failed job {id}.\n{}{}",
-            &output[..end],
-            if end < output.len() {
-                "\nOutput truncated."
-            } else {
-                ""
-            }
+        Ok(crate::ui_text::format(
+            "runtime.boundary.4960d82454",
+            "Requested retry for failed job {id}.\n{output}{truncated}",
+            &[
+                ("id", &(id).to_string()),
+                ("output", &(&output[..end]).to_string()),
+                (
+                    "truncated",
+                    &(if end < output.len() {
+                        crate::ui_text::text("runtime.boundary.6a9587dbd8", "\nOutput truncated.")
+                    } else {
+                        ""
+                    })
+                    .to_string(),
+                ),
+            ],
         ))
     }
 }
@@ -634,5 +706,56 @@ mod tests {
                 .is_err()
         );
         assert!(host.process_runs().is_empty());
+    }
+}
+
+// Exact authored failures are localized only at native UI delivery boundaries.
+fn ui_error(error: Error) -> Error {
+    let translate = |message: String| -> String {
+        match message.as_str() {
+            "Queue counts must be nonnegative integers or null." => {
+                crate::ui_text::t("runtime.error.c974ee1064ef", &message)
+            }
+            "Expected up to 32 queue connections." => {
+                crate::ui_text::t("runtime.error.229ccbc70600", &message)
+            }
+            "Invalid queue availability." => {
+                crate::ui_text::t("runtime.error.b2fd4fbd1591", &message)
+            }
+            "Missing queue connection." => {
+                crate::ui_text::t("runtime.error.5a345efefb59", &message)
+            }
+            "Missing queue name." => crate::ui_text::t("runtime.error.3d78dfe69c8d", &message),
+            "Missing queue driver." => crate::ui_text::t("runtime.error.16f90fc8d0d4", &message),
+            "Invalid worker visibility." => {
+                crate::ui_text::t("runtime.error.4f8ec0d3f158", &message)
+            }
+            "Expected up to 256 observed workers." => {
+                crate::ui_text::t("runtime.error.e83209d7aa9a", &message)
+            }
+            "Invalid worker PID." => crate::ui_text::t("runtime.error.d761279a3c43", &message),
+            "Invalid worker command." => crate::ui_text::t("runtime.error.25f87f3eca76", &message),
+            "Missing selected log file." => {
+                crate::ui_text::t("runtime.error.50a4dc1a6286", &message)
+            }
+            "Expected at most 200 selected log lines." => {
+                crate::ui_text::t("runtime.error.00155ff2bbf5", &message)
+            }
+            "Missing log truncation state." => {
+                crate::ui_text::t("runtime.error.c4be7c6f6ef1", &message)
+            }
+            "Log line exceeds the tail limit." => {
+                crate::ui_text::t("runtime.error.851a787c34a1", &message)
+            }
+            "Select one project storage/logs/*.log file." => {
+                crate::ui_text::t("runtime.error.1f737f43ce64", &message)
+            }
+            _ => message,
+        }
+    };
+    match error {
+        Error::Invalid(message) => Error::Invalid(translate(message)),
+        Error::Failed(message) => Error::Failed(translate(message)),
+        other => other,
     }
 }

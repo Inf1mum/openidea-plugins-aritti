@@ -9,15 +9,23 @@ pub(super) const VIEW: &str = "laravel-artisan";
 /// Linked packages retain their versioned web URL between builds. Version the
 /// dynamic stylesheet too, so a refreshed view cannot reuse an older layout.
 pub(super) fn html() -> String {
-    let revision=metadata::hash(include_str!("../../../crates/ui-kit/web/command-workspace.css"));
-    let components=metadata::hash(include_str!("../../../crates/ui-kit/web/components.css"));
-    let html=include_str!("../../../crates/ui-kit/web/command-workspace.html").replace("./command-workspace.css",&format!("./command-workspace.css?v={revision}"));
-    format!("<link rel=\"stylesheet\" data-ui-components href=\"./components.css?v={components}\">{html}")
+    let revision = metadata::hash(include_str!(
+        "../../../crates/ui-kit/web/command-workspace.css"
+    ));
+    let components = metadata::hash(include_str!("../../../crates/ui-kit/web/components.css"));
+    let html = include_str!("../../../crates/ui-kit/web/command-workspace.html").replace(
+        "./command-workspace.css",
+        &format!("./command-workspace.css?v={revision}"),
+    );
+    format!(
+        "<link rel=\"stylesheet\" data-ui-components href=\"./components.css?v={components}\">{html}"
+    )
 }
 
 #[derive(Default)]
 pub(super) struct State {
     projects: BTreeMap<String, Session>,
+    entry_sequence: u64,
 }
 #[derive(Default)]
 struct Session {
@@ -33,14 +41,18 @@ enum Request {
     State,
     Refresh,
     DockerTarget,
-    Runner { runner: crate::artisan_runner::Runner },
+    Runner {
+        runner: crate::artisan_runner::Runner,
+    },
     Preview {
         command: String,
         token: String,
         values: BTreeMap<String, Value>,
         revision: u32,
-        #[serde(default,rename="additionalOptions")] additional_options:String,
-        #[serde(default,rename="additionalArguments")] additional_arguments:String,
+        #[serde(default, rename = "additionalOptions")]
+        additional_options: String,
+        #[serde(default, rename = "additionalArguments")]
+        additional_arguments: String,
     },
     CopyOutput {
         id: String,
@@ -52,8 +64,10 @@ enum Request {
         values: BTreeMap<String, Value>,
         #[serde(default)]
         terminal: bool,
-        #[serde(default,rename="additionalOptions")] additional_options:String,
-        #[serde(default,rename="additionalArguments")] additional_arguments:String,
+        #[serde(default, rename = "additionalOptions")]
+        additional_options: String,
+        #[serde(default, rename = "additionalArguments")]
+        additional_arguments: String,
     },
     Poll {
         id: String,
@@ -63,7 +77,10 @@ enum Request {
     },
 }
 fn owner(ctx: &Invocation) -> Result<(Project, String), Error> {
-    let project = ctx.project().ok_or("Open a Laravel project first.")?;
+    let project = ctx.project().ok_or(crate::ui_text::text(
+        "process.error0",
+        "Open a Laravel project first.",
+    ))?;
     let root = project.root()?;
     if !crate::hover::canonical(&root)
         || !host::projects()?
@@ -80,12 +97,23 @@ fn catalog(project: &Project) -> Result<(Value, String), Error> {
 }
 impl State {
     pub fn runner(&self, ctx: &Invocation) -> Result<crate::artisan_runner::Runner, Error> {
-        let (_,root)=owner(ctx)?;
-        Ok(self.projects.get(&root).map(|session|session.runner).unwrap_or_default())
+        let (_, root) = owner(ctx)?;
+        Ok(self
+            .projects
+            .get(&root)
+            .map(|session| session.runner)
+            .unwrap_or_default())
     }
 
-    pub(crate) fn runner_for_project(&self, project: &Project) -> Result<crate::artisan_runner::Runner, Error> {
-        Ok(self.projects.get(&project.root()?).map(|session|session.runner).unwrap_or_default())
+    pub(crate) fn runner_for_project(
+        &self,
+        project: &Project,
+    ) -> Result<crate::artisan_runner::Runner, Error> {
+        Ok(self
+            .projects
+            .get(&project.root()?)
+            .map(|session| session.runner)
+            .unwrap_or_default())
     }
 
     /// Uses already captured definitions only; opening a generator never runs PHP.
@@ -93,85 +121,312 @@ impl State {
     pub fn open_generator(&mut self, ctx: &Invocation, fixed: Option<&str>) -> Result<bool, Error> {
         let (_, root) = owner(ctx)?;
         let project = ctx.project().ok_or(Error::Stale)?;
-        let runner = self.projects.get(&root).map(|session| session.runner).unwrap_or_default();
+        let runner = self
+            .projects
+            .get(&root)
+            .map(|session| session.runner)
+            .unwrap_or_default();
         let (snapshot, token) = match runner.catalog(&project) {
             Ok(catalog) => catalog,
-            Err(error) if runner==crate::artisan_runner::Runner::Docker => return Err(error),
+            Err(error) if runner == crate::artisan_runner::Runner::Docker => return Err(error),
             Err(_) => return Ok(false),
         };
-        let commands: Vec<_> = snapshot["commands"].as_array().into_iter().flatten()
-            .filter(|command| command["name"].as_str().is_some_and(|name| name.starts_with("make:")))
+        let commands: Vec<_> = snapshot["commands"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|command| {
+                command["name"]
+                    .as_str()
+                    .is_some_and(|name| name.starts_with("make:"))
+            })
             .collect();
-        if commands.is_empty() { return if runner==crate::artisan_runner::Runner::Docker {Err(Error::Invalid("The captured Docker target has no make commands.".into()))} else {Ok(false)}; }
+        if commands.is_empty() {
+            return if runner == crate::artisan_runner::Runner::Docker {
+                Err(Error::Invalid(
+                    crate::ui_text::text(
+                        "native.artisan_workspace.ca94455ba2",
+                        "The captured Docker target has no make commands.",
+                    )
+                    .into(),
+                ))
+            } else {
+                Ok(false)
+            };
+        }
         let chosen = if let Some(name) = fixed {
-            if !commands.iter().any(|command| command["name"] == name) { return if runner==crate::artisan_runner::Runner::Docker {Err(Error::Invalid("This generator is not in the captured Docker catalog.".into()))} else {Ok(false)}; }
+            if !commands.iter().any(|command| command["name"] == name) {
+                return if runner == crate::artisan_runner::Runner::Docker {
+                    Err(Error::Invalid(
+                        crate::ui_text::text(
+                            "native.artisan_workspace.be021929f9",
+                            "This generator is not in the captured Docker catalog.",
+                        )
+                        .into(),
+                    ))
+                } else {
+                    Ok(false)
+                };
+            }
             name.to_owned()
         } else {
-            let items: Vec<_> = commands.iter().filter_map(|command| {
-                let name = command["name"].as_str()?;
-                Some(openidea_plugin::PickItem::new(name, name).description(command["description"].as_str().unwrap_or("")))
-            }).collect();
-            let Some(chosen) = host::pick("Generate with Artisan", &items)? else { return Ok(true) };
-            if !commands.iter().any(|command| command["name"] == chosen) { return Err(Error::Stale); }
+            let items: Vec<_> = commands
+                .iter()
+                .filter_map(|command| {
+                    let name = command["name"].as_str()?;
+                    Some(
+                        openidea_plugin::PickItem::new(name, name)
+                            .description(command["description"].as_str().unwrap_or("")),
+                    )
+                })
+                .collect();
+            let Some(chosen) = host::pick(
+                crate::ui_text::text(
+                    "native.artisan_workspace.eea93acb6a",
+                    "Generate with Artisan",
+                ),
+                &items,
+            )?
+            else {
+                return Ok(true);
+            };
+            if !commands.iter().any(|command| command["name"] == chosen) {
+                return Err(Error::Stale);
+            }
             chosen
         };
         if !self.projects.contains_key(&root) && self.projects.len() >= 8 {
-            return Err(Error::Invalid("Too many Artisan project sessions; reload the plugin to retire inactive sessions.".into()));
+            return Err(Error::Invalid(crate::ui_text::text("native.artisan_workspace.840e9db36d", "Too many Artisan project sessions; reload the plugin to retire inactive sessions.").into()));
         }
-        if owner(ctx)?.1 != root || runner.catalog(&project)?.1 != token { return Err(Error::Stale); }
+        if owner(ctx)?.1 != root || runner.catalog(&project)?.1 != token {
+            return Err(Error::Stale);
+        }
         self.projects.entry(root).or_default().selection = Some(chosen);
         ui_kit::web::reveal_view(VIEW, include_str!("ui_config.json"))?;
         Ok(true)
     }
 
     /// Selects only an already captured exact command. Opening never discovers or executes PHP.
-    pub fn select_command(&mut self, ctx:&Invocation, name:&str)->Result<bool,Error> {
-        let (project,root)=owner(ctx)?;
-        if name.is_empty() || name.len()>128 || name.starts_with('-') || !name.bytes().all(|byte|byte.is_ascii_alphanumeric() || b"_:-.".contains(&byte)) {return Err(Error::Invalid("Invalid Artisan command name".into()));}
-        let runner=self.projects.get(&root).map(|session|session.runner).unwrap_or_default();
-        let (snapshot,token)=match runner.catalog(&project) {Ok(value)=>value,Err(error) if runner==crate::artisan_runner::Runner::Docker=>return Err(error),Err(_)=>return Ok(false)};
-        if !snapshot["commands"].as_array().is_some_and(|commands|commands.iter().any(|command|command["name"]==name)){return Ok(false);}
-        if !self.projects.contains_key(&root) && self.projects.len()>=8 {return Err(Error::Invalid("Too many Artisan project sessions".into()));}
-        if owner(ctx)?.1!=root || runner.catalog(&project)?.1!=token {return Err(Error::Stale);}
-        self.projects.entry(root).or_default().selection=Some(name.into());
-        ui_kit::web::reveal_view(VIEW,include_str!("ui_config.json"))?;
+    pub fn select_command(&mut self, ctx: &Invocation, name: &str) -> Result<bool, Error> {
+        let (project, root) = owner(ctx)?;
+        if name.is_empty()
+            || name.len() > 128
+            || name.starts_with('-')
+            || !name
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || b"_:-.".contains(&byte))
+        {
+            return Err(Error::Invalid(
+                crate::ui_text::text(
+                    "native.artisan_workspace.0b06fb3bfa",
+                    "Invalid Artisan command name",
+                )
+                .into(),
+            ));
+        }
+        let runner = self
+            .projects
+            .get(&root)
+            .map(|session| session.runner)
+            .unwrap_or_default();
+        let (snapshot, token) = match runner.catalog(&project) {
+            Ok(value) => value,
+            Err(error) if runner == crate::artisan_runner::Runner::Docker => return Err(error),
+            Err(_) => return Ok(false),
+        };
+        if !snapshot["commands"]
+            .as_array()
+            .is_some_and(|commands| commands.iter().any(|command| command["name"] == name))
+        {
+            return Ok(false);
+        }
+        if !self.projects.contains_key(&root) && self.projects.len() >= 8 {
+            return Err(Error::Invalid(
+                crate::ui_text::text(
+                    "native.artisan_workspace.9fe0830dfc",
+                    "Too many Artisan project sessions",
+                )
+                .into(),
+            ));
+        }
+        if owner(ctx)?.1 != root || runner.catalog(&project)?.1 != token {
+            return Err(Error::Stale);
+        }
+        self.projects.entry(root).or_default().selection = Some(name.into());
+        ui_kit::web::reveal_view(VIEW, include_str!("ui_config.json"))?;
         Ok(true)
     }
 
+    /// An explicit Run action may bypass the parameter form only when a current
+    /// runtime definition proves there are no user arguments or options. Merely
+    /// selecting/rendering a command continues to be side-effect free.
+    pub fn run_entry(
+        &mut self,
+        ctx: &Invocation,
+        name: &str,
+        terminals: &crate::generate::Terminals,
+        terminal: bool,
+    ) -> Result<bool, Error> {
+        let (project, root) = owner(ctx)?;
+        let runner = self.runner(ctx)?;
+        let (snapshot, token) = match runner.catalog(&project) {
+            Ok(catalog) => catalog,
+            Err(error) if runner == crate::artisan_runner::Runner::Docker => return Err(error),
+            Err(_) => return Ok(false),
+        };
+        let Some(command) = snapshot["commands"]
+            .as_array()
+            .and_then(|commands| commands.iter().find(|command| command["name"] == name))
+        else {
+            return Ok(false);
+        };
+        if !zero_user_parameters(command) {
+            return self.select_command(ctx, name);
+        }
+        if owner(ctx)?.1 != root || runner.catalog(&project)?.1 != token {
+            return Err(Error::Stale);
+        }
+        self.handle(
+            ctx,
+            &json!({"op":"preview","command":name,"token":token,"values":{},"revision":0})
+                .to_string(),
+            terminals,
+        )?;
+        self.entry_sequence = self.entry_sequence.checked_add(1).ok_or(Error::Stale)?;
+        let id = format!(
+            "console-entry-{:016x}-{}",
+            self.entry_sequence,
+            metadata::hash(&root)
+        );
+        self.handle(ctx,&json!({"op":"run","id":id,"command":name,"token":token,"values":{},"terminal":terminal}).to_string(),terminals)?;
+        self.projects.get_mut(&root).ok_or(Error::Stale)?.selection = Some(name.into());
+        // Captured execution opens output/progress, not an input dialog. Native
+        // terminal execution is already visible through its terminal session.
+        if !terminal {
+            ui_kit::web::reveal_view(VIEW, include_str!("ui_config.json"))?;
+        }
+        Ok(true)
+    }
+    /// The explicit terminal command uses the selected runner's captured catalog.
+    /// Parameterized commands open their captured form; only proven parameterless
+    /// commands execute immediately. Missing local metadata preserves the static
+    /// terminal fallback without inventing a parameter signature.
+    pub fn run_terminal_entry(
+        &mut self,
+        ctx: &Invocation,
+        terminals: &crate::generate::Terminals,
+    ) -> Result<bool, Error> {
+        let (project, root) = owner(ctx)?;
+        let runner = self.runner(ctx)?;
+        let (snapshot, token) = match runner.catalog(&project) {
+            Ok(catalog) => catalog,
+            Err(error) if runner == crate::artisan_runner::Runner::Docker => return Err(error),
+            Err(_) => return Ok(false),
+        };
+        let items: Vec<_> = snapshot["commands"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|command| {
+                let name = command["name"].as_str()?;
+                Some(
+                    openidea_plugin::PickItem::new(name, name)
+                        .description(command["description"].as_str().unwrap_or("")),
+                )
+            })
+            .collect();
+        if items.is_empty() {
+            return Ok(false);
+        }
+        let Some(name) = host::pick(
+            crate::ui_text::text("native.generate.5e78b8fddc", "Artisan command"),
+            &items,
+        )?
+        else {
+            return Ok(true);
+        };
+        if !items.iter().any(|item| item.key == name)
+            || owner(ctx)?.1 != root
+            || runner.catalog(&project)?.1 != token
+        {
+            return Err(Error::Stale);
+        }
+        self.run_entry(ctx, &name, terminals, true)
+    }
     pub fn handle(
         &mut self,
         ctx: &Invocation,
         message: &str,
         terminals: &crate::generate::Terminals,
     ) -> Result<Value, Error> {
+        self.handle_ui_inner(ctx, message, terminals)
+            .map_err(ui_error)
+    }
+    fn handle_ui_inner(
+        &mut self,
+        ctx: &Invocation,
+        message: &str,
+        terminals: &crate::generate::Terminals,
+    ) -> Result<Value, Error> {
         if message.len() > 128 * 1024 {
-            return Err(Error::Invalid("Artisan request is too large.".into()));
+            return Err(Error::Invalid(
+                crate::ui_text::text(
+                    "native.artisan_workspace.0432cfd746",
+                    "Artisan request is too large.",
+                )
+                .into(),
+            ));
         }
         let request: Request =
             serde_json::from_str(message).map_err(|e| Error::Invalid(e.to_string()))?;
         let (project, root) = owner(ctx)?;
         if !self.projects.contains_key(&root) && self.projects.len() >= 8 {
             return Err(Error::Invalid(
-                "Too many Artisan project sessions; reload the plugin to retire inactive sessions."
+                crate::ui_text::text("native.artisan_workspace.840e9db36d", "Too many Artisan project sessions; reload the plugin to retire inactive sessions.")
                     .into(),
             ));
         }
         let session = self.projects.entry(root.clone()).or_default();
-        if matches!(request,Request::DockerTarget) {
-            if session.runner!=crate::artisan_runner::Runner::Docker || session.job.as_ref().is_some_and(Job::running) {return Err(Error::Invalid("Select Docker and finish the current run before changing target.".into()));}
+        if matches!(request, Request::DockerTarget) {
+            if session.runner != crate::artisan_runner::Runner::Docker
+                || session.job.as_ref().is_some_and(Job::running)
+            {
+                return Err(Error::Invalid(
+                    crate::ui_text::text(
+                        "native.artisan_workspace.b57beffc28",
+                        "Select Docker and finish the current run before changing target.",
+                    )
+                    .into(),
+                ));
+            }
             crate::artisan_docker::discover(ctx)?;
         }
         if let Request::Runner { runner } = &request {
-            if session.job.as_ref().is_some_and(Job::running) { return Err(Error::Invalid("Wait for or cancel the current run before changing runner.".into())); }
+            if session.job.as_ref().is_some_and(Job::running) {
+                return Err(Error::Invalid(
+                    crate::ui_text::text(
+                        "native.artisan_workspace.97ed26c3dd",
+                        "Wait for or cancel the current run before changing runner.",
+                    )
+                    .into(),
+                ));
+            }
             session.runner = *runner;
         }
         let runner = session.runner;
-        let target_label=if runner==crate::artisan_runner::Runner::Docker {crate::artisan_docker::target_label(&project).ok().flatten()} else {None};
+        let target_label = if runner == crate::artisan_runner::Runner::Docker {
+            crate::artisan_docker::target_label(&project).ok().flatten()
+        } else {
+            None
+        };
         let mut response = json!({"root":root,"runner":runner.name(),"targetLabel":target_label,"sessionHistory":true,"additionalArgv":true});
         if matches!(request, Request::Refresh) {
             runner.refresh(ctx)?;
         }
-        if matches!(request, Request::State | Request::Refresh | Request::DockerTarget | Request::Runner { .. }) {
+        if matches!(
+            request,
+            Request::State | Request::Refresh | Request::DockerTarget | Request::Runner { .. }
+        ) {
             if let Ok((snapshot, token)) = runner.catalog(&project) {
                 response["commands"] = snapshot["commands"].clone();
                 response["token"] = token.into();
@@ -181,8 +436,15 @@ impl State {
                 response["token"] = Value::Null;
             }
         }
-        if matches!(request, Request::State | Request::Refresh | Request::DockerTarget | Request::Runner { .. }) {
-            if let Some(selection) = session.selection.take().filter(|name| response["commands"].as_array().is_some_and(|commands| commands.iter().any(|command| command["name"] == *name))) {
+        if matches!(
+            request,
+            Request::State | Request::Refresh | Request::DockerTarget | Request::Runner { .. }
+        ) {
+            if let Some(selection) = session.selection.take().filter(|name| {
+                response["commands"]
+                    .as_array()
+                    .is_some_and(|commands| commands.iter().any(|command| command["name"] == *name))
+            }) {
                 response["selectCommand"] = selection.into();
             }
         }
@@ -192,7 +454,9 @@ impl State {
                 command,
                 token,
                 values,
-                revision, additional_options, additional_arguments,
+                revision,
+                additional_options,
+                additional_arguments,
             } => {
                 let (snapshot, current) = runner.catalog(&project)?;
                 if token != current {
@@ -202,7 +466,19 @@ impl State {
                     .as_array()
                     .and_then(|a| a.iter().find(|c| c["name"] == command))
                     .ok_or(Error::Stale)?;
-                response["argv"] = json!(runner.argv(&project, &crate::artisan_arguments::merge(arguments(definition, &values, true)?,&additional_options,&additional_arguments,true)?, false)?);
+                response["argv"] = json!(
+                    runner.argv(
+                        &project,
+                        &crate::artisan_arguments::merge(
+                            arguments(definition, &values, true)?,
+                            &additional_options,
+                            &additional_arguments,
+                            true
+                        )
+                        .map_err(crate::artisan_arguments::ui_error)?,
+                        false
+                    )?
+                );
                 response["revision"] = revision.into();
             }
             Request::CopyOutput { id } => {
@@ -224,16 +500,24 @@ impl State {
                 command,
                 token,
                 values,
-                terminal, additional_options, additional_arguments,
+                terminal,
+                additional_options,
+                additional_arguments,
             } => {
                 if id.len() < 16
                     || id.len() > 128
                     || !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
                 {
-                    return Err(Error::Invalid("Invalid execution identity.".into()));
+                    return Err(Error::Invalid(
+                        crate::ui_text::text(
+                            "native.artisan_workspace.bba658c691",
+                            "Invalid execution identity.",
+                        )
+                        .into(),
+                    ));
                 }
                 if session.seen.contains(&id) || session.job.as_ref().is_some_and(Job::running) {
-                    return Err(Error::Invalid("An Artisan command is already running or this request was already submitted.".into()));
+                    return Err(Error::Invalid(crate::ui_text::text("native.artisan_workspace.7288c28ed4", "An Artisan command is already running or this request was already submitted.").into()));
                 }
                 let (snapshot, current) = runner.catalog(&project)?;
                 if token != current {
@@ -243,7 +527,13 @@ impl State {
                     .as_array()
                     .and_then(|a| a.iter().find(|c| c["name"] == command))
                     .ok_or(Error::Stale)?;
-                let argv = crate::artisan_arguments::merge(arguments(definition, &values, !terminal)?,&additional_options,&additional_arguments,!terminal)?;
+                let argv = crate::artisan_arguments::merge(
+                    arguments(definition, &values, !terminal)?,
+                    &additional_options,
+                    &additional_arguments,
+                    !terminal,
+                )
+                .map_err(crate::artisan_arguments::ui_error)?;
                 // Recheck source/project identity immediately before starting.
                 if runner.catalog(&project)?.1 != current
                     || ctx.project().and_then(|p| p.root().ok()) != project.root().ok()
@@ -260,8 +550,10 @@ impl State {
                     crate::generate::run_with(terminals, ctx, &command, argv, runner)?;
                     response["terminal"] = true.into();
                 } else {
-                    let mut job = Job::start_with(&project, id.clone(), command, values, argv, runner)?;
-                    job.additional_options=additional_options;job.additional_arguments=additional_arguments;
+                    let mut job =
+                        Job::start_with(&project, id.clone(), command, values, argv, runner)?;
+                    job.additional_options = additional_options;
+                    job.additional_arguments = additional_arguments;
                     if let Some(previous) = session.job.take() {
                         let mut record = previous.json();
                         record.as_object_mut().unwrap().remove("stdout");
@@ -287,8 +579,23 @@ impl State {
                     .ok_or(Error::Stale)?;
                 let was_running = job.running();
                 job.poll(cancelling)?;
-                if was_running && !job.running() && job.json()["cancelled"] == false && job.json()["status"] != 0 {
-                    host::notify(openidea_plugin::NotificationLevel::Error, "Artisan", &format!("artisan {} exited with status {}. See command output for details.",job.command,job.json()["status"]));
+                if was_running
+                    && !job.running()
+                    && job.json()["cancelled"] == false
+                    && job.json()["status"] != 0
+                {
+                    host::notify(
+                        openidea_plugin::NotificationLevel::Error,
+                        "Artisan",
+                        &crate::ui_text::format(
+                            "final.artisan.completedFailure",
+                            "artisan {command} exited with status {status}. See command output for details.",
+                            &[
+                                ("command", &job.command),
+                                ("status", &job.json()["status"].to_string()),
+                            ],
+                        ),
+                    );
                 }
                 if was_running
                     && !job.running()
@@ -305,6 +612,40 @@ impl State {
         Ok(response)
     }
 }
+fn zero_user_parameters(command: &Value) -> bool {
+    let Some(arguments) = command
+        .pointer("/definition/arguments")
+        .and_then(Value::as_array)
+    else {
+        return false;
+    };
+    let Some(options) = command
+        .pointer("/definition/options")
+        .and_then(Value::as_array)
+    else {
+        return false;
+    };
+    arguments
+        .iter()
+        .all(|argument| argument["name"].as_str() == Some("command"))
+        && options.iter().all(|option| {
+            option["name"].as_str().is_some_and(|name| {
+                matches!(
+                    name.trim_start_matches('-'),
+                    "help"
+                        | "quiet"
+                        | "silent"
+                        | "verbose"
+                        | "version"
+                        | "env"
+                        | "no-interaction"
+                        | "ansi"
+                        | "no-ansi"
+                )
+            })
+        })
+}
+
 fn flag(item: &Value, key: &str) -> bool {
     item[key].as_bool().unwrap_or(false)
 }
@@ -323,11 +664,21 @@ fn texts(value: Option<&Value>) -> Result<Vec<String>, Error> {
             .iter()
             .map(|v| match v {
                 Value::String(s) if s.len() <= 8192 && !s.contains('\0') => Ok(s.clone()),
-                _ => Err(Error::Invalid("Expected bounded string values.".into())),
+                _ => Err(Error::Invalid(
+                    crate::ui_text::text(
+                        "native.artisan_workspace.d6499e1017",
+                        "Expected bounded string values.",
+                    )
+                    .into(),
+                )),
             })
             .collect(),
         _ => Err(Error::Invalid(
-            "Expected a string or repeated strings.".into(),
+            crate::ui_text::text(
+                "native.artisan_workspace.7f0089de0d",
+                "Expected a string or repeated strings.",
+            )
+            .into(),
         )),
     }
 }
@@ -349,7 +700,13 @@ pub(super) fn arguments(
             .chain(options)
             .any(|item| item["name"].as_str() == Some(key))
     }) {
-        return Err(Error::Invalid("Unknown argument or option.".into()));
+        return Err(Error::Invalid(
+            crate::ui_text::text(
+                "native.artisan_workspace.097cb7274b",
+                "Unknown argument or option.",
+            )
+            .into(),
+        ));
     }
     let mut result = vec!["artisan".into(), name.into()];
     if noninteractive {
@@ -400,7 +757,11 @@ pub(super) fn arguments(
         }
         if gap {
             return Err(Error::Invalid(
-                "Fill preceding optional arguments before later positional arguments.".into(),
+                crate::ui_text::text(
+                    "native.artisan_workspace.225f0afd9c",
+                    "Fill preceding optional arguments before later positional arguments.",
+                )
+                .into(),
             ));
         }
         if entries.len() > 1 && !flag(item, "is_array") {
@@ -413,7 +774,13 @@ pub(super) fn arguments(
         result.extend(positional);
     }
     if result.len() > 512 || result.iter().map(String::len).sum::<usize>() > 64 * 1024 {
-        return Err(Error::Invalid("Command arguments exceed limits.".into()));
+        return Err(Error::Invalid(
+            crate::ui_text::text(
+                "native.artisan_workspace.eb45400b88",
+                "Command arguments exceed limits.",
+            )
+            .into(),
+        ));
     }
     Ok(result)
 }
@@ -445,8 +812,19 @@ mod tests {
     fn seed_generators(host: &MockHost) {
         let (project, mut snapshot, _) = seed(host);
         let command = |name: &str| json!({"name":name,"description":"Generator","definition":{"arguments":[{"name":"name","is_required":true}],"options":[{"name":"--force","accept_value":false}]}});
-        snapshot["commands"] = metadata::parse(&json!({"commands":[command("make:model"),command("make:widget"),definition()]}).to_string()).unwrap();
-        host::storage::set(&format!("artisan-metadata-v2:{}", metadata::hash(&project.root().unwrap())), &snapshot.to_string()).unwrap();
+        snapshot["commands"] = metadata::parse(
+            &json!({"commands":[command("make:model"),command("make:widget"),definition()]})
+                .to_string(),
+        )
+        .unwrap();
+        host::storage::set(
+            &format!(
+                "artisan-metadata-v2:{}",
+                metadata::hash(&project.root().unwrap())
+            ),
+            &snapshot.to_string(),
+        )
+        .unwrap();
     }
     #[test]
     fn generator_form_selection_is_explicit_once_and_project_bound() {
@@ -457,19 +835,63 @@ mod tests {
         assert!(state.open_generator(&host.invocation(), None).unwrap());
         assert!(host.process_runs().is_empty());
         let terminals = crate::generate::Terminals::default();
-        let reply = state.handle(&host.invocation(), r#"{"op":"state"}"#, &terminals).unwrap();
+        let reply = state
+            .handle(&host.invocation(), r#"{"op":"state"}"#, &terminals)
+            .unwrap();
         assert_eq!(reply["selectCommand"], "make:widget");
-        assert!(reply["commands"].as_array().unwrap().iter().any(|command| command["name"] == "make:widget"));
+        assert!(
+            reply["commands"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|command| command["name"] == "make:widget")
+        );
         let preview = state.handle(&host.invocation(), &json!({"op":"preview","command":"make:widget","token":reply["token"],"values":{"name":"NewWidget","--force":true},"revision":1}).to_string(), &terminals).unwrap();
-        assert_eq!(preview["argv"], json!(["artisan","make:widget","--no-interaction","--no-ansi","--force","--","NewWidget"]));
-        assert!(state.handle(&host.invocation(), r#"{"op":"state"}"#, &terminals).unwrap().get("selectCommand").is_none());
-        assert!(state.open_generator(&host.invocation(), Some("make:model")).unwrap());
-        assert!(!state.open_generator(&host.invocation(), Some("make:unknown")).unwrap());
+        assert_eq!(
+            preview["argv"],
+            json!([
+                "artisan",
+                "make:widget",
+                "--no-interaction",
+                "--no-ansi",
+                "--force",
+                "--",
+                "NewWidget"
+            ])
+        );
+        assert!(
+            state
+                .handle(&host.invocation(), r#"{"op":"state"}"#, &terminals)
+                .unwrap()
+                .get("selectCommand")
+                .is_none()
+        );
+        assert!(
+            state
+                .open_generator(&host.invocation(), Some("make:model"))
+                .unwrap()
+        );
+        assert!(
+            !state
+                .open_generator(&host.invocation(), Some("make:unknown"))
+                .unwrap()
+        );
         host.add_project("/project");
         host.set_project_root(Some("/other"));
-        assert!(state.handle(&host.invocation(), r#"{"op":"state"}"#, &terminals).unwrap().get("selectCommand").is_none());
+        assert!(
+            state
+                .handle(&host.invocation(), r#"{"op":"state"}"#, &terminals)
+                .unwrap()
+                .get("selectCommand")
+                .is_none()
+        );
         host.set_project_root(Some("/project"));
-        assert_eq!(state.handle(&host.invocation(), r#"{"op":"state"}"#, &terminals).unwrap()["selectCommand"], "make:model");
+        assert_eq!(
+            state
+                .handle(&host.invocation(), r#"{"op":"state"}"#, &terminals)
+                .unwrap()["selectCommand"],
+            "make:model"
+        );
         assert!(host.process_runs().is_empty());
     }
     #[test]
@@ -485,9 +907,17 @@ mod tests {
         host.answer_next_prompt(None);
         assert!(state.open_generator(&host.invocation(), None).unwrap());
         assert!(state.projects.is_empty());
-        state.open_generator(&host.invocation(), Some("make:model")).unwrap();
+        state
+            .open_generator(&host.invocation(), Some("make:model"))
+            .unwrap();
         host.add_file("composer.json", "{\"changed\":true}");
-        let reply = state.handle(&host.invocation(), r#"{"op":"state"}"#, &crate::generate::Terminals::default()).unwrap();
+        let reply = state
+            .handle(
+                &host.invocation(),
+                r#"{"op":"state"}"#,
+                &crate::generate::Terminals::default(),
+            )
+            .unwrap();
         assert!(reply.get("selectCommand").is_none());
         assert_eq!(reply["commands"], json!([]));
         assert!(host.process_runs().is_empty());
@@ -516,6 +946,7 @@ mod tests {
     }
     #[test]
     fn refuses_missing_unknown_wrong_types_and_optional_gaps() {
+        let _ui_host = openidea_plugin::mock::MockHost::install();
         for value in [
             json!({}),
             json!({"name":"x","unknown":"y"}),
@@ -659,15 +1090,258 @@ mod tests {
     }
     #[test]
     fn additional_argv_preview_run_and_history_preserve_exact_grouping() {
-        let h=MockHost::install().with_capabilities(&["project.read","storage","process:php"]);let(_,_,token)=seed(&h);
-        h.on_process("php",|_,_|Ok(openidea_plugin::ProcessOutput{status:Some(0),stdout:String::new(),stderr:String::new()}));
-        let mut state=State::default();let terminals=crate::generate::Terminals::default();let ctx=h.invocation();
-        let mut request=json!({"op":"preview","command":"app:probe","token":token,"values":{"name":"-équipe","tags":["structured"]},"revision":1,"additionalOptions":"--label=\"extra option\"","additionalArguments":"\"trailing value\" '$HOME'"});
-        let preview=state.handle(&ctx,&request.to_string(),&terminals).unwrap();
-        assert_eq!(preview["argv"],json!(["artisan","app:probe","--no-interaction","--no-ansi","--label=extra option","--","-équipe","structured","trailing value","$HOME"]));
-        request["op"]=json!("run");request.as_object_mut().unwrap().remove("revision");request["id"]=json!("additional-argv-fixture-001");
-        let run=state.handle(&ctx,&request.to_string(),&terminals).unwrap();assert_eq!(run["job"]["argv"],preview["argv"]);assert_eq!(run["job"]["additionalOptions"],request["additionalOptions"]);assert_eq!(run["job"]["additionalArguments"],request["additionalArguments"]);
-        request["id"]=json!("additional-argv-invalid-002");request["additionalOptions"]=json!("--ansi");assert!(state.handle(&ctx,&request.to_string(),&terminals).is_err());
+        let h = MockHost::install().with_capabilities(&["project.read", "storage", "process:php"]);
+        let (_, _, token) = seed(&h);
+        h.on_process("php", |_, _| {
+            Ok(openidea_plugin::ProcessOutput {
+                status: Some(0),
+                stdout: String::new(),
+                stderr: String::new(),
+            })
+        });
+        let mut state = State::default();
+        let terminals = crate::generate::Terminals::default();
+        let ctx = h.invocation();
+        let mut request = json!({"op":"preview","command":"app:probe","token":token,"values":{"name":"-équipe","tags":["structured"]},"revision":1,"additionalOptions":"--label=\"extra option\"","additionalArguments":"\"trailing value\" '$HOME'"});
+        let preview = state
+            .handle(&ctx, &request.to_string(), &terminals)
+            .unwrap();
+        assert_eq!(
+            preview["argv"],
+            json!([
+                "artisan",
+                "app:probe",
+                "--no-interaction",
+                "--no-ansi",
+                "--label=extra option",
+                "--",
+                "-équipe",
+                "structured",
+                "trailing value",
+                "$HOME"
+            ])
+        );
+        request["op"] = json!("run");
+        request.as_object_mut().unwrap().remove("revision");
+        request["id"] = json!("additional-argv-fixture-001");
+        let run = state
+            .handle(&ctx, &request.to_string(), &terminals)
+            .unwrap();
+        assert_eq!(run["job"]["argv"], preview["argv"]);
+        assert_eq!(
+            run["job"]["additionalOptions"],
+            request["additionalOptions"]
+        );
+        assert_eq!(
+            run["job"]["additionalArguments"],
+            request["additionalArguments"]
+        );
+        request["id"] = json!("additional-argv-invalid-002");
+        request["additionalOptions"] = json!("--ansi");
+        assert!(
+            state
+                .handle(&ctx, &request.to_string(), &terminals)
+                .is_err()
+        );
+    }
+    fn seed_parameterless(host: &MockHost) {
+        host.add_file("artisan", "<?php");
+        host.add_file("composer.json", "{}");
+        let project = host.invocation().project().unwrap();
+        let commands=metadata::parse(&json!({"commands":[{"name":"app:ping","description":"Ping","definition":{"arguments":[{"name":"command","is_required":true}],"options":[{"name":"--help","accept_value":false},{"name":"--silent","accept_value":false},{"name":"--env","accept_value":true}]}},definition()]}).to_string()).unwrap();
+        host::storage::set(&format!("artisan-metadata-v2:{}",metadata::hash("/project")),&json!({"schema":2,"identity":metadata::identity(&project).unwrap(),"capturedAt":1,"commands":commands}).to_string()).unwrap();
+    }
+    #[test]
+    fn no_parameter_entry_distinguishes_global_options_from_user_inputs() {
+        let _host = MockHost::install();
+        let command =
+            |arguments, options| json!({"definition":{"arguments":arguments,"options":options}});
+        assert!(zero_user_parameters(&command(
+            json!([{"name":"command"}]),
+            json!([{"name":"--help"},{"name":"silent"},{"name":"--env"}])
+        )));
+        for definition in [
+            command(json!([{"name":"user","is_required":false}]), json!([])),
+            command(json!([]), json!([{"name":"--force","accept_value":false}])),
+            json!({}),
+        ] {
+            assert!(!zero_user_parameters(&definition));
+        }
+    }
+    #[test]
+    fn explicit_no_parameter_run_uses_existing_preview_job_and_replay_guards_but_passive_open_never_runs()
+     {
+        let h = MockHost::install().with_capabilities(&["project.read", "storage", "process:php"]);
+        seed_parameterless(&h);
+        let mut state = State::default();
+        let terminals = crate::generate::Terminals::default();
+        let ctx = h.invocation();
+        assert!(state.select_command(&ctx, "app:ping").unwrap());
+        state.handle(&ctx, r#"{"op":"state"}"#, &terminals).unwrap();
+        assert!(h.process_runs().is_empty());
+        assert!(
+            state
+                .run_entry(&ctx, "app:ping", &terminals, false)
+                .unwrap()
+        );
+        let snapshot = state.handle(&ctx, r#"{"op":"state"}"#, &terminals).unwrap();
+        assert_eq!(snapshot["job"]["command"], "app:ping");
+        assert_eq!(
+            snapshot["job"]["argv"],
+            json!(["artisan", "app:ping", "--no-interaction", "--no-ansi"])
+        );
+        assert_eq!(state.projects["/project"].seen.len(), 1);
+        assert!(state.projects["/project"].job.as_ref().unwrap().running());
+        assert!(
+            state
+                .run_entry(&ctx, "app:ping", &terminals, false)
+                .is_err()
+        );
+        assert_eq!(state.projects["/project"].seen.len(), 1);
+        assert!(state.projects["/project"].job.as_ref().unwrap().running());
+        let id = snapshot["job"]["id"].as_str().unwrap();
+        assert!(state.handle(&ctx,&json!({"op":"run","id":id,"command":"app:ping","token":snapshot["token"],"values":{}}).to_string(),&terminals).is_err());
+        assert_eq!(state.projects["/project"].seen.len(), 1);
+        assert!(state.projects["/project"].job.as_ref().unwrap().running());
+    }
+    #[test]
+    fn no_parameter_run_preserves_permission_missing_stale_and_parameterized_form_boundaries() {
+        let h = MockHost::install().with_capabilities(&["project.read", "storage"]);
+        seed_parameterless(&h);
+        let mut state = State::default();
+        let terminals = crate::generate::Terminals::default();
+        let ctx = h.invocation();
+        assert!(
+            state
+                .run_entry(&ctx, "app:ping", &terminals, false)
+                .is_err()
+        );
+        assert!(h.process_runs().is_empty());
+        assert!(
+            state
+                .run_entry(&ctx, "app:probe", &terminals, false)
+                .unwrap()
+        );
+        assert!(h.process_runs().is_empty());
+        assert!(
+            !state
+                .run_entry(&ctx, "app:unknown", &terminals, false)
+                .unwrap()
+        );
+        h.add_file("composer.json", "{\"changed\":true}");
+        assert!(
+            !state
+                .run_entry(&ctx, "app:ping", &terminals, false)
+                .unwrap()
+        );
+        assert!(h.process_runs().is_empty());
+    }
+    #[test]
+    fn explicit_terminal_picker_bypasses_inputs_only_with_current_zero_parameter_catalog() {
+        let h = MockHost::install().with_capabilities(&["project.read", "storage", "process:php"]);
+        seed_parameterless(&h);
+        let mut state = State::default();
+        let terminals = crate::generate::Terminals::default();
+        h.answer_next_prompt(Some(&["app:ping"]));
+        assert!(
+            state
+                .run_terminal_entry(&h.invocation(), &terminals)
+                .unwrap()
+        );
+        assert_eq!(terminals.commands().len(), 1);
+        assert_eq!(terminals.commands()[0], vec!["artisan", "app:ping"]);
+        assert!(h.process_runs().is_empty());
+        h.answer_next_prompt(Some(&["app:probe"]));
+        assert!(
+            state
+                .run_terminal_entry(&h.invocation(), &terminals)
+                .unwrap()
+        );
+        assert_eq!(terminals.commands().len(), 1);
+        let snapshot = state
+            .handle(&h.invocation(), r#"{"op":"state"}"#, &terminals)
+            .unwrap();
+        assert_eq!(snapshot["selectCommand"], "app:probe");
+        h.answer_next_prompt(Some(&["not-captured"]));
+        assert!(
+            state
+                .run_terminal_entry(&h.invocation(), &terminals)
+                .is_err()
+        );
+        assert_eq!(terminals.commands().len(), 1);
+        assert!(h.finish_terminal(&terminals.keys()[0]).is_some());
     }
 
+    #[test]
+    fn real_main_console_run_lens_dispatches_zero_parameter_commands_and_refuses_stale_source() {
+        use openidea_plugin::Plugin;
+        let h = MockHost::install().with_capabilities(&["project.read", "storage", "process:php"]);
+        let source = "<?php\nnamespace App\\Console\\Commands;\nuse Illuminate\\Console\\Command;\nclass Ping extends Command {protected $signature='app:ping';}\n";
+        let path = "/project/app/Console/Commands/Ping.php";
+        h.add_file(path, source);
+        h.open_editor(path, "php", source, &[]);
+        seed_parameterless(&h);
+        let doc = openidea_plugin::providers::Document {
+            path: path.into(),
+            language: "php".into(),
+            version: 1,
+            text: source.into(),
+        };
+        let lens = crate::console_editor::lenses(&doc, &|_| true).remove(0);
+        let mut main = crate::Main::default();
+        main.run_command(
+            "console-command-open",
+            &h.invocation(),
+            lens.argument.as_deref(),
+        )
+        .unwrap();
+        assert_eq!(main.artisan_workspace.projects["/project"].seen.len(), 1);
+        assert!(
+            main.artisan_workspace.projects["/project"]
+                .job
+                .as_ref()
+                .unwrap()
+                .running()
+        );
+        let snapshot = main
+            .artisan_workspace
+            .handle(
+                &h.invocation(),
+                r#"{"op":"state"}"#,
+                &main.artisan_terminals,
+            )
+            .unwrap();
+        assert_eq!(snapshot["job"]["command"], "app:ping");
+        h.type_in_editor(" // changed");
+        assert!(
+            main.run_command(
+                "console-command-open",
+                &h.invocation(),
+                lens.argument.as_deref()
+            )
+            .is_err()
+        );
+        assert_eq!(main.artisan_workspace.projects["/project"].seen.len(), 1);
+        assert!(
+            main.artisan_workspace.projects["/project"]
+                .job
+                .as_ref()
+                .unwrap()
+                .running()
+        );
+    }
+}
+
+const UI_ERROR_TEMPLATES: &[(&str, &str)] = &[
+    ("final.artisan.checkbox", "{key} is a checkbox."),
+    ("final.artisan.singleValue", "{key} accepts one value."),
+    ("final.artisan.required", "{key} is required."),
+];
+fn ui_error(error: Error) -> Error {
+    match error {
+        Error::Invalid(message) => Error::Invalid(
+            crate::ui_text::owned_error(&message, UI_ERROR_TEMPLATES).unwrap_or(message),
+        ),
+        other => other,
+    }
 }

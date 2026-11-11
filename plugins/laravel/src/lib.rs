@@ -21,6 +21,8 @@ mod bulk;
 mod class_actions;
 mod components;
 mod config_arrays;
+mod enum_config_keys;
+mod config_inspections;
 mod controllers;
 mod console_editor;
 mod directives;
@@ -44,6 +46,7 @@ mod source_matches;
 mod semantic_refs;
 mod strict_json;
 mod index;
+mod index_queue;
 mod indexer;
 mod js;
 mod lang_actions;
@@ -51,11 +54,29 @@ mod live;
 mod migrations;
 mod model_overview;
 mod model_actions;
+pub(crate) use model_actions::parameters as model_helper_parameters;
+mod helper_automation;
+mod native_module_scaffold;
+mod native_catalog;
+mod class_component_rename;
+mod surround_actions;
+mod package_generators;
+mod ui_text;
+mod wayfinder_destinations;
+mod request_dto;
 mod model_from_schema;
 mod vendor_overrides;
 mod metadata;
+mod validation_productivity;
+mod validation_requests;
+mod route_completion;
+mod route_attributes;
+mod route_targets;
+mod route_inspections;
 mod managed_processes;
 mod package_facts;
+mod package_integrations;
+mod member_refactor;
 mod project_wizard;
 mod php;
 mod refs;
@@ -75,7 +96,7 @@ use std::time::{Duration, Instant};
 use openidea_plugin::providers::{CodeAction, CompletionItem, CompletionKind, Document, LineMarker, Providers};
 use openidea_plugin::views::{Body, Button, TreeItem, View, ViewEvent, Viewport, Views};
 use openidea_plugin::{Context, Diagnostic, Event, EventKind, Location, Position, Range, Severity, TextEdit};
-use openidea_plugin::{Error, Invocation, LogLevel, NotificationLevel, Plugin, Project, host, text};
+use openidea_plugin::{Error, Invocation, NotificationLevel, Plugin, Project, host, text};
 use ui_kit::routes::{Handler, Route, RouteEvent, RouteList, copy_as_curl, create_http_file_for_project};
 
 pub use index::Index;
@@ -240,6 +261,11 @@ fn candidates<'a>(index: &'a Index, doc: &Document, reference: &Reference) -> Co
         Kind::Rule => Cow::Borrowed(&index.rules),
         Kind::Ability => Cow::Borrowed(&index.abilities),
         Kind::Column => {
+            if let Some(project)=project_for(&doc.path) {
+                if let Some(names)=eloquent_members::semantic::column_names(index,doc,reference.start,&|path|owns_current_path(&project,path)) {
+                    return Cow::Owned(names);
+                }
+            }
             let table = match reference.class.as_deref() {
                 Some(table) if table.starts_with("table:") => Some(table["table:".len()..].to_owned()),
                 Some(spec) => resolve_model(index, spec, &doc.path)
@@ -323,7 +349,9 @@ pub fn problems(index: &Index, language: &str, text: &str, check_routes: bool) -
     let mut found = Vec::new();
     let sure = !index.partial;
 
-    for reference in refs::references(language, text).into_iter().filter(|r| r.closed) {
+    let references=refs::references(language,text);
+    let config_bindings=config_inspections::prepare(index,language,text,references.len());
+    for reference in references.into_iter().filter(|r|r.closed) {
         let name = &text[reference.start..reference.end];
         if is_dynamic(name) {
             continue;
@@ -336,16 +364,16 @@ pub fn problems(index: &Index, language: &str, text: &str, check_routes: bool) -
                     reference.start..reference.end,
                     "missing-view",
                     Severity::Warning,
-                    format!("View \"{name}\" does not exist."),
+                    crate::ui_text::format("root.formatted.9efde13429", "View \"{name}\" does not exist.", &[("name", &format!("{}", name))]),
                 ));
             }
-            Kind::Config if missing_config(index, name) => {
+            Kind::Config if missing_config(index, name)&&config_bindings.as_ref().is_some_and(|context|context.safe(index,&reference)) => {
                 found.push(problem(
                     text,
                     reference.start..reference.end,
                     "missing-config",
                     Severity::Info,
-                    format!("Config key \"{name}\" is not defined."),
+                    crate::ui_text::format("root.formatted.12ba96c93a", "Config key \"{name}\" is not defined.", &[("name", &format!("{}", name))]),
                 ));
             }
             Kind::Translation if missing_translation(index, name) => {
@@ -354,7 +382,7 @@ pub fn problems(index: &Index, language: &str, text: &str, check_routes: bool) -
                     reference.start..reference.end,
                     "missing-translation",
                     Severity::Info,
-                    format!("Translation key \"{name}\" is missing."),
+                    crate::ui_text::format("root.formatted.4e520e6ec5", "Translation key \"{name}\" is missing.", &[("name", &format!("{}", name))]),
                 ));
             }
             Kind::Route if check_routes && !index.routes.contains_key(name) => {
@@ -363,7 +391,7 @@ pub fn problems(index: &Index, language: &str, text: &str, check_routes: bool) -
                     reference.start..reference.end,
                     "missing-route",
                     Severity::Warning,
-                    format!("Route \"{name}\" is not defined."),
+                    crate::ui_text::format("root.formatted.eb896af3a9", "Route \"{name}\" is not defined.", &[("name", &format!("{}", name))]),
                 ));
             }
             Kind::Inertia if sure && unknown_inertia_page(index, name) && enabled("reportUnknownInertiaPages") => {
@@ -372,7 +400,7 @@ pub fn problems(index: &Index, language: &str, text: &str, check_routes: bool) -
                     reference.start..reference.end,
                     "laravel.unknown-inertia-page",
                     Severity::Warning,
-                    format!("Inertia page \"{name}\" does not exist."),
+                    crate::ui_text::format("root.formatted.d56867e612", "Inertia page \"{name}\" was not found in configured page roots.", &[("name", &format!("{}", name))]),
                 ));
             }
             Kind::Livewire if sure && unknown_livewire(index, name) && enabled("reportUnknownLivewireDirectives") => {
@@ -381,7 +409,7 @@ pub fn problems(index: &Index, language: &str, text: &str, check_routes: bool) -
                     reference.start..reference.end,
                     "laravel.unknown-livewire-directive",
                     Severity::Warning,
-                    format!("Livewire component \"{name}\" does not exist."),
+                    crate::ui_text::format("root.formatted.bb6eb44ee8", "Livewire component \"{name}\" does not exist.", &[("name", &format!("{}", name))]),
                 ));
             }
             _ => {}
@@ -400,7 +428,7 @@ pub fn problems(index: &Index, language: &str, text: &str, check_routes: bool) -
                         range,
                         "laravel.unknown-component",
                         Severity::Warning,
-                        format!("Blade component \"{name}\" does not exist."),
+                        crate::ui_text::format("root.formatted.d3688f4de8", "Blade component \"{name}\" does not exist.", &[("name", &format!("{}", name))]),
                     ));
                 }
                 Kind::Livewire if unknown_livewire(index, name) && enabled("reportUnknownLivewire") => {
@@ -409,7 +437,7 @@ pub fn problems(index: &Index, language: &str, text: &str, check_routes: bool) -
                         range,
                         "laravel.unknown-livewire",
                         Severity::Warning,
-                        format!("Livewire component \"{name}\" does not exist."),
+                        crate::ui_text::format("root.formatted.bb6eb44ee8", "Livewire component \"{name}\" does not exist.", &[("name", &format!("{}", name))]),
                     ));
                 }
                 _ => {}
@@ -421,7 +449,7 @@ pub fn problems(index: &Index, language: &str, text: &str, check_routes: bool) -
         for range in refs::factory_classes(text) {
             let class = text[range.clone()].rsplit('\\').next().unwrap_or_default();
             if unknown_factory(index, class) {
-                found.push(problem(text, range, "laravel.unknown-factory", Severity::Warning, format!("Model {class} has no factory.")));
+                found.push(problem(text, range, "laravel.unknown-factory", Severity::Warning, crate::ui_text::format("root.formatted.1bb16b8baf", "Model {class} has no factory.", &[("class", &format!("{}", class))])));
             }
         }
     }
@@ -434,7 +462,7 @@ pub fn problems(index: &Index, language: &str, text: &str, check_routes: bool) -
 const UNGUARDED_DIRECTORIES: &[&str] = &["/database/seeders/", "/database/seeds/", "/database/factories/"];
 
 /// Mass assignment, prunable and `orderBy` problems of a PHP file.
-fn eloquent_problems(project: &Project, path: &str, language: &str, text: &str) -> Vec<Diagnostic> {
+fn eloquent_problems(project: &Project, index: &Index, path: &str, language: &str, text: &str) -> Vec<Diagnostic> {
     if language != "php" || !enabled("checkEloquent") {
         return Vec::new();
     }
@@ -444,13 +472,20 @@ fn eloquent_problems(project: &Project, path: &str, language: &str, text: &str) 
     };
     let read = |relative: &str| project.read_file(&format!("{root}/{relative}")).ok();
 
-    let unguarded_run = UNGUARDED_DIRECTORIES.iter().any(|directory| path.contains(directory));
-
-    eloquent_checks::findings(text, &read)
+    let mut found: Vec<_> = eloquent_checks::source_findings(text, &read)
         .into_iter()
-        .filter(|finding| !(unguarded_run && finding.code == "guarded-attribute-assignment"))
-        .map(|finding| problem(text, finding.start..finding.end, finding.code, finding.severity, finding.message))
-        .collect()
+        .map(|finding| {let message=eloquent_checks::localized_message(&finding);problem(text, finding.start..finding.end, finding.code, finding.severity, message)})
+        .collect();
+    let doc = Document { path: path.into(), language: language.into(), version: 0, text: text.into() };
+    found.extend(eloquent_mass_problems(project, index, &doc));
+    found
+}
+
+fn eloquent_mass_problems(project: &Project, index: &Index, doc: &Document) -> Vec<Diagnostic> {
+    if doc.language != "php" || !enabled("checkEloquent") || UNGUARDED_DIRECTORIES.iter().any(|part| doc.path.contains(part)) { return Vec::new(); }
+    eloquent_checks::mass_assignment_checked(index, doc, &|path| owns_current_path(project,path),
+        &|path| { let metadata=project.stat(path).ok()?; if metadata.kind != openidea_plugin::FileKind::File || metadata.size > 128*1024 {return None;} project.read_file(path).ok().filter(|source| source.len() <= 128*1024) }, &host::setting_string("massAssignmentExceptions").or_else(||host::setting("massAssignmentExceptions")).unwrap_or_else(|| "{}".into()))
+        .into_iter().map(|finding| problem(&doc.text, finding.start..finding.end, finding.code, finding.severity, finding.message)).collect()
 }
 
 /// `env()` calls outside the configuration files.
@@ -466,7 +501,7 @@ fn function_problems(project: &Project, path: &str, language: &str, text: &str) 
 
     function_checks::env_outside_config(relative, language, text)
         .into_iter()
-        .map(|finding| problem(text, finding.start..finding.end, finding.code, finding.severity, finding.message))
+        .map(|finding|{let message=if finding.code=="env-outside-config"{crate::ui_text::t("editor.final.envOutsideConfig",&finding.message)}else{finding.message};problem(text,finding.start..finding.end,finding.code,finding.severity,message)})
         .collect()
 }
 
@@ -476,21 +511,13 @@ fn livewire_method_problems(project: &Project, index: &Index, path: &str, langua
         return Vec::new();
     }
 
-    let Some(component) = index.view_of(path).and_then(|view| view.strip_prefix("livewire.")) else {
-        return Vec::new();
-    };
-    let Some(entry) = index.livewire.get(component).filter(|entry| !entry.path.is_empty()) else {
-        return Vec::new();
-    };
-    let Some(methods) = project.read_file(&entry.path).ok().and_then(|class| blade::livewire_methods(&class)) else {
-        return Vec::new();
-    };
+    let Some(methods)=package_integrations::livewire_methods_for_view(index,project,path,text)else{return Vec::new();};
 
     blade::wire_calls(text)
         .into_iter()
-        .filter(|call| !methods.contains(&call.name))
+        .filter(|call| !methods.iter().any(|method|method.eq_ignore_ascii_case(&call.name)))
         .map(|call| {
-            let message = format!("Component class has no method \"{}\".", call.name);
+            let message = crate::ui_text::format("root.formatted.24a37877b0", "Component class has no method \"{method}\".", &[("method", &format!("{}", call.name))]);
             problem(text, call.start..call.end, "laravel.unknown-livewire-method", Severity::Warning, message)
         })
         .collect()
@@ -503,83 +530,7 @@ fn controllers_namespace() -> String {
 }
 
 /// Controllers and methods that `routes/*.php` name and the project lacks.
-fn route_controller_problems(project: &Project, index: &Index, path: &str, language: &str, text: &str) -> Vec<Diagnostic> {
-    let Ok(root) = project.root() else {
-        return Vec::new();
-    };
-    let inside_routes = path.strip_prefix(&format!("{root}/")).is_some_and(|relative| relative.starts_with("routes/"));
-    if language != "php" || !inside_routes || index.partial || !enabled("reportUnknownRouteControllers") {
-        return Vec::new();
-    }
-
-    let masked = php::mask_comments(text);
-    if masked.contains("::controller(") || masked.contains("->controller(") {
-        return Vec::new();
-    }
-
-    let namespace = controllers_namespace();
-    let imports = routes::imports(&masked);
-    let mut declared: BTreeMap<String, Option<Vec<String>>> = BTreeMap::new();
-    let mut missing: BTreeMap<usize, (std::ops::Range<usize>, String, Vec<String>)> = BTreeMap::new();
-    let mut found = Vec::new();
-
-    for def in routes::parse(&masked) {
-        let Some((class, method)) = &def.controller else {
-            continue;
-        };
-        if method == "__invoke" {
-            continue;
-        }
-
-        let candidates: Vec<&String> = index.methods.keys().filter(|full| full.rsplit('\\').next() == Some(class.as_str())).collect();
-        let range = def.offset..def.offset + def.width;
-
-        match candidates.as_slice() {
-            [] => {
-                let imported_from_project = imports.iter().any(|(name, from)| name == class && from.starts_with(&namespace));
-                if imported_from_project && !index.partial {
-                    found.push(problem(
-                        text,
-                        range,
-                        "laravel.unknown-route-controller",
-                        Severity::Warning,
-                        format!("Controller \"{class}\" does not exist."),
-                    ));
-                }
-            }
-            [full] => {
-                let methods = declared.entry((*full).clone()).or_insert_with(|| {
-                    let file = &index.controllers.get(*full)?.path;
-                    controllers::declared_methods(&php::mask_comments(&project.read_file(file).ok()?))
-                });
-                if methods.as_ref().is_some_and(|methods| !methods.contains(method)) {
-                    missing.entry(def.offset).or_insert_with(|| (range, class.clone(), Vec::new())).2.push(method.clone());
-                }
-            }
-            _ => {}
-        }
-    }
-
-    for (range, class, methods) in missing.into_values() {
-        match methods.as_slice() {
-            [_, _, ..] if !enabled("reportMissingResourceMethods") => {}
-            [method] => found.push(problem(
-                text,
-                range,
-                "laravel.unknown-route-method",
-                Severity::Warning,
-                format!("{class} has no method \"{method}\"."),
-            )),
-            _ => {
-                let message = format!("{class} lacks the resource methods {}.", methods.join(", "));
-                found.push(problem(text, range, "laravel.missing-resource-methods", Severity::Warning, message));
-            }
-        }
-    }
-    found.sort_by_key(|diagnostic| diagnostic.range.start.line);
-
-    found
-}
+fn route_controller_problems(_project:&Project,index:&Index,path:&str,language:&str,text:&str)->Vec<Diagnostic>{route_inspections::current(index,&Document{path:path.into(),language:language.into(),text:text.into(),version:0})}
 
 fn enabled(setting: &str) -> bool {
     host::setting_bool(setting).unwrap_or(true)
@@ -598,7 +549,7 @@ fn unknown_livewire(index: &Index, name: &str) -> bool {
 }
 
 fn unknown_inertia_page(index: &Index, name: &str) -> bool {
-    !index.inertia_pages.is_empty() && !name.contains("::") && !name.ends_with('/') && !index.inertia_pages.contains_key(name)
+    (!index.inertia_pages.is_empty() || !index.metadata.inertia_paths.is_empty()) && !name.contains("::") && !name.ends_with('/') && !index.inertia_pages.contains_key(name)
 }
 
 fn unknown_factory(index: &Index, class: &str) -> bool {
@@ -609,16 +560,7 @@ fn unknown_factory(index: &Index, class: &str) -> bool {
 }
 
 /// A key below an array (or config file) of the project that doesn't have it.
-fn missing_config(index: &Index, name: &str) -> bool {
-    if index.config.contains_key(name) {
-        return false;
-    }
-
-    let Some((parent, _)) = name.rsplit_once('.') else {
-        return false;
-    };
-    index.config.get(parent).is_some_and(|entry| !index.config_incomplete.contains(&entry.path) && matches!(entry.detail.as_deref(), Some("array" | "config file")))
-}
+fn missing_config(index:&Index,name:&str)->bool {config_inspections::missing(index,name)}
 
 /// `file.key` where the project has a lang file for `file` but not the key.
 fn missing_translation(index: &Index, name: &str) -> bool {
@@ -635,11 +577,17 @@ fn missing_translation(index: &Index, name: &str) -> bool {
 #[derive(Default)]
 pub struct Main {
     artisan_terminals: generate::Terminals,
+    application_mcp: mcp::application::State,
+    helper_automation: helper_automation::State,
     view_extractions:view_extract::State,
     request_creations:request_creation::State,
     request_promotions:request_promotion::State,
     /// By project root.
     indexes: BTreeMap<String, Index>,
+    pending_indexes: BTreeSet<String>,
+    index_builders: BTreeMap<String, index::Builder>,
+    index_progress: BTreeMap<String, (usize, usize)>,
+    index_rechecks: BTreeMap<String, std::collections::VecDeque<String>>,
     /// Files with published problems, checked again when the index changes.
     checked: BTreeSet<String>,
     /// Project root and time `migrate-fresh` was first asked for.
@@ -663,32 +611,12 @@ fn refresh_laravel() {
 
 impl Main {
     fn index_project(&mut self, project: &Project) {
-        let Ok(root) = project.root() else { return };
-        self.runtime_inspection.invalidate(&root);
-
-        if !index::is_laravel(project) {
-            if self.indexes.remove(&root).is_some() { refresh_laravel(); }
-            return;
-        }
-
-        let index = Index::build(project);
-        if index.partial {
-            host::log(LogLevel::Warn, &format!("index of {root} is partial: out of time"));
-        }
-        self.indexes.insert(root.clone(), index);
-        let _ = host::set_context("indexed", true);
-
-        let checked: Vec<String> = self.checked.iter().filter(|path| under(path, &root)).cloned().collect();
-        for path in checked {
-            self.check(project, &path);
-        }
-        refresh_laravel();
+        self.queue_index(project);
+        self.advance_index(project);
     }
 
     fn index_all(&mut self) {
-        for project in host::projects().unwrap_or_default() {
-            self.index_project(&project);
-        }
+        self.queue_indexes();
     }
 
     fn index_for(&self, path: &str) -> Option<&Index> {
@@ -713,7 +641,7 @@ impl Main {
             Ok(text) if enabled && !index.partial => {
                 // Cheap cached-inventory checks belong exclusively to DiagnosticsProvider.
                 let mut found = Vec::new();
-                found.extend(eloquent_problems(project, path, language, &text));
+                found.extend(eloquent_problems(project, index, path, language, &text));
                 found.extend(function_problems(project, path, language, &text));
                 found.extend(livewire_method_problems(project, index, path, language, &text));
                 found.extend(route_controller_problems(project, index, path, language, &text));
@@ -729,13 +657,13 @@ impl Main {
     }
 
     fn artisan(&mut self, ctx: &Invocation, command: &str) -> Result<Option<String>, Error> {
-        let project = ctx.project().ok_or("No project is open.")?;
-        let task = host::begin_task(&format!("artisan {command}"), false);
+        let project = ctx.project().ok_or(crate::ui_text::text("native.lib.6d0169b3b4", "No project is open."))?;
+        let task = host::begin_task(&crate::ui_text::format("root.formatted.ae05baa7cc", "artisan {command}", &[("command", &format!("{}", command))]), false);
         let args = ["artisan".to_owned(), command.to_owned(), "--no-interaction".to_owned(), "--no-ansi".to_owned()];
 
         let output = match project.run_process("php", &args, None) {
             Err(Error::Denied(_)) => {
-                return Err("Allow the process:php capability in Settings › Plugins.".into());
+                return Err(crate::ui_text::text("native.lib.a4c063bde3", "Allow the process:php capability in Settings › Plugins.").into());
             }
             result => result?,
         };
@@ -747,12 +675,12 @@ impl Main {
         task.report(1, Some(2), Some("Indexing"));
         if let Ok(root)=project.root(){self.runtime_routes.remove(&root);}
         self.index_project(&project);
-        host::notify(NotificationLevel::Info, SOURCE, &format!("Ran artisan {command} and reindexed the project."));
+        host::notify(NotificationLevel::Info, SOURCE, &crate::ui_text::format("index.artisanQueued", "Ran artisan {command}. Project indexing is queued.", &[("command", &format!("{}", command))]));
         Ok(None)
     }
 
     fn generator(&mut self, id: &str, ctx: &Invocation) -> Result<Option<String>, Error> {
-        let project = ctx.project().ok_or("No project is open.")?;
+        let project = ctx.project().ok_or(crate::ui_text::text("native.lib.6d0169b3b4", "No project is open."))?;
         let root = project.root()?;
         if id == "new-model" {
             ui_kit::web::reveal_view(generator_workspace::VIEW, include_str!("ui_config.json"))?;
@@ -782,10 +710,10 @@ impl Main {
     }
 
     fn unused_views(&self, ctx: &Invocation) -> Result<Option<String>, Error> {
-        let project = ctx.project().ok_or("No project is open.")?;
+        let project = ctx.project().ok_or(crate::ui_text::text("native.lib.6d0169b3b4", "No project is open."))?;
         let root = project.root()?;
-        let index = self.indexes.get(&root).ok_or("This project is not a Laravel application.")?;
-        let _task = host::begin_task("Finding unused views", false);
+        let index = self.indexes.get(&root).ok_or(crate::ui_text::text("native.lib.46db8a1248", "This project is not a Laravel application."))?;
+        let _task = host::begin_task(crate::ui_text::text("root.findingUnused", "Finding unused views"), false);
 
         let mut sources: Vec<(&str, String)> = Vec::new();
         for glob in ["app/**/*.php", "routes/**/*.php", "resources/views/**/*.php", "database/**/*.php", "src/**/*.php"] {
@@ -799,7 +727,7 @@ impl Main {
         let views: BTreeSet<&str> = index.views.keys().map(String::as_str).collect();
         let unused = unused::unused_views(&views, &sources);
         if unused.is_empty() {
-            host::notify(NotificationLevel::Info, SOURCE, "Every view is used.");
+            host::notify(NotificationLevel::Info, SOURCE, crate::ui_text::text("native.lib.6fe44f17e2", "Every view is used."));
             return Ok(None);
         }
 
@@ -807,10 +735,10 @@ impl Main {
             .iter()
             .map(|view| {
                 let item = openidea_plugin::PickItem::new(&view.name, &view.name);
-                if view.maybe { item.description("maybe used: the project builds view names at run time") } else { item }
+                if view.maybe { item.description(crate::ui_text::text("final.views.maybeUsed","maybe used: the project builds view names at run time")) } else { item }
             })
             .collect();
-        let title = format!("{} unused views (choose one to open)", unused.len());
+        let title = crate::ui_text::format("root.formatted.f688338d77", "{count} unused views (choose one to open)", &[("count", &format!("{}", unused.len()))]);
         let Some(name) = host::pick(&title, &choices)? else {
             return Ok(None);
         };
@@ -822,22 +750,17 @@ impl Main {
     }
 
     fn summary(&self) -> String {
+        if !self.pending_indexes.is_empty() { return crate::ui_text::text("index.building", "Indexing Laravel project…").into(); }
         if self.indexes.is_empty() {
-            return "No Laravel project is open.".into();
+            return crate::ui_text::text("root.formatted.f34af16af5", "No Laravel project is open.").into();
         }
 
         let lines: Vec<String> = self
             .indexes
             .iter()
             .map(|(root, i)| {
-                let partial = if i.partial { " (index incomplete)" } else { "" };
-                format!(
-                    "{root}: {} routes, {} views, {} config keys, {} translations{partial}",
-                    i.route_defs.len(),
-                    i.views.len(),
-                    i.config.len(),
-                    i.translations.len(),
-                )
+                let partial = if i.partial { crate::ui_text::text("root.formatted.159f2f9c2e", " (index incomplete)") } else { "" };
+                crate::ui_text::format("root.formatted.8f788d0935", "{root}: {routes} routes, {views} views, {config} config keys, {translations} translations{partial}", &[("root", &format!("{}", root)), ("routes", &format!("{}", i.route_defs.len())), ("views", &format!("{}", i.views.len())), ("config", &format!("{}", i.config.len())), ("translations", &format!("{}", i.translations.len())), ("partial", &format!("{}", partial))])
             })
             .collect();
         lines.join("\n")
@@ -846,7 +769,7 @@ impl Main {
 
 impl Plugin for Main {
     fn activate(&mut self, _ctx: &Context) -> Result<(), Error> {
-        for kind in [EventKind::FileSaved, EventKind::FileOpened, EventKind::TerminalExited] {
+        for kind in [EventKind::FileSaved, EventKind::FileOpened, EventKind::TerminalExited, EventKind::Scheduled, EventKind::SettingsChanged, EventKind::VcsChanged] {
             host::subscribe(kind)?;
         }
         host::subscribe_paths("files-changed", &["**/*.php", "**/*.json", "**/*.sql", "**/*.js", "**/*.ts", "**/*.mjs", "**/*.mts", ".env*", "resources/**/*"])?;
@@ -857,6 +780,7 @@ impl Plugin for Main {
     fn run_command(&mut self, id: &str, ctx: &Invocation, arg: Option<&str>) -> Result<Option<String>, Error> {
         match id {
             "new-project" => self.project_wizard.run(ctx),
+            "project-installation-recovery" => self.project_wizard.recover(ctx),
             "sentry-configure" => { self.external_services.configure_sentry(ctx)?; refresh_laravel(); Ok(None) }
             "sentry-refresh" => { self.external_services.refresh_sentry(ctx)?; refresh_laravel(); Ok(None) }
             "sentry-more" => { self.external_services.load_more_sentry(ctx)?; refresh_laravel(); Ok(None) }
@@ -870,14 +794,29 @@ impl Plugin for Main {
             "cloud-refresh" => { self.external_services.refresh_cloud(ctx)?; refresh_laravel(); Ok(None) }
             "sentry-disconnect" => { self.external_services.disconnect_sentry()?; self.external_details.clear(); refresh_laravel(); Ok(None) }
             "cloud-disconnect" => { self.external_services.disconnect_cloud()?; self.external_details.clear(); refresh_laravel(); Ok(None) }
-            "cloud-environments" => { self.external_services.cloud_environments(ctx, arg.ok_or("Select a captured Cloud application.")?)?; refresh_laravel(); Ok(None) }
+            "cloud-details-select" => {
+                self.external_services.cloud_select_environment(ctx,arg.ok_or(Error::Stale)?).map_err(external_services::cloud_ui_error)?;
+                if let Some(root)=ctx.project().and_then(|project|project.root().ok()) { self.external_details.remove(&root); }
+                refresh_laravel(); Ok(None)
+            }
+            "cloud-details" | "cloud-selected-refresh" | "cloud-logs" | "cloud-manage" | "cloud-open-domain" | "cloud-variable-reveal" | "cloud-variable-copy" | "cloud-hide-variables" => {
+                self.external_services.cloud_action(ctx,id,arg).map_err(external_services::cloud_ui_error)?;
+                refresh_laravel(); Ok(None)
+            }
+            "cloud-import-database" => {
+                self.external_services.cloud_import_database(ctx,&self.runtime_inspection).map_err(external_services::cloud_ui_error)?;
+                refresh_laravel(); Ok(None)
+            }
+            "cloud-environments" => { self.external_services.cloud_environments(ctx, arg.ok_or(crate::ui_text::text("native.lib.971e205231", "Select a captured Cloud application."))?)?; refresh_laravel(); Ok(None) }
             "sentry-details" => {
+                self.external_services.cloud_clear_view(ctx)?;
                 let root = ctx.project().ok_or(Error::Stale)?.root()?;
-                let details = self.external_services.sentry_details(ctx, arg.ok_or("Select a captured Sentry issue.")?)?;
+                let details = self.external_services.sentry_details(ctx, arg.ok_or(crate::ui_text::text("native.lib.26af3c791d", "Select a captured Sentry issue."))?)?;
                 self.external_details.insert(root, details);
                 refresh_laravel(); Ok(None)
             }
             "external-list" => {
+                self.external_services.cloud_clear_view(ctx)?;
                 let root = ctx.project().ok_or(Error::Stale)?.root()?;
                 self.external_details.remove(&root); refresh_laravel(); Ok(None)
             }
@@ -890,13 +829,49 @@ impl Plugin for Main {
                 self.runtime_inspection.register_database_source(ctx, self.artisan_workspace.runner(ctx)?)?;
                 Ok(None)
             }
+            "helper-source-automation" => {model_actions::parameters::configure_advanced(ctx)?;refresh_laravel();Ok(None)}
+            "helper-automation-state" | "helper-automation-poll" | "helper-automation-stop" => {
+                let runner=self.artisan_workspace.runner(ctx)?;
+                let value=self.helper_automation.handle(ctx,&serde_json::json!({"op":id}).to_string(),runner)?;
+                host::output_clear("Laravel Helper Automation")?;
+                host::output_append("Laravel Helper Automation",&serde_json::to_string_pretty(&value).map_err(|error|Error::Invalid(error.to_string()))?)?;
+                host::output_reveal("Laravel Helper Automation")?;Ok(None)
+            }
+            "index-issues" => {
+                let index=self.view_index(ctx).ok_or(Error::Stale)?;
+                host::output_clear("Laravel Index Issues")?;
+                host::output_append("Laravel Index Issues",&index.metadata.issues.iter().map(|issue|metadata::presentation_issue(index,issue)).collect::<Vec<_>>().join("\n"))?;
+                host::output_reveal("Laravel Index Issues")?;Ok(None)
+            }
+            "runtime-application-mcp" => {
+                let extra=self.view_index(ctx).map(|index|index.metadata.route_files.clone()).unwrap_or_default();let value=self.application_mcp.connect(ctx,self.artisan_workspace.runner(ctx)?,&extra)?;
+                host::notify(NotificationLevel::Info,SOURCE,&value.to_string());refresh_laravel();Ok(None)
+            }
+            "runtime-model-connections" => {
+                let project=ctx.project().ok_or(Error::Stale)?;
+                self.advance_index(&project);
+                let index=self.view_index(ctx).ok_or(Error::Stale)?;
+                if !index::index_sources_current(&project,index){return Err(Error::Stale);}
+                let models=eloquent_members::model_identities(&index.eloquent_models).into_iter().filter(|(_,path)|owns_current_path(&project,path)).collect::<Vec<_>>();
+                let items=models.iter().map(|(full,_)|openidea_plugin::PickItem::new(full,full)).collect::<Vec<_>>();
+                let Some(selected)=host::pick_many(crate::ui_text::text("native.lib.a45892eede", "Models to inspect connection/table bindings (up to 32)"),&items)?else{return Ok(None)};
+                if selected.is_empty()||selected.len()>32||selected.iter().any(|name|!models.iter().any(|(full,_)|full==name)){return Err(Error::Invalid(crate::ui_text::text("native.lib.ab12ffa832", "Select 1–32 owned models").into()));}
+                let models=models.into_iter().filter(|(full,_)|selected.contains(full)).collect::<Vec<_>>();
+                self.runtime_inspection.capture_model_connections(ctx,self.artisan_workspace.runner(ctx)?,&models)?;refresh_laravel();Ok(None)
+            }
+            "sentry-oauth-start" | "sentry-oauth-poll" | "sentry-oauth-cancel" => {
+                let value=match id{"sentry-oauth-start"=>self.external_services.start_sentry_device(ctx)?,"sentry-oauth-poll"=>self.external_services.poll_sentry_device(ctx)?,_=>self.external_services.cancel_sentry_device(ctx)?};
+                host::notify(NotificationLevel::Info,SOURCE,&value.to_string());refresh_laravel();Ok(None)
+            }
             "helper-parameters" => {
                 model_actions::configure(ctx)?;
                 refresh_laravel();
                 Ok(None)
             }
             "regenerate-model-helpers" => {
-                model_actions::begin_project(ctx)?;
+                self.advance_context_index(ctx);
+                let index=self.view_index(ctx).ok_or(Error::Stale)?;
+                model_actions::begin_project(ctx,index)?;
                 Ok(None)
             }
             "model-from-database" => {
@@ -921,7 +896,7 @@ impl Plugin for Main {
                     Some(key) => key.to_owned(),
                     None => {
                         let choices: Vec<_> = model_overview::rows(index, &project).into_iter().filter(|row|row["cells"][1] == "Model").filter_map(|row|Some(openidea_plugin::PickItem::new(row["key"].as_str()?, row["cells"][0].as_str()?))).collect();
-                        let Some(key) = host::pick("Add fields to model", &choices)? else { return Ok(None) };
+                        let Some(key) = host::pick(crate::ui_text::text("native.lib.85e965dc3e", "Add fields to model"), &choices)? else { return Ok(None) };
                         key
                     }
                 };
@@ -930,33 +905,35 @@ impl Plugin for Main {
                 Ok(None)
             }
             "runtime-open-frame" => {
-                self.runtime_inspection.open_log_frame(ctx, self.artisan_workspace.runner(ctx)?, arg.ok_or("Select a captured Errors row first.")?)?;
+                self.runtime_inspection.open_log_frame(ctx, self.artisan_workspace.runner(ctx)?, arg.ok_or(crate::ui_text::text("native.lib.e834db5b60", "Select a captured Errors row first."))?)?;
                 Ok(None)
             }
             "console-command-open" => {
                 let name=console_editor::resolve(ctx,arg.ok_or(Error::Stale)?)?;
-                if !self.artisan_workspace.select_command(ctx,&name)? {
+                if !self.artisan_workspace.run_entry(ctx,&name,&self.artisan_terminals,false)? {
                     ui_kit::web::reveal_view(artisan_workspace::VIEW,include_str!("ui_config.json"))?;
-                    host::notify(NotificationLevel::Info,SOURCE,&format!("Refresh Artisan command metadata to configure {name}."));
+                    host::notify(NotificationLevel::Info,SOURCE,&crate::ui_text::format("root.formatted.79812948ba", "Refresh Artisan command metadata to configure {name}.", &[("name", &format!("{}", name))]));
                 }
                 Ok(None)
             }
             "route-search" => {
                 let project = ctx.project().ok_or(Error::Stale)?;
-                let index = Index::build(&project);
-                if index.partial {return Err(Error::Failed("Laravel route index is incomplete; reindex before searching.".into()));}
-                let initial = self.search_routes_from_index(ctx,&index);
-                route_search::run(ctx, initial, || { let current=Index::build(&project); if current.partial {return Err(Error::Stale);} Ok(self.search_routes_from_index(ctx,&current)) })?;
+                self.advance_index(&project);
+                let index=self.view_index(ctx).ok_or(Error::Stale)?;
+                if index.partial {return Err(Error::Failed(crate::ui_text::text("native.lib.3b27ad675b", "Laravel route index is incomplete; reindex before searching.").into()));}
+                if !index::index_sources_current(&project,index){return Err(Error::Stale);}
+                let initial = self.search_routes_from_index(ctx,index);
+                route_search::run(ctx, initial, || { if !index::index_sources_current(&project,index) {return Err(Error::Stale);} Ok(self.search_routes_from_index(ctx,index)) })?;
                 Ok(None)
             }
             "runtime-database-list" => {
                 let root = ctx.project().ok_or(Error::Stale)?.root()?;
                 let ids = self.runtime_inspection.database_sources(ctx)?;
-                if ids.is_empty() { host::notify(NotificationLevel::Info, SOURCE, "No registered Laravel database sources. Add a Database Connection from Models first."); return Ok(None); }
+                if ids.is_empty() { host::notify(NotificationLevel::Info, SOURCE, crate::ui_text::text("native.lib.113cede793", "No registered Laravel database sources. Add a Database Connection from Models first.")); return Ok(None); }
                 let choices: Vec<_> = ids.iter().map(|id|openidea_plugin::PickItem::new(id,id)).collect();
-                let Some(id) = host::pick("Laravel database connections", &choices)? else { return Ok(None) };
+                let Some(id) = host::pick(crate::ui_text::text("native.lib.d03a057646", "Laravel database connections"), &choices)? else { return Ok(None) };
                 if !ids.contains(&id) {return Err(Error::Stale);}
-                let Some(action) = host::pick("Database connection action", &[openidea_plugin::PickItem::new("connect", "Connect / enter credentials…"),openidea_plugin::PickItem::new("remove", "Remove connection and saved credentials…")])? else { return Ok(None) };
+                let Some(action) = host::pick(crate::ui_text::text("native.lib.c23b1b3b55", "Database connection action"), &[openidea_plugin::PickItem::new("connect", crate::ui_text::text("native.lib.c2138e9f13", "Connect / enter credentials…")),openidea_plugin::PickItem::new("remove", crate::ui_text::text("native.lib.37a3027038", "Remove connection and saved credentials…"))])? else { return Ok(None) };
                 if ctx.project().ok_or(Error::Stale)?.root()? != root || !host::projects()?.iter().any(|p|p.root().ok().as_deref()==Some(&root)) {return Err(Error::Stale);}
                 self.runtime_inspection.database_source_action(ctx,&action,Some(&id))?;
                 refresh_laravel(); Ok(None)
@@ -980,11 +957,12 @@ impl Plugin for Main {
             }
             "find-literal-source-matches" => crate::source_matches::run(ctx),
             "routes-runtime-refresh" => {
-                let project=ctx.project().ok_or("Open a Laravel project first.")?;
+                let project=ctx.project().ok_or(crate::ui_text::text("process.error0", "Open a Laravel project first."))?;
                 let root=project.root()?;
-                if self.runtime_routes.len() >= 8 && !self.runtime_routes.contains_key(&root) { return Err(Error::Invalid("Too many runtime route snapshots; reindex to clear them.".into())); }
-                self.index_project(&project);
-                let index=self.view_index(ctx).ok_or("This project is not indexed as Laravel.")?;
+                if self.runtime_routes.len() >= 8 && !self.runtime_routes.contains_key(&root) { return Err(Error::Invalid(crate::ui_text::text("native.lib.e2aad7065c", "Too many runtime route snapshots; reindex to clear them.").into())); }
+                if !self.index_pending(&root) && self.completed_index_for(&root).is_none_or(|index|!index::index_sources_current(&project,index)) { self.queue_index(&project); }
+                self.advance_index(&project);
+                let index=self.view_index(ctx).ok_or(crate::ui_text::text("native.lib.3d4beff9da", "This project is not indexed as Laravel."))?;
                 let partial=index.partial;
                 let snapshot=route_runtime::capture(ctx,index)?;
                 let count=snapshot.routes.len();
@@ -992,12 +970,12 @@ impl Plugin for Main {
                 self.runtime_routes.retain(|root,_|open.contains(root));
                 self.runtime_routes.insert(root,snapshot);
                 refresh_laravel();
-                host::notify(NotificationLevel::Info,SOURCE,&format!("Rebuilt the source index{} and loaded {count} registered routes from Artisan.",if partial {" (incomplete)"} else {""}));
+                host::notify(NotificationLevel::Info,SOURCE,&crate::ui_text::format("root.formatted.4a93214e02", "Rebuilt the source index{partial} and loaded {count} registered routes from Artisan.", &[("partial", &format!("{}", if partial {crate::ui_text::text("native.lib.a1fe49246a", " (incomplete)")} else {""})), ("count", &format!("{}", count))]));
                 Ok(None)
             }
             "reindex" => {
                 self.runtime_routes.clear();
-                let _task = host::begin_task("Indexing Laravel projects", false);
+                let _task = host::begin_task(crate::ui_text::text("root.indexing", "Indexing Laravel projects"), false);
                 self.index_all();
                 host::notify(NotificationLevel::Info, SOURCE, &self.summary());
                 Ok(None)
@@ -1016,8 +994,8 @@ impl Plugin for Main {
                 };
                 if route.method.contains('|') {
                     let choices:Vec<_>=route.method.split('|').map(|method|openidea_plugin::PickItem::new(method,method)).collect();
-                    let Some(method)=host::pick("HTTP method",&choices)? else {return Ok(None);};
-                    if !route.method.split('|').any(|known|known==method) {return Err(Error::Invalid("Unknown HTTP method.".into()));}
+                    let Some(method)=host::pick(crate::ui_text::text("native.lib.c009049312", "HTTP method"),&choices)? else {return Ok(None);};
+                    if !route.method.split('|').any(|known|known==method) {return Err(Error::Invalid(crate::ui_text::text("native.lib.0cdb3a94ab", "Unknown HTTP method.").into()));}
                     route.method=method;
                 }
                 match id {
@@ -1037,7 +1015,7 @@ impl Plugin for Main {
                     host::notify(
                         NotificationLevel::Warning,
                         SOURCE,
-                        "Fresh migration drops all tables. Run Laravel: Fresh Migration (drops all tables) again within 30 seconds to confirm.",
+                        crate::ui_text::text("native.lib.859d1d6ee2", "Fresh migration drops all tables. Run Laravel: Fresh Migration (drops all tables) again within 30 seconds to confirm."),
                     );
                     return Ok(None);
                 }
@@ -1050,30 +1028,30 @@ impl Plugin for Main {
                 Ok(None)
             },
             "runtime-inspect-queue" => {
-                let Some(connection)=host::input("Queue connection (blank for all configured connections)",None)? else{return Ok(None)};
-                let Some(queue)=host::input("Queue name (blank for configured defaults)",None)? else{return Ok(None)};
+                let Some(connection)=host::input(crate::ui_text::text("native.lib.f768be8c36", "Queue connection (blank for all configured connections)"),None)? else{return Ok(None)};
+                let Some(queue)=host::input(crate::ui_text::text("native.lib.51dcb2b03d", "Queue name (blank for configured defaults)"),None)? else{return Ok(None)};
                 self.runtime_inspection.capture_queue_status(ctx,self.artisan_workspace.runner(ctx)?,Some(connection.trim()).filter(|value|!value.is_empty()),Some(queue.trim()).filter(|value|!value.is_empty()))?;
                 refresh_laravel();
                 Ok(None)
             },
             "runtime-logs" => {
                 let files=self.runtime_inspection.log_files(ctx)?;
-                if files.is_empty(){host::notify(NotificationLevel::Info,SOURCE,"No owned log files found under storage/logs.");return Ok(None);}
+                if files.is_empty(){host::notify(NotificationLevel::Info,SOURCE,crate::ui_text::text("native.lib.0eb8f8b258", "No owned log files found under storage/logs."));return Ok(None);}
                 let choices:Vec<_>=files.iter().map(|file|openidea_plugin::PickItem::new(file,file)).collect();
-                if let Some(file)=host::pick("Read Laravel log",&choices)? {
+                if let Some(file)=host::pick(crate::ui_text::text("native.lib.21923a348b", "Read Laravel log"),&choices)? {
                     self.runtime_inspection.capture_log(ctx,self.artisan_workspace.runner(ctx)?,&file)?;
                     refresh_laravel();
                 } Ok(None)
             },
             "runtime-retry-failed" => {
-                let key=arg.ok_or("Select a captured failed-job row and choose Retry Failed Job.")?;
+                let key=arg.ok_or(crate::ui_text::text("native.lib.ca9f750672", "Select a captured failed-job row and choose Retry Failed Job."))?;
                 let result=self.runtime_inspection.retry_failed(ctx,self.artisan_workspace.runner(ctx)?,key)?;
                 host::notify(NotificationLevel::Info,SOURCE,&result);
                 refresh_laravel();
                 Ok(None)
             },
             "runtime-runner" => {
-                if let Some(runner)=host::pick("Runtime PHP runner",&[openidea_plugin::PickItem::new("php","Local PHP"),openidea_plugin::PickItem::new("docker","Docker")])? {
+                if let Some(runner)=host::pick(crate::ui_text::text("native.lib.0f9782a9d2", "Runtime PHP runner"),&[openidea_plugin::PickItem::new("php",crate::ui_text::text("command.localPhp", "Local PHP")),openidea_plugin::PickItem::new("docker","Docker")])? {
                     let runner:artisan_runner::Runner=serde_json::from_value(serde_json::json!(runner)).map_err(|_|Error::Stale)?;
                     self.artisan_workspace.handle(ctx,&serde_json::json!({"op":"runner","runner":runner}).to_string(),&self.artisan_terminals)?;
                     refresh_laravel();
@@ -1081,8 +1059,8 @@ impl Plugin for Main {
             },
             "unused-views" => self.unused_views(ctx),
             "artisan-run" => { ui_kit::web::reveal_view(artisan_workspace::VIEW, include_str!("ui_config.json"))?; Ok(None) },
-            "artisan-run-terminal" => generate::run_artisan(&self.artisan_terminals, ctx),
-            "artisan-refresh-metadata" => artisan_metadata::refresh(ctx),
+            "artisan-run-terminal" => {if self.artisan_workspace.run_terminal_entry(ctx,&self.artisan_terminals)? {Ok(None)} else {generate::run_artisan(&self.artisan_terminals,ctx)}},
+            "artisan-refresh-metadata" => {let result=artisan_metadata::refresh(ctx)?;if let Some(project)=ctx.project(){if let Ok(root)=project.root(){if let Some(index)=self.indexes.get_mut(&root){metadata::refresh_artisan(&project,&mut index.metadata);}}}Ok(result)},
             "artisan-refresh-docker-metadata" => artisan_docker::refresh(ctx),
             "artisan-choose-docker-target" => {let result=artisan_docker::discover(ctx)?;refresh_laravel();Ok(result)},
             "artisan-clear-docker-target" => {let result=artisan_docker::clear_discovered_target(ctx)?;refresh_laravel();Ok(result)},
@@ -1100,11 +1078,32 @@ impl Plugin for Main {
                 generate::run(&self.artisan_terminals, ctx, "route:list", Vec::new())?;
                 Ok(None)
             }
-            _ => Err(Error::NotFound(format!("command {id}"))),
+            _ => Err(Error::NotFound(crate::ui_text::format("root.formatted.b0a5d84e95", "command {id}", &[("id", &format!("{}", id))]))),
         }
     }
 
     fn handle_events(&mut self, events: &[Event], ctx: &Invocation) {
+        for event in events {
+            if let Event::VcsChanged(repository)=event {
+                for project in host::projects().unwrap_or_default() {
+                    if let Ok(root)=project.root() {
+                        if root==*repository || under(&root,repository) { self.external_services.cloud_dirty(&root); }
+                    }
+                }
+                refresh_laravel();
+            }
+            if let Event::Other{kind,data}=event {
+                if kind=="settings-changed" {
+                    let changed=serde_json::from_str::<Vec<String>>(data).ok();
+                    if changed.as_ref().is_none_or(|keys|keys.iter().any(|key|matches!(key.as_str(),"viewPaths"|"modelDirectories"|"publicDirectory"|"locale"))) { self.queue_indexes(); }
+                    refresh_laravel();
+                }
+            }
+        }
+        if events.iter().any(|event|matches!(event,Event::Scheduled)) {
+            for project in host::projects().unwrap_or_default(){if let Ok(runner)=self.artisan_workspace.runner_for_project(&project){if let Err(error)=self.helper_automation.tick(&project,runner){host::notify(NotificationLevel::Warning,SOURCE,&crate::ui_text::format("root.formatted.4c5bd9748b", "Helper commands: {error}", &[("error", &format!("{}", error))]));}}}
+        }
+
         for event in events {
             if let Some(exit) = event.terminal_exited() {
                 if let Err(error) = self.project_wizard.complete(&exit) {
@@ -1115,7 +1114,7 @@ impl Plugin for Main {
                 && let Some(root) = self.artisan_terminals.complete(&exit, ctx)
                 && let Some(project) = host::projects().unwrap_or_default().into_iter().find(|p|p.root().ok().as_deref()==Some(&root)) {
                 self.runtime_routes.remove(&root);
-                self.index_project(&project);
+                self.queue_index(&project);
                 refresh_laravel();
             }
         }
@@ -1143,15 +1142,19 @@ impl Plugin for Main {
 
             let changed = saved.iter().filter_map(relative).any(|r| affects_index(&r) || self.indexes.get(&root).is_some_and(|index| index.affects(&r)));
             let unknown = !self.indexes.contains_key(&root) && opened.iter().any(|path| under(path, &root));
-            if saved.iter().any(|path|under(path,&root) && (path.ends_with(".php") || path.rsplit('/').next().is_some_and(|name|name.starts_with(".env") || matches!(name,"composer.json"|"composer.lock")))) { self.runtime_routes.remove(&root); self.runtime_inspection.invalidate(&root); }
+            if saved.iter().any(|path|under(path,&root) && (path.ends_with(".php") || path.rsplit('/').next().is_some_and(|name|name.starts_with(".env") || matches!(name,"composer.json"|"composer.lock")))) { self.runtime_routes.remove(&root); self.runtime_inspection.invalidate_source_views(&root); }
             if changed || unknown {
-                self.index_project(&project);
+                self.queue_index(&project);
             }
 
             for path in saved.iter().chain(&opened).filter(|path| under(path, &root)) {
                 self.check(&project, path);
             }
+            let paths=saved.iter().filter(|path|under(path,&root)).map(|path|(*path).to_owned()).collect::<Vec<_>>();
+            if !paths.is_empty(){let result=self.artisan_workspace.runner_for_project(&project).and_then(|runner|self.helper_automation.on_changes(self,&project,&paths,runner));if let Err(error)=result{host::notify(NotificationLevel::Warning,SOURCE,&crate::ui_text::format("root.formatted.7ecedee4e5", "Helper automation: {error}", &[("error", &format!("{}", error))]));}}
+
         }
+        self.advance_context_index(ctx);
     }
 }
 
@@ -1179,7 +1182,9 @@ fn component_items(index: &Index, doc: &Document, offset: usize, context: &compo
     let (props, view) = if kind == Kind::Livewire {
         let class =
             index.livewire.get(component).filter(|entry| !entry.path.is_empty() && owns_current_path(&project, &entry.path)).and_then(|entry| project.read_file(&entry.path).ok());
-        (class.map(|class| components::livewire_props(&class)).unwrap_or_default(), None)
+        let mut props=class.map(|class| components::livewire_props(&class)).unwrap_or_default();
+        if let Some(names)=index.packages.volt_props.get(component){for name in names {if !props.iter().any(|prop|prop.name==*name){props.push(components::Prop{name:name.clone(),default:None});}}}
+        (props, None)
     } else {
         let view = component_view_text(index, &project, component);
         let class = index
@@ -1187,10 +1192,10 @@ fn component_items(index: &Index, doc: &Document, offset: usize, context: &compo
             .get(component)
             .filter(|entry| entry.path.ends_with(".php") && !entry.path.ends_with(".blade.php") && owns_current_path(&project, &entry.path))
             .and_then(|entry| project.read_file(&entry.path).ok());
-        let props = match &class {
+        let props = package_integrations::native_component_props(index,&project,component).unwrap_or_else(||match &class {
             Some(class) => components::constructor_props(class),
             None => view.as_deref().map(components::view_props).unwrap_or_default(),
-        };
+        });
         let view =
             view.or_else(|| index.views.get(&format!("components.{component}")).filter(|entry| owns_current_path(&project, &entry.path)).and_then(|entry| project.read_file(&entry.path).ok()));
         (props, view)
@@ -1214,7 +1219,7 @@ fn component_items(index: &Index, doc: &Document, offset: usize, context: &compo
         .into_iter()
         .map(|prop| {
             let mut item = CompletionItem::new(&components::attribute_name(&prop.name), CompletionKind::Property);
-            item.detail = prop.default.map(|default| format!("default {default}"));
+            item.detail = prop.default.map(|default| crate::ui_text::format("root.formatted.3737caaa23", "default {default}", &[("default", &format!("{}", default))]));
             item.replace = Some(replace);
             item
         })
@@ -1331,6 +1336,7 @@ impl Main {
 
     fn script_definition(&self, doc: &Document, at: Position) -> Vec<Location> {
         if let (Some(project), Some(index)) = (project_for(&doc.path), self.index_for(&doc.path)) {
+            let direct=wayfinder_destinations::definition(&project,index,doc,at);if !direct.is_empty(){return direct;}
             let wayfinder = package_facts::wayfinder_definition(&project, index, doc, at);
             if !wayfinder.is_empty() { return wayfinder; }
         }
@@ -1355,6 +1361,8 @@ impl Main {
 
 impl Providers for Main {
     fn completion(&mut self, doc: &Document, at: Position, _trigger: Option<&str>) -> Vec<CompletionItem> {
+        self.advance_document_index(&doc.path);
+        if let Some(index)=self.index_for(&doc.path){let items=package_integrations::completion(index,doc,at);if !items.is_empty(){return items;}}
         if js::is_script(&doc.path, &doc.language) {
             return self.script_completion(doc, at);
         }
@@ -1377,15 +1385,22 @@ impl Providers for Main {
             return Vec::new();
         };
         if language=="blade" {let bare=components::bare_completion(index,doc,at);if !bare.is_empty(){return bare;}}
+        if language=="blade" {let values=components::value_completion(index,doc,at);if !values.is_empty(){return values;}}
+        if language=="php" {let items=route_attributes::completion(index,doc,at);if !items.is_empty(){return items;}}
+        if language=="php"{if let Some(items)=route_completion::short_controllers(index,doc,at){return items;}}
+        if language=="php" {let items=route_completion::completion(index,doc,at);if !items.is_empty(){return items;}}
+        if language=="php" {let items=validation_productivity::completion(index,doc,at);if !items.is_empty(){return items;}}
         let scopes = package_facts::passport_completion(index, doc, at);
         if !scopes.is_empty() { return scopes; }
         if language == "php" {
-            let custom = metadata::completion(index, &doc.text, offset);
+            let custom = metadata::completion_document(index, doc, offset);
             if !custom.is_empty() { return custom; }
+            let headers=metadata::response_completion(index,doc,offset);if !headers.is_empty(){return headers;}
         }
         if language == "php" {
             let root = project_for(&doc.path).and_then(|p| p.root().ok());
-            let items = eloquent_members::completion_checked(index, doc, at, &|path| root.is_some() && project_for(path).and_then(|p|p.root().ok()) == root);
+            let mut items = eloquent_members::completion_checked(index, doc, at, &|path| root.is_some() && project_for(path).and_then(|p|p.root().ok()) == root);
+            eloquent_members::localize_completions(&mut items);
             if !items.is_empty() { return items; }
         }
         if language == "php" && let Some(token) = provider_token(&doc.path, &doc.text, offset) {
@@ -1397,7 +1412,7 @@ impl Providers for Main {
             return component_items(index, doc, offset, &context);
         }
 
-        let Some(reference) = refs::reference_at(language, &doc.text, offset).or_else(||(language=="php").then(||metadata::route_reference(&index.metadata,&doc.text,offset)).flatten()) else {
+        let Some(reference) = refs::reference_at(language, &doc.text, offset).or_else(||(language=="php").then(||metadata::route_reference(&index.metadata,&doc.text,offset)).flatten()).or_else(||(language=="php").then(||metadata::pipe_reference(index,doc,offset)).flatten()) else {
             return Vec::new();
         };
 
@@ -1406,7 +1421,9 @@ impl Providers for Main {
             .iter()
             .map(|(name, entry)| {
                 let mut item = CompletionItem::new(name, completion_kind(reference.kind));
-                item.detail = entry.detail.clone();
+                item.detail = if matches!(reference.kind, refs::Kind::Component | refs::Kind::View | refs::Kind::Livewire) {
+                    package_integrations::presentation_detail(entry.detail.clone())
+                } else { entry.detail.clone() };
                 item.replace = Some(replace);
                 item
             })
@@ -1414,6 +1431,8 @@ impl Providers for Main {
     }
 
     fn definition(&mut self, doc: &Document, at: Position) -> Vec<Location> {
+        self.advance_document_index(&doc.path);
+        if let Some(index)=self.index_for(&doc.path){let items=package_integrations::definition(index,doc,at);if !items.is_empty(){return items;}}
         if js::is_script(&doc.path, &doc.language) {
             return self.script_definition(doc, at);
         }
@@ -1427,8 +1446,11 @@ impl Providers for Main {
         let Some(offset) = text::offset(&doc.text, at) else {
             return Vec::new();
         };
+        if language=="blade" {let values=components::value_definition(index,doc,at);if !values.is_empty(){return values;}}
         if language=="blade" {let bare=components::bare_definition(index,doc,at);if !bare.is_empty(){return bare;}}
-        let navigation = indexer::navigation(&doc.path, &doc.text);
+        if language=="php" {let items=route_attributes::definition(index,doc,at);if !items.is_empty(){return items;}}
+        if language=="php"&&route_targets::recognized(index,doc,at){return route_targets::definition(index,doc,at);}
+        let navigation = indexer::contextual_navigation(index,&doc.path,&doc.text);
         let resolver = ui_kit::navigation::Resolver::new(
             index
                 .navigation
@@ -1441,7 +1463,8 @@ impl Providers for Main {
         let scopes = package_facts::passport_definition(index, doc, at);
         if !scopes.is_empty() { return scopes; }
         if language == "php" {
-            let custom = metadata::definition(index, &doc.text, offset);
+            let parents=metadata::config_parent_definition(index,&project,doc,offset);if !parents.is_empty(){return parents;}
+            let custom = metadata::definition_document(index, doc, offset);
             let owned: Vec<_> = custom.into_iter().filter(|location| owns_current_path(&project, &location.path)).collect();
             if !owned.is_empty() { return owned; }
         }
@@ -1454,7 +1477,7 @@ impl Providers for Main {
                     return Some(navigation.clone());
                 }
                 if !owns_current_path(&project, path) { return None; }
-                project.read_file(path).ok().filter(|text| text.len() <= 512 * 1024).map(|text| indexer::navigation(path, &text))
+                project.read_file(path).ok().filter(|text| text.len() <= 512 * 1024).map(|text| indexer::contextual_navigation(index,path,&text))
             })
             .definition(&navigation, at);
         if !related.is_empty() {
@@ -1468,7 +1491,7 @@ impl Providers for Main {
             let end = text::offset(&doc.text, token.end).unwrap_or(0);
             return index.bindings.get(doc.text[start..end].trim_start_matches('\\')).and_then(|entry| scoped_location(&project, entry)).into_iter().collect();
         }
-        let Some(reference) = refs::reference_at(language, &doc.text, offset).or_else(||(language=="php").then(||metadata::route_reference(&index.metadata,&doc.text,offset)).flatten()) else {
+        let Some(reference) = refs::reference_at(language, &doc.text, offset).or_else(||(language=="php").then(||metadata::route_reference(&index.metadata,&doc.text,offset)).flatten()).or_else(||(language=="php").then(||metadata::pipe_reference(index,doc,offset)).flatten()) else {
             return Vec::new();
         };
 
@@ -1481,6 +1504,7 @@ impl Providers for Main {
     /// Controller ↔ route, `view()` → view file, view → controllers and views
     /// using it, section ↔ parent section, push ↔ stack.
     fn line_markers(&mut self, doc: &Document) -> Vec<LineMarker> {
+        self.advance_document_index(&doc.path);
         let Some(language) = language_of(&doc.path, &doc.language) else {
             return Vec::new();
         };
@@ -1493,7 +1517,7 @@ impl Providers for Main {
 
         let markers = match language {
             "php" => {
-                let navigation = indexer::navigation(&doc.path, &doc.text);
+                let navigation = indexer::contextual_navigation(index,&doc.path,&doc.text);
                 let resolver = ui_kit::navigation::Resolver::new(
                     index
                         .navigation
@@ -1503,6 +1527,7 @@ impl Providers for Main {
                         .chain(std::iter::once((doc.path.as_str(), &navigation))),
                 );
                 let mut markers = php_markers(index, &project, doc);
+                markers.extend(metadata::config_parent_markers(index,&project,doc));
                 markers.extend(
                     resolver
                         .checked(|path| {
@@ -1514,7 +1539,7 @@ impl Providers for Main {
                                 .read_file(path)
                                 .ok()
                                 .filter(|text| text.len() <= 512 * 1024)
-                                .map(|text| indexer::navigation(path, &text))
+                                .map(|text| indexer::contextual_navigation(index,path,&text))
                         })
                         .markers(&navigation),
                 );
@@ -1522,10 +1547,11 @@ impl Providers for Main {
             }
             _ => blade_markers(index, &project, doc),
         };
-        markers.into_iter().filter(|marker| marker.target.as_ref().is_none_or(|target| owns_current_path(&project, &target.path))).collect()
+        markers.into_iter().filter(|marker| marker.target.as_ref().is_none_or(|target| owns_current_path(&project, &target.path))).map(|mut marker|{indexer::localize_route_marker(index,&mut marker);marker}).collect()
     }
 
     fn code_actions(&mut self, doc: &Document, selection: Range) -> Vec<CodeAction> {
+        self.advance_document_index(&doc.path);
         let Some(language) = language_of(&doc.path, &doc.language) else {
             return Vec::new();
         };
@@ -1543,7 +1569,7 @@ impl Providers for Main {
             found.extend(eloquent_checks::order_by(&masked).into_iter().filter(|f| f.start <= offset && offset <= f.end).filter_map(
                 |finding| {
                     Some(CodeAction {
-                        title: format!("Replace with {}", finding.replacement.as_deref()?),
+                        title: crate::ui_text::format("root.formatted.acc1548281", "Replace with {replacement}", &[("replacement", &format!("{}", finding.replacement.as_deref()?))]),
                         kind: Some("quickfix".into()),
                         preferred: true,
                         edits: vec![(
@@ -1560,7 +1586,7 @@ impl Providers for Main {
             && let Some((range, text)) = unused::remove_model_phpdocs(&doc.text, offset)
         {
             found.push(CodeAction {
-                title: "Remove IDE helper PHPDoc from model".into(),
+                title: crate::ui_text::text("root.removeModelPhpdoc", "Remove IDE helper PHPDoc from model").into(),
                 kind: Some("refactor.rewrite".into()),
                 preferred: false,
                 edits: vec![(doc.path.clone(), vec![TextEdit { range: range_of(&doc.text, range.start, range.end), text }])],
@@ -1579,13 +1605,15 @@ impl Providers for Main {
             blade_class: version.is_some_and(|version|version >= (9,0,0)),
         };
         let mut rewrites = actions::rewrites_with_framework_features(&doc.path, language, &doc.text, offset, &controllers_namespace, features);
+        if language=="php"{if let Some(contextual)=self.index_for(&doc.path).and_then(|index|actions::contextual_controllers(index,doc,offset,&controllers_namespace)){rewrites.retain(|rewrite|!actions::controller_rewrite(rewrite));rewrites.extend(contextual);}}
+        rewrites.extend(surround_actions::rewrites(doc,selection));
         if language == "php"
             && let Some(index) = self.index_for(&doc.path)
         {
             rewrites.extend(lang_actions::column_rewrites(index, &doc.path, &doc.text, offset));
         }
         found.extend(rewrites.into_iter().map(|rewrite| CodeAction {
-            title: rewrite.title,
+            title: lang_actions::localized_title(&actions::localized_title(&rewrite.title)),
             kind: Some(rewrite.kind.into()),
             preferred: false,
             edits: vec![(
@@ -1597,7 +1625,7 @@ impl Providers for Main {
         }));
 
         if let (Some(index), Some(project)) = (self.index_for(&doc.path), project_for(&doc.path)) {
-            found.extend(lang_actions::extract_string(index, &project, doc, language, selection));
+            found.extend(lang_actions::extract_string(index, &project, doc, language, selection).into_iter().map(|mut action| { action.title=lang_actions::localized_title(&action.title); action }));
         }
 
         found
@@ -1607,11 +1635,11 @@ impl Providers for Main {
         let Some(data) = action.data.clone() else {
             return Ok(action);
         };
-        let (file, key) = data.split_once('\n').ok_or("Malformed code action.")?;
-        let project = project_for(file).ok_or("The file is not in an open project.")?;
+        let (file, key) = data.split_once('\n').ok_or(crate::ui_text::text("native.lib.cbe56cab0b", "Malformed code action."))?;
+        let project = project_for(file).ok_or(crate::ui_text::text("native.lib.6f7c2bbe0d", "The file is not in an open project."))?;
         let text = project.read_file(file)?;
 
-        let edit = lang_actions::entry_edit(&text, key, key).ok_or("The lang file doesn't end its array.")?;
+        let edit = lang_actions::entry_edit(&text, key, key).ok_or(crate::ui_text::text("native.lib.df9a210973", "The lang file doesn't end its array."))?;
 
         action.edits = vec![(file.to_owned(), vec![edit])];
         Ok(action)
@@ -1641,7 +1669,7 @@ fn missing_key_actions(index: &Index, doc: &Document, language: &str, offset: us
         .iter()
         .take(1)
         .map(|file| CodeAction {
-            title: format!("Add translation key \"{name}\" to {}/{}", file.rsplit('/').nth(1).unwrap_or_default(), file_name(file)),
+            title: crate::ui_text::format("root.formatted.30de26590d", "Add translation key \"{name}\" to {locale}/{file}", &[("name", &format!("{}", name)), ("locale", &format!("{}", file.rsplit('/').nth(1).unwrap_or_default())), ("file", &format!("{}", file_name(file)))]),
             kind: Some("quickfix".into()),
             preferred: false,
             edits: Vec::new(),
@@ -1683,13 +1711,13 @@ fn php_markers(index: &Index, project: &Project, doc: &Document) -> Vec<LineMark
         return markers;
     };
 
-    let short = controller.class.rsplit('\\').next().unwrap_or_default();
+    let Some(full)=eloquent_members::declaration(&doc.text)else{return markers;};
     for (method, offset) in &controller.methods {
-        let route = index.route_defs.iter().find(|r| r.def.controller.as_ref().is_some_and(|(class, m)| class == short && m == method));
+        let route = index.route_defs.iter().find(|r|index.route_controller_full(r).is_some_and(|target|target.eq_ignore_ascii_case(&full))&&r.def.controller.as_ref().is_some_and(|(_,m)|m.eq_ignore_ascii_case(method)));
         let Some(route) = route else { continue };
 
         let end = Position::new(route.at.line, route.at.character + route.width);
-        let tooltip = format!("Route {} {}", route.def.methods, route.def.uri);
+        let tooltip = crate::ui_text::format("root.formatted.c960019874", "Route {methods} {uri}", &[("methods", &format!("{}", route.def.methods)), ("uri", &format!("{}", route.def.uri))]);
         let target = Location { path: route.path.clone(), range: Range::new(route.at, end) };
         markers.push(LineMarker { line: line_of(*offset), icon: Some("run".into()), tooltip, target: Some(target) });
     }
@@ -1737,14 +1765,14 @@ fn blade_markers(index: &Index, project: &Project, doc: &Document) -> Vec<LineMa
         let users = index.users_of(view);
         if let Some(first) = users.first().and_then(|v| index.views.get(*v)) {
             let target = Location { path: first.path.clone(), range: Range::new(Position::new(0, 0), Position::new(0, 0)) };
-            marker(0, "implemented", format!("Used by {}", users.join(", ")), Some(target));
+            marker(0, "implemented", crate::ui_text::format("root.formatted.c7a29e7f7e", "Used by {users}", &[("users", &format!("{}", users.join(", ")))]), Some(target));
         }
 
         let renders: Vec<&index::Render> = index.renders.iter().filter(|r| r.view == view).collect();
         if let Some(first) = renders.first() {
             let callers: Vec<&str> = renders.iter().map(|r| r.caller.as_str()).collect();
             let target = Location { path: first.path.clone(), range: Range::new(first.at, first.at) };
-            marker(0, "navigate", format!("Rendered by {}", callers.join(", ")), Some(target));
+            marker(0, "navigate", crate::ui_text::format("root.formatted.80621090a6", "Rendered by {callers}", &[("callers", &format!("{}", callers.join(", ")))]), Some(target));
         }
     }
 
@@ -1758,28 +1786,28 @@ fn blade_markers(index: &Index, project: &Project, doc: &Document) -> Vec<LineMa
         let line = line_of(*offset);
         let parent = parents.iter().find_map(|p| locate(index, project, p, sections_and_yields, name));
         if let Some(parent) = parent {
-            marker(line, "overriding", format!("Parent section \"{name}\""), Some(parent));
+            marker(line, "overriding", crate::ui_text::format("root.formatted.dbd29333be", "Parent section \"{name}\"", &[("name", &format!("{}", name))]), Some(parent));
         }
     }
 
     for (name, offset) in facts.sections.iter().chain(&facts.yields) {
         let child = descendants.iter().find_map(|d| locate(index, project, d, only_sections, name));
         if let Some(child) = child {
-            marker(line_of(*offset), "overridden", format!("Section \"{name}\" is filled by another view"), Some(child));
+            marker(line_of(*offset), "overridden", crate::ui_text::format("root.formatted.f06d126755", "Section \"{name}\" is filled by another view", &[("name", &format!("{}", name))]), Some(child));
         }
     }
 
     for (name, offset) in &facts.pushes {
         let stack = parents.iter().find_map(|p| locate(index, project, p, only_stacks, name));
         if let Some(stack) = stack {
-            marker(line_of(*offset), "implementing", format!("Stack \"{name}\""), Some(stack));
+            marker(line_of(*offset), "implementing", crate::ui_text::format("root.formatted.f72ffdea96", "Stack \"{name}\"", &[("name", &format!("{}", name))]), Some(stack));
         }
     }
 
     for (name, offset) in &facts.stacks {
         let push = descendants.iter().find_map(|d| locate(index, project, d, only_pushes, name));
         if let Some(push) = push {
-            marker(line_of(*offset), "implemented", format!("Stack \"{name}\" is pushed to by another view"), Some(push));
+            marker(line_of(*offset), "implemented", crate::ui_text::format("root.formatted.c0d995cb9b", "Stack \"{name}\" is pushed to by another view", &[("name", &format!("{}", name))]), Some(push));
         }
     }
 
@@ -1810,13 +1838,20 @@ fn group_names<'a>(index: &'a Index, group: &str) -> Option<&'a Names> {
 }
 
 fn route_list_of(index: &Index) -> Vec<Route> {
+    let identities=eloquent_members::class_inventory(&index.eloquent_models);
+    let label=|entry:&crate::index::RouteEntry,raw:&str|->String{
+        let Some(full)=index.route_controller_full(entry)else{return raw.to_owned();};
+        let mut matches=index.controllers.iter().filter(|(_,candidate)|identities.iter().any(|identity|!identity.ambiguous&&identity.path==candidate.path&&identity.full.eq_ignore_ascii_case(full)));
+        let first=matches.next();if matches.next().is_none(){if let Some((name,_))=first{return name.clone();}}
+        full.to_owned()
+    };
     index
         .route_defs
         .iter()
         .map(|entry| {
             let def = &entry.def;
             let handler = match &def.controller {
-                Some((class, method)) => Handler { class: class.clone(), member: Some(method.clone()) },
+                Some((class, method)) => Handler { class: label(entry,class), member: Some(method.clone()) },
                 None => Handler { class: def.action.clone(), member: None },
             };
             let end = Position::new(entry.at.line, entry.at.character + entry.width);
@@ -1855,7 +1890,7 @@ fn view_inventory(index: &Index, project: &Project) -> Body {
         let folder=index.view_folders.get(name).map(String::as_str).unwrap_or("(root)");
         serde_json::json!({"key":format!("view:{name}"),"cells":[name,file,folder,namespace],"icon":"file-html"})
     }).collect();
-    Body::Other { kind:"resources".into(),data:serde_json::json!({"columns":["View","File","Folder","Namespace"],"columnStyles":["code","code","muted","locale"],"columnWeights":[3,4,2,1.5],"showRowIcons":true,"searchPlaceholder":"Filter views…","facetLabels":{"2":"All folders","3":"All namespaces"},"facets":[2,3],"items":items}).to_string() }
+    Body::Other { kind:"resources".into(),data:serde_json::json!({"columns":[crate::ui_text::text("column.view", "View"),crate::ui_text::text("column.file", "File"),crate::ui_text::text("column.folder", "Folder"),crate::ui_text::text("column.namespace", "Namespace")],"columnStyles":["code","code","muted","locale"],"columnWeights":[3,4,2,1.5],"showRowIcons":true,"searchPlaceholder":crate::ui_text::text("search.laravel-views", "Filter views…"),"facetLabels":{"2":"All folders","3":"All namespaces"},"facets":[2,3],"items":items}).to_string() }
 }
 
 fn component_inventory(index: &Index, project: &Project) -> Body {
@@ -1877,8 +1912,8 @@ fn component_inventory(index: &Index, project: &Project) -> Body {
             serde_json::json!({"key":format!("{kind}:{name}"),"cells":[label,category,file],"icon":icon})
         }).collect();
     Body::Other { kind: "resources".into(), data: serde_json::json!({
-        "columns":["Component","Type","File"],"columnStyles":["code","text","muted"],
-        "columnWeights":[3,1.5,5],"showRowIcons":true,"searchPlaceholder":"Filter components…",
+        "columns":[crate::ui_text::text("column.component", "Component"),crate::ui_text::text("column.type", "Type"),crate::ui_text::text("column.file", "File")],"columnStyles":["code","text","muted"],
+        "columnWeights":[3,1.5,5],"showRowIcons":true,"searchPlaceholder":crate::ui_text::text("search.laravel-components", "Filter components…"),
         "facets":[1],"facetLabels":{"1":"All types"},"items":items
     }).to_string() }
 }
@@ -1888,7 +1923,7 @@ fn config_inventory(index: &Index, root: &str) -> Body {
         let value = index.config_expressions.get(name).map(String::as_str).unwrap_or_else(|| entry.detail.as_deref().unwrap_or("Expression unavailable"));
         serde_json::json!({"key":format!("config:{name}"),"cells":[name,value,entry.path.strip_prefix(root).unwrap_or(&entry.path).trim_start_matches(['/', '\\'])],"icon":"file-config"})
     }).collect();
-    Body::Other { kind:"resources".into(), data:serde_json::json!({"columns":["Key","Value","File"],"columnStyles":["code","code","muted"],"showRowIcons":true,"searchPlaceholder":"Filter config…","facetLabels":{"2":"All files"},"facets":[2],"items":items}).to_string() }
+    Body::Other { kind:"resources".into(), data:serde_json::json!({"columns":[crate::ui_text::text("column.key", "Key"),crate::ui_text::text("column.value", "Value"),crate::ui_text::text("column.file", "File")],"columnStyles":["code","code","muted"],"showRowIcons":true,"searchPlaceholder":crate::ui_text::text("search.laravel-config", "Filter config…"),"facetLabels":{"2":"All files"},"facets":[2],"items":items}).to_string() }
 }
 
 fn translation_inventory(index: &Index, root: &str) -> Body {
@@ -1899,7 +1934,7 @@ fn translation_inventory(index: &Index, root: &str) -> Body {
             "icon": "text"
         }))
     }).collect();
-    Body::Other { kind: "resources".into(), data: serde_json::json!({"columns":["Key","Locale","Value","File"],"columnStyles":["code","locale","text","muted"],"showRowIcons":true,"searchPlaceholder":"Filter translations…","facetLabels":{"1":"All locales"},"facets":[1],"items":items}).to_string() }
+    Body::Other { kind: "resources".into(), data: serde_json::json!({"columns":[crate::ui_text::text("column.key", "Key"),crate::ui_text::text("column.locale", "Locale"),crate::ui_text::text("column.value", "Value"),crate::ui_text::text("column.file", "File")],"columnStyles":["code","locale","text","muted"],"showRowIcons":true,"searchPlaceholder":crate::ui_text::text("search.laravel-translations", "Filter translations…"),"facetLabels":{"1":"All locales"},"facets":[1],"items":items}).to_string() }
 }
 
 impl Main {
@@ -1945,6 +1980,16 @@ impl Main {
 
     fn web_config(&self, ctx: &Invocation) -> String {
         let mut config: serde_json::Value = serde_json::from_str(include_str!("ui_config.json")).expect("packaged Laravel UI config");
+        config["uiLanguage"] = ui_text::locale().into();
+        if ctx.project().and_then(|project| project.root().ok()).is_some_and(|root| self.index_work_pending(&root)) {
+            let views = config["views"].as_object().into_iter().flat_map(|views|views.keys().cloned()).collect::<Vec<_>>();
+            if let Some(opaque) = config["opaque_views"].as_array_mut() {
+                for view in views { if !opaque.iter().any(|id| id.as_str() == Some(&view)) { opaque.push(view.into()); } }
+            }
+        }
+        if let Some(opaque)=config["opaque_views"].as_array_mut() {
+            for view in ["laravel-models","laravel-external"] { if !opaque.iter().any(|id|id.as_str()==Some(view)) { opaque.push(view.into()); } }
+        }
         let runtime = self.artisan_workspace.runner(ctx).ok().and_then(|runner| self.runtime_inspection.cached(ctx, runner).ok());
         let services = self.external_services.rows(ctx);
         for action in config["actions"].as_array_mut().expect("Laravel actions") {
@@ -1952,8 +1997,9 @@ impl Main {
                 Some("runtime-database-connect" | "runtime-database-remove") => Some(self.runtime_inspection.database_source_rows(ctx).unwrap_or_default().into_iter().filter_map(|row|row.get("key").cloned()).collect()),
                 Some("runtime-open-frame") => Some(runtime.as_ref().into_iter().flat_map(|snapshot| snapshot["snapshots"].as_array().into_iter().flatten()).flat_map(|snapshot| snapshot["rows"].as_array().into_iter().flatten()).filter(|row| row.get("error").is_some()).filter_map(|row|row.get("key").cloned()).collect()),
                 Some("sentry-details") => Some(services.iter().filter(|row|row["key"].as_str().is_some_and(|key|key.starts_with("sentry-issue:"))).filter_map(|row|row.get("key").cloned()).collect()),
+                Some("cloud-details-select") => Some(services.iter().filter(|row|row["key"].as_str().is_some_and(|key|key.starts_with("cloud-env:"))).filter_map(|row|row.get("key").cloned()).collect()),
                 Some("cloud-environments") => Some(services.iter().filter(|row|row["key"].as_str().is_some_and(|key|key.starts_with("cloud-app:"))).filter_map(|row|row.get("key").cloned()).collect()),
-                Some("model-open-source" | "model-create-fields") => Some(ctx.project().and_then(|project| self.view_index(ctx).map(|index| model_overview::rows(index, &project))).unwrap_or_default().into_iter().filter(|row|row["cells"][1] == "Model").filter_map(|row|row.get("key").cloned()).collect()),
+                Some("model-open-source" | "model-create-fields") => Some(ctx.project().and_then(|project| self.view_index(ctx).map(|index| model_overview::source_keys(index, &project))).unwrap_or_default()),
                 _ => None,
             };
             if let Some(keys) = keys { action["keys"] = keys.into(); }
@@ -1986,14 +2032,17 @@ impl Main {
 
 impl Views for Main {
     fn render(&mut self, view: &str, _viewport: Option<Viewport>, ctx: &Invocation) -> Result<View, Error> {
+        if !matches!(view,"laravel-about"|"laravel-artisan"|"laravel-generators"|"laravel-processes"|"laravel-external"|"laravel-runtime") && self.view_index(ctx).is_none() {
+            if let Some(pending)=self.pending_index_view(ctx) { return Ok(pending); }
+        }
         (|| -> Result<View, Error> {
             if view == "laravel-about" {
-                let project = ctx.project().ok_or("Open a Laravel project first.")?;
+                let project = ctx.project().ok_or(crate::ui_text::text("process.error0", "Open a Laravel project first."))?;
                 let runner = self.artisan_workspace.runner(ctx)?;
                 let cached = self.runtime_inspection.cached(ctx, runner).ok();
                 return Ok(View::new(about::body(&project, cached.as_ref())?)
-                    .button(Button::new("runtime-about", "Refresh App Info").icon("refresh"))
-                    .button(Button::new("runtime-runner", if runner == artisan_runner::Runner::Docker {"Docker"} else {"Local PHP"}).icon("terminal")));
+                    .button(Button::new("runtime-about", crate::ui_text::text("native.lib.08d13322f2", "Refresh App Info")).icon("refresh"))
+                    .button(Button::new("runtime-runner", if runner == artisan_runner::Runner::Docker {"Docker"} else {crate::ui_text::text("command.localPhp", "Local PHP")}).icon("terminal")));
             }
             if view == artisan_workspace::VIEW {
                 return Ok(View::new(Body::Html(artisan_workspace::html())));
@@ -2001,56 +2050,68 @@ impl Views for Main {
             if view == generator_workspace::VIEW {
                 return Ok(View::new(Body::Html(generator_workspace::html())));
             }
-            if view == managed_processes::VIEW {
+        if view == managed_processes::VIEW {
                 return Ok(View::new(Body::Html(managed_processes::html())));
             }
             if view == "laravel-external" {
-                let root = ctx.project().ok_or("Open a Laravel project first.")?.root()?;
+                let root = ctx.project().ok_or(crate::ui_text::text("process.error0", "Open a Laravel project first."))?.root()?;
                 let pagination = self.external_services.pagination(ctx);
                 let body = if let Some(details) = self.external_details.get(&root) {
                     Body::Message(details.clone())
+                } else if let Some(cloud)=self.external_services.cloud_body(ctx) {
+                    cloud
                 } else {
-                    Body::Other { kind: "resources".into(), data: serde_json::json!({"columns":["Service","Resource","Status"],"items": self.external_services.rows(ctx),"searchPlaceholder":"Filter captured external resources…"}).to_string() }
+                    Body::Other { kind: "resources".into(), data: serde_json::json!({"columns":[crate::ui_text::text("column.service", "Service"),crate::ui_text::text("shared.resource", "Resource"),crate::ui_text::text("column.status", "Status")],"items": self.external_services.rows(ctx),"searchPlaceholder":crate::ui_text::text("search.laravel-external", "Filter captured external resources…")}).to_string() }
                 };
-                return Ok(View::new(body)
-                    .button(Button::new("sentry-configure", "Configure Sentry…").icon("settings"))
-                    .button(Button::new("sentry-refresh", "Refresh Sentry").icon("refresh"))
-                    .button(Button::new("cloud-refresh", "Refresh Cloud").icon("refresh"))
-                    .button(Button::new("sentry-more", "More Sentry Issues").icon("page-last").enabled(pagination["sentry"] == true))
-                    .button(Button::new("cloud-more", "More Cloud Applications").icon("page-last").enabled(pagination["cloud"] == true))
-                    .button(Button::new("cloud-environments-more", "More Environments").icon("page-last").enabled(pagination["environments"] == true))
-                    .button(Button::new("external-list", "Resource List").icon("list")));
+                let mut rendered=View::new(body)
+                    .button(Button::new("sentry-configure", crate::ui_text::text("native.lib.a7c7f1fc9e", "Configure Sentry…")).icon("settings"))
+                    .button(Button::new("sentry-oauth-start", crate::ui_text::text("native.lib.919a99e110", "Connect Sentry OAuth…")).icon("login"))
+                    .button(Button::new("sentry-oauth-poll", crate::ui_text::text("native.lib.f64b3c328f", "Complete OAuth Connection")).icon("refresh"))
+                    .button(Button::new("sentry-oauth-cancel", crate::ui_text::text("native.lib.ecde74ca9d", "Cancel OAuth Connection")).icon("cancel"))
+                    .button(Button::new("sentry-refresh", crate::ui_text::text("native.lib.40c3e5e3f7", "Refresh Sentry")).icon("refresh"))
+                    .button(Button::new("cloud-refresh", crate::ui_text::text("native.lib.9891689b08", "Refresh Cloud")).icon("refresh"))
+                    .button(Button::new("sentry-more", crate::ui_text::text("native.lib.2c3b087465", "More Sentry Issues")).icon("page-last").enabled(pagination["sentry"] == true))
+                    .button(Button::new("cloud-more", crate::ui_text::text("native.lib.cafc266b3e", "More Cloud Applications")).icon("page-last").enabled(pagination["cloud"] == true))
+                    .button(Button::new("cloud-environments-more", crate::ui_text::text("native.lib.61a9336a3d", "More Environments")).icon("page-last").enabled(pagination["environments"] == true))
+                    .button(Button::new("external-list", crate::ui_text::text("native.lib.5ed009a5eb", "Resource List")).icon("list"));
+                rendered.toolbar.extend(self.external_services.cloud_buttons(ctx));
+                return Ok(rendered);
             }
             if view == "laravel-models" {
-                let project = ctx.project().ok_or("Open a Laravel project first.")?;
-                let Some(index) = self.view_index(ctx) else { return Ok(View::new(Body::Message("Index this Laravel project to browse models.".into()))); };
+                let project = ctx.project().ok_or(crate::ui_text::text("process.error0", "Open a Laravel project first."))?;
+                let Some(index) = self.view_index(ctx) else { return Ok(View::new(Body::Message(crate::ui_text::text("final.models.indexBeforeBrowse","Index this Laravel project to browse models.").into()))); };
                 let schema = self.runtime_inspection.schema_snapshot(ctx, self.artisan_workspace.runner(ctx)?).ok();
                 let expanded = self.model_tree_expanded.get(&project.root()?).cloned().unwrap_or_default();
                 return Ok(View::new(model_overview::inventory_with_schema(index, &project, schema.as_ref(), &expanded))
-                    .button(Button::new("new-model", "New Model…").icon("add"))
-                    .button(Button::new("helper-parameters", "Helper Parameters…").icon("settings"))
-                    .button(Button::new("regenerate-model-helpers", "Regenerate Helpers…").icon("refresh"))
-                    .button(Button::new("runtime-schema", "Refresh Database Metadata").icon("database"))
-                    .button(Button::new("model-from-database", "Model from Table…").icon("class"))
-                    .button(Button::new("runtime-register-database", "Add Database Connection…").icon("database"))
-                    .button(Button::new("runtime-database-list", "Database Connections…").icon("database"))
-                    .button(Button::new("reindex", "Reindex").icon("refresh")));
+                    .button(Button::new("new-model", crate::ui_text::text("native.lib.c52a01384f", "New Model…")).icon("add"))
+                    .button(Button::new("helper-parameters", crate::ui_text::text("native.lib.902d026067", "Helper Parameters…")).icon("settings"))
+                    .button(Button::new("helper-source-automation", crate::ui_text::text("native.lib.d6933a0cc5", "Helper Source & Automation…")).icon("settings"))
+                    .button(Button::new("helper-automation-poll", crate::ui_text::text("action.helper-automation-poll", "Helper Automation Status")).icon("terminal"))
+                    .button(Button::new("helper-automation-stop", crate::ui_text::text("action.helper-automation-stop", "Stop Helper Automation")).icon("stop"))
+                    .button(Button::new("runtime-model-connections", crate::ui_text::text("native.lib.962e0d9471", "Refresh Model Connections…")).icon("database"))
+                    .button(Button::new("regenerate-model-helpers", crate::ui_text::text("native.lib.f1ce4d1777", "Regenerate Helpers…")).icon("refresh"))
+                    .button(Button::new("runtime-schema", crate::ui_text::text("native.lib.f1c6a224e5", "Refresh Database Metadata")).icon("database"))
+                    .button(Button::new("model-from-database", crate::ui_text::text("native.lib.52b406bd26", "Model from Table…")).icon("class"))
+                    .button(Button::new("runtime-register-database", crate::ui_text::text("native.lib.2daae400b6", "Add Database Connection…")).icon("database"))
+                    .button(Button::new("runtime-database-list", crate::ui_text::text("native.lib.12abf3f7a3", "Database Connections…")).icon("database"))
+                    .button(Button::new("reindex", crate::ui_text::text("action.reindex", "Reindex")).icon("refresh")));
             }
             if view == "laravel-runtime" {
                 let runner = self.artisan_workspace.runner(ctx)?;
                 return Ok(View::new(self.runtime_inspection.body(ctx,runner)?)
-                    .button(Button::new("runtime-database-list","Database Connections…").icon("database"))
-                    .button(Button::new("runtime-about","Application").icon("info"))
-                    .button(Button::new("runtime-events","Events").icon("text"))
-                    .button(Button::new("runtime-schedule","Schedule").icon("calendar"))
-                    .button(Button::new("runtime-queues","Failed Jobs").icon("warning"))
-                    .button(Button::new("runtime-queue-status","Queue Status").icon("services"))
-                    .button(Button::new("runtime-workers","Workers").icon("services"))
-                    .button(Button::new("runtime-logs","Logs").icon("text"))
-                    .button(Button::new("runtime-runner",if runner==artisan_runner::Runner::Docker{"Docker"}else{"Local PHP"}).icon("terminal"))
+                    .button(Button::new("runtime-database-list",crate::ui_text::text("native.lib.12abf3f7a3", "Database Connections…")).icon("database"))
+                    .button(Button::new("runtime-application-mcp",crate::ui_text::text("native.lib.d29378a863", "Connect Application MCP…")).icon("services"))
+                    .button(Button::new("runtime-about", crate::ui_text::text("action.runtime-about", "Application")).icon("info"))
+                    .button(Button::new("runtime-events", crate::ui_text::text("action.runtime-events", "Events")).icon("text"))
+                    .button(Button::new("runtime-schedule", crate::ui_text::text("action.runtime-schedule", "Schedule")).icon("calendar"))
+                    .button(Button::new("runtime-queues",crate::ui_text::text("action.runtime-queues", "Failed Jobs")).icon("warning"))
+                    .button(Button::new("runtime-queue-status",crate::ui_text::text("action.runtime-queue-status", "Queue Status")).icon("services"))
+                    .button(Button::new("runtime-workers", crate::ui_text::text("action.runtime-workers", "Workers")).icon("services"))
+                    .button(Button::new("runtime-logs", crate::ui_text::text("action.runtime-logs", "Logs")).icon("text"))
+                    .button(Button::new("runtime-runner",if runner==artisan_runner::Runner::Docker{"Docker"}else{crate::ui_text::text("command.localPhp", "Local PHP")}).icon("terminal"))
                     .status(&self.runtime_inspection.status(ctx,runner)?));
             }
-            let reindex = Button::new("reindex", "Reindex").icon("refresh");
+            let reindex = Button::new("reindex", crate::ui_text::text("action.reindex", "Reindex")).icon("refresh");
             let group = match view {
                 VIEW => "route",
                 "laravel-views" => "view",
@@ -2067,17 +2128,20 @@ impl Views for Main {
             };
 
             let partial = index.partial;
+            let has_index_issues=!index.metadata.issues.is_empty();
+            let native_components_partial=index.packages.native_partial;
             let config_incomplete = index.config_incomplete.len();
             let config_coverage = index.config_incomplete.iter().take(3).map(|path| path.rsplit('/').next().unwrap_or(path)).collect::<Vec<_>>().join(", ");
             let toolbar = |body| {
                 let mut view = View::new(body);
                 if routes_active {
-                    view = view.button(Button::new("route-search", "Search Routes…").icon("search"));
-                    view = view.button(Button::new("routes-runtime-refresh", "Refresh Routes (PHP)").icon("refresh"));
-                    view = view.button(Button::new("route-list", "Route List").icon("terminal"));
+                    view = view.button(Button::new("route-search", crate::ui_text::text("native.lib.6cff5afd25", "Search Routes…")).icon("search"));
+                    view = view.button(Button::new("routes-runtime-refresh", crate::ui_text::text("native.lib.ec05187d0a", "Refresh Routes (PHP)")).icon("refresh"));
+                    view = view.button(Button::new("route-list", crate::ui_text::text("native.lib.ed2e28eb59", "Route List")).icon("terminal"));
                 } else {
                     view = view.button(reindex);
                 }
+                if has_index_issues{view=view.button(Button::new("index-issues", crate::ui_text::text("action.index-issues","Index Issues")).icon("warning"));}
                 let cache_action = match group {
                     "route" => Some(("route-clear", "Clear Route Cache")),
                     "view" => Some(("view-clear", "Clear Compiled Views")),
@@ -2106,25 +2170,77 @@ impl Views for Main {
                 toolbar(Body::Tree(self.tree(index, group)))
             };
             if routes_active {
-                let provenance=ctx.project().and_then(|p|p.root().ok()).and_then(|root|self.runtime_routes.get(&root)).map(route_runtime::Snapshot::provenance).unwrap_or_else(||"Static source index · Refresh Routes (PHP) for registered routes".into());
-                view.status=Some(format!("{} · {provenance}",view.status.as_deref().unwrap_or("No routes")));
+                let provenance=ctx.project().and_then(|p|p.root().ok()).and_then(|root|self.runtime_routes.get(&root)).map(route_runtime::Snapshot::provenance).unwrap_or_else(||crate::ui_text::text("root.formatted.09263027dd", "Static source index · Refresh Routes (PHP) for registered routes").into());
+                view.status=Some(format!("{} · {provenance}",view.status.as_deref().unwrap_or(crate::ui_text::text("root.formatted.0dbc380315", "No routes"))));
             }
             if group == "config" && config_incomplete > 0 {
-                view = view.status(&format!("Config coverage incomplete: {config_coverage}{} (dynamic arrays, unreadable sources or indexing limits){}",if config_incomplete > 3 {format!(", +{} more",config_incomplete-3)} else {String::new()},if partial {"; project indexing also timed out"} else {""}));
+                view = view.status(&crate::ui_text::format("root.formatted.de02ed919e", "Config coverage incomplete: {config_coverage}{more} (dynamic arrays, unreadable sources or indexing limits){partial}", &[("config_coverage", &format!("{}", config_coverage)), ("more", &format!("{}", if config_incomplete > 3 {crate::ui_text::format("root.formatted.671692d603", ", +{count} more", &[("count", &format!("{}", config_incomplete-3))])} else {String::new()})), ("partial", &format!("{}", if partial {crate::ui_text::text("native.lib.1455526819", "; project indexing also timed out")} else {""}))]));
+            }
+            if group=="components" && native_components_partial {
+                let warning=crate::ui_text::text("native.components.partial", "Some component registrations could not be resolved. Open Index Issues for details.");
+                view.status=Some(match view.status.take(){Some(status)=>format!("{status} · {warning}"),None=>warning.into()});
             }
             if partial && view.status.is_none() {
-                view = view.status("Index incomplete (time limit reached)");
+                view = view.status(crate::ui_text::text("native.lib.8caf65552a", "Index incomplete (time limit reached)"));
             }
             Ok(view)
-        })().map(ui_kit::actions::available)
+        })().map(|rendered|self.decorate_index_progress(rendered,ctx)).map(ui_kit::actions::available)
     }
 
     fn handle(&mut self, view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {
+        if let ViewEvent::Message(message) = &event {
+            if serde_json::from_str::<serde_json::Value>(message).ok().is_some_and(|request|request["channel"] == "ui-kit" && request["op"] == "render") {
+                self.advance_context_index(ctx);
+            }
+        }
         let config = self.web_config(ctx);
         if ui_kit::web::handle(self, view, &event, ctx, &config)? {
             return Ok(());
         }
+        if let ViewEvent::Message(message) = &event {
+            if let Ok(request) = serde_json::from_str::<serde_json::Value>(message) {
+                if request["op"] == "index-tick" {
+                    let root=ctx.project().and_then(|project|project.root().ok());
+                    let was_pending=root.as_ref().is_some_and(|root|self.index_pending(root));
+                    self.advance_context_index(ctx);
+                    let reply = serde_json::json!({"_backgroundPoll": request["_backgroundPoll"], "pending": ctx.project().and_then(|project|project.root().ok()).is_some_and(|root|self.index_work_pending(&root))});
+                    ui_kit::web::post_view_message(view, &reply.to_string(), &config)?;
+                    if view==generator_workspace::VIEW && was_pending {
+                        if let Some(index)=root.as_ref().and_then(|root|self.indexes.get(root)) {
+                            self.generator_workspace.set_models(ctx,index)?;
+                            let mut state=self.generator_workspace.handle(ctx,r#"{"op":"state"}"#)?;
+                            state["_indexReady"]=true.into();
+                            ui_kit::web::post_view_message(view,&state.to_string(),&config)?;
+                        }
+                    }
+                    refresh_laravel();
+                    return Ok(());
+                }
+            }
+        }
 
+        if view=="laravel-external" {
+            if let ViewEvent::Message(message)=&event {
+                let request=serde_json::from_str::<serde_json::Value>(message).map_err(|_|Error::Stale)?;
+                if request["op"]!="cloud-tick" { return Err(Error::Stale); }
+                let mut reply=match self.external_services.cloud_tick(ctx,message).map_err(external_services::cloud_ui_error) { Ok(reply)=>reply,Err(error)=>serde_json::json!({"error":error.to_string()}) };
+                reply["_backgroundPoll"]=request["_backgroundPoll"].clone();
+                ui_kit::web::post_view_message(view,&reply.to_string(),&config)?;
+                refresh_laravel();
+                return Ok(());
+            }
+        }
+            if view == "laravel-models" && matches!(&event,ViewEvent::Message(_)) {
+            if let ViewEvent::Message(message)=event {
+                let request=serde_json::from_str::<serde_json::Value>(&message).map_err(|_|Error::Stale)?;
+                if request["op"]!="helper-automation-tick"{return Err(Error::Stale);}
+                let result=self.artisan_workspace.runner(ctx).and_then(|runner|self.helper_automation.handle(ctx,&message,runner));
+                let mut reply=match result{Ok(value)=>value,Err(error)=>serde_json::json!({"error":error.to_string()})};
+                reply["_backgroundPoll"]=request["_backgroundPoll"].clone();
+                ui_kit::web::post_view_message(view,&reply.to_string(),&config)?;
+            }
+            return Ok(());
+        }
         if view == managed_processes::VIEW {
             if let ViewEvent::Message(message) = event {
                 let reply = match self.managed_processes.handle(ctx, &message) {
@@ -2140,9 +2256,22 @@ impl Views for Main {
                 let result = (|| {
                     let project = ctx.project().ok_or(Error::Stale)?;
                     let root = project.root()?;
-                    if !self.indexes.contains_key(&root) { self.index_project(&project); }
-                    let index = self.indexes.get(&root).ok_or(Error::Stale)?;
+                    if !self.indexes.contains_key(&root) {
+                        if !self.index_pending(&root) { self.queue_index(&project); }
+                        self.advance_index(&project);
+                    }
+                    if let Some(index) = self.indexes.get(&root) {
+                    let requested_model=serde_json::from_str::<serde_json::Value>(&message).ok().and_then(|value|value.get("model").or_else(||value.get("draft").and_then(|draft|draft.get("model"))).or_else(||value.get("request").and_then(|request|request.get("model"))).and_then(|model|model.as_str()).map(str::to_owned));
+                    if let Some(model)=requested_model {
+                        let schema=eloquent_members::model_identities(&index.eloquent_models).into_iter().find(|(full,_)|full==&model).and_then(|(full,path)|self.artisan_workspace.runner_for_project(&project).ok().and_then(|runner|self.runtime_inspection.helper_schema(&project,runner,&full,&path).ok().flatten()));
+                        self.generator_workspace.set_model_schema(ctx,&model,schema)?;
+                    }
                     self.generator_workspace.set_models(ctx,index)?;
+                    } else if self.index_pending(&root) {
+                        self.generator_workspace.set_models_pending(ctx)?;
+                    } else {
+                        return Err(Error::Failed(crate::ui_text::text("native.lib.3d4beff9da","This project is not indexed as Laravel.").into()));
+                    }
                     self.generator_workspace.handle(ctx, &message)
                 })();
                 let reply = match result {
@@ -2225,6 +2354,7 @@ impl Views for Main {
 
 impl openidea_plugin::inlay_hints::InlayHints for Main {
     fn inlay_hints(&mut self, doc: &Document, range: Range) -> Vec<openidea_plugin::inlay_hints::InlayHint> {
+        self.advance_document_index(&doc.path);
         if !host::setting_bool("routeHints").unwrap_or(true) { return Vec::new(); }
         let Some(index) = self.index_for(&doc.path) else { return Vec::new() };
         let Some(project) = project_for(&doc.path) else { return Vec::new() };
@@ -2233,19 +2363,40 @@ impl openidea_plugin::inlay_hints::InlayHints for Main {
 }
 
 impl openidea_plugin::language_features::LanguageFeatures for Main {
+    fn type_definition(&mut self,doc:&Document,at:Position)->Vec<Location>{
+        self.advance_document_index(&doc.path);
+        let Some(project)=project_for(&doc.path)else{return vec![]};let Some(index)=self.index_for(&doc.path)else{return vec![]};
+        if route_targets::recognized(index,doc,at){return route_targets::type_definition(index,doc,at);}
+        eloquent_members::type_definition_checked(index,doc,at,&|path|owns_current_path(&project,path)).iter().filter_map(|entry|scoped_location(&project,entry)).collect()
+    }
+
     fn signature_help(&mut self, doc: &Document, at: Position) -> Option<openidea_plugin::language_features::SignatureHelp> {
+        self.advance_document_index(&doc.path);
         let index = self.index_for(&doc.path)?;
         let project = project_for(&doc.path)?;
-        eloquent_members::forwarded_signature_help_checked(index, doc, at, &|path| owns_current_path(&project, path))
+        let mut help=eloquent_members::forwarded_signature_help_checked(index, doc, at, &|path| owns_current_path(&project, path))?;
+        for signature in &mut help.signatures {
+            if signature.documentation.as_deref()==Some("Declared constructor parameters forwarded through project metadata.") {
+                signature.documentation=Some(crate::ui_text::t("final.signature.forwarded","Declared constructor parameters forwarded through project metadata."));
+            }
+        }
+        Some(help)
     }
     fn code_lenses(&mut self, doc: &Document) -> Vec<openidea_plugin::language_features::CodeLens> {
+        self.advance_document_index(&doc.path);
         let Some(project) = project_for(&doc.path) else { return Vec::new() };
         let owns=|path:&str| owns_current_path(&project,path);
         let mut lenses=console_editor::lenses(doc,&owns);
+        for lens in &mut lenses {
+            if let Some(command)=lens.argument.as_deref().and_then(|raw|serde_json::from_str::<serde_json::Value>(raw).ok()).and_then(|value|value["command"].as_str().map(str::to_owned)) {
+                lens.title=crate::ui_text::format("final.console.run","Run {command}…",&[("command",&command)]);
+            }
+        }
         if host::setting_bool("routeHints").unwrap_or(true) && let Some(index)=self.index_for(&doc.path) {lenses.extend(route_editor::lenses(index,doc,&owns));}
         lenses
     }
     fn gutter_actions(&mut self, doc: &Document) -> Vec<openidea_plugin::language_features::GutterAction> {
+        self.advance_document_index(&doc.path);
         let Some(project) = project_for(&doc.path) else { return Vec::new() };
         let owns=|path:&str| owns_current_path(&project,path);
         let mut gutters=console_editor::gutters(doc,&owns);
@@ -2265,10 +2416,10 @@ impl openidea_plugin::endpoints::EndpointsProvider for Main {
             return Ok(Vec::new());
         };
         if !index::is_laravel(&project) {return Ok(Vec::new());}
-        let current = Index::build(&project);
-        let index = &current;
+        self.advance_index(&project);
+        let Some(index) = project.root().ok().and_then(|root|self.completed_index_for(&root)) else { return Ok(Vec::new()); };
         if index.partial {
-            return Err(Error::Failed("Laravel route index is incomplete; refresh after indexing.".into()));
+            return Err(Error::Failed(crate::ui_text::text("native.lib.d18609f6eb", "Laravel route index is incomplete; refresh after indexing.").into()));
         }
         if let Some(snapshot) = project.root().ok().and_then(|root|self.runtime_routes.get(&root)) {
             let routes = route_runtime::endpoint_routes(snapshot,index,&project);
@@ -2285,7 +2436,7 @@ impl openidea_plugin::endpoints::EndpointsProvider for Main {
             let mut published = ui_kit::routes::endpoints(&[route], "Laravel");
             for endpoint in &mut published {
                 endpoint.handler = Some(match &entry.def.controller {
-                    Some((class, method)) => format!("{class}@{method}"),
+                    Some((class, method)) => format!("{}@{method}",index.route_controller_full(entry).unwrap_or(class)),
                     None => entry.def.action.clone(),
                 });
             }

@@ -3,6 +3,8 @@ use crate::{Main, artisan_runner::Runner};
 use openidea_plugin::{Error, Invocation};
 use serde::Deserialize;
 use serde_json::{Value, json};
+#[path = "laravel_mcp_routes.rs"]
+pub(crate) mod application;
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Inventory {
@@ -72,6 +74,17 @@ fn metadata_snapshot(mut snapshot: Value, include_logs: bool) -> Value {
 }
 impl openidea_plugin::McpProvider for Main {
     fn call(&mut self, tool: &str, arguments: &str, ctx: &Invocation) -> Result<String, Error> {
+        self.advance_context_index(ctx);
+        self.call_tool_ui(tool, arguments, ctx).map_err(ui_error)
+    }
+}
+impl Main {
+    fn call_tool_ui(
+        &mut self,
+        tool: &str,
+        arguments: &str,
+        ctx: &Invocation,
+    ) -> Result<String, Error> {
         let project = ctx.project().ok_or("Open a Laravel project first.")?;
         // Job lifecycle calls must remain available after source/index invalidation.
         // Keep their project ownership gate independent from the source inventory.
@@ -98,7 +111,29 @@ impl openidea_plugin::McpProvider for Main {
                 }
                 let root = project.root()?;
                 let mut items = vec![];
-                if request.resource == "routes" {
+                if request.resource == "mcpServers" {
+                    let mut paths = index.metadata.route_files.clone();
+                    paths.extend(index.route_defs.iter().map(|route| route.path.clone()));
+                    let value = application::inventory(&project, &paths)?;
+                    items.extend(value["servers"].as_array().into_iter().flatten().cloned());
+                } else if request.resource == "mcpCapabilities" {
+                    let value = self
+                        .application_mcp
+                        .cached(ctx, self.artisan_workspace.runner(ctx)?)?;
+                    for kind in ["tools", "resources", "prompts"] {
+                        for entry in value[kind].as_array().into_iter().flatten() {
+                            let mut item = entry.clone();
+                            item["kind"] = json!(kind);
+                            items.push(item);
+                        }
+                    }
+                } else if request.resource == "sqlSchema" {
+                    for (path, source) in &index.sql_sources {
+                        if crate::owns_current_path(&project, path) {
+                            items.push(json!({"file":path.strip_prefix(&root).unwrap_or(path).trim_start_matches('/'),"constraints":source["constraints"],"issues":source["issues"]}));
+                        }
+                    }
+                } else if request.resource == "routes" {
                     for route in self.active_routes(ctx) {
                         items.push(json!({"name":route.name,"path":route.path,"methods":route.method,"handler":route.handler.class}));
                     }
@@ -248,6 +283,52 @@ mod tests {
         )
         .unwrap();
         plugin
+    }
+    #[test]
+    fn sql_inventory_preserves_qualified_constraints_and_reports_incomplete_sources_without_execution()
+     {
+        let mock = MockHost::install();
+        let mut main = crate::tests::activated(&mock);
+        mock.add_file("database/schema/pgsql.sql","CREATE TABLE public.posts (id BIGINT PRIMARY KEY, author_id BIGINT REFERENCES public.users(id)); ALTER TABLE public.posts ADD CONSTRAINT posts_author_unique UNIQUE (author_id); DO $$ BEGIN EXECUTE 'CREATE TABLE opaque (id int)'; END $$;");
+        let project = mock.invocation().project().unwrap();
+        main.index_project(&project);crate::tests::finish_indexing(&mut main);
+        let value: Value = serde_json::from_str(
+            &main
+                .call(
+                    "inventory",
+                    r#"{"resource":"sqlSchema"}"#,
+                    &mock.invocation(),
+                )
+                .unwrap(),
+        )
+        .unwrap();
+        let item = &value["items"][0];
+        assert_eq!(item["file"], "database/schema/pgsql.sql");
+        let constraints = item["constraints"].as_array().unwrap();
+        assert!(
+            constraints
+                .iter()
+                .any(|c| c["table"] == "public.posts" && c["kind"] == "primary")
+        );
+        assert!(
+            constraints
+                .iter()
+                .any(|c| c["referenceTable"] == "public.users")
+        );
+        assert!(
+            constraints
+                .iter()
+                .any(|c| c["name"] == "posts_author_unique")
+        );
+        assert!(!item["issues"].as_array().unwrap().is_empty());
+        assert!(
+            main.indexes["/project"]
+                .metadata
+                .issues
+                .iter()
+                .any(|message| message.contains("pgsql.sql"))
+        );
+        assert!(mock.process_runs().is_empty());
     }
     #[test]
     fn captured_logs_require_explicit_agent_opt_in_and_refresh_never_returns_them() {
@@ -465,5 +546,26 @@ mod tests {
             plugin.call("artisan_execute", &request.to_string(), &ctx),
             Err(Error::Denied(_))
         ));
+    }
+}
+
+fn ui_error(error: Error) -> Error {
+    let translate = |message: String| match message.as_str() {
+        "Tool arguments exceed 128 KiB." => crate::ui_text::t("final.mcp.error0", &message),
+        "Open a Laravel project first." => crate::ui_text::t("final.mcp.error1", &message),
+        "Index this Laravel project before using its tools." => {
+            crate::ui_text::t("final.mcp.error2", &message)
+        }
+        "Invalid inventory pagination/query." => crate::ui_text::t("final.mcp.error3", &message),
+        "This runtime tool only refreshes metadata sections; select a log file explicitly in Runtime." => {
+            crate::ui_text::t("final.mcp.error4", &message)
+        }
+        "Tool result exceeds 4 MiB." => crate::ui_text::t("final.mcp.error5", &message),
+        _ => message,
+    };
+    match error {
+        Error::Invalid(message) => Error::Invalid(translate(message)),
+        Error::Failed(message) => Error::Failed(translate(message)),
+        other => other,
     }
 }

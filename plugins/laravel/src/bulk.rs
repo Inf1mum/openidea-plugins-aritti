@@ -34,7 +34,10 @@ pub fn remove_phpdocs(_ctx: &Invocation, _index: Option<&Index>) -> Result<Optio
     host::notify(
         NotificationLevel::Info,
         SOURCE,
-        "Open a model and choose ‘Remove IDE helper PHPDoc from indexed models’ from editor actions. The native workspace edit is atomic and undoable.",
+        crate::ui_text::text(
+            "native.bulk.822537f9ce",
+            "Open a model and choose ‘Remove IDE helper PHPDoc from indexed models’ from editor actions. The native workspace edit is atomic and undoable.",
+        ),
     );
     Ok(None)
 }
@@ -103,7 +106,11 @@ pub fn actions(
             .any(|(at, _)| unused::remove_model_phpdocs(&doc.text, at).is_some())
     {
         found.push(openidea_plugin::file_actions::FileAction {
-            title: "Remove IDE helper PHPDoc from indexed models".into(),
+            title: crate::ui_text::text(
+                "native.bulk.64568e0c26",
+                "Remove IDE helper PHPDoc from indexed models",
+            )
+            .into(),
             kind: Some("refactor.rewrite".into()),
             data: Some(format!("bulk-phpdocs:{}", doc.version)),
             ..Default::default()
@@ -137,10 +144,11 @@ pub fn resolve(
         .collect::<Vec<_>>()
         .join("\n");
     if !ui_kit::prompts::confirm_exact(
-        "Remove IDE helper PHPDoc?",
-        &format!(
-            "Remove helper tags from these {} indexed model files in one undoable workspace edit:\n{preview}",
-            plan.len()
+        crate::ui_text::text("final.bulk.removeConfirm", "Remove IDE helper PHPDoc?"),
+        &crate::ui_text::format(
+            "final.bulk.removeReview",
+            "Remove helper tags from these {count} indexed model files in one undoable workspace edit:\n{preview}",
+            &[("count", &plan.len().to_string()), ("preview", &preview)],
         ),
     )? {
         return Err(Error::Cancelled);
@@ -178,6 +186,9 @@ pub(crate) struct ModelIdentity {
 
 pub(crate) fn model_choices(index: &Index) -> Vec<ModelIdentity> {
     let mut identities = std::collections::BTreeMap::<String, Vec<ModelIdentity>>::new();
+    let eligible = crate::eloquent_members::model_identities(&index.eloquent_models)
+        .into_iter()
+        .collect::<std::collections::BTreeSet<_>>();
     for (path, table) in &index.model_files {
         let Some(project) = host::project_of(path) else {
             continue;
@@ -191,7 +202,9 @@ pub(crate) fn model_choices(index: &Index) -> Vec<ModelIdentity> {
         let Some(full) = crate::eloquent_members::declaration(&source) else {
             continue;
         };
-        if !crate::generator_plan::qualified(&full) {
+        if !eligible.contains(&(full.clone(), path.clone()))
+            || !crate::generator_plan::qualified(&full)
+        {
             continue;
         }
         identities
@@ -459,7 +472,11 @@ fn owned_target(project: &Project, path: &str) -> Result<(), Error> {
     let relative = path.strip_prefix(&format!("{root}/")).ok_or(Error::Stale)?;
     if !crate::generator_plan::relative(relative) {
         return Err(Error::Invalid(
-            "Generated path is not inside the project".into(),
+            crate::ui_text::text(
+                "native.bulk.c1885be120",
+                "Generated path is not inside the project",
+            )
+            .into(),
         ));
     }
     let mut parts = relative.split('/').collect::<Vec<_>>();
@@ -470,8 +487,10 @@ fn owned_target(project: &Project, path: &str) -> Result<(), Error> {
             Ok(stat) if stat.kind == openidea_plugin::FileKind::Directory => {}
             Err(Error::NotFound(_)) => {}
             Ok(_) => {
-                return Err(Error::Invalid(format!(
-                    "Target ancestor is not an ordinary directory: {parent}"
+                return Err(Error::Invalid(crate::ui_text::format(
+                    "final.bulk.targetAncestor",
+                    "Target ancestor is not an ordinary directory: {parent}",
+                    &[("parent", &parent)],
                 )));
             }
             Err(error) => return Err(error),
@@ -480,8 +499,10 @@ fn owned_target(project: &Project, path: &str) -> Result<(), Error> {
     }
     match project.stat(path) {
         Err(Error::NotFound(_)) => Ok(()),
-        Ok(_) => Err(Error::Invalid(format!(
-            "Generated target already exists: {relative}"
+        Ok(_) => Err(Error::Invalid(crate::ui_text::format(
+            "final.bulk.targetExists",
+            "Generated target already exists: {relative}",
+            &[("relative", relative)],
         ))),
         Err(error) => Err(error),
     }
@@ -494,15 +515,31 @@ fn output(
     name: &str,
     selection: Option<&selection::Selection>,
 ) -> Result<(Output, String), Error> {
+    output_in_module(project, index, model, kind, name, selection, None)
+}
+fn output_in_module(
+    project: &Project,
+    index: &Index,
+    model: &ModelIdentity,
+    kind: &str,
+    name: &str,
+    selection: Option<&selection::Selection>,
+    module: Option<Option<&str>>,
+) -> Result<(Output, String), Error> {
     if !matches!(kind, "factory" | "resource")
         || (!crate::generator_plan::qualified(name) || name.starts_with('\\'))
     {
         return Err(Error::Invalid(
-            "Unsupported related-model class name".into(),
+            crate::ui_text::text(
+                "native.bulk.bcc60978a0",
+                "Unsupported related-model class name",
+            )
+            .into(),
         ));
     }
     let root = project.root()?;
-    let (draft, fingerprint, module_context) = config::effective(project, model, kind)?;
+    let (draft, fingerprint, module_context) =
+        config::effective_in_module(project, model, kind, module).map_err(selection::ui_error)?;
     let base_namespace = draft.namespace_for(kind);
     let directory = draft.directory(kind);
     let configured_destination = draft.destinations.contains_key(kind) || module_context;
@@ -561,12 +598,20 @@ fn output(
         paths.remove(0).1
     } else if paths.len() > 1 {
         return Err(Error::Invalid(
-            "Composer output mapping is ambiguous".into(),
+            crate::ui_text::text(
+                "native.bulk.07a3fe6fcf",
+                "Composer output mapping is ambiguous",
+            )
+            .into(),
         ));
     } else {
         if !base_namespace.starts_with("App\\") && base_namespace != "Database\\Factories" {
             return Err(Error::Invalid(
-                "No Composer mapping for the generated namespace".into(),
+                crate::ui_text::text(
+                    "native.bulk.1bd5554ed0",
+                    "No Composer mapping for the generated namespace",
+                )
+                .into(),
             ));
         }
         format!("{directory}/{}.php", name.replace('\\', "/"))
@@ -580,7 +625,11 @@ fn output(
         || full_namespace.eq_ignore_ascii_case(&model.full)
     {
         return Err(Error::Invalid(
-            "Generated class conflicts with its base or model class".into(),
+            crate::ui_text::text(
+                "native.bulk.33e3b56735",
+                "Generated class conflicts with its base or model class",
+            )
+            .into(),
         ));
     }
     let mapping_evidence = if configured_destination {
@@ -596,20 +645,33 @@ fn output(
     let (namespace, class) = full_namespace.rsplit_once('\\').ok_or(Error::Stale)?;
     let path = format!("{root}/{relative}");
     owned_target(project, &path)?;
+    let generated = source(
+        index,
+        model,
+        kind,
+        class,
+        namespace,
+        selection,
+        &draft.settings,
+    );
     let output = Output {
         path,
-        text: source(
-            index,
+        text: config::render(
+            project,
             model,
             kind,
-            class,
-            namespace,
-            selection,
-            &draft.settings,
-        ),
+            &draft,
+            module,
+            &full_namespace,
+            &generated,
+        )?,
     };
     let selection_evidence = selection
-        .map(|selection| selection.validate(project, index, model, kind))
+        .map(|selection| {
+            selection
+                .validate(project, index, model, kind)
+                .map_err(selection::ui_error)
+        })
         .transpose()?
         .unwrap_or_default();
     Ok((
@@ -628,8 +690,73 @@ pub(crate) fn related_default_name(
         return Ok(None);
     }
     let model = identity(index, model).ok_or(Error::Stale)?;
-    let (draft, _, _) = config::effective(project, &model, kind)?;
+    let (draft, _, _) = config::effective(project, &model, kind).map_err(selection::ui_error)?;
     Ok(Some(draft.class_name(kind)))
+}
+
+pub(crate) fn related_catalog(
+    project: &Project,
+    index: &Index,
+    model_name: &str,
+) -> Result<serde_json::Value, Error> {
+    if index.partial {
+        return Err(Error::Stale);
+    }
+    let model = identity(index, model_name).ok_or(Error::Stale)?;
+    Ok(selection::catalog(project, index, &model))
+}
+pub(crate) fn related_preview(
+    project: &Project,
+    index: &Index,
+    kind: &str,
+    model_name: &str,
+    name: &str,
+    choices: &serde_json::Value,
+) -> Result<(String, String, String), Error> {
+    if index.partial {
+        return Err(Error::Stale);
+    }
+    let model = identity(index, model_name).ok_or(Error::Stale)?;
+    let selection = selection::from_request(project, index, &model, kind, choices)
+        .map_err(selection::ui_error)?;
+    let (output, evidence) = output(project, index, &model, kind, name, Some(&selection))?;
+    Ok((
+        output.path,
+        output.text,
+        format!(
+            "{evidence}\n{}:{}",
+            model.path,
+            project.read_file(&model.path)?
+        ),
+    ))
+}
+
+pub(crate) fn related_preview_in_module(
+    project: &Project,
+    index: &Index,
+    kind: &str,
+    model_name: &str,
+    name: &str,
+    module: Option<Option<&str>>,
+    choices: &serde_json::Value,
+) -> Result<(String, String, String), Error> {
+    if index.partial {
+        return Err(Error::Stale);
+    }
+    let model = identity(index, model_name).ok_or(Error::Stale)?;
+    let selection = selection::from_request(project, index, &model, kind, choices)
+        .map_err(selection::ui_error)?;
+    let (output, evidence) =
+        output_in_module(project, index, &model, kind, name, Some(&selection), module)?;
+    Ok((
+        output.path,
+        output.text,
+        format!(
+            "{evidence}\n{}:{}",
+            model.path,
+            project.read_file(&model.path)?
+        ),
+    ))
 }
 
 #[cfg(test)]
@@ -670,12 +797,12 @@ pub(crate) fn prepare_model_file_interactive_with_schema(
         return Ok(None);
     }
     plans.pending.borrow_mut().remove(&project.root()?);
-    let current = Index::build(project);
-    if current.partial {
+    if !crate::index::index_sources_current(project, index) {
         return Err(Error::Stale);
     }
-    let identity = identity(&current, model).ok_or(Error::Stale)?;
-    let selection = selection::choose(project, &current, &identity, kind, runtime)?;
+    let current = index;
+    let identity = identity(current, model).ok_or(Error::Stale)?;
+    let selection = selection::choose(project, current, &identity, kind, runtime)?;
     prepare_model_file_with(plans, project, index, kind, model, name, Some(selection))
 }
 
@@ -696,18 +823,29 @@ fn prepare_model_file_with(
     if index.partial {
         return Err(Error::Stale);
     }
-    let current = Index::build(project);
-    if current.partial {
+    if !crate::index::index_sources_current(project, index) {
         return Err(Error::Stale);
     }
-    let model = identity(&current, model)
-        .ok_or_else(|| Error::Invalid("Model identity is missing or ambiguous".into()))?;
+    let current = index;
+    let model = identity(current, model).ok_or_else(|| {
+        Error::Invalid(
+            crate::ui_text::text(
+                "native.bulk.00d4e41434",
+                "Model identity is missing or ambiguous",
+            )
+            .into(),
+        )
+    })?;
     let source = project.read_file(&model.path)?;
-    let (output, evidence) = output(project, &current, &model, kind, name, selection.as_ref())?;
+    let (output, evidence) = output(project, current, &model, kind, name, selection.as_ref())?;
     let next = plans.next.get().checked_add(1).ok_or(Error::Stale)?;
     if plans.pending.borrow().len() >= 8 {
         return Err(Error::Invalid(
-            "Too many pending projects; finish an existing generation first".into(),
+            crate::ui_text::text(
+                "native.bulk.5063d48c4a",
+                "Too many pending projects; finish an existing generation first",
+            )
+            .into(),
         ));
     }
     let pending = Pending {
@@ -727,7 +865,10 @@ fn prepare_model_file_with(
     host::notify(
         NotificationLevel::Info,
         SOURCE,
-        "Generation is prepared without writing files. Choose ‘Apply prepared related-model generation…’ from this model's editor actions to review and create it atomically.",
+        crate::ui_text::text(
+            "native.bulk.7f4dbea30b",
+            "Generation is prepared without writing files. Choose ‘Apply prepared related-model generation…’ from this model's editor actions to review and create it atomically.",
+        ),
     );
     Ok(Some(model.path))
 }
@@ -752,7 +893,11 @@ fn generation_actions(
         .filter(|plan| plan.anchor == doc.path && plan.source == doc.text)
         .map(|plan| {
             vec![openidea_plugin::file_actions::FileAction {
-                title: "Apply prepared related-model generation…".into(),
+                title: crate::ui_text::text(
+                    "native.bulk.fed7fad9e7",
+                    "Apply prepared related-model generation…",
+                )
+                .into(),
                 kind: Some("refactor.rewrite".into()),
                 data: Some(format!("bulk-generate:{}:{}", plan.key, doc.version)),
                 ..Default::default()
@@ -783,11 +928,11 @@ fn resolve_generation(
     {
         return Err(Error::Stale);
     }
-    let current = Index::build(&project);
-    if current.partial {
+    let current = main.completed_index_for(&root).ok_or(Error::Stale)?;
+    if !crate::index::index_sources_current(&project, current) {
         return Err(Error::Stale);
     }
-    let model = identity(&current, &pending.model)
+    let model = identity(current, &pending.model)
         .filter(|model| model.path == pending.anchor)
         .ok_or(Error::Stale)?;
     if let Some(selection) = &pending.selection {
@@ -795,7 +940,7 @@ fn resolve_generation(
     }
     let (planned, evidence) = output(
         &project,
-        &current,
+        current,
         &model,
         &pending.kind,
         &pending.name,
@@ -807,7 +952,10 @@ fn resolve_generation(
     let mapping_note = if pending.kind == "factory"
         && planned.text.contains("throw new \\LogicException")
     {
-        "Unresolved factory mappings are explicit LogicException placeholders; review them before executing the generated factory. "
+        crate::ui_text::text(
+            "final.bulk.mappingNote",
+            "Unresolved factory mappings are explicit LogicException placeholders; review them before executing the generated factory. ",
+        )
     } else {
         ""
     };
@@ -816,21 +964,32 @@ fn resolve_generation(
         .as_ref()
         .map(|selection| selection.runtime_note())
         .unwrap_or_default();
-    let preview = format!(
-        "Project: {root}\nModel: {}\nCreate (no overwrite): {}\n{runtime_note}\n{}\n\n{mapping_note}Apply one undoable file creation?",
-        pending.model, planned.path, planned.text
+    let preview = crate::ui_text::format(
+        "final.bulk.relatedReview",
+        "Project: {root}\nModel: {model}\nCreate (no overwrite): {path}\n{runtime}\n{source}\n\n{mapping}Apply one undoable file creation?",
+        &[
+            ("root", &root),
+            ("model", &pending.model),
+            ("path", &planned.path),
+            ("runtime", &runtime_note),
+            ("source", &planned.text),
+            ("mapping", mapping_note),
+        ],
     );
-    if !ui_kit::prompts::confirm_exact("Create related model class?", &preview)? {
+    if !ui_kit::prompts::confirm_exact(
+        crate::ui_text::text("final.bulk.relatedConfirm", "Create related model class?"),
+        &preview,
+    )? {
         return Err(Error::Cancelled);
     }
     if !crate::owns_current_path(&project, &doc.path) || project.read_file(&doc.path)? != doc.text {
         return Err(Error::Stale);
     }
-    let fresh = Index::build(&project);
-    if fresh.partial {
+    let fresh = main.completed_index_for(&root).ok_or(Error::Stale)?;
+    if !crate::index::index_sources_current(&project, fresh) {
         return Err(Error::Stale);
     }
-    let model = identity(&fresh, &pending.model)
+    let model = identity(fresh, &pending.model)
         .filter(|model| model.path == pending.anchor)
         .ok_or(Error::Stale)?;
     if let Some(selection) = &pending.selection {
@@ -838,7 +997,7 @@ fn resolve_generation(
     }
     let (checked, evidence) = output(
         &project,
-        &fresh,
+        fresh,
         &model,
         &pending.kind,
         &pending.name,
@@ -1042,8 +1201,24 @@ mod related_tests {
         assert!(mock.process_runs().is_empty());
     }
     #[test]
+    fn stale_completed_index_does_not_prepare_or_silently_reindex_new_source_membership() {
+        let (mock, main, project, _) = setup();
+        mock.add_file("src/Models/Unrelated.php", "<?php namespace Domain\\Models;class Unrelated {}");
+        assert!(matches!(prepare_model_file(
+            &main.artisan_terminals.model_plans,
+            &project,
+            main.indexes.get("/project").unwrap(),
+            "factory",
+            "Domain\\Models\\Post",
+            "PostFactory",
+        ), Err(Error::Stale)));
+        assert!(main.artisan_terminals.model_plans.pending.borrow().is_empty());
+        assert!(!project.exists("database/factories/PostFactory.php").unwrap());
+        assert!(mock.process_runs().is_empty());
+    }
+    #[test]
     fn cancellation_collision_stale_schema_source_and_new_foreign_ownership_never_write() {
-        for failure in ["cancel", "collision", "schema", "source", "ownership"] {
+        for failure in ["cancel", "collision", "schema", "source", "ownership", "membership"] {
             let (mock, main, project, doc) = setup();
             prepare(&main, &project, "factory", "PostFactory");
             let action = lazy(&main, &doc);
@@ -1063,6 +1238,9 @@ mod related_tests {
                     &[],
                 ),
                 "ownership" => mock.add_project("/project/database"),
+                // The selected model/output facts do not change, but a completed
+                // index cannot vouch for source membership it never captured.
+                "membership" => mock.add_file("src/Models/Unrelated.php","<?php namespace Domain\\Models;class Unrelated {}"),
                 _ => unreachable!(),
             }
             assert!(resolve(&main, &doc, action).is_err(), "{failure}");
@@ -1089,8 +1267,9 @@ mod related_tests {
     }
     #[test]
     fn interactive_factory_selection_uses_explicit_factory_class_and_preserves_atomic_review() {
-        let (mock, main, project, doc) = setup();
+        let (mock, mut main, project, doc) = setup();
         add_factory_mapping(&mock);
+        main.indexes.insert("/project".into(), Index::build(&project));
         for answers in [
             vec!["select"],
             vec!["title", "external_id"],
@@ -1132,8 +1311,9 @@ mod related_tests {
     #[test]
     fn selected_factory_dependency_changes_or_foreign_ownership_reject_the_plan() {
         for failure in ["changed", "foreign"] {
-            let (mock, main, project, doc) = setup();
+            let (mock, mut main, project, doc) = setup();
             add_factory_mapping(&mock);
+            main.indexes.insert("/project".into(), Index::build(&project));
             for answers in [
                 vec!["select"],
                 vec!["external_id"],
@@ -1502,6 +1682,7 @@ mod related_tests {
             ]);
             doc.text="<?php namespace Domain\\Models;use Illuminate\\Database\\Eloquent\\Model;class Post extends Model {protected $connection='main';}".into();
             mock.add_file("src/Models/Post.php", &doc.text);
+            mock.add_file("artisan", "<?php");
             main.indexes
                 .insert("/project".into(), Index::build(&project));
             let payload = serde_json::json!({"connection":"main","tables":[{"name":"posts","columns":[{"name":"runtime_only","type":"string","nullable":false}],"indexes":[]}]});
@@ -1590,9 +1771,10 @@ mod related_tests {
     }
     #[test]
     fn explicit_module_factory_namespace_and_composer_root_are_preserved() {
-        let (mock, main, project, doc) = setup();
+        let (mock, mut main, project, doc) = setup();
         mock.add_file(".openidea/laravel-generators.json",r#"{"version":1,"modules":[{"id":"domain","label":"Domain","namespace":"Domain","sourceRoot":"src","migrationRoot":"database/migrations","viewRoot":"resources/views","factoryRoot":"generated/factories","factoryNamespace":"Domain\\Factories"}]}"#);
         mock.add_file("composer.json",r#"{"autoload":{"psr-4":{"Domain\\":"src/"}},"autoload-dev":{"psr-4":{"Domain\\Factories\\":"generated/factories/"}}}"#);
+        main.indexes.insert("/project".into(), Index::build(&project));
         prepare(&main, &project, "factory", "PostFactory");
         mock.answer_next_prompt(Some(&["yes"]));
         let resolved = resolve(&main, &doc, lazy(&main, &doc)).unwrap();
@@ -1603,6 +1785,54 @@ mod related_tests {
         assert!(text.contains("namespace Domain\\Factories;"));
         assert!(text.contains("protected $model = \\Domain\\Models\\Post::class;"));
         export("module_factory", text);
+    }
+    #[test]
+    fn cross_module_related_preview_preserves_model_and_captures_template_changes() {
+        let (mock, _, project, _) = setup();
+        mock.add_file("composer.json",r#"{"autoload":{"psr-4":{"Domain\\":"src/","Modules\\Shop\\":"modules/Shop/app/"}},"autoload-dev":{"psr-4":{"Modules\\Shop\\Factories\\":"modules/Shop/database/factories/"}}}"#);
+        mock.add_file(".openidea/laravel-generators.json",r#"{"version":1,"modules":[{"id":"shop","label":"Shop","namespace":"Modules\\Shop","sourceRoot":"modules/Shop/app","migrationRoot":"modules/Shop/database/migrations","viewRoot":"modules/Shop/resources/views","factoryRoot":"modules/Shop/database/factories","factoryNamespace":"Modules\\Shop\\Factories","generators":{"factory":{"template":"factory.php"}}}]}"#);
+        mock.add_file(
+            ".openidea/laravel-templates/factory.php",
+            "${generated}\n// model ${model}\n",
+        );
+        let index = Index::build(&project);
+        let (path, text, evidence) = related_preview_in_module(
+            &project,
+            &index,
+            "factory",
+            "Domain\\Models\\Post",
+            "PostFactory",
+            Some(Some("shop")),
+            &serde_json::json!({}),
+        )
+        .unwrap();
+        assert_eq!(
+            path,
+            "/project/modules/Shop/database/factories/PostFactory.php"
+        );
+        assert!(
+            text.contains("namespace Modules\\Shop\\Factories;"),
+            "{text}"
+        );
+        assert!(text.contains("\\Domain\\Models\\Post::class"), "{text}");
+        assert!(text.contains("// model Domain\\Models\\Post"));
+        mock.add_file(
+            ".openidea/laravel-templates/factory.php",
+            "${generated}\n// changed\n",
+        );
+        let (_, changed, new_evidence) = related_preview_in_module(
+            &project,
+            &index,
+            "factory",
+            "Domain\\Models\\Post",
+            "PostFactory",
+            Some(Some("shop")),
+            &serde_json::json!({}),
+        )
+        .unwrap();
+        assert_ne!(evidence, new_evidence);
+        assert_ne!(text, changed);
+        assert!(mock.process_runs().is_empty());
     }
     #[test]
     fn same_short_name_in_two_namespaces_requires_explicit_fqn() {

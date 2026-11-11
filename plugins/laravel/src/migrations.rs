@@ -7,24 +7,18 @@ use std::collections::BTreeMap;
 mod schema_sources;
 
 pub fn apply_sql(columns: &mut BTreeMap<String, Names>, text: &str, path: &str) {
-    let lines = Lines::new(text);
-    for column in schema_sources::parse(text) {
-        columns.entry(column.table).or_default().add(
-            &column.name,
-            Some(column.kind),
-            path,
-            lines.position(column.offset),
-            if text
-                .get(column.offset..)
-                .is_some_and(|rest| rest.starts_with(&column.name))
-            {
-                lines.width(column.offset, column.name.len())
-            } else {
-                0
-            },
-        );
+    for statement in schema_sources::statements(text) {
+        if statement.if_absent.as_ref().is_some_and(|table|columns.contains_key(table)){continue;}
+        apply_events(columns,text,path,statement.events);
     }
 }
+
+/// Source-only diagnostics for unresolved/partial SQL DDL; offsets are UTF-8 bytes.
+pub(crate) fn sql_issues(text:&str)->Vec<(usize,String)>{schema_sources::issues(text)}
+/// Presentation adapter; the SQL parser itself remains host-free.
+pub(crate) fn sql_issue_label(message:&str)->String{let key=match message{"SQL block comment is unterminated; schema inventory is incomplete."=>"process.sql.issue0","SQL dollar-quoted body is unterminated; schema inventory is incomplete."=>"process.sql.issue1","SQL quoted literal/identifier is unterminated; schema inventory is incomplete."=>"process.sql.issue2","SQL closing parenthesis is unmatched; schema inventory is incomplete."=>"process.sql.issue3","SQL table/constraint definition is unterminated; schema facts were withheld."=>"process.sql.issue4","SQL source exceeds the 2 MiB schema parsing bound; inventory is incomplete."=>"process.sql.issue5","SQL index declaration is incomplete or expression-based; index column facts were withheld."=>"process.sql.issue6","SQL statement cannot establish complete literal table/column/constraint evolution; dynamic, procedural or malformed DDL was withheld."=>"process.sql.issue7","SQL constraint declaration is incomplete or unsupported; constraint facts were withheld."=>"process.sql.issue8",_=>return message.to_owned(),};crate::ui_text::t(key,message)}
+/// Source-only literal constraint inventory after ordered SQL evolution.
+pub(crate) fn sql_constraints(text:&str)->Vec<serde_json::Value>{schema_sources::constraints(text)}
 
 #[derive(Clone, Debug)]
 pub struct Column {
@@ -575,8 +569,11 @@ pub fn apply_custom(
     path: &str,
     custom: &[serde_json::Value],
 ) {
+    apply_events(columns,text,path,events_with_custom(text,custom));
+}
+fn apply_events(columns:&mut BTreeMap<String,Names>,text:&str,path:&str,events:Vec<Event>){
     let lines = Lines::new(text);
-    for event in events_with_custom(text, custom) {
+    for event in events {
         match event {
             Event::Create(table) => {
                 columns.insert(table, Names::default());

@@ -1,6 +1,9 @@
 //! Bounded, declared related-class/accessor facts. Filename similarity is never
 //! a model association, and every destination stays owned by the project.
 use super::*;
+#[path="eloquent_connection_proof.rs"]
+mod connection_proof;
+pub(crate) use connection_proof::{ConnectionSelection,connection_selection,cache_connection_overrides,PrimaryKey,primary_key};
 use openidea_plugin::Project;
 #[derive(Clone, Debug)]
 pub(crate) struct Related {
@@ -58,6 +61,7 @@ fn subclass(index: &Index, full: &str, target: &str, project: &Project) -> bool 
     }
     false
 }
+pub(crate) fn declared_model_class(source:&str)->Option<String>{model_property(source)}
 fn model_property(text: &str) -> Option<String> {
     let source = Source::new(text)?;
     let names = Names::parse(&source)?;
@@ -316,198 +320,34 @@ pub(crate) fn inventory(index: &Index, project: &Project) -> Vec<Related> {
 }
 
 pub(crate) fn accessors(index: &Index, project: &Project, full: &str) -> Vec<Accessor> {
-    let doc = Document {
-        path: String::new(),
-        language: "php".into(),
-        version: 0,
-        text: format!("<?php \\{full}::query()->"),
-    };
-    let Some(context) = context(&doc, text::position(&doc.text, doc.text.len())) else {
-        return vec![];
-    };
-    let resolver = Resolver {
-        context: &context,
-        index,
-        overlay: None,
-        path: "",
-        owns: &|path| owned(project, path),
-        owner_cache: RefCell::new(BTreeMap::new()),
-    };
-    let Some(lineage) = resolver.lineage(full) else {
-        return vec![];
-    };
-    let mut blocked = BTreeSet::new();
-    let mut result = Vec::new();
-    for model in lineage {
-        let mut candidates = BTreeMap::<String, Vec<Accessor>>::new();
-        for path in std::iter::once(&model.path).chain(model.trait_sources.iter()) {
-            let Some(text) = read(project, path) else {
-                continue;
-            };
-            let Some(source) = Source::new(&text) else {
-                continue;
-            };
-            let Some(names) = Names::parse(&source) else {
-                continue;
-            };
-            let Some((_, _, body, _)) = names.class.as_ref() else {
-                continue;
-            };
-            for function in source
-                .functions()
-                .into_iter()
-                .filter(|f| source.paths[f.start] == vec![*body])
-            {
-                let Some(at) = function.name else { continue };
-                let method = source.tokens[at].value;
-                if blocked.contains(method) || !model.declared.contains(method) {
-                    continue;
-                }
-                let Some(property) = method
-                    .strip_prefix("get")
-                    .and_then(|name| name.strip_suffix("Attribute"))
-                    .filter(|name| !name.is_empty() && name.starts_with(char::is_uppercase))
-                else {
-                    continue;
-                };
-                let previous = (0..function.start)
-                    .rev()
-                    .find(|at| matches!(source.tokens[*at].value, "{" | "}" | ";"))
-                    .map_or(0, |at| at + 1);
-                if source.tokens[previous..function.start]
-                    .iter()
-                    .any(|token| token.value == "private" || token.value == "static")
-                {
-                    continue;
-                }
-                if !source.is(function.params.end + 1, ":") {
-                    continue;
-                }
-                let tokens = source.tokens[function.params.end + 2..function.body]
-                    .iter()
-                    .collect::<Vec<_>>();
-                let Some(value_type) = super::helper_facts::declared_type(
-                    &tokens,
-                    &names,
-                    full,
-                    source.is(names.class.as_ref().unwrap().1, "trait"),
-                ) else {
-                    continue;
-                };
-                if matches!(value_type.as_str(), "void" | "never") {
-                    continue;
-                }
-                candidates.entry(method.into()).or_default().push(Accessor {
-                    name: crate::index::separated(property, '_'),
-                    value_type,
-                    entry: entry(&source, path, at),
-                    spelling: method.into(),
-                });
-            }
+    // UI/generation callers may read sources. Rebuild only the bounded current
+    // ancestry/trait closure so changed accessor bodies cannot leak cached types.
+    fn collect(index:&Index,project:&Project,full:&str,out:&mut Models,active:&mut BTreeSet<String>,depth:u8)->Option<()>{
+        if full.eq_ignore_ascii_case("Illuminate\\Database\\Eloquent\\Model"){return Some(());}
+        if depth>8||out.len()>32{return None;}
+        let key=full.to_ascii_lowercase();if out.contains_key(&key){return Some(());}if !active.insert(key.clone()){return None;}
+        let previous=index.eloquent_models.get(&key).filter(|model|!model.ambiguous&&owned(project,&model.path))?;
+        let text=read(project,&previous.path)?;let current=super::model(&text,&previous.path)?;
+        if !current.full.eq_ignore_ascii_case(full)||current.is_trait!=previous.is_trait{return None;}
+        if !current.is_trait{collect(index,project,&current.parent,out,active,depth+1)?;}
+        for trait_ in &current.traits{
+            if index.eloquent_models.contains_key(&trait_.to_ascii_lowercase()){collect(index,project,trait_,out,active,depth+1)?;}
         }
-        for (_, mut entries) in candidates {
-            entries.sort_by(|a, b| a.entry.path.cmp(&b.entry.path));
-            entries.dedup_by(|a, b| a.entry.path == b.entry.path && a.entry.at == b.entry.at);
-            if entries.len() == 1 {
-                result.push(entries.remove(0));
-            }
-        }
-        blocked.extend(model.declared.iter().cloned());
+        out.insert(key.clone(),current);active.remove(&key);Some(())
     }
-    result
+    let mut current=Index::default();
+    if collect(index,project,full,&mut current.eloquent_models,&mut BTreeSet::new(),0).is_none(){return vec![];}
+    super::finish(&mut current.eloquent_models);
+    semantic::accessor_facts(&current,full,&|path|owned(project,path)).unwrap_or_default().into_iter().filter_map(|fact|{
+        if fact.has_getter==Some(false){return None;}
+        Some(Accessor{name:fact.name,value_type:fact.read_type?,entry:fact.getter_entry.unwrap_or(fact.entry),spelling:fact.method_name})
+    }).collect()
 }
 
 /// A source-proven explicit connection only. Absence is unknown: the configured
 /// default and runtime tenant selection are not inferred from a model filename.
-pub(crate) fn connection(index: &Index, project: &Project, full: &str) -> Option<String> {
-    let doc = Document {
-        path: String::new(),
-        language: "php".into(),
-        version: 0,
-        text: format!("<?php \\{full}::query()->"),
-    };
-    let context = context(&doc, text::position(&doc.text, doc.text.len()))?;
-    let resolver = Resolver {
-        context: &context,
-        index,
-        overlay: None,
-        path: "",
-        owns: &|path| owned(project, path),
-        owner_cache: RefCell::new(BTreeMap::new()),
-    };
-    let mut connection = None;
-    for model in resolver.lineage(full)? {
-        for path in std::iter::once(&model.path).chain(model.trait_sources.iter()) {
-            let text = read(project, path)?;
-            let source = Source::new(&text)?;
-            let names = Names::parse(&source)?;
-            let (declared, _, body, parent) = names.class.as_ref()?;
-            if path == &model.path {
-                if declared != &model.full || parent != &model.parent {
-                    return None;
-                }
-                let current = super::model(&text, path)?;
-                if current.traits != model.traits
-                    || current.explicit_table != model.explicit_table
-                    || (index.metadata.model_table(&model.full).is_none()
-                        && current.table != model.table)
-                {
-                    return None;
-                }
-            }
-            // These can select a connection at runtime; their behavior is outside
-            // this deliberately literal source subset.
-            if source.tokens.iter().any(|t| {
-                matches!(
-                    t.value.to_ascii_lowercase().as_str(),
-                    "getconnectionname" | "getconnection" | "setconnection" | "__construct"
-                )
-            }) {
-                return None;
-            }
-            if source
-                .tokens
-                .windows(3)
-                .any(|t| t[0].value == "$this" && t[1].value == "->" && t[2].value == "connection")
-            {
-                return None;
-            }
-            let fields = source
-                .tokens
-                .iter()
-                .enumerate()
-                .filter(|(at, t)| t.value == "$connection" && source.paths[*at] == vec![*body])
-                .collect::<Vec<_>>();
-            if fields.is_empty() {
-                continue;
-            }
-            // Trait property conflicts/adaptations cannot establish a unique model value.
-            if model.is_trait || path != &model.path {
-                return None;
-            }
-            let [(at, _)] = fields.as_slice() else {
-                return None;
-            };
-            if !source.is(at + 1, "=") || !source.is(at + 3, ";") {
-                return None;
-            }
-            let value = source
-                .tokens
-                .get(at + 2)
-                .filter(|t| t.kind == Kind::String)?;
-            let (value, _) = php::literal(&text, value.start..value.end)?;
-            if value.is_empty()
-                || value.chars().count() > 128
-                || value.chars().any(char::is_control)
-            {
-                return None;
-            }
-            if connection.is_none() {
-                connection = Some(value.to_owned());
-            }
-        }
-    }
-    connection
+pub(crate) fn connection(index:&Index,project:&Project,full:&str)->Option<String>{
+    match connection_selection(index,project,full)?{ConnectionSelection::Named(name)=>Some(name),ConnectionSelection::ConfiguredDefault=>None}
 }
 
 // Require a real attached PHPDoc token, excluding comment-looking data.
@@ -574,6 +414,7 @@ pub(crate) fn resource_fields(index: &Index, project: &Project, full: &str) -> V
         context: &context,
         index,
         overlay: None,
+        object_overlay:None,
         path: "",
         owns: &|path| owned(project, path),
         owner_cache: RefCell::new(BTreeMap::new()),
@@ -697,4 +538,18 @@ pub(crate) fn resource_fields(index: &Index, project: &Project, full: &str) -> V
     result.sort_by(|a, b| (&a.name, &a.entry.path).cmp(&(&b.name, &b.entry.path)));
     result.dedup_by(|a, b| a.name == b.name);
     result
+}
+
+#[cfg(test)]mod modern_accessor_tests{
+    use super::*;
+    #[test]fn model_overview_accessor_facts_use_current_modern_and_inherited_contracts(){
+        use openidea_plugin::{host,mock::MockHost};let mock=MockHost::install();mock.add_file("artisan","<?php");
+        mock.add_file("app/Models/Base.php",r#"<?php namespace App\Models;class Base extends \Illuminate\Database\Eloquent\Model{public function getAliasAttribute():string{return 'base';}}"#);
+        let source=r#"<?php namespace App\Models;use Illuminate\Database\Eloquent\Casts\Attribute;class Post extends Base{protected function title():Attribute{return Attribute::get(fn():?string=>null);}protected function secret():Attribute{return Attribute::set(fn(string $value)=>$value);}}"#;
+        mock.add_file("app/Models/Post.php",source);let project=host::projects().unwrap().remove(0);let index=Index::build(&project);
+        let facts=accessors(&index,&project,"App\\Models\\Post");assert_eq!(facts.len(),2);assert!(facts.iter().any(|a|a.name=="title"&&a.value_type=="?string"));assert!(facts.iter().any(|a|a.name=="alias"&&a.value_type=="string"&&a.entry.path.ends_with("Base.php")));
+        mock.open_editor("/project/app/Models/Post.php","php",&source.replace("fn():?string=>null","fn():int=>1"),&[]);
+        assert!(accessors(&index,&project,"App\\Models\\Post").iter().any(|a|a.name=="title"&&a.value_type=="int"));
+        mock.add_project("/project/app");assert!(accessors(&index,&project,"App\\Models\\Post").is_empty());
+    }
 }

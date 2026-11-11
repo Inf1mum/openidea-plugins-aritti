@@ -93,6 +93,13 @@
       "label": "Remove Database Connection…",
       "kind": "",
       "icon": "delete"
+    },
+    {
+      "view": "laravel-external",
+      "id": "cloud-details-select",
+      "label": "Show Environment Details",
+      "kind": "",
+      "icon": "info"
     }
   ],
   "project_independent": false,
@@ -175,7 +182,9 @@
   "opaque_views": [
     "laravel-artisan",
     "laravel-generators",
-    "laravel-processes"
+    "laravel-processes",
+    "laravel-models",
+    "laravel-external"
   ],
   "context_buttons": {
     "laravel": [],

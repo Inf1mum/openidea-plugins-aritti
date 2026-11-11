@@ -6,10 +6,18 @@ use std::collections::BTreeMap;
 
 /// Every navigable row refers to an indexed owning source; runtime names alone
 /// cannot become editor destinations.
+pub(crate) fn source_keys(index: &Index, project: &Project) -> Vec<Value> {
+    crate::eloquent_members::model_inventory(&index.eloquent_models)
+        .into_iter()
+        .filter(|(_, path, _)| crate::owns_current_path(project, path))
+        .map(|(_, path, _)| json!(format!("model-source:{}", serde_json::to_string(&[&path]).unwrap())))
+        .collect()
+}
+
 pub(crate) fn rows(index: &Index, project: &Project) -> Vec<Value> {
     let root = project.root().unwrap_or_default();
     let mut rows = Vec::new();
-    let related=crate::eloquent_members::related_facts::inventory(index,project);
+    let related = crate::eloquent_members::related_facts::inventory(index, project);
     for (full, path, table) in crate::eloquent_members::model_inventory(&index.eloquent_models) {
         if !crate::owns_current_path(project, &path) {
             continue;
@@ -35,30 +43,134 @@ pub(crate) fn rows(index: &Index, project: &Project) -> Vec<Value> {
             rows.push(json!({"key":format!("model-primary:{}",json!([path,property,value,offset,width])),"cells":[full,"Primary key",format!("{label}: {value} · declared ${property}"),file],"icon":"field"}));
         }
 
-        let facts=crate::eloquent_members::helper_facts::facts(index,&full,&|path|crate::owns_current_path(project,path));
-        let accessors=crate::eloquent_members::related_facts::accessors(index,project,&full);
-        for (name,entry) in index.columns.get(&table).into_iter().flatten() {
-            if !crate::owns_current_path(project,&entry.path){continue;}
-            let mut entry=entry.clone();
-            if let Some(accessor)=accessors.iter().find(|accessor|accessor.name==*name){entry.detail=Some(format!("{} (accessor)",accessor.value_type));}
-            else if let Some(cast)=facts.as_ref().and_then(|facts|facts.casts.iter().find(|cast|cast.name==*name)){entry.detail=Some(format!("{} (cast)",cast.resolved.as_deref().unwrap_or(&cast.label)));}
-            rows.push(row(&full,"Field",name,&entry,&root));
+        let facts = crate::eloquent_members::helper_facts::facts(index, &full, &|path| {
+            crate::owns_current_path(project, path)
+        });
+        let accessors = crate::eloquent_members::related_facts::accessors(index, project, &full);
+        for (name, entry) in index.columns.get(&table).into_iter().flatten() {
+            if !crate::owns_current_path(project, &entry.path) {
+                continue;
+            }
+            let mut entry = entry.clone();
+            if let Some(accessor) = accessors.iter().find(|accessor| accessor.name == *name) {
+                entry.detail = Some(format!("{} (accessor)", accessor.value_type));
+            } else if let Some(cast) = facts
+                .as_ref()
+                .and_then(|facts| facts.casts.iter().find(|cast| cast.name == *name))
+            {
+                entry.detail = Some(format!(
+                    "{} (cast)",
+                    cast.resolved.as_deref().unwrap_or(&cast.label)
+                ));
+            }
+            rows.push(row(&full, "Field", name, &entry, &root));
         }
-        if let Some(facts)=facts {
+        if let Some(facts) = facts {
             for relation in facts.relations {
-                let detail=if relation.many{format!("Collection<{}>",relation.target)}else{format!("{} | null",relation.target)};
-                if let Some(row)=fact_row(project,&root,&full,"Relation",&relation.name,&detail,&relation.entry,&relation.name){rows.push(row);}
+                let detail = if relation.many {
+                    format!("Collection<{}>", relation.target)
+                } else {
+                    format!("{} | null", relation.target)
+                };
+                if let Some(row) = fact_row(
+                    project,
+                    &root,
+                    &full,
+                    "Relation",
+                    &relation.name,
+                    &detail,
+                    &relation.entry,
+                    &relation.name,
+                ) {
+                    rows.push(row);
+                }
             }
             for scope in facts.scopes {
-                let spelling=if scope.entry.width>scope.name.encode_utf16().count() as u32{let mut chars=scope.name.chars();format!("scope{}{}",chars.next().unwrap_or('_').to_uppercase(),chars.as_str())}else{scope.name.clone()};
-                let detail=project.read_file(&scope.entry.path).ok().and_then(|source|crate::eloquent_members::helper_facts::scope_signature(&source,&scope.entry,&full)).map(|signature|format!("({}) → {}",signature.parameters.join(", "),signature.return_type)).unwrap_or_else(||"Source scope; signature unresolved".into());
-                if let Some(row)=fact_row(project,&root,&full,"Scope",&scope.name,&detail,&scope.entry,&spelling){rows.push(row);}
+                let spelling = if scope.entry.width > scope.name.encode_utf16().count() as u32 {
+                    let mut chars = scope.name.chars();
+                    format!(
+                        "scope{}{}",
+                        chars.next().unwrap_or('_').to_uppercase(),
+                        chars.as_str()
+                    )
+                } else {
+                    scope.name.clone()
+                };
+                let detail = project
+                    .read_file(&scope.entry.path)
+                    .ok()
+                    .and_then(|source| {
+                        crate::eloquent_members::helper_facts::scope_signature(
+                            &source,
+                            &scope.entry,
+                            &full,
+                        )
+                    })
+                    .map(|signature| {
+                        format!(
+                            "({}) → {}",
+                            signature.parameters.join(", "),
+                            signature.return_type
+                        )
+                    })
+                    .unwrap_or_else(|| "Source scope; signature unresolved".into());
+                if let Some(row) = fact_row(
+                    project,
+                    &root,
+                    &full,
+                    "Scope",
+                    &scope.name,
+                    &detail,
+                    &scope.entry,
+                    &spelling,
+                ) {
+                    rows.push(row);
+                }
             }
-            for cast in facts.casts {let detail=cast.resolved.as_deref().unwrap_or(&cast.label);if let Some(row)=fact_row(project,&root,&full,"Cast",&cast.name,detail,&cast.entry,&cast.name){rows.push(row);}}
+            for cast in facts.casts {
+                let detail = cast.resolved.as_deref().unwrap_or(&cast.label);
+                if let Some(row) = fact_row(
+                    project,
+                    &root,
+                    &full,
+                    "Cast",
+                    &cast.name,
+                    detail,
+                    &cast.entry,
+                    &cast.name,
+                ) {
+                    rows.push(row);
+                }
+            }
         }
-        for accessor in accessors {if let Some(row)=fact_row(project,&root,&full,"Accessor",&accessor.name,&accessor.value_type,&accessor.entry,&accessor.spelling){rows.push(row);}}
-        for class in related.iter().filter(|related|related.model==full){if let Some(row)=fact_row(project,&root,&full,&class.kind,&class.label,"declared association",&class.entry,&class.spelling){rows.push(row);}}
-
+        for accessor in accessors {
+            if let Some(row) = fact_row(
+                project,
+                &root,
+                &full,
+                "Accessor",
+                &accessor.name,
+                &accessor.value_type,
+                &accessor.entry,
+                &accessor.spelling,
+            ) {
+                rows.push(row);
+            }
+        }
+        for class in related.iter().filter(|related| related.model == full) {
+            if let Some(row) = fact_row(
+                project,
+                &root,
+                &full,
+                &class.kind,
+                &class.label,
+                "declared association",
+                &class.entry,
+                &class.spelling,
+            ) {
+                rows.push(row);
+            }
+        }
     }
     rows
 }
@@ -190,15 +302,41 @@ fn primary_properties(source: &str) -> Vec<(String, String, usize, u32)> {
         .collect()
 }
 
-fn fact_row(project:&Project,root:&str,model:&str,kind:&str,name:&str,detail:&str,entry:&Entry,spelling:&str)->Option<Value>{
-    if !crate::owns_current_path(project,&entry.path){return None;}
-    let source=project.read_file(&entry.path).ok()?;if source.len()>128*1024{return None;}
-    if entry.width>0 {
-        let from=openidea_plugin::text::offset(&source,entry.at)?;
-        let to=openidea_plugin::text::offset(&source,openidea_plugin::Position::new(entry.at.line,entry.at.character+entry.width))?;
-        if source.get(from..to)?!=spelling||source.get(to..).and_then(|rest|rest.chars().next()).is_some_and(|c|c=='_'||c.is_alphanumeric()){return None;}
+fn fact_row(
+    project: &Project,
+    root: &str,
+    model: &str,
+    kind: &str,
+    name: &str,
+    detail: &str,
+    entry: &Entry,
+    spelling: &str,
+) -> Option<Value> {
+    if !crate::owns_current_path(project, &entry.path) {
+        return None;
     }
-    Some(json!({"key":format!("model-fact:{}",json!([model,kind,name,entry.path,entry.at.line,entry.at.character,entry.width,spelling])),"cells":[model,kind,format!("{name} · {detail}"),entry.path.strip_prefix(root).unwrap_or(&entry.path).trim_start_matches('/')],"icon":if matches!(kind,"Factory"|"Resource"){"class"}else if kind=="Migration"{"file-php"}else if matches!(kind,"Field"|"Cast"|"Accessor"){"field"}else{"method"}}))
+    let source = project.read_file(&entry.path).ok()?;
+    if source.len() > 128 * 1024 {
+        return None;
+    }
+    if entry.width > 0 {
+        let from = openidea_plugin::text::offset(&source, entry.at)?;
+        let to = openidea_plugin::text::offset(
+            &source,
+            openidea_plugin::Position::new(entry.at.line, entry.at.character + entry.width),
+        )?;
+        if source.get(from..to)? != spelling
+            || source
+                .get(to..)
+                .and_then(|rest| rest.chars().next())
+                .is_some_and(|c| c == '_' || c.is_alphanumeric())
+        {
+            return None;
+        }
+    }
+    Some(
+        json!({"key":format!("model-fact:{}",json!([model,kind,name,entry.path,entry.at.line,entry.at.character,entry.width,spelling])),"cells":[model,kind,format!("{name} · {detail}"),entry.path.strip_prefix(root).unwrap_or(&entry.path).trim_start_matches('/')],"icon":if matches!(kind,"Factory"|"Resource"){"class"}else if kind=="Migration"{"file-php"}else if matches!(kind,"Field"|"Cast"|"Accessor"){"field"}else{"method"}}),
+    )
 }
 
 fn row(model: &str, kind: &str, name: &str, entry: &Entry, root: &str) -> Value {
@@ -230,11 +368,25 @@ pub(crate) fn open(
     {
         return Err(Error::Stale);
     }
-    if let Some(payload)=key.strip_prefix("model-fact:") {
-        let (_,_,_,path,line,character,width,_):(String,String,String,String,u32,u32,u32,String)=serde_json::from_str(payload).map_err(|_|Error::Stale)?;
-        if !crate::owns_current_path(project,&path){return Err(Error::Stale);}
-        let at=Position::new(line,character);
-        return host::open_editor(&path,Some(Range::new(at,Position::new(line,character+width))));
+    if let Some(payload) = key.strip_prefix("model-fact:") {
+        let (_, _, _, path, line, character, width, _): (
+            String,
+            String,
+            String,
+            String,
+            u32,
+            u32,
+            u32,
+            String,
+        ) = serde_json::from_str(payload).map_err(|_| Error::Stale)?;
+        if !crate::owns_current_path(project, &path) {
+            return Err(Error::Stale);
+        }
+        let at = Position::new(line, character);
+        return host::open_editor(
+            &path,
+            Some(Range::new(at, Position::new(line, character + width))),
+        );
     }
     if let Some(payload) = key.strip_prefix("model-primary:") {
         let (path, _, _, offset, width): (String, String, String, usize, u32) =
@@ -352,9 +504,14 @@ pub(crate) fn inventory_with_schema(
     let mut items = rows(index, project);
     if let Some(tables) = snapshot.and_then(|s| s["tables"].as_array()) {
         for (full, _, table) in crate::eloquent_members::model_inventory(&index.eloquent_models) {
-            let captured_connection = snapshot.and_then(|s|s["connection"].as_str());
-            let source_connection = crate::eloquent_members::related_facts::connection(index,project,&full);
-            if source_connection.as_deref().is_none() || source_connection.as_deref()!=captured_connection { continue; }
+            let captured_connection = snapshot.and_then(|s| s["connection"].as_str());
+            let source_connection =
+                crate::eloquent_members::related_facts::connection(index, project, &full);
+            if source_connection.as_deref().is_none()
+                || source_connection.as_deref() != captured_connection
+            {
+                continue;
+            }
             for runtime in tables.iter().filter(|t| {
                 let name = t["name"].as_str().unwrap_or("");
                 let schema = t["schema"].as_str().unwrap_or("");
@@ -367,9 +524,26 @@ pub(crate) fn inventory_with_schema(
                 let provenance = runtime["schema"]
                     .as_str()
                     .filter(|s| !s.is_empty())
-                    .map(|schema| format!("Captured database schema · {schema}"))
-                    .unwrap_or_else(|| "Captured database schema".into());
-                let provenance=match snapshot.and_then(|snapshot|snapshot["connection"].as_str()){Some(connection)=>format!("{provenance} · connection {connection}"),None=>provenance};
+                    .map(|schema| {
+                        crate::ui_text::format(
+                            "final.models.schemaNamed",
+                            "Captured database schema · {schema}",
+                            &[("schema", schema)],
+                        )
+                    })
+                    .unwrap_or_else(|| {
+                        crate::ui_text::text("final.models.schema", "Captured database schema")
+                            .into()
+                    });
+                let provenance = match snapshot.and_then(|snapshot| snapshot["connection"].as_str())
+                {
+                    Some(connection) => crate::ui_text::format(
+                        "final.models.connection",
+                        "{provenance} · connection {connection}",
+                        &[("provenance", &provenance), ("connection", connection)],
+                    ),
+                    None => provenance,
+                };
                 for primary in runtime["indexes"]
                     .as_array()
                     .into_iter()
@@ -394,27 +568,31 @@ pub(crate) fn inventory_with_schema(
                     {
                         continue;
                     }
-                    items.push(json!({"key":format!("model-runtime-primary:{}",json!([full,table,runtime["schema"],primary["name"],names])),"cells":[full,"Database primary key",format!("{} · captured primary index",names.join(", ")),provenance],"icon":"field","activationEnabled":false}));
+                    items.push(json!({"key":format!("model-runtime-primary:{}",json!([full,table,runtime["schema"],primary["name"],names])),"cells":[full,"Database primary key",crate::ui_text::format("final.models.capturedPrimary","{names} · captured primary index",&[("names",&names.join(", "))]),provenance],"icon":"field","activationEnabled":false}));
                 }
                 for column in runtime["columns"].as_array().into_iter().flatten() {
                     let Some(name) = column["name"].as_str() else {
                         continue;
                     };
-                    let kind = column["type"].as_str().unwrap_or("unknown");
+                    let kind = column["type"].as_str().unwrap_or_else(|| {
+                        crate::ui_text::text("final.models.unknownType", "unknown")
+                    });
                     let nullable = if column["nullable"].as_bool() == Some(true) {
-                        " · nullable"
+                        crate::ui_text::text("final.models.nullable", " · nullable")
                     } else {
                         ""
                     };
-                    items.push(json!({"key":format!("model-runtime:{}",json!([full,table,runtime["schema"],name])),"cells":[full,"Database field",format!("{name} · {kind}{nullable}"),format!("Captured database schema{}",runtime["schema"].as_str().map(|schema|format!(" · {schema}")).unwrap_or_default())],"icon":"field","activationEnabled":false}));
+                    items.push(json!({"key":format!("model-runtime:{}",json!([full,table,runtime["schema"],name])),"cells":[full,"Database field",format!("{name} · {kind}{nullable}"),crate::ui_text::format("final.models.schemaSuffix","Captured database schema{suffix}",&[("suffix",&runtime["schema"].as_str().map(|schema|format!(" · {schema}")).unwrap_or_default())])],"icon":"field","activationEnabled":false}));
                 }
             }
         }
     }
-    Body::Other { kind: "tree".into(), data: json!({"searchPlaceholder":"Filter models, fields, related classes and scopes…","items":tree(items, expanded)}).to_string() }
+    let mut rendered = tree(&items, expanded);
+    present_tree(&mut rendered, &items);
+    Body::Other { kind: "tree".into(), data: json!({"backgroundPoll":crate::model_helper_parameters::load(project).ok().filter(|preferences|preferences.on_save || !preferences.post_commands.is_empty()).map(|_|json!({"intervalMs":1000,"message":{"op":"helper-automation-tick"}})),"searchPlaceholder":crate::ui_text::text("native.model_overview.b8bd4fdaeb", "Filter models, fields, related classes and scopes…"),"items":rendered}).to_string() }
 }
 
-fn tree(rows: Vec<Value>, expanded: &BTreeMap<String, bool>) -> Vec<Value> {
+fn tree(rows: &[Value], expanded: &BTreeMap<String, bool>) -> Vec<Value> {
     let mut items = Vec::new();
     for model in rows.iter().filter(|row| row["cells"][1] == "Model") {
         let full = model["cells"][0].as_str().unwrap_or_default();
@@ -696,51 +874,261 @@ mod primary_tests {
     }
     #[test]
     fn captured_schema_is_bound_to_proven_current_model_connection() {
-        use openidea_plugin::{host,mock::MockHost};
-        let mock=MockHost::install();mock.add_file("artisan","<?php");
-        for (name,connection) in [("MainPost","main"),("TenantPost","tenant")] {
+        use openidea_plugin::{host, mock::MockHost};
+        let mock = MockHost::install();
+        mock.add_file("artisan", "<?php");
+        for (name, connection) in [("MainPost", "main"), ("TenantPost", "tenant")] {
             mock.add_file(&format!("app/Models/{name}.php"),&format!("<?php namespace App\\Models; use Illuminate\\Database\\Eloquent\\Model; class {name} extends Model {{protected $table='posts';protected $connection='{connection}';}}"));
         }
         mock.add_file("app/Models/DefaultPost.php","<?php namespace App\\Models; class DefaultPost extends \\Illuminate\\Database\\Eloquent\\Model {protected $table='posts';}");
-        let project=host::projects().unwrap().remove(0);let index=Index::build(&project);
-        for connection in ["main","tenant"] {
-            let snapshot=json!({"connection":connection,"tables":[{"name":"posts","columns":[{"name":"only_this_connection","type":"string"}]}]});
-            let Body::Other{data,..}=inventory_with_schema(&index,&project,Some(&snapshot),&BTreeMap::new())else{panic!()};
-            let data:Value=serde_json::from_str(&data).unwrap();
-            let captured=data["items"].as_array().unwrap().iter().filter(|row|row["label"]=="only_this_connection").collect::<Vec<_>>();
-            assert_eq!(captured.len(),1);let parent=captured[0]["parent"].as_str().unwrap();
-            assert!(parent.contains(if connection=="main"{"MainPost"}else{"TenantPost"}));
+        let project = host::projects().unwrap().remove(0);
+        let index = Index::build(&project);
+        for connection in ["main", "tenant"] {
+            let snapshot = json!({"connection":connection,"tables":[{"name":"posts","columns":[{"name":"only_this_connection","type":"string"}]}]});
+            let Body::Other { data, .. } =
+                inventory_with_schema(&index, &project, Some(&snapshot), &BTreeMap::new())
+            else {
+                panic!()
+            };
+            let data: Value = serde_json::from_str(&data).unwrap();
+            let captured = data["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|row| row["label"] == "only_this_connection")
+                .collect::<Vec<_>>();
+            assert_eq!(captured.len(), 1);
+            let parent = captured[0]["parent"].as_str().unwrap();
+            assert!(parent.contains(if connection == "main" {
+                "MainPost"
+            } else {
+                "TenantPost"
+            }));
             assert!(!parent.contains("DefaultPost"));
         }
-        let snapshot=json!({"tables":[{"name":"posts","columns":[{"name":"unknown_capture","type":"string"}]}]});
-        let Body::Other{data,..}=inventory_with_schema(&index,&project,Some(&snapshot),&BTreeMap::new())else{panic!()};
+        let snapshot = json!({"tables":[{"name":"posts","columns":[{"name":"unknown_capture","type":"string"}]}]});
+        let Body::Other { data, .. } =
+            inventory_with_schema(&index, &project, Some(&snapshot), &BTreeMap::new())
+        else {
+            panic!()
+        };
         assert!(!data.contains("unknown_capture"));
         mock.open_editor("/project/app/Models/TenantPost.php","php","<?php namespace App\\Models; class TenantPost extends \\Illuminate\\Database\\Eloquent\\Model {protected $table='posts';protected $connection=config('tenant');}",&[]);
-        assert!(crate::eloquent_members::related_facts::connection(&index,&project,"App\\Models\\TenantPost").is_none());
+        assert!(
+            crate::eloquent_members::related_facts::connection(
+                &index,
+                &project,
+                "App\\Models\\TenantPost"
+            )
+            .is_none()
+        );
         assert!(mock.process_runs().is_empty());
     }
 
     #[test]
-    fn related_groups_and_inherited_typed_facts_use_actual_owned_sources(){
-        let mock=MockHost::install();mock.add_file("artisan","<?php");
+    fn related_groups_and_inherited_typed_facts_use_actual_owned_sources() {
+        let mock = MockHost::install();
+        mock.add_file("artisan", "<?php");
         mock.add_file("app/Models/BasePost.php","<?php namespace App\\Models; class BasePost extends \\Illuminate\\Database\\Eloquent\\Model {protected $table='posts';protected $casts=['enabled'=>'boolean'];public function getTitleAttribute(): string {return 'title';}public function scopeActive(\\Illuminate\\Database\\Eloquent\\Builder $query,bool $enabled=true): void {}} ");
-        mock.add_file("app/Models/Post.php","<?php namespace App\\Models; class Post extends BasePost {} ");
+        mock.add_file(
+            "app/Models/Post.php",
+            "<?php namespace App\\Models; class Post extends BasePost {} ",
+        );
         mock.add_file("app/PostMaker.php","<?php namespace App; class PostMaker extends \\Illuminate\\Database\\Eloquent\\Factories\\Factory {protected $model=\\App\\Models\\Post::class;}");
         mock.add_file("app/PostFactory.php","<?php namespace App; class PostFactory extends \\Illuminate\\Database\\Eloquent\\Factories\\Factory {}");
         mock.add_file("app/PostResource.php","<?php namespace App; /** @mixin \\App\\Models\\Post */ class PostResource extends \\Illuminate\\Http\\Resources\\Json\\JsonResource {}");
         mock.add_file("database/migrations/001.php","<?php Schema::create('posts',function($table){$table->string('title');$table->boolean('enabled');});");
-        let project=host::projects().unwrap().remove(0);let index=Index::build(&project);
-        let model_rows=rows(&index,&project).into_iter().filter(|row|row["cells"][0]=="App\\Models\\Post").collect::<Vec<_>>();
-        for kind in ["Factory","Resource","Migration","Accessor","Cast","Scope"]{assert!(model_rows.iter().any(|row|row["cells"][1]==kind),"missing {kind}: {model_rows:?}");}
-        assert!(!model_rows.iter().any(|row|row["cells"][2]=="App\\PostFactory"));
-        assert!(model_rows.iter().any(|row|row["cells"][1]=="Field"&&row["cells"][2].as_str().unwrap().contains("title · string (accessor)")));
-        let factory=model_rows.iter().find(|row|row["cells"][1]=="Factory").unwrap();
+        let project = host::projects().unwrap().remove(0);
+        let index = Index::build(&project);
+        let model_rows = rows(&index, &project)
+            .into_iter()
+            .filter(|row| row["cells"][0] == "App\\Models\\Post")
+            .collect::<Vec<_>>();
+        for kind in [
+            "Factory",
+            "Resource",
+            "Migration",
+            "Accessor",
+            "Cast",
+            "Scope",
+        ] {
+            assert!(
+                model_rows.iter().any(|row| row["cells"][1] == kind),
+                "missing {kind}: {model_rows:?}"
+            );
+        }
+        assert!(
+            !model_rows
+                .iter()
+                .any(|row| row["cells"][2] == "App\\PostFactory")
+        );
+        assert!(model_rows.iter().any(|row| {
+            row["cells"][1] == "Field"
+                && row["cells"][2]
+                    .as_str()
+                    .unwrap()
+                    .contains("title · string (accessor)")
+        }));
+        let factory = model_rows
+            .iter()
+            .find(|row| row["cells"][1] == "Factory")
+            .unwrap();
         mock.open_editor("/project/app/PostMaker.php","php","<?php namespace App; class PostMaker extends OtherFactory {protected $model=\\App\\Models\\Post::class;}",&[]);
-        assert!(open(&index,&project,factory["key"].as_str().unwrap()).is_err());
-        let accessor=model_rows.iter().find(|row|row["cells"][1]=="Accessor").unwrap();
-        open(&index,&project,accessor["key"].as_str().unwrap()).unwrap();
+        assert!(open(&index, &project, factory["key"].as_str().unwrap()).is_err());
+        let accessor = model_rows
+            .iter()
+            .find(|row| row["cells"][1] == "Accessor")
+            .unwrap();
+        open(&index, &project, accessor["key"].as_str().unwrap()).unwrap();
         mock.open_editor("/project/app/Models/BasePost.php","php","<?php namespace App\\Models; class BasePost extends \\Illuminate\\Database\\Eloquent\\Model {}",&[]);
-        assert!(open(&index,&project,accessor["key"].as_str().unwrap()).is_err());assert!(mock.process_runs().is_empty());
+        assert!(open(&index, &project, accessor["key"].as_str().unwrap()).is_err());
+        assert!(mock.process_runs().is_empty());
     }
+}
 
+// Presentation only; the raw rows are still used by machine kind filters,
+// freshness checks and source-action identities.
+fn present_tree(nodes: &mut [Value], rows: &[Value]) {
+    let by_key = rows
+        .iter()
+        .filter_map(|row| Some((row["key"].as_str()?, row)))
+        .collect::<BTreeMap<_, _>>();
+    for node in nodes {
+        let key = node["key"].as_str().unwrap_or_default().to_owned();
+        if let Some(raw) = key.strip_prefix("model-group:") {
+            if let Ok((_, kind)) = serde_json::from_str::<(String, String)>(raw) {
+                if let Some(count) = node["label"]
+                    .as_str()
+                    .and_then(|text| text.rsplit_once(" ("))
+                    .and_then(|(_, tail)| tail.strip_suffix(')'))
+                    .and_then(|tail| tail.parse::<usize>().ok())
+                {
+                    let label = group_label(&kind);
+                    node["label"] = crate::ui_text::format(
+                        "final.models.groupCount",
+                        "{label} ({count})",
+                        &[("label", &label), ("count", &count.to_string())],
+                    )
+                    .into();
+                }
+            }
+            continue;
+        }
+        let Some(raw) = key.strip_prefix("model-member:") else {
+            continue;
+        };
+        let Ok((_, source_key)) = serde_json::from_str::<(String, String)>(raw) else {
+            continue;
+        };
+        let Some(row) = by_key.get(source_key.as_str()) else {
+            continue;
+        };
+        let kind = row["cells"][1].as_str().unwrap_or_default();
+        let definition = row["cells"][2].as_str().unwrap_or_default();
+        let file = row["cells"][3].as_str().unwrap_or_default();
+        let (_, detail) = definition.split_once(" · ").unwrap_or((definition, ""));
+        let mut display = detail.to_owned();
+        if source_key.starts_with("model-key-unknown:") {
+            node["label"]=crate::ui_text::t("final.models.unknownKey","No proven literal key in this model · inherited/runtime configuration is not inferred").into();
+            display.clear();
+        } else if let Some(raw) = source_key.strip_prefix("model-primary:") {
+            if let Ok((_, property, value, _, _)) =
+                serde_json::from_str::<(String, String, String, u64, u64)>(raw)
+            {
+                let label = match property.as_str() {
+                    "primaryKey" => crate::ui_text::text("final.models.primaryKey", "Primary key"),
+                    "keyType" => crate::ui_text::text("final.models.keyType", "Key type"),
+                    _ => crate::ui_text::text("final.models.incrementing", "Incrementing"),
+                };
+                node["label"] = crate::ui_text::format(
+                    "final.models.primaryValue",
+                    "{label}: {value}",
+                    &[("label", label), ("value", &value)],
+                )
+                .into();
+                display = crate::ui_text::format(
+                    "final.models.declaredProperty",
+                    "declared ${property}",
+                    &[("property", &property)],
+                );
+            }
+        } else if kind == "Field" {
+            if let Some(value) = detail.strip_suffix(" (accessor)") {
+                display = crate::ui_text::format(
+                    "final.models.accessorType",
+                    "{value} (accessor)",
+                    &[("value", value)],
+                );
+            } else if let Some(value) = detail.strip_suffix(" (cast)") {
+                display = crate::ui_text::format(
+                    "final.models.castType",
+                    "{value} (cast)",
+                    &[("value", value)],
+                );
+            }
+        } else if kind == "Scope" && detail == "Source scope; signature unresolved" {
+            display = crate::ui_text::t("final.models.unresolvedScope", detail);
+        } else if matches!(kind, "Factory" | "Resource" | "Migration")
+            && detail == "declared association"
+        {
+            display = crate::ui_text::t("final.models.declaredAssociation", detail);
+        }
+        node["detail"] = if display.is_empty() {
+            file.into()
+        } else {
+            format!("{display} · {file}").into()
+        };
+    }
+}
+fn group_label(kind: &str) -> String {
+    match kind {
+        "Primary key" => crate::ui_text::t("final.models.group.primary-key", "Key configuration"),
+        "Database primary key" => crate::ui_text::t(
+            "final.models.group.database-primary-key",
+            "Database primary keys",
+        ),
+        "Field" => crate::ui_text::t("final.models.group.field", "Fields"),
+        "Cast" => crate::ui_text::t("final.models.group.cast", "Casts"),
+        "Accessor" => crate::ui_text::t("final.models.group.accessor", "Accessors"),
+        "Factory" => crate::ui_text::t("final.models.group.factory", "Factories"),
+        "Resource" => crate::ui_text::t("final.models.group.resource", "Resources"),
+        "Migration" => crate::ui_text::t("final.models.group.migration", "Migrations"),
+        "Relation" => crate::ui_text::t("final.models.group.relation", "Relations"),
+        "Scope" => crate::ui_text::t("final.models.group.scope", "Scopes"),
+        "Database field" => {
+            crate::ui_text::t("final.models.group.database-field", "Database fields")
+        }
+        _ => kind.into(),
+    }
+}
+
+#[cfg(test)]
+mod presentation_tests {
+    use super::*;
+    #[test]
+    fn localized_tree_preserves_raw_rows_source_names_and_action_keys() {
+        let host = openidea_plugin::mock::MockHost::install();
+        let model = "App\\Models\\Fields {class} 日本";
+        let raw = vec![
+            json!({"key":"model:opaque","cells":[model,"Model","opaque_table","app/Models/Fields.php"],"icon":"class"}),
+            json!({"key":"field:opaque","cells":[model,"Field","raw_{value} · string (accessor)","app/Models/Fields.php"],"icon":"field"}),
+        ];
+        let snapshot = raw.clone();
+        for locale in ["ja", "ko", "zh-CN"] {
+            host.set_setting("uiLanguage", &serde_json::to_string(locale).unwrap());
+            let mut nodes = tree(&raw, &BTreeMap::new());
+            let before = nodes.clone();
+            present_tree(&mut nodes, &raw);
+            assert_eq!(raw, snapshot);
+            assert_eq!(nodes[0]["label"], model);
+            assert_ne!(nodes[1]["label"], before[1]["label"]);
+            assert_eq!(nodes[2]["label"], "raw_{value}");
+            assert!(nodes[2]["detail"].as_str().unwrap().contains("string"));
+            assert!(!nodes[2]["detail"].as_str().unwrap().contains("accessor"));
+            for (after, before) in nodes.iter().zip(before.iter()) {
+                assert_eq!(after["key"], before["key"]);
+                assert_eq!(after["parent"], before["parent"]);
+            }
+        }
+    }
 }

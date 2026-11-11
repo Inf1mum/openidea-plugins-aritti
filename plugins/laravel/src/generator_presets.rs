@@ -1,5 +1,7 @@
 //! Native, non-executable generation presets. `${name|transform}` substitutes a
 //! declared parameter; `$${` emits a literal `${`. No PHP or shell is evaluated.
+#[path = "generator_date.rs"]
+mod date;
 use crate::generator_plan::{self, Draft, Output, Plan};
 use openidea_plugin::{Error, Project, host};
 use serde::{Deserialize, Serialize};
@@ -23,6 +25,10 @@ pub(crate) struct Config {
     partials: Vec<String>,
     #[serde(default)]
     generators: BTreeMap<String, GeneratorOptions>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    application: Option<Application>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    allow_application: Option<bool>,
     #[serde(default)]
     modules: Vec<Module>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -36,6 +42,8 @@ impl Default for Config {
             presets: Vec::new(),
             partials: Vec::new(),
             generators: BTreeMap::new(),
+            application: None,
+            allow_application: None,
             modules: Vec::new(),
             settings: None,
         }
@@ -112,6 +120,50 @@ struct Module {
     generators: BTreeMap<String, GeneratorOptions>,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields, default)]
+struct Application {
+    namespace: String,
+    source_root: String,
+    migration_root: String,
+    view_root: String,
+    test_root: String,
+    test_namespace: String,
+}
+impl Default for Application {
+    fn default() -> Self {
+        Self {
+            namespace: "App".into(),
+            source_root: "app".into(),
+            migration_root: "database/migrations".into(),
+            view_root: "resources/views".into(),
+            test_root: "tests".into(),
+            test_namespace: "Tests".into(),
+        }
+    }
+}
+fn generation_kinds() -> BTreeSet<String> {
+    generator_plan::KINDS
+        .iter()
+        .map(|kind| (*kind).into())
+        .chain(
+            crate::native_catalog::kind_ids()
+                .into_iter()
+                .map(str::to_owned),
+        )
+        .chain(
+            [
+                "nova-resource",
+                "filament-resource",
+                "filament-schema",
+                "filament-table",
+                "filament-relation-manager",
+            ]
+            .into_iter()
+            .map(str::to_owned),
+        )
+        .collect()
+}
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct GeneratorOptions {
@@ -123,11 +175,72 @@ struct GeneratorOptions {
     available_in_application: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     available_in_modules: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    base_class: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    postfix: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    template: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    label_mode: Option<crate::package_generators::LabelMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    label_prefix: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    separate: Option<bool>,
 }
 fn validate_generators(options: &BTreeMap<String, GeneratorOptions>) -> Result<(), String> {
     for (kind, option) in options {
-        if !generator_plan::KINDS.contains(&kind.as_str()) {
+        if !generation_kinds().contains(kind) {
             return Err(format!("Unknown native generator kind {kind}"));
+        }
+        if option
+            .base_class
+            .as_ref()
+            .is_some_and(|base| !generator_plan::qualified(base) || base.starts_with('\\'))
+            || option
+                .postfix
+                .as_ref()
+                .is_some_and(|postfix| !generator_plan::identifier(&format!("Generated{postfix}")))
+            || option
+                .template
+                .as_ref()
+                .is_some_and(|template| !generator_plan::relative(template))
+        {
+            return Err("Generator base class, postfix or template is invalid".into());
+        }
+        if (option.label_mode.is_some()
+            || option.label_prefix.is_some()
+            || option.separate.is_some())
+            && !matches!(
+                kind.as_str(),
+                "nova-resource"
+                    | "filament-resource"
+                    | "filament-schema"
+                    | "filament-table"
+                    | "filament-relation-manager"
+            )
+        {
+            return Err("Label/schema options apply only to Nova and Filament generators".into());
+        }
+        if option.separate.is_some() && kind != "filament-resource" {
+            return Err(
+                "Separate schema/table settings apply only to Filament resource generation".into(),
+            );
+        }
+        if option.base_class.is_some()
+            && matches!(kind.as_str(), "filament-schema" | "filament-table")
+        {
+            return Err(
+                "Standalone Filament schema/table helpers do not extend a resource base class"
+                    .into(),
+            );
+        }
+        if option
+            .label_prefix
+            .as_ref()
+            .is_some_and(|prefix| prefix.len() > 128 || prefix.chars().any(char::is_control))
+        {
+            return Err("Package field label prefix is invalid".into());
         }
         if let Some(directory) = &option.directory {
             let sample = directory
@@ -154,6 +267,7 @@ pub(crate) struct Bundle {
     config: Config,
     templates: BTreeMap<String, String>,
     evidence: String,
+    current_time: Option<String>,
 }
 
 fn variable(name: &str) -> bool {
@@ -228,6 +342,26 @@ pub(crate) fn parse(text: &str) -> Result<Config, String> {
     {
         return Err("Shared templates need at most 64 unique relative names".into());
     }
+    if let Some(application) = &config.application {
+        if !generator_plan::qualified(&application.namespace)
+            || application.namespace.starts_with('\\')
+            || !generator_plan::qualified(&application.test_namespace)
+            || application.test_namespace.starts_with('\\')
+            || [
+                &application.source_root,
+                &application.migration_root,
+                &application.view_root,
+                &application.test_root,
+            ]
+            .into_iter()
+            .any(|path| !generator_plan::relative(path))
+        {
+            return Err(
+                "Application namespaces and directories must be explicit qualified/relative names"
+                    .into(),
+            );
+        }
+    }
     validate_generators(&config.generators)?;
     let mut ids = BTreeSet::new();
     for preset in &config.presets {
@@ -250,7 +384,7 @@ pub(crate) fn parse(text: &str) -> Result<Config, String> {
         }
         let mut names = BTreeSet::new();
         for parameter in &preset.parameters {
-            if !variable(&parameter.name)
+            if (parameter.name == "CURRENT_TIME" || !variable(&parameter.name))
                 || !label(&parameter.label)
                 || !names.insert(&parameter.name)
                 || !["text", "boolean", "model", "choice"].contains(&parameter.kind.as_str())
@@ -273,7 +407,7 @@ pub(crate) fn parse(text: &str) -> Result<Config, String> {
             }
         }
         for calc in &preset.calculated {
-            if !variable(&calc.name)
+            if (calc.name == "CURRENT_TIME" || !variable(&calc.name))
                 || !names.insert(&calc.name)
                 || calc.expression.len() > 4096
                 || !calc.expression.starts_with("${")
@@ -369,6 +503,7 @@ fn load_project(project: &Project) -> Result<Bundle, Error> {
                 config: Config::default(),
                 templates: BTreeMap::new(),
                 evidence: String::new(),
+                current_time: None,
             });
         }
         Err(error) => return Err(error),
@@ -396,6 +531,7 @@ fn load_project(project: &Project) -> Result<Bundle, Error> {
         config,
         templates,
         evidence,
+        current_time: None,
     })
 }
 
@@ -405,6 +541,18 @@ pub(crate) fn template_names(config: &Config) -> BTreeSet<String> {
         .iter()
         .flat_map(|preset| preset.files.iter().map(|file| file.template.clone()))
         .chain(config.partials.iter().cloned())
+        .chain(
+            config
+                .generators
+                .values()
+                .filter_map(|option| option.template.clone()),
+        )
+        .chain(config.modules.iter().flat_map(|module| {
+            module
+                .generators
+                .values()
+                .filter_map(|option| option.template.clone())
+        }))
         .collect()
 }
 
@@ -441,6 +589,7 @@ pub(crate) fn from_parts(
         config,
         templates,
         evidence,
+        current_time: None,
     })
 }
 
@@ -468,12 +617,15 @@ pub(crate) fn save_user(
     let bundle = from_parts(config, templates)?;
     let next = json!({"config":bundle.config,"templates":bundle.templates});
     let previous = host::storage::get(USER_KEY)?;
-    let before = previous.as_deref().unwrap_or("(no user presets)");
+    let empty = crate::ui_text::t("generator.user.noPresets", "(no user presets)");
+    let before = previous.as_deref().unwrap_or(&empty);
     let after = serde_json::to_string_pretty(&next).map_err(|e| Error::Invalid(e.to_string()))?;
     if !ui_kit::prompts::confirm_exact(
-        "Save user Laravel generators?",
-        &format!(
-            "These presets apply across projects. Project definitions with the same id take precedence.\n\nPrevious user definitions:\n{before}\n\nReplacement user definitions:\n{after}\n\nSave in private plugin storage?"
+        &crate::ui_text::t("generator.user.confirm", "Save user Laravel generators?"),
+        &crate::ui_text::format(
+            "generator.user.review",
+            "These presets apply across projects. Project definitions with the same id take precedence.\n\nPrevious user definitions:\n{before}\n\nReplacement user definitions:\n{after}\n\nSave in private plugin storage?",
+            &[("before", before), ("after", &after)],
         ),
     )? {
         return Err(Error::Cancelled);
@@ -498,6 +650,22 @@ pub(crate) fn load(project: &Project) -> Result<Bundle, Error> {
         value["config"].clone(),
         serde_json::from_value(value["templates"].clone()).map_err(|_| Error::Stale)?,
     )?;
+    for option in user.config.generators.values_mut().chain(
+        user.config
+            .modules
+            .iter_mut()
+            .flat_map(|module| module.generators.values_mut()),
+    ) {
+        if let Some(template) = &mut option.template {
+            *template = format!("@user/{template}");
+        }
+    }
+    if project.config.application.is_none() {
+        project.config.application = user.config.application.take();
+    }
+    if project.config.allow_application.is_none() {
+        project.config.allow_application = user.config.allow_application;
+    }
     for (kind, option) in &user.config.generators {
         project
             .config
@@ -553,7 +721,16 @@ pub(crate) fn load(project: &Project) -> Result<Bundle, Error> {
     Ok(project)
 }
 
+pub(crate) fn capture_current_time() -> Result<String, String> {
+    date::captured_now()
+}
 impl Bundle {
+    pub(crate) fn with_current_time(mut self, current_time: &str) -> Result<Self, String> {
+        date::validate(current_time)?;
+        self.current_time = Some(current_time.into());
+        Ok(self)
+    }
+
     pub(crate) fn migration_root_for_source(&self, path: &str) -> String {
         self.config
             .modules
@@ -567,16 +744,30 @@ impl Bundle {
         if draft.use_project_settings {
             if let Some(settings) = &self.config.settings {
                 draft.settings = settings.clone();
+            } else {
+                draft.settings.controller_base = format!(
+                    "{}\\Http\\Controllers\\Controller",
+                    self.config
+                        .application
+                        .clone()
+                        .unwrap_or_default()
+                        .namespace
+                );
             }
         }
     }
     pub(crate) fn fingerprint(&self) -> String {
-        self.evidence.clone()
+        format!(
+            "{}\nclock:{}",
+            self.evidence,
+            self.current_time.as_deref().unwrap_or("")
+        )
     }
     pub(crate) fn catalog(&self) -> Value {
-        let application: BTreeMap<_, _> = generator_plan::KINDS
+        let all = generation_kinds();
+        let application: BTreeMap<_, _> = all
             .iter()
-            .map(|kind| (*kind, self.available(kind, None)))
+            .map(|kind| (kind, self.available(kind, None)))
             .collect();
         let modules: BTreeMap<_, _> = self
             .config
@@ -585,16 +776,51 @@ impl Bundle {
             .map(|module| {
                 (
                     module.id.clone(),
-                    generator_plan::KINDS
-                        .iter()
-                        .map(|kind| (*kind, self.available(kind, Some(&module.id))))
+                    all.iter()
+                        .map(|kind| (kind, self.available(kind, Some(&module.id))))
                         .collect::<BTreeMap<_, _>>(),
                 )
             })
             .collect();
-        json!({"version":1,"presets":self.config.presets,"modules":self.config.modules,"settings":self.config.settings,"generators":self.config.generators,"availability":{"application":application,"modules":modules}})
+        let package_kinds = [
+            "nova-resource",
+            "filament-resource",
+            "filament-schema",
+            "filament-table",
+            "filament-relation-manager",
+        ];
+        let package_application = package_kinds
+            .iter()
+            .filter_map(|kind| {
+                self.package_defaults(kind, None)
+                    .ok()
+                    .map(|defaults| ((*kind).to_string(), defaults))
+            })
+            .collect::<BTreeMap<_, _>>();
+        let package_modules = self
+            .config
+            .modules
+            .iter()
+            .map(|module| {
+                (
+                    module.id.clone(),
+                    package_kinds
+                        .iter()
+                        .filter_map(|kind| {
+                            self.package_defaults(kind, Some(&module.id))
+                                .ok()
+                                .map(|defaults| ((*kind).to_string(), defaults))
+                        })
+                        .collect::<BTreeMap<_, _>>(),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        json!({"version":1,"presets":self.config.presets,"modules":self.config.modules,"settings":self.config.settings,"generators":self.config.generators,"application":self.config.application.clone().unwrap_or_default(),"nativeCatalog":crate::native_catalog::catalog(),"packageDefaults":{"application":package_application,"modules":package_modules},"availability":{"application":application,"modules":modules}})
     }
-    fn available(&self, kind: &str, module_id: Option<&str>) -> bool {
+    pub(crate) fn available(&self, kind: &str, module_id: Option<&str>) -> bool {
+        if module_id.is_none() && self.config.allow_application == Some(false) {
+            return false;
+        }
         let base = self.config.generators.get(kind);
         match module_id {
             None => base
@@ -614,6 +840,340 @@ impl Bundle {
                         .unwrap_or(true)
                 }),
         }
+    }
+    pub(crate) fn package_defaults(
+        &self,
+        kind: &str,
+        module_id: Option<&str>,
+    ) -> Result<Value, String> {
+        let module = module_id
+            .map(|id| {
+                self.config
+                    .modules
+                    .iter()
+                    .find(|module| module.id == id)
+                    .ok_or("Unknown module")
+            })
+            .transpose()?;
+        let base = self.config.generators.get(kind);
+        let local = module.and_then(|module| module.generators.get(kind));
+        Ok(
+            json!({"labelMode":local.and_then(|option|option.label_mode.as_ref()).or_else(||base.and_then(|option|option.label_mode.as_ref())).cloned().unwrap_or_default(),"labelPrefix":local.and_then(|option|option.label_prefix.as_ref()).or_else(||base.and_then(|option|option.label_prefix.as_ref())).cloned().unwrap_or_else(||"fields.".into()),"separate":local.and_then(|option|option.separate).or_else(||base.and_then(|option|option.separate)).unwrap_or(true)}),
+        )
+    }
+    pub(crate) fn module_ids(&self) -> Vec<String> {
+        self.config.modules.iter().map(|module| module.id.clone()).collect()
+    }
+    pub(crate) fn native_settings(
+        &self,
+        module_id: Option<&str>,
+    ) -> Result<crate::native_catalog::Settings, String> {
+        let app = self.config.application.clone().unwrap_or_default();
+        let mut settings = crate::native_catalog::Settings::default();
+        settings.namespace = app.namespace.clone();
+        settings.application_namespace = app.namespace;
+        settings.source_root = app.source_root;
+        settings.migration_root = app.migration_root;
+        settings.application_view_root = app.view_root.clone();
+        settings.view_root = app.view_root;
+        settings.test_root = app.test_root;
+        settings.test_case = format!("{}\\TestCase", app.test_namespace);
+        settings.test_namespace = app.test_namespace;
+        let module = module_id
+            .map(|id| {
+                self.config
+                    .modules
+                    .iter()
+                    .find(|module| module.id == id)
+                    .ok_or("Unknown module")
+            })
+            .transpose()?;
+        if let Some(module) = module {
+            settings.namespace = module.namespace.clone();
+            settings.source_root = module.source_root.clone();
+            settings.migration_root = module.migration_root.clone();
+            settings.view_root = module.view_root.clone();
+            let base = module
+                .source_root
+                .strip_suffix("/app")
+                .unwrap_or(&module.source_root);
+            settings.test_root = format!("{base}/tests");
+            settings.test_namespace = format!("{}\\Tests", module.namespace);
+        }
+        if let Some(saved) = &self.config.settings {
+            settings.type_hints = saved.type_hints;
+            settings.constructor_promotion = saved.constructor_promotion;
+        }
+        for kind in generation_kinds() {
+            let base = self.config.generators.get(&kind);
+            let local = module.and_then(|module| module.generators.get(&kind));
+            let pick = |get: fn(&GeneratorOptions) -> &Option<String>| {
+                local
+                    .and_then(|option| get(option).clone())
+                    .or_else(|| base.and_then(|option| get(option).clone()))
+            };
+            let root = module
+                .map(|module| {
+                    module
+                        .source_root
+                        .strip_suffix("/app")
+                        .unwrap_or(&module.source_root)
+                })
+                .unwrap_or("");
+            let directory = pick(|option| &option.directory).map(|value| {
+                value
+                    .replace("${sourceRoot}", &settings.source_root)
+                    .replace("${moduleRoot}", root)
+            });
+            let namespace = pick(|option| &option.namespace)
+                .map(|value| value.replace("${namespace}", &settings.namespace));
+            settings.kinds.insert(
+                kind,
+                crate::native_catalog::KindSettings {
+                    directory,
+                    namespace,
+                    base_class: pick(|option| &option.base_class),
+                    postfix: pick(|option| &option.postfix),
+                    template: pick(|option| &option.template),
+                },
+            );
+        }
+        if let Some(module) = module {
+            let root = module
+                .source_root
+                .strip_suffix("/app")
+                .unwrap_or(&module.source_root);
+            for (kind, folder, suffix) in [
+                ("factory", "factories", "Factories"),
+                ("seeder", "seeders", "Seeders"),
+            ] {
+                let options = settings.kinds.entry(kind.into()).or_default();
+                if options.directory.is_none() {
+                    options.directory = if kind == "factory" {
+                        module.factory_root.clone()
+                    } else {
+                        module.seeder_root.clone()
+                    }
+                    .or_else(|| Some(format!("{root}/database/{folder}")));
+                }
+                if options.namespace.is_none() {
+                    options.namespace = if kind == "factory" {
+                        module.factory_namespace.clone()
+                    } else {
+                        module.seeder_namespace.clone()
+                    }
+                    .or_else(|| Some(format!("{}\\Database\\{suffix}", module.namespace)));
+                }
+            }
+        }
+        let mut defaults = self.config.settings.clone().unwrap_or_default();
+        if self.config.settings.is_none() {
+            defaults.controller_base = format!(
+                "{}\\Http\\Controllers\\Controller",
+                settings.application_namespace
+            );
+        }
+        for (kind, base, postfix) in [
+            ("model", Some(defaults.model_base), defaults.model_postfix),
+            (
+                "controller",
+                Some(defaults.controller_base.clone()),
+                defaults.controller_postfix.clone(),
+            ),
+            (
+                "resource-controller",
+                Some(defaults.controller_base),
+                defaults.controller_postfix,
+            ),
+            ("policy", defaults.policy_base, defaults.policy_postfix),
+            (
+                "request",
+                Some(defaults.request_base),
+                defaults.request_postfix,
+            ),
+            (
+                "resource",
+                Some(defaults.resource_base),
+                defaults.resource_postfix,
+            ),
+            (
+                "factory",
+                Some(defaults.factory_base),
+                defaults.factory_postfix,
+            ),
+            (
+                "seeder",
+                Some(defaults.seeder_base),
+                defaults.seeder_postfix,
+            ),
+        ] {
+            let option = settings.kinds.entry(kind.into()).or_default();
+            let stock = match kind {
+                "model" => Some("Illuminate\\Database\\Eloquent\\Model".to_string()),
+                "controller" | "resource-controller" => Some(format!(
+                    "{}\\Http\\Controllers\\Controller",
+                    settings.application_namespace
+                )),
+                "request" => Some("Illuminate\\Foundation\\Http\\FormRequest".into()),
+                "resource" => Some("Illuminate\\Http\\Resources\\Json\\JsonResource".into()),
+                "factory" => Some("Illuminate\\Database\\Eloquent\\Factories\\Factory".into()),
+                "seeder" => Some("Illuminate\\Database\\Seeder".into()),
+                _ => None,
+            };
+            if option.base_class.is_none() && base != stock {
+                option.base_class = base;
+            }
+            if option.postfix.is_none() {
+                option.postfix = Some(postfix);
+            }
+        }
+        settings.templates = self.templates.clone();
+        Ok(settings)
+    }
+    pub(crate) fn render_package_output(
+        &self,
+        kind: &str,
+        module_id: Option<&str>,
+        generated_class: &str,
+        model: &str,
+        table: &str,
+        generated: &str,
+        type_hints: bool,
+    ) -> Result<String, String> {
+        if !generator_plan::qualified(generated_class) || !generator_plan::qualified(model) {
+            return Err("Generated/model identities must be qualified classes".into());
+        }
+        let module = module_id
+            .map(|id| {
+                self.config
+                    .modules
+                    .iter()
+                    .find(|module| module.id == id)
+                    .ok_or("Unknown module")
+            })
+            .transpose()?;
+        let template = module
+            .and_then(|module| module.generators.get(kind))
+            .and_then(|options| options.template.as_ref())
+            .or_else(|| {
+                self.config
+                    .generators
+                    .get(kind)
+                    .and_then(|options| options.template.as_ref())
+            });
+        let Some(template) = template else {
+            return Ok(generated.into());
+        };
+        let expanded = expand_template(
+            template,
+            &self.templates,
+            &template_names(&self.config),
+            &BTreeMap::from([("typeHints".into(), Value::Bool(type_hints))]),
+            &mut Vec::new(),
+            &mut ExpansionBudget::default(),
+        )?;
+        if table.is_empty() && expanded.contains("${table}") {
+            return Err(
+                "A package template table slot requires a captured or indexed table name".into(),
+            );
+        }
+        let (namespace, class) = generated_class
+            .trim_start_matches('\\')
+            .rsplit_once('\\')
+            .ok_or("Generated class requires namespace")?;
+        generator_plan::render_generated_template(
+            &expanded,
+            generated,
+            namespace,
+            class,
+            model.trim_start_matches('\\'),
+            table,
+        )
+    }
+    pub(crate) fn render_related_output(
+        &self,
+        draft: &Draft,
+        kind: &str,
+        module_id: Option<&str>,
+        generated_class: &str,
+        model: &str,
+        generated: &str,
+    ) -> Result<String, String> {
+        if !generator_plan::qualified(generated_class) || !generator_plan::qualified(model) {
+            return Err("Generated/model identities must be qualified classes".into());
+        }
+        let mut context = draft.clone();
+        context.related = [kind.into()].into_iter().collect();
+        let templates = self.generated_templates(&context, module_id)?;
+        let Some(template) = templates.get(kind) else {
+            return Ok(generated.to_string());
+        };
+        let (namespace, class) = generated_class
+            .trim_start_matches('\\')
+            .rsplit_once('\\')
+            .ok_or("Generated class requires namespace")?;
+        generator_plan::render_generated_template(
+            template,
+            generated,
+            namespace,
+            class,
+            model.trim_start_matches('\\'),
+            &draft.table,
+        )
+    }
+    pub(crate) fn apply_application(&self, draft: &mut Draft) {
+        let application = self.config.application.clone().unwrap_or_default();
+        draft.namespace = application.namespace;
+        draft.source_root = application.source_root;
+        draft.migration_root = application.migration_root;
+    }
+    pub(crate) fn generated_templates(
+        &self,
+        draft: &Draft,
+        module_id: Option<&str>,
+    ) -> Result<BTreeMap<String, String>, String> {
+        let module = module_id
+            .map(|id| {
+                self.config
+                    .modules
+                    .iter()
+                    .find(|module| module.id == id)
+                    .ok_or("Unknown module")
+            })
+            .transpose()?;
+        let values = BTreeMap::from([
+            ("timestamps".into(), Value::Bool(draft.timestamps)),
+            ("softDeletes".into(), Value::Bool(draft.soft_deletes)),
+            ("typeHints".into(), Value::Bool(draft.settings.type_hints)),
+        ]);
+        let registered = template_names(&self.config);
+        let mut budget = ExpansionBudget::default();
+        let mut result = BTreeMap::new();
+        for kind in std::iter::once("model").chain(draft.related.iter().map(String::as_str)) {
+            let name = module
+                .and_then(|module| module.generators.get(kind))
+                .and_then(|option| option.template.as_ref())
+                .or_else(|| {
+                    self.config
+                        .generators
+                        .get(kind)
+                        .and_then(|option| option.template.as_ref())
+                });
+            if let Some(name) = name {
+                result.insert(
+                    kind.into(),
+                    expand_template(
+                        name,
+                        &self.templates,
+                        &registered,
+                        &values,
+                        &mut Vec::new(),
+                        &mut budget,
+                    )?,
+                );
+            }
+        }
+        Ok(result)
     }
     pub(crate) fn apply_generator_options(
         &self,
@@ -672,6 +1232,45 @@ impl Bundle {
             let namespace = local
                 .and_then(|option| option.namespace.as_ref())
                 .or_else(|| base.and_then(|option| option.namespace.as_ref()));
+            let selected_base = local
+                .and_then(|option| option.base_class.as_ref())
+                .or_else(|| base.and_then(|option| option.base_class.as_ref()));
+            let selected_postfix = local
+                .and_then(|option| option.postfix.as_ref())
+                .or_else(|| base.and_then(|option| option.postfix.as_ref()));
+            if let Some(value) = selected_base {
+                match *kind {
+                    "model" => draft.settings.model_base = value.clone(),
+                    "controller" => draft.settings.controller_base = value.clone(),
+                    "policy" => draft.settings.policy_base = Some(value.clone()),
+                    "request" => draft.settings.request_base = value.clone(),
+                    "resource" => draft.settings.resource_base = value.clone(),
+                    "factory" => draft.settings.factory_base = value.clone(),
+                    "seeder" => draft.settings.seeder_base = value.clone(),
+                    "migration" => {
+                        return Err(
+                            "Anonymous migration bases are provided by the migration template"
+                                .into(),
+                        );
+                    }
+                    _ => {}
+                }
+            }
+            if let Some(value) = selected_postfix {
+                match *kind {
+                    "model" => draft.settings.model_postfix = value.clone(),
+                    "controller" => draft.settings.controller_postfix = value.clone(),
+                    "policy" => draft.settings.policy_postfix = value.clone(),
+                    "request" => draft.settings.request_postfix = value.clone(),
+                    "resource" => draft.settings.resource_postfix = value.clone(),
+                    "factory" => draft.settings.factory_postfix = value.clone(),
+                    "seeder" => draft.settings.seeder_postfix = value.clone(),
+                    "migration" if !value.is_empty() => {
+                        return Err("Anonymous migrations do not have a class postfix".into());
+                    }
+                    _ => {}
+                }
+            }
             if directory.is_none() && namespace.is_none() {
                 continue;
             }
@@ -770,7 +1369,8 @@ impl Bundle {
         }) {
             return Err("Unknown or calculated generator input supplied".into());
         }
-        if module_id.is_none() && !preset.available_in_application
+        if module_id.is_none()
+            && (!preset.available_in_application || self.config.allow_application == Some(false))
             || module_id.is_some()
                 && (!preset.available_in_modules
                     || preset
@@ -781,6 +1381,9 @@ impl Bundle {
             return Err("Preset is unavailable in the selected application/module".into());
         }
         let mut values = BTreeMap::new();
+        if let Some(current_time) = &self.current_time {
+            values.insert("CURRENT_TIME".into(), Value::String(current_time.clone()));
+        }
         for parameter in &preset.parameters {
             let value = inputs
                 .get(&parameter.name)
@@ -1137,6 +1740,9 @@ fn word_ranges(value: &str) -> Result<Vec<std::ops::Range<usize>>, String> {
     }
     Ok(ranges)
 }
+pub(crate) fn snake_name(value: &str) -> Result<String, String> {
+    Ok(words(value)?.join("_"))
+}
 fn words(value: &str) -> Result<Vec<String>, String> {
     Ok(word_ranges(value)?
         .into_iter()
@@ -1259,7 +1865,7 @@ fn inflect_word(word: &str, plural: bool) -> String {
         word.into()
     }
 }
-fn inflect(value: &str, plural: bool) -> Result<String, String> {
+pub(crate) fn inflect(value: &str, plural: bool) -> Result<String, String> {
     let ranges = word_ranges(value)?;
     let last = ranges.last().ok_or("Name contains no words")?;
     let word = &value[last.clone()];
@@ -1283,18 +1889,76 @@ fn inflect(value: &str, plural: bool) -> Result<String, String> {
     ))
 }
 
+/// Only an escaped pipe is special: PHP FQN backslashes and other argument
+/// bytes remain literal. Work is bounded before transformation or allocation.
+fn expression_parts(expression: &str) -> Result<Vec<String>, String> {
+    if expression.len() > 4096 {
+        return Err("Expressions exceed 4096 bytes".into());
+    }
+    let mut parts = vec![String::new()];
+    let mut chars = expression.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\\' && chars.peek() == Some(&'|') {
+            chars.next();
+            parts.last_mut().unwrap().push('|');
+        } else if ch == '|' {
+            if parts.len() >= 65 {
+                return Err("Expressions allow at most 64 transforms".into());
+            }
+            parts.push(String::new());
+        } else {
+            parts.last_mut().unwrap().push(ch);
+        }
+    }
+    Ok(parts)
+}
+fn first_case(text: &str, upper: bool) -> String {
+    let mut chars = text.chars();
+    let Some(first) = chars.next() else {
+        return String::new();
+    };
+    let first = if upper {
+        first.to_uppercase().collect::<String>()
+    } else {
+        first.to_lowercase().collect()
+    };
+    format!("{first}{}", chars.as_str())
+}
 fn expression_value(expression: &str, values: &BTreeMap<String, Value>) -> Result<Value, String> {
-    let mut parts = expression.split('|');
-    let name = parts.next().unwrap_or_default();
+    let parts = expression_parts(expression)?;
+    let name = &parts[0];
     let mut value = values
         .get(name)
         .cloned()
         .ok_or_else(|| format!("Unknown input {name}"))?;
-    for transform in parts {
+    for transform in parts.iter().skip(1) {
+        let (kind, argument) = transform
+            .split_once(':')
+            .map(|(kind, arg)| (kind, Some(arg)))
+            .unwrap_or((transform.as_str(), None));
+        if argument.is_some()
+            && !matches!(
+                kind,
+                "trim"
+                    | "trimStart"
+                    | "trimEnd"
+                    | "replace"
+                    | "removePrefix"
+                    | "removeSuffix"
+                    | "convertToClassName"
+                    | "format"
+            )
+        {
+            return Err(format!("Transform {kind} does not accept arguments"));
+        }
         let text = value
             .as_str()
             .ok_or("Name transforms require a string input")?;
-        value = Value::String(match transform {
+        value = Value::String(match kind {
+            "upperCase" => text.to_uppercase(),
+            "lowerCase" => text.to_lowercase(),
+            "upperFirst" => first_case(text, true),
+            "lowerFirst" => first_case(text, false),
             "className" => text
                 .trim_start_matches('\\')
                 .rsplit('\\')
@@ -1302,36 +1966,141 @@ fn expression_value(expression: &str, values: &BTreeMap<String, Value>) -> Resul
                 .filter(|name| generator_plan::identifier(name))
                 .ok_or("Invalid class name")?
                 .into(),
-            "namespace" => {
-                if !generator_plan::qualified(text) {
-                    return Err("Invalid qualified class name".into());
+            "namespace" | "namespaceString" => {
+                if text.is_empty() && kind == "namespaceString" {
+                    String::new()
+                } else {
+                    if !generator_plan::qualified(text) {
+                        return Err("Invalid qualified class name".into());
+                    }
+                    let namespace = text
+                        .trim_start_matches('\\')
+                        .rsplit_once('\\')
+                        .map(|(namespace, _)| namespace)
+                        .unwrap_or("");
+                    if kind == "namespaceString" && !namespace.is_empty() {
+                        format!("\nnamespace {namespace};\n")
+                    } else {
+                        namespace.into()
+                    }
                 }
-                text.trim_start_matches('\\')
-                    .rsplit_once('\\')
-                    .map(|(namespace, _)| namespace)
-                    .unwrap_or("")
-                    .into()
             }
-            "snake" => words(text)?.join("_"),
-            "kebab" => words(text)?.join("-"),
-            "studly" => words(text)?.iter().map(|word| studly(word)).collect(),
-            "camel" => {
-                let parts = words(text)?;
+            "useClassString" => {
+                if text.is_empty() {
+                    String::new()
+                } else {
+                    if !generator_plan::qualified(text) {
+                        return Err("Invalid qualified class name".into());
+                    }
+                    format!("use {};", text.trim_start_matches('\\'))
+                }
+            }
+            "snake" | "snakeCase" => words(text)?.join("_"),
+            "upperSnakeCase" => words(text)?.join("_").to_uppercase(),
+            "kebab" | "kebabCase" => words(text)?.join("-"),
+            "dotCase" => words(text)?.join("."),
+            "wordsCase" => words(text)?.join(" "),
+            "titleCase" => word_ranges(text)?
+                .into_iter()
+                .map(|range| {
+                    let word = &text[range];
+                    if word
+                        .chars()
+                        .filter(|ch| ch.is_alphabetic())
+                        .all(char::is_uppercase)
+                    {
+                        word.into()
+                    } else {
+                        studly(&word.to_lowercase())
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" "),
+            "sentenceCase" => first_case(&words(text)?.join(" "), true),
+            "studly" | "upperCamelCase" => words(text)?.iter().map(|word| studly(word)).collect(),
+            "camel" | "lowerCamelCase" => {
+                let words = words(text)?;
                 format!(
                     "{}{}",
-                    parts[0],
-                    parts[1..]
+                    words[0],
+                    words[1..]
                         .iter()
                         .map(|word| studly(word))
                         .collect::<String>()
                 )
             }
-            "plural" | "singular" => inflect(text, transform == "plural")?,
+            "trim" | "trimStart" | "trimEnd" => {
+                let trim = |ch: char| {
+                    argument
+                        .map(|chars| chars.contains(ch))
+                        .unwrap_or_else(|| ch.is_whitespace())
+                };
+                match kind {
+                    "trimStart" => text.trim_start_matches(trim),
+                    "trimEnd" => text.trim_end_matches(trim),
+                    _ => text.trim_matches(trim),
+                }
+                .into()
+            }
+            "replace" => {
+                let (old, new) = argument
+                    .and_then(|arg| arg.split_once(','))
+                    .ok_or("replace requires old,new")?;
+                let matches = if old.is_empty() {
+                    text.chars().count() + 1
+                } else {
+                    text.matches(old).count()
+                };
+                let bytes = text
+                    .len()
+                    .checked_add(
+                        matches
+                            .checked_mul(new.len())
+                            .ok_or("Replacement exceeds value budget")?,
+                    )
+                    .ok_or("Replacement exceeds value budget")?;
+                if bytes > LIMIT {
+                    return Err("Replacement exceeds value budget".into());
+                }
+                text.replace(old, new)
+            }
+            "removePrefix" => text
+                .strip_prefix(argument.ok_or("removePrefix requires an argument")?)
+                .unwrap_or(text)
+                .into(),
+            "removeSuffix" => text
+                .strip_suffix(argument.ok_or("removeSuffix requires an argument")?)
+                .unwrap_or(text)
+                .into(),
+            "convertToClassName" => {
+                let replacement = argument.unwrap_or("_");
+                if replacement.chars().count() != 1 {
+                    return Err("convertToClassName replacement must be one character".into());
+                }
+                let mut converted = String::new();
+                for ch in text.chars() {
+                    if ch.is_alphanumeric() || ch == '_' {
+                        converted.push(ch)
+                    } else {
+                        converted.push_str(replacement)
+                    }
+                }
+                converted
+                    .trim_start_matches(|ch: char| ch == '_' || ch.is_whitespace())
+                    .into()
+            }
+            "plural" | "singular" => inflect(text, kind == "plural")?,
+            "format" => date::format(text, argument.ok_or("format requires a date pattern")?)?,
             "php" => format!("'{}'", text.replace('\\', "\\\\").replace('\'', "\\'")),
-            _ => return Err(format!("Unsupported transform {transform}")),
+            _ => return Err(format!("Unsupported transform {kind}")),
         });
-        if value.as_str().is_some_and(|value| value.len() > LIMIT) {
-            return Err("Calculated transformation exceeds the bounded value limit".into());
+        if value
+            .as_str()
+            .is_some_and(|value| value.len() > LIMIT || value.contains('\0'))
+        {
+            return Err(
+                "Calculated transformation exceeds the bounded value limit or contains NUL".into(),
+            );
         }
     }
     Ok(value)
@@ -1365,6 +2134,8 @@ fn substitute(
         };
         if !path
             && !expression.ends_with("|php")
+            && !expression.ends_with("|namespaceString")
+            && !expression.ends_with("|useClassString")
             && text
                 .chars()
                 .any(|c| !(c.is_ascii_alphanumeric() || matches!(c, '_' | '\\' | '/' | '-' | '.')))
@@ -1387,6 +2158,149 @@ fn substitute(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn documented_mutators_compose_unicode_acronyms_fqn_helpers_and_escaped_arguments() {
+        for (input, expression, expected) in [
+            ("OrderHTTPKey", "value|upperCase", "ORDERHTTPKEY"),
+            ("ORDERKey", "value|lowerCase", "orderkey"),
+            (
+                "HTTPResponse_order-item",
+                "value|snakeCase",
+                "http_response_order_item",
+            ),
+            ("OrderHTTPKey", "value|upperSnakeCase", "ORDER_HTTP_KEY"),
+            ("OrderHTTPKey", "value|dotCase", "order.http.key"),
+            ("OrderHTTPKey", "value|wordsCase", "order http key"),
+            ("OrderHTTPKey", "value|titleCase", "Order HTTP Key"),
+            ("OrderHTTPKey", "value|sentenceCase", "Order http key"),
+            ("order_http_key", "value|upperCamelCase", "OrderHttpKey"),
+            ("OrderHTTPKey", "value|lowerCamelCase", "orderHttpKey"),
+            ("éclairAPI", "value|upperFirst", "ÉclairAPI"),
+            ("ÉclairAPI", "value|lowerFirst", "éclairAPI"),
+            ("\u{2003} message \t", "value|trim", "message"),
+            ("||message||", r"value|trim:\|", "message"),
+            ("__message__", "value|trimStart:_", "message__"),
+            ("__message__", "value|trimEnd:_", "__message"),
+            ("foo|foo", r"value|replace:foo,bar|replace:\|,_", "bar_bar"),
+            (
+                "PrefixOrderSuffix",
+                "value|removePrefix:Prefix|removeSuffix:Suffix",
+                "Order",
+            ),
+            (
+                "__ hello%éclair",
+                "value|convertToClassName",
+                "hello_éclair",
+            ),
+            ("report%item", "value|convertToClassName:-", "report-item"),
+            (
+                "\\Domain\\Sales\\Order",
+                "value|namespaceString",
+                "\nnamespace Domain\\Sales;\n",
+            ),
+            (
+                "\\Domain\\Sales\\Order",
+                "value|useClassString",
+                "use Domain\\Sales\\Order;",
+            ),
+            ("Order", "value|namespaceString", ""),
+            ("", "value|useClassString", ""),
+        ] {
+            let values = BTreeMap::from([("value".into(), json!(input))]);
+            assert_eq!(
+                expression_value(expression, &values).unwrap(),
+                expected,
+                "{expression}"
+            );
+        }
+        let values = BTreeMap::from([("value".into(), json!("A\\B; execute()"))]);
+        assert!(expression_value("value|useClassString", &values).is_err());
+        for expression in [
+            "value|replace:missing",
+            "value|upperCase:unexpected",
+            "value|format:unknown",
+            "value|removePrefix",
+            "value|convertToClassName:two",
+        ] {
+            assert!(
+                expression_value(expression, &values).is_err(),
+                "{expression}"
+            );
+        }
+    }
+    #[test]
+    fn package_options_reject_inapplicable_settings_and_capture_principal_templates() {
+        for generators in [
+            json!({"nova-resource":{"separate":true}}),
+            json!({"filament-table":{"baseClass":"App\\Resource"}}),
+            json!({"filament-schema":{"separate":false}}),
+        ] {
+            assert!(
+                from_parts(
+                    json!({"version":1,"generators":generators}),
+                    BTreeMap::new()
+                )
+                .is_err()
+            );
+        }
+        let bundle=from_parts(json!({"version":1,"partials":["shared.php"],"generators":{"filament-resource":{"template":"resource.php","separate":false}}}),BTreeMap::from([("resource.php".into(),"${#include shared.php}\n${generated}".into()),("shared.php".into(),"// reviewed resource template".into())])).unwrap();
+        let generated = "<?php namespace App\\Filament; class PostResource {}";
+        let output = bundle
+            .render_package_output(
+                "filament-resource",
+                None,
+                "App\\Filament\\PostResource",
+                "App\\Models\\Post",
+                "posts",
+                generated,
+                true,
+            )
+            .unwrap();
+        assert_eq!(
+            output,
+            format!("// reviewed resource template\n{generated}")
+        );
+        assert_eq!(
+            bundle
+                .render_package_output(
+                    "nova-resource",
+                    None,
+                    "App\\Nova\\Post",
+                    "App\\Models\\Post",
+                    "posts",
+                    generated,
+                    true
+                )
+                .unwrap(),
+            generated
+        );
+    }
+    #[test]
+    fn captured_current_time_is_pure_bound_evidence_and_rendered_consistently() {
+        let bundle=from_parts(json!({"version":1,"presets":[{"id":"dated","label":"Dated","calculated":[{"name":"stamp","expression":"${CURRENT_TIME|format:yyyyMMdd_HHmmss}"}],"files":[{"path":"app/Generated_${stamp}.php","template":"dated.php"}]}]}),BTreeMap::from([("dated.php".into(),"<?php // ${CURRENT_TIME|format:yyyy-MM-dd} stamp ${stamp}".into())])).unwrap();
+        assert!(
+            bundle.render("dated", &BTreeMap::new(), None).is_err(),
+            "a pure bundle never reads the clock"
+        );
+        let first = bundle
+            .clone()
+            .with_current_time("2024-02-29 23:59:58")
+            .unwrap();
+        let other = bundle.with_current_time("2024-03-01 00:00:00").unwrap();
+        let plan = first.render("dated", &BTreeMap::new(), None).unwrap();
+        assert_eq!(plan.files[0].path, "app/Generated_20240229_235958.php");
+        assert_eq!(
+            plan.files[0].text,
+            "<?php // 2024-02-29 stamp 20240229_235958"
+        );
+        assert_eq!(first.render("dated", &BTreeMap::new(), None).unwrap(), plan);
+        assert_ne!(first.fingerprint(), other.fingerprint());
+        let values = BTreeMap::from([("CURRENT_TIME".into(), json!("2024-02-29 23:59:58"))]);
+        assert_eq!(
+            expression_value("CURRENT_TIME|format:dd.MM.yyyy 'at' HH:mm", &values).unwrap(),
+            "29.02.2024 at 23:59"
+        );
+    }
     #[test]
     fn compound_inflection_preserves_case_separators_and_utf8() {
         for (input, plural, expected) in [
@@ -1524,6 +2438,24 @@ mod tests {
                 String::from_utf8_lossy(&result.stderr)
             );
         }
+        let dated = from_parts(json!({"version":1,"presets":[{"id":"service","label":"Service","parameters":[{"name":"model","label":"Model","type":"model","default":"Domain\\Sales\\Order"},{"name":"owner","label":"Owner","type":"model","default":"App\\Generated\\OrderService"}],"files":[{"path":"app/Generated/${owner|className}.php","template":"service.php"}]}]}), BTreeMap::from([("service.php".into(), "<?php\n${owner|namespaceString}\n${model|useClassString}\nfinal class ${owner|className} { public const CREATED = ${CURRENT_TIME|format:yyyy-MM-dd'T'HH:mm:ssXXX|php}; public const LABEL = ${model|className|plural|titleCase|php}; }".into())])).unwrap().with_current_time("2024-02-29 23:59:58").unwrap();
+        let output = dated.render("service", &BTreeMap::new(), None).unwrap();
+        let file = std::env::temp_dir().join(format!(
+            "laravel-preset-date-fqn-lint-{}.php",
+            std::process::id()
+        ));
+        std::fs::write(&file, &output.files[0].text).unwrap();
+        let result = std::process::Command::new("php")
+            .arg("-l")
+            .arg(&file)
+            .output()
+            .unwrap();
+        std::fs::remove_file(file).unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
     }
     #[test]
     fn shared_template_source_work_is_bounded_even_when_output_is_skipped() {
@@ -1820,7 +2752,7 @@ mod tests {
     }
     fn bundle() -> Bundle {
         let config=parse(r#"{"version":1,"modules":[{"id":"blog","label":"Blog","namespace":"Modules\\Blog","sourceRoot":"Modules/Blog/app","migrationRoot":"Modules/Blog/database/migrations","viewRoot":"Modules/Blog/resources/views"}],"presets":[{"id":"repository","label":"Repository","parameters":[{"name":"model","label":"Model","type":"model"},{"name":"description","label":"Description","type":"text","default":"John's repository"},{"name":"enabled","label":"Enabled","type":"boolean","default":true}],"calculated":[{"name":"class","expression":"${model|className}"},{"name":"table","expression":"${class|snake|plural}"}],"files":[{"path":"${module.sourceRoot}/Repositories/${class}Repository.php","template":"repository.php"},{"path":"${module.viewRoot}/${table}.blade.php","template":"view.blade.php"}]}]}"#).unwrap();
-        Bundle{config,templates:BTreeMap::from([("repository.php".into(),"<?php namespace ${module.namespace}\\Repositories; class ${class}Repository { public $label = ${description|php}; public $enabled = ${enabled}; }".into()),("view.blade.php".into(),"<div>{{ $title }}</div> $${literal}".into())]),evidence:"fixture".into()}
+        Bundle{config,templates:BTreeMap::from([("repository.php".into(),"<?php namespace ${module.namespace}\\Repositories; class ${class}Repository { public $label = ${description|php}; public $enabled = ${enabled}; }".into()),("view.blade.php".into(),"<div>{{ $title }}</div> $${literal}".into())]),evidence:"fixture".into(),current_time:None}
     }
     #[test]
     fn renders_multiple_files_calculations_escaped_literals_and_modules() {

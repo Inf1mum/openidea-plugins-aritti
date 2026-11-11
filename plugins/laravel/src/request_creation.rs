@@ -199,7 +199,7 @@ fn composer(project: &Project, root: &str, candidate: &Candidate) -> Result<Mapp
         let object = section.as_object().ok_or(Error::Stale)?;
         for source in ["files","classmap"] {
             if object.get(source).is_some_and(|v| !v.as_array().is_some_and(|v|v.is_empty())) {
-                return Err(Error::Invalid("Opaque Composer files/classmap loading is outside this source namespace subset.".into()));
+                return Err(Error::Invalid(crate::ui_text::t("requestCreation.error1","Opaque Composer files/classmap loading is outside this source namespace subset.")));
             }
         }
         if object.contains_key("psr-0") { return Err(Error::Stale); }
@@ -208,15 +208,15 @@ fn composer(project: &Project, root: &str, candidate: &Candidate) -> Result<Mapp
                 let lower = prefix.to_ascii_lowercase();
                 if prefix.is_empty() || target_namespace.starts_with(&lower) || lower.starts_with(&target_namespace) {
                     if key != "autoload" || prefix != &candidate.prefix || !namespace(prefix) || selected.is_some() {
-                        return Err(Error::Invalid("Overlapping/default/development/case-variant namespace mappings need a separate autoloader workflow.".into()));
+                        return Err(Error::Invalid(crate::ui_text::t("requestCreation.error2","Overlapping/default/development/case-variant namespace mappings need a separate autoloader workflow.")));
                     }
                     selected = path.as_str().and_then(source_root);
-                    if selected.is_none() { return Err(Error::Invalid("The selected PSR-4 source root must be one normalized literal project-relative directory.".into())); }
+                    if selected.is_none() { return Err(Error::Invalid(crate::ui_text::t("requestCreation.error3","The selected PSR-4 source root must be one normalized literal project-relative directory."))); }
                 }
             }
         }
     }
-    Ok(Mapping {source:selected.ok_or("Composer must declare one exact literal production PSR-4 prefix for this Http\\Requests namespace.")?,prefix:candidate.prefix.clone(),stamp:text})
+    Ok(Mapping {source:selected.ok_or(crate::ui_text::text("requestCreation.mappingRequired","Composer must declare one exact literal production PSR-4 prefix for this Http\\Requests namespace."))?,prefix:candidate.prefix.clone(),stamp:text})
 }
 fn validate(project: &Project, root: &str, doc: &Document, candidate: &Candidate) -> Result<(String,Mapping),Error> {
     if project.read_file(&doc.path)? != doc.text { return Err(Error::Stale); }
@@ -237,14 +237,14 @@ fn validate(project: &Project, root: &str, doc: &Document, candidate: &Candidate
     }
     // A root-wide bounded scan also catches case-equivalent directory spellings.
     let paths = project.find_files(&format!("{}/**/*.php",mapping.source),4097)?;
-    if paths.len() >= 4097 { return Err(Error::Invalid("Source-root collision scan is incomplete.".into())); }
+    if paths.len() >= 4097 { return Err(Error::Invalid(crate::ui_text::t("requestCreation.error4","Source-root collision scan is incomplete."))); }
     if paths.iter().any(|path| !crate::hover::canonical(path) || !crate::under(path,root)) { return Err(Error::Stale); }
-    if paths.iter().any(|path| path.eq_ignore_ascii_case(&target)) { return Err(Error::Invalid("A case-equivalent request target already exists.".into())); }
+    if paths.iter().any(|path| path.eq_ignore_ascii_case(&target)) { return Err(Error::Invalid(crate::ui_text::t("requestCreation.error5","A case-equivalent request target already exists."))); }
     Ok((target,mapping))
 }
 pub(crate) fn promotion_namespace(prefix:&str)->bool {namespace(prefix)}
 pub(crate) fn validate_promotion(project:&Project,root:&str,doc:&Document,name:&str,prefix:&str)->Result<(String,String,String),Error> {
-    if !class_name(name) || !namespace(prefix) {return Err(Error::Invalid("Use a supported ASCII NameRequest and explicit mapped namespace.".into()));}
+    if !class_name(name) || !namespace(prefix) {return Err(Error::Invalid(crate::ui_text::t("requestCreation.error6","Use a supported ASCII NameRequest and explicit mapped namespace.")));}
     let (target,mapping)=validate(project,root,doc,&Candidate{name:name.into(),prefix:prefix.into(),begin:0,end:0})?;
     Ok((target,mapping.stamp,mapping.source))
 }
@@ -305,7 +305,7 @@ pub(crate) fn actions(main: &mut Main, doc: &Document, selection: Range) -> Vec<
         },
     );
     vec![FileAction {
-        title: format!("Create reviewed mapped FormRequest {}…",candidate.name),
+        title: crate::ui_text::format("requestCreation.action","Create reviewed mapped FormRequest {name}…",&[("name",&candidate.name)]),
         kind: Some("quickfix".into()),
         data: Some(key),
         ..Default::default()
@@ -335,11 +335,8 @@ pub(crate) fn resolve(
             "\n"
         },
     );
-    let preview = format!(
-        "Project: {}\nSource: {}\nDocument version: {}\nResolved source type: \\{}Http\\Requests\\{}\n\nVerified production Composer mapping: {} → {}/\nCreate (no overwrite): {}\n\nExact new contents:\n{}\n\nSource imports, variables and controller code are unchanged. Authorization deliberately returns false and validation rules are empty; fill both manually before using this request. This is a conventional missing-type scaffold, not promotion/extraction of validation or authorization policy. Installed framework/PHP/autoloader state and custom generation settings are not resolved. No Artisan/PHP/process is executed.\n\nApply one undoable file creation?",
-        p.root, doc.path, doc.version, p.candidate.prefix, p.candidate.name, stamp.prefix, stamp.source, target, text
-    );
-    if !ui_kit::prompts::confirm_exact("Create conventional FormRequest?", &preview)? {
+    let preview = crate::ui_text::format("requestCreation.review","Project: {root}\nSource: {source}\nDocument version: {version}\nResolved source type: \\{prefix}Http\\Requests\\{name}\n\nVerified production Composer mapping: {mapping} → {directory}/\nCreate (no overwrite): {target}\n\nExact new contents:\n{contents}\n\nSource imports, variables and controller code are unchanged. Authorization deliberately returns false and validation rules are empty; fill both manually before using this request. This is a conventional missing-type scaffold, not promotion/extraction of validation or authorization policy. Installed framework/PHP/autoloader state and custom generation settings are not resolved. No Artisan/PHP/process is executed.\n\nApply one undoable file creation?",&[("root",&p.root),("source",&doc.path),("version",&doc.version.to_string()),("prefix",&p.candidate.prefix),("name",&p.candidate.name),("mapping",&stamp.prefix),("directory",&stamp.source),("target",&target),("contents",&text)]);
+    if !ui_kit::prompts::confirm_exact(crate::ui_text::text("requestCreation.confirm","Create conventional FormRequest?"), &preview)? {
         return Err(Error::Cancelled);
     }
     unchanged(main, &p, doc)?;
@@ -349,7 +346,7 @@ pub(crate) fn resolve(
     }
     main.request_creations.pending.remove(key);
     Ok(FileAction {
-        title: format!("Create FormRequest {}", p.candidate.name),
+        title: crate::ui_text::format("requestCreation.applied","Create FormRequest {name}",&[("name",&p.candidate.name)]),
         operations: vec![FileOperation::Create {
             path: target.clone(),
             text,
@@ -385,6 +382,16 @@ mod tests {
         main.indexes
             .insert("/project".into(), crate::index::Index::default());
         (h, main, d, Range::new(at, at))
+    }
+    #[test]
+    fn localized_request_creation_preserves_exact_php_and_qualified_identifiers() {
+        let(h,mut main,d,at)=setup();h.set_setting("uiLanguage",r#""zh-CN""#);
+        let action=main.file_actions(&d,at).remove(0);assert!(action.title.contains("StorePostRequest"));
+        assert!(!action.title.starts_with("Create reviewed"));h.answer_next_prompt(Some(&["yes"]));
+        let result=main.resolve_file_action(&d,action).unwrap();assert!(result.title.contains("StorePostRequest"));
+        let [FileOperation::Create{path,text,overwrite}]=result.operations.as_slice() else{panic!("one create")};
+        assert_eq!(path,"/project/app/Http/Requests/StorePostRequest.php");assert!(!overwrite);
+        assert_eq!(text,&content("StorePostRequest","App\\","\r\n"));assert!(result.edits.is_empty());
     }
     #[test]
     fn exact_conventional_namespace_and_import_scaffold_is_one_nonoverwriting_create_without_source_edits()

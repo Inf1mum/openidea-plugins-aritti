@@ -1,7 +1,5 @@
 //! Controller classes of `app/Http/Controllers` and their public methods.
 
-use crate::php::is_identifier;
-
 pub struct Controller {
     /// Relative to `App\Http\Controllers`: `Auth\LoginController`.
     pub class: String,
@@ -13,34 +11,11 @@ pub struct Controller {
 
 /// The class a controller file declares, from its text with comments blanked.
 pub fn parse(relative: &str, text: &str) -> Option<Controller> {
-    let class = relative.strip_suffix(".php")?.replace('/', "\\");
-    let short = class.rsplit('\\').next()?;
-    let declaration = text.match_indices("class ").find_map(|(at, _)| {
-        let line_start = text[..at].rfind('\n').map_or(0, |i| i + 1);
-        let before = text[line_start..at].trim();
-        let name = &text[at + "class ".len()..];
-        let declares = before.split_whitespace().all(|word| matches!(word, "final" | "readonly"));
-        (declares && name.starts_with(short)).then_some(at + "class ".len())
-    })?;
-
-    let mut methods = Vec::new();
-    for (at, _) in text[declaration..].match_indices("function ") {
-        let at = declaration + at;
-        let line_start = text[..at].rfind('\n').map_or(0, |i| i + 1);
-        let modifiers = &text[line_start..at];
-        if modifiers.contains("private") || modifiers.contains("protected") || modifiers.contains("static") {
-            continue;
-        }
-
-        let name_start = at + "function ".len();
-        let name_length = text[name_start..].bytes().position(|b| !is_identifier(b)).unwrap_or(0);
-        let name = &text[name_start..name_start + name_length];
-        if !name.is_empty() && (!name.starts_with("__") || name == "__invoke") {
-            methods.push((name.to_owned(), name_start));
-        }
-    }
-
-    Some(Controller { class, class_offset: declaration, methods })
+    let class=relative.strip_suffix(".php")?.replace('/',"\\");
+    let short=class.rsplit('\\').next()?;
+    let(full,class_offset,methods)=crate::eloquent_members::controller_declaration(text)?;
+    if full.rsplit('\\').next()!=Some(short){return None;}
+    Some(Controller{class,class_offset,methods})
 }
 
 /// Every method a controller file declares, whatever its visibility, or
@@ -101,5 +76,22 @@ mod tests {
         assert!(declared_methods("<?php\nclass A extends Base\n{\n}\n").is_none());
         assert!(declared_methods("<?php\nclass A extends Controller\n{\n    use Foo;\n}\n").is_none());
         assert!(declared_methods("<?php\nclass A\n{\n    public function __call($m, $a) {}\n}\n").is_none());
+    }
+}
+
+#[cfg(test)]mod invoke_case_tests{
+    #[test]fn invoke_identity_is_case_insensitive_and_source_range_stays_exact(){let source="<?php\nnamespace App\\Http\\Controllers;\nclass Run {\npublic function __INVOKE() {}\n}\n";let controller=super::parse("Run.php",source).unwrap();assert_eq!(controller.methods[0].0,"__invoke");assert_eq!(&source[controller.methods[0].1..controller.methods[0].1+8],"__INVOKE");}
+}
+
+#[cfg(test)]
+mod layout_regressions{
+    #[test]
+    fn ordinary_inline_class_and_method_headers_keep_exact_source_offsets_and_visibility(){
+        let source="<?php namespace App\\Http\\Controllers\\Admin; final class PostController { public function SHOW(){} protected function hidden(){} public static function util(){} public function __INVOKE(){} public function __construct(){} public function outer(){ function nested(){} } }";
+        let controller=super::parse("Admin/PostController.php",source).unwrap();
+        assert_eq!(controller.class,"Admin\\PostController");assert_eq!(controller.class_offset,source.find("PostController {").unwrap());
+        assert_eq!(controller.methods.iter().map(|(name,_)|name.as_str()).collect::<Vec<_>>(),["SHOW","__invoke","outer"]);
+        for(name,at)in controller.methods{assert!(source[at..].starts_with(if name=="__invoke"{"__INVOKE"}else{&name}));}
+        assert!(super::parse("Other.php",source).is_none());
     }
 }

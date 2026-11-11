@@ -3,14 +3,30 @@ use super::{Kind, Models, Names, Objects, Source, entry, objects};
 use crate::metadata::{ForwardClass, Forwarded, Metadata};
 use std::collections::{BTreeMap, BTreeSet};
 
+pub(super) fn binding_names(source: &Source) -> Option<Names> {
+    let names = Names::parse(source)?;
+    if names.class.as_ref().is_some_and(|(_, start, _, _)| {
+        source.tokens.get(start + 1).is_some_and(|token| {
+            names
+                .imports
+                .contains_key(&token.value.to_ascii_lowercase())
+        })
+    }) {
+        return None;
+    }
+    Some(names)
+}
 pub(crate) fn cache(metadata: &mut Metadata, text: &str, path: &str) {
+    if metadata.needs_class_facts() {
+        cache_class(metadata, text, path);
+    }
     if metadata.forward_methods.is_empty() {
         return;
     }
     let Some(source) = Source::new(text) else {
         return;
     };
-    let Some(names) = Names::parse(&source) else {
+    let Some(names) = binding_names(&source) else {
         return;
     };
     let Some((full, start, body, parent)) = &names.class else {
@@ -24,7 +40,7 @@ pub(crate) fn cache(metadata: &mut Metadata, text: &str, path: &str) {
         parents.push(parent.clone());
     }
     let mut constructor = None;
-    let mut blocked = model.trait_adaptations || !model.adaptations.is_empty();
+    let mut blocked = false;
     for function in source.functions() {
         if source.paths[function.start] != vec![*body]
             || function
@@ -37,60 +53,10 @@ pub(crate) fn cache(metadata: &mut Metadata, text: &str, path: &str) {
             blocked = true;
             break;
         }
-        let mut cursor = function.params.start;
-        let mut parameters = Vec::new();
-        while cursor < function.params.end {
-            let begin = cursor;
-            while cursor < function.params.end && !source.is(cursor, ",") {
-                if let Some(&end) = source.pairs.get(&cursor).filter(|&&end| end > cursor) {
-                    cursor = end + 1;
-                } else {
-                    cursor += 1;
-                }
-            }
-            let tokens = &source.tokens[begin..cursor];
-            if !tokens.iter().any(|t| t.kind == Kind::Var) {
-                blocked = true;
-                break;
-            }
-            // Preserve declared defaults and PHP parameter syntax verbatim; strip
-            // constructor-only promotion modifiers from the callable signature.
-            let mut pieces = Vec::new();
-            let mut variable = false;
-            for token in tokens {
-                if matches!(token.value, "public" | "protected" | "private" | "readonly") {
-                    continue;
-                }
-                if token.kind == Kind::Var {
-                    variable = true;
-                }
-                let text = if !variable
-                    && token.kind == Kind::Name
-                    && !matches!(
-                        token.value,
-                        "string"
-                            | "int"
-                            | "bool"
-                            | "float"
-                            | "array"
-                            | "mixed"
-                            | "object"
-                            | "callable"
-                            | "iterable"
-                            | "null"
-                            | "false"
-                            | "true"
-                    ) {
-                    format!("\\{}", names.resolve(token.value))
-                } else {
-                    token.value.into()
-                };
-                pieces.push(text);
-            }
-            parameters.push(pieces.join(" "));
-            cursor += 1;
+        constructor = objects::parameters(&source, &names, &function);
+        if constructor.is_none() {
+            blocked = true;
         }
-        constructor = Some(parameters);
     }
     let info = ForwardClass {
         full: full.clone(),
@@ -141,36 +107,6 @@ fn inherits(
                 .any(|parent| inherits(classes, parent, base, seen, depth + 1))
         })
 }
-fn constructor(
-    classes: &BTreeMap<String, ForwardClass>,
-    full: &str,
-    seen: &mut BTreeSet<String>,
-    depth: usize,
-) -> Option<Vec<String>> {
-    if depth >= 16 || !seen.insert(full.to_ascii_lowercase()) {
-        return None;
-    }
-    let class = classes.get(&full.to_ascii_lowercase())?;
-    if class.constructor_blocked {
-        return None;
-    }
-    if let Some(parameters) = &class.constructor {
-        return Some(parameters.clone());
-    }
-    // Traits/interfaces do not establish an inherited constructor. An exact,
-    // unique known parent constructor is accepted; otherwise use no parameters.
-    let candidates = class
-        .parents
-        .iter()
-        .filter_map(|parent| classes.get(&parent.to_ascii_lowercase()))
-        .filter(|parent| parent.constructor.is_some() || !parent.parents.is_empty())
-        .collect::<Vec<_>>();
-    match candidates.as_slice() {
-        [] => Some(vec![]),
-        [parent] => constructor(classes, &parent.full, seen, depth + 1),
-        _ => None,
-    }
-}
 fn evidence(
     classes: &BTreeMap<String, ForwardClass>,
     full: &str,
@@ -191,6 +127,7 @@ fn evidence(
 fn mixed_object(
     full: &str,
     objects: &Objects,
+    models: &Models,
     mixins: &[(String, String)],
     seen: &mut BTreeSet<String>,
     depth: usize,
@@ -204,13 +141,10 @@ fn mixed_object(
     if depth >= 16 || !seen.insert(full.to_ascii_lowercase()) {
         return None;
     }
-    let mut target = objects
-        .get(&full.to_ascii_lowercase())
-        .filter(|o| !o.ambiguous)
-        .cloned();
+    let mut target = objects::composed(full, objects, models);
     let own_methods = target
         .as_ref()
-        .map(|o| o.methods.keys().cloned().collect::<BTreeSet<_>>())
+        .map(|o| o.declared_methods.iter().cloned().chain(o.methods.keys().map(|name|name.to_ascii_lowercase())).collect::<BTreeSet<_>>())
         .unwrap_or_default();
     let own_properties = target
         .as_ref()
@@ -225,6 +159,7 @@ fn mixed_object(
         let donor = mixed_object(
             donor,
             objects,
+            models,
             mixins,
             &mut branch,
             depth + 1,
@@ -238,6 +173,8 @@ fn mixed_object(
             synthetic.properties.clear();
             synthetic.cast_target = None;
             synthetic.is_interface = false;
+            synthetic.parents.clear();
+            synthetic.container = Default::default();
             target = Some(synthetic);
         }
         let current = target.as_mut()?;
@@ -251,19 +188,12 @@ fn mixed_object(
         current.metadata_sources.sort();
         current.metadata_sources.dedup();
         for (name, method) in donor.methods {
-            if own_methods.contains(&name) || conflicts.contains(&format!("m:{name}")) {
-                continue;
-            }
-            if current
-                .methods
-                .get(&name)
-                .is_some_and(|old| old.entry != method.entry)
-            {
-                current.methods.remove(&name);
-                conflicts.insert(format!("m:{name}"));
-            } else {
-                current.methods.insert(name, method);
-            }
+            let lower=name.to_ascii_lowercase();
+            if own_methods.contains(&lower) || conflicts.contains(&format!("m:{lower}")){continue;}
+            let previous=current.methods.keys().find(|old|old.eq_ignore_ascii_case(&name)).cloned();
+            if let Some(previous)=previous {
+                if current.methods[&previous].entry!=method.entry {current.methods.remove(&previous);conflicts.insert(format!("m:{lower}"));}
+            }else{current.methods.insert(name,method);}
         }
         for (name, entry) in donor.properties {
             if own_properties.contains(&name) || conflicts.contains(&format!("p:{name}")) {
@@ -294,6 +224,7 @@ pub(crate) fn finish(models: &mut Models, objects: &mut Objects, metadata: &mut 
         if let Some(mut object) = mixed_object(
             target,
             &original,
+            models,
             &metadata.mixins,
             &mut BTreeSet::new(),
             0,
@@ -348,12 +279,7 @@ pub(crate) fn finish(models: &mut Models, objects: &mut Objects, metadata: &mut 
             ) {
                 continue;
             }
-            let Some(mut parameters) = constructor(
-                &metadata.forward_classes,
-                &class.full,
-                &mut BTreeSet::new(),
-                0,
-            ) else {
+            let Some(mut parameters) = objects::constructor(&class.full, &original, models) else {
                 continue;
             };
             let mut all = method.additional.clone();
@@ -617,7 +543,7 @@ fn function_imports(source: &Source) -> Option<BTreeMap<String, String>> {
 }
 pub(crate) fn call_identity(text: &str, open: usize) -> Option<CallIdentity> {
     let source = Source::new(text)?;
-    let names = Names::parse(&source)?;
+    let names = binding_names(&source)?;
     let open = source
         .tokens
         .iter()
@@ -741,6 +667,14 @@ mod tests {
             text: source.into(),
             version: 1,
         }
+    }
+
+    #[test]
+    fn named_reserved_arguments_preserve_provider_and_imported_callable_identity() {
+        let source=r#"<?php namespace App; use Livewire\Livewire; class Provider extends \Illuminate\Support\ServiceProvider {public function boot(){Livewire::addComponent(name:'card',class:\App\Card::class); custom(namespace:'x',enum:'e',interface:'i',trait:'t');}}"#;
+        let fact=super::class_fact(source,"/project/app/Provider.php").unwrap();assert_eq!(fact.full,r"App\Provider");assert_eq!(fact.base.as_deref(),Some(r"Illuminate\Support\ServiceProvider"));
+        let open=source.find("::addComponent(").unwrap()+"::addComponent".len();let call=super::call_identity(source,open).unwrap();assert_eq!(call.class.as_deref(),Some(r"Livewire\Livewire"));assert_eq!(call.method,"addComponent");
+        assert_eq!(super::class_fact(source,"/project/app/Provider.php").unwrap().methods.len(),1);
     }
     #[test]
     fn helper_exclusions_respect_php_names_and_namespace_boundaries() {
@@ -886,7 +820,7 @@ pub(crate) fn route_calls(text: &str) -> Vec<(usize, usize)> {
     let Some(source) = Source::new(text) else {
         return Vec::new();
     };
-    let Some(names) = Names::parse(&source) else {
+    let Some(names) = binding_names(&source) else {
         return Vec::new();
     };
     let mut calls = Vec::new();
@@ -921,6 +855,479 @@ pub(crate) fn route_calls(text: &str) -> Vec<(usize, usize)> {
 
 pub(crate) fn class_identity(text: &str, name: &str) -> Option<String> {
     let source = Source::new(text)?;
-    let names = Names::parse(&source)?;
+    let names = binding_names(&source)?;
     named_class(&names, name)
+}
+
+#[path = "metadata_context.rs"]
+mod context;
+pub(crate) use context::{
+    ArrayRole, decoded as decode_literal, decoded_offsets, encoded as encode_literal,
+    site as completion_site,
+};
+
+pub(crate) fn class_fact(text: &str, path: &str) -> Option<crate::metadata::ClassFact> {
+    let source = Source::new(text)?;
+    let names = binding_names(&source)?;
+    let (full, start, body, _) = names.class.as_ref()?;
+    let mut parents = Vec::new();
+    let mut collecting = false;
+    for token in source.tokens.iter().take(*body).skip(start + 2) {
+        if matches!(
+            token.value.to_ascii_lowercase().as_str(),
+            "extends" | "implements"
+        ) {
+            collecting = true;
+            continue;
+        }
+        if collecting && token.kind == Kind::Name {
+            parents.push(names.resolve(token.value));
+        }
+    }
+    let mut traits = Vec::new();
+    for (at, token) in source.tokens.iter().enumerate().skip(*body + 1) {
+        if token.value != "use" || source.paths[at] != vec![*body] {
+            continue;
+        }
+        let mut next = at + 1;
+        while let Some(token) = source
+            .tokens
+            .get(next)
+            .filter(|token| token.kind == Kind::Name)
+        {
+            traits.push(names.resolve(token.value));
+            next += 1;
+            if !source.is(next, ",") {
+                break;
+            }
+            next += 1;
+        }
+    }
+    let mut properties = BTreeMap::new();
+    for (at, token) in source.tokens.iter().enumerate() {
+        if token.kind != Kind::Var || source.paths[at] != vec![*body] {
+            continue;
+        }
+        if source.pairs.iter().any(|(&open, &close)| {
+            open < at && at < close && matches!(source.tokens[open].value, "(" | "[")
+        }) {
+            continue;
+        }
+        let begin = (0..at)
+            .rev()
+            .find(|&i| matches!(source.tokens[i].value, ";" | "{" | "}"))
+            .map_or(0, |i| i + 1);
+        if (begin..at).any(|i| source.is(i, "function")) {
+            continue;
+        }
+        let visibility = (begin..at).find_map(|i| match source.tokens[i].value {
+            "public" | "protected" | "private" => Some(source.tokens[i].value),
+            "var" => Some("public"),
+            _ => None,
+        });
+        let Some(visibility) = visibility else {
+            continue;
+        };
+        let segment = (begin..at)
+            .rev()
+            .find(|&i| {
+                source.is(i, ",")
+                    && !source.pairs.iter().any(|(&open, &close)| {
+                        open < i && i < close && matches!(source.tokens[open].value, "(" | "[")
+                    })
+            })
+            .map_or(begin, |i| i + 1);
+        if (segment..at).any(|i| source.is(i, "=")) || at > 0 && source.is(at - 1, "::") {
+            continue;
+        }
+        let class_target = if source.is(at + 1, "=")
+            && source.is(at + 3, "::")
+            && source.is(at + 4, "class")
+            && source
+                .tokens
+                .get(at + 2)
+                .is_some_and(|t| t.kind == Kind::Name)
+            && source
+                .tokens
+                .get(at + 5)
+                .is_some_and(|t| matches!(t.value, ";" | ","))
+        {
+            named_class(&names, source.tokens[at + 2].value)
+        } else {
+            None
+        };
+        let mut location = entry(&source, path, at);
+        location.at.character += 1;
+        location.width = location.width.saturating_sub(1);
+        properties.insert(
+            token.value.trim_start_matches('$').into(),
+            crate::metadata::PropertyFact {
+                visibility: visibility.into(),
+                entry: location,
+                class_target,
+            },
+        );
+    }
+    for function in source.functions().into_iter().filter(|f| {
+        f.name.is_some_and(|at| source.is(at, "__construct"))
+            && source.paths[f.start] == vec![*body]
+    }) {
+        let mut begin = function.params.start;
+        for at in function.params.clone() {
+            if source.is(at, ",") {
+                begin = at + 1;
+                continue;
+            }
+            let token = &source.tokens[at];
+            if token.kind != Kind::Var {
+                continue;
+            }
+            let visibility = (begin..at).find_map(|i| match source.tokens[i].value {
+                "public" | "protected" | "private" => Some(source.tokens[i].value),
+                _ => None,
+            });
+            if let Some(visibility) = visibility {
+                let mut location = entry(&source, path, at);
+                location.at.character += 1;
+                location.width = location.width.saturating_sub(1);
+                properties.insert(
+                    token.value.trim_start_matches('$').into(),
+                    crate::metadata::PropertyFact {
+                        visibility: visibility.into(),
+                        entry: location,
+                        class_target: None,
+                    },
+                );
+            }
+        }
+    }
+    Some(crate::metadata::ClassFact {
+        full: full.clone(),
+        path: path.into(),
+        parents,
+        traits,
+        properties,
+        entry: entry(&source, path, start + 1),
+        references: names
+            .imports
+            .values()
+            .cloned()
+            .chain(
+                source
+                    .tokens
+                    .iter()
+                    .filter(|token| {
+                        token.kind == Kind::Name
+                            && token.value.starts_with('\\')
+                            && token.value[1..].contains('\\')
+                    })
+                    .map(|token| token.value.trim_matches('\\').to_owned()),
+            )
+            .collect(),
+        source_size: text.len(),
+        base: (!names.class.as_ref()?.3.is_empty())
+            .then(|| names.class.as_ref().unwrap().3.clone()),
+        methods: source
+            .tokens
+            .iter()
+            .enumerate()
+            .filter(|(at, token)| {
+                token.value.eq_ignore_ascii_case("function") && source.paths[*at] == vec![*body]
+            })
+            .filter_map(|(at, _)| {
+                source
+                    .tokens
+                    .get(at + 1 + usize::from(source.is(at + 1, "&")))
+                    .filter(|token| token.kind == Kind::Name)
+                    .map(|token| token.value.to_ascii_lowercase())
+            })
+            .collect(),
+        class_kind: source.tokens[*start].value.to_ascii_lowercase(),
+        abstract_type: source
+            .tokens
+            .iter()
+            .take(*start)
+            .rev()
+            .take(2)
+            .any(|token| token.value.eq_ignore_ascii_case("abstract")),
+        adaptations: source.tokens.iter().enumerate().any(|(at, token)| {
+            token.value == "use"
+                && source.paths[at] == vec![*body]
+                && (at + 1..source.tokens.len())
+                    .take_while(|i| !source.is(*i, ";"))
+                    .any(|i| source.is(i, "{"))
+        }),
+        source_hash: crate::artisan_metadata::hash(text),
+        cast_enum: source.is(*start, "enum")
+            && source
+                .tokens
+                .iter()
+                .take(*body)
+                .skip(start + 2)
+                .any(|token| matches!(token.value, "string" | "int")),
+    })
+}
+pub(crate) fn cache_class(metadata: &mut Metadata, text: &str, path: &str) {
+    let Some(fact) = class_fact(text, path) else {
+        return;
+    };
+    let key = fact.full.to_ascii_lowercase();
+    if metadata.ambiguous_classes.contains(&key) {
+        return;
+    }
+    if metadata
+        .class_facts
+        .get(&key)
+        .is_some_and(|old| old.path != path)
+    {
+        metadata.class_facts.remove(&key);
+        metadata.ambiguous_classes.insert(key);
+        return;
+    }
+    let mut nodes = 0usize;
+    let mut bytes = 0usize;
+    for (old_key, old) in &metadata.class_facts {
+        if old_key != &key {
+            nodes += old.properties.len()
+                + old.parents.len()
+                + old.traits.len()
+                + old.references.len()
+                + old.methods.len()
+                + 1;
+            bytes += old.source_size;
+        }
+    }
+    if metadata.class_facts.len() < 2048
+        && nodes
+            + fact.properties.len()
+            + fact.parents.len()
+            + fact.traits.len()
+            + fact.references.len()
+            + fact.methods.len()
+            + 1
+            <= 32768
+        && bytes + fact.source_size <= 8 * 1024 * 1024
+    {
+        metadata.class_facts.insert(key, fact);
+    } else if !metadata.issues.iter().any(|issue| {
+        issue == "Metadata class fact budget exceeded; remaining declarations withheld"
+    }) {
+        metadata
+            .issues
+            .push("Metadata class fact budget exceeded; remaining declarations withheld".into());
+    }
+}
+pub(crate) fn is_subtype_fact(
+    metadata: &Metadata,
+    current: Option<&crate::metadata::ClassFact>,
+    full: &str,
+    parent: &str,
+) -> bool {
+    fn acyclic(
+        metadata: &Metadata,
+        current: Option<&crate::metadata::ClassFact>,
+        full: &str,
+        active: &mut BTreeSet<String>,
+        done: &mut BTreeSet<String>,
+        depth: usize,
+    ) -> bool {
+        let key = full.trim_start_matches('\\').to_ascii_lowercase();
+        if depth > 32 || metadata.ambiguous_classes.contains(&key) || active.contains(&key) {
+            return false;
+        }
+        if done.contains(&key) {
+            return true;
+        }
+        active.insert(key.clone());
+        let fact = current
+            .filter(|fact| fact.full.eq_ignore_ascii_case(full))
+            .or_else(|| metadata.class_facts.get(&key));
+        if fact.is_some_and(|fact| {
+            fact.parents
+                .iter()
+                .any(|parent| !acyclic(metadata, current, parent, active, done, depth + 1))
+        }) {
+            return false;
+        }
+        active.remove(&key);
+        done.insert(key);
+        true
+    }
+    if !acyclic(
+        metadata,
+        current,
+        full,
+        &mut BTreeSet::new(),
+        &mut BTreeSet::new(),
+        0,
+    ) {
+        return false;
+    }
+    fn walk(
+        metadata: &Metadata,
+        current: Option<&crate::metadata::ClassFact>,
+        full: &str,
+        parent: &str,
+        visited: &mut BTreeSet<String>,
+        depth: usize,
+    ) -> bool {
+        let key = full.trim_start_matches('\\').to_ascii_lowercase();
+        if depth > 32 || metadata.ambiguous_classes.contains(&key) || !visited.insert(key.clone()) {
+            return false;
+        }
+        let fact = current
+            .filter(|fact| fact.full.eq_ignore_ascii_case(full))
+            .or_else(|| metadata.class_facts.get(&key));
+        let owned = fact.is_none_or(|fact| {
+            fact.path.is_empty()
+                || metadata.project_root.is_empty()
+                || openidea_plugin::host::project_of(&fact.path)
+                    .and_then(|project| project.root().ok())
+                    .as_deref()
+                    == Some(metadata.project_root.as_str())
+        });
+        if !owned {
+            return false;
+        }
+        if key == parent.trim_start_matches('\\').to_ascii_lowercase() {
+            return true;
+        }
+        fact.is_some_and(|fact| {
+            fact.parents.iter().any(|base| {
+                walk(
+                    metadata,
+                    current,
+                    base,
+                    parent,
+                    &mut visited.clone(),
+                    depth + 1,
+                )
+            })
+        })
+    }
+    walk(metadata, current, full, parent, &mut BTreeSet::new(), 0)
+}
+
+/// Laravel's conventional global helper fallback, with current-source declarations/imports proven.
+pub(crate) fn global_helper(text: &str, open: usize, expected: &str) -> bool {
+    let Some(source) = Source::new(text) else {
+        return false;
+    };
+    let Some(names) = binding_names(&source) else {
+        return false;
+    };
+    let Some(identity) = call_identity(text, open)
+        .filter(|identity| identity.class.is_none() && !identity.constructor)
+    else {
+        return false;
+    };
+    let raw = &identity.method;
+    let short = raw.rsplit('\\').next().unwrap_or(raw);
+    if source.functions().iter().any(|function| {
+        function
+            .name
+            .is_some_and(|name| source.tokens[name].value.eq_ignore_ascii_case(short))
+            && source.paths[function.start].is_empty()
+    }) && (!raw.starts_with('\\') || names.namespace.is_empty())
+    {
+        return false;
+    }
+    identity.function_fqn.as_deref().map_or_else(
+        || !raw.contains('\\') && raw.eq_ignore_ascii_case(expected),
+        |full| full.eq_ignore_ascii_case(expected),
+    )
+}
+
+/// A direct response() call is a factory only with omitted/literal-null content.
+/// A deterministic non-null literal content produces an Http\Response instance.
+pub(crate) fn response_receiver(text: &str, open: usize) -> Option<bool> {
+    let source = Source::new(text)?;
+    let call = source
+        .tokens
+        .iter()
+        .position(|token| token.start == open && token.value == "(")?;
+    if call < 3
+        || !matches!(source.tokens[call - 2].value, "->" | "?->")
+        || !source.is(call - 3, ")")
+    {
+        return None;
+    }
+    let helper = *source.pairs.get(&(call - 3))?;
+    if !global_helper(text, source.tokens[helper].start, "response") {
+        return None;
+    }
+    let args = crate::php::arguments(text, source.tokens[helper].start);
+    if args.is_empty() {
+        return Some(true);
+    }
+    let mut content = args.first().cloned();
+    let mut named = false;
+    let mut names = BTreeSet::new();
+    for range in &args {
+        let raw = text[range.clone()].trim();
+        if raw.starts_with("...") {
+            return None;
+        }
+        if let Some((name, _)) = raw
+            .split_once(':')
+            .filter(|(name, _)| crate::metadata::identifier(name.trim()))
+        {
+            if !matches!(name.trim(), "content" | "status" | "headers")
+                || !names.insert(name.trim().to_owned())
+            {
+                return None;
+            }
+            if !named {
+                content = None;
+            }
+            named = true;
+            if name.trim() == "content" {
+                let colon = text[range.clone()].find(':')?;
+                content = Some(range.start + colon + 1..range.end);
+            }
+        } else if named {
+            return None;
+        }
+    }
+    let Some(content) = content else {
+        return Some(true);
+    };
+    let range = crate::php::trimmed(text, content);
+    let raw = &text[range.clone()];
+    if raw.eq_ignore_ascii_case("null") {
+        return Some(true);
+    }
+    if crate::php::literal(text, range.clone())
+        .is_some_and(|(value, offset)| decode_literal(value, text.as_bytes()[offset - 1]).is_some())
+        || matches!(raw, "true" | "false")
+        || raw.parse::<f64>().is_ok()
+        || crate::php::array_open(text, range).is_some()
+    {
+        Some(false)
+    } else {
+        None
+    }
+}
+
+pub(crate) fn config_return(text: &str) -> Option<usize> {
+    let source = Source::new(text)?;
+    let mut returns = source.tokens.iter().enumerate().filter(|(at, token)| {
+        token.value.eq_ignore_ascii_case("return") && source.paths[*at].is_empty()
+    });
+    let (at, token) = returns.next()?;
+    if returns.next().is_some() {
+        return None;
+    }
+    let array = if source.is(at + 1, "[") {
+        at + 1
+    } else if source.is(at + 1, "array") && source.is(at + 2, "(") {
+        at + 2
+    } else {
+        return None;
+    };
+    let close = *source.pairs.get(&array)?;
+    if !source.is(close + 1, ";") {
+        return None;
+    }
+    Some(token.start)
 }

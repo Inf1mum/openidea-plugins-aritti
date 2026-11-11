@@ -51,8 +51,7 @@ Inputs support `text`, `boolean`, `choice` (with a `choices` list), and `model`
 Calculated values contain one expression referring to an input or an earlier
 calculation. Forward references, cycles and unknown transforms fail validation.
 
-Expressions use `${name|transform}`. Available transforms are `className`,
-`namespace`, `snake`, `kebab`, `studly`, `camel`, `plural`, `singular`, and `php`.
+Expressions use `${name|transform}`. The complete native mutator and date reference is below; short names `snake`, `kebab`, `studly` and `camel` remain supported aliases.
 The inflection transforms cover regular English names and selected common
 irregular names; provide an explicit input when a project needs a different
 spelling. `${description|php}` emits an escaped, quoted PHP string literal.
@@ -200,11 +199,7 @@ Effective directories/namespaces drive both generated declarations and reference
 must map every generated class to its chosen path. User defaults apply when the
 project has no definition for that generator kind; project entries take precedence.
 
-These settings govern the coordinated native model workflow and native presets'
-context availability. Artisan catalog generators continue to use the flags their
-installed command schemas expose. Arbitrary native directories/base classes are
-not translated into unsupported Artisan flags. Actual module scaffolding remains
-a separate workflow.
+These settings govern the coordinated model workflow, installed-source native catalogue and preset context availability. The separate Artisan catalogue follows its installed command schemas; native settings are not converted into unsupported Artisan flags. Module scaffolding is a separate reviewed workflow.
 
 The native model draft also accepts optional `connection`. Blank means the default
 connection; a supplied exact configured name is preserved as a PHP-escaped model
@@ -218,7 +213,7 @@ The Fields step exposes independent **Factory fields** and **Resource fields**
 checkboxes. The Relations step exposes **Resource relations**. These choices
 control entries only in selected factory/resource outputs; the model, migration,
 request rules and other outputs retain their normal complete field definitions.
-A resource relation remains a raw `whenLoaded` entry.
+Resource relations use raw `whenLoaded` entries unless an indexed resource wrapper is selected.
 
 Optional native draft properties `factoryFields`, `resourceFields` and
 `resourceRelations` carry arrays of declared names. Omitted or null retains the
@@ -235,6 +230,30 @@ selected. Preview and Finish send the same complete draft and selections.
 The supplemental `laravel-model-output-selections.schema.json` describes only
 these optional draft properties; it is not the project configuration schema.
 
-Indexed resource wrappers and explicit factory mapping expressions remain separate
-workflows. This draft accepts neither arbitrary PHP mappings nor unproved wrapper
-class references.
+The wizard supports JSON scalar factory literals and indexed factory-class mappings, plus indexed API resource wrappers. Class identities and their owned ancestor sources are revalidated during preview, preparation and final resolution. No arbitrary PHP expressions or unproved class references are accepted.
+
+### Native template mutators and captured UTC time
+
+Expression chains support `className`, `namespace`, `namespaceString`, `useClassString`, `upperCase`, `lowerCase`, `snakeCase`/`snake`, `upperSnakeCase`, `kebabCase`/`kebab`, `dotCase`, `wordsCase`, `titleCase`, `sentenceCase`, `upperCamelCase`/`studly`, `lowerCamelCase`/`camel`, `upperFirst`, `lowerFirst`, `plural`, `singular`, and `php`. `titleCase` preserves acronym words. `trim`, `trimStart` and `trimEnd` accept an optional character set after `:`; `replace:old,new`, `removePrefix:prefix`, `removeSuffix:suffix` and `convertToClassName:character` support literal bounded arguments. Escape a pipe inside an argument as `\|`; PHP namespace backslashes remain literal. Mutators run left to right, with at most 64 transforms and 4096 bytes per expression. Unknown names/arguments are errors.
+
+`CURRENT_TIME` is a reserved system variable in strict `yyyy-MM-dd HH:mm:ss` UTC form. The server captures it once for the current preset workflow; the immutable prepared input and fingerprint retain that value across preview, prepare and both sides of the final exact review. Editing/discarding starts a new capture. Pure bundle rendering requires an explicit captured clock and never consults system time.
+
+`format:pattern` supports Java SimpleDateFormat letters `G y Y M L w W D d F E u a H k K h m s S z Z X`, numeric padding, quoted literals and doubled apostrophes. Calendar/timezone behavior is fixed to Gregorian UTC with English month/day names and US Sunday-first/minimum-one-day week numbering, independent of the editor locale. Milliseconds are zero because the source clock has second precision. Patterns are limited to 1024 bytes and repeated fields to 64 characters; malformed dates, unknown pattern letters and unclosed quotes fail explicitly.
+
+As with other native presets, raw arbitrary body text requires `php` to produce an escaped PHP string literal. The validated `namespaceString`/`useClassString` helpers can safely emit PHP declarations directly. Native safety limits and strict unknown-variable handling remain intentional differences from permissive external template interpreters.
+
+### Installed native catalogue and package resources
+
+Native catalogue files are rendered from bounded owned installed Laravel stubs with exact framework-version evidence. Package-specific Livewire, Dusk, tenancy and Inertia rows appear only with supported installed source/version proof. The optional `generators.<kind>` object configures directory, namespace, baseClass, postfix, captured template and application/module availability consistently. Explicit custom base classes combined with disabled type hints remain refused where their inherited signature contract cannot be proved. Livewire module namespaces/locations must be registered in the installed component finder; invented module view namespaces are refused.
+
+Nova 4/5 and Filament 3/4/5 resources use typed field mappings. Captured named-connection schema supplies dimensions/nullability; without a capture the user must choose explicit field type and nullability for indexed field names. The normal UI provides field, enum, output-field and relationship controls; JSON is optional advanced editing. Nova relationship resource classes must be source-proven. Filament offers versioned form schemas, tables, resource pages and a separate relation-manager workflow backed by an indexed collection relationship; it does not silently turn resource relationship selections into form controls.
+
+Package generator settings additionally accept `labelMode` (`none`, `title`, `fieldPrefix`), `labelPrefix`, and Filament resource `separate`. Defaults can be overridden on each invocation. `separate` applies only to Filament resources; standalone schema/table helpers reject resource base classes. A package custom template applies to the principal generated class, while related page/schema/table files retain their own versioned contracts. Captured partial/template changes invalidate prepared package plans. New Model may include Nova/Filament resource outputs in its single atomic plan; new-model field definitions remain the authoritative schema.
+
+The scaffold workflow creates reviewed nWidart 12 default-layout or Composer-package files and companion generator configuration atomically. It does not mutate the root Composer manifest, install packages or activate modules. nWidart custom executable configuration and unsupported versions are explicitly refused. Nova real-package acceptance requires a licensed package fixture; generated syntax and indexed contracts do not substitute for that runtime check.
+
+### Proven related-factory defaults
+
+Factory generation suggests and applies a unique factory only when a typed/indexed `belongsTo` relation proves the foreign key, the related model has a closed source-proven primary key, and exactly one concrete indexed factory has a matching source-proven model binding. Literal `$model` bindings are supported. Ordinary Laravel 10–13 convention-only factories are also supported when the installed native resolver methods, Composer PSR-4 ownership, application namespace and closed source inventory prove the target; unknown or customized resolvers withhold the suggestion. Omitted relationship keys use Laravel's relation-name/related-primary-key convention; an `_id` suffix alone never causes inference. Explicit custom foreign keys and custom primary-key names are supported. Alternate owner keys, ambiguous factories, dynamic keys, unknown lifecycle/model factories and unsupported source budgets withhold defaults. Attribute-only `UseFactory` associations do not prove the target of a bare `Factory::new()` call and are not guessed.
+
+Suggested New Model mappings carry `inferred: true`. Preview, preparation and final resolution recompute their relationship, key and factory source evidence. Choosing **Generated value** emits `{kind: "generated"}` and prevents the suggestion from being reapplied; manual factory or scalar choices remain explicit overrides. Existing-model catalogue choices preselect the same defaults; explicit `factories: {}` clears them and `inferredFactories` identifies defaults that require current key/association proof.

@@ -4,7 +4,7 @@
 use std::ops::Range;
 
 pub fn is_identifier(b: u8) -> bool {
-    b.is_ascii_alphanumeric() || b == b'_'
+    b.is_ascii_alphanumeric() || b == b'_' || b >= 0x80
 }
 
 /// The index after the string literal whose opening quote is at `start`
@@ -387,6 +387,13 @@ fn scan_header(masked: &str) -> Header {
             continue;
         }
         let word = &masked[begin..at];
+        // Reserved words may be method/property/variable names. They do not
+        // introduce a namespace/import declaration after an access operator.
+        let before = masked[..begin].trim_end();
+        if before.ends_with("::") || before.ends_with("->") || before.ends_with('$') {
+            code_seen = true;
+            continue;
+        }
         if word.eq_ignore_ascii_case("namespace") {
             let Some(end) = masked[at..].find([';', '{']).map(|n| at + n) else {
                 header.ambiguous = true;
@@ -1114,6 +1121,23 @@ mod import_safety_tests {
                 "{result}\n{}\n{}",
                 String::from_utf8_lossy(&output.stdout),
                 String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod contextual_keyword_tests {
+    #[test]
+    fn namespace_methods_and_variables_are_not_namespace_declarations() {
+        for source in [
+            "<?php Route::namespace('Admin')->group(fn()=>null);",
+            "<?php $namespace='Admin';",
+            "<?php $builder->namespace('Admin');",
+        ] {
+            assert!(
+                super::insert_use(source, "Illuminate\\Support\\Facades\\Route").is_some(),
+                "{source}"
             );
         }
     }

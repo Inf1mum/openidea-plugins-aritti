@@ -20,12 +20,12 @@ categories = ["frameworks"]
 icon = "icon.svg"
 engines.openidea = "^1.4"
 wasm = "dist/plugin.wasm"
-activation = ["on-language:php", "on-language:blade", "on-file:resources/js/**"]
+activation = ["on-language:php", "on-language:blade", "on-file:resources/js/**", "on-schedule:60"]
 
 [capabilities]
 required = ["project.read", "events"]
 # process:docker: explicit opt-in local container metadata inspection/discovery only. clipboard: Copy as curl, and the fallback of Create HTTP Request File. project.write: native factory/resource creation. Artisan commands run `php artisan`; editor.read: Create Missing Target reads the name under the cursor.
-optional = ["project.write", "process:php", "process:docker", "process:composer", "process:laravel", "fs.read:~", "database.sources", "secrets", "net:sentry.io", "net:cloud.laravel.com", "editor.read", "clipboard", "storage"]
+optional = ["project.write", "process:php", "process:docker", "process:composer", "process:laravel", "fs.read:~", "database.sources", "secrets", "net:sentry.io", "net:cloud.laravel.com", "net:127.0.0.1", "net:localhost", "editor.read", "clipboard", "storage"]
 
 [[contributes.commands]]
 id = "artisan-refresh-docker-metadata"
@@ -707,7 +707,7 @@ description = "Read Sentry issues for the organization configured in Laravel Ser
 [[contributes.secrets]]
 name = "cloud-token"
 label = "Laravel Cloud API token"
-description = "Read applications and environments in Laravel Services."
+description = "Read Cloud applications, environments, variables, deployment logs and database connection metadata."
 
 [[contributes.commands]]
 id = "route-editor-action"
@@ -786,4 +786,119 @@ category = "Laravel"
 [[contributes.commands]]
 id = "regenerate-model-helpers"
 title = "Laravel: Regenerate Reviewed Model Helpers…"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "project-installation-recovery"
+title = "Laravel: Recover Project Installation…"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "helper-source-automation"
+title = "Laravel: Configure Helper Source and Automation…"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "helper-automation-state"
+title = "Laravel: Helper Automation Status"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "helper-automation-poll"
+title = "Laravel: Poll Helper Post-Generation Commands"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "helper-automation-stop"
+title = "Laravel: Stop Helper Post-Generation Commands"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "runtime-model-connections"
+title = "Laravel: Refresh Model Connection Bindings…"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "sentry-oauth-start"
+title = "Laravel: Connect Sentry with OAuth…"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "sentry-oauth-poll"
+title = "Laravel: Complete Sentry OAuth Connection"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "sentry-oauth-cancel"
+title = "Laravel: Cancel Sentry OAuth Connection"
+category = "Laravel"
+
+[[contributes.secrets]]
+name = "sentry-refresh-token"
+label = "Sentry OAuth refresh token"
+description = "Stores the OAuth refresh credential securely; API1.4 cannot substitute it into the provider's refresh request body."
+
+[[contributes.commands]]
+id = "runtime-application-mcp"
+title = "Laravel: Connect Application MCP Server…"
+category = "Laravel"
+
+[[contributes.secrets]]
+name = "application-mcp-token"
+label = "Application MCP bearer token"
+description = "Authenticate explicitly connected application MCP servers using secret-backed headers."
+
+[[contributes.commands]]
+id = "index-issues"
+title = "Laravel: Show Index Issues"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "cloud-details-select"
+title = "Laravel: Show Cloud Environment Details"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "cloud-details"
+title = "Laravel: Show Cloud Environment Overview"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "cloud-selected-refresh"
+title = "Laravel: Refresh Selected Cloud Environment"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "cloud-logs"
+title = "Laravel: Show Cloud Build and Deploy Logs"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "cloud-manage"
+title = "Laravel: Manage Cloud Environment"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "cloud-variable-reveal"
+title = "Laravel: Reveal Captured Cloud Variable…"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "cloud-variable-copy"
+title = "Laravel: Copy Captured Cloud Variable…"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "cloud-hide-variables"
+title = "Laravel: Hide Cloud Variables"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "cloud-import-database"
+title = "Laravel: Import Cloud Database Connection…"
+category = "Laravel"
+
+[[contributes.commands]]
+id = "cloud-open-domain"
+title = "Laravel: Open Cloud Environment Domain"
 category = "Laravel"

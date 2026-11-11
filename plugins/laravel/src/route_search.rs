@@ -7,7 +7,10 @@ fn label(route: &Route) -> String {
         "{} {} · {} · {}{}",
         route.method,
         route.path,
-        route.name.as_deref().unwrap_or("unnamed"),
+        route
+            .name
+            .as_deref()
+            .unwrap_or_else(|| crate::ui_text::text("routeSearch.unnamed", "unnamed")),
         route.handler.class,
         route
             .handler
@@ -45,17 +48,26 @@ pub(crate) fn run(
     let project = ctx.project().ok_or(Error::Stale)?;
     let root = project.root()?;
     if routes.len() > 5000 {
-        return Err(Error::Invalid(
-            "Route search exceeds 5,000 routes; narrow the application inventory.".into(),
-        ));
+        return Err(Error::Invalid(crate::ui_text::t(
+            "routeSearch.inventoryBound",
+            "Route search exceeds 5,000 routes; narrow the application inventory.",
+        )));
     }
-    let Some(query) = host::input("Search routes by name, URI, method or controller", None)? else {
+    let Some(query) = host::input(
+        crate::ui_text::text(
+            "routeSearch.prompt",
+            "Search routes by name, URI, method or controller",
+        ),
+        None,
+    )?
+    else {
         return Ok(());
     };
     if query.len() > 256 || query.chars().any(char::is_control) {
-        return Err(Error::Invalid(
-            "Enter a route search of at most 256 bytes.".into(),
-        ));
+        return Err(Error::Invalid(crate::ui_text::t(
+            "routeSearch.queryBound",
+            "Enter a route search of at most 256 bytes.",
+        )));
     }
     let mut ranked: Vec<_> = routes
         .into_iter()
@@ -74,7 +86,10 @@ pub(crate) fn run(
         host::notify(
             openidea_plugin::NotificationLevel::Info,
             "Laravel",
-            "No matching routes with a verified source location.",
+            crate::ui_text::text(
+                "routeSearch.noMatches",
+                "No matching routes with a verified source location.",
+            ),
         );
         return Ok(());
     }
@@ -83,7 +98,11 @@ pub(crate) fn run(
         .enumerate()
         .map(|(i, (_, name, _))| PickItem::new(&i.to_string(), name))
         .collect();
-    let Some(choice) = host::pick("Matching Laravel routes", &choices)? else {
+    let Some(choice) = host::pick(
+        crate::ui_text::text("routeSearch.matches", "Matching Laravel routes"),
+        &choices,
+    )?
+    else {
         return Ok(());
     };
     let route = &ranked

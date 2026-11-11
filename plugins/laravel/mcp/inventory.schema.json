@@ -13,7 +13,10 @@
         "translations",
         "middleware",
         "env",
-        "models"
+        "models",
+        "mcpServers",
+        "mcpCapabilities",
+        "sqlSchema"
       ]
     },
     "query": {

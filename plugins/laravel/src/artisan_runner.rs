@@ -19,7 +19,7 @@ impl Runner {
     pub fn catalog(self, project: &Project) -> Result<(Value, String), Error> {
         let snapshot = match self {
             Self::Php => crate::artisan_metadata::snapshot(project)
-                .ok_or_else(|| Error::Invalid("Refresh local PHP commands first.".into()))?,
+                .ok_or_else(|| Error::Invalid(crate::ui_text::text("native.artisan_runner.76c500d99d", "Refresh local PHP commands first.").into()))?,
             Self::Docker => crate::artisan_docker::snapshot(project)?,
         };
         let token = crate::artisan_metadata::hash(&snapshot.to_string());

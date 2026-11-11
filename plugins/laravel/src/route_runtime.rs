@@ -35,11 +35,11 @@ impl Snapshot {
             .map_or(self.captured, |d| d.as_secs());
         let seconds = now.saturating_sub(self.captured);
         if seconds < 60 {
-            "Artisan snapshot · refreshed just now".into()
+            crate::ui_text::text("native.dockerRoute.f08ad01ed0","Artisan snapshot · refreshed just now").into()
         } else if seconds < 3600 {
-            format!("Artisan snapshot · refreshed {} min ago", seconds / 60)
+            crate::ui_text::format("native.dockerRoute.fc9395290f","Artisan snapshot · refreshed {minutes} min ago",&[("minutes",&(seconds / 60).to_string())])
         } else {
-            format!("Artisan snapshot · refreshed {} h ago", seconds / 3600)
+            crate::ui_text::format("native.dockerRoute.9652806640","Artisan snapshot · refreshed {hours} h ago",&[("hours",&(seconds / 3600).to_string())])
         }
     }
 }
@@ -116,6 +116,13 @@ fn field(value: &Value, key: &str, max: usize) -> Result<String, Error> {
     }
     Ok(s.into())
 }
+fn source_action_matches(index:&Index,entry:&crate::index::RouteEntry,action:&str)->bool{
+    let Some(full)=index.route_controller_full(entry)else{return entry.def.action==action;};
+    let Some((_,method))=&entry.def.controller else{return entry.def.action==action;};
+    if let Some((class,target))=action.rsplit_once('@'){
+        full.trim_start_matches('\\').eq_ignore_ascii_case(class.trim_start_matches('\\'))&&method.eq_ignore_ascii_case(target)
+    }else{method.eq_ignore_ascii_case("__invoke")&&full.trim_start_matches('\\').eq_ignore_ascii_case(action.trim_start_matches('\\'))}
+}
 pub fn parse(raw: &str, index: &Index) -> Result<Vec<Route>, Error> {
     let data = crate::strict_json::parse_with_budget(raw, MAX_OUTPUT, 200_000).map_err(|_| {
         Error::Invalid("Artisan route:list did not return bounded route JSON.".into())
@@ -167,7 +174,7 @@ pub fn parse(raw: &str, index: &Index) -> Result<Vec<Route>, Error> {
             .iter()
             .filter(|r| {
                 r.endpoint_uri.as_deref().unwrap_or(&r.def.uri) == path
-                    && r.def.action == action
+                    && source_action_matches(index,r,&action)
                     && methods
                         .split('|')
                         .any(|m| r.def.methods.split('|').any(|known| known == m))
@@ -287,7 +294,7 @@ pub fn endpoint_routes(snapshot: &Snapshot, index: &Index, project: &Project) ->
                             entry.at.character.saturating_add(entry.width),
                         )
                     && entry.endpoint_uri.as_deref() == Some(route.path.as_str())
-                    && handler(&entry.def.action) == route.handler
+                    && handler(&index.route_controller_full(entry).and_then(|class|entry.def.controller.as_ref().map(|(_,method)|format!("{class}@{method}"))).unwrap_or_else(||entry.def.action.clone())) == route.handler
                     && route
                         .method
                         .split('|')
@@ -297,7 +304,7 @@ pub fn endpoint_routes(snapshot: &Snapshot, index: &Index, project: &Project) ->
         let static_valid = if static_matches.len() == 1 {
             let entry = static_matches[0];
             read(&entry.path).is_some_and(|source| {
-                crate::routes::parse_with_custom(&source,&index.metadata.route_methods)
+                index.parse_routes(&entry.path,&source)
                     .iter()
                     .filter(|def| **def == entry.def)
                     .count()
@@ -425,12 +432,13 @@ fn text_position(source: &str, offset: usize) -> Position {
     openidea_plugin::text::position(source, offset)
 }
 
-pub fn capture_with(
+pub fn capture_with(ctx:&Invocation,index:&Index,execute:impl FnOnce(&Project)->Result<String,Error>)->Result<Snapshot,Error>{capture_with_inner(ctx,index,execute).map_err(ui_error)}
+fn capture_with_inner(
     ctx: &Invocation,
     index: &Index,
     execute: impl FnOnce(&Project) -> Result<String, Error>,
 ) -> Result<Snapshot, Error> {
-    let project = ctx.project().ok_or("Open a Laravel project first.")?;
+    let project = ctx.project().ok_or(crate::ui_text::text("process.inspection.text4","Open a Laravel project first."))?;
     let before = stamp(&project, index)?;
     let output = execute(&project)?;
     if ctx.project().and_then(|p| p.root().ok()) != project.root().ok()
@@ -459,7 +467,7 @@ pub fn capture_with(
 pub fn capture(ctx: &Invocation, index: &Index) -> Result<Snapshot, Error> {
     capture_with(ctx, index, |project| {
         let task = host::begin_task(
-            "Refresh registered Laravel routes (executes project PHP)",
+            crate::ui_text::text("native.dockerRoute.d22791bd83","Refresh registered Laravel routes (executes project PHP)"),
             true,
         );
         let child = host::start(&host::Command::new("php").args(ARGS), Some(project))?;
@@ -476,6 +484,27 @@ pub fn capture(ctx: &Invocation, index: &Index) -> Result<Snapshot, Error> {
     })
 }
 
+
+// Exact authored messages are localized only after validation reaches a UI caller.
+fn ui_error(error:Error)->Error {
+    fn message(message:String)->String{match message.as_str(){
+        "Artisan route:list did not return bounded route JSON." => crate::ui_text::t("native.dockerRoute.e6db8fc84c",&message),
+        "Expected an Artisan JSON array with at most 5,000 routes." => crate::ui_text::t("native.dockerRoute.df510792af",&message),
+        "Route capture inputs exceed 8 MiB." => crate::ui_text::t("native.dockerRoute.94e1b025a1",&message),
+        "Too many route capture inputs." => crate::ui_text::t("native.dockerRoute.9a9e4aa438",&message),
+        "Unsupported route HTTP method." => crate::ui_text::t("native.dockerRoute.6801016079",&message),
+        "Route JSON is missing method." => crate::ui_text::format("native.dockerRoute.2941409fc8","Route JSON is missing {key}.",&[("key",&("method").to_string())]),
+        "Route method exceeds text limits." => crate::ui_text::format("native.dockerRoute.27dad91e8f","Route {key} exceeds text limits.",&[("key",&("method").to_string())]),
+        "Route JSON is missing uri." => crate::ui_text::format("native.dockerRoute.2941409fc8","Route JSON is missing {key}.",&[("key",&("uri").to_string())]),
+        "Route uri exceeds text limits." => crate::ui_text::format("native.dockerRoute.27dad91e8f","Route {key} exceeds text limits.",&[("key",&("uri").to_string())]),
+        "Route JSON is missing action." => crate::ui_text::format("native.dockerRoute.2941409fc8","Route JSON is missing {key}.",&[("key",&("action").to_string())]),
+        "Route action exceeds text limits." => crate::ui_text::format("native.dockerRoute.27dad91e8f","Route {key} exceeds text limits.",&[("key",&("action").to_string())]),
+        "Route JSON is missing name." => crate::ui_text::format("native.dockerRoute.2941409fc8","Route JSON is missing {key}.",&[("key",&("name").to_string())]),
+        "Route name exceeds text limits." => crate::ui_text::format("native.dockerRoute.27dad91e8f","Route {key} exceeds text limits.",&[("key",&("name").to_string())]),
+        _=>message,
+    }}
+    match error{Error::Invalid(value)=>Error::Invalid(message(value)),Error::Failed(value)=>Error::Failed(message(value)),_=>error}
+}
 #[cfg(test)]
 mod tests {
     use super::*;

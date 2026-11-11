@@ -8,6 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 pub(super) struct Selection {
     pub fields: BTreeSet<String>,
     pub factories: BTreeMap<String, String>,
+    pub inferred_factories: BTreeSet<String>,
     // None emits the loaded relation directly; Some wraps its declared resource.
     pub relations: BTreeMap<String, Option<String>>,
     runtime: Option<(crate::artisan_runner::Runner, serde_json::Value)>,
@@ -126,6 +127,15 @@ pub(super) fn choose(
     kind: &str,
     runtime: Option<(crate::artisan_runner::Runner, serde_json::Value)>,
 ) -> Result<Selection, Error> {
+    choose_ui_inner(project, index, model, kind, runtime).map_err(ui_error)
+}
+fn choose_ui_inner(
+    project: &Project,
+    index: &Index,
+    model: &ModelIdentity,
+    kind: &str,
+    runtime: Option<(crate::artisan_runner::Runner, serde_json::Value)>,
+) -> Result<Selection, Error> {
     let available = fields(index, model, kind, runtime.as_ref());
     if available.len() > 128 {
         return Err(Error::Invalid(
@@ -133,10 +143,16 @@ pub(super) fn choose(
         ));
     }
     let mode = host::pick(
-        "Generated fields",
+        crate::ui_text::text("final.related.fieldsPrompt", "Generated fields"),
         &[
-            openidea_plugin::PickItem::new("all", "Include all supported fields"),
-            openidea_plugin::PickItem::new("select", "Select fields…"),
+            openidea_plugin::PickItem::new(
+                "all",
+                crate::ui_text::text("final.related.allFields", "Include all supported fields"),
+            ),
+            openidea_plugin::PickItem::new(
+                "select",
+                crate::ui_text::text("final.related.selectFields", "Select fields…"),
+            ),
         ],
     )?
     .ok_or(Error::Cancelled)?;
@@ -152,7 +168,10 @@ pub(super) fn choose(
     let fields = match mode.as_str() {
         "all" => allowed,
         "select" => checked_many(
-            "Fields to include (empty creates an empty body)",
+            crate::ui_text::text(
+                "final.related.includedFields",
+                "Fields to include (empty creates an empty body)",
+            ),
             &available
                 .iter()
                 .map(|name| {
@@ -160,7 +179,10 @@ pub(super) fn choose(
                     if let Some(detail) = details.get(name) {
                         item.description(detail)
                     } else {
-                        item.description("Schema column")
+                        item.description(crate::ui_text::text(
+                            "final.related.schemaColumn",
+                            "Schema column",
+                        ))
                     }
                 })
                 .collect::<Vec<_>>(),
@@ -177,20 +199,37 @@ pub(super) fn choose(
     let mut selection = Selection {
         fields,
         factories: BTreeMap::new(),
+        inferred_factories: BTreeSet::new(),
         relations: BTreeMap::new(),
         runtime,
     };
     let related = related_facts::inventory(index, project);
     if kind == "factory" {
-        let candidates = related
+        let defaults = crate::generator_workspace::factory_defaults::for_existing(
+            project,
+            index,
+            &model.full,
+            &selection.fields,
+        );
+        selection.factories = defaults
+            .iter()
+            .map(|(field, suggestion)| (field.clone(), suggestion.class.clone()))
+            .collect();
+        selection.inferred_factories = selection.factories.keys().cloned().collect();
+        let mut candidates = related
             .iter()
             .filter(|fact| fact.kind == "Factory")
             .map(|fact| (fact.label.clone(), fact.model.clone()))
             .collect::<BTreeMap<_, _>>();
+        candidates.extend(
+            crate::generator_workspace::factory_defaults::bindings(project, index)
+                .into_iter()
+                .map(|(class, binding)| (class, binding.model)),
+        );
         let keys = selection
             .fields
             .iter()
-            .filter(|field| field.ends_with("_id"))
+            .filter(|field| field.ends_with("_id") || defaults.contains_key(*field))
             .cloned()
             .collect::<Vec<_>>();
         if !keys.is_empty() && !candidates.is_empty() {
@@ -199,7 +238,10 @@ pub(super) fn choose(
                 .map(|key| openidea_plugin::PickItem::new(key, key))
                 .collect::<Vec<_>>();
             let selected = checked_many(
-                "Foreign keys to map to an existing factory (others keep review placeholders)",
+                crate::ui_text::text(
+                    "final.related.factoryKeys",
+                    "Foreign keys to map to an existing factory (others keep review placeholders)",
+                ),
                 &picks,
                 &keys.iter().cloned().collect(),
             )?;
@@ -208,21 +250,45 @@ pub(super) fn choose(
                     "Map at most 32 foreign keys per generation".into(),
                 ));
             }
+            selection
+                .factories
+                .retain(|field, _| selected.contains(field));
+            selection
+                .inferred_factories
+                .retain(|field| selected.contains(field));
             for field in selected {
-                let items = candidates
+                let mut items = candidates
                     .iter()
                     .map(|(class, model)| {
-                        openidea_plugin::PickItem::new(class, class)
-                            .description(&format!("Declared model: {model}"))
+                        openidea_plugin::PickItem::new(class, class).description(
+                            &crate::ui_text::format(
+                                "final.related.declaredModel",
+                                "Declared model: {model}",
+                                &[("model", &model)],
+                            ),
+                        )
                     })
                     .collect::<Vec<_>>();
+                if let Some(suggestion) = defaults.get(&field) {
+                    items.sort_by_key(|item| item.key != suggestion.class);
+                }
                 let class = host::pick(
-                    &format!("Factory for {field} (explicit association)"),
+                    &crate::ui_text::format(
+                        "final.related.factoryPrompt",
+                        "Factory for {field} (explicit association)",
+                        &[("field", &field)],
+                    ),
                     &items,
                 )?
                 .ok_or(Error::Cancelled)?;
                 if !candidates.contains_key(&class) {
                     return Err(Error::Stale);
+                }
+                if defaults
+                    .get(&field)
+                    .is_none_or(|suggestion| suggestion.class != class)
+                {
+                    selection.inferred_factories.remove(&field);
                 }
                 selection.factories.insert(field, class);
             }
@@ -241,12 +307,19 @@ pub(super) fn choose(
                     openidea_plugin::PickItem::new(&fact.name, &fact.name).description(&format!(
                         "{} · {}",
                         fact.target,
-                        if fact.many { "many" } else { "one" }
+                        if fact.many {
+                            crate::ui_text::text("final.related.many", "many")
+                        } else {
+                            crate::ui_text::text("final.related.one", "one")
+                        }
                     ))
                 })
                 .collect::<Vec<_>>();
             let selected = checked_many(
-                "Relations to include only when loaded",
+                crate::ui_text::text(
+                    "final.related.loadedRelations",
+                    "Relations to include only when loaded",
+                ),
                 &items,
                 &facts.iter().map(|fact| fact.name.clone()).collect(),
             )?;
@@ -265,15 +338,25 @@ pub(super) fn choose(
                 } else {
                     let mut items = vec![openidea_plugin::PickItem::new(
                         "raw",
-                        "Loaded relation without a resource wrapper",
+                        crate::ui_text::text(
+                            "final.related.rawRelation",
+                            "Loaded relation without a resource wrapper",
+                        ),
                     )];
                     items.extend(
                         candidates
                             .iter()
                             .map(|class| openidea_plugin::PickItem::new(class, class)),
                     );
-                    let choice = host::pick(&format!("Resource mapping for {name}"), &items)?
-                        .ok_or(Error::Cancelled)?;
+                    let choice = host::pick(
+                        &crate::ui_text::format(
+                            "final.related.resourcePrompt",
+                            "Resource mapping for {name}",
+                            &[("name", &name)],
+                        ),
+                        &items,
+                    )?
+                    .ok_or(Error::Cancelled)?;
                     if choice == "raw" {
                         None
                     } else if candidates.contains(&choice) {
@@ -289,17 +372,105 @@ pub(super) fn choose(
     selection.validate(project, index, model, kind)?;
     Ok(selection)
 }
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RequestedSelection {
+    fields: Option<Vec<String>>,
+    #[serde(default)]
+    factories: Option<BTreeMap<String, String>>,
+    #[serde(default)]
+    inferred_factories: Vec<String>,
+    #[serde(default)]
+    relations: BTreeMap<String, Option<String>>,
+}
+pub(super) fn from_request(
+    project: &Project,
+    index: &Index,
+    model: &ModelIdentity,
+    kind: &str,
+    value: &serde_json::Value,
+) -> Result<Selection, Error> {
+    let requested: RequestedSelection = serde_json::from_value(value.clone())
+        .map_err(|_| Error::Invalid("Invalid related-model output selections".into()))?;
+    let names = requested
+        .fields
+        .unwrap_or_else(|| fields(index, model, kind, None));
+    let fields = names.iter().cloned().collect::<BTreeSet<_>>();
+    if names.len() != fields.len() {
+        return Err(Error::Invalid("Duplicate selected model fields".into()));
+    }
+    let defaults = if kind == "factory" {
+        crate::generator_workspace::factory_defaults::for_existing(
+            project,
+            index,
+            &model.full,
+            &fields,
+        )
+    } else {
+        BTreeMap::new()
+    };
+    let (factories, inferred_factories) = if let Some(factories) = requested.factories {
+        let inferred = requested
+            .inferred_factories
+            .iter()
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        if inferred.len() != requested.inferred_factories.len() {
+            return Err(Error::Stale);
+        }
+        (factories, inferred)
+    } else {
+        (
+            defaults
+                .iter()
+                .map(|(field, suggestion)| (field.clone(), suggestion.class.clone()))
+                .collect(),
+            defaults.keys().cloned().collect(),
+        )
+    };
+    let selected = Selection {
+        fields,
+        factories,
+        inferred_factories,
+        relations: requested.relations,
+        runtime: None,
+    };
+    selected.validate(project, index, model, kind)?;
+    Ok(selected)
+}
+pub(super) fn catalog(
+    project: &Project,
+    index: &Index,
+    model: &ModelIdentity,
+) -> serde_json::Value {
+    let related = related_facts::inventory(index, project);
+    let names = fields(index, model, "factory", None);
+    let bindings = crate::generator_workspace::factory_defaults::bindings(project, index);
+    let mut factory_choices = related
+        .iter()
+        .filter(|fact| fact.kind == "Factory")
+        .map(|fact| (fact.label.clone(), fact.model.clone()))
+        .collect::<BTreeMap<_, _>>();
+    factory_choices.extend(
+        bindings
+            .into_iter()
+            .map(|(class, binding)| (class, binding.model)),
+    );
+    let defaults = crate::generator_workspace::factory_defaults::for_existing(
+        project,
+        index,
+        &model.full,
+        &names.iter().cloned().collect(),
+    );
+    serde_json::json!({"model":model.full,"table":model.table,"factoryFields":names,"factoryDefaults":defaults,"resourceFields":fields(index,model,"resource",None),"relations":relations(index,project,model).into_iter().map(|fact|serde_json::json!({"name":fact.name,"target":fact.target,"many":fact.many})).collect::<Vec<_>>(),"factories":factory_choices.into_iter().map(|(class,model)|serde_json::json!({"class":class,"model":model})).collect::<Vec<_>>(),"resources":related.iter().filter(|fact|fact.kind=="Resource").map(|fact|serde_json::json!({"class":fact.label,"model":fact.model})).collect::<Vec<_>>()})
+}
+
 impl Selection {
     pub(super) fn runtime_note(&self) -> String {
         self.runtime
             .as_ref()
             .map(|(runner, snapshot)| {
-                format!(
-                    "Captured database fields: {} · connection {} · captured at {}\n",
-                    runner.name(),
-                    snapshot["connection"],
-                    snapshot["capturedAt"]
-                )
+                crate::ui_text::format("final.related.runtimeNote","Captured database fields: {runner} · connection {connection} · captured at {captured}\n",&[("runner",runner.name()),("connection",&snapshot["connection"].to_string()),("captured",&snapshot["capturedAt"].to_string())])
             })
             .unwrap_or_default()
     }
@@ -377,11 +548,47 @@ impl Selection {
                 project.read_file(&fact.entry.path)?
             ))
         };
+        let defaults = if kind == "factory" {
+            crate::generator_workspace::factory_defaults::for_existing(
+                project,
+                index,
+                &model.full,
+                &self.fields,
+            )
+        } else {
+            BTreeMap::new()
+        };
+        if self.inferred_factories.len() > 32
+            || self
+                .inferred_factories
+                .iter()
+                .any(|field| !self.factories.contains_key(field))
+        {
+            return Err(Error::Stale);
+        }
+        let bindings = if !self.factories.is_empty() {
+            crate::generator_workspace::factory_defaults::bindings(project, index)
+        } else {
+            BTreeMap::new()
+        };
         for (field, class) in &self.factories {
-            if !field.ends_with("_id") || !self.fields.contains(field) {
+            if (!field.ends_with("_id") && !defaults.contains_key(field))
+                || !self.fields.contains(field)
+            {
                 return Err(Error::Stale);
             }
-            evidence.push_str(&prove(class, "Factory", None)?);
+            if self.inferred_factories.contains(field) {
+                let suggestion = defaults
+                    .get(field)
+                    .filter(|suggestion| suggestion.class == *class)
+                    .ok_or(Error::Stale)?;
+                evidence.push_str(&suggestion.evidence);
+            }
+            if let Some(binding) = bindings.get(class) {
+                evidence.push_str(&binding.evidence);
+            } else {
+                evidence.push_str(&prove(class, "Factory", None)?);
+            }
         }
         if kind == "resource" {
             let paths = related_facts::resource_fields(index, project, &model.full)
@@ -456,5 +663,38 @@ impl Selection {
             rows.push_str(&format!("            {} => {value},\n", literal(name)));
         }
         rows
+    }
+}
+
+pub(super) fn ui_error(error: Error) -> Error {
+    let translate = |message: String| match message.as_str() {
+        "Select from at most 128 model fields" => {
+            crate::ui_text::t("final.related.error0", &message)
+        }
+        "Map at most 32 foreign keys per generation" => {
+            crate::ui_text::t("final.related.error1", &message)
+        }
+        "Select from at most 64 model relations" => {
+            crate::ui_text::t("final.related.error2", &message)
+        }
+        "Invalid related-model output selections" => {
+            crate::ui_text::t("final.related.error3", &message)
+        }
+        "Duplicate selected model fields" => crate::ui_text::t("final.related.error4", &message),
+        "A resource field and relation cannot share an output key" => {
+            crate::ui_text::t("final.related.error5", &message)
+        }
+        "Related generation evidence exceeds 4 MiB" => {
+            crate::ui_text::t("final.related.error6", &message)
+        }
+        "Module generation roots are ambiguous" => {
+            crate::ui_text::t("final.related.error7", &message)
+        }
+        _ => message,
+    };
+    match error {
+        Error::Invalid(message) => Error::Invalid(translate(message)),
+        Error::Failed(message) => Error::Failed(translate(message)),
+        other => other,
     }
 }

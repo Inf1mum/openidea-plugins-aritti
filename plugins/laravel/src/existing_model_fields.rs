@@ -589,8 +589,11 @@ impl State {
         let (project, root) = owner(ctx)?;
         if !self.projects.contains_key(&root) && self.projects.len() >= 8 {
             return Err(Error::Invalid(
-                "Too many existing-model drafts; close a draft before opening another project"
-                    .into(),
+                crate::ui_text::text(
+                    "modelUi.existing_model_fields.3a866a15c4",
+                    "Too many existing-model drafts; close a draft before opening another project",
+                )
+                .into(),
             ));
         }
         if index.partial || !owned(&root, path) {
@@ -599,13 +602,34 @@ impl State {
         let (full, _, table) = eloquent_members::model_inventory(&index.eloquent_models)
             .into_iter()
             .find(|(_, source, _)| source == path)
-            .ok_or_else(|| Error::Invalid("Choose an indexed model source".into()))?;
+            .ok_or_else(|| {
+                Error::Invalid(
+                    crate::ui_text::text(
+                        "modelUi.existing_model_fields.ad5b078e38",
+                        "Choose an indexed model source",
+                    )
+                    .into(),
+                )
+            })?;
         let text = project.read_file(path)?;
         if text.len() > 128 << 10 {
-            return Err(Error::Invalid("Model source is too large".into()));
+            return Err(Error::Invalid(
+                crate::ui_text::text(
+                    "modelUi.existing_model_fields.72c4a9872d",
+                    "Model source is too large",
+                )
+                .into(),
+            ));
         }
-        eloquent_members::class_layout(&text)
-            .ok_or_else(|| Error::Invalid("Unsupported model class layout".into()))?;
+        eloquent_members::class_layout(&text).ok_or_else(|| {
+            Error::Invalid(
+                crate::ui_text::text(
+                    "modelUi.existing_model_fields.eb5b4ec9b1",
+                    "Unsupported model class layout",
+                )
+                .into(),
+            )
+        })?;
         if eloquent_members::declaration(&text).as_deref() != Some(&full) {
             return Err(Error::Stale);
         }
@@ -634,7 +658,13 @@ impl State {
             let text = project.read_file(&path)?;
             total += text.len();
             if text.len() > 128 << 10 || total > 4 << 20 {
-                return Err(Error::Invalid("Schema source snapshot is too large".into()));
+                return Err(Error::Invalid(
+                    crate::ui_text::text(
+                        "modelUi.existing_model_fields.a11321afc9",
+                        "Schema source snapshot is too large",
+                    )
+                    .into(),
+                ));
             }
             facts.insert(path, text);
         }
@@ -692,12 +722,17 @@ impl State {
         prepare: bool,
     ) -> Result<Value, Error> {
         let (project, root) = owner(ctx)?;
-        let session = self
-            .projects
-            .get_mut(&root)
-            .ok_or_else(|| Error::Invalid("Select an existing model first".into()))?;
+        let session = self.projects.get_mut(&root).ok_or_else(|| {
+            Error::Invalid(
+                crate::ui_text::text(
+                    "modelUi.existing_model_fields.4bf100fbe7",
+                    "Select an existing model first",
+                )
+                .into(),
+            )
+        })?;
         session.pending = None;
-        let plan = plan(&session.context, &draft).map_err(Error::Invalid)?;
+        let plan = plan(&session.context, &draft).map_err(ui_error)?;
         validate(&project, &root, &session.context, &plan)?;
         if !prepare {
             return Ok(preview(&session.context, &plan));
@@ -708,7 +743,11 @@ impl State {
                     || editor.path == format!("{root}/{}", plan.migration.path))
         }) {
             return Err(Error::Invalid(
-                "Save the model and close unsaved migration targets first".into(),
+                crate::ui_text::text(
+                    "modelUi.existing_model_fields.704c2b24f8",
+                    "Save the model and close unsaved migration targets first",
+                )
+                .into(),
             ));
         }
         host::open_editor(&session.context.path, None)?;
@@ -735,7 +774,11 @@ impl State {
                             && owned(root, &doc.path)
                     })
                     .map(|p| FileAction {
-                        title: "Apply prepared model fields…".into(),
+                        title: crate::ui_text::text(
+                            "modelUi.existing_model_fields.8276ac70c0",
+                            "Apply prepared model fields…",
+                        )
+                        .into(),
                         kind: Some("refactor".into()),
                         data: Some(p.key.clone()),
                         ..Default::default()
@@ -756,19 +799,25 @@ impl State {
         if action.data.as_deref() != Some(&pending.key)
             || session.context.path != doc.path
             || session.context.text != doc.text
-            || plan(&session.context, &pending.draft).map_err(Error::Invalid)? != pending.plan
+            || plan(&session.context, &pending.draft).map_err(ui_error)? != pending.plan
         {
             return Err(Error::Stale);
         }
         validate(&project, &root, &session.context, &pending.plan)?;
-        let exact = format!(
-            "Create {}\n{}\n\nModel before:\n{}\n\nModel after:\n{}",
-            pending.plan.migration.path,
-            pending.plan.migration.text,
-            session.context.text,
-            pending.plan.source
+        let exact = crate::ui_text::format(
+            "modelUi.fieldsReview",
+            "Create {path}\n{migration}\n\nModel before:\n{before}\n\nModel after:\n{after}",
+            &[
+                ("path", &pending.plan.migration.path),
+                ("migration", &pending.plan.migration.text),
+                ("before", &session.context.text),
+                ("after", &pending.plan.source),
+            ],
         );
-        if !ui_kit::prompts::confirm_exact("Apply model fields and migration?", &exact)? {
+        if !ui_kit::prompts::confirm_exact(
+            crate::ui_text::text("modelUi.fieldsConfirm", "Apply model fields and migration?"),
+            &exact,
+        )? {
             return Err(Error::Cancelled);
         }
         validate(&project, &root, &session.context, &pending.plan)?;
@@ -789,7 +838,11 @@ impl State {
         };
         let path = format!("{root}/{}", pending.plan.migration.path);
         Ok(FileAction {
-            title: "Create model fields and migration".into(),
+            title: crate::ui_text::text(
+                "modelUi.existing_model_fields.aed30edaf7",
+                "Create model fields and migration",
+            )
+            .into(),
             operations: vec![FileOperation::Create {
                 path: path.clone(),
                 text: pending.plan.migration.text,
@@ -800,6 +853,117 @@ impl State {
             ..Default::default()
         })
     }
+}
+
+/// Localize only authored literal planner errors at the UI delivery boundary.
+fn ui_error(message: String) -> Error {
+    let localized = match message.as_str() {
+        "Schema metadata inventory exceeds exact-snapshot limits" => {
+            crate::ui_text::t("modelUi.existing_model_fields.ec8f842415", &message)
+        }
+        "Unsupported class layout" => {
+            crate::ui_text::t("modelUi.existing_model_fields.ba5ff7d269", &message)
+        }
+        "Heredoc and shell-string contexts are withheld" => {
+            crate::ui_text::t("modelUi.existing_model_fields.cdb77eab82", &message)
+        }
+        "Unclosed property array" => {
+            crate::ui_text::t("modelUi.existing_model_fields.2f4c30b0d6", &message)
+        }
+        "Duplicate casts() declarations" => {
+            crate::ui_text::t("modelUi.existing_model_fields.e9a2574550", &message)
+        }
+        "Unsupported casts() signature" => {
+            crate::ui_text::t("modelUi.existing_model_fields.091838750a", &message)
+        }
+        "Invalid casts() arguments" => {
+            crate::ui_text::t("modelUi.existing_model_fields.9132bb51e4", &message)
+        }
+        "casts() cannot take arguments" => {
+            crate::ui_text::t("modelUi.existing_model_fields.2d059d1cb1", &message)
+        }
+        "casts() body unavailable" => {
+            crate::ui_text::t("modelUi.existing_model_fields.0e3a937937", &message)
+        }
+        "Unsupported casts() return signature" => {
+            crate::ui_text::t("modelUi.existing_model_fields.afdac4b4e2", &message)
+        }
+        "Unclosed casts() body" => {
+            crate::ui_text::t("modelUi.existing_model_fields.7aa6097e3a", &message)
+        }
+        "casts() must return one literal array" => {
+            crate::ui_text::t("modelUi.existing_model_fields.13deacc6ff", &message)
+        }
+        "Missing return" => crate::ui_text::t("modelUi.existing_model_fields.31c5ba852d", &message),
+        "Invalid casts() return array" => {
+            crate::ui_text::t("modelUi.existing_model_fields.aa9147b145", &message)
+        }
+        "casts() contains additional behavior" => {
+            crate::ui_text::t("modelUi.existing_model_fields.f261a86a3a", &message)
+        }
+        "Dynamic or attribute-based mass assignment needs manual review" => {
+            crate::ui_text::t("modelUi.existing_model_fields.7e37359009", &message)
+        }
+        "Model must have a supported single class declaration" => {
+            crate::ui_text::t("modelUi.existing_model_fields.4bfc1a86e4", &message)
+        }
+        "$fillable cannot contain keyed elements" => {
+            crate::ui_text::t("modelUi.existing_model_fields.7f0631744f", &message)
+        }
+        "$fillable must contain string literals" => {
+            crate::ui_text::t("modelUi.existing_model_fields.2bc60ac378", &message)
+        }
+        "$guarded cannot contain keyed elements" => {
+            crate::ui_text::t("modelUi.existing_model_fields.46a6e1b361", &message)
+        }
+        "$guarded must contain string literals" => {
+            crate::ui_text::t("modelUi.existing_model_fields.a7f249c917", &message)
+        }
+        "Wildcard guarding cannot allow selected fields; choose fillable or keep" => {
+            crate::ui_text::t("modelUi.existing_model_fields.cea948d57c", &message)
+        }
+        "No explicit literal $guarded array exists; choose fillable or keep" => {
+            crate::ui_text::t("modelUi.existing_model_fields.0bd2245161", &message)
+        }
+        "Choose fillable, guarded or keep" => {
+            crate::ui_text::t("modelUi.existing_model_fields.d53fe24753", &message)
+        }
+        "Cast unavailable" => {
+            crate::ui_text::t("modelUi.existing_model_fields.51b5436181", &message)
+        }
+        "$casts requires literal keys" => {
+            crate::ui_text::t("modelUi.existing_model_fields.3414f0b34a", &message)
+        }
+        "A cast already exists for one of the new fields" => {
+            crate::ui_text::t("modelUi.existing_model_fields.e19e44e0f4", &message)
+        }
+        "Model layout changed" => {
+            crate::ui_text::t("modelUi.existing_model_fields.48673a7be4", &message)
+        }
+        "Choose 1–64 fields and at most 64 indexes" => {
+            crate::ui_text::t("modelUi.existing_model_fields.533e2c2535", &message)
+        }
+        "Migration path must be a project-relative PHP file" => {
+            crate::ui_text::t("modelUi.existing_model_fields.5e3282e166", &message)
+        }
+        "Unsupported table identifier" => {
+            crate::ui_text::t("modelUi.existing_model_fields.ddbcdb0216", &message)
+        }
+        "Fields must be distinct new column identifiers" => {
+            crate::ui_text::t("modelUi.existing_model_fields.04ba99f939", &message)
+        }
+        "Invalid index name or columns" => {
+            crate::ui_text::t("modelUi.existing_model_fields.5c58936c7d", &message)
+        }
+        "Migration target already exists" => {
+            crate::ui_text::t("modelUi.existing_model_fields.e31df6bdff", &message)
+        }
+        "Migration parent must be an ordinary directory" => {
+            crate::ui_text::t("modelUi.existing_model_fields.0c8bbd1f76", &message)
+        }
+        _ => crate::ui_text::owned_error(&message, UI_ERROR_TEMPLATES).unwrap_or(message),
+    };
+    Error::Invalid(localized)
 }
 
 #[cfg(test)]
@@ -983,3 +1147,23 @@ mod tests {
         );
     }
 }
+
+// Explicit formats emitted by this module; only UI delivery uses locale state.
+const UI_ERROR_TEMPLATES: &[(&str, &str)] = &[
+    (
+        "final.existing_model_fields.unsupportedProperty",
+        "Unsupported ${property} declaration",
+    ),
+    (
+        "final.existing_model_fields.propertyInitializer",
+        "${property} needs a literal initializer",
+    ),
+    (
+        "final.existing_model_fields.propertyArray",
+        "${property} must be a literal array",
+    ),
+    (
+        "final.existing_model_fields.duplicateProperty",
+        "Unsupported or duplicate ${property} property",
+    ),
+];

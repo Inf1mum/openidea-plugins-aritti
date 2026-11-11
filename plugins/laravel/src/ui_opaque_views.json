@@ -1,5 +1,7 @@
 [
   "laravel-artisan",
   "laravel-generators",
-  "laravel-processes"
+  "laravel-processes",
+  "laravel-models",
+  "laravel-external"
 ]

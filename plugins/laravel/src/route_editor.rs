@@ -23,11 +23,62 @@ fn token(doc: &Document, at: Position, width: u32) -> Option<&str> {
     )?;
     doc.text.get(start..end)
 }
+fn blade_labels(index: &Index, doc: &Document, owns: &impl Fn(&str) -> bool) -> Vec<Label> {
+    let references = crate::refs::references("blade", &doc.text);
+    let Some(bindings) =
+        crate::config_inspections::prepare(index, "blade", &doc.text, references.len())
+    else {
+        return vec![];
+    };
+    if !crate::view_rename::binding_budget(doc.text.len(), references.len()) {
+        return vec![];
+    }
+    let mut labels = Vec::new();
+    for reference in references
+        .into_iter()
+        .filter(|r| r.closed && r.kind == crate::refs::Kind::Route)
+    {
+        if !bindings.safe(index, &reference) {
+            continue;
+        }
+        let Some(name) = doc.text.get(reference.start..reference.end) else {
+            continue;
+        };
+        let entries = index
+            .route_defs
+            .iter()
+            .filter(|entry| entry.def.name.as_deref() == Some(name) && owns(&entry.path))
+            .collect::<Vec<_>>();
+        if entries.len() != 1 {
+            continue;
+        }
+        let entry = entries[0];
+        let uri = entry.endpoint_uri.as_deref().unwrap_or(&entry.def.uri);
+        labels.push(Label {
+            position: text::position(&doc.text, reference.end + 1),
+            label: format!("[{}] {uri}", entry.def.methods),
+            tooltip: crate::ui_text::format(
+                "routeEditor.declarationTooltip",
+                "{action}\n{path}\nGo to this route declaration.",
+                &[("action", &entry.def.action), ("path", &entry.path)],
+            ),
+            target: route_target(entry),
+        });
+    }
+    labels.truncate(128);
+    labels
+}
 fn labels(index: &Index, doc: &Document, owns: &impl Fn(&str) -> bool) -> Vec<Label> {
-    if index.partial || doc.language != "php" || !owns(&doc.path) || doc.text.len() > 256 * 1024 {
+    if index.partial || !owns(&doc.path) || doc.text.len() > 256 * 1024 {
         return Vec::new();
     }
-    let parsed = routes::parse_with_custom(&doc.text,&index.metadata.route_methods);
+    if doc.language == "blade" || doc.path.ends_with(".blade.php") {
+        return blade_labels(index, doc, owns);
+    }
+    if doc.language != "php" {
+        return vec![];
+    }
+    let parsed = index.parse_routes(&doc.path,&doc.text);
     let mut labels = Vec::new();
     for current in parsed {
         let matching: Vec<_> = index
@@ -61,9 +112,10 @@ fn labels(index: &Index, doc: &Document, owns: &impl Fn(&str) -> bool) -> Vec<La
             position,
             label,
             target: route_target(entry),
-            tooltip: format!(
-                "{}\n{}\nGo to this route declaration.",
-                entry.def.action, entry.path
+            tooltip: crate::ui_text::format(
+                "routeEditor.declarationTooltip",
+                "{action}\n{path}\nGo to this route declaration.",
+                &[("action", &entry.def.action), ("path", &entry.path)],
             ),
         });
     }
@@ -86,6 +138,7 @@ fn labels(index: &Index, doc: &Document, owns: &impl Fn(&str) -> bool) -> Vec<La
                 })
         })
         .collect();
+    let identities=crate::eloquent_members::class_inventory(&index.eloquent_models);
     if classes.len() == 1 {
         let (class, _) = classes[0];
         if let Some(methods) = index.methods.get(class) {
@@ -105,15 +158,19 @@ fn labels(index: &Index, doc: &Document, owns: &impl Fn(&str) -> bool) -> Vec<La
                     let Some((target, action)) = &route.def.controller else {
                         continue;
                     };
-                    if action != method || !owns(&route.path) {
+                    if !action.eq_ignore_ascii_case(method) || !owns(&route.path) {
                         continue;
                     }
+                    let target=index.route_controller_full(route).unwrap_or(target);
                     let candidates: Vec<_> = index
                         .controllers
                         .keys()
                         .filter(|known| {
-                            *known == target
-                                || known.rsplit('\\').next() == target.rsplit('\\').next()
+                            if target.contains('\\') {
+                                index.controllers.get(*known).is_some_and(|entry|identities.iter().any(|identity|!identity.ambiguous&&identity.path==entry.path&&identity.full.eq_ignore_ascii_case(target)))
+                            }else{
+                                known.as_str() == target || known.rsplit('\\').next() == target.rsplit('\\').next()
+                            }
                         })
                         .collect();
                     if candidates.len() != 1 || candidates[0] != class {
@@ -133,10 +190,13 @@ fn labels(index: &Index, doc: &Document, owns: &impl Fn(&str) -> bool) -> Vec<La
                                 .map(|n| format!(" · {n}"))
                                 .unwrap_or_default()
                         ),
-                        tooltip: format!(
-                            "{}:{}\nGo to this route declaration.",
-                            route.path,
-                            route.at.line + 1
+                        tooltip: crate::ui_text::format(
+                            "routeEditor.declarationLocationTooltip",
+                            "{path}:{line}\nGo to this route declaration.",
+                            &[
+                                ("path", &route.path),
+                                ("line", &(route.at.line + 1).to_string()),
+                            ],
                         ),
                     });
                 }
@@ -186,10 +246,22 @@ pub(crate) fn lenses(index: &Index, doc: &Document, owns: &impl Fn(&str) -> bool
             .find(|entry| route_target(entry) == label.target && entry.endpoint_uri.is_some())
         {
             for (action, title) in [
-                ("browse", "Browse"),
-                ("copy", "Copy URL"),
-                ("curl", "Copy cURL"),
-                ("http", "Create HTTP Request"),
+                (
+                    "browse",
+                    crate::ui_text::text("routeEditor.browse", "Browse"),
+                ),
+                (
+                    "copy",
+                    crate::ui_text::text("routeEditor.copyUrl", "Copy URL"),
+                ),
+                (
+                    "curl",
+                    crate::ui_text::text("routeEditor.copyCurl", "Copy cURL"),
+                ),
+                (
+                    "http",
+                    crate::ui_text::text("routeEditor.createHttp", "Create HTTP Request"),
+                ),
             ] {
                 if action == "browse" && !entry.def.methods.split('|').any(|method| method == "GET")
                 {
@@ -261,11 +333,20 @@ fn resolve(
     {
         return Err(Error::Stale);
     }
+    // An explicit action must not reuse a changed provider/bootstrap mount.
+    let mount_source=|relative:&str|->Result<String,Error>{
+        if !owns(&format!("{root}/{relative}")){return Err(Error::Stale);}
+        let source=project.read_file(relative).unwrap_or_default();
+        if source.len()>512*1024{return Err(Error::Stale);}Ok(source)
+    };
+    let current_mounts=routes::application_mount_contexts(&mount_source("bootstrap/app.php")?,&mount_source("app/Providers/RouteServiceProvider.php")?);
+    let relative=path.strip_prefix(&root).and_then(|p|p.strip_prefix('/')).ok_or(Error::Stale)?;
+    if current_mounts.as_ref().and_then(|mounts|mounts.get(relative))!=index.route_mounts.get(path){return Err(Error::Stale);}
     let source = project.read_file(path)?;
     if source.len() > 256 * 1024 {
         return Err(Error::Stale);
     }
-    let candidates: Vec<_> = routes::parse_with_custom(&source,&index.metadata.route_methods)
+    let candidates: Vec<_> = index.parse_routes(path,&source)
         .into_iter()
         .filter(|route| {
             value["methods"].as_str() == Some(route.methods.as_str())
@@ -339,18 +420,40 @@ pub(crate) fn action(
     let (_, entry, _) = resolve(index, ctx, &target)?;
     let mut action = value["action"].as_str().ok_or(Error::Stale)?.to_owned();
     if action == "choose" {
-        let mut choices = vec![PickItem::new("open", "Go to route declaration")];
+        let mut choices = vec![PickItem::new(
+            "open",
+            crate::ui_text::text("routeEditor.goToDeclaration", "Go to route declaration"),
+        )];
         if entry.endpoint_uri.is_some() {
             choices.extend([
-                PickItem::new("copy", "Copy URL"),
-                PickItem::new("curl", "Copy cURL"),
-                PickItem::new("http", "Create HTTP Request"),
+                PickItem::new(
+                    "copy",
+                    crate::ui_text::text("routeEditor.copyUrl", "Copy URL"),
+                ),
+                PickItem::new(
+                    "curl",
+                    crate::ui_text::text("routeEditor.copyCurl", "Copy cURL"),
+                ),
+                PickItem::new(
+                    "http",
+                    crate::ui_text::text("routeEditor.createHttp", "Create HTTP Request"),
+                ),
             ]);
             if entry.def.methods.split('|').any(|method| method == "GET") {
-                choices.insert(1, PickItem::new("browse", "Browse"));
+                choices.insert(
+                    1,
+                    PickItem::new(
+                        "browse",
+                        crate::ui_text::text("routeEditor.browse", "Browse"),
+                    ),
+                );
             }
         }
-        let Some(selected) = host::pick("Route actions", &choices)? else {
+        let Some(selected) = host::pick(
+            crate::ui_text::text("routeEditor.actions", "Route actions"),
+            &choices,
+        )?
+        else {
             return Ok(());
         };
         action = selected;
@@ -362,7 +465,10 @@ pub(crate) fn action(
         return Err(Error::Stale);
     }
     let mut path = entry.endpoint_uri.clone().ok_or_else(|| {
-        Error::Invalid("The route mount is unknown; refresh routing metadata first.".into())
+        Error::Invalid(crate::ui_text::t(
+            "routeEditor.unknownMount",
+            "The route mount is unknown; refresh routing metadata first.",
+        ))
     })?;
     let methods: Vec<_> = entry
         .def
@@ -384,13 +490,17 @@ pub(crate) fn action(
         })
         .collect();
     if methods.is_empty() {
-        return Err(Error::Invalid(
-            "Choose a route with a concrete HTTP method.".into(),
-        ));
+        return Err(Error::Invalid(crate::ui_text::t(
+            "routeEditor.concreteMethod",
+            "Choose a route with a concrete HTTP method.",
+        )));
     }
     let method = if action == "browse" {
         if !methods.contains(&"GET") {
-            return Err(Error::Invalid("Browse requires a GET route.".into()));
+            return Err(Error::Invalid(crate::ui_text::t(
+                "routeEditor.browseRequiresGet",
+                "Browse requires a GET route.",
+            )));
         }
         "GET".to_owned()
     } else if matches!(action.as_str(), "curl" | "http") && methods.len() > 1 {
@@ -398,7 +508,11 @@ pub(crate) fn action(
             .iter()
             .map(|method| PickItem::new(method, method))
             .collect();
-        let Some(method) = host::pick("HTTP method", &choices)? else {
+        let Some(method) = host::pick(
+            crate::ui_text::text("routeEditor.method", "HTTP method"),
+            &choices,
+        )?
+        else {
             return Ok(());
         };
         if !methods.contains(&method.as_str()) {
@@ -408,25 +522,35 @@ pub(crate) fn action(
     } else {
         methods[0].to_owned()
     };
-    let Some(base) = host::input("Base URL", Some(default_base))? else {
+    let Some(base) = host::input(
+        crate::ui_text::text("routeEditor.baseUrl", "Base URL"),
+        Some(default_base),
+    )?
+    else {
         return Ok(());
     };
     let base = base.trim();
     if !valid_base(base) {
-        return Err(Error::Invalid(
-            "Enter an HTTP or HTTPS base URL without credentials, query or fragment.".into(),
-        ));
+        return Err(Error::Invalid(crate::ui_text::t(
+            "routeEditor.invalidBaseUrl",
+            "Enter an HTTP or HTTPS base URL without credentials, query or fragment.",
+        )));
     }
     if path.contains(['{', '}']) {
-        let Some(value) = host::input("Route path (replace parameters)", Some(&path))? else {
+        let Some(value) = host::input(
+            crate::ui_text::text("routeEditor.pathPrompt", "Route path (replace parameters)"),
+            Some(&path),
+        )?
+        else {
             return Ok(());
         };
         path = value;
     }
     if !valid_path(&path) {
-        return Err(Error::Invalid(
-            "Enter a project route path with all parameters replaced.".into(),
-        ));
+        return Err(Error::Invalid(crate::ui_text::t(
+            "routeEditor.invalidPath",
+            "Enter a project route path with all parameters replaced.",
+        )));
     }
     let (project, current, _) = resolve(index, ctx, &target)?;
     if current.endpoint_uri != entry.endpoint_uri {
@@ -473,7 +597,10 @@ pub(crate) fn action(
                     host::notify(
                         openidea_plugin::NotificationLevel::Warning,
                         "Laravel",
-                        "Project writes denied; HTTP request copied to clipboard.",
+                        crate::ui_text::text(
+                            "routeEditor.writeDenied",
+                            "Project writes denied; HTTP request copied to clipboard.",
+                        ),
                     );
                     Ok(())
                 }
@@ -488,6 +615,45 @@ pub(crate) fn action(
 mod tests {
     use super::*;
     use crate::index::RouteEntry;
+    #[test]
+    fn mounted_namespaces_names_and_uris_reparse_original_source_for_labels_and_navigation(){
+        let host=openidea_plugin::mock::MockHost::install();
+        host.add_file("composer.json",r#"{"require":{"laravel/framework":"^13.0"},"autoload":{"psr-4":{"App\\":"app/"}}}"#);
+        host.add_file("artisan","<?php");
+        host.add_file("app/Providers/RouteServiceProvider.php",r#"<?php use Illuminate\Support\Facades\Route as Router; Router::prefix('v2')->name('admin.')->namespace('App\Http\Controllers\Admin')->group(base_path('custom/admin.php'));"#);
+        host.add_file("app/Http/Controllers/Admin/PostController.php",r#"<?php namespace App\Http\Controllers\Admin; class PostController { public function show(){} }"#);
+        let source="<?php /* 😀 */ Route::get('/posts','PostController@show')->name('posts.show');";
+        host.add_file("custom/admin.php",source);let project=host.invocation().project().unwrap();let index=Index::build(&project);
+        let entry=index.route_defs.iter().find(|entry|entry.path.ends_with("/custom/admin.php")).unwrap_or_else(||panic!("mounts {:?}; files {:?}",routes::application_mount_contexts("",&project.read_file("app/Providers/RouteServiceProvider.php").unwrap()),index.route_files));
+        assert_eq!(entry.def.name.as_deref(),Some("admin.posts.show"));assert_eq!(entry.def.uri,"/v2/posts");
+        assert_eq!(entry.endpoint_uri.as_deref(),Some("/v2/posts"));assert_eq!(entry.def.action,"App\\Http\\Controllers\\Admin\\PostController@show");
+        let doc=Document{path:"/project/custom/admin.php".into(),language:"php".into(),version:2,text:source.into()};
+        let labels=labels(&index,&doc,&|_|true);assert_eq!(labels.len(),1);assert!(labels[0].label.contains("admin.posts.show"));
+        assert_eq!(labels[0].position,text::position(source,source.find("posts.show'").unwrap()+"posts.show".len()));
+        assert!(crate::route_inspections::current(&index,&doc).is_empty());
+        let target=route_target(entry);let(_,_,range)=resolve(&index,&host.invocation(),&target).unwrap();
+        assert_eq!(&source[text::offset(source,range.start).unwrap()..text::offset(source,range.end).unwrap()],"posts.show");
+        host.add_file("app/Providers/RouteServiceProvider.php",r#"<?php Route::prefix('v3')->name('changed.')->namespace('App\Http\Controllers\Admin')->group(base_path('custom/admin.php'));"#);
+        assert!(matches!(resolve(&index,&host.invocation(),&target),Err(openidea_plugin::Error::Stale)));
+    }
+    #[test]
+    fn aliased_php_controller_types_keep_exact_method_hints_and_runtime_route_locations(){
+        let host=openidea_plugin::mock::MockHost::install();
+        host.add_file("composer.json",r#"{"require":{"laravel/framework":"^13.0"},"autoload":{"psr-4":{"App\\":"app/"}}}"#);host.add_file("artisan","<?php");
+        let controller="<?php namespace App\\Http\\Controllers\\Admin; class PostController { public function SHOW(){} }";
+        host.add_file("app/Http/Controllers/Admin/PostController.php",controller);
+        host.add_file("app/Http/Controllers/Public/PostController.php","<?php namespace App\\Http\\Controllers\\Public; class PostController { public function show(){} }");
+        let source=r#"<?php use App\Http\Controllers\Admin\PostController as Posts; Route::get('/posts',[Posts::class,'show'])->name('aliased');"#;
+        host.add_file("routes/web.php",source);let index=Index::build(&host.invocation().project().unwrap());
+        let current=Document{path:"/project/app/Http/Controllers/Admin/PostController.php".into(),language:"php".into(),version:1,text:controller.into()};
+        let hints=labels(&index,&current,&|_|true);assert_eq!(hints.len(),1);assert!(hints[0].label.contains("aliased"));
+        let other=Document{path:"/project/app/Http/Controllers/Public/PostController.php".into(),text:host.invocation().project().unwrap().read_file("app/Http/Controllers/Public/PostController.php").unwrap(),..current};
+        assert!(labels(&index,&other,&|_|true).is_empty());
+        let json=serde_json::json!([{"method":"GET|HEAD","uri":"posts","action":"App\\Http\\Controllers\\Admin\\PostController@show","name":"aliased"}]);
+        let runtime=crate::route_runtime::parse(&json.to_string(),&index).unwrap();
+        assert_eq!(runtime[0].location.as_ref().unwrap().path,"/project/routes/web.php");
+        assert_eq!(runtime[0].location.as_ref().unwrap().range.start,text::position(source,source.find("aliased'").unwrap()));
+    }
     fn fixture() -> (Index, Document) {
         let source = "<?php\nRoute::get('/hello', fn () => 'hi')->name('hello');\n";
         let def = routes::parse(source).remove(0);
@@ -511,6 +677,7 @@ mod tests {
     }
     #[test]
     fn labels_current_routes_and_filters_requested_range() {
+        let _host = openidea_plugin::mock::MockHost::install();
         let (index, doc) = fixture();
         let all = Range::new(Position::new(0, 0), Position::new(20, 0));
         let found = hints(&index, &doc, all, &|_| true);
@@ -532,6 +699,28 @@ mod tests {
         assert_eq!(gutters(&index, &doc, &|_| true).len(), 1);
     }
     #[test]
+    fn blade_route_references_get_inline_hints_and_reviewed_route_actions() {
+        let _host = openidea_plugin::mock::MockHost::install();
+        let (index, mut doc) = fixture();
+        doc.path = "/p/resources/views/test.blade.php".into();
+        doc.language = "blade".into();
+        doc.text = "😀 <a href=\"{{ route('hello') }}\">Hello</a>".into();
+        let found = labels(&index, &doc, &|_| true);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].label, "[GET|HEAD] /api/hello");
+        assert_eq!(
+            found[0].position,
+            text::position(&doc.text, doc.text.find("hello'").unwrap() + 6)
+        );
+        assert_eq!(gutters(&index, &doc, &|_| true).len(), 1);
+        assert!(labels(&index, &doc, &|path| !path.contains("/routes/")).is_empty());
+        doc.text =
+            "{{-- {{ route('hello') }} --}} @verbatim {{ route('hello') }} @endverbatim".into();
+        assert!(labels(&index, &doc, &|_| true).is_empty());
+        doc.text = "{{ Vendor\\route('hello') }}".into();
+        assert!(labels(&index, &doc, &|_| true).is_empty());
+    }
+    #[test]
     fn stale_foreign_partial_or_ambiguous_facts_are_withheld() {
         let (mut index, mut doc) = fixture();
         assert!(labels(&index, &doc, &|_| false).is_empty());
@@ -547,6 +736,7 @@ mod tests {
     }
     #[test]
     fn controller_labels_require_exact_current_class_method_and_unique_target() {
+        let _host = openidea_plugin::mock::MockHost::install();
         let (mut index, _) = fixture();
         let source = "<?php\nclass HelloController {\n public function index() {}\n}\n";
         let path = "/p/app/Http/Controllers/HelloController.php";

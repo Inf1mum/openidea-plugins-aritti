@@ -39,6 +39,17 @@ struct Generator {
     needs: &'static str,
 }
 
+fn kind_label(kind: &Generator) -> &'static str {
+    crate::ui_text::text(&format!("generator.legacyKind.{}", kind.id), kind.label)
+}
+fn flag_label(flag: &str, label: &'static str) -> &'static str {
+    let suffix: String = label
+        .to_ascii_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    crate::ui_text::text(&format!("generator.flag.{flag}.{suffix}"), label)
+}
 const fn kind(
     id: &'static str,
     label: &'static str,
@@ -277,12 +288,19 @@ pub(super) fn run_with(
     full: Vec<String>,
     runner: crate::artisan_runner::Runner,
 ) -> Result<(), Error> {
-    let project = ctx.project().ok_or("No project is open.")?;
+    let project = ctx.project().ok_or(crate::ui_text::text(
+        "native.lib.6d0169b3b4",
+        "No project is open.",
+    ))?;
     let root = project.root()?;
     runner.verify(&project)?;
     let executable = runner.argv(&project, &full, true)?;
     if state.pending.borrow().len() >= 32 {
-        return Err("Close or finish existing Artisan terminals before starting another.".into());
+        return Err(crate::ui_text::text(
+            "native.generate.df0267f42b",
+            "Close or finish existing Artisan terminals before starting another.",
+        )
+        .into());
     }
     let sequence = state.next.get().checked_add(1).ok_or(Error::Stale)?;
     state.next.set(sequence);
@@ -306,9 +324,10 @@ pub(super) fn run_with(
             state.pending.borrow_mut().push((id, key, root, full));
             Ok(())
         }
-        Err(Error::Denied(_)) => Err(format!(
-            "Allow the process:{} capability in Settings › Plugins.",
-            runner.name()
+        Err(Error::Denied(_)) => Err(crate::ui_text::format(
+            "generator.legacy.allowProcess",
+            "Allow the process:{program} capability in Settings › Plugins.",
+            &[("program", runner.name())],
         )
         .into()),
         Err(error) => Err(error),
@@ -316,19 +335,28 @@ pub(super) fn run_with(
 }
 
 pub fn run_artisan(state: &Terminals, ctx: &Invocation) -> Result<Option<String>, Error> {
-    let project = ctx.project().ok_or("No project is open.")?;
+    let project = ctx.project().ok_or(crate::ui_text::text(
+        "native.lib.6d0169b3b4",
+        "No project is open.",
+    ))?;
     let cached = crate::artisan_metadata::cached(&project);
     let (commands, source): (Vec<(String, String)>, &str) = match cached {
         Some(commands) => (
             commands,
-            "Executed runtime snapshot — explicit PHP metadata refresh",
+            crate::ui_text::text(
+                "generator.legacy.runtimeSource",
+                "Executed runtime snapshot — explicit PHP metadata refresh",
+            ),
         ),
         None => (
             FALLBACK_COMMANDS
                 .iter()
                 .map(|name| ((*name).to_owned(), String::new()))
                 .collect(),
-            "Bundled static choices — use Refresh Artisan Metadata to execute discovery",
+            crate::ui_text::text(
+                "generator.legacy.bundledSource",
+                "Bundled static choices — use Refresh Artisan Metadata to execute discovery",
+            ),
         ),
     };
 
@@ -338,23 +366,39 @@ pub fn run_artisan(state: &Terminals, ctx: &Invocation) -> Result<Option<String>
             PickItem::new(name, name).description(&format!("{source}. {description}"))
         })
         .collect();
-    let Some(command) = host::pick("Artisan command", &choices)? else {
+    let Some(command) = host::pick(
+        crate::ui_text::text("native.generate.5e78b8fddc", "Artisan command"),
+        &choices,
+    )?
+    else {
         return Ok(None);
     };
     if !commands.iter().any(|(name, _)| *name == command) {
-        return Err(Error::Invalid(format!("unknown artisan command {command}")));
+        return Err(Error::Invalid(crate::ui_text::format(
+            "generator.legacy.unknownCommand",
+            "Unknown Artisan command {command}",
+            &[("command", &command)],
+        )));
     }
 
     let Some(arguments) = host::input(
-        &format!("Arguments for artisan {command} (quotes group values; no shell expansion)"),
+        &crate::ui_text::format(
+            "generator.legacy.arguments",
+            "Arguments for artisan {command} (quotes group values; no shell expansion)",
+            &[("command", &command)],
+        ),
         None,
     )?
     else {
         return Ok(None);
     };
-    let args = crate::artisan_arguments::parse(&arguments)?;
+    let args = crate::artisan_arguments::parse(&arguments).map_err(crate::artisan_arguments::ui_error)?;
     if let Some(bad) = args.iter().find(|arg| arg.chars().any(|c| c.is_control())) {
-        return Err(Error::Invalid(format!("bad argument {bad:?}")));
+        return Err(Error::Invalid(crate::ui_text::format(
+            "generator.legacy.badArgument",
+            "Invalid argument {value}",
+            &[("value", &format!("{bad:?}"))],
+        )));
     }
 
     run(state, ctx, &command, args)?;
@@ -369,7 +413,10 @@ fn pick_model(
 ) -> Result<Option<Option<String>>, Error> {
     let mut choices = Vec::new();
     if optional {
-        choices.push(PickItem::new("", "No model"));
+        choices.push(PickItem::new(
+            "",
+            crate::ui_text::text("native.generate.120aae702c", "No model"),
+        ));
     }
     if let Some(index) = index {
         choices.extend(
@@ -400,7 +447,11 @@ fn pick_model(
                     .is_some_and(|project| crate::owns_current_path(&project, &model.path))
         })
     }) {
-        return Err(Error::Invalid(format!("unknown model {chosen}")));
+        return Err(Error::Invalid(crate::ui_text::format(
+            "generator.legacy.unknownModel",
+            "Unknown model {model}",
+            &[("model", &chosen)],
+        )));
     }
 
     Ok(Some(Some(chosen)))
@@ -414,7 +465,10 @@ fn finish(
     model: Option<String>,
     flags: Vec<String>,
 ) -> Result<Option<String>, Error> {
-    ctx.project().ok_or("No project is open.")?;
+    ctx.project().ok_or(crate::ui_text::text(
+        "native.lib.6d0169b3b4",
+        "No project is open.",
+    ))?;
     let mut args = vec![name.to_owned()];
 
     if let (Some(option), Some(model)) = (kind.model_option, model) {
@@ -449,44 +503,78 @@ pub fn make(
         })
     };
     let kind = match fixed {
-        Some(id) => find(id).ok_or_else(|| Error::NotFound(format!("generator {id}")))?,
+        Some(id) => find(id).ok_or_else(|| {
+            Error::NotFound(crate::ui_text::format(
+                "generator.legacy.missingGenerator",
+                "Generator {id} is unavailable",
+                &[("id", id)],
+            ))
+        })?,
         None => {
             let choices = items(
                 KINDS
                     .iter()
                     .filter(|kind| enabled(kind))
-                    .map(|k| (k.id, k.label)),
+                    .map(|k| (k.id, kind_label(k))),
             );
-            let Some(chosen) = host::pick("Generate with artisan make", &choices)? else {
+            let Some(chosen) = host::pick(
+                crate::ui_text::text("native.generate.8f92550a35", "Generate with artisan make"),
+                &choices,
+            )?
+            else {
                 return Ok(None);
             };
-            find(&chosen).ok_or_else(|| Error::Invalid(format!("unknown generator {chosen}")))?
+            find(&chosen).ok_or_else(|| {
+                Error::Invalid(crate::ui_text::format(
+                    "generator.legacy.unknownGenerator",
+                    "Unknown generator {id}",
+                    &[("id", &chosen)],
+                ))
+            })?
         }
     };
 
     if !enabled(kind) {
-        return Err(Error::Invalid(format!(
-            "{} integration is disabled or its package is not configured.",
-            kind.label
+        return Err(Error::Invalid(crate::ui_text::format(
+            "generator.legacy.disabled",
+            "{kind} integration is disabled or its package is not configured.",
+            &[("kind", kind_label(kind))],
         )));
     }
 
-    let Some(name) = host::input(&format!("{} name", kind.label), None)? else {
+    let Some(name) = host::input(
+        &crate::ui_text::format(
+            "generator.prompt.name",
+            "{kind} name",
+            &[("kind", kind_label(kind))],
+        ),
+        None,
+    )?
+    else {
         return Ok(None);
     };
     let name = name.trim().to_owned();
     if !valid_for(kind, &name) {
-        return Err(Error::Invalid(format!(
-            "{name:?} is not a valid {} name",
-            kind.label.to_lowercase()
+        return Err(Error::Invalid(crate::ui_text::format(
+            "generator.legacy.invalidName",
+            "{value} is not a valid {kind} name",
+            &[("value", &format!("{name:?}")), ("kind", kind_label(kind))],
         )));
     }
 
     let mut flags = Vec::new();
     if !kind.flags.is_empty() {
-        let choices = items(kind.flags.iter().copied());
+        let choices = items(
+            kind.flags
+                .iter()
+                .map(|(flag, label)| (*flag, flag_label(flag, label))),
+        );
         let Some(chosen) = host::pick_many(
-            &format!("Options for {}", kind.label.to_lowercase()),
+            &crate::ui_text::format(
+                "generator.prompt.options",
+                "Options for {kind}",
+                &[("kind", kind_label(kind))],
+            ),
             &choices,
         )?
         else {
@@ -496,7 +584,11 @@ pub fn make(
             .iter()
             .find(|flag| !kind.flags.iter().any(|(known, _)| known == flag))
         {
-            return Err(Error::Invalid(format!("unknown option {bad}")));
+            return Err(Error::Invalid(crate::ui_text::format(
+                "generator.legacy.unknownOption",
+                "Unknown option {option}",
+                &[("option", bad)],
+            )));
         }
         flags = chosen;
     }
@@ -531,7 +623,11 @@ pub fn for_model(
         [(model, _)] => model.clone(),
         _ => {
             let Some(Some(model)) = pick_model("Model", index, false, ctx)? else {
-                return Err("No Eloquent model found in the project.".into());
+                return Err(crate::ui_text::text(
+                    "native.generate.ef9eb55f7a",
+                    "No Eloquent model found in the project.",
+                )
+                .into());
             };
             model
         }
@@ -541,14 +637,28 @@ pub fn for_model(
         MODEL_AWARE
             .iter()
             .filter_map(|id| find(id))
-            .map(|k| (k.id, k.label)),
+            .map(|k| (k.id, kind_label(k))),
     );
-    let Some(chosen) = host::pick(&format!("Generate for {model}"), &choices)? else {
+    let Some(chosen) = host::pick(
+        &crate::ui_text::format(
+            "generator.prompt.forModel",
+            "Generate for {model}",
+            &[("model", &model)],
+        ),
+        &choices,
+    )?
+    else {
         return Ok(None);
     };
     let kind = find(&chosen)
         .filter(|k| MODEL_AWARE.contains(&k.id))
-        .ok_or_else(|| Error::Invalid(format!("unknown generator {chosen}")))?;
+        .ok_or_else(|| {
+            Error::Invalid(crate::ui_text::format(
+                "generator.legacy.unknownGenerator",
+                "Unknown generator {id}",
+                &[("id", &chosen)],
+            ))
+        })?;
 
     let default = format!(
         "{}{}",
@@ -557,15 +667,26 @@ pub fn for_model(
     );
     let default = if let (Some(project), Some(index)) = (ctx.project(), index) {
         crate::bulk::related_default_name(&project, index, kind.id, &model)?.unwrap_or(default)
-    } else { default };
-    let Some(name) = host::input(&format!("{} name", kind.label), Some(&default))? else {
+    } else {
+        default
+    };
+    let Some(name) = host::input(
+        &crate::ui_text::format(
+            "generator.prompt.name",
+            "{kind} name",
+            &[("kind", kind_label(kind))],
+        ),
+        Some(&default),
+    )?
+    else {
         return Ok(None);
     };
     let name = name.trim().to_owned();
     if !valid_for(kind, &name) {
-        return Err(Error::Invalid(format!(
-            "{name:?} is not a valid {} name",
-            kind.label.to_lowercase()
+        return Err(Error::Invalid(crate::ui_text::format(
+            "generator.legacy.invalidName",
+            "{value} is not a valid {kind} name",
+            &[("value", &format!("{name:?}")), ("kind", kind_label(kind))],
         )));
     }
 
@@ -618,17 +739,30 @@ pub fn create_missing(
     ctx: &Invocation,
     index: Option<&Index>,
 ) -> Result<Option<String>, Error> {
-    let editor = ctx.editor().ok_or("Open a file first.")?;
+    let editor = ctx.editor().ok_or(crate::ui_text::text(
+        "native.generate.ee1e34b292",
+        "Open a file first.",
+    ))?;
     let document = editor.document()?;
     let cursor = editor
         .selections()?
         .first()
         .map(|range| range.start)
-        .ok_or("No cursor.")?;
-    let offset = text::offset(&document.text, cursor).ok_or("No cursor.")?;
-    let language =
-        crate::language_of(&editor.path(), &editor.language()).ok_or("Not a PHP or Blade file.")?;
-    let index = index.ok_or("The project is not indexed.")?;
+        .ok_or(crate::ui_text::text(
+            "native.generate.d9868759fe",
+            "No cursor.",
+        ))?;
+    let offset = text::offset(&document.text, cursor).ok_or(crate::ui_text::text(
+        "native.generate.d9868759fe",
+        "No cursor.",
+    ))?;
+    let language = crate::language_of(&editor.path(), &editor.language()).ok_or(
+        crate::ui_text::text("native.generate.8039832b31", "Not a PHP or Blade file."),
+    )?;
+    let index = index.ok_or(crate::ui_text::text(
+        "native.generate.439e3e0871",
+        "The project is not indexed.",
+    ))?;
 
     let Some(reference) = refs::reference_at(language, &document.text, offset) else {
         return create_missing_class(state, ctx, &document.text, offset);
@@ -639,7 +773,10 @@ pub fn create_missing(
         host::notify(
             openidea_plugin::NotificationLevel::Info,
             "Laravel",
-            "Choose Create missing literal Blade view from the editor's intentions to review an undoable file creation. Only supported plain literal references and the conventional resources/views root are offered; other view scopes remain unsupported.",
+            crate::ui_text::text(
+                "native.generate.9205f0f36d",
+                "Choose Create missing literal Blade view from the editor's intentions to review an undoable file creation. Only supported plain literal references and the conventional resources/views root are offered; other view scopes remain unsupported.",
+            ),
         );
         return Ok(None);
     }
@@ -654,23 +791,47 @@ pub fn create_missing(
             let class = name.split('@').next().unwrap_or(name);
             let short = class.rsplit('\\').next().unwrap_or(class);
             if index.controllers.contains_key(short) {
-                return Err("Nothing missing here.".into());
+                return Err(crate::ui_text::text(
+                    "native.generate.93c24c2d25",
+                    "Nothing missing here.",
+                )
+                .into());
             }
             ("controller", class.to_owned())
         }
-        _ => return Err("Nothing missing here.".into()),
+        _ => {
+            return Err(crate::ui_text::text(
+                "native.generate.93c24c2d25",
+                "Nothing missing here.",
+            )
+            .into());
+        }
     };
 
-    let kind = find(id).ok_or_else(|| Error::NotFound(format!("generator {id}")))?;
+    let kind = find(id).ok_or_else(|| {
+        Error::NotFound(crate::ui_text::format(
+            "generator.legacy.missingGenerator",
+            "Generator {id} is unavailable",
+            &[("id", id)],
+        ))
+    })?;
     if !valid_for(kind, &argument) {
-        return Err(Error::Invalid(format!(
-            "{argument:?} is not a valid {} name",
-            kind.label.to_lowercase()
+        return Err(Error::Invalid(crate::ui_text::format(
+            "generator.legacy.invalidName",
+            "{value} is not a valid {kind} name",
+            &[
+                ("value", &format!("{argument:?}")),
+                ("kind", kind_label(kind)),
+            ],
         )));
     }
     if !host::confirm(
-        "Create missing target",
-        &format!("Run php artisan make:{id} {argument}?"),
+        crate::ui_text::text("native.generate.e985a2dd60", "Create missing target"),
+        &crate::ui_text::format(
+            "generator.legacy.confirmMake",
+            "Run php artisan make:{id} {name}?",
+            &[("id", id), ("name", &argument)],
+        ),
     )? {
         return Ok(None);
     }
@@ -726,31 +887,53 @@ fn create_missing_class(
     text: &str,
     offset: usize,
 ) -> Result<Option<String>, Error> {
-    let project = ctx.project().ok_or("No project is open.")?;
-    let word = class_at(text, offset).ok_or("No Laravel name at the cursor.")?;
+    let project = ctx.project().ok_or(crate::ui_text::text(
+        "native.lib.6d0169b3b4",
+        "No project is open.",
+    ))?;
+    let word = class_at(text, offset).ok_or(crate::ui_text::text(
+        "native.generate.6c7d1283d4",
+        "No Laravel name at the cursor.",
+    ))?;
     let (_, id) = CLASS_SUFFIXES
         .iter()
         .find(|(suffix, _)| word.len() > suffix.len() && word.ends_with(suffix))
-        .ok_or("Nothing missing here.")?;
+        .ok_or(crate::ui_text::text(
+            "native.generate.93c24c2d25",
+            "Nothing missing here.",
+        ))?;
 
     if !project
         .find_files(&format!("**/{word}.php"), 1)
         .unwrap_or_default()
         .is_empty()
     {
-        return Err("Nothing missing here.".into());
+        return Err(
+            crate::ui_text::text("native.generate.93c24c2d25", "Nothing missing here.").into(),
+        );
     }
 
-    let kind = find(id).ok_or_else(|| Error::NotFound(format!("generator {id}")))?;
+    let kind = find(id).ok_or_else(|| {
+        Error::NotFound(crate::ui_text::format(
+            "generator.legacy.missingGenerator",
+            "Generator {id} is unavailable",
+            &[("id", id)],
+        ))
+    })?;
     if !valid_for(kind, word) {
-        return Err(Error::Invalid(format!(
-            "{word:?} is not a valid {} name",
-            kind.label.to_lowercase()
+        return Err(Error::Invalid(crate::ui_text::format(
+            "generator.legacy.invalidName",
+            "{value} is not a valid {kind} name",
+            &[("value", &format!("{word:?}")), ("kind", kind_label(kind))],
         )));
     }
     if !host::confirm(
-        "Create missing class",
-        &format!("Run php artisan make:{id} {word}?"),
+        crate::ui_text::text("native.generate.5ab20ec3f1", "Create missing class"),
+        &crate::ui_text::format(
+            "generator.legacy.confirmMake",
+            "Run php artisan make:{id} {name}?",
+            &[("id", id), ("name", &word)],
+        ),
     )? {
         return Ok(None);
     }

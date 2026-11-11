@@ -4,6 +4,7 @@ use openidea_plugin::diagnostics::DiagnosticsProvider;
 
 impl DiagnosticsProvider for Main {
     fn diagnostics(&mut self, doc: &Document) -> Vec<Diagnostic> {
+        self.advance_document_index(&doc.path);
         let metadata_document=doc.path.ends_with("/ide.json");
         if (!metadata_document&&doc.text.len() > 32 * 1024) || !hover::canonical(&doc.path)
             || !host::setting_bool("diagnostics").unwrap_or(true)
@@ -17,15 +18,19 @@ impl DiagnosticsProvider for Main {
         if index.partial{return Vec::new();}
         let Some(language) = language_of(&doc.path, &doc.language) else { return Vec::new() };
         let check_routes = host::setting_bool("reportMissingRoutes").unwrap_or(false);
-        problems(index, language, &doc.text, check_routes).into_iter().take(200)
+        let mut current=problems(index,language,&doc.text,check_routes);
+        current.extend(route_inspections::current(index,doc));
+        if language=="php" {if let Some(project)=project_for(&doc.path){current.extend(eloquent_mass_problems(&project,index,doc));}}
+        if language=="blade" {if let Some(project)=project_for(&doc.path){current.extend(livewire_method_problems(&project,index,&doc.path,language,&doc.text));}}
+        current.into_iter().take(200)
             .map(|mut diagnostic| {
                 // Index completeness is source scan completeness, not a resolved runtime model.
                 let mut chars = diagnostic.message.chars();
                 let bounded: String = chars.by_ref().take(512).collect();
                 let truncated = chars.next().is_some();
-                diagnostic.message = format!("Cached source inventory: {bounded}");
+                diagnostic.message = crate::ui_text::format("final.live.prefix", "Cached source inventory: {bounded}", &[("bounded", &bounded)]);
                 if truncated { diagnostic.message.push('…'); }
-                diagnostic.message.push_str(" Save/reindex changed definitions. Runtime registrations and unsaved target changes are not resolved.");
+                diagnostic.message.push_str(crate::ui_text::text("final.live.note", " Save/reindex changed definitions. Runtime registrations and unsaved target changes are not resolved."));
                 diagnostic
             }).collect()
     }
@@ -105,7 +110,7 @@ mod tests {
         let source = "<?php view('gone'); env('APP_NAME');";
         host.add_file("app/Test.php", source);
         host.open_editor(path, "php", source, &[]);
-        plugin.handle_events(&[Event::FileOpened(path.into())], &host.invocation());
+        plugin.handle_events(&[Event::FileOpened(path.into())], &host.invocation());crate::tests::finish_indexing(&mut plugin);
         let manual = host.diagnostics()[path].clone();
         assert!(manual.iter().any(|d| d.code.as_deref() == Some("env-outside-config")));
         assert!(!manual.iter().any(|d| d.code.as_deref() == Some("missing-view")));
@@ -118,7 +123,7 @@ mod tests {
         assert!(host.provider_diagnostics().get(path).is_none_or(Vec::is_empty));
         assert_eq!(host.diagnostics()[path], manual);
         host.add_file("app/Test.php", "<?php view('welcome');");
-        plugin.handle_events(&[Event::FileSaved(path.into())], &host.invocation());
+        plugin.handle_events(&[Event::FileSaved(path.into())], &host.invocation());crate::tests::finish_indexing(&mut plugin);
         assert!(host.diagnostics().get(path).is_none_or(Vec::is_empty) && host.provider_diagnostics().get(path).is_none_or(Vec::is_empty));
         host.open_editor(path, "php", source, &[]);
         host.refresh_diagnostics(&mut plugin);
@@ -136,7 +141,7 @@ mod tests {
         assert_eq!(plugin.diagnostics(&d).len(), 2);
         host.add_file("config/app.php", "<?php return ['newkey' => true];");
         assert_eq!(plugin.diagnostics(&d).len(), 2);
-        plugin.handle_events(&[Event::FileSaved("/project/config/app.php".into())], &host.invocation());
+        plugin.handle_events(&[Event::FileSaved("/project/config/app.php".into())], &host.invocation());crate::tests::finish_indexing(&mut plugin);
         assert_eq!(plugin.diagnostics(&d).len(), 1);
         assert_eq!(plugin.diagnostics(&d)[0].code.as_deref(), Some("missing-translation"));
     }

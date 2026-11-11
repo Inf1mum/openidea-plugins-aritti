@@ -6,6 +6,10 @@ use openidea_plugin::Severity;
 
 use crate::php;
 
+mod mass_assignment;
+pub(crate) use mass_assignment::checked as mass_assignment_checked;
+pub(crate) use mass_assignment::{Policies, cache};
+
 pub struct Finding {
     pub start: usize,
     pub end: usize,
@@ -16,11 +20,31 @@ pub struct Finding {
     pub replacement: Option<String>,
 }
 
-const SCHEDULE_FILES: &[&str] = &["routes/console.php", "app/Console/Kernel.php", "bootstrap/app.php"];
-const ALL_INPUT: &[&str] = &["$request->all()", "request()->all()", "$request->input()", "Request::all()"];
-const UNGUARDED_MARKERS: &[&str] = &["getFillable", "mergeFillable", "mergeGuarded", "#[Fillable", "#[Guarded", "#[Unguarded", "unguard", "Unguarded"];
+const SCHEDULE_FILES: &[&str] = &[
+    "routes/console.php",
+    "app/Console/Kernel.php",
+    "bootstrap/app.php",
+];
+const ALL_INPUT: &[&str] = &[
+    "$request->all()",
+    "request()->all()",
+    "$request->input()",
+    "Request::all()",
+];
+#[cfg(test)]
+const UNGUARDED_MARKERS: &[&str] = &[
+    "getFillable",
+    "mergeFillable",
+    "mergeGuarded",
+    "#[Fillable",
+    "#[Guarded",
+    "#[Unguarded",
+    "unguard",
+    "Unguarded",
+];
 
 /// `read` returns the text of a project-relative file, `None` when there is none.
+#[cfg(test)]
 pub fn findings(text: &str, read: &dyn Fn(&str) -> Option<String>) -> Vec<Finding> {
     let masked = php::mask_comments(text);
     let mut found = order_by(&masked);
@@ -30,8 +54,21 @@ pub fn findings(text: &str, read: &dyn Fn(&str) -> Option<String>) -> Vec<Findin
     found
 }
 
+/// Source-only checks without the legacy fixture mass-assignment resolver.
+pub(crate) fn source_findings(text: &str, read: &dyn Fn(&str) -> Option<String>) -> Vec<Finding> {
+    let masked = php::mask_comments(text);
+    let mut found = order_by(&masked);
+    found.extend(unscheduled_prunable(&masked, read));
+    found.sort_by_key(|f| f.start);
+    found
+}
+
 fn is_date_column(column: &str) -> bool {
-    column == "date" || column.strip_suffix("_at").or_else(|| column.strip_suffix("_date")).is_some_and(|prefix| !prefix.is_empty())
+    column == "date"
+        || column
+            .strip_suffix("_at")
+            .or_else(|| column.strip_suffix("_date"))
+            .is_some_and(|prefix| !prefix.is_empty())
 }
 
 /// `orderBy('created_at', 'desc')` and `orderBy('created_at')`, and the same on other date columns,
@@ -51,14 +88,24 @@ pub fn order_by(masked: &str) -> Vec<Finding> {
             continue;
         }
 
-        let Some(close) = php::closing(masked, open) else { continue };
+        let Some(close) = php::closing(masked, open) else {
+            continue;
+        };
         let arguments = php::arguments(masked, open);
-        let Some((column, column_at)) = arguments.first().and_then(|range| php::literal(masked, range.clone())) else { continue };
+        let Some((column, column_at)) = arguments
+            .first()
+            .and_then(|range| php::literal(masked, range.clone()))
+        else {
+            continue;
+        };
         if !is_date_column(column) {
             continue;
         }
 
-        let method = match arguments.get(1).map(|range| php::literal(masked, range.clone())) {
+        let method = match arguments
+            .get(1)
+            .map(|range| php::literal(masked, range.clone()))
+        {
             None => "oldest",
             Some(Some((direction, _))) if direction.eq_ignore_ascii_case("asc") => "oldest",
             Some(Some((direction, _))) if direction.eq_ignore_ascii_case("desc") => "latest",
@@ -69,8 +116,16 @@ pub fn order_by(masked: &str) -> Vec<Finding> {
         }
 
         let quote = masked.as_bytes()[column_at - 1] as char;
-        let argument = if column == "created_at" { String::new() } else { format!("{quote}{column}{quote}") };
-        let direction = if method == "latest" { "descending" } else { "ascending" };
+        let argument = if column == "created_at" {
+            String::new()
+        } else {
+            format!("{quote}{column}{quote}")
+        };
+        let direction = if method == "latest" {
+            "descending"
+        } else {
+            "ascending"
+        };
         found.push(Finding {
             start: at,
             end: close + 1,
@@ -85,27 +140,44 @@ pub fn order_by(masked: &str) -> Vec<Finding> {
 }
 
 /// `class Name extends Model` (or another Eloquent base such as `Authenticatable` or `Pivot`).
+#[cfg(test)]
 fn extends_model(masked: &str, class: &str) -> bool {
-    let Some(at) = masked.find(&format!("class {class}")) else { return false };
+    let Some(at) = masked.find(&format!("class {class}")) else {
+        return false;
+    };
     let rest = masked[at + 6 + class.len()..].trim_start();
-    let Some(parent) = rest.strip_prefix("extends ") else { return false };
-    let parent = parent.split(|c: char| c.is_whitespace() || c == '{').next().unwrap_or_default();
+    let Some(parent) = rest.strip_prefix("extends ") else {
+        return false;
+    };
+    let parent = parent
+        .split(|c: char| c.is_whitespace() || c == '{')
+        .next()
+        .unwrap_or_default();
     let parent = parent.rsplit('\\').next().unwrap_or_default();
 
-    matches!(parent, "Model" | "Authenticatable" | "Pivot" | "MorphPivot" | "User") || parent.ends_with("Model")
+    matches!(
+        parent,
+        "Model" | "Authenticatable" | "Pivot" | "MorphPivot" | "User"
+    ) || parent.ends_with("Model")
 }
 
+#[cfg(test)]
 struct Model {
     fillable: Vec<String>,
     guarded_nothing: bool,
 }
 
+#[cfg(test)]
 fn model(read: &dyn Fn(&str) -> Option<String>, full: &str) -> Option<Model> {
     let relative = full.strip_prefix("App\\")?.replace('\\', "/");
     let text = read(&format!("app/{relative}.php"))?;
     let class = full.rsplit('\\').next()?;
     let masked = php::mask_comments(&text);
-    if !extends_model(&masked, class) || UNGUARDED_MARKERS.iter().any(|marker| masked.contains(marker)) {
+    if !extends_model(&masked, class)
+        || UNGUARDED_MARKERS
+            .iter()
+            .any(|marker| masked.contains(marker))
+    {
         return None;
     }
 
@@ -118,11 +190,17 @@ fn model(read: &dyn Fn(&str) -> Option<String>, full: &str) -> Option<Model> {
     };
 
     Some(Model {
-        fillable: property("$fillable").map(|open| php::strings(&masked, open, false)).unwrap_or_default(),
-        guarded_nothing: property("$guarded").is_some_and(|open| php::closing(&masked, open).is_some_and(|close| masked[open + 1..close].trim().is_empty())),
+        fillable: property("$fillable")
+            .map(|open| php::strings(&masked, open, false))
+            .unwrap_or_default(),
+        guarded_nothing: property("$guarded").is_some_and(|open| {
+            php::closing(&masked, open)
+                .is_some_and(|close| masked[open + 1..close].trim().is_empty())
+        }),
     })
 }
 
+#[cfg(test)]
 fn mass_assignment(masked: &str, read: &dyn Fn(&str) -> Option<String>) -> Vec<Finding> {
     let mut calls: Vec<(String, usize)> = Vec::new();
 
@@ -135,7 +213,10 @@ fn mass_assignment(masked: &str, read: &dyn Fn(&str) -> Option<String>) -> Vec<F
             }
 
             let before = &masked[..at];
-            let class = before.rsplit(|c: char| !(c.is_alphanumeric() || c == '_' || c == '\\')).next().unwrap_or_default();
+            let class = before
+                .rsplit(|c: char| !(c.is_alphanumeric() || c == '_' || c == '\\'))
+                .next()
+                .unwrap_or_default();
             let class_start = before.len() - class.len();
             if class.is_empty() || masked[..class_start].ends_with('$') {
                 continue;
@@ -152,9 +233,13 @@ fn mass_assignment(masked: &str, read: &dyn Fn(&str) -> Option<String>) -> Vec<F
         }
 
         let receiver = masked[..at].trim_end();
-        let Some(receiver) = receiver.strip_suffix(')') else { continue };
+        let Some(receiver) = receiver.strip_suffix(')') else {
+            continue;
+        };
         let receiver = receiver.strip_suffix("()").unwrap_or(receiver);
-        let Some((_, class)) = receiver.rsplit_once("(new ") else { continue };
+        let Some((_, class)) = receiver.rsplit_once("(new ") else {
+            continue;
+        };
         if class.is_empty() || !class.bytes().all(|b| php::is_identifier(b) || b == b'\\') {
             continue;
         }
@@ -168,8 +253,12 @@ fn mass_assignment(masked: &str, read: &dyn Fn(&str) -> Option<String>) -> Vec<F
             continue;
         }
 
-        let Some(first) = php::arguments(masked, open).into_iter().next() else { continue };
-        let Some(full) = project_class(masked, &class) else { continue };
+        let Some(first) = php::arguments(masked, open).into_iter().next() else {
+            continue;
+        };
+        let Some(full) = project_class(masked, &class) else {
+            continue;
+        };
 
         let argument = php::trimmed(masked, first.clone());
         let all_input = ALL_INPUT.contains(&&masked[argument.clone()]);
@@ -178,7 +267,9 @@ fn mass_assignment(masked: &str, read: &dyn Fn(&str) -> Option<String>) -> Vec<F
             continue;
         }
 
-        let Some(model) = model(read, &full) else { continue };
+        let Some(model) = model(read, &full) else {
+            continue;
+        };
         let class = full.rsplit('\\').next().unwrap_or_default().to_owned();
 
         if all_input {
@@ -201,7 +292,9 @@ fn mass_assignment(masked: &str, read: &dyn Fn(&str) -> Option<String>) -> Vec<F
         }
 
         for item in php::items(masked, array) {
-            let Some((key, offset)) = item.key.and_then(|range| php::literal(masked, range)) else { continue };
+            let Some((key, offset)) = item.key.and_then(|range| php::literal(masked, range)) else {
+                continue;
+            };
             if model.fillable.iter().any(|name| name == key) {
                 continue;
             }
@@ -210,7 +303,9 @@ fn mass_assignment(masked: &str, read: &dyn Fn(&str) -> Option<String>) -> Vec<F
                 start: offset,
                 end: offset + key.len(),
                 code: "guarded-attribute-assignment",
-                message: format!("\"{key}\" is not in {class}::$fillable: mass assignment silently discards it."),
+                message: format!(
+                    "\"{key}\" is not in {class}::$fillable: mass assignment silently discards it."
+                ),
                 severity: Severity::Warning,
                 replacement: None,
             });
@@ -221,6 +316,7 @@ fn mass_assignment(masked: &str, read: &dyn Fn(&str) -> Option<String>) -> Vec<F
 }
 
 /// The imports of a file as (alias, full name); `None` when one cannot be expanded.
+#[cfg(test)]
 fn imports(masked: &str) -> Option<Vec<(String, String)>> {
     let mut found = Vec::new();
 
@@ -230,8 +326,15 @@ fn imports(masked: &str) -> Option<Vec<(String, String)>> {
             continue;
         }
 
-        let statement = masked[at + 4..].split(';').next().unwrap_or_default().trim();
-        if statement.starts_with("function ") || statement.starts_with("const ") || statement.starts_with('(') {
+        let statement = masked[at + 4..]
+            .split(';')
+            .next()
+            .unwrap_or_default()
+            .trim();
+        if statement.starts_with("function ")
+            || statement.starts_with("const ")
+            || statement.starts_with('(')
+        {
             continue;
         }
 
@@ -243,7 +346,13 @@ fn imports(masked: &str) -> Option<Vec<(String, String)>> {
                     return None;
                 }
                 let prefix = prefix.trim();
-                entries.extend(inner.split(',').map(str::trim).filter(|part| !part.is_empty()).map(|part| format!("{prefix}{part}")));
+                entries.extend(
+                    inner
+                        .split(',')
+                        .map(str::trim)
+                        .filter(|part| !part.is_empty())
+                        .map(|part| format!("{prefix}{part}")),
+                );
             }
             None => entries.extend(statement.split(',').map(|part| part.trim().to_owned())),
         }
@@ -251,7 +360,11 @@ fn imports(masked: &str) -> Option<Vec<(String, String)>> {
         for entry in entries {
             let (path, alias) = entry.split_once(" as ").unwrap_or((entry.as_str(), ""));
             let path = path.trim().trim_start_matches('\\');
-            let alias = if alias.trim().is_empty() { path.rsplit('\\').next().unwrap_or_default() } else { alias.trim() };
+            let alias = if alias.trim().is_empty() {
+                path.rsplit('\\').next().unwrap_or_default()
+            } else {
+                alias.trim()
+            };
             found.push((alias.to_owned(), path.to_owned()));
         }
     }
@@ -261,8 +374,13 @@ fn imports(masked: &str) -> Option<Vec<(String, String)>> {
 
 /// The full name of `class` when it lives in `App\`: written, imported, or
 /// next to the file's namespace. `None` for library classes and unknowns.
+#[cfg(test)]
 fn project_class(masked: &str, class: &str) -> Option<String> {
-    let namespace = masked.lines().map(str::trim).find_map(|line| line.strip_prefix("namespace ")).map(|name| name.trim_end_matches(';').trim().to_owned());
+    let namespace = masked
+        .lines()
+        .map(str::trim)
+        .find_map(|line| line.strip_prefix("namespace "))
+        .map(|name| name.trim_end_matches(';').trim().to_owned());
     let is_project = |full: &str| full.starts_with("App\\");
 
     if let Some(absolute) = class.strip_prefix('\\') {
@@ -270,14 +388,20 @@ fn project_class(masked: &str, class: &str) -> Option<String> {
     }
 
     let first = class.split('\\').next().unwrap_or_default();
-    if let Some((_, path)) = imports(masked)?.into_iter().find(|(alias, _)| alias == first) {
+    if let Some((_, path)) = imports(masked)?
+        .into_iter()
+        .find(|(alias, _)| alias == first)
+    {
         let full = format!("{path}{}", &class[first.len()..]);
         return is_project(&full).then_some(full);
     }
 
     match namespace {
         Some(namespace) => Some(format!("{namespace}\\{class}")).filter(|full| is_project(full)),
-        None => class.contains('\\').then(|| class.to_owned()).filter(|full| is_project(full)),
+        None => class
+            .contains('\\')
+            .then(|| class.to_owned())
+            .filter(|full| is_project(full)),
     }
 }
 
@@ -287,8 +411,15 @@ fn unscheduled_prunable(masked: &str, read: &dyn Fn(&str) -> Option<String>) -> 
         return Vec::new();
     }
 
-    let schedules: Vec<String> = SCHEDULE_FILES.iter().filter_map(|path| read(path)).collect();
-    if schedules.is_empty() || schedules.iter().any(|text| text.contains("model:prune") || text.contains("PruneCommand")) {
+    let schedules: Vec<String> = SCHEDULE_FILES
+        .iter()
+        .filter_map(|path| read(path))
+        .collect();
+    if schedules.is_empty()
+        || schedules
+            .iter()
+            .any(|text| text.contains("model:prune") || text.contains("PruneCommand"))
+    {
         return Vec::new();
     }
 
@@ -307,7 +438,11 @@ fn unscheduled_prunable(masked: &str, read: &dyn Fn(&str) -> Option<String>) -> 
 
 /// The `Prunable` or `MassPrunable` names in a `use` statement inside the first class.
 fn prunable_traits(masked: &str) -> Vec<Range<usize>> {
-    let Some(class) = masked.match_indices("class ").find(|(at, _)| *at == 0 || masked.as_bytes()[at - 1].is_ascii_whitespace()).map(|(at, _)| at) else {
+    let Some(class) = masked
+        .match_indices("class ")
+        .find(|(at, _)| *at == 0 || masked.as_bytes()[at - 1].is_ascii_whitespace())
+        .map(|(at, _)| at)
+    else {
         return Vec::new();
     };
 
@@ -319,7 +454,9 @@ fn prunable_traits(masked: &str) -> Vec<Range<usize>> {
             continue;
         }
 
-        let end = masked[at..].find([';', '{']).map_or(masked.len(), |n| at + n);
+        let end = masked[at..]
+            .find([';', '{'])
+            .map_or(masked.len(), |n| at + n);
         let mut cursor = at + 4;
         for name in masked[cursor..end].split(',') {
             let start = cursor + (name.len() - name.trim_start().len());
@@ -332,4 +469,57 @@ fn prunable_traits(masked: &str) -> Vec<Range<usize>> {
     }
 
     found
+}
+
+/// Presentation-only: source findings and replacement code remain unchanged.
+pub(crate) fn localized_message(finding: &Finding) -> String {
+    if finding.code == "unscheduled-prunable" {
+        return crate::ui_text::t(
+            "final.eloquent.prunable",
+            "Prunable models are only deleted when the `model:prune` command runs: schedule it, e.g. `Schedule::command('model:prune')->daily()`.",
+        );
+    }
+    if finding.code == "simplify-order-by" {
+        if let Some(call) = finding.replacement.as_deref() {
+            let method = if call.starts_with("latest(") {
+                Some("latest")
+            } else if call.starts_with("oldest(") {
+                Some("oldest")
+            } else {
+                None
+            };
+            if let Some(method) = method {
+                let direction = if method == "latest" {
+                    "descending"
+                } else {
+                    "ascending"
+                };
+                let prefix = format!("`{call}` orders by ");
+                let suffix = format!(" {direction}: use it instead of orderBy().");
+                if let Some(column) = finding
+                    .message
+                    .strip_prefix(&prefix)
+                    .and_then(|tail| tail.strip_suffix(&suffix))
+                {
+                    let argument = &call[method.len() + 1..call.len() - 1];
+                    let direction = if method == "latest" {
+                        crate::ui_text::text("final.eloquent.descending", "descending")
+                    } else {
+                        crate::ui_text::text("final.eloquent.ascending", "ascending")
+                    };
+                    return crate::ui_text::format(
+                        "final.eloquent.orderMessage",
+                        "`{method}({argument})` orders by {column} {direction}: use it instead of orderBy().",
+                        &[
+                            ("method", method),
+                            ("argument", argument),
+                            ("column", column),
+                            ("direction", direction),
+                        ],
+                    );
+                }
+            }
+        }
+    }
+    finding.message.clone()
 }

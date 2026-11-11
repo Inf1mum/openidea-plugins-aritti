@@ -4,6 +4,7 @@ use super::*;
 #[derive(Clone, Debug)]
 pub(crate) struct RelationFact {
     pub name: String,
+    pub kind: String,
     pub target: String,
     pub many: bool,
     pub entry: Entry,
@@ -41,6 +42,7 @@ pub(crate) fn facts(index: &Index, full: &str, owns: &dyn Fn(&str) -> bool) -> O
         context: &context,
         index,
         overlay: None,
+        object_overlay:None,
         path: "",
         owns,
         owner_cache: RefCell::new(BTreeMap::new()),
@@ -56,6 +58,7 @@ pub(crate) fn facts(index: &Index, full: &str, owns: &dyn Fn(&str) -> bool) -> O
             let target = resolver.get(&relation.target)?;
             Some(RelationFact {
                 name: name.into(),
+                kind: relation.kind.clone(),
                 target: target.full.clone(),
                 many: relation.many,
                 entry: relation.entry.clone(),

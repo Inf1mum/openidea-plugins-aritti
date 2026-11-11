@@ -9,11 +9,37 @@ use openidea_plugin::{
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
+#[path="metadata_ui.rs"]
+mod ui;
+pub(crate) fn presentation_issue(index:&Index,issue:&str)->String{ui::issue(index,issue)}
+#[path = "metadata_artisan.rs"]
+mod artisan;
+#[path = "metadata_class_cache.rs"]
+mod class_cache;
+#[path = "metadata_config_parents.rs"]
+mod config_parents;
+#[path = "metadata_domains.rs"]
+mod domains;
+#[path = "metadata_fields.rs"]
+mod fields;
+#[path = "metadata_pipe.rs"]
+mod pipe;
+#[path = "metadata_response.rs"]
+mod response;
+#[path = "metadata_strings.rs"]
+mod strings;
 #[path = "metadata_validation.rs"]
 mod validation;
+#[path = "metadata_transformers.rs"]
+mod transformers;
 
-#[derive(Default, Debug)]
+#[path = "metadata_evidence.rs"]
+pub(crate) mod evidence;
+#[derive(Clone, Default, Debug)]
 pub(crate) struct Metadata {
+    pub(crate) source_evidence: evidence::SourceEvidence,
+    pub(crate) source_evidence_incomplete: bool,
+    pub(crate) source_queries: BTreeMap<(String,u32), Option<Vec<String>>>,
     pub view_roots: Vec<(Option<String>, String)>,
     pub inertia_roots: Vec<String>,
     pub(crate) inertia_paths: Vec<PageRoot>,
@@ -29,6 +55,7 @@ pub(crate) struct Metadata {
     pub schema_files: Vec<String>,
     pub column_methods: Vec<Value>,
     pub framework_version: Option<(u32, u32, u32)>,
+    pub(crate) php_version: Option<(u32, u32, u32)>,
     pub directives: BTreeSet<String>,
     pub(crate) blade_components: crate::components::Metadata,
     pub passport: Names,
@@ -48,6 +75,38 @@ pub(crate) struct Metadata {
     source_hashes: BTreeMap<String, String>,
     external_json: BTreeMap<String, Option<Value>>,
     rules: Vec<Rule>,
+    pub(crate) class_facts: BTreeMap<String, ClassFact>,
+    pub(crate) ambiguous_classes: BTreeSet<String>,
+    pub(crate) domain_names: BTreeMap<String, Names>,
+    pub(crate) domain_options: Vec<(String, String, Value)>,
+    pub(crate) domain_roots: BTreeSet<String>,
+    pub(crate) artisan_snapshot: Option<Value>,
+    config_pending: Vec<config_parents::Pending>,
+    config_parents: BTreeMap<String, Vec<config_parents::Parent>>,
+}
+#[derive(Clone, Debug)]
+pub(crate) struct ClassFact {
+    pub full: String,
+    pub path: String,
+    pub parents: Vec<String>,
+    pub traits: Vec<String>,
+    pub properties: BTreeMap<String, PropertyFact>,
+    pub entry: crate::index::Entry,
+    pub references: Vec<String>,
+    pub source_size: usize,
+    pub cast_enum: bool,
+    pub base: Option<String>,
+    pub methods: BTreeSet<String>,
+    pub class_kind: String,
+    pub abstract_type: bool,
+    pub adaptations: bool,
+    pub source_hash: String,
+}
+#[derive(Clone, Debug)]
+pub(crate) struct PropertyFact {
+    pub visibility: String,
+    pub entry: crate::index::Entry,
+    pub class_target: Option<String>,
 }
 /// Documented routing.routeFacadeMethods entry; argument indices remain 1-based.
 #[derive(Clone, Debug)]
@@ -95,12 +154,12 @@ pub(crate) struct Forwarded {
     pub target: String,
     pub entry: crate::index::Entry,
 }
-fn identifier(value: &str) -> bool {
+pub(crate) fn identifier(value: &str) -> bool {
     let mut bytes = value.bytes();
     bytes
         .next()
-        .is_some_and(|b| b.is_ascii_alphabetic() || b == b'_')
-        && bytes.all(|b| b.is_ascii_alphanumeric() || b == b'_')
+        .is_some_and(|byte| byte.is_ascii_alphabetic() || byte == b'_' || byte >= 0x80)
+        && bytes.all(crate::php::is_identifier)
 }
 fn class_name(value: &Value) -> Option<String> {
     let name = value.as_str()?.trim_matches('\\');
@@ -126,15 +185,24 @@ fn metadata_type(value: &Value) -> Option<String> {
         class_name(value).map(|s| format!("\\{s}"))
     }
 }
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct Rule {
+    transformers: transformers::Pipeline,
     category: String,
     conditions: Vec<Condition>,
     strings: Names,
     prefix: Option<String>,
+    source: String,
+    options: Value,
 }
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct Condition {
+    place: String,
+    keys: Vec<String>,
+    short_classes: Vec<String>,
+    parent_classes: Vec<String>,
+    short_constructors: Vec<String>,
+    parent_constructors: Vec<String>,
     functions: Vec<String>,
     function_fqns: Vec<String>,
     methods: Vec<String>,
@@ -189,7 +257,10 @@ impl Metadata {
         result.project_root = root.clone();
         // Package defaults first; explicit project metadata is loaded last.
         // Hidden .idea is addressed explicitly because host discovery skips it.
-        let mut sources = project.find_files("**/ide.json", 129).unwrap_or_default();
+        let mut sources = match project.find_files("**/ide.json",129) {
+            Ok(sources) => { let mut owned:Vec<_>=sources.iter().filter(|path|crate::owns_current_path(project,path)).cloned().collect(); owned.sort();owned.dedup();result.source_queries.insert(("**/ide.json".into(),129),Some(owned)); sources },
+            Err(_) => { result.source_queries.insert(("**/ide.json".into(),129),None);result.source_evidence_incomplete = true; Vec::new() }
+        };
         sources.sort();
         sources.dedup();
         if sources.len() > 128 {
@@ -211,56 +282,32 @@ impl Metadata {
             .collect();
         sources.extend(["ide.json".into(), ".idea/ide.json".into()]);
         for source in sources {
-            let absolute = format!("{root}/{source}");
-            if host::project_of(&absolute)
-                .and_then(|p| p.root().ok())
-                .as_deref()
-                != Some(root.as_str())
-            {
-                continue;
-            }
-            if project.stat(&source).is_ok_and(|s| s.size > LIMIT as u64) {
-                result
-                    .issues
-                    .push(format!("{source}: metadata exceeds size limit"));
-                continue;
-            }
-            if let Ok(contents) = project.read_file(&source) {
-                result.extend(&source, &contents, |path| {
-                    let absolute = format!("{root}/{path}");
-                    (host::project_of(&absolute)
-                        .and_then(|p| p.root().ok())
-                        .as_deref()
-                        == Some(root.as_str())
-                        && project.stat(path).is_ok_and(|s| s.size <= LIMIT as u64))
-                    .then(|| project.read_file(path).ok())
-                    .flatten()
+            if let Some(contents) = evidence::read(project,&root,&source,LIMIT,&mut result.source_evidence,&mut result.source_evidence_incomplete) {
+                let extra = std::cell::RefCell::new((evidence::SourceEvidence::new(),false));
+                result.extend(&source,&contents,|path| {
+                    let mut capture = extra.borrow_mut();
+                    let (map,incomplete) = &mut *capture;
+                    evidence::read(project,&root,path,LIMIT,map,incomplete)
                 });
+                let (map,incomplete) = extra.into_inner(); evidence::merge(&mut result.source_evidence,&mut result.source_evidence_incomplete,map);result.source_evidence_incomplete |= incomplete;
+            } else if !result.source_evidence.contains_key(&source) && project.stat(&source).is_ok_and(|stat|stat.size>LIMIT as u64) {
+                result.issues.push(format!("{source}: metadata exceeds size limit"));
             }
         }
-        if host::project_of(&format!("{root}/composer.lock"))
-            .and_then(|p| p.root().ok())
-            .as_deref()
-            == Some(root.as_str())
-            && project
-                .stat("composer.lock")
-                .is_ok_and(|s| s.size <= 4 << 20)
-        {
-            if let Ok(lock) = project.read_file("composer.lock") {
-                result.framework_version = installed_framework(&lock);
-                if let Ok(value) = crate::strict_json::parse(&lock, 4 << 20) {
-                    for section in ["packages", "packages-dev"] {
-                        for package in list(&value, section) {
-                            if let (Some(name), Some(version)) =
-                                (package["name"].as_str(), package["version"].as_str())
-                            {
-                                result
-                                    .installed_packages
-                                    .insert(name.into(), version.into());
-                            }
-                        }
+        if let Some(lock) = evidence::read(project,&root,"composer.lock",4<<20,&mut result.source_evidence,&mut result.source_evidence_incomplete) {
+            if let Ok(value) = crate::strict_json::parse(&lock,4<<20) {
+                result.framework_version = installed_framework_value(&value);
+                result.php_version = value.pointer("/platform-overrides/php").and_then(Value::as_str).and_then(project_version);
+                for section in ["packages","packages-dev"] {
+                    for package in list(&value,section) {
+                        if let (Some(name),Some(version)) = (package["name"].as_str(),package["version"].as_str()) { result.installed_packages.insert(name.into(),version.into()); }
                     }
                 }
+            }
+        }
+        if let Some(source) = evidence::read(project,&root,"composer.json",512*1024,&mut result.source_evidence,&mut result.source_evidence_incomplete) {
+            if let Ok(value) = crate::strict_json::parse(&source,512*1024) {
+                if let Some(version) = value.pointer("/config/platform/php").and_then(Value::as_str).and_then(project_version) { result.php_version = Some(version); }
             }
         }
         if !result.package_enabled("laravel/passport", true) {
@@ -278,9 +325,26 @@ impl Metadata {
         }
         for rule in &mut result.rules {
             for entry in rule.strings.values_mut() {
-                entry.path = format!("{root}/{}", entry.path);
+                if !entry.path.is_empty() {
+                    let absolute = format!("{root}/{}", entry.path);
+                    if host::project_of(&absolute)
+                        .and_then(|owner| owner.root().ok())
+                        .as_deref()
+                        == Some(root.as_str())
+                        && project
+                            .stat(&entry.path)
+                            .is_ok_and(|stat| stat.kind == openidea_plugin::FileKind::File)
+                    {
+                        entry.path = absolute;
+                    } else {
+                        result.issues.push(format!("{}: stringsWithLocation target {} is missing or outside current project ownership",rule.source,entry.path));
+                        entry.path.clear();
+                    }
+                }
             }
         }
+        domains::cache(project, &mut result);
+        artisan::cache(project, &mut result);
         result
     }
     fn extend(&mut self, source: &str, contents: &str, read: impl Fn(&str) -> Option<String>) {
@@ -674,10 +738,84 @@ impl Metadata {
                     | "bladeComponent"
                     | "viteAsset"
                     | "passportScopeId"
-            ) {
+                    | "classFields"
+                    | "eloquentFields"
+                    | "eloquentCasts"
+                    | "artisanCommandName"
+                    | "artisanCommandParameter"
+            ) && !domains::supported(category)
+            {
                 self.issues.push(format!(
                     "{source}: unsupported completion category {category}"
                 ));
+                continue;
+            }
+            let options = &entry["options"];
+            let valid_keys: &[&str] = match category {
+                "configKey" => &["prefix", "recursive"],
+                "staticStrings" => &["strings", "stringsWithLocation", "dataFile"],
+                "classFields" => &["fetchClass", "fieldsFilter", "deep", "delimiter"],
+                "eloquentFields" => &["eloquentFields"],
+                "directoryFiles" => &[
+                    "directory",
+                    "directories",
+                    "prefix",
+                    "recursive",
+                    "suffixToClear",
+                ],
+                _ => &[],
+            };
+            if options.is_object()
+                && options
+                    .as_object()
+                    .unwrap()
+                    .keys()
+                    .any(|key| !valid_keys.contains(&key.as_str()))
+                || !options.is_null() && !options.is_object()
+            {
+                self.issues.push(format!(
+                    "{source}: unsupported or malformed {category} completion options"
+                ));
+                continue;
+            }
+            let option_strings = [
+                "prefix",
+                "dataFile",
+                "fetchClass",
+                "delimiter",
+                "directory",
+                "suffixToClear",
+            ];
+            if option_strings
+                .iter()
+                .any(|key| options.get(*key).is_some_and(|value| !value.is_string()))
+                || ["deep", "recursive"]
+                    .iter()
+                    .any(|key| options.get(*key).is_some_and(|value| !value.is_boolean()))
+                || ["strings", "directories"].iter().any(|key| {
+                    options.get(*key).is_some_and(|value| {
+                        value
+                            .as_array()
+                            .is_none_or(|values| values.iter().any(|value| !value.is_string()))
+                    })
+                })
+            {
+                self.issues.push(format!(
+                    "{source}: malformed {category} completion option shape"
+                ));
+                continue;
+            }
+            let option_issues = if fields::supported(category) {
+                fields::validate(category, options)
+            } else {
+                domains::validate(category, options)
+            };
+            if !option_issues.is_empty() {
+                self.issues.extend(
+                    option_issues
+                        .into_iter()
+                        .map(|issue| format!("{source}: {issue}")),
+                );
                 continue;
             }
             let mut conditions = Vec::new();
@@ -691,6 +829,11 @@ impl Metadata {
                                 | "parameterNames"
                                 | "methodNames"
                                 | "classFqn"
+                                | "classNames"
+                                | "classParentFqn"
+                                | "newClassNames"
+                                | "newClassParentFqn"
+                                | "keys"
                                 | "newClassFqn"
                                 | "parameters"
                                 | "place"
@@ -701,12 +844,63 @@ impl Metadata {
                         .push(format!("{source}: unsupported completion condition"));
                     continue;
                 }
-                if condition
+                let string_arrays = [
+                    "functionNames",
+                    "functionFqn",
+                    "parameterNames",
+                    "methodNames",
+                    "classFqn",
+                    "classNames",
+                    "classParentFqn",
+                    "newClassFqn",
+                    "newClassNames",
+                    "newClassParentFqn",
+                    "keys",
+                ];
+                if string_arrays.iter().any(|key| {
+                    condition.get(*key).is_some_and(|value| {
+                        value
+                            .as_array()
+                            .is_none_or(|items| items.iter().any(|item| !item.is_string()))
+                    })
+                }) || condition.get("parameters").is_some_and(|value| {
+                    value.as_array().is_none_or(|items| {
+                        items
+                            .iter()
+                            .any(|item| item.as_u64().is_none_or(|n| n == 0 || n > 256))
+                    })
+                }) || condition
                     .get("place")
-                    .is_some_and(|p| p.as_str() != Some("parameter"))
+                    .is_some_and(|value| !value.is_string())
                 {
                     self.issues
-                        .push(format!("{source}: unsupported completion place"));
+                        .push(format!("{source}: malformed completion condition filter"));
+                    continue;
+                }
+                let place = condition
+                    .get("place")
+                    .and_then(Value::as_str)
+                    .unwrap_or("parameter");
+                if !matches!(
+                    place,
+                    "parameter"
+                        | "arrayKey"
+                        | "arrayOnlyKey"
+                        | "arrayValue"
+                        | "arrayValueWithKey"
+                        | "arrayValueWithKeyArray"
+                        | "arrayInArrayKey"
+                        | "arrayInArrayOnlyKey"
+                        | "arrayInArrayValue"
+                        | "returnString"
+                        | "returnArrayValue"
+                        | "returnArrayKey"
+                        | "returnArrayOnlyKey"
+                        | "returnArrayValueWithKey"
+                        | "returnInArrayValueWithKey"
+                ) {
+                    self.issues
+                        .push(format!("{source}: unsupported completion place {place}"));
                     continue;
                 }
                 let functions = strings(&condition["functionNames"]);
@@ -736,15 +930,33 @@ impl Metadata {
                     continue;
                 }
                 // A method condition without exact class ownership must not match unrelated classes.
-                if functions.is_empty()
-                    && function_fqns.is_empty()
-                    && constructors.is_empty()
-                    && (methods.is_empty() || classes.is_empty())
+                let short_classes = strings(&condition["classNames"]);
+                let parent_classes = strings(&condition["classParentFqn"]);
+                let short_constructors = strings(&condition["newClassNames"]);
+                let parent_constructors = strings(&condition["newClassParentFqn"]);
+                let returning = place.starts_with("return");
+                if returning && methods.is_empty()
+                    || !returning
+                        && functions.is_empty()
+                        && function_fqns.is_empty()
+                        && constructors.is_empty()
+                        && short_constructors.is_empty()
+                        && parent_constructors.is_empty()
+                        && (methods.is_empty()
+                            || classes.is_empty()
+                                && short_classes.is_empty()
+                                && parent_classes.is_empty())
                 {
                     self.issues.push(format!("{source}: completion requires functionNames or exact classFqn + methodNames"));
                     continue;
                 }
                 conditions.push(Condition {
+                    place: place.into(),
+                    keys: strings(&condition["keys"]),
+                    short_classes,
+                    parent_classes,
+                    short_constructors,
+                    parent_constructors,
                     functions,
                     function_fqns,
                     parameter_names,
@@ -757,24 +969,17 @@ impl Metadata {
             let mut names = Names::new();
             for item in list(&entry["options"], "strings") {
                 if let Some(name) = item.as_str() {
-                    names.add(
-                        name,
-                        Some("ide.json".into()),
-                        source,
-                        Position::new(0, 0),
-                        0,
-                    );
-                } else if let Some(name) = item.get("value").and_then(Value::as_str) {
-                    names.add(
-                        name,
-                        item.get("description")
-                            .and_then(Value::as_str)
-                            .map(str::to_owned),
-                        source,
-                        Position::new(0, 0),
-                        0,
-                    );
+                    names.add(name, Some("ide.json".into()), "", Position::new(0, 0), 0);
                 }
+            }
+            if let Some(locations) = entry["options"].get("stringsWithLocation") {
+                strings::locations(
+                    source,
+                    locations,
+                    &mut names,
+                    &mut self.issues,
+                    &mut self.inputs,
+                );
             }
             if let Some(file) = entry["options"].get("dataFile").and_then(Value::as_str) {
                 let resolved = resolve_path(source, file);
@@ -795,7 +1000,7 @@ impl Metadata {
                                 names.add(
                                     name,
                                     Some("ide.json dataFile".into()),
-                                    source,
+                                    "",
                                     Position::new(0, 0),
                                     0,
                                 );
@@ -804,15 +1009,32 @@ impl Metadata {
                             }
                         }
                     }
+                    Some(data) if data.is_object()=>strings::locations(source,&data,&mut names,&mut self.issues,&mut self.inputs),
                     _ => self.issues.push(format!(
-                        "{source}: invalid or unsupported staticStrings dataFile {file}"
+                        "{source}: invalid staticStrings dataFile {file}; expected an array of strings or a location map"
                     )),
                 }
             }
 
             if entry["options"].as_object().is_some_and(|o| {
-                o.keys()
-                    .any(|k| !matches!(k.as_str(), "strings" | "dataFile" | "prefix"))
+                o.keys().any(|k| {
+                    !matches!(
+                        k.as_str(),
+                        "strings"
+                            | "stringsWithLocation"
+                            | "dataFile"
+                            | "prefix"
+                            | "fetchClass"
+                            | "fieldsFilter"
+                            | "eloquentFields"
+                            | "deep"
+                            | "delimiter"
+                            | "directory"
+                            | "directories"
+                            | "recursive"
+                            | "suffixToClear"
+                    )
+                })
             }) {
                 self.issues
                     .push(format!("{source}: unsupported completion options"));
@@ -822,17 +1044,43 @@ impl Metadata {
                 || entry.get("suffix").is_some()
                 || entry.get("transform").is_some()
             {
-                self.issues.push(format!(
-                    "{source}: completion transformations are not supported"
-                ));
+                // Shape validation above reports these unsupported properties.
                 continue;
             }
+            let transformers = match transformers::Pipeline::parse(entry.get("transformers")) {
+                Ok(pipeline)=>pipeline,
+                Err(issue)=>{self.issues.push(format!("{source}: {issue}"));continue;}
+            };
+            // Pinned ConfigCompletionRegistrar's explicit-prefix branch creates
+            // ConfigRootBasedCompletion directly and ignores model transformers.
+            let transformers = if !matches!(category,"configKey"|"translationKey"|"viewName"|"staticStrings"|"directoryFiles"|"passportScopeId")
+                || category == "configKey" && entry["options"]["prefix"].is_string() {
+                transformers::Pipeline::default()
+            } else { transformers };
+            // DirectoryFiles uses suffixToClear only when the effective custom
+            // factory pipeline is empty (including unknown-only expressions).
+            let mut effective_options = entry["options"].clone();
+            if category == "directoryFiles" && !transformers.is_empty() {
+                if let Some(options)=effective_options.as_object_mut(){options.remove("suffixToClear");}
+            }
             if !conditions.is_empty() {
+                if domains::supported(category) {
+                    self.domain_options.push((
+                        source.into(),
+                        category.into(),
+                        effective_options.clone(),
+                    ));
+                }
                 self.rules.push(Rule {
+                    transformers,
                     category: category.into(),
+                    source: source.into(),
+                    options: effective_options,
                     conditions,
                     strings: names,
-                    prefix: entry["options"]["prefix"].as_str().map(str::to_owned),
+                    prefix: (category == "configKey")
+                        .then(|| entry["options"]["prefix"].as_str().map(str::to_owned))
+                        .flatten(),
                 });
             }
         }
@@ -862,6 +1110,16 @@ impl Metadata {
         }
     }
     /// Explicit FQN overrides; source order is package defaults then project metadata.
+    pub(crate) fn needs_class_facts(&self) -> bool {
+        !self.config_pending.is_empty()
+            || self.rules.iter().any(|rule| {
+                fields::supported(&rule.category)
+                    || rule.conditions.iter().any(|condition| {
+                        !condition.parent_classes.is_empty()
+                            || !condition.parent_constructors.is_empty()
+                    })
+            })
+    }
     pub(crate) fn model_table(&self, full: &str) -> Option<&str> {
         self.model_tables
             .get(&full.trim_matches('\\').to_ascii_lowercase())
@@ -881,6 +1139,14 @@ impl Metadata {
             || relative == ".idea/ide.json"
             || relative.ends_with("/ide.json")
             || self.inputs.contains(relative)
+            || !self.domain_options.is_empty()
+                && (relative.ends_with(".css")
+                    || relative.ends_with(".svg")
+                    || relative.ends_with("/module.json")
+                    || relative == "config/blade-icons.php")
+            || self.domain_roots.iter().any(|root| {
+                root.is_empty() || relative == root || relative.starts_with(&format!("{root}/"))
+            })
             || self
                 .livewire_namespaces
                 .iter()
@@ -921,6 +1187,70 @@ impl Metadata {
     }
 }
 
+pub(crate) fn prepare_parent_configs(
+    project: &Project,
+    metadata: &mut Metadata,
+    sources: &BTreeMap<String, String>,
+    roots: &[crate::package_integrations::ComposerRoot],
+) {
+    config_parents::prepare(project, metadata, sources, roots);
+}
+pub(crate) fn finish_parent_configs(project: &Project, metadata: &mut Metadata) {
+    config_parents::finish(project, metadata);
+}
+pub(crate) fn merge_parent_config_inventory(project: &Project, index: &mut Index) {
+    config_parents::merge_inventory(project, index);
+}
+pub(crate) fn config_parent_markers(
+    index: &Index,
+    project: &Project,
+    doc: &openidea_plugin::providers::Document,
+) -> Vec<openidea_plugin::providers::LineMarker> {
+    config_parents::markers(index, project, doc)
+}
+pub(crate) fn config_parent_definition(
+    index: &Index,
+    project: &Project,
+    doc: &openidea_plugin::providers::Document,
+    at: usize,
+) -> Vec<Location> {
+    config_parents::definition(index, project, doc, at)
+}
+pub(crate) fn cache_package_icons(
+    project: &Project,
+    metadata: &mut Metadata,
+    sources: &BTreeMap<String, String>,
+) {
+    domains::cache_package_icons(project, metadata, sources);
+}
+pub(crate) fn complete_class_cache(
+    project: &Project,
+    metadata: &mut Metadata,
+    roots: &[crate::package_integrations::ComposerRoot],
+) {
+    class_cache::complete(project, metadata, roots);
+}
+pub(crate) fn pipe_reference(
+    index: &Index,
+    doc: &openidea_plugin::providers::Document,
+    at: usize,
+) -> Option<crate::refs::Reference> {
+    pipe::reference(index, doc, at)
+}
+pub(crate) fn response_completion(
+    index: &Index,
+    doc: &openidea_plugin::providers::Document,
+    at: usize,
+) -> Vec<CompletionItem> {
+    response::completion(index, doc, at)
+}
+pub(crate) fn refresh_artisan(project: &Project, metadata: &mut Metadata) {
+    artisan::cache(project, metadata);
+}
+fn issue_owner(issue: &str) -> Option<&str> {
+    let (prefix, _) = issue.split_once(": ")?;
+    (prefix.rsplit('/').next() == Some("ide.json")).then_some(prefix)
+}
 /// Cached metadata issues, attributed only to their owning metadata source.
 pub(crate) fn diagnostics(
     index: &Index,
@@ -937,10 +1267,10 @@ pub(crate) fn diagnostics(
         .metadata
         .issues
         .iter()
-        .filter(|issue| issue.starts_with(&format!("{relative}:")) || !issue.contains(": "))
+        .filter(|issue| issue_owner(issue).is_none_or(|owner| owner == relative))
         .take(200)
         .map(|issue| {
-            let bounded: String = issue.chars().take(1024).collect();
+            let bounded: String = presentation_issue(index,issue).chars().take(1024).collect();
             let mut diagnostic = openidea_plugin::Diagnostic::new(
                 TextRange::new(Position::new(0, 0), Position::new(0, 0)),
                 openidea_plugin::Severity::Warning,
@@ -987,7 +1317,10 @@ pub(crate) fn diagnostics_current(
         return diagnostics(index, path, root);
     }
     let missing = std::cell::RefCell::new(BTreeSet::new());
-    let mut current = Metadata::default();
+    let mut current = Metadata {
+        project_root: root.into(),
+        ..Metadata::default()
+    };
     current.extend(relative, contents, |dependency| {
         let absolute = format!("{root}/{dependency}");
         if host::project_of(&absolute)
@@ -1018,7 +1351,7 @@ pub(crate) fn diagnostics_current(
             .metadata
             .issues
             .iter()
-            .filter(|issue| !issue.contains(": "))
+            .filter(|issue| issue_owner(issue).is_none())
             .cloned(),
     );
     current.issues.sort();
@@ -1030,10 +1363,21 @@ pub(crate) fn diagnostics_current(
     diagnostics(&overlay, path, root)
 }
 
+fn project_version(value: &str) -> Option<(u32, u32, u32)> {
+    let mut parts = value.trim_start_matches('v').split('.');
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next()?.parse().ok()?;
+    let patch = parts.next().map(str::parse).transpose().ok()?.unwrap_or(0);
+    parts.next().is_none().then_some((major, minor, patch))
+}
 /// Only an exact installed stable lock version is evidence; constraints are not.
+#[cfg(test)]
 fn installed_framework(lock: &str) -> Option<(u32, u32, u32)> {
     let value = crate::strict_json::parse(lock, 4 << 20).ok()?;
-    let found = list(&value, "packages")
+    installed_framework_value(&value)
+}
+fn installed_framework_value(value: &Value) -> Option<(u32, u32, u32)> {
+    let found = list(value, "packages")
         .filter(|p| p["name"].as_str() == Some("laravel/framework"))
         .collect::<Vec<_>>();
     if found.len() != 1 {
@@ -1051,12 +1395,21 @@ fn installed_framework(lock: &str) -> Option<(u32, u32, u32)> {
     parts.next().is_none().then_some(version)
 }
 
-struct Site {
-    open: usize,
-    identity: crate::eloquent_members::metadata_inference::CallIdentity,
-    argument: usize,
-    parameter_name: Option<String>,
-    literal: Range<usize>,
+pub(crate) struct Site {
+    pub(crate) open: usize,
+    pub(crate) identity: crate::eloquent_members::metadata_inference::CallIdentity,
+    pub(crate) argument: usize,
+    pub(crate) parameter_name: Option<String>,
+    pub(crate) literal: Range<usize>,
+    pub(crate) arrays: Vec<crate::eloquent_members::metadata_inference::ArrayRole>,
+    pub(crate) return_context: bool,
+    pub(crate) closed: bool,
+    pub(crate) quote: u8,
+    pub(crate) unresolved: bool,
+    pub(crate) doc_path: Option<String>,
+    pub(crate) model: Option<String>,
+    pub(crate) containing: Option<ClassFact>,
+    pub(crate) pipe: bool,
 }
 fn parameter_prefix(text: &str) -> Option<Option<String>> {
     let trimmed = text.trim();
@@ -1066,7 +1419,11 @@ fn parameter_prefix(text: &str) -> Option<Option<String>> {
     let name = trimmed.strip_suffix(':')?.trim();
     identifier(name).then(|| Some(name.to_owned()))
 }
-fn argument_context(masked: &str, open: usize, literal: usize) -> Option<(usize, Option<String>)> {
+pub(crate) fn argument_context(
+    masked: &str,
+    open: usize,
+    literal: usize,
+) -> Option<(usize, Option<String>)> {
     let b = masked.as_bytes();
     let mut i = open + 1;
     let mut start = i;
@@ -1087,7 +1444,7 @@ fn argument_context(masked: &str, open: usize, literal: usize) -> Option<(usize,
                 let prefix = masked[start..i].trim_start();
                 let length = prefix
                     .bytes()
-                    .take_while(|b| b.is_ascii_alphanumeric() || *b == b'_')
+                    .take_while(|b| crate::php::is_identifier(*b))
                     .count();
                 let name = &prefix[..length];
                 if identifier(name) && prefix[length..].trim_start().starts_with(':') {
@@ -1119,80 +1476,130 @@ fn argument_context(masked: &str, open: usize, literal: usize) -> Option<(usize,
 /// manufacture call ownership. Receiver classes are resolved only from imports,
 /// explicit parameter types and straight-line literal new bindings.
 fn site(text: &str, at: usize) -> Option<Site> {
-    if text.len() > 1 << 20 || at > text.len() || !text.is_char_boundary(at) {
-        return None;
-    }
-    if text[..at].contains("<<<") || text[..at].contains('`') || text[..at].contains("?>") {
-        return None;
-    }
-    let masked = crate::php::mask_comments(text);
-    let b = masked.as_bytes();
-    let mut stack: Vec<(u8, usize, usize)> = Vec::new();
-    let mut i = 0;
-    while i < b.len() {
-        if matches!(b[i], b'\'' | b'"') {
-            let mut end = i + 1;
-            let mut closed = false;
-            while end < b.len() {
-                if b[end] == b[i] {
-                    end += 1;
-                    closed = true;
-                    break;
-                }
-                end = (end + if b[end] == b'\\' { 2 } else { 1 }).min(b.len());
-            }
-            let literal = i + 1..if closed { end - 1 } else { end };
-            if literal.start <= at && at <= literal.end {
-                let &(kind, open, arg) = stack.last()?;
-                if kind != b'(' || text[literal.clone()].contains(['\\', '$']) {
-                    return None;
-                }
-                let (argument, parameter_name) = argument_context(&masked, open, i)?;
-                let _ = arg;
-                let mut tail = end;
-                while tail < b.len() && b[tail].is_ascii_whitespace() {
-                    tail += 1;
-                }
-                if closed && !matches!(b.get(tail), Some(b',') | Some(b')')) {
-                    return None;
-                }
-                let identity =
-                    crate::eloquent_members::metadata_inference::call_identity(text, open)?;
-                return Some(Site {
-                    open,
-                    identity,
-                    argument,
-                    parameter_name,
-                    literal,
-                });
-            }
-            i = end.max(i + 1);
-            continue;
-        }
-        match b[i] {
-            b'(' | b'[' | b'{' => stack.push((b[i], i, 0)),
-            b')' | b']' | b'}' => {
-                let expected = match b[i] {
-                    b')' => b'(',
-                    b']' => b'[',
-                    _ => b'{',
-                };
-                if stack.pop().is_none_or(|s| s.0 != expected) {
-                    return None;
-                }
-            }
-            b',' => {
-                if let Some(s) = stack.last_mut() {
-                    s.2 += 1;
-                }
-            }
-            _ => {}
-        }
-        i += 1;
-    }
-    None
+    crate::eloquent_members::metadata_inference::completion_site(text, at)
+        .filter(|site| !site.unresolved)
 }
-fn matches(condition: &Condition, site: &Site) -> bool {
+fn document_site(
+    index: &Index,
+    doc: &openidea_plugin::providers::Document,
+    at: usize,
+) -> Option<Site> {
+    let owns = |path: &str| {
+        index.metadata.project_root.is_empty()
+            || host::project_of(path)
+                .and_then(|owner| owner.root().ok())
+                .as_deref()
+                == Some(index.metadata.project_root.as_str())
+    };
+    if !owns(&doc.path) {
+        return None;
+    }
+    let mut site = crate::eloquent_members::metadata_inference::completion_site(&doc.text, at)?;
+    site.doc_path = Some(doc.path.clone());
+    if site.unresolved {
+        site.identity.class = Some(crate::eloquent_members::semantic::receiver_class(
+            index, doc, site.open, &owns,
+        )?);
+        site.unresolved = false;
+    }
+    if !site.return_context
+        && index.metadata.rules.iter().any(|rule| {
+            rule.category == "eloquentFields"
+                && rule.options["eloquentFields"]["fetch"]
+                    .as_str()
+                    .unwrap_or("current")
+                    == "current"
+        })
+    {
+        site.model =
+            crate::eloquent_members::semantic::receiver_model(index, doc, site.open, &owns);
+    }
+    Some(site)
+}
+
+fn place_matches(condition: &Condition, site: &Site) -> bool {
+    let depth = site.arrays.len();
+    let role = site.arrays.last();
+    let selected = |role: &crate::eloquent_members::metadata_inference::ArrayRole| {
+        condition.keys.is_empty()
+            || role
+                .key
+                .as_ref()
+                .is_some_and(|key| condition.keys.contains(key))
+    };
+    if site.return_context != condition.place.starts_with("return") {
+        return false;
+    }
+    match condition.place.as_str() {
+        "parameter" | "returnString" => depth == 0,
+        "arrayKey" | "returnArrayKey" => depth == 1 && role.is_some_and(|r| r.is_key || !r.has_key),
+        "arrayOnlyKey" | "returnArrayOnlyKey" => depth == 1 && role.is_some_and(|r| r.is_key),
+        "arrayValue" | "returnArrayValue" => depth == 1 && role.is_some_and(|r| !r.is_key),
+        "arrayValueWithKey" | "returnArrayValueWithKey" => {
+            depth == 1 && role.is_some_and(|r| !r.is_key && r.has_key && selected(r))
+        }
+        "arrayInArrayKey" => depth == 2 && role.is_some_and(|r| r.is_key || !r.has_key),
+        "arrayInArrayOnlyKey" => depth == 2 && role.is_some_and(|r| r.is_key),
+        "arrayInArrayValue" => depth == 2 && role.is_some_and(|r| !r.is_key),
+        "arrayValueWithKeyArray" | "returnInArrayValueWithKey" => {
+            depth == 2
+                && role.is_some_and(|r| !r.is_key)
+                && site
+                    .arrays
+                    .first()
+                    .is_some_and(|r| !r.is_key && r.has_key && selected(r))
+        }
+        _ => false,
+    }
+}
+fn matches(metadata: &Metadata, _source: &str, condition: &Condition, site: &Site) -> bool {
+    if site.pipe
+        && metadata
+            .php_version
+            .is_some_and(|version| version < (8, 5, 0))
+    {
+        return false;
+    }
+    if !place_matches(condition, site) {
+        return false;
+    }
+    let identity = &site.identity;
+    let full_matches = |expected: &String, full: &str| {
+        expected.trim_start_matches('\\').eq_ignore_ascii_case(full)
+    };
+    let class_matches = |classes: &[String], short: &[String], parents: &[String], full: &str| {
+        classes.iter().any(|expected| full_matches(expected, full))
+            || short.iter().any(|expected| {
+                full.rsplit('\\')
+                    .next()
+                    .is_some_and(|name| name.eq_ignore_ascii_case(expected))
+            })
+            || parents.iter().any(|parent| {
+                crate::eloquent_members::metadata_inference::is_subtype_fact(
+                    metadata,
+                    site.containing.as_ref(),
+                    full,
+                    parent,
+                )
+            })
+    };
+    if site.return_context {
+        return condition
+            .methods
+            .iter()
+            .any(|method| method.eq_ignore_ascii_case(&identity.method))
+            && (condition.parent_classes.is_empty()
+                || identity.class.as_ref().is_some_and(|class| {
+                    condition.parent_classes.iter().any(|parent| {
+                        crate::eloquent_members::metadata_inference::is_subtype_fact(
+                            metadata,
+                            site.containing.as_ref(),
+                            class,
+                            parent,
+                        )
+                    })
+                }));
+    }
     if let Some(name) = &site.parameter_name {
         if !condition.parameter_names.is_empty() {
             if !condition.parameter_names.contains(name) {
@@ -1208,25 +1615,33 @@ fn matches(condition: &Condition, site: &Site) -> bool {
     } else if !condition.parameter_names.is_empty() {
         return false;
     }
-    let identity = &site.identity;
     if identity.constructor {
         return identity.class.as_ref().is_some_and(|class| {
-            condition.constructors.iter().any(|expected| {
-                expected
-                    .trim_start_matches('\\')
-                    .eq_ignore_ascii_case(class)
-            })
+            class_matches(
+                &condition.constructors,
+                &condition.short_constructors,
+                &condition.parent_constructors,
+                class,
+            )
         });
     }
     if let Some(class) = &identity.class {
-        return condition.classes.iter().any(|expected| {
-            expected
-                .trim_start_matches('\\')
-                .eq_ignore_ascii_case(class)
-        }) && condition
+        return class_matches(
+            &condition.classes,
+            &condition.short_classes,
+            &condition.parent_classes,
+            class,
+        ) && condition
             .methods
             .iter()
+            .chain(&condition.functions)
             .any(|name| name.eq_ignore_ascii_case(&identity.method));
+    }
+    if !condition.classes.is_empty()
+        || !condition.short_classes.is_empty()
+        || !condition.parent_classes.is_empty()
+    {
+        return false;
     }
     condition.functions.iter().any(|expected| {
         identity
@@ -1237,10 +1652,31 @@ fn matches(condition: &Condition, site: &Site) -> bool {
         condition
             .function_fqns
             .iter()
-            .any(|expected| expected.trim_start_matches('\\').eq_ignore_ascii_case(full))
+            .any(|expected| full_matches(expected, full))
     })
 }
-fn inventory<'a>(index: &'a Index, rule: &'a Rule) -> &'a Names {
+
+fn inventory(index: &Index, rule: &Rule, source: &str, at: usize, site: &Site) -> Names {
+    if matches!(
+        rule.category.as_str(),
+        "artisanCommandName" | "artisanCommandParameter"
+    ) {
+        return artisan::inventory(index, &rule.category, source, site);
+    }
+    if domains::supported(&rule.category) {
+        return domains::inventory(
+            index,
+            &rule.category,
+            &rule.options,
+            &rule.source,
+            source,
+            at,
+            site.identity.class.as_deref(),
+        );
+    }
+    if fields::supported(&rule.category) {
+        return fields::inventory(index, &rule.category, &rule.options, source, at, site);
+    }
     match rule.category.as_str() {
         "routeName" => &index.routes,
         "routeMiddleware" => &index.middleware,
@@ -1259,6 +1695,7 @@ fn inventory<'a>(index: &'a Index, rule: &'a Rule) -> &'a Names {
         "passportScopeId" => &index.metadata.passport,
         _ => &rule.strings,
     }
+    .clone()
 }
 /// Controller arguments of documented custom Route facade methods.
 /// This feeds the same action/method inventories as standard route calls.
@@ -1278,7 +1715,9 @@ pub(crate) fn route_reference(
     {
         return None;
     }
-    if let Some(site) = site(source, at) {
+    if let Some(site) =
+        site(source, at).filter(|site| site.arrays.is_empty() && !site.return_context)
+    {
         let class = site.identity.class.as_deref()?;
         if !crate::eloquent_members::metadata_inference::route_calls(source)
             .iter()
@@ -1385,42 +1824,60 @@ pub(crate) fn route_reference(
 }
 
 fn completion_range(rule: &Rule, source: &str, site: &Site, at: usize) -> Option<Range<usize>> {
-    if !matches!(rule.category.as_str(), "validationRule" | "validationRules") {
+    if matches!(rule.category.as_str(), "eloquentFields" | "classFields") {
+        return fields::range(&rule.options, source, at, site);
+    }
+    if !matches!(
+        rule.category.as_str(),
+        "cssClassNames" | "validationRule" | "validationRules"
+    ) {
         return Some(site.literal.clone());
     }
-    let contents = source.get(site.literal.clone())?;
-    let relative = at.checked_sub(site.literal.start)?;
-    if relative > contents.len() || !contents.is_char_boundary(relative) {
-        return None;
-    }
-    if rule.category == "validationRule" && contents.contains('|') {
-        return None;
-    }
-    // A regex parameter may contain pipes. Without interpreting PHP/PCRE, the
-    // remainder cannot safely be treated as separate rule names.
-    if rule.category == "validationRules"
-        && contents[..relative].split('|').any(|segment| {
-            segment
-                .split_once(':')
-                .is_some_and(|(name, _)| matches!(name.trim(), "regex" | "not_regex"))
-        })
-    {
-        return None;
-    }
-    let from = if rule.category == "validationRules" {
-        contents[..relative].rfind('|').map_or(0, |i| i + 1)
+    let decoded = crate::eloquent_members::metadata_inference::decoded_offsets(
+        source.get(site.literal.clone())?,
+        site.quote,
+    )?;
+    let contents = &decoded.value;
+    let relative = decoded.decoded_at(at.checked_sub(site.literal.start)?)?;
+    let (from, to) = if rule.category == "cssClassNames" {
+        let from = contents[..relative]
+            .rfind(char::is_whitespace)
+            .map_or(0, |i| i + contents[i..].chars().next().unwrap().len_utf8());
+        let to = relative
+            + contents[relative..]
+                .find(char::is_whitespace)
+                .unwrap_or(contents.len() - relative);
+        (from, to)
     } else {
-        0
+        if rule.category == "validationRule" && contents.contains('|') {
+            return None;
+        }
+        if rule.category == "validationRules"
+            && contents[..relative].split('|').any(|segment| {
+                segment
+                    .split_once(':')
+                    .is_some_and(|(name, _)| matches!(name.trim(), "regex" | "not_regex"))
+            })
+        {
+            return None;
+        }
+        let from = if rule.category == "validationRules" {
+            contents[..relative].rfind('|').map_or(0, |i| i + 1)
+        } else {
+            0
+        };
+        if contents[from..relative].contains(':') {
+            return None;
+        }
+        let to = relative
+            + contents[relative..]
+                .find(['|', ':'])
+                .unwrap_or(contents.len() - relative);
+        (from, to)
     };
-    if contents[from..relative].contains(':') {
-        return None;
-    }
-    let end = relative
-        + contents[relative..]
-            .find(['|', ':'])
-            .unwrap_or(contents.len() - relative);
-    Some(site.literal.start + from..site.literal.start + end)
+    Some(site.literal.start + decoded.raw_at(from)?..site.literal.start + decoded.raw_at(to)?)
 }
+
 pub(crate) fn completion(index: &Index, source: &str, at: usize) -> Vec<CompletionItem> {
     if index.metadata.rules.is_empty() {
         return Vec::new();
@@ -1428,26 +1885,78 @@ pub(crate) fn completion(index: &Index, source: &str, at: usize) -> Vec<Completi
     let Some(site) = site(source, at) else {
         return Vec::new();
     };
+    complete_site(index, source, at, site)
+}
+pub(crate) fn completion_document(
+    index: &Index,
+    doc: &openidea_plugin::providers::Document,
+    at: usize,
+) -> Vec<CompletionItem> {
+    if index.metadata.rules.is_empty() {
+        return Vec::new();
+    }
+    let Some(site) = document_site(index, doc, at) else {
+        return Vec::new();
+    };
+    complete_site(index, &doc.text, at, site)
+}
+fn complete_site(index: &Index, source: &str, at: usize, mut site: Site) -> Vec<CompletionItem> {
+    if index.metadata.needs_class_facts() {
+        site.containing = crate::eloquent_members::metadata_inference::class_fact(
+            source,
+            site.doc_path.as_deref().unwrap_or(""),
+        );
+    }
     let mut out = BTreeMap::new();
     for rule in &index.metadata.rules {
-        if rule.conditions.iter().any(|c| matches(c, &site)) {
+        if let Some(condition) = rule
+            .conditions
+            .iter()
+            .find(|condition| matches(&index.metadata, source, condition, &site))
+        {
             let Some(replace) = completion_range(rule, source, &site, at) else {
                 continue;
             };
-            for (name, entry) in inventory(index, rule) {
+            for (name, entry) in &inventory(index, rule, source, at, &site) {
                 let name = if let Some(prefix) = &rule.prefix {
                     let Some(short) = name.strip_prefix(&format!("{prefix}.")) else {
                         continue;
                     };
+                    if !rule.options["recursive"].as_bool().unwrap_or(false) && short.contains('.') { continue; }
                     short
                 } else {
                     name.as_str()
                 };
-                let mut item = CompletionItem::new(name, CompletionKind::Value);
-                item.detail = entry.detail.clone();
+                let Some(name) = rule.transformers.forward(name) else {continue;};
+                let mut item = CompletionItem::new(&name, CompletionKind::Value);
+                item.detail = entry.detail.as_ref().map(|detail|match detail.as_str() {
+                    "Ambiguous project sources" => crate::ui_text::t("metadata.detail.ambiguousSources","Ambiguous project sources"),
+                    "Ambiguous icon registrations" => crate::ui_text::t("metadata.detail.ambiguousIcons","Ambiguous icon registrations"),
+                    "source cast class or enum" => crate::ui_text::t("metadata.detail.castClass","Source cast class or enum"),
+                    _ => detail.clone(),
+                });
+                let mut end = replace.end;
+                let encoded =
+                    crate::eloquent_members::metadata_inference::encode_literal(&name, site.quote);
+                let key_conversion = matches!(
+                    condition.place.as_str(),
+                    "arrayKey" | "arrayInArrayKey" | "returnArrayKey"
+                ) && site.arrays.last().is_some_and(|role| !role.has_key)
+                    && replace == site.literal;
+                if key_conversion {
+                    end += usize::from(site.closed);
+                    let escaped = encoded
+                        .replace('\\', "\\\\")
+                        .replace('$', "\\$")
+                        .replace('}', "\\}");
+                    item.insert_text = format!("{escaped}{} => $0", char::from(site.quote));
+                    item.snippet = true;
+                } else {
+                    item.insert_text = encoded;
+                }
                 item.replace = Some(TextRange::new(
                     text::position(source, replace.start),
-                    text::position(source, replace.end),
+                    text::position(source, end),
                 ));
                 out.insert(name.to_owned(), item);
             }
@@ -1462,18 +1971,50 @@ pub(crate) fn definition(index: &Index, source: &str, at: usize) -> Vec<Location
     let Some(site) = site(source, at) else {
         return Vec::new();
     };
+    define_site(index, source, at, site)
+}
+pub(crate) fn definition_document(
+    index: &Index,
+    doc: &openidea_plugin::providers::Document,
+    at: usize,
+) -> Vec<Location> {
+    if index.metadata.rules.is_empty() {
+        return Vec::new();
+    }
+    let Some(site) = document_site(index, doc, at) else {
+        return Vec::new();
+    };
+    define_site(index, &doc.text, at, site)
+}
+fn define_site(index: &Index, source: &str, at: usize, mut site: Site) -> Vec<Location> {
+    if index.metadata.needs_class_facts() {
+        site.containing = crate::eloquent_members::metadata_inference::class_fact(
+            source,
+            site.doc_path.as_deref().unwrap_or(""),
+        );
+    }
     let mut out = Vec::new();
     for rule in &index.metadata.rules {
-        if rule.conditions.iter().any(|c| matches(c, &site)) {
+        if rule
+            .conditions
+            .iter()
+            .any(|c| matches(&index.metadata, source, c, &site))
+        {
             let Some(range) = completion_range(rule, source, &site, at) else {
                 continue;
             };
-            let name = &source[range];
-            if let Some(entry) = inventory(index, rule).get(
+            let Some(name) = crate::eloquent_members::metadata_inference::decode_literal(
+                &source[range],
+                site.quote,
+            ) else {
+                continue;
+            };
+            let name = rule.transformers.back(&name);
+            if let Some(entry) = inventory(index, rule, source, at, &site).get(
                 &rule
                     .prefix
                     .as_ref()
-                    .map_or_else(|| name.to_owned(), |p| format!("{p}.{name}")),
+                    .map_or_else(|| name.clone(), |p| format!("{p}.{name}")),
             ) {
                 if !entry.path.is_empty() {
                     out.push(Location {
@@ -1567,16 +2108,25 @@ mod tests {
         }
     }
     #[test]
-    fn expressions_and_arrays_are_not_direct_literal_arguments() {
-        for source in ["<?php f(['']);", "<?php f('x'.'');", "<?php f('$value');"] {
-            let at = source.rfind('\'').unwrap() - 1;
-            assert!(site(source, at).is_none());
+    fn expressions_are_withheld_and_array_sites_remain_distinct_from_parameters() {
+        for source in ["<?php f('x'.'unsafe');", r#"<?php f("$unsafe");"#] {
+            assert!(site(source, source.find("unsafe").unwrap() + 2).is_none());
         }
+        let source = "<?php f(['safe']);";
+        assert_eq!(
+            site(source, source.find("safe").unwrap() + 2)
+                .unwrap()
+                .arrays
+                .len(),
+            1
+        );
+        let source = "<?php f('$literal');";
+        assert!(site(source, source.find("literal").unwrap() + 2).is_some());
     }
     #[test]
     fn unsupported_conditions_are_not_broadened() {
         let m = parse(
-            r#"{"completions":[{"complete":"routeName","condition":[{"functionNames":["f"],"place":"arrayKey"}]}]}"#,
+            r#"{"completions":[{"complete":"routeName","condition":[{"functionNames":["f"],"place":"futurePlace"}]}]}"#,
         );
         assert!(m.rules.is_empty());
         assert!(!m.issues.is_empty());
@@ -2118,6 +2668,8 @@ mod tests {
             metadata,
             ..Index::default()
         };
+        // Parsing above remains host-free; diagnostic publication has a locale context.
+        let _host = openidea_plugin::mock::MockHost::install();
         assert!(
             diagnostics(&index, "/project/ide.json", "/project")
                 .iter()
@@ -2290,7 +2842,7 @@ mod tests {
                 "{marked}: {found:?}"
             );
         }
-        let (source, at) = cursor("<?php Route::apiGet('/x','PostController@sh|ow');");
+        let (source, at) = cursor("<?php Route::apiGet('/x','App\\Http\\Controllers\\PostController@sh|ow');");
         assert_eq!(
             plugin.definition(&doc("/project/test.php", "php", &source), at)[0].path,
             "/project/app/Http/Controllers/PostController.php"
@@ -2307,5 +2859,782 @@ mod tests {
                 "{marked}"
             );
         }
+    }
+    #[test]
+    fn documented_array_places_reach_registered_providers_and_preserve_utf16() {
+        use crate::tests::{activated, cursor, doc};
+        use openidea_plugin::{mock::MockHost, providers::Providers};
+        let examples = [
+            (
+                "parameter",
+                vec!["<?php choose('wel|');"],
+                vec!["<?php choose(['wel|']);"],
+            ),
+            (
+                "arrayKey",
+                vec!["<?php choose(['wel|' => 1]);", "<?php choose(['wel|']);"],
+                vec!["<?php choose('wel|');", "<?php choose(['x'=>'wel|']);"],
+            ),
+            (
+                "arrayOnlyKey",
+                vec!["<?php choose(['wel|' => 1]);"],
+                vec!["<?php choose(['wel|']);"],
+            ),
+            (
+                "arrayValue",
+                vec!["<?php choose(['wel|']);", "<?php choose(['x'=>'wel|']);"],
+                vec!["<?php choose(['wel|'=>1]);"],
+            ),
+            (
+                "arrayValueWithKey",
+                vec!["<?php choose(['route'=>'wel|']);"],
+                vec![
+                    "<?php choose(['wrong'=>'wel|']);",
+                    "<?php choose(['route'=>['wel|']]);",
+                ],
+            ),
+            (
+                "arrayValueWithKeyArray",
+                vec!["<?php choose(['route'=>['wel|']]);"],
+                vec![
+                    "<?php choose(['route'=>'wel|']);",
+                    "<?php choose(['wrong'=>['wel|']]);",
+                ],
+            ),
+            (
+                "arrayInArrayKey",
+                vec!["<?php choose([['wel|']]);", "<?php choose([['wel|'=>1]]);"],
+                vec!["<?php choose(['wel|']);"],
+            ),
+            (
+                "arrayInArrayOnlyKey",
+                vec!["<?php choose([['wel|'=>1]]);"],
+                vec!["<?php choose([['wel|']]);"],
+            ),
+            (
+                "arrayInArrayValue",
+                vec!["<?php choose([['wel|']]);"],
+                vec![
+                    "<?php choose([['wel|'=>1]]);",
+                    "<?php choose([[['wel|']]]);",
+                ],
+            ),
+        ];
+        for (place, positive, negative) in examples {
+            let host = MockHost::install();
+            host.add_file("ide.json",&serde_json::json!({"completions":[{"complete":"viewName","condition":[{"functionNames":["choose"],"parameters":[2],"place":place,"keys":["route"]}]}]}).to_string());
+            let mut plugin = activated(&host);
+            for (valid, marked) in positive
+                .into_iter()
+                .map(|s| (true, s))
+                .chain(negative.into_iter().map(|s| (false, s)))
+            {
+                let marked = marked.replacen("choose(", "choose(1,", 1);
+                let (source, at) = cursor(&marked);
+                let found = plugin.completion(&doc("/project/test.php", "php", &source), at, None);
+                assert_eq!(
+                    found.iter().any(|item| item.label == "welcome"),
+                    valid,
+                    "{place}: {marked}: {found:?}"
+                );
+            }
+        }
+        let host = MockHost::install();
+        host.add_file("ide.json",r#"{"completions":[{"complete":"viewName","condition":[{"functionNames":["choose"],"place":"arrayKey"}]}]}"#);
+        let mut plugin = activated(&host);
+        let (source, at) = cursor("<?php /* 😀 */ choose(['wel|']);");
+        let item = plugin
+            .completion(&doc("/project/test.php", "php", &source), at, None)
+            .into_iter()
+            .find(|item| item.label == "welcome")
+            .unwrap();
+        assert!(item.snippet);
+        assert_eq!(item.insert_text, "welcome' => $0");
+        let range = item.replace.unwrap();
+        assert_eq!(
+            range.start,
+            text::position(&source, source.find("wel").unwrap())
+        );
+        assert_eq!(
+            range.end,
+            text::position(&source, source.find("wel").unwrap() + 4)
+        );
+        let (source, at) = cursor("<?php choose(['welcome|'=>1]);");
+        assert_eq!(
+            plugin.definition(&doc("/project/test.php", "php", &source), at)[0].path,
+            "/project/resources/views/welcome.blade.php"
+        );
+    }
+    #[test]
+    fn return_places_and_subtype_interface_conditions_use_owned_cached_facts() {
+        use crate::tests::{activated, cursor, doc};
+        use openidea_plugin::{mock::MockHost, providers::Providers};
+        let host = MockHost::install();
+        host.add_file(
+            "app/Contracts/Renderable.php",
+            "<?php namespace App\\Contracts; interface Renderable {}",
+        );
+        host.add_file(
+            "app/Base/Component.php",
+            "<?php namespace App\\Base; class Component implements \\App\\Contracts\\Renderable {}",
+        );
+        host.add_file(
+            "app/Features/Card.php",
+            "<?php namespace App\\Features; class Card extends \\App\\Base\\Component {}",
+        );
+        host.add_file("ide.json",r#"{"completions":[{"complete":"viewName","condition":[{"methodNames":["render"],"classParentFqn":["App\\Contracts\\Renderable"]},{"newClassParentFqn":["App\\Contracts\\Renderable"]},{"place":"returnString","methodNames":["template"],"classParentFqn":["App\\Contracts\\Renderable"]},{"place":"returnArrayValueWithKey","keys":["view"],"methodNames":["templates"]},{"place":"returnInArrayValueWithKey","keys":["view"],"methodNames":["nested"]}]}]}"#);
+        let mut plugin = activated(&host);
+        host.add_file(
+            "composer.json",
+            r#"{"require":{"laravel/framework":"^12"},"autoload":{"psr-4":{"App\\":"app/"}}}"#,
+        );
+        let index = Index::build(&host.invocation().project().unwrap());
+        plugin.indexes.insert("/project".into(), index);
+        for marked in [
+            "<?php use App\\Features\\Card as C; C::render('wel|');",
+            "<?php use App\\Features\\Card as C; function f(C $card){$card->render('wel|');}",
+            "<?php use App\\Features\\Card as C; new C('wel|');",
+            "<?php namespace App\\Features; class Other extends \\App\\Base\\Component {function template(){return 'wel|';}}",
+            "<?php class Other {function templates(){return ['view'=>'wel|'];}}",
+            "<?php class Other {function nested(){return ['view'=>['wel|']];}}",
+        ] {
+            let (source, at) = cursor(marked);
+            assert!(
+                plugin
+                    .completion(&doc("/project/test.php", "php", &source), at, None)
+                    .iter()
+                    .any(|item| item.label == "welcome"),
+                "{marked}"
+            );
+        }
+        for marked in [
+            "<?php \\Other\\Card::render('wel|');",
+            "<?php class Other {function template(){return 'wel|';}}",
+            "<?php class Other {function templates(){return ['wrong'=>'wel|'];}}",
+            "<?php namespace App\\Features; class Other extends \\App\\Base\\Component {function template(){return function(){return 'wel|';};}}",
+            "<?php namespace App\\Features; class Other extends \\App\\Base\\Component {function template(){return fake('wel|');}}",
+        ] {
+            let (source, at) = cursor(marked);
+            assert!(
+                plugin
+                    .completion(&doc("/project/test.php", "php", &source), at, None)
+                    .is_empty(),
+                "{marked}"
+            );
+        }
+        assert!(host.process_runs().is_empty() && host.requests().is_empty());
+    }
+    #[test]
+    fn public_string_location_maps_support_data_objects_null_and_owned_lines() {
+        use crate::tests::{activated, cursor, doc};
+        use openidea_plugin::{mock::MockHost, providers::Providers};
+        let host = MockHost::install();
+        host.add_file("resources/file.txt", "zero\none\ntwo\n");
+        host.add_file(
+            "data/values.json",
+            r#"{"file":"/resources/file.txt:3","empty":null,"bad":9,"escape":"/../foreign"}"#,
+        );
+        host.add_file("ide.json",r#"{"completions":[{"complete":"staticStrings","options":{"stringsWithLocation":{"inline":"/resources/file.txt:2"},"dataFile":"/data/values.json"},"condition":[{"functionNames":["keys"]}]}]}"#);
+        let mut plugin = activated(&host);
+        let (source, at) = cursor("<?php keys('f|');");
+        let found = plugin.completion(&doc("/project/test.php", "php", &source), at, None);
+        assert!(found.iter().any(|item| item.label == "file"));
+        assert!(found.iter().any(|item| item.label == "empty"));
+        assert!(
+            !found
+                .iter()
+                .any(|item| item.label == "bad" || item.label == "escape")
+        );
+        for (name, line) in [("file", 2), ("inline", 1)] {
+            let (source, at) = cursor(&format!("<?php keys('{name}|');"));
+            let found = plugin.definition(&doc("/project/test.php", "php", &source), at);
+            assert_eq!(found[0].path, "/project/resources/file.txt");
+            assert_eq!(found[0].range.start.line, line);
+        }
+        let (source, at) = cursor("<?php keys('empty|');");
+        assert!(
+            plugin
+                .definition(&doc("/project/test.php", "php", &source), at)
+                .is_empty()
+        );
+        let issues = &plugin.indexes["/project"].metadata.issues;
+        assert!(issues.iter().any(|issue| issue.contains("bad must be")));
+        assert!(issues.iter().any(|issue| issue.contains("path for escape")));
+        assert!(host.process_runs().is_empty() && host.requests().is_empty());
+    }
+    #[test]
+    fn class_and_eloquent_field_options_reach_real_provider_inventories() {
+        use crate::tests::{activated, cursor, doc};
+        use openidea_plugin::{mock::MockHost, providers::Providers};
+        let host = MockHost::install();
+        for (path, source) in [
+            (
+                "app/Data/BaseData.php",
+                "<?php namespace App\\Data; class BaseData {public string $parent; protected string $token; private string $secret;}",
+            ),
+            (
+                "app/Data/AttributeSet.php",
+                "<?php namespace App\\Data; trait AttributeSet {public string $trait_field;}",
+            ),
+            (
+                "app/Data/Profile.php",
+                "<?php namespace App\\Data; class Profile extends BaseData {use AttributeSet; public string $name; protected string $slug; private string $private; function __construct(public string $promoted){}}",
+            ),
+            (
+                "app/Repositories/BaseRepository.php",
+                "<?php namespace App\\Repositories; class BaseRepository {}",
+            ),
+            (
+                "app/Repositories/UserRepository.php",
+                "<?php namespace App\\Repositories; class UserRepository extends BaseRepository {private $model=\\App\\Models\\User::class;}",
+            ),
+            (
+                "app/Models/User.php",
+                "<?php namespace App\\Models; use Illuminate\\Database\\Eloquent\\Model; class User extends Model {protected $casts=['active'=>'boolean']; function posts(){return $this->hasMany(Entry::class);}}",
+            ),
+            (
+                "app/Models/Entry.php",
+                "<?php namespace App\\Models; use Illuminate\\Database\\Eloquent\\Model; class Entry extends Model {protected $table='posts';}",
+            ),
+            (
+                "app/Casts/Slug.php",
+                "<?php namespace App\\Casts; class Slug implements \\Illuminate\\Contracts\\Database\\Eloquent\\CastsInboundAttributes {}",
+            ),
+            (
+                "app/Enums/Status.php",
+                "<?php namespace App\\Enums; enum Status:string {case Active='active';}",
+            ),
+        ] {
+            host.add_file(path, source);
+        }
+        host.add_file("ide.json",r#"{"completions":[{"complete":"classFields","options":{"fieldsFilter":{"fetch":"all","modifier":["public","protected"]}},"condition":[{"functionNames":["from"],"classParentFqn":["App\\Data\\BaseData"],"place":"arrayKey"}]},{"complete":"classFields","options":{"fetchClass":"App\\Data\\Profile"},"condition":[{"functionNames":["fields"]}]},{"complete":"eloquentFields","options":{"eloquentFields":{"fetch":"classField","classField":"model","complete":"fieldsAndRelations"}},"condition":[{"methodNames":["sortBy"],"classParentFqn":["App\\Repositories\\BaseRepository"]}]},{"complete":"eloquentFields","options":{"eloquentFields":{"fetch":"classField","complete":"deepRelations"}},"condition":[{"methodNames":["deep"],"classParentFqn":["App\\Repositories\\BaseRepository"]}]},{"complete":"eloquentCasts","condition":[{"functionNames":["cast"]}]}]}"#);
+        let mut plugin = activated(&host);
+        host.add_file(
+            "composer.json",
+            r#"{"require":{"laravel/framework":"^12"},"autoload":{"psr-4":{"App\\":"app/"}}}"#,
+        );
+        plugin.indexes.insert(
+            "/project".into(),
+            Index::build(&host.invocation().project().unwrap()),
+        );
+        let (source, at) = cursor("<?php use App\\Data\\Profile as P; P::from(['|']);");
+        let labels: Vec<_> = plugin
+            .completion(&doc("/project/test.php", "php", &source), at, None)
+            .into_iter()
+            .map(|item| item.label)
+            .collect();
+        for name in ["name", "slug", "promoted", "parent", "token", "trait_field"] {
+            assert!(
+                labels.iter().any(|label| label == name),
+                "{name}: {labels:?}"
+            );
+        }
+        assert!(
+            !labels
+                .iter()
+                .any(|label| label == "secret" || label == "private")
+        );
+        let (source, at) = cursor("<?php fields('|');");
+        let found = plugin.completion(&doc("/project/test.php", "php", &source), at, None);
+        let labels: Vec<_> = found.into_iter().map(|item| item.label).collect();
+        assert_eq!(labels, vec!["name", "promoted", "trait_field"]);
+        let (source, at) = cursor("<?php fields('na|me');");
+        assert_eq!(
+            plugin.definition(&doc("/project/test.php", "php", &source), at)[0].path,
+            "/project/app/Data/Profile.php"
+        );
+        let (source, at) =
+            cursor("<?php use App\\Repositories\\UserRepository as R; R::sortBy('|');");
+        let found = plugin.completion(&doc("/project/test.php", "php", &source), at, None);
+        for name in ["email", "active", "posts"] {
+            assert!(
+                found.iter().any(|item| item.label == name),
+                "{name}: {found:?}"
+            );
+        }
+        let (source, at) = cursor(
+            "<?php use App\\Repositories\\UserRepository as R; R::deep('posts:ti|tle,body');",
+        );
+        let found = plugin.completion(&doc("/project/test.php", "php", &source), at, None);
+        let title = found
+            .into_iter()
+            .find(|item| item.label == "title")
+            .unwrap();
+        let start = source.find("title").unwrap();
+        assert_eq!(
+            title.replace,
+            Some(TextRange::new(
+                text::position(&source, start),
+                text::position(&source, start + 5)
+            ))
+        );
+        let (source, at) = cursor("<?php cast('|');");
+        let found = plugin.completion(&doc("/project/test.php", "php", &source), at, None);
+        for name in ["boolean", "App\\Casts\\Slug", "App\\Enums\\Status"] {
+            assert!(
+                found.iter().any(|item| item.label == name),
+                "{name}: {found:?}"
+            );
+        }
+        let custom = found
+            .iter()
+            .find(|item| item.label == "App\\Casts\\Slug")
+            .unwrap();
+        assert_eq!(custom.insert_text, "App\\\\Casts\\\\Slug");
+        let (source, at) = cursor(r"<?php cast('App\\Casts\\Sl|ug');");
+        assert_eq!(
+            plugin.definition(&doc("/project/test.php", "php", &source), at)[0].path,
+            "/project/app/Casts/Slug.php"
+        );
+        assert!(host.process_runs().is_empty() && host.requests().is_empty());
+    }
+    #[test]
+    fn malformed_place_class_and_option_filters_never_become_broader_rules() {
+        for condition in [
+            serde_json::json!({"functionNames":["f"],"keys":false,"place":"arrayValueWithKey"}),
+            serde_json::json!({"functionNames":["f"],"classFqn":false}),
+            serde_json::json!({"functionNames":["f"],"parameters":[0]}),
+            serde_json::json!({"functionNames":["f"],"place":false}),
+        ] {
+            let config=serde_json::json!({"completions":[{"complete":"viewName","condition":[condition]}]}).to_string();
+            let index = custom_views(&config);
+            assert!(index.metadata.rules.is_empty(), "{config}");
+            assert!(!index.metadata.issues.is_empty());
+        }
+        for options in [
+            serde_json::json!({"fieldsFilter":{"modifier":"public"}}),
+            serde_json::json!({"fetchClass":false}),
+            serde_json::json!({"fieldsFilter":{"fetch":"unknown"}}),
+        ] {
+            let config=serde_json::json!({"completions":[{"complete":"classFields","options":options,"condition":[{"functionNames":["f"]}]}]}).to_string();
+            let metadata = parse(&config);
+            assert!(metadata.rules.is_empty(), "{config}");
+            assert!(!metadata.issues.is_empty());
+        }
+    }
+    #[test]
+    fn artisan_domains_project_only_captured_metadata_without_read_time_execution() {
+        use crate::tests::{activated, cursor, doc};
+        use openidea_plugin::{mock::MockHost, providers::Providers};
+        let host = MockHost::install();
+        host.add_file("artisan", "<?php require 'bootstrap/app.php';");
+        host.add_file("ide.json",r#"{"completions":[{"complete":"artisanCommandName","condition":[{"functionNames":["command"],"parameters":[1]}]},{"complete":"artisanCommandParameter","condition":[{"functionNames":["command"],"parameters":[2],"place":"arrayKey"}]}]}"#);
+        let mut plugin = activated(&host);
+        let project = host.invocation().project().unwrap();
+        let identity = crate::artisan_metadata::identity(&project).unwrap();
+        let commands=crate::artisan_metadata::parse(r#"{"commands":[{"name":"app:custom","description":"Project command","definition":{"arguments":[{"name":"name","description":"Name"}],"options":[{"name":"force","description":"Force"}]}}]}"#).unwrap();
+        let snapshot = serde_json::json!({"schema":2,"identity":identity,"capturedAt":100,"commands":commands});
+        host::storage::set(
+            &format!(
+                "artisan-metadata-v2:{}",
+                crate::artisan_metadata::hash("/project")
+            ),
+            &snapshot.to_string(),
+        )
+        .unwrap();
+        refresh_artisan(
+            &project,
+            &mut plugin.indexes.get_mut("/project").unwrap().metadata,
+        );
+        let (source, at) = cursor("<?php command('app:|');");
+        assert!(
+            plugin
+                .completion(&doc("/project/test.php", "php", &source), at, None)
+                .iter()
+                .any(|item| item.label == "app:custom")
+        );
+        let (source, at) = cursor("<?php command('app:custom',['|']);");
+        let found = plugin.completion(&doc("/project/test.php", "php", &source), at, None);
+        assert!(found.iter().any(|item| item.label == "--force"));
+        assert!(found.iter().any(|item| item.label == "name"));
+        // A callback uses its cached projection; reading new storage or source is maintenance work.
+        host.add_file("artisan", "<?php changed");
+        assert!(
+            plugin
+                .completion(&doc("/project/test.php", "php", &source), at, None)
+                .iter()
+                .any(|item| item.label == "--force")
+        );
+        refresh_artisan(
+            &project,
+            &mut plugin.indexes.get_mut("/project").unwrap().metadata,
+        );
+        assert!(
+            plugin
+                .completion(&doc("/project/test.php", "php", &source), at, None)
+                .is_empty()
+        );
+        assert!(host.process_runs().is_empty() && host.requests().is_empty());
+    }
+    #[test]
+    fn response_header_names_follow_real_helper_facade_and_constructor_bindings() {
+        use crate::tests::{activated, cursor, doc};
+        use openidea_plugin::{mock::MockHost, providers::Providers};
+        let host = MockHost::install();
+        let mut plugin = activated(&host);
+        for marked in [
+            "<?php /* 😀 */ response('',200,['Cache-|'=>'no-cache']);",
+            "<?php response(headers:['Content-T|'=>'text/plain'],content:'',status:200);",
+            "<?php namespace App; response('',200,['Cache-|'=>'no-cache']);",
+            "<?php namespace App; use function response as reply; reply('',200,['Cache-|'=>'no-cache']);",
+            "<?php use Illuminate\\Support\\Facades\\Response as R; R::make('',200,['Cache-|'=>'no-cache']);",
+            "<?php response()->json([],200,['Cache-|'=>'no-cache']);",
+            "<?php response()->noContent(204,['Cache-|'=>'no-cache']);",
+            "<?php response()->view('welcome',[],200,['Cache-|'=>'no-cache']);",
+            "<?php response()->file('/file',['Cache-|'=>'no-cache']);",
+            "<?php use Illuminate\\Support\\Facades\\Response as R; R::jsonp('cb',[],200,['Cache-|'=>'no-cache']);",
+            "<?php response('body')->withHeaders(['Cache-|'=>'no-cache']);",
+            "<?php response('body')->header('Cache-|','no-cache');",
+            "<?php new \\Illuminate\\Http\\Response('',200,['Cache-|'=>'no-cache']);",
+            "<?php use Symfony\\Component\\HttpFoundation\\Response as R; new R('',200,['Cache-|'=>'no-cache']);",
+        ] {
+            let (source, at) = cursor(marked);
+            let found = plugin.completion(&doc("/project/test.php", "php", &source), at, None);
+            assert!(
+                found.iter().any(|item| item.label == "Cache-Control"),
+                "{marked}: {found:?}"
+            );
+        }
+        for marked in [
+            "<?php response('',200,['key'=>'Cache-|']);",
+            "<?php response('', ['Cache-|'=>1]);",
+            "<?php function response($a,$b,$c){} response('',200,['Cache-|'=>1]);",
+            "<?php namespace App; function response($a,$b,$c){} response('',200,['Cache-|'=>1]);",
+            "<?php use function Vendor\\response; response('',200,['Cache-|'=>1]);",
+            "<?php \\Vendor\\response('',200,['Cache-|'=>1]);",
+            "<?php use Vendor\\Response as R; R::make('',200,['Cache-|'=>1]);",
+            "<?php class Response{} Response::make('',200,['Cache-|'=>1]);",
+            "<?php new \\Vendor\\Response('',200,['Cache-|'=>1]);",
+            "<?php response()->json([],['Cache-|'=>1]);",
+            "<?php response()->header('Cache-|','no-cache');",
+            "<?php response($dynamic)->withHeaders(['Cache-|'=>1]);",
+            "<?php use function Vendor\\response; response()->json([],200,['Cache-|'=>1]);",
+            "<?php use Illuminate\\Support\\Facades\\Response as R; class R{} R::json([],200,['Cache-|'=>1]);",
+            "<?php $x=\"response('',200,['Cache-|'=>1]);\";",
+        ] {
+            let (source, at) = cursor(marked);
+            assert!(
+                plugin
+                    .completion(&doc("/project/test.php", "php", &source), at, None)
+                    .is_empty(),
+                "{marked}"
+            );
+        }
+        let (source, at) = cursor("<?php response('',200,['Cache-|']);");
+        let found = plugin.completion(&doc("/project/test.php", "php", &source), at, None);
+        let item = found
+            .iter()
+            .find(|item| item.label == "Cache-Control")
+            .unwrap();
+        assert_eq!(item.insert_text, "Cache-Control' => $0");
+        assert!(item.snippet);
+        assert!(host.process_runs().is_empty() && host.requests().is_empty());
+    }
+    #[test]
+    fn declared_vendor_ancestors_and_explicit_class_fields_are_cached_before_providers() {
+        use crate::tests::{activated, cursor, doc};
+        use openidea_plugin::{mock::MockHost, providers::Providers};
+        let host = MockHost::install();
+        host.add_file("vendor/composer/installed.json",r#"{"packages":[{"name":"acme/ui","install-path":"../acme/ui","autoload":{"psr-4":{"Acme\\":"src/"}}}]}"#);
+        host.add_file("vendor/acme/ui/src/Ui/BaseData.php","<?php namespace Acme\\Ui; class BaseData implements \\Acme\\Contracts\\Renderable {public string $vendor_name;}");
+        host.add_file(
+            "vendor/acme/ui/src/Contracts/Renderable.php",
+            "<?php namespace Acme\\Contracts; interface Renderable {}",
+        );
+        host.add_file(
+            "app/Features/Card.php",
+            "<?php namespace App\\Features; class Card extends \\Acme\\Ui\\BaseData {}",
+        );
+        host.add_file("ide.json",r#"{"completions":[{"complete":"viewName","condition":[{"methodNames":["render"],"classParentFqn":["Acme\\Contracts\\Renderable"]}]},{"complete":"classFields","options":{"fetchClass":"Acme\\Ui\\BaseData"},"condition":[{"functionNames":["fields"]}]}]}"#);
+        let mut plugin = activated(&host);
+        host.add_file("composer.json",r#"{"require":{"laravel/framework":"^12","acme/ui":"1"},"autoload":{"psr-4":{"App\\":"app/"}}}"#);
+        plugin.indexes.insert(
+            "/project".into(),
+            Index::build(&host.invocation().project().unwrap()),
+        );
+        for (marked, expected) in [
+            ("<?php \\App\\Features\\Card::render('wel|');", "welcome"),
+            ("<?php fields('vendor_|');", "vendor_name"),
+        ] {
+            let (source, at) = cursor(marked);
+            assert!(
+                plugin
+                    .completion(&doc("/project/test.php", "php", &source), at, None)
+                    .iter()
+                    .any(|item| item.label == expected),
+                "{marked}"
+            );
+        }
+        assert!(
+            plugin.indexes["/project"]
+                .metadata
+                .affects("vendor/acme/ui/src/Ui/BaseData.php")
+        );
+        host.add_project("/project/vendor/acme/ui");
+        plugin.indexes.insert(
+            "/project".into(),
+            Index::build(&host.invocation().project().unwrap()),
+        );
+        let (source, at) = cursor("<?php fields('vendor_|');");
+        assert!(
+            plugin
+                .completion(&doc("/project/test.php", "php", &source), at, None)
+                .is_empty()
+        );
+        assert!(host.process_runs().is_empty() && host.requests().is_empty());
+    }
+    #[test]
+    fn metadata_typed_receiver_overlay_preserves_proven_query_model_and_object_return_type() {
+        use crate::tests::{activated, cursor, doc};
+        use openidea_plugin::{mock::MockHost, providers::Providers};
+        let host = MockHost::install();
+        host.add_file("app/Models/User.php","<?php namespace App\\Models; use Illuminate\\Database\\Eloquent\\Model; class User extends Model {}");
+        host.add_file(
+            "app/Data/Profile.php",
+            "<?php namespace App\\Data; class Profile {public string $name;}",
+        );
+        host.add_file("app/Repositories/ProfileRepository.php","<?php namespace App\\Repositories; class ProfileRepository {function data(): \\App\\Data\\Profile {return new \\App\\Data\\Profile;}}");
+        host.add_file("ide.json",r#"{"completions":[{"complete":"eloquentFields","condition":[{"methodNames":["custom"],"classParentFqn":["Illuminate\\Database\\Eloquent\\Builder"]}]},{"complete":"classFields","condition":[{"methodNames":["pick"],"classFqn":["App\\Data\\Profile"]}]}]}"#);
+        let mut plugin = activated(&host);
+        host.add_file(
+            "composer.json",
+            r#"{"require":{"laravel/framework":"^12"},"autoload":{"psr-4":{"App\\":"app/"}}}"#,
+        );
+        plugin.indexes.insert(
+            "/project".into(),
+            Index::build(&host.invocation().project().unwrap()),
+        );
+        for (marked, expected) in [
+            (
+                "<?php \\App\\Models\\User::query()->custom('em|');",
+                "email",
+            ),
+            (
+                "<?php function f(\\App\\Repositories\\ProfileRepository $repo){$repo->data()->pick('na|');}",
+                "name",
+            ),
+        ] {
+            let (source, at) = cursor(marked);
+            let found = plugin.completion(&doc("/project/test.php", "php", &source), at, None);
+            assert!(
+                found.iter().any(|item| item.label == expected),
+                "{marked}: {found:?}"
+            );
+        }
+        for marked in [
+            "<?php unknown()->custom('em|');",
+            "<?php function f($repo){$repo->data()->pick('na|');}",
+        ] {
+            let (source, at) = cursor(marked);
+            assert!(
+                plugin
+                    .completion(&doc("/project/test.php", "php", &source), at, None)
+                    .is_empty(),
+                "{marked}"
+            );
+        }
+    }
+    #[test]
+    fn escaped_php_literals_preserve_decoded_segment_boundaries_and_navigation() {
+        let mut index = Index::default();
+        index.metadata = parse(
+            r#"{"completions":[{"complete":"validationRules","condition":[{"functionNames":["rules"]}]}]}"#,
+        );
+        index.rules.add(
+            "required",
+            None,
+            "/project/rules.php",
+            Position::new(0, 0),
+            8,
+        );
+        let source = r#"<?php /* 😀 */ rules("nullable\x7creq\x75ired:3\u{7c}email");"#;
+        let start = source.find("req").unwrap();
+        let at = start + 2;
+        let out = completion(&index, source, at);
+        assert_eq!(out.len(), 1);
+        let end = source.find(":3").unwrap();
+        assert_eq!(
+            out[0].replace,
+            Some(TextRange::new(
+                text::position(source, start),
+                text::position(source, end)
+            ))
+        );
+        assert_eq!(definition(&index, source, at)[0].path, "/project/rules.php");
+        let regex = r#"<?php rules("required\x7cregex:/foo|ba/");"#;
+        assert!(completion(&index, regex, regex.find("ba").unwrap() + 1).is_empty());
+        assert_eq!(
+            crate::eloquent_members::metadata_inference::decode_literal(
+                r"\xC3\xA9\u{1F600}\101",
+                b'"'
+            ),
+            Some("é😀A".into())
+        );
+        assert_eq!(
+            crate::eloquent_members::metadata_inference::decode_literal(r"\q", b'"'),
+            Some(r"\q".into())
+        );
+        assert!(
+            crate::eloquent_members::metadata_inference::decode_literal(r"\u{110000}", b'"')
+                .is_none()
+        );
+        assert!(
+            crate::eloquent_members::metadata_inference::decode_literal(r"$variable", b'"')
+                .is_none()
+        );
+    }
+    #[test]
+    fn cyclic_and_colliding_type_bindings_do_not_satisfy_parent_conditions() {
+        let mut index = custom_views(
+            r#"{"completions":[{"complete":"viewName","condition":[{"methodNames":["pick"],"classParentFqn":["Pkg\\Base"]}]}]}"#,
+        );
+        crate::eloquent_members::metadata_inference::cache_class(
+            &mut index.metadata,
+            "<?php namespace Pkg; class A extends Base {}",
+            "/project/A.php",
+        );
+        crate::eloquent_members::metadata_inference::cache_class(
+            &mut index.metadata,
+            "<?php namespace Pkg; class Base extends A {}",
+            "/project/Base.php",
+        );
+        assert!(!completed(&index, "<?php \\Pkg\\A::pick('home');"));
+        let source = "<?php use Pkg\\A as C; class C{} C::pick('home');";
+        assert!(!completed(&index, source));
+    }
+    #[test]
+    fn php85_pipe_first_class_callables_use_implicit_first_argument_and_native_inventories() {
+        use crate::tests::{activated, cursor, doc};
+        use openidea_plugin::{mock::MockHost, providers::Providers};
+        let host = MockHost::install();
+        host.add_file("ide.json",r#"{"completions":[{"complete":"viewName","condition":[{"functionNames":["choose"],"parameters":[1]},{"methodNames":["pick"],"classFqn":["Pkg\\Picker"],"parameters":[1]},{"functionNames":["chooseList"],"place":"arrayValueWithKey","keys":["route"],"parameters":[1]}]}]}"#);
+        let mut plugin = activated(&host);
+        for (marked, expected) in [
+            ("<?php /* 😀 */ 'app.na|' |> config(...);", "app.name"),
+            (
+                "<?php use function config as settings; 'app.na|' |> settings(...);",
+                "app.name",
+            ),
+            ("<?php 'wel|' |> \\view(...);", "welcome"),
+            ("<?php 'posts.sh|' |> route(...);", "posts.show"),
+            (
+                "<?php use Illuminate\\Support\\Facades\\Config as C; 'app.na|' |> C::get(...);",
+                "app.name",
+            ),
+            ("<?php 'wel|' |> choose(...);", "welcome"),
+            (
+                "<?php function f(\\Pkg\\Picker $picker){'wel|' |> $picker->pick(...);}",
+                "welcome",
+            ),
+            (
+                "<?php use Pkg\\Picker as P; 'wel|' |> P::pick(...);",
+                "welcome",
+            ),
+            ("<?php ['route'=>'wel|'] |> chooseList(...);", "welcome"),
+            ("<?php ['app.na|'=>1] |> config(...);", "app.name"),
+        ] {
+            let (source, at) = cursor(marked);
+            let found = plugin.completion(&doc("/project/test.php", "php", &source), at, None);
+            assert!(
+                found.iter().any(|item| item.label == expected),
+                "{marked}: {found:?}"
+            );
+        }
+        let (source, at) = cursor("<?php /* 😀 */ 'app.na|me' |> config(...);");
+        let found = plugin.completion(&doc("/project/test.php", "php", &source), at, None);
+        let item = found.iter().find(|item| item.label == "app.name").unwrap();
+        let start = source.find("app.name").unwrap();
+        assert_eq!(
+            item.replace,
+            Some(TextRange::new(
+                text::position(&source, start),
+                text::position(&source, start + 8)
+            ))
+        );
+        assert_eq!(
+            plugin.definition(&doc("/project/test.php", "php", &source), at)[0].path,
+            "/project/config/app.php"
+        );
+        for marked in [
+            "<?php 'wel|' |> $dynamic(...);",
+            "<?php 'wel|' |> fn($value)=>choose($value);",
+            "<?php 'wel|' |> choose($value);",
+            "<?php 'prefix'.'wel|' |> choose(...);",
+            "<?php use function Vendor\\config; 'app.na|' |> config(...);",
+            "<?php namespace App; function config($key){} 'app.na|' |> config(...);",
+            "<?php use Vendor\\Config as C; 'app.na|' |> C::get(...);",
+            "<?php function f($unknown){'wel|' |> $unknown->pick(...);}",
+        ] {
+            let (source, at) = cursor(marked);
+            assert!(
+                plugin
+                    .completion(&doc("/project/test.php", "php", &source), at, None)
+                    .is_empty(),
+                "{marked}"
+            );
+        }
+        host.add_file(
+            "composer.json",
+            r#"{"require":{"laravel/framework":"^12"},"config":{"platform":{"php":"8.4.0"}}}"#,
+        );
+        plugin.indexes.insert(
+            "/project".into(),
+            Index::build(&host.invocation().project().unwrap()),
+        );
+        assert_eq!(
+            plugin.indexes["/project"].metadata.php_version,
+            Some((8, 4, 0))
+        );
+        let (source, at) = cursor("<?php 'wel|' |> choose(...);");
+        assert!(
+            plugin
+                .completion(&doc("/project/test.php", "php", &source), at, None)
+                .is_empty()
+        );
+        let (source, at) = cursor("<?php 'app.na|' |> config(...);");
+        assert!(
+            plugin
+                .completion(&doc("/project/test.php", "php", &source), at, None)
+                .is_empty()
+        );
+        assert!(host.process_runs().is_empty() && host.requests().is_empty());
+    }
+    #[test]
+    fn unicode_php_type_variable_and_field_names_keep_exact_utf16_locations() {
+        use crate::tests::{activated, cursor, doc};
+        use openidea_plugin::{mock::MockHost, providers::Providers};
+        let host = MockHost::install();
+        let declaration = "<?php namespace App\\Data; class Élève {public string $prénom😀; public function choisir($champ){}}";
+        host.add_file("app/Data/Élève.php", declaration);
+        host.add_file("ide.json",r#"{"completions":[{"complete":"classFields","condition":[{"methodNames":["choisir"],"classFqn":["App\\Data\\Élève"]}]}]}"#);
+        let mut plugin = activated(&host);
+        host.add_file(
+            "composer.json",
+            r#"{"require":{"laravel/framework":"^12"},"autoload":{"psr-4":{"App\\":"app/"}}}"#,
+        );
+        plugin.indexes.insert(
+            "/project".into(),
+            Index::build(&host.invocation().project().unwrap()),
+        );
+        let (source, at) = cursor(
+            "<?php use App\\Data\\Élève as E; function f(E $élève){$élève->choisir('pré|');}",
+        );
+        let found = plugin.completion(&doc("/project/test.php", "php", &source), at, None);
+        assert!(
+            found.iter().any(|item| item.label == "prénom😀"),
+            "{found:?}"
+        );
+        let (source, at) = cursor(
+            "<?php use App\\Data\\Élève as E; function f(E $élève){$élève->choisir('prénom😀|');}",
+        );
+        let found = plugin.definition(&doc("/project/test.php", "php", &source), at);
+        let at = declaration.find("prénom😀").unwrap();
+        assert_eq!(
+            found[0].range,
+            TextRange::new(
+                text::position(declaration, at),
+                text::position(declaration, at + "prénom😀".len())
+            )
+        );
     }
 }

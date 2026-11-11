@@ -1,12 +1,29 @@
 use super::*;
 use openidea_plugin::mock::MockHost;
 
+/// Exercise the same bounded steps as editor callbacks until fixtures are ready.
+pub(crate) fn finish_indexing(plugin: &mut Main) {
+    for _ in 0..10000 {
+        if plugin.pending_indexes.is_empty() && plugin.index_rechecks.is_empty() {
+            for project in host::projects().unwrap_or_default() {
+                if project.root().ok().is_some_and(|root|plugin.helper_automation.has_deferred(&root)) { plugin.advance_index(&project); }
+            }
+            return;
+        }
+        let projects = host::projects().unwrap_or_default();
+        for project in projects { plugin.advance_index(&project); }
+    }
+    panic!("cooperative index did not finish: {:?}", plugin.index_progress);
+}
+
+
 fn laravel_project(host: &MockHost) {
-    host.add_file("composer.json", r#"{"require": {"laravel/framework": "^11.0"}}"#);
+    host.add_file("composer.json", r#"{"require": {"laravel/framework": "^11.0"},"autoload":{"psr-4":{"App\\":"app/"}}}"#);
     host.add_file(
         "routes/web.php",
         "<?php\nuse App\\Http\\Controllers\\PostController;\n\nRoute::get('/', fn () => view('welcome'))->name('home');\nRoute::resource('posts', PostController::class)->only(['index', 'show']);\nRoute::prefix('admin')->name('admin.')->group(function () {\n    Route::get('/dashboard', [PostController::class, 'index'])->name('dashboard');\n});\n",
     );
+    host.add_file("app/Http/Controllers/Controller.php","<?php namespace App\\Http\\Controllers; abstract class Controller {}\n");
     host.add_file(
         "app/Http/Controllers/PostController.php",
         "<?php\nnamespace App\\Http\\Controllers;\n\nclass PostController extends Controller\n{\n    public function index()\n    {\n        return view('posts.index');\n    }\n\n    public function show($id) {}\n\n    protected function hidden() {}\n}\n",
@@ -35,8 +52,8 @@ fn laravel_project(host: &MockHost) {
         "database/migrations/2024_01_01_create_posts_table.php",
         "<?php\nreturn new class extends Migration {\n    public function up(): void\n    {\n        Schema::create('posts', function (Blueprint $table) {\n            $table->id();\n            $table->string('title');\n            $table->text('body');\n            $table->timestamps();\n        });\n        Schema::create('users', function (Blueprint $table) {\n            $table->string('email');\n        });\n    }\n};\n",
     );
-    host.add_file("app/Models/Post.php", "<?php\nclass Post extends Model\n{\n    protected $fillable = ['title'];\n}\n");
-    host.add_file("app/Models/Article.php", "<?php\nclass Article extends Model\n{\n    protected $table = 'posts';\n}\n");
+    host.add_file("app/Models/Post.php", "<?php\nnamespace App\\Models;\nuse Illuminate\\Database\\Eloquent\\Model;\nclass Post extends Model\n{\n    protected $fillable = ['title'];\n}\n");
+    host.add_file("app/Models/Article.php", "<?php\nnamespace App\\Models;\nuse Illuminate\\Database\\Eloquent\\Model;\nclass Article extends Model\n{\n    protected $table = 'posts';\n}\n");
     host.add_file("resources/js/app.js", "");
     host.add_file("resources/css/app.css", "");
     host.add_file(
@@ -52,7 +69,7 @@ fn laravel_project(host: &MockHost) {
 pub(super) fn activated(host: &MockHost) -> Main {
     laravel_project(host);
     let mut plugin = Main::default();
-    plugin.activate(&host.context("aritti.laravel")).unwrap();
+    plugin.activate(&host.context("aritti.laravel")).unwrap();crate::tests::finish_indexing(&mut plugin);
     plugin
 }
 
@@ -141,8 +158,12 @@ fn completes_controller_actions() {
     assert_eq!(complete("<?php Route::get('/a', 'Post|');"), ["PostController@index", "PostController@show"]);
     assert_eq!(complete("<?php Route::get('/b', [PostController::class, '|']);"), ["index", "show"]);
     assert_eq!(complete("<?php Route::resource('p', 'Post|');"), ["PostController"]);
+    let completion_source="<?php Route::get('/a', 'Post');";
+    let candidate=plugin.completion(&doc("/project/routes/api.php","php",completion_source),text::position(completion_source,completion_source.find("Post").unwrap()+4),None).into_iter().find(|item|item.label=="PostController@show").unwrap();
+    assert_eq!(candidate.insert_text,"\\App\\Http\\Controllers\\PostController@show");
 
-    let method = plugin.definition(&doc("/project/routes/api.php", "php", "<?php\nRoute::get('/a', 'PostController@show');\n"), Position::new(1, 30));
+    let source="<?php\nRoute::get('/a', 'App\\Http\\Controllers\\PostController@show');\n";
+    let method = plugin.definition(&doc("/project/routes/api.php", "php", source), text::position(source,source.find("@show").unwrap()+1));
     let controller = host_text(&host, "app/Http/Controllers/PostController.php");
     let show_at = text::position(&controller, controller.find("show(").unwrap());
     assert_eq!(method[0].path, "/project/app/Http/Controllers/PostController.php");
@@ -271,7 +292,7 @@ fn live_inventory_problems_are_separate_from_manual_opened_file_checks() {
     let host = MockHost::install();
     let mut plugin = activated(&host);
     host.add_file("resources/views/broken.blade.php", "@include('missing.partial')\n");
-    plugin.handle_events(&[Event::FileOpened("/project/resources/views/broken.blade.php".into())], &host.invocation());
+    plugin.handle_events(&[Event::FileOpened("/project/resources/views/broken.blade.php".into())], &host.invocation());crate::tests::finish_indexing(&mut plugin);
     assert!(host.diagnostics().get("/project/resources/views/broken.blade.php").is_none_or(Vec::is_empty));
     host.open_editor("/project/resources/views/broken.blade.php", "blade", "@include('missing.partial')\n", &[]);
     host.refresh_diagnostics(&mut plugin);
@@ -287,7 +308,7 @@ fn marks_routes_views_and_layouts() {
     let markers = plugin.line_markers(&doc("/project/app/Http/Controllers/PostController.php", "php", &controller));
     let tooltips: Vec<_> = markers.iter().map(|m| (m.line, m.tooltip.as_str())).collect();
     assert_eq!(tooltips[..3], [(7, "View posts.index"), (5, "Route GET|HEAD /posts"), (10, "Route GET|HEAD /posts/{post}")]);
-    let related: Vec<_> = markers.iter().filter(|m| m.tooltip == "Related route#PostController").collect();
+    let related: Vec<_> = markers.iter().filter(|m| m.tooltip == "Related routes for App\\Http\\Controllers\\PostController").collect();
     assert_eq!(related.len(), 2, "retain the class-level route links formerly supplied by the host index");
     assert!(related.iter().all(|m| m.line == 3 && m.target.as_ref().is_some_and(|l| l.path.ends_with("routes/web.php"))));
 
@@ -362,7 +383,7 @@ fn runs_artisan_then_reindexes() {
     });
     assert_eq!(plugin.run_command("cache-clear", &host.invocation(), None).unwrap(), None);
     let notes: Vec<_> = host.notifications().into_iter().map(|n| (n.title, n.body)).collect();
-    assert_eq!(notes, [("Laravel".into(), "Ran artisan cache:clear and reindexed the project.".into())]);
+    assert_eq!(notes, [("Laravel".into(), "Ran artisan cache:clear. Project indexing is queued.".into())]);
 }
 
 #[test]
@@ -389,9 +410,11 @@ fn ignores_projects_without_laravel() {
     let host = MockHost::install();
     host.add_file("composer.json", r#"{"require": {"symfony/framework-bundle": "^7.0"}}"#);
     let mut plugin = Main::default();
-    plugin.activate(&host.context("aritti.laravel")).unwrap();
+    plugin.activate(&host.context("aritti.laravel")).unwrap();crate::tests::finish_indexing(&mut plugin);
     assert_eq!(plugin.run_command("reindex", &host.invocation(), None).unwrap(), None);
-    assert_eq!(host.notifications()[0].body, "No Laravel project is open.");
+    assert_eq!(host.notifications()[0].body, "Indexing Laravel project…");
+    crate::tests::finish_indexing(&mut plugin);
+    assert_eq!(plugin.summary(), "No Laravel project is open.");
 }
 
 fn activated_with(host: &MockHost, files: &[(&str, &str)]) -> Main {
@@ -400,7 +423,7 @@ fn activated_with(host: &MockHost, files: &[(&str, &str)]) -> Main {
         host.add_file(path, text);
     }
     let mut plugin = Main::default();
-    plugin.activate(&host.context("aritti.laravel")).unwrap();
+    plugin.activate(&host.context("aritti.laravel")).unwrap();crate::tests::finish_indexing(&mut plugin);
     plugin
 }
 
@@ -458,6 +481,13 @@ fn known_livewire_component_is_quiet() {
     let plugin = activated_with(&host, &[("resources/views/livewire/volt-counter.blade.php", "")]);
 
     assert!(codes(&plugin, "blade", "<livewire:counter />\n@livewire('counter')\n<livewire:volt-counter />").is_empty());
+}
+
+#[test]
+fn explicitly_configured_empty_inertia_roots_report_missing_pages() {
+    let host=MockHost::install();
+    let plugin=activated_with(&host,&[("ide.json",r#"{"packages":{"inertia":{"ignoreSettingsPaths":true,"pagePaths":[{"path":"/frontend/screens","prefix":"Admin/"}]}}}"#)]);
+    assert_eq!(codes(&plugin,"php","<?php Inertia::render('Admin/Missing');"),["laravel.unknown-inertia-page"]);
 }
 
 #[test]
@@ -880,8 +910,8 @@ fn project_files(files: &'static [(&'static str, &'static str)]) -> impl Fn(&str
     move |path| files.iter().find(|(name, _)| *name == path).map(|(_, text)| (*text).to_owned())
 }
 
-const UNGUARDED_POST: (&str, &str) = ("app/Models/Post.php", "<?php\nclass Post extends Model\n{\n    protected $guarded = [];\n}\n");
-const FILLABLE_POST: (&str, &str) = ("app/Models/Post.php", "<?php\nclass Post extends Model\n{\n    protected $fillable = ['title', 'body'];\n}\n");
+const UNGUARDED_POST: (&str, &str) = ("app/Models/Post.php", "<?php\nnamespace App\\Models;\nuse Illuminate\\Database\\Eloquent\\Model;\nclass Post extends Model\n{\n    protected $guarded = [];\n}\n");
+const FILLABLE_POST: (&str, &str) = ("app/Models/Post.php", "<?php\nnamespace App\\Models;\nuse Illuminate\\Database\\Eloquent\\Model;\nclass Post extends Model\n{\n    protected $fillable = ['title', 'body'];\n}\n");
 const PRUNABLE_POST: (&str, &str) = ("app/Models/Post.php", "<?php\nuse Illuminate\\Database\\Eloquent\\Prunable;\nclass Post extends Model\n{\n    use HasFactory, Prunable;\n}\n");
 
 fn eloquent_snippets(text: &str, files: &'static [(&'static str, &'static str)]) -> Vec<(&'static str, String)> {
@@ -908,7 +938,7 @@ fn guarded_attribute_assignment_is_quiet_for_library_or_dynamic_name() {
     static FILLABLE: [(&str, &str); 1] = [FILLABLE_POST];
     assert!(eloquent_snippets("<?php\nnamespace App\\Http;\nuse App\\Models\\Post;\nPost::create(['title' => 1, $key => 2, ...$rest]);\nPost::create(['title' => 1, 'body' => 2]);\n", &FILLABLE).is_empty());
 
-    static CUSTOM: [(&str, &str); 1] = [("app/Models/Post.php", "<?php\nclass Post extends Model\n{\n    protected $fillable = ['a'];\n    public function getFillable() {}\n}\n")];
+    static CUSTOM: [(&str, &str); 1] = [("app/Models/Post.php", "<?php\nnamespace App\\Models;\nuse Illuminate\\Database\\Eloquent\\Model;\nclass Post extends Model\n{\n    protected $fillable = ['a'];\n    public function getFillable() {}\n}\n")];
     assert!(eloquent_snippets("<?php\nnamespace App\\Http;\nuse App\\Models\\Post;\nPost::create(['zzz' => 1]);\n", &CUSTOM).is_empty());
 }
 
@@ -961,18 +991,18 @@ fn eloquent_checks_publish_and_clear_when_the_file_is_fixed() {
     let mut plugin = activated_with(&host, &[("app/Models/Post.php", UNGUARDED_POST.1), ("app/Http/Controllers/C.php", "<?php\nnamespace App\\Http;\nuse App\\Models\\Post;\nPost::create($request->all());\n")]);
     let path = "/project/app/Http/Controllers/C.php";
 
-    plugin.handle_events(&[Event::FileOpened(path.into())], &host.invocation());
+    plugin.handle_events(&[Event::FileOpened(path.into())], &host.invocation());crate::tests::finish_indexing(&mut plugin);
     let found = &host.diagnostics()[path];
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].code.as_deref(), Some("guarded-attribute-assignment"));
 
     host.add_file("app/Http/Controllers/C.php", "<?php\nnamespace App\\Http;\nuse App\\Models\\Post;\nPost::create($request->validated());\n");
-    plugin.handle_events(&[Event::FileOpened(path.into())], &host.invocation());
+    plugin.handle_events(&[Event::FileOpened(path.into())], &host.invocation());crate::tests::finish_indexing(&mut plugin);
     assert!(host.diagnostics().get(path).is_none_or(Vec::is_empty));
 
     host.add_file("app/Http/Controllers/C.php", "<?php\nnamespace App\\Http;\nuse App\\Models\\Post;\nPost::create($request->all());\n");
     host.set_setting("checkEloquent", "false");
-    plugin.handle_events(&[Event::FileOpened(path.into())], &host.invocation());
+    plugin.handle_events(&[Event::FileOpened(path.into())], &host.invocation());crate::tests::finish_indexing(&mut plugin);
     assert!(host.diagnostics().get(path).is_none_or(Vec::is_empty));
 }
 
@@ -982,7 +1012,7 @@ fn guarded_mass_assignment_in(relative: &str) -> Vec<Diagnostic> {
     let mut plugin = activated_with(&host, &[("app/Models/Post.php", UNGUARDED_POST.1), (relative, body)]);
     let path = format!("/project/{relative}");
 
-    plugin.handle_events(&[Event::FileOpened(path.clone())], &host.invocation());
+    plugin.handle_events(&[Event::FileOpened(path.clone())], &host.invocation());crate::tests::finish_indexing(&mut plugin);
     host.diagnostics().get(&path).cloned().unwrap_or_default()
 }
 
@@ -1008,7 +1038,7 @@ fn eloquent_findings_use_utf16_columns_and_crlf() {
     let mut plugin = activated_with(&host, &[("app/Http/Controllers/C.php", body)]);
     let path = "/project/app/Http/Controllers/C.php";
 
-    plugin.handle_events(&[Event::FileOpened(path.into())], &host.invocation());
+    plugin.handle_events(&[Event::FileOpened(path.into())], &host.invocation());crate::tests::finish_indexing(&mut plugin);
     let range = host.diagnostics()[path][0].range;
     assert_eq!((range.start.line, range.start.character, range.end.character), (2, 17, 46));
     assert_eq!(host.diagnostics()[path][0].severity, Severity::Hint);
@@ -1213,7 +1243,7 @@ fn js_provider_ignores_non_inertia_calls() {
 fn completion_does_not_scan_project() {
     let host = MockHost::install();
     let mut plugin = Main::default();
-    plugin.activate(&host.context("aritti.laravel")).unwrap();
+    plugin.activate(&host.context("aritti.laravel")).unwrap();crate::tests::finish_indexing(&mut plugin);
 
     assert!(js_complete(&mut plugin, "/project/resources/js/a.js", "javascript", "route('|')").is_empty());
     assert!(plugin.definition(&doc("/project/resources/js/a.js", "javascript", "route('home')"), Position::new(0, 8)).is_empty());
@@ -1239,7 +1269,7 @@ fn inertia_render_completes_page_names_from_resources_js_pages() {
     host.add_file("resources/js/Pages/Posts/Index.vue", "");
     host.add_file("resources/js/pages/Home.tsx", "");
     let mut plugin = Main::default();
-    plugin.activate(&host.context("aritti.laravel")).unwrap();
+    plugin.activate(&host.context("aritti.laravel")).unwrap();crate::tests::finish_indexing(&mut plugin);
 
     let names = js_complete(&mut plugin, "/project/app/Http/Controllers/X.php", "php", "<?php Inertia::render('|');");
     assert_eq!(names, ["Home", "Posts/Index"]);
@@ -1253,7 +1283,7 @@ fn inertia_page_extensions_vue_jsx_tsx_svelte() {
         host.add_file(&format!("resources/js/Pages/{file}"), "");
     }
     let mut plugin = Main::default();
-    plugin.activate(&host.context("aritti.laravel")).unwrap();
+    plugin.activate(&host.context("aritti.laravel")).unwrap();crate::tests::finish_indexing(&mut plugin);
 
     let names = js_complete(&mut plugin, "/project/app/Http/Controllers/X.php", "php", "<?php inertia('|');");
     assert_eq!(names, ["A", "B", "C", "D"]);
@@ -1322,7 +1352,7 @@ fn env_problems_of(host: &MockHost, relative: &str, body: &str) -> Vec<Diagnosti
     let mut plugin = activated(host);
     let path = format!("/project/{relative}");
 
-    plugin.handle_events(&[Event::FileOpened(path.clone())], &host.invocation());
+    plugin.handle_events(&[Event::FileOpened(path.clone())], &host.invocation());crate::tests::finish_indexing(&mut plugin);
     host.diagnostics().get(&path).cloned().unwrap_or_default()
 }
 
@@ -1435,11 +1465,11 @@ fn env_check_fixed_file_publishes_empty_list() {
     let host = MockHost::install();
     host.add_file("app/A.php", "<?php\n$x = env('A');\n");
     let mut plugin = activated(&host);
-    plugin.handle_events(&[Event::FileOpened("/project/app/A.php".into())], &host.invocation());
+    plugin.handle_events(&[Event::FileOpened("/project/app/A.php".into())], &host.invocation());crate::tests::finish_indexing(&mut plugin);
     assert_eq!(host.diagnostics()["/project/app/A.php"].len(), 1);
 
     host.add_file("app/A.php", "<?php\n$x = config('a.b');\n");
-    plugin.handle_events(&[Event::FileSaved("/project/app/A.php".into())], &host.invocation());
+    plugin.handle_events(&[Event::FileSaved("/project/app/A.php".into())], &host.invocation());crate::tests::finish_indexing(&mut plugin);
     assert!(host.diagnostics().get("/project/app/A.php").is_none_or(Vec::is_empty));
 }
 
@@ -1843,7 +1873,7 @@ fn ide_blade_json_save_triggers_a_reindex() {
         assert!(!plugin.index_for("/project/x").unwrap().views.contains_key("n::a"));
 
         host.add_file(saved, r#"{"namespaces": [{"namespace": "n", "path": "mods"}]}"#);
-        plugin.handle_events(&[Event::FileSaved(format!("/project/{saved}"))], &host.invocation());
+        plugin.handle_events(&[Event::FileSaved(format!("/project/{saved}"))], &host.invocation());crate::tests::finish_indexing(&mut plugin);
         assert!(plugin.index_for("/project/x").unwrap().views.contains_key("n::a"), "{saved}");
     }
 }
@@ -1971,11 +2001,11 @@ fn make_asks_then_runs_artisan_in_a_terminal() {
     host.answer_next_prompt(Some(&["controller"]));
     host.answer_next_prompt(Some(&["Admin/ReportController"]));
     host.answer_next_prompt(Some(&["--resource", "--api"]));
-    host.answer_next_prompt(Some(&["Post"]));
+    host.answer_next_prompt(Some(&["App\\Models\\Post"]));
     plugin.run_command("make", &host.invocation(), None).unwrap();
     assert_eq!(
         terminal_args(&host, &plugin),
-        [["artisan", "make:controller", "Admin/ReportController", "--model=Post", "--resource", "--api"]]
+        [["artisan", "make:controller", "Admin/ReportController", "--model=App\\Models\\Post", "--resource", "--api"]]
     );
 }
 
@@ -2007,11 +2037,11 @@ fn make_rejects_unsafe_names_and_honours_dismissal() {
 fn generates_for_a_model_with_a_default_name() {
     let host = MockHost::install().with_capabilities(&["project.read", "events", "process:php", "editor.read", "editor.write"]);
     let mut plugin = activated(&host);
-    host.answer_next_prompt(Some(&["Post"]));
+    host.answer_next_prompt(Some(&["App\\Models\\Post"]));
     host.answer_next_prompt(Some(&["policy"]));
     host.answer_next_prompt(Some(&["PostPolicy"]));
     plugin.run_command("generate-for-model", &host.invocation(), None).unwrap();
-    assert_eq!(terminal_args(&host, &plugin), [["artisan", "make:policy", "PostPolicy", "--model=Post"]]);
+    assert_eq!(terminal_args(&host, &plugin), [["artisan", "make:policy", "PostPolicy", "--model=App\\Models\\Post"]]);
 
     host.answer_next_prompt(Some(&["Nope"]));
     assert!(plugin.run_command("generate-for-model", &host.invocation(), None).is_err());
@@ -2090,7 +2120,7 @@ fn model_phpdoc_removal_is_offered_inside_the_block() {
 #[test]
 fn livewire_view_calling_a_missing_method_is_reported() {
     let host = MockHost::install();
-    host.add_file("app/Livewire/Tally.php", "<?php\nnamespace App\\Livewire;\nclass Tally extends Component\n{\n    public function increment() {}\n}\n");
+    host.add_file("app/Livewire/Tally.php", "<?php\nnamespace App\\Livewire;\nuse Livewire\\Component;\nclass Tally extends Component\n{\n    public function increment() {}\n}\n");
     host.add_file("resources/views/livewire/tally.blade.php", "<button wire:click=\"increment\">+</button>\n<button wire:click=\"decrement\">-</button>\n");
     let mut plugin = activated(&host);
     let path = "/project/resources/views/livewire/tally.blade.php";
@@ -2125,7 +2155,7 @@ fn routes_naming_missing_controllers_and_methods_are_reported() {
     );
     let path = "/project/routes/extra.php";
     let project = host.invocation().project().unwrap();
-    plugin.index_project(&project);
+    plugin.index_project(&project);crate::tests::finish_indexing(&mut plugin);
     plugin.check(&project, path);
     let found: Vec<_> = host.diagnostics()[path].iter().map(|d| (d.code.clone().unwrap(), d.range.start.line)).collect();
     assert_eq!(
@@ -2143,9 +2173,10 @@ fn route_files_with_controller_groups_and_invokables_stay_silent() {
     let host = MockHost::install();
     let mut plugin = activated(&host);
     host.add_file("routes/grouped.php", "<?php\nRoute::controller(PostController::class)->group(function () {\n    Route::get('/x', 'missing');\n});\n");
-    host.add_file("routes/invoke.php", "<?php\nuse App\\Http\\Controllers\\PostController;\nRoute::get('/x', PostController::class);\n");
+    host.add_file("app/Http/Controllers/InvokableController.php", "<?php\nnamespace App\\Http\\Controllers;\nclass InvokableController { public function __invoke() {} }\n");
+    host.add_file("routes/invoke.php", "<?php\nuse App\\Http\\Controllers\\InvokableController;\nRoute::get('/x', InvokableController::class);\n");
     let project = host.invocation().project().unwrap();
-    plugin.index_project(&project);
+    plugin.index_project(&project);crate::tests::finish_indexing(&mut plugin);
     for path in ["/project/routes/grouped.php", "/project/routes/invoke.php"] {
         plugin.check(&project, path);
         assert!(host.diagnostics().get(path).is_none_or(|d| d.is_empty()), "{path}");
@@ -2218,11 +2249,11 @@ fn form_request_gets_rules_for_the_model_columns() {
 #[test]
 fn model_fillable_gets_the_missing_columns() {
     let host = MockHost::install();
-    host.add_file("app/Models/Post.php", "<?php\nclass Post extends Model\n{\n    protected $fillable = [\n        'title',\n    ];\n}\n");
+    host.add_file("app/Models/Post.php", "<?php\nnamespace App\\Models;\nuse Illuminate\\Database\\Eloquent\\Model;\nclass Post extends Model\n{\n    protected $fillable = [\n        'title',\n    ];\n}\n");
     let mut plugin = Main::default();
-    plugin.activate(&host.context("aritti.laravel")).unwrap();
+    plugin.activate(&host.context("aritti.laravel")).unwrap();crate::tests::finish_indexing(&mut plugin);
     laravel_project_without_post(&host);
-    plugin.index_all();
+    plugin.index_all();crate::tests::finish_indexing(&mut plugin);
     let path = "/project/app/Models/Post.php";
     let text = host_text(&host, path);
     let position = text::position(&text, text.find("$fillable").unwrap());
@@ -2275,7 +2306,7 @@ fn columns_complete_through_relations_and_scopes() {
         "database/migrations/2024_02_01_create_replies_table.php",
         "<?php\nreturn new class extends Migration {\n    public function up(): void\n    {\n        Schema::create('replies', function (Blueprint $table) {\n            $table->id();\n            $table->string('author');\n        });\n    }\n};\n",
     );
-    plugin.index_all();
+    plugin.index_all();crate::tests::finish_indexing(&mut plugin);
     let path = "/project/app/Http/Controllers/A.php";
 
     for marked in [
@@ -2428,14 +2459,14 @@ fn extra_model_directories_and_the_resource_check_setting_are_honoured() {
     host.add_file("modules/Blog/Models/Comment.php", "<?php\nclass Comment extends Model {}\n");
     host.set_setting("modelDirectories", "\"modules/Blog/Models, ../outside\"");
     let mut plugin = Main::default();
-    plugin.activate(&host.context("aritti.laravel")).unwrap();
+    plugin.activate(&host.context("aritti.laravel")).unwrap();crate::tests::finish_indexing(&mut plugin);
     let index = plugin.indexes.values().next().unwrap();
     assert!(index.models.contains_key("Comment"));
 
     host.add_file("routes/res.php", "<?php\nuse App\\Http\\Controllers\\PostController;\nRoute::resource('p', PostController::class);\n");
     host.set_setting("reportMissingResourceMethods", "false");
     let project = host.invocation().project().unwrap();
-    plugin.index_project(&project);
+    plugin.index_project(&project);crate::tests::finish_indexing(&mut plugin);
     plugin.check(&project, "/project/routes/res.php");
     assert!(host.diagnostics().get("/project/routes/res.php").is_none_or(|d| d.is_empty()));
 }
@@ -2550,7 +2581,7 @@ fn factory_navigation_does_not_rename_the_model_or_factory_declarations() {
     let exported = plugin.index(&IndexDocument { path:current.path.clone(),text:usage.into(),symbols:Vec::new() });
     assert!(exported.definitions.is_empty() && exported.references.is_empty());
     host.add_file("database/factories/PostFactory.php","");
-    plugin.handle_events(&[Event::FilesChanged(openidea_plugin::FilesChanged { removed:vec!["/project/database/factories/PostFactory.php".into()], ..Default::default() })],&host.invocation());
+    plugin.handle_events(&[Event::FilesChanged(openidea_plugin::FilesChanged { removed:vec!["/project/database/factories/PostFactory.php".into()], ..Default::default() })],&host.invocation());crate::tests::finish_indexing(&mut plugin);
     assert!(plugin.definition(&current,text::position(usage,usage.find("Post::").unwrap()+2)).is_empty());
 }
 
@@ -2579,10 +2610,10 @@ fn watched_listener_and_observer_changes_refresh_related_navigation() {
     let event = doc("/project/app/Events/Ready.php","php","<?php class Ready {}");
     assert!(plugin.line_markers(&event).iter().any(|m|m.target.as_ref().is_some_and(|l|l.path.ends_with("ListenReady.php"))));
     host.add_file("app/Listeners/ListenReady.php","<?php class ListenReady { function handle(Other $event) {} }");
-    plugin.handle_events(&[Event::FilesChanged(openidea_plugin::FilesChanged { modified:vec![event.path.replace("Events/Ready","Listeners/ListenReady")], ..Default::default() })],&host.invocation());
+    plugin.handle_events(&[Event::FilesChanged(openidea_plugin::FilesChanged { modified:vec![event.path.replace("Events/Ready","Listeners/ListenReady")], ..Default::default() })],&host.invocation());crate::tests::finish_indexing(&mut plugin);
     assert!(!plugin.line_markers(&event).iter().any(|m|m.target.as_ref().is_some_and(|l|l.path.ends_with("ListenReady.php"))));
     host.add_file("app/Listeners/ListenReady.php","<?php class ListenReady { function handle(Ready $event) {} }");
-    plugin.handle_events(&[Event::FilesChanged(openidea_plugin::FilesChanged { modified:vec!["/project/app/Listeners/ListenReady.php".into()], ..Default::default() })],&host.invocation());
+    plugin.handle_events(&[Event::FilesChanged(openidea_plugin::FilesChanged { modified:vec!["/project/app/Listeners/ListenReady.php".into()], ..Default::default() })],&host.invocation());crate::tests::finish_indexing(&mut plugin);
     assert!(plugin.line_markers(&event).iter().any(|m|m.target.as_ref().is_some_and(|l|l.path.ends_with("ListenReady.php"))));
     for relative in ["app/Events/Ready.php","app/Observers/PostObserver.php","database/seeders/PostSeeder.php","app/Post.php"] { assert!(affects_index(relative),"{relative}"); }
 }
@@ -2597,22 +2628,22 @@ fn observed_route_reindex_refreshes_mounted_cache_without_render_cli_or_loop() {
     assert_eq!(packaged_invalidations(&host),1);
     host.on_process("php",|_,_|panic!("cached render/reindex must not invoke Artisan"));
     host.add_file("routes/web.php","<?php Route::get('/observed', fn()=>1)->name('observed');");
-    plugin.handle_events(&[Event::FileSaved("/project/routes/web.php".into())],&host.invocation());
-    assert_eq!(packaged_invalidations(&host),2);
+    plugin.handle_events(&[Event::FileSaved("/project/routes/web.php".into())],&host.invocation());crate::tests::finish_indexing(&mut plugin);
+    assert_eq!(packaged_invalidations(&host),3);
     for _ in 0..3 {
         let view=plugin.render(VIEW,None,&host.invocation()).unwrap();
         assert!(route_rows(&view).iter().any(|(_,path,_)|path=="/observed"));
     }
-    assert_eq!(packaged_invalidations(&host),2);assert!(host.process_runs().is_empty());assert!(host.requests().is_empty());
+    assert_eq!(packaged_invalidations(&host),3);assert!(host.process_runs().is_empty());assert!(host.requests().is_empty());
 }
 #[test]
 fn loss_of_laravel_marker_retires_old_index_and_notifies_once() {
     let host=MockHost::install();let mut plugin=activated(&host);
     host.add_file("composer.json","{}");
-    plugin.handle_events(&[Event::FilesChanged(openidea_plugin::FilesChanged {modified:vec!["/project/composer.json".into()],..Default::default()})],&host.invocation());
+    plugin.handle_events(&[Event::FilesChanged(openidea_plugin::FilesChanged {modified:vec!["/project/composer.json".into()],..Default::default()})],&host.invocation());crate::tests::finish_indexing(&mut plugin);
     assert!(!plugin.indexes.contains_key("/project"));assert_eq!(packaged_invalidations(&host),2);
     assert!(matches!(plugin.render(VIEW,None,&host.invocation()).unwrap().body,Body::Message(_)));
-    plugin.index_project(&host.invocation().project().unwrap());
+    plugin.index_project(&host.invocation().project().unwrap());crate::tests::finish_indexing(&mut plugin);
     assert_eq!(packaged_invalidations(&host),2,"no existing cache, no further removal notification");
 }
 #[test]
@@ -2634,11 +2665,11 @@ fn exact_selected_root_has_no_implicit_nested_app_fallback() {
     let host=MockHost::install();let mut plugin=activated(&host);
     host.add_project("/project");host.set_project_root(Some("/project/nested"));laravel_project(&host);
     host.add_file("routes/web.php","<?php Route::get('/nested-only', fn()=>1)->name('nested');");
-    plugin.index_project(&host.invocation().project().unwrap());
+    plugin.index_project(&host.invocation().project().unwrap());crate::tests::finish_indexing(&mut plugin);
     assert!(route_rows(&plugin.render(VIEW,None,&host.invocation()).unwrap()).iter().any(|(_,path,_)|path=="/nested-only"));
     host.add_project("/project/nested");host.set_project_root(Some("/project"));
     let outer=plugin.render(VIEW,None,&host.invocation()).unwrap();assert!(!route_rows(&outer).iter().any(|(_,path,_)|path=="/nested-only"));
-    host.add_file("composer.json","{}");plugin.index_project(&host.invocation().project().unwrap());
+    host.add_file("composer.json","{}");plugin.index_project(&host.invocation().project().unwrap());crate::tests::finish_indexing(&mut plugin);
     assert!(matches!(plugin.render(VIEW,None,&host.invocation()).unwrap().body,Body::Message(_)));
     assert!(plugin.indexes.contains_key("/project/nested"),"outer render/removal must preserve explicit nested app cache");
 }
@@ -2647,7 +2678,7 @@ fn direct_old_route_event_after_source_reindex_cannot_open_removed_route() {
     let host=MockHost::install();let mut plugin=activated(&host);
     plugin.render(VIEW,None,&host.invocation()).unwrap();
     host.add_file("routes/web.php","<?php // all routes removed");
-    plugin.handle_events(&[Event::FileSaved("/project/routes/web.php".into())],&host.invocation());
+    plugin.handle_events(&[Event::FileSaved("/project/routes/web.php".into())],&host.invocation());crate::tests::finish_indexing(&mut plugin);
     assert!(plugin.handle(VIEW,ViewEvent::Activate("route:0".into()),&host.invocation()).is_err());
     assert!(host.opened_locations().is_empty());
 }
@@ -2656,8 +2687,8 @@ fn explicit_reindex_command_updates_hub_and_keeps_source_native_endpoint_exports
     use openidea_plugin::endpoints::EndpointsProvider;
     let host=MockHost::install();let mut plugin=activated(&host);
     host.add_file("routes/web.php","<?php Route::post('/new-endpoint', fn()=>1)->name('new');");
-    plugin.run_command("reindex",&host.invocation(),None).unwrap();
-    assert_eq!(packaged_invalidations(&host),2);
+    plugin.run_command("reindex",&host.invocation(),None).unwrap();crate::tests::finish_indexing(&mut plugin);
+    assert_eq!(packaged_invalidations(&host),3);
     let endpoints=plugin.endpoints(&host.invocation()).unwrap();
     assert!(endpoints.iter().any(|endpoint|endpoint.path=="/new-endpoint"));
     assert!(host.process_runs().is_empty());assert!(host.requests().is_empty());
@@ -2668,12 +2699,12 @@ fn framework_navigation_selects_exact_utf16_source_tokens_without_composed_renam
     use openidea_plugin::indexing::{Document as IndexDocument, DocumentIndexer};
     let host = MockHost::install();
     laravel_project(&host);
-    host.add_file("routes/web.php", "<?php\r\n// 😀\r\nRoute::name('admin.')->group(function () { Route::get('/x', 'PostController@index')->name('é😀'); });\r\n");
+    host.add_file("routes/web.php", "<?php\r\n// 😀\r\nRoute::name('admin.')->group(function () { Route::get('/x', 'App\\Http\\Controllers\\PostController@index')->name('é😀'); });\r\n");
     host.add_file("config/app.php", "<?php\r\nreturn ['parent' => ['é😀' => 'value']];\r\n");
     host.add_file("lang/en/messages.php", "<?php\r\nreturn ['é😀' => 'Hello'];\r\n");
     host.add_file("lang/en.json", "{\r\n  \"say \\\"hi\\\" 😀\": \"Hi\"\r\n}\r\n");
     let mut plugin = Main::default();
-    plugin.activate(&host.context("aritti.laravel")).unwrap();
+    plugin.activate(&host.context("aritti.laravel")).unwrap();crate::tests::finish_indexing(&mut plugin);
     let selected = |target: &Location| {
         let source = host_text(&host, &target.path);
         let start = text::offset(&source, target.range.start).unwrap();
@@ -2739,7 +2770,7 @@ fn registered_provider_unknown_or_denied_owner_withholds_cached_php_and_script_i
 #[test]
 fn current_document_owner_selects_exact_warm_cache_across_projects_not_invoking_window() {
     let host=MockHost::install();let mut plugin=activated(&host);host.add_project("/project");host.set_project_root(Some("/project/nested"));laravel_project(&host);
-    host.add_file("routes/web.php","<?php Route::get('/nested-only',fn()=>1)->name('nested-only');");plugin.index_project(&host.invocation().project().unwrap());
+    host.add_file("routes/web.php","<?php Route::get('/nested-only',fn()=>1)->name('nested-only');");plugin.index_project(&host.invocation().project().unwrap());crate::tests::finish_indexing(&mut plugin);
     for (path,present,absent) in [("/project/main.ts","home","nested-only"),("/project/nested/main.ts","nested-only","home")] {
         let(text,at)=cursor("route('ho|me')");let found=labels(plugin.completion(&doc(path,"typescript",&text),at,None));assert!(found.iter().any(|v|v==present) && !found.iter().any(|v|v==absent),"{path}: {found:?}");
     }
@@ -2749,7 +2780,7 @@ fn current_document_owner_selects_exact_warm_cache_across_projects_not_invoking_
 #[test]
 fn registered_blade_usage_markers_do_not_index_raw_php_string_directives() {
     let host=MockHost::install();laravel_project(&host);host.add_file("resources/views/fake-source.blade.php",r#"<?php $x="?> @include('posts.index')"; ?>"#);
-    let mut plugin=Main::default();plugin.activate(&host.context("aritti.laravel")).unwrap();
+    let mut plugin=Main::default();plugin.activate(&host.context("aritti.laravel")).unwrap();crate::tests::finish_indexing(&mut plugin);
     let d=doc("/project/resources/views/posts/index.blade.php","blade","<div>Post</div>");let found=plugin.line_markers(&d);
     assert!(!found.iter().any(|m|m.tooltip.starts_with("Used by") && m.tooltip.contains("fake-source")),"{found:?}");
 }
@@ -2757,7 +2788,7 @@ fn registered_blade_usage_markers_do_not_index_raw_php_string_directives() {
 #[test]
 fn registered_layout_definition_and_marker_ranges_select_unicode_source_token_only() {
     let host=MockHost::install();laravel_project(&host);let layout="😀\r\n@yield('hé😀')\r\n";host.add_file("resources/views/layouts/unicode.blade.php",layout);
-    let mut plugin=Main::default();plugin.activate(&host.context("aritti.laravel")).unwrap();let (source,at)=cursor("@extends('layouts.unicode')\n@section('hé|😀')");let d=doc("/project/resources/views/new.blade.php","blade",&source);
+    let mut plugin=Main::default();plugin.activate(&host.context("aritti.laravel")).unwrap();crate::tests::finish_indexing(&mut plugin);let (source,at)=cursor("@extends('layouts.unicode')\n@section('hé|😀')");let d=doc("/project/resources/views/new.blade.php","blade",&source);
     let definition=plugin.definition(&d,at).remove(0);let marker=plugin.line_markers(&d).into_iter().find(|m|m.tooltip.starts_with("Parent section")).unwrap().target.unwrap();let start=layout.find("hé😀").unwrap();let expected=range_of(layout,start,start+"hé😀".len());
     assert_eq!((definition.range,marker.range),(expected,expected));
 }
@@ -2786,18 +2817,18 @@ fn registered_layout_members_do_not_read_or_navigate_separately_owned_target_sou
 
 #[test]
 fn registered_blade_associations_skip_comment_data_but_accept_literal_argument_trivia() {
-    let host=MockHost::install();laravel_project(&host);host.add_file("resources/views/fake-comment.blade.php","@if(/* ) @include('posts.index') */ $real) @endif");host.add_file("resources/views/commented-real.blade.php","@include(/* 'fake', ) => */ 'posts.index' /* , */)");let mut plugin=Main::default();plugin.activate(&host.context("aritti.laravel")).unwrap();let found=plugin.line_markers(&doc("/project/resources/views/posts/index.blade.php","blade","<div>Post</div>"));let used=found.iter().find(|m|m.tooltip.starts_with("Used by")).map(|m|m.tooltip.as_str()).unwrap_or("");assert!(used.contains("commented-real") && !used.contains("fake-comment"),"{found:?}");
+    let host=MockHost::install();laravel_project(&host);host.add_file("resources/views/fake-comment.blade.php","@if(/* ) @include('posts.index') */ $real) @endif");host.add_file("resources/views/commented-real.blade.php","@include(/* 'fake', ) => */ 'posts.index' /* , */)");let mut plugin=Main::default();plugin.activate(&host.context("aritti.laravel")).unwrap();crate::tests::finish_indexing(&mut plugin);let found=plugin.line_markers(&doc("/project/resources/views/posts/index.blade.php","blade","<div>Post</div>"));let used=found.iter().find(|m|m.tooltip.starts_with("Used by")).map(|m|m.tooltip.as_str()).unwrap_or("");assert!(used.contains("commented-real") && !used.contains("fake-comment"),"{found:?}");
 }
 #[test]
 fn registered_layout_definition_accepts_literal_comments_with_exact_utf16_source_range() {
-    let host=MockHost::install();laravel_project(&host);let target="😀 @yield(/* 'fake' , ) */ 'hé😀' /* , */)";host.add_file("resources/views/layouts/comments.blade.php",target);let mut plugin=Main::default();plugin.activate(&host.context("aritti.laravel")).unwrap();let(source,at)=cursor("@extends('layouts.comments')\n@section('hé|😀')");let result=plugin.definition(&doc("/project/resources/views/new.blade.php","blade",&source),at);let start=target.find("hé😀").unwrap();assert_eq!(result.len(),1,"{result:?}");assert_eq!(result[0].range,range_of(target,start,start+"hé😀".len()));
+    let host=MockHost::install();laravel_project(&host);let target="😀 @yield(/* 'fake' , ) */ 'hé😀' /* , */)";host.add_file("resources/views/layouts/comments.blade.php",target);let mut plugin=Main::default();plugin.activate(&host.context("aritti.laravel")).unwrap();crate::tests::finish_indexing(&mut plugin);let(source,at)=cursor("@extends('layouts.comments')\n@section('hé|😀')");let result=plugin.definition(&doc("/project/resources/views/new.blade.php","blade",&source),at);let start=target.find("hé😀").unwrap();assert_eq!(result.len(),1,"{result:?}");assert_eq!(result[0].range,range_of(target,start,start+"hé😀".len()));
 }
 
 #[test]
 fn registered_dynamic_ability_binding_and_column_definitions_select_utf16_source_tokens() {
     let host=MockHost::install();laravel_project(&host);
     let provider="<?php\r\n/* 😀 */ Gate::define('can-café😀',fn()=>true);\r\n$this->app->bind('service-café😀',fn()=>null);\r\n";let migration="<?php\r\nSchema::table('posts',function(Blueprint $t){ $t->string('café😀'); });\r\n";
-    host.add_file("app/Providers/UnicodeServiceProvider.php",provider);host.add_file("database/migrations/2024_01_05_unicode_posts.php",migration);let mut plugin=Main::default();plugin.activate(&host.context("aritti.laravel")).unwrap();
+    host.add_file("app/Providers/UnicodeServiceProvider.php",provider);host.add_file("database/migrations/2024_01_05_unicode_posts.php",migration);let mut plugin=Main::default();plugin.activate(&host.context("aritti.laravel")).unwrap();crate::tests::finish_indexing(&mut plugin);
     let observed:Vec<_>=[("ability","<?php Gate::allows('can-caf|é😀');",provider,"can-café😀"),("binding","<?php app('service-caf|é😀');",provider,"service-café😀"),("column","<?php Post::where('caf|é😀',1);",migration,"café😀")].into_iter().map(|(kind,marked,target,name)|{let(source,at)=cursor(marked);let found=plugin.definition(&doc("/project/test.php","php",&source),at);assert_eq!(found.len(),1,"{kind}: {found:?}");let start=target.find(name).unwrap();(kind,found[0].range,range_of(target,start,start+name.len()))}).collect();
     assert!(observed.iter().all(|(_,actual,expected)|actual==expected),"{observed:?}");assert!(host.requests().is_empty() && host.process_runs().is_empty());
 }
@@ -2818,7 +2849,7 @@ fn registered_checked_related_navigation_refuses_new_foreign_factory_owner() {
 
 #[test]
 fn registered_component_props_slots_and_livewire_members_refuse_new_foreign_source_owners() {
-    let observed:Vec<_>=[("anonymous","<x-banner |","/project/resources/views/components"),("slot","<x-banner><x-slot:fo|","/project/resources/views/components"),("class","<x-alert |","/project/app/View/Components"),("livewire","<livewire:tally |","/project/app/Livewire")].into_iter().map(|(kind,marked,child)|{let host=MockHost::install();laravel_project(&host);host.add_file("resources/views/components/banner.blade.php","@props(['tone' => 'info']) <div>{{ $footer }}</div>");host.add_file("app/View/Components/Alert.php","<?php\nclass Alert extends Component\n{\n public function __construct(public string $tone = 'info'){}\n}\n");host.add_file("app/Livewire/Tally.php","<?php\nclass Tally extends Component\n{\n public int $count = 0;\n}\n");let mut plugin=Main::default();plugin.activate(&host.context("aritti.laravel")).unwrap();let(source,at)=cursor(marked);let d=doc("/project/resources/views/x.blade.php","blade",&source);assert!(!plugin.completion(&d,at,None).is_empty(),"positive {kind}");host.add_project(child);(kind,labels(plugin.completion(&d,at,None)))}).collect();assert!(observed.iter().all(|(_,names)|names.is_empty()),"{observed:?}");
+    let observed:Vec<_>=[("anonymous","<x-banner |","/project/resources/views/components"),("slot","<x-banner><x-slot:fo|","/project/resources/views/components"),("class","<x-alert |","/project/app/View/Components"),("livewire","<livewire:tally |","/project/app/Livewire")].into_iter().map(|(kind,marked,child)|{let host=MockHost::install();laravel_project(&host);host.add_file("resources/views/components/banner.blade.php","@props(['tone' => 'info']) <div>{{ $footer }}</div>");host.add_file("app/View/Components/Alert.php","<?php\nclass Alert extends Component\n{\n public function __construct(public string $tone = 'info'){}\n}\n");host.add_file("app/Livewire/Tally.php","<?php\nclass Tally extends Component\n{\n public int $count = 0;\n}\n");let mut plugin=Main::default();plugin.activate(&host.context("aritti.laravel")).unwrap();crate::tests::finish_indexing(&mut plugin);let(source,at)=cursor(marked);let d=doc("/project/resources/views/x.blade.php","blade",&source);assert!(!plugin.completion(&d,at,None).is_empty(),"positive {kind}");host.add_project(child);(kind,labels(plugin.completion(&d,at,None)))}).collect();assert!(observed.iter().all(|(_,names)|names.is_empty()),"{observed:?}");
 }
 #[test]
 fn owned_component_source_refreshes_current_properties_without_replacing_root_cache() {
@@ -2833,7 +2864,7 @@ fn endpoints_resolve_application_mounts_and_refresh_configuration() {
     host.add_file("routes/api.php", "<?php Route::post('/snatch/edit', [SnatchController::class, 'edit']); Route::prefix('admin')->group(function(){ Route::apiResource('posts', PostController::class)->only(['index']); });");
     for (prefix, expected) in [("'api'", Some("/api/snatch/edit")), ("'v2'", Some("/v2/snatch/edit")), ("''", Some("/snatch/edit")), ("$dynamic", None)] {
         host.add_file("bootstrap/app.php", &format!("<?php return Application::configure()->withRouting(web: __DIR__.'/../routes/web.php', api: __DIR__.'/../routes/api.php', apiPrefix: {prefix});"));
-        plugin.handle_events(&[Event::FileSaved("/project/bootstrap/app.php".into())], &host.invocation());
+        plugin.handle_events(&[Event::FileSaved("/project/bootstrap/app.php".into())], &host.invocation());crate::tests::finish_indexing(&mut plugin);
         let endpoints = plugin.endpoints(&host.invocation()).unwrap();
         let api: Vec<_> = endpoints.iter().filter(|e| e.location.path.ends_with("/routes/api.php")).collect();
         match expected {
@@ -2848,7 +2879,7 @@ fn endpoints_resolve_application_mounts_and_refresh_configuration() {
         }
     }
     host.add_file("bootstrap/app.php", "<?php return Application::configure()->withRouting(web: __DIR__.'/../routes/web.php');");
-    plugin.handle_events(&[Event::FileSaved("/project/bootstrap/app.php".into())], &host.invocation());
+    plugin.handle_events(&[Event::FileSaved("/project/bootstrap/app.php".into())], &host.invocation());crate::tests::finish_indexing(&mut plugin);
     assert!(plugin.endpoints(&host.invocation()).unwrap().iter().all(|e| !e.location.path.ends_with("/routes/api.php")));
 }
 
@@ -2859,7 +2890,7 @@ fn endpoints_watch_legacy_provider_prefix_changes() {
     h.add_file("routes/api.php","<?php Route::post('/snatch/edit', 'SnatchController@edit');");
     for prefix in ["api","v3"] {
         h.add_file("app/Providers/RouteServiceProvider.php",&format!("<?php Route::middleware('api')->prefix('{prefix}')->group(base_path('routes/api.php'));"));
-        plugin.handle_events(&[Event::FileSaved("/project/app/Providers/RouteServiceProvider.php".into())],&h.invocation());
+        plugin.handle_events(&[Event::FileSaved("/project/app/Providers/RouteServiceProvider.php".into())],&h.invocation());crate::tests::finish_indexing(&mut plugin);
         assert!(plugin.endpoints(&h.invocation()).unwrap().iter().any(|e|e.path==format!("/{prefix}/snatch/edit")));
     }
     assert!(h.requests().is_empty() && h.process_runs().is_empty());
@@ -2994,7 +3025,7 @@ fn saving_a_locale_rebuilds_its_inventory_and_retires_removed_definitions() {
     let key=format!("translation-locale:{}",serde_json::json!(["de","labels.hello"]));
     assert!(entry_for(plugin.view_index(&host.invocation()).unwrap(),&key).is_some());
     host.add_file("lang/de/labels.php","<?php return ['bye'=>'Tschüss'];");
-    plugin.handle_events(&[Event::FileSaved("/project/lang/de/labels.php".into())],&host.invocation());
+    plugin.handle_events(&[Event::FileSaved("/project/lang/de/labels.php".into())],&host.invocation());crate::tests::finish_indexing(&mut plugin);
     let index=plugin.view_index(&host.invocation()).unwrap();assert!(!index.translations_by_locale["de"].contains_key("labels.hello"));
     assert_eq!(index.translations_by_locale["de"]["labels.bye"].detail.as_deref(),Some("Tschüss"));
     plugin.handle("laravel-translations",ViewEvent::Activate(key),&host.invocation()).unwrap();
@@ -3026,7 +3057,7 @@ class Customer extends Model {}
     let locations=plugin.definition(&document,at);assert_eq!(locations.len(),1);assert!(locations[0].path.ends_with("100_tables.php"));
     assert!(host.process_runs().is_empty());assert!(host.requests().is_empty());
     host.add_file("app/Models/Purchase.php",source.replace("customer()","buyer()").as_str());
-    plugin.handle_events(&[Event::FileSaved("/project/app/Models/Purchase.php".into())],&host.invocation());
+    plugin.handle_events(&[Event::FileSaved("/project/app/Models/Purchase.php".into())],&host.invocation());crate::tests::finish_indexing(&mut plugin);
     assert!(plugin.completion(&document,at,None).is_empty(),"removed relation must not remain inferred");
     let (text,at)=cursor(r#"<?php use App\Models\Purchase; Purchase::first()->buyer->^"#);let updated=doc(&document.path,"php",&text);
     assert!(plugin.completion(&updated,at,None).iter().any(|item|item.label=="email"));
@@ -3138,7 +3169,7 @@ fn runtime_routes_drive_tabs_actions_navigation_and_expire_on_save() {
     assert_eq!(plugin.route_at("route:0",&ctx).unwrap().path,"/api/live");
     let config:serde_json::Value=serde_json::from_str(&plugin.web_config(&ctx)).unwrap();assert_eq!(config["group"]["tabs"].as_array().unwrap().iter().find(|tab|tab["id"] == VIEW).unwrap()["count"],1);
     plugin.handle(VIEW,ViewEvent::Activate("route:0".into()),&ctx).unwrap();assert!(host.opened_locations().last().unwrap().0.ends_with("PostController.php"));
-    plugin.handle_events(&[Event::FileSaved("/project/routes/web.php".into())],&ctx);assert!(plugin.runtime_routes.is_empty());
+    plugin.handle_events(&[Event::FileSaved("/project/routes/web.php".into())],&ctx);crate::tests::finish_indexing(&mut plugin);assert!(plugin.runtime_routes.is_empty());
     assert!(plugin.render(VIEW,None,&ctx).unwrap().status.unwrap().contains("Static source index"));
     assert!(host.process_runs().is_empty());
 }
@@ -3149,6 +3180,8 @@ fn runtime_route_failure_retains_previous_snapshot_and_static_dynamic_uris_are_n
     plugin.runtime_routes.insert("/project".into(),route_runtime::Snapshot::fixture(routes,1));
     host.add_file("config/newly_added.php","<?php return ['enabled'=>true];");
     assert!(!plugin.view_index(&ctx).unwrap().config.contains_key("newly_added.enabled"));
+    assert!(plugin.run_command("routes-runtime-refresh",&ctx,None).is_err(),"source refresh is queued before PHP starts");
+    crate::tests::finish_indexing(&mut plugin);
     assert!(matches!(plugin.run_command("routes-runtime-refresh",&ctx,None),Err(Error::Denied(_))));
     assert!(plugin.view_index(&ctx).unwrap().config.contains_key("newly_added.enabled"),"refresh must rebuild the source index before starting PHP");
     assert_eq!(plugin.active_routes(&ctx)[0].path,"/kept");
@@ -3307,7 +3340,7 @@ fn generator_package_overrides_gate_fixed_launchers_before_prompts_or_execution(
     host.add_file("composer.json", composer);
     host.add_file("ide.json", r#"{"packages":{"disabledPackages":["laravel/nova"],"enabledPackages":{"livewire/livewire":"3.6.4"}}}"#);
     let ctx = host.invocation();
-    plugin.index_project(&ctx.project().unwrap());
+    plugin.index_project(&ctx.project().unwrap());crate::tests::finish_indexing(&mut plugin);
     let index = plugin.view_index(&ctx).unwrap();
     assert!(generate::make(&plugin.artisan_terminals, &ctx, Some(index), Some("nova:resource"), composer).is_err());
     host.answer_next_prompt(None);
@@ -3324,7 +3357,7 @@ fn disabled_livewire_directives_do_not_remove_core_or_explicit_custom_blade_name
     assert!(labels.contains(&"if".to_owned()));
     for name in ["livewire","livewireStyles","livewireScripts","livewireScriptConfig"] { assert!(!labels.contains(&name.to_owned()), "{name}"); }
     host.add_file("app/Providers/BladeServiceProvider.php", "<?php Blade::directive('livewire', function () { return ''; });");
-    plugin.index_project(&host.invocation().project().unwrap());
+    plugin.index_project(&host.invocation().project().unwrap());crate::tests::finish_indexing(&mut plugin);
     let labels: Vec<_> = plugin.completion(&document, Position::new(0,1), Some("@")).into_iter().map(|item|item.label).collect();
     assert!(labels.contains(&"livewire".to_owned()));
     assert!(!labels.contains(&"livewireStyles".to_owned()));
@@ -3386,10 +3419,11 @@ fn blade_class_conversion_requires_a_supported_locked_framework() {
 #[test]
 fn invokable_controller_route_literals_complete_and_navigate_to_invoke() {
     let h=MockHost::install();let mut main=activated_with(&h,&[("app/Http/Controllers/EditProfileController.php","<?php\nnamespace App\\Http\\Controllers;\nfinal class EditProfileController {\n public function __invoke() {}\n public function __construct() {}\n}\n")]);
-    let source="<?php Route::get('/profile', 'EditProfileController');";
+    let source="<?php Route::get('/profile', 'App\\Http\\Controllers\\EditProfileController');";
     let document=doc("/project/routes/web.php","php",source);let at=text::position(source,source.find("EditProfile").unwrap()+3);
-    let completions=main.completion(&document,at,None);
-    assert!(completions.iter().any(|item|item.label=="EditProfileController"));
+    let completion_source="<?php Route::get('/profile', 'EditProfileController');";
+    let completions=main.completion(&doc("/project/routes/web.php","php",completion_source),text::position(completion_source,completion_source.find("EditProfile").unwrap()+3),None);
+    assert!(completions.iter().any(|item|item.label=="EditProfileController"&&item.insert_text=="\\App\\Http\\Controllers\\EditProfileController"));
     let definitions=main.definition(&document,at);assert!(definitions.iter().any(|location|location.path.ends_with("EditProfileController.php") && location.range.start.line==3));
     assert!(!completions.iter().any(|item|item.label.contains("__construct")));assert!(h.process_runs().is_empty());
 }

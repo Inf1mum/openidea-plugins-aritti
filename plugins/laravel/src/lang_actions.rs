@@ -106,7 +106,8 @@ pub fn extract_string(
 
     let replace = if language == "blade" {
         let regions = refs::blade_regions(&doc.text);
-        if inside_tag(&doc.text, range.start)
+        if selected.contains('&')
+            || inside_tag(&doc.text, range.start)
             || regions
                 .iter()
                 .any(|region| region.start < range.end && range.start < region.end)
@@ -459,7 +460,82 @@ fn locale_owned(project: &Project, root: &str, path: &str) -> Result<(), openide
     Ok(())
 }
 
+/// Explicit project-relative setting wins; otherwise select a proven conventional language root.
+pub(crate) fn language_directory(
+    project: &Project,
+    root: &str,
+) -> Result<String, openidea_plugin::Error> {
+    use openidea_plugin::{Error, FileKind, PickItem, host};
+    if let Some(configured) =
+        host::setting_string("languageDirectory").filter(|value| !value.trim().is_empty())
+    {
+        if configured.len() > 512
+            || configured.starts_with('/')
+            || configured.contains('\\')
+            || configured.chars().any(char::is_control)
+            || configured
+                .split('/')
+                .any(|part| part.is_empty() || matches!(part, "." | ".."))
+        {
+            return Err(crate::ui_text::text(
+                "native.lang_actions.70600750cc",
+                "Language directory must be a project-relative directory without traversal.",
+            )
+            .into());
+        }
+        let path = format!("{root}/{configured}");
+        locale_owned(project, root, &path)?;
+        match project.stat(&path) {
+            Ok(stat) if stat.kind != FileKind::Directory => {
+                return Err(Error::Invalid(
+                    crate::ui_text::text(
+                        "native.lang_actions.d0335d035a",
+                        "Language directory is not a plain directory.",
+                    )
+                    .into(),
+                ));
+            }
+            Err(Error::NotFound(_)) => {}
+            Err(error) => return Err(error),
+            _ => {}
+        }
+        return Ok(configured);
+    }
+    let modern = project
+        .stat(&format!("{root}/lang"))
+        .is_ok_and(|s| s.kind == FileKind::Directory);
+    let legacy = project
+        .stat(&format!("{root}/resources/lang"))
+        .is_ok_and(|s| s.kind == FileKind::Directory);
+    match (modern, legacy) {
+        (false, true) => Ok("resources/lang".into()),
+        (true, true) => host::pick(
+            &crate::ui_text::t("prompt.translation-directory", "Translation directory"),
+            &[
+                PickItem::new("lang", "lang"),
+                PickItem::new("resources/lang", "resources/lang"),
+            ],
+        )?
+        .filter(|value| matches!(value.as_str(), "lang" | "resources/lang"))
+        .ok_or(Error::Cancelled),
+        _ => Ok("lang".into()),
+    }
+}
+
 fn parse_php_key(key: &str) -> Option<(String, Vec<String>)> {
+    let (namespace, key) = if let Some((namespace, key)) = key.split_once("::") {
+        if namespace.is_empty()
+            || namespace.len() > 128
+            || !namespace
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
+        {
+            return None;
+        }
+        (Some(namespace), key)
+    } else {
+        (None, key)
+    };
     let mut segments = key.split('.');
     let file = segments.next()?;
     let rest: Vec<String> = segments.map(str::to_owned).collect();
@@ -477,7 +553,13 @@ fn parse_php_key(key: &str) -> Option<(String, Vec<String>)> {
     {
         return None;
     }
-    Some((file.into(), rest))
+    Some((
+        namespace.map_or_else(
+            || file.to_owned(),
+            |namespace| format!("{namespace}::{file}"),
+        ),
+        rest,
+    ))
 }
 fn php_quote(value: &str) -> String {
     format!("'{}'", value.replace('\\', "\\\\").replace('\'', "\\'"))
@@ -509,10 +591,19 @@ fn literal_array_tree(source: &str, open: usize, depth: usize, budget: &mut usiz
     true
 }
 /// Insert only into a closed, standalone literal PHP return array, preserving its existing source.
+#[cfg(test)]
 fn insert_php_translation(
     source: &str,
     segments: &[String],
     value: &str,
+) -> Result<String, openidea_plugin::Error> {
+    plan_php_translation(source, segments, value, false)
+}
+fn plan_php_translation(
+    source: &str,
+    segments: &[String],
+    value: &str,
+    allow_reuse: bool,
 ) -> Result<String, openidea_plugin::Error> {
     use openidea_plugin::Error;
     if source.len() > 128 * 1024
@@ -558,6 +649,9 @@ fn insert_php_translation(
             break;
         };
         if remaining.len() == 1 {
+            if allow_reuse && php::literal(&masked, existing.value.clone()).is_some() {
+                return Ok(source.to_owned());
+            }
             return Err("Translation key already exists; no translation is overwritten.".into());
         }
         current = php::array_open(&masked, existing.value).ok_or_else(|| {
@@ -612,7 +706,8 @@ pub(crate) fn locale_actions(
         return vec![];
     }
     if language == "blade" {
-        if inside_tag(&doc.text, range.start)
+        if doc.text[range.clone()].contains('&')
+            || inside_tag(&doc.text, range.start)
             || refs::blade_regions(&doc.text)
                 .iter()
                 .any(|r| r.start < range.end && range.start < r.end)
@@ -623,7 +718,10 @@ pub(crate) fn locale_actions(
         return vec![];
     }
     let json_action = openidea_plugin::file_actions::FileAction {
-        title: "Extract to reviewed locale JSON translation…".into(),
+        title: crate::ui_text::t(
+            "action.locale-json",
+            "Extract to reviewed locale JSON translation…",
+        ),
         kind: Some("refactor.extract".into()),
         data: Some(format!(
             "locale-json:{}",
@@ -639,7 +737,10 @@ pub(crate) fn locale_actions(
         ..Default::default()
     };
     let mut php_action = json_action.clone();
-    php_action.title = "Extract to reviewed locale PHP translation…".into();
+    php_action.title = crate::ui_text::t(
+        "action.locale-php",
+        "Extract to reviewed locale PHP translation…",
+    );
     php_action.data = php_action
         .data
         .map(|d| d.replacen("locale-json:", "locale-php:", 1));
@@ -692,29 +793,46 @@ pub(crate) fn resolve_locale(
         return Err(Error::Stale);
     }
     let Some(locale) = host::input(
-        if php_target {
-            "Target locale (PHP translations)"
+        &if php_target {
+            crate::ui_text::t("prompt.locale-php", "Target locale (PHP translations)")
         } else {
-            "Target locale (JSON translations)"
+            crate::ui_text::t("prompt.locale-json", "Target locale (JSON translations)")
         },
         Some("en"),
     )?
     else {
         return Err(Error::Cancelled);
     };
-    if locale.is_empty()
-        || locale.len() > 64
-        || !locale
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
+    let locales: Vec<String> = locale
+        .split(',')
+        .map(str::trim)
+        .map(str::to_owned)
+        .collect();
+    let unique: std::collections::BTreeSet<_> = locales.iter().collect();
+    if locales.len() > 8
+        || unique.len() != locales.len()
+        || locales.iter().any(|locale| {
+            locale.is_empty()
+                || locale.len() > 64
+                || !locale
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
+        })
     {
-        return Err("Invalid locale name.".into());
+        return Err(crate::ui_text::text(
+            "native.lang_actions.b2a1cccdfe",
+            "Provide one to eight unique locale names separated by commas.",
+        )
+        .into());
     }
     let Some(key) = host::input(
-        if php_target {
-            "Translation key (file.nested.key)"
+        &if php_target {
+            crate::ui_text::t(
+                "prompt.translation-key-php",
+                "Translation key (file.nested.key or package::file.key)",
+            )
         } else {
-            "Translation key"
+            crate::ui_text::t("prompt.translation-key", "Translation key")
         },
         Some(if php_target {
             "messages.greeting"
@@ -726,76 +844,114 @@ pub(crate) fn resolve_locale(
         return Err(Error::Cancelled);
     };
     if key.is_empty() || key.len() > 512 || key.contains(['\0', '\n', '\r']) {
-        return Err("Invalid translation key.".into());
+        return Err(crate::ui_text::text(
+            "native.lang_actions.e223d50f7e",
+            "Invalid translation key.",
+        )
+        .into());
     }
-    let modern = project
-        .stat(&format!("{root}/lang"))
-        .is_ok_and(|s| s.kind == openidea_plugin::FileKind::Directory);
-    let legacy = project
-        .stat(&format!("{root}/resources/lang"))
-        .is_ok_and(|s| s.kind == openidea_plugin::FileKind::Directory);
-    let directory = match (modern, legacy) {
-        (false, true) => "resources/lang".to_owned(),
-        (true, true) => {
-            let choices = [
-                openidea_plugin::PickItem::new("lang", "lang"),
-                openidea_plugin::PickItem::new("resources/lang", "resources/lang"),
-            ];
-            host::pick("Translation directory", &choices)?
-                .filter(|v| matches!(v.as_str(), "lang" | "resources/lang"))
-                .ok_or(Error::Cancelled)?
-        }
-        _ => "lang".to_owned(),
-    };
+    let language_setting = host::setting_string("languageDirectory");
+    let directory = language_directory(&project, &root)?;
     let php_key = if php_target {
-        Some(parse_php_key(&key).ok_or_else(|| Error::Invalid("PHP translation keys must have file.nested.key segments using letters, numbers, underscores or hyphens.".into()))?)
+        Some(parse_php_key(&key).ok_or_else(|| Error::Invalid(crate::ui_text::text("native.lang_actions.38c01446cd", "PHP translation keys must have file.nested.key segments using letters, numbers, underscores or hyphens.").into()))?)
     } else {
         None
     };
-    let path = match &php_key {
-        Some((file, _)) => format!("{root}/{directory}/{locale}/{file}.php"),
-        None => format!("{root}/{directory}/{locale}.json"),
-    };
     locale_owned(&project, &root, &doc.path)?;
-    locale_owned(&project, &root, &path)?;
-    let original = match project.read_file(&path) {
-        Ok(source) if source.len() <= 128 * 1024 => Some(source),
-        Err(Error::NotFound(_)) => {
-            crate::view_creation::missing(&project, &path)?;
-            None
-        }
-        Ok(_) => return Err("Locale file exceeds the edit limit.".into()),
-        Err(e) => return Err(e),
-    };
-    let translated = if let Some((_, segments)) = &php_key {
-        insert_php_translation(
-            original.as_deref().unwrap_or("<?php\n\nreturn [\n];\n"),
-            segments,
-            &doc.text[start..end],
-        )?
-    } else {
-        let mut values = match &original {
-            Some(source) => crate::strict_json::parse(source, 128 * 1024)?
-                .as_object()
-                .filter(|o| o.values().all(serde_json::Value::is_string))
-                .cloned()
-                .ok_or_else(|| Error::Invalid("Locale JSON must contain string values.".into()))?,
-            None => serde_json::Map::new(),
+    let mut targets = Vec::new();
+    for locale in &locales {
+        let path = match &php_key {
+            Some((file, _)) => match file.split_once("::") {
+                Some((namespace, file)) => {
+                    format!("{root}/{directory}/vendor/{namespace}/{locale}/{file}.php")
+                }
+                None => format!("{root}/{directory}/{locale}/{file}.php"),
+            },
+            None => format!("{root}/{directory}/{locale}.json"),
         };
-        if values.contains_key(&key) {
-            return Err(
-                "Translation key already exists; no existing translation is overwritten.".into(),
+        locale_owned(&project, &root, &path)?;
+        let original = match project.read_file(&path) {
+            Ok(source) if source.len() <= 128 * 1024 => Some(source),
+            Err(Error::NotFound(_)) => {
+                crate::view_creation::missing(&project, &path)?;
+                None
+            }
+            Ok(_) => {
+                return Err(crate::ui_text::text(
+                    "native.lang_actions.7ad15bae3a",
+                    "Locale file exceeds the edit limit.",
+                )
+                .into());
+            }
+            Err(e) => return Err(e),
+        };
+        let translated = if let Some((_, segments)) = &php_key {
+            plan_php_translation(
+                original.as_deref().unwrap_or("<?php\n\nreturn [\n];\n"),
+                segments,
+                &doc.text[start..end],
+                true,
+            )
+            .map_err(locale_plan_error)?
+        } else {
+            let mut values = match &original {
+                Some(source) => crate::strict_json::parse(source, 128 * 1024)?
+                    .as_object()
+                    .filter(|o| o.values().all(serde_json::Value::is_string))
+                    .cloned()
+                    .ok_or_else(|| {
+                        Error::Invalid(
+                            crate::ui_text::text(
+                                "native.lang_actions.407a4bb649",
+                                "Locale JSON must contain string values.",
+                            )
+                            .into(),
+                        )
+                    })?,
+                None => serde_json::Map::new(),
+            };
+            if values.contains_key(&key) {
+                original.clone().ok_or(Error::Stale)?
+            } else {
+                values.insert(
+                    key.clone(),
+                    serde_json::Value::String(doc.text[start..end].into()),
+                );
+                format!(
+                    "{}\n",
+                    serde_json::to_string_pretty(&values)
+                        .map_err(|e| Error::Invalid(e.to_string()))?
+                )
+            }
+        };
+        if original.as_deref() == Some(translated.as_str()) {
+            let prompt = crate::ui_text::format(
+                "locale.reusePrompt",
+                "Reuse existing translation {key} in {locale}?",
+                &[("key", &key), ("locale", locale)],
             );
+            let choice = host::pick(
+                &prompt,
+                &[
+                    openidea_plugin::PickItem::new(
+                        "reuse",
+                        crate::ui_text::text(
+                            "locale.reuseValue",
+                            "Reuse existing value without changing the locale file",
+                        ),
+                    ),
+                    openidea_plugin::PickItem::new(
+                        "cancel",
+                        crate::ui_text::text("locale.cancelExtraction", "Cancel extraction"),
+                    ),
+                ],
+            )?;
+            if choice.as_deref() != Some("reuse") {
+                return Err(Error::Cancelled);
+            }
         }
-        values.insert(
-            key.clone(),
-            serde_json::Value::String(doc.text[start..end].into()),
-        );
-        format!(
-            "{}\n",
-            serde_json::to_string_pretty(&values).map_err(|e| Error::Invalid(e.to_string()))?
-        )
-    };
+        targets.push((locale.clone(), path, original, translated));
+    }
     let replace = if language == "php" {
         start - 1..end + 1
     } else {
@@ -810,21 +966,38 @@ pub(crate) fn resolve_locale(
     };
     let mut replacement = doc.text.clone();
     replacement.replace_range(replace, &call);
-    let review = format!(
-        "Source: {}\nLocale: {locale}\nTarget: {path}\n\nComplete locale contents:\n{translated}\nComplete replacement source:\n{replacement}\n\nApply one undoable translation extraction?",
-        doc.path
+    let files_preview = targets
+        .iter()
+        .map(|(locale, path, _, contents)| {
+            crate::ui_text::format(
+                "locale.file-review",
+                "Locale: {locale}\nTarget: {path}\nComplete locale contents:\n{contents}",
+                &[("locale", locale), ("path", path), ("contents", contents)],
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let review = crate::ui_text::format(
+        "locale.review",
+        "Source: {source}\n\n{files}\nComplete replacement source:\n{replacement}\n\nApply all locale files and the source replacement in one undoable transaction?",
+        &[
+            ("source", &doc.path),
+            ("files", &files_preview),
+            ("replacement", &replacement),
+        ],
     );
-    if !ui_kit::prompts::confirm_exact("Extract locale translation?", &review)? {
+    if !ui_kit::prompts::confirm_exact(
+        &crate::ui_text::t("prompt.translation-confirm", "Extract locale translation?"),
+        &review,
+    )? {
         return Err(Error::Cancelled);
     }
     crate::view_creation::owner(doc, Some(&root))?;
-    locale_owned(&project, &root, &path)?;
-    if project.read_file(&doc.path)? != doc.text
-        || host::project_of(&path)
-            .and_then(|p| p.root().ok())
-            .as_deref()
-            != Some(root.as_str())
-    {
+    if host::setting_string("languageDirectory") != language_setting {
+        return Err(Error::Stale);
+    }
+    locale_owned(&project, &root, &doc.path)?;
+    if project.read_file(&doc.path)? != doc.text {
         return Err(Error::Stale);
     }
     let mut fixed = FileAction {
@@ -839,30 +1012,36 @@ pub(crate) fn resolve_locale(
                 text: replacement,
             }],
         )],
-        open: Some(path.clone()),
+        open: targets.first().map(|(_, path, _, _)| path.clone()),
         ..Default::default()
     };
-    if let Some(original) = original {
-        if project.read_file(&path)? != original {
-            return Err(Error::Stale);
-        }
-        fixed.edits.push((
-            path,
-            vec![TextEdit {
-                range: IdeRange::new(
-                    Position::new(0, 0),
-                    text::position(&original, original.len()),
-                ),
+    for (_, path, original, translated) in targets {
+        locale_owned(&project, &root, &path)?;
+        if let Some(original) = original {
+            if project.read_file(&path)? != original {
+                return Err(Error::Stale);
+            }
+            if translated == original {
+                continue;
+            }
+            fixed.edits.push((
+                path,
+                vec![TextEdit {
+                    range: IdeRange::new(
+                        Position::new(0, 0),
+                        text::position(&original, original.len()),
+                    ),
+                    text: translated,
+                }],
+            ));
+        } else {
+            crate::view_creation::missing(&project, &path)?;
+            fixed.operations.push(FileOperation::Create {
+                path,
                 text: translated,
-            }],
-        ));
-    } else {
-        crate::view_creation::missing(&project, &path)?;
-        fixed.operations.push(FileOperation::Create {
-            path,
-            text: translated,
-            overwrite: false,
-        });
+                overwrite: false,
+            });
+        }
     }
     Ok(fixed)
 }
@@ -933,6 +1112,77 @@ mod locale_tests {
         }
     }
     #[test]
+    fn existing_php_and_json_keys_can_be_explicitly_reused_without_locale_edits() {
+        for php in [false, true] {
+            let (host, doc, range) = fixture();
+            let (path, contents, key) = if php {
+                (
+                    "lang/fr/messages.php",
+                    "<?php\nreturn ['greeting' => ['welcome' => 'Bonjour']];\n",
+                    "messages.greeting.welcome",
+                )
+            } else {
+                (
+                    "lang/fr.json",
+                    "{\n  \"welcome\": \"Bonjour\"\n}\n",
+                    "welcome",
+                )
+            };
+            host.add_file(path, contents);
+            let action = locale_actions(&doc, "php", range).remove(usize::from(php));
+            host.answer_next_prompt(Some(&["fr"]));
+            host.answer_next_prompt(Some(&[key]));
+            host.answer_next_prompt(Some(&["reuse"]));
+            host.answer_next_prompt(Some(&["yes"]));
+            let fixed = resolve_locale(&doc, action).unwrap();
+            assert!(fixed.operations.is_empty());
+            assert_eq!(fixed.edits.len(), 1);
+            assert!(fixed.edits[0].1[0].text.contains(&format!("__('{key}')")));
+            assert_eq!(
+                openidea_plugin::host::projects().unwrap()[0]
+                    .read_file(path)
+                    .unwrap(),
+                contents
+            );
+        }
+    }
+    #[test]
+    fn reused_locale_and_new_locale_stay_one_reviewed_transaction() {
+        let (host, doc, range) = fixture();
+        host.add_file("lang/fr.json", "{\"welcome\":\"Bonjour\"}");
+        let action = locale_actions(&doc, "php", range).remove(0);
+        host.answer_next_prompt(Some(&["fr,ja"]));
+        host.answer_next_prompt(Some(&["welcome"]));
+        host.answer_next_prompt(Some(&["reuse"]));
+        host.answer_next_prompt(Some(&["yes"]));
+        let fixed = resolve_locale(&doc, action).unwrap();
+        assert_eq!(fixed.edits.len(), 1);
+        assert!(
+            matches!(&fixed.operations[..], [FileOperation::Create{path,overwrite:false,..}] if path=="/project/lang/ja.json")
+        );
+    }
+    #[test]
+    fn blade_entities_are_not_double_escaped_by_locale_extraction() {
+        let _host = MockHost::install();
+        let source = "<p>Welcome &amp; hello</p>";
+        let doc = Document {
+            path: "/project/resources/views/example.blade.php".into(),
+            language: "blade".into(),
+            version: 1,
+            text: source.into(),
+        };
+        let start = source.find("Welcome").unwrap();
+        let end = source.find("</p>").unwrap();
+        assert!(
+            locale_actions(
+                &doc,
+                "blade",
+                Range::new(text::position(source, start), text::position(source, end))
+            )
+            .is_empty()
+        );
+    }
+    #[test]
     fn php_comment_and_string_lookalikes_are_not_extractable() {
         for source in ["<?php // 'Welcome home'", "<?php $x=\" 'Welcome home' \";"] {
             let start = source.find("Welcome").unwrap();
@@ -985,6 +1235,7 @@ mod locale_tests {
     }
     #[test]
     fn php_locale_preserves_nested_existing_source_and_adds_missing_comma() {
+        let _host = MockHost::install();
         let source = "<?php\nreturn [\n    // Keep this documentation.\n    'account' => [\n        'old' => 'Bonjour'\n    ],\n];\n";
         let updated =
             insert_php_translation(source, &["account".into(), "welcome".into()], "Salut").unwrap();
@@ -1000,6 +1251,7 @@ mod locale_tests {
     }
     #[test]
     fn php_locale_refuses_dynamic_duplicate_or_scalar_parent_arrays() {
+        let _host = MockHost::install();
         for source in [
             "<?php return $values;",
             "<?php return ['a' => helper()];",
@@ -1046,6 +1298,171 @@ mod locale_tests {
                         .contains("'welcome' => 'Welcome home'")
                 );
             }
+        }
+    }
+    #[test]
+    fn php_locale_explicit_vendor_namespace_creates_owned_application_translation() {
+        let (h, doc, range) = fixture();
+        let action = locale_actions(&doc, "php", range).remove(1);
+        h.answer_next_prompt(Some(&["fr"]));
+        h.answer_next_prompt(Some(&["billing::messages.welcome"]));
+        h.answer_next_prompt(Some(&["yes"]));
+        let fixed = resolve_locale(&doc, action).unwrap();
+        let [FileOperation::Create { path, .. }] = fixed.operations.as_slice() else {
+            panic!("vendor locale create");
+        };
+        assert_eq!(path, "/project/lang/vendor/billing/fr/messages.php");
+        assert!(
+            fixed.edits[0].1[0]
+                .text
+                .contains("__('billing::messages.welcome')")
+        );
+    }
+    #[test]
+    fn multiple_locale_targets_are_reviewed_and_created_as_one_transaction() {
+        let (host, doc, range) = fixture();
+        let action = locale_actions(&doc, "php", range).remove(0);
+        host.answer_next_prompt(Some(&["fr, ja, ko"]));
+        host.answer_next_prompt(Some(&["greeting"]));
+        host.answer_next_prompt(Some(&["yes"]));
+        let fixed = resolve_locale(&doc, action).unwrap();
+        assert_eq!(fixed.operations.len(), 3);
+        assert_eq!(fixed.edits.len(), 1);
+        let paths: Vec<_> = fixed
+            .operations
+            .iter()
+            .map(|op| match op {
+                FileOperation::Create { path, .. } => path.as_str(),
+                _ => panic!("create"),
+            })
+            .collect();
+        assert_eq!(
+            paths,
+            vec![
+                "/project/lang/fr.json",
+                "/project/lang/ja.json",
+                "/project/lang/ko.json"
+            ]
+        );
+    }
+    #[test]
+    fn one_conflicting_locale_refuses_the_entire_multifile_plan() {
+        let (host, doc, range) = fixture();
+        host.add_file("lang/ko.json", r#"{"greeting":"Existing"}"#);
+        let action = locale_actions(&doc, "php", range).remove(0);
+        host.answer_next_prompt(Some(&["fr,ko"]));
+        host.answer_next_prompt(Some(&["greeting"]));
+        assert!(resolve_locale(&doc, action).is_err());
+        assert!(
+            !host
+                .invocation()
+                .project()
+                .unwrap()
+                .exists("lang/fr.json")
+                .unwrap()
+        );
+    }
+    #[test]
+    fn configured_language_root_is_used_without_leaving_the_owned_project() {
+        let (host, doc, range) = fixture();
+        host.set_setting("languageDirectory", "\"translations/app\"");
+        let action = locale_actions(&doc, "php", range).remove(0);
+        host.answer_next_prompt(Some(&["fr"]));
+        host.answer_next_prompt(Some(&["greeting"]));
+        host.answer_next_prompt(Some(&["yes"]));
+        let fixed = resolve_locale(&doc, action).unwrap();
+        let [FileOperation::Create { path, .. }] = fixed.operations.as_slice() else {
+            panic!("create");
+        };
+        assert_eq!(path, "/project/translations/app/fr.json");
+        host.set_setting("languageDirectory", "\"../outside\"");
+        assert!(language_directory(&host.invocation().project().unwrap(), "/project").is_err());
+    }
+}
+
+fn locale_plan_error(error: openidea_plugin::Error) -> openidea_plugin::Error {
+    let translate = |message: String| match message.as_str() {
+        "Translation PHP must be one literal return array." => {
+            crate::ui_text::t("native.lang_actions.4c32d2e4ed", &message)
+        }
+        "Translation PHP must start with <?php." => {
+            crate::ui_text::t("native.lang_actions.8da97a3963", &message)
+        }
+        "Translation PHP must contain only a return array." => {
+            crate::ui_text::t("native.lang_actions.4037b4c585", &message)
+        }
+        "Translation PHP must return a literal array." => {
+            crate::ui_text::t("native.lang_actions.f2daa86d24", &message)
+        }
+        "Translation PHP must contain unique literal string keys and string/array values only." => {
+            crate::ui_text::t("native.lang_actions.e89e8e53ec", &message)
+        }
+        "Translation key already exists; no translation is overwritten." => {
+            crate::ui_text::t("native.lang_actions.856aec0563", &message)
+        }
+        "A parent translation key is a scalar, not an array." => {
+            crate::ui_text::t("native.lang_actions.2f926815de", &message)
+        }
+        _ => message,
+    };
+    match error {
+        openidea_plugin::Error::Invalid(message) => {
+            openidea_plugin::Error::Invalid(translate(message))
+        }
+        openidea_plugin::Error::Failed(message) => {
+            openidea_plugin::Error::Failed(translate(message))
+        }
+        other => other,
+    }
+}
+
+// Only called when publishing actions; source extraction and column inference remain pure.
+pub(crate) fn localized_title(title: &str) -> String {
+    if let Some(key) = title
+        .strip_prefix("Extract to translation key \"")
+        .and_then(|s| s.strip_suffix('"'))
+    {
+        return crate::ui_text::format(
+            "final.lang.extractTitle",
+            "Extract to translation key \"{key}\"",
+            &[("key", key)],
+        );
+    }
+    if let Some(model) = title.strip_prefix("Add validation rules for the columns of ") {
+        return crate::ui_text::format(
+            "final.lang.columnsTitle",
+            "Add validation rules for the columns of {model}",
+            &[("model", model)],
+        );
+    }
+    title.to_owned()
+}
+
+#[cfg(test)]
+mod publication_locale_tests {
+    #[test]
+    fn legacy_action_titles_localize_without_replacing_project_key_or_class() {
+        let host = openidea_plugin::mock::MockHost::install();
+        for locale in ["ja", "ko", "zh-CN"] {
+            host.set_setting("uiLanguage", &serde_json::to_string(locale).unwrap());
+            for (title, value) in [
+                (
+                    "Extract to translation key \"messages.raw_{model}.日本\"",
+                    "messages.raw_{model}.日本",
+                ),
+                (
+                    "Add validation rules for the columns of App\\Models\\日本_{key}",
+                    "App\\Models\\日本_{key}",
+                ),
+            ] {
+                let localized = super::localized_title(title);
+                assert_ne!(localized, title);
+                assert!(localized.contains(value));
+            }
+            assert_eq!(
+                super::localized_title("project supplied opaque title"),
+                "project supplied opaque title"
+            );
         }
     }
 }

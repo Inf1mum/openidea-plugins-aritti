@@ -36,6 +36,10 @@ pub(crate) struct Draft {
     #[serde(default)]
     pub resource_relations: Option<Vec<String>>,
     #[serde(default)]
+    pub factory_mappings: BTreeMap<String, FactoryMapping>,
+    #[serde(default)]
+    pub resource_wrappers: BTreeMap<String, String>,
+    #[serde(default)]
     pub relations: Vec<Relation>,
     #[serde(default)]
     pub indexes: Vec<Index>,
@@ -49,6 +53,31 @@ pub(crate) struct Draft {
     pub destinations: BTreeMap<String, Destination>,
     #[serde(default = "yes")]
     pub use_project_settings: bool,
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) enum FactoryMapping {
+    Literal {
+        value: Value,
+    },
+    Factory {
+        class: String,
+        #[serde(default)]
+        inferred: bool,
+    },
+    Generated,
+}
+#[derive(Default)]
+pub(crate) struct References {
+    pub factories: BTreeSet<String>,
+    pub resources: BTreeSet<String>,
+    pub templates: BTreeMap<String, String>,
+}
+fn proven(classes: &BTreeSet<String>, class: &str) -> bool {
+    qualified(class)
+        && classes
+            .iter()
+            .any(|known| known.eq_ignore_ascii_case(class.trim_start_matches('\\')))
 }
 pub(crate) const KINDS: &[&str] = &[
     "model",
@@ -113,6 +142,7 @@ impl Draft {
     }
     pub(crate) fn class_name(&self, kind: &str) -> String {
         let postfix = match kind {
+            "model" => &self.settings.model_postfix,
             "controller" => &self.settings.controller_postfix,
             "policy" => &self.settings.policy_postfix,
             "request" => &self.settings.request_postfix,
@@ -156,6 +186,7 @@ pub(crate) struct GenerationSettings {
     pub resource_base: String,
     pub factory_base: String,
     pub seeder_base: String,
+    pub model_postfix: String,
     pub controller_postfix: String,
     pub policy_postfix: String,
     pub request_postfix: String,
@@ -176,12 +207,13 @@ impl Default for GenerationSettings {
     fn default() -> Self {
         Self {
             model_base: "Illuminate\\Database\\Eloquent\\Model".into(),
-            controller_base: "Illuminate\\Routing\\Controller".into(),
+            controller_base: "App\\Http\\Controllers\\Controller".into(),
             policy_base: None,
             request_base: "Illuminate\\Foundation\\Http\\FormRequest".into(),
             resource_base: "Illuminate\\Http\\Resources\\Json\\JsonResource".into(),
             factory_base: "Illuminate\\Database\\Eloquent\\Factories\\Factory".into(),
             seeder_base: "Illuminate\\Database\\Seeder".into(),
+            model_postfix: String::new(),
             controller_postfix: "Controller".into(),
             policy_postfix: "Policy".into(),
             request_postfix: "Request".into(),
@@ -212,6 +244,7 @@ impl GenerationSettings {
             }
         }
         for postfix in [
+            &self.model_postfix,
             &self.controller_postfix,
             &self.policy_postfix,
             &self.request_postfix,
@@ -379,7 +412,6 @@ fn class_identifier(s: &str) -> bool {
             "mixed",
             "never",
             "void",
-            "resource",
             "callable",
             "iterable",
             "readonly",
@@ -396,8 +428,8 @@ pub(crate) fn relative(s: &str) -> bool {
             !p.is_empty()
                 && p != "."
                 && p != ".."
-                && p.bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
+                && p.chars()
+                    .all(|ch| ch.is_alphanumeric() || matches!(ch, '_' | '-' | '.' | '⚡'))
         })
 }
 fn literal(s: &str) -> String {
@@ -658,7 +690,99 @@ fn selected(selection: &Option<Vec<String>>, name: &str) -> bool {
         .as_ref()
         .is_none_or(|items| items.iter().any(|item| item == name))
 }
+fn generated_template(
+    template: &str,
+    text: &str,
+    kind: &str,
+    draft: &Draft,
+) -> Result<String, String> {
+    render_generated_template(
+        template,
+        text,
+        &if kind == "migration" {
+            String::new()
+        } else {
+            draft.namespace_for(kind)
+        },
+        &draft.class_name(kind),
+        &format!(
+            "{}\\{}",
+            draft.namespace_for("model"),
+            draft.class_name("model")
+        ),
+        &draft.table,
+    )
+}
+pub(crate) fn render_generated_template(
+    template: &str,
+    text: &str,
+    namespace: &str,
+    class: &str,
+    model: &str,
+    table: &str,
+) -> Result<String, String> {
+    let body = text
+        .split_once(";\n\n")
+        .map(|(_, body)| body)
+        .unwrap_or(text);
+    let definition = body
+        .find("class ")
+        .or_else(|| body.find("return new class"))
+        .map(|start| &body[start..])
+        .unwrap_or(body);
+    let members = definition
+        .find('{')
+        .and_then(|open| {
+            crate::php::closing(definition, open).map(|close| &definition[open + 1..close])
+        })
+        .unwrap_or("");
+    let variables = BTreeMap::from([
+        ("generated", text.to_string()),
+        ("namespace", namespace.to_string()),
+        ("class", class.to_string()),
+        ("model", model.to_string()),
+        ("body", definition.to_string()),
+        ("members", members.to_string()),
+        ("table", table.to_string()),
+    ]);
+    let mut output = String::new();
+    let mut rest = template;
+    let mut work = 0;
+    while let Some(at) = rest.find("${") {
+        if at > 0 && rest.as_bytes()[at - 1] == b'$' {
+            output.push_str(&rest[..at - 1]);
+            output.push_str("${");
+            rest = &rest[at + 2..];
+            continue;
+        }
+        output.push_str(&rest[..at]);
+        let end = rest[at + 2..]
+            .find('}')
+            .ok_or("Unclosed generated template slot")?
+            + at
+            + 2;
+        let key = &rest[at + 2..end];
+        output.push_str(
+            variables
+                .get(key)
+                .ok_or_else(|| format!("Unknown generated template slot {key}"))?,
+        );
+        rest = &rest[end + 1..];
+        work += 1;
+        if output.len() > 128 << 10 || work > 4096 {
+            return Err("Generated template output exceeds limits".into());
+        }
+    }
+    output.push_str(rest);
+    if output.len() > 128 << 10 {
+        return Err("Generated template output exceeds 128 KiB".into());
+    }
+    Ok(output)
+}
 pub(crate) fn plan(d: &Draft) -> Result<Plan, String> {
+    plan_with_references(d, &References::default())
+}
+pub(crate) fn plan_with_references(d: &Draft, references: &References) -> Result<Plan, String> {
     d.settings.validate()?;
     if d.connection.as_ref().is_some_and(|name| {
         name.is_empty() || name.chars().count() > 128 || name.chars().any(char::is_control)
@@ -1037,13 +1161,13 @@ pub(crate) fn plan(d: &Draft) -> Result<Plan, String> {
         &d.namespace_for("model"),
         &format!(
             "class {} extends {model_base}\n{{\n{traits}\n{connection_attribute}    protected $table = {};\n\n{key_attributes}\n    public $timestamps = {};\n\n    protected $fillable = [{fillable}];\n\n    protected $casts = [\n{casts}    ];\n{methods}}}",
-            d.name,
+            d.class_name("model"),
             literal(&d.table),
             d.timestamps
         ),
     );
     let mut files = vec![Output {
-        path: format!("{}/{}.php", d.directory("model"), d.name),
+        path: format!("{}/{}.php", d.directory("model"), d.class_name("model")),
         text: if settings.type_hints {
             model
         } else {
@@ -1071,6 +1195,9 @@ pub(crate) fn plan(d: &Draft) -> Result<Plan, String> {
             )
         },
     }];
+    if let Some(template) = references.templates.get("model") {
+        files[0].text = generated_template(template, &files[0].text, "model", d)?;
+    }
     let mut field_choices = d
         .fields
         .iter()
@@ -1092,23 +1219,65 @@ pub(crate) fn plan(d: &Draft) -> Result<Plan, String> {
             .collect(),
         "Resource relations",
     )?;
+    for (name, mapping) in &d.factory_mappings {
+        if !factory_choices.contains(name) {
+            return Err(format!("Unknown or automatic-key factory mapping {name}"));
+        }
+        match mapping {
+            FactoryMapping::Literal { value } => {
+                php_value(value)?;
+                if let Some(field) = d.fields.iter().find(|field| field.name == *name) {
+                    let mut field = field.clone();
+                    field.default = Some(value.clone());
+                    field_line(&field)?;
+                } else if value.is_null() {
+                    return Err("Primary key factory literals cannot be null".into());
+                }
+            }
+            FactoryMapping::Factory { class, .. } if !proven(&references.factories, class) => {
+                return Err(
+                    "Factory mapping requires a current owned indexed Factory subclass".into(),
+                );
+            }
+            _ => {}
+        }
+    }
+    for (name, class) in &d.resource_wrappers {
+        if !d.relations.iter().any(|relation| relation.name == *name)
+            || !proven(&references.resources, class)
+        {
+            return Err("Resource wrapper requires a declared relation and a current owned indexed JsonResource subclass".into());
+        }
+    }
     let primary_resource = if selected(&d.resource_fields, &key.name) {
         format!("            {} => $this->getKey(),\n", literal(&key.name))
     } else {
         String::new()
     };
+    let factory_expression = |name: &str, default: String| -> Result<String, String> {
+        match d.factory_mappings.get(name) {
+            None | Some(FactoryMapping::Generated) => Ok(default),
+            Some(FactoryMapping::Literal { value }) => php_value(value),
+            Some(FactoryMapping::Factory { class, .. }) => {
+                Ok(format!("\\{}::new()", class.trim_start_matches('\\')))
+            }
+        }
+    };
     let factory_key = if manual_factory_key && selected(&d.factory_fields, &key.name) {
         format!(
             "            {} => {},\n",
             literal(&key.name),
-            if string_key {
-                format!(
-                    "fake()->unique()->lexify({})",
-                    literal(&"?".repeat(key.length.unwrap_or(16).min(16) as usize))
-                )
-            } else {
-                "fake()->unique()->numberBetween(1, 1000000)".into()
-            }
+            factory_expression(
+                &key.name,
+                if string_key {
+                    format!(
+                        "fake()->unique()->lexify({})",
+                        literal(&"?".repeat(key.length.unwrap_or(16).min(16) as usize))
+                    )
+                } else {
+                    "fake()->unique()->numberBetween(1, 1000000)".into()
+                }
+            )?
         )
     } else {
         String::new()
@@ -1135,16 +1304,17 @@ pub(crate) fn plan(d: &Draft) -> Result<Plan, String> {
                     &format!(
                         "/** @extends \\Illuminate\\Database\\Eloquent\\Factories\\Factory<\\{}\\{}> */\nclass {factory_name} extends {factory_base}\n{{\n    protected $model = \\{}\\{}::class;\n\n    public function definition(): array\n    {{\n        return [\n{factory_key}{}        ];\n    }}\n}}",
                         d.namespace_for("model"),
-                        d.name,
+                        d.class_name("model"),
                         d.namespace_for("model"),
-                        d.name,
+                        d.class_name("model"),
                         d.fields
                             .iter()
                             .filter(|f| selected(&d.factory_fields, &f.name))
                             .map(|f| format!(
                                 "            {} => {},\n",
                                 literal(&f.name),
-                                factory_value(f)
+                                factory_expression(&f.name, factory_value(f))
+                                    .expect("mapping already validated")
                             ))
                             .collect::<String>()
                     ),
@@ -1168,11 +1338,32 @@ pub(crate) fn plan(d: &Draft) -> Result<Plan, String> {
                                 d.relations
                                     .iter()
                                     .filter(|r| selected(&d.resource_relations, &r.name))
-                                    .map(|r| format!(
-                                        "            {} => $this->whenLoaded({}),\n",
-                                        literal(&r.name),
-                                        literal(&r.name)
-                                    ))
+                                    .map(|r| {
+                                        let value =
+                                            if let Some(class) = d.resource_wrappers.get(&r.name) {
+                                                format!(
+                                                    "\\{}::{}($this->whenLoaded({}))",
+                                                    class.trim_start_matches('\\'),
+                                                    if matches!(
+                                                        r.kind.as_str(),
+                                                        "hasMany"
+                                                            | "belongsToMany"
+                                                            | "hasManyThrough"
+                                                            | "morphMany"
+                                                            | "morphToMany"
+                                                            | "morphedByMany"
+                                                    ) {
+                                                        "collection"
+                                                    } else {
+                                                        "make"
+                                                    },
+                                                    literal(&r.name)
+                                                )
+                                            } else {
+                                                format!("$this->whenLoaded({})", literal(&r.name))
+                                            };
+                                        format!("            {} => {value},\n", literal(&r.name))
+                                    })
                             )
                             .collect::<String>()
                     ),
@@ -1227,7 +1418,7 @@ pub(crate) fn plan(d: &Draft) -> Result<Plan, String> {
                     &format!(
                         "class {seeder_name} extends {seeder_base}\n{{\n    public function run(): void\n    {{\n        \\{}\\{}::factory()->count(10)->create();\n    }}\n}}",
                         d.namespace_for("model"),
-                        d.name
+                        d.class_name("model")
                     ),
                 ),
             ),
@@ -1261,6 +1452,11 @@ pub(crate) fn plan(d: &Draft) -> Result<Plan, String> {
                 ": \\Illuminate\\Database\\Eloquent\\Factories\\Factory\n",
                 "\n",
             );
+            text
+        };
+        let text = if let Some(template) = references.templates.get(kind) {
+            generated_template(template, &text, kind, d)?
+        } else {
             text
         };
         files.push(Output { path, text });
@@ -1424,7 +1620,99 @@ mod tests {
         for unknown in ["factoryMappings", "resourceWrappers"] {
             let mut value = serde_json::to_value(draft()).unwrap();
             value[unknown] = serde_json::json!({"author":"Unproved\\Resource"});
-            assert!(serde_json::from_value::<Draft>(value).is_err());
+            assert!(match serde_json::from_value::<Draft>(value) {
+                Err(_) => true,
+                Ok(draft) => plan(&draft).is_err(),
+            });
+        }
+    }
+    #[test]
+    fn typed_literals_and_proven_factory_resource_mappings_generate_without_raw_php() {
+        let mut d = draft();
+        d.fields.push(
+            serde_json::from_value(
+                serde_json::json!({"name":"user_id","kind":"unsignedBigInteger"}),
+            )
+            .unwrap(),
+        );
+        d.relations=serde_json::from_value(serde_json::json!([{"name":"author","kind":"belongsTo","related":"App\\Models\\User","arguments":[]},{"name":"comments","kind":"hasMany","related":"App\\Models\\Comment","arguments":[]}])).unwrap();
+        d.factory_mappings.insert(
+            "title".into(),
+            FactoryMapping::Literal {
+                value: serde_json::json!("'); system('never')"),
+            },
+        );
+        d.factory_mappings.insert(
+            "user_id".into(),
+            FactoryMapping::Factory {
+                inferred: false,
+                class: "Database\\Factories\\UserFactory".into(),
+            },
+        );
+        d.resource_wrappers
+            .insert("author".into(), "App\\Http\\Resources\\UserResource".into());
+        d.resource_wrappers.insert(
+            "comments".into(),
+            "App\\Http\\Resources\\CommentResource".into(),
+        );
+        assert!(plan(&d).is_err());
+        let references = References {
+            templates: Default::default(),
+            factories: BTreeSet::from(["Database\\Factories\\UserFactory".into()]),
+            resources: BTreeSet::from([
+                "App\\Http\\Resources\\UserResource".into(),
+                "App\\Http\\Resources\\CommentResource".into(),
+            ]),
+        };
+        let plan = plan_with_references(&d, &references).unwrap();
+        let factory = &plan
+            .files
+            .iter()
+            .find(|file| file.path.ends_with("Factory.php"))
+            .unwrap()
+            .text;
+        assert!(factory.contains("'user_id' => \\Database\\Factories\\UserFactory::new()"));
+        assert!(factory.contains("'title' => '\\'); system(\\'never\\')'"));
+        let resource = &plan
+            .files
+            .iter()
+            .find(|file| file.path.ends_with("Resource.php"))
+            .unwrap()
+            .text;
+        assert!(
+            resource.contains(
+                "\\App\\Http\\Resources\\UserResource::make($this->whenLoaded('author'))"
+            )
+        );
+        assert!(resource.contains(
+            "\\App\\Http\\Resources\\CommentResource::collection($this->whenLoaded('comments'))"
+        ));
+        d.factory_mappings.insert(
+            "title".into(),
+            FactoryMapping::Literal {
+                value: serde_json::json!({"php":"execute()"}),
+            },
+        );
+        assert!(plan_with_references(&d, &references).is_err());
+    }
+    #[test]
+    fn unicode_output_paths_allow_livewire_bolt_and_letters_without_control_or_traversal() {
+        for path in [
+            "resources/views/components/⚡counter.blade.php",
+            "resources/views/équipe/list.blade.php",
+        ] {
+            assert!(relative(path));
+        }
+        for path in [
+            "resources/../secret",
+            "resources/./view",
+            "/absolute",
+            "resources/a\\b",
+            "resources/a:b",
+            "resources/a\nview",
+            "resources/\u{202e}hidden",
+        ] {
+            assert!(!relative(path));
         }
     }
     #[test]

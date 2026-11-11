@@ -3,10 +3,10 @@ use crate::{Index,index::{Entry,Names,AddName},php};
 use openidea_plugin::{Project,Position,host,text};
 use serde_json::Value;
 use std::{collections::{BTreeSet,BTreeMap},cell::RefCell,time::{Instant,Duration}};
-struct Budget{started:Instant,files:usize,bytes:usize,exhausted:bool,cache:BTreeMap<String,Option<String>>}
+struct Budget{started:Instant,files:usize,bytes:usize,exhausted:bool,cache:BTreeMap<String,Option<String>>,evidence:BTreeMap<String,Option<(usize,String)>>,incomplete:bool,queries:BTreeMap<(String,u32),Option<Vec<String>>>}
 thread_local!{static BUDGET:RefCell<Option<Budget>>=const{RefCell::new(None)};}
 struct Guard(Option<Budget>);
-impl Guard{fn begin()->Self{Self(BUDGET.with(|b|b.replace(Some(Budget{started:Instant::now(),files:0,bytes:0,exhausted:false,cache:BTreeMap::new()}))))}}
+impl Guard{fn begin()->Self{Self(BUDGET.with(|b|b.replace(Some(Budget{started:Instant::now(),files:0,bytes:0,exhausted:false,cache:BTreeMap::new(),evidence:BTreeMap::new(),incomplete:false,queries:BTreeMap::new()}))))}}
 impl Drop for Guard{fn drop(&mut self){BUDGET.with(|b|{b.replace(self.0.take());});}}
 fn active()->bool{BUDGET.with(|state|{let mut state=state.borrow_mut();let Some(b)=state.as_mut()else{return true;};if b.started.elapsed()>Duration::from_millis(750){b.exhausted=true;}!b.exhausted})}
 fn exhaust(){BUDGET.with(|state|{if let Some(b)=state.borrow_mut().as_mut(){b.exhausted=true;}});}
@@ -74,9 +74,19 @@ fn read(project:&Project,relative:&str)->Option<String>{
     if !active(){return None;}
     if let Some(cached)=BUDGET.with(|state|state.borrow().as_ref().and_then(|b|b.cache.get(relative).cloned())){return cached;}
     let permitted=BUDGET.with(|state|{let mut state=state.borrow_mut();if let Some(b)=state.as_mut(){if b.files>=128{b.exhausted=true;return false;}b.files+=1;}true});if !permitted{return None;}
-    let load=||{let root=project.root().ok()?;let full=format!("{root}/{relative}");if !path(relative)||!owned(project,&full){return None;}let stat=project.stat(&full).ok()?;if stat.size>256*1024{return None;}project.read_file(&full).ok().filter(|s|s.len()<=256*1024)};
+    let load=||{
+        let root=project.root().ok()?;let full=format!("{root}/{relative}");
+        let record=|evidence:Option<Option<(usize,String)>>|BUDGET.with(|state|{if let Some(b)=state.borrow_mut().as_mut(){if let Some(evidence)=evidence{b.evidence.insert(relative.into(),evidence);}else{b.incomplete=true;}}});
+        if !path(relative)||!owned(project,&full){record(None);return None;}
+        match project.stat(&full){
+            Err(openidea_plugin::Error::NotFound(_))=>{record(Some(None));None},
+            Ok(stat) if stat.kind==openidea_plugin::FileKind::File&&stat.size<=256*1024=>match project.read_file(&full){Ok(source) if source.len()<=256*1024=>{record(Some(Some((source.len(),crate::artisan_metadata::hash(&source)))));Some(source)},_=>{record(None);None}},
+            _=>{record(None);None}
+        }
+    };
     let mut source=load();BUDGET.with(|state|{let mut state=state.borrow_mut();if let Some(b)=state.as_mut(){b.bytes+=source.as_ref().map_or(0,String::len);if b.bytes>2*1024*1024{b.exhausted=true;source=None;}b.cache.insert(relative.into(),source.clone());}});source
 }
+fn find(project:&Project,glob:&str)->Result<Vec<String>,openidea_plugin::Error>{let result=project.find_files(glob,513);let query=result.as_ref().ok().map(|paths|{let mut paths:Vec<_>=paths.iter().filter(|path|owned(project,path)).cloned().collect();paths.sort();paths.dedup();paths});BUDGET.with(|state|{if let Some(b)=state.borrow_mut().as_mut(){if query.is_none(){b.incomplete=true;}b.queries.insert((glob.into(),513),query);}});result}
 fn roots(project:&Project,index:&mut Index)->Vec<Root>{
     index.dependency_files.insert("composer.json".into());
     let Some(source)=read(project,"composer.json")else{return vec![];};let Ok(value)=crate::strict_json::parse(&source,256*1024)else{return vec![];};let mut out=Vec::new();
@@ -113,15 +123,16 @@ fn insert(index:&mut Index,tag:&str,entry:Entry,is_class:bool,bare:bool){
 }
 pub(crate) fn apply_metadata(project:&Project,index:&mut Index){
     let _guard=Guard::begin();let Ok(root)=project.root()else{return;};let config=index.metadata.blade_components.clone();if config.view_paths.len()+config.php_namespaces.len()+config.explicit.len()+config.from_config.len()+config.ignore_view_paths.len()>128{index.partial=true;index.metadata.issues.push("Blade component metadata exceeds the 128-declaration bound".into());return;}
-    let roots=roots(project,index);
+    let mut roots=roots(project,index);
+    for mapping in &index.packages.roots {if mapping.package!="project" {roots.push(Root{namespace:mapping.namespace.clone(),directory:mapping.directory.clone()});}}
     index.metadata.blade_components.resolved_views.clear();index.metadata.blade_components.bare_tags.clear();
     for ignored in &config.ignore_view_paths{if !active(){break;}index.dependency_roots.insert(ignored.clone());let prefix=format!("{root}/{}/",ignored.trim_end_matches('/'));index.components.retain(|_,entry|!entry.path.ends_with(".blade.php")||!entry.path.starts_with(&prefix));}
     // Explicit class identities are installed before all anonymous paths.
     for declared in &config.explicit{if !active(){break;}let Some(tag)=name(&declared.namespace,"",&declared.name)else{continue;};if let Some(full)=&declared.class{if let Some(entry)=class_entry(project,&roots,full){index.dependency_files.insert(entry.path.trim_start_matches(&format!("{root}/")).into());insert(index,&tag,entry,true,false);}else{index.metadata.issues.push(format!("unresolved owned component class {full}"));}}else{index.components.add(&tag,Some("ide.json declared component".into()),"",Position::new(0,0),0);}}
-    for declared in &config.php_namespaces{if !active(){break;}for mapping in &roots{if !active(){break;}let directory=if declared.namespace==mapping.namespace.trim_end_matches('\\'){Some(mapping.directory.clone())}else{declared.namespace.strip_prefix(&mapping.namespace).map(|tail|format!("{}/{}",mapping.directory,tail.replace('\\',"/"))).or_else(||mapping.namespace.starts_with(&format!("{}\\",declared.namespace)).then(||mapping.directory.clone()))};let Some(directory)=directory else{continue;};index.dependency_roots.insert(directory.clone());let Ok(paths)=project.find_files(&format!("{directory}/**/*.php"),513)else{continue;};if paths.len()>=513{index.partial=true;continue;}
+    for declared in &config.php_namespaces{if !active(){break;}for mapping in &roots{if !active(){break;}let directory=if declared.namespace==mapping.namespace.trim_end_matches('\\'){Some(mapping.directory.clone())}else{declared.namespace.strip_prefix(&mapping.namespace).map(|tail|format!("{}/{}",mapping.directory,tail.replace('\\',"/"))).or_else(||mapping.namespace.starts_with(&format!("{}\\",declared.namespace)).then(||mapping.directory.clone()))};let Some(directory)=directory else{continue;};index.dependency_roots.insert(directory.clone());let Ok(paths)=find(project,&format!("{directory}/**/*.php"))else{continue;};if paths.len()>=513{index.partial=true;continue;}
             for file in paths{if !active(){break;}if !owned(project,&file){continue;}let relative=file.trim_start_matches(&format!("{root}/"));let Some(source)=read(project,relative)else{continue;};let Some(full)=crate::eloquent_members::declaration(&source)else{continue;};let Some(local)=full.strip_prefix(&format!("{}\\",declared.namespace))else{continue;};let Some(tag)=name(&declared.tag_namespace,&declared.prefix,&class_tag(local))else{continue;};if let Some(entry)=class_entry(project,&roots,&full){insert(index,&tag,entry,true,declared.bare);}}
         }}
-    for declared in &config.view_paths{if !active(){break;}index.dependency_roots.insert(declared.path.clone());let Ok(files)=project.find_files(&format!("{}/**/*.blade.php",declared.path),513)else{continue;};if files.len()>=513{index.partial=true;continue;}
+    for declared in &config.view_paths{if !active(){break;}index.dependency_roots.insert(declared.path.clone());let Ok(files)=find(project,&format!("{}/**/*.blade.php",declared.path))else{continue;};if files.len()>=513{index.partial=true;continue;}
         for file in files{if !active(){break;}if !owned(project,&file)||config.ignore_view_paths.iter().any(|p|file.starts_with(&format!("{root}/{}/",p.trim_end_matches('/')))){continue;}
             let Some(local)=file.strip_prefix(&format!("{root}/{}/",declared.path.trim_end_matches('/'))).and_then(|s|s.strip_suffix(".blade.php"))else{continue;};let full=local.replace('/',".");let primary=full.strip_suffix(".index").unwrap_or(&full);
             for local in BTreeSet::from([full.as_str(),primary]){let Some(tag)=name(&declared.namespace,&declared.prefix,local)else{continue;};let entry=Entry{detail:Some("ide.json anonymous component".into()),path:file.clone(),at:Position::new(0,0),width:0};index.metadata.blade_components.resolved_views.insert(tag.clone(),entry.clone());insert(index,&tag,entry,false,false);}
@@ -141,7 +152,9 @@ pub(crate) fn apply_metadata(project:&Project,index:&mut Index){
             if let Some(view)=extract(&masked,&item,&declared.view).and_then(|range|string(&masked,range)){if let Some(entry)=index.views.get(&view).filter(|e|!e.path.is_empty()&&owned(project,&e.path)).cloned(){index.metadata.blade_components.resolved_views.insert(tag.clone(),entry.clone());insert(index,&tag,entry,false,false);}}
         }
     }
+    for (tag,entry) in index.packages.native.clone() {index.components.entry(tag.clone()).or_insert(entry);index.metadata.blade_components.bare_tags.insert(tag);}
     if !active(){index.partial=true;index.metadata.issues.push("Blade component metadata source discovery reached its 750ms / 128-source / 2MiB aggregate bound".into());}
+    BUDGET.with(|state|{if let Some(b)=state.borrow().as_ref(){index.source_evidence.extend(b.evidence.clone());index.source_queries.extend(b.queries.clone());index.source_evidence_incomplete|=b.incomplete;}});
 }
 
 #[cfg(test)]

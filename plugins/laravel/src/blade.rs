@@ -7,7 +7,7 @@ use crate::refs::blade_regions;
 /// A directive argument and where its contents start.
 pub type Named = (String, usize);
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct Facts {
     pub extends: Option<String>,
     /// Ordered literal fallback candidates; consumers select a proven existing layout.
@@ -65,29 +65,23 @@ pub struct WireCall {
     pub end: usize,
 }
 
-fn blank_comments(text: &str) -> String {
-    let mut masked = text.to_owned();
-    let mut from = 0;
-    while let Some(open) = masked[from..].find("{{--").map(|i| from + i) {
-        let close = masked[open..].find("--}}").map_or(masked.len(), |i| open + i + 4);
-        let blanks: String = masked[open..close].chars().map(|c| if c == '\n' || c == '\r' { c } else { ' ' }).collect();
-        masked.replace_range(open..close, &blanks);
-        from = open + blanks.len();
-    }
-    masked
-}
 
 /// `wire:click="save"` and `wire:submit.prevent="save(1)"`: the method name.
 /// Expressions (`$set(...)`, `form.save`, `a = 1`) are not calls to check.
 pub fn wire_calls(text: &str) -> Vec<WireCall> {
-    let masked = blank_comments(text);
+    if text.len()>512*1024{return vec![];}
+    let masked = crate::refs::without_comments(text);
+    let count=masked.match_indices("wire:").count();if count>128||count.saturating_mul(text.len())>8*1024*1024{return vec![];}
     let bytes = masked.as_bytes();
+    let lower=masked.to_ascii_lowercase();
     let mut found = Vec::new();
 
     for (at, _) in masked.match_indices("wire:") {
         if at == 0 || !bytes[at - 1].is_ascii_whitespace() {
             continue;
         }
+
+        if !wire_attribute(&masked,&lower,at){continue;}
 
         let attribute_end = masked[at..].find(|c: char| c == '=' || c == '>' || c.is_whitespace()).map_or(masked.len(), |i| at + i);
         let attribute = &masked[at + "wire:".len()..attribute_end];
@@ -119,26 +113,31 @@ pub fn wire_calls(text: &str) -> Vec<WireCall> {
     found
 }
 
+pub(crate) fn wire_attribute(text:&str,lower:&str,at:usize)->bool{
+ let Some(open)=text[..at].rfind('<')else{return false;};let mut quote=None;for b in text[open+1..at].bytes(){match(quote,b){(Some(q),b)if q==b=>quote=None,(None,b'\''|b'"')=>quote=Some(b),(None,b'>')=>return false,_=>{}}}if quote.is_some(){return false;}
+ let lower=&lower[..at];for tag in ["script","style","textarea","title"]{if let Some(raw)=lower.rfind(&format!("<{tag}")){if lower.rfind(&format!("</{tag}")).is_none_or(|close|raw>close)&&text[raw..at].contains('>'){return false;}}}true
+}
+
 /// Every method name of a Livewire component class, or `None` when the class
 /// can have methods the text does not show (a trait, a parent other than
 /// `Component`, `__call`, Volt, attributes that register listeners).
 pub fn livewire_methods(text: &str) -> Option<Vec<String>> {
-    let masked = php::mask_comments(text);
-    let class_at = masked.match_indices("class ").find_map(|(i, _)| {
-        let line_start = masked[..i].rfind('\n').map_or(0, |l| l + 1);
-        masked[line_start..i].split_whitespace().all(|w| matches!(w, "final" | "abstract")).then_some(i)
-    })?;
+    let masked = crate::package_facts::code(text)?;
+    let full=crate::eloquent_members::declaration(text)?;let short=full.rsplit('\\').next()?;
+    let class_at=masked.match_indices("class").find_map(|(at,_)|{if at>0&&(php::is_identifier(masked.as_bytes()[at-1])||masked.as_bytes()[at-1]==b':'){return None;}let rest=&masked[at+5..];if !rest.starts_with(char::is_whitespace){return None;}let name=rest.trim_start().split(|c:char|c.is_whitespace()||c=='{').next()?;(name==short).then_some(at)})?;
 
     let open = masked[class_at..].find('{').map(|i| class_at + i)?;
     let header = masked[class_at..open].split_whitespace().collect::<Vec<_>>();
     let parent = header.iter().position(|w| *w == "extends").and_then(|i| header.get(i + 1))?;
-    if !matches!(*parent, "Component" | "\\Livewire\\Component") {
+    if crate::eloquent_members::metadata_inference::class_identity(text,parent).as_deref()!=Some("Livewire\\Component") {
         return None;
     }
 
     let body = &masked[open..];
-    let has_trait = body.lines().skip(1).map(str::trim).any(|line| line.starts_with("use ") && !line.contains('(') && line.ends_with(';'));
-    if has_trait || ["__call", "#[Computed", "#[On(", "#[On]", "Volt"].iter().any(|marker| body.contains(marker)) {
+    let mut depth=0usize;let mut has_trait=false;
+    for (at,b) in body.bytes().enumerate(){match b {b'{'=>depth+=1,b'}'=>depth=depth.saturating_sub(1),b'u' if depth==1&&body[at..].starts_with("use ")&&(at==0||!php::is_identifier(body.as_bytes()[at-1]))=>has_trait=true,_=>{}}}
+
+    if has_trait || body.contains("__call") || !stable_attributes(text,&masked,open..masked.len()) {
         return None;
     }
 
@@ -193,7 +192,7 @@ mod tests {
 
     #[test]
     fn livewire_methods_are_listed_only_for_plain_components() {
-        let plain = "<?php\nclass Counter extends Component\n{\n    public $c = 0;\n    public function increment() {}\n    protected function hidden() {}\n    public function render() { return fn () => 1; }\n}\n";
+        let plain = "<?php\nuse Livewire\\Component;\nclass Counter extends Component\n{\n    public $c = 0;\n    public function increment() {}\n    protected function hidden() {}\n    public function render() { return fn () => 1; }\n}\n";
         assert_eq!(livewire_methods(plain).unwrap(), ["increment", "hidden", "render"]);
         for risky in [
             "<?php\nclass A extends Component\n{\n    use WithPagination;\n}\n",
@@ -204,4 +203,11 @@ mod tests {
             assert!(livewire_methods(risky).is_none(), "{risky}");
         }
     }
+}
+
+/// Native Livewire/PHP attributes do not manufacture undeclared action methods;
+/// unknown attribute classes retain the conservative absence boundary.
+pub(crate) fn stable_attributes(source:&str,code:&str,range:std::ops::Range<usize>)->bool{
+ let attrs:Vec<_>=code[range.clone()].match_indices("#[").map(|(i,_)|range.start+i).collect();if attrs.len()>64||attrs.len().saturating_mul(source.len())>4*1024*1024{return false;}
+ for at in attrs {for item in php::items(source,at+1){let raw=code[item.value].trim();let name=raw.split(|c:char|!c.is_ascii_alphanumeric()&&!matches!(c,'_'|'\\')).next().unwrap_or("");let Some(full)=crate::eloquent_members::metadata_inference::class_identity(source,name)else{return false;};if ["SensitiveParameter","Override","Deprecated"].contains(&full.as_str()){continue;}let Some(attribute)=full.strip_prefix("Livewire\\Attributes\\")else{return false;};if !["Computed","On","Reactive","Modelable","Locked","Url","Validate","Rule","Session","Renderless","Isolate","Title","Layout","Lazy","Js","Async","Defer","Transition","Bindable"].contains(&attribute){return false;}}}true
 }

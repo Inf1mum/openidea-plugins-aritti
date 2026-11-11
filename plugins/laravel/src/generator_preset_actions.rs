@@ -280,7 +280,7 @@ impl State {
         host::open_editor(&anchor, None)?;
         let mut response = preview(&plan);
         response["prepared"] = true.into();
-        response["instruction"]="In the opened PHP editor, choose Apply prepared Laravel preset changes…; one undo reverses the complete config/template edit.".into();
+        response["instruction"]=crate::ui_text::t("generator.presets.prepared","In the opened PHP editor, choose Apply prepared Laravel preset changes…; one undo reverses the complete config/template edit.").into();
         self.pending.insert(
             root,
             Pending {
@@ -301,7 +301,10 @@ impl State {
                     && pending.anchor_text == doc.text
                     && owned(root, &doc.path))
                 .then(|| FileAction {
-                    title: "Apply prepared Laravel preset changes…".into(),
+                    title: crate::ui_text::t(
+                        "generator.presets.apply",
+                        "Apply prepared Laravel preset changes…",
+                    ),
                     kind: Some("refactor".into()),
                     data: Some(pending.key.clone()),
                     ..Default::default()
@@ -331,16 +334,37 @@ impl State {
             .changes
             .iter()
             .map(|change| {
-                format!(
-                    "{}\nBefore:\n{}\nAfter:\n{}",
-                    change.path,
-                    change.before.as_deref().unwrap_or("(absent)"),
-                    change.after.as_deref().unwrap_or("(delete)")
+                crate::ui_text::format(
+                    "generator.review.change",
+                    "{path}\nBefore:\n{before}\nAfter:\n{after}",
+                    &[
+                        ("path", &change.path),
+                        (
+                            "before",
+                            change.before.as_deref().unwrap_or(&crate::ui_text::t(
+                                "generator.review.absent",
+                                "(absent)",
+                            )),
+                        ),
+                        (
+                            "after",
+                            change.after.as_deref().unwrap_or(&crate::ui_text::t(
+                                "generator.review.deleted",
+                                "(delete)",
+                            )),
+                        ),
+                    ],
                 )
             })
             .collect::<Vec<_>>()
             .join("\n\n");
-        if !ui_kit::prompts::confirm_exact("Apply Laravel generator definitions?", &exact)? {
+        if !ui_kit::prompts::confirm_exact(
+            &crate::ui_text::t(
+                "generator.presets.confirm",
+                "Apply Laravel generator definitions?",
+            ),
+            &exact,
+        )? {
             return Err(Error::Cancelled);
         }
         if build(&project, &root, &pending.input)? != pending.plan

@@ -244,7 +244,7 @@ fn rules_all_arrays(text: &str, literal: Range<usize>) -> Option<Rewrite> {
 /// Decode only literal PHP class/method text. Unknown backslash escapes remain
 /// literal in PHP; recognized double-quoted escapes and interpolation are not
 /// class names and must never be guessed from their source spelling.
-fn controller_literal(contents: &str, quote: char) -> Option<String> {
+pub(crate) fn controller_literal(contents: &str, quote: char) -> Option<String> {
     let mut decoded = String::new();
     let mut chars = contents.chars().peekable();
     while let Some(ch) = chars.next() {
@@ -296,7 +296,7 @@ fn controller_namespace_safe(text: &str) -> bool {
 
 /// A user class named Route/URL/Redirect is not a framework action-string API.
 /// Preserve offsets while hiding only imports whose source binding is foreign.
-fn controller_binding_safe(text: &str, literal: &Range<usize>) -> bool {
+pub(crate) fn controller_binding_safe(text: &str, literal: &Range<usize>) -> bool {
     let Some(code) = crate::package_facts::code(text) else {
         return false;
     };
@@ -382,7 +382,7 @@ fn controller_binding_safe(text: &str, literal: &Range<usize>) -> bool {
         return false;
     };
     refs::literal_at("php", &source, literal.start).is_some_and(|(kind, range)| {
-        matches!(kind, Kind::Action | Kind::Controller) && range == *literal
+        matches!(kind, Kind::Action | Kind::Controller | Kind::Method) && range == *literal
     })
 }
 
@@ -483,6 +483,74 @@ fn controller_calls_all(language: &str, text: &str, at: usize, namespace: &str) 
         kind: "refactor.rewrite",
         edits: converted,
     })
+}
+
+/// Mounted namespaces are runtime routing scopes, distinct from PHP imports.
+/// Reuse the parser's exact selected action identity before creating PHP code.
+pub(crate) fn contextual_controllers(index:&crate::Index,doc:&openidea_plugin::providers::Document,at:usize,namespace:&str)->Option<Vec<Rewrite>>{
+    let context=index.route_mounts.get(&doc.path).cloned().unwrap_or_default();
+    if context.namespace.is_empty()&&controller_namespace_safe(&doc.text)&&!index.route_mount_unknown.contains(&doc.path){return None;}
+    if index.route_mount_unknown.contains(&doc.path)||doc.text.len()>128*1024{return Some(vec![]);}
+    let mut candidates=refs::references("php",&doc.text).into_iter().filter(|reference|reference.closed&&matches!(reference.kind,Kind::Action|Kind::Controller)).collect::<Vec<_>>();
+    if let Some(reference)=crate::metadata::route_reference(&index.metadata,&doc.text,at){if reference.closed&&!candidates.iter().any(|candidate|candidate.start==reference.start&&candidate.end==reference.end){candidates.push(reference);}}
+    if !crate::view_rename::binding_budget(doc.text.len(),candidates.len()){return Some(vec![]);}
+    let mut edits=Vec::new();let mut selected=None;
+    for reference in candidates{
+        let literal=reference.start..reference.end;
+        let edit=(||{if let Some((full,member))=crate::routes::controller_at(&doc.text,&index.metadata.route_methods,&context,reference.start){
+            let quote=doc.text.as_bytes().get(reference.start.checked_sub(1)?).copied()? as char;
+            let raw=controller_literal(doc.text.get(literal.clone())?,quote)?;
+            let method=if reference.kind==Kind::Action{raw.split_once('@').map(|(_,method)|method)}else{None};
+            if method.is_none()&&(!controller_namespace_safe(&doc.text)||!context.namespace.is_empty()&&!full.starts_with(&context.namespace)){return None;}
+            let class=php::controller_reference(&doc.text,&format!("\\{full}"),namespace)?;
+            let replacement=if method.is_some(){format!("[{class}::class, {quote}{member}{quote}]")}else{format!("{class}::class")};
+            Some((reference.start-1..reference.end+1,replacement))
+        }else{
+            let helper=refs::literal_site_at("php",&doc.text,reference.start).is_some_and(|(_,site)|matches!(site.callee.trim_start_matches('\\'),"action"|"link_to_action"));
+            if helper{controller_edit(&doc.text,reference.kind,literal,namespace)}else{None}
+        }})();
+        if let Some(edit)=edit{
+            if reference.start<=at&&at<=reference.end{selected=Some((edit.clone(),reference.kind,doc.text[reference.start..reference.end].contains('@')));}
+            edits.push(edit);
+        }
+    }
+    let Some((edit,kind,method))=selected else{return Some(vec![]);};
+    let title=if kind==Kind::Action&&method{"Convert controller string to a class array"}else{"Convert controller string to ::class"};
+    let mut found=vec![Rewrite{title:title.into(),kind:"refactor.rewrite",edits:vec![edit]}];
+    if edits.len()>1{found.push(Rewrite{title:"Convert all controller strings in this file".into(),kind:"refactor.rewrite",edits});}
+    Some(found)
+}
+pub(crate) fn controller_rewrite(rewrite:&Rewrite)->bool{
+    matches!(rewrite.title.as_str(),"Convert controller string to a class array"|"Convert controller string to ::class"|"Convert all controller strings in this file")
+}
+
+/// Localize only at the published action boundary; rewrite parsers remain pure.
+pub(crate) fn localized_title(title:&str)->String{
+    match title{
+        "Add the missing columns to $fillable"=>return crate::ui_text::t("editor.final.missingFillable","Add the missing columns to $fillable"),
+        "Convert validation rules to a string" => return crate::ui_text::t("editor.final.rulesString","Convert validation rules to a string"),
+        "Convert validation rules to an array" => return crate::ui_text::t("editor.final.rulesArray","Convert validation rules to an array"),
+        "Convert all validation rules in this array to arrays" => return crate::ui_text::t("editor.final.allRulesArrays","Convert all validation rules in this array to arrays"),
+        "Convert controller string to a class array" => return crate::ui_text::t("editor.final.controllerArray","Convert controller string to a class array"),
+        "Convert controller string to ::class" => return crate::ui_text::t("editor.final.controllerClass","Convert controller string to ::class"),
+        "Convert all controller strings in this file" => return crate::ui_text::t("editor.final.allControllers","Convert all controller strings in this file"),
+        "Use #[Scope] on all scope methods" => return crate::ui_text::t("editor.final.scopeAll","Use #[Scope] on all scope methods"),
+        "Wrap class attribute in @class" => return crate::ui_text::t("editor.final.wrapDynamicClass","Wrap class attribute in @class"),
+        "Convert class attribute to @class" => return crate::ui_text::t("editor.final.convertClass","Convert class attribute to @class"),
+        "Wrap class attribute with @class" => return crate::ui_text::t("editor.final.wrapStaticClass","Wrap class attribute with @class"),
+        "Output unescaped: {!! !!}" => return crate::ui_text::t("editor.final.unescaped","Output unescaped: {!! !!}"),
+        "Output escaped: {{ }}" => return crate::ui_text::t("editor.final.escaped","Output escaped: {{ }}"),
+        _=>{}
+    }
+    if let Some(call)=title.strip_prefix("Convert to "){return crate::ui_text::format("editor.final.convertBuilder","Convert to {call}",&[("call",call)]);}
+    if let Some(class)=title.strip_prefix("Import "){return crate::ui_text::format("editor.final.importClass","Import {class}",&[("class",class)]);}
+    if let Some(name)=title.strip_prefix("Use #[Scope] on ").and_then(|tail|tail.strip_suffix("()")){return crate::ui_text::format("editor.final.scope","Use #[Scope] on {name}()",&[("name",name)]);}
+    if let Some(variable)=title.strip_prefix("Move ").and_then(|tail|tail.strip_suffix(" to a constructor property in all matching methods")){return crate::ui_text::format("editor.final.moveAll","Move {variable} to a constructor property in all matching methods",&[("variable",variable)]);}
+    if let Some(variable)=title.strip_prefix("Move ").and_then(|tail|tail.strip_suffix(" to a constructor property")){return crate::ui_text::format("editor.final.move","Move {variable} to a constructor property",&[("variable",variable)]);}
+    if let Some((class,method))=title.strip_prefix("Inject ").and_then(|tail|tail.split_once(" into the constructor for ")).and_then(|(class,method)|Some((class,method.strip_suffix("()")?))){return crate::ui_text::format("editor.final.injectConstructor","Inject {class} into the constructor for {method}()",&[("class",class),("method",method)]);}
+    if let Some((class,method,facade))=title.strip_prefix("Inject ").and_then(|tail|tail.split_once(" into ")).and_then(|(class,tail)|{let(method,facade)=tail.split_once("() instead of the ")?;Some((class,method,facade.strip_suffix(" facade")?))}){return crate::ui_text::format("editor.final.injectMethod","Inject {class} into {method}() instead of the {facade} facade",&[("class",class),("method",method),("facade",facade)]);}
+    if let Some((class,facade))=title.strip_prefix("Inject ").and_then(|tail|tail.split_once(" instead of the ")).and_then(|(class,facade)|Some((class,facade.strip_suffix(" facade")?))){return crate::ui_text::format("editor.final.injectFacade","Inject {class} instead of the {facade} facade",&[("class",class),("facade",facade)]);}
+    title.to_owned()
 }
 
 fn rule_object(
@@ -1241,6 +1309,78 @@ Route::get('/quoted', "Vendor\\Reports\\Controller@show");
                 "{rendered}\n{}",
                 String::from_utf8_lossy(&output.stderr)
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod mounted_controller_rewrite_tests {
+    use super::*;
+    use openidea_plugin::providers::Document;
+    fn setup(source:&str)->(crate::Index,Document){
+        let mut index=crate::Index::default();
+        index.route_mounts.insert("/project/custom/admin.php".into(),crate::routes::MountContext{namespace:"App\\Http\\Controllers\\Admin".into(),..Default::default()});
+        (index,Document{path:"/project/custom/admin.php".into(),language:"php".into(),version:1,text:source.into()})
+    }
+    fn apply(source:&str,action:&Rewrite)->String{let mut result=source.to_owned();for(range,replacement)in action.edits.iter().rev(){result.replace_range(range.clone(),replacement);}result}
+    #[test]
+    fn mounted_namespace_conversion_preserves_aliases_quotes_and_bulk_action_identity(){
+        let source=r#"<?php /* 😀 */ use Illuminate\Support\Facades\Route; use App\Http\Controllers\Admin\PostController as Posts; Route::get('/posts','PostController@show'); Route::get('/outside',"\\Vendor\\Outside@show");"#;
+        let(index,doc)=setup(source);let at=source.find("PostController@show").unwrap();
+        let actions=contextual_controllers(&index,&doc,at,"App\\Http\\Controllers").unwrap();
+        assert_eq!(actions.len(),2);let single=apply(source,&actions[0]);
+        assert!(single.contains("[Posts::class, 'show']"));assert!(!single.contains("[\\App\\Http\\Controllers\\PostController"));
+        let all=apply(source,&actions[1]);assert!(all.contains("[\\Vendor\\Outside::class, \"show\"]"));
+        assert!(all.contains("/* 😀 */"));
+    }
+    #[test]
+    fn invokable_and_resource_class_literals_never_drop_runtime_namespace_escape(){
+        for call in [r#"Route::get('/x','\Vendor\Outside');"#,r#"Route::resource('posts','\Vendor\Outside');"#]{
+            let source=format!("<?php {call}");let(index,doc)=setup(&source);
+            assert!(contextual_controllers(&index,&doc,source.find("Vendor").unwrap(),"App\\Http\\Controllers").unwrap().is_empty());
+        }
+        let source="<?php Route::get('/x','PostController');";let(index,doc)=setup(source);
+        let actions=contextual_controllers(&index,&doc,source.find("PostController").unwrap(),"App\\Http\\Controllers").unwrap();
+        assert!(apply(source,&actions[0]).contains("\\App\\Http\\Controllers\\Admin\\PostController::class"));
+        let mut index=index;index.route_mount_unknown.insert(doc.path.clone());
+        assert!(contextual_controllers(&index,&doc,source.find("PostController").unwrap(),"App\\Http\\Controllers").unwrap().is_empty());
+    }
+    #[test]
+    #[ignore="requires LARAVEL_ROUTE_FIXTURE vendor autoload and php; compares actual rewritten route controller identity"]
+    fn actual_mounted_controller_rewrite_preserves_laravel_runtime_actions(){
+        use std::io::Write;
+        let fixture=std::env::var("LARAVEL_ROUTE_FIXTURE").expect("set LARAVEL_ROUTE_FIXTURE");
+        let source=r#"<?php use Illuminate\Support\Facades\Route; use App\Http\Controllers\Admin\PostController as Posts; Route::get('/posts','PostController@show'); Route::get('/invoke','PostController'); Route::get('/outside','\Vendor\Outside@show');"#;
+        let(index,doc)=setup(source);let actions=contextual_controllers(&index,&doc,source.find("PostController@show").unwrap(),"App\\Http\\Controllers").unwrap();
+        let after=apply(source,actions.last().unwrap());
+        let script=r#"<?php
+require getenv('LARAVEL_ROUTE_FIXTURE').'/vendor/autoload.php';
+eval('namespace App\\Http\\Controllers\\Admin; class PostController { public function show(){} public function __invoke(){} }');
+eval('namespace Vendor; class Outside { public function show(){} }');
+$input=json_decode(stream_get_contents(STDIN),true,512,JSON_THROW_ON_ERROR);$out=[];
+foreach($input as $source){$container=new Illuminate\Container\Container; $router=new Illuminate\Routing\Router(new Illuminate\Events\Dispatcher($container),$container);$container->instance('router',$router);Illuminate\Support\Facades\Facade::setFacadeApplication($container);Illuminate\Support\Facades\Facade::clearResolvedInstances();$router->group(['namespace'=>'App\\Http\\Controllers\\Admin'],function()use($source){eval(substr($source,5));});$rows=[];foreach($router->getRoutes() as $route){$rows[]=[$route->uri(),get_class($route->getController()),$route->getActionMethod()];}$out[]=$rows;}
+echo json_encode($out,JSON_THROW_ON_ERROR);
+"#;
+        let directory=std::env::temp_dir().join(format!("laravel-mounted-controller-{}",std::process::id()));std::fs::create_dir_all(&directory).unwrap();let file=directory.join("compare.php");std::fs::write(&file,script).unwrap();
+        let mut child=std::process::Command::new("php").arg(&file).env("LARAVEL_ROUTE_FIXTURE",fixture).stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).spawn().unwrap();
+        child.stdin.take().unwrap().write_all(serde_json::to_string(&[source,&after]).unwrap().as_bytes()).unwrap();let output=child.wait_with_output().unwrap();let _=std::fs::remove_dir_all(directory);
+        assert!(output.status.success(),"{}",String::from_utf8_lossy(&output.stderr));let rows:serde_json::Value=serde_json::from_slice(&output.stdout).unwrap();assert_eq!(rows[0],rows[1],"{after}");
+    }
+}
+
+#[cfg(test)]
+mod action_title_delivery_tests {
+    #[test]
+    fn localized_dynamic_titles_preserve_php_builders_fqns_variables_and_method_identifiers(){
+        let host=openidea_plugin::mock::MockHost::install();host.set_setting("uiLanguage",r#""ja""#);
+        for (authored,protected) in [
+            ("Convert to Rule::date()->format('Y-m-d')","Rule::date()->format('Y-m-d')"),
+            ("Import Illuminate\\Support\\Facades\\Route","Illuminate\\Support\\Facades\\Route"),
+            ("Move $request to a constructor property","$request"),
+            ("Use #[Scope] on active()","active()"),
+            ("Inject CacheManager into save() instead of the Cache facade","save()"),
+        ]{
+            let translated=super::localized_title(authored);assert_ne!(translated,authored);assert!(translated.contains(protected),"{translated}");
         }
     }
 }

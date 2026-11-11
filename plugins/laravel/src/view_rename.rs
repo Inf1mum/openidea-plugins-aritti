@@ -16,7 +16,7 @@ fn parts(name:&str)->Option<(Option<&str>,&str)>{
 }
 fn class_tags(project:&Project)->Result<BTreeSet<String>,Error>{
     let root=project.root()?;let prefix=format!("{root}/app/View/Components/");let paths=project.find_files("app/View/Components/**/*.php",257)?;
-    if paths.len()>=257{return Err(Error::Invalid("Component class enumeration exceeds its 256-file bound.".into()));}
+    if paths.len()>=257{return Err(Error::Invalid(crate::ui_text::t("viewRename.error1","Component class enumeration exceeds its 256-file bound.")));}
     Ok(paths.into_iter().filter_map(|path|{let name=path.strip_prefix(&prefix)?.strip_suffix(".php")?;Some(name.split('/').map(|part|crate::index::separated(part,'-')).collect::<Vec<_>>().join("."))}).collect())
 }
 fn unique_source(index:&Index,project:&Project,name:&str,expected:&str)->bool{
@@ -120,12 +120,12 @@ pub(crate) fn actions(index:&Index,doc:&Document,selection:Range)->Vec<FileActio
     let run=||->Option<FileAction>{let project=crate::project_for(&doc.path)?;let root=project.root().ok()?;let candidate=candidate(index,&project,doc,selection)?;
         let request=Request{root,doc:doc.path.clone(),version:doc.version,hash:hash(&doc.text),selection,candidate:candidate.clone()};
         let data=format!("view-rename:{}",serde_json::to_string(&request).ok()?);
-        Some(FileAction{title:format!("Rename or move Blade/PHP view {}…",candidate.name),kind:Some("refactor.rename".into()),data:Some(data),..Default::default()})
+        Some(FileAction{title:crate::ui_text::format("viewRename.action","Rename or move Blade/PHP view {name}…",&[("name",&candidate.name)]),kind:Some("refactor.rename".into()),data:Some(data),..Default::default()})
     };run().into_iter().collect()
 }
 fn new_target(old:&Candidate,input:&str)->Result<(String,String),Error>{
-    let (namespace,local)=parts(input).ok_or_else(||Error::Invalid("Use a dotted view name with nonempty letter/digit/underscore/hyphen segments.".into()))?;
-    if namespace.is_some()&&namespace!=old.namespace.as_deref(){return Err(Error::Invalid("Keep the existing view namespace; moving between roots is not supported by this action.".into()));}
+    let (namespace,local)=parts(input).ok_or_else(||Error::Invalid(crate::ui_text::t("viewRename.error2","Use a dotted view name with nonempty letter/digit/underscore/hyphen segments.")))?;
+    if namespace.is_some()&&namespace!=old.namespace.as_deref(){return Err(Error::Invalid(crate::ui_text::t("viewRename.error3","Keep the existing view namespace; moving between roots is not supported by this action.")));}
     let name=old.namespace.as_ref().map_or_else(||local.to_owned(),|n|format!("{n}::{local}"));
     let target=format!("{}{}{}",old.directory,local.replace('.',"/"),old.extension);
     Ok((name,target))
@@ -133,16 +133,16 @@ fn new_target(old:&Candidate,input:&str)->Result<(String,String),Error>{
 fn target_clear(index:&Index,project:&Project,old:&Candidate,new_name:&str,target:&str)->Result<(),Error>{
     if new_name==old.name||target==old.path{return Err(Error::Cancelled);}
     if !crate::owns_current_path(project,&old.path)||!crate::owns_current_path(project,target){return Err(Error::Stale);}
-    if index.views.contains_key(new_name)||project.exists(target)?{return Err(Error::Invalid("A view or file already exists at the selected target.".into()));}
+    if index.views.contains_key(new_name)||project.exists(target)?{return Err(Error::Invalid(crate::ui_text::t("viewRename.error4","A view or file already exists at the selected target.")));}
     let parent=target.rsplit_once('/').map(|p|p.0).ok_or(Error::Stale)?;
-    if !project.stat(parent).ok().is_some_and(|stat|stat.kind==FileKind::Directory){return Err(Error::Invalid("Choose an existing target directory inside this view root.".into()));}
+    if !project.stat(parent).ok().is_some_and(|stat|stat.kind==FileKind::Directory){return Err(Error::Invalid(crate::ui_text::t("viewRename.error5","Choose an existing target directory inside this view root.")));}
     Ok(())
 }
 fn tags(index:&Index,project:&Project,old:&Candidate,target:&str)->Result<BTreeMap<String,String>,Error>{
     let mut map=BTreeMap::new();let classes=class_tags(project)?;let Some((_,relative))=old.path.split_once("/resources/views/components/")else{return Ok(map);};
     let old_suffix=relative.strip_suffix(".blade.php").ok_or(Error::Stale)?;
     let root=old.path.strip_suffix(relative).ok_or(Error::Stale)?;
-    let next=target.strip_prefix(root).and_then(|s|s.strip_suffix(".blade.php")).ok_or_else(||Error::Invalid("Move anonymous components only within resources/views/components.".into()))?;
+    let next=target.strip_prefix(root).and_then(|s|s.strip_suffix(".blade.php")).ok_or_else(||Error::Invalid(crate::ui_text::t("viewRename.error6","Move anonymous components only within resources/views/components.")))?;
     let full=next.replace('/',".");let primary=full.strip_suffix(".index").unwrap_or(&full).to_owned();
     let mut next_aliases=BTreeSet::from([full.clone(),primary.clone()]);
     for (alias,entry) in &index.components {if entry.path!=old.path||classes.contains(alias){continue;}
@@ -150,8 +150,8 @@ fn tags(index:&Index,project:&Project,old:&Candidate,target:&str)->Result<BTreeM
         let replacement=if alias==&old_full{full.clone()}else if alias==old_primary{primary.clone()}else{return Err(Error::Stale);};
         next_aliases.insert(replacement.clone());map.insert(alias.clone(),replacement);
     }
-    if map.is_empty(){return Ok(map);}if index.open_components{return Err(Error::Invalid("Dynamic component registrations prevent proving anonymous tag ownership.".into()));}
-    for alias in next_aliases{if classes.contains(&alias)||index.components.get(&alias).is_some_and(|entry|entry.path!=old.path){return Err(Error::Invalid(format!("Component tag {alias} is already defined by another source.")));}}
+    if map.is_empty(){return Ok(map);}if index.open_components{return Err(Error::Invalid(crate::ui_text::t("viewRename.error7","Dynamic component registrations prevent proving anonymous tag ownership.")));}
+    for alias in next_aliases{if classes.contains(&alias)||index.components.get(&alias).is_some_and(|entry|entry.path!=old.path){return Err(Error::Invalid(crate::ui_text::format("viewRename.tagCollision","Component tag {alias} is already defined by another source.",&[("alias",&alias)])));}}
     Ok(map)
 }
 #[derive(Debug,PartialEq,Eq)]
@@ -165,14 +165,14 @@ fn references(doc:&Document)->Vec<refs::Reference>{
 }
 fn plan(index:&Index,project:&Project,doc:&Document,old:&Candidate,new_name:&str,target:&str)->Result<Vec<Change>,Error>{
     target_clear(index,project,old,new_name,target)?;let component_tags=tags(index,project,old,target)?;
-    let root=project.root()?;let found=project.find_files("**/*.php",1025)?;if found.len()>=1025{return Err(Error::Invalid("View rename source enumeration exceeds its 1024-file bound; no partial rename is offered.".into()));}
+    let root=project.root()?;let found=project.find_files("**/*.php",1025)?;if found.len()>=1025{return Err(Error::Invalid(crate::ui_text::t("viewRename.error8","View rename source enumeration exceeds its 1024-file bound; no partial rename is offered.")));}
     let mut paths:BTreeSet<_>=found.into_iter().filter(|path|{let rel=path.strip_prefix(&root).and_then(|s|s.strip_prefix('/')).unwrap_or(path);!["vendor/","storage/","node_modules/","bootstrap/cache/"].iter().any(|p|rel.starts_with(p))}).collect();paths.insert(doc.path.clone());paths.insert(old.path.clone());
     let mut out=Vec::new();let mut total=0usize;
     for path in paths{if !crate::owns_current_path(project,&path){continue;}
         let source=if path==doc.path{doc.text.clone()}else{project.read_file(&path)?};total=total.checked_add(source.len()).ok_or(Error::Stale)?;
-        if source.len()>LIMIT||total>4*1024*1024{return Err(Error::Invalid("View rename source scan exceeds its review bound.".into()));}
+        if source.len()>LIMIT||total>4*1024*1024{return Err(Error::Invalid(crate::ui_text::t("viewRename.error9","View rename source scan exceeds its review bound.")));}
         let source_doc=Document{path:path.clone(),text:source.clone(),language:crate::language_of(&path,"").unwrap_or("php").into(),version:0};
-        let refs=references(&source_doc);if !binding_budget(source.len(),refs.len()){return Err(Error::Invalid("View rename binding analysis exceeds its per-source 128-reference / 8 MiB work bound; no partial rename is offered.".into()));}
+        let refs=references(&source_doc);if !binding_budget(source.len(),refs.len()){return Err(Error::Invalid(crate::ui_text::t("viewRename.error10","View rename binding analysis exceeds its per-source 128-reference / 8 MiB work bound; no partial rename is offered.")));}
         let mut edits=Vec::new();for reference in refs{if !reference.closed||!binding_safe(index,&source_doc,&reference){continue;}let Some(name)=source.get(reference.start..reference.end)else{continue;};
             let replacement=match reference.kind {Kind::View if name==old.name=>Some(new_name.to_owned()),Kind::Component=>component_tags.get(name).cloned(),_=>None};
             if let Some(replacement)=replacement{edits.push((Range::new(text::position(&source,reference.start),text::position(&source,reference.end)),replacement));}
@@ -181,24 +181,25 @@ fn plan(index:&Index,project:&Project,doc:&Document,old:&Candidate,new_name:&str
     }
     if !out.iter().any(|c|c.path==old.path){return Err(Error::Stale);}Ok(out)
 }
-pub(crate) fn resolve(_index:&Index,doc:&Document,action:FileAction)->Result<FileAction,Error>{
+pub(crate) fn resolve(index:&Index,doc:&Document,action:FileAction)->Result<FileAction,Error>{
     let data=action.data.as_deref().and_then(|s|s.strip_prefix("view-rename:")).filter(|s|s.len()<8192).ok_or(Error::Stale)?;
     let request:Request=serde_json::from_str(data).map_err(|_|Error::Stale)?;
     if request.doc!=doc.path||request.version!=doc.version||request.hash!=hash(&doc.text){return Err(Error::Stale);}
     let project=crate::project_for(&doc.path).ok_or(Error::Stale)?;if project.root()?!=request.root||project.read_file(&doc.path)?!=doc.text{return Err(Error::Stale);}
-    let index=Index::build(&project);if candidate(&index,&project,doc,request.selection).as_ref()!=Some(&request.candidate){return Err(Error::Stale);}
-    let input=host::input("New dotted view name (existing namespace/root retained)",Some(&request.candidate.name))?.ok_or(Error::Cancelled)?;
+    if !crate::index::index_sources_current(&project,index)||candidate(index,&project,doc,request.selection).as_ref()!=Some(&request.candidate){return Err(Error::Stale);}
+    let input=host::input(crate::ui_text::text("viewRename.input","New dotted view name (existing namespace/root retained)"),Some(&request.candidate.name))?.ok_or(Error::Cancelled)?;
     let (name,target)=new_target(&request.candidate,&input)?;
-    let before=plan(&index,&project,doc,&request.candidate,&name,&target)?;
-    let mut preview=format!("Project: {}\nRename view {} → {}\nMove {} → {}\n\nOnly proven PHP/Blade view references and indexed anonymous-component tags are updated. Dynamic references and PHP class names/imports are unchanged.\n\n",request.root,request.candidate.name,name,request.candidate.path,target);
+    if !crate::index::index_sources_current(&project,index){return Err(Error::Stale);}
+    let before=plan(index,&project,doc,&request.candidate,&name,&target)?;
+    let mut preview=crate::ui_text::format("viewRename.review","Project: {root}\nRename view {old} → {name}\nMove {source} → {target}\n\nOnly proven PHP/Blade view references and indexed anonymous-component tags are updated. Dynamic references and PHP class names/imports are unchanged.\n\n",&[("root",&request.root),("old",&request.candidate.name),("name",&name),("source",&request.candidate.path),("target",&target)]);
     let mut edits=Vec::new();
     for change in &before{let mut after=change.source.clone();for(range,replacement)in change.edits.iter().rev(){let start=text::offset(&change.source,range.start).ok_or(Error::Stale)?;let end=text::offset(&change.source,range.end).ok_or(Error::Stale)?;after.replace_range(start..end,replacement);}
-        preview.push_str(&format!("{}\nComplete resulting contents:\n{}\n\n",change.path,ui_kit::prompts::readable_source(&after)));
+        preview.push_str(&crate::ui_text::format("viewRename.contents","{path}\nComplete resulting contents:\n{contents}\n\n",&[("path",&change.path),("contents",&ui_kit::prompts::readable_source(&after))]));
         if !change.edits.is_empty(){edits.push((if change.path==request.candidate.path{target.clone()}else{change.path.clone()},change.edits.iter().map(|(range,text)|TextEdit{range:*range,text:text.clone()}).collect()));}
     }
-    if !ui_kit::prompts::confirm_exact("Rename view and its proven references?",&preview)?{return Err(Error::Cancelled);}
-    let latest=Index::build(&project);if project.read_file(&doc.path)?!=doc.text||candidate(&latest,&project,doc,request.selection).as_ref()!=Some(&request.candidate)||plan(&latest,&project,doc,&request.candidate,&name,&target)?!=before{return Err(Error::Stale);}
-    Ok(FileAction{title:format!("Rename view {} → {name}",request.candidate.name),operations:vec![FileOperation::Rename{from:request.candidate.path,to:target.clone()}],edits,open:Some(target),..Default::default()})
+    if !ui_kit::prompts::confirm_exact(crate::ui_text::text("viewRename.confirm","Rename view and its proven references?"),&preview)?{return Err(Error::Cancelled);}
+    if !crate::index::index_sources_current(&project,index)||project.read_file(&doc.path)?!=doc.text||candidate(index,&project,doc,request.selection).as_ref()!=Some(&request.candidate)||plan(index,&project,doc,&request.candidate,&name,&target)?!=before{return Err(Error::Stale);}
+    Ok(FileAction{title:crate::ui_text::format("viewRename.applied","Rename view {old} → {name}",&[("old",&request.candidate.name),("name",&name)]),operations:vec![FileOperation::Rename{from:request.candidate.path,to:target.clone()}],edits,open:Some(target),..Default::default()})
 }
 
 #[cfg(test)]
@@ -214,9 +215,19 @@ mod tests{
     fn controller(h:&MockHost)->Document{let source=h.invocation().project().unwrap().read_file("app/Http/Controllers/PostController.php").unwrap();Document{path:"/project/app/Http/Controllers/PostController.php".into(),language:"php".into(),version:1,text:source}}
     fn caret(doc:&Document,needle:&str)->Range{let at=text::position(&doc.text,doc.text.find(needle).unwrap()+1);Range::new(at,at)}
     fn run(h:&MockHost,index:&Index,doc:&Document,old:&str,new:&str)->Result<FileAction,Error>{let action=actions(index,doc,caret(doc,old)).remove(0);h.answer_next_prompt(Some(&[new]));h.answer_next_prompt(Some(&["yes"]));resolve(index,doc,action)}
+    #[test]fn localized_review_keeps_paths_and_exact_reference_replacements(){
+        let(h,_p,index)=setup();h.set_setting("uiLanguage",r#""ja""#);let doc=controller(&h);
+        let action=actions(&index,&doc,caret(&doc,"posts.show")).remove(0);
+        assert!(action.title.contains("posts.show"));assert!(!action.title.starts_with("Rename or move"));
+        h.answer_next_prompt(Some(&["posts.detail"]));h.answer_next_prompt(Some(&["yes"]));
+        let result=resolve(&index,&doc,action).unwrap();
+        assert!(result.title.contains("posts.show")&&result.title.contains("posts.detail"));
+        assert_eq!(result.edits[0].1[0].text,"posts.detail");
+        assert!(matches!(&result.operations[0],FileOperation::Rename{to,..} if to=="/project/resources/views/posts/detail.blade.php"));
+    }
     #[test]fn view_rename_returns_one_move_and_only_proven_literal_reference_edits(){
-        let(h,p,index)=setup();let doc=controller(&h);h.add_file("app/Other.php","<?php $unrelated='posts.show'; /* view('posts.show') */");
-        let result=run(&h,&index,&doc,"posts.show","posts.detail").unwrap();assert_eq!(result.operations.len(),1);
+        let(h,p,_index)=setup();let doc=controller(&h);h.add_file("app/Other.php","<?php $unrelated='posts.show'; /* view('posts.show') */");
+        let index=Index::build(&p);let result=run(&h,&index,&doc,"posts.show","posts.detail").unwrap();assert_eq!(result.operations.len(),1);
         assert!(matches!(&result.operations[0],FileOperation::Rename{from,to}if from=="/project/resources/views/posts/show.blade.php"&&to=="/project/resources/views/posts/detail.blade.php"));
         assert_eq!(result.edits.len(),1);assert_eq!(result.edits[0].1.len(),1);assert_eq!(result.edits[0].1[0].text,"posts.detail");
         assert!(p.exists("resources/views/posts/show.blade.php").unwrap());assert!(!p.exists("resources/views/posts/detail.blade.php").unwrap());
@@ -275,11 +286,18 @@ mod tests{
         h.add_file("app/ForeignFacade.php","<?php use App\\View; View::make('posts.show');");
         h.add_file("app/Explicit.php","<?php use function Vendor\\view; \\view('posts.show');");
         h.add_file("app/ExplicitFacade.php","<?php use App\\View; \\Illuminate\\Support\\Facades\\View::make('posts.show');");
-        let doc=controller(&h);let result=run(&h,&index,&doc,"posts.show","posts.detail").unwrap();
+        let index=Index::build(&p);let doc=controller(&h);let result=run(&h,&index,&doc,"posts.show","posts.detail").unwrap();
         assert!(!result.edits.iter().any(|(path,_)|path.ends_with("Foreign.php")||path.ends_with("ForeignFacade.php")));
         assert!(result.edits.iter().any(|(path,_)|path.ends_with("Explicit.php")));
         assert!(result.edits.iter().any(|(path,_)|path.ends_with("ExplicitFacade.php")));
         assert_eq!(p.read_file("app/Foreign.php").unwrap(),"<?php use function Vendor\\view; view('posts.show');");
+    }
+    #[test]fn completed_snapshot_rejects_new_source_membership_before_review(){
+        let(h,p,index)=setup();let doc=controller(&h);let action=actions(&index,&doc,caret(&doc,"posts.show")).remove(0);
+        assert!(crate::index::index_sources_current(&p,&index));h.add_file("app/Added.php","<?php class Added {}");
+        h.answer_next_prompt(Some(&["posts.detail"]));h.answer_next_prompt(Some(&["yes"]));
+        assert!(matches!(resolve(&index,&doc,action),Err(Error::Stale)));assert!(p.exists("resources/views/posts/show.blade.php").unwrap());
+        assert!(!p.exists("resources/views/posts/detail.blade.php").unwrap());
     }
     #[test]fn cancellation_and_changed_invoking_buffer_are_refused(){
         let(h,p,index)=setup();let doc=controller(&h);let action=actions(&index,&doc,caret(&doc,"posts.show")).remove(0);

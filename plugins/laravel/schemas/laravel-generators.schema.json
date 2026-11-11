@@ -49,22 +49,152 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "model": {
+        "blade-component": {
           "$ref": "#/$defs/generatorOptions"
         },
-        "migration": {
+        "cast": {
           "$ref": "#/$defs/generatorOptions"
         },
-        "factory": {
+        "channel": {
           "$ref": "#/$defs/generatorOptions"
         },
-        "seeder": {
+        "class": {
+          "$ref": "#/$defs/generatorOptions"
+        },
+        "command": {
           "$ref": "#/$defs/generatorOptions"
         },
         "controller": {
           "$ref": "#/$defs/generatorOptions"
         },
+        "dusk-component": {
+          "$ref": "#/$defs/generatorOptions"
+        },
+        "dusk-page": {
+          "$ref": "#/$defs/generatorOptions"
+        },
+        "dusk-test": {
+          "$ref": "#/$defs/generatorOptions"
+        },
+        "enum": {
+          "$ref": "#/$defs/generatorOptions"
+        },
+        "event": {
+          "$ref": "#/$defs/generatorOptions"
+        },
+        "exception": {
+          "$ref": "#/$defs/generatorOptions"
+        },
+        "facade": {
+          "$ref": "#/$defs/generatorOptions"
+        },
+        "factory": {
+          "$ref": "#/$defs/generatorOptions"
+        },
+        "feature-test": {
+          "$ref": "#/$defs/generatorOptions"
+        },
+        "filament-relation-manager": {
+          "$ref": "#/$defs/packageGeneratorOptions",
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "separate"
+                ]
+              }
+            ]
+          }
+        },
+        "filament-resource": {
+          "$ref": "#/$defs/packageGeneratorOptions"
+        },
+        "filament-schema": {
+          "$ref": "#/$defs/packageGeneratorOptions",
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "separate"
+                ]
+              },
+              {
+                "required": [
+                  "baseClass"
+                ]
+              }
+            ]
+          }
+        },
+        "filament-table": {
+          "$ref": "#/$defs/packageGeneratorOptions",
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "separate"
+                ]
+              },
+              {
+                "required": [
+                  "baseClass"
+                ]
+              }
+            ]
+          }
+        },
+        "http-exception": {
+          "$ref": "#/$defs/generatorOptions"
+        },
+        "interface": {
+          "$ref": "#/$defs/generatorOptions"
+        },
+        "job": {
+          "$ref": "#/$defs/generatorOptions"
+        },
+        "listener": {
+          "$ref": "#/$defs/generatorOptions"
+        },
+        "livewire-component": {
+          "$ref": "#/$defs/generatorOptions"
+        },
+        "livewire-form": {
+          "$ref": "#/$defs/generatorOptions"
+        },
+        "mail": {
+          "$ref": "#/$defs/generatorOptions"
+        },
+        "middleware": {
+          "$ref": "#/$defs/generatorOptions"
+        },
+        "migration": {
+          "$ref": "#/$defs/generatorOptions"
+        },
+        "model": {
+          "$ref": "#/$defs/generatorOptions"
+        },
+        "notification": {
+          "$ref": "#/$defs/generatorOptions"
+        },
+        "nova-resource": {
+          "$ref": "#/$defs/packageGeneratorOptions",
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "separate"
+                ]
+              }
+            ]
+          }
+        },
+        "observer": {
+          "$ref": "#/$defs/generatorOptions"
+        },
         "policy": {
+          "$ref": "#/$defs/generatorOptions"
+        },
+        "provider": {
           "$ref": "#/$defs/generatorOptions"
         },
         "request": {
@@ -72,8 +202,84 @@
         },
         "resource": {
           "$ref": "#/$defs/generatorOptions"
+        },
+        "resource-collection": {
+          "$ref": "#/$defs/generatorOptions"
+        },
+        "resource-controller": {
+          "$ref": "#/$defs/generatorOptions"
+        },
+        "rule": {
+          "$ref": "#/$defs/generatorOptions"
+        },
+        "scope": {
+          "$ref": "#/$defs/generatorOptions"
+        },
+        "seeder": {
+          "$ref": "#/$defs/generatorOptions"
+        },
+        "service": {
+          "$ref": "#/$defs/generatorOptions"
+        },
+        "tenant-migration": {
+          "$ref": "#/$defs/generatorOptions"
+        },
+        "trait": {
+          "$ref": "#/$defs/generatorOptions"
+        },
+        "unit-test": {
+          "$ref": "#/$defs/generatorOptions"
+        },
+        "view": {
+          "$ref": "#/$defs/generatorOptions"
+        },
+        "view-composer": {
+          "$ref": "#/$defs/generatorOptions"
+        },
+        "inertia-page": {
+          "$ref": "#/$defs/generatorOptions"
         }
       }
+    },
+    "application": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "namespace": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "sourceRoot": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "migrationRoot": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "viewRoot": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "testRoot": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "testNamespace": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      }
+    },
+    "allowApplication": {
+      "type": "boolean",
+      "default": true
     }
   },
   "$defs": {
@@ -248,7 +454,7 @@
                 "type": "string",
                 "maxLength": 4096,
                 "pattern": "^\\$\\{[^{}]*\\}$",
-                "description": "One expression consuming an input or earlier calculation, e.g. ${model|className|snake|plural}. Supported transforms: className, namespace, snake, kebab, studly, camel, plural, singular, php."
+                "description": "One expression consuming an input, CURRENT_TIME or earlier calculation. Supports bounded case, trim/replace/prefix/suffix, class/FQN helpers, inflection, PHP literals and UTC SimpleDateFormat date patterns; see schemas/README.md. Escape pipes inside arguments as \\|."
               },
               "label": {
                 "type": "string",
@@ -402,28 +608,194 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "model": {
+            "blade-component": {
               "$ref": "#/$defs/moduleGeneratorOptions"
             },
-            "migration": {
+            "cast": {
               "$ref": "#/$defs/moduleGeneratorOptions"
             },
-            "factory": {
+            "channel": {
               "$ref": "#/$defs/moduleGeneratorOptions"
             },
-            "seeder": {
+            "class": {
+              "$ref": "#/$defs/moduleGeneratorOptions"
+            },
+            "command": {
               "$ref": "#/$defs/moduleGeneratorOptions"
             },
             "controller": {
               "$ref": "#/$defs/moduleGeneratorOptions"
             },
+            "dusk-component": {
+              "$ref": "#/$defs/moduleGeneratorOptions"
+            },
+            "dusk-page": {
+              "$ref": "#/$defs/moduleGeneratorOptions"
+            },
+            "dusk-test": {
+              "$ref": "#/$defs/moduleGeneratorOptions"
+            },
+            "enum": {
+              "$ref": "#/$defs/moduleGeneratorOptions"
+            },
+            "event": {
+              "$ref": "#/$defs/moduleGeneratorOptions"
+            },
+            "exception": {
+              "$ref": "#/$defs/moduleGeneratorOptions"
+            },
+            "facade": {
+              "$ref": "#/$defs/moduleGeneratorOptions"
+            },
+            "factory": {
+              "$ref": "#/$defs/moduleGeneratorOptions"
+            },
+            "feature-test": {
+              "$ref": "#/$defs/moduleGeneratorOptions"
+            },
+            "filament-relation-manager": {
+              "$ref": "#/$defs/modulePackageGeneratorOptions",
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "separate"
+                    ]
+                  }
+                ]
+              }
+            },
+            "filament-resource": {
+              "$ref": "#/$defs/modulePackageGeneratorOptions"
+            },
+            "filament-schema": {
+              "$ref": "#/$defs/modulePackageGeneratorOptions",
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "separate"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "baseClass"
+                    ]
+                  }
+                ]
+              }
+            },
+            "filament-table": {
+              "$ref": "#/$defs/modulePackageGeneratorOptions",
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "separate"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "baseClass"
+                    ]
+                  }
+                ]
+              }
+            },
+            "http-exception": {
+              "$ref": "#/$defs/moduleGeneratorOptions"
+            },
+            "interface": {
+              "$ref": "#/$defs/moduleGeneratorOptions"
+            },
+            "job": {
+              "$ref": "#/$defs/moduleGeneratorOptions"
+            },
+            "listener": {
+              "$ref": "#/$defs/moduleGeneratorOptions"
+            },
+            "livewire-component": {
+              "$ref": "#/$defs/moduleGeneratorOptions"
+            },
+            "livewire-form": {
+              "$ref": "#/$defs/moduleGeneratorOptions"
+            },
+            "mail": {
+              "$ref": "#/$defs/moduleGeneratorOptions"
+            },
+            "middleware": {
+              "$ref": "#/$defs/moduleGeneratorOptions"
+            },
+            "migration": {
+              "$ref": "#/$defs/moduleGeneratorOptions"
+            },
+            "model": {
+              "$ref": "#/$defs/moduleGeneratorOptions"
+            },
+            "notification": {
+              "$ref": "#/$defs/moduleGeneratorOptions"
+            },
+            "nova-resource": {
+              "$ref": "#/$defs/modulePackageGeneratorOptions",
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "separate"
+                    ]
+                  }
+                ]
+              }
+            },
+            "observer": {
+              "$ref": "#/$defs/moduleGeneratorOptions"
+            },
             "policy": {
+              "$ref": "#/$defs/moduleGeneratorOptions"
+            },
+            "provider": {
               "$ref": "#/$defs/moduleGeneratorOptions"
             },
             "request": {
               "$ref": "#/$defs/moduleGeneratorOptions"
             },
             "resource": {
+              "$ref": "#/$defs/moduleGeneratorOptions"
+            },
+            "resource-collection": {
+              "$ref": "#/$defs/moduleGeneratorOptions"
+            },
+            "resource-controller": {
+              "$ref": "#/$defs/moduleGeneratorOptions"
+            },
+            "rule": {
+              "$ref": "#/$defs/moduleGeneratorOptions"
+            },
+            "scope": {
+              "$ref": "#/$defs/moduleGeneratorOptions"
+            },
+            "seeder": {
+              "$ref": "#/$defs/moduleGeneratorOptions"
+            },
+            "service": {
+              "$ref": "#/$defs/moduleGeneratorOptions"
+            },
+            "tenant-migration": {
+              "$ref": "#/$defs/moduleGeneratorOptions"
+            },
+            "trait": {
+              "$ref": "#/$defs/moduleGeneratorOptions"
+            },
+            "unit-test": {
+              "$ref": "#/$defs/moduleGeneratorOptions"
+            },
+            "view": {
+              "$ref": "#/$defs/moduleGeneratorOptions"
+            },
+            "view-composer": {
+              "$ref": "#/$defs/moduleGeneratorOptions"
+            },
+            "inertia-page": {
               "$ref": "#/$defs/moduleGeneratorOptions"
             }
           }
@@ -544,6 +916,11 @@
               }
             }
           }
+        },
+        "modelPostfix": {
+          "type": "string",
+          "maxLength": 96,
+          "default": ""
         }
       }
     },
@@ -570,6 +947,21 @@
         "availableInModules": {
           "type": "boolean",
           "default": true
+        },
+        "baseClass": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "postfix": {
+          "type": "string",
+          "maxLength": 96
+        },
+        "template": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "Registered owned/captured template relative name. Coordinated model/related outputs use ${generated}, ${namespace}, ${class}, ${model}, ${body}, ${members}, ${table}; native installed-stub catalogue templates additionally support installed Laravel slots."
         }
       }
     },
@@ -592,6 +984,133 @@
         "availableInModules": {
           "type": "boolean",
           "default": true
+        },
+        "baseClass": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "postfix": {
+          "type": "string",
+          "maxLength": 96
+        },
+        "template": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "Registered owned/captured template relative name. Coordinated model/related outputs use ${generated}, ${namespace}, ${class}, ${model}, ${body}, ${members}, ${table}; native installed-stub catalogue templates additionally support installed Laravel slots."
+        }
+      }
+    },
+    "packageGeneratorOptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "directory": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "description": "Project-relative native output directory. Optional ${sourceRoot} and ${moduleRoot} placeholders resolve in the selected context."
+        },
+        "namespace": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "description": "Qualified namespace; optional ${namespace} resolves to the application/module namespace. Not accepted for migrations."
+        },
+        "availableInApplication": {
+          "type": "boolean",
+          "default": true
+        },
+        "availableInModules": {
+          "type": "boolean",
+          "default": true
+        },
+        "baseClass": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "postfix": {
+          "type": "string",
+          "maxLength": 96
+        },
+        "template": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "Registered owned/captured template relative name. Coordinated model/related outputs use ${generated}, ${namespace}, ${class}, ${model}, ${body}, ${members}, ${table}; native installed-stub catalogue templates additionally support installed Laravel slots."
+        },
+        "labelMode": {
+          "enum": [
+            "none",
+            "title",
+            "fieldPrefix"
+          ],
+          "description": "Nova/Filament field title translation mode; other generator kinds reject this option."
+        },
+        "labelPrefix": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Nova/Filament translated field-key prefix."
+        },
+        "separate": {
+          "type": "boolean",
+          "description": "Filament resource schema/table separation for versions 4 and 5."
+        }
+      }
+    },
+    "modulePackageGeneratorOptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "directory": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "description": "Project-relative native output directory. Optional ${sourceRoot} and ${moduleRoot} placeholders resolve in the selected context."
+        },
+        "namespace": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "description": "Qualified namespace; optional ${namespace} resolves to the application/module namespace. Not accepted for migrations."
+        },
+        "availableInModules": {
+          "type": "boolean",
+          "default": true
+        },
+        "baseClass": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "postfix": {
+          "type": "string",
+          "maxLength": 96
+        },
+        "template": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "Registered owned/captured template relative name. Coordinated model/related outputs use ${generated}, ${namespace}, ${class}, ${model}, ${body}, ${members}, ${table}; native installed-stub catalogue templates additionally support installed Laravel slots."
+        },
+        "labelMode": {
+          "enum": [
+            "none",
+            "title",
+            "fieldPrefix"
+          ],
+          "description": "Nova/Filament field title translation mode; other generator kinds reject this option."
+        },
+        "labelPrefix": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Nova/Filament translated field-key prefix."
+        },
+        "separate": {
+          "type": "boolean",
+          "description": "Filament resource schema/table separation for versions 4 and 5."
         }
       }
     }

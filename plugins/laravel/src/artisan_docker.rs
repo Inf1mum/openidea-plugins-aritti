@@ -214,13 +214,13 @@ fn load(root: &str) -> Result<Option<Value>, Error> {
         || value["capturedAt"].as_u64().is_none()
     {
         return Err(Error::Invalid(
-            "Existing Docker metadata cache has an unsupported or foreign owner; retained.".into(),
+            crate::ui_text::text("native.artisan_docker.59070c8145", "Existing Docker metadata cache has an unsupported or foreign owner; retained.").into(),
         ));
     }
     let target = Target::from_identity(&value["identity"])?;
     if value["identity"]["argv"] != json!(target.exec()) {
         return Err(Error::Invalid(
-            "Docker cache argv owner is invalid; retained.".into(),
+            crate::ui_text::text("native.artisan_docker.68f8f959be", "Docker cache argv owner is invalid; retained.").into(),
         ));
     }
     inspect(&value["proof"].to_string(), &value["identity"])?;
@@ -228,7 +228,7 @@ fn load(root: &str) -> Result<Option<Value>, Error> {
     Ok(Some(value))
 }
 fn run(project: &Project, args: &[String]) -> Result<String, Error> {
-    let task = host::begin_task("Inspect/discover Docker Artisan metadata", true);
+    let task = host::begin_task(crate::ui_text::text("native.artisan_docker.e4cbafe8e6", "Inspect/discover Docker Artisan metadata"), true);
     let child = host::start(&host::Command::new("docker").args(args), Some(project))?;
     if let Err(error) = child.close_stdin() {
         let _ = child.kill();
@@ -251,22 +251,15 @@ fn refresh_with(
 ) -> Result<Option<String>, Error> {
     let project = ctx
         .project()
-        .ok_or("Open the owning Laravel project first.")?;
+        .ok_or(crate::ui_text::text("native.artisan_docker.7b35695466", "Open the owning Laravel project first."))?;
     let before = identity(&project)?;
     let root = before["root"].as_str().ok_or(Error::Stale)?;
     let baseline = host::storage::get(&key(root))?;
     let _ = load(root)?; // Also requires storage before any runtime execution.
     let target = Target::from_identity(&before)?;
-    let preview = format!(
-        "This executes project/container-controlled PHP bootstrap code, even though only list metadata is requested. It can change project files, databases or container state.\n\nHost project / CLI working directory: {root}\nRunner: docker resolved from host PATH (process:docker required)\nPinned local endpoint: {}\nFull container ID: {}\nContainer PHP working directory: {}\n\nInspect argv (before and after execution): {}\nMetadata exec argv: {}\n\nInspection must prove one running unpaused container with an a verified project bind mapping and no foreign shadowing project mounts. No shell, container creation/start or application command selection is used. Each process is limited to 4MiB combined output and four seconds of polling. Killing the Docker client cannot guarantee stopping an already started container PHP process. The previous accepted cache survives failure/cancellation. Local PHP metadata stays separate. Docker workspace runs use this exact target and their own captured command definitions.",
-        target.socket,
-        target.container,
-        target.workdir,
-        json!(target.inspect()),
-        json!(target.exec())
-    );
+    let preview = crate::ui_text::format("native.dockerRoute.329d8b1654","This executes project/container-controlled PHP bootstrap code, even though only list metadata is requested. It can change project files, databases or container state.\n\nHost project / CLI working directory: {root}\nRunner: docker resolved from host PATH (process:docker required)\nPinned local endpoint: {socket}\nFull container ID: {container}\nContainer PHP working directory: {workdir}\n\nInspect argv (before and after execution): {inspectArgv}\nMetadata exec argv: {execArgv}\n\nInspection must prove one running unpaused container with an a verified project bind mapping and no foreign shadowing project mounts. No shell, container creation/start or application command selection is used. Each process is limited to 4MiB combined output and four seconds of polling. Killing the Docker client cannot guarantee stopping an already started container PHP process. The previous accepted cache survives failure/cancellation. Local PHP metadata stays separate. Docker workspace runs use this exact target and their own captured command definitions.",&[("root",&(root).to_string()),("socket",&(target.socket).to_string()),("container",&(target.container).to_string()),("workdir",&(target.workdir).to_string()),("inspectArgv",&(json!(target.inspect())).to_string()),("execArgv",&(json!(target.exec())).to_string())]);
     if !ui_kit::prompts::confirm_exact(
-        "Execute container PHP to discover Docker Artisan metadata?",
+        crate::ui_text::text("native.dockerRoute.250e27e4d9","Execute container PHP to discover Docker Artisan metadata?"),
         &preview,
     )? {
         return Ok(None);
@@ -303,19 +296,20 @@ fn refresh_with(
     let raw = value.to_string();
     if raw.len() > MAX_CACHE {
         return Err(Error::Invalid(
-            "Docker metadata envelope exceeds5MiB; previous snapshot retained.".into(),
+            crate::ui_text::text("native.artisan_docker.6ee56051a8", "Docker metadata envelope exceeds5MiB; previous snapshot retained.").into(),
         ));
     }
     host::storage::set(&key(root), &raw)?;
     host::notify(
         NotificationLevel::Info,
         "Laravel",
-        "Saved executed Docker Artisan metadata. Select Docker in Artisan to configure and run these commands. Local PHP metadata remains separate.",
+        crate::ui_text::text("native.artisan_docker.4d0b76ba3b", "Saved executed Docker Artisan metadata. Select Docker in Artisan to configure and run these commands. Local PHP metadata remains separate."),
     );
     Ok(None)
 }
 /// Current selected/configured target label; no Docker invocation or metadata refresh.
-pub(super) fn target_label(project: &Project) -> Result<Option<String>, Error> {
+pub(super) fn target_label(project:&Project)->Result<Option<String>,Error>{target_label_inner(project).map_err(ui_error)}
+fn target_label_inner(project: &Project) -> Result<Option<String>, Error> {
     let target = if let Some(target) = discovery::selected(project)? {
         target
     } else {
@@ -334,13 +328,14 @@ pub(super) fn target_label(project: &Project) -> Result<Option<String>, Error> {
 }
 
 /// Current cached Docker definitions; reading never inspects or executes a container.
-pub(super) fn snapshot(project: &Project) -> Result<Value, Error> {
+pub(super) fn snapshot(project:&Project)->Result<Value,Error>{snapshot_inner(project).map_err(ui_error)}
+fn snapshot_inner(project: &Project) -> Result<Value, Error> {
     let owner = identity(project)?;
     load(owner["root"].as_str().ok_or(Error::Stale)?)?
         .filter(|value| value["identity"] == owner)
         .ok_or_else(|| {
             Error::Invalid(
-                "Refresh Docker commands for this project and configured target first.".into(),
+                crate::ui_text::text("native.artisan_docker.c5db28ea55", "Refresh Docker commands for this project and configured target first.").into(),
             )
         })
 }
@@ -366,7 +361,7 @@ pub(super) fn argv(
 }
 /// Proves the configured target is still the same running container and bind mount.
 pub(super) fn verify(project: &Project) -> Result<(), Error> {
-    verify_with(project, run)
+    verify_with(project, run).map_err(ui_error)
 }
 fn verify_with(
     project: &Project,
@@ -382,17 +377,18 @@ fn verify_with(
 }
 
 pub fn refresh(ctx: &Invocation) -> Result<Option<String>, Error> {
-    refresh_with(ctx, run)
+    refresh_with(ctx, run).map_err(ui_error)
 }
-pub fn browse(ctx: &Invocation) -> Result<Option<String>, Error> {
+pub fn browse(ctx:&Invocation)->Result<Option<String>,Error>{browse_inner(ctx).map_err(ui_error)}
+fn browse_inner(ctx: &Invocation) -> Result<Option<String>, Error> {
     let project = ctx
         .project()
-        .ok_or("Open the owning Laravel project first.")?;
+        .ok_or(crate::ui_text::text("native.artisan_docker.7b35695466", "Open the owning Laravel project first."))?;
     let owner = identity(&project)?;
     let value = load(owner["root"].as_str().ok_or(Error::Stale)?)?.filter(|v| v["identity"] == owner)
-        .ok_or("No accepted Docker metadata for this project/endpoint/container/source identity. Use the explicit Docker metadata refresh command.")?;
+        .ok_or(crate::ui_text::text("native.artisan_docker.458437fcc2", "No accepted Docker metadata for this project/endpoint/container/source identity. Use the explicit Docker metadata refresh command."))?;
     let commands = metadata::parse(&json!({"commands":value["commands"]}).to_string())?;
-    let commands = commands.as_array().ok_or("Unsupported cached commands.")?;
+    let commands = commands.as_array().ok_or(crate::ui_text::text("native.artisan_docker.92654a4c9d", "Unsupported cached commands."))?;
     let choices: Vec<PickItem> = commands
         .iter()
         .map(|command| {
@@ -403,20 +399,17 @@ pub fn browse(ctx: &Invocation) -> Result<Option<String>, Error> {
                 .chars()
                 .take(512)
                 .collect();
-            PickItem::new(name, name).description(&format!(
-                "Executed Docker snapshot; captured Unix {} (may be stale). {description}",
-                value["capturedAt"]
-            ))
+            PickItem::new(name, name).description(&crate::ui_text::format("native.dockerRoute.c524db5420","Executed Docker snapshot; captured Unix {captured} (may be stale). {description}",&[("captured",&(value["capturedAt"]).to_string()),("description",&(description).to_string())]))
         })
         .collect();
-    let Some(selected) = host::pick("Cached Docker Artisan commands — read-only", &choices)?
+    let Some(selected) = host::pick(crate::ui_text::text("native.artisan_docker.50816ef566", "Cached Docker Artisan commands — read-only"), &choices)?
     else {
         return Ok(None);
     };
     let command = commands
         .iter()
         .find(|c| c["name"] == selected)
-        .ok_or("Selected Docker command is stale or unknown.")?;
+        .ok_or(crate::ui_text::text("native.artisan_docker.be26dfdf4e", "Selected Docker command is stale or unknown."))?;
     if ctx.project().and_then(|p| p.root().ok()).as_deref() != owner["root"].as_str()
         || identity(&project)? != owner
     {
@@ -426,23 +419,23 @@ pub fn browse(ctx: &Invocation) -> Result<Option<String>, Error> {
     for kind in ["arguments", "options"] {
         for (i, item) in command["definition"][kind]
             .as_array()
-            .ok_or("Unsupported cached definition.")?
+            .ok_or(crate::ui_text::text("native.artisan_docker.be9f5ce189", "Unsupported cached definition."))?
             .iter()
             .enumerate()
         {
             let name = item["name"].as_str().unwrap_or_default();
             let flags: Vec<String> = [
-                ("is_required", "required"),
-                ("is_array", "array"),
-                ("accept_value", "accepts value"),
-                ("is_value_required", "value required"),
-                ("is_multiple", "multiple"),
+                ("is_required", crate::ui_text::text("native.dockerRoute.1a77d41622","required")),
+                ("is_array", crate::ui_text::text("native.dockerRoute.19edc12107","array")),
+                ("accept_value", crate::ui_text::text("native.dockerRoute.13907317bf","accepts value")),
+                ("is_value_required", crate::ui_text::text("native.dockerRoute.e91b1464a8","value required")),
+                ("is_multiple", crate::ui_text::text("native.dockerRoute.88fc77e78f","multiple")),
             ]
             .into_iter()
             .filter_map(|(key, label)| {
                 item[key]
                     .as_bool()
-                    .map(|value| format!("{label}: {}", if value { "yes" } else { "no" }))
+                    .map(|value| format!("{label}: {}", if value { crate::ui_text::text("native.dockerRoute.fb360f9c09","yes") } else { crate::ui_text::text("native.dockerRoute.fd12863535","no") }))
             })
             .collect();
             let description: String = item["description"]
@@ -452,11 +445,11 @@ pub fn browse(ctx: &Invocation) -> Result<Option<String>, Error> {
                 .take(512)
                 .collect();
             details.push(
-                PickItem::new(&format!("{kind}:{i}"), &format!("{kind}: {name}")).description(
+                PickItem::new(&format!("{kind}:{i}"), &crate::ui_text::format("native.dockerRoute.b6f3838a93","{kind}: {name}",&[("kind",&(if kind=="arguments"{crate::ui_text::text("native.dockerRoute.536f158f6d","arguments")}else{crate::ui_text::text("native.dockerRoute.513f8de925","options")}).to_string()),("name",&(name).to_string())])).description(
                     &format!(
                         "{description}; {}",
                         if flags.is_empty() {
-                            "No captured argument flags".into()
+                            crate::ui_text::text("native.dockerRoute.25ab82bb0e","No captured argument flags").into()
                         } else {
                             flags.join("; ")
                         }
@@ -468,16 +461,40 @@ pub fn browse(ctx: &Invocation) -> Result<Option<String>, Error> {
     if details.is_empty() {
         details.push(PickItem::new(
             "none",
-            "No declared arguments or options in this captured snapshot",
+            crate::ui_text::text("native.artisan_docker.da564b5fc4", "No declared arguments or options in this captured snapshot"),
         ));
     }
     let _ = host::pick(
-        "Cached declarations — read-only; no command will execute",
+        crate::ui_text::text("native.artisan_docker.b25995fb3c", "Cached declarations — read-only; no command will execute"),
         &details,
     )?;
     Ok(None)
 }
 
+
+// Exact authored messages are localized only after validation reaches a UI caller.
+pub(super) fn ui_error(error:Error)->Error {
+    fn message(message:String)->String{match message.as_str(){
+        "Configure a local unix:///absolute/socket, full lowercase64hex container ID and normalized absolute container project directory in Laravel Docker metadata settings." => crate::ui_text::t("native.artisan_docker.2233a75456",&message),
+        "Docker discovery exceeds 128 running containers; configure a target manually." => crate::ui_text::t("native.dockerRoute.dc0179d8a4",&message),
+        "Docker discovery output exceeds 4 MiB." => crate::ui_text::t("native.dockerRoute.0074eb8175",&message),
+        "Docker discovery returned an invalid or duplicate full container ID." => crate::ui_text::t("native.dockerRoute.c77c646d14",&message),
+        "Docker image identity is unavailable." => crate::ui_text::t("native.artisan_docker.6c40883c1a",&message),
+        "Docker inspection output exceeds 4 MiB." => crate::ui_text::t("native.dockerRoute.f8e9810cb0",&message),
+        "Docker mount destination is not normalized." => crate::ui_text::t("native.artisan_docker.69dba2d9a4",&message),
+        "Docker mount inventory is unavailable or too large." => crate::ui_text::t("native.artisan_docker.e7ed054e46",&message),
+        "Docker mount source is unavailable." => crate::ui_text::t("native.artisan_docker.aacdd913eb",&message),
+        "Docker mount type is unavailable." => crate::ui_text::t("native.artisan_docker.92c8419b6f",&message),
+        "Docker project directory has an unverified or foreign shadowing mount." => crate::ui_text::t("native.artisan_docker.e7c08659a7",&message),
+        "Docker project directory must map exactly to this project through its most-specific bind mount. Volume-only/Mutagen project roots cannot be verified from Docker metadata." => crate::ui_text::t("native.artisan_docker.9e58d466b2",&message),
+        "Docker start identity is unavailable." => crate::ui_text::t("native.artisan_docker.a155ecb69d",&message),
+        "Docker target has no verifiable bind mapping for this project directory." => crate::ui_text::t("native.artisan_docker.1d49b5d402",&message),
+        "Docker target is not the exact configured running, unpaused container." => crate::ui_text::t("native.artisan_docker.b71ac18ab8",&message),
+        "Saved Docker target has a foreign or unsupported owner." => crate::ui_text::t("native.dockerRoute.f21c24e157",&message),
+        _=>message,
+    }}
+    match error{Error::Invalid(value)=>Error::Invalid(message(value)),Error::Failed(value)=>Error::Failed(message(value)),_=>error}
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -634,6 +651,7 @@ mod tests {
     }
     #[test]
     fn target_validation_rejects_remote_shell_relative_and_short_identity_inputs() {
+        let _ui_host=openidea_plugin::mock::MockHost::install();
         for (socket, id, dir) in [
             ("tcp://daemon:2375", ID, "/workspace"),
             ("ssh://remote", ID, "/workspace"),

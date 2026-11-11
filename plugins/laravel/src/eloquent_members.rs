@@ -21,7 +21,21 @@ mod objects;
 mod traits;
 pub(crate) use casts::{Enums, cache as cache_enum};
 pub(crate) use objects::{Objects, cache as cache_object};
-pub(crate) use traits::finish;
+/// Declared enum cases and literal backing values, never runtime evaluation.
+pub(crate) fn enum_values(index:&Index,full:&str,owns:&dyn Fn(&str)->bool)->Option<(String,Vec<(String,Option<serde_json::Value>,Entry)>,Option<String>)>{
+    let info=index.eloquent_enums.get(&full.trim_start_matches('\\').to_ascii_lowercase()).filter(|info|!info.ambiguous&&owns(&info.path))?;
+    Some((info.path.clone(),info.cases.clone()?,info.value_type.clone()))
+}
+/// Incremental semantic preprocessing; source coverage is unaffected by an
+/// unsupported per-model trait/relation graph.
+pub(crate) fn finish_model(models:&mut Models,key:&str){
+    fn augment(models:&mut Models,key:&str){
+        let pending=models.get(key).is_some_and(|model|model.semantic.relation_declarations.through.iter().any(|fact|!model.relations.contains_key(&fact.name))||model.semantic.relation_declarations.annotated.iter().any(|fact|!model.relations.contains_key(&fact.name)));
+        if pending&&let Some(mut model)=models.get(key).cloned(){relations::augment(&mut model,models);models.insert(key.into(),model);}
+    }
+    augment(models,key);traits::finish_one(models,key);augment(models,key);
+}
+pub(crate) fn finish(models:&mut Models)->bool{relations::finish(models);let complete=traits::finish(models);relations::finish(models);complete}
 #[path = "metadata_inference.rs"]
 pub(crate) mod metadata_inference;
 pub(crate) use metadata_inference::{cache as cache_metadata, finish as finish_metadata};
@@ -30,6 +44,31 @@ pub(crate) use metadata_inference::{cache as cache_metadata, finish as finish_me
 pub(crate) mod helper_facts;
 #[path="eloquent_related_facts.rs"]
 pub(crate) mod related_facts;
+#[path="eloquent_semantic.rs"]
+pub(crate) mod semantic;
+pub(crate) use semantic::type_definition_checked;
+#[path="eloquent_container.rs"]
+mod container;
+#[path="eloquent_callbacks.rs"]
+mod callbacks;
+#[path="eloquent_pipe.rs"]
+mod pipe;
+pub(crate) use pipe::{Functions,cache as cache_functions};
+#[path="eloquent_relations.rs"]
+mod relations;
+pub(crate) use relations::{BelongsToKeys,belongs_to_key_source,belongs_to_keys};
+#[path="package_declared_relations.rs"]
+pub(crate) mod package_relations;
+#[path="eloquent_accessors.rs"]
+mod accessors;
+#[path="eloquent_conditionals.rs"]
+mod conditionals;
+#[path="eloquent_package_queries.rs"]
+pub(crate) mod package_queries;
+
+#[path="eloquent_syntax_cache.rs"]
+mod syntax_cache;
+pub(crate) use syntax_cache::enter as index_syntax_scope;
 
 const MAX_TEXT: usize = 128 * 1024;
 const MAX_TOKENS: usize = 8192;
@@ -50,11 +89,16 @@ struct Token<'a> {
 struct Source<'a> {
     text: &'a str,
     tokens: Vec<Token<'a>>,
-    pairs: BTreeMap<usize, usize>,
-    paths: Vec<Vec<usize>>,
+    pairs: std::rc::Rc<BTreeMap<usize, usize>>,
+    paths: std::rc::Rc<Vec<Vec<usize>>>,
 }
 impl<'a> Source<'a> {
     fn new(text: &'a str) -> Option<Self> {
+        if text.len()>MAX_TEXT{return None;}
+        let hash=match syntax_cache::lookup(text){syntax_cache::Lookup::Hit(source)=>return source,syntax_cache::Lookup::Miss(hash)=>Some(hash),syntax_cache::Lookup::Inactive=>None};
+        let source=Self::parse(text);if let Some(hash)=hash{syntax_cache::remember(hash,text,source.as_ref());}source
+    }
+    fn parse(text: &'a str) -> Option<Self> {
         if text.len() > MAX_TEXT {
             return None;
         }
@@ -113,7 +157,7 @@ impl<'a> Source<'a> {
                     at += 1;
                 }
                 kind = Kind::Var;
-            } else if bytes[at].is_ascii_alphabetic() || matches!(bytes[at], b'_' | b'\\') {
+            } else if bytes[at].is_ascii_alphabetic() || bytes[at] >= 0x80 || matches!(bytes[at], b'_' | b'\\') {
                 at += 1;
                 while at < bytes.len() && (php::is_identifier(bytes[at]) || bytes[at] == b'\\') {
                     at += 1;
@@ -121,7 +165,7 @@ impl<'a> Source<'a> {
                 kind = Kind::Name;
             } else {
                 let size = [
-                    "?->", "->", "::", "=>", "??", "==", "!=", "+=", "-=", "*=", "/=", "++", "--",
+                    "?->", "...", "|>", "->", "::", "=>", "??", "==", "!=", "+=", "-=", "*=", "/=", "++", "--",
                     "&=", "|=",
                 ]
                 .into_iter()
@@ -176,8 +220,8 @@ impl<'a> Source<'a> {
         Some(Self {
             text,
             tokens,
-            pairs,
-            paths,
+            pairs: std::rc::Rc::new(pairs),
+            paths: std::rc::Rc::new(paths),
         })
     }
     fn is(&self, i: usize, value: &str) -> bool {
@@ -224,6 +268,19 @@ impl<'a> Source<'a> {
                 end,
             });
         }
+        for(i,token)in self.tokens.iter().enumerate().filter(|(_,token)|token.value=="fn"){
+            let _=token;
+            if !self.is(i+1,"("){continue;}
+            let Some(close)=self.pairs.get(&(i+1)).copied()else{continue};
+            let mut body=close+1;
+            if self.is(body,":"){body+=1;while self.tokens.get(body).is_some_and(|token|token.kind==Kind::Name||matches!(token.value,"?"|"|"|"&")){body+=1;}}
+            if !self.is(body,"=>"){continue;}
+            let mut end=body+1;
+            while end<self.tokens.len()&&!matches!(self.tokens[end].value,","|";"|")"|"]"|"}"){
+                if let Some(close)=self.pairs.get(&end).filter(|close|**close>end){end=close+1;}else{end+=1;}
+            }
+            found.push(Function{start:i,name:None,params:i+2..close,body,end});
+        }
         found
     }
 }
@@ -244,14 +301,15 @@ struct Names {
 impl Names {
     fn parse(source: &Source) -> Option<Self> {
         let t = &source.tokens;
-        if t.iter()
-            .filter(|token| token.value.eq_ignore_ascii_case("namespace"))
+        let namespace_decl=|at:usize|source.is(at,"namespace")&&source.paths[at].is_empty()&&!source.is(at+1,":")&&!source.is(at+1,"=")&&(at==0||!matches!(t[at-1].value,"::"|"->"|"?->"|"function"));
+        if t.iter().enumerate()
+            .filter(|(at,_)|namespace_decl(*at))
             .count()
             > 1
             || t.iter()
                 .enumerate()
                 .filter(|(i, t)| {
-                    t.value.eq_ignore_ascii_case("class") && (*i == 0 || !source.is(i - 1, "::"))
+                    t.value.eq_ignore_ascii_case("class") && !source.is(*i+1,":") && (*i == 0 || !matches!(source.tokens[i-1].value,"::"|"->"|"?->"|"function"))
                 })
                 .count()
                 > 1
@@ -261,7 +319,7 @@ impl Names {
         let mut result = Self::default();
         let mut i = 0;
         while i < t.len() {
-            if source.is(i, "namespace") {
+            if namespace_decl(i) {
                 if !result.namespace.is_empty() || !source.is(i + 2, ";") {
                     return None;
                 }
@@ -272,7 +330,8 @@ impl Names {
             if ["class", "enum", "interface", "trait"]
                 .iter()
                 .any(|kind| source.is(i, kind))
-                && (i == 0 || !source.is(i - 1, "::"))
+                && !source.is(i+1,":")
+                && (i == 0 || !matches!(source.tokens[i-1].value,"::"|"->"|"?->"|"function"))
             {
                 if t.get(i + 1)?.kind != Kind::Name {
                     return None;
@@ -379,6 +438,8 @@ impl Names {
 }
 #[derive(Clone, Debug)]
 pub(crate) struct Relation {
+    source_type:Option<String>,
+    evidence_paths:Vec<String>,
     target: String,
     kind: String,
     many: bool,
@@ -393,6 +454,7 @@ pub(crate) struct Model {
     base: bool,
     explicit_table: bool,
     is_trait: bool,
+    is_abstract: bool,
     traits: Vec<String>,
     trait_adaptations: bool,
     adaptations: Vec<traits::Adaptation>,
@@ -406,6 +468,22 @@ pub(crate) struct Model {
     relations: BTreeMap<String, Relation>,
     scopes: BTreeMap<String, Entry>,
     declared: BTreeSet<String>,
+    semantic: semantic::Declared,
+}
+/// Cached declaration identity for reviewed consumers. Callers must validate
+/// ownership and freshness before offering edits; this performs no host reads.
+#[derive(Clone,Debug)]
+pub(crate) struct ClassIdentity {
+    pub full:String,
+    pub path:String,
+    pub parent:String,
+    pub traits:Vec<String>,
+    pub is_trait:bool,
+    pub is_abstract:bool,
+    pub ambiguous:bool,
+}
+pub(crate) fn class_inventory(models:&Models)->Vec<ClassIdentity>{
+    models.values().map(|model|ClassIdentity{full:model.full.clone(),path:model.path.clone(),parent:model.parent.clone(),traits:model.traits.clone(),is_trait:model.is_trait,is_abstract:model.is_abstract,ambiguous:model.ambiguous}).collect()
 }
 pub(crate) type Models = BTreeMap<String, Model>;
 pub(crate) fn cache(models: &mut Models, source: &str, path: &str) {
@@ -421,6 +499,109 @@ pub(crate) fn cache(models: &mut Models, source: &str, path: &str) {
     }
 }
 
+/// Cheap declared-method graph input for installed-source safety checks. All
+/// visibilities and abstract declarations count; trait adaptations are unknown.
+pub(crate) fn declared_method_inventory(text:&str,path:&str)->Option<(String,String,Vec<String>,Vec<(String,Entry)>)>{
+    let source=Source::new(text)?;let names=Names::parse(&source)?;let(full,_,body,parent)=names.class.as_ref()?;
+    if !source.pairs.contains_key(body){return None;}
+    let mut traits=Vec::new();let mut methods=Vec::new();let mut seen=BTreeSet::new();
+    for(at,token)in source.tokens.iter().enumerate().filter(|(at,_)|source.paths[*at]==vec![*body]){
+        if token.value.eq_ignore_ascii_case("use")&&source.tokens.get(at+1).is_some_and(|t|t.kind==Kind::Name){
+            let mut next=at+1;loop{
+                let name=source.tokens.get(next).filter(|t|t.kind==Kind::Name)?;traits.push(names.resolve(name.value));next+=1;
+                if source.is(next,"{"){return None;}if source.is(next,";"){break;}if !source.is(next,","){return None;}next+=1;
+            }
+        }
+        if !token.value.eq_ignore_ascii_case("function")||at>0&&matches!(source.tokens[at-1].value,"::"|"->"|"?->"){continue;}
+        let name_at=at+1+usize::from(source.is(at+1,"&"));
+        let Some(name)=source.tokens.get(name_at).filter(|t|t.kind==Kind::Name)else{continue};
+        if !source.is(name_at+1,"(")||!source.pairs.contains_key(&(name_at+1)){return None;}
+        if !seen.insert(name.value.to_ascii_lowercase()){return None;}
+        methods.push((name.value.into(),entry(&source,path,name_at)));
+    }
+    Some((full.clone(),parent.clone(),traits,methods))
+}
+
+/// PHP integer syntax without evaluation (decimal, octal, binary, hex and
+/// digit separators), bounded to values that PHP represents as signed ints.
+pub(crate) fn integer_literal(value:&str)->Option<i64>{
+    let value=value.trim();let(negative,value)=if let Some(rest)=value.strip_prefix('-'){(true,rest)}else{(false,value.strip_prefix('+').unwrap_or(value))};
+    let value=value.trim_start();let(radix,digits)=if value.starts_with("0x")||value.starts_with("0X"){(16,&value[2..])}else if value.starts_with("0b")||value.starts_with("0B"){(2,&value[2..])}else if value.starts_with("0o")||value.starts_with("0O"){(8,&value[2..])}else if value.starts_with('0')&&value.len()>1{(8,value)}else{(10,value)};
+    if digits.is_empty(){return None;}let chars=digits.chars().collect::<Vec<_>>();
+    for(at,ch)in chars.iter().enumerate(){if *ch=='_'{if at==0||at+1==chars.len()||!chars[at-1].is_digit(radix)||!chars[at+1].is_digit(radix){return None;}}else if !ch.is_ascii()||!ch.is_digit(radix){return None;}}
+    let magnitude=i128::from_str_radix(&digits.replace('_',""),radix).ok()?;if magnitude>i64::MAX as i128{return None;}i64::try_from(if negative{-magnitude}else{magnitude}).ok()
+}
+/// Literal public own class/enum/interface constants only. No inherited or
+/// executable expressions are interpreted; private/protected values are omitted.
+pub(crate) fn literal_constants(text:&str)->Option<(String,BTreeMap<String,serde_json::Value>)>{
+    let source=Source::new(text)?;let names=Names::parse(&source)?;let(full,_,body,_)=names.class.as_ref()?;
+    if !source.pairs.contains_key(body){return None;}let mut result=BTreeMap::new();let mut seen=BTreeSet::new();
+    for(at,token)in source.tokens.iter().enumerate().filter(|(at,token)|token.value.eq_ignore_ascii_case("const")&&source.paths[*at]==vec![*body]&&!source.is(*at+1,":")&&!source.is(*at+1,"=")&&(*at==0||!source.is(*at-1,"function")&&!matches!(source.tokens[at-1].value,"::"|"->"|"?->"))){
+        let _=token;let begin=(0..at).rev().find(|at|matches!(source.tokens[*at].value,";"|"{"|"}")).map_or(0,|at|at+1);
+        let public=!source.tokens[begin..at].iter().any(|token|["private","protected"].iter().any(|modifier|token.value.eq_ignore_ascii_case(modifier)));
+        let mut next=at+1;
+        loop{
+            let equals=(next..source.tokens.len()).find(|at|source.is(*at,"=")||source.is(*at,";"))?;
+            if !source.is(equals,"="){break;}let name=source.tokens.get(equals.checked_sub(1)?).filter(|token|token.kind==Kind::Name)?.value;
+            if !seen.insert(name.to_owned()){return None;}
+            let start=equals+1;let mut end=start;
+            while end<source.tokens.len()&&!matches!(source.tokens[end].value,";"|","){
+                if let Some(close)=source.pairs.get(&end).filter(|close|**close>end){end=close+1;}else{end+=1;}
+            }
+            if end==start||end>=source.tokens.len(){return None;}
+            let value=if end==start+1&&source.tokens[start].kind==Kind::String{
+                let token=&source.tokens[start];php::literal(text,token.start..token.end).and_then(|(value,_)|metadata_inference::decode_literal(value,token.value.as_bytes()[0])).map(serde_json::Value::String)
+            }else{integer_literal(&php::mask_comments(&text[source.tokens[start].start..source.tokens[end-1].end])).map(serde_json::Value::from)};
+            if public&&let Some(value)=value{result.insert(name.into(),value);}
+            if source.is(end,";"){break;}next=end+1;
+        }
+    }Some((full.clone(),result))
+}
+
+/// One direct class property initialized by a decoded literal PHP string.
+/// Missing, duplicate, promoted, computed and non-string properties are unknown.
+pub(crate) fn class_string_property(text:&str,name:&str)->Option<String>{
+    let source=Source::new(text)?;let names=Names::parse(&source)?;let(_,class,body,_)=names.class.as_ref()?;
+    if !source.is(*class,"class")||!source.pairs.contains_key(body){return None;}
+    let variable=format!("${}",name.trim_start_matches('$'));
+    let matches=source.tokens.iter().enumerate().filter(|(at,token)|token.kind==Kind::Var&&token.value==variable&&source.paths[*at]==vec![*body]&&!source.pairs.iter().any(|(open,close)|*open<*at&&*at<*close&&matches!(source.tokens[*open].value,"("|"["))).collect::<Vec<_>>();
+    let[(at,_)]=matches.as_slice()else{return None};
+    if !source.is(at+1,"=")||!matches!(source.tokens.get(at+3)?.value,";"|","){return None;}
+    let value=source.tokens.get(at+2).filter(|token|token.kind==Kind::String)?;
+    let(raw,_)=php::literal(text,value.start..value.end)?;metadata_inference::decode_literal(raw,value.value.as_bytes()[0])
+}
+
+/// Exact tokens for one own class method, including declaration modifiers,
+/// attributes, signature and closed body. Comments/whitespace are excluded.
+pub(crate) fn class_method_tokens(text:&str,name:&str)->Option<Vec<String>>{
+    let source=Source::new(text)?;let names=Names::parse(&source)?;let(_,class,body,_)=names.class.as_ref()?;
+    if !source.is(*class,"class")||!source.pairs.contains_key(body){return None;}
+    let functions=source.functions().into_iter().filter(|function|source.paths[function.start]==vec![*body]&&function.name.is_some_and(|at|source.tokens[at].value.eq_ignore_ascii_case(name))).collect::<Vec<_>>();
+    let [function]=functions.as_slice()else{return None};
+    if !source.is(function.body,"{")||source.pairs.get(&function.body)!=Some(&function.end){return None;}
+    let begin=(0..function.start).rev().find(|at|{
+        *at==*body||source.paths[*at]==vec![*body]&&matches!(source.tokens[*at].value,";"|"}")&&!source.pairs.iter().any(|(open,close)|*open<*at&&*at<*close&&matches!(source.tokens[*open].value,"("|"["))
+    }).map(|at|at+1)?;
+    Some(source.tokens[begin..=function.end].iter().map(|token|token.value.into()).collect())
+}
+
+/// One named class and its own public instance methods. This is declaration
+/// inventory only: no filesystem, inheritance, or controller ancestry inference.
+pub(crate) fn controller_declaration(text:&str)->Option<(String,usize,Vec<(String,usize)>)>{
+    let source=Source::new(text)?;let names=Names::parse(&source)?;let(full,class,body,_)=names.class.as_ref()?;
+    if !source.is(*class,"class")||!source.pairs.contains_key(body){return None;}
+    let mut methods=Vec::new();let mut seen=BTreeSet::new();
+    for function in source.functions().into_iter().filter(|function|source.paths[function.start]==vec![*body]){
+        let Some(at)=function.name else{continue};let name=source.tokens[at].value;
+        if !seen.insert(name.to_ascii_lowercase()){return None;}
+        let begin=(0..function.start).rev().find(|at|matches!(source.tokens[*at].value,";"|"{"|"}")).map_or(0,|at|at+1);
+        if source.tokens[begin..function.start].iter().any(|token|["private","protected","static","abstract"].iter().any(|modifier|token.value.eq_ignore_ascii_case(modifier))){continue;}
+        let Some(method)=objects::method(&source,&names,&function,"")else{continue};
+        if method.static_method||name.starts_with("__")&&!name.eq_ignore_ascii_case("__invoke"){continue;}
+        methods.push((if name.eq_ignore_ascii_case("__invoke"){"__invoke".into()}else{name.into()},source.tokens[at].start));
+    }
+    Some((full.clone(),source.tokens[class+1].start,methods))
+}
 pub(crate) fn declaration(text: &str) -> Option<String> {
     let source = Source::new(text)?;
     let names = Names::parse(&source)?;
@@ -463,6 +644,56 @@ pub(crate) fn model_inventory(models: &Models) -> Vec<(String, String, String)> 
         }
     }
     result
+}
+/// Eloquent declaration identities independent of a statically known table.
+/// Callers retain ownership/freshness and instantiability checks for runtime use.
+pub(crate) fn model_identities(models:&Models)->Vec<(String,String)>{
+    let mut result=Vec::new();
+    for model in models.values().filter(|model|!model.is_trait&&!model.ambiguous){
+        let mut current=model;let mut seen=BTreeSet::new();
+        for _ in 0..8{
+            if current.ambiguous||current.is_trait||!seen.insert(current.full.to_ascii_lowercase()){break;}
+            if current.base{result.push((model.full.clone(),model.path.clone()));break;}
+            let Some(parent)=models.get(&current.parent.to_ascii_lowercase())else{break};current=parent;
+        }
+    }result
+}
+/// A package adapter's literal/source-proven relationship declaration. Every
+/// evidence path remains subject to the provider's current ownership predicate.
+#[derive(Clone,Debug)]
+pub(crate) struct DeclaredRelation {
+    pub owner:String,pub owner_path:String,pub name:String,pub target:String,pub kind:String,pub many:bool,pub entry:Entry,pub evidence_paths:Vec<String>,
+}
+pub(crate) fn apply_declared_relations(models:&mut Models,relations:&[DeclaredRelation]){
+    fn inherited_evidence(models:&Models,full:&str,name:&str,fact:&DeclaredRelation,active:&mut BTreeSet<String>,done:&mut BTreeSet<String>,depth:u8)->Option<Vec<String>>{
+        if depth>8||done.len()>32{return None;}
+        let key=full.to_ascii_lowercase();if done.contains(&key){return Some(vec![]);}
+        if !active.insert(key.clone()){return None;}
+        let Some(model)=models.get(&key)else{
+            active.remove(&key);
+            return full.eq_ignore_ascii_case("Illuminate\\Database\\Eloquent\\Model").then_some(vec![]);
+        };
+        if model.ambiguous||model.trait_adaptations||!model.adaptations.is_empty(){return None;}
+        if model.declared.iter().chain(model.semantic.source_methods.iter()).any(|method|method.eq_ignore_ascii_case(name)){
+            let same=model.returns.iter().find(|(method,_)|method.eq_ignore_ascii_case(name)).is_some_and(|(_,method)|method.entry.path==fact.entry.path&&method.entry.at==fact.entry.at&&method.entry.width==fact.entry.width);
+            if !same{return None;}
+        }
+        if model.relations.keys().any(|relation|relation.eq_ignore_ascii_case(name)){return None;}
+        let mut evidence=vec![model.path.clone()];
+        if !model.parent.is_empty(){evidence.extend(inherited_evidence(models,&model.parent,name,fact,active,done,depth+1)?);}
+        for trait_ in &model.traits{if models.contains_key(&trait_.to_ascii_lowercase()){evidence.extend(inherited_evidence(models,trait_,name,fact,active,done,depth+1)?);}}
+        active.remove(&key);done.insert(key);Some(evidence)
+    }
+    let mut grouped=BTreeMap::<(String,String),Vec<&DeclaredRelation>>::new();
+    for relation in relations{grouped.entry((relation.owner.to_ascii_lowercase(),relation.name.clone())).or_default().push(relation);}
+    for((owner,name),facts)in grouped{
+        let [fact]=facts.as_slice()else{continue};
+        let Some(inherited)=inherited_evidence(models,&owner,&name,fact,&mut BTreeSet::new(),&mut BTreeSet::new(),0)else{continue};
+        let Some(model)=models.get_mut(&owner).filter(|model|!model.ambiguous&&model.path==fact.owner_path)else{continue};
+        if model.semantic.source_methods.iter().any(|method|method.eq_ignore_ascii_case(&name))||model.relations.contains_key(&name)||!crate::generator_plan::identifier(&name){continue;}
+        let mut evidence=fact.evidence_paths.clone();evidence.extend(inherited);evidence.push(fact.owner_path.clone());evidence.sort();evidence.dedup();
+        model.relations.insert(name,Relation{target:fact.target.trim_start_matches('\\').into(),kind:fact.kind.clone(),many:fact.many,entry:fact.entry.clone(),source_type:Some(fact.kind.clone()),evidence_paths:evidence});
+    }
 }
 
 /// Source-backed members for the Models workspace; preserve exact declaration
@@ -600,6 +831,7 @@ pub(crate) fn model(text: &str, path: &str) -> Option<Model> {
         return None;
     }
     let mut result = Model {
+        semantic: semantic::declared(&source,&names,path),
         full: full.clone(),
         ambiguous: false,
         path: path.into(),
@@ -607,6 +839,7 @@ pub(crate) fn model(text: &str, path: &str) -> Option<Model> {
         base,
         explicit_table: false,
         is_trait: source.is(*start, "trait"),
+        is_abstract: ((*start).saturating_sub(2)..*start).any(|at|source.is(at,"abstract")),
         traits: Vec::new(),
         trait_adaptations: false,
         adaptations: Vec::new(),
@@ -800,6 +1033,8 @@ pub(crate) fn model(text: &str, path: &str) -> Option<Model> {
         result.relations.insert(
             name.into(),
             Relation {
+                source_type:None,
+                evidence_paths:Vec::new(),
                 target: match target.value {
                     "self" | "static" => full.clone(),
                     "parent" => parent.clone(),
@@ -811,12 +1046,13 @@ pub(crate) fn model(text: &str, path: &str) -> Option<Model> {
             },
         );
     }
+    relations::apply_native(&mut result);
     if result.declared.contains("getTable") {
         result.table = None;
     }
     result
         .relations
-        .retain(|_, r| !result.declared.contains(&r.kind));
+        .retain(|_, r| r.source_type.is_some()||!result.declared.contains(&r.kind));
     Some(result)
 }
 
@@ -826,6 +1062,13 @@ enum Shape {
     Model,
     Query,
     Collection,
+    MappedCollection(String),
+    JoinClause(String),
+    Factory { class:String, many:Option<bool> },
+    Facade,
+    HigherOrder(String,String),
+    Optional(Box<Shape>),
+    Conditional{target:Box<Shape>,truth:Option<bool>,capture:bool,invert:bool},
     Relation(String),
     Enum,
     Object,
@@ -887,6 +1130,7 @@ struct Resolver<'a, 'b> {
     context: &'a Context<'b>,
     index: &'a Index,
     overlay: Option<Model>,
+    object_overlay: Option<objects::Object>,
     path: &'a str,
     owns: &'a dyn Fn(&str) -> bool,
     owner_cache: RefCell<BTreeMap<String, bool>>,
@@ -993,6 +1237,8 @@ impl<'a, 'b> Resolver<'a, 'b> {
         Some(found)
     }
     fn object(&self, full: &str) -> Option<&objects::Object> {
+        if self.index.eloquent_objects.get(&full.to_ascii_lowercase()).is_some_and(|object|object.ambiguous||self.object_overlay.as_ref().is_some_and(|overlay|overlay.full.eq_ignore_ascii_case(full)&&overlay.path!=object.path)){return None;}
+        if let Some(object)=self.object_overlay.as_ref().filter(|object|object.full.eq_ignore_ascii_case(full)) {return (self.owned(&object.path)&&object.metadata_sources.iter().all(|path|self.owned(path))).then_some(object);}
         let object = self
             .index
             .eloquent_objects
@@ -1010,6 +1256,7 @@ impl<'a, 'b> Resolver<'a, 'b> {
         if target.contains('|') {
             return None;
         }
+        let target_count=target.split('&').count();
         let mut concrete = None;
         for target in target.split('&') {
             let full = if target == "static" {
@@ -1022,7 +1269,7 @@ impl<'a, 'b> Resolver<'a, 'b> {
             } else if self.enumeration(full).is_some() {
                 Some(Shape::Enum)
             } else if let Some(object) = self.object(full) {
-                if object.is_interface {
+                if object.is_interface && target_count > 1 {
                     None
                 } else {
                     Some(Shape::Object)
@@ -1044,6 +1291,7 @@ impl<'a, 'b> Resolver<'a, 'b> {
     }
     fn casts(&self, full: &str) -> Option<casts::Casts> {
         let lineage = self.lineage(full)?;
+        if lineage.iter().any(|class|class.declared.iter().any(|name|["getCasts","getAttribute","getAttributeValue","castAttribute"].iter().any(|candidate|name.eq_ignore_ascii_case(candidate)))){return None;}
         let property = lineage.iter().find_map(|m| m.property_casts.as_ref());
         let method = lineage.iter().find_map(|m| m.method_casts.as_ref());
         if property.is_some_and(Option::is_none) || method.is_some_and(Option::is_none) {
@@ -1199,20 +1447,21 @@ impl<'a, 'b> Resolver<'a, 'b> {
         for model in self.lineage(full)? {
             if model.declared.contains(name) {
                 let relation = model.relations.get(name)?;
-                return (!self.declared(full, &relation.kind)).then_some(relation);
+                return ((relation.source_type.is_some()||!self.declared(full, &relation.kind))&&relation.evidence_paths.iter().all(|path|self.owned(path))).then_some(relation);
             }
         }
-        None
+        self.external_relations(full).get(name).copied()
     }
     fn relations(&self, full: &str) -> BTreeMap<&str, &Relation> {
-        let mut result = BTreeMap::new();
+        let mut result = self.external_relations(full);
         let mut blocked = BTreeSet::new();
         for model in self.lineage(full).unwrap_or_default() {
             for (name, relation) in &model.relations {
-                if !blocked.contains(name.as_str()) && !self.declared(full, &relation.kind) {
+                if !blocked.contains(name.as_str()) && (relation.source_type.is_some()||!self.declared(full, &relation.kind))&&relation.evidence_paths.iter().all(|path|self.owned(path)) {
                     result.insert(name.as_str(), relation);
                 }
             }
+            for name in &model.declared {if !blocked.contains(name.as_str())&&!model.relations.contains_key(name.as_str()) {result.remove(name.as_str());}}
             blocked.extend(model.declared.iter().map(String::as_str));
         }
         result
@@ -1234,13 +1483,13 @@ impl<'a, 'b> Resolver<'a, 'b> {
         self.lineage(full)
             .unwrap_or_default()
             .iter()
-            .any(|model| model.declared.contains(name))
+            .any(|model| model.declared.iter().any(|declared|declared.eq_ignore_ascii_case(name)))
     }
     fn table(&self, full: &str) -> Option<&str> {
         self.get(full)?;
         if let Some(table)=self.index.metadata.model_table(full){return Some(table);}
         let lineage = self.lineage(full)?;
-        if lineage.iter().any(|m| m.declared.contains("getTable")) {
+        if lineage.iter().any(|m|m.declared.iter().any(|method|method.eq_ignore_ascii_case("getTable"))) {
             return None;
         }
         lineage
@@ -1263,17 +1512,19 @@ impl<'a, 'b> Resolver<'a, 'b> {
         if depth > 16 || end == 0 {
             return None;
         }
+        if let Some(result)=self.pipe_expr(end,depth){return Some(result);}
         let s = &self.context.source;
         let t = &s.tokens;
         let last = end - 1;
         if s.is(last, ")") {
             let open = *s.pairs.get(&last)?;
+            if s.is(open+1,"...")&&open+2==last{return None;}
             if open >= 2
                 && t[open - 1].kind == Kind::Name
                 && matches!(t[open - 2].value, "->" | "?->" | "::")
             {
                 let (receiver, start) = self.expr(open - 2, depth + 1)?;
-                if (receiver.shape == Shape::Static) != (t[open - 2].value == "::") {
+                if matches!(receiver.shape,Shape::Static|Shape::Facade) != (t[open - 2].value == "::") {
                     return None;
                 }
                 return Some((
@@ -1281,6 +1532,8 @@ impl<'a, 'b> Resolver<'a, 'b> {
                     start,
                 ));
             }
+            if open>0&&t[open-1].kind==Kind::Name&&let Some(typed)=self.optional_target(open,last,depth){return Some((typed,open-1));}
+            if open>0&&t[open-1].kind==Kind::Name&&let Some(typed)=self.helper_target(open,last){return Some((typed,open-1));}
             if open >= 2 && s.is(open - 2, "new") && t[open - 1].kind == Kind::Name {
                 return Some((
                     Typed {
@@ -1290,6 +1543,8 @@ impl<'a, 'b> Resolver<'a, 'b> {
                     open - 2,
                 ));
             }
+            // A failed function/dynamic call is not a parenthesized identity.
+            if open>0&&!(open>=3&&s.is(open-1,"php")&&s.is(open-2,"?")&&s.is(open-3,"<"))&&(matches!(t[open-1].kind,Kind::Name|Kind::Var)&&!["return","yield","echo","print"].contains(&t[open-1].value)||matches!(t[open-1].value,")"|"]")){return None;}
             let (receiver, start) = self.expr(last, depth + 1)?;
             if start != open + 1 {
                 return None;
@@ -1297,10 +1552,24 @@ impl<'a, 'b> Resolver<'a, 'b> {
             return Some((receiver, open));
         }
         if t[last].kind == Kind::Name && last >= 2 && matches!(t[last - 1].value, "->" | "?->") {
-            let (receiver, start) = self.expr(last - 1, depth + 1)?;
+            let (mut receiver, start) = self.expr(last - 1, depth + 1)?;
+            while let Shape::Optional(target)=&receiver.shape{receiver.shape=*target.clone();}
+            if matches!(receiver.shape,Shape::Conditional{..}){return None;}
+            if matches!(receiver.shape,Shape::Collection|Shape::MappedCollection(_))&&["each","map","flatMap","filter","reject"].contains(&t[last].value){
+                if ["map","flatMap"].contains(&t[last].value)&&!self.native_collection_operation(&receiver,t[last].value){return None;}
+                return Some((Typed{shape:Shape::HigherOrder(t[last].value.into(),self.collection_class(&receiver)?),..receiver},start));
+            }
+            if let Shape::HigherOrder(operation,physical)=&receiver.shape{
+                let relation=self.relation(&receiver.model,t[last].value);
+                if operation=="map"{let relation=relation.filter(|relation|!relation.many)?;return Some((Typed{model:self.get(&relation.target)?.full.clone(),shape:Shape::MappedCollection(physical.clone())},start));}
+                if operation=="flatMap"{let relation=relation.filter(|relation|relation.many)?;let physical=if self.subclass(physical,"Illuminate\\Database\\Eloquent\\Collection"){"Illuminate\\Support\\Collection".into()}else{physical.clone()};return Some((Typed{model:self.get(&relation.target)?.full.clone(),shape:Shape::MappedCollection(physical)},start));}
+                let known=relation.is_some()||self.cast(&receiver.model,t[last].value).is_some()||self.table(&receiver.model).and_then(|table|self.index.columns.get(table)).is_some_and(|columns|columns.contains_key(t[last].value));
+                return known.then(||(Typed{shape:Shape::MappedCollection(physical.clone()),..receiver},start));
+            }
             if receiver.shape != Shape::Model {
                 return None;
             }
+            if let Some(kind)=self.accessor_type(&receiver.model,t[last].value){return self.accessor_result(&kind?,&receiver).map(|typed|(typed,start));}
             if let Some(cast) = self.cast(&receiver.model, t[last].value) {
                 if let Some(info) = cast
                     .target
@@ -1340,6 +1609,7 @@ impl<'a, 'b> Resolver<'a, 'b> {
             ));
         }
         if t[last].kind == Kind::Name {
+            if let Some(full)=self.facade_target(&self.context.names.resolve(t[last].value)){return Some((Typed{model:full,shape:Shape::Facade},last));}
             let full = self.class(t[last].value)?;
             if last > 0 && s.is(last - 1, "new") {
                 return Some((
@@ -1384,10 +1654,7 @@ impl<'a, 'b> Resolver<'a, 'b> {
                 return None;
             }
             let full = &self.context.names.class.as_ref()?.0;
-            return Some(Typed {
-                model: self.get(full)?.full.clone(),
-                shape: Shape::Model,
-            });
+            return if let Some(model)=self.get(full){Some(Typed{model:model.full.clone(),shape:Shape::Model})}else{self.object(full).map(|object|Typed{model:object.full.clone(),shape:Shape::Object})};
         }
         let start = function.map_or(0, |f| f.body + 1);
         // Arrow-function captures and foreach/destructuring aliases are not inferred.
@@ -1438,6 +1705,8 @@ impl<'a, 'b> Resolver<'a, 'b> {
             return candidate;
         }
         let f = function?;
+        if let Some(typed)=self.container_parameter(f,name){return typed;}
+        if let Some(typed)=self.callback_binding(f,name){return Some(typed);}
         let params = &t[f.params.clone()];
         let index = params
             .iter()
@@ -1454,9 +1723,11 @@ impl<'a, 'b> Resolver<'a, 'b> {
         if previous.is_some_and(|v| ![",", "?"].contains(&v)) {
             return None;
         }
+        let mut full=self.class(ty.value)?;
+        if f.name.is_some_and(|at|s.is(at,"__construct"))&&let Some((owner,_,_,_))=&self.context.names.class&&let Some(target)=self.container_target(&full,Some(owner)){full=target;}
         Some(Typed {
-            model: self.class(ty.value)?,
-            shape: if self.get(&self.class(ty.value)?).is_some(){Shape::Model}else{Shape::Object},
+            shape: if self.get(&full).is_some(){Shape::Model}else{Shape::Object},
+            model: full,
         })
     }
     fn id_shape(&self, from: usize, to: usize) -> Option<Shape> {
@@ -1526,16 +1797,53 @@ impl<'a, 'b> Resolver<'a, 'b> {
         if receiver.shape == Shape::Enum {
             return None;
         }
+        if matches!(receiver.shape,Shape::JoinClause(_)){return self.package_join_call(&receiver,name);}
+        if let Some(result)=self.proxy_call(&receiver,name,from,to){return result;}
+        if let Some(result)=self.conditional_call(&receiver,name,from,to){return result;}
+        if receiver.shape==Shape::Facade{let typed=Typed{shape:if self.get(&receiver.model).is_some(){Shape::Model}else{Shape::Object},..receiver};return self.call(typed,name,from,to);}
+        if let Shape::HigherOrder(operation,physical)=&receiver.shape{
+            let inner=Typed{model:receiver.model.clone(),shape:Shape::Model};
+            if operation=="map"{let result=self.call(inner,name,from,to)?;return (result.shape==Shape::Model).then(||Typed{shape:Shape::MappedCollection(physical.clone()),..result});}
+            if operation=="flatMap"{let result=self.call(inner,name,from,to)?;let physical=if self.subclass(physical,"Illuminate\\Database\\Eloquent\\Collection"){"Illuminate\\Support\\Collection".into()}else{physical.clone()};return matches!(result.shape,Shape::Collection|Shape::MappedCollection(_)).then(||Typed{shape:Shape::MappedCollection(physical),..result});}
+            let known=["save","delete","update","refresh","load","loadMissing"].contains(&name)||self.lineage(&receiver.model)?.iter().find(|class|class.declared.contains(name)).and_then(|class|class.returns.get(name)).is_some_and(|method|!method.static_method&&self.owned(&method.entry.path));
+            return known.then(||Typed{shape:Shape::MappedCollection(physical.clone()),..receiver});
+        }
+
+        if let Shape::Factory{class,many}= &receiver.shape {
+            let shape=match name {
+                "count"=>Shape::Factory{class:class.clone(),many:self.factory_count(from,to)},
+                "create"|"make"|"createQuietly"=>if many.as_ref().copied()?{Shape::Collection}else{Shape::Model},
+                "createOne"|"makeOne"|"createOneQuietly"=>Shape::Model,
+                "createMany"|"createManyQuietly"=>Shape::Collection,
+                "state"|"sequence"|"for"|"has"|"recycle"|"afterMaking"|"afterCreating"|"withoutParents"=>receiver.shape.clone(),
+                _=>return self.custom_call(&receiver,name),
+            };
+            return Some(Typed{shape,..receiver});
+        }
+        if receiver.shape==Shape::Static&&name=="new"&&self.subclass(&receiver.model,"Illuminate\\Database\\Eloquent\\Factories\\Factory") {
+            return Some(Typed{model:self.factory_model(&receiver.model)?,shape:Shape::Factory{class:receiver.model,many:Some(false)}});
+        }
+        if matches!(receiver.shape,Shape::Static|Shape::Model)&&name=="factory"&&self.native_factory_method(&receiver.model) {
+            let factory=self.model_factory(&receiver.model)?;
+            let model=self.factory_model(&factory.full)?;
+            return Some(Typed{model,shape:Shape::Factory{class:factory.full,many:self.factory_count(from,to)}});
+        }
+        if let Some(result)=self.mapped_collection(&receiver,name,from,to){return result;}
+        if matches!(receiver.shape,Shape::Query|Shape::Collection|Shape::MappedCollection(_)|Shape::Relation(_))&&let Some(result)=self.custom_call(&receiver,name){return Some(result);}
+        if let Some(result)=self.package_call(&receiver,name){return Some(result);}
+        if name=="newModelInstance"&&self.custom_class(&receiver).is_some_and(|class|self.object_method(&class,name).is_some()){return None;}
         if receiver.shape == Shape::Object || receiver.shape == Shape::Static && self.get(&receiver.model).is_none() {
-            let method = self.object(&receiver.model)?.methods.get(name)?;
+            self.object(&receiver.model)?;
+            let method = self.object_method(&receiver.model,name)?;
             return self.returned(method, &receiver);
         }
         self.get(&receiver.model)?;
+        if matches!(receiver.shape,Shape::MappedCollection(_))&&["find","load","loadMissing"].contains(&name)&&self.collection_class(&receiver).is_none_or(|class|!self.subclass(&class,"Illuminate\\Database\\Eloquent\\Collection")){return None;}
         if ["find", "findOrFail"].contains(&name)
-            && !self.declared(&receiver.model, name)
+            && (!matches!(receiver.shape,Shape::Model|Shape::Static)||!self.declared(&receiver.model, name))
             && matches!(
                 receiver.shape,
-                Shape::Static | Shape::Query | Shape::Relation(_) | Shape::Collection
+                Shape::Static | Shape::Query | Shape::Relation(_) | Shape::Collection | Shape::MappedCollection(_)
             )
         {
             return Some(Typed {
@@ -1553,11 +1861,11 @@ impl<'a, 'b> Resolver<'a, 'b> {
         }
         if matches!(
             receiver.shape,
-            Shape::Static | Shape::Query | Shape::Relation(_)
-        ) && self.scopes(&receiver.model).contains_key(name)
+            Shape::Static | Shape::Model | Shape::Query | Shape::Relation(_)
+        ) && !(receiver.shape==Shape::Model&&self.declared(&receiver.model,"__call")) && self.scopes(&receiver.model).keys().any(|candidate|candidate.eq_ignore_ascii_case(name))
         {
             return Some(Typed {
-                shape: if receiver.shape == Shape::Static {
+                shape: if matches!(receiver.shape,Shape::Static|Shape::Model) {
                     Shape::Query
                 } else {
                     receiver.shape
@@ -1565,17 +1873,33 @@ impl<'a, 'b> Resolver<'a, 'b> {
                 ..receiver
             });
         }
-        if self.declared(&receiver.model, name) {
-            if !matches!(receiver.shape, Shape::Model | Shape::Static) {
-                return None;
+        if receiver.shape==Shape::Model&&name=="newCollection"{
+            if self.declared(&receiver.model,name)&&self.lineage(&receiver.model)?.iter().find(|class|class.declared.contains(name)).and_then(|class|class.returns.get(name)).is_none(){return None;}
+            if self.lineage(&receiver.model)?.iter().any(|class|self.construction_override(class,"newCollection"))&&self.custom_class(&Typed{model:receiver.model.clone(),shape:Shape::Collection}).is_none(){return None;}
+            let args=container::arguments(&self.context.source,from.checked_sub(1)?)?;
+            if args.len()>1{return None;}
+            if let Some(arg)=args.first(){
+                let source=&self.context.source;if !source.is(arg.start,"[")||source.pairs.get(&arg.start)!=Some(&(arg.end-1)){return None;}
+                for item in php::items(source.text,source.tokens[arg.start].start){
+                    let end=source.tokens.iter().position(|token|token.end==item.value.end)?+1;
+                    let (value,start)=self.expr(end,1)?;
+                    if source.tokens[start].start!=item.value.start||value.shape!=Shape::Model||!value.model.eq_ignore_ascii_case(&receiver.model){return None;}
+                }
             }
+            return Some(Typed{shape:Shape::Collection,..receiver});
+        }
+        if matches!(receiver.shape,Shape::Model|Shape::Static)&&self.declared(&receiver.model, name) {
             let method = self
                 .lineage(&receiver.model)?
                 .into_iter()
-                .find(|model| model.declared.contains(name))?
-                .returns
-                .get(name)?;
+                .find_map(|model|model.declared.iter().find(|candidate|candidate.eq_ignore_ascii_case(name)).map(|name|(model,name)))?;
+            let method=method.0.returns.get(method.1)?;
             return self.returned(method, &receiver);
+        }
+        if receiver.shape==Shape::Model{
+            if ["newQuery","newModelQuery","newQueryWithoutScopes","newQueryWithoutRelationships","query"].contains(&name){return Some(Typed{shape:Shape::Query,..receiver});}
+            let forwarded=QUERY.iter().any(|(method,_)|*method==name)||["first","firstOrFail","sole","get","all","find","findOrFail","findOrNew","findMany","create","firstOrCreate","updateOrCreate","make","newModelInstance"].contains(&name);
+            if forwarded&&!self.declared(&receiver.model,"__call"){return self.call(Typed{shape:Shape::Query,..receiver},name,from,to);}
         }
         if let Shape::Relation(kind) = &receiver.shape {
             if ["belongsToMany", "morphToMany", "morphedByMany"].contains(&kind.as_str())
@@ -1617,7 +1941,7 @@ impl<'a, 'b> Resolver<'a, 'b> {
         let shape = match &receiver.shape {
             Shape::Static | Shape::Query | Shape::Relation(_) => match name {
                 "find" | "findOrFail" | "findOrNew" | "first" | "firstOrFail" | "sole"
-                | "create" | "firstOrCreate" | "updateOrCreate" | "make" => Shape::Model,
+                | "create" | "firstOrCreate" | "updateOrCreate" | "make" | "newModelInstance" => Shape::Model,
                 "get" | "all" | "findMany" => Shape::Collection,
                 "query" | "newQuery" => Shape::Query,
                 name if QUERY.iter().any(|(n, _)| *n == name) => {
@@ -1629,28 +1953,42 @@ impl<'a, 'b> Resolver<'a, 'b> {
                 }
                 _ => return None,
             },
-            Shape::Collection => match name {
+            Shape::Collection | Shape::MappedCollection(_) => match name {
                 "first" | "last" | "sole" | "find" => Shape::Model,
-                name if COLLECTION_KEEP.contains(&name) => Shape::Collection,
+                name if COLLECTION_KEEP.contains(&name) => receiver.shape.clone(),
                 _ => return None,
             },
             Shape::Model => match name {
-                "fresh" | "refresh" | "replicate" | "load" | "loadMissing" => Shape::Model,
+                "fresh" | "refresh" | "replicate" | "load" | "loadMissing" | "newInstance" | "newFromBuilder" => Shape::Model,
                 _ => return None,
             },
-            Shape::Enum | Shape::Object => return None,
+            Shape::Enum | Shape::Object | Shape::Factory{..} | Shape::Facade | Shape::HigherOrder(..) | Shape::Optional(_) | Shape::Conditional{..} | Shape::JoinClause(_) => return None,
         };
         Some(Typed { shape, ..receiver })
     }
 }
 const QUERY: &[(&str, &str)] = &[
+    ("from", "Select a query source"),
+    ("union", "Combine query results"),
+    ("unionAll", "Combine all query results"),
+    ("join", "Join a table"),
+    ("leftJoin", "Join a table on the left"),
+    ("rightJoin", "Join a table on the right"),
+    ("crossJoin", "Cross join a table"),
     ("where", "Add a where clause"),
+    ("when", "Apply a callback when a condition is true"),
+    ("unless", "Apply a callback when a condition is false"),
     ("whereIn", "Match a set of values"),
     ("whereNotIn", "Exclude a set of values"),
     ("whereNull", "Match null values"),
     ("whereNotNull", "Exclude null values"),
     ("whereHas", "Constrain a relationship"),
     ("with", "Eager load relationships"),
+    ("withOnly", "Replace eager loads"),
+    ("withWhereHas", "Constrain and eager load a relationship"),
+    ("orWhereHas", "Constrain an alternative relationship"),
+    ("whereDoesntHave", "Exclude matching relationships"),
+    ("orWhereDoesntHave", "Exclude alternative matching relationships"),
     ("without", "Exclude eager loads"),
     ("withCount", "Add relationship counts"),
     ("orderBy", "Order query results"),
@@ -1688,10 +2026,34 @@ const COLLECTION_KEEP: &[&str] = &[
 fn receiver<'a, 'b>(resolver: &Resolver<'a, 'b>) -> Option<Typed> {
     let ctx = resolver.context;
     let (typed, _) = resolver.expr(ctx.arrow, 0)?;
-    if (typed.shape == Shape::Static) != (ctx.source.tokens[ctx.arrow].value == "::") {
+    if matches!(typed.shape,Shape::Static|Shape::Facade) != (ctx.source.tokens[ctx.arrow].value == "::") {
         return None;
     }
     Some(typed)
+}
+/// Presentation-only localization. The semantic provider remains cached/pure;
+/// Main calls this after inference before publishing completion items.
+pub(crate) fn localize_completions(items:&mut [CompletionItem]){
+    for item in items{
+        if let Some(detail)=item.detail.clone(){
+            if let Some((name,description))=QUERY.iter().find(|(name,_)|item.filter_text.as_deref()==Some(*name))&&let Some(suffix)=detail.strip_prefix(&format!("{description} · ")).filter(|suffix|suffix.starts_with("Builder<")){
+                item.detail=Some(format!("{} · {suffix}",crate::ui_text::t(&format!("eloquent.query.{name}"),description)));
+            }else if let Some(class)=detail.strip_prefix("Value object · "){
+                item.detail=Some(crate::ui_text::format("eloquent.detail.valueObject","Value object · {class}",&[("class",class)]));
+            }else if let Some(model)=detail.strip_suffix(" · integer (withCount)"){
+                item.detail=Some(crate::ui_text::format("eloquent.detail.count","{model} · integer (withCount)",&[("model",model)]));
+            }else if let Some(value)=detail.strip_suffix(" (declared cast)")&&let Some((model,cast))=value.split_once(" · "){
+                item.detail=Some(crate::ui_text::format("eloquent.detail.declaredCast","{model} · {cast} (declared cast)",&[("model",model),("cast",cast)]));
+            }else if let Some(model)=detail.strip_prefix("Higher-order collection proxy · "){
+                item.detail=Some(crate::ui_text::format("eloquent.detail.higherOrder","Higher-order collection proxy · {model}",&[("model",model)]));
+            }else if let Some(class)=detail.strip_prefix("Declared/mixin property · "){
+                item.detail=Some(crate::ui_text::format("eloquent.detail.mixinProperty","Declared/mixin property · {class}",&[("class",class)]));
+            }
+        }
+        if let Some(class)=item.documentation.as_deref().and_then(|doc|doc.strip_prefix("Constructor parameters forwarded from `")).and_then(|doc|doc.strip_suffix("`.")){
+            item.documentation=Some(crate::ui_text::format("eloquent.detail.constructorForwarded","Constructor parameters forwarded from `{class}`.",&[("class",class)]));
+        }
+    }
 }
 fn method_item(name: &str, detail: String, ctx: &Context) -> CompletionItem {
     let mut item = CompletionItem::new(&format!("{name}()"), CompletionKind::Method);
@@ -1733,21 +2095,31 @@ pub(crate) fn completion_checked(
         index,
         overlay: model(&doc.text, &doc.path).map(|mut model| {
             let _ = traits::compose(&mut model, &index.eloquent_models, &mut BTreeSet::new(), 0);
+            relations::augment(&mut model,&index.eloquent_models);
             model
         }),
+        object_overlay:objects::current(&doc.text,&doc.path),
         path: &doc.path,
         owns,
         owner_cache: RefCell::new(BTreeMap::new()),
     };
-    let Some(typed) = receiver(&resolver) else {
+    let Some(mut typed) = receiver(&resolver) else {
         return vec![];
     };
-    if typed.shape == Shape::Object || typed.shape == Shape::Static && resolver.get(&typed.model).is_none() {
+    while let Shape::Optional(target)|Shape::Conditional{target,..}=&typed.shape{typed.shape=*target.clone();}
+    if matches!(typed.shape,Shape::HigherOrder(..)){typed.shape=Shape::Model;}
+    if let Shape::Factory{class,..}=&typed.shape {
+        let mut items=BTreeMap::new();
+        for name in ["count","create","createOne","createMany","createQuietly","make","makeOne","state","sequence","for","has","recycle","afterMaking","afterCreating"] {items.insert(name.to_owned(),method_item(name,format!("Factory<{}> · {class}",typed.model),&ctx));}
+        if let Some(object)=resolver.object(class){for(name,method)in resolver.object_methods(&object.full){if !method.static_method&&resolver.owned(&method.entry.path){items.insert(name.to_owned(),method_item(name,format!("Declared factory method · {class}"),&ctx));}}}
+        return items.into_values().filter(|item|item.filter_text.as_deref().unwrap_or(&item.label).starts_with(ctx.typed)).collect();
+    }
+    if matches!(typed.shape,Shape::Object|Shape::Facade) || typed.shape == Shape::Static && resolver.get(&typed.model).is_none() {
         let Some(info) = resolver.object(&typed.model) else {
             return vec![];
         };
         let mut items = vec![];
-        for name in info.properties.keys().filter(|_|typed.shape!=Shape::Static) {
+        for name in info.properties.keys().filter(|_|typed.shape==Shape::Object) {
             let mut item = CompletionItem::new(name, CompletionKind::Property);
             item.detail = Some(format!("Value object · {}", info.full));
             item.replace = Some(Range::new(
@@ -1756,7 +2128,7 @@ pub(crate) fn completion_checked(
             ));
             items.push(item);
         }
-        for (name,method) in info.methods.iter().filter(|(_,m)|m.static_method==(typed.shape==Shape::Static)) {
+        for (name,method) in resolver.object_methods(&typed.model).into_iter().filter(|(_,m)|m.static_method==(typed.shape==Shape::Static)) {
             let mut item=method_item(name,format!("Value object · {}",info.full),&ctx);
             if let Some(signature)=index.metadata.forwarded.get(&(info.full.to_ascii_lowercase(),name.to_ascii_lowercase())) {
                 item.detail=Some(format!("{}({}) → {}",name,signature.parameters.join(", "),signature.target));
@@ -1772,7 +2144,7 @@ pub(crate) fn completion_checked(
                 item.filter_text
                     .as_deref()
                     .unwrap_or(&item.label)
-                    .starts_with(ctx.typed)
+                    .to_ascii_lowercase().starts_with(&ctx.typed.to_ascii_lowercase())
             })
             .collect();
     }
@@ -1804,15 +2176,20 @@ pub(crate) fn completion_checked(
                 item.filter_text
                     .as_deref()
                     .unwrap_or(&item.label)
-                    .starts_with(ctx.typed)
+                    .to_ascii_lowercase().starts_with(&ctx.typed.to_ascii_lowercase())
             })
             .collect();
+    }
+    if let Shape::JoinClause(_)=&typed.shape{
+        return resolver.package_join_methods(&typed).into_iter().map(|(name,entry)|method_item(&name,entry.path,&ctx)).filter(|item|item.filter_text.as_deref().unwrap_or(&item.label).to_ascii_lowercase().starts_with(&ctx.typed.to_ascii_lowercase())).collect();
     }
     if resolver.get(&typed.model).is_none() {
         return vec![];
     }
     let mut items = BTreeMap::new();
     let short = typed.model.rsplit('\\').next().unwrap_or(&typed.model);
+    if let Some(full)=resolver.custom_class(&typed)&&let Some(object)=resolver.object(&full){for(name,method)in resolver.object_methods(&object.full){if !method.static_method&&resolver.owned(&method.entry.path){items.insert(format!("{name}()"),method_item(name,format!("Declared custom receiver · {full}"),&ctx));}}}
+    if matches!(typed.shape,Shape::Static|Shape::Model)&&resolver.native_factory_method(&typed.model)&&resolver.model_factory(&typed.model).is_some(){items.insert("factory()".into(),method_item("factory",format!("Resolved factory · {short}"),&ctx));}
     if typed.shape == Shape::Model {
         for (name, _) in resolver.counts(&typed.model) {
             let mut item = CompletionItem::new(&name, CompletionKind::Field);
@@ -1863,6 +2240,12 @@ pub(crate) fn completion_checked(
                 items.insert(name.clone(), item);
             }
         }
+        if let Some(accessors)=resolver.accessor_contracts(&typed.model){for(name,accessor)in accessors{
+            let mut item=CompletionItem::new(&name,CompletionKind::Property);
+            item.detail=Some(format!("{short} · {}",accessor.read_type.as_deref().or(accessor.write_type.as_deref()).unwrap_or("accessor")));
+            item.replace=Some(Range::new(text::position(&doc.text,ctx.start),text::position(&doc.text,ctx.end)));
+            items.insert(name,item);
+        }}
         for (name, relation) in resolver.relations(&typed.model) {
             let Some(target) = resolver.get(&relation.target) else {
                 continue;
@@ -1898,6 +2281,9 @@ pub(crate) fn completion_checked(
             "load",
             "loadMissing",
             "toArray",
+            "newCollection",
+            "newInstance",
+            "newFromBuilder",
         ] {
             if !resolver.declared(&typed.model, name) {
                 items.insert(
@@ -1911,6 +2297,9 @@ pub(crate) fn completion_checked(
         typed.shape,
         Shape::Static | Shape::Query | Shape::Relation(_)
     ) {
+        for(name,method)in resolver.package_methods(&typed.model){
+            if typed.shape!=Shape::Static||!resolver.declared(&typed.model,name){items.entry(format!("{name}()")).or_insert_with(||method_item(name,method.entry.path.clone(),&ctx));}
+        }
         for (name, description) in QUERY {
             if ["withTrashed", "onlyTrashed", "withoutTrashed"].contains(name)
                 && !resolver
@@ -1946,6 +2335,7 @@ pub(crate) fn completion_checked(
             "delete",
             "update",
             "pluck",
+            "newModelInstance",
         ] {
             if !resolver.declared(&typed.model, name) {
                 items.insert(
@@ -1994,8 +2384,9 @@ pub(crate) fn completion_checked(
             }
         }
     }
-    if typed.shape == Shape::Collection {
-        for name in COLLECTION_KEEP.iter().copied().chain([
+    if matches!(typed.shape,Shape::Collection|Shape::MappedCollection(_)) {
+        for name in ["each","map","flatMap","filter","reject"]{let mut item=CompletionItem::new(name,CompletionKind::Property);item.detail=Some(format!("Higher-order collection proxy · {short}"));item.replace=Some(Range::new(text::position(&doc.text,ctx.start),text::position(&doc.text,ctx.end)));items.insert(name.into(),item);}
+        for name in COLLECTION_KEEP.iter().copied().chain(["map","flatMap",
             "first",
             "last",
             "sole",
@@ -2068,17 +2459,24 @@ pub(crate) fn definition_checked(
         index,
         overlay: model(&doc.text, &doc.path).map(|mut model| {
             let _ = traits::compose(&mut model, &index.eloquent_models, &mut BTreeSet::new(), 0);
+            relations::augment(&mut model,&index.eloquent_models);
             model
         }),
+        object_overlay:objects::current(&doc.text,&doc.path),
         path: &doc.path,
         owns,
         owner_cache: RefCell::new(BTreeMap::new()),
     };
-    let typed = receiver(&resolver)?;
-    if typed.shape == Shape::Object || typed.shape == Shape::Static && resolver.get(&typed.model).is_none() {
+    let mut typed = receiver(&resolver)?;
+    while let Shape::Optional(target)|Shape::Conditional{target,..}=&typed.shape{typed.shape=*target.clone();}
+    if matches!(typed.shape,Shape::HigherOrder(..)){typed.shape=Shape::Model;}
+    if let Some(full)=resolver.custom_class(&typed)&&let Some(method)=resolver.object_method(&full,ctx.member).filter(|method|!method.static_method&&resolver.owned(&method.entry.path)){return Some(method.entry.clone());}
+    if let Shape::Factory{class,..}=&typed.shape{return resolver.raw(class).and_then(|factory|factory.semantic.properties.get("model")).map(|reference|reference.entry.clone());}
+    if matches!(typed.shape,Shape::Static|Shape::Model)&&ctx.member=="factory"&&resolver.native_factory_method(&typed.model){return resolver.model_factory(&typed.model).map(|reference|reference.entry);}
+    if matches!(typed.shape,Shape::Object|Shape::Facade) || typed.shape == Shape::Static && resolver.get(&typed.model).is_none() {
         let info = resolver.object(&typed.model)?;
-        return info.properties.get(ctx.member).filter(|_|typed.shape!=Shape::Static).cloned().or_else(|| {
-            info.methods.get(ctx.member).filter(|method|method.static_method==(typed.shape==Shape::Static)).map(|method| method.entry.clone())
+        return info.properties.get(ctx.member).filter(|_|typed.shape==Shape::Object).cloned().or_else(|| {
+            resolver.object_method(&typed.model,ctx.member).filter(|method|method.static_method==(typed.shape==Shape::Static)).map(|method| method.entry.clone())
         });
     }
     if typed.shape == Shape::Enum {
@@ -2095,8 +2493,8 @@ pub(crate) fn definition_checked(
         if let Some(method) = resolver
             .lineage(&typed.model)?
             .into_iter()
-            .find(|model| model.declared.contains(ctx.member))
-            .and_then(|model| model.returns.get(ctx.member))
+            .find_map(|model|model.declared.iter().find(|name|name.eq_ignore_ascii_case(ctx.member)).map(|name|(model,name)))
+            .and_then(|(model,name)| model.returns.get(name))
             .filter(|method| method.static_method == (typed.shape == Shape::Static))
         {
             return Some(method.entry.clone());
@@ -2113,6 +2511,12 @@ pub(crate) fn definition_checked(
                 .iter()
                 .find(|token| token.start >= ctx.end)
                 .is_some_and(|token| token.value == "(");
+            if !method&&let Some(accessors)=resolver.accessor_contracts(&typed.model)&&let Some(accessor)=accessors.get(ctx.member){
+                let write=ctx.source.tokens.iter().find(|token|token.start>=ctx.end).is_some_and(|token|matches!(token.value,"="|"+="|"-="|"*="|"/="|"++"|"--"|"&="|"|="));
+                if write{if let Some(entry)=&accessor.setter_entry{return Some(entry.clone());}}
+                else if let Some(entry)=&accessor.getter_entry{return Some(entry.clone());}
+                if resolver.table(&typed.model).and_then(|table|index.columns.get(table)?.get(ctx.member)).is_none(){return Some(accessor.entry.clone());}
+            }
             if !method && let Some(cast) = resolver.cast(&typed.model, ctx.member) {
                 if let Some(info) = cast
                     .target
@@ -2137,10 +2541,10 @@ pub(crate) fn definition_checked(
                         .cloned()
                 })
         }
-        Shape::Static | Shape::Query | Shape::Relation(_) => resolver
+        Shape::Static | Shape::Query | Shape::Relation(_) => resolver.package_methods(&typed.model).into_iter().find(|(name,method)|if method.cte{name.eq_ignore_ascii_case(ctx.member)}else{*name==ctx.member}).map(|(_,method)|method.entry.clone()).or_else(||resolver
             .scopes(&typed.model)
             .get(ctx.member)
-            .map(|entry| (*entry).clone()),
+            .map(|entry| (*entry).clone())),
         _ => None,
     }
 }
@@ -2669,7 +3073,7 @@ pub(crate) fn source_class_name(text: &str, name: &str) -> Option<String> {
         || name.is_empty()
         || !name
             .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'\\'))
+            .all(|b| b>=128 || b.is_ascii_alphanumeric() || matches!(b, b'_' | b'\\'))
     {
         return None;
     }
@@ -2681,13 +3085,12 @@ pub(crate) fn source_class_name(text: &str, name: &str) -> Option<String> {
 pub(crate) fn forwarded_signature_help_checked(index:&Index,doc:&Document,at:Position,owns:&dyn Fn(&str)->bool)->Option<openidea_plugin::language_features::SignatureHelp>{
     use openidea_plugin::language_features::{SignatureHelp,Signature,Parameter,ParameterLabel};
     let offset=text::offset(&doc.text,at)?;let source=Source::new(&doc.text)?;let names=Names::parse(&source)?;
-    let open=(0..source.tokens.len()).rev().find(|&i|source.is(i,"(")&&source.tokens[i].start<offset&&source.pairs.get(&i).is_none_or(|&end|source.tokens[end].start>=offset))?;
+    let open=objects::call_open(&source,offset)?;
     if open<3||!source.is(open-2,"::")||source.tokens[open-3].kind!=Kind::Name||source.tokens[open-1].kind!=Kind::Name{return None;}
     let full=names.resolve(source.tokens[open-3].value);let method=source.tokens[open-1].value;
     let signature=index.metadata.forwarded.get(&(full.to_ascii_lowercase(),method.to_ascii_lowercase()))?;
     if !owns(&signature.entry.path)||!signature.sources.iter().all(|path|owns(path)){return None;}
-    let mut parameter=0;let mut cursor=open+1;
-    while cursor<source.tokens.len()&&source.tokens[cursor].start<offset {if source.is(cursor,","){parameter+=1;}if let Some(&end)=source.pairs.get(&cursor).filter(|&&end|end>cursor){if source.tokens[end].start<offset{cursor=end+1;continue;}}cursor+=1;}
+    let parameter=objects::active_parameter(&source,open,offset,&signature.parameters)?;
     Some(SignatureHelp{signatures:vec![Signature{label:format!("{full}::{method}({}): {}",signature.parameters.join(", "),signature.target),documentation:Some("Declared constructor parameters forwarded through project metadata.".into()),parameters:signature.parameters.iter().map(|p|Parameter{label:ParameterLabel::Text(p.clone()),documentation:None}).collect()}],active_signature:0,active_parameter:parameter})
 }
 
@@ -2910,3 +3313,35 @@ mod advanced_tests {
 #[cfg(test)]
 #[path = "eloquent_deeper_tests.rs"]
 mod deeper_tests;
+
+#[cfg(test)]mod method_token_tests{
+    use super::*;
+    #[test]fn package_relation_adapter_preserves_inherited_method_and_relation_precedence(){
+        let mut models=Models::new();
+        for(name,parent,methods)in [("Base","\\Illuminate\\Database\\Eloquent\\Model","public function posts(){return null;}"),("Child","Base", ""),("Other","Base",""),("Clean","\\Illuminate\\Database\\Eloquent\\Model","")]{cache(&mut models,&format!("<?php namespace App;class {name} extends {parent}{{{methods}}}"),&format!("/project/{name}.php"));}
+        let fact=|owner:&str,name:&str|DeclaredRelation{owner:format!("App\\{owner}"),owner_path:format!("/project/{owner}.php"),name:name.into(),target:"App\\Clean".into(),kind:"hasMany".into(),many:true,entry:Entry{path:format!("/project/{owner}.php"),at:Position::new(0,0),width:5,detail:None},evidence_paths:vec![]};
+        apply_declared_relations(&mut models,&[fact("Child","posts"),fact("Other","POSTS"),fact("Clean","posts")]);
+        assert!(!models["app\\child"].relations.contains_key("posts"));assert!(!models["app\\other"].relations.contains_key("POSTS"));assert!(models["app\\clean"].relations.contains_key("posts"));
+    }
+    #[test]fn declared_graph_inventory_includes_abstract_private_methods_and_rejects_adaptations(){
+        let text="<?php namespace App;use Vendor\\Concern as C;abstract class Base extends ParentBase{use C;abstract protected function required();PRIVATE function hidden(){} public function shown(){function nested(){}}}";
+        let(full,parent,traits,methods)=declared_method_inventory(text,"/project/Base.php").unwrap();assert_eq!(full,"App\\Base");assert_eq!(parent,"App\\ParentBase");assert_eq!(traits,vec!["Vendor\\Concern"]);assert_eq!(methods.into_iter().map(|(name,_)|name).collect::<Vec<_>>(),vec!["required","hidden","shown"]);
+        assert!(declared_method_inventory("<?php class A{use T{method as alias;}}","A.php").is_none());
+    }
+    #[test]fn integer_and_public_constant_literals_follow_php_radices_and_visibility(){
+        for(raw,value)in [("010",8),("0o10",8),("0xFF",255),("0b1_010",10),("1_000",1000),("-010",-8),("-9223372036854775807",-i64::MAX)]{assert_eq!(integer_literal(raw),Some(value),"{raw}");}
+        for raw in ["008","1__0","0x_FF","9223372036854775808","-9223372036854775808","1+2","1.0"]{assert_eq!(integer_literal(raw),None,"{raw}");}
+        let(full,values)=literal_constants("<?php namespace App;class Keys{const ENABLED='feature.enabled', FLAG=010;private const SECRET='hidden';public const string NAME=\"feature.name\";const DYNAMIC=make();}").unwrap();assert_eq!(full,"App\\Keys");assert_eq!(values["ENABLED"],"feature.enabled");assert_eq!(values["FLAG"],8);assert_eq!(values["NAME"],"feature.name");assert!(!values.contains_key("SECRET"));assert!(!values.contains_key("DYNAMIC"));
+    }
+    #[test]fn own_string_property_requires_direct_unambiguous_literal_declaration(){
+        assert_eq!(class_string_property(r#"<?php class Factory{protected static $namespace='Database\\Factories\\';public function f($namespace='Fake'){}}"#,"namespace").as_deref(),Some("Database\\Factories\\"));
+        for source in ["<?php class A{protected $namespace=PREFIX;}","<?php class A{protected $namespace='x'.suffix();}","<?php class A{function f($namespace='x'){}}","<?php class A{protected $namespace='x';protected $namespace='y';}"]{assert!(class_string_property(source,"namespace").is_none(),"{source}");}
+    }
+    #[test]fn own_method_profile_retains_signature_body_and_string_literals(){
+        let source=r#"<?php namespace Example;class Factory{protected $value='decoy function modelName(){}';/** docs */#[Marker('x')]protected static function modelName(string $model='Post'):string{/* ignored */return $model.'\\Model';}public function other(){function modelName(){}}}"#;
+        let tokens=class_method_tokens(source,"MODELNAME").unwrap();assert_eq!(&tokens[..8],&["#","[","Marker","(","'x'",")","]","protected"]);assert!(tokens.windows(3).any(|tokens|tokens==["static","function","modelName"]));assert!(tokens.iter().any(|token|token=="'Post'"));assert_eq!(tokens.last().unwrap(),"}");assert!(!tokens.iter().any(|token|token.contains("ignored")));
+        assert!(class_method_tokens("<?php class A{function modelName(){}function MODELNAME(){}}","modelName").is_none());
+        assert!(class_method_tokens("<?php class A{function modelName(){","modelName").is_none());
+        assert!(class_method_tokens("<?php trait A{function modelName(){}}","modelName").is_none());
+    }
+}

@@ -8,6 +8,8 @@ use openidea_plugin::{
     providers::Document,
 };
 use serde_json::{Value, json};
+#[path="view_root_selection.rs"]
+pub(super) mod roots;
 const MAX_TEXT: usize = 128 * 1024;
 const CONTENT: &str = "<div>\n</div>\n";
 fn fingerprint(text: &str) -> String {
@@ -21,7 +23,7 @@ pub(super) fn valid_name(name: &str) -> bool {
         && name.split('.').all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-')))
 }
 pub(super) fn owner(doc: &Document, expected: Option<&str>) -> Result<(Project, String), Error> {
-    let project = host::project_of(&doc.path).ok_or("The document has no owning project.")?;
+    let project = host::project_of(&doc.path).ok_or(crate::ui_text::text("native.view_creation.f734482e07", "The document has no owning project."))?;
     let root = project.root()?;
     if expected.is_some_and(|expected| expected != root)
         || !root.starts_with('/') || root=="/" || root.ends_with('/') || root.contains("//") || root.contains('\\') || root.split('/').any(|p|matches!(p,"."|".."))
@@ -50,7 +52,8 @@ fn literal(doc: &Document, at: usize, index: &Index) -> Option<(String, usize, u
         .into_iter()
         .find(|r| r.closed && r.kind == refs::Kind::View && r.start <= at && at <= r.end)?;
     let name = doc.text.get(reference.start..reference.end)?;
-    if !valid_name(name) || index.views.contains_key(name) {
+    let Some((namespace,_))=roots::split(name) else{return None;};
+    if namespace.is_some_and(|namespace|!roots::known_namespace(index,doc,namespace)) || index.views.contains_key(name) {
         return None;
     }
     let quote = reference.start.checked_sub(1)?;
@@ -107,19 +110,19 @@ pub(super) fn missing(project: &Project, path: &str) -> Result<(), Error> {
     let expected_root=project.root()?;
     if host::project_of(path).and_then(|p|p.root().ok()).as_deref()!=Some(expected_root.as_str()){return Err(Error::Stale);}
     match project.stat(path) {
-        Ok(_) => return Err(Error::Invalid(format!("Destination/alternate already exists: {path}"))),
+        Ok(_) => return Err(Error::Invalid(crate::ui_text::format("view.destination-exists", "Destination/alternate already exists: {path}", &[("path", path)]))),
         Err(Error::NotFound(_)) => {}
         Err(error) => return Err(error),
     }
     match project.read_file(path) {
         Err(Error::NotFound(_)) => Ok(()),
-        Ok(_) => Err(Error::Invalid(format!("Destination is open or already exists: {path}"))),
+        Ok(_) => Err(Error::Invalid(crate::ui_text::format("view.destination-open", "Destination is open or already exists: {path}", &[("path", path)]))),
         Err(error) => Err(error),
     }
 }
 fn configuration(project: &Project, root: &str) -> Result<String, Error> {
     if !host::setting_string("viewPaths").unwrap_or_default().trim().is_empty() {
-        return Err("Configured extra view roots are outside this creation subset.".into());
+        return Err(crate::ui_text::text("native.view_creation.8ec3fd0006", "Configured extra view roots are outside this creation subset.").into());
     }
     // Absence is only evidence about this app when the inspected configuration
     // path still belongs to it, including paths under another open project.
@@ -132,7 +135,7 @@ fn configuration(project: &Project, root: &str) -> Result<String, Error> {
     for file in ["ide-blade.json", ".idea/ide-blade.json"] {
         match project.stat(&format!("{root}/{file}")) {
             Err(Error::NotFound(_)) => {}
-            Ok(_) => return Err("ide-blade.json view ownership requires a separate namespace/root chooser.".into()),
+            Ok(_) => return Err(crate::ui_text::text("native.view_creation.5d094174ac", "ide-blade.json view ownership requires a separate namespace/root chooser.").into()),
             Err(error) => return Err(error),
         }
     }
@@ -141,18 +144,18 @@ fn configuration(project: &Project, root: &str) -> Result<String, Error> {
         Err(error) => Err(error),
         Ok(text) => {
             if text.len() > 64 * 1024 {
-                return Err("View configuration exceeds the supported bound.".into());
+                return Err(crate::ui_text::text("native.view_creation.6937b31822", "View configuration exceeds the supported bound.").into());
             }
             let masked = php::mask_comments(&text);
-            let returned = php::returned_array(&masked).ok_or("No literal returned view configuration array.")?;
+            let returned = php::returned_array(&masked).ok_or(crate::ui_text::text("native.view_creation.2b5d971c57", "No literal returned view configuration array."))?;
             let prefix: String = masked[..returned].chars().filter(|c| !c.is_whitespace()).collect();
             if prefix != "<?phpreturn" {
-                return Err("Executable or namespaced view configuration is outside this static subset.".into());
+                return Err(crate::ui_text::text("native.view_creation.1ede6f789a", "Executable or namespaced view configuration is outside this static subset.").into());
             }
-            let returned_end = php::closing(&masked, returned).ok_or("Incomplete returned view configuration.")?;
+            let returned_end = php::closing(&masked, returned).ok_or(crate::ui_text::text("native.view_creation.ee64e8afc8", "Incomplete returned view configuration."))?;
             let suffix: String = masked[returned_end + 1..].chars().filter(|c| !c.is_whitespace()).collect();
             if !matches!(suffix.as_str(), ";" | ";?>") {
-                return Err("View configuration has unsupported trailing code.".into());
+                return Err(crate::ui_text::text("native.view_creation.1cfe45b504", "View configuration has unsupported trailing code.").into());
             }
             let mut paths = None;
             let mut seen = std::collections::BTreeSet::new();
@@ -164,31 +167,31 @@ fn configuration(project: &Project, root: &str) -> Result<String, Error> {
                     .key
                     .and_then(|key| php::literal(&masked, key))
                     .map(|(key, _)| key)
-                    .ok_or("Computed/spread configuration keys are unsupported.")?;
+                    .ok_or(crate::ui_text::text("native.view_creation.94e0ca92f2", "Computed/spread configuration keys are unsupported."))?;
                 if !seen.insert(key) {
-                    return Err("Ambiguous view configuration keys.".into());
+                    return Err(crate::ui_text::text("native.view_creation.503dd83080", "Ambiguous view configuration keys.").into());
                 }
                 if key == "paths" {
                     paths = Some(php::trimmed(&masked, item.value));
                 }
             }
-            let paths = paths.ok_or("No literal view paths declaration.")?;
+            let paths = paths.ok_or(crate::ui_text::text("native.view_creation.5d610aed1f", "No literal view paths declaration."))?;
             let open = paths.start;
             if masked.as_bytes().get(open) != Some(&b'[') {
-                return Err("Dynamic view paths are unsupported.".into());
+                return Err(crate::ui_text::text("native.view_creation.fe0ec38aad", "Dynamic view paths are unsupported.").into());
             }
-            let close = php::closing(&masked, open).ok_or("Incomplete view paths declaration.")?;
+            let close = php::closing(&masked, open).ok_or(crate::ui_text::text("native.view_creation.9c6f10a547", "Incomplete view paths declaration."))?;
             if close + 1 != paths.end {
-                return Err("Computed view paths are unsupported.".into());
+                return Err(crate::ui_text::text("native.view_creation.57daa56fa6", "Computed view paths are unsupported.").into());
             }
             let values = php::split(&masked, open + 1..close);
             let values: Vec<_> = values.into_iter().filter(|value| !masked[value.clone()].trim().is_empty()).collect();
             if values.len() != 1 {
-                return Err("Multiple view roots require an explicit root chooser.".into());
+                return Err(crate::ui_text::text("native.view_creation.b62727106f", "Multiple view roots require an explicit root chooser.").into());
             }
             let path: String = masked[values[0].clone()].chars().filter(|c| !c.is_whitespace()).collect();
             if !matches!(path.as_str(), "resource_path('views')" | "resource_path(\"views\")") {
-                return Err("The declared view root is not the supported resources/views convention.".into());
+                return Err(crate::ui_text::text("native.view_creation.31cde8da70", "The declared view root is not the supported resources/views convention.").into());
             }
             Ok(fingerprint(&text))
         }
@@ -200,7 +203,7 @@ pub(super) fn validate(project: &Project, root: &str, doc: &Document, name: &str
     }
     let config = configuration(project, root)?;
     if project.stat(&format!("{root}/resources/views"))?.kind != FileKind::Directory {
-        return Err("The conventional resources/views root must be an existing plain directory.".into());
+        return Err(crate::ui_text::text("native.view_creation.ae5317ba17", "The conventional resources/views root must be an existing plain directory.").into());
     }
     let relative = name.replace('.', "/");
     let target = format!("{root}/resources/views/{relative}.blade.php");
@@ -218,7 +221,7 @@ pub(super) fn validate(project: &Project, root: &str, doc: &Document, name: &str
         match project.stat(&parent) {
             Ok(stat) if stat.kind == FileKind::Directory => {}
             Err(Error::NotFound(_)) => {}
-            Ok(_) => return Err("A parent path is not a plain directory.".into()),
+            Ok(_) => return Err(crate::ui_text::text("native.view_creation.ca95572f49", "A parent path is not a plain directory.").into()),
             Err(error) => return Err(error),
         }
     }
@@ -256,7 +259,7 @@ impl FileActions for Main {
             return Vec::new();
         }
         vec![FileAction {
-            title: format!("Create missing literal Blade view: {name}"),
+            title: crate::ui_text::format("view.create-action", "Create missing literal Blade view: {name}", &[("name", &name)]),
             kind: Some("quickfix".into()),
             data: Some(data),
             ..Default::default()
@@ -266,11 +269,27 @@ impl FileActions for Main {
         if let Some(language)=crate::language_of(&doc.path,&doc.language) {
             found.extend(crate::lang_actions::locale_actions(doc,language,selection));
         }
-        if let Some(index)=self.index_for(&doc.path) { found.extend(crate::model_actions::actions(index,doc)); }
-        if let Some(index)=self.index_for(&doc.path) { found.extend(crate::semantic_refs::actions(index,doc,selection)); found.extend(crate::view_rename::actions(index,doc,selection)); }
+        if let Some(index)=self.index_for(&doc.path) { found.extend(crate::model_actions::actions(index,doc)); found.extend(crate::request_dto::actions(index,doc)); }
+        if let Some(index)=self.index_for(&doc.path) { found.extend(crate::package_integrations::actions(index,doc,selection)); found.extend(crate::class_component_rename::actions(index,doc,selection)); found.extend(crate::member_refactor::actions(index,doc,selection)); found.extend(crate::semantic_refs::actions(index,doc,selection)); found.extend(crate::view_rename::actions(index,doc,selection)); }
         found
     }
     fn resolve_file_action(&mut self, doc: &Document, action: FileAction) -> Result<FileAction, Error> {
+        if action.data.as_deref().is_some_and(|key|key.starts_with("livewire-action:")) {
+            let index=self.index_for(&doc.path).ok_or(Error::Stale)?;
+            return crate::package_integrations::resolve(index,doc,action);
+        }
+        if action.data.as_deref().is_some_and(|key|key.starts_with("class-component-rename:")) {
+            let index=self.index_for(&doc.path).ok_or(Error::Stale)?;
+            return crate::class_component_rename::resolve(index,doc,action);
+        }
+        if action.data.as_deref().is_some_and(|key|key.starts_with("member-rename:")) {
+            let index=self.index_for(&doc.path).ok_or(Error::Stale)?;
+            return crate::member_refactor::resolve(index,doc,action);
+        }
+        if action.data.as_deref().is_some_and(|key|key.starts_with("request-dto:")) {
+            let index=self.index_for(&doc.path).ok_or(Error::Stale)?;
+            return crate::request_dto::resolve(index,doc,action);
+        }
         if action.data.as_deref().is_some_and(|key|key.starts_with("view-rename:")) {
             let index = self.index_for(&doc.path).ok_or(Error::Stale)?;
             return crate::view_rename::resolve(index, doc, action);
@@ -281,9 +300,19 @@ impl FileActions for Main {
         }
         if action.data.as_deref().is_some_and(|key|key.starts_with("model-native:")) {
             let index=self.index_for(&doc.path).ok_or(Error::Stale)?;
-            return crate::model_actions::resolve(index,doc,action);
+            return crate::model_actions::resolve_current(self,index,doc,action);
         }
-        if action.data.as_deref().is_some_and(|key|key.starts_with("generator-apply:") || key.starts_with("generator-presets:") || key.starts_with("existing-model-fields:")){return self.generator_workspace.resolve(doc,action);}
+        if action.data.as_deref().is_some_and(|key|key.starts_with("generator-apply:") || key.starts_with("generator-presets:") || key.starts_with("existing-model-fields:")){
+            if let Some(model)=self.generator_workspace.prepared_model(doc,&action) {
+                let (project,_)=owner(doc,None)?;
+                let index=self.index_for(&doc.path).filter(|index|!index.partial).ok_or(Error::Stale)?;
+                let (_,path)=crate::eloquent_members::model_identities(&index.eloquent_models).into_iter().find(|(full,_)|full==&model).ok_or(Error::Stale)?;
+                let runner=self.artisan_workspace.runner_for_project(&project)?;
+                let snapshot=self.runtime_inspection.helper_schema(&project,runner,&model,&path)?;
+                self.generator_workspace.set_model_schema_for_project(&project,&model,snapshot)?;
+            }
+            return self.generator_workspace.resolve(doc,action);
+        }
         if action.data.as_deref().is_some_and(|key|key.starts_with("locale-json:") || key.starts_with("locale-php:")){return crate::lang_actions::resolve_locale(doc,action);}
         if crate::vendor_overrides::handles(&action){return crate::vendor_overrides::resolve(self,doc,action);}
         if action.data.as_deref().is_some_and(|key|key.starts_with("bulk-phpdocs:") || key.starts_with("bulk-generate:")){return crate::bulk::resolve(self,doc,action);}
@@ -308,23 +337,18 @@ impl FileActions for Main {
             if data[4].as_str() != Some(&name) || data[5].as_u64() != Some(start as u64) || data[6].as_u64() != Some(end as u64) {
                 return Err(Error::Stale);
             }
-            let (target, config) = validate(&project, &root, doc, &name)?;
-            let preview = format!(
-                "Project: {root}\nSource: {} (editor version {})\nLiteral: {}\n\nCreate (no overwrite): {target}\n\nExact new contents:\n{CONTENT}\nOne undoable file creation. The source is unchanged; no imports, variables, extraction or PHP/Artisan/process execution is inferred.",
-                doc.path,
-                doc.version,
-                json!(name)
-            );
-            if !ui_kit::prompts::confirm_exact("Create missing literal Blade view?", &preview)? {
+            let (target, config) = roots::select(&project, &root, doc, &name)?;
+            let preview = crate::ui_text::format("view.create-review", "Project: {root}\nSource: {source} (editor version {version})\nLiteral: {literal}\n\nCreate (no overwrite): {target}\n\nExact new contents:\n{content}\nOne undoable file creation. The source is unchanged; no imports, variables, extraction or PHP/Artisan/process execution is inferred.", &[("root", &root), ("source", &doc.path), ("version", &doc.version.to_string()), ("literal", &json!(name).to_string()), ("target", &target), ("content", CONTENT)]);
+            if !ui_kit::prompts::confirm_exact(crate::ui_text::text("view.create-confirm", "Create missing literal Blade view?"), &preview)? {
                 return Err(Error::Cancelled);
             }
             owner(doc, Some(&root))?;
-            let (current, current_config) = validate(&project, &root, doc, &name)?;
+            let (current, current_config) = roots::revalidate(&project, &root, doc, &name,&target,&config)?;
             if target != current || config != current_config {
                 return Err(Error::Stale);
             }
             Ok(FileAction {
-                title: format!("Create missing literal Blade view: {name}"),
+                title: crate::ui_text::format("view.create-action", "Create missing literal Blade view: {name}", &[("name", &name)]),
                 kind: Some("quickfix".into()),
                 operations: vec![FileOperation::Create { path: target.clone(), text: CONTENT.into(), overwrite: false }],
                 open: Some(target),
@@ -333,7 +357,7 @@ impl FileActions for Main {
         })();
         if let Err(error) = &result {
             if *error != Error::Cancelled {
-                host::notify(NotificationLevel::Warning, "Laravel view creation", &format!("View was not created: {error}"));
+                host::notify(NotificationLevel::Warning, crate::ui_text::text("native.view_creation.8a3676cb28", "Laravel view creation"), &crate::ui_text::format("view.create-failed", "View was not created: {error}", &[("error", &error.to_string())]));
             }
         }
         result

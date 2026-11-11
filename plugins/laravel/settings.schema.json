@@ -109,6 +109,29 @@
       "type": "boolean",
       "default": true,
       "description": "Offer scope-to-attribute intentions when composer.lock establishes Laravel 12.6 or newer."
+    },
+    "uiLanguage": {
+      "type": "string",
+      "enum": [
+        "auto",
+        "en",
+        "ja",
+        "ko",
+        "zh-CN"
+      ],
+      "default": "auto",
+      "title": "Laravel interface language"
+    },
+    "languageDirectory": {
+      "type": "string",
+      "default": "",
+      "title": "Application language directory (project-relative; empty uses framework defaults)"
+    },
+    "massAssignmentExceptions": {
+      "type": "string",
+      "title": "Mass assignment inspection exceptions by model class",
+      "description": "JSON object mapping fully qualified model classes to field-name arrays. Use [\"*\"] to ignore a model.",
+      "default": "{}"
     }
   }
 }

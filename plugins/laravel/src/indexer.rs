@@ -229,6 +229,50 @@ pub fn edges_of(path: &str, text: &str, exists: &dyn Fn(&str) -> bool) -> Edges 
     edges
 }
 
+/// Human labels are applied at delivery; graph identifiers remain untranslated.
+pub(crate) fn localize_route_marker(index:&crate::Index,marker:&mut openidea_plugin::providers::LineMarker){
+    let(key,template,full)=if let Some(full)=marker.tooltip.strip_prefix("Related route-class-fqn#"){
+        ("editor.final.relatedRoutes","Related routes for {class}",full)
+    }else if let Some(full)=marker.tooltip.strip_prefix("Related controller-fqn#"){
+        ("editor.final.routeController","Route controller {class}",full)
+    }else{return;};
+    let identities=crate::eloquent_members::class_inventory(&index.eloquent_models);
+    let authored=identities.iter().find(|identity|identity.full.eq_ignore_ascii_case(full)).map(|identity|identity.full.as_str()).unwrap_or(full);
+    marker.tooltip=crate::ui_text::format(key,template,&[("class",authored)]);
+}
+
+/// Route relationships use runtime controller identity, never a basename.
+/// Literal names retain their original source ranges under external mounts.
+pub(crate) fn contextual_navigation(index:&crate::Index,path:&str,text:&str)->ui_kit::navigation::Graph{
+    let mut graph=navigation(path,text);
+    let legacy=|key:&str|key.starts_with("route#")||key.starts_with("controller#");
+    graph.definitions.retain(|(key,_)|!legacy(key));
+    graph.references.retain(|(key,_)|!legacy(key));
+    graph.markers.retain(|(key,_)|!legacy(key));
+    if text.len()>512*1024{return graph;}
+    if let Some(full)=crate::eloquent_members::declaration(text){
+        if let Some((_,range))=graph.definitions.iter().find(|(key,_)|key==&format!("class-fqn#{full}")){
+            let range=*range;let canonical=full.to_ascii_lowercase();
+            graph.definitions.push((format!("controller-fqn#{canonical}"),range));
+            graph.markers.push((format!("route-class-fqn#{canonical}"),range));
+        }
+    }
+    if index.route_files.contains(path)||index.route_defs.iter().any(|entry|entry.path==path){
+        let context=index.route_mounts.get(path).cloned().unwrap_or_default();
+        if index.route_mount_unknown.contains(path){return graph;}
+        let definitions=crate::routes::canonical_controllers(text,&index.metadata.route_methods,&context);
+        if definitions.len()>MAX_ANCHORS{return graph;}
+        for (def,(full,_)) in definitions{
+            let range=range_of(text,def.offset,def.width);let full=full.to_ascii_lowercase();
+            let key=format!("route-class-fqn#{full}");
+            if !graph.definitions.iter().any(|item|item==&(key.clone(),range)){graph.definitions.push((key,range));}
+            let key=format!("controller-fqn#{full}");
+            if !graph.markers.iter().any(|item|item==&(key.clone(),range)){graph.markers.push((key,range));}
+        }
+    }
+    graph
+}
+
 /// A transient source graph for provider navigation, never host rename edits.
 pub(crate) fn navigation(path: &str, text: &str) -> ui_kit::navigation::Graph {
     let mut graph:ui_kit::navigation::Graph=edges_of(path, text, &|_| true).into();

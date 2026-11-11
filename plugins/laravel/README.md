@@ -8,8 +8,7 @@ features that plugin doesn't have follow [Laravel's documentation](https://larav
 
 **Parity implementation is in progress.** The working source now includes
 Generators, Models, Processes and External Services workspaces alongside the
-existing inventories. These additions have targeted native/UI checks; full
-Laravel Idea parity and desktop acceptance are not established. The
+existing inventories. These additions have targeted SDK MockHost, actual PHP/framework and browser checks. Actual aritti.laravel activation currently exceeds the OpenIDEA0.1.40 callback fuel budget; bounded resumable indexing is in progress. No native acceptance/apply-undo is established. Full Laravel Idea parity is not claimed. The user explicitly excluded Qodana and retained plugin-only delivery on2026-11-11. The
 [acceptance ledger and implementation receipt](../../docs/laravel-parity-acceptance.md#working-tree-source-receipt-2026-11-10)
 separate new source coverage from the frozen checkpoint inventory and remaining
 gaps.
@@ -20,7 +19,7 @@ generation, configurable generation classes/postfixes, and typed rename actions
 for proven route, config, translation and explicit Blade-alias literals. Blade
 layout extraction supports anonymous components with explicit props. Sentry and
 Cloud inventories offer explicit bounded pagination. These are scoped workflows;
-the ledger records their remaining limitations.
+the ledger records their remaining limitations. The [primary baseline qualification](../../docs/laravel-baseline-qualification-20261111.md) now defines exact metadata completion transformers, Cloud read-only workflows and Git/LLM hooks. Generic Pest subject navigation was withdrawn as an invented requirement; native Pest templates/Livewire contexts remain supported.
 
 Preset model parameters use searchable indexed model choices; calculated values
 update live with explicit overrides and reset. Dedicated **Search Routes…** matches
@@ -1267,15 +1266,11 @@ for limits and validation evidence.
   its caches. Rendering performs no HTTP. Remote frame text is not a trusted
   local navigation destination.
 
-The external integrations use documented read-only HTTP contracts. Token
-connection is an alternative to the unimplemented Sentry OAuth lifecycle; a
-registered OAuth application is not configured. Regional/self-hosted Sentry,
-Cloud deployments/management and connected-account acceptance
-remain open. Load More fetches one validated page per action, bounded to 20
+The external integrations use documented read-only HTTP contracts. Token connection and registered-client Sentry device authorization are implemented. Real registered-client/account acceptance remains pending. Persisted OAuth refresh has a narrower API1.4 limitation: a stored keychain refresh token cannot be substituted into the required form body (secret substitution supports headers). OAuth/device flow itself is not API-blocked. Cloud management supersets and endpoint variants require exact public baseline qualification. Load More fetches one validated page per action, bounded to 20
 pages/2000 resources per inventory; the UI marks the limit as incomplete.
 Sentry next cursors and Cloud next links are rebuilt against the original
 service/resource, and captured row keys include project/snapshot identity.
-These remaining gaps are not classified as missing host APIs.
+Account/client prerequisites and unqualified management supersets are not missing host APIs. See the [exact runtime/SDK qualification](../../docs/laravel-runtime-sdk-qualification.md).
 
 The current editor-action transaction bridge is deliberate: the pinned SDK does
 not expose direct webview application of a general multi-file FileAction. Exact

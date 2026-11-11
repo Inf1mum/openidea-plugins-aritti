@@ -30,6 +30,53 @@ if ($mode === 'logs') {
 require getcwd().'/vendor/autoload.php';
 $app = require getcwd().'/bootstrap/app.php';
 $app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+if ($mode === 'model-connections') {
+    $models = $options['models'] ?? null;
+    if (!is_array($models) || count($models) < 1 || count($models) > 32) { throw new RuntimeException('Select between 1 and 32 owned model classes.'); }
+    $root = realpath(getcwd());
+    $default = $app['db']->getDefaultConnection();
+    if (!is_string($default) || $default === '' || strlen($default) > 128) { throw new RuntimeException('Framework default connection is unavailable.'); }
+    $result = [];
+    foreach ($models as $input) {
+        $class = $input['class'] ?? null;
+        $file = $input['file'] ?? null;
+        if (!is_string($class) || strlen($class) > 512 || !preg_match('/^[A-Za-z_][A-Za-z_0-9]*(?:\\\\[A-Za-z_][A-Za-z_0-9]*)*$/D', $class) || !is_string($file) || strlen($file) > 1024 || str_contains($file, chr(92)) || preg_match('~(?:^|/)\.\.?(?:/|$)|[\x00-\x1f]~', $file) || str_starts_with($file, '/')) { throw new RuntimeException('Invalid owned model request.'); }
+        $row = ['class' => $class, 'file' => $file, 'available' => false, 'dependencies' => []];
+        try {
+            $expected = realpath($root.'/'.$file);
+            $reflection = new ReflectionClass($class);
+            $actual = $reflection->getFileName();
+            if ($expected === false || !str_starts_with($expected, $root.'/') || !is_string($actual) || realpath($actual) !== $expected || $reflection->isAbstract() || !$reflection->isSubclassOf(\Illuminate\Database\Eloquent\Model::class) || $reflection->getName() !== $class) { throw new RuntimeException('Unproven model declaration.'); }
+            // This explicit action can run application constructors and overridden model methods.
+            // It never executes a model query or exports connection configuration/row values.
+            $model = $reflection->newInstance();
+            $connection = $model->getConnection()->getName();
+            $table = $model->getTable();
+            if (!is_string($connection) || $connection === '' || strlen($connection) > 128 || preg_match('/[\x00-\x1f]/', $connection) || !is_string($table) || $table === '' || strlen($table) > 512 || preg_match('/[\x00-\x1f]/', $table)) { throw new RuntimeException('Invalid model connection facts.'); }
+            $dependencies = []; $pending = [$reflection]; $seen = [];
+            while ($pending !== []) {
+                $type = array_pop($pending); $typeName = $type->getName();
+                if (isset($seen[$typeName])) { continue; } $seen[$typeName] = true;
+                if (count($seen) > 64) { throw new RuntimeException('Model declaration graph exceeds its bound.'); }
+                $source = $type->getFileName();
+                if (!is_string($source) || ($source = realpath($source)) === false || !str_starts_with($source, $root.'/')) { throw new RuntimeException('Model declaration graph is not owned by this project.'); }
+                $dependencyFile = substr($source, strlen($root) + 1);
+                $dependencyHash = hash_file('fnv1a64', $source);
+                if (!is_string($dependencyHash)) { throw new RuntimeException('Model dependency fingerprint unavailable.'); }
+                $dependencies[$dependencyFile] = ['file' => $dependencyFile, 'hash' => $dependencyHash];
+                if (($parent = $type->getParentClass()) !== false) { $pending[] = $parent; }
+                foreach ($type->getTraits() as $trait) { $pending[] = $trait; }
+            }
+            $row['dependencies'] = array_values($dependencies);
+            $row['available'] = true; $row['connection'] = $connection; $row['table'] = $table;
+        } catch (\Throwable $_) {
+            $row['reason'] = 'Framework could not resolve this exact owned model.';
+        }
+        $result[] = $row;
+    }
+    echo json_encode(['defaultConnection' => $default, 'models' => $result], JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE);
+    exit;
+}
 if ($mode === 'schema') {
     $selected = $options['connection'] ?? null;
     $connections = $app['config']->get('database.connections', []);

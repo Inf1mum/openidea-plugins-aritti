@@ -8,6 +8,14 @@ pub(super) fn effective(
     model: &ModelIdentity,
     kind: &str,
 ) -> Result<(Draft, String, bool), Error> {
+    effective_in_module(project, model, kind, None)
+}
+pub(super) fn effective_in_module(
+    project: &Project,
+    model: &ModelIdentity,
+    kind: &str,
+    requested: Option<Option<&str>>,
+) -> Result<(Draft, String, bool), Error> {
     let root = project.root()?;
     let bundle = crate::generator_presets::load(project)?;
     let catalog = bundle.catalog();
@@ -34,7 +42,7 @@ pub(super) fn effective(
         .into_iter()
         .filter(|module| module["sourceRoot"].as_str().map(str::len) == longest)
         .collect::<Vec<_>>();
-    if modules.len() > 1 {
+    if modules.len() > 1 && requested.is_none() {
         return Err(Error::Invalid(
             "Module generation roots are ambiguous".into(),
         ));
@@ -54,21 +62,74 @@ pub(super) fn effective(
     }))
     .map_err(|_| Error::Stale)?;
     bundle.apply_settings(&mut draft);
-    let module_id = modules
-        .first()
-        .map(|module| module["id"].as_str().ok_or(Error::Stale))
-        .transpose()?;
-    if let Some(id) = module_id {
+    let module_id = match requested {
+        Some(value) => value.map(str::to_owned),
+        None => modules
+            .first()
+            .map(|module| module["id"].as_str().map(str::to_owned).ok_or(Error::Stale))
+            .transpose()?,
+    };
+    if requested == Some(None) {
+        bundle.apply_application(&mut draft);
+    }
+    if let Some(id) = module_id.as_deref() {
         bundle
             .apply_module(&mut draft, id)
             .map_err(Error::Invalid)?;
-        if !model.full.starts_with(&format!("{}\\", draft.namespace)) {
+        if requested.is_none() && !model.full.starts_with(&format!("{}\\", draft.namespace)) {
             return Err(Error::Stale);
         }
     }
     bundle
-        .apply_related_generator_options(&mut draft, kind, module_id)
+        .apply_related_generator_options(&mut draft, kind, module_id.as_deref())
         .map_err(Error::Invalid)?;
     draft.settings.validate().map_err(Error::Invalid)?;
-    Ok((draft, bundle.fingerprint(), module_id.is_some()))
+    Ok((
+        draft,
+        bundle.fingerprint(),
+        module_id.is_some() || requested.is_some(),
+    ))
+}
+
+pub(super) fn render(
+    project: &Project,
+    model: &ModelIdentity,
+    kind: &str,
+    draft: &Draft,
+    requested: Option<Option<&str>>,
+    generated_class: &str,
+    generated: &str,
+) -> Result<String, Error> {
+    let bundle = crate::generator_presets::load(project)?;
+    let catalog = bundle.catalog();
+    let root = project.root()?;
+    let relative = model
+        .path
+        .strip_prefix(&format!("{root}/"))
+        .ok_or(Error::Stale)?;
+    let module = match requested {
+        Some(value) => value.map(str::to_owned),
+        None => catalog["modules"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|module| {
+                module["sourceRoot"]
+                    .as_str()
+                    .is_some_and(|path| relative.starts_with(&format!("{path}/")))
+            })
+            .max_by_key(|module| module["sourceRoot"].as_str().map(str::len).unwrap_or(0))
+            .and_then(|module| module["id"].as_str())
+            .map(str::to_owned),
+    };
+    bundle
+        .render_related_output(
+            draft,
+            kind,
+            module.as_deref(),
+            generated_class,
+            &model.full,
+            generated,
+        )
+        .map_err(Error::Invalid)
 }

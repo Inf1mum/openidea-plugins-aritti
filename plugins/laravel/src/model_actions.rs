@@ -13,25 +13,23 @@ use std::collections::BTreeSet;
 #[path="model_helper_parameters.rs"]
 pub(crate) mod parameters;
 pub(crate) fn configure(ctx:&openidea_plugin::Invocation)->Result<(),Error>{parameters::configure(ctx)}
-pub(crate) fn begin_project(ctx:&openidea_plugin::Invocation)->Result<(),Error>{
-    let project=ctx.project().ok_or("Open a Laravel project first")?;let root=project.root()?;let index=Index::build(&project);
+pub(crate) fn begin_project(ctx:&openidea_plugin::Invocation,index:&Index)->Result<(),Error>{
+    let project=ctx.project().ok_or(crate::ui_text::text("native.model_actions.a74a0baad4", "Open a Laravel project first"))?;let root=project.root()?;
+    if !crate::index::index_sources_current(&project,index){return Err(Error::Stale);}
     if index.partial{return Err(Error::Stale);}
-    let models=eloquent_members::model_inventory(&index.eloquent_models).into_iter().filter(|(full,path,_)|helper_codegen::eligible(&index,full)&&crate::owns_current_path(&project,path)).collect::<Vec<_>>();
-    if models.is_empty(){return Err(Error::Invalid("No owned eligible Eloquent model is indexed".into()));}
-    let items=models.iter().map(|(full,_,_)|openidea_plugin::PickItem::new(full,full)).collect::<Vec<_>>();
-    let Some(chosen)=host::pick("Open a model for reviewed project helper regeneration",&items)?else{return Ok(())};
-    let (_,path,_)=models.into_iter().find(|(full,_,_)|full==&chosen).ok_or(Error::Stale)?;
+    let models=eloquent_members::model_identities(&index.eloquent_models).into_iter().filter(|(full,path)|helper_codegen::eligible(&index,full)&&crate::owns_current_path(&project,path)).collect::<Vec<_>>();
+    if models.is_empty(){return Err(Error::Invalid(crate::ui_text::text("native.model_actions.99ac7606df", "No owned eligible Eloquent model is indexed").into()));}
+    let (_,path)=models.into_iter().next().ok_or(Error::Stale)?;
     if ctx.project().and_then(|project|project.root().ok()).as_deref()!=Some(&root)||!crate::owns_current_path(&project,&path){return Err(Error::Stale);}
     host::open_editor(&path,None)?;
-    host::notify(openidea_plugin::NotificationLevel::Info,"Laravel","Choose ‘Regenerate reviewed helpers for indexed models…’ from this model's editor actions. Selected files are reviewed and applied as one undoable edit.");
+    host::notify(openidea_plugin::NotificationLevel::Info,"Laravel",crate::ui_text::text("native.model_actions.d1c3e17426", "Choose ‘Regenerate reviewed helpers for indexed models…’ from this model's editor actions. Selected files are reviewed and applied as one undoable edit."));
     Ok(())
 }
 
 fn model(index: &Index, path: &str) -> Option<(String, String)> {
-    eloquent_members::model_inventory(&index.eloquent_models)
-        .into_iter()
-        .find(|(_, p, _)| p == path)
-        .map(|(full, _, table)| (full, table))
+    let (full,_)=eloquent_members::model_identities(&index.eloquent_models).into_iter().find(|(_,p)|p==path)?;
+    let table=eloquent_members::model_inventory(&index.eloquent_models).into_iter().find(|(name,_,_)|name==&full).map(|(_,_,table)|table).unwrap_or_default();
+    Some((full,table))
 }
 pub(crate) fn actions(index: &Index, doc: &Document) -> Vec<FileAction> {
     if doc.language != "php" || index.partial || model(index, &doc.path).is_none() {
@@ -72,14 +70,61 @@ fn owner(doc: &Document) -> Result<openidea_plugin::Project, Error> {
 }
 #[path = "model_helper_codegen.rs"]
 mod helper_codegen;
-fn tags(
-    index: &Index,
-    project: &openidea_plugin::Project,
-    full: &str,
-    _table: &str,
-) -> Result<String, Error> {
-    let parameters=parameters::load(project)?;
-    helper_codegen::tags(index, project, full, helper_codegen::Options{relation_counts:parameters.relation_counts,date_class:parameters.date_class})
+fn generation_options(main:Option<&crate::Main>,index:&Index,project:&openidea_plugin::Project,full:&str,preferences:&parameters::Parameters)->Result<helper_codegen::Options,Error>{
+    let schema=if preferences.source=="migrations" {None}else{
+        let main=main.ok_or_else(||Error::Invalid(crate::ui_text::text("native.model_actions.40648a12a2", "Use the project helper command with refreshed model/database captures").into()))?;
+        let path=eloquent_members::model_identities(&index.eloquent_models).into_iter().find(|(name,_)|name==full).map(|(_,path)|path).ok_or(Error::Stale)?;
+        let runner=main.artisan_workspace.runner_for_project(project)?;
+        let capture=main.runtime_inspection.helper_schema(project,runner,full,&path);
+        match capture {
+            Ok(Some(value))=>Some(value),
+            other=>{
+                // A literal, currently proven named connection/table can join
+                // a schema capture without re-running PHP after a model save.
+                // Dynamic bindings still require their exact refreshed capture.
+                let connection=match eloquent_members::related_facts::connection_selection(index,project,full) {
+                    Some(eloquent_members::related_facts::ConnectionSelection::Named(value))=>Some(value),
+                    Some(eloquent_members::related_facts::ConnectionSelection::ConfiguredDefault)=>main.runtime_inspection.captured_default_connection(project,runner)?,
+                    None=>None,
+                };
+                let table=eloquent_members::helper_facts::facts(index,full,&|path|crate::owns_current_path(project,path)).and_then(|facts|facts.table);
+                let schema=main.runtime_inspection.schema_for_generation(project,runner)?;
+                let matches=schema["tables"].as_array().into_iter().flatten().filter(|candidate|{
+                    let Some(name)=candidate["name"].as_str()else{return false;};
+                    table.as_deref().is_some_and(|table|if table.contains('.') {table==format!("{}.{name}",candidate["schema"].as_str().unwrap_or(""))}else{table==name})
+                }).collect::<Vec<_>>();
+                if connection.as_deref().is_some_and(|connection|schema["connection"]==connection)&&matches.len()==1 {
+                    let table=matches[0];Some(serde_json::json!({"model":full,"file":path,"connection":schema["connection"],"table":table["name"],"schema":table["schema"],"columns":table["columns"],"indexes":table["indexes"],"capturedAt":schema["capturedAt"],"runner":runner.name(),"binding":"proven literal source","modelSourceHash":crate::artisan_metadata::hash(&project.read_file(&path)?)}))
+                }else{other?}
+            }
+        }
+    };
+    Ok(helper_codegen::Options{relation_counts:preferences.relation_counts,date_class:preferences.date_class.clone(),source:preferences.source.clone(),schema,collection_proxies:preferences.collection_proxies})
+}
+fn tags(index:&Index,project:&openidea_plugin::Project,full:&str,options:helper_codegen::Options)->Result<String,Error>{helper_codegen::tags(index,project,full,options)}
+
+
+/// Regenerable helper-only output for an explicitly enabled save hook. Never
+/// returns application source; the automation state validates ownership again.
+pub(crate) fn automatic_helper_outputs_with_index(main:&crate::Main,project:&openidea_plugin::Project,index:&Index,path:&str)->Result<Vec<(String,String)>,Error>{
+    let preferences=parameters::load(project)?;
+    if !preferences.on_save||preferences.storage!="helpers"||path.contains("/.openidea/"){return Ok(vec![]);}
+    if !crate::owns_current_path(project,path){return Err(Error::Stale);}
+    if index.partial{return Err(Error::Stale);}
+    let Some((full,_))=model(index,path)else{return Ok(vec![])};
+    if !helper_codegen::eligible(&index,&full){return Ok(vec![]);}
+    let before=project.read_file(path)?;
+    let options=generation_options(Some(main),&index,project,&full,&preferences)?;
+    let tags=helper_codegen::tags(&index,project,&full,options.clone())?;
+    let mut files=Vec::new();
+    if preferences.collection_proxies {files.push(proxy_output(project,&full)?);}
+    files.push((format!("{}/.openidea/helpers/{}.php",project.root()?,full.replace('\\',"_")),helper_text(&full,&tags)?));
+    for(target,_)in &files{
+        check_target(project,target)?;
+        match project.read_file(target){Ok(source)=>{let valid=if target.contains("/proxies/"){source.starts_with(&format!("<?php\n// Generated by OpenIDEA Laravel. Do not edit this helper.\n// Collection proxies for {full}\n"))}else{source.starts_with("<?php\n// Generated by OpenIDEA Laravel. Do not edit this helper.\n")&&eloquent_members::declaration(&source).as_deref()==Some(full.as_str())};if !valid{return Err(Error::Invalid(crate::ui_text::text("native.model_actions.8d162054ef", "Automatic helper target is not plugin-owned").into()));}},Err(Error::NotFound(_))=>{},Err(error)=>return Err(error)}
+    }
+    if parameters::load(project)?!=preferences||project.read_file(path)?!=before{return Err(Error::Stale);}
+    Ok(files)
 }
 
 fn entire(text: &str, replacement: String) -> TextEdit {
@@ -178,7 +223,7 @@ fn fillable(source: &str, fields: &[generator_plan::Field]) -> Result<String, Er
         let mut existing = BTreeSet::new();
         for item in php::items(source, range.start) {
             let (name, _) = php::literal(source, item.value).ok_or_else(|| {
-                Error::Invalid("Only literal $fillable arrays can be updated".into())
+                Error::Invalid(crate::ui_text::text("native.model_actions.4218eb2c60", "Only literal $fillable arrays can be updated").into())
             })?;
             existing.insert(name.to_owned());
         }
@@ -215,51 +260,50 @@ pub(crate) fn resolve(
     doc: &Document,
     action: FileAction,
 ) -> Result<FileAction, Error> {
+    resolve_inner(None,index,doc,action)
+}
+pub(crate) fn resolve_current(main:&crate::Main,index:&Index,doc:&Document,action:FileAction)->Result<FileAction,Error>{
+    let helper=action.data.as_deref().is_some_and(|data|data.starts_with("model-native:helpers")||data.starts_with("model-native:docs"));
+    let result=resolve_inner(Some(main),index,doc,action)?;
+    if helper {let project=owner(doc)?;let preferences=parameters::load(&project)?;main.helper_automation.arm(&project,main.artisan_workspace.runner_for_project(&project)?,&result,&preferences.post_commands)?;}
+    Ok(result)
+}
+fn resolve_inner(main:Option<&crate::Main>,index:&Index,doc:&Document,action:FileAction)->Result<FileAction,Error>{
     let data = action.data.as_deref().ok_or(Error::Stale)?;
     let kind = ["helpers", "docs", "fields", "helpers-all"]
         .into_iter()
         .find(|kind| data == format!("model-native:{kind}:{}", doc.version))
         .ok_or(Error::Stale)?;
     if kind == "helpers-all" {
-        return resolve_batch(doc, action);
+        return resolve_batch(main, index, doc, action);
     }
     let project = owner(doc)?;
     let root = project.root()?;
-    let current = Index::build(&project);
+    if !crate::index::index_sources_current(&project,index){return Err(Error::Stale);}
+    let current = index;
     let (full, table) = model(&current, &doc.path).ok_or(Error::Stale)?;
     if model(index, &doc.path) != Some((full.clone(), table.clone())) || current.partial {
         return Err(Error::Stale);
     }
     if kind != "fields" && !helper_codegen::eligible(&current, &full) {
         return Err(Error::Invalid(
-            "Model is excluded from helper generation by project metadata".into(),
+            crate::ui_text::text("native.model_actions.93942f79df", "Model is excluded from helper generation by project metadata").into(),
         ));
     }
-    let generated_tags = tags(&current, &project, &full, &table)?;
+    let preferences=parameters::load(&project)?;
+    let options=if kind=="fields"{helper_codegen::Options::default()}else{generation_options(main,&current,&project,&full,&preferences)?};
+    let generated_tags = if kind=="fields"{String::new()}else{tags(&current,&project,&full,options.clone())?};
     let mut operations = Vec::new();
     let mut edits = Vec::new();
     let mut expected = Vec::new();
     let mut open = Some(doc.path.clone());
-    let preferences=parameters::load(&project)?;
     if kind == "helpers" && preferences.storage=="helpers" {
-        let short = full.rsplit('\\').next().ok_or(Error::Stale)?;
-        let namespace = full.rsplit_once('\\').map(|(ns, _)| ns).unwrap_or("");
         let path = format!("{root}/.openidea/helpers/{}.php", full.replace('\\', "_"));
-        if !crate::owns_current_path(&project, &path) {
-            return Err(Error::Stale);
-        }
-        let marker = "// Generated by OpenIDEA Laravel. Do not edit this helper.\n";
-        let namespace_line = if namespace.is_empty() {
-            String::new()
-        } else {
-            format!("namespace {namespace};\n")
-        };
-        let text = format!(
-            "<?php\n{marker}\n{namespace_line}\n\n/**\n{generated_tags} */\nclass {short} extends \\Illuminate\\Database\\Eloquent\\Model {{}}\n"
-        );
+        check_target(&project,&path)?;
+        let text=helper_text(&full,&generated_tags)?;
         match project.read_file(&path) {
             Ok(previous)
-                if previous.starts_with(&format!("<?php\n{marker}"))
+                if previous.starts_with("<?php\n// Generated by OpenIDEA Laravel. Do not edit this helper.\n")
                     && eloquent_members::declaration(&previous).as_deref() == Some(&full) =>
             {
                 expected.push((path.clone(), previous.clone()));
@@ -267,7 +311,7 @@ pub(crate) fn resolve(
             }
             Ok(_) => {
                 return Err(Error::Invalid(
-                    "Helper destination is not owned by this plugin".into(),
+                    crate::ui_text::text("native.model_actions.b536efd01d", "Helper destination is not owned by this plugin").into(),
                 ));
             }
             Err(Error::NotFound(_)) => operations.push(FileOperation::Create {
@@ -285,17 +329,17 @@ pub(crate) fn resolve(
         ));
     } else {
         let raw = host::input(
-            "Fields JSON (name, kind, nullable, length, precision, scale, default)",
+            crate::ui_text::text("native.model_actions.1afd7f9a96", "Fields JSON (name, kind, nullable, length, precision, scale, default)"),
             Some(r#"[{"name":"title","kind":"string"}]"#),
         )?
         .ok_or(Error::Cancelled)?;
         if raw.len() > 32 * 1024 {
-            return Err(Error::Invalid("Field specification too large".into()));
+            return Err(Error::Invalid(crate::ui_text::text("native.model_actions.0deed3c419", "Field specification too large").into()));
         }
         let fields: Vec<generator_plan::Field> =
             serde_json::from_str(&raw).map_err(|e| Error::Invalid(e.to_string()))?;
         if fields.is_empty() || fields.len() > 64 {
-            return Err(Error::Invalid("Choose 1–64 fields".into()));
+            return Err(Error::Invalid(crate::ui_text::text("native.model_actions.bf0a405a6e", "Choose 1–64 fields").into()));
         }
         let mut seen = BTreeSet::new();
         let mut lines = String::new();
@@ -308,18 +352,18 @@ pub(crate) fn resolve(
                     .is_some_and(|names| names.contains_key(&field.name))
             {
                 return Err(Error::Invalid(
-                    "Field names must be unique new column identifiers".into(),
+                    crate::ui_text::text("native.model_actions.9b3d624ec9", "Field names must be unique new column identifiers").into(),
                 ));
             }
             if field.cast.is_some() {
                 return Err(Error::Invalid(
-                    "Create Fields currently requires casts to be edited separately".into(),
+                    crate::ui_text::text("native.model_actions.abfa5cc0f8", "Create Fields currently requires casts to be edited separately").into(),
                 ));
             }
             lines.push_str(&generator_plan::field_line(field).map_err(Error::Invalid)?);
         }
         let relative = host::input(
-            "New migration path",
+            crate::ui_text::text("generator.text.d163301ea9", "New migration path"),
             Some(&format!(
                 "database/migrations/{}_add_fields_to_{table}.php",
                 migration_stamp()
@@ -328,7 +372,7 @@ pub(crate) fn resolve(
         .ok_or(Error::Cancelled)?;
         if !generator_plan::relative(&relative) || !relative.ends_with(".php") {
             return Err(Error::Invalid(
-                "Choose a relative PHP migration path".into(),
+                crate::ui_text::text("native.model_actions.712fa8b1f4", "Choose a relative PHP migration path").into(),
             ));
         }
         let path = format!("{root}/{relative}");
@@ -337,12 +381,12 @@ pub(crate) fn resolve(
         }
         match project.stat(&path) {
             Err(Error::NotFound(_)) => {}
-            Ok(_) => return Err(Error::Invalid("Migration already exists".into())),
+            Ok(_) => return Err(Error::Invalid(crate::ui_text::text("native.model_actions.442d672cb0", "Migration already exists").into())),
             Err(e) => return Err(e),
         }
         if !generator_plan::identifier(&table) {
             return Err(Error::Invalid(
-                "Table must be an ordinary identifier".into(),
+                crate::ui_text::text("native.model_actions.ded3508a60", "Table must be an ordinary identifier").into(),
             ));
         }
         let down = fields
@@ -359,10 +403,10 @@ pub(crate) fn resolve(
             overwrite: false,
         });
         let update = host::pick(
-            "Model mass-assignment update",
+            crate::ui_text::text("native.model_actions.0ec5984edc", "Model mass-assignment update"),
             &[
-                openidea_plugin::PickItem::new("fillable", "Add fields to $fillable"),
-                openidea_plugin::PickItem::new("keep", "Keep current model configuration"),
+                openidea_plugin::PickItem::new("fillable", crate::ui_text::text("native.model_actions.61d9bc3c23", "Add fields to $fillable")),
+                openidea_plugin::PickItem::new("keep", crate::ui_text::text("native.model_actions.c1a6bc7a08", "Keep current model configuration")),
             ],
         )?
         .ok_or(Error::Cancelled)?;
@@ -376,19 +420,18 @@ pub(crate) fn resolve(
         }
         open = Some(path);
     }
-    let preview = format!(
-        "Project: {root}\nModel: {full}\n{}\n{}\n{}\nApply as one undoable workspace edit?",
-        if kind=="helpers"&&preferences.storage=="overwrite" { "Saved overwrite mode: replaces attached model PHPDoc, including handwritten documentation. Review the entire resulting model below." } else { "" },
-        operations
+    if kind!="fields" {plan_proxies(&project,&full,preferences.collection_proxies,&mut operations,&mut edits,&mut expected)?;}
+    let post_note=if kind!="fields"&&!preferences.post_commands.is_empty(){crate::ui_text::format("root.formatted.2aa1877117", "After successful application, run these Artisan argv arrays: {argv}\n", &[("argv", &format!("{}", serde_json::to_string(&preferences.post_commands).map_err(|_|Error::Stale)?))])}else{String::new()};
+    let preview = crate::ui_text::format("root.formatted.7f9dfeda81", "{post_note}Project: {root}\nModel: {full}\n{warning}\n{operations}\n{edits}\nApply as one undoable workspace edit?", &[("post_note", &format!("{}", post_note)), ("root", &format!("{}", root)), ("full", &format!("{}", full)), ("warning", &format!("{}", if kind=="helpers"&&preferences.storage=="overwrite" { crate::ui_text::text("root.formatted.c5b2cef2f5", "Saved overwrite mode: replaces attached model PHPDoc, including handwritten documentation. Review the entire resulting model below.") } else { "" })), ("operations", &format!("{}", operations
             .iter()
             .map(|op| match op {
                 FileOperation::Create { path, text, .. } =>
-                    format!("Create (no overwrite): {path}\n{text}"),
-                _ => unreachable!("model actions only create files"),
+                    crate::ui_text::format("root.formatted.c27b321b8c", "Create (no overwrite): {path}\n{text}", &[("path", &format!("{}", path)), ("text", &format!("{}", text))]),
+                FileOperation::Delete{path}=>crate::ui_text::format("root.formatted.d35e67100c", "Delete obsolete plugin-owned support file: {path}", &[("path", &format!("{}", path))]),
+                _ => unreachable!("model actions do not rename files"),
             })
             .collect::<Vec<_>>()
-            .join("\n"),
-        edits
+            .join("\n"))), ("edits", &format!("{}", edits
             .iter()
             .map(|(path, edits)| format!(
                 "{path}\n{}",
@@ -399,17 +442,17 @@ pub(crate) fn resolve(
                     .join("\n")
             ))
             .collect::<Vec<_>>()
-            .join("\n")
-    );
-    if !ui_kit::prompts::confirm_exact("Apply model generation?", &preview)? {
+            .join("\n")))]);
+    if !ui_kit::prompts::confirm_exact(crate::ui_text::text("root.formatted.2159df2e7f", "Apply model generation?"), &preview)? {
         return Err(Error::Cancelled);
     }
     owner(doc)?;
     // Regenerate facts after review to avoid applying a cached schema plan.
-    let fresh = Index::build(&project);
+    if !crate::index::index_sources_current(&project,index){return Err(Error::Stale);}
+    let fresh = index;
     if parameters::load(&project)?!=preferences || model(&fresh, &doc.path) != Some((full.clone(), table.clone()))
         || kind != "fields" && !helper_codegen::eligible(&fresh, &full)
-        || tags(&fresh, &project, &full, &table)? != generated_tags
+        || kind!="fields" && (generation_options(main,&fresh,&project,&full,&preferences)?!=options || tags(&fresh,&project,&full,options.clone())? != generated_tags)
     {
         return Err(Error::Stale);
     }
@@ -455,9 +498,7 @@ fn check_target(project: &openidea_plugin::Project, path: &str) -> Result<(), Er
             Ok(stat) if stat.kind == openidea_plugin::FileKind::Directory => {}
             Err(Error::NotFound(_)) => {}
             Ok(_) => {
-                return Err(Error::Invalid(format!(
-                    "Target ancestor is not a directory: {parent}"
-                )));
+                return Err(Error::Invalid(crate::ui_text::format("root.formatted.96701f8b55", "Target ancestor is not a directory: {parent}", &[("parent", &format!("{}", parent))])));
             }
             Err(e) => return Err(e),
         }
@@ -498,6 +539,7 @@ mod tests {
     use openidea_plugin::mock::MockHost;
     fn setup() -> (MockHost, Index, Document) {
         let host = MockHost::install();
+        host.add_file("composer.lock",r#"{"packages":[{"name":"laravel/framework","version":"v13.40.0"}]}"#);
         let source = "<?php\nnamespace App\\Models;\nuse Illuminate\\Database\\Eloquent\\Model;\n/** Human-written description. */\nfinal class Post extends Model { protected $fillable = ['title']; }";
         host.add_file("app/Models/Post.php", source);
         host.add_file(
@@ -612,6 +654,23 @@ fn replace_all_docs(source: &str, tags: &str) -> Result<String, Error> {
     }
     Ok(output)
 }
+fn proxy_output(project:&openidea_plugin::Project,full:&str)->Result<(String,String),Error>{
+    let path=format!("{}/.openidea/helpers/proxies/{}.php",project.root()?,crate::artisan_metadata::hash(full));
+    let text=format!("<?php\n// Generated by OpenIDEA Laravel. Do not edit this helper.\n// Collection proxies for {full}\n{}",helper_codegen::proxy_code(full));
+    Ok((path,text))
+}
+fn plan_proxies(project:&openidea_plugin::Project,full:&str,enabled:bool,operations:&mut Vec<FileOperation>,edits:&mut Vec<(String,Vec<TextEdit>)>,expected:&mut Vec<(String,String)>)->Result<(),Error>{
+    let(path,text)=proxy_output(project,full)?;check_target(project,&path)?;
+    match project.read_file(&path){
+        Ok(previous)=>{
+            let marker=format!("<?php\n// Generated by OpenIDEA Laravel. Do not edit this helper.\n// Collection proxies for {full}\n");
+            if !previous.starts_with(&marker){if enabled{return Err(Error::Invalid(crate::ui_text::text("native.model_actions.949ace9507", "Collection proxy destination is not owned by this model").into()));}else{return Ok(());}}
+            expected.push((path.clone(),previous.clone()));
+            if enabled{edits.push((path,vec![entire(&previous,text)]));}else{operations.push(FileOperation::Delete{path});}
+        },Err(Error::NotFound(_))=>{if enabled{operations.push(FileOperation::Create{path,text,overwrite:false});}},Err(error)=>return Err(error),
+    }
+    Ok(())
+}
 fn helper_text(full: &str, tags: &str) -> Result<String, Error> {
     if !generator_plan::qualified(full) {
         return Err(Error::Stale);
@@ -628,25 +687,25 @@ fn helper_text(full: &str, tags: &str) -> Result<String, Error> {
 
 /// Selection and storage mode precede exact per-file reviews. No source changes
 /// happen until the host applies the returned single workspace transaction.
-fn resolve_batch(doc: &Document, action: FileAction) -> Result<FileAction, Error> {
+fn resolve_batch(main:Option<&crate::Main>,index:&Index,doc: &Document, action: FileAction) -> Result<FileAction, Error> {
     let project = owner(doc)?;
     let root = project.root()?;
-    let index = Index::build(&project);
+    if !crate::index::index_sources_current(&project,index){return Err(Error::Stale);}
     if index.partial {
         return Err(Error::Stale);
     }
-    let models = eloquent_members::model_inventory(&index.eloquent_models)
+    let models = eloquent_members::model_identities(&index.eloquent_models)
         .into_iter()
-        .filter(|(full, path, _)| {
+        .filter(|(full, path)| {
             helper_codegen::eligible(&index, full) && crate::owns_current_path(&project, path)
         })
         .collect::<Vec<_>>();
     let items = models
         .iter()
-        .map(|(full, _, _)| openidea_plugin::PickItem::new(full, full))
+        .map(|(full, _)| openidea_plugin::PickItem::new(full, full))
         .collect::<Vec<_>>();
     let chosen = host::pick_many(
-        "Models to regenerate in one undoable edit (up to 32)",
+        crate::ui_text::text("native.model_actions.261b72d9f9", "Models to regenerate in one undoable edit (up to 32)"),
         &items,
     )?
     .ok_or(Error::Cancelled)?;
@@ -655,23 +714,23 @@ fn resolve_batch(doc: &Document, action: FileAction) -> Result<FileAction, Error
         || chosen.len() > 32
         || chosen
             .iter()
-            .any(|full| !models.iter().any(|(model, _, _)| model == full))
+            .any(|full| !models.iter().any(|(model, _)| model == full))
     {
-        return Err(Error::Invalid("Select 1–32 indexed, owned models".into()));
+        return Err(Error::Invalid(crate::ui_text::text("native.model_actions.e329fd87c6", "Select 1–32 indexed, owned models").into()));
     }
     let preferences=parameters::load(&project)?;
     let selected_mode = host::pick(
-        "Generated helper storage (or use saved parameters)",
+        crate::ui_text::text("native.model_actions.b4e0ee298b", "Generated helper storage (or use saved parameters)"),
         &[
-            openidea_plugin::PickItem::new("saved",&format!("Use saved parameters ({})",preferences.storage)),
-            openidea_plugin::PickItem::new("helpers", "Only in plugin-owned helper files"),
+            openidea_plugin::PickItem::new("saved",&crate::ui_text::format("root.formatted.9e88c6553c", "Use saved parameters ({storage})", &[("storage", &format!("{}", preferences.storage))])),
+            openidea_plugin::PickItem::new("helpers", crate::ui_text::text("native.model_actions.1ae24650fe", "Only in plugin-owned helper files")),
             openidea_plugin::PickItem::new(
                 "preserve",
-                "In model PHPDoc, preserving handwritten documentation",
+                crate::ui_text::text("native.model_actions.ba35fbc48c", "In model PHPDoc, preserving handwritten documentation"),
             ),
             openidea_plugin::PickItem::new(
                 "overwrite",
-                "In model PHPDoc, replacing all attached PHPDoc",
+                crate::ui_text::text("native.model_actions.de50368565", "In model PHPDoc, replacing all attached PHPDoc"),
             ),
         ],
     )?
@@ -681,10 +740,10 @@ fn resolve_batch(doc: &Document, action: FileAction) -> Result<FileAction, Error
         return Err(Error::Stale);
     }
     let flags = host::pick_many(
-        "Additional annotations",
-        &[openidea_plugin::PickItem::new("saved","Use saved relationship count setting"),openidea_plugin::PickItem::new(
+        crate::ui_text::text("native.model_actions.6f3fd7c111", "Additional annotations"),
+        &[openidea_plugin::PickItem::new("saved",crate::ui_text::text("native.model_actions.25f6f6c1bd", "Use saved relationship count setting")),openidea_plugin::PickItem::new(
             "counts",
-            "Relationship count attributes (populated by withCount)",
+            crate::ui_text::text("native.model_actions.16bd7797b1", "Relationship count attributes (populated by withCount)"),
         )],
     )?
     .ok_or(Error::Cancelled)?;
@@ -694,6 +753,7 @@ fn resolve_batch(doc: &Document, action: FileAction) -> Result<FileAction, Error
     let options = helper_codegen::Options {
         relation_counts: flags.iter().any(|flag| flag == "counts")||flags.iter().any(|flag|flag=="saved")&&preferences.relation_counts,
         date_class:preferences.date_class.clone(),
+        source:preferences.source.clone(),schema:None,collection_proxies:preferences.collection_proxies
     };
     let mut operations = Vec::new();
     let mut edits = Vec::new();
@@ -701,14 +761,16 @@ fn resolve_batch(doc: &Document, action: FileAction) -> Result<FileAction, Error
     let mut snapshots = Vec::new();
     let mut previews = Vec::new();
     let mut targets = BTreeSet::new();
-    for (full, source_path, _) in models.iter().filter(|(full, _, _)| chosen.contains(full)) {
+    for (full, source_path) in models.iter().filter(|(full, _)| chosen.contains(full)) {
         let source = project.read_file(source_path)?;
         if source.len() > 128 * 1024
             || eloquent_members::declaration(&source).as_deref() != Some(full)
         {
             return Err(Error::Stale);
         }
-        let tags = helper_codegen::tags(&index, &project, full, options.clone())?;
+        let mut model_options=generation_options(main,&index,&project,full,&preferences)?;
+        model_options.relation_counts=options.relation_counts;
+        let tags = helper_codegen::tags(&index, &project, full, model_options.clone())?;
         let (path, contents) = if mode == "helpers" {
             (
                 format!("{root}/.openidea/helpers/{}.php", full.replace('\\', "_")),
@@ -726,7 +788,7 @@ fn resolve_batch(doc: &Document, action: FileAction) -> Result<FileAction, Error
         };
         if !targets.insert(path.clone()) {
             return Err(Error::Invalid(
-                "Helper output paths collide for selected class names; use model PHPDoc mode"
+                crate::ui_text::text("native.model_actions.d95beaf673", "Helper output paths collide for selected class names; use model PHPDoc mode")
                     .into(),
             ));
         }
@@ -738,9 +800,7 @@ fn resolve_batch(doc: &Document, action: FileAction) -> Result<FileAction, Error
                         "<?php\n// Generated by OpenIDEA Laravel. Do not edit this helper.\n",
                     ) || eloquent_members::declaration(&previous).as_deref() != Some(full))
                 {
-                    return Err(Error::Invalid(format!(
-                        "Helper destination is not owned by this model: {path}"
-                    )));
+                    return Err(Error::Invalid(crate::ui_text::format("root.formatted.eb996b8930", "Helper destination is not owned by this model: {path}", &[("path", &format!("{}", path))])));
                 }
                 expected.push((path.clone(), previous.clone()));
                 edits.push((path.clone(), vec![entire(&previous, contents.clone())]));
@@ -754,46 +814,43 @@ fn resolve_batch(doc: &Document, action: FileAction) -> Result<FileAction, Error
             }
             Err(error) => return Err(error),
         }
-        let preview = format!(
-            "Project: {root}\nModel: {full}\nStorage mode: {mode}\nTarget: {path}\n{}\n\nComplete resulting file:\n{contents}\n\nInclude this file in the final atomic edit?",
-            if mode == "overwrite" {
-                "All attached handwritten PHPDoc will be replaced."
+        let extra_ops=operations.len();let extra_edits=edits.len();
+        plan_proxies(&project,full,preferences.collection_proxies,&mut operations,&mut edits,&mut expected)?;
+        let support=operations[extra_ops..].iter().map(|operation|match operation{FileOperation::Create{path,text,..}=>crate::ui_text::format("root.formatted.6578bb91f2", "\nCreate support: {path}\n{text}", &[("path", &format!("{}", path)), ("text", &format!("{}", text))]),FileOperation::Delete{path}=>crate::ui_text::format("root.formatted.6a14a3a0d7", "\nDelete support: {path}", &[("path", &format!("{}", path))]),_=>String::new()}).chain(edits[extra_edits..].iter().map(|(path,edits)|crate::ui_text::format("root.formatted.a98d09a8a7", "\nUpdate support: {path}\n{contents}", &[("path", &format!("{}", path)), ("contents", &format!("{}", edits.iter().map(|edit|edit.text.as_str()).collect::<String>()))]))).collect::<String>();
+        let preview = crate::ui_text::format("root.formatted.bc017d1942", "Project: {root}\nModel: {full}\nStorage mode: {mode}\nTarget: {path}\n{warning}\n\nComplete resulting file:\n{contents}\n{support}\n\nInclude this file in the final atomic edit?", &[("root", &format!("{}", root)), ("full", &format!("{}", full)), ("mode", &format!("{}", mode)), ("path", &format!("{}", path)), ("warning", &format!("{}", if mode == "overwrite" {
+                crate::ui_text::text("root.formatted.410c3b29cc", "All attached handwritten PHPDoc will be replaced.")
             } else {
                 ""
-            }
-        );
+            })), ("contents", &format!("{}", contents)), ("support", &format!("{}", support))]);
         if preview.len() > ui_kit::prompts::MAX_CONFIRM_BYTES {
-            return Err(Error::Invalid(format!(
-                "Complete file preview exceeds the host review limit: {path}; select a smaller model"
-            )));
+            return Err(Error::Invalid(crate::ui_text::format("root.formatted.7c4f2fcd9b", "Complete file preview exceeds the host review limit: {path}; select a smaller model", &[("path", &format!("{}", path))])));
         }
         previews.push(preview);
-        snapshots.push((full.clone(), source_path.clone(), source, tags));
+        snapshots.push((full.clone(), source_path.clone(), source, tags, model_options));
     }
     for preview in &previews {
-        if !ui_kit::prompts::confirm_exact("Review model helper file?", preview)? {
+        if !ui_kit::prompts::confirm_exact(crate::ui_text::text("root.formatted.bc3deeb9fe", "Review model helper file?"), preview)? {
             return Err(Error::Cancelled);
         }
     }
-    let summary = format!(
-        "Apply {} reviewed files in one undoable workspace edit?\nProject: {root}\nStorage: {mode}\n{}",
-        targets.len(),
-        targets.iter().cloned().collect::<Vec<_>>().join("\n")
-    );
-    if !ui_kit::prompts::confirm_exact("Regenerate reviewed model helpers?", &summary)? {
+    let post_note=if preferences.post_commands.is_empty(){String::new()}else{crate::ui_text::format("root.formatted.c33933a37b", "\nAfter successful application, run Artisan argv arrays: {argv}", &[("argv", &format!("{}", serde_json::to_string(&preferences.post_commands).map_err(|_|Error::Stale)?))])};
+    let summary = crate::ui_text::format("root.formatted.b73d5608b7", "Apply {count} reviewed files in one undoable workspace edit?\nProject: {root}\nStorage: {mode}{post_note}\n{targets}", &[("count", &format!("{}", targets.len())), ("root", &format!("{}", root)), ("mode", &format!("{}", mode)), ("post_note", &format!("{}", post_note)), ("targets", &format!("{}", targets.iter().cloned().collect::<Vec<_>>().join("\n")))]);
+    if !ui_kit::prompts::confirm_exact(crate::ui_text::text("root.formatted.c3eb14176c", "Regenerate reviewed model helpers?"), &summary)? {
         return Err(Error::Cancelled);
     }
     owner(doc)?;
     if parameters::load(&project)?!=preferences{return Err(Error::Stale);}
-    let fresh = Index::build(&project);
+    if !crate::index::index_sources_current(&project,index){return Err(Error::Stale);}
+    let fresh = index;
     if fresh.partial {
         return Err(Error::Stale);
     }
-    for (full, path, source, tags) in snapshots {
+    for (full, path, source, tags, model_options) in snapshots {
         if !helper_codegen::eligible(&fresh, &full)
             || !crate::owns_current_path(&project, &path)
             || project.read_file(&path)? != source
-            || helper_codegen::tags(&fresh, &project, &full, options.clone())? != tags
+            || {let mut fresh_options=generation_options(main,&fresh,&project,&full,&preferences)?;fresh_options.relation_counts=options.relation_counts;fresh_options!=model_options}
+            || helper_codegen::tags(&fresh, &project, &full, model_options)? != tags
         {
             return Err(Error::Stale);
         }
@@ -827,6 +884,7 @@ mod batch_tests {
     use openidea_plugin::mock::MockHost;
     fn setup() -> (MockHost, Index, Document) {
         let mock = MockHost::install();
+        mock.add_file("composer.lock",r#"{"packages":[{"name":"laravel/framework","version":"v13.40.0"}]}"#);
         let source = "<?php namespace App\\Models;use Illuminate\\Database\\Eloquent\\Model;/** Handwritten Post documentation. */class Post extends Model {}";
         mock.add_file("app/Models/Post.php", source);
         mock.add_file("app/Models/User.php","<?php namespace App\\Models;use Illuminate\\Database\\Eloquent\\Model;/** Handwritten User documentation. */class User extends Model {}");

@@ -7,6 +7,7 @@ pub const CORE: &[&str] = &[
     "if",
     "endif",
     "hasSection",
+    "hasStack",
     "sectionMissing",
     "unless",
     "endunless",
@@ -131,6 +132,7 @@ pub const CORE: &[&str] = &[
 /// `(directive, insert text)` in snippet syntax, the `@` excluded, a literal `$` written `\$` in snippet syntax.
 pub const SNIPPETS: &[(&str, &str)] = &[
     ("if", "if(${1:condition})\n    $0\n@endif"),
+    ("hasStack", "hasStack('${1:name}')\n    $0\n@endif"),
     ("unless", "unless(${1:condition})\n    $0\n@endunless"),
     ("isset", "isset(${1:\\$variable})\n    $0\n@endisset"),
     ("empty", "empty(${1:\\$variable})\n    $0\n@endempty"),
@@ -182,7 +184,7 @@ pub const SNIPPETS: &[(&str, &str)] = &[
 /// cursor sits right after `@name`.
 pub fn name_at(text: &str, offset: usize) -> Option<(usize, usize)> {
     let before = text.get(..offset)?;
-    let name_length = before.bytes().rev().take_while(u8::is_ascii_alphabetic).count();
+    let name_length = before.bytes().rev().take_while(|b|b.is_ascii_alphanumeric()||*b==b'_').count();
     let start = offset - name_length;
     let at = start.checked_sub(1).filter(|i| text.as_bytes()[*i] == b'@')?;
 
@@ -199,7 +201,7 @@ pub fn name_at(text: &str, offset: usize) -> Option<(usize, usize)> {
         return None;
     }
 
-    let end = offset + text[offset..].bytes().take_while(u8::is_ascii_alphabetic).count();
+    let end = offset + text[offset..].bytes().take_while(|b|b.is_ascii_alphanumeric()||*b==b'_').count();
     Some((start, end))
 }
 
@@ -207,6 +209,7 @@ pub fn name_at(text: &str, offset: usize) -> Option<(usize, usize)> {
 const BLOCKS: &[(&str, &[&str])] = &[
     ("if", &["endif"]),
     ("hasSection", &["endif"]),
+    ("hasStack", &["endif"]),
     ("sectionMissing", &["endif"]),
     ("unless", &["endunless"]),
     ("isset", &["endisset"]),
@@ -594,4 +597,8 @@ mod ranking_tests {
         assert!(complete(&mut plugin, &marked).is_empty());
         assert!(ranking("😀 @", 1, 5, 5, &Default::default()).is_none());
     }
+}
+
+#[cfg(test)]mod identifier_tests{use super::*;
+ #[test]fn source_declared_names_can_contain_underscore_and_digits(){let source="😀 @markdown_2";assert_eq!(name_at(source,source.len()),Some((source.find("markdown").unwrap(),source.len())));assert!(name_at("@@markdown_2",12).is_none());}
 }

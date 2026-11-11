@@ -229,6 +229,8 @@ fn compose_inner(
         if let Some(method) = info.returns.get(&name) {
             result.returns.insert(name.clone(), method.clone());
         }
+        if let Some(reference)=info.semantic.constructed.get(&name){result.semantic.constructed.insert(name.clone(),reference.clone());}
+        if let Some(callable)=info.semantic.callables.get(&name){result.semantic.callables.insert(name.clone(),callable.clone());}
         if let Some(scope) = scope(&name)
             .and_then(|scope| info.scopes.get(&scope).map(|entry| (scope, entry.clone())))
         {
@@ -276,6 +278,8 @@ fn compose_inner(
         let public = visibility
             .as_deref()
             .is_none_or(|visibility| visibility == "public");
+        if visibility.as_deref()!=Some("private")&&let Some(callable)=info.semantic.callables.get(method){let mut callable=callable.clone();callable.entry=declaration.clone();result.semantic.callables.insert(name.clone(),callable);}else{result.semantic.callables.remove(name);}
+        if visibility.as_deref()!=Some("private")&&let Some(reference)=info.semantic.constructed.get(method){result.semantic.constructed.insert(name.clone(),reference.clone());}else{result.semantic.constructed.remove(name);}
         if public {
             if let Some(relation) = info.relations.get(method) {
                 let mut relation = relation.clone();
@@ -320,6 +324,12 @@ fn compose_inner(
     result.adapted = true;
     *model = result;
     Some(())
+}
+/// One bounded semantic unit. Unsupported trait graphs retain own members.
+pub(super) fn finish_one(models:&mut Models,key:&str){
+    if models.get(key).is_some_and(|model|model.adapted){return;}
+    let Some(mut model)=models.get(key).cloned()else{return};
+    if compose(&mut model,models,&mut BTreeSet::new(),0).is_some(){models.insert(key.into(),model);}
 }
 pub(crate) fn finish(models: &mut Models) -> bool {
     let started = std::time::Instant::now();

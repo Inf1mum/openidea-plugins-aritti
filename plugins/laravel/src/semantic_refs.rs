@@ -59,7 +59,7 @@ fn definitions(index:&Index,root:&str,path:&str,source:&str)->Vec<Token>{
             }
         }}
     }
-    if index.route_defs.iter().any(|r|r.path==path){for route in crate::routes::parse(&crate::view_rename::route_source(source).unwrap_or_default()){
+    if index.route_defs.iter().any(|r|r.path==path){for route in index.parse_routes(path,&crate::view_rename::route_source(source).unwrap_or_default()){
         let Some(name)=route.name else{continue;};
         if index.route_defs.iter().filter(|r|r.def.name.as_deref()==Some(name.as_str())).count()!=1{continue;}
         if agrees(&index.routes,&name,path,source,route.offset){if let Some(t)=token(Category::Route,&name,path,source,route.offset,route.offset+route.width,&quotes){out.push(t);}}
@@ -167,7 +167,7 @@ pub(crate) fn actions(index:&Index,doc:&openidea_plugin::providers::Document,sel
         let (key,range,name)=picked(index,&project,doc,selection)?;
         let request=RenameRequest{root,path:doc.path.clone(),version:doc.version,hash:hash(&doc.text),key,range,name:name.clone()};
         let data=format!("semantic-rename:{}",serde_json::to_string(&request).ok()?);
-        Some(FileAction{title:format!("Rename proven Laravel name segment {name}…"),kind:Some("refactor.rename".into()),data:Some(data),..Default::default()})
+        Some(FileAction{title:crate::ui_text::format("semanticRename.action","Rename proven Laravel name segment {name}…",&[("name",&name)]),kind:Some("refactor.rename".into()),data:Some(data),..Default::default()})
     };run().into_iter().collect()
 }
 #[derive(Debug,PartialEq,Eq)]
@@ -175,20 +175,20 @@ struct Change {path:String,source:String,ranges:Vec<TextRange>}
 fn collect(index:&Index,project:&Project,doc:&openidea_plugin::providers::Document,key:&str)->Result<Vec<Change>,openidea_plugin::Error>{
     use openidea_plugin::Error;
     let root=project.root()?;let found=project.find_files("**/*.php",513)?;
-    if found.len()>=513{return Err(Error::Invalid("Framework rename source enumeration is incomplete at its 512-file bound.".into()));}
+    if found.len()>=513{return Err(Error::Invalid(crate::ui_text::t("semanticRename.error1","Framework rename source enumeration is incomplete at its 512-file bound.")));}
     let mut paths:BTreeSet<String>=found.into_iter().filter(|path|{
         let relative=path.strip_prefix(&root).and_then(|p|p.strip_prefix('/')).unwrap_or(path);
         !["vendor/","node_modules/","storage/","bootstrap/cache/",".git/"].iter().any(|p|relative.starts_with(p))
     }).collect();
     for entry in index.translations_by_locale.values().flat_map(|names|names.values()){paths.insert(entry.path.clone());}
-    paths.insert(doc.path.clone());if paths.len()>512{return Err(Error::Invalid("Framework rename exceeds the 512-source review bound; narrow the project before retrying.".into()));}
+    paths.insert(doc.path.clone());if paths.len()>512{return Err(Error::Invalid(crate::ui_text::t("semanticRename.error2","Framework rename exceeds the 512-source review bound; narrow the project before retrying.")));}
     let mut bytes=0usize;let mut changes=Vec::new();
     for path in paths{if !crate::owns_current_path(project,&path){continue;}
         let source=if path==doc.path{doc.text.clone()}else{project.read_file(&path)?};bytes=bytes.checked_add(source.len()).ok_or(Error::Stale)?;
-        if source.len()>MAX_SOURCE||bytes>4*1024*1024{return Err(Error::Invalid("Framework rename source scan exceeds its review bound.".into()));}
+        if source.len()>MAX_SOURCE||bytes>4*1024*1024{return Err(Error::Invalid(crate::ui_text::t("semanticRename.error3","Framework rename source scan exceeds its review bound.")));}
         let document=Document{path:path.clone(),text:source.clone(),symbols:vec![]};
         let count=crate::language_of(&path,"").map(|lang|refs::references(lang,&source).len()+if lang=="blade"{2*refs::tag_references(&source).len()}else{0}).unwrap_or(0);
-        if !crate::view_rename::binding_budget(source.len(),count){return Err(Error::Invalid("Framework rename binding analysis exceeds its per-source 128-reference / 8 MiB work bound; no partial rename is offered.".into()));}
+        if !crate::view_rename::binding_budget(source.len(),count){return Err(Error::Invalid(crate::ui_text::t("semanticRename.error4","Framework rename binding analysis exceeds its per-source 128-reference / 8 MiB work bound; no partial rename is offered.")));}
         let facts=edges(index,project,&document);
         let mut ranges:Vec<_>=facts.definitions.into_iter().chain(facts.references).filter(|a|a.key==key).map(|a|a.range).collect();
         ranges.sort_by_key(|r|(r.start.line,r.start.character,r.end.line,r.end.character));ranges.dedup();
@@ -207,29 +207,30 @@ pub(crate) fn resolve(index:&Index,doc:&openidea_plugin::providers::Document,act
     if doc.path!=request.path||doc.version!=request.version||hash(&doc.text)!=request.hash{return Err(Error::Stale);}
     let project=crate::project_for(&doc.path).ok_or(Error::Stale)?;
     if project.root()?!=request.root||project.read_file(&doc.path)?!=doc.text{return Err(Error::Stale);}
+    if !crate::index::index_sources_current(&project,index){return Err(Error::Stale);}
     let picked=picked(index,&project,doc,request.range).ok_or(Error::Stale)?;
     if picked!=(request.key.clone(),request.range,request.name.clone()){return Err(Error::Stale);}
-    let new=host::input("New Laravel name segment (letters, digits, underscore or hyphen)",Some(&request.name))?.ok_or(Error::Cancelled)?;
-    if !safe_new_name(&new){return Err(Error::Invalid("Use a nonempty name segment containing only letters, digits, underscore or hyphen; dots, quotes, slashes and escapes are not accepted.".into()));}
+    let new=host::input(crate::ui_text::text("semanticRename.input","New Laravel name segment (letters, digits, underscore or hyphen)"),Some(&request.name))?.ok_or(Error::Cancelled)?;
+    if !safe_new_name(&new){return Err(Error::Invalid(crate::ui_text::t("semanticRename.error5","Use a nonempty name segment containing only letters, digits, underscore or hyphen; dots, quotes, slashes and escapes are not accepted.")));}
     if new==request.name{return Err(Error::Cancelled);}
-    // Rebuild before the scan so source identities and ambiguous definitions are
-    // not inherited from an earlier editor cache.
-    let current=Index::build(&project);if current.partial{return Err(Error::Stale);}
-    let before=collect(&current,&project,doc,&request.key)?;
+    // A completed source-verified snapshot replaces a full callback rebuild.
+    if !crate::index::index_sources_current(&project,index){return Err(Error::Stale);}
+    let current=index;
+    let before=collect(current,&project,doc,&request.key)?;
     for change in &before {for range in &change.ranges {let start=text::offset(&change.source,range.start).ok_or(Error::Stale)?;let end=text::offset(&change.source,range.end).ok_or(Error::Stale)?;
         if change.source.get(start..end)!=Some(request.name.as_str()){return Err(Error::Stale);}
     }}
     let replacement_key=request.key.strip_suffix(&request.name).map(|prefix|format!("{prefix}{new}")).ok_or(Error::Stale)?;
-    if collect(&current,&project,doc,&replacement_key).is_ok(){return Err(Error::Invalid("The new name already resolves to a proven definition or reference.".into()));}
-    let mut preview=format!("Project: {}\nRename only proven framework name segments {} → {}.\nFilename-derived views/components, dynamic names, JavaScript and unrelated text are excluded.\n\n",request.root,request.name,new);
+    if collect(current,&project,doc,&replacement_key).is_ok(){return Err(Error::Invalid(crate::ui_text::t("semanticRename.error6","The new name already resolves to a proven definition or reference.")));}
+    let mut preview=crate::ui_text::format("semanticRename.review","Project: {root}\nRename only proven framework name segments {old} → {name}.\nFilename-derived views/components, dynamic names, JavaScript and unrelated text are excluded.\n\n",&[("root",&request.root),("old",&request.name),("name",&new)]);
     let mut edits=Vec::new();
     for change in &before{let mut after=change.source.clone();for range in change.ranges.iter().rev(){let start=text::offset(&change.source,range.start).ok_or(Error::Stale)?;let end=text::offset(&change.source,range.end).ok_or(Error::Stale)?;after.replace_range(start..end,&new);}
-        preview.push_str(&format!("{}\nComplete resulting contents:\n{}\n\n",change.path,ui_kit::prompts::readable_source(&after)));
+        preview.push_str(&crate::ui_text::format("semanticRename.contents","{path}\nComplete resulting contents:\n{contents}\n\n",&[("path",&change.path),("contents",&ui_kit::prompts::readable_source(&after))]));
         edits.push((change.path.clone(),change.ranges.iter().map(|r|TextEdit{range:*r,text:new.clone()}).collect()));
     }
-    if !ui_kit::prompts::confirm_exact("Rename proven Laravel framework segments?",&preview)?{return Err(Error::Cancelled);}
-    let latest=Index::build(&project);if latest.partial||project.read_file(&doc.path)?!=doc.text||collect(&latest,&project,doc,&request.key)?!=before{return Err(Error::Stale);}
-    Ok(FileAction{title:format!("Rename Laravel segment {} → {new}",request.name),edits,..Default::default()})
+    if !ui_kit::prompts::confirm_exact(crate::ui_text::text("semanticRename.confirm","Rename proven Laravel framework segments?"),&preview)?{return Err(Error::Cancelled);}
+    let latest=index;if !crate::index::index_sources_current(&project,index)||latest.partial||project.read_file(&doc.path)?!=doc.text||collect(latest,&project,doc,&request.key)?!=before{return Err(Error::Stale);}
+    Ok(FileAction{title:crate::ui_text::format("semanticRename.applied","Rename Laravel segment {old} → {name}",&[("old",&request.name),("name",&new)]),edits,..Default::default()})
 }
 
 #[cfg(test)]
@@ -283,8 +284,22 @@ mod tests {
         let d=doc("<?php config('app.ui.title');");h.add_project("/project/config");assert!(edges(&index,&p,&provider_doc(&d)).references.is_empty());
         let source="<?php $x = \"config('app.ui.title')\"; // config('app.ui.title')";assert!(edges(&index,&p,&provider_doc(&doc(source))).references.is_empty());
     }
+    #[test] fn localized_segment_action_keeps_identifiers_and_exact_source_ranges() {
+        let(h,_index,p)=setup();h.set_setting("uiLanguage",r#""ko""#);let source="<?php /* 😀 */ config('app.ui.title');";
+        h.add_file("app/Use.php",source);let index=Index::build(&p);let d=doc(source);let action=actions(&index,&d,caret(source,"title")).remove(0);
+        assert!(action.title.contains("title"));assert!(!action.title.starts_with("Rename proven"));
+        h.answer_next_prompt(Some(&["heading"]));h.answer_next_prompt(Some(&["yes"]));
+        let result=resolve(&index,&d,action).unwrap();assert!(result.title.contains("heading"));
+        assert_eq!(result.edits.len(),2);assert!(result.edits.iter().flat_map(|(_,edits)|edits).all(|edit|edit.text=="heading"));
+    }
+    #[test] fn completed_snapshot_rejects_new_indexed_membership_without_returning_partial_edits(){
+        let(h,_index,p)=setup();let source="<?php config('app.ui.title');";h.add_file("app/Use.php",source);let index=Index::build(&p);let d=doc(source);
+        let action=actions(&index,&d,caret(source,"title")).remove(0);assert!(crate::index::index_sources_current(&p,&index));
+        h.add_file("config/added.php","<?php return ['title'=>'other'];");h.answer_next_prompt(Some(&["heading"]));h.answer_next_prompt(Some(&["yes"]));
+        assert!(matches!(resolve(&index,&d,action),Err(openidea_plugin::Error::Stale)));assert!(p.read_file("config/app.php").unwrap().contains("'title'"));
+    }
     #[test] fn reviewed_rename_is_atomic_scoped_and_rejects_unsafe_new_names() {
-        let (h,index,_p)=setup();let source="<?php /* 😀 */ config('app.ui.title'); $unrelated='app.ui.title';";h.add_file("app/Use.php",source);let d=doc(source);
+        let (h,_index,p)=setup();let source="<?php /* 😀 */ config('app.ui.title'); $unrelated='app.ui.title';";h.add_file("app/Use.php",source);let index=Index::build(&p);let d=doc(source);
         let action=actions(&index,&d,caret(source,"title")).remove(0);
         h.answer_next_prompt(Some(&["heading"]));h.answer_next_prompt(Some(&["yes"]));
         let result=resolve(&index,&d,action).unwrap();assert_eq!(result.edits.len(),2);
@@ -302,7 +317,7 @@ mod tests {
     }
     #[test] fn json_translation_review_and_existing_new_name_collision() {
         let (h,_,p)=setup();h.add_file("lang/en.json",r#"{"Hello":"Hello","Title":"Title"}"#);
-        let index=Index::build(&p);let source="<?php __('Hello');";h.add_file("app/Use.php",source);let d=doc(source);
+        let source="<?php __('Hello');";h.add_file("app/Use.php",source);let index=Index::build(&p);let d=doc(source);
         let action=actions(&index,&d,caret(source,"Hello")).remove(0);
         h.answer_next_prompt(Some(&["Title"]));assert!(resolve(&index,&d,action).is_err());
         let action=actions(&index,&d,caret(source,"Hello")).remove(0);

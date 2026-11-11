@@ -1,0 +1,42 @@
+{
+  "date": "2026-11-10",
+  "installer": "laravel/installer 5.28.1 (official Composer distribution)",
+  "php": "8.5.5",
+  "node": "24.18.0",
+  "argv": [
+    "laravel",
+    "new",
+    "starter-svelte-success",
+    "--svelte",
+    "--database=sqlite",
+    "--phpunit",
+    "--no-boost",
+    "--no-interaction"
+  ],
+  "successExit": 0,
+  "framework": "13.42.0",
+  "inertiaLaravel": "3.7.0",
+  "frontend": "@inertiajs/svelte 3.11.0",
+  "verified": [
+    "SQLite migrations",
+    "public/build/manifest.json",
+    ".env exists (contents not collected)"
+  ],
+  "failure": {
+    "cause": "official install:features npm install failed because npm absent from isolated PATH",
+    "exit": 1,
+    "partialPreserved": true,
+    "retryExit": 1,
+    "retryMessage": "Application already exists!",
+    "before": {
+      "files": 11297,
+      "sha256": "908eba74b696fd6e88487ffa1e44a93370e9245042d7d8f89d10c555ed261f75"
+    },
+    "after": {
+      "files": 11297,
+      "sha256": "908eba74b696fd6e88487ffa1e44a93370e9245042d7d8f89d10c555ed261f75"
+    }
+  },
+  "nativeRecoveryUnitTests": "14 passed, 1 optional help test ignored",
+  "desktopHostRecoveryAcceptance": "not exercised by command-line fixture"
+}
