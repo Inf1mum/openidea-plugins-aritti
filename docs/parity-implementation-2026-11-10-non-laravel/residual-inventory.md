@@ -14,7 +14,7 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F08 | Database | Native datasource inspection, entity queries, console | H | |
 | F09 | Flyway | Quoted/dialect tables, naming, constants, Kotlin entities, XML mappings | A-M | partial (constants, implicit naming, quoted/dialect ids, Kotlin entities, orm.xml/persistence.xml; bare root orm.xml not under META-INF open) |
 | F10 | Liquibase | Other dialects, online snapshot, GUI undo | U | partial (offline structure checks verified against dbchangelog XSD/docs; other dialects, online snapshot, GUI undo open) |
-| F11 | Hibernate | Live schema compare, effective persistence units, other ORM versions | A-M | |
+| F11 | Hibernate | Live schema compare, effective persistence units, other ORM versions | A-M | partial (persistence.xml units, spring.jpa settings, namespace Info; Flyway-side Hibernate adapter unchanged; build-file version detection open) |
 | F12 | JPQL console | PostgreSQL/MySQL/MariaDB unverified | U | |
 | F13 | JPQL console | Mutation mode, entity-graph editing, effective config | A-M | decided: dry-run only (count preview); commit path not wanted |
 | F14 | OpenAPI | Generator JSON config import | A-S | done |
@@ -63,7 +63,7 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F57 | Initializr | Linux/Windows exclusive-commit profiles never run | U | |
 | F58 | Initializr | Add Starters effective build models | A-M | partial (Gradle platform BOM/catalog, Maven aggregator module pick, unmanaged explicit versions; metadata field names inferred from code) |
 | F59 | Initializr | Native New Project wizard, JDK/SDK config, IDE build import | H | |
-| F60 | Runtime | External-library/overloaded source semantics | A-L | |
+| F60 | Runtime | External-library/overloaded source semantics | A-L | partial (conditions/configprops source links, overload matching; tree view still lenient) |
 | F61 | Runtime | Remote/JMX management transport | A-L | |
 | F62 | Runtime | Saved-request history, credential selection, health detail | A-M | partial (recent requests, masked health detail tree; gutter bean chooser open) |
 | F63 | Boot run | Custom args, build-plugin resolution, multi-module root | A-M | partial (module runs, Run with Profiles/Arguments; include/config.import discovery open) |
@@ -71,17 +71,17 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F65 | Integration | Effective context ownership for global usages | A-L | partial (import/scan context graph; scan and @ImportResource rules verified against Spring source; filter/exclude args, selector subclass chains, Kotlin open) |
 | F66 | Integration | DSL flow edges, Kotlin DSL | A-M | partial (Java/Kotlin DSL channel edges) |
 | F67 | Batch | XML structural/XSD rules; Batch 6 migration | A-M | partial (chunk/tasklet exclusivity) |
-| F68 | Modulith | Type/member/hierarchy semantics, move-to-API | A-L | |
+| F68 | Modulith | Type/member/hierarchy semantics, move-to-API | A-L | partial (use-site checks for exact single-type imports; Kotlin open) |
 | F69 | Modulith | Kotlin descriptor creation, bean-completion module warning | A-S | skip (user decision) |
 | F70 | Batch | Operator next/restart/abandon/recover/stop, datasource authority | A-M | partial (job discovery + reviewed launch-command generation; no operator execution) |
-| F71 | Integration | SpEL/XPath/embedded-language assistance | A-M | |
+| F71 | Integration | SpEL/XPath/embedded-language assistance | A-M | partial (SpEL syntax + @bean refs in XML/DSL; XPath and other *-expression attributes open) |
 | F72 | Spring core | Library assignability, effective conditional contexts, bean graph | A-L | partial (literal @ConditionalOnProperty/@Profile/@ConditionalOnMissingBean heuristic, ObjectFactory/SortedSet) |
 | F73 | Spring core | All classpath metadata, dynamic build resolution, converters | A-M | |
 | F74 | Spring core | Data projection/query/entity-graph generators | A-L | partial (projection, record DTO, @EntityGraph checks) |
 | F75 | Spring core | Security chain, effective authorization | A-L | partial (method-security SpEL, verified anyRequest/ROLE_ rules, method-security-disabled Info) |
 | F76 | Spring core | JPA hierarchy/XML mappings/converters/reverse engineering | A-L | partial (hierarchy identifier with orm.xml, inheritance and converter checks) |
 | F77 | Spring Web | MVC mapping predicates/params, body-aware request samples | A-M | mostly pre-existing (predicates in request gen + OpenAPI export; Name column added; Endpoints row columns need ui-kit change) |
-| F78 | Spring Web | MVC OpenAPI export conditions, regex/ANY mappings | A-L | |
+| F78 | Spring Web | MVC OpenAPI export conditions, regex/ANY mappings | A-L | partial (Bean Validation constraints, regex path variables, status codes; ant mappings listed as unexported) |
 | F79 | Spring Web | Thymeleaf selectors, model inference, resolver semantics | A-M | partial (advice model attrs, @SessionAttributes names, fragment args) |
 | F80 | Spring Web | SpEL/EL injection, URL inlay actions | A-M | |
 | F81 | Spring Web | MVC XML imports/profiles, XSD validation | A-M | partial (import closure, profile beans, resource locations; view-controller view-name open) |
@@ -94,7 +94,7 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F88 | Shell | Cross-file registry, dynamic registration, inherited availability | A-L | partial (inherited availability, duplicate provenance; inherited groups, conventional availability open) |
 | F89 | Shell | Native terminal command-spec hooks | H | |
 | F90 | WS | QName refs across XML/WSDL/XSD, effective context | A-L | partial (XSD attribute/content-model rules, WSDL QName navigation/warnings) |
-| F91 | WS | Full XPath validation, WSDL generation, OXM/CXF semantics | A-L | partial (literal XPath 1.0 syntax validation; prefix checks open) |
+| F91 | WS | Full XPath validation, WSDL generation, OXM/CXF semantics | A-L | partial (XSD rules, WSDL QNames, dynamic-wsdl pairs, void @ResponsePayload warning UNVERIFIED against docs; DefaultWsdl11Definition literals open) |
 | F92 | Twig | Trait/embed/namespaced loader, macro-parameter Rename | A-M | partial (`use`d blocks, templateNamespaces, reviewed macro-param rename; twig.paths open) |
 | F93 | Twig | Formatter, custom delimiters | A-M | partial (literal Lexer delimiters in single-project setups; twig.yaml option unconfirmed) |
 | F94 | Twig | Dynamic context, extension types | A-L | partial (controller render() literal variables for completion/definition; compact()/array() and @ns templates open) |
@@ -103,4 +103,4 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F97 | Symfony | Profiler collector detail, pagination, remote modes | A-M | partial (profiler paging, time/cache/logger collectors; events/request open) |
 | F98 | Symfony | Doctrine/forms/container types | A-L | partial (form-field Info check) |
 
-Totals at 2026-11-11: 98 items. Done: F14, F27, F33, F42, F50. Skipped: F69. Blocked: F82. Decided: F13 dry-run only. Partial: about 62 (see status column). About 30 untouched. Counts are judgment calls; partial does not mean near-complete.
+Totals at 2026-11-11: 98 items. Done: F14, F27, F33, F42, F50. Skipped: F69. Blocked: F82. Decided: F13 dry-run only. Partial: about 68 (see status column). About 25 untouched. Counts are judgment calls; partial does not mean near-complete.
