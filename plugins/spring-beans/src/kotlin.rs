@@ -53,7 +53,7 @@ fn params(text: &str, toks: &[Tok], open: usize, ownership: &crate::annotation_o
         }
         let end = type_end(part, k + 2);
         if let Some(ty) = type_ref(text, &part[k + 2..end]) {
-            annotations.retain(|a| ownership.keep_definition(text, a));
+            ownership.retain_owned(text, &mut annotations);
             out.push(Param { annotations, name: name.s.to_owned(), ty });
         }
     }
@@ -97,7 +97,7 @@ pub fn model(text: &str) -> FileModel {
                     anns.pop();
                     i = annotation(text, &toks, i, &mut anns);
                 }
-                anns.retain(|a|ownership.keep_definition(text,a));
+                ownership.retain_owned(text,&mut anns);
                 continue;
             }
             "class" | "interface" | "object" if next_ident && prev != ":" && prev != "." => {

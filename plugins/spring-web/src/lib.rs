@@ -944,7 +944,7 @@ impl WebTools {
                             info.methods.iter().find(|m| m.range == e.range).map(|m| m.name.clone())
                         }),
                     },
-                    name: None,
+                    name: e.name.clone(),
                     location: Some(Location { path: path.to_owned(), range: e.range }),
                 });
             }

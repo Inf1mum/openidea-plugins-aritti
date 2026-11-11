@@ -429,6 +429,13 @@ impl Batch {
         if let Some(scope)=project.root().ok().and_then(|root|source_scope::Scope::current(&root)) {scope.prune(index);}
     }
     pub fn reset_live(&mut self) { self.indexes.reset(); }
+    /// Literal, source-proved job names (XML `<job id>` and owned `new JobBuilder("name", ..)`), sorted; empty until the project is scanned and owned.
+    pub fn job_names(&mut self, project: &Project) -> Vec<String> {
+        let index=self.indexes.get(project,COMMAND_BUDGET);
+        let Some(scope)=project.root().ok().and_then(|root|source_scope::Scope::current(&root)) else{return Vec::new();};
+        if !scope.prune(index) {return Vec::new();}
+        all(index).filter(|(_,n)|n.kind==Kind::Job && !n.name.is_empty()).map(|(_,n)|n.name.clone()).collect::<BTreeSet<_>>().into_iter().collect()
+    }
 
     /// Owner calls this for live results. It never discovers or reads project files.
     pub fn live_diagnostics(&mut self, doc: &Document) -> Vec<Diagnostic> {

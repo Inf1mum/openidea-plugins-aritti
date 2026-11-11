@@ -81,6 +81,8 @@ pub struct Endpoint {
     pub at: usize,
     pub end: usize,
     pub range: Range,
+    /// Named by a bean reference rather than a literal: navigable, but not a place to complete names.
+    pub reference: bool,
 }
 
 impl Endpoint {
@@ -227,7 +229,7 @@ impl Collector<'_> {
             v.clone()
         };
         let range = range(self.text, s.at, s.end);
-        self.out.push(Endpoint { broker, space, name, role, via: via.to_owned(), at: s.at, end: s.end, range });
+        self.out.push(Endpoint { broker, space, name, role, via: via.to_owned(), at: s.at, end: s.end, range, reference: false });
     }
 
     fn listener(&mut self, a: &Annotation) {
@@ -327,6 +329,48 @@ impl Collector<'_> {
     }
 }
 
+/// `BindingBuilder.bind(queue).to(exchange).with("key")`: the queue and exchange it names, through
+/// same-file bean methods that declare exactly one literal of that kind, and the literal routing key.
+fn bindings(collector: &mut Collector, file: &JavaFile, calls: &[Call]) {
+    let declared = |ident: &str, space: &str| {
+        let ident = ident.trim().trim_start_matches("this.");
+        let ident = ident.strip_suffix("()").unwrap_or(ident);
+        let (from, to) = file.types.iter().flat_map(|t| t.methods()).find(|m| m.name == ident)?.body?;
+        let mut inside = collector.out.iter().filter(|e| e.role == Role::Declaration && e.space == space && e.at >= from && e.end <= to);
+        let found = inside.next()?;
+        inside.next().is_none().then(|| found.name.clone())
+    };
+    let at = |arg: &CallArg, space, name: String, via: &str, reference| Endpoint {
+        broker: Broker::Rabbit,
+        space,
+        name,
+        role: Role::Declaration,
+        via: via.to_owned(),
+        at: arg.at,
+        end: arg.end,
+        range: range(collector.text, arg.at, arg.end),
+        reference,
+    };
+    let mut found = Vec::new();
+    for (i, bind) in calls.iter().enumerate().filter(|(_, c)| c.name == "bind" && c.receiver.as_deref() == Some("BindingBuilder")) {
+        let chain: Vec<_> = calls[i + 1..].iter().take_while(|c| c.chained).collect();
+        let (Some(queue), Some(to)) = (bind.args.first(), chain.first().filter(|c| c.name == "to")) else { continue };
+        let Some(exchange) = to.args.first() else { continue };
+        let (Some(queue_name), Some(exchange_name)) = (declared(&queue.text, "queue"), declared(&exchange.text, "exchange")) else { continue };
+        found.push(at(queue, "queue", queue_name, "BindingBuilder.bind", true));
+        found.push(at(exchange, "exchange", exchange_name.clone(), "BindingBuilder.to", true));
+        let plain = |v: &str| !v.contains(CONSTANT) && !v.contains("${") && !v.contains("#{");
+        let key = chain.get(1).filter(|c| c.name == "with").and_then(|c| c.args.first());
+        if let Some((arg, key)) = key.and_then(|arg| Some((arg, arg.string.as_ref()?))) {
+            if plain(&key.value) && plain(&exchange_name) && !key.value.is_empty() {
+                let name = format!("{exchange_name}/{}", key.value);
+                found.push(Endpoint { at: key.at, end: key.end, range: range(collector.text, key.at, key.end), ..at(arg, "routing key", name, "BindingBuilder.with", false) });
+            }
+        }
+    }
+    collector.out.extend(found);
+}
+
 /// The type of a field or parameter named `name` in the file.
 fn declared_type<'f>(file: &'f JavaFile, name: &str) -> Option<&'f str> {
     file.types.iter().flat_map(|t| &t.members).find_map(|m| {
@@ -397,9 +441,11 @@ pub fn parse(path: &str, text: &str) -> Option<Vec<Endpoint>> {
             }
         }
     }
-    for c in source_calls(path, text) {
-        collector.call(&c, &file);
+    let calls = source_calls(path, text);
+    for c in &calls {
+        collector.call(c, &file);
     }
+    bindings(&mut collector, &file, &calls);
     let mut out = collector.out;
     out.sort_by_key(|e| e.at);
     (!out.is_empty()).then_some(out)
@@ -431,15 +477,21 @@ fn parse_config(path: &str, text: &str) -> Option<Vec<(String, String)>> {
     (!keys.is_empty()).then_some(keys)
 }
 
+/// Value of a key defined with differing values: the profile that wins is unknowable, and `expand` can't close it, so it resolves to nothing.
+const AMBIGUOUS: &str = "${";
+
 fn props_of<'a>(files: impl Iterator<Item = (&'a str, &'a Vec<(String, String)>)>) -> Props {
-    let (mut primary, mut others) = (Vec::new(), Vec::new());
-    for (path, keys) in files {
-        let stem = file_name(path).split('.').next().unwrap_or_default();
-        if stem == "application" { primary.push(keys) } else { others.push(keys) }
-    }
     let mut props = Props::new();
-    for (key, value) in primary.into_iter().chain(others).flatten() {
-        props.entry(key.clone()).or_insert_with(|| value.clone());
+    for (key, value) in files.flat_map(|(_, keys)| keys) {
+        match props.get(key) {
+            Some(known) if known != value => {
+                props.insert(key.clone(), AMBIGUOUS.to_owned());
+            }
+            Some(_) => {}
+            None => {
+                props.insert(key.clone(), value.clone());
+            }
+        }
     }
     props
 }
@@ -652,7 +704,7 @@ impl Providers for Messaging {
     fn completion(&mut self, doc: &Document, at: Position, _trigger: Option<&str>) -> Vec<CompletionItem> {
         let Some(at) = offset(&doc.text, at) else { return Vec::new() };
         let all = self.endpoints(doc);
-        let Some(here) = all.iter().find(|(p, e)| *p == doc.path && e.holds(at)).map(|(_, e)| e) else {
+        let Some(here) = all.iter().find(|(p, e)| *p == doc.path && !e.reference && e.holds(at)).map(|(_, e)| e) else {
             return self.listener_completion(doc, at);
         };
         let replace = range(&doc.text, here.at, here.end);
@@ -1157,7 +1209,7 @@ class KtEvents(private val kafkaTemplate: KafkaTemplate<String, String>, val rab
 "#;
         host.add_file("src/main/java/L.java", listeners);
         host.add_file("src/main/java/P.java", producers);
-        host.add_file("src/main/resources/application-dev.properties", "app.topic-name=dev-orders\napp.dest=dev-audit\n");
+        host.add_file("src/main/resources/application-dev.properties", "app.dest=dev-audit\n");
         host.add_file(
             "src/main/resources/application.yml",
             "app:\n  topicName: orders\n  dest: audit\n  reply: invoices\n  other: other-topic\n",
@@ -1170,15 +1222,41 @@ class KtEvents(private val kafkaTemplate: KafkaTemplate<String, String>, val rab
             [
                 (1, "Kafka topic orders: P.java:3 (send)".to_owned()),
                 (2, "RabbitMQ queue fallback-q: P.java:4 (convertAndSend)".to_owned()),
-                (3, "JMS destination audit: P.java:5 (convertAndSend)".to_owned()),
-                (3, "JMS destination invoices: P.java:9 (@JmsListener)".to_owned()),
+                                (3, "JMS destination invoices: P.java:9 (@JmsListener)".to_owned()),
                 (5, "Kafka topic other-topic: P.java:6 (send)".to_owned()),
             ],
-            "the unresolvable `${{app.nope}}` has no marker; application.yml beats the dev profile"
+            "the unresolvable `${{app.nope}}` has no marker; `app.dest` is defined twice with different values"
         );
         let p = Document { path: "/project/src/main/java/P.java".into(), language: "java".into(), version: 1, text: producers.into() };
         let reply: Vec<_> = m.line_markers(&p).iter().map(|k| k.line).collect();
-        assert_eq!(reply, [2, 3, 4, 5, 8], "producers to resolved consumers; `invoices` meets the resolved @SendTo");
+        assert_eq!(reply, [2, 3, 5, 8], "producers to resolved consumers; `invoices` meets the resolved @SendTo");
+    }
+
+    #[test]
+    fn binding_builder_chain_links_queue_exchange_and_routing_key() {
+        let host = MockHost::install();
+        let config = r#"class C {
+    @Bean Queue orders() { return new Queue("orders.in"); }
+    @Bean TopicExchange events() { return new TopicExchange("events"); }
+    @Bean Binding binding(Queue orders, TopicExchange events) {
+        return BindingBuilder.bind(orders).to(events).with("order.#");
+    }
+    @Bean Binding dynamic() {
+        return BindingBuilder.bind(unknown()).to(events()).with("a");
+    }
+}
+"#;
+        host.add_file("src/main/java/C.java", config);
+        let found = parse("C.java", config).unwrap();
+        let chain: Vec<_> = found.iter().filter(|e| e.via.starts_with("BindingBuilder")).map(|e| (e.space, e.name.as_str(), e.reference)).collect();
+        assert_eq!(chain, [("queue", "orders.in", true), ("exchange", "events", true), ("routing key", "events/order.#", false)], "the unresolvable chain stays quiet");
+
+        let mut m = Messaging::default();
+        let doc = Document { path: "/project/src/main/java/C.java".into(), language: "java".into(), version: 1, text: config.into() };
+        let at = config.find("bind(orders)").unwrap() + 5;
+        let targets: Vec<_> = m.definition(&doc, openidea_plugin::text::position(config, at)).iter().map(|l| l.range.start.line).collect();
+        assert_eq!(targets, [1], "bind(orders) navigates to new Queue(\"orders.in\")");
+        assert!(m.completion(&doc, openidea_plugin::text::position(config, at), None).is_empty(), "no name completion on a bean reference");
     }
 
     #[test]

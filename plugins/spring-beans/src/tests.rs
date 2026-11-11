@@ -3692,3 +3692,107 @@ fn canonical_xml_metadata_roles_retain_navigation() {
     let host=MockHost::install();host.add_file("application-prod.properties","key=x\n");host.add_file("extra.properties","key=x\n");host.add_file("extra.xml","<beans xmlns='http://www.springframework.org/schema/beans'/>");host.add_file("Billing.java","package com.acme.billing; class Billing {}");
     for (body,needle) in [("<beans profile='prod'/>","prod"),("<import resource='extra.xml'/>","extra.xml"),("<q:component-scan xmlns:q='http://www.springframework.org/schema/context' base-package='com.acme.billing'/>","com.acme.billing"),("<q:property-placeholder xmlns:q='http://www.springframework.org/schema/context' location='extra.properties'/>","extra.properties")] {let text=beans_xml(body);let mut nav=warmed_navigator();assert_eq!(nav.definition(&doc(XML_PATH,&text),position(&text,text.find(needle).unwrap()+1)).len(),1);}
 }
+
+fn inactive_beans(files: &[(&str, &str)]) -> Vec<String> {
+    let host = MockHost::install();
+    for (path, text) in files {
+        host.add_file(path, text);
+    }
+    let mut navigator = Navigator::default();
+    let project = host.invocation().project().unwrap();
+    let index = navigator.indexes.get(&project, COMMAND_BUDGET);
+    assert!(index.complete());
+    let world = World::new(index);
+    let mut out: Vec<String> = world.beans().filter(|(p, b)| world.inactive_reason(p, b).is_some()).map(|(_, b)| b.name.clone()).collect();
+    out.sort();
+    out
+}
+
+const ON_PROPERTY: &str = "import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;\nimport org.springframework.stereotype.Service;\n@Service @ConditionalOnProperty(prefix = \"app\", name = \"mail\", havingValue = \"smtp\") class Smtp {}\n";
+
+#[test]
+fn conditional_on_property_is_inactive_only_when_the_literal_differs() {
+    let java = ("src/main/java/Smtp.java", ON_PROPERTY);
+    assert_eq!(inactive_beans(&[java, ("src/main/resources/application.properties", "app.mail=ses\n")]), ["smtp"]);
+    assert_eq!(inactive_beans(&[java, ("src/main/resources/application.yml", "app:\n  mail: ses\n")]), ["smtp"]);
+    assert!(inactive_beans(&[java, ("src/main/resources/application.properties", "app.mail=SMTP\n")]).is_empty());
+    assert!(inactive_beans(&[java]).is_empty());
+    assert!(inactive_beans(&[java, ("src/main/resources/application.properties", "app.mail=${MAIL}\n")]).is_empty());
+    let twice = ("src/test/resources/application.properties", "app.mail=smtp\n");
+    assert!(inactive_beans(&[java, ("src/main/resources/application.properties", "app.mail=ses\n"), twice]).is_empty());
+    let profile = ("src/main/resources/application-dev.properties", "app.mail=smtp\n");
+    assert!(inactive_beans(&[java, ("src/main/resources/application.properties", "app.mail=ses\n"), profile]).is_empty());
+    let imported = ("src/main/resources/application.properties", "app.mail=ses\nspring.config.import=optional:x.yml\n");
+    assert!(inactive_beans(&[java, imported]).is_empty());
+}
+
+#[test]
+fn conditional_on_property_without_having_value_rejects_only_false() {
+    let text = ON_PROPERTY.replace(", havingValue = \"smtp\"", "");
+    let java = ("src/main/java/Smtp.java", text.as_str());
+    assert_eq!(inactive_beans(&[java, ("src/main/resources/application.properties", "app.mail=false\n")]), ["smtp"]);
+    assert!(inactive_beans(&[java, ("src/main/resources/application.properties", "app.mail=true\n")]).is_empty());
+}
+
+#[test]
+fn foreign_conditional_on_property_is_not_evaluated() {
+    let text = ON_PROPERTY.replace("org.springframework.boot.autoconfigure.condition", "acme");
+    assert!(inactive_beans(&[("src/main/java/Smtp.java", &text), ("src/main/resources/application.properties", "app.mail=ses\n")]).is_empty());
+}
+
+#[test]
+fn profile_is_evaluated_against_a_single_literal_active_profile() {
+    let java = (
+        "src/main/java/Dev.java",
+        "@org.springframework.stereotype.Service @org.springframework.context.annotation.Profile(\"dev\") class Dev {}\n@org.springframework.stereotype.Service @org.springframework.context.annotation.Profile(\"!prod\") class NotProd {}\n@org.springframework.stereotype.Service @org.springframework.context.annotation.Profile(\"a & b\") class Both {}\n",
+    );
+    let app = |v: &str| format!("spring.profiles.active={v}\n");
+    assert_eq!(inactive_beans(&[java, ("src/main/resources/application.properties", &app("prod"))]), ["dev", "notProd"]);
+    assert!(inactive_beans(&[java, ("src/main/resources/application.properties", &app("dev, x"))]).is_empty());
+    assert!(inactive_beans(&[java]).is_empty());
+    assert!(inactive_beans(&[java, ("src/main/resources/application.properties", &app("${P}"))]).is_empty());
+    let group = format!("{}spring.profiles.group.prod=dev\n", app("prod"));
+    assert!(inactive_beans(&[java, ("src/main/resources/application.properties", &group)]).is_empty());
+}
+
+#[test]
+fn missing_bean_is_inactive_when_a_plain_component_of_the_type_exists() {
+    let config = "import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;\nimport org.springframework.context.annotation.Bean;\n@org.springframework.context.annotation.Configuration class Cfg {\n @Bean @ConditionalOnMissingBean Clock clock() { return null; }\n @Bean @ConditionalOnMissingBean(Mailer.class) Object other() { return null; }\n @Bean @ConditionalOnMissingBean(name = \"x\") Clock named() { return null; }\n}\n";
+    let component = "@org.springframework.stereotype.Component class Clock {}\n";
+    let cfg = ("src/main/java/Cfg.java", config);
+    assert_eq!(inactive_beans(&[cfg, ("src/main/java/Clock.java", component)]), ["clock"]);
+    assert!(inactive_beans(&[cfg]).is_empty());
+    let profiled = "@org.springframework.stereotype.Component @org.springframework.context.annotation.Profile(\"x\") class Clock {}\n";
+    assert!(inactive_beans(&[cfg, ("src/main/java/Clock.java", profiled)]).is_empty());
+}
+
+#[test]
+fn inactive_beans_leave_the_candidates_of_an_injection() {
+    let host = MockHost::install();
+    host.add_file("src/main/java/Smtp.java", &ON_PROPERTY.replace("class Smtp {}", "class Smtp implements Mailer {}"));
+    host.add_file("src/main/java/Ses.java", "@org.springframework.stereotype.Service class Ses implements Mailer {}\n");
+    host.add_file("src/main/resources/application.properties", "app.mail=ses\n");
+    let mut navigator = Navigator::default();
+    let project = host.invocation().project().unwrap();
+    let index = navigator.indexes.get(&project, COMMAND_BUDGET);
+    let world = World::new(index);
+    let injection = |ty: &str, multiple: bool| model::Injection {
+        ty: ty.into(),
+        name: "mailer".into(),
+        qualifier: None,
+        multiple,
+        range: Default::default(),
+        owner: None,
+        field_annotation: None,
+    };
+    let names = |multiple| -> Vec<String> { world.candidates(&injection("Mailer", multiple)).iter().map(|(_, b)| b.name.clone()).collect() };
+    assert_eq!(names(false), ["ses"]);
+    assert_eq!(names(true), ["ses"]);
+}
+
+#[test]
+fn object_factory_and_sorted_set_unwrap_like_spring_dependency_types() {
+    let text = "@org.springframework.stereotype.Service class A { A(ObjectFactory<Foo> f, SortedSet<Bar> b, Optional<List<Baz>> z) {} }\n";
+    let model = model::parse("A.java", text).unwrap();
+    assert_eq!(injected(&model).iter().map(|i| (i.0, i.2)).collect::<Vec<_>>(), [("Foo", false), ("Bar", true), ("Baz", true)]);
+}

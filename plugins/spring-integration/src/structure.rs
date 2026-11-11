@@ -359,6 +359,7 @@ impl Plugin for Structure {
 
     fn run_command(&mut self, id: &str, ctx: &Invocation, arg: Option<&str>) -> Result<Option<String>, Error> {
         if id.starts_with("batch.runtime-") {return self.batch_runtime.run_command(id,ctx);}
+        if id=="batch.launch-command" {let project=ctx.project().ok_or(Error::Stale)?;let jobs=self.batch.job_names(&project);return crate::batch_launch::run(ctx,&jobs);}
         if id=="integration.import-tree-occurrences" {return crate::import_tree::occurrences(ctx);}
         if id=="batch.current-file-step-usages" {return crate::batch_step_rename::usages(ctx);}
         let module = id.split_once('.').map(|(module, _)| module);

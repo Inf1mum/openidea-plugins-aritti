@@ -8,6 +8,7 @@ mod annotation_checks;
 mod annotation_owners;
 mod aop;
 mod cache;
+mod effective;
 mod checks;
 mod commands;
 mod hover;
@@ -84,6 +85,10 @@ impl<'a> World<'a> {
             }
         }
         Self { files: index.files(), supers, complete: index.complete() }
+    }
+
+    fn active_beans(&self) -> impl Iterator<Item = Found<'a>> + '_ {
+        self.beans().filter(|(p, b)| self.inactive_reason(p, b).is_none())
     }
 
     fn beans(&self) -> impl Iterator<Item = Found<'a>> + '_ {
@@ -169,7 +174,7 @@ impl<'a> World<'a> {
     }
 
     fn named(&self, name: &str) -> Vec<Found<'a>> {
-        self.beans().filter(|(_, b)| b.answers_to(name)).collect()
+        self.active_beans().filter(|(_, b)| b.answers_to(name)).collect()
     }
 
     /// The beans Spring would consider for `inj`: by type, then qualifier,
@@ -178,7 +183,7 @@ impl<'a> World<'a> {
         if inj.ty.is_empty() {
             return self.named(inj.qualifier.as_deref().unwrap_or(&inj.name));
         }
-        let typed: Vec<Found> = self.beans().filter(|(_, b)| !b.ty.is_empty() && self.is_a(&b.ty, &inj.ty)).collect();
+        let typed: Vec<Found> = self.active_beans().filter(|(_, b)| !b.ty.is_empty() && self.is_a(&b.ty, &inj.ty)).collect();
         if let Some(q) = &inj.qualifier {
             return typed.into_iter().filter(|(_, b)| b.answers_to(q)).collect();
         }

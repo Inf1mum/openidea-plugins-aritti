@@ -24,6 +24,7 @@ pub struct Endpoint {
     pub path: String,
     pub range: Range,
     pub handler: Option<Handler>,
+    pub name: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -55,13 +56,41 @@ pub fn file_info(path: &str, text: &str) -> Option<FileInfo> {
             if maps.is_empty() || !maps.iter().all(|a| crate::literal_paths(a) && file.from_spring(&a.name)) {
                 continue;
             }
+            let name = mapping_name(class.annotation("RequestMapping"), maps.as_slice());
             for (verb, path) in java::mappings(class, m) {
-                info.endpoints.push(Endpoint { verb, path, range: name_range, handler: None });
+                info.endpoints.push(Endpoint { verb, path, range: name_range, handler: None, name: name.clone() });
             }
         }
     }
     info.endpoints.extend(routes(path, text));
     (!info.endpoints.is_empty() || !info.methods.is_empty()).then_some(info)
+}
+
+fn literal_name(a: &java::Annotation) -> Option<Option<String>> {
+    let Some(arg) = a.arg("name") else {
+        return Some(None);
+    };
+    let tokens = java::tokens(&arg.text);
+    match (tokens.as_slice(), arg.strings.as_slice()) {
+        ([_], [s]) if !s.value.contains(['$', '#']) && !s.value.is_empty() => Some(Some(s.value.clone())),
+        _ => None,
+    }
+}
+
+/// Mapping `name` joined class-then-method with `#`; None unless every written name is a plain literal.
+fn mapping_name(class: Option<&java::Annotation>, maps: &[&java::Annotation]) -> Option<String> {
+    let [method] = maps else {
+        return None;
+    };
+    let class = match class {
+        Some(a) => literal_name(a)?,
+        None => None,
+    };
+    let method = literal_name(method)?;
+    match (class, method) {
+        (Some(c), Some(m)) => Some(format!("{c}#{m}")),
+        (c, m) => c.or(m),
+    }
 }
 
 /// A `path("/api", …)` / `nest(path("/api"), …)` / Kotlin `"/api".nest { … }` scope.
@@ -179,6 +208,7 @@ fn routes(path: &str, text: &str) -> Vec<Endpoint> {
             path: java::join_paths(&prefix, &literal.value),
             range: range(text, v.at, v.at + v.name.len()),
             handler: handler_arg.and_then(method_ref),
+            name: None,
         });
     }
     out
@@ -598,5 +628,22 @@ class T {
         assert_eq!(list(&no_static).len(), 3);
         let kotlin = "import org.springframework.web.reactive.function.client.WebClient\nclass T { lateinit var web: WebClient\nfun t() { web.get().uri(\"/k\"); val c = WebClient.create(); c.put().uri(\"/k2\") } }";
         assert_eq!(requests("/p/src/test/kotlin/T.kt", kotlin).len(), 2);
+    }
+}
+
+#[cfg(test)]
+mod name_tests {
+    use super::*;
+
+    fn names(src: &str) -> Vec<Option<String>> {
+        file_info("A.java", src).unwrap().endpoints.into_iter().map(|e| e.name).collect()
+    }
+
+    #[test]
+    fn mapping_names_combine_with_hash_and_skip_non_literals() {
+        let head = "import org.springframework.web.bind.annotation.*; @RestController ";
+        assert_eq!(names(&format!("{head}@RequestMapping(path=\"/a\",name=\"C\") class A {{ @GetMapping(path={{\"/x\",\"/y\"}},name=\"m\") void f(){{}} }}")), vec![Some("C#m".into()), Some("C#m".into())]);
+        assert_eq!(names(&format!("{head}class A {{ @GetMapping(\"/x\") void f(){{}} }}")), vec![None]);
+        assert_eq!(names(&format!("{head}class A {{ @GetMapping(value=\"/x\",name=NAME) void f(){{}} }}")), vec![None]);
     }
 }

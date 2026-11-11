@@ -548,8 +548,15 @@ fn endpoint_settings(path: &str, text: &str) -> Option<Vec<Setting>> {
     (!found.is_empty()).then_some(found)
 }
 
-fn mentions_wiring(_path: &str, text: &str) -> Option<bool> {
-    WIRING.iter().any(|w| text.contains(w)).then_some(true)
+const MAPPING_MARKERS: [&str; 5] = ["@SchemaMapping", "@BatchMapping", "@QueryMapping", "@MutationMapping", "@SubscriptionMapping"];
+
+/// Hand wiring, or a mapping annotation the literal handler parser did not accept (dynamic, class-level, aliased): the handler set is then unprovable.
+fn mentions_wiring(path: &str, text: &str) -> Option<bool> {
+    if WIRING.iter().any(|w| text.contains(w)) {
+        return Some(true);
+    }
+    let marked: usize = MAPPING_MARKERS.iter().map(|m| text.matches(m).count()).sum();
+    (marked > 0 && marked != handlers_in(text, path.ends_with(".kt")).len()).then_some(true)
 }
 
 pub struct GraphQlTools {
@@ -804,11 +811,15 @@ impl GraphQlTools {
             let wired = self.wiring.get(&project, PROVIDER_BUDGET / 2);
             if java.complete() && wired.complete() && wired.files().is_empty() {
                 let objects: Vec<String> = parse_schema(&doc.text).types.into_iter().filter(|t| t.kind == "type").map(|t| t.name).collect();
+                let interface_handles = |field: &str| {
+                    java.iter().flat_map(|(_, hs)| hs).any(|h| {
+                        h.field == field && schemas.iter().any(|(_, s)| s.types.iter().any(|t| t.name == h.ty && t.kind == "interface"))
+                    })
+                };
                 for (ty, f, found) in &links {
-                    let handled_type = java.iter().flat_map(|(_, hs)| hs).any(|h| &type_of(h, schemas) == ty);
-                    if found.is_empty() && !f.args.is_empty() && !roots.contains(ty) && objects.contains(ty) && !handled_type {
+                    if found.is_empty() && schemas.complete() && !f.args.is_empty() && !roots.contains(ty) && objects.contains(ty) && !interface_handles(&f.name) {
                         let message = format!(
-                            "`{ty}.{}` takes arguments, but no controller method or data fetcher serves `{ty}`; the default property fetcher ignores them.",
+                            "`{ty}.{}` takes arguments, but no controller method or data fetcher handles it; the default property fetcher ignores them.",
                             f.name
                         );
                         problems.push(Diagnostic::new(f.range, Severity::Info, message).code("unmapped-field"));
@@ -1739,6 +1750,23 @@ class BookController {
         host.add_file("src/main/java/com/acme/Wiring.java", "class W { RuntimeWiringConfigurer c() { return null; } }");
         GraphQlTools::default().line_markers(&schema);
         assert!(host.diagnostics().get(&schema.path).is_none_or(Vec::is_empty), "hand wiring anywhere silences it");
+    }
+
+    #[cfg(not(feature = "embedded"))]
+    #[test]
+    fn argument_field_on_served_type_is_info_only_when_handlers_are_provably_complete() {
+        let host = MockHost::install();
+        host.add_file("src/main/resources/graphql/schema.graphqls", ARGS_SCHEMA);
+        let controller = "@Controller class A { @BatchMapping public Map<Author, String> name(List<Author> a) { return null; } }";
+        host.add_file("src/main/java/com/acme/A.java", controller);
+        let schema = doc("src/main/resources/graphql/schema.graphqls", "graphql", ARGS_SCHEMA);
+        GraphQlTools::default().line_markers(&schema);
+        let found: Vec<_> = host.diagnostics()[&schema.path].iter().map(|d| (d.code.clone().unwrap(), d.severity)).collect();
+        assert_eq!(found.iter().filter(|f| f.1 == Severity::Info).count(), 2, "Author.books and Book.title: {found:?}");
+
+        host.add_file("src/main/java/com/acme/A.java", &controller.replace("@BatchMapping", "@BatchMapping(typeName = TYPE)"));
+        GraphQlTools::default().line_markers(&schema);
+        assert!(host.diagnostics().get(&schema.path).is_none_or(|v| v.iter().all(|d| d.severity != Severity::Info)), "a non-literal mapping makes the set unprovable");
     }
 
     #[cfg(feature = "embedded")]

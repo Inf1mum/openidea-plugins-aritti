@@ -65,7 +65,11 @@ pub(crate) fn view(index: &Index<FileModel>) -> View {
             fact("Aliases", &if bean.aliases.is_empty() { "None recorded".into() } else { bean.aliases.join(", ") }),
             fact("Qualifiers", &if bean.qualifiers.is_empty() { "None recorded".into() } else { bean.qualifiers.join(", ") }),
             fact("Primary", if bean.primary { "Declared primary" } else { "No primary flag recorded" }),
-            fact("Conditional", if bean.conditional { "Conditional annotation recorded" } else { "No conditional annotation recorded" }),
+            fact("Conditional", &match world.inactive_reason(path, bean) {
+                Some(reason) => format!("inactive (condition): {reason}"),
+                None if bean.conditional => "Conditional annotation recorded".into(),
+                None => "No conditional annotation recorded".into(),
+            }),
             fact("Abstract template", if bean.is_abstract { "Yes" } else { "No" }),
             fact("Declared wiring inputs", &wiring),
             fact(
@@ -77,6 +81,7 @@ pub(crate) fn view(index: &Index<FileModel>) -> View {
                 },
             ),
         ];
+        let profiles = if world.inactive_reason(path, bean).is_some() { format!("{profiles} (inactive)") } else { profiles };
         let cells = [&bean.name, &bean.ty, &bean.kind, &profiles, path].into_iter().map(|s| clip(s)).collect::<Vec<_>>();
         rows.push(json!({"key":location_key(path,bean.range),"label":clip(&bean.name),"cells":cells,"details":details}));
     }

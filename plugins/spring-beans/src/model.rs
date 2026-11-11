@@ -44,9 +44,9 @@ pub fn name_tokens(value: &str) -> impl Iterator<Item = (usize, &str)> {
 
 pub const INJECT: [&str; 3] = ["Autowired", "Inject", "Resource"];
 /// Hold one bean: `Optional<Foo>` is a `Foo`.
-const SINGLE_WRAPPERS: [&str; 4] = ["Optional", "ObjectProvider", "Provider", "Lazy"];
+const SINGLE_WRAPPERS: [&str; 5] = ["Optional", "ObjectProvider", "ObjectFactory", "Provider", "Lazy"];
 /// Hold every bean of their last type argument: `List<Handler>`.
-const MULTI_WRAPPERS: [&str; 5] = ["List", "Set", "Collection", "Iterable", "Map"];
+const MULTI_WRAPPERS: [&str; 6] = ["List", "Set", "SortedSet", "Collection", "Iterable", "Map"];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Bean {
@@ -62,9 +62,26 @@ pub struct Bean {
     pub qualifiers: Vec<String>,
     /// Carries a `@Conditional*` annotation: it may not exist at run time.
     pub conditional: bool,
+    /// The literal Spring Boot conditions understood from source; others only set `conditional`.
+    pub conditions: Vec<Condition>,
     /// `<bean abstract="true">`: a template, never instantiated.
     pub is_abstract: bool,
     pub range: Range,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Condition {
+    /// `@ConditionalOnProperty`: every full name must match.
+    Property { names: Vec<String>, having: Option<String>, match_if_missing: bool },
+    /// `@ConditionalOnMissingBean`: no bean of any of these simple type names may exist.
+    MissingBean(Vec<String>),
+}
+
+/// What the project's `application.*` files say; `profile_scoped` files and multi-document files only count as occurrences.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ConfigFacts {
+    pub profile_scoped: bool,
+    pub keys: Vec<(String, String)>,
 }
 
 impl Bean {
@@ -137,6 +154,7 @@ pub struct FileModel {
     pub auto_configuration: bool,
     /// `Type.NAME` and the value of each `static final` string constant that resolves.
     pub constants: Vec<(String, String)>,
+    pub config: Option<ConfigFacts>,
 }
 
 /// The model of a Java, Kotlin or Spring XML file (`None`: nothing to keep).
@@ -149,7 +167,7 @@ pub fn parse(path: &str, text: &str) -> Option<FileModel> {
         if !crate::xml_namespace::namespace_document(text){return None;}
         if crate::xml_namespace::beans_document(text){xml_model(text)}else{FileModel::default()}
     } else if matches!(path.rsplit('.').next(), Some("properties" | "yaml" | "yml" | "sql")) {
-        FileModel::default()
+        FileModel { config: config_facts(path, text), ..FileModel::default() }
     } else {
         return None;
     };
@@ -213,6 +231,86 @@ pub fn push_injection(
     });
 }
 
+fn config_facts(path: &str, text: &str) -> Option<ConfigFacts> {
+    let name = path.rsplit(['/', '\\']).next()?;
+    let stem = name.rsplit_once('.')?.0;
+    if !spring_text::config::is_config_file(path) || !stem.starts_with("application") {
+        return None;
+    }
+    let multi_document = text.lines().any(|l| matches!(l.trim_end(), "---" | "#---" | "!---"));
+    Some(ConfigFacts {
+        profile_scoped: stem != "application" || multi_document,
+        keys: spring_text::config::keys(path, text).into_iter().map(|k| (k.key, k.value)).collect(),
+    })
+}
+
+/// A literal-only argument: string literals, braces and commas.
+fn literal_strings(a: &java::Arg) -> Option<Vec<String>> {
+    let literal = java::tokens(&a.text).iter().all(|t| t.string().is_some() || matches!(t.s, "{" | "}" | ","));
+    literal.then(|| a.strings.iter().map(|s| s.value.clone()).collect())
+}
+
+/// Simple type names of `Foo.class` / `{A.class, b.C.class}`.
+fn class_literals(a: &java::Arg) -> Option<Vec<String>> {
+    let toks = java::tokens(&a.text);
+    let mut out = Vec::new();
+    for part in toks.split(|t| matches!(t.s, "{" | "}" | ",")).filter(|p| !p.is_empty()) {
+        let [.., name, dot, class] = part else { return None };
+        if dot.s != "." || class.s != "class" || !name.is_ident() {
+            return None;
+        }
+        out.push(name.s.to_owned());
+    }
+    (!out.is_empty()).then_some(out)
+}
+
+/// Literal conditions of owned (`ConditionalOnProperty`, `ConditionalOnMissingBean`) annotations; `implied` is the `@Bean` return type.
+pub fn conditions(annotations: &[Annotation], implied: &str) -> Vec<Condition> {
+    let mut out = Vec::new();
+    for a in annotations {
+        match a.name.as_str() {
+            "ConditionalOnProperty" => out.extend(property_condition(a)),
+            "ConditionalOnMissingBean" => {
+                if a.args.is_empty() {
+                    if !implied.is_empty() {
+                        out.push(Condition::MissingBean(vec![implied.to_owned()]));
+                    }
+                    continue;
+                }
+                if a.args.iter().all(|x| matches!(x.name.as_str(), "value" | "type")) {
+                    let types: Option<Vec<Vec<String>>> = a.args.iter().map(class_literals).collect();
+                    out.extend(types.map(|t| Condition::MissingBean(t.concat())));
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+fn property_condition(a: &Annotation) -> Option<Condition> {
+    const KNOWN: [&str; 5] = ["prefix", "name", "value", "havingValue", "matchIfMissing"];
+    if a.args.iter().any(|x| !KNOWN.contains(&x.name.as_str())) || (a.arg("name").is_some() && a.arg("value").is_some()) {
+        return None;
+    }
+    let names = literal_strings(a.arg("name").or_else(|| a.arg("value"))?)?;
+    let mut prefix = a.arg("prefix").map_or(Some(Vec::new()), literal_strings)?.pop().unwrap_or_default();
+    if !prefix.is_empty() && !prefix.ends_with('.') {
+        prefix.push('.');
+    }
+    let having = match a.arg("havingValue") {
+        Some(h) => literal_strings(h)?.pop().filter(|v| !v.is_empty()),
+        None => None,
+    };
+    let match_if_missing = match a.arg("matchIfMissing").map(|m| m.text.trim()) {
+        None | Some("false") => false,
+        Some("true") => true,
+        Some(_) => return None,
+    };
+    let names: Vec<String> = names.into_iter().map(|n| format!("{prefix}{n}")).collect();
+    (!names.is_empty()).then_some(Condition::Property { names, having, match_if_missing })
+}
+
 pub fn is_conditional(annotations: &[Annotation]) -> bool {
     annotations.iter().any(|a| a.name.starts_with("Conditional"))
 }
@@ -246,6 +344,7 @@ pub fn class_bean(text: &str, name: &str, short_name: &str, at: usize, annotatio
         profiles: values(annotations, &["Profile"]),
         qualifiers: values(annotations, &["Qualifier", "Named"]),
         conditional: is_conditional(annotations),
+        conditions: conditions(annotations, ""),
         is_abstract: false,
         range: range(text, at, at + name.len()),
     })
@@ -265,6 +364,7 @@ pub fn method_bean(text: &str, name: &str, at: usize, ty: &str, annotations: &[A
         profiles: if profiles.is_empty() { class.to_vec() } else { profiles },
         qualifiers: values(annotations, &["Qualifier", "Named"]),
         conditional: is_conditional(annotations),
+        conditions: conditions(annotations, ty),
         is_abstract: false,
         range: range(text, at, at + name.len()),
     }
@@ -349,6 +449,7 @@ fn java_model(text: &str) -> FileModel {
             if t.kind == "@interface" { None } else { class_bean(text, &t.name, &short_name(&file, t), t.at, &t.annotations, repository) };
         let class_profiles = bean.as_ref().map(|b| b.profiles.clone()).unwrap_or_default();
         let class_conditional = bean.as_ref().is_some_and(|b| b.conditional);
+        let class_conditions = bean.as_ref().map(|b| b.conditions.clone()).unwrap_or_default();
         let owner = bean.map(|b| {
             out.beans.push(b);
             out.beans.len() - 1
@@ -370,6 +471,7 @@ fn java_model(text: &str) -> FileModel {
                     let ty = m.ty.as_ref().map(|t| t.name.as_str()).unwrap_or_default();
                     let mut bean = method_bean(text, &m.name, m.at, ty, &m.annotations, &class_profiles);
                     bean.conditional |= class_conditional;
+                    bean.conditions.extend(class_conditions.iter().cloned());
                     out.beans.push(bean);
                     let bean = Some(out.beans.len() - 1);
                     for p in &m.params {
@@ -453,6 +555,7 @@ fn xml_model(text: &str) -> FileModel {
                 profiles,
                 qualifiers: Vec::new(),
                 conditional: false,
+                conditions: Vec::new(),
                 is_abstract: e.core_value("abstract") == Some("true"),
                 range: at,
             });

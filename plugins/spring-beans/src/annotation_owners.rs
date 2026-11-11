@@ -330,16 +330,30 @@ impl Owners {
         };
         self.known(text, a, expected)
     }
+    /// Keeps owned definitions; an unproven `ConditionalOn*` stays conditional but loses its name, so no literal condition is read from it.
+    pub(crate) fn retain_owned(&self, text: &str, annotations: &mut Vec<Annotation>) {
+        annotations.retain(|a| self.keep_definition(text, a));
+        for a in annotations.iter_mut() {
+            let expected = match a.name.as_str() {
+                "ConditionalOnProperty" => "org.springframework.boot.autoconfigure.condition.ConditionalOnProperty",
+                "ConditionalOnMissingBean" => "org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean",
+                _ => continue,
+            };
+            if !self.known(text, a, expected) {
+                a.name = format!("{}Unverified", a.name);
+            }
+        }
+    }
     pub(crate) fn filter_definitions(&self, file: &mut JavaFile, text: &str) {
         for ty in &mut file.types {
-            ty.annotations.retain(|a| self.keep_definition(text, a));
+            self.retain_owned(text, &mut ty.annotations);
             for param in &mut ty.components {
-                param.annotations.retain(|a| self.keep_definition(text, a));
+                self.retain_owned(text, &mut param.annotations);
             }
             for member in &mut ty.members {
-                member.annotations.retain(|a| self.keep_definition(text, a));
+                self.retain_owned(text, &mut member.annotations);
                 for param in &mut member.params {
-                    param.annotations.retain(|a| self.keep_definition(text, a));
+                    self.retain_owned(text, &mut param.annotations);
                 }
             }
         }

@@ -14,6 +14,7 @@ mod batch_actions;
 mod batch_step_rename;
 mod import_tree;
 mod batch_runtime;
+mod batch_launch;
 mod java_hover;
 mod source_scope;
 mod dsl_flows;
