@@ -1,0 +1,35 @@
+{
+ "row": "G122",
+ "capability": "Single-entity DDL",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/database-versioning.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Database versioning help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G122-C1",
+   "statement": "DDL by Entity is available from a gutter icon, the Alt+Enter intention or New > DDL by Entity in the Project tool window.",
+   "supports": "gutter icon or Alt+Enter intention, or New > DDL by Entity",
+   "source": "https://www.jetbrains.com/help/idea/database-versioning.html",
+   "strength": "explicit",
+   "ourFeature": "migration_action.rs",
+   "verifiableHeadless": false
+  },
+  {
+   "id": "G122-C2",
+   "statement": "Single-entity options: DB type, save target (File, Scratch File, Clipboard, Database Console), directory and file name, connection for console.",
+   "supports": "DB type, save target (File, Scratch File, Clipboard, Database Console), directory, file name",
+   "source": "https://www.jetbrains.com/help/idea/database-versioning.html",
+   "strength": "explicit",
+   "ourFeature": "migration_action.rs",
+   "verifiableHeadless": true
+  }
+ ],
+ "undocumented": [
+  "our implementation does not offer single-entity DDL (diff covers all changed entities)"
+ ],
+ "verdict": "thin"
+}

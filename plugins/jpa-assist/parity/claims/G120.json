@@ -1,0 +1,67 @@
+{
+ "row": "G120",
+ "capability": "Naming macros",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/liquibase.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Liquibase help page; WebFetch extraction (paraphrase)"
+  },
+  {
+   "url": "https://www.jetbrains.com/help/idea/flyway.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Flyway help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G120-C1",
+   "statement": "#increment(<start>, <step>, <decimalFormat>) generates a numeric sequence in changelog file names and Flyway version patterns.",
+   "supports": "#increment(<start>, <step>, <decimalFormat>): sequential numbering",
+   "source": "https://www.jetbrains.com/help/idea/liquibase.html",
+   "strength": "explicit",
+   "ourFeature": "liquibase_action.rs, migration_action.rs, naming.rs, template_settings.rs",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G120-C2",
+   "statement": "#date(<simpleDateFormat>) inserts the current date formatted with a SimpleDateFormat pattern.",
+   "supports": "#date(<simpleDateFormat>): current date",
+   "source": "https://www.jetbrains.com/help/idea/liquibase.html",
+   "strength": "explicit",
+   "ourFeature": "liquibase_action.rs, migration_action.rs, naming.rs, template_settings.rs",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G120-C3",
+   "statement": "${semVer.<getter>} inserts a build-file version segment via getRawVersion, getMajor, getMinor, getPatch, getPreRelease.",
+   "supports": "${semVer.<getter>} ... getRawVersion, getMajor, getMinor, getPatch, getPreRelease",
+   "source": "https://www.jetbrains.com/help/idea/liquibase.html",
+   "strength": "explicit",
+   "ourFeature": "liquibase_action.rs, migration_action.rs, naming.rs, template_settings.rs",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G120-C4",
+   "statement": "For 1.2.3-SNAPSHOT+build4 the getters return the full string, 1, 2, 3, SNAPSHOT.",
+   "supports": "For version 1.2.3-SNAPSHOT+build4 ... full string, 1, 2, 3, SNAPSHOT",
+   "source": "https://www.jetbrains.com/help/idea/flyway.html",
+   "strength": "explicit",
+   "ourFeature": "liquibase_action.rs, migration_action.rs, naming.rs, template_settings.rs",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G120-C5",
+   "statement": "Flyway settings include migration prefix (B/R/U/V, default V), separator and description; defaults match Flyway defaults.",
+   "supports": "Migration prefix B,R,U,V; Migration separator; Migration description; defaults match Flyway",
+   "source": "https://www.jetbrains.com/help/idea/flyway.html",
+   "strength": "explicit",
+   "ourFeature": "liquibase_action.rs, migration_action.rs, naming.rs, template_settings.rs",
+   "verifiableHeadless": true
+  }
+ ],
+ "undocumented": [
+  "bounded expander limits"
+ ],
+ "verdict": "documented"
+}

@@ -1,0 +1,49 @@
+{
+ "row": "G069",
+ "capability": "MapStruct creation",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
+   "retrievedOn": "2026-11-11",
+   "note": "DTO generator help page; WebFetch extraction (paraphrase)"
+  },
+  {
+   "url": "https://www.jetbrains.com/help/idea/jpa-buddy.html",
+   "retrievedOn": "2026-11-11",
+   "note": "JPA Buddy overview help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G069-C1",
+   "statement": "With MapStruct present, the New DTO window has a Mapper field to select an existing mapper or create one.",
+   "supports": "Mapper field appears in New DTO window when MapStruct dependency is present; select existing or create",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
+   "strength": "explicit",
+   "ourFeature": "Create MapStruct mapper with preview… (file_actions.rs, mapper_action.rs)",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G069-C2",
+   "statement": "MapStruct mappers convert entities to DTOs and back.",
+   "supports": "Creates mappers that convert entities to DTOs and back",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy.html",
+   "strength": "explicit",
+   "ourFeature": "Create MapStruct mapper with preview… (file_actions.rs, mapper_action.rs)",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G069-C3",
+   "statement": "Mapper Declaration settings configure naming patterns and the naming strategy for collection mappings.",
+   "supports": "Mapper Declaration: naming patterns and naming strategy for collection mappings",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
+   "strength": "explicit",
+   "ourFeature": "Create MapStruct mapper with preview… (file_actions.rs, mapper_action.rs)",
+   "verifiableHeadless": true
+  }
+ ],
+ "undocumented": [
+  "componentModel default/spring/jakarta-cdi choice"
+ ],
+ "verdict": "documented"
+}

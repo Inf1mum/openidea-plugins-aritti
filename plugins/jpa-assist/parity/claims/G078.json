@@ -1,0 +1,53 @@
+{
+ "row": "G078",
+ "capability": "Validation transfer",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
+   "retrievedOn": "2026-11-11",
+   "note": "DTO generator help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G078-C1",
+   "statement": "Bean validation constraints for DTO fields are configured in the DTO wizard.",
+   "supports": "Configure bean validation constraints for DTO fields in the DTO wizard",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
+   "strength": "explicit",
+   "ourFeature": "Create DTO class with preview… (dto_action.rs)",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G078-C2",
+   "statement": "Validations can be transferred from the entity or defined from scratch.",
+   "supports": "Transfer validations from the corresponding entity or define them from scratch",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
+   "strength": "explicit",
+   "ourFeature": "Create DTO class with preview… (dto_action.rs)",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G078-C3",
+   "statement": "Each constraint can be enabled/disabled and its message customized.",
+   "supports": "Enable or disable each constraint and customize its message",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
+   "strength": "explicit",
+   "ourFeature": "Create DTO class with preview… (dto_action.rs)",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G078-C4",
+   "statement": "Validation options require Hibernate Validator or Spring Boot Starter Validation.",
+   "supports": "Requires Hibernate Validator or Spring Boot Starter Validation",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
+   "strength": "explicit",
+   "ourFeature": "Create DTO class with preview… (dto_action.rs)",
+   "verifiableHeadless": true
+  }
+ ],
+ "undocumented": [
+  "which constraints are transferred"
+ ],
+ "verdict": "documented"
+}

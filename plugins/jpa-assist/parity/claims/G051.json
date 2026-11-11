@@ -1,0 +1,28 @@
+{
+ "row": "G051",
+ "capability": "JPQL extraction",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Spring Data help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G051-C1",
+   "statement": "Query extract converts a derived query method into a @Query-annotated method.",
+   "supports": "\"Query extract...\" converts a derived query method into a readable @Query method",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+   "strength": "explicit",
+   "ourFeature": "Convert derived query to @Query… (query_extract_action.rs)",
+   "verifiableHeadless": true
+  }
+ ],
+ "undocumented": [
+  "And-only/Or-only restriction",
+  "Page countQuery",
+  "@Modifying handling"
+ ],
+ "verdict": "thin"
+}

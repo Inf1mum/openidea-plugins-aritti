@@ -1,0 +1,51 @@
+{
+ "row": "G101",
+ "capability": "Name cleanup",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Reverse engineering help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G101-C1",
+   "statement": "Naming rules can skip configured table and column name prefixes and suffixes (comma-separated).",
+   "supports": "prefixes and suffixes to skip for table names and column names; comma-separated",
+   "source": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+   "strength": "explicit",
+   "ourFeature": "ddl_entities_action.rs, ddl_parse.rs",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G101-C2",
+   "statement": "A reserved-keyword field suffix is appended when a column name clashes with a Java keyword (class -> classField).",
+   "supports": "Reserved keyword field suffix ... class becomes classField",
+   "source": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+   "strength": "explicit",
+   "ourFeature": "ddl_entities_action.rs, ddl_parse.rs",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G101-C3",
+   "statement": "A setting converts table names to singular class names (users -> User).",
+   "supports": "Convert table names to singular form for class names",
+   "source": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+   "strength": "explicit",
+   "ourFeature": "ddl_entities_action.rs, ddl_parse.rs",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G101-C4",
+   "statement": "A setting replaces ORM references with basic attributes (customer_id -> Long customerId).",
+   "supports": "Replace ORM references with basic attributes",
+   "source": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+   "strength": "explicit",
+   "ourFeature": "ddl_entities_action.rs, ddl_parse.rs",
+   "verifiableHeadless": true
+  }
+ ],
+ "undocumented": [],
+ "verdict": "documented"
+}

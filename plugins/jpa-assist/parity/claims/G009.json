@@ -1,0 +1,41 @@
+{
+ "row": "G009",
+ "capability": "Association advice",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Entity designer help page; WebFetch extraction (paraphrase)"
+  },
+  {
+   "url": "https://www.jpa-buddy.com/documentation/",
+   "retrievedOn": "2026-11-11",
+   "note": "jpa-buddy.com marketing page (all /documentation/* subpages returned this same page); WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G009-C1",
+   "statement": "During association creation the designer explains why the chosen mapping may be inefficient and offers optimizations that can be applied directly.",
+   "supports": "explains why the current mapping may be inefficient; drop-down lists optimizations that can be applied",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+   "strength": "explicit",
+   "ourFeature": "checks.rs, inspections_more.rs",
+   "verifiableHeadless": false
+  },
+  {
+   "id": "G009-C2",
+   "statement": "Inspections flag mapping declarations that are not the best-performing choice.",
+   "supports": "Ensures only the best-performing mapping declarations are used",
+   "source": "https://www.jpa-buddy.com/documentation/",
+   "strength": "explicit",
+   "ourFeature": "checks.rs, inspections_more.rs",
+   "verifiableHeadless": true
+  }
+ ],
+ "undocumented": [
+  "the specific advice rules (list/set/collection) and their codes",
+  "Hibernate user-guide citations"
+ ],
+ "verdict": "thin"
+}

@@ -1,0 +1,44 @@
+{
+ "row": "G091",
+ "capability": "Parent mappings",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Reverse engineering help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G091-C1",
+   "statement": "A Parent drop-down lists @MappedSuperclass classes to extend.",
+   "supports": "Parent drop-down lists @MappedSuperclass classes",
+   "source": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+   "strength": "explicit",
+   "ourFeature": "s single-column PK is also an FK to another selected table (ddl_entities_action.rs)",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G091-C2",
+   "statement": "Attributes with same name and type are inherited; differing names use @AttributeOverride.",
+   "supports": "same name and type are inherited automatically; if names differ @AttributeOverride",
+   "source": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+   "strength": "explicit",
+   "ourFeature": "s single-column PK is also an FK to another selected table (ddl_entities_action.rs)",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G091-C3",
+   "statement": "The IDE warns when inherited attributes are missing from the database.",
+   "supports": "warns when inherited attributes are missing from the database",
+   "source": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+   "strength": "explicit",
+   "ourFeature": "s single-column PK is also an FK to another selected table (ddl_entities_action.rs)",
+   "verifiableHeadless": true
+  }
+ ],
+ "undocumented": [
+  "JOINED inheritance via PK-is-FK (docs describe MappedSuperclass Parent, not JOINED)"
+ ],
+ "verdict": "documented"
+}

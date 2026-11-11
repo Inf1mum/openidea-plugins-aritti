@@ -1,0 +1,44 @@
+{
+ "row": "G095",
+ "capability": "View identifiers",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Reverse engineering help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G095-C1",
+   "statement": "Views have no primary key, so one or more fields must be selected as identifier (Id columns).",
+   "supports": "Views have no primary key, so one or more fields must be selected as the identifier",
+   "source": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+   "strength": "explicit",
+   "ourFeature": "ddl_entities_action.rs, ddl_parse.rs",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G095-C2",
+   "statement": "View entities are annotated @Immutable and get getters only.",
+   "supports": "entity is annotated @Immutable and gets getters only",
+   "source": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+   "strength": "explicit",
+   "ourFeature": "ddl_entities_action.rs, ddl_parse.rs",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G095-C3",
+   "statement": "View entities get only a protected no-arg constructor.",
+   "supports": "Only a protected no-arg constructor is generated",
+   "source": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+   "strength": "explicit",
+   "ourFeature": "ddl_entities_action.rs, ddl_parse.rs",
+   "verifiableHeadless": true
+  }
+ ],
+ "undocumented": [
+  "CREATE VIEW parsing from SQL text"
+ ],
+ "verdict": "documented"
+}

@@ -1,0 +1,37 @@
+{
+ "row": "S006",
+ "capability": "Selection synchronization, pinning, draft retention and keyboard inspector",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/persistence-tool-window.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Persistence tool window help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "S006-C1",
+   "statement": "Placing the caret in entity source and invoking Locate selects that entity in the tool window.",
+   "supports": "place the caret in entity source and click the locate icon",
+   "source": "https://www.jetbrains.com/help/idea/persistence-tool-window.html",
+   "strength": "explicit",
+   "ourFeature": "none listed",
+   "verifiableHeadless": false
+  },
+  {
+   "id": "S006-C2",
+   "statement": "The inspector shows properties of the clicked/selected element, and Locate selects the caret entity in the tool window.",
+   "supports": "clicking an element shows its properties; Locate: caret in entity source",
+   "source": "https://www.jetbrains.com/help/idea/persistence-tool-window.html",
+   "strength": "implied",
+   "ourFeature": "none listed",
+   "verifiableHeadless": false
+  }
+ ],
+ "undocumented": [
+  "pinning",
+  "draft retention",
+  "keyboard inspector popup"
+ ],
+ "verdict": "thin"
+}

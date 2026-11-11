@@ -1,0 +1,44 @@
+{
+ "row": "G056",
+ "capability": "Auditing support",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Spring Data help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G056-C1",
+   "statement": "Auditing support provides @CreatedBy, @CreatedDate, @LastModifiedBy and @LastModifiedDate.",
+   "supports": "Provides @CreatedBy, @CreatedDate, @LastModifiedBy, @LastModifiedDate",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+   "strength": "explicit",
+   "ourFeature": "Add auditing fields…; Create JPA auditing configuration… (auditing_action.rs)",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G056-C2",
+   "statement": "A warning is shown if @EnableJpaAuditing is missing.",
+   "supports": "Warns if @EnableJpaAuditing is missing",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+   "strength": "explicit",
+   "ourFeature": "Add auditing fields…; Create JPA auditing configuration… (auditing_action.rs)",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G056-C3",
+   "statement": "A warning is shown if AuditingEntityListener is not registered on the entity.",
+   "supports": "Warns if AuditingEntityListener is not registered on the entity",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+   "strength": "explicit",
+   "ourFeature": "Add auditing fields…; Create JPA auditing configuration… (auditing_action.rs)",
+   "verifiableHeadless": true
+  }
+ ],
+ "undocumented": [
+  "allowed field types (Instant/LocalDateTime/OffsetDateTime; String/Long/UUID)"
+ ],
+ "verdict": "documented"
+}

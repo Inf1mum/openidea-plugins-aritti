@@ -1,0 +1,82 @@
+{
+ "row": "G112",
+ "capability": "Changelog creation",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/database-versioning.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Database versioning help page; WebFetch extraction (paraphrase)"
+  },
+  {
+   "url": "https://www.jetbrains.com/help/idea/liquibase.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Liquibase help page; WebFetch extraction (paraphrase)"
+  },
+  {
+   "url": "https://www.jetbrains.com/help/idea/flyway.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Flyway help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G112-C1",
+   "statement": "A diff takes a Source (DB or Model) and a Target (DB or Snapshot); the result upgrades the target to the source.",
+   "supports": "Source options: DB or Model. Target options: DB or Snapshot. source minus target",
+   "source": "https://www.jetbrains.com/help/idea/database-versioning.html",
+   "strength": "explicit",
+   "ourFeature": "Create schema baseline…; Generate Flyway migration from model changes… (liquibase.rs, liquibase_action.rs, migration_action.rs, sql.rs)",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G112-C2",
+   "statement": "A Liquibase diff changelog compares Source (DB or Model) with Target (DB or Snapshot) and goes through a preview before saving.",
+   "supports": "Diff Database Changelog dialog: Source DB or Model; Target DB or Snapshot ... preview",
+   "source": "https://www.jetbrains.com/help/idea/liquibase.html",
+   "strength": "explicit",
+   "ourFeature": "Create schema baseline…; Generate Flyway migration from model changes… (liquibase.rs, liquibase_action.rs, migration_action.rs, sql.rs)",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G112-C3",
+   "statement": "A Flyway diff migration compares Source (DB/Model) with Target (DB/Snapshot) and is saved through a preview.",
+   "supports": "Flyway Diff Migration ... Source DB or Model; Target DB or Snapshot",
+   "source": "https://www.jetbrains.com/help/idea/flyway.html",
+   "strength": "explicit",
+   "ourFeature": "Create schema baseline…; Generate Flyway migration from model changes… (liquibase.rs, liquibase_action.rs, migration_action.rs, sql.rs)",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G112-C4",
+   "statement": "Preview saving options: directory, file name, append when the file exists, include options, file type YAML/JSON/SQL/XML.",
+   "supports": "Directory and File name ... if the file exists changes are appended ... File type: YAML, JSON, SQL, or XML",
+   "source": "https://www.jetbrains.com/help/idea/liquibase.html",
+   "strength": "explicit",
+   "ourFeature": "Create schema baseline…; Generate Flyway migration from model changes… (liquibase.rs, liquibase_action.rs, migration_action.rs, sql.rs)",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G112-C5",
+   "statement": "Flyway preview saves as SQL file, scratch file, clipboard or query console; file name follows Flyway naming with prefix/version auto-filled.",
+   "supports": "Save as: SQL file, scratch file, clipboard, query console; File name ... naming patterns",
+   "source": "https://www.jetbrains.com/help/idea/flyway.html",
+   "strength": "explicit",
+   "ourFeature": "Create schema baseline…; Generate Flyway migration from model changes… (liquibase.rs, liquibase_action.rs, migration_action.rs, sql.rs)",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G112-C6",
+   "statement": "Save either creates a new script or appends to an existing one.",
+   "supports": "Save either creates a new script or appends to an existing one",
+   "source": "https://www.jetbrains.com/help/idea/database-versioning.html",
+   "strength": "explicit",
+   "ourFeature": "Create schema baseline…; Generate Flyway migration from model changes… (liquibase.rs, liquibase_action.rs, migration_action.rs, sql.rs)",
+   "verifiableHeadless": true
+  }
+ ],
+ "undocumented": [
+  "PostgreSQL/MySQL only",
+  "Safe/Rewrite default selection"
+ ],
+ "verdict": "documented"
+}

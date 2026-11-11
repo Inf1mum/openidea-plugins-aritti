@@ -1,0 +1,26 @@
+{
+ "row": "G050",
+ "capability": "Dynamic projection",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Spring Data help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G050-C1",
+   "statement": "A Dynamic projection checkbox makes a query generic by adding a type class parameter.",
+   "supports": "checkbox makes a query generic, adding a type class parameter",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+   "strength": "explicit",
+   "ourFeature": "Make projection dynamic… (query_convert_action.rs)",
+   "verifiableHeadless": true
+  }
+ ],
+ "undocumented": [
+  "Collection<Entity> -> <T> Collection<T> shape (stated only as \"type class parameter\")"
+ ],
+ "verdict": "thin"
+}

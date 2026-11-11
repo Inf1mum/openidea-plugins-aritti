@@ -1,0 +1,26 @@
+{
+ "row": "G052",
+ "capability": "Query completion",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Spring Data help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G052-C1",
+   "statement": "Query edit provides completion while editing a query.",
+   "supports": "\"Query edit...\" provides completion while editing queries",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+   "strength": "explicit",
+   "ourFeature": "jpql_language.rs, repository_completion.rs",
+   "verifiableHeadless": false
+  }
+ ],
+ "undocumented": [
+  "entity names after from/update; alias attribute completion depth"
+ ],
+ "verdict": "thin"
+}

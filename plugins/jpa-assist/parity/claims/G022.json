@@ -1,0 +1,26 @@
+{
+ "row": "G022",
+ "capability": "Lombok constructor checks",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Entity designer help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G022-C1",
+   "statement": "An inspection advises adding @NoArgsConstructor to entities that use @Builder or @AllArgsConstructor.",
+   "supports": "Add @NoArgsConstructor to entities that use @Builder or @AllArgsConstructor",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+   "strength": "explicit",
+   "ourFeature": "lombok_checks.rs",
+   "verifiableHeadless": true
+  }
+ ],
+ "undocumented": [
+  "quick fix behaviour and its refusal with explicit constructors"
+ ],
+ "verdict": "thin"
+}

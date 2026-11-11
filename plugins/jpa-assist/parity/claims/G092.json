@@ -1,0 +1,26 @@
+{
+ "row": "G092",
+ "capability": "Enum creation",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Reverse engineering help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G092-C1",
+   "statement": "Mapping type Enum generates a separate enum class referenced with @Enumerated.",
+   "supports": "Enum: a separate enum class referenced with @Enumerated",
+   "source": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
+   "strength": "explicit",
+   "ourFeature": "ddl_entities_action.rs, ddl_parse.rs",
+   "verifiableHeadless": true
+  }
+ ],
+ "undocumented": [
+  "enum source detection from CHECK/ENUM types in DDL text"
+ ],
+ "verdict": "thin"
+}

@@ -1,0 +1,35 @@
+{
+ "row": "G044",
+ "capability": "Attribute query intention",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Spring Data help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G044-C1",
+   "statement": "Caret on an entity attribute plus Alt+Enter offers Create Spring Data repository method, opening the query window with that attribute context.",
+   "supports": "intention on entity attribute offers \"Create Spring Data repository method\" ... opens the window with the attribute context",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+   "strength": "explicit",
+   "ourFeature": "Add query method with preview… (query_method_action.rs)",
+   "verifiableHeadless": false
+  },
+  {
+   "id": "G044-C2",
+   "statement": "A quick action on an unresolved repository method call opens the query creation wizard.",
+   "supports": "call a method that does not exist yet, open the wizard from a quick action on the unresolved reference",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+   "strength": "explicit",
+   "ourFeature": "Add query method with preview… (query_method_action.rs)",
+   "verifiableHeadless": false
+  }
+ ],
+ "undocumented": [
+  "which attribute kinds are offered"
+ ],
+ "verdict": "thin"
+}

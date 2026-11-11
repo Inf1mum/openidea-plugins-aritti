@@ -1,0 +1,27 @@
+{
+ "row": "G043",
+ "capability": "Parameter options",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Spring Data help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G043-C1",
+   "statement": "The bottom section controls named vs positional parameters and whether to include a Pageable parameter.",
+   "supports": "controls named vs. positional parameters, whether to include a Pageable parameter",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+   "strength": "explicit",
+   "ourFeature": "Add query method with preview… (query_method_action.rs)",
+   "verifiableHeadless": true
+  }
+ ],
+ "undocumented": [
+  "@Param emission",
+  "Pageable/Sort parameter placement"
+ ],
+ "verdict": "thin"
+}

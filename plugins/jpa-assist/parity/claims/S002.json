@@ -1,0 +1,10 @@
+{
+ "row": "S002",
+ "capability": "Join/collection tables, overrides and ownership-aware controls",
+ "sources": [],
+ "claims": [],
+ "undocumented": [
+  "@JoinColumn/@JoinTable/overrides controls: not described (reverse engineering generates them, but the designer controls are not documented)"
+ ],
+ "verdict": "none"
+}

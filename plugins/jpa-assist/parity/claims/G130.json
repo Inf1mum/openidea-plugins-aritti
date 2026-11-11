@@ -1,0 +1,45 @@
+{
+ "row": "G130",
+ "capability": "Repository injection",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/jpa-buddy-coding-assistance.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Coding assistance help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G130-C1",
+   "statement": "Typing the name of an existing repository finds and injects it into the current class following injection settings.",
+   "supports": "Typing an existing repository name finds and injects it, following injection settings",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-coding-assistance.html",
+   "strength": "explicit",
+   "ourFeature": "Inject repository…; since 4.3 (injection_action.rs)",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G130-C2",
+   "statement": "The injection example uses constructor-based injection.",
+   "supports": "example shows constructor-based injection",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-coding-assistance.html",
+   "strength": "implied",
+   "ourFeature": "Inject repository…; since 4.3 (injection_action.rs)",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G130-C3",
+   "statement": "A setting chooses the bean injection strategy used during code generation.",
+   "supports": "Choose the bean injection strategy",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-coding-assistance.html",
+   "strength": "explicit",
+   "ourFeature": "Inject repository…; since 4.3 (injection_action.rs)",
+   "verifiableHeadless": true
+  }
+ ],
+ "undocumented": [
+  "Inject repository for a single Spring stereotype class",
+  "field/@Autowired and Lombok variants"
+ ],
+ "verdict": "thin"
+}

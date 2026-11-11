@@ -1,0 +1,35 @@
+{
+ "row": "G083",
+ "capability": "DDL/SQL options",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Spring Data help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G083-C1",
+   "statement": "Hibernate DDL auto offers empty (do nothing), validate, update, create or create-drop.",
+   "supports": "Hibernate DDL auto: empty, validate, update, create, or create-drop",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+   "strength": "explicit",
+   "ourFeature": "datasource_facts.rs",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G083-C2",
+   "statement": "Show SQL and Format SQL toggles are offered.",
+   "supports": "Show SQL and Format SQL toggles",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+   "strength": "explicit",
+   "ourFeature": "datasource_facts.rs",
+   "verifiableHeadless": true
+  }
+ ],
+ "undocumented": [
+  "our implementation: dialect preselect only, no DDL/SQL options"
+ ],
+ "verdict": "thin"
+}

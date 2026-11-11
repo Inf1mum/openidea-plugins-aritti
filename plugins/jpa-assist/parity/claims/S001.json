@@ -1,0 +1,10 @@
+{
+ "row": "S001",
+ "capability": "Conditional precision/scale, orphan removal, collection ordering and write policies",
+ "sources": [],
+ "claims": [],
+ "undocumented": [
+  "conditional precision/scale, orphanRemoval, @OrderBy/@OrderColumn controls: no page describes attribute wizard options"
+ ],
+ "verdict": "none"
+}

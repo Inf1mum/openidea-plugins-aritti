@@ -1,0 +1,35 @@
+{
+ "row": "G031",
+ "capability": "Naming templates",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Entity designer help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G031-C1",
+   "statement": "Naming templates apply automatically to new entities and attributes.",
+   "supports": "Templates are applied automatically to new entities and attributes",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+   "strength": "explicit",
+   "ourFeature": "ddl_action.rs, naming_action.rs, settings.schema.json",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G031-C2",
+   "statement": "The name given is logical and the physical naming strategy transforms it when saved.",
+   "supports": "The name you specify is logical; the physical naming strategy transforms it",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+   "strength": "explicit",
+   "ourFeature": "ddl_action.rs, naming_action.rs, settings.schema.json",
+   "verifiableHeadless": true
+  }
+ ],
+ "undocumented": [
+  "Case/Prefix/Suffix settings schema for naming templates"
+ ],
+ "verdict": "thin"
+}

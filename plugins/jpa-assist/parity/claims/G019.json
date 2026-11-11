@@ -1,0 +1,54 @@
+{
+ "row": "G019",
+ "capability": "Superclass extraction",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Entity designer help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G019-C1",
+   "statement": "Extract to MappedSuperclass is offered from the context actions on an entity attribute and lets you choose which attributes and methods move.",
+   "supports": "Choose which attributes and methods to move into the superclass",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+   "strength": "explicit",
+   "ourFeature": "Extract mapped superclass with preview… (extract_superclass.rs, file_actions.rs)",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G019-C2",
+   "statement": "Existing JPA annotations carry over to the extracted attributes.",
+   "supports": "Existing JPA annotations carry over",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+   "strength": "explicit",
+   "ourFeature": "Extract mapped superclass with preview… (extract_superclass.rs, file_actions.rs)",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G019-C3",
+   "statement": "Attributes referenced by selected methods are included automatically.",
+   "supports": "Attributes referenced by selected methods are included automatically",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+   "strength": "explicit",
+   "ourFeature": "Extract mapped superclass with preview… (extract_superclass.rs, file_actions.rs)",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G019-C4",
+   "statement": "The entity is updated to extend the generated class and the extracted attributes are removed from it.",
+   "supports": "entity is updated to extend the generated class, extracted attributes removed",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+   "strength": "explicit",
+   "ourFeature": "Extract mapped superclass with preview… (extract_superclass.rs, file_actions.rs)",
+   "verifiableHeadless": true
+  }
+ ],
+ "undocumented": [
+  "Java-only restriction",
+  "plain private scalar field restriction"
+ ],
+ "verdict": "documented"
+}

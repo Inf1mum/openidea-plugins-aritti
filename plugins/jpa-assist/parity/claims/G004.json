@@ -1,0 +1,36 @@
+{
+ "row": "G004",
+ "capability": "Persistence units",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/persistence-tool-window.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Persistence tool window help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G004-C1",
+   "statement": "The Persistence tool window shows persistence units, managed entities and Spring repositories for the project.",
+   "supports": "tool window shows configuration files, persistence units, managed entities, Spring repositories, converters",
+   "source": "https://www.jetbrains.com/help/idea/persistence-tool-window.html",
+   "strength": "explicit",
+   "ourFeature": "structure_related.rs",
+   "verifiableHeadless": false
+  },
+  {
+   "id": "G004-C2",
+   "statement": "Entities are usually detected automatically from @Entity; a persistence unit can also be created manually.",
+   "supports": "entities usually auto-detected from @Entity; create a persistence unit manually if detection fails",
+   "source": "https://www.jetbrains.com/help/idea/persistence-tool-window.html",
+   "strength": "explicit",
+   "ourFeature": "structure_related.rs",
+   "verifiableHeadless": false
+  }
+ ],
+ "undocumented": [
+  "reading units from persistence.xml only",
+  "ambiguity labels"
+ ],
+ "verdict": "thin"
+}

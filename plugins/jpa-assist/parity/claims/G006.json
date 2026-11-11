@@ -1,0 +1,27 @@
+{
+ "row": "G006",
+ "capability": "Mapping inspector",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Entity designer help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G006-C1",
+   "statement": "The JPA Inspector edits existing entities, attributes, indexes and queries in place when an element is selected.",
+   "supports": "clicking an element shows its properties, which can be changed in place",
+   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
+   "strength": "explicit",
+   "ourFeature": "designer.rs, file_actions.rs, relationship.js, relationship_edit.rs, wizard.rs",
+   "verifiableHeadless": false
+  }
+ ],
+ "undocumented": [
+  "which attributes are editable",
+  "fetch/cascade/optional editing of relationship annotations"
+ ],
+ "verdict": "thin"
+}

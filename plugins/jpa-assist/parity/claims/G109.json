@@ -1,0 +1,44 @@
+{
+ "row": "G109",
+ "capability": "Rename merging",
+ "sources": [
+  {
+   "url": "https://www.jetbrains.com/help/idea/database-versioning.html",
+   "retrievedOn": "2026-11-11",
+   "note": "Database versioning help page; WebFetch extraction (paraphrase)"
+  }
+ ],
+ "claims": [
+  {
+   "id": "G109-C1",
+   "statement": "Renames and type changes normally yield a drop plus an add statement.",
+   "supports": "Renames and type changes normally produce a drop plus an add statement",
+   "source": "https://www.jetbrains.com/help/idea/database-versioning.html",
+   "strength": "explicit",
+   "ourFeature": "Migration; Treat as rename (schema.rs)",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G109-C2",
+   "statement": "These can be merged into one rename/modify statement from the preview.",
+   "supports": "can be merged into one rename or modify statement from the preview",
+   "source": "https://www.jetbrains.com/help/idea/database-versioning.html",
+   "strength": "explicit",
+   "ourFeature": "Migration; Treat as rename (schema.rs)",
+   "verifiableHeadless": true
+  },
+  {
+   "id": "G109-C3",
+   "statement": "Redundant drop statements can be removed after merging.",
+   "supports": "redundant drop statements can be removed",
+   "source": "https://www.jetbrains.com/help/idea/database-versioning.html",
+   "strength": "explicit",
+   "ourFeature": "Migration; Treat as rename (schema.rs)",
+   "verifiableHeadless": true
+  }
+ ],
+ "undocumented": [
+  "RenameCandidate entries (ours are never applied; docs say user can merge)"
+ ],
+ "verdict": "documented"
+}
