@@ -75,7 +75,7 @@
   "expect": {
     "createdFiles": [
       {
-        "path": "src/main/resources/db/migration/V20240131.0003__add_pet_type.sql",
+        "path": "src/main/resources/db/migration/V20240131.0004__add_pet_type.sql",
         "contains": [
           "pet_type",
           "birth_date"
