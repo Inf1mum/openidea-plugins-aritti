@@ -1,0 +1,41 @@
+{
+  "rows": [],
+  "claimIds": [],
+  "verifies": {},
+  "kindExerciser": true,
+  "fixture": "boot-jpa-java-jakarta",
+  "id": "RS-013",
+  "kind": "command",
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Category.java",
+    "anchor": "class Category"
+  },
+  "action": {
+    "command": "copy-ddl"
+  },
+  "prompts": [
+    {
+      "pick": "postgresql"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pick",
+        "titleContains": "dialect",
+        "optionsInclude": [
+          "postgresql",
+          "mysql"
+        ],
+        "name": "SQL dialect choice"
+      }
+    ],
+    "clipboardContains": [
+      "CREATE TABLE category",
+      "PRIMARY KEY",
+      "name VARCHAR"
+    ],
+    "noFilesChanged": true
+  },
+  "note": "Kind exerciser, covers no documented claim (G122-C2 lists more save targets than the command offers): the copy-ddl command asks for a dialect and puts CREATE TABLE text on the clipboard without touching any file."
+}
