@@ -512,6 +512,8 @@ struct Decl {
     arity: usize,
     index: usize,
     bundle: String,
+    names: Vec<String>,
+    defaults: Vec<bool>,
 }
 /// The bundle of an exact, unshadowed `@PropertyKey(resourceBundle = "b")` on a `String` parameter.
 fn property_key_bundle(text: &str, f: &java::JavaFile, p: &java::Param) -> Option<String> {
@@ -543,29 +545,36 @@ fn property_key_bundle(text: &str, f: &java::JavaFile, p: &java::Param) -> Optio
     let exact = text.get(s.at - 1..s.end + 1) == Some(arg.text.as_str()) && text.get(s.at..s.end) == Some(s.value.as_str());
     (exact && bundle_name(&s.value)).then(|| s.value.clone())
 }
-/// A parameter list without varargs or defaults, so arity equals position count.
-fn fixed_arity(toks: &[Tok], name_at: usize) -> bool {
-    let Some(i) = toks.iter().position(|t| t.at == name_at) else {
-        return false;
-    };
+/// Per parameter, whether it has a default value; none with varargs or an unsplittable list.
+fn parameter_defaults(toks: &[Tok], name_at: usize, count: usize, kotlin: bool) -> Option<Vec<bool>> {
+    let i = toks.iter().position(|t| t.at == name_at)?;
     if toks.get(i + 1).is_none_or(|t| t.s != "(") || i > 0 && toks[i - 1].s == "." {
-        return false;
+        return None;
     }
     let list = &toks[i + 2..java::closing(toks, i + 1).max(i + 2)];
+    let mut defaults = vec![false];
     let mut depth = 0i32;
     for (k, t) in list.iter().enumerate() {
         match t.s {
-            "(" | "[" | "{" => depth += 1,
-            ")" | "]" | "}" => depth -= 1,
-            "=" | "vararg" if depth == 0 => return false,
-            "." if depth == 0 && list.get(k + 1).is_some_and(|n| n.s == ".") => return false,
+            "(" | "[" | "{" | "<" => depth += 1,
+            ")" | "]" | "}" | ">" => depth -= 1,
+            "," if depth == 0 => defaults.push(false),
+            "=" if depth == 0 && kotlin => *defaults.last_mut()? = true,
+            "=" | "vararg" if depth == 0 => return None,
+            "." if depth == 0 && list.get(k + 1).is_some_and(|n| n.s == ".") => return None,
             _ => {}
         }
     }
-    true
+    if list.last().is_some_and(|t| t.s == ",") {
+        defaults.pop();
+    }
+    if list.is_empty() {
+        defaults.clear();
+    }
+    (depth == 0 && defaults.len() == count).then_some(defaults)
 }
 /// Top-level, non-overloaded methods/constructors with exactly one annotated parameter.
-fn declarations(text: &str, toks: &[Tok], f: &java::JavaFile) -> Vec<Decl> {
+fn declarations(text: &str, toks: &[Tok], f: &java::JavaFile, kotlin: bool) -> Vec<Decl> {
     let mut out = Vec::new();
     for t in f.types.iter().filter(|t| t.outer.is_none()) {
         for m in t.members.iter().filter(|m| m.kind != java::MemberKind::Field) {
@@ -578,7 +587,10 @@ fn declarations(text: &str, toks: &[Tok], f: &java::JavaFile) -> Vec<Decl> {
             let Some(bundle) = property_key_bundle(text, f, param) else {
                 continue;
             };
-            if twins == 1 && fixed_arity(toks, m.at) {
+            if twins != 1 {
+                continue;
+            }
+            if let Some(defaults) = parameter_defaults(toks, m.at, m.params.len(), kotlin && ctor) {
                 out.push(Decl {
                     owner: t.name.clone(),
                     owner_span: t.start..t.end,
@@ -586,6 +598,8 @@ fn declarations(text: &str, toks: &[Tok], f: &java::JavaFile) -> Vec<Decl> {
                     arity: m.params.len(),
                     index,
                     bundle,
+                    names: m.params.iter().map(|p| p.name.clone()).collect(),
+                    defaults,
                 });
             }
         }
@@ -631,7 +645,41 @@ fn external_declarations(doc: &Document, f: &java::JavaFile, ty: &str) -> Vec<De
     if df.package != package || df.types.iter().filter(|t| t.name == ty).count() != 1 {
         return Vec::new();
     }
-    declarations(text, &toks, &df).into_iter().filter(|d| d.owner == ty).collect()
+    declarations(text, &toks, &df, declaring.language == "kotlin").into_iter().filter(|d| d.owner == ty).collect()
+}
+/// The literal bound to the annotated parameter: by position, or in Kotlin by `name = "literal"`.
+/// Every parameter must be supplied or defaulted; anything unmatched stays quiet.
+fn key_argument(toks: &[Tok], call: &java::Call, decl: &Decl, kotlin: bool) -> Option<(usize, usize, java::Str)> {
+    let named = |a: &java::CallArg| -> Option<(&str, usize)> {
+        let i = toks.binary_search_by_key(&a.at, |t| t.at).ok()?;
+        let [name, eq] = [toks.get(i)?, toks.get(i + 1)?];
+        let double = toks.get(i + 2).is_some_and(|t| t.s == "=" && t.at == eq.end());
+        (kotlin && name.is_ident() && eq.s == "=" && !double).then_some((name.s, i + 2))
+    };
+    let mut filled: Vec<Option<(usize, usize, Option<java::Str>)>> = vec![None; decl.arity];
+    let mut positional = true;
+    for (k, a) in call.args.iter().enumerate() {
+        let Some((name, value)) = named(a) else {
+            if !positional || k >= decl.arity {
+                return None;
+            }
+            filled[k] = Some((a.at, a.end, a.string.clone()));
+            continue;
+        };
+        positional = false;
+        let index = decl.names.iter().position(|n| n == name)?;
+        if filled[index].is_some() {
+            return None;
+        }
+        let token = toks.get(value).filter(|t| t.end() == a.end)?;
+        let string = token.s.starts_with('"').then(|| java::Str { value: token.s[1..token.s.len() - 1].to_owned(), at: token.at + 1, end: token.end() - 1 });
+        filled[index] = Some((token.at, token.end(), string));
+    }
+    if filled.iter().zip(&decl.defaults).any(|(f, d)| f.is_none() && !d) {
+        return None;
+    }
+    let (at, end, string) = filled[decl.index].clone()?;
+    Some((at, end, string?))
 }
 /// String literals passed to the `@PropertyKey` parameter of a proven project
 /// method/constructor: unqualified same-class calls, `Type.method(..)` and
@@ -639,11 +687,11 @@ fn external_declarations(doc: &Document, f: &java::JavaFile, ty: &str) -> Vec<De
 /// in the same module. Instance receivers, overloads, varargs and defaults stay quiet.
 fn annotated(doc: &Document, toks: &[Tok], f: &java::JavaFile, kotlin: bool, only: Option<usize>) -> Vec<Context> {
     let mut found = Vec::new();
-    let local = declarations(&doc.text, toks, f);
+    let local = declarations(&doc.text, toks, f, kotlin);
     let mut external: std::collections::HashMap<String, Vec<Decl>> = std::collections::HashMap::new();
     let calls = if kotlin { spring_text::kotlin::calls(&doc.text) } else { java::calls(&doc.text) };
     for call in calls.iter().filter(|c| !c.chained) {
-        if only.is_some_and(|at| !call.args.iter().any(|a| a.string.as_ref().is_some_and(|s| s.at <= at && at <= s.end))) {
+        if only.is_some_and(|at| !call.args.iter().any(|a| a.at <= at && at <= a.end)) {
             continue;
         }
         let Ok(ci) = toks.binary_search_by_key(&call.at, |t| t.at) else {
@@ -677,10 +725,10 @@ fn annotated(doc: &Document, toks: &[Tok], f: &java::JavaFile, kotlin: bool, onl
                 local.iter().find(|d| named == 1 && d.name.as_deref() == Some(call.name.as_str()) && d.owner_span.contains(&call.at))
             }
         };
-        let Some(decl) = decl.filter(|d| d.arity == call.args.len()) else {
+        let Some(decl) = decl else {
             continue;
         };
-        let Some(string) = call.args[decl.index].string.as_ref() else {
+        let Some((arg_at, arg_end, string)) = key_argument(toks, &call, decl, kotlin) else {
             continue;
         };
         if only.is_some_and(|at| !(string.at <= at && at <= string.end)) {
@@ -689,8 +737,7 @@ fn annotated(doc: &Document, toks: &[Tok], f: &java::JavaFile, kotlin: bool, onl
         let Ok(ti) = toks.binary_search_by_key(&(string.at - 1), |t| t.at) else {
             continue;
         };
-        let arg = &call.args[decl.index];
-        if plain(&toks[ti], kotlin).is_none() || arg.at != toks[ti].at || arg.end != toks[ti].end() {
+        if plain(&toks[ti], kotlin).is_none() || toks[ti].end() != string.end + 1 || arg_end != toks[ti].end() || arg_at != toks[ti].at {
             continue;
         }
         if let Some(mut context) = owned_context(doc, kotlin, &decl.bundle, string.at..string.end) {
@@ -939,6 +986,44 @@ mod tests {
         let fqn = "class Msg { static String get(@org.jetbrains.annotations.PropertyKey(resourceBundle = \"pkg.messages\") String key){return key;} String f(){return get(\"owned.key\");} }";
         let d = doc(fqn, false);
         assert_eq!(p.definition(&d, at(&d)).len(), 2);
+    }
+    #[test]
+    fn kotlin_primary_constructor_property_keys_resolve_and_stay_quiet_when_ambiguous() {
+        let h = host();
+        let head = "import org.jetbrains.annotations.PropertyKey\n";
+        let pk = "@PropertyKey(resourceBundle = \"pkg.messages\")";
+        let mut p = warm(&h, &doc("", true));
+        let resolves = |p: &mut Properties, source: String| {
+            let d = doc(&source, true);
+            p.definition(&d, at(&d)).len() == 2
+        };
+        for (class, call) in [
+            (format!("class Msg({pk} val key: String)"), "Msg(\"owned.key\")"),
+            (format!("class Msg({pk} key: String)"), "Msg(\"owned.key\")"),
+            (format!("class Msg({pk} val key: String)"), "Msg(key = \"owned.key\")"),
+            (format!("class Msg(val n: Int, {pk} var key: String)"), "Msg(1, \"owned.key\")"),
+            (format!("class Msg(val n: Int, {pk} var key: String)"), "Msg(key = \"owned.key\", n = 1)"),
+            (format!("class Msg(val n: Int = 1, {pk} var key: String)"), "Msg(key = \"owned.key\")"),
+            (format!("class Msg(val n: Int = 1, {pk} var key: String)"), "Msg(2, \"owned.key\")"),
+            (format!("class Msg({pk} val key: String, val n: Int = 1)"), "Msg(\"owned.key\")"),
+        ] {
+            assert!(resolves(&mut p, format!("{head}{class}\nfun f() = {call}")), "{class} {call}");
+        }
+        assert!(resolves(&mut p, format!("{head}class Msg {{ constructor({pk} key: String) }}\nfun f() = Msg(key = \"owned.key\")")));
+        for (class, call) in [
+            (format!("class Msg(val n: Int) {{ constructor({pk} key: String) : this(1) }}"), "Msg(\"owned.key\")"),
+            (format!("class Msg private constructor({pk} val key: String)"), "Msg(\"owned.key\")"),
+            (format!("class Msg({pk} vararg key: String)"), "Msg(\"owned.key\")"),
+            (format!("class Msg({pk} val key: String)"), "Msg(n = 1, key = \"owned.key\")"),
+            (format!("class Msg({pk} val key: String) {{ constructor(n: Int) : this(\"x\") }}"), "Msg(\"owned.key\")"),
+            (format!("class Msg({pk} val key: String) {{ constructor({pk} k: String, n: Int) : this(k) }}"), "Msg(\"owned.key\")"),
+            (format!("class Msg({pk} val key: String, {pk} val other: String)"), "Msg(\"owned.key\", \"x\")"),
+            (format!("class Msg({pk} val key: String)"), "Msg(other = \"owned.key\")"),
+            (format!("class Msg({pk} val key: Int)"), "Msg(\"owned.key\")"),
+        ] {
+            let source = format!("{head}{class}\nfun f() = {call}");
+            assert!(!resolves(&mut p, source), "{class} {call}");
+        }
     }
     #[test]
     fn property_key_calls_resolve_declarations_in_other_project_files_exactly_once() {

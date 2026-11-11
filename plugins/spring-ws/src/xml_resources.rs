@@ -144,7 +144,7 @@ pub(crate) fn sites(doc: &Document) -> Vec<Site> {
 /// An existing scalar attribute or one direct, type-less Beans value text child.
 /// The source text is neither decoded nor trimmed; comments/CDATA/nesting/ref
 /// alternatives cannot masquerade as a resource literal.
-fn property_value(doc: &Document, elements: &[xml::Element], index: usize) -> Option<(String, Range)> {
+pub(crate) fn property_value(doc: &Document, elements: &[xml::Element], index: usize) -> Option<(String, Range)> {
     if let Some(value) = plain_value(doc, elements, index, &["name", "value"]) {
         return Some((value.value.clone(), range(&doc.text, value.value_at, value.value_end)));
     }

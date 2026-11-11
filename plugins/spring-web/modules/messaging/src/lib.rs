@@ -87,12 +87,41 @@ pub struct Endpoint {
 
 impl Endpoint {
     fn same_destination(&self, o: &Endpoint) -> bool {
-        self.broker == o.broker && self.space == o.space && self.name == o.name
+        if self.broker != o.broker || self.space != o.space {
+            return false;
+        }
+        self.name == o.name || (self.space == ROUTING_KEY && (self.binds_key_of(o) || o.binds_key_of(self)))
+    }
+
+    /// A binding whose topic pattern (`order.#`) matches the literal key a producer sends (`order.created`).
+    fn binds_key_of(&self, sent: &Endpoint) -> bool {
+        if self.role != Role::Declaration || sent.role != Role::Producer {
+            return false;
+        }
+        match (self.name.split_once('/'), sent.name.split_once('/')) {
+            (Some((x, pattern)), Some((sent_x, key))) => x == sent_x && topic_matches(pattern, key),
+            _ => false,
+        }
     }
 
     fn holds(&self, at: usize) -> bool {
         self.at <= at && at <= self.end
     }
+}
+
+const ROUTING_KEY: &str = "routing key";
+const UNRESOLVED_BINDING: &str = "binding unresolved";
+
+/// AMQP topic matching: `*` is one word, `#` zero or more.
+fn topic_matches(pattern: &str, key: &str) -> bool {
+    fn words(p: &[&str], k: &[&str]) -> bool {
+        match p.split_first() {
+            None => k.is_empty(),
+            Some((&"#", rest)) => (0..=k.len()).any(|n| words(rest, &k[n..])),
+            Some((w, rest)) => k.split_first().is_some_and(|(kw, krest)| (*w == "*" || w == kw) && words(rest, krest)),
+        }
+    }
+    words(&pattern.split('.').collect::<Vec<_>>(), &key.split('.').collect::<Vec<_>>())
 }
 
 fn space(broker: Broker) -> &'static str {
@@ -289,7 +318,32 @@ impl Collector<'_> {
         }
     }
 
+    /// `template.convertAndSend("exchange", "key", msg)` on a receiver proved a Spring AMQP template: the literal key.
+    fn routing_key_producer(&mut self, c: &Call, file: &JavaFile) {
+        let Some(receiver) = c.receiver.as_deref() else { return };
+        let Some(ty) = amqp_template(file, receiver) else { return };
+        let [exchange, key, rest @ ..] = c.args.as_slice() else { return };
+        let (Some(exchange), Some(key)) = (exchange.string.as_ref(), key.string.as_ref()) else { return };
+        // RabbitMessagingTemplate also has `(destination, payload, Map headers)`.
+        let ambiguous = rest.len() == 1 && (is_extra(&rest[0]) || (ty == "RabbitMessagingTemplate" && ["Map", "eaders"].iter().any(|h| rest[0].text.contains(h))));
+        let plain = |v: &str| !v.is_empty() && !v.contains(['$', '#', '{', '/', CONSTANT]);
+        if ambiguous || rest.is_empty() || !plain(&exchange.value) || !plain(&key.value) {
+            return;
+        }
+        let name = Str { value: format!("{}/{}", exchange.value, key.value), at: key.at, end: key.end };
+        self.add(Broker::Rabbit, ROUTING_KEY, Role::Producer, &c.name, &name);
+    }
+
+    fn unresolved_binding(&mut self, at: usize, end: usize) {
+        let range = range(self.text, at, end);
+        let (broker, space) = (Broker::Rabbit, UNRESOLVED_BINDING);
+        self.out.push(Endpoint { broker, space, name: String::new(), role: Role::Declaration, via: UNRESOLVED_BINDING.to_owned(), at, end, range, reference: true });
+    }
+
     fn call(&mut self, c: &Call, file: &JavaFile) {
+        if c.is_new && c.name == "Binding" {
+            self.unresolved_binding(c.at, c.at + c.name.len());
+        }
         let Some(first) = c.args.first().and_then(arg_str) else { return };
         if c.is_new {
             let (broker, space, role) = match c.name.as_str() {
@@ -318,6 +372,9 @@ impl Collector<'_> {
                     Some(Broker::Rabbit) => {
                         if let Some((space, s)) = rabbit_target(c) {
                             self.add(Broker::Rabbit, space, Role::Producer, &c.name, &s);
+                            if space == "exchange" {
+                                self.routing_key_producer(c, file);
+                            }
                         }
                     }
                     Some(Broker::Jms) if c.args.len() >= 2 => self.add(Broker::Jms, "destination", Role::Producer, &c.name, &first),
@@ -352,23 +409,49 @@ fn bindings(collector: &mut Collector, file: &JavaFile, calls: &[Call]) {
         reference,
     };
     let mut found = Vec::new();
+    let mut unresolved = Vec::new();
     for (i, bind) in calls.iter().enumerate().filter(|(_, c)| c.name == "bind" && c.receiver.as_deref() == Some("BindingBuilder")) {
         let chain: Vec<_> = calls[i + 1..].iter().take_while(|c| c.chained).collect();
-        let (Some(queue), Some(to)) = (bind.args.first(), chain.first().filter(|c| c.name == "to")) else { continue };
+        let (Some(queue), Some(to)) = (bind.args.first(), chain.first().filter(|c| c.name == "to")) else {
+            unresolved.push(bind.at);
+            continue;
+        };
         let Some(exchange) = to.args.first() else { continue };
-        let (Some(queue_name), Some(exchange_name)) = (declared(&queue.text, "queue"), declared(&exchange.text, "exchange")) else { continue };
+        let (Some(queue_name), Some(exchange_name)) = (declared(&queue.text, "queue"), declared(&exchange.text, "exchange")) else {
+            unresolved.push(bind.at);
+            continue;
+        };
         found.push(at(queue, "queue", queue_name, "BindingBuilder.bind", true));
         found.push(at(exchange, "exchange", exchange_name.clone(), "BindingBuilder.to", true));
         let plain = |v: &str| !v.contains(CONSTANT) && !v.contains("${") && !v.contains("#{");
-        let key = chain.get(1).filter(|c| c.name == "with").and_then(|c| c.args.first());
-        if let Some((arg, key)) = key.and_then(|arg| Some((arg, arg.string.as_ref()?))) {
-            if plain(&key.value) && plain(&exchange_name) && !key.value.is_empty() {
-                let name = format!("{exchange_name}/{}", key.value);
-                found.push(Endpoint { at: key.at, end: key.end, range: range(collector.text, key.at, key.end), ..at(arg, "routing key", name, "BindingBuilder.with", false) });
+        let Some(key) = chain.get(1).filter(|c| c.name == "with").and_then(|c| c.args.first()) else { continue };
+        match key.string.as_ref().filter(|k| plain(&k.value) && plain(&exchange_name) && !k.value.is_empty() && !exchange_name.contains('/')) {
+            Some(key_str) => {
+                let name = format!("{exchange_name}/{}", key_str.value);
+                found.push(Endpoint { at: key_str.at, end: key_str.end, range: range(collector.text, key_str.at, key_str.end), ..at(key, ROUTING_KEY, name, "BindingBuilder.with", false) });
             }
+            None => unresolved.push(bind.at),
         }
     }
     collector.out.extend(found);
+    for at in unresolved {
+        collector.unresolved_binding(at, at + "bind".len());
+    }
+}
+
+const AMQP_TEMPLATES: [(&str, &str); 3] = [
+    ("RabbitTemplate", "org.springframework.amqp.rabbit.core.RabbitTemplate"),
+    ("AmqpTemplate", "org.springframework.amqp.core.AmqpTemplate"),
+    ("RabbitMessagingTemplate", "org.springframework.amqp.rabbit.core.RabbitMessagingTemplate"),
+];
+
+/// The Spring AMQP template type of a same-file field or parameter, when exactly imported.
+fn amqp_template(file: &JavaFile, name: &str) -> Option<&'static str> {
+    let declared = declared_type(file, name)?;
+    let (simple, fqn) = AMQP_TEMPLATES.iter().find(|(n, _)| *n == declared)?;
+    let package = fqn.rsplit_once('.').map_or("", |(p, _)| p);
+    let imported = file.imports.iter().any(|i| !i.is_static && (i.path == *fqn || i.path.strip_suffix(".*") == Some(package)));
+    imported.then_some(*simple)
 }
 
 /// The type of a field or parameter named `name` in the file.
@@ -385,10 +468,16 @@ fn declared_type<'f>(file: &'f JavaFile, name: &str) -> Option<&'f str> {
 fn xml_listeners(text: &str, collector: &mut Collector) {
     let elements = xml::elements(text);
     for (i, e) in elements.iter().enumerate() {
-        if e.local() != "listener" {
+        if e.local() != "listener" && e.local() != "binding" {
             continue;
         }
         let Some(namespace) = xml::namespace(&elements, i) else { continue };
+        if e.local() == "binding" {
+            if namespace.ends_with("/schema/rabbit") {
+                collector.unresolved_binding(e.at, e.at + e.name.len());
+            }
+            continue;
+        }
         let (broker, attr) = if namespace.ends_with("/schema/jms") {
             (Broker::Jms, "destination")
         } else if namespace.ends_with("/schema/rabbit") {
@@ -411,7 +500,7 @@ fn xml_listeners(text: &str, collector: &mut Collector) {
 
 pub fn parse(path: &str, text: &str) -> Option<Vec<Endpoint>> {
     if path.ends_with(".xml") {
-        if !text.contains("listener") {
+        if !text.contains("listener") && !text.contains("binding") {
             return None;
         }
         let mut collector = Collector { text, out: Vec::new(), own: None };
@@ -534,6 +623,9 @@ fn expand(text: &str, props: &Props, depth: u8) -> Option<String> {
 
 /// The endpoint with its placeholders resolved; `None` when they can't be, or the name isn't one destination.
 fn resolved(mut e: Endpoint, props: &Props, constants: &HashMap<String, String>) -> Option<Endpoint> {
+    if e.space == UNRESOLVED_BINDING {
+        return None;
+    }
     if let Some(key) = e.name.strip_prefix(CONSTANT) {
         e.name = constants.get(key)?.clone();
         if e.name.is_empty() {
@@ -665,8 +757,8 @@ impl Providers for Messaging {
             .filter_map(|(e, others)| {
                 let wanted = |o: &Endpoint| match e.role {
                     Role::Consumer => o.role != Role::Consumer,
-                    Role::Producer => o.role == Role::Consumer,
-                    Role::Declaration => false,
+                    Role::Producer => o.role == Role::Consumer || (e.space == ROUTING_KEY && o.role == Role::Declaration),
+                    Role::Declaration => e.space == ROUTING_KEY && o.role == Role::Producer,
                 };
                 let others: Vec<_> = others.into_iter().filter(|(_, o)| wanted(o)).collect();
                 let (path, first) = others.first()?;
@@ -759,7 +851,7 @@ impl Views for Messaging {
                     let count = |role| uses.iter().filter(|(_, e)| e.role == role).count();
                     let (producers, consumers) = (count(Role::Producer), count(Role::Consumer));
                     let detail = format!("{space} · {} · {}", plural(producers, "producer"), plural(consumers, "consumer"));
-                    let icon = if (producers > 0) != (consumers > 0) { "warning" } else { "send" };
+                    let icon = if space != ROUTING_KEY && (producers > 0) != (consumers > 0) { "warning" } else { "send" };
                     items.push(TreeItem::new(&d, name).parent(&b).detail(&detail).icon(icon).expandable(false));
                     uses.sort_by_key(|(p, e)| (e.role, *p, e.at));
                     for (path, e) in uses {
@@ -1257,6 +1349,111 @@ class KtEvents(private val kafkaTemplate: KafkaTemplate<String, String>, val rab
         let targets: Vec<_> = m.definition(&doc, openidea_plugin::text::position(config, at)).iter().map(|l| l.range.start.line).collect();
         assert_eq!(targets, [1], "bind(orders) navigates to new Queue(\"orders.in\")");
         assert!(m.completion(&doc, openidea_plugin::text::position(config, at), None).is_empty(), "no name completion on a bean reference");
+    }
+
+    const AMQP_CONFIG: &str = r#"class C {
+    @Bean Queue orders() { return new Queue("orders.in"); }
+    @Bean Queue all() { return new Queue("all.in"); }
+    @Bean TopicExchange events() { return new TopicExchange("events"); }
+    @Bean FanoutExchange fan() { return new FanoutExchange("fan"); }
+    @Bean HeadersExchange hdr() { return new HeadersExchange("hdr"); }
+    @Bean Binding a(Queue orders, TopicExchange events) { return BindingBuilder.bind(orders).to(events).with("order.#"); }
+    @Bean Binding b(Queue all, TopicExchange events) { return BindingBuilder.bind(all).to(events).with("order.created"); }
+    @Bean Binding f(Queue all, FanoutExchange fan) { return BindingBuilder.bind(all).to(fan); }
+    @Bean Binding h(Queue all, HeadersExchange hdr) { return BindingBuilder.bind(all).to(hdr).where("k").exists(); }
+}
+"#;
+
+    fn producer(imports: &str, decl: &str, call: &str) -> String {
+        format!("{imports}\nclass P {{\n    {decl}\n    void go() {{ {call} }}\n}}\n")
+    }
+
+    const RT_IMPORT: &str = "import org.springframework.amqp.rabbit.core.RabbitTemplate;";
+
+    fn keys(text: &str) -> Vec<(String, Role)> {
+        parse("P.java", text).unwrap_or_default().into_iter().filter(|e| e.space == ROUTING_KEY).map(|e| (e.name, e.role)).collect()
+    }
+
+    #[test]
+    fn binding_builder_fanout_headers_and_enum_keys_have_no_literal_key() {
+        let found = parse("C.java", AMQP_CONFIG).unwrap();
+        let keys: Vec<_> = found.iter().filter(|e| e.space == ROUTING_KEY).map(|e| e.name.as_str()).collect();
+        assert_eq!(keys, ["events/order.#", "events/order.created"], "fanout and headers bindings carry no routing key");
+        let enum_key = "class C { @Bean Queue q() { return new Queue(\"q\"); } @Bean DirectExchange x() { return new DirectExchange(\"x\"); }\n @Bean Binding b() { return BindingBuilder.bind(q).to(x).with(Keys.A); } }";
+        let found = parse("C.java", enum_key).unwrap();
+        assert!(found.iter().all(|e| e.space != ROUTING_KEY) && found.iter().any(|e| e.space == UNRESOLVED_BINDING));
+    }
+
+    #[test]
+    fn producer_literals_need_a_proved_amqp_template() {
+        let call = r#"rabbitTemplate.convertAndSend("events", "order.created", msg);"#;
+        let ok = producer(RT_IMPORT, "private RabbitTemplate rabbitTemplate;", call);
+        assert_eq!(keys(&ok), [("events/order.created".to_owned(), Role::Producer)]);
+        let amqp = producer("import org.springframework.amqp.core.*;", "AmqpTemplate rabbitTemplate;", call);
+        assert_eq!(keys(&amqp).len(), 1, "wildcard import of the exact package");
+        let msg = producer("import org.springframework.amqp.rabbit.core.RabbitMessagingTemplate;", "RabbitMessagingTemplate rabbitTemplate;", call);
+        assert_eq!(keys(&msg).len(), 1);
+        let headers = producer("import org.springframework.amqp.rabbit.core.RabbitMessagingTemplate;", "RabbitMessagingTemplate rabbitTemplate;", r#"rabbitTemplate.convertAndSend("events", "payload", Map.of());"#);
+        assert!(keys(&headers).is_empty(), "(destination, payload, headers) is not a routing key");
+        assert!(keys(&producer("", "private RabbitTemplate rabbitTemplate;", call)).is_empty(), "no import");
+        assert!(keys(&producer("import com.acme.RabbitTemplate;", "RabbitTemplate rabbitTemplate;", call)).is_empty(), "foreign type");
+        assert!(keys(&producer(RT_IMPORT, "", call)).is_empty(), "no same-file declaration");
+        assert!(keys(&producer(RT_IMPORT, "Foo rabbitTemplate;", call)).is_empty());
+        assert!(keys(&producer(RT_IMPORT, "RabbitTemplate rabbitTemplate;", r#"rabbitTemplate.convertAndSend("events", key, msg);"#)).is_empty(), "dynamic key");
+        assert!(keys(&producer(RT_IMPORT, "RabbitTemplate rabbitTemplate;", r#"rabbitTemplate.convertAndSend("order.created", msg, m -> m);"#)).is_empty(), "key, payload, post processor");
+        assert!(keys(&producer(RT_IMPORT, "RabbitTemplate rabbitTemplate;", r#"rabbitTemplate.convertAndSend("", "q", msg);"#)).is_empty(), "default exchange");
+        let send = producer(RT_IMPORT, "RabbitTemplate rabbitTemplate;", r#"rabbitTemplate.send("events", "order.created", message);"#);
+        assert_eq!(keys(&send).len(), 1, "send(exchange, key, Message)");
+    }
+
+    #[test]
+    fn producer_key_navigates_to_every_matching_binding() {
+        let host = MockHost::install();
+        host.add_file("src/main/java/C.java", AMQP_CONFIG);
+        let call = r#"rabbitTemplate.convertAndSend("events", "order.created", msg);"#;
+        let text = producer(RT_IMPORT, "RabbitTemplate rabbitTemplate;", call);
+        host.add_file("src/main/java/P.java", &text);
+        let mut m = Messaging::default();
+        let doc = Document { path: "/project/src/main/java/P.java".into(), language: "java".into(), version: 1, text: text.clone() };
+        let at = text.find("order.created").unwrap() + 2;
+        let mut lines: Vec<_> = m.definition(&doc, openidea_plugin::text::position(&text, at)).iter().map(|l| (l.path.clone(), l.range.start.line)).collect();
+        lines.sort();
+        assert_eq!(lines, [("/project/src/main/java/C.java".to_owned(), 6), ("/project/src/main/java/C.java".to_owned(), 7)], "the topic pattern and the literal binding, with their files");
+        let other = text.replace("order.created", "invoice.paid");
+        let doc = Document { text: other.clone(), ..doc };
+        assert!(m.definition(&doc, openidea_plugin::text::position(&other, other.find("invoice.paid").unwrap() + 2)).is_empty());
+    }
+
+    #[test]
+    fn topic_patterns_follow_amqp_wildcards() {
+        assert!(topic_matches("order.#", "order.created.eu") && topic_matches("order.#", "order"));
+        assert!(topic_matches("*.created", "order.created") && !topic_matches("*.created", "a.b.created"));
+        assert!(!topic_matches("order.created", "order.updated") && topic_matches("#", "x.y"));
+    }
+
+    #[test]
+    fn unbound_key_on_a_declared_direct_or_topic_exchange_is_info() {
+        let host = MockHost::install();
+        host.add_file("src/main/java/C.java", AMQP_CONFIG);
+        let producers = |key: &str, x: &str| producer(RT_IMPORT, "RabbitTemplate rabbitTemplate;", &format!(r#"rabbitTemplate.convertAndSend("{x}", "{key}", msg);"#));
+        let text = [producers("invoice.paid", "events"), producers("order.created", "events"), producers("k", "fan"), producers("k", "hdr"), producers("k", "elsewhere")];
+        let mut m = Messaging::default();
+        let project = host.invocation().project().unwrap();
+        for _ in 0..4 {
+            m.live_warm(&project, Duration::from_secs(5));
+        }
+        let mut messages = Vec::new();
+        for (i, t) in text.iter().enumerate() {
+            host.add_file(&format!("src/main/java/P{i}.java"), t);
+            let doc = Document { path: format!("/project/src/main/java/P{i}.java"), language: "java".into(), version: 1, text: t.clone() };
+            messages.push(m.live_diagnostics(&doc, true).into_iter().map(|d| d.message).collect::<Vec<_>>());
+        }
+        assert_eq!(messages[0], ["No binding with routing key \"invoice.paid\" for exchange \"events\" found in this project."]);
+        assert!(messages[1].is_empty(), "bound by the order.# pattern");
+        assert!(messages[2].is_empty() && messages[3].is_empty(), "fanout and headers ignore the key");
+        assert!(messages[4].is_empty(), "exchange not declared in the project");
+        let doc = Document { path: "/project/src/main/java/P0.java".into(), language: "java".into(), version: 1, text: text[0].clone() };
+        assert!(m.live_diagnostics(&doc, false).is_empty(), "no absence claim from a partial index");
     }
 
     #[test]

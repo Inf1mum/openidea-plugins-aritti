@@ -20,6 +20,7 @@ mod source_scope;
 mod contexts;
 mod dsl_flows;
 mod spel;
+mod xpath;
 
 mod source_provenance;
 use source_provenance::{source_type_owned,source_bean_owned};
@@ -34,6 +35,7 @@ use spring_text::java::{Annotation, Str};
 use spring_text::{beans, contains, range, xml};
 use std::collections::{BTreeMap, BTreeSet};
 
+const XML_NAMESPACE: &str = "http://www.springframework.org/schema/integration/xml";
 const NAMESPACE: &str = "http://www.springframework.org/schema/integration";
 const ENDPOINTS: [&str; 12] = [
     "ServiceActivator",
@@ -71,6 +73,7 @@ pub enum Role {
     Edge,
     /// A syntax error in a literal SpEL expression; `name` is the message, `range` the exact span.
     SpelError,
+    XPathError,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -310,9 +313,16 @@ fn parse_xml(text: &str) -> Vec<Ref> {
                 | "reply-channel"
                 | "channel" => Role::Produces,
                 "ref" => Role::BeanRef,
-                "expression" | "value-expression" | "selector-expression" => {
+                "expression" | "value-expression" | "selector-expression" | "payload-expression" | "default-payload-expression" | "request-payload-expression" | "correlation-strategy-expression" | "release-strategy-expression" | "group-timeout-expression" | "null-result-expression" | "time-to-live-expression" | "value-type-expression" | "key-expression" | "on-success-expression" | "on-failure-expression" | "xpath-expression" => {
+                    let xml_namespace = xml::namespace(&els, i) == Some(XML_NAMESPACE);
+                    let xpath = xml_namespace && (a.local() == "xpath-expression" || a.local() == "expression" && e.local() == "xpath-expression");
+                    if a.local() == "xpath-expression" && !xml_namespace {
+                        continue;
+                    }
                     let literal = a.value.is_ascii() && !a.value.contains('&') && !a.value.chars().any(char::is_control);
-                    if literal {
+                    if literal && xpath {
+                        out.extend(xpath::refs(text, a.value_at, &a.value, &format!("<{}>", e.name), i + 1));
+                    } else if literal {
                         out.extend(spel::refs(text, a.value_at, &a.value, &format!("<{}>", e.name), i + 1));
                     }
                     continue;
@@ -417,8 +427,11 @@ fn here<'a>(index: &'a Index<Vec<Ref>>, doc: &Document) -> &'a [Ref] {
 fn problems(index: &Index<Vec<Ref>>, doc: &Document) -> Vec<Diagnostic> {
     let mut syntax: Vec<Diagnostic> = here(index, doc)
         .iter()
-        .filter(|r| r.role == Role::SpelError)
-        .map(|r| Diagnostic::new(r.range, Severity::Warning, format!("SpEL syntax error in {}: {}", r.what, r.name)).code("spel-syntax"))
+        .filter(|r| matches!(r.role, Role::SpelError | Role::XPathError))
+        .map(|r| match r.role {
+            Role::XPathError => Diagnostic::new(r.range, Severity::Warning, format!("XPath syntax error in {}: {}", r.what, r.name)).code("xpath-syntax"),
+            _ => Diagnostic::new(r.range, Severity::Warning, format!("SpEL syntax error in {}: {}", r.what, r.name)).code("spel-syntax"),
+        })
         .collect();
     if !index.complete() || all(index).any(|(_,reference)|reference.role==Role::BeanCandidate) {
         return syntax;
@@ -880,6 +893,21 @@ interface OrderGateway {
         assert_eq!(by("spel-syntax")[0].severity, Severity::Warning);
         assert_eq!(by("unknown-spel-bean").len(), 1);
         assert!(by("unknown-spel-bean")[0].message.contains("'ghost'"));
+    }
+
+    #[test]
+    fn integration_xml_validates_more_spel_attributes_and_xpath() {
+        let _host = setup();
+        let mut p = Integration::default();
+        let xml = XML.replace(
+            "<bean id=\"pricing\"",
+            "<int:aggregator input-channel=\"invoices\" release-strategy-expression=\"size( \" correlation-strategy-expression=\"headers.id\"/>\n    <int-xml:xpath-router input-channel=\"invoices\" xpath-expression=\"/a/b[\"/>\n    <int-xml:xpath-filter input-channel=\"invoices\" xpath-expression=\"${x}\"/>\n    <int-xml:xpath-filter input-channel=\"invoices\"><int-xml:xpath-expression expression=\"//a[@id='1']\"/></int-xml:xpath-filter>\n    <int-xml:xpath-filter input-channel=\"invoices\"><int-xml:xpath-expression expression=\"a b\"/></int-xml:xpath-filter>\n    <bean id=\"pricing\"",
+        ).replacen("<beans ", "<beans xmlns:int-xml=\"http://www.springframework.org/schema/integration/xml\" ", 1);
+        p.line_markers(&doc(XML_PATH, &xml));
+        let found = p.live_diagnostics(&doc(XML_PATH, &xml));
+        let by = |code: &str| found.iter().filter(|d| d.code.as_deref() == Some(code)).collect::<Vec<_>>();
+        assert_eq!(by("spel-syntax").len(), 1);
+        assert_eq!(by("xpath-syntax").len(), 2);
     }
 
     #[test]

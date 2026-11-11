@@ -115,6 +115,7 @@ fn block(lines: &[&str]) -> Option<Block> {
     let mut entry_indent = None;
     let mut in_paths = false;
     let mut found = false;
+    let mut list = None;
     let mut result = Block::default();
     for line in lines.iter().copied() {
         let depth = indent(line);
@@ -124,6 +125,7 @@ fn block(lines: &[&str]) -> Option<Block> {
             in_paths = false;
             let (key, value) = split_entry(body)?;
             if key == "paths" {
+                list = None;
                 if found || !value.is_empty() {
                     return None;
                 }
@@ -151,7 +153,18 @@ fn block(lines: &[&str]) -> Option<Block> {
         if *entry_indent.get_or_insert(depth) != depth {
             return None;
         }
-        let (dir, ns) = split_entry(body)?;
+        let is_item = body.starts_with("- ");
+        if *list.get_or_insert(is_item) != is_item {
+            return None;
+        }
+        let (dir, ns) = if is_item {
+            (scalar(&body[2..])?, String::new())
+        } else {
+            split_entry(body)?
+        };
+        if dir.is_empty() {
+            return None;
+        }
         let dir = dir.strip_prefix("%kernel.project_dir%/").unwrap_or(&dir).to_owned();
         if dir.contains('%') || result.paths.iter().any(|(d, _)| *d == dir) || result.paths.len() >= MAX_ENTRIES {
             return None;
@@ -222,6 +235,35 @@ mod tests {
         }
         assert!(paths("framework:\n    paths:\n        a: b\n").is_empty());
         assert!(paths(&format!("twig:\n    paths:\n        a: b\n#{}", "x".repeat(20 << 10))).is_empty());
+    }
+
+    #[test]
+    fn list_form_entries_are_main_namespace_directories() {
+        let text = "twig:\n    paths:\n        - '%kernel.project_dir%/templates/a'\n        - templates/b # c\n        - \"x: y\"\nwhen@dev:\n    twig:\n        paths:\n            - dev/t\n";
+        let (top, whens) = blocks(text);
+        assert_eq!(top.paths, vec![some("templates/a", None), some("templates/b", None), some("x: y", None)]);
+        assert_eq!(whens[0].paths, vec![some("dev/t", None)]);
+    }
+
+    #[test]
+    fn refuses_unsafe_list_items_and_mixed_forms() {
+        for body in [
+            "paths:\n        - a: b",
+            "paths:\n        - [a]",
+            "paths:\n        - &x a",
+            "paths:\n        - '%env(D)%'",
+            "paths:\n        - '%kernel.cache_dir%/a'",
+            "paths:\n        - a\n        - a",
+            "paths:\n        - a\n        b: c",
+            "paths:\n        b: c\n        - a",
+            "paths:\n        -\n          a",
+            "paths:\n    - a",
+            "paths:\n\t- a",
+        ] {
+            assert!(paths(&format!("twig:\n    {body}\n")).is_empty(), "{body}");
+        }
+        let many: String = (0..33).map(|i| format!("        - d{i}\n")).collect();
+        assert!(paths(&format!("twig:\n    paths:\n{many}")).is_empty());
     }
 
     #[test]

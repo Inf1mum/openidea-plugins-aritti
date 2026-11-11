@@ -5,9 +5,37 @@ use crate::*;
 
 const RESPONSE_PAYLOAD: &str = "org.springframework.ws.server.endpoint.annotation.ResponsePayload";
 
-fn literal(value: &str) -> Option<&str> {
+pub(crate) fn literal(value: &str) -> Option<&str> {
     (!value.is_empty() && !value.contains(['&', '\\', '$', '#', '{', '}', '*', '?']) && value.trim() == value)
         .then_some(value)
+}
+
+/// The one project schema file at a validated `classpath` path; none when ambiguous or its QNames are incomplete.
+pub(crate) fn resolve<'a>(schemas: &'a Index<SchemaFile>, path: &str) -> Option<&'a SchemaFile> {
+    let mut matches = schemas.iter().filter(|(file, _)| RESOURCE_DIRS.iter().any(|dir| file.ends_with(&format!("{dir}/{path}"))));
+    let (_, file) = matches.next()?;
+    (matches.next().is_none() && file.qnames_complete).then_some(file)
+}
+
+pub(crate) fn pairing(targets: &[(&SchemaFile, Range)], request: &str, response: &str) -> Vec<Diagnostic> {
+    let names: Vec<&str> = targets.iter().flat_map(|(f, _)| f.schemas.iter().flat_map(|s| s.elements.iter().map(|(n, _)| n.as_str()))).collect();
+    let mut out = vec![];
+    for (file, at) in targets {
+        for (name, _) in file.schemas.iter().flat_map(|s| &s.elements) {
+            let Some(operation) = name.strip_suffix(request).filter(|o| !o.is_empty()) else { continue };
+            if !names.contains(&format!("{operation}{response}").as_str()) {
+                out.push(
+                    Diagnostic::new(
+                        *at,
+                        Severity::Info,
+                        format!("Spring-WS pairs `{name}` with `{operation}{response}` into the `{operation}` operation; no `{operation}{response}` element is declared in the referenced schemas."),
+                    )
+                    .code("wsdl-unpaired-request"),
+                );
+            }
+        }
+    }
+    out
 }
 
 pub(crate) fn unpaired_requests(doc: &Document, schemas: &Index<SchemaFile>) -> Vec<Diagnostic> {
@@ -37,7 +65,7 @@ pub(crate) fn unpaired_requests(doc: &Document, schemas: &Index<SchemaFile>) -> 
             .filter(|(j, c)| c.parent == Some(i) && c.local() == "xsd" && xml_namespace(&es, *j) == Some(SWS_NAMESPACE))
             .map(|(_, c)| c)
             .collect();
-        let mut names: Vec<&str> = vec![];
+        let mut targets: Vec<(&SchemaFile, Range)> = vec![];
         let mut resolved = !xsds.is_empty();
         for x in &xsds {
             let mut locations = x.attrs.iter().filter(|a| a.name == "location");
@@ -50,37 +78,16 @@ pub(crate) fn unpaired_requests(doc: &Document, schemas: &Index<SchemaFile>) -> 
                 if !path.ends_with(".xsd") || path.split('/').any(|p| p.is_empty() || p == "." || p == "..") {
                     return None;
                 }
-                let mut matches = schemas.iter().filter(|(file, _)| {
-                    RESOURCE_DIRS.iter().any(|dir| file.ends_with(&format!("{dir}/{path}")))
-                });
-                let (_, file) = matches.next()?;
-                (matches.next().is_none() && file.qnames_complete).then_some(file)
+                let file = resolve(schemas, path)?;
+                Some((file, range(&doc.text, location.value_at, location.value_end)))
             })();
             match found {
-                Some(file) => names.extend(file.schemas.iter().flat_map(|s| s.elements.iter().map(|(n, _)| n.as_str()))),
+                Some(target) => targets.push(target),
                 None => resolved = false,
             }
         }
-        if !resolved {
-            continue;
-        }
-        for x in &xsds {
-            let Some(location) = x.attrs.iter().find(|a| a.name == "location") else { continue };
-            let Some(path) = location.value.strip_prefix("classpath:").map(|p| p.trim_start_matches('/')) else { continue };
-            let Some((_, file)) = schemas.iter().find(|(f, _)| RESOURCE_DIRS.iter().any(|d| f.ends_with(&format!("{d}/{path}")))) else { continue };
-            for (name, _) in file.schemas.iter().flat_map(|s| &s.elements) {
-                let Some(operation) = name.strip_suffix(request).filter(|o| !o.is_empty()) else { continue };
-                if !names.contains(&format!("{operation}{response}").as_str()) {
-                    out.push(
-                        Diagnostic::new(
-                            range(&doc.text, location.value_at, location.value_end),
-                            Severity::Info,
-                            format!("Spring-WS pairs `{name}` with `{operation}{response}` into the `{operation}` operation; no `{operation}{response}` element is declared in the referenced schemas."),
-                        )
-                        .code("wsdl-unpaired-request"),
-                    );
-                }
-            }
+        if resolved {
+            out.extend(pairing(&targets, request, response));
         }
     }
     out

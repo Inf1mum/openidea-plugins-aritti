@@ -404,7 +404,9 @@ fn route_list(key: &str) -> Option<(&'static str, bool)> {
 }
 
 /// Expanded argument names of the shipped factories, read from each factory's `Config`
-/// class in spring-cloud-gateway 4.1 (others, such as Retry, are not listed).
+/// class in spring-cloud-gateway 4.1 (others are not listed). Weight binds under the
+/// `shortcutFieldPrefix()` "weight" (ConfigurationService.doBind), so its expanded names are
+/// `args.weight.group` and `args.weight.weight`; a bare `args.group` does not bind.
 fn factory_args(predicate: bool, name: &str) -> Option<&'static [&'static str]> {
     Some(match (predicate, name) {
         (true, "After") => &["datetime"],
@@ -417,8 +419,8 @@ fn factory_args(predicate: bool, name: &str) -> Option<&'static [&'static str]> 
         (true, "Query") => &["param", "regexp"],
         (true, "RemoteAddr") => &["sources"],
         (true, "XForwardedRemoteAddr") => &["maxTrustedIndex", "sources"],
-        (true, "Weight") => &["group", "weight"],
-        (false, "Retry") => &["retries", "series", "statuses", "methods", "exceptions", "backoff", "routeId"],
+        (true, "Weight") => &["weight.group", "weight.weight"],
+        (false, "Retry") => &["retries", "series", "statuses", "methods", "exceptions", "backoff", "jitter", "timeout", "routeId"],
         (false, "RewriteLocationResponseHeader") => &["stripVersion", "locationHeaderName", "hostValue", "protocols"],
         (false, "RewriteResponseHeader") => &["name", "regexp", "replacement"],
         (false, "MapRequestHeader") => &["fromHeader", "toHeader"],
@@ -461,8 +463,9 @@ fn unknown_gateway_args(text: &str, keys: &[Key]) -> Vec<Diagnostic> {
         }
         let predicate = list == "predicates";
         let Some(known) = factory_args(predicate, &name.value) else { continue };
-        let first = arg.split(['.', '[']).next().unwrap_or("");
-        if first.is_empty() || first.starts_with("_genkey_") || known.iter().any(|a| flat(a) == flat(first)) {
+        let first = arg.split('[').next().unwrap_or("");
+        let covers = |a: &str| flat(a) == flat(first) || flat(first).starts_with(&format!("{}.", flat(a)));
+        if first.is_empty() || first.starts_with("_genkey_") || known.iter().any(|a| covers(a)) {
             continue;
         }
         let kind = if predicate { "predicate" } else { "filter" };
@@ -473,7 +476,9 @@ fn unknown_gateway_args(text: &str, keys: &[Key]) -> Vec<Diagnostic> {
 }
 
 /// Required arguments of the shipped factories: their `@NotEmpty`/`@NotNull` Config fields in
-/// spring-cloud-gateway 4.1.5 (a missing one fails binding).
+/// spring-cloud-gateway 4.1.5 and main (a missing one fails binding). WeightConfig has `@NotEmpty group`
+/// and `@Min(0) int weight`: the primitive defaults to 0, so only `group` is required. Retry,
+/// CircuitBreaker and RequestRateLimiter configs carry no constraint annotations.
 fn required_args(predicate: bool, name: &str) -> Option<&'static [&'static str]> {
     Some(match (predicate, name) {
         (true, "After") => &["datetime"],
@@ -482,6 +487,7 @@ fn required_args(predicate: bool, name: &str) -> Option<&'static [&'static str]>
         (true, "Header") => &["header"],
         (true, "Query") => &["param"],
         (true, "RemoteAddr") => &["sources"],
+        (true, "Weight") => &["weight.group"],
         (false, "AddRequestHeader" | "AddRequestParameter" | "AddResponseHeader" | "SetRequestHeader" | "SetResponseHeader") => &["name", "value"],
         _ => return None,
     })
@@ -489,7 +495,8 @@ fn required_args(predicate: bool, name: &str) -> Option<&'static [&'static str]>
 
 /// Shortcut values a factory binds; the default `ShortcutType` ignores the rest, while Host, Method,
 /// Path, RemoteAddr and XForwardedRemoteAddr gather every value into a list. Retry's shortcut order
-/// is its 7 fields (backoff.* flattened), CircuitBreaker's is `name`; RequestRateLimiter, RequestSize,
+/// is retries, statuses, methods and backoff.* (7 in 4.1.5; main adds jitter.randomFactor and timeout, 9),
+/// Weight's is weight.group, weight.weight; CircuitBreaker's is `name`; RequestRateLimiter, RequestSize,
 /// SecureHeaders, SaveSession and PreserveHostHeader declare no shortcut order at all (4.1.5).
 fn positional_limit(predicate: bool, name: &str) -> Option<usize> {
     if predicate && matches!(name, "Host" | "Method" | "Path" | "RemoteAddr" | "XForwardedRemoteAddr") {
@@ -497,7 +504,7 @@ fn positional_limit(predicate: bool, name: &str) -> Option<usize> {
     }
     if !predicate {
         match name {
-            "Retry" => return Some(7),
+            "Retry" => return Some(9),
             "CircuitBreaker" => return Some(1),
             "RequestRateLimiter" | "RequestSize" | "SecureHeaders" | "SaveSession" | "PreserveHostHeader" => return Some(0),
             _ => {}
@@ -526,7 +533,7 @@ fn gateway_arity(text: &str, keys: &[Key]) -> Vec<Diagnostic> {
             let named: Vec<String> = args
                 .iter()
                 .filter_map(|a| a.key.strip_prefix(item)?.strip_prefix(".args."))
-                .map(|a| a.split(['.', '[']).next().unwrap_or("").to_owned())
+                .map(|a| a.split('[').next().unwrap_or("").to_owned())
                 .collect();
             if named.iter().any(|n| n.starts_with("_genkey_")) || args.iter().any(|a| dynamic(&a.key) || dynamic(&a.value)) {
                 continue;
@@ -1429,10 +1436,11 @@ class StreamFunctions {
 
     #[cfg(not(feature = "embedded"))]
     #[test]
+    /// WeightConfig: `@NotEmpty group`, `@Min(0) int weight`; bound under prefix "weight" (4.1.5 and main).
     fn gateway_arity_covers_gathered_default_and_empty_shortcut_factories() {
         let host = setup();
         let mut tools = CloudTools::default();
-        let yml = "spring:\n  cloud:\n    gateway:\n      routes:\n        - id: r\n          predicates:\n            - RemoteAddr=1.1.1.1/24,2.2.2.2\n            - XForwardedRemoteAddr=1.1.1.1,2.2.2.2\n            - Weight=g,8\n            - Weight=g,8,9\n            - name: RemoteAddr\n          filters:\n            - Retry=3,BAD_GATEWAY,GET,10ms,50ms,2,true\n            - Retry=3,BAD_GATEWAY,GET,10ms,50ms,2,true,x\n            - RewriteLocationResponseHeader=AS_IN_REQUEST,Location,h,p\n            - RewriteLocationResponseHeader=AS_IN_REQUEST,Location,h,p,x\n            - RequestRateLimiter=5\n            - CircuitBreaker=cb\n            - CircuitBreaker=cb,forward:/f\n            - SaveSession\n            - name: RemoveRequestHeader\n            - name: RequestRateLimiter\n              args:\n                deny-empty-key: false\n                bogus: 1\n";
+        let yml = "spring:\n  cloud:\n    gateway:\n      routes:\n        - id: r\n          predicates:\n            - RemoteAddr=1.1.1.1/24,2.2.2.2\n            - XForwardedRemoteAddr=1.1.1.1,2.2.2.2\n            - Weight=g,8\n            - Weight=g,8,9\n            - Weight=\n            - name: Weight\n              args:\n                group: g\n                weight.weight: 8\n            - name: RemoteAddr\n          filters:\n            - Retry=3,BAD_GATEWAY,GET,10ms,50ms,2,true\n            - Retry=3,BAD_GATEWAY,GET,10ms,50ms,2,true,0.5,1s,x\n            - RewriteLocationResponseHeader=AS_IN_REQUEST,Location,h,p\n            - RewriteLocationResponseHeader=AS_IN_REQUEST,Location,h,p,x\n            - RequestRateLimiter=5\n            - CircuitBreaker=cb\n            - CircuitBreaker=cb,forward:/f\n            - SaveSession\n            - name: RemoveRequestHeader\n            - name: RequestRateLimiter\n              args:\n                deny-empty-key: false\n                bogus: 1\n";
         let d = doc(&format!("{RESOURCES}/application.yml"), "yaml", yml);
         tools.line_markers(&d);
         let found: Vec<_> = host.diagnostics()[&d.path]
@@ -1444,10 +1452,13 @@ class StreamFunctions {
         assert_eq!(
             found,
             [
+                ("unknown-gateway-arg", "group"),
                 ("unknown-gateway-arg", "bogus"),
                 ("gateway-extra-args", "Weight=g,8,9"),
+                ("gateway-missing-args", "Weight="),
+                ("gateway-missing-args", "Weight"),
                 ("gateway-missing-args", "RemoteAddr"),
-                ("gateway-extra-args", "Retry=3,BAD_GATEWAY,GET,10ms,50ms,2,true,x"),
+                ("gateway-extra-args", "Retry=3,BAD_GATEWAY,GET,10ms,50ms,2,true,0.5,1s,x"),
                 ("gateway-extra-args", "RewriteLocationResponseHeader=AS_IN_REQUEST,Location,h,p,x"),
                 ("gateway-extra-args", "RequestRateLimiter=5"),
                 ("gateway-extra-args", "CircuitBreaker=cb,forward:/f"),

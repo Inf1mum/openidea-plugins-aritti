@@ -14,6 +14,7 @@ mod annotation_owners;
 mod schema_qnames;
 mod xml_refs;
 mod wsdl_pairs;
+mod wsdl_definitions;
 mod wsdl_qnames;
 mod xml_contracts;
 mod typed_xml;
@@ -611,6 +612,7 @@ impl DiagnosticsProvider for WsTools {
         if doc.language == "xml" {
             let mut problems=xml_contracts::diagnostics(doc);
             problems.extend(wsdl_qnames::diagnostics(doc));
+            problems.extend(wsdl_definitions::required(doc));
             // Current unsaved schema facts update only this cached file; no scan.
             let Some(index) = self.schemas.for_cached_document(&doc.path, &doc.text) else {
                 return problems;
@@ -620,6 +622,7 @@ impl DiagnosticsProvider for WsTools {
             }
             if self.watching && complete_schemas(index) && self.unreadable_schemas.is_empty() {
                 problems.extend(wsdl_pairs::unpaired_requests(doc, index));
+                problems.extend(wsdl_definitions::pairs(doc, index));
             }
             problems.extend(sws_resources(&doc.text)
                 .into_iter()
@@ -638,6 +641,7 @@ impl DiagnosticsProvider for WsTools {
         }
         let mut problems = xpath::syntax_diagnostics(doc);
         problems.extend(wsdl_pairs::void_response_payload(doc));
+        problems.extend(wsdl_definitions::required(doc));
         if !self.watching {
             return problems;
         }
@@ -662,6 +666,9 @@ impl DiagnosticsProvider for WsTools {
                     );
                 }
             }
+        }
+        if doc.language == "java" {
+            problems.extend(wsdl_definitions::pairs(doc, index));
         }
         for (path, source) in resources(&doc.path, &doc.text) {
             let schema_file = path.ends_with(".xsd") || path.ends_with(".wsdl");
