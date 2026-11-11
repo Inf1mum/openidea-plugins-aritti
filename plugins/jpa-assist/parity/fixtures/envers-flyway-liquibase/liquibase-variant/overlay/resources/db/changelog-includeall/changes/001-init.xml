@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <changeSet id="001-client" author="fixture">
+        <createTable tableName="client">
+            <column name="id" type="bigint" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="full_name" type="varchar(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="email" type="varchar(160)"/>
+            <column name="legacy_code" type="varchar(20)"/>
+            <column name="notes" type="text"/>
+        </createTable>
+    </changeSet>
+
+    <changeSet id="001-invoice" author="fixture">
+        <createTable tableName="invoice">
+            <column name="id" type="bigint" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="number" type="varchar(30)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="total" type="numeric(12,2)"/>
+            <column name="client_id" type="bigint">
+                <constraints nullable="false" foreignKeyName="fk_invoice_client" references="client(id)"/>
+            </column>
+        </createTable>
+    </changeSet>
+</databaseChangeLog>
