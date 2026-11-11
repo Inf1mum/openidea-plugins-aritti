@@ -610,6 +610,15 @@ fn refresh_laravel() {
 }
 
 impl Main {
+    /// The hub's background poll wraps the tick in an opaque-message envelope that the
+    /// grouped-view guard can reject; indexing must not depend on that envelope's tab state.
+    fn is_index_tick_envelope(request: &serde_json::Value) -> bool {
+        request["op"] == "opaque-message"
+            && request["message"]
+                .as_str()
+                .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
+                .is_some_and(|inner| inner["op"] == "index-tick")
+    }
     fn index_project(&mut self, project: &Project) {
         self.queue_index(project);
         self.advance_index(project);
@@ -2189,7 +2198,7 @@ impl Views for Main {
 
     fn handle(&mut self, view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {
         if let ViewEvent::Message(message) = &event {
-            if serde_json::from_str::<serde_json::Value>(message).ok().is_some_and(|request|request["channel"] == "ui-kit" && request["op"] == "render") {
+            if serde_json::from_str::<serde_json::Value>(message).ok().is_some_and(|request|request["channel"] == "ui-kit" && (request["op"] == "render" || Self::is_index_tick_envelope(&request))) {
                 self.advance_context_index(ctx);
             }
         }

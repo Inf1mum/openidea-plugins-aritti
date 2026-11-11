@@ -235,4 +235,32 @@ mod tests {
         assert_eq!(body["backgroundPoll"]["message"]["op"],"index-tick");
     }
 
+
+    #[test]
+    fn index_ticks_advance_even_when_the_hub_envelope_targets_a_different_tab() {
+        let host=MockHost::install();
+        host.add_file("composer.json",r#"{"autoload":{"psr-4":{"App\\":"app/"}}}"#);
+        host.add_file("artisan","<?php");
+        host.add_file("resources/views/welcome.blade.php","<h1>hi</h1>");
+        let mut plugin=Main::default();
+        plugin.activate(&host.context("aritti.laravel")).unwrap();
+        ui_kit::web::reveal_view(VIEW,include_str!("ui_config.json")).unwrap();
+        let ctx=host.invocation();
+        let frame="0123456789abcdef0123456789abcdef";
+        let send=|plugin:&mut Main,sequence:u32,body:serde_json::Value|{
+            let mut request=serde_json::json!({"channel":"ui-kit","sequence":sequence,"frameId":frame,"project":"/project","targetView":VIEW});
+            request.as_object_mut().unwrap().extend(body.as_object().unwrap().clone());
+            plugin.handle(VIEW,ViewEvent::Message(request.to_string()),&ctx)
+        };
+        send(&mut plugin,1,serde_json::json!({"op":"select-view","target":"laravel-config"})).unwrap();
+        plugin.queue_indexes();
+        assert!(plugin.index_work_pending("/project"));
+        for tick in 0..400 {
+            let message=serde_json::json!({"op":"index-tick","_backgroundPoll":format!("{frame}:{tick}")}).to_string();
+            send(&mut plugin,0,serde_json::json!({"op":"opaque-message","message":message})).unwrap();
+            if !plugin.index_work_pending("/project") { break; }
+        }
+        assert!(!plugin.index_work_pending("/project"), "index stalled: {:?}", plugin.index_progress);
+        assert!(plugin.completed_index_for("/project").is_some());
+    }
 }
