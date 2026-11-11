@@ -9,8 +9,7 @@ earlier implementation/artifact results without promoting them to full parity.
 
 The user authorized wizard and non-wizard implementation using our UI kit and the
 current OpenIDEA host. Native custom-generator templates are an accepted format
-difference; importing Velocity/Laravel Idea settings is not required. Other
-approximations are open gaps, not exclusions.
+difference; importing Velocity/Laravel Idea settings is not required. The user additionally confirmed “Exclude Qodana; keep plugin-only” on2026-11-11. Qodana is an accepted external-runtime exception, separate from missing APIs; no IntelliJ companion is required. Other approximations are not silently accepted.
 
 ## Milestone 0 leaf contract
 
@@ -66,7 +65,7 @@ approved native-template compatibility difference. Neither IU nor P means full p
 | T03–T05 | P: About, managed Processes and structured local errors | About has explicit app refresh; Processes owns session jobs; restart/reconnect equivalence is unqualified by the public baseline. Error format/timezone coverage and exact original Blade line mapping remain incomplete. |
 | T06–T07 | P: Sentry token reads and Cloud app/environment lists | Explicit validated pagination is implemented with 20-page/2000-resource limits and stale resource rejection. OAuth, regional/self-hosted endpoints and connected-account acceptance remain open; Cloud management/deployment equivalence is unqualified. `external_services.rs`. |
 | T08–T09 | IU / P: named runtime connection/schema and owned Database lifecycle | Explicit connection selection is recaptured before registration; local/Docker mapping is reviewed with target/network/published-port evidence. Schema connection survives empty results and model/migration generation. Native list/connect/remove uses project-bound rows and secure credential flow. Unsupported drivers/layouts and real Database/Docker acceptance remain open. `runtime_database.rs`, `model_from_schema.rs`, `generator_plan.rs`. |
-| T10–T11 | P / M: real MCP harness and seven tools | Project Laravel-MCP route understanding and precise baseline integration scope remain unqualified; seven plugin-owned tools do not establish those features. Qodana/git/other hook coverage remains open. |
+| T10–T11 | P / M: real MCP harness and seven tools | Project Laravel-MCP route understanding and precise baseline integration scope remain unqualified; seven plugin-owned tools do not establish those features. Qodana is now an explicit user-accepted plugin-only exception; the exact Git Cloud refresh is now implementation work and the authoritative LLM agent-finished trigger has narrow pinned-ABI exclusion; generic Pest navigation is withdrawn rather than invented. |
 
 ### Rich resource fields and New Model output selections — 2026-11-10
 
@@ -461,7 +460,7 @@ not acceptance of a complete workflow. Prepared harnesses are not passed tests.
 | T08 | Queue/schedule/events/logs | IU: snapshots and selected failed-job retry exist | Driver availability, bounded reads, retry review, stale ownership/target and no false running-job claims |
 | T09 | Database connection integration | M in Laravel; SDK supports it | Create owned sources, secure credentials, connection request and removal; do not label missing API |
 | T10 | MCP/LLM integration | P: `mcp.rs` has inventory/runtime/job tools | Compare baseline routes/resources/tools, lifecycle, exact review semantics and real server harness |
-| T11 | Qodana/git and other integrations | M/unqualified | Establish documented behavior and required hooks before deciding implementation or API exclusion |
+| T11 | Qodana/git and other integrations | M/unqualified (historical checkpoint) | This historical entry predates the user’s2026-11-11 Qodana exception. Qodana is now excluded under plugin-only delivery; remaining git/hook supersets require exact behavior qualification. |
 
 ## Current-host capability qualification
 
@@ -583,33 +582,13 @@ or real Docker/connected-service acceptance is inferred from these browser fixtu
 - Documentation validation checks the 67 unique matrix IDs, column structure,
   local cross-links and `git diff --check`. It does not verify remote behavior.
 
-### Remaining implementable gaps
+### Current remaining implementation and acceptance
 
-Do not promote these to host API exclusions simply because bounded alternatives
-now exist:
+The [current leaf audit](laravel-parity-pending-audit.md) supersedes the earlier broad gap list. Canonical metadata, generator/catalog/settings, semantic/container/accessor, route/refactoring, package and localization workflows now have scoped implementations and fixture receipts. Conservative refusal of arbitrary dynamic PHP, remote disks, composite Eloquent keys or unspecified package variants does not create a new requirement without primary baseline evidence.
 
-1. General PHP declaration/binding analysis and the remaining Eloquent/container/
-   facade/custom-factory/helper behavior, including semantically correct usages
-   and rename. The absence of a shared host PHP engine does not eliminate this
-   plugin-side work.
-2. Complete documented metadata behavior, richer visual preset editing,
-   module conventions, full generator catalog/settings and
-   version-specific related-file generation.
-3. Package depth beyond selected Passport/Wayfinder and existing Livewire/Inertia
-   patterns: full Nova/Filament generation, tenancy, Pennant, Folio, Envoy, Native
-   and extended relation packages still require individual baseline fixtures.
-4. Broader binding-aware FormRequest/component/injection refactoring, all request
-   field/messages contexts, source-safe field/model rename, complete translation
-   behavior and all vendor override layouts.
-5. Full process supervision, structured error navigation/original Blade mapping,
-   Sentry OAuth/refresh lifecycle, regional endpoints and the
-   documented Cloud management workflows. A registered OAuth client/account is
-   a connection prerequisite, not evidence of a missing host API; the SDK has a
-   loopback authorization helper.
-6. Terminal autocomplete, Qodana, git/LLM hooks and exact inline interaction
-   equivalence need concrete SDK qualification and implementation/acceptance.
-   The available endpoints, code-lens, gutter and injection APIs must be used
-   before any narrower exclusion is accepted.
+Actual aritti.laravel activation currently exceeds the pinned OpenIDEA0.1.40 callback fuel budget. Bounded resumable indexing is in progress; this is a production integration blocker, not an API exclusion. No actual native gate or apply/undo is claimed. An earlier panel-placement observation from another installed plugin was retracted.
+
+The user explicitly excluded Qodana and retained plugin-only delivery on2026-11-11. Interactive terminal completion has a separately evidenced narrow API exclusion. Remaining qualified implementation/scope items and exact native/live gates are maintained in the212-leaf contract rather than repeated as an obsolete blanket list. Registered Sentry client/account setup is a prerequisite/live gate, while stored-secret refresh form-body transport has a narrower API1.4 qualification.
 
 External API references used for implemented contracts:
 [Sentry authentication](https://docs.sentry.io/api/auth/),
@@ -619,3 +598,15 @@ External API references used for implemented contracts:
 [Cloud authentication](https://laravel.com/cloud/docs/api/authentication),
 [Cloud applications](https://laravel.com/cloud/docs/api/applications/list-applications)
 and [Cloud environments](https://laravel.com/cloud/docs/api/environments/list-environments).
+
+### Post-freeze baseline correction: PHP8.5 pipe completion
+
+At this historical extension, the [leaf contract](laravel-parity-contract.json) had208 leaves across the same67 parents; it now contains212 leaves after four explicit diagnostic/marker leaves were added. `M01.php85_pipe` was added after rechecking the comparison [13.2 changelog](https://laravel-idea.com/docs/changelog); the original 207-leaf receipt is historical. PHP>=8.5 direct first-class metadata and semantic contexts now have scoped actual-PHP/provider fixtures. No actual native verification claim is made.
+
+### Current source receipt: registered config defaults
+
+The independent Index probe found unpublished registered package defaults absent from config inventory. The fix now implements ordinary shallow merge, integer source-order renumbering, source-proven Laravel11+ framework option merges and literal PackageTools registration.14focused tests including2installed-source tests passed; actual Laravel13.40/PHP8.4 differential passed. [Reproduction and bounds](../plugins/laravel/tests/config-inventory/README.md). This does not close the current actual-host activation/native gate.
+
+### Resolved metadata/Cloud/Git/LLM qualification — 2026-11-11
+
+The [primary-source qualification](laravel-baseline-qualification-20261111.md) records pinned artifact provenance and exact transformer grammar, Cloud read-only workflows, Git visible refresh, LLM helper trigger and resolved Pest scope. Contract212-leaf coverage is preserved by withdrawing invented generic Pest navigation and splitting broad other-hooks into precise Git/LLM leaves. The LLM exclusion applies only to its absent authoritative agent-finished callback; helper generation remains required. No native gate is promoted.

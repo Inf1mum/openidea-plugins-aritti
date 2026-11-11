@@ -203,7 +203,9 @@ class RejectionTests(unittest.TestCase):
         self.invalid(lambda c: c['leaves'][0].update(currentStatus='accepted_difference', baselineRole='accepted_difference', acceptedDifference='invented'), 'difference requires')
     def test_unqualified_workflow_cannot_gain_requirements(self):
         def edit(c):
-            leaf = next(l for l in c['leaves'] if l['currentStatus'] == 'unqualified')
+            leaf = next((l for l in c['leaves'] if l['currentStatus'] == 'unqualified'), c['leaves'][0])
+            leaf.update(currentStatus='unqualified', baselineRole='unqualified')
+            for gate in GATES: leaf['gates'][gate]['required'] = False
             leaf['gates']['live']['required'] = True
         self.invalid(edit, 'do not invent')
 

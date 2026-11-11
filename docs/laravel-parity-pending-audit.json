@@ -1,0 +1,2971 @@
+{
+  "auditVersion": 1,
+  "date": "2026-11-11",
+  "baselineContract": "laravel-parity-contract.json",
+  "scope": "Current212-leaf implementation+evidence reconciliation. Historical207/208 expansion receipts preserved. Actual native-host gates remain unsatisfied independently of MockHost/Wasm/browser passes.",
+  "sourceState": "Shared working tree; canonical scoped implementations reconciled against current owner/source/fixture receipts. Actual native activation is blocked by pinned-host fuel exhaustion, not an accepted API exclusion.",
+  "issues": [
+    {
+      "id": "native-activation-fuel",
+      "leaves": [],
+      "owner": "root/performance",
+      "disposition": "blocking_current_native_acceptance",
+      "detail": "No leaf has every required actual pinned OpenIDEA native-host gate satisfied. Actual aritti.laravel activation in OpenIDEA0.1.40 currently traps at its 5,000,000,000-fuel budget; root is implementing bounded resumable indexing. The earlier bottom-panel observation belonged to another installed plugin and is explicitly retracted. MockHost, custom Wasm, actual PHP/framework and browser receipts retain their narrower scopes.",
+      "evidence": "Parent actual OpenIDEA0.1.40 SettingsPlugins aritti.laravel activation failure: activation exceeded its CPU budget (5000000000 fuel per call), repeated; no native gate passed."
+    },
+    {
+      "id": "css-identifiers",
+      "leaves": [
+        "M02.cssClassName",
+        "M02.cssClassNames"
+      ],
+      "owner": "metadata/acceptance",
+      "disposition": "implemented_gate_pending",
+      "detail": "The documented category is wired through source-proven metadata matching, cached inventory, completion and navigation. Current supported declared/static source behavior is implemented; actual pinned-host category acceptance remains open. Unsupported or ambiguous callable/type identity is withheld rather than guessed. ",
+      "evidence": "metadata::domains focused receipt:19 passed,1047 filtered; plugins/laravel/src/metadata_domains.rs; https://www.w3.org/TR/css-syntax-3/"
+    },
+    {
+      "id": "icon-registration",
+      "leaves": [
+        "M02.bladeIcon"
+      ],
+      "owner": "metadata",
+      "disposition": "implemented_gate_pending",
+      "detail": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate. Documented native declaration/filter/field domains, Unicode/escaped CSS and declared local/provider icon sets are implemented. Remote disks, SCSS/embedded-style breadth and arbitrary computed registrations are not separately established comparison requirements.",
+      "evidence": "metadata::domains focused receipt:19 passed,1047 filtered; package_integrations provider_sources late wrapper; https://raw.githubusercontent.com/blade-ui-kit/blade-heroicons/main/src/BladeHeroiconsServiceProvider.php"
+    },
+    {
+      "id": "directory-grants",
+      "leaves": [
+        "M02.directoryFiles"
+      ],
+      "owner": "acceptance",
+      "disposition": "implemented_gate_pending",
+      "detail": "The documented category is wired through source-proven metadata matching, cached inventory, completion and navigation. Current supported declared/static source behavior is implemented; actual pinned-host category acceptance remains open. Unsupported or ambiguous callable/type identity is withheld rather than guessed. ",
+      "evidence": "metadata::domains:: focused run:11 passed,975 filtered; SDK v0.1.40 host.rs:1462; plugin.toml optional fs.read:~"
+    },
+    {
+      "id": "metadata-transformers",
+      "leaves": [
+        "M01.transforms"
+      ],
+      "owner": "metadata",
+      "disposition": "implemented_gate_pending",
+      "detail": "Pinned grammar, forward/inverse navigation and documented core metadata consumers have production implementation/Main fixtures. Final source guard tests cover config prefix, supported-domain consumers and directory suffixToClear replacement semantics; current fresh rerun remains in progress. Actual pinned-host acceptance remains outstanding.",
+      "evidence": "https://laravel-idea.com/docs/changelog version12.3; plugins/laravel/src/metadata.rs unsupported completion transformers"
+    },
+    {
+      "id": "response-headers",
+      "leaves": [
+        "M04.response"
+      ],
+      "owner": "metadata",
+      "disposition": "implemented_gate_pending",
+      "detail": "Current scoped implementation is present and provider/source fixtures cover its documented static behavior. Actual pinned-host interaction remains an acceptance gate; dynamic/ambiguous identities are not inferred. ",
+      "evidence": "https://laravel-idea.com/img/docs/other/response_headers.png; plugins/laravel/src/lib.rs response_completion; metadata_response.rs"
+    },
+    {
+      "id": "config-enums",
+      "leaves": [
+        "M04.config"
+      ],
+      "owner": "metadata",
+      "disposition": "production_partial",
+      "detail": "Literal app/framework/registered package config inventory/navigation is implemented. Newly qualified remaining enum array-key expressions Key::Case->value and Key::Case->name require source-proven enum resolution; current literal/integer config_arrays parser withholds them. This is not a raw Enum-object Config API or a missing host API.",
+      "evidence": "docs/laravel-baseline-qualification-20261111.md"
+    },
+    {
+      "id": "native-catalog-boundaries",
+      "leaves": [
+        "G02.blade_component",
+        "G02.broadcast_channel",
+        "G02.console_command",
+        "G02.controller",
+        "G02.event",
+        "G02.exception",
+        "G02.factory",
+        "G02.feature_test",
+        "G02.form_request",
+        "G02.http_exception",
+        "G02.job",
+        "G02.json_resource",
+        "G02.listener",
+        "G02.mailable",
+        "G02.middleware",
+        "G02.migration",
+        "G02.model",
+        "G02.notification",
+        "G02.observer",
+        "G02.policy",
+        "G02.resource_collection",
+        "G02.resource_controller",
+        "G02.seeder",
+        "G02.service_provider",
+        "G02.unit_test",
+        "G02.validation_rule",
+        "G02.view",
+        "G02.view_composer",
+        "G09.catalog"
+      ],
+      "owner": "generators/project_wizard",
+      "disposition": "implemented_gate_pending",
+      "detail": "The installed-source standard native generator and variants are implemented. All36 core kinds passed lint and framework behavior across Laravel10.0/10.50,11.0/11.57,12.0/12.72 and13.40; record exact applicable versions in receipts. Actual native preview/apply/undo remains open. Global/package custom-template overrides are tracked separately under G09. Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate. Canonical related-file/catalog/settings and Keep assignment behavior are implemented. Native nWidart scaffold is version-gated to proven12.x; unproven package/custom base/template layouts require reviewed native presets. Other version/custom behavior is not assumed without applicable baseline fixtures.",
+      "evidence": "plugins/laravel/tests/native-catalog/README.md; /tmp/native-all-real-final-acceptance.log4/4"
+    },
+    {
+      "id": "related-generation",
+      "leaves": [
+        "G01.related_files",
+        "G01.relations",
+        "G03.factory_fields",
+        "G03.resource_fields"
+      ],
+      "owner": "generators",
+      "disposition": "production_partial",
+      "detail": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate. Canonical official Factory<Model> stub without literal $model still needs source-proven native Factory::modelName resolution for generated field defaults; generator owner is implementing this common shape. The stated scoped behavior is implemented and source/provider fixtures exist. Actual pinned-host interaction remains an acceptance gate; this status does not claim arbitrary PHP/JS dataflow or unqualified input shapes. Related broader inference/registration limits remain in their own partial leaves.",
+      "evidence": "generators agent report; plugins/laravel/src/related_generation_selection.rs; bulk.rs related_catalog/related_preview"
+    },
+    {
+      "id": "module-layouts",
+      "leaves": [
+        "G05.layout",
+        "G05.nwidart"
+      ],
+      "owner": "generators",
+      "disposition": "production_partial",
+      "detail": "Conventional/module core related-file layouts are implemented. Namespaced module Livewire view-generation adapter remains in flight; dynamic custom layouts require explicit configuration, not guessed runtime paths. Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "evidence": "generators agent report; plugins/laravel/src/native_module_scaffold.rs"
+    },
+    {
+      "id": "project-installer",
+      "leaves": [
+        "G08.project"
+      ],
+      "owner": "generators",
+      "disposition": "implemented_gate_pending",
+      "detail": "Installed CLI-help option gating, launch/cancellation and partial-install recovery are implemented. Official installer5.28.1 Svelte+SQLite/Laravel13.42 success and npm-absent preservation/replay refusal passed. Remaining starter combinations and actual native terminal/trust/recovery interaction are acceptance gates. ",
+      "evidence": "generators/project_wizard agent reports"
+    },
+    {
+      "id": "package-resource-generation",
+      "leaves": [
+        "B05.resources",
+        "B05.settings",
+        "B06.resources",
+        "B06.versions"
+      ],
+      "owner": "generators",
+      "disposition": "implemented_gate_pending",
+      "detail": "Native package planners, per-model/default settings, source-proven base/member validation and catalog workspace flows are implemented. Real Filament3.3.57/4.16.2/5.11.2 APIs and Chromium/WebKit catalog flows passed. Nova licensed runtime and actual native apply/undo are external/host acceptance gates, not an absent planner. ",
+      "evidence": "generators agent report; plugins/laravel/src/package_generators.rs"
+    },
+    {
+      "id": "eloquent-flow",
+      "leaves": [
+        "E02.chains",
+        "E02.closures",
+        "E02.collections",
+        "E03.factory_many",
+        "E03.factory_single",
+        "E06.constructors",
+        "E06.mixins",
+        "E11.attributes",
+        "E11.builders",
+        "E12.external",
+        "E12.through",
+        "E13.bindings",
+        "E13.facades"
+      ],
+      "owner": "eloquent_database",
+      "disposition": "production_partial",
+      "detail": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate. Cross-model map/flatMap with different original and target custom collection classes is withheld: generic-model identity and physical collection-class identity are not represented independently. Canonical callbacks, when/unless, optional, eager callbacks and ordinary map/flatMap are implemented. The stated scoped behavior is implemented and source/provider fixtures exist. Actual pinned-host interaction remains an acceptance gate; this status does not claim arbitrary PHP/JS dataflow or unqualified input shapes. Related broader inference/registration limits remain in their own partial leaves.",
+      "evidence": "eloquent_database agent report; plugins/laravel/src/eloquent_semantic.rs; eloquent_members.rs"
+    },
+    {
+      "id": "database-schema",
+      "leaves": [
+        "E04.sources",
+        "E08.table_model",
+        "E09.sql",
+        "E10.evolution",
+        "T09.sources"
+      ],
+      "owner": "eloquent_database/managed_processes",
+      "disposition": "implemented_gate_pending",
+      "detail": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate. Current scoped behavior is implemented and supported by provider/source and/or installed-framework fixtures. Actual pinned-host interaction and any required connected/live gate remain open; these are acceptance gaps rather than an inferred absence of implementation. Helper/proxy production content and reviewed/project/on-save workflows use current shared semantic facts. Unresolved computed identities and unsupported procedural SQL do not become authoritative facts. Supported table/model/schema metadata is preserved. Composite primary keys are not native Eloquent behavior; their refusal is not treated as a new comparison requirement without primary evidence. Literal SQL schema inventory/evolution is implemented across proven dialect forms. Arbitrary procedural/dynamic SQL and ambiguous unqualified cross-schema resolution remain conservative implementation boundaries, not an assumed infinite baseline obligation. Proven literal migration evolution is implemented; dynamic executable migrations never establish complete absence.",
+      "evidence": "managed_processes agent report; plugins/laravel/src/runtime_database.rs; runtime_model_connections.rs"
+    },
+    {
+      "id": "editor-interfaces",
+      "leaves": [
+        "R06.editor_interfaces"
+      ],
+      "owner": "root/eloquent_database",
+      "disposition": "implemented_gate_pending",
+      "detail": "Main wires route/Eloquent type definitions plus documented forwarded completion/signature/hover/definition contexts. Actual provider and PHP reflection fixtures cover inherited mixins/constructors. No separate documented missing consumer was identified in the current audit; remaining model/type inference limits are tracked explicitly under E02/E11/E12/E13. Actual native-host interaction remains pending. ",
+      "evidence": "Current plugins/laravel/src/lib.rs LanguageFeatures implementation; route_targets::type_definition; eloquent_members::type_definition_checked"
+    },
+    {
+      "id": "route-registration",
+      "leaves": [
+        "R02.registration",
+        "R02.custom",
+        "R03.namespaces"
+      ],
+      "owner": "editor_actions",
+      "disposition": "implemented_gate_pending",
+      "detail": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate. The stated scoped behavior is implemented and source/provider fixtures exist. Actual pinned-host interaction remains an acceptance gate; this status does not claim arbitrary PHP/JS dataflow or unqualified input shapes. Related broader inference/registration limits remain in their own partial leaves. Literal mounted route paths, URI/name prefixes and root controller namespaces are modeled. Arbitrary executable registration callbacks remain conservative source-analysis limits. Configured/custom/mounted route contexts and cached FQN/resource method inspections are wired. Runtime controller identity and dynamic registration are not guessed.",
+      "evidence": "editor_actions report; https://raw.githubusercontent.com/laravel/docs/13.x/releases.md expanded PHP attributes"
+    },
+    {
+      "id": "member-refactoring",
+      "leaves": [
+        "E01.field_usages",
+        "R07.controller",
+        "R07.framework"
+      ],
+      "owner": "editor_actions/eloquent_database",
+      "disposition": "implemented_gate_pending",
+      "detail": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate. Reviewed source-bound class/member/trait families and typed model facts are implemented. Unresolved runtime receiver/target identities are withheld; arbitrary PHP inference is not a separately qualified baseline requirement. Reviewed class/member families, literal route/controller strings and standard component usages are implemented. Unknown dynamic receiver/callback and unresolved trait-adapter cases refuse whole rename plans.",
+      "evidence": "editor_actions agent report"
+    },
+    {
+      "id": "request-productivity",
+      "leaves": [
+        "V01.fields",
+        "V01.rules",
+        "V03.promotion",
+        "V09.dto"
+      ],
+      "owner": "editor_actions",
+      "disposition": "implemented_gate_pending",
+      "detail": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate. The stated scoped behavior is implemented and source/provider fixtures exist. Actual pinned-host interaction remains an acceptance gate; this status does not claim arbitrary PHP/JS dataflow or unqualified input shapes. Related broader inference/registration limits remain in their own partial leaves. Cached local/controller/inherited FormRequest fields/messages and canonical rule parameters are implemented. Mutated/dynamic rule arrays and unresolved ancestry are withheld. Recognized source-bound validation extraction/promotion is implemented. Arbitrary PHP validation dataflow is not an independently established comparison guarantee.",
+      "evidence": "validation_productivity agent final report:7 completion+5 DTO tests; editor_actions report"
+    },
+    {
+      "id": "extraction-expressions",
+      "leaves": [
+        "V06.component",
+        "V06.view",
+        "V07.generation"
+      ],
+      "owner": "localization_overrides",
+      "disposition": "implemented_gate_pending",
+      "detail": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate. Balanced controls, safe local PHP, loops, x-component/named/default slots and configured root/namespace selection have real before/after Blade rendering fixtures. Arbitrary external PHP calls/import side effects and outward writes are refused rather than guessed. Multi-locale PHP/JSON/package extraction, custom language roots and explicit existing-key reuse are implemented. General expression interpolation/plural extraction is not separately qualified by reviewed comparison examples.",
+      "evidence": "localization_overrides agent report"
+    },
+    {
+      "id": "vendor-dynamic-registration",
+      "leaves": [
+        "V08.overrides"
+      ],
+      "owner": "localization_overrides",
+      "disposition": "implemented_gate_pending",
+      "detail": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate. Literal provider roots, dirname/magic paths, arrays, PHP/JSON merging and explicit conflict editing are implemented. Runtime custom path helper evaluation is not assumed as an additional contract.",
+      "evidence": "localization_overrides agent report"
+    },
+    {
+      "id": "ui-locales",
+      "leaves": [
+        "B09.ui_locales"
+      ],
+      "owner": "localization_overrides/root",
+      "disposition": "production_partial",
+      "detail": "The shared/runtime/native and SDK source-text catalogs are implemented, but final authored UI/error-message coverage audit and remaining wrappers are still in flight. Project data, enum IDs, PHP names and raw external output remain data; they are not translation omissions.",
+      "evidence": "localization_overrides agent report; https://laravel-idea.com/docs/changelog version13.4"
+    },
+    {
+      "id": "livewire-package",
+      "leaves": [
+        "B03.components",
+        "B03.fixes",
+        "B03.pest",
+        "B03.versions"
+      ],
+      "owner": "package_intelligence",
+      "disposition": "production_partial",
+      "detail": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate. Unique missing-method/component fixes and standard native Finder layouts are implemented. Namespaced module Livewire component generation is still receiving its adapter; ambiguous/dynamic targets refuse reviewed plans. Installed Livewire2/3/4 and Volt fixtures cover versioned canonical contexts. Namespaced module view-generation adapter remains in flight, shared with G05.layout.",
+      "evidence": "package_intelligence agent report; plugins/laravel/src/package_livewire.rs"
+    },
+    {
+      "id": "inertia-generation",
+      "leaves": [
+        "B04.generation",
+        "B04.pages"
+      ],
+      "owner": "package_intelligence/generators",
+      "disposition": "implemented_gate_pending",
+      "detail": "Current scoped behavior is implemented and supported by provider/source and/or installed-framework fixtures. Actual pinned-host interaction and any required connected/live gate remain open; these are acceptance gaps rather than an inferred absence of implementation. ",
+      "evidence": "plugins/laravel/src/native_catalog.rs; plugins/laravel/web/generators.js frontendVariants/pageRoots controls; native-catalog README"
+    },
+    {
+      "id": "dusk-adapter",
+      "leaves": [
+        "B08.dusk"
+      ],
+      "owner": "package_intelligence",
+      "disposition": "implemented_gate_pending",
+      "detail": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate. The documented named package adapters use installed version/source proofs and canonical declarations; broad marketing names do not create an unlimited requirement to infer executable package behavior.",
+      "evidence": "package_intelligence/project_wizard reports; plugins/laravel/src/package_dusk.rs"
+    },
+    {
+      "id": "tenancy-migration",
+      "leaves": [
+        "B08.tenancy"
+      ],
+      "owner": "package_intelligence/root",
+      "disposition": "implemented_gate_pending",
+      "detail": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate. The documented named package adapters use installed version/source proofs and canonical declarations; broad marketing names do not create an unlimited requirement to infer executable package behavior.",
+      "evidence": "native-catalog README; /tmp/native-all-real-final-acceptance.log"
+    },
+    {
+      "id": "package-breadth",
+      "leaves": [
+        "B08.extended_eloquent",
+        "B08.native_edge",
+        "B08.pennant",
+        "B08.folio",
+        "B08.envoy",
+        "B09.twig"
+      ],
+      "owner": "package_intelligence/eloquent_database",
+      "disposition": "production_partial",
+      "detail": "Installed explicit-name Lift attributes, October relation arrays, adjacency tree/graph adapters and actual Main provider contexts are implemented. Required remaining examples: Lift omitted-name Str/Doctrine inflection; CTE withExpression/withRecursiveExpression and PowerJoins joinRelationship/leftJoinRelationship forwarding/type chains. Source-gated QueriesExpressions/newBaseQueryBuilder and Builder macro registration paths are not yet modeled.",
+      "evidence": "package_intelligence agent report; plugins/laravel/src/package_integrations.rs"
+    },
+    {
+      "id": "compiled-blade",
+      "leaves": [
+        "T05.blade",
+        "T05.errors"
+      ],
+      "owner": "managed_processes",
+      "disposition": "implemented_gate_pending",
+      "detail": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate. Current scoped behavior is implemented and supported by provider/source and/or installed-framework fixtures. Actual pinned-host interaction and any required connected/live gate remain open; these are acceptance gaps rather than an inferred absence of implementation. Original Blade file resolution and proven unique unchanged/echo line anchors are implemented. Unavailable compiler line information is explicit; a universal compiler source map is not separately established by the public baseline.",
+      "evidence": "managed_processes agent report"
+    },
+    {
+      "id": "sentry-refresh",
+      "leaves": [
+        "T06.oauth"
+      ],
+      "owner": "managed_processes",
+      "disposition": "production_partial",
+      "detail": "Registered-client device authorization, explicit polling/expiry/keychain/disconnect are implemented with mocked transport tests; configured registered-client live acceptance is pending. Persisted refresh has the separately evidenced API1.4 stored-secret-to-form-body transport limitation; device authorization itself is not API-blocked.",
+      "evidence": "SDK v0.1.40 host.rs fetch/secret_set/delete/is_set and wit/io.wit net/secrets; https://docs.sentry.io/api/auth/"
+    },
+    {
+      "id": "application-mcp",
+      "leaves": [
+        "T10.laravel_mcp"
+      ],
+      "owner": "managed_processes",
+      "disposition": "implemented_gate_pending",
+      "detail": "Current scoped behavior is implemented and supported by provider/source and/or installed-framework fixtures. Actual pinned-host interaction and any required connected/live gate remain open; these are acceptance gaps rather than an inferred absence of implementation. ",
+      "evidence": "managed_processes final report appMCP5/5; docs/laravel-runtime-sdk-qualification.md; plugins/laravel/src/laravel_mcp_routes.rs"
+    },
+    {
+      "id": "terminal-completion",
+      "leaves": [
+        "R09.terminal"
+      ],
+      "owner": "managed_processes/root",
+      "disposition": "accepted_boundary",
+      "detail": "API1.4 exposes keyed terminal execution/run detection but no terminal completion-provider or terminal-spec export. This narrow missing integration needs the final ABI evidence attached to any contract exclusion; Artisan workspace forms do not substitute for shell terminal completion.",
+      "evidence": "SDK v0.1.40 wit/plugin.wit/export worlds, wit/io.wit and Rust register_plugin exports; managed_processes report"
+    },
+    {
+      "id": "qodana-adapter",
+      "leaves": [
+        "T11.qodana"
+      ],
+      "owner": "managed_processes/root",
+      "disposition": "accepted_user_scope_exception",
+      "detail": "User explicitly accepted plugin-only delivery and excluded Qodana/IntelliJ companion integration on2026-11-11, confirmed twice. No adapter work remains required. This is a scope exception, not an OpenIDEA API exclusion.",
+      "evidence": "Contract acceptedDifferences plugin_only_qodana_exception; user decision2026-11-11; docs/laravel-runtime-sdk-qualification.md"
+    },
+    {
+      "id": "cloud-scope",
+      "leaves": [
+        "T07.cloud"
+      ],
+      "owner": "root/managed_processes",
+      "disposition": "baseline_qualification_pending",
+      "detail": "Public changelog names Cloud integration without a workflow contract. Current token-based application/environment reads and pagination are implemented. Do not invent deployment/creation/management requirements or claim complete proprietary integration from read-only browsing.",
+      "evidence": "https://laravel-idea.com/docs/changelog version13.1; plugins/laravel/src/external_services.rs"
+    },
+    {
+      "id": "unqualified-extra-baseline",
+      "leaves": [],
+      "owner": "root",
+      "disposition": "baseline_qualification_pending",
+      "detail": "Git/LLM hook behavior and generic Pest subject navigation were not established by reviewed public sources. CommitChecks is available; neither a broad API blocker nor invented optional feature should become an accepted exclusion. Livewire Pest completion is separately qualified.",
+      "evidence": "docs/laravel-parity-contract.json unqualifiedBaselineQuestions; SDK v0.1.40 commit API"
+    },
+    {
+      "id": "php85-pipe-completion",
+      "leaves": [
+        "M01.php85_pipe"
+      ],
+      "owner": "metadata/eloquent_database",
+      "disposition": "implemented_gate_pending",
+      "detail": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate. Declared typed call sites and PHP8.5 first-class function/static/instance metadata pipes are implemented. Variable/interpolated/argumented callable identities and general dynamic PHP dataflow remain unproven; exact comparison examples are required before widening scope.",
+      "evidence": "https://laravel-idea.com/docs/changelog version13.2; https://www.php.net/operators.functional; root requested extension"
+    },
+    {
+      "id": "config-diagnostic",
+      "leaves": [
+        "M04.config_inspection"
+      ],
+      "owner": "root",
+      "disposition": "implemented_gate_pending",
+      "detail": "Source and focused fixtures exist; actual pinned-host diagnostic publication remains unverified. Dynamic/incomplete inventories must not produce false missing-key warnings. ",
+      "evidence": "plugins/laravel/src/config_inspections.rs"
+    },
+    {
+      "id": "resource-diagnostic",
+      "leaves": [
+        "R03.resource_method_inspection"
+      ],
+      "owner": "editor_actions",
+      "disposition": "implemented_gate_pending",
+      "detail": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate. Configured/custom/mounted route contexts and cached FQN/resource method inspections are wired. Runtime controller identity and dynamic registration are not guessed.",
+      "evidence": "plugins/laravel/src/lib.rs; plugins/laravel/src/route_inspections.rs"
+    },
+    {
+      "id": "mass-assignment-diagnostic",
+      "leaves": [
+        "E07.mass_assignment_inspection"
+      ],
+      "owner": "eloquent_database",
+      "disposition": "implemented_gate_pending",
+      "detail": "Production uses eloquent_checks/mass_assignment.rs with cached semantic policies, non-App mappings, native attribute/version guards, constructor/update/instance contexts and configurable exceptions. Nine focused tests and grouped-import regression were reported passed; old App-only resolver is cfg(test) legacy, not current production. Native diagnostic/quick-fix acceptance remains pending. ",
+      "evidence": "plugins/laravel/src/eloquent_checks.rs; plugins/laravel/src/eloquent_checks.rs"
+    },
+    {
+      "id": "parent-config-marker",
+      "leaves": [
+        "M04.parent_config_marker"
+      ],
+      "owner": "metadata",
+      "disposition": "implemented_gate_pending",
+      "detail": "Current metadata_config_parents.rs and Main definition/marker hooks implement declared installed-provider parent config links with ownership/source proof. Dedicated final fixture receipt and actual pinned-host marker navigation remain pending; dynamic/unresolved registrations are withheld. ",
+      "evidence": "plugins/laravel/src/metadata_config_parents.rs"
+    },
+    {
+      "id": "no-parameter-run",
+      "leaves": [
+        "T01.no_parameters"
+      ],
+      "owner": "acceptance",
+      "disposition": "implemented_gate_pending",
+      "detail": "Explicit console Run and captured terminal-picker entries bypass the parameter form only for a current zero-user-parameter definition, using existing Preview/Run runner/token/permission/replay guards. Passive State/select never executes. Thirteen focused workspace tests pass; actual native host execution/terminal presentation remains unverified. ",
+      "evidence": "plugins/laravel/src/artisan_workspace.rs; plugins/laravel/src/artisan_workspace.rs"
+    },
+    {
+      "id": "template-capabilities",
+      "leaves": [
+        "G07.transforms"
+      ],
+      "owner": "generators",
+      "disposition": "implemented_gate_pending",
+      "detail": "All documented mutator capability families, escaped arguments, UTC CURRENT_TIME and equivalent SimpleDateFormat output are implemented.71focused tests, installed Java26 oracle across all field letters/widths and Chromium/WebKit generator catalog fixtures passed. Native strict unknown-input/mutator handling remains the accepted native format; actual editor application/undo remains pending. ",
+      "evidence": "plugins/laravel/src/generator_presets.rs"
+    },
+    {
+      "id": "registered-package-config-inventory",
+      "leaves": [
+        "M04.config",
+        "M04.config_inspection",
+        "M04.parent_config_marker"
+      ],
+      "owner": "acceptance",
+      "disposition": "implemented_gate_pending",
+      "detail": "Independent external Index probe found missing unpublished defaults. Fixed with ordinary shallow merge, integer renumbering, source-proven framework11+ option merges and literal PackageTools adapter;14focused tests including2installed-source acceptances and actual Laravel13.40/PHP8.4 differential pass. Native gate remains separate.",
+      "evidence": "plugins/laravel/tests/config-inventory/README.md; /tmp/laravel-config-default-final.txt; /tmp/laravel-config-runtime-differential.txt"
+    },
+    {
+      "id": "cloud-qualified-workflows",
+      "leaves": [
+        "T07.cloud",
+        "T11.cloud_git_refresh"
+      ],
+      "owner": "container_types",
+      "disposition": "production_partial",
+      "detail": "Application/environment inventory and bounded pagination exist. Qualified remaining production work: selected application persistence, organization/environment Manage URL, deployment details/logs, masked reveal/copy variables, unfinished-deployment polling and reviewed database/schema connection import. No native Cloud deploy/create/delete writes are established by the original paths. Implement project-bound visible Cloud freshness through generic VcsChanged/scheduled native polling; original onCompleted ignores pushResult, so successful-push authority is not required. This is an implementable native adaptation, not an accepted scope exception or a wholesale API exclusion.",
+      "evidence": "docs/laravel-baseline-qualification-20261111.md"
+    },
+    {
+      "id": "agent-finished-exact-boundary",
+      "leaves": [
+        "T11.llm_helper_finished"
+      ],
+      "owner": "integrations",
+      "disposition": "exact_api_exclusion",
+      "detail": "Exact agent-finished trigger/changed-file batch unavailable in pinned API1.4. Reviewed manual, project and on-save helper workflows remain implemented and required under E04/E05; do not invent an event name or automatically run PHP without preferences/capabilities.",
+      "evidence": "docs/laravel-baseline-qualification-20261111.md"
+    }
+  ],
+  "leaves": [
+    {
+      "id": "G01.indexes",
+      "owner": "generation",
+      "frozenStatus": "implemented_unverified",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Desktop acceptance remains outstanding.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G01.model_fields",
+      "owner": "generation",
+      "frozenStatus": "implemented_unverified",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Desktop acceptance remains outstanding.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G01.related_files",
+      "owner": "generation",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "related-generation"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Canonical related-file/catalog/settings and Keep assignment behavior are implemented. Native nWidart scaffold is version-gated to proven12.x; unproven package/custom base/template layouts require reviewed native presets. Other version/custom behavior is not assumed without applicable baseline fixtures."
+      ]
+    },
+    {
+      "id": "G01.relations",
+      "owner": "generation",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "related-generation"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Canonical related-file/catalog/settings and Keep assignment behavior are implemented. Native nWidart scaffold is version-gated to proven12.x; unproven package/custom base/template layouts require reviewed native presets. Other version/custom behavior is not assumed without applicable baseline fixtures."
+      ]
+    },
+    {
+      "id": "G02.blade_component",
+      "owner": "generation",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "native-catalog-boundaries"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The installed-source standard native generator and variants are implemented. All36 core kinds passed lint and framework behavior across Laravel10.0/10.50,11.0/11.57,12.0/12.72 and13.40; record exact applicable versions in receipts. Actual native preview/apply/undo remains open. Global/package custom-template overrides are tracked separately under G09.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G02.broadcast_channel",
+      "owner": "generation",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "native-catalog-boundaries"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The installed-source standard native generator and variants are implemented. All36 core kinds passed lint and framework behavior across Laravel10.0/10.50,11.0/11.57,12.0/12.72 and13.40; record exact applicable versions in receipts. Actual native preview/apply/undo remains open. Global/package custom-template overrides are tracked separately under G09.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G02.console_command",
+      "owner": "generation",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "native-catalog-boundaries"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The installed-source standard native generator and variants are implemented. All36 core kinds passed lint and framework behavior across Laravel10.0/10.50,11.0/11.57,12.0/12.72 and13.40; record exact applicable versions in receipts. Actual native preview/apply/undo remains open. Global/package custom-template overrides are tracked separately under G09.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G02.controller",
+      "owner": "generation",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "native-catalog-boundaries"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The installed-source standard native generator and variants are implemented. All36 core kinds passed lint and framework behavior across Laravel10.0/10.50,11.0/11.57,12.0/12.72 and13.40; record exact applicable versions in receipts. Actual native preview/apply/undo remains open. Global/package custom-template overrides are tracked separately under G09.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G02.event",
+      "owner": "generation",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "native-catalog-boundaries"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The installed-source standard native generator and variants are implemented. All36 core kinds passed lint and framework behavior across Laravel10.0/10.50,11.0/11.57,12.0/12.72 and13.40; record exact applicable versions in receipts. Actual native preview/apply/undo remains open. Global/package custom-template overrides are tracked separately under G09.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G02.exception",
+      "owner": "generation",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "native-catalog-boundaries"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The installed-source standard native generator and variants are implemented. All36 core kinds passed lint and framework behavior across Laravel10.0/10.50,11.0/11.57,12.0/12.72 and13.40; record exact applicable versions in receipts. Actual native preview/apply/undo remains open. Global/package custom-template overrides are tracked separately under G09.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G02.factory",
+      "owner": "generation",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "native-catalog-boundaries"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The installed-source standard native generator and variants are implemented. All36 core kinds passed lint and framework behavior across Laravel10.0/10.50,11.0/11.57,12.0/12.72 and13.40; record exact applicable versions in receipts. Actual native preview/apply/undo remains open. Global/package custom-template overrides are tracked separately under G09.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G02.feature_test",
+      "owner": "generation",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "native-catalog-boundaries"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The installed-source standard native generator and variants are implemented. All36 core kinds passed lint and framework behavior across Laravel10.0/10.50,11.0/11.57,12.0/12.72 and13.40; record exact applicable versions in receipts. Actual native preview/apply/undo remains open. Global/package custom-template overrides are tracked separately under G09.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G02.form_request",
+      "owner": "generation",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "native-catalog-boundaries"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The installed-source standard native generator and variants are implemented. All36 core kinds passed lint and framework behavior across Laravel10.0/10.50,11.0/11.57,12.0/12.72 and13.40; record exact applicable versions in receipts. Actual native preview/apply/undo remains open. Global/package custom-template overrides are tracked separately under G09.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G02.http_exception",
+      "owner": "generation",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "native-catalog-boundaries"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The installed-source standard native generator and variants are implemented. All36 core kinds passed lint and framework behavior across Laravel10.0/10.50,11.0/11.57,12.0/12.72 and13.40; record exact applicable versions in receipts. Actual native preview/apply/undo remains open. Global/package custom-template overrides are tracked separately under G09.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G02.job",
+      "owner": "generation",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "native-catalog-boundaries"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The installed-source standard native generator and variants are implemented. All36 core kinds passed lint and framework behavior across Laravel10.0/10.50,11.0/11.57,12.0/12.72 and13.40; record exact applicable versions in receipts. Actual native preview/apply/undo remains open. Global/package custom-template overrides are tracked separately under G09.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G02.json_resource",
+      "owner": "generation",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "native-catalog-boundaries"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The installed-source standard native generator and variants are implemented. All36 core kinds passed lint and framework behavior across Laravel10.0/10.50,11.0/11.57,12.0/12.72 and13.40; record exact applicable versions in receipts. Actual native preview/apply/undo remains open. Global/package custom-template overrides are tracked separately under G09.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G02.listener",
+      "owner": "generation",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "native-catalog-boundaries"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The installed-source standard native generator and variants are implemented. All36 core kinds passed lint and framework behavior across Laravel10.0/10.50,11.0/11.57,12.0/12.72 and13.40; record exact applicable versions in receipts. Actual native preview/apply/undo remains open. Global/package custom-template overrides are tracked separately under G09.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G02.mailable",
+      "owner": "generation",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "native-catalog-boundaries"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The installed-source standard native generator and variants are implemented. All36 core kinds passed lint and framework behavior across Laravel10.0/10.50,11.0/11.57,12.0/12.72 and13.40; record exact applicable versions in receipts. Actual native preview/apply/undo remains open. Global/package custom-template overrides are tracked separately under G09.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G02.middleware",
+      "owner": "generation",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "native-catalog-boundaries"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The installed-source standard native generator and variants are implemented. All36 core kinds passed lint and framework behavior across Laravel10.0/10.50,11.0/11.57,12.0/12.72 and13.40; record exact applicable versions in receipts. Actual native preview/apply/undo remains open. Global/package custom-template overrides are tracked separately under G09.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G02.migration",
+      "owner": "generation",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "native-catalog-boundaries"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The installed-source standard native generator and variants are implemented. All36 core kinds passed lint and framework behavior across Laravel10.0/10.50,11.0/11.57,12.0/12.72 and13.40; record exact applicable versions in receipts. Actual native preview/apply/undo remains open. Global/package custom-template overrides are tracked separately under G09.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G02.model",
+      "owner": "generation",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "native-catalog-boundaries"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The installed-source standard native generator and variants are implemented. All36 core kinds passed lint and framework behavior across Laravel10.0/10.50,11.0/11.57,12.0/12.72 and13.40; record exact applicable versions in receipts. Actual native preview/apply/undo remains open. Global/package custom-template overrides are tracked separately under G09.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G02.notification",
+      "owner": "generation",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "native-catalog-boundaries"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The installed-source standard native generator and variants are implemented. All36 core kinds passed lint and framework behavior across Laravel10.0/10.50,11.0/11.57,12.0/12.72 and13.40; record exact applicable versions in receipts. Actual native preview/apply/undo remains open. Global/package custom-template overrides are tracked separately under G09.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G02.observer",
+      "owner": "generation",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "native-catalog-boundaries"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The installed-source standard native generator and variants are implemented. All36 core kinds passed lint and framework behavior across Laravel10.0/10.50,11.0/11.57,12.0/12.72 and13.40; record exact applicable versions in receipts. Actual native preview/apply/undo remains open. Global/package custom-template overrides are tracked separately under G09.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G02.policy",
+      "owner": "generation",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "native-catalog-boundaries"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The installed-source standard native generator and variants are implemented. All36 core kinds passed lint and framework behavior across Laravel10.0/10.50,11.0/11.57,12.0/12.72 and13.40; record exact applicable versions in receipts. Actual native preview/apply/undo remains open. Global/package custom-template overrides are tracked separately under G09.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G02.resource_collection",
+      "owner": "generation",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "native-catalog-boundaries"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The installed-source standard native generator and variants are implemented. All36 core kinds passed lint and framework behavior across Laravel10.0/10.50,11.0/11.57,12.0/12.72 and13.40; record exact applicable versions in receipts. Actual native preview/apply/undo remains open. Global/package custom-template overrides are tracked separately under G09.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G02.resource_controller",
+      "owner": "generation",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "native-catalog-boundaries"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The installed-source standard native generator and variants are implemented. All36 core kinds passed lint and framework behavior across Laravel10.0/10.50,11.0/11.57,12.0/12.72 and13.40; record exact applicable versions in receipts. Actual native preview/apply/undo remains open. Global/package custom-template overrides are tracked separately under G09.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G02.seeder",
+      "owner": "generation",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "native-catalog-boundaries"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The installed-source standard native generator and variants are implemented. All36 core kinds passed lint and framework behavior across Laravel10.0/10.50,11.0/11.57,12.0/12.72 and13.40; record exact applicable versions in receipts. Actual native preview/apply/undo remains open. Global/package custom-template overrides are tracked separately under G09.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G02.service_provider",
+      "owner": "generation",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "native-catalog-boundaries"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The installed-source standard native generator and variants are implemented. All36 core kinds passed lint and framework behavior across Laravel10.0/10.50,11.0/11.57,12.0/12.72 and13.40; record exact applicable versions in receipts. Actual native preview/apply/undo remains open. Global/package custom-template overrides are tracked separately under G09.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G02.unit_test",
+      "owner": "generation",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "native-catalog-boundaries"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The installed-source standard native generator and variants are implemented. All36 core kinds passed lint and framework behavior across Laravel10.0/10.50,11.0/11.57,12.0/12.72 and13.40; record exact applicable versions in receipts. Actual native preview/apply/undo remains open. Global/package custom-template overrides are tracked separately under G09.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G02.validation_rule",
+      "owner": "generation",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "native-catalog-boundaries"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The installed-source standard native generator and variants are implemented. All36 core kinds passed lint and framework behavior across Laravel10.0/10.50,11.0/11.57,12.0/12.72 and13.40; record exact applicable versions in receipts. Actual native preview/apply/undo remains open. Global/package custom-template overrides are tracked separately under G09.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G02.view",
+      "owner": "generation",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "native-catalog-boundaries"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The installed-source standard native generator and variants are implemented. All36 core kinds passed lint and framework behavior across Laravel10.0/10.50,11.0/11.57,12.0/12.72 and13.40; record exact applicable versions in receipts. Actual native preview/apply/undo remains open. Global/package custom-template overrides are tracked separately under G09.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G02.view_composer",
+      "owner": "generation",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "native-catalog-boundaries"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The installed-source standard native generator and variants are implemented. All36 core kinds passed lint and framework behavior across Laravel10.0/10.50,11.0/11.57,12.0/12.72 and13.40; record exact applicable versions in receipts. Actual native preview/apply/undo remains open. Global/package custom-template overrides are tracked separately under G09.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G03.factory_fields",
+      "owner": "generation",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "related-generation"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Common official Factory<Model> stubs now resolve through owned native Factory::modelName convention profiles as well as literal mappings. Actual Laravel12.72 SQLite/Faker runtime and first/latest10–13 source profiles passed; actual desktop apply/undo remains unverified.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G03.resource_fields",
+      "owner": "generation",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "related-generation"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The stated scoped behavior is implemented and source/provider fixtures exist. Actual pinned-host interaction remains an acceptance gate; this status does not claim arbitrary PHP/JS dataflow or unqualified input shapes. Related broader inference/registration limits remain in their own partial leaves.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G04.assignment",
+      "owner": "generation",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Canonical related-file/catalog/settings and Keep assignment behavior are implemented. Native nWidart scaffold is version-gated to proven12.x; unproven package/custom base/template layouts require reviewed native presets. Other version/custom behavior is not assumed without applicable baseline fixtures."
+      ]
+    },
+    {
+      "id": "G04.new_fields",
+      "owner": "generation",
+      "frozenStatus": "implemented_unverified",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Desktop acceptance remains outstanding.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G05.layout",
+      "owner": "generation",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "module-layouts"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Conventional/module core related-file layouts and the namespaced module Livewire component adapter are implemented; the missing-component fix plans through the installed native generator for the unique configured application/module and refuses zero or multiple matches. Dynamic custom layouts require explicit configuration, not guessed runtime paths. Desktop acceptance remains outstanding.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G05.nwidart",
+      "owner": "generation",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "module-layouts"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Canonical related-file/catalog/settings and Keep assignment behavior are implemented. Native nWidart scaffold is version-gated to proven12.x; unproven package/custom base/template layouts require reviewed native presets. Other version/custom behavior is not assumed without applicable baseline fixtures."
+      ]
+    },
+    {
+      "id": "G05.selection",
+      "owner": "generation",
+      "frozenStatus": "implemented_unverified",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Desktop acceptance remains outstanding.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G06.calculated",
+      "owner": "generation",
+      "frozenStatus": "implemented_unverified",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Desktop acceptance remains outstanding.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G06.inputs",
+      "owner": "generation",
+      "frozenStatus": "implemented_unverified",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Desktop acceptance remains outstanding.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G06.multifile",
+      "owner": "generation",
+      "frozenStatus": "implemented_unverified",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Desktop acceptance remains outstanding.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G06.presets",
+      "owner": "generation",
+      "frozenStatus": "implemented_unverified",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Desktop acceptance remains outstanding.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G07.native_format",
+      "owner": "generation",
+      "frozenStatus": "accepted_difference",
+      "auditDisposition": "accepted_difference",
+      "issueIds": [],
+      "currentStatus": "accepted_difference",
+      "currentRemaining": "User-approved syntax/import difference only; capability gaps remain open.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G07.sections",
+      "owner": "generation",
+      "frozenStatus": "implemented_unverified",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Desktop acceptance remains outstanding.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G07.transforms",
+      "owner": "generation",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "template-capabilities"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "All documented mutator capability families, escaped arguments, UTC CURRENT_TIME and equivalent SimpleDateFormat output are implemented.71focused tests, installed Java26 oracle across all field letters/widths and Chromium/WebKit generator catalog fixtures passed. Native strict unknown-input/mutator handling remains the accepted native format; actual editor application/undo remains pending.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G08.project",
+      "owner": "generation",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "project-installer"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Installed CLI-help option gating, launch/cancellation and partial-install recovery are implemented. Official installer5.28.1 Svelte+SQLite/Laravel13.42 success and npm-absent preservation/replay refusal passed. Remaining starter combinations and actual native terminal/trust/recovery interaction are acceptance gates.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G09.availability",
+      "owner": "generation",
+      "frozenStatus": "implemented_unverified",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Desktop acceptance remains outstanding.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G09.catalog",
+      "owner": "generation",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "native-catalog-boundaries"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Canonical related-file/catalog/settings and Keep assignment behavior are implemented. Native nWidart scaffold is version-gated to proven12.x; unproven package/custom base/template layouts require reviewed native presets. Other version/custom behavior is not assumed without applicable baseline fixtures."
+      ]
+    },
+    {
+      "id": "G09.settings",
+      "owner": "generation",
+      "frozenStatus": "implemented_unverified",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Desktop acceptance remains outstanding.",
+      "implementationLimits": []
+    },
+    {
+      "id": "G10.transaction",
+      "owner": "generation",
+      "frozenStatus": "implemented_unverified",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Use the accepted editor-action bridge; direct webview apply is not assumed.",
+      "implementationLimits": []
+    },
+    {
+      "id": "E01.field_usages",
+      "owner": "eloquent",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "member-refactoring"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Reviewed source-bound class/member/trait families and typed model facts are implemented. Unresolved runtime receiver/target identities are withheld; arbitrary PHP inference is not a separately qualified baseline requirement."
+      ]
+    },
+    {
+      "id": "E01.navigation",
+      "owner": "eloquent",
+      "frozenStatus": "implemented_unverified",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Desktop acceptance remains outstanding.",
+      "implementationLimits": []
+    },
+    {
+      "id": "E01.overview",
+      "owner": "eloquent",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Reviewed source-bound class/member/trait families and typed model facts are implemented. Unresolved runtime receiver/target identities are withheld; arbitrary PHP inference is not a separately qualified baseline requirement."
+      ]
+    },
+    {
+      "id": "E02.chains",
+      "owner": "eloquent",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "eloquent-flow"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Canonical query chains, when/unless/optional, keyed/nested eager callbacks, collection map/flatMap, custom builders and modern attributes have provider/runtime fixtures. No claim covers arbitrary untyped PHP."
+      ]
+    },
+    {
+      "id": "E02.closures",
+      "owner": "eloquent",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "eloquent-flow"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Canonical query chains, when/unless/optional, keyed/nested eager callbacks, collection map/flatMap, custom builders and modern attributes have provider/runtime fixtures. No claim covers arbitrary untyped PHP."
+      ]
+    },
+    {
+      "id": "E02.collections",
+      "owner": "eloquent",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "eloquent-flow"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Eloquent collection map/flatMap keep model identity (the callback's result model) independent of the physical collection class: map retains the receiver's custom collection class, flatMap falls back to Illuminate\\Support\\Collection, including across different custom collection classes on the original and target models. Desktop acceptance remains outstanding.",
+      "implementationLimits": []
+    },
+    {
+      "id": "E03.factory_many",
+      "owner": "eloquent",
+      "frozenStatus": "missing",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "eloquent-flow"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Class factory single/count/many and proven literal/generic/hook mappings have current framework fixtures. Legacy global factory() is applicable only to older framework/legacy-factories installations, not Laravel13 core; arbitrary computed custom resolvers are not inferred."
+      ]
+    },
+    {
+      "id": "E03.factory_single",
+      "owner": "eloquent",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "eloquent-flow"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Class factory single/count/many and proven literal/generic/hook mappings have current framework fixtures. Legacy global factory() is applicable only to older framework/legacy-factories installations, not Laravel13 core; arbitrary computed custom resolvers are not inferred."
+      ]
+    },
+    {
+      "id": "E04.counts",
+      "owner": "eloquent",
+      "frozenStatus": "implemented_unverified",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Desktop acceptance remains outstanding.",
+      "implementationLimits": []
+    },
+    {
+      "id": "E04.helpers",
+      "owner": "eloquent",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Helper/proxy production content and reviewed/project/on-save workflows use current shared semantic facts. Unresolved computed identities and unsupported procedural SQL do not become authoritative facts."
+      ]
+    },
+    {
+      "id": "E04.proxies",
+      "owner": "eloquent",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Helper/proxy production content and reviewed/project/on-save workflows use current shared semantic facts. Unresolved computed identities and unsupported procedural SQL do not become authoritative facts."
+      ]
+    },
+    {
+      "id": "E04.sources",
+      "owner": "eloquent",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "database-schema"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Helper/proxy production content and reviewed/project/on-save workflows use current shared semantic facts. Unresolved computed identities and unsupported procedural SQL do not become authoritative facts."
+      ]
+    },
+    {
+      "id": "E05.overwrite",
+      "owner": "eloquent",
+      "frozenStatus": "implemented_unverified",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Desktop acceptance remains outstanding.",
+      "implementationLimits": []
+    },
+    {
+      "id": "E05.preserve",
+      "owner": "eloquent",
+      "frozenStatus": "implemented_unverified",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Desktop acceptance remains outstanding.",
+      "implementationLimits": []
+    },
+    {
+      "id": "E05.storage",
+      "owner": "eloquent",
+      "frozenStatus": "implemented_unverified",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Desktop acceptance remains outstanding.",
+      "implementationLimits": []
+    },
+    {
+      "id": "E06.constructors",
+      "owner": "eloquent",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "eloquent-flow"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The stated scoped behavior is implemented and source/provider fixtures exist. Actual pinned-host interaction remains an acceptance gate; this status does not claim arbitrary PHP/JS dataflow or unqualified input shapes. Related broader inference/registration limits remain in their own partial leaves.",
+      "implementationLimits": []
+    },
+    {
+      "id": "E06.exclusions",
+      "owner": "eloquent",
+      "frozenStatus": "implemented_unverified",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Desktop acceptance remains outstanding.",
+      "implementationLimits": []
+    },
+    {
+      "id": "E06.mixins",
+      "owner": "eloquent",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "eloquent-flow"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The stated scoped behavior is implemented and source/provider fixtures exist. Actual pinned-host interaction remains an acceptance gate; this status does not claim arbitrary PHP/JS dataflow or unqualified input shapes. Related broader inference/registration limits remain in their own partial leaves.",
+      "implementationLimits": []
+    },
+    {
+      "id": "E07.fillable",
+      "owner": "editor",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The stated scoped behavior is implemented and source/provider fixtures exist. Actual pinned-host interaction remains an acceptance gate; this status does not claim arbitrary PHP/JS dataflow or unqualified input shapes. Related broader inference/registration limits remain in their own partial leaves.",
+      "implementationLimits": []
+    },
+    {
+      "id": "E07.mass_assignment_inspection",
+      "owner": "eloquent",
+      "frozenStatus": null,
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Production uses eloquent_checks/mass_assignment.rs with cached semantic policies, non-App mappings, native attribute/version guards, constructor/update/instance contexts and configurable exceptions. Nine focused tests and grouped-import regression were reported passed; old App-only resolver is cfg(test) legacy, not current production. Native diagnostic/quick-fix acceptance remains pending.",
+      "issueIds": [
+        "mass-assignment-diagnostic"
+      ],
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "implementationLimits": []
+    },
+    {
+      "id": "E08.table_model",
+      "owner": "database",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "database-schema"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Supported table/model/schema metadata is preserved. Composite primary keys are not native Eloquent behavior; their refusal is not treated as a new comparison requirement without primary evidence."
+      ]
+    },
+    {
+      "id": "E09.blueprint",
+      "owner": "database",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The stated scoped behavior is implemented and source/provider fixtures exist. Actual pinned-host interaction remains an acceptance gate; this status does not claim arbitrary PHP/JS dataflow or unqualified input shapes. Related broader inference/registration limits remain in their own partial leaves.",
+      "implementationLimits": []
+    },
+    {
+      "id": "E09.sql",
+      "owner": "database",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "database-schema"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Literal SQL schema inventory/evolution is implemented across proven dialect forms. Arbitrary procedural/dynamic SQL and ambiguous unqualified cross-schema resolution remain conservative implementation boundaries, not an assumed infinite baseline obligation."
+      ]
+    },
+    {
+      "id": "E10.evolution",
+      "owner": "database",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "database-schema"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Proven literal migration evolution is implemented; dynamic executable migrations never establish complete absence."
+      ]
+    },
+    {
+      "id": "E11.attributes",
+      "owner": "eloquent",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "eloquent-flow"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Modern Attribute get/set and classic accessor read/write facts, source refresh, custom builders/collections and provider navigation are implemented; arbitrary untyped/computed PHP remains unproven."
+      ]
+    },
+    {
+      "id": "E11.builders",
+      "owner": "eloquent",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "eloquent-flow"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Modern Attribute get/set and classic accessor read/write facts, source refresh, custom builders/collections and provider navigation are implemented; arbitrary untyped/computed PHP remains unproven."
+      ]
+    },
+    {
+      "id": "E12.external",
+      "owner": "eloquent",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "eloquent-flow"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Direct function/arrow resolveRelationUsing, relation query chains, owned subclass/generic relation graphs and single-target annotated morphTo are implemented. Unresolvable polymorphic targets or arbitrary package factories are not invented."
+      ]
+    },
+    {
+      "id": "E12.through",
+      "owner": "eloquent",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "eloquent-flow"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Direct function/arrow resolveRelationUsing, relation query chains, owned subclass/generic relation graphs and single-target annotated morphTo are implemented. Unresolvable polymorphic targets or arbitrary package factories are not invented."
+      ]
+    },
+    {
+      "id": "E13.bindings",
+      "owner": "eloquent",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "eloquent-flow"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Canonical provider literals, aliases, explicit/real-time facades, contextual consumer arrays, closure/arrow factories, Give>=12.17 and unconditional Bind>=12.22 are implemented. Environment-conditional/computed/custom attribute behavior remains conservative, not an assumed broader contract."
+      ]
+    },
+    {
+      "id": "E13.facades",
+      "owner": "eloquent",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "eloquent-flow"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Canonical provider literals, aliases, explicit/real-time facades, contextual consumer arrays, closure/arrow factories, Give>=12.17 and unconditional Bind>=12.22 are implemented. Environment-conditional/computed/custom attribute behavior remains conservative, not an assumed broader contract."
+      ]
+    },
+    {
+      "id": "M01.call_sites",
+      "owner": "metadata",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Declared typed call sites and PHP8.5 first-class function/static/instance metadata pipes are implemented. Variable/interpolated/argumented callable identities and general dynamic PHP dataflow remain unproven; exact comparison examples are required before widening scope."
+      ]
+    },
+    {
+      "id": "M01.filters",
+      "owner": "metadata",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The stated scoped behavior is implemented and source/provider fixtures exist. Actual pinned-host interaction remains an acceptance gate; this status does not claim arbitrary PHP/JS dataflow or unqualified input shapes. Related broader inference/registration limits remain in their own partial leaves.",
+      "implementationLimits": []
+    },
+    {
+      "id": "M01.locations",
+      "owner": "metadata",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Current scoped implementation is present and provider/source fixtures cover its documented static behavior. Actual pinned-host interaction remains an acceptance gate; dynamic/ambiguous identities are not inferred.",
+      "implementationLimits": []
+    },
+    {
+      "id": "M01.positions",
+      "owner": "metadata",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The stated scoped behavior is implemented and source/provider fixtures exist. Actual pinned-host interaction remains an acceptance gate; this status does not claim arbitrary PHP/JS dataflow or unqualified input shapes. Related broader inference/registration limits remain in their own partial leaves.",
+      "implementationLimits": []
+    },
+    {
+      "id": "M01.php85_pipe",
+      "owner": "metadata",
+      "frozenStatus": "missing",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "php85-pipe-completion"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Declared typed call sites and PHP8.5 first-class function/static/instance metadata pipes are implemented. Variable/interpolated/argumented callable identities and general dynamic PHP dataflow remain unproven; exact comparison examples are required before widening scope."
+      ]
+    },
+    {
+      "id": "M01.transforms",
+      "owner": "metadata",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "metadata-transformers"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Pinned grammar, forward/inverse navigation and documented core metadata consumers have production implementation/Main fixtures. Final source guard tests cover config prefix, supported-domain consumers and directory suffixToClear replacement semantics; current fresh rerun remains in progress. Actual pinned-host acceptance remains outstanding.",
+      "implementationLimits": []
+    },
+    {
+      "id": "M02.artisanCommandName",
+      "owner": "metadata",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The documented category is wired through source-proven metadata matching, cached inventory, completion and navigation. Current supported declared/static source behavior is implemented; actual pinned-host category acceptance remains open. Unsupported or ambiguous callable/type identity is withheld rather than guessed.",
+      "implementationLimits": []
+    },
+    {
+      "id": "M02.artisanCommandParameter",
+      "owner": "metadata",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The documented category is wired through source-proven metadata matching, cached inventory, completion and navigation. Current supported declared/static source behavior is implemented; actual pinned-host category acceptance remains open. Unsupported or ambiguous callable/type identity is withheld rather than guessed.",
+      "implementationLimits": []
+    },
+    {
+      "id": "M02.assetPath",
+      "owner": "metadata",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The documented category is wired through source-proven metadata matching, cached inventory, completion and navigation. Current supported declared/static source behavior is implemented; actual pinned-host category acceptance remains open. Unsupported or ambiguous callable/type identity is withheld rather than guessed.",
+      "implementationLimits": []
+    },
+    {
+      "id": "M02.bladeComponent",
+      "owner": "metadata",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The documented category is wired through source-proven metadata matching, cached inventory, completion and navigation. Current supported declared/static source behavior is implemented; actual pinned-host category acceptance remains open. Unsupported or ambiguous callable/type identity is withheld rather than guessed.",
+      "implementationLimits": []
+    },
+    {
+      "id": "M02.bladeIcon",
+      "owner": "metadata",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "icon-registration"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Documented native declaration/filter/field domains, Unicode/escaped CSS and declared local/provider icon sets are implemented. Remote disks, SCSS/embedded-style breadth and arbitrary computed registrations are not separately established comparison requirements."
+      ]
+    },
+    {
+      "id": "M02.classFields",
+      "owner": "metadata",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Documented native declaration/filter/field domains, Unicode/escaped CSS and declared local/provider icon sets are implemented. Remote disks, SCSS/embedded-style breadth and arbitrary computed registrations are not separately established comparison requirements."
+      ]
+    },
+    {
+      "id": "M02.configKey",
+      "owner": "metadata",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The documented category is wired through source-proven metadata matching, cached inventory, completion and navigation. Current supported declared/static source behavior is implemented; actual pinned-host category acceptance remains open. Unsupported or ambiguous callable/type identity is withheld rather than guessed.",
+      "implementationLimits": []
+    },
+    {
+      "id": "M02.cssClassName",
+      "owner": "metadata",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "css-identifiers"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The documented category is wired through source-proven metadata matching, cached inventory, completion and navigation. Current supported declared/static source behavior is implemented; actual pinned-host category acceptance remains open. Unsupported or ambiguous callable/type identity is withheld rather than guessed.",
+      "implementationLimits": []
+    },
+    {
+      "id": "M02.cssClassNames",
+      "owner": "metadata",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "css-identifiers"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The documented category is wired through source-proven metadata matching, cached inventory, completion and navigation. Current supported declared/static source behavior is implemented; actual pinned-host category acceptance remains open. Unsupported or ambiguous callable/type identity is withheld rather than guessed.",
+      "implementationLimits": []
+    },
+    {
+      "id": "M02.directoryFiles",
+      "owner": "metadata",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "directory-grants"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The documented category is wired through source-proven metadata matching, cached inventory, completion and navigation. Current supported declared/static source behavior is implemented; actual pinned-host category acceptance remains open. Unsupported or ambiguous callable/type identity is withheld rather than guessed.",
+      "implementationLimits": []
+    },
+    {
+      "id": "M02.eloquentCasts",
+      "owner": "metadata",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The documented category is wired through source-proven metadata matching, cached inventory, completion and navigation. Current supported declared/static source behavior is implemented; actual pinned-host category acceptance remains open. Unsupported or ambiguous callable/type identity is withheld rather than guessed.",
+      "implementationLimits": []
+    },
+    {
+      "id": "M02.eloquentFields",
+      "owner": "metadata",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Documented native declaration/filter/field domains, Unicode/escaped CSS and declared local/provider icon sets are implemented. Remote disks, SCSS/embedded-style breadth and arbitrary computed registrations are not separately established comparison requirements."
+      ]
+    },
+    {
+      "id": "M02.environmentVariable",
+      "owner": "metadata",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The documented category is wired through source-proven metadata matching, cached inventory, completion and navigation. Current supported declared/static source behavior is implemented; actual pinned-host category acceptance remains open. Unsupported or ambiguous callable/type identity is withheld rather than guessed.",
+      "implementationLimits": []
+    },
+    {
+      "id": "M02.gate",
+      "owner": "metadata",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The documented category is wired through source-proven metadata matching, cached inventory, completion and navigation. Current supported declared/static source behavior is implemented; actual pinned-host category acceptance remains open. Unsupported or ambiguous callable/type identity is withheld rather than guessed.",
+      "implementationLimits": []
+    },
+    {
+      "id": "M02.inertiaPage",
+      "owner": "metadata",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The documented category is wired through source-proven metadata matching, cached inventory, completion and navigation. Current supported declared/static source behavior is implemented; actual pinned-host category acceptance remains open. Unsupported or ambiguous callable/type identity is withheld rather than guessed.",
+      "implementationLimits": []
+    },
+    {
+      "id": "M02.livewireComponent",
+      "owner": "metadata",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The documented category is wired through source-proven metadata matching, cached inventory, completion and navigation. Current supported declared/static source behavior is implemented; actual pinned-host category acceptance remains open. Unsupported or ambiguous callable/type identity is withheld rather than guessed.",
+      "implementationLimits": []
+    },
+    {
+      "id": "M02.moduleName",
+      "owner": "metadata",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The documented category is wired through source-proven metadata matching, cached inventory, completion and navigation. Current supported declared/static source behavior is implemented; actual pinned-host category acceptance remains open. Unsupported or ambiguous callable/type identity is withheld rather than guessed.",
+      "implementationLimits": []
+    },
+    {
+      "id": "M02.passportScopeId",
+      "owner": "metadata",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The documented category is wired through source-proven metadata matching, cached inventory, completion and navigation. Current supported declared/static source behavior is implemented; actual pinned-host category acceptance remains open. Unsupported or ambiguous callable/type identity is withheld rather than guessed.",
+      "implementationLimits": []
+    },
+    {
+      "id": "M02.routeAction",
+      "owner": "metadata",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The documented category is wired through source-proven metadata matching, cached inventory, completion and navigation. Current supported declared/static source behavior is implemented; actual pinned-host category acceptance remains open. Unsupported or ambiguous callable/type identity is withheld rather than guessed.",
+      "implementationLimits": []
+    },
+    {
+      "id": "M02.routeMiddleware",
+      "owner": "metadata",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The documented category is wired through source-proven metadata matching, cached inventory, completion and navigation. Current supported declared/static source behavior is implemented; actual pinned-host category acceptance remains open. Unsupported or ambiguous callable/type identity is withheld rather than guessed.",
+      "implementationLimits": []
+    },
+    {
+      "id": "M02.routeName",
+      "owner": "metadata",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The documented category is wired through source-proven metadata matching, cached inventory, completion and navigation. Current supported declared/static source behavior is implemented; actual pinned-host category acceptance remains open. Unsupported or ambiguous callable/type identity is withheld rather than guessed.",
+      "implementationLimits": []
+    },
+    {
+      "id": "M02.staticStrings",
+      "owner": "metadata",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The documented category is wired through source-proven metadata matching, cached inventory, completion and navigation. Current supported declared/static source behavior is implemented; actual pinned-host category acceptance remains open. Unsupported or ambiguous callable/type identity is withheld rather than guessed.",
+      "implementationLimits": []
+    },
+    {
+      "id": "M02.translationKey",
+      "owner": "metadata",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The documented category is wired through source-proven metadata matching, cached inventory, completion and navigation. Current supported declared/static source behavior is implemented; actual pinned-host category acceptance remains open. Unsupported or ambiguous callable/type identity is withheld rather than guessed.",
+      "implementationLimits": []
+    },
+    {
+      "id": "M02.validationRule",
+      "owner": "metadata",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The documented category is wired through source-proven metadata matching, cached inventory, completion and navigation. Current supported declared/static source behavior is implemented; actual pinned-host category acceptance remains open. Unsupported or ambiguous callable/type identity is withheld rather than guessed.",
+      "implementationLimits": []
+    },
+    {
+      "id": "M02.validationRules",
+      "owner": "metadata",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The documented category is wired through source-proven metadata matching, cached inventory, completion and navigation. Current supported declared/static source behavior is implemented; actual pinned-host category acceptance remains open. Unsupported or ambiguous callable/type identity is withheld rather than guessed.",
+      "implementationLimits": []
+    },
+    {
+      "id": "M02.viewName",
+      "owner": "metadata",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The documented category is wired through source-proven metadata matching, cached inventory, completion and navigation. Current supported declared/static source behavior is implemented; actual pinned-host category acceptance remains open. Unsupported or ambiguous callable/type identity is withheld rather than guessed.",
+      "implementationLimits": []
+    },
+    {
+      "id": "M02.viteAsset",
+      "owner": "metadata",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The documented category is wired through source-proven metadata matching, cached inventory, completion and navigation. Current supported declared/static source behavior is implemented; actual pinned-host category acceptance remains open. Unsupported or ambiguous callable/type identity is withheld rather than guessed.",
+      "implementationLimits": []
+    },
+    {
+      "id": "M03.layouts",
+      "owner": "metadata",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Declared metadata, Composer and package source layouts are supported. Runtime-computed path helpers are not executed or guessed during read-only callbacks."
+      ]
+    },
+    {
+      "id": "M03.overrides",
+      "owner": "metadata",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Current scoped implementation is present and provider/source fixtures cover its documented static behavior. Actual pinned-host interaction remains an acceptance gate; dynamic/ambiguous identities are not inferred.",
+      "implementationLimits": []
+    },
+    {
+      "id": "M04.config",
+      "owner": "editor",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "config-enums"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Literal app/framework/registered package config inventory/navigation is implemented, including source-proven enum array keys Key::Case->value and Key::Case->name (enum_config_keys.rs). Desktop acceptance remains outstanding.",
+      "implementationLimits": [
+        "Literal app/framework/registered package configuration inventory, previews/navigation and complete-map diagnostics are implemented. Changelog enum-key wording still needs exact expression qualification; Enum-object APIs are not invented."
+      ]
+    },
+    {
+      "id": "M04.env",
+      "owner": "editor",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Current scoped implementation is present and provider/source fixtures cover its documented static behavior. Actual pinned-host interaction remains an acceptance gate; dynamic/ambiguous identities are not inferred.",
+      "implementationLimits": []
+    },
+    {
+      "id": "M04.gates",
+      "owner": "editor",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The stated scoped behavior is implemented and source/provider fixtures exist. Actual pinned-host interaction remains an acceptance gate; this status does not claim arbitrary PHP/JS dataflow or unqualified input shapes. Related broader inference/registration limits remain in their own partial leaves.",
+      "implementationLimits": []
+    },
+    {
+      "id": "M04.response",
+      "owner": "editor",
+      "frozenStatus": "missing",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "response-headers"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Current scoped implementation is present and provider/source fixtures cover its documented static behavior. Actual pinned-host interaction remains an acceptance gate; dynamic/ambiguous identities are not inferred.",
+      "implementationLimits": []
+    },
+    {
+      "id": "M04.config_inspection",
+      "owner": "editor",
+      "frozenStatus": null,
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Source and focused fixtures exist; actual pinned-host diagnostic publication remains unverified. Dynamic/incomplete inventories must not produce false missing-key warnings.",
+      "issueIds": [
+        "config-diagnostic"
+      ],
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "implementationLimits": []
+    },
+    {
+      "id": "M04.parent_config_marker",
+      "owner": "editor",
+      "frozenStatus": null,
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Current metadata_config_parents.rs and Main definition/marker hooks implement declared installed-provider parent config links with ownership/source proof. Dedicated final fixture receipt and actual pinned-host marker navigation remain pending; dynamic/unresolved registrations are withheld.",
+      "issueIds": [
+        "parent-config-marker"
+      ],
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "implementationLimits": []
+    },
+    {
+      "id": "M05.vite",
+      "owner": "metadata",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The stated scoped behavior is implemented and source/provider fixtures exist. Actual pinned-host interaction remains an acceptance gate; this status does not claim arbitrary PHP/JS dataflow or unqualified input shapes. Related broader inference/registration limits remain in their own partial leaves.",
+      "implementationLimits": []
+    },
+    {
+      "id": "M06.lifecycle",
+      "owner": "metadata",
+      "frozenStatus": "implemented_unverified",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Verify ownership, precedence, malformed data and unsaved revisions.",
+      "implementationLimits": []
+    },
+    {
+      "id": "R01.search",
+      "owner": "editor",
+      "frozenStatus": "implemented_unverified",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Desktop acceptance remains outstanding.",
+      "implementationLimits": []
+    },
+    {
+      "id": "R02.custom",
+      "owner": "routing",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "route-registration"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The stated scoped behavior is implemented and source/provider fixtures exist. Actual pinned-host interaction remains an acceptance gate; this status does not claim arbitrary PHP/JS dataflow or unqualified input shapes. Related broader inference/registration limits remain in their own partial leaves.",
+      "implementationLimits": []
+    },
+    {
+      "id": "R02.registration",
+      "owner": "routing",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "route-registration"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Literal mounted route paths, URI/name prefixes and root controller namespaces are modeled. Arbitrary executable registration callbacks remain conservative source-analysis limits."
+      ]
+    },
+    {
+      "id": "R03.names",
+      "owner": "routing",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The stated scoped behavior is implemented and source/provider fixtures exist. Actual pinned-host interaction remains an acceptance gate; this status does not claim arbitrary PHP/JS dataflow or unqualified input shapes. Related broader inference/registration limits remain in their own partial leaves.",
+      "implementationLimits": []
+    },
+    {
+      "id": "R03.namespaces",
+      "owner": "routing",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "route-registration"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Configured/custom/mounted route contexts and cached FQN/resource method inspections are wired. Runtime controller identity and dynamic registration are not guessed."
+      ]
+    },
+    {
+      "id": "R03.resources",
+      "owner": "routing",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The stated scoped behavior is implemented and source/provider fixtures exist. Actual pinned-host interaction remains an acceptance gate; this status does not claim arbitrary PHP/JS dataflow or unqualified input shapes. Related broader inference/registration limits remain in their own partial leaves.",
+      "implementationLimits": []
+    },
+    {
+      "id": "R03.resource_method_inspection",
+      "owner": "routing",
+      "frozenStatus": null,
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "issueIds": [
+        "resource-diagnostic"
+      ],
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "implementationLimits": [
+        "Configured/custom/mounted route contexts and cached FQN/resource method inspections are wired. Runtime controller identity and dynamic registration are not guessed."
+      ]
+    },
+    {
+      "id": "R04.actions",
+      "owner": "editor",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Current scoped behavior is implemented and supported by provider/source and/or installed-framework fixtures. Actual pinned-host interaction and any required connected/live gate remain open; these are acceptance gaps rather than an inferred absence of implementation.",
+      "implementationLimits": []
+    },
+    {
+      "id": "R04.hints",
+      "owner": "editor",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Current scoped behavior is implemented and supported by provider/source and/or installed-framework fixtures. Actual pinned-host interaction and any required connected/live gate remain open; these are acceptance gaps rather than an inferred absence of implementation.",
+      "implementationLimits": []
+    },
+    {
+      "id": "R04.settings",
+      "owner": "editor",
+      "frozenStatus": "implemented_unverified",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Desktop acceptance remains outstanding.",
+      "implementationLimits": []
+    },
+    {
+      "id": "R05.endpoints",
+      "owner": "editor",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Current scoped behavior is implemented and supported by provider/source and/or installed-framework fixtures. Actual pinned-host interaction and any required connected/live gate remain open; these are acceptance gaps rather than an inferred absence of implementation.",
+      "implementationLimits": []
+    },
+    {
+      "id": "R06.editor_interfaces",
+      "owner": "editor",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "editor-interfaces"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Main wires route/Eloquent type definitions plus documented forwarded completion/signature/hover/definition contexts. Actual provider and PHP reflection fixtures cover inherited mixins/constructors. No separate documented missing consumer was identified in the current audit; remaining model/type inference limits are tracked explicitly under E02/E11/E12/E13. Actual native-host interaction remains pending.",
+      "implementationLimits": []
+    },
+    {
+      "id": "R07.controller",
+      "owner": "editor",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "member-refactoring"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Reviewed class/member families, literal route/controller strings and standard component usages are implemented. Unknown dynamic receiver/callback and unresolved trait-adapter cases refuse whole rename plans."
+      ]
+    },
+    {
+      "id": "R07.framework",
+      "owner": "editor",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "member-refactoring"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Reviewed class/member families, literal route/controller strings and standard component usages are implemented. Unknown dynamic receiver/callback and unresolved trait-adapter cases refuse whole rename plans."
+      ]
+    },
+    {
+      "id": "R08.inertia",
+      "owner": "packages",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The stated scoped behavior is implemented and source/provider fixtures exist. Actual pinned-host interaction remains an acceptance gate; this status does not claim arbitrary PHP/JS dataflow or unqualified input shapes. Related broader inference/registration limits remain in their own partial leaves.",
+      "implementationLimits": []
+    },
+    {
+      "id": "R08.wayfinder",
+      "owner": "packages",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The stated scoped behavior is implemented and source/provider fixtures exist. Actual pinned-host interaction remains an acceptance gate; this status does not claim arbitrary PHP/JS dataflow or unqualified input shapes. Related broader inference/registration limits remain in their own partial leaves.",
+      "implementationLimits": []
+    },
+    {
+      "id": "R08.ziggy",
+      "owner": "packages",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The stated scoped behavior is implemented and source/provider fixtures exist. Actual pinned-host interaction remains an acceptance gate; this status does not claim arbitrary PHP/JS dataflow or unqualified input shapes. Related broader inference/registration limits remain in their own partial leaves.",
+      "implementationLimits": []
+    },
+    {
+      "id": "R09.terminal",
+      "owner": "editor",
+      "frozenStatus": "missing",
+      "auditDisposition": "exact_api_exclusion",
+      "issueIds": [
+        "terminal-completion"
+      ],
+      "currentStatus": "api_excluded",
+      "currentRemaining": "Only in-terminal command-name/parameter completion is excluded on API1.4. Workspace forms, keyed terminal execution and run detectors exist and remain separately implemented; they do not emulate a terminal completion-provider hook.",
+      "implementationLimits": []
+    },
+    {
+      "id": "V01.contexts",
+      "owner": "editor",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The stated scoped behavior is implemented and source/provider fixtures exist. Actual pinned-host interaction remains an acceptance gate; this status does not claim arbitrary PHP/JS dataflow or unqualified input shapes. Related broader inference/registration limits remain in their own partial leaves.",
+      "implementationLimits": []
+    },
+    {
+      "id": "V01.fields",
+      "owner": "editor",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "request-productivity"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Cached local/controller/inherited FormRequest fields/messages and canonical rule parameters are implemented. Mutated/dynamic rule arrays and unresolved ancestry are withheld."
+      ]
+    },
+    {
+      "id": "V01.insert",
+      "owner": "editor",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The stated scoped behavior is implemented and source/provider fixtures exist. Actual pinned-host interaction remains an acceptance gate; this status does not claim arbitrary PHP/JS dataflow or unqualified input shapes. Related broader inference/registration limits remain in their own partial leaves.",
+      "implementationLimits": []
+    },
+    {
+      "id": "V01.rules",
+      "owner": "editor",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "request-productivity"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Cached local/controller/inherited FormRequest fields/messages and canonical rule parameters are implemented. Mutated/dynamic rule arrays and unresolved ancestry are withheld."
+      ]
+    },
+    {
+      "id": "V02.rule_array",
+      "owner": "editor",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The named safe string-rule to fluent-builder conversion is implemented, with rule-specific argument preservation/version guards and generated-edit fixtures. Actual native editor application/undo is pending; dynamic/ambiguous rule expressions are withheld.",
+      "implementationLimits": []
+    },
+    {
+      "id": "V02.rule_dimensions",
+      "owner": "editor",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The named safe string-rule to fluent-builder conversion is implemented, with rule-specific argument preservation/version guards and generated-edit fixtures. Actual native editor application/undo is pending; dynamic/ambiguous rule expressions are withheld.",
+      "implementationLimits": []
+    },
+    {
+      "id": "V02.rule_exists",
+      "owner": "editor",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The named safe string-rule to fluent-builder conversion is implemented, with rule-specific argument preservation/version guards and generated-edit fixtures. Actual native editor application/undo is pending; dynamic/ambiguous rule expressions are withheld.",
+      "implementationLimits": []
+    },
+    {
+      "id": "V02.rule_file",
+      "owner": "editor",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The named safe string-rule to fluent-builder conversion is implemented, with rule-specific argument preservation/version guards and generated-edit fixtures. Actual native editor application/undo is pending; dynamic/ambiguous rule expressions are withheld.",
+      "implementationLimits": []
+    },
+    {
+      "id": "V02.rule_image",
+      "owner": "editor",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The named safe string-rule to fluent-builder conversion is implemented, with rule-specific argument preservation/version guards and generated-edit fixtures. Actual native editor application/undo is pending; dynamic/ambiguous rule expressions are withheld.",
+      "implementationLimits": []
+    },
+    {
+      "id": "V02.rule_in",
+      "owner": "editor",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The named safe string-rule to fluent-builder conversion is implemented, with rule-specific argument preservation/version guards and generated-edit fixtures. Actual native editor application/undo is pending; dynamic/ambiguous rule expressions are withheld.",
+      "implementationLimits": []
+    },
+    {
+      "id": "V02.rule_not_in",
+      "owner": "editor",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The named safe string-rule to fluent-builder conversion is implemented, with rule-specific argument preservation/version guards and generated-edit fixtures. Actual native editor application/undo is pending; dynamic/ambiguous rule expressions are withheld.",
+      "implementationLimits": []
+    },
+    {
+      "id": "V02.rule_unique",
+      "owner": "editor",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The named safe string-rule to fluent-builder conversion is implemented, with rule-specific argument preservation/version guards and generated-edit fixtures. Actual native editor application/undo is pending; dynamic/ambiguous rule expressions are withheld.",
+      "implementationLimits": []
+    },
+    {
+      "id": "V03.promotion",
+      "owner": "editor",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "request-productivity"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Recognized source-bound validation extraction/promotion is implemented. Arbitrary PHP validation dataflow is not an independently established comparison guarantee."
+      ]
+    },
+    {
+      "id": "V04.alias",
+      "owner": "editor",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The stated scoped behavior is implemented and source/provider fixtures exist. Actual pinned-host interaction remains an acceptance gate; this status does not claim arbitrary PHP/JS dataflow or unqualified input shapes. Related broader inference/registration limits remain in their own partial leaves.",
+      "implementationLimits": []
+    },
+    {
+      "id": "V04.constructor",
+      "owner": "editor",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Mapped source-proven facade/contracts and safe constructor/method transformations are implemented. Unknown dynamic aliases or ambiguous contract choice do not produce speculative edits."
+      ]
+    },
+    {
+      "id": "V04.dependency",
+      "owner": "editor",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Mapped source-proven facade/contracts and safe constructor/method transformations are implemented. Unknown dynamic aliases or ambiguous contract choice do not produce speculative edits."
+      ]
+    },
+    {
+      "id": "V05.braces",
+      "owner": "editor",
+      "frozenStatus": "implemented_unverified",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Desktop acceptance remains outstanding.",
+      "implementationLimits": []
+    },
+    {
+      "id": "V05.classes",
+      "owner": "editor",
+      "frozenStatus": "implemented_unverified",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Desktop acceptance remains outstanding.",
+      "implementationLimits": []
+    },
+    {
+      "id": "V05.controllers",
+      "owner": "editor",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The stated scoped behavior is implemented and source/provider fixtures exist. Actual pinned-host interaction remains an acceptance gate; this status does not claim arbitrary PHP/JS dataflow or unqualified input shapes. Related broader inference/registration limits remain in their own partial leaves.",
+      "implementationLimits": []
+    },
+    {
+      "id": "V05.rule_arrays",
+      "owner": "editor",
+      "frozenStatus": "implemented_unverified",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Desktop acceptance remains outstanding.",
+      "implementationLimits": []
+    },
+    {
+      "id": "V05.scope",
+      "owner": "editor",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The stated scoped behavior is implemented and source/provider fixtures exist. Actual pinned-host interaction remains an acceptance gate; this status does not claim arbitrary PHP/JS dataflow or unqualified input shapes. Related broader inference/registration limits remain in their own partial leaves.",
+      "implementationLimits": []
+    },
+    {
+      "id": "V06.component",
+      "owner": "editor",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "extraction-expressions"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Balanced controls, safe local PHP, loops, x-component/named/default slots and configured root/namespace selection have real before/after Blade rendering fixtures. Arbitrary external PHP calls/import side effects and outward writes are refused rather than guessed."
+      ]
+    },
+    {
+      "id": "V06.view",
+      "owner": "editor",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "extraction-expressions"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Balanced controls, safe local PHP, loops, x-component/named/default slots and configured root/namespace selection have real before/after Blade rendering fixtures. Arbitrary external PHP calls/import side effects and outward writes are refused rather than guessed."
+      ]
+    },
+    {
+      "id": "V07.completion",
+      "owner": "editor",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The stated scoped behavior is implemented and source/provider fixtures exist. Actual pinned-host interaction remains an acceptance gate; this status does not claim arbitrary PHP/JS dataflow or unqualified input shapes. Related broader inference/registration limits remain in their own partial leaves.",
+      "implementationLimits": []
+    },
+    {
+      "id": "V07.generation",
+      "owner": "editor",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "extraction-expressions"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Multi-locale PHP/JSON/package extraction, custom language roots and explicit existing-key reuse are implemented. General expression interpolation/plural extraction is not separately qualified by reviewed comparison examples."
+      ]
+    },
+    {
+      "id": "V08.overrides",
+      "owner": "editor",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "vendor-dynamic-registration"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Literal provider roots, dirname/magic paths, arrays, PHP/JSON merging and explicit conflict editing are implemented. Runtime custom path helper evaluation is not assumed as an additional contract."
+      ]
+    },
+    {
+      "id": "V09.debug",
+      "owner": "editor",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Current scoped behavior is implemented and supported by provider/source and/or installed-framework fixtures. Actual pinned-host interaction and any required connected/live gate remain open; these are acceptance gaps rather than an inferred absence of implementation.",
+      "implementationLimits": []
+    },
+    {
+      "id": "V09.dto",
+      "owner": "editor",
+      "frozenStatus": "missing",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "request-productivity"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The stated scoped behavior is implemented and source/provider fixtures exist. Actual pinned-host interaction remains an acceptance gate; this status does not claim arbitrary PHP/JS dataflow or unqualified input shapes. Related broader inference/registration limits remain in their own partial leaves.",
+      "implementationLimits": []
+    },
+    {
+      "id": "B01.components",
+      "owner": "packages",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Declared component names/props/slots and all four metadata component sources are implemented. Unresolved runtime registration is not guessed."
+      ]
+    },
+    {
+      "id": "B01.directives",
+      "owner": "packages",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The stated scoped behavior is implemented and source/provider fixtures exist. Actual pinned-host interaction remains an acceptance gate; this status does not claim arbitrary PHP/JS dataflow or unqualified input shapes. Related broader inference/registration limits remain in their own partial leaves.",
+      "implementationLimits": []
+    },
+    {
+      "id": "B01.layouts",
+      "owner": "packages",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The stated scoped behavior is implemented and source/provider fixtures exist. Actual pinned-host interaction remains an acceptance gate; this status does not claim arbitrary PHP/JS dataflow or unqualified input shapes. Related broader inference/registration limits remain in their own partial leaves.",
+      "implementationLimits": []
+    },
+    {
+      "id": "B02.physical_php",
+      "owner": "packages",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Physical PHP ranges, bound attributes and declared directive contexts are implemented. A broader virtual-wrapper behavior requires exact baseline/SDK qualification; it is not silently API-excluded."
+      ]
+    },
+    {
+      "id": "B03.components",
+      "owner": "packages",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "livewire-package"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Canonical versioned Livewire/Volt/Pest class/SFC/MFC/value/slot contexts are implemented from source/installed fixtures. Runtime name arrays and arbitrary custom behavior are not guessed."
+      ]
+    },
+    {
+      "id": "B03.fixes",
+      "owner": "packages",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "livewire-package"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Unique missing-method/component fixes, standard native Finder layouts and registered namespaced module Livewire components are implemented; ambiguous/dynamic targets refuse reviewed plans. Desktop acceptance remains outstanding.",
+      "implementationLimits": []
+    },
+    {
+      "id": "B03.pest",
+      "owner": "packages",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "livewire-package"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Canonical versioned Livewire/Volt/Pest class/SFC/MFC/value/slot contexts are implemented from source/installed fixtures. Runtime name arrays and arbitrary custom behavior are not guessed."
+      ]
+    },
+    {
+      "id": "B03.versions",
+      "owner": "packages",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "livewire-package"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Installed Livewire2/3/4 and Volt fixtures cover versioned canonical contexts, and the namespaced module adapter reuses the same installed native generator plan. Desktop acceptance remains outstanding.",
+      "implementationLimits": []
+    },
+    {
+      "id": "B04.generation",
+      "owner": "packages",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "inertia-generation"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Current scoped behavior is implemented and supported by provider/source and/or installed-framework fixtures. Actual pinned-host interaction and any required connected/live gate remain open; these are acceptance gaps rather than an inferred absence of implementation.",
+      "implementationLimits": []
+    },
+    {
+      "id": "B04.pages",
+      "owner": "packages",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "inertia-generation"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Current scoped behavior is implemented and supported by provider/source and/or installed-framework fixtures. Actual pinned-host interaction and any required connected/live gate remain open; these are acceptance gaps rather than an inferred absence of implementation.",
+      "implementationLimits": []
+    },
+    {
+      "id": "B05.resources",
+      "owner": "packages",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "package-resource-generation"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Native package planners, per-model/default settings, source-proven base/member validation and catalog workspace flows are implemented. Real Filament3.3.57/4.16.2/5.11.2 APIs and Chromium/WebKit catalog flows passed. Nova licensed runtime and actual native apply/undo are external/host acceptance gates, not an absent planner.",
+      "implementationLimits": []
+    },
+    {
+      "id": "B05.settings",
+      "owner": "packages",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "package-resource-generation"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Native package planners, per-model/default settings, source-proven base/member validation and catalog workspace flows are implemented. Real Filament3.3.57/4.16.2/5.11.2 APIs and Chromium/WebKit catalog flows passed. Nova licensed runtime and actual native apply/undo are external/host acceptance gates, not an absent planner.",
+      "implementationLimits": []
+    },
+    {
+      "id": "B06.resources",
+      "owner": "packages",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "package-resource-generation"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Native package planners, per-model/default settings, source-proven base/member validation and catalog workspace flows are implemented. Real Filament3.3.57/4.16.2/5.11.2 APIs and Chromium/WebKit catalog flows passed. Nova licensed runtime and actual native apply/undo are external/host acceptance gates, not an absent planner.",
+      "implementationLimits": []
+    },
+    {
+      "id": "B06.versions",
+      "owner": "packages",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "package-resource-generation"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Native package planners, per-model/default settings, source-proven base/member validation and catalog workspace flows are implemented. Real Filament3.3.57/4.16.2/5.11.2 APIs and Chromium/WebKit catalog flows passed. Nova licensed runtime and actual native apply/undo are external/host acceptance gates, not an absent planner.",
+      "implementationLimits": []
+    },
+    {
+      "id": "B07.scopes",
+      "owner": "packages",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Current scoped behavior is implemented and supported by provider/source and/or installed-framework fixtures. Actual pinned-host interaction and any required connected/live gate remain open; these are acceptance gaps rather than an inferred absence of implementation.",
+      "implementationLimits": []
+    },
+    {
+      "id": "B08.dusk",
+      "owner": "packages",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "dusk-adapter"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "The documented named package adapters use installed version/source proofs and canonical declarations; broad marketing names do not create an unlimited requirement to infer executable package behavior."
+      ]
+    },
+    {
+      "id": "B08.envoy",
+      "owner": "packages",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "package-breadth"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "The documented named package adapters use installed version/source proofs and canonical declarations; broad marketing names do not create an unlimited requirement to infer executable package behavior."
+      ]
+    },
+    {
+      "id": "B08.extended_eloquent",
+      "owner": "packages",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "package-breadth"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Installed explicit-name and omitted-name Lift relations, October relation arrays, adjacency tree/graph adapters, CTE withExpression/withRecursiveExpression and PowerJoins joinRelationship/leftJoinRelationship are implemented. Desktop acceptance remains outstanding; QueriesExpressions/newBaseQueryBuilder source gating and Builder macro registration were not re-verified in this pass.",
+      "implementationLimits": []
+    },
+    {
+      "id": "B08.folio",
+      "owner": "packages",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "package-breadth"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "The documented named package adapters use installed version/source proofs and canonical declarations; broad marketing names do not create an unlimited requirement to infer executable package behavior."
+      ]
+    },
+    {
+      "id": "B08.native_edge",
+      "owner": "packages",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "package-breadth"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "The documented named package adapters use installed version/source proofs and canonical declarations; broad marketing names do not create an unlimited requirement to infer executable package behavior."
+      ]
+    },
+    {
+      "id": "B08.pennant",
+      "owner": "packages",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "package-breadth"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "The documented named package adapters use installed version/source proofs and canonical declarations; broad marketing names do not create an unlimited requirement to infer executable package behavior."
+      ]
+    },
+    {
+      "id": "B08.tenancy",
+      "owner": "packages",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "tenancy-migration"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "The documented named package adapters use installed version/source proofs and canonical declarations; broad marketing names do not create an unlimited requirement to infer executable package behavior."
+      ]
+    },
+    {
+      "id": "B09.twig",
+      "owner": "packages",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "package-breadth"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The stated scoped behavior is implemented and source/provider fixtures exist. Actual pinned-host interaction remains an acceptance gate; this status does not claim arbitrary PHP/JS dataflow or unqualified input shapes. Related broader inference/registration limits remain in their own partial leaves.",
+      "implementationLimits": []
+    },
+    {
+      "id": "B09.ui_locales",
+      "owner": "packages",
+      "frozenStatus": "missing",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "ui-locales"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The shared/runtime/native and SDK source-text catalogs are implemented in four languages (2408 keys). The 2026-11-11 lexical audit (scripts/audit-laravel-ui-text.py --check) reports 2302 sites: 2284 translated, 18 qualified non-UI with refreshed reviewed consumer proofs, 0 unwrapped; check-laravel-host-locales.py and build-ui-i18n.py --check pass. The audit is a call-site review queue, not a semantic AST completeness proof. Project data, enum IDs, PHP names and raw external output remain data. The browser i18n check (scripts/check-ui-i18n.mjs) was not run (Playwright unavailable). Desktop acceptance remains outstanding.",
+      "implementationLimits": []
+    },
+    {
+      "id": "T01.extras",
+      "owner": "runtime",
+      "frozenStatus": "implemented_unverified",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Desktop acceptance remains outstanding.",
+      "implementationLimits": []
+    },
+    {
+      "id": "T01.forms",
+      "owner": "runtime",
+      "frozenStatus": "implemented_unverified",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Desktop acceptance remains outstanding.",
+      "implementationLimits": []
+    },
+    {
+      "id": "T01.markers",
+      "owner": "runtime",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Current scoped behavior is implemented and supported by provider/source and/or installed-framework fixtures. Actual pinned-host interaction and any required connected/live gate remain open; these are acceptance gaps rather than an inferred absence of implementation.",
+      "implementationLimits": []
+    },
+    {
+      "id": "T01.no_parameters",
+      "owner": "runtime",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "no-parameter-run"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Explicit console Run and captured terminal-picker entries bypass the parameter form only for a current zero-user-parameter definition, using existing Preview/Run runner/token/permission/replay guards. Passive State/select never executes. Thirteen focused workspace tests pass; actual native host execution/terminal presentation remains unverified.",
+      "implementationLimits": []
+    },
+    {
+      "id": "T02.runners",
+      "owner": "runtime",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The supported local PHP, native terminal and proven Docker target modes are implemented with source/target/runner guards. Unknown container ownership/layout is refused rather than guessed. Actual native terminal/trust and real Docker/platform acceptance remain open; additional remote/custom interpreter profile semantics require separate baseline qualification.",
+      "implementationLimits": []
+    },
+    {
+      "id": "T03.dashboard",
+      "owner": "runtime",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "The stated scoped behavior is implemented and source/provider fixtures exist. Actual pinned-host interaction remains an acceptance gate; this status does not claim arbitrary PHP/JS dataflow or unqualified input shapes. Related broader inference/registration limits remain in their own partial leaves.",
+      "implementationLimits": []
+    },
+    {
+      "id": "T04.processes",
+      "owner": "runtime",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Current scoped behavior is implemented and supported by provider/source and/or installed-framework fixtures. Actual pinned-host interaction and any required connected/live gate remain open; these are acceptance gaps rather than an inferred absence of implementation.",
+      "implementationLimits": []
+    },
+    {
+      "id": "T05.blade",
+      "owner": "runtime",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "compiled-blade"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Actual pinned OpenIDEA native-host acceptance remains outstanding; aggregate MockHost/Wasm/browser receipts do not satisfy that gate.",
+      "implementationLimits": [
+        "Original Blade file resolution and proven unique unchanged/echo line anchors are implemented. Unavailable compiler line information is explicit; a universal compiler source map is not separately established by the public baseline."
+      ]
+    },
+    {
+      "id": "T05.errors",
+      "owner": "runtime",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "compiled-blade"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Current scoped behavior is implemented and supported by provider/source and/or installed-framework fixtures. Actual pinned-host interaction and any required connected/live gate remain open; these are acceptance gaps rather than an inferred absence of implementation.",
+      "implementationLimits": []
+    },
+    {
+      "id": "T06.issues",
+      "owner": "integrations",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Token-based issues/details/latest-event reads and explicit bounded pagination are implemented. Current limits are20 pages/2000 resources with explicit incomplete state. Connected Sentry-account and actual native-host secrets/network acceptance remain open; OAuth is separately partial.",
+      "implementationLimits": []
+    },
+    {
+      "id": "T06.oauth",
+      "owner": "integrations",
+      "frozenStatus": "missing",
+      "auditDisposition": "qualified_scope_or_implementation_pending",
+      "issueIds": [
+        "sentry-refresh"
+      ],
+      "currentStatus": "partial",
+      "currentRemaining": "Registered-client device authorization, explicit polling/expiry/keychain/disconnect are implemented with mocked transport tests; configured registered-client live acceptance is pending. Persisted refresh has the separately evidenced API1.4 stored-secret-to-form-body transport limitation; device authorization itself is not API-blocked.",
+      "implementationLimits": []
+    },
+    {
+      "id": "T07.cloud",
+      "owner": "integrations",
+      "frozenStatus": "unqualified",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "cloud-scope"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Application/environment inventory with bounded pagination, persisted application selection restored only after a fresh authenticated inventory, Manage environment, deployment details and logs with explicit unavailability, masked variable reveal/copy, unfinished-deployment polling and reviewed database/schema connection import are implemented. No Cloud deploy/create/delete writes are implemented. Registered-client live acceptance and desktop acceptance remain outstanding.",
+      "implementationLimits": []
+    },
+    {
+      "id": "T08.inspection",
+      "owner": "runtime",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Current scoped behavior is implemented and supported by provider/source and/or installed-framework fixtures. Actual pinned-host interaction and any required connected/live gate remain open; these are acceptance gaps rather than an inferred absence of implementation.",
+      "implementationLimits": []
+    },
+    {
+      "id": "T09.sources",
+      "owner": "database",
+      "frozenStatus": "partial",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "database-schema"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Current scoped behavior is implemented and supported by provider/source and/or installed-framework fixtures. Actual pinned-host interaction and any required connected/live gate remain open; these are acceptance gaps rather than an inferred absence of implementation.",
+      "implementationLimits": []
+    },
+    {
+      "id": "T10.laravel_mcp",
+      "owner": "integrations",
+      "frozenStatus": "missing",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "issueIds": [
+        "application-mcp"
+      ],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "Current scoped behavior is implemented and supported by provider/source and/or installed-framework fixtures. Actual pinned-host interaction and any required connected/live gate remain open; these are acceptance gaps rather than an inferred absence of implementation.",
+      "implementationLimits": []
+    },
+    {
+      "id": "T11.qodana",
+      "owner": "integrations",
+      "frozenStatus": "unqualified",
+      "auditDisposition": "accepted_difference",
+      "issueIds": [
+        "qodana-adapter"
+      ],
+      "currentStatus": "accepted_difference",
+      "currentRemaining": "Accepted user scope exception only for Qodana/IntelliJ integration. This does not waive other Laravel implementation or native acceptance.",
+      "implementationLimits": []
+    },
+    {
+      "id": "T11.cloud_git_refresh",
+      "owner": "integrations",
+      "issueIds": [],
+      "currentStatus": "implemented_unverified",
+      "currentRemaining": "A VcsChanged event for a project's repository marks the visible Cloud view for refresh without fetching during the event; the pending-deployment poll and throttled refresh then run on the next view tick. Successful-push authority is not required. Desktop acceptance remains outstanding.",
+      "auditDisposition": "implementation_complete_acceptance_pending",
+      "implementationLimits": []
+    },
+    {
+      "id": "T11.llm_helper_finished",
+      "owner": "integrations",
+      "issueIds": [],
+      "currentStatus": "api_excluded",
+      "currentRemaining": "Exact agent-finished trigger/changed-file batch unavailable in pinned API1.4. Reviewed manual, project and on-save helper workflows remain implemented and required under E04/E05; do not invent an event name or automatically run PHP without preferences/capabilities.",
+      "auditDisposition": "exact_api_exclusion",
+      "implementationLimits": []
+    }
+  ],
+  "statusCounts": {
+    "accepted_difference": 2,
+    "api_excluded": 2,
+    "implemented_unverified": 207,
+    "missing": 0,
+    "partial": 1
+  },
+  "withdrawnRequirements": [
+    {
+      "id": "V09.pest",
+      "reason": "Generic subject/test navigation was an invented extrapolation. Official5.1 Pest unit/feature templates and5.6 Livewire Pest completions, plus original PestPackage/UsePestTemplateOption, establish only the separate G02/B03 requirements. No verified/native/API-excluded claim is made.",
+      "evidence": "docs/laravel-baseline-qualification-20261111.md"
+    }
+  ]
+}
