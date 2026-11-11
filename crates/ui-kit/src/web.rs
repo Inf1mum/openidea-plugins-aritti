@@ -562,7 +562,10 @@ pub fn handle_with_actions<T: Plugin + Views>(plugin: &mut T, view: &str, event:
             json!({"channel":request.channel,"sequence":sequence,"frameId":request.frame_id,"project":project,"model":model})
         }
         Err(error) => {
-            notify_error(title, &error);
+            // A rejected background poll is retried by its page; a notification per attempt would flood the user.
+            if !(opaque && matches!(error, Error::Stale)) {
+                notify_error(title, &error);
+            }
             json!({"channel":request.channel,"sequence":sequence,"frameId":request.frame_id,"project":project,"error":error.to_string()})
         }
     };
@@ -951,6 +954,19 @@ mod group_tests {
         assert_eq!(demo.calls,["command:copy:route:1"]);
         assert_eq!(demo.renders,["routes","details","details","details"]);
         assert_eq!(active_view("routes",CONFIG).unwrap(),"details");
+    }
+
+    #[test]
+    fn a_stale_background_poll_is_answered_without_a_notification() {
+        let host=MockHost::install();let mut demo=GroupDemo::default();
+        request(&host,&mut demo,json!({"op":"select-view","target":"details","targetView":"routes"}));
+        let before=host.notifications().len();
+        let reply=request(&host,&mut demo,json!({"op":"opaque-message","targetView":"routes","message":"{\"op\":\"index-tick\"}"}));
+        assert!(reply.get("error").is_some());
+        assert_eq!(host.notifications().len(),before);
+        let rejected=request(&host,&mut demo,json!({"op":"command","targetView":"routes","id":"copy","key":"route:1"}));
+        assert!(rejected.get("error").is_some());
+        assert_eq!(host.notifications().len(),before+1);
     }
 
     #[test]
