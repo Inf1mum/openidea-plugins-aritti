@@ -259,6 +259,68 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+
+    if std::env::var("LARAVEL_SMOKE_STALL").is_ok() {
+        let root = project.display().to_string();
+        let frame = "0123456789abcdef0123456789abcdef";
+        let target_owned = std::env::var("LARAVEL_SMOKE_TARGET").unwrap_or_else(|_| "laravel".into());
+        let target = target_owned.as_str();
+        let envelope = |sequence: u32, body: Value| {
+            let mut value = json!({"channel": "ui-kit", "sequence": sequence, "frameId": frame, "project": root, "targetView": target});
+            value.as_object_mut().unwrap().extend(body.as_object().unwrap().clone());
+            value.to_string()
+        };
+        let rendered = plugins.view_event(ID, "laravel", ViewEvent::Message { text: envelope(1, json!({"op": "render"})) }, invocation.clone());
+        report.check("hub render envelope is accepted", rendered.is_ok(), format!("{:?}", rendered.err()));
+        let mut paths = vec![];
+        for name in ["MissingView", "ViewCompletion", "ConfigCompletion"] {
+            paths.push(project.join(format!("app/Probe/{name}.php")).display().to_string());
+        }
+        plugins.post_events(Some("laravel-smoke"), paths.iter().cloned().map(ide_plugin::WorkbenchEvent::FileOpened).collect());
+        plugins.flush_events();
+        let user = project.join("app/Models/User.php");
+        let mut text = std::fs::read_to_string(&user)?;
+        text.push_str("\n// external change\n");
+        std::fs::write(&user, text)?;
+        plugins.post_events(
+            Some("laravel-smoke"),
+            vec![ide_plugin::WorkbenchEvent::FilesChanged(ide_plugin::FilesChanged {
+                created: vec![],
+                modified: vec![user.display().to_string()],
+                removed: vec![],
+            })],
+        );
+        plugins.flush_events();
+        let status = || -> String {
+            plugins
+                .render_view(ID, "laravel", None, invocation.clone())
+                .ok()
+                .and_then(|model| serde_json::to_value(&model).ok())
+                .and_then(|value| value["status"].as_str().map(str::to_owned))
+                .unwrap_or_default()
+        };
+        let mut trace = vec![status()];
+        let mut done = false;
+        for step in 0..4000u32 {
+            let message = json!({"op": "index-tick", "_backgroundPoll": format!("{frame}:{step}")}).to_string();
+            let result = plugins.view_event(ID, "laravel", ViewEvent::Message { text: envelope(0, json!({"op": "opaque-message", "message": message})) }, invocation.clone());
+            if let Err(error) = result {
+                trace.push(format!("tick {step}: {error}"));
+                break;
+            }
+            if step % 25 == 0 {
+                let current = status();
+                if trace.last() != Some(&current) {
+                    trace.push(format!("tick {step}: {current}"));
+                }
+                if !current.contains("indexing tasks") && step > 0 {
+                    done = true;
+                    break;
+                }
+            }
+        }
+        report.check("index recovers after an external change and recheck queue", done, format!("{trace:?}"));
+    }
     std::fs::write(
         output.join("laravel-results.json"),
         serde_json::to_vec_pretty(&json!({
