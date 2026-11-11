@@ -1,5 +1,8 @@
-//! Literal programmatic registrations: `RuntimeWiringConfigurer` bodies calling
-//! `type("T", b -> b.dataFetcher("f", ..))` or `type(newTypeWiring("T").dataFetcher("f", ..))`.
+//! Literal programmatic registrations on the `RuntimeWiring.Builder` handed to
+//! `RuntimeWiringConfigurer.configure(builder)`: `builder.type("T", b -> b.dataFetcher("f", ..))`
+//! (`type(String, UnaryOperator<TypeRuntimeWiring.Builder>)`) or
+//! `builder.type(newTypeWiring("T").dataFetcher("f", ..))` (`type(TypeRuntimeWiring.Builder)`).
+//! The receiver must be a proven builder: a `RuntimeWiring.Builder x` parameter, or the lambda parameter in a file naming `RuntimeWiringConfigurer`.
 //! Anything else touching the wiring API is reported as `closed`.
 
 use crate::Handler;
@@ -235,6 +238,54 @@ fn statement_end(m: &[u8], from: usize, end: usize) -> usize {
     end
 }
 
+/// The receiver of the `.type(` at `k` is the configure builder: a chain of `.type(..)` calls rooted at a declared
+/// `RuntimeWiring.Builder x` parameter, or at a lambda parameter `x ->` / `(x) ->` when the file names `RuntimeWiringConfigurer`.
+fn proven_receiver(m: &[u8], k: usize) -> bool {
+    let dot = ws_back(m, k);
+    let mut end = ws_back(m, dot - 1);
+    if end > 0 && m[end - 1] == b')' {
+        let mut depth = 0;
+        let mut open = None;
+        for j in (0..end).rev() {
+            match m[j] {
+                b')' => depth += 1,
+                b'(' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        open = Some(j);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let Some(open) = open else { return false };
+        let before = ws_back(m, open);
+        return before >= 4 && &m[before - 4..before] == b"type" && proven_receiver(m, before - 4);
+    }
+    let mut start = end;
+    while start > 0 && ident(m[start - 1]) {
+        start -= 1;
+    }
+    if start == end || start > 0 && m[start - 1] == b'.' {
+        return false;
+    }
+    let name = &m[start..end];
+    end = name.len();
+    let configurer = !find_words(m, "RuntimeWiringConfigurer").is_empty();
+    let w = std::str::from_utf8(name).unwrap_or("");
+    find_words(m, w).into_iter().any(|at| {
+        let after = at + end;
+        if m.get(after).is_some_and(|&c| ident(c)) {
+            return false;
+        }
+        let b = ws_back(m, at);
+        let param = b >= 7 && &m[b - 7..b] == b"Builder" && m.get(b.wrapping_sub(8)) == Some(&b'.') && m[..b - 8].ends_with(b"RuntimeWiring");
+        let arrow = eat(m, after, "->").is_some() || eat(m, after, ")").and_then(|p| eat(m, p, "->")).is_some() && m[..b].ends_with(b"(");
+        param || configurer && arrow
+    })
+}
+
 fn find_words(m: &[u8], w: &str) -> Vec<usize> {
     let mut out = Vec::new();
     let mut k = 0;
@@ -265,7 +316,7 @@ pub fn wired(text: &str) -> Wired {
         let open = ws(m, k + 4);
         let Some(close) = matching(m, open) else { continue };
         let (saved, saved_new) = (p.out.len(), p.new_type_wirings);
-        if p.type_call(open, close).is_some() {
+        if proven_receiver(m, *k) && p.type_call(open, close).is_some() {
             recognised += 1;
         } else {
             p.out.truncate(saved);

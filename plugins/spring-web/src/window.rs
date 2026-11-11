@@ -544,6 +544,8 @@ impl openidea_plugin::language_features::Injections for Endpoints {
     fn injections(&mut self,doc:&Document)->Vec<openidea_plugin::language_features::Injection>{
         if doc.language=="html" && host::setting_bool("springWeb.thymeleafSpelInjection").unwrap_or(false) && self.wants_web(doc) {
             crate::template_links::injections(&doc.text)
+        } else if doc.language=="java" && host::setting_bool("springWeb.thymeleafSpelInjection").unwrap_or(false) && self.wants_web(doc) {
+            crate::template_links::java_default_value_injections(&doc.path,&doc.text)
         } else { Vec::new() }
     }
 }

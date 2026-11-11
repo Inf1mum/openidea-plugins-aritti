@@ -256,6 +256,48 @@ pub fn injections(source: &str) -> Vec<openidea_plugin::language_features::Injec
         .collect()
 }
 
+/// `#{...}` SpEL in `defaultValue` literals. Spring resolves those through the
+/// ConfigurableBeanFactory (AbstractNamedValueMethodArgumentResolver javadoc).
+/// Only a whole-literal single `#{...}` without escapes is routed.
+pub fn java_default_value_injections(
+    path: &str,
+    text: &str,
+) -> Vec<openidea_plugin::language_features::Injection> {
+    let file = spring_text::parse_source(path, text);
+    let mut out = Vec::new();
+    for class in &file.types {
+        for method in class.methods() {
+            for param in &method.params {
+                for name in ["RequestParam", "RequestHeader", "CookieValue"] {
+                    let Some(annotation) = param.annotation(name) else { continue };
+                    if !file.from_spring(name) {
+                        continue;
+                    }
+                    let Some(arg) = annotation.arg("defaultValue") else { continue };
+                    let [literal] = arg.strings.as_slice() else { continue };
+                    let raw = &text[literal.at..literal.end];
+                    if raw != literal.value || !raw.starts_with("#{") || !raw.ends_with('}') {
+                        continue;
+                    }
+                    let inner = &raw[2..raw.len() - 1];
+                    if inner.trim().is_empty() || inner.contains(['{', '}', '\n']) {
+                        continue;
+                    }
+                    out.push(openidea_plugin::language_features::Injection {
+                        range: Range::new(
+                            text::position(text, literal.at + 2),
+                            text::position(text, literal.at + 2 + inner.len()),
+                        ),
+                        language: "spel".into(),
+                    });
+                }
+            }
+        }
+    }
+    out.truncate(256);
+    out
+}
+
 #[cfg(test)]
 mod injection_tests {
     use super::*;
@@ -289,5 +331,17 @@ mod injection_tests {
             .collect::<Vec<_>>();
         assert_eq!(snippets, ["user.name", "name"]);
         assert!(found.iter().all(|i| i.language == "spel"));
+    }
+    #[test]
+    fn java_default_value_spel_only_for_spring_whole_literals() {
+        let source = "import org.springframework.web.bind.annotation.*;\nclass C {\n void a(@RequestParam(defaultValue = \"#{systemProperties['x']}\") String a, @RequestHeader(name = \"h\", defaultValue = \"${p}\") String b, @RequestParam(defaultValue = \"x#{1}\") String c, @CookieValue(defaultValue = \"#{1 + 1}\") String d) {}\n}\n";
+        let found = java_default_value_injections("C.java", source);
+        let snippets = found
+            .iter()
+            .map(|i| &source[text::offset(source, i.range.start).unwrap()..text::offset(source, i.range.end).unwrap()])
+            .collect::<Vec<_>>();
+        assert_eq!(snippets, ["systemProperties['x']", "1 + 1"]);
+        let foreign = source.replace("org.springframework.web.bind.annotation.*", "com.acme.RequestParam;\nimport com.acme.CookieValue");
+        assert!(java_default_value_injections("C.java", &foreign).is_empty());
     }
 }

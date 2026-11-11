@@ -19,6 +19,7 @@ mod component_occurrences;
 mod component_rename;
 mod codegen;
 mod codegen_options;
+mod draft;
 mod json_actions;
 mod operation_actions;
 mod section_actions;
@@ -600,6 +601,9 @@ impl Plugin for OpenApi {
         }
         if id == "compare-specs-breaking" {
             return self.compatibility_report(ctx);
+        }
+        if id == "draft-from-source" {
+            return draft::run(ctx);
         }
         if id == "export-self-contained" {
             return self.export_self_contained(ctx);

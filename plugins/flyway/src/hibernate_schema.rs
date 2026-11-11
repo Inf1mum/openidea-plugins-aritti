@@ -1030,4 +1030,26 @@ mod tests {
             16
         );
     }
+
+    #[test]
+    fn real_generated_ddl_fixtures_are_pinned_per_dialect() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/hibernate-adapter/expected");
+        for (version, dialect, marker) in [
+            ("6.6.49", "postgresql", "create sequence customers_SEQ"),
+            ("6.6.49", "mysql", "engine=InnoDB"),
+            ("6.6.49", "mariadb", "engine=InnoDB"),
+            ("7.4.15", "postgresql", "create sequence"),
+            ("7.4.15", "mysql", "engine=InnoDB"),
+            ("7.4.15", "mariadb", "engine=InnoDB"),
+        ] {
+            let sql =
+                std::fs::read_to_string(dir.join(format!("hibernate-{version}-{dialect}.sql")))
+                    .unwrap();
+            assert!(
+                sql.contains(marker) && sql.contains("uq_customer_email"),
+                "{version} {dialect}"
+            );
+        }
+    }
 }

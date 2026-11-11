@@ -70,6 +70,9 @@ if args.matrix:
  presets=['h2','postgresql','mysql','mariadb','sqlserver','azure-sqlserver','oracle','cockroachdb','db2','db2i','db2z','hsql','hana','postgres-plus']+(['derby','tidb'] if version.startswith('6.') else ['spanner','spanner-postgresql'])
  matrix=[]
  for dialect in presets:
-  _,result=generate('matrix-'+dialect,['hibernate-'+version+'-offline-v2',dialect]);matrix.append({'dialect':dialect,'dialectClass':result['dialect'],'databaseVersion':result['databaseVersion'],'hibernateJdbcRequests':0,'sqlSha256':hashlib.sha256(result['sql'].encode()).hexdigest()})
+  _,result=generate('matrix-'+dialect,['hibernate-'+version+'-offline-v2',dialect]);
+  golden=pathlib.Path(__file__).parent/'expected'/f'hibernate-{version}-{dialect}.sql'
+  if golden.exists():assert result['sql']==golden.read_text(),('real DDL drifted from pinned fixture',dialect)
+  matrix.append({'dialect':dialect,'dialectClass':result['dialect'],'databaseVersion':result['databaseVersion'],'hibernateJdbcRequests':0,'sqlSha256':hashlib.sha256(result['sql'].encode()).hexdigest()})
  summary['matrix']=matrix
 (base/'summary.json').write_text(json.dumps(summary,indent=2));print(base)

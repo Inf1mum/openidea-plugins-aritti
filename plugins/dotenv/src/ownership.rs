@@ -173,7 +173,7 @@ pub struct DockerArg {
     pub reimports_global: bool,
     /// `${K}` / `$K` expansions after the declaration, in the same stage.
     pub uses: Vec<Range<usize>>,
-    /// Stage this one is `FROM` (only informative: ARGs are not inherited).
+    /// Stage this one is `FROM`: it inherits the ARGs declared in that stage.
     pub based_on: Option<String>,
 }
 
@@ -183,6 +183,14 @@ fn expansions(line: &str, base: usize) -> Vec<(&str, Range<usize>)> {
     let mut out = Vec::new();
     let mut i = 0;
     while i < bytes.len() {
+        if bytes[i] == b'\\' {
+            i += 2;
+            continue;
+        }
+        if bytes[i] == b'\'' {
+            i += line[i + 1..].find('\'').map_or(bytes.len(), |end| end + 2);
+            continue;
+        }
         if bytes[i] != b'$' {
             i += 1;
             continue;
@@ -197,6 +205,11 @@ fn expansions(line: &str, base: usize) -> Vec<(&str, Range<usize>)> {
     out
 }
 
+/// Instructions whose variables Docker itself expands (FROM is handled apart).
+const DOCKER_EXPANDS: [&str; 9] = ["ADD", "COPY", "ENV", "EXPOSE", "LABEL", "STOPSIGNAL", "USER", "VOLUME", "WORKDIR"];
+/// Shell-form instructions: expansion is the shell's, so only unquoted/double-quoted `$K` counts.
+const SHELL_EXPANDS: [&str; 3] = ["RUN", "CMD", "ENTRYPOINT"];
+
 /// `ARG` declarations with the build stage they sit in, per
 /// docs.docker.com/reference/dockerfile/#arg: an `ARG` before `FROM` is outside
 /// every stage; one after a `FROM` belongs to that stage only.
@@ -205,7 +218,8 @@ pub fn dockerfile_args(text: &str) -> Vec<DockerArg> {
     let mut stage: Option<String> = None;
     let mut stages = 0;
     let mut stage_names: Vec<String> = Vec::new();
-    let mut stage_first = 0;
+    // (first arg index, parent stage index) per stage
+    let mut stage_info: Vec<(usize, Option<usize>)> = Vec::new();
     let mut based_on: Option<String> = None;
     let mut offset = 0;
     for raw in text.split_inclusive('\n') {
@@ -221,21 +235,15 @@ pub fn dockerfile_args(text: &str) -> Vec<DockerArg> {
             let words: Vec<_> = parts.collect();
             let alias = words.iter().position(|w| w.eq_ignore_ascii_case("AS")).and_then(|i| words.get(i + 1));
             let name = alias.map_or_else(|| stages.to_string(), |a| (*a).to_owned());
-            based_on = words
+            let parent = words
                 .iter()
                 .find(|w| !w.starts_with("--"))
-                .and_then(|image| stage_names.iter().find(|n| n.eq_ignore_ascii_case(image)).cloned());
+                .and_then(|image| stage_names.iter().position(|n| n.eq_ignore_ascii_case(image)));
+            based_on = parent.map(|p| stage_names[p].clone());
             stage_names.push(name.clone());
             stage = Some(name);
-            stage_first = out.len();
+            stage_info.push((out.len(), parent));
         } else if instruction.eq_ignore_ascii_case("ARG") {
-            if stage.is_some() {
-                for (name, used) in expansions(&content[instruction.len()..], at + instruction.len()) {
-                    if let Some(arg) = out[stage_first..].iter_mut().find(|a: &&mut DockerArg| a.name == name) {
-                        arg.uses.push(used);
-                    }
-                }
-            }
             let mut cursor = at + instruction.len();
             for word in parts {
                 let start = cursor + text[cursor..].find(word).unwrap_or(0);
@@ -253,9 +261,28 @@ pub fn dockerfile_args(text: &str) -> Vec<DockerArg> {
                 }
             }
         } else if stage.is_some() {
-            for (name, used) in expansions(content, at) {
-                if let Some(arg) = out[stage_first..].iter_mut().find(|a: &&mut DockerArg| a.name == name) {
-                    arg.uses.push(used);
+            let (word, rest) = if instruction.eq_ignore_ascii_case("ONBUILD") {
+                let rest = content[instruction.len()..].trim_start();
+                (rest.split_whitespace().next().unwrap_or(""), rest)
+            } else {
+                (instruction, content)
+            };
+            let docker_expands = DOCKER_EXPANDS.iter().any(|k| word.eq_ignore_ascii_case(k));
+            let shell_form = SHELL_EXPANDS.iter().any(|k| word.eq_ignore_ascii_case(k))
+                && !rest[word.len()..].trim_start().starts_with('[');
+            if docker_expands || shell_form {
+                let at = at + (content.len() - rest.len());
+                for (name, used) in expansions(rest, at) {
+                    let mut current = Some(stage_info.len() - 1);
+                    while let Some(index) = current {
+                        let (first, parent) = stage_info[index];
+                        let end = stage_info.get(index + 1).map_or(out.len(), |next| next.0);
+                        if let Some(arg) = out[first..end].iter_mut().rev().find(|a: &&mut DockerArg| a.name == name) {
+                            arg.uses.push(used);
+                            break;
+                        }
+                        current = parent;
+                    }
                 }
             }
         }
@@ -305,7 +332,7 @@ mod tests {
 
     #[test]
     fn arg_uses_reimport_and_stage_base() {
-        let text = "ARG V=1\nFROM php AS base\nFROM base AS app\nARG V\nRUN echo ${V:-x} $V $VV\nENV A=$V\n";
+        let text = "ARG V=1\nFROM php AS base\nFROM base AS app\nARG V\nRUN echo ${V:-x} $V $VV '$V' \\$V\nENV A=$V\nCMD [\"echo\", \"$V\"]\nARG W=$V\nHEALTHCHECK CMD echo $V\n";
         let args = dockerfile_args(text);
         let stage = args.iter().find(|a| a.stage.is_some()).unwrap();
         assert!(stage.reimports_global);
@@ -313,5 +340,15 @@ mod tests {
         let names: Vec<_> = stage.uses.iter().map(|r| &text[r.clone()]).collect();
         assert_eq!(names, ["V", "V", "V"]);
         assert!(args[0].uses.is_empty() && args[0].stage.is_none());
+    }
+
+    #[test]
+    fn arg_declared_in_parent_stage_is_inherited() {
+        let text = "FROM php AS base\nARG P=1\nFROM base AS app\nCOPY $P /x\nFROM php AS other\nCOPY $P /y\n";
+        let args = dockerfile_args(text);
+        assert_eq!(args.len(), 1);
+        let names: Vec<_> = args[0].uses.iter().map(|r| &text[r.clone()]).collect();
+        assert_eq!(names, ["P"]);
+        assert_eq!(text[..args[0].uses[0].start].matches('\n').count(), 3);
     }
 }

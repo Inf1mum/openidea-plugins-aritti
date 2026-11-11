@@ -280,7 +280,7 @@ pub fn check(file: &JavaFile, text: &str, module: Option<&Facts>, out: &mut Vec<
             let found = verbs(file, text, m);
             if found.len() > 1 {
                 let names: Vec<_> = found.iter().map(|a| format!("@{}", a.name)).collect();
-                out.push(Finding::new(m.at, m.at + m.name.len(), "multiple-http-methods", format!("{} carry more than one HTTP method designator; Jakarta REST 3.3.1 allows a single one per resource method.", names.join(" and "))));
+                out.push(Finding::new(m.at, m.at + m.name.len(), "multiple-http-methods", format!("{} carry more than one HTTP method designator; jakarta.ws.rs.HttpMethod calls this an error and Quarkus REST fails the build.", names.join(" and "))));
             }
             let Ok(path) = method_path(file, text, m) else { continue };
             if found.is_empty() && path.is_none() {
@@ -332,7 +332,7 @@ pub fn check(file: &JavaFile, text: &str, module: Option<&Facts>, out: &mut Vec<
                 && m.params.iter().any(|p| p.annotations.is_empty() && !vars.contains(&p.name.as_str()) && !IMPLICIT_TYPES.contains(&p.ty.name.as_str()))
             {
                 let p = m.params.iter().find(|p| p.annotations.is_empty() && !vars.contains(&p.name.as_str()) && !IMPLICIT_TYPES.contains(&p.ty.name.as_str())).unwrap();
-                out.push(Finding::new(p.at, p.at + p.name.len(), "get-with-entity", "A @GET method with an entity (unannotated) parameter; Jakarta REST 3.3.2.1 defines no semantics for a GET request body.").with_severity(Severity::Info));
+                out.push(Finding::new(p.at, p.at + p.name.len(), "get-with-entity", "A @GET method with an entity (unannotated) parameter; Jakarta REST 3.3.2.1 defines no semantics for a GET request body and Quarkus REST logs a warning.").with_severity(Severity::Info));
             }
         }
     }
@@ -421,7 +421,7 @@ mod tests {
     }
 
     #[test]
-    fn several_http_methods_warn_and_get_entity_is_info() {
+    fn httpmethod_javadoc_and_endpointindexer_multiple_designators_warn_and_quarkus_get_body_warning_is_info() {
         let found = run(r#"@Path("/a") class R { @GET @POST String both() { return null; } @GET String body(String payload) { return null; } @GET String ctx(UriInfo info) { return null; } @PUT String put(String payload) { return null; } }"#, None);
         assert_eq!(found, [("multiple-http-methods", Severity::Warning, "both".into()), ("get-with-entity", Severity::Info, "payload".into())]);
     }

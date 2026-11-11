@@ -283,7 +283,7 @@ fn form_fields(ctx: &Context, text: &str) -> Vec<Finding> {
         }
 
         let declared = known.types.get(name).and_then(|declared| crate::doctrine::scalar_type(declared));
-        if type_class.as_deref() == Some(CHECKBOX_TYPE) && declared.as_deref().is_some_and(|declared| declared != "bool") {
+        if type_class.as_deref() == Some(CHECKBOX_TYPE) && declared.as_deref().is_some_and(|declared| matches!(declared, "int" | "float" | "array")) {
             found.push(Finding::with_severity_info(trimmed(text, first), "form-field-type-mismatch", format!("CheckboxType is for a boolean value, but property `{name}` is declared `{}` ({CHECKBOX_DOCS}).", declared.unwrap_or_default())));
         }
     }
@@ -412,7 +412,7 @@ mod tests {
 
     #[test]
     fn entity_type_class_and_choice_label_are_checked() {
-        let author = "<?php\nnamespace App\\Entity;\nclass Author\n{\n    private string $name;\n    public function getTitle(): string { return ''; }\n}\n";
+        let author = "<?php\nnamespace App\\Entity;\nclass Author\n{\n    private string $name;\n    private int $age;\n    public function getTitle(): string { return ''; }\n}\n";
         let mut index = Index { framework_version: Some((7, 0)), psr4_prefixes: vec!["App\\".into()], ..Index::default() };
         index.classes.insert("App\\Entity\\Author".into(), Entry { detail: None, path: "/p/Author.php".into(), at: Position::new(0, 0) });
         let read = |path: &str| (path == "/p/Author.php").then(|| author.to_owned());
@@ -427,6 +427,7 @@ mod tests {
         assert!(run("$builder->add('x', EntityType::class, ['class' => \\Vendor\\Thing::class, 'mapped' => false]);").is_empty());
         assert_eq!(run("$builder->add('x', CollectionType::class, ['entry_type' => Gone::class, 'mapped' => false]);"), [("form-class-option-missing", "Gone::class".into())]);
         assert!(run("$builder->add('x', ChoiceType::class, ['choices' => Gone::cases(), 'mapped' => false]);").is_empty());
-        assert_eq!(run("$builder->add('name', CheckboxType::class);"), [("form-field-type-mismatch", "'name'".into())]);
+        assert_eq!(run("$builder->add('age', CheckboxType::class);"), [("form-field-type-mismatch", "'age'".into())]);
+        assert!(run("$builder->add('name', CheckboxType::class, ['value' => 'yes']);").is_empty());
     }
 }

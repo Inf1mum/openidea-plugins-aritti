@@ -480,6 +480,10 @@ mod tests {
         assert_eq!(codes("#[ORM\\Column(type: 'datetime_immutable')]\n    private string $a;"), 1);
         assert_eq!(codes("#[ORM\\Column(type: 'string')]\n    private ?string $a = null;"), 0);
         assert_eq!(codes("#[ORM\\Column(type: 'text')]\n    private string $a;"), 0);
+        assert_eq!(codes("#[ORM\\Column(type: 'integer')]\n    private ?int $a = null;"), 0);
+        assert_eq!(codes("#[ORM\\Column(type: 'bigint')]\n    private string $a;"), 0);
+        assert_eq!(codes("#[ORM\\Column(type: 'decimal')]\n    private string $a;"), 0);
+        assert_eq!(codes("#[ORM\\Column(type: 'boolean')]\n    private bool $a;"), 0);
         assert_eq!(codes("#[ORM\\Column(type: 'datetime_immutable')]\n    private ?\\DateTimeImmutable $a;"), 0);
         assert_eq!(codes("#[ORM\\Column(type: 'string', enumType: Status::class)]\n    private int $a;"), 0);
         assert_eq!(codes("#[ORM\\Column(type: 'string')]\n    private $a;"), 0);

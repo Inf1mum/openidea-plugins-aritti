@@ -1763,8 +1763,8 @@ class BookController {
     }
 
     #[test]
-    fn literal_runtime_wiring_registrations_are_handlers() {
-        let lambda = "import graphql.schema.idl.RuntimeWiring;\n@Configuration class W { @Bean RuntimeWiringConfigurer c() { return wiring -> wiring.type(\"Query\", b -> b.dataFetcher(\"book\", env -> null).dataFetcher(\"books\", env -> null)).type(\"Book\", (t) -> { t.dataFetcher(\"author\", e -> 1); }); } }";
+    fn registrations_on_the_configure_builder_per_runtime_wiring_builder_type_overloads_are_handlers() {
+        let lambda = "import graphql.schema.idl.RuntimeWiring;\n@Configuration class W { @Bean RuntimeWiringConfigurer c() { return builder -> builder.type(\"Query\", b -> b.dataFetcher(\"book\", env -> null).dataFetcher(\"books\", env -> null)).type(\"Book\", (t) -> { t.dataFetcher(\"author\", e -> 1); }); } }";
         let pairs = |v: &[(&str, &str)]| v.iter().map(|(a, b)| (a.to_string(), b.to_string())).collect::<Vec<_>>();
         assert_eq!(wired_pairs(lambda), (pairs(&[("Query", "book"), ("Query", "books"), ("Book", "author")]), false));
         let typed = "class W { RuntimeWiringConfigurer c() { return w -> w.type(TypeRuntimeWiring.newTypeWiring(\"Query\").dataFetcher(\"book\", f)).type(newTypeWiring(\"Book\").dataFetcher(\"id\", g)); } }";
@@ -1773,6 +1773,20 @@ class BookController {
         let h = &wired.handlers[0];
         assert_eq!(h.label, "dataFetcher(\"Query.book\")");
         assert!(handlers_in(typed, false).iter().any(|h| h.ty == "Book" && h.field == "id"));
+        let method = "class W implements RuntimeWiringConfigurer { public void configure(RuntimeWiring.Builder builder) { builder.type(\"Query\", b -> b.dataFetcher(\"a\", e -> 1)); builder.type(TypeRuntimeWiring.newTypeWiring(\"Book\").dataFetcher(\"id\", g)); } }";
+        assert_eq!(wired_pairs(method), (pairs(&[("Query", "a"), ("Book", "id")]), false));
+    }
+
+    #[test]
+    fn type_calls_on_receivers_not_proven_to_be_the_runtime_wiring_builder_keep_the_gate_closed() {
+        for text in [
+            "class W { RuntimeWiringConfigurer c() { return w -> other.type(\"Q\", b -> b.dataFetcher(\"a\", e -> 1)); } }",
+            "class W { void c(Foo wiring) { RuntimeWiringConfigurer r = x -> {}; wiring.type(\"Q\", b -> b.dataFetcher(\"a\", e -> 1)); } }",
+            "class W { void c(RuntimeWiring.Builder w) { w.type(\"Q\", b -> b.dataFetcher(\"a\", e -> 1)); this.o.type(\"R\", b -> b.dataFetcher(\"a\", e -> 1)); } }",
+        ] {
+            assert!(wired_pairs(text).1, "must stay closed: {text}");
+        }
+        assert!(wired_pairs("class W { Object c() { return x -> x.type(\"Q\", b -> b.dataFetcher(\"a\", e -> 1)); } }").0.is_empty());
     }
 
     #[test]
