@@ -20,7 +20,7 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F14 | OpenAPI | Generator JSON config import | A-S | done |
 | F15 | OpenAPI | Source-context Add path/operation/response | A-M | partial (YAML+JSON Add operation/response/path/query parameter) |
 | F16 | OpenAPI | Remote catalog, SwaggerHub, typed client URL completion | A-M | HOST limit: net: grants are static per manifest, no runtime user-configurable host, redirect refusal not enforceable on v0.1.39. Narrow option: fixed-host SwaggerHub command (undecided) |
-| F17 | OpenAPI | Full compatibility report | A-M | partial (breaking-change report; oneOf/anyOf, constraints, security not analysed) |
+| F17 | OpenAPI | Full compatibility report | A-M | partial (breaking-change report with oasdiff rules for constraints/nullable/oneOf/anyOf/security; additionalProperties not analysed) |
 | F18 | OpenAPI | Draft spec from framework mappings | A-L | |
 | F19 | OpenAPI | Staged generation apply/Undo on desktop | U | |
 | F20 | GitLab | GFM mentions/emoji/math, persistent drafts, timeline | A-M | partial (mentions/emoji, math source, local drafts; draft-note request fields verified vs GitLab docs, never run live; native diff-line add open) |
@@ -28,12 +28,12 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F22 | GitLab | Native Review Mode, git-log actions | H | |
 | F23 | GitLab | No live account/glab acceptance | U | |
 | F24 | Dependency Audit | PyPI markers/groups/pylock | A-M | partial (pylock, pyproject/PEP 735 pins; markers not evaluated) |
-| F25 | Dependency Audit | Workspace/link/alias graph | A-M | partial (npm: aliases, workspaces/link local rows) |
+| F25 | Dependency Audit | Workspace/link/alias graph | A-M | partial (npm: aliases, workspaces, member binding for package-lock/yarn berry/pnpm; pnpm link members and yarn/pnpm root chains unbound) |
 | F26 | Dependency Audit | Coordinate-to-declaration binding; more build profiles | A-M | partial (direct binding + chains; uv.lock/poetry.lock/Yarn v1+berry/npm v3/pnpm v9 checked against real files and fixed; workspace link targets not followed in chains) |
 | F27 | Dependency Audit | Ignore-profile import/export, safe-coordinate rows | A-S | done (import/export + checked/skipped rows on Scan Project; Maven/Gradle/sbt imports lack rows) |
 | F28 | Dependency Audit | Vulnerable-call analysis Java/Kotlin/Python | A-L | partial (OSV has no symbol data for Maven/PyPI; import-level evidence annotation only, never suppresses; Go/Rust call analysis pre-existing) |
 | F29 | Dependency Audit | Native Problems Security tab, semantic member queries | H | |
-| F30 | dotenv | Runtime-loader/Compose-service/build-stage ownership | A-L | partial (Compose interpolation, service ownership, Dockerfile ARG links; inherited stage ARGs, stale ARG usages after Dockerfile-only save open) |
+| F30 | dotenv | Runtime-loader/Compose-service/build-stage ownership | A-L | partial (Compose interpolation, service ownership, Dockerfile ARG scope incl. re-declared globals; Docker scope rules from memory, not verified against docs) |
 | F31 | dotenv | Native value folding/secret hiding, custom triggers | H | |
 | F32 | Ignore | Template-generator controls, preview persistence | A-M | partial (recent-first) |
 | F33 | Ignore | Unicode/unsupported-pattern unused-rule model | A-S | done (exact bytes; unprovable misses withheld) |
@@ -49,7 +49,7 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F43 | Quarkus | LS broker desktop acceptance; other OS/profiles; multi-module | U | |
 | F44 | Quarkus | Config overlay: new unsaved files, YAML, third-party sources | A-M | partial (saved + dirty YAML, .env, config/ sources; ordinals 255/265/260/250/295/100 verified against SmallRye; live JDT LS tests not run) |
 | F45 | Quarkus | Qute Java-embedded routing, custom roots, inherited data model | A-L | partial (unresolved template warnings, suffixes, data-model completion; inherited/generic models open; no template-root property exists) |
-| F46 | Quarkus | JAX-RS roots/custom annotations; scheduler expressions | A-M | partial (@Scheduled checks, effective REST path) |
+| F46 | Quarkus | JAX-RS roots/custom annotations; scheduler expressions | A-M | partial (@Scheduled checks, effective REST path, JAX-RS path-param/duplicate/HTTP-method checks; two spec-based rules unverified) |
 | F47 | Quarkus | MPJava diagnostics while config dirty (upstream LS limit) | H | |
 | F48 | Kubernetes | Complete built-in/CRD schemas, admission/CEL, defaults | A-L | partial (CRD pruning/int-or-string/scope checks; null on non-nullable = Info per docs, source not read; built-in schemas, admission/CEL open) |
 | F49 | Kubernetes | Kustomize transformed/flow/remote refs; generated identity | A-M | partial (generator/replacement refs, inline patch selectors, bases cycles, helm valuesFile) |
@@ -76,19 +76,19 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F70 | Batch | Operator next/restart/abandon/recover/stop, datasource authority | A-M | partial (job discovery + reviewed launch-command generation; no operator execution) |
 | F71 | Integration | SpEL/XPath/embedded-language assistance | A-M | partial (SpEL for all XSD *-expression attrs, int-xml XPath syntax; Java DSL XPath open) |
 | F72 | Spring core | Library assignability, effective conditional contexts, bean graph | A-L | partial (literal @ConditionalOnProperty/@Profile/@ConditionalOnMissingBean heuristic, ObjectFactory/SortedSet) |
-| F73 | Spring core | All classpath metadata, dynamic build resolution, converters | A-M | |
+| F73 | Spring core | All classpath metadata, dynamic build resolution, converters | A-M | partial (Maven versionless deps via cached Boot BOM; in-project parent POMs, custom converters open) |
 | F74 | Spring core | Data projection/query/entity-graph generators | A-L | partial (projection, record DTO, @EntityGraph checks) |
 | F75 | Spring core | Security chain, effective authorization | A-L | partial (method-security SpEL, verified anyRequest/ROLE_ rules, method-security-disabled Info) |
 | F76 | Spring core | JPA hierarchy/XML mappings/converters/reverse engineering | A-L | partial (hierarchy identifier with orm.xml, inheritance and converter checks) |
 | F77 | Spring Web | MVC mapping predicates/params, body-aware request samples | A-M | mostly pre-existing (predicates in request gen + OpenAPI export; Name column added; Endpoints row columns need ui-kit change) |
 | F78 | Spring Web | MVC OpenAPI export conditions, regex/ANY mappings | A-L | partial (Bean Validation constraints, regex path variables, status codes; ant mappings listed as unexported) |
-| F79 | Spring Web | Thymeleaf selectors, model inference, resolver semantics | A-M | partial (advice model attrs, @SessionAttributes names, fragment args) |
+| F79 | Spring Web | Thymeleaf selectors, model inference, resolver semantics | A-M | partial (advice model attrs, @SessionAttributes names, fragment args, #id selectors; class/markup selectors open) |
 | F80 | Spring Web | SpEL/EL injection, URL inlay actions | A-M | |
-| F81 | Spring Web | MVC XML imports/profiles, XSD validation | A-M | partial (import closure, profile beans, resource locations; view-controller view-name open) |
+| F81 | Spring Web | MVC XML imports/profiles, XSD validation | A-M | partial (import closure, profile beans, resource locations, view-controller view names) |
 | F82 | Spring Web | Template catalogue (licence); multi-action marker popup (host) | L/H | blocked |
 | F83 | Spring Web | Cloud Gateway args/DSL, Stream, discovery/config | A-M | partial (arg tables + arity for ~34 factories verified vs source incl. Weight/Retry, .or() DSL chains) |
 | F84 | Spring Web | Cloud auto-configured model, HttpExchange/contract Feign | A-L | partial (@HttpExchange clients + drafts, Feign contextId/configuration) |
-| F85 | Spring Web | GraphQL resolver graph, non-root hints, transport | A-L | partial (Kotlin aliases, BatchMapping, non-root unmapped-field Info hint) |
+| F85 | Spring Web | GraphQL resolver graph, non-root hints, transport | A-L | partial (Kotlin aliases, BatchMapping, non-root hint, RuntimeWiring registrations; API shapes from memory, unverified) |
 | F86 | Spring Web | Messaging/WebSocket dynamic SpEL, SockJS, XML schema model, broker | A-L | partial (XML enum/ref checks, unambiguous placeholders, BindingBuilder chains, producer routing-key links) |
 | F87 | Spring Web | Web Flow Java/custom flow models | A-M | partial (Java-config flow registries) |
 | F88 | Shell | Cross-file registry, dynamic registration, inherited availability | A-L | partial (inherited availability, duplicate provenance; inherited groups, conventional availability open) |
@@ -101,6 +101,6 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F95 | Twig | Embedded type resolution, Enter/pairing, debugger mapping, plugin-lexer rendering | H | |
 | F96 | Symfony | Service/route/template/domain reference models, reviewed Rename | A-L | partial (Doctrine links, autowiring alias navigation, missing-route warning, translation domains) |
 | F97 | Symfony | Profiler collector detail, pagination, remote modes | A-M | partial (profiler paging, time/cache/logger collectors; events/request open) |
-| F98 | Symfony | Doctrine/forms/container types | A-L | partial (form-field Info check) |
+| F98 | Symfony | Doctrine/forms/container types | A-L | partial (EntityType/CollectionType/choice_label/Checkbox/Doctrine column Info checks; json column intentionally not flagged) |
 
-Totals at 2026-11-11: 98 items. Done: F14, F27, F33, F42, F50. Skipped: F69. Blocked: F82. Decided: F13 dry-run only. Reclassified to host limits this round: F16, F21. Partial: about 57. About 31 untouched. Counts are judgment calls; partial does not mean near-complete.
+Totals at 2026-11-11: 98 items. Done: F14, F27, F33, F42, F50. Skipped: F69. Blocked: F82. Decided: F13 dry-run only. Host limits: F16, F21 (reclassified). Partial: about 58. About 30 untouched. Counts are judgment calls; partial does not mean near-complete.
