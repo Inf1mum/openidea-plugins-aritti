@@ -1,0 +1,89 @@
+{
+  "id": "RS-004",
+  "rows": [
+    "G029"
+  ],
+  "claimIds": [
+    "G029-C1"
+  ],
+  "verifies": {
+    "G029-C1": "the revision-entity action is offered on a billing entity in a project whose sources declare no @RevisionEntity (grep of the fixture), and it resolves to new @RevisionEntity and RevisionListener files. Parent interface, table name and the pick-an-existing-listener choice (C2, C3), and the revinfo mapping of C5, are not offered by the action, so they are not covered."
+  },
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "target": {
+    "file": "src/main/java/com/example/billing/domain/Client.java",
+    "anchor": "class Client"
+  },
+  "action": {
+    "title": "Create Envers revision entity with preview…"
+  },
+  "prompts": [
+    {
+      "input": "AuditRevision"
+    },
+    {
+      "input": "username"
+    },
+    {
+      "pick": "listener"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "actionOffered": true,
+    "promptSequence": [
+      {
+        "kind": "input",
+        "titleContains": "revision entity name",
+        "name": "revision entity name"
+      },
+      {
+        "kind": "input",
+        "titleContains": "extra string fields",
+        "name": "extra fields"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "RevisionListener",
+        "optionsInclude": [
+          "none",
+          "listener"
+        ],
+        "name": "create a new revision listener or none"
+      },
+      {
+        "kind": "confirm",
+        "messageContains": "AuditRevisionListener",
+        "name": "preview shows both files"
+      }
+    ],
+    "createdFiles": [
+      {
+        "path": "src/main/java/com/example/billing/domain/AuditRevision.java",
+        "contains": [
+          "@RevisionEntity(AuditRevisionListener.class)",
+          "@RevisionNumber",
+          "@RevisionTimestamp",
+          "private String username;"
+        ]
+      },
+      {
+        "path": "src/main/java/com/example/billing/domain/AuditRevisionListener.java",
+        "contains": [
+          "implements RevisionListener",
+          "newRevision"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true,
+    "cancelEach": true,
+    "stale": true
+  },
+  "note": "Create a revision entity with an extra username field and a new RevisionListener from an audited entity."
+}

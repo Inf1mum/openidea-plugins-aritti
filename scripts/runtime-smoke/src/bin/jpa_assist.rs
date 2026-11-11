@@ -11,6 +11,9 @@ use ide_host::{
     plugins::{Consent, HostWorkspace, PluginEvent, PluginHost},
 };
 use ide_plugin::{Invocation, Limits, Prompt, ProviderDocument, ViewEvent, WorkbenchEvent};
+#[path = "jpa_assist/scenario.rs"]
+mod scenario;
+
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
@@ -73,11 +76,14 @@ fn tree_hash(root: &Path) -> String {
 }
 
 #[derive(Clone, Debug)]
-enum Answer {
-    Pick(&'static str),
-    PickFirstEndingWith(&'static str),
-    Input(&'static str),
-    Yes,
+pub(crate) enum Answer {
+    Pick(String),
+    PickLabel(String),
+    PickMany(Vec<String>),
+    PickFirstEndingWith(String),
+    Input(String),
+    Confirm(bool),
+    Default,
     Cancel,
 }
 
@@ -122,12 +128,21 @@ fn answer_for(script: &mut Script, prompt: &Prompt) -> Option<Vec<String>> {
     };
     match (next.clone(), prompt) {
         (Answer::Cancel, _) => None,
-        (Answer::Pick(key), Prompt::QuickPick { items, .. }) if items.iter().any(|i| i.key == key) => Some(vec![key.into()]),
-        (Answer::PickFirstEndingWith(suffix), Prompt::QuickPick { items, .. }) => {
-            items.iter().find(|i| i.label.ends_with(suffix)).map(|i| vec![i.key.clone()])
+        (Answer::Pick(key), Prompt::QuickPick { items, .. }) if items.iter().any(|i| i.key == key) => Some(vec![key]),
+        (Answer::PickLabel(text), Prompt::QuickPick { items, .. }) if items.iter().any(|i| i.label.contains(&text)) => {
+            items.iter().find(|i| i.label.contains(&text)).map(|i| vec![i.key.clone()])
         }
-        (Answer::Input(text), Prompt::Input { .. }) => Some(vec![text.into()]),
-        (Answer::Yes, Prompt::Confirm { .. }) => Some(vec!["ok".into()]),
+        (Answer::PickMany(wanted), Prompt::QuickPick { items, multiple: true, .. }) => {
+            let resolved: Vec<String> = wanted.iter().filter_map(|w| items.iter().find(|i| &i.key == w || &i.label == w).map(|i| i.key.clone())).collect();
+            (resolved.len() == wanted.len()).then_some(resolved)
+        }
+        (Answer::PickFirstEndingWith(suffix), Prompt::QuickPick { items, .. }) => {
+            items.iter().find(|i| i.label.ends_with(&suffix)).map(|i| vec![i.key.clone()])
+        }
+        (Answer::Input(text), Prompt::Input { .. }) => Some(vec![text]),
+        (Answer::Default, Prompt::Input { value: Some(value), .. }) => Some(vec![value.clone()]),
+        (Answer::Confirm(true), Prompt::Confirm { .. }) => Some(vec!["ok".into()]),
+        (Answer::Confirm(false), Prompt::Confirm { .. }) => None,
         _ => {
             script.problems.push(format!("prompt {index} {prompt:?} does not accept scripted {next:?}"));
             None
@@ -191,30 +206,24 @@ fn expected_validation(before: &str, attribute: &str, constraint: &str) -> Optio
     Some(out)
 }
 
-#[tokio::main]
-async fn main() -> R<()> {
-    let mut args = std::env::args().skip(1);
-    let repo = PathBuf::from(args.next().ok_or("usage: jpa_assist REPO OUTPUT [FIXTURE_DIR] [WASM]")?).canonicalize()?;
-    let output = std::path::absolute(PathBuf::from(args.next().ok_or("missing output directory")?))?;
-    let fixture = match args.next() {
-        Some(path) => PathBuf::from(path).canonicalize()?,
-        None => repo.join("plugins/jpa-assist/parity/fixtures/boot-jpa-java-jakarta"),
-    };
-    let wasm = match args.next() {
-        Some(path) => PathBuf::from(path),
-        None => repo.join("plugins/jpa-assist/dist/plugin.wasm"),
-    };
-    if output.starts_with(&repo) || !fixture.join("pom.xml").is_file() || !wasm.is_file() {
-        return Err("output overlaps the repository, fixture has no pom.xml or the wasm is missing (build the plugin first)".into());
-    }
-    std::fs::create_dir_all(&output)?;
-    let temporary = tempfile::tempdir()?;
-    let base = temporary.path().canonicalize()?;
-    let project = base.join("project");
-    copy_tree(&fixture, &project, SKIP_COPY)?;
-    let pristine_hash = tree_hash(&project);
-    let mut report = Report { checks: vec![], failed: false };
+const HOST_REV: &str = "e702e4da7b0333e81bc818e26be72db1d157ec5d";
+const PLUGIN_SOURCE: &str = "plugins/jpa-assist";
 
+/// A private released host with the freshly built wasm installed; everything a scenario or the smoke set needs.
+pub(crate) struct Rt {
+    pub host: Arc<Host>,
+    pub plugins: Arc<PluginHost>,
+    pub script: Arc<Mutex<Script>>,
+    pub clipboard: Arc<Mutex<Vec<String>>>,
+    pub applied: Arc<Mutex<Vec<u32>>>,
+    pub install_error: Option<String>,
+}
+
+fn boot(base: &Path, project: &Path, repo: &Path, wasm: &Path, settings_toml: Option<&str>) -> R<Rt> {
+    std::fs::create_dir_all(base.join("config"))?;
+    if let Some(text) = settings_toml {
+        std::fs::write(base.join("config/settings.toml"), text)?;
+    }
     let applied = Arc::new(Mutex::new(Vec::<u32>::new()));
     let sink_applied = applied.clone();
     let host = Arc::new(Host::new(HostConfig {
@@ -235,8 +244,8 @@ async fn main() -> R<()> {
         runtime: tokio::runtime::Handle::current(),
         project_environment: false,
     }));
-    host.trust.decide(&project, true, false)?;
-    host.open_project(CLIENT, &project)?;
+    host.trust.decide(project, true, false)?;
+    host.open_project(CLIENT, project)?;
 
     let script = Arc::new(Mutex::new(Script::default()));
     let controller = Arc::new(Mutex::new(Weak::<PluginHost>::new()));
@@ -263,15 +272,125 @@ async fn main() -> R<()> {
     plugins.load_all();
     plugins.startup_finished();
 
-    let source = repo.join("plugins/jpa-assist");
     let staged = base.join("packages/jpa-assist");
-    copy_tree(&source, &staged, STAGE_SKIP)?;
+    copy_tree(&repo.join(PLUGIN_SOURCE), &staged, STAGE_SKIP)?;
     std::fs::create_dir_all(staged.join("dist"))?;
-    std::fs::copy(&wasm, staged.join("dist/plugin.wasm"))?;
-    let wasm_sha = sha(&std::fs::read(&wasm)?);
+    std::fs::copy(wasm, staged.join("dist/plugin.wasm"))?;
     let consent = Consent { optional: ["clipboard", "editor.write"].map(String::from).to_vec(), ..Default::default() };
     let installed = plugins.install_from_dir(&staged, &consent);
-    report.check("install into the private released host", installed.is_ok(), format!("wasm sha256 {wasm_sha}; {:?}", installed.as_ref().err()));
+    Ok(Rt { host, plugins, script, clipboard, applied, install_error: installed.err().map(|e| e.to_string()) })
+}
+
+#[derive(Default)]
+struct Cli {
+    positional: Vec<String>,
+    scenarios: Vec<String>,
+    only: Vec<String>,
+    receipt_dir: Option<PathBuf>,
+    list: bool,
+    validate: bool,
+    smoke: bool,
+}
+
+fn parse_cli() -> R<Cli> {
+    let mut cli = Cli::default();
+    let mut args = std::env::args().skip(1);
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--scenario" => cli.scenarios.push(args.next().ok_or("--scenario needs a file or directory")?),
+            "--only" => cli.only.extend(args.next().ok_or("--only needs ids")?.split(',').map(|s| s.trim().to_owned()).filter(|s| !s.is_empty())),
+            "--json-receipt-dir" => cli.receipt_dir = Some(PathBuf::from(args.next().ok_or("--json-receipt-dir needs a directory")?)),
+            "--list" => cli.list = true,
+            "--validate" => cli.validate = true,
+            "--smoke" => cli.smoke = true,
+            other if other.starts_with("--") => return Err(format!("unknown option {other}").into()),
+            other => cli.positional.push(other.to_owned()),
+        }
+    }
+    Ok(cli)
+}
+
+const USAGE: &str = "usage: jpa_assist REPO OUT [FIXTURE_DIR] [WASM] [--smoke] [--scenario FILE|DIR ...] [--only RS-001,...] [--json-receipt-dir DIR]\n       jpa_assist REPO --list|--validate [--scenario FILE|DIR ...] [--only ...]\nno --scenario and no --list/--validate runs the built-in 31-check smoke set only";
+
+#[tokio::main]
+async fn main() -> R<()> {
+    let cli = parse_cli()?;
+    let repo = PathBuf::from(cli.positional.first().ok_or(USAGE)?).canonicalize()?;
+    let mut scenarios_requested = cli.scenarios.clone();
+    if scenarios_requested.is_empty() && (cli.list || cli.validate || !cli.only.is_empty()) {
+        scenarios_requested.push(repo.join("plugins/jpa-assist/parity/runner/scenarios").display().to_string());
+    }
+    if cli.list || cli.validate {
+        let scenarios = scenario::load(&scenarios_requested, &cli.only)?;
+        if cli.list {
+            scenario::list(&scenarios);
+        }
+        if cli.validate {
+            let errors = scenario::validate(&repo, &scenarios);
+            for error in &errors {
+                println!("INVALID {error}");
+            }
+            println!("validated {} scenarios: {} errors", scenarios.len(), errors.len());
+            if !errors.is_empty() {
+                std::process::exit(1);
+            }
+        }
+        return Ok(());
+    }
+    let output = std::path::absolute(PathBuf::from(cli.positional.get(1).ok_or(USAGE)?))?;
+    let wasm = match cli.positional.get(3) {
+        Some(path) => PathBuf::from(path),
+        None => repo.join("plugins/jpa-assist/dist/plugin.wasm"),
+    };
+    if output.starts_with(&repo) || !wasm.is_file() {
+        return Err("output overlaps the repository or the wasm is missing (build the plugin first)".into());
+    }
+    std::fs::create_dir_all(&output)?;
+    let mut failed = false;
+    if !scenarios_requested.is_empty() {
+        let scenarios = scenario::load(&scenarios_requested, &cli.only)?;
+        let errors = scenario::validate(&repo, &scenarios);
+        if !errors.is_empty() {
+            for error in &errors {
+                println!("INVALID {error}");
+            }
+            return Err("scenario validation failed; nothing was run".into());
+        }
+        let receipts = cli.receipt_dir.clone().unwrap_or_else(|| output.join("receipts"));
+        failed |= scenario::run_all(&repo, &output, &receipts, &wasm, &scenarios).await?;
+    }
+    if scenarios_requested.is_empty() || cli.smoke {
+        let fixture = match cli.positional.get(2) {
+            Some(path) => PathBuf::from(path).canonicalize()?,
+            None => repo.join("plugins/jpa-assist/parity/fixtures/boot-jpa-java-jakarta"),
+        };
+        let smoke_out = if scenarios_requested.is_empty() { output.clone() } else { output.join("smoke") };
+        std::fs::create_dir_all(&smoke_out)?;
+        failed |= smoke(&repo, &smoke_out, &fixture, &wasm).await?;
+    }
+    if failed {
+        std::process::exit(1);
+    }
+    Ok(())
+}
+
+/// The original 31-check released-host acceptance (kept unchanged in behaviour). Returns true when a check failed.
+async fn smoke(repo: &Path, output: &Path, fixture: &Path, wasm: &Path) -> R<bool> {
+    let output = output.to_path_buf();
+    if !fixture.join("pom.xml").is_file() {
+        return Err("fixture has no pom.xml".into());
+    }
+    let temporary = tempfile::tempdir()?;
+    let base = temporary.path().canonicalize()?;
+    let project = base.join("project");
+    copy_tree(fixture, &project, SKIP_COPY)?;
+    let pristine_hash = tree_hash(&project);
+    let mut report = Report { checks: vec![], failed: false };
+
+    let rt = boot(&base, &project, repo, wasm, None)?;
+    let Rt { host, plugins, script, clipboard, applied, .. } = rt;
+    let wasm_sha = sha(&std::fs::read(wasm)?);
+    report.check("install into the private released host", rt.install_error.is_none(), format!("wasm sha256 {wasm_sha}; {:?}", rt.install_error));
     let write_results = |report: &Report| -> R<()> {
         std::fs::write(
             output.join("jpa-assist-results.json"),
@@ -282,9 +401,9 @@ async fn main() -> R<()> {
         )?;
         Ok(())
     };
-    if installed.is_err() {
+    if rt.install_error.is_some() {
         write_results(&report)?;
-        std::process::exit(1);
+        return Ok(true);
     }
 
     let documents = host.project(CLIENT)?.documents.clone();
@@ -393,7 +512,7 @@ async fn main() -> R<()> {
         let category = project.join("src/main/java/com/example/shop/domain/Category.java");
         let editor = ide_plugin::EditorContext { path: category.clone(), language: "java".into(), selections: vec![] };
         let with_editor = Invocation { editor: Some(editor), ..invocation.clone() };
-        *script.lock().unwrap() = Script { answers: (0..4).map(|_| Answer::PickFirstEndingWith("")).collect(), ..Script::default() };
+        *script.lock().unwrap() = Script { answers: (0..4).map(|_| Answer::PickFirstEndingWith(String::new())).collect(), ..Script::default() };
         let result = plugins.run_command(ID, "copy-ddl", None, with_editor);
         let prompts = std::mem::take(&mut script.lock().unwrap().seen);
         std::fs::write(output.join("copy-ddl-prompts.json"), serde_json::to_vec_pretty(&prompts)?)?;
@@ -419,7 +538,7 @@ async fn main() -> R<()> {
     let Some(target) = target else {
         report.check("validation FileAction is offered on a domain entity", false, "none of Category/Product/Customer offers it".to_owned());
         write_results(&report)?;
-        std::process::exit(1);
+        return Ok(true);
     };
     let original_text = std::fs::read_to_string(&target)?;
     let original_bytes_sha = sha(original_text.as_bytes());
@@ -458,8 +577,8 @@ async fn main() -> R<()> {
         .and_then(|items| items.iter().find(|i| i["label"].as_str().is_some_and(|l| l.ends_with(": String"))))
         .and_then(|i| i["key"].as_str().map(str::to_owned))
         .ok_or("no String attribute offered by the first prompt")?;
-    let attribute: &'static str = Box::leak(attribute.into_boxed_str());
-    let happy = || vec![Answer::Pick(attribute), Answer::Pick("NotBlank"), Answer::Input(""), Answer::Yes];
+    let attribute: &str = &attribute;
+    let happy = || vec![Answer::Pick(attribute.into()), Answer::Pick("NotBlank".into()), Answer::Input(String::new()), Answer::Confirm(true)];
     let expected = expected_validation(&original_text, attribute, "NotBlank").ok_or("oracle could not place the field")?;
 
     // happy path: scripted answers, exact preview, native apply
@@ -536,8 +655,5 @@ async fn main() -> R<()> {
     report.check("tree hash is pristine at the end of the run", tree_hash(&project) == pristine_hash, "disposable copy restored".to_owned());
 
     write_results(&report)?;
-    if report.failed {
-        std::process::exit(1);
-    }
-    Ok(())
+    Ok(report.failed)
 }

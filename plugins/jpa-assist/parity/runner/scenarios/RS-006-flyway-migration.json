@@ -1,0 +1,178 @@
+{
+  "id": "RS-006",
+  "rows": [
+    "G108",
+    "G110",
+    "G112",
+    "G120"
+  ],
+  "claimIds": [
+    "G108-C2",
+    "G110-C1",
+    "G112-C1",
+    "G112-C3",
+    "G120-C1",
+    "G120-C2"
+  ],
+  "verifies": {
+    "G108-C2": "after a baseline snapshot, the model drops Client.notes, adds nullable Client.score and tightens Client.email to NOT NULL. The reviewed SQL labels the added nullable column [Safe], the NOT NULL over possibly-NULL rows [NeedsBackfill] and the dropped column [DataLoss]; the levels are named differently from SAFE/CAUTION/DANGER but follow the documented definitions (cannot lose data / needs review over existing NULLs / can lose data by dropping a column). Both withheld levels are emitted only after the pickMany opt-in.",
+    "G110-C1": "the NeedsBackfill step asks for a value and the SQL contains UPDATE client SET email = <answered value> WHERE email IS NULL before ALTER COLUMN email SET NOT NULL",
+    "G112-C1": "the diff is Model (current entity sources) against Snapshot (db/jpa-schema-baseline.json) and the generated SQL upgrades the snapshot state to the model (add score, drop notes, set NOT NULL). Database as source or target is not offered, so only the Model/Snapshot pairing is covered.",
+    "G112-C3": "the Flyway migration is shown in a Create Flyway migration confirm containing the exact SQL file and is saved as a new V<version>__<description>.sql script only after confirmation",
+    "G120-C1": "flywayVersionPattern #date(yyyyMMdd).#increment(1, 1, 0000) is honoured: the generated file name carries the 4-digit zero-padded decimal format of the increment token (…0003). The start/step arithmetic is not stated by the documentation and is not asserted. The changelog-name half of the claim is not covered.",
+    "G120-C2": "the #date(yyyyMMdd) token is replaced by the date answered at the host prompt (20240131), so the file is V20240131.0003__model_changes.sql; only the yyyyMMdd pattern is exercised"
+  },
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "settings": {
+        "flywayVersionPattern": "#date(yyyyMMdd).#increment(1, 1, 0000)"
+      }
+    }
+  ],
+  "preActions": [
+    {
+      "title": "Create schema baseline…",
+      "target": {
+        "file": "src/main/java/com/example/billing/domain/Client.java",
+        "anchor": "class Client"
+      },
+      "prompts": [
+        {
+          "confirm": "yes"
+        }
+      ]
+    }
+  ],
+  "postSetup": [
+    {
+      "replace": {
+        "file": "src/main/java/com/example/billing/domain/Client.java",
+        "from": "    private String notes;",
+        "to": "    @Column(nullable = true)\n    private Integer score;"
+      }
+    },
+    {
+      "replace": {
+        "file": "src/main/java/com/example/billing/domain/Client.java",
+        "from": "    @Column(length = 160)\n    private String email;",
+        "to": "    @Column(nullable = false, length = 160)\n    private String email;"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/billing/domain/Client.java",
+    "anchor": "class Client"
+  },
+  "action": {
+    "title": "Generate Flyway migration from model changes…"
+  },
+  "prompts": [
+    {
+      "pick": "postgresql"
+    },
+    {
+      "pickMany": [
+        "needs-backfill",
+        "data-loss"
+      ]
+    },
+    {
+      "input": "unknown@example.com"
+    },
+    {
+      "input": "model_changes"
+    },
+    {
+      "input": "20240131"
+    },
+    {
+      "confirm": "yes"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pick",
+        "titleContains": "dialect",
+        "optionsInclude": [
+          "postgresql",
+          "mysql"
+        ],
+        "name": "dialect without a database connection"
+      },
+      {
+        "kind": "pickMany",
+        "titleContains": "withheld",
+        "optionsInclude": [
+          "needs-backfill",
+          "data-loss"
+        ],
+        "name": "opt-in to the withheld danger levels"
+      },
+      {
+        "kind": "input",
+        "titleContains": "Backfill value for client.email",
+        "name": "value that replaces existing NULLs"
+      },
+      {
+        "kind": "input",
+        "titleContains": "description",
+        "name": "migration description"
+      },
+      {
+        "kind": "input",
+        "titleContains": "Date for the file name",
+        "name": "date for the #date token"
+      },
+      {
+        "kind": "confirm",
+        "titleContains": "incomplete",
+        "name": "unknown facts are reported, not guessed"
+      },
+      {
+        "kind": "confirm",
+        "titleContains": "Create Flyway migration",
+        "messageContains": "Exact SQL file",
+        "name": "preview before saving"
+      }
+    ],
+    "createdFiles": [
+      {
+        "path": "src/main/resources/db/migration/V20240131.0003__model_changes.sql",
+        "contains": [
+          "ADD COLUMN \"score\"",
+          "[Safe]",
+          "[NeedsBackfill]",
+          "[DataLoss]",
+          "UPDATE \"client\" SET \"email\" = 'unknown@example.com' WHERE \"email\" IS NULL",
+          "ALTER TABLE \"client\" ALTER COLUMN \"email\" SET NOT NULL",
+          "DROP COLUMN \"notes\""
+        ]
+      }
+    ],
+    "resultFile": {
+      "path": "src/main/resources/db/migration/V20240131.0003__model_changes.sql",
+      "matches": [
+        "\\[Safe\\][^\\n]*\\n(--[^\\n]*\\n)*ALTER TABLE \"client\" ADD COLUMN \"score\"",
+        "\\[NeedsBackfill\\][^\\n]*\\n(--[^\\n]*\\n)*UPDATE \"client\" SET \"email\"[^\\n]*\\n\\n(--[^\\n]*\\n)*ALTER TABLE \"client\" ALTER COLUMN \"email\" SET NOT NULL",
+        "\\[DataLoss\\][^\\n]*\\n(--[^\\n]*\\n)*ALTER TABLE \"client\" DROP COLUMN \"notes\""
+      ]
+    }
+  },
+  "checks": {
+    "preview": {
+      "paths": [
+        "V20240131.0003__model_changes.sql"
+      ]
+    },
+    "undo": true,
+    "cancelEach": true,
+    "stale": true
+  },
+  "note": "Flyway migration generated from a model-vs-baseline diff with three kinds of change; the baseline is created by a pre-action in the same disposable copy."
+}

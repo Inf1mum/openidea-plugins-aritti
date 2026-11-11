@@ -1,0 +1,155 @@
+{
+  "id": "RS-008",
+  "rows": [
+    "G101"
+  ],
+  "claimIds": [
+    "G101-C3"
+  ],
+  "verifies": {
+    "G101-C3": "the Singularize class names option is chosen and the proposed class name for table tbl_users is User and for tbl_customers is Customer (promptSequence defaultIs); the created sources declare public class User and public class Customer. The same run strips the tbl_ and col_ prefixes (userName, name) but C1 is not claimed: only one table and one column prefix, no suffixes and no comma-separated lists are offered. C2 (reserved-word suffix) is not supported (a column named class refuses its table) and C4 (FK as basic attribute) is not offered."
+  },
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "sql-import/naming-rules.sql",
+        "content": "-- reverse-engineering naming rules\ncreate table tbl_customers (\n    id bigserial primary key,\n    col_name varchar(80) not null\n);\n\ncreate table tbl_users (\n    id bigserial primary key,\n    col_user_name varchar(50) not null,\n    col_customer_id bigint references tbl_customers (id)\n);\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "sql-import/naming-rules.sql",
+    "anchor": "create table tbl_customers"
+  },
+  "action": {
+    "title": "Generate entities from SQL file…"
+  },
+  "prompts": [
+    {
+      "pickMany": [
+        "tbl_customers",
+        "tbl_users"
+      ]
+    },
+    {
+      "pick": "java"
+    },
+    {
+      "pick": "com.example.billing.domain"
+    },
+    {
+      "pickMany": [
+        "singular",
+        "tablePrefix",
+        "columnPrefix"
+      ]
+    },
+    {
+      "input": "tbl_"
+    },
+    {
+      "input": "col_"
+    },
+    "default",
+    "default",
+    {
+      "pickMany": [
+        "\u0000all"
+      ]
+    },
+    {
+      "pickMany": [
+        "\u0000all"
+      ]
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pickMany",
+        "titleContains": "Tables to generate",
+        "optionsInclude": [
+          "tbl_customers",
+          "tbl_users"
+        ],
+        "name": "tables"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "Entity language",
+        "optionsInclude": [
+          "java",
+          "kotlin"
+        ],
+        "name": "language"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "Target package",
+        "name": "package"
+      },
+      {
+        "kind": "pickMany",
+        "titleContains": "Generation options",
+        "optionsInclude": [
+          "singular",
+          "tablePrefix",
+          "columnPrefix"
+        ],
+        "name": "naming options"
+      },
+      {
+        "kind": "input",
+        "titleContains": "Table prefix",
+        "name": "table prefix"
+      },
+      {
+        "kind": "input",
+        "titleContains": "Column prefix",
+        "name": "column prefix"
+      },
+      {
+        "kind": "input",
+        "titleContains": "tbl_customers",
+        "defaultIs": "Customer",
+        "name": "singular class name for tbl_customers"
+      },
+      {
+        "kind": "input",
+        "titleContains": "tbl_users",
+        "defaultIs": "User",
+        "name": "singular class name for tbl_users (users -> User)"
+      }
+    ],
+    "createdFiles": [
+      {
+        "path": "src/main/java/com/example/billing/domain/User.java",
+        "contains": [
+          "public class User {",
+          "@Table(name = \"tbl_users\")",
+          "private String userName;"
+        ]
+      },
+      {
+        "path": "src/main/java/com/example/billing/domain/Customer.java",
+        "contains": [
+          "public class Customer {",
+          "@Table(name = \"tbl_customers\")",
+          "private String name;"
+        ]
+      }
+    ]
+  },
+  "note": "Entities generated from a SQL file with prefixed plural table names (written by setup) with singularizing and prefix options.",
+  "checks": {
+    "preview": true,
+    "undo": true,
+    "cancelEach": true,
+    "stale": true
+  }
+}

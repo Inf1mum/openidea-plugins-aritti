@@ -4721,6 +4721,7 @@ dependencies = [
  "ide-host",
  "ide-language",
  "ide-plugin",
+ "regex",
  "serde_json",
  "sha2 0.10.9",
  "tempfile",
