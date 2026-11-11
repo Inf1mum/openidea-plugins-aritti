@@ -7,7 +7,7 @@ license = "MIT"
 change-notes = "Unreleased: bidirectional matching-directive navigation using unsaved source. Unreleased: bounded current-text closing-directive navigation and explicit Laravel/Blade reference ownership, with no unsafe Rename graph. documented that directive completion and its snippets are provided by aritti.laravel, not by this plugin. 0.1.0: 0.1.0: first release, with .blade.php file detection, highlighting, structure view and folding."
 categories = ["languages"]
 icon = "icon.svg"
-engines.openidea = "^1.4"
+engines.openidea = "^1.5"
 # Highlighting, structure, folding and the inspections come from this component;
 # it is loaded when the first Blade file is opened.
 wasm = "dist/plugin.wasm"
