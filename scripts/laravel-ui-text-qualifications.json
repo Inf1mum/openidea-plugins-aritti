@@ -1,0 +1,170 @@
+{
+  "version": 1,
+  "instructions": "Exact non-UI facts with reviewed consumer proofs. Any producer/consumer hash change invalidates the qualification until reviewed. Qualified facts never count as translated UI.",
+  "entries": [
+    {
+      "file": "plugins/laravel/src/vite.rs",
+      "text": "Invalid or oversized Vite manifest",
+      "qualification": "Unpublished parser result: the sole production crate::vite::manifest consumer in Index ingestion uses if let Ok(assets), discarding Err. These diagnostics are returned only to pure parser tests; they are not UI labels, notifications or published diagnostic messages.",
+      "proofHashes": {
+        "plugins/laravel/src/vite.rs": "a67440de432e19514a2e60393a90609c711eea6c1dcb3fabd60e643c32aa2b86",
+        "plugins/laravel/src/index.rs": "787301936e699736f400bc9589803eb7d362ad73b9e71b33792d03e6df11f6fe"
+      }
+    },
+    {
+      "file": "plugins/laravel/src/vite.rs",
+      "text": "Vite manifest must be an object",
+      "qualification": "Unpublished parser result: the sole production crate::vite::manifest consumer in Index ingestion uses if let Ok(assets), discarding Err. These diagnostics are returned only to pure parser tests; they are not UI labels, notifications or published diagnostic messages.",
+      "proofHashes": {
+        "plugins/laravel/src/vite.rs": "a67440de432e19514a2e60393a90609c711eea6c1dcb3fabd60e643c32aa2b86",
+        "plugins/laravel/src/index.rs": "787301936e699736f400bc9589803eb7d362ad73b9e71b33792d03e6df11f6fe"
+      }
+    },
+    {
+      "file": "plugins/laravel/src/vite.rs",
+      "text": "Vite manifest record must be an object",
+      "qualification": "Unpublished parser result: the sole production crate::vite::manifest consumer in Index ingestion uses if let Ok(assets), discarding Err. These diagnostics are returned only to pure parser tests; they are not UI labels, notifications or published diagnostic messages.",
+      "proofHashes": {
+        "plugins/laravel/src/vite.rs": "a67440de432e19514a2e60393a90609c711eea6c1dcb3fabd60e643c32aa2b86",
+        "plugins/laravel/src/index.rs": "787301936e699736f400bc9589803eb7d362ad73b9e71b33792d03e6df11f6fe"
+      }
+    },
+    {
+      "file": "plugins/laravel/src/vite.rs",
+      "text": "Vite manifest record needs a file",
+      "qualification": "Unpublished parser result: the sole production crate::vite::manifest consumer in Index ingestion uses if let Ok(assets), discarding Err. These diagnostics are returned only to pure parser tests; they are not UI labels, notifications or published diagnostic messages.",
+      "proofHashes": {
+        "plugins/laravel/src/vite.rs": "a67440de432e19514a2e60393a90609c711eea6c1dcb3fabd60e643c32aa2b86",
+        "plugins/laravel/src/index.rs": "787301936e699736f400bc9589803eb7d362ad73b9e71b33792d03e6df11f6fe"
+      }
+    },
+    {
+      "file": "plugins/laravel/src/vite.rs",
+      "text": "Vite manifest output must stay in the build directory",
+      "qualification": "Unpublished parser result: the sole production crate::vite::manifest consumer in Index ingestion uses if let Ok(assets), discarding Err. These diagnostics are returned only to pure parser tests; they are not UI labels, notifications or published diagnostic messages.",
+      "proofHashes": {
+        "plugins/laravel/src/vite.rs": "a67440de432e19514a2e60393a90609c711eea6c1dcb3fabd60e643c32aa2b86",
+        "plugins/laravel/src/index.rs": "787301936e699736f400bc9589803eb7d362ad73b9e71b33792d03e6df11f6fe"
+      }
+    },
+    {
+      "file": "plugins/laravel/src/vite.rs",
+      "text": "Vite manifest src must be a string",
+      "qualification": "Unpublished parser result: the sole production crate::vite::manifest consumer in Index ingestion uses if let Ok(assets), discarding Err. These diagnostics are returned only to pure parser tests; they are not UI labels, notifications or published diagnostic messages.",
+      "proofHashes": {
+        "plugins/laravel/src/vite.rs": "a67440de432e19514a2e60393a90609c711eea6c1dcb3fabd60e643c32aa2b86",
+        "plugins/laravel/src/index.rs": "787301936e699736f400bc9589803eb7d362ad73b9e71b33792d03e6df11f6fe"
+      }
+    },
+    {
+      "file": "plugins/laravel/src/vite.rs",
+      "text": "Vite manifest source must stay in the project",
+      "qualification": "Unpublished parser result: the sole production crate::vite::manifest consumer in Index ingestion uses if let Ok(assets), discarding Err. These diagnostics are returned only to pure parser tests; they are not UI labels, notifications or published diagnostic messages.",
+      "proofHashes": {
+        "plugins/laravel/src/vite.rs": "a67440de432e19514a2e60393a90609c711eea6c1dcb3fabd60e643c32aa2b86",
+        "plugins/laravel/src/index.rs": "787301936e699736f400bc9589803eb7d362ad73b9e71b33792d03e6df11f6fe"
+      }
+    },
+    {
+      "file": "plugins/laravel/src/vite.rs",
+      "text": "Vite manifest isEntry must be boolean",
+      "qualification": "Unpublished parser result: the sole production crate::vite::manifest consumer in Index ingestion uses if let Ok(assets), discarding Err. These diagnostics are returned only to pure parser tests; they are not UI labels, notifications or published diagnostic messages.",
+      "proofHashes": {
+        "plugins/laravel/src/vite.rs": "a67440de432e19514a2e60393a90609c711eea6c1dcb3fabd60e643c32aa2b86",
+        "plugins/laravel/src/index.rs": "787301936e699736f400bc9589803eb7d362ad73b9e71b33792d03e6df11f6fe"
+      }
+    },
+    {
+      "file": "plugins/laravel/src/eloquent_related_facts.rs",
+      "text": "literal schema table",
+      "qualification": "Internal source provenance: relation facts use this Entry only for owned location/type evidence. Model rows publish explicit type/association labels, and definition forwarding uses scoped_location path/range rather than Entry.detail. Re-reviewed 2026-11-11 after producer/consumer edits: Relation, Scope and Related model rows still pass explicit detail labels through fact_row and never read Entry.detail.",
+      "proofHashes": {
+        "plugins/laravel/src/eloquent_related_facts.rs": "4038a994fcc9545a15f6af98c62eb72868a78b91e653f1532e3e906fe971fedf",
+        "plugins/laravel/src/eloquent_semantic.rs": "af0e71ee918f4f36aec1c43defca5053f3ed11eb346c09145b3ee3eea6d14709",
+        "plugins/laravel/src/eloquent_members.rs": "e09f7f197435a5540b0e972f80d7bbc24c96a373ebe416cc6ec75d17e241c5f4",
+        "plugins/laravel/src/model_overview.rs": "721a9fc4e877dd00342104a96bbdd7e77f3420b33cedfe02d732101e65a2ed3b",
+        "plugins/laravel/src/lib.rs": "766024e344437b8697a15cad51ce208fdfbfc59a915d38e7a94ea50de2b7ef84"
+      }
+    },
+    {
+      "file": "plugins/laravel/src/eloquent_semantic.rs",
+      "text": "Declared factory model generic",
+      "qualification": "Internal source provenance: factory_model/model_factory consume the Entry as an owned location anchor; relation completion builds its own type/kind detail; model relation rows pass explicit labels and definition forwarding uses only scoped_location path/range. Re-reviewed 2026-11-11 after producer/consumer edits: Relation, Scope and Related model rows still pass explicit detail labels through fact_row and never read Entry.detail.",
+      "proofHashes": {
+        "plugins/laravel/src/eloquent_semantic.rs": "af0e71ee918f4f36aec1c43defca5053f3ed11eb346c09145b3ee3eea6d14709",
+        "plugins/laravel/src/eloquent_members.rs": "e09f7f197435a5540b0e972f80d7bbc24c96a373ebe416cc6ec75d17e241c5f4",
+        "plugins/laravel/src/model_overview.rs": "721a9fc4e877dd00342104a96bbdd7e77f3420b33cedfe02d732101e65a2ed3b",
+        "plugins/laravel/src/lib.rs": "766024e344437b8697a15cad51ce208fdfbfc59a915d38e7a94ea50de2b7ef84"
+      }
+    },
+    {
+      "file": "plugins/laravel/src/eloquent_semantic.rs",
+      "text": "Explicit resolveRelationUsing registration",
+      "qualification": "Internal source provenance: factory_model/model_factory consume the Entry as an owned location anchor; relation completion builds its own type/kind detail; model relation rows pass explicit labels and definition forwarding uses only scoped_location path/range. Re-reviewed 2026-11-11 after producer/consumer edits: Relation, Scope and Related model rows still pass explicit detail labels through fact_row and never read Entry.detail.",
+      "proofHashes": {
+        "plugins/laravel/src/eloquent_semantic.rs": "af0e71ee918f4f36aec1c43defca5053f3ed11eb346c09145b3ee3eea6d14709",
+        "plugins/laravel/src/eloquent_members.rs": "e09f7f197435a5540b0e972f80d7bbc24c96a373ebe416cc6ec75d17e241c5f4",
+        "plugins/laravel/src/model_overview.rs": "721a9fc4e877dd00342104a96bbdd7e77f3420b33cedfe02d732101e65a2ed3b",
+        "plugins/laravel/src/lib.rs": "766024e344437b8697a15cad51ce208fdfbfc59a915d38e7a94ea50de2b7ef84"
+      }
+    },
+    {
+      "file": "plugins/laravel/src/metadata_config_parents.rs",
+      "text": "Package defaults for {}",
+      "qualification": "Internal target provenance only: markers construct their own localized tooltip and copy target path/range; definitions navigate target location. This Entry.detail is not published.",
+      "proofHashes": {
+        "plugins/laravel/src/metadata_config_parents.rs": "9fd125ba261c70f4386e9679e7bcf0f25b723f26e5a66b6b274a5a8d198f7def"
+      }
+    },
+    {
+      "file": "plugins/laravel/src/metadata_config_parents.rs",
+      "text": "config file",
+      "qualification": "Internal sentinel used to distinguish config-array/file targets; target navigation uses path/range and markers construct separate localized tooltips.",
+      "proofHashes": {
+        "plugins/laravel/src/metadata_config_parents.rs": "9fd125ba261c70f4386e9679e7bcf0f25b723f26e5a66b6b274a5a8d198f7def"
+      }
+    },
+    {
+      "file": "plugins/laravel/src/package_livewire_views.rs",
+      "text": "Livewire view source",
+      "qualification": "View-source inventory Entry is used for navigation/location anchors. Published Livewire component entries are separate facts with a localized presentation_detail adapter. Re-reviewed 2026-11-11 after producer/consumer edits: Relation, Scope and Related model rows still pass explicit detail labels through fact_row and never read Entry.detail.",
+      "proofHashes": {
+        "plugins/laravel/src/package_livewire_views.rs": "0a6db74f4639eca6a2d4719094f2a74b7ea0410b73151ef451322c7da11741bd",
+        "plugins/laravel/src/package_integrations.rs": "1bfbe5b48d24b0a51e5ada72cb22f1e63c74c3d3f8081b2ec969e56fcc8dd8e6",
+        "plugins/laravel/src/index.rs": "787301936e699736f400bc9589803eb7d362ad73b9e71b33792d03e6df11f6fe"
+      }
+    },
+    {
+      "file": "plugins/laravel/src/strict_json.rs",
+      "text": "JSON depth or value budget exceeded",
+      "qualification": "Internal serde visitor diagnostic: parse_with_budget discards every Deserialize error via map_err(|_| Error::Stale); these custom strings never leave this module.",
+      "proofHashes": {
+        "plugins/laravel/src/strict_json.rs": "d3209eb556ceb774beabe245cf8abdc0d5e18ff090517c0f7b067a2edec58e32"
+      }
+    },
+    {
+      "file": "plugins/laravel/src/strict_json.rs",
+      "text": "nonfinite JSON number",
+      "qualification": "Internal serde visitor diagnostic discarded by parse_with_budget map_err(|_| Error::Stale); no text reaches a native UI.",
+      "proofHashes": {
+        "plugins/laravel/src/strict_json.rs": "d3209eb556ceb774beabe245cf8abdc0d5e18ff090517c0f7b067a2edec58e32"
+      }
+    },
+    {
+      "file": "plugins/laravel/src/strict_json.rs",
+      "text": "duplicate JSON object key",
+      "qualification": "Internal serde visitor diagnostic discarded by parse_with_budget map_err(|_| Error::Stale); no text reaches a native UI.",
+      "proofHashes": {
+        "plugins/laravel/src/strict_json.rs": "d3209eb556ceb774beabe245cf8abdc0d5e18ff090517c0f7b067a2edec58e32"
+      }
+    },
+    {
+      "file": "plugins/laravel/web/generators.js",
+      "text": "Base",
+      "qualification": "Code-only suffix selector key.endsWith('Base'); settings display uses translated generator.settings.baseClass/postfix labels, never renders this selector literal.",
+      "proofHashes": {
+        "plugins/laravel/web/generators.js": "9f0da4ea729c0e34c68cb2d1d312a46aa01a6462f41bbac2fea9ca7548b0c6f3"
+      }
+    }
+  ]
+}

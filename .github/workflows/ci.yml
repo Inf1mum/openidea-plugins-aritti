@@ -9,6 +9,17 @@ permissions:
   contents: read
 
 jobs:
+  ui-assets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Validate shared UI assets and Laravel locale catalogs
+        run: |
+          python3 scripts/build-ui-icons.py --check
+          python3 scripts/build-ui-i18n.py --check
+          python3 scripts/check-laravel-host-locales.py
+          python3 scripts/sync-plugin-ui.py --check
+
   list:
     runs-on: ubuntu-latest
     outputs:
