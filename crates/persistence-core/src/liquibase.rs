@@ -63,7 +63,8 @@ pub struct ChangeSetAttributes {
     pub context: Option<String>,
     /// Same rule as `context`.
     pub labels: Option<String>,
-    /// Either one set renders `<preConditions>` for `createTable` and `addColumn` changeSets only.
+    /// Either one set renders `<preConditions>` for the change types in `apply_defaults` (a create-type guards with
+    /// `<not>` of the matching `*Exists` element, a drop-type with the `*Exists` element itself).
     pub on_fail: Option<PreconditionAction>,
     pub on_error: Option<PreconditionAction>,
     /// `<rollback/>` in changeSets of `ROLLBACK_UNSUPPORTED` types.
@@ -647,10 +648,24 @@ fn apply_defaults(set: &mut ChangeSet, defaults: &ChangeSetDefaults) {
     if wanted.on_fail.is_none() && wanted.on_error.is_none() {
         return;
     }
-    let check = match (kind.as_str(), attr_of(body, "tableName")) {
-        ("createTable", Some(table)) => format!("<tableExists tableName=\"{table}\"/>"),
-        ("addColumn", Some(table)) => match attr_of(body, "name") {
-            Some(column) => format!("<columnExists tableName=\"{table}\" columnName=\"{column}\"/>"),
+    let table = attr_of(body, "tableName");
+    let named = |name| attr_of(body, name);
+    let absent = |element: String| format!("<not>\n{PAD}        {element}\n{PAD}    </not>");
+    let check = match (kind.as_str(), table, named("name"), named("columnName"), named("indexName"), named("constraintName")) {
+        ("createTable", Some(table), ..) => absent(format!("<tableExists tableName=\"{table}\"/>")),
+        ("addColumn", Some(table), Some(column), ..) => absent(format!("<columnExists tableName=\"{table}\" columnName=\"{column}\"/>")),
+        ("dropTable", Some(table), ..) => format!("<tableExists tableName=\"{table}\"/>"),
+        ("dropColumn", Some(table), _, Some(column), ..) => format!("<columnExists tableName=\"{table}\" columnName=\"{column}\"/>"),
+        ("createIndex", Some(table), _, _, Some(index), _) => absent(format!("<indexExists tableName=\"{table}\" indexName=\"{index}\"/>")),
+        ("dropIndex", Some(table), _, _, Some(index), _) => format!("<indexExists tableName=\"{table}\" indexName=\"{index}\"/>"),
+        ("addUniqueConstraint", Some(table), _, _, _, Some(name)) => absent(format!("<uniqueConstraintExists tableName=\"{table}\" constraintName=\"{name}\"/>")),
+        ("dropUniqueConstraint", Some(table), _, _, _, Some(name)) => format!("<uniqueConstraintExists tableName=\"{table}\" constraintName=\"{name}\"/>"),
+        ("addForeignKeyConstraint", _, _, _, _, Some(name)) => match attr_of(body, "baseTableName") {
+            Some(base) => absent(format!("<foreignKeyConstraintExists foreignKeyTableName=\"{base}\" foreignKeyName=\"{name}\"/>")),
+            None => return,
+        },
+        ("dropForeignKeyConstraint", _, _, _, _, Some(name)) => match attr_of(body, "baseTableName") {
+            Some(base) => format!("<foreignKeyConstraintExists foreignKeyTableName=\"{base}\" foreignKeyName=\"{name}\"/>"),
             None => return,
         },
         _ => return,
@@ -662,7 +677,7 @@ fn apply_defaults(set: &mut ChangeSet, defaults: &ChangeSetDefaults) {
     if let Some(action) = wanted.on_error {
         head.push_str(&format!(" onError=\"{}\"", action.name()));
     }
-    set.preconditions = Some(format!("{PAD}{head}>\n{PAD}    <not>\n{PAD}        {check}\n{PAD}    </not>\n{PAD}</preConditions>\n"));
+    set.preconditions = Some(format!("{PAD}{head}>\n{PAD}    {check}\n{PAD}</preConditions>\n"));
 }
 
 fn list_items(option: &'static str, text: &str) -> Result<Vec<String>, LiquibaseError> {
@@ -1297,17 +1312,43 @@ mod tests {
     }
 
     #[test]
-    fn golden_preconditions_for_create_table_and_add_column_only() {
+    fn golden_preconditions_for_create_table_add_column_and_drops() {
         let text = render_with(all(ChangeSetAttributes { on_fail: Some(PreconditionAction::MarkRan), on_error: Some(PreconditionAction::Halt), ..ChangeSetAttributes::default() }));
         let table = "    <changeSet id=\"model-1\" author=\"jpa-assist\">\n        <preConditions onFail=\"MARK_RAN\" onError=\"HALT\">\n            <not>\n                <tableExists tableName=\"orders\"/>\n            </not>\n        </preConditions>\n        <createTable tableName=\"orders\">";
         assert!(text.contains(table), "{text}");
         let column = "        <preConditions onFail=\"MARK_RAN\" onError=\"HALT\">\n            <not>\n                <columnExists tableName=\"t\" columnName=\"note\"/>\n            </not>\n        </preConditions>\n        <addColumn tableName=\"t\">";
         assert!(text.contains(column), "{text}");
-        assert_eq!(text.matches("<preConditions").count(), 2, "{text}");
+        let drop_column = "        <preConditions onFail=\"MARK_RAN\" onError=\"HALT\">\n            <columnExists tableName=\"t\" columnName=\"old\"/>\n        </preConditions>\n        <dropColumn tableName=\"t\" columnName=\"old\"/>";
+        assert!(text.contains(drop_column), "{text}");
+        assert!(text.contains("            <indexExists tableName=\"t\" indexName=\"ix_a\"/>\n        </preConditions>\n        <dropIndex"), "{text}");
+        assert_eq!(text.matches("<preConditions").count(), 7, "{text}");
         let warn = render_with(all(ChangeSetAttributes { on_fail: Some(PreconditionAction::Warn), ..ChangeSetAttributes::default() }));
         assert!(warn.contains("<preConditions onFail=\"WARN\">"), "{warn}");
         let cont = render_with(all(ChangeSetAttributes { on_error: Some(PreconditionAction::Continue), ..ChangeSetAttributes::default() }));
         assert!(cont.contains("<preConditions onError=\"CONTINUE\">"), "{cont}");
+    }
+
+    #[test]
+    fn preconditions_guard_every_verified_change_type_with_its_exists_element() {
+        let mut o = options();
+        o.emit.allow = vec![Danger::DataLoss];
+        o.defaults = all(ChangeSetAttributes { on_fail: Some(PreconditionAction::Warn), ..ChangeSetAttributes::default() });
+        let text = emit_xml(&full_plan(), &o).unwrap().render();
+        assert_well_formed(&text);
+        for expected in [
+            "<preConditions onFail=\"WARN\">\n            <tableExists tableName=\"gone\"/>\n        </preConditions>\n        <dropTable",
+            "<not>\n                <uniqueConstraintExists tableName=\"t\" constraintName=\"uq_a\"/>\n            </not>\n        </preConditions>\n        <addUniqueConstraint",
+            "            <uniqueConstraintExists tableName=\"t\" constraintName=\"uq_a\"/>\n        </preConditions>\n        <dropUniqueConstraint",
+            "<not>\n                <indexExists tableName=\"t\" indexName=\"ix_a\"/>\n            </not>\n        </preConditions>\n        <createIndex",
+            "<not>\n                <foreignKeyConstraintExists foreignKeyTableName=\"t\" foreignKeyName=\"fk_a\"/>\n            </not>\n        </preConditions>\n        <addForeignKeyConstraint",
+            "            <foreignKeyConstraintExists foreignKeyTableName=\"t\" foreignKeyName=\"fk_a\"/>\n        </preConditions>\n        <dropForeignKeyConstraint",
+        ] {
+            assert!(text.contains(expected), "{expected}\n{text}");
+        }
+        for unguarded in ["modifyDataType", "addNotNullConstraint", "dropNotNullConstraint", "renameColumn", "addPrimaryKey"] {
+            let changeset_of = |text: &str| text.find(&format!("<{unguarded} ")).map(|at| text[..at].rsplit("<changeSet").next().unwrap_or_default().to_owned());
+            assert!(changeset_of(&text).is_none_or(|head| !head.contains("preConditions")), "{unguarded}");
+        }
     }
 
     #[test]

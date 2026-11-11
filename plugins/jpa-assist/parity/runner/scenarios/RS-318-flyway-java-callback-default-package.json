@@ -20,13 +20,19 @@
   },
   "prompts": [
     {
+      "input": "AuditCallback"
+    },
+    "default",
+    {
       "pickMany": [
         "beforeMigrate"
       ]
     },
     {
-      "input": "AuditCallback"
+      "confirm": "yes"
     },
+    "default",
+    "default",
     {
       "confirm": "yes"
     }
