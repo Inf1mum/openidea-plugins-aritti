@@ -85,6 +85,79 @@ pub(crate) fn check(ctx: &Context, language: &str, text: &str) -> Vec<Finding> {
     found
 }
 
+pub(crate) struct Link {
+    pub definition: bool,
+    pub key: String,
+    pub range: Range<usize>,
+}
+
+/// Go to Declaration edges: `class#FQCN` references from `repositoryClass` and
+/// `targetEntity`, and `orm-property#FQCN::name` between `mappedBy`/`inversedBy`
+/// strings and the mapped property declarations of the same file.
+pub(crate) fn links(text: &str) -> Vec<Link> {
+    let mapped = imports(text).iter().any(|import| import.fqcn == "Doctrine\\ORM\\Mapping" || import.fqcn.starts_with(MAPPING));
+    if !mapped {
+        return Vec::new();
+    }
+
+    let masked = mask(text);
+    let resolve = resolver(text);
+    let owner = class_model(text).map(|model| model.fqcn);
+    let mut found = Vec::new();
+
+    for attribute in attributes(text) {
+        if let (Target::Property { name }, Some(owner)) = (&attribute.target, &owner) {
+            let needle = format!("${name}");
+            let declared = masked[attribute.range.end..].match_indices(&needle).map(|(at, _)| attribute.range.end + at).find(|at| !masked.as_bytes().get(at + needle.len()).is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_'));
+            if let Some(at) = declared {
+                found.push(Link { definition: true, key: format!("orm-property#{owner}::{name}"), range: at + 1..at + needle.len() });
+            }
+        }
+
+        let Some(kind) = attribute.name.strip_prefix(MAPPING) else { continue };
+        let is_relation = matches!(kind, "ManyToOne" | "OneToMany" | "OneToOne" | "ManyToMany");
+        if !(is_relation || kind == "Entity") || !masked[attribute.range.clone()].contains('(') {
+            continue;
+        }
+
+        let mut target = None;
+        let mut sides = Vec::new();
+        for (position, argument) in arguments(&masked, attribute.arguments.start - 1).into_iter().enumerate() {
+            let (label, value) = match named(&masked, argument.clone()) {
+                Some((name, value)) => (&masked[name], value),
+                None if position == 0 && is_relation => ("targetEntity", argument),
+                None => continue,
+            };
+            match label {
+                "targetEntity" if is_relation => target = class_literal(text, value.clone()).map(|class| (resolve(&class), value)),
+                "repositoryClass" if kind == "Entity" => {
+                    if let Some(class) = class_literal(text, value.clone()) {
+                        found.push(class_link(text, &resolve(&class), value));
+                    }
+                }
+                "mappedBy" | "inversedBy" if is_relation => sides.push(value),
+                _ => {}
+            }
+        }
+
+        let Some((target, range)) = target else { continue };
+        found.push(class_link(text, &target, range));
+        for value in sides {
+            if let Some(name) = string_literal(text, value.clone()) {
+                found.push(Link { definition: false, key: format!("orm-property#{target}::{name}"), range: trimmed(text, value) });
+            }
+        }
+    }
+
+    found
+}
+
+fn class_link(text: &str, class: &str, value: Range<usize>) -> Link {
+    let range = trimmed(text, value);
+    let end = range.start + text[range.clone()].trim_end().len() - "::class".len();
+    Link { definition: false, key: format!("class#{class}"), range: range.start..end }
+}
+
 fn associations(ctx: &Context, text: &str) -> Vec<Finding> {
     let mapped = imports(text).iter().any(|import| import.fqcn == "Doctrine\\ORM\\Mapping" || import.fqcn.starts_with(MAPPING));
     if !mapped {
@@ -243,6 +316,18 @@ mod tests {
     }
 
     const ORM: &str = "<?php\nnamespace App\\Entity;\n\nuse Doctrine\\ORM\\Mapping as ORM;\n\nclass Post\n{\n    BODY\n}\n";
+
+    #[test]
+    fn links_cover_repository_target_and_sides() {
+        let text = "<?php\nnamespace App\\Entity;\n\nuse Doctrine\\ORM\\Mapping as ORM;\nuse App\\Repo\\PostRepository;\n\n#[ORM\\Entity(repositoryClass: PostRepository::class)]\nclass Post\n{\n    #[ORM\\ManyToOne(targetEntity: Author::class, inversedBy: 'posts')]\n    private $author;\n}\n";
+        let at = |link: &Link| text[link.range.clone()].to_owned();
+        let found: Vec<_> = links(text).iter().map(|link| (link.definition, link.key.clone(), at(link))).collect();
+        assert!(found.contains(&(false, "class#App\\Repo\\PostRepository".into(), "PostRepository".into())));
+        assert!(found.contains(&(false, "class#App\\Entity\\Author".into(), "Author".into())));
+        assert!(found.contains(&(false, "orm-property#App\\Entity\\Author::posts".into(), "'posts'".into())));
+        assert!(found.contains(&(true, "orm-property#App\\Entity\\Post::author".into(), "author".into())));
+        assert!(links("<?php\nclass A { private $x; }").is_empty());
+    }
 
     #[test]
     fn association_side_must_name_existing_property() {

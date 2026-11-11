@@ -16,6 +16,7 @@ struct CommandName {
 struct Pending {
     root: String,
     doc: Document,
+    trigger: Option<Document>,
     command: CommandName,
 }
 #[derive(Default)]
@@ -345,7 +346,7 @@ fn rename_preview(
     let inherited = if inherited.is_empty() {
         String::new()
     } else {
-        format!("\n\nSubclass availability selectors that inherit this command are NOT edited; update them manually:\n{}", inherited.join("\n"))
+        format!("\n\nInheriting subclass availability selectors edited in the same action (path:line:col):\n{}", inherited.join("\n"))
     };
     let spans = edits
         .iter()
@@ -377,7 +378,7 @@ fn rename_preview(
 impl ShellTools {
     /// Subclass selectors (`path:line:col`) naming a command this class declares. Refuses when
     /// a subclass chain, selector or command name cannot be proven literal and collision free.
-    fn inherited_selectors(&mut self, doc: &Document, command: &CommandName, new: &str, project: &host::Project) -> Result<Vec<String>, Error> {
+    fn inherited_selectors(&mut self, doc: &Document, command: &CommandName, new: &str, project: &host::Project) -> Result<Vec<(String, String, Range)>, Error> {
         let unproven = || Error::Invalid("A subclass of this command's class is not fully literal; rename refused.".into());
         let index = self.indexes.for_document(&doc.path, &doc.text, PROVIDER_BUDGET).ok_or_else(unproven)?;
         let mut subclasses = Vec::new();
@@ -416,12 +417,40 @@ impl ShellTools {
                     return Err(unproven());
                 }
                 for s in arg.strings.iter().filter(|s| words(&[s]) == command.name) {
-                    let at = range(&sub.text, s.at, s.end).start;
-                    out.push(format!("{}:{}:{}", owner, at.line + 1, at.character + 1));
+                    if s.value != command.name {
+                        return Err(unproven());
+                    }
+                    out.push((owner.clone(), sub.text.clone(), range(&sub.text, s.at, s.end)));
                 }
             }
         }
         Ok(out)
+    }
+
+    fn inherited_origin(&mut self, doc: &Document, selection: Range) -> Option<(Document, CommandName)> {
+        let f = document_model(doc)?;
+        let key = annotations(&f)
+            .filter(|a| a.name == "ShellMethodAvailability" && availability_owner(&f, &doc.text, a).is_none())
+            .filter_map(|a| Some((a, a.arg("value").filter(|arg| hover::literal_values(arg))?)))
+            .find_map(|(a, arg)| {
+                let s = arg.strings.iter().find(|s| selected(range(&doc.text, s.at, s.end), selection))?;
+                Some((class_at(&f, a.at), s.value.clone()))
+            })?;
+        let project = host::project_of(&doc.path)?;
+        let index = self.indexes.for_document(&doc.path, &doc.text, PROVIDER_BUDGET)?;
+        let found = named(index, &key.0, &key.1);
+        let [(path, _)] = found.as_slice() else { return None };
+        if *path == doc.path {
+            return None;
+        }
+        let declaring = Document {
+            path: path.clone(),
+            language: if path.ends_with(".kt") { "kotlin" } else { "java" }.into(),
+            version: 0,
+            text: project.read_file(path).ok()?,
+        };
+        let command = model(&declaring).into_iter().find(|c| c.name == key.1)?;
+        Some((declaring, command))
     }
 
     pub(super) fn command_rename_actions(
@@ -432,11 +461,16 @@ impl ShellTools {
         let Some(root) = actions::root(doc) else {
             return vec![];
         };
-        let commands = model(doc).into_iter().filter(|c| {
-            selected(c.definition, selection) || c.uses.iter().any(|r| selected(*r, selection))
-        });
+        let mut commands: Vec<_> = model(doc)
+            .into_iter()
+            .filter(|c| selected(c.definition, selection) || c.uses.iter().any(|r| selected(*r, selection)))
+            .map(|c| (None, c))
+            .collect();
+        if commands.is_empty() {
+            commands = self.inherited_origin(doc, selection).into_iter().map(|(d, c)| (Some(d), c)).collect();
+        }
         let mut out = Vec::new();
-        for command in commands.take(4) {
+        for (declaring, command) in commands.into_iter().take(4) {
             if self.command_renames.pending.len() >= 8 {
                 self.command_renames.pending.clear();
             }
@@ -450,7 +484,8 @@ impl ShellTools {
                 token.clone(),
                 Pending {
                     root: root.clone(),
-                    doc: doc.clone(),
+                    doc: declaring.clone().unwrap_or_else(|| doc.clone()),
+                    trigger: declaring.map(|_| doc.clone()),
                     command,
                 },
             );
@@ -465,7 +500,7 @@ impl ShellTools {
     }
     pub(super) fn resolve_command_rename(
         &mut self,
-        doc: &Document,
+        trigger_doc: &Document,
         action: FileAction,
     ) -> Result<FileAction, Error> {
         let token = action.data.as_deref().ok_or(Error::Stale)?;
@@ -475,19 +510,20 @@ impl ShellTools {
             .get(token)
             .cloned()
             .ok_or(Error::Stale)?;
+        let origin = pending.trigger.as_ref().unwrap_or(&pending.doc);
+        let doc = &pending.doc;
         let fresh = |d: &Document| {
-            d.path == pending.doc.path
-                && d.language == pending.doc.language
-                && d.version == pending.doc.version
-                && d.text == pending.doc.text
+            d.path == origin.path
+                && d.language == origin.language
+                && d.version == origin.version
+                && d.text == origin.text
                 && actions::root(d).as_deref() == Some(&pending.root)
-                && model(d).contains(&pending.command)
         };
-        if !fresh(doc) {
-            return Err(Error::Stale);
-        }
         let project = host::project_of(&doc.path).ok_or(Error::Stale)?;
-        if project.read_file(&doc.path)? != doc.text {
+        let current = |project: &host::Project| -> Result<bool, Error> {
+            Ok(project.read_file(&doc.path)? == doc.text && model(doc).contains(&pending.command))
+        };
+        if !fresh(trigger_doc) || !current(&project)? || project.read_file(&trigger_doc.path)? != trigger_doc.text {
             return Err(Error::Stale);
         }
         let new=host::input("New local Shell command key (space-separated lowercase words using letters/digits/hyphens, each starting with a letter; max64)",Some(&pending.command.name))?.ok_or(Error::Cancelled)?;
@@ -508,19 +544,31 @@ impl ShellTools {
                 &e.text,
             );
         }
-        let inherited = self.inherited_selectors(doc, &pending.command, &new, &project)?;
-        let preview = rename_preview(doc, &pending.command, &new, &edits, &after, &inherited);
+        let selectors = self.inherited_selectors(doc, &pending.command, &new, &project)?;
+        let labels: Vec<_> = selectors.iter().map(|(path, _, r)| format!("{}:{}:{}", path, r.start.line + 1, r.start.character + 1)).collect();
+        let preview = rename_preview(doc, &pending.command, &new, &edits, &after, &labels);
         if !ui_kit::prompts::confirm_exact("Rename local Shell command key?", &preview)? {
             return Err(Error::Cancelled);
         }
-        if !fresh(doc) || project.read_file(&doc.path)? != doc.text {
+        if !fresh(trigger_doc) || !current(&project)? || project.read_file(&trigger_doc.path)? != trigger_doc.text {
             return Err(Error::Stale);
+        }
+        let mut files = vec![(doc.path.clone(), edits)];
+        for (path, text, span) in selectors {
+            if project.read_file(&path)? != text {
+                return Err(Error::Stale);
+            }
+            let edit = TextEdit { range: span, text: new.clone() };
+            match files.iter_mut().find(|(p, _)| *p == path) {
+                Some((_, list)) => list.push(edit),
+                None => files.push((path, vec![edit])),
+            }
         }
         self.command_renames.pending.remove(token);
         Ok(FileAction {
             title: "Rename local Shell command key".into(),
             kind: Some("refactor.rename".into()),
-            edits: vec![(doc.path.clone(), edits)],
+            edits: files,
             ..Default::default()
         })
     }
@@ -1060,7 +1108,7 @@ mod implicit_transaction_tests {
     const BASE: &str = "package p; import org.springframework.shell.standard.ShellMethod; import org.springframework.shell.standard.ShellMethodAvailability;\n@org.springframework.shell.standard.ShellComponent class Base {\n @ShellMethod(key=\"shared\",value=\"S\") void shared(){}\n}";
     const CHILD: &str = "package p; import org.springframework.shell.standard.ShellMethodAvailability;\n@org.springframework.shell.standard.ShellComponent class Child extends Base {\n @ShellMethodAvailability(\"shared\") Availability gate(){return null;}\n}";
 
-    fn inherited(base: &str, child: &str, new: &str) -> Result<Vec<String>, Error> {
+    fn inherited(base: &str, child: &str, new: &str) -> Result<Vec<(String, String, Range)>, Error> {
         let h = MockHost::install();
         h.add_file("src/main/java/p/Base.java", base);
         h.add_file("src/main/java/p/Child.java", child);
@@ -1074,26 +1122,60 @@ mod implicit_transaction_tests {
     #[test]
     fn superclass_command_rename_lists_subclass_selectors_and_refuses_unproven_chains() {
         let listed = inherited(BASE, CHILD, "common").unwrap();
-        assert_eq!(listed, ["/project/src/main/java/p/Child.java:3:28"]);
+        assert_eq!(listed.len(), 1);
+        assert_eq!((listed[0].0.as_str(), listed[0].2.start.line, listed[0].2.start.character), ("/project/src/main/java/p/Child.java", 2, 27));
         let dynamic = CHILD.replace("(\"shared\")", "(KEY)");
         assert!(inherited(BASE, &dynamic, "common").is_err());
         let colliding = CHILD.replace("extends Base {", "extends Base { @org.springframework.shell.standard.ShellMethod(key=\"common\",value=\"C\") void c(){}");
         assert!(inherited(BASE, &colliding, "common").is_err());
     }
 
-    #[test]
-    fn superclass_rename_edits_only_the_declaration_once() {
+    fn apply(text: &str, edits: &[TextEdit]) -> String {
+        let mut out = text.to_owned();
+        let mut sorted: Vec<_> = edits.iter().collect();
+        sorted.sort_by_key(|e| (e.range.start.line, e.range.start.character));
+        for e in sorted.iter().rev() {
+            out.replace_range(offset(text, e.range.start).unwrap()..offset(text, e.range.end).unwrap(), &e.text);
+        }
+        out
+    }
+
+    fn rename_from(child_selector: bool, child: &str) -> Result<FileAction, Error> {
         let h = MockHost::install();
         h.add_file("src/main/java/p/Base.java", BASE);
-        h.add_file("src/main/java/p/Child.java", CHILD);
-        let d = Document { path: "/project/src/main/java/p/Base.java".into(), language: "java".into(), version: 1, text: BASE.into() };
+        h.add_file("src/main/java/p/Child.java", child);
+        let (path, text) = if child_selector {
+            ("/project/src/main/java/p/Child.java", child)
+        } else {
+            ("/project/src/main/java/p/Base.java", BASE)
+        };
+        let d = Document { path: path.into(), language: "java".into(), version: 1, text: text.into() };
         let mut tools = ShellTools::default();
-        let at = position(BASE, BASE.find("\"shared\"").unwrap() + 1);
+        let at = position(text, text.find("\"shared\"").unwrap() + 1);
         let a = tools.file_actions(&d, Range::new(at, at)).into_iter().find(|a| a.data.as_deref().is_some_and(|s| s.starts_with("shell-command:"))).unwrap();
         h.answer_next_prompt(Some(&["common"]));
         h.answer_next_prompt(Some(&["yes"]));
-        let done = tools.resolve_file_action(&d, a).unwrap();
-        assert_eq!(done.edits.len(), 1);
-        assert_eq!(done.edits[0].1.len(), 1);
+        tools.resolve_file_action(&d, a)
+    }
+
+    #[test]
+    fn superclass_rename_edits_declaration_and_inheriting_selectors_from_either_side() {
+        for from_child in [false, true] {
+            let done = rename_from(from_child, CHILD).unwrap();
+            assert_eq!(done.edits.len(), 2);
+            for (path, edits) in &done.edits {
+                assert_eq!(edits.len(), 1);
+                let source = if path.ends_with("Base.java") { BASE } else { CHILD };
+                let after = apply(source, edits);
+                assert!(after.contains("\"common\"") && !after.contains("\"shared\""));
+            }
+        }
+    }
+
+    #[test]
+    fn superclass_rename_refuses_non_literal_selectors_and_collisions() {
+        assert!(rename_from(false, &CHILD.replace("(\"shared\")", "(KEY)")).is_err());
+        let colliding = CHILD.replace("extends Base {", "extends Base { @org.springframework.shell.standard.ShellMethod(key=\"common\",value=\"C\") void c(){}");
+        assert!(rename_from(false, &colliding).is_err());
     }
 }

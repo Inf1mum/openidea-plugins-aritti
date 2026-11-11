@@ -215,7 +215,11 @@ fn toml_graph(text: &str, uv: bool) -> Option<Graph> {
         }
         let Some(record) = records.last_mut() else { continue };
         if line.starts_with('[') {
-            in_deps = !uv && line == "[package.dependencies]";
+            in_deps = if uv {
+                matches!(line, "[package.optional-dependencies]" | "[package.dev-dependencies]")
+            } else {
+                line == "[package.dependencies]"
+            };
             in_list = false;
             continue;
         }
@@ -227,8 +231,15 @@ fn toml_graph(text: &str, uv: bool) -> Option<Graph> {
             continue;
         }
         if in_deps {
-            if let Some((key, _)) = line.split_once('=') {
-                record.2.push(key.trim().trim_matches('"').to_owned());
+            if uv {
+                for item in line.split("{ name = \"").skip(1) {
+                    record.2.push(item.split('"').next().unwrap_or("").to_owned());
+                }
+            } else if let Some((key, _)) = line.split_once('=') {
+                let key = key.trim().trim_matches('"');
+                if !key.starts_with(['{', ']', '#']) {
+                    record.2.push(key.to_owned());
+                }
             }
             continue;
         }
@@ -410,5 +421,24 @@ mod tests {
         let bound = &rows[0].sources[1];
         assert_eq!((bound.path.as_str(), bound.line), ("/p/pyproject.toml", 2));
         assert!(bound.evidence.contains("pyproject.toml:3") && bound.evidence.contains("req@1 > urllib3@1.2"));
+    }
+
+    #[test]
+    fn uv_lock_real_shapes_optional_dev_and_extras() {
+        let uv = "[[package]]\nname = \"validate-pyproject\"\nversion = \"0.25\"\nsource = { registry = \"https://pypi.org/simple\" }\ndependencies = [\n    { name = \"fastjsonschema\" },\n]\n\n[package.optional-dependencies]\nall = [\n    { name = \"packaging\" },\n    { name = \"tomli\", marker = \"python_full_version < '3.11'\" },\n]\n\n[package.metadata]\nrequires-dist = [\n    { name = \"ghost\", specifier = \">=1\" },\n]\n\n[[package]]\nname = \"uv\"\nversion = \"0.1\"\nsource = { editable = \".\" }\n\n[package.dev-dependencies]\ncheck = [\n    { name = \"validate-pyproject\", extra = [\"all\"] },\n]\n\n[package.metadata.requires-dev]\ncheck = [\n    { name = \"ghost\", specifier = \">=1\" },\n]\n\n[[package]]\nname = \"packaging\"\nversion = \"24\"\n\n[[package]]\nname = \"ghost\"\nversion = \"9\"\n";
+        let direct = |n: &str| n == "uv";
+        let got = chain("/p/uv.lock", uv, "packaging", "24", &direct).unwrap();
+        assert_eq!(got.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(), ["uv", "validate-pyproject", "packaging"]);
+        assert!(chain("/p/uv.lock", uv, "ghost", "9", &direct).is_none());
+    }
+
+    #[test]
+    fn poetry_lock_real_shapes_inline_tables_arrays_and_extras() {
+        let poetry = "[[package]]\nname = \"Root\"\nversion = \"1\"\n\n[package.dependencies]\nidna = \">=2.8\"\ntyping_extensions = {version = \">=4.16.0\", markers = \"python_version < \\\"3.15\\\"\"}\nexceptiongroup = [\n    {version = \">=1\", markers = \"python_version < \\\"3.11\\\"\"},\n]\n\n[package.extras]\ntrio = [\"ghost (>=0.32.0)\"]\n\n[[package]]\nname = \"typing-extensions\"\nversion = \"4.1\"\n\n[[package]]\nname = \"exceptiongroup\"\nversion = \"1.2\"\n\n[[package]]\nname = \"ghost\"\nversion = \"9\"\n";
+        let direct = |n: &str| n == "root";
+        for (n, v) in [("typing_extensions", "4.1"), ("exceptiongroup", "1.2")] {
+            assert_eq!(chain("/p/poetry.lock", poetry, n, v, &direct).unwrap().len(), 2, "{n}");
+        }
+        assert!(chain("/p/poetry.lock", poetry, "ghost", "9", &direct).is_none());
     }
 }

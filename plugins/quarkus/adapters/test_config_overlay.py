@@ -60,4 +60,35 @@ class ConfigSourceTests(unittest.TestCase):
             self.assertEqual((document['text'],document['format'],document['ordinal']),('a.b=1\n','yaml',255))
             self.assertEqual(overlay.unsupported,{bad})
 
+    def test_saved_yaml_env_and_config_are_sources_and_dirty_overrides(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary).resolve();res=root/'src/main/resources';(root/'config').mkdir();res.mkdir(parents=True)
+            (res/'application.yaml').write_text('a:\n  b: 1\n');(res/'application-dev.yml').write_text('a:\n  b: 2\n')
+            (root/'.env').write_text('A_B=3\n');(root/'config/application.properties').write_text('c=4\n');(root/'config/application.yaml').write_text('d: 5\n')
+            (res/'application.properties').write_text('lsp4mp=owns\n');(res/'.env').write_text('X=1\n')
+            (root/'bad').mkdir();(root/'bad/application.yaml').write_text('x')
+            (res/'flow.yaml').write_text('x: 1\n')
+            outside=Path(temporary).resolve().parent/'outside.yaml'
+            (root/'config/application-prod.yaml').symlink_to(outside)
+            target=root/'s.json';overlay=ConfigOverlay(root,target)
+            documents={Path(d['uri'][7:]).relative_to(root).as_posix():d for d in json.loads(target.read_text())['documents']}
+            self.assertEqual(set(documents),{'src/main/resources/application.yaml','src/main/resources/application-dev.yml','.env','config/application.properties','config/application.yaml'})
+            self.assertEqual((documents['.env']['ordinal'],documents['.env']['format'],documents['.env']['text']),(295,'env','A_B=3\n'))
+            self.assertEqual((documents['config/application.yaml']['ordinal'],documents['config/application.properties']['ordinal']),(265,260))
+            self.assertEqual(documents['src/main/resources/application-dev.yml']['profile'],'dev')
+            self.assertTrue(all(d['saved'] for d in documents.values()))
+            uri=(res/'application.yaml').as_uri()
+            overlay.event('textDocument/didOpen',{'textDocument':{'uri':uri,'version':1,'text':'a:\n  b: 9\n'}})
+            overlay.event('textDocument/didChange',{'textDocument':{'uri':uri,'version':2},'contentChanges':[{'text':'a:\n  b: 9\n'}]})
+            matching=[d for d in json.loads(target.read_text())['documents'] if d['uri']==uri]
+            self.assertEqual((len(matching),matching[0]['text'],'saved' in matching[0]),(1,'a.b=9\n',False))
+            overlay.event('textDocument/didChange',{'textDocument':{'uri':uri,'version':3},'contentChanges':[{'text':'a: {b: 1}\n'}]})
+            self.assertEqual(overlay.unsupported,{uri})
+            self.assertFalse([d for d in json.loads(target.read_text())['documents'] if d['uri']==uri])
+    def test_refresh_bumps_generation_only_when_saved_files_change(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary).resolve();overlay=ConfigOverlay(root,root/'s.json');overlay.refresh();self.assertEqual(overlay.generation,0)
+            (root/'.env').write_text('A=1\n');overlay.refresh();self.assertEqual(overlay.generation,1)
+            overlay.refresh();self.assertEqual(overlay.generation,1)
+
 if __name__=='__main__': unittest.main()

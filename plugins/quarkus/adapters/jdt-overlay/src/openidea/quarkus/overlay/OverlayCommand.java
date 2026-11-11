@@ -100,7 +100,7 @@ public final class OverlayCommand implements IDelegateCommandHandler {
                         JsonObject document = entry.getValue();
                         String format = document.has("format") ? document.get("format").getAsString() : "properties";
                         if (applied.contains(path) || !path.startsWith(projectRoot) || existing.contains(path)) continue;
-                        if ("properties".equals(format) && Files.exists(path)) continue;
+                        if (diskBacked(format, Files.exists(path), document.has("saved"))) continue;
                         int ordinal = document.has("ordinal") ? document.get("ordinal").getAsInt() : 250;
                         String profile = document.has("profile") && !document.get("profile").isJsonNull()
                             ? document.get("profile").getAsString() : null;
@@ -123,6 +123,10 @@ public final class OverlayCommand implements IDelegateCommandHandler {
                 (applied.contains(entry.getKey()) ? accepted : unsupported).add(entry.getValue().get("uri").getAsString());
             return Map.of("generation", generation, "applied", accepted, "unsupported", unsupported);
         }
+    }
+    /** Existing properties files are LSP4MP's own sources unless the broker read them as saved external files. */
+    static boolean diskBacked(String format, boolean exists, boolean saved) {
+        return "properties".equals(format) && exists && !saved;
     }
     static boolean configName(String name) {
         return name.equals(".env") || name.endsWith(".properties") || name.endsWith(".yaml") || name.endsWith(".yml");

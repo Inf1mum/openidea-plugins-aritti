@@ -360,6 +360,7 @@ class MicroProfileBroker(Broker):
                     self.error('microprofile', message['id'], 'Java project import is not ready; callback limit reached')
                 return
             if self.overlay is not None:
+                self.overlay.refresh()
                 generation = self.overlay.generation
                 token = super().request('jdt', {'jsonrpc': '2.0', 'method': 'workspace/executeCommand', 'params': {'command': 'openidea.configOverlay.synchronize', 'arguments': [generation]}}, 'overlay-sync', message['id'])
                 if token:

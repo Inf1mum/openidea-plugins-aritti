@@ -224,9 +224,10 @@ fn maven_proof(doc: &Document) -> Option<Proof> {
             if value(&nodes,dependency,"groupId")?!="org.springframework.boot"||value(&nodes,dependency,"artifactId")?!="spring-boot-dependencies"||value(&nodes,dependency,"type")?!="pom"||value(&nodes,dependency,"scope")?!="import" {return None;}
             (value(&nodes,dependency,"version")?,"sole literal imported Spring Boot dependency BOM (no parent)")
         }
+        (None,None)=>(String::new(),"no Boot management (explicit dependency versions only)"),
         _=>return None,
     };
-    if !ga_version(&boot) {
+    if !boot.is_empty()&&!ga_version(&boot) {
         return None;
     }
     if nodes.iter().filter(|n| n.parent == Some(0) && n.name == "properties").count() > 1 {
@@ -320,6 +321,60 @@ fn maven_proof(doc: &Document) -> Option<Proof> {
     }
     Some(Proof { boot, management, at, end, before, after, inner, existing, newline,gradle:None,refs:Vec::new() })
 }
+fn aggregator(doc: &Document) -> Option<Vec<String>> {
+    if doc.language != "xml" || doc.path.rsplit('/').next() != Some("pom.xml") {
+        return None;
+    }
+    let nodes = parse(&doc.text)?;
+    if nodes.iter().filter(|n| n.parent.is_none()).count() != 1 || nodes.first()?.name != "project" {
+        return None;
+    }
+    if nodes.iter().enumerate().any(|(i, n)| n.attrs.iter().any(|(k, v)| i != 0 || k != "xmlns" || v != "http://maven.apache.org/POM/4.0.0")) {
+        return None;
+    }
+    if value(&nodes, 0, "packaging")? != "pom" || value(&nodes, 0, "modelVersion")? != "4.0.0" {
+        return None;
+    }
+    if nodes.iter().any(|n| matches!(n.name.as_str(), "profiles" | "repositories" | "pluginRepositories" | "extensions")) {
+        return None;
+    }
+    let (modules, node) = only(&nodes, 0, "modules")?;
+    if !node.text.trim().is_empty() {
+        return None;
+    }
+    let mut names = Vec::new();
+    for (i, n) in nodes.iter().enumerate().filter(|(_, n)| n.parent == Some(modules)) {
+        let name = n.text.trim().to_owned();
+        if n.name != "module" || nodes.iter().any(|c| c.parent == Some(i)) || !literal(&name) || names.contains(&name) {
+            return None;
+        }
+        names.push(name);
+    }
+    (!names.is_empty() && names.len() <= 16).then_some(names)
+}
+/// Module poms of an aggregator that individually carry the existing Boot proof.
+fn module_targets(doc: &Document) -> Vec<(Document, Proof)> {
+    let (Some(names), Some(project)) = (aggregator(doc), host::project_of(&doc.path)) else {
+        return Vec::new();
+    };
+    let dir = doc.path.rsplit_once('/').map_or("", |(d, _)| d);
+    names
+        .iter()
+        .filter_map(|name| {
+            let path = format!("{dir}/{name}/pom.xml");
+            let text = project.read_file(&path).ok()?;
+            let module = Document { path, language: "xml".into(), version: 0, text };
+            let p = maven_proof(&module)?;
+            Some((module, p))
+        })
+        .collect()
+}
+fn starter_target(doc: &Document, cache: &Cache) -> Result<(Document, Proof), Error> {
+    let Some(module) = &cache.module else {
+        return Ok((doc.clone(), proof(doc).ok_or(Error::Stale)?));
+    };
+    module_targets(doc).into_iter().find(|(m, _)| &m.path == module).ok_or(Error::Stale)
+}
 fn root(doc: &Document) -> Option<String> {
     let project = host::project_of(&doc.path)?;
     let root = project.root().ok()?;
@@ -366,13 +421,16 @@ fn fresh_source(doc: &Document, root: &str) -> Result<(), Error> {
 struct Starter {
     id: String,
     name: String,
+    group: String,
     artifact: String,
     scope: String,
+    version: Option<String>,
 }
 struct Cache {
     root: String,
     path: String,
     boot: String,
+    module: Option<String>,
     at: Instant,
     metadata: serde_json::Value,
     starters: Vec<Starter>,
@@ -400,8 +458,10 @@ impl Launcher {
         let editor = ctx.editor().ok_or("Open a supported managed Maven or literal Gradle build first.")?;
         let snapshot = editor.document()?;
         let doc = Document { path: editor.path(), language: editor.language(), version: snapshot.version, text: snapshot.text };
-        let p = proof(&doc)
-            .ok_or("Use a supported literal Boot-managed Maven POM or project-root Gradle build; dynamic scripts, custom repositories and unknown management are refused.")?;
+        let first = proof(&doc);
+        if first.is_none() && aggregator(&doc).is_none() {
+            return Err("Use a supported literal Boot-managed Maven POM, a literal Maven aggregator or project-root Gradle build; dynamic scripts, custom repositories and unknown management are refused.".into());
+        }
         let root = root(&doc).ok_or(Error::Stale)?;
         if ctx.project().and_then(|p| p.root().ok()).as_deref() != Some(&root)
             || host::project_of(&doc.path).ok_or(Error::Stale)?.read_file(&doc.path)? != doc.text
@@ -423,20 +483,36 @@ impl Launcher {
         if session::selected_server(&self.owner) != self.server {
             return Err(Error::Stale);
         }
+        let (p, module) = match first {
+            Some(p) => (p, None),
+            None => {
+                let targets = module_targets(&doc);
+                let items: Vec<_> = targets.iter().map(|(m, p)| PickItem::new(&m.path, &m.path).description(&format!("{} · {}", p.management, p.boot))).collect();
+                if items.is_empty() {
+                    return Err("No literal module pom of this aggregator proves Boot management or a plain unmanaged build; nothing to add starters to.".into());
+                }
+                let chosen = host::pick("Add starters to which module?", &items)?.ok_or(Error::Cancelled)?;
+                let (module_doc, p) = targets.into_iter().find(|(m, _)| m.path == chosen).ok_or(Error::Stale)?;
+                fresh_source(&module_doc, &root)?;
+                (p, Some(module_doc.path))
+            }
+        };
         self.load_metadata(false);
         let metadata = self.metadata.as_ref().ok_or("Load verified Initializr metadata first.")?.clone();
-        if !metadata["bootVersion"]["values"].as_array().is_some_and(|v| v.iter().any(|v| v["id"].as_str() == Some(&p.boot))) {
+        let unmanaged = p.boot.is_empty();
+        let boot = if unmanaged { metadata["bootVersion"]["default"].as_str().filter(|v| ga_version(v)).ok_or("Metadata names no default Boot version for an unmanaged build; nothing is guessed.")?.to_owned() } else { p.boot.clone() };
+        if !metadata["bootVersion"]["values"].as_array().is_some_and(|v| v.iter().any(|v| v["id"].as_str() == Some(&boot))) {
             return Err("The build's Boot version is not advertised by the saved metadata; no version is guessed.".into());
         }
-        let coords = starters::get(&format!("/dependencies?bootVersion={}", p.boot))?;
-        if coords["bootVersion"].as_str() != Some(&p.boot) {
+        let coords = starters::get(&format!("/dependencies?bootVersion={boot}"))?;
+        if coords["bootVersion"].as_str() != Some(&boot) {
             return Err("Coordinate response does not prove the requested build Boot version.".into());
         }
         let catalogue = dependencies::Catalogue::from_metadata(&metadata);
         let mut found = Vec::new();
         let mut artifacts = BTreeSet::new();
         for dep in catalogue.categories.iter().flat_map(|g| &g.dependencies) {
-            if dep.range.as_ref().is_some_and(|range| compatibility::allows(&p.boot, range) != Some(true)) {
+            if dep.range.as_ref().is_some_and(|range| compatibility::allows(&boot, range) != Some(true)) {
                 continue;
             }
             let d = &coords["dependencies"][&dep.id];
@@ -446,12 +522,21 @@ impl Launcher {
             if obj.keys().any(|k| !matches!(k.as_str(), "groupId" | "artifactId" | "scope" | "version" | "bom" | "repository"))
                 || !d["bom"].is_null()
                 || !d["repository"].is_null()
-                || !d["version"].is_null()
-                || d["groupId"].as_str() != Some("org.springframework.boot")
             {
                 continue;
             }
-            let Some(artifact) = d["artifactId"].as_str().filter(|v| literal(v) && v.starts_with("spring-boot-starter-")) else {
+            let version = match &d["version"] {
+                serde_json::Value::Null => None,
+                serde_json::Value::String(v) if literal(v) => Some(v.clone()),
+                _ => continue,
+            };
+            let Some(group) = d["groupId"].as_str().filter(|v| literal(v)) else {
+                continue;
+            };
+            if version.is_some() != unmanaged || (!unmanaged && group != "org.springframework.boot") {
+                continue;
+            }
+            let Some(artifact) = d["artifactId"].as_str().filter(|v| literal(v) && (unmanaged || v.starts_with("spring-boot-starter-"))) else {
                 continue;
             };
             let scope = match &d["scope"] {
@@ -459,38 +544,38 @@ impl Launcher {
                 serde_json::Value::String(scope) => scope.as_str(),
                 _ => continue,
             };
-            if !matches!(scope, "compile" | "runtime" | "provided" | "test") || (p.gradle.is_some()&&scope=="provided") || !artifacts.insert(artifact.to_owned()) {
+            if !matches!(scope, "compile" | "runtime" | "provided" | "test") || (p.gradle.is_some()&&scope=="provided") || !artifacts.insert(format!("{group}:{artifact}")) {
                 continue;
             }
-            found.push(Starter { id: dep.id.clone(), name: dep.name.clone(), artifact: artifact.into(), scope: scope.into() });
+            found.push(Starter { id: dep.id.clone(), name: dep.name.clone(), group: group.into(), artifact: artifact.into(), scope: scope.into(), version });
         }
         if found.is_empty() {
-            return Err("No compatible plain Boot-managed starters are established by this metadata response.".into());
+            return Err("No compatible plain Boot-managed (or, for unmanaged builds, exact-version) starters are established by this metadata response.".into());
         }
         if host::storage::get(&session::locator(&self.owner, "selector"))? != selector {
             return Err(Error::Stale);
         }
         self.starter_edits.cache =
-            Some(Cache { root, path: doc.path, boot: p.boot, at: Instant::now(), metadata, starters: found, selector });
+            Some(Cache { root, path: doc.path, boot, module, at: Instant::now(), metadata, starters: found, selector });
         Ok(Some("Cached version-bound starters for this current build. Invoke Preview Add Spring Boot Starters… in its code-action menu to choose, preview and apply an undoable edit. No source was changed.".into()))
     }
 }
 impl Launcher {
     fn starter_file_actions(&mut self, doc: &Document, _selection: Range) -> Vec<FileAction> {
-        let Some(p) = proof(doc) else {
-            return Vec::new();
-        };
         let Some(root) = root(doc) else {
             return Vec::new();
         };
         let Some(cache) = &self.starter_edits.cache else {
             return Vec::new();
         };
+        let Ok((_, p)) = starter_target(doc, cache) else {
+            return Vec::new();
+        };
         if self.owner != format!("project:{root}")
             || self.server != START
             || cache.root != root
             || cache.path != doc.path
-            || cache.boot != p.boot
+            || !(p.boot.is_empty() || cache.boot == p.boot)
             || cache.at.elapsed() > Duration::from_secs(900)
         {
             return Vec::new();
@@ -500,7 +585,7 @@ impl Launcher {
         }
         let random = std::collections::hash_map::RandomState::new();
         let token = format!("starters:{:016x}{:016x}", random.hash_one((doc.version, 0u8)), random.hash_one((doc.version, 1u8)));
-        self.starter_edits.pending.insert(token.clone(), Pending { doc: doc.clone(), root, boot: p.boot });
+        self.starter_edits.pending.insert(token.clone(), Pending { doc: doc.clone(), root, boot: cache.boot.clone() });
         vec![FileAction {
             title: "Preview Add Spring Boot Starters…".into(),
             kind: Some("source".into()),
@@ -530,7 +615,12 @@ impl Launcher {
         {
             return Err(Error::Stale);
         }
-        let p = proof(doc).ok_or(Error::Stale)?;
+        let (target, p) = starter_target(doc, cache)?;
+        if !(p.boot.is_empty() || p.boot == cache.boot) {
+            return Err(Error::Stale);
+        }
+        fresh_source(doc, &pending.root)?;
+        let doc = &target;
         fresh_source(doc, &pending.root)?;
         if host::storage::get(&session::locator(&self.owner, "selector"))? != cache.selector {
             return Err(Error::Stale);
@@ -541,12 +631,12 @@ impl Launcher {
             existing.extend(c.used.iter().cloned());
         }
         let available: Vec<_> =
-            cache.starters.iter().filter(|s| (p.gradle.is_none()||s.scope!="provided")&&!existing.contains(&("org.springframework.boot".into(), s.artifact.clone()))).collect();
+            cache.starters.iter().filter(|s| (p.gradle.is_none()||s.scope!="provided")&&!existing.contains(&(s.group.clone(), s.artifact.clone()))).collect();
         let items: Vec<_> = available
             .iter()
             .map(|s| {
                 PickItem::new(&s.id, &s.name)
-                    .description(&format!("org.springframework.boot:{} · {} · Boot management {}", s.artifact, s.scope, p.boot))
+                    .description(&format!("{}:{} · {} · {}", s.group, s.artifact, s.scope, s.version.as_deref().map_or(format!("Boot management {}", cache.boot), |v| format!("explicit version {v}"))))
             })
             .collect();
         if items.is_empty() {
@@ -578,9 +668,12 @@ impl Launcher {
                 continue;
             }
             insertion.push_str(&format!(
-                "{inner}<dependency>{n}{inner}    <groupId>org.springframework.boot</groupId>{n}{inner}    <artifactId>{}</artifactId>{n}",
-                s.artifact
+                "{inner}<dependency>{n}{inner}    <groupId>{}</groupId>{n}{inner}    <artifactId>{}</artifactId>{n}",
+                s.group, s.artifact
             ));
+            if let Some(version) = &s.version {
+                insertion.push_str(&format!("{inner}    <version>{version}</version>{n}"));
+            }
             if s.scope != "compile" {
                 insertion.push_str(&format!("{inner}    <scope>{}</scope>{n}", s.scope));
             }
@@ -599,8 +692,9 @@ impl Launcher {
             (c.path.clone(), at, text, resulting)
         });
         let mut preview = format!(
-            "File: {}\nSource version: {}\nBoot dependency management: {} — {}\nMetadata: {START}, version-bound session cache (15 min maximum)\nNo repositories, BOMs or explicit dependency versions added.\n\nExact complete resulting file:\n{after}",
-            doc.path, doc.version, p.management,p.boot
+            "File: {}\nSource version: {}\nBoot dependency management: {} — {}\nMetadata: {START}, version-bound session cache (15 min maximum)\n{}\n\nExact complete resulting file:\n{after}",
+            doc.path, doc.version, p.management,cache.boot,
+            if p.boot.is_empty() { "Explicit <version> values come from the dependency's own start.spring.io metadata for the default Boot version; no repositories or BOMs added." } else { "No repositories, BOMs or explicit dependency versions added." }
         );
         if let Some((path, _, _, resulting)) = &catalog_edit {
             preview.push_str(&format!("\n\nVersion catalog {path}, exact complete resulting file:\n{resulting}"));
@@ -1074,6 +1168,58 @@ mod tests {
         let text=bom_pom();let (host,mut l,d)=ready(&text);let a=action(&mut l,&d);assert!(matches!(l.resolve_file_action(&d,a),Err(Error::Cancelled)));
         let a=action(&mut l,&d);let changed=Document{text:d.text.replace("3.5.16","4.0.0"),version:d.version+1,..d.clone()};assert!(l.resolve_file_action(&changed,a).is_err());assert_eq!(host.editor_text(),text);
         let existing=text.replace("  </dependencies>","    <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-web</artifactId></dependency>\n  </dependencies>");let (host,mut l,d)=ready(&existing);let a=action(&mut l,&d);host.answer_next_prompt(Some(&["web"]));assert!(l.resolve_file_action(&d,a).is_err());assert_eq!(host.editor_text(),existing);
+    }
+
+    const AGG: &str = "<project xmlns=\"http://maven.apache.org/POM/4.0.0\">\n  <modelVersion>4.0.0</modelVersion>\n  <groupId>com.example</groupId><artifactId>agg</artifactId><version>1.0.0</version>\n  <packaging>pom</packaging>\n  <modules><module>app</module><module>lib</module></modules>\n</project>\n";
+    #[test]
+    fn aggregator_picks_proven_module_and_edits_only_that_pom() {
+        let (host, mut l, d) = setup(AGG);
+        host.add_file("app/pom.xml", POM);
+        host.add_file("lib/pom.xml", &POM.replace("<relativePath/>", ""));
+        host.answer_next_prompt(Some(&["/project/app/pom.xml"]));
+        l.run_command("add-starters", &host.invocation(), None).unwrap();
+        let a = action(&mut l, &d);
+        host.answer_next_prompt(Some(&["web"]));
+        host.answer_next_prompt(Some(&["yes"]));
+        let resolved = l.resolve_file_action(&d, a).unwrap();
+        assert_eq!(resolved.edits.len(), 1);
+        assert_eq!(resolved.edits[0].0, "/project/app/pom.xml");
+        let module = Document { path: "/project/app/pom.xml".into(), text: POM.into(), ..d.clone() };
+        let after = apply_one(&module, &resolved);
+        assert!(after.contains("spring-boot-starter-web"));
+        assert!(proof(&Document { text: after, ..module }).is_some());
+        let (host, mut l, _) = setup(AGG);
+        host.add_file("app/pom.xml", &POM.replace("<relativePath/>", ""));
+        assert!(l.run_command("add-starters", &host.invocation(), None).is_err());
+        assert_eq!(host.fetches(), 0);
+    }
+    #[test]
+    fn unmanaged_pom_gets_explicit_version_only_from_dependency_metadata() {
+        let text = POM.replace("<parent><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-parent</artifactId><version>3.5.16</version><relativePath/></parent>\n", "");
+        let (host, mut l, d) = setup(&text);
+        host.on_fetch(|req| {
+            Ok(openidea_plugin::HttpResponse {
+                status: 200,
+                body: if req.url.contains("metadata/client") {
+                    META.replace("{\"bootVersion\":{", "{\"bootVersion\":{\"default\":\"3.5.16\",").into_bytes()
+                } else {
+                    COORDS.replace("\"artifactId\":\"spring-boot-starter-web\"", "\"artifactId\":\"spring-boot-starter-web\",\"version\":\"1.2.3\"").into_bytes()
+                },
+                ..Default::default()
+            })
+        });
+        l.run_command("add-starters", &host.invocation(), None).unwrap();
+        assert_eq!(l.starter_edits.cache.as_ref().unwrap().starters.len(), 1);
+        let a = action(&mut l, &d);
+        host.answer_next_prompt(Some(&["web"]));
+        host.answer_next_prompt(Some(&["yes"]));
+        let resolved = l.resolve_file_action(&d, a).unwrap();
+        let after = apply_one(&d, &resolved);
+        assert!(after.contains("<version>1.2.3</version>"));
+        let p = proof(&Document { text: after, ..d.clone() }).unwrap();
+        assert!(p.existing.contains(&("org.springframework.boot".into(), "spring-boot-starter-web".into())));
+        let (host, mut l, _) = setup(&text);
+        assert!(l.run_command("add-starters", &host.invocation(), None).is_err());
     }
 
 }

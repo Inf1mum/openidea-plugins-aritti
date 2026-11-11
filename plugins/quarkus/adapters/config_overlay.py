@@ -6,11 +6,14 @@ import re
 import tempfile
 from urllib.parse import unquote, urlparse
 
-from config_sources import snapshot_fields
+from config_sources import classify, snapshot_fields
 
 MAX_DOCUMENTS = 32
 MAX_CHARACTERS = 512 * 1024
 MAX_SNAPSHOT = 8 * 1024 * 1024
+MAX_SAVED_TEXT = 2 * 1024 * 1024
+MAX_MODULES = 64
+SKIPPED_MODULES = ('node_modules', 'target', 'build')
 
 def bounded_text(text):
     if not isinstance(text, str):
@@ -71,6 +74,7 @@ class ConfigOverlay:
         self.documents = {}
         self.dirty = set()
         self.unsupported = set()
+        self.saved = []
         self.write()
 
     def owned(self, uri):
@@ -115,6 +119,54 @@ class ConfigOverlay:
         self.write()
         return True
 
+    def saved_documents(self):
+        """Saved YAML, .env and <module>/config files as snapshot documents; dirty buffers override them."""
+        overridden = set()
+        for uri in self.dirty:
+            overridden.add(str(Path(unquote(urlparse(uri).path)).resolve()))
+        modules = [self.root]
+        try:
+            modules += [child for child in sorted(self.root.iterdir())[:MAX_MODULES] if child.is_dir() and not child.is_symlink() and not child.name.startswith('.') and child.name not in SKIPPED_MODULES]
+        except OSError:
+            pass
+        documents = []
+        total = 0
+        for module in modules:
+            for directory in (module, module/'config', module/'src/main/resources', module/'src/main/resources/config'):
+                try:
+                    names = sorted(entry.name for entry in directory.iterdir())
+                except OSError:
+                    continue
+                for name in names:
+                    path = directory/name
+                    info = classify(path)
+                    if info is None or name == 'microprofile-config.properties':
+                        continue
+                    if info['format'] == 'env' and directory != module:
+                        continue
+                    if info['format'] == 'properties' and directory != module/'config':
+                        continue
+                    try:
+                        if path.is_symlink() or not path.is_file() or not path.resolve().is_relative_to(self.root) or str(path.resolve()) in overridden:
+                            continue
+                        if path.stat().st_size > MAX_CHARACTERS * 4:
+                            continue
+                        text = path.read_text(encoding='utf-8')
+                        if not bounded_text(text) or total + len(text) > MAX_SAVED_TEXT:
+                            continue
+                        entry = {'uri': path.as_uri(), 'version': 0, 'text': text, 'saved': True, **snapshot_fields(path, text)}
+                    except (OSError, UnicodeError, ValueError):
+                        continue
+                    total += len(text)
+                    documents.append(entry)
+        return documents
+
+    def refresh(self):
+        """Pick up saved-file changes made outside editor events."""
+        if self.saved_documents() != self.saved:
+            self.generation += 1
+            self.write()
+
     def write(self):
         selected = []
         unsupported = set()
@@ -140,6 +192,8 @@ class ConfigOverlay:
                 continue
             selected.append(entry)
         selected = [entry for entry in selected if entry['uri'] not in unsupported]
+        self.saved = self.saved_documents()
+        selected += self.saved[:max(0, MAX_DOCUMENTS - len(selected))]
         payload = {'version': 1, 'rootUri': self.root.as_uri(), 'generation': self.generation, 'documents': selected}
         body = json.dumps(payload, ensure_ascii=False).encode('utf-8')
         if len(body) > MAX_SNAPSHOT:

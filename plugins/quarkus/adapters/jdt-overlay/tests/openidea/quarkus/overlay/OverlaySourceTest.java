@@ -57,6 +57,10 @@ public final class OverlaySourceTest {
             try { OverlayCommand.localPath(bad); throw new AssertionError("accepted " + bad); }
             catch (IllegalArgumentException expected) { }
         }
+        equal(true, OverlayCommand.diskBacked("properties", true, false));
+        equal(false, OverlayCommand.diskBacked("properties", true, true));
+        equal(false, OverlayCommand.diskBacked("yaml", true, true));
+        equal(false, OverlayCommand.diskBacked("properties", false, false));
         java.nio.file.Path temporary = java.nio.file.Files.createTempDirectory("overlay-path-test");
         try {
             java.nio.file.Path actual = temporary.resolve("actual.properties");

@@ -29,7 +29,7 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F23 | GitLab | No live account/glab acceptance | U | |
 | F24 | Dependency Audit | PyPI markers/groups/pylock | A-M | partial (pylock, pyproject/PEP 735 pins; markers not evaluated) |
 | F25 | Dependency Audit | Workspace/link/alias graph | A-M | partial (npm: aliases, workspaces/link local rows) |
-| F26 | Dependency Audit | Coordinate-to-declaration binding; more build profiles | A-M | partial (direct binding + npm/uv/poetry chains; uv.lock/poetry.lock parsers untested on real files) |
+| F26 | Dependency Audit | Coordinate-to-declaration binding; more build profiles | A-M | partial (direct binding + chains; uv.lock/poetry.lock fixed against real uv/pydantic/poetry lockfiles; npm/yarn/pnpm lockfiles untested on real files) |
 | F27 | Dependency Audit | Ignore-profile import/export, safe-coordinate rows | A-S | done (import/export + checked/skipped rows on Scan Project; Maven/Gradle/sbt imports lack rows) |
 | F28 | Dependency Audit | Vulnerable-call analysis Java/Kotlin/Python | A-L | |
 | F29 | Dependency Audit | Native Problems Security tab, semantic member queries | H | |
@@ -47,7 +47,7 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F41 | Tasks | Generic family real-host smoke; no live tenant for any bridge | U | partial (installer check done) |
 | F42 | Tasks | Owned JQL editor; other trackers need bridges | A-S | done (`jql:` prefix); Bugzilla/Trac dropped |
 | F43 | Quarkus | LS broker desktop acceptance; other OS/profiles; multi-module | U | |
-| F44 | Quarkus | Config overlay: new unsaved files, YAML, third-party sources | A-M | partial (YAML, .env, config/ sources for dirty buffers; saved files still not sources) |
+| F44 | Quarkus | Config overlay: new unsaved files, YAML, third-party sources | A-M | partial (saved + dirty YAML, .env, config/ sources; YAML ordinals 255/265 unconfirmed; live JDT LS tests not run) |
 | F45 | Quarkus | Qute Java-embedded routing, custom roots, inherited data model | A-L | |
 | F46 | Quarkus | JAX-RS roots/custom annotations; scheduler expressions | A-M | partial (@Scheduled checks, effective REST path) |
 | F47 | Quarkus | MPJava diagnostics while config dirty (upstream LS limit) | H | |
@@ -61,7 +61,7 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F55 | DDEV/Kubernetes | Native Database/debugger/remote/Windows acceptance | U | |
 | F56 | Initializr | ZIP timestamps/modes; non-start.spring.io grants | A-S | partial (modes/mtime done; grants not) |
 | F57 | Initializr | Linux/Windows exclusive-commit profiles never run | U | |
-| F58 | Initializr | Add Starters effective build models | A-M | partial (Gradle platform BOM, literal version catalog; Maven aggregators, explicit versions open) |
+| F58 | Initializr | Add Starters effective build models | A-M | partial (Gradle platform BOM/catalog, Maven aggregator module pick, unmanaged explicit versions; metadata field names inferred from code) |
 | F59 | Initializr | Native New Project wizard, JDK/SDK config, IDE build import | H | |
 | F60 | Runtime | External-library/overloaded source semantics | A-L | |
 | F61 | Runtime | Remote/JMX management transport | A-L | |
@@ -99,7 +99,7 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F93 | Twig | Formatter, custom delimiters | A-M | |
 | F94 | Twig | Dynamic context, extension types | A-L | |
 | F95 | Twig | Embedded type resolution, Enter/pairing, debugger mapping, plugin-lexer rendering | H | |
-| F96 | Symfony | Service/route/template/domain reference models, reviewed Rename | A-L | partial (Doctrine association check; go-to links unconfirmed feasible) |
+| F96 | Symfony | Service/route/template/domain reference models, reviewed Rename | A-L | partial (Doctrine association check + go-to links via indexer edges) |
 | F97 | Symfony | Profiler collector detail, pagination, remote modes | A-M | partial (profiler paging, time/cache/logger collectors; events/request open) |
 | F98 | Symfony | Doctrine/forms/container types | A-L | partial (form-field Info check) |
 

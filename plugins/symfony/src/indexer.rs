@@ -259,6 +259,14 @@ fn php(path: &str, text: &str, out: &mut Collected) {
     php_validators(text, out);
     granted_references(text, out);
 
+    for link in crate::orm_links::links(text) {
+        let range = range_of(text, link.range.start, link.range.end);
+        match link.definition {
+            true => out.definition(link.key, range),
+            false => out.reference(link.key, range),
+        }
+    }
+
     for (start, end) in quoted_after(text, "getParameter(").into_iter().chain(quoted_after(text, "hasParameter(")) {
         out.reference(format!("param#{}", &text[start..end]), range_of(text, start, end));
     }
