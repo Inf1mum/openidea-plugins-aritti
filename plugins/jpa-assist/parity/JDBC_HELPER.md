@@ -216,3 +216,21 @@ Row verdicts (G080-G103; all currently `unverified` in `requirements.json`):
 | G099 generation defaults, G101 name cleanup, G102 naming algorithms | nothing | Settings/pure naming; share work with G031/G032. |
 
 Upstream alternative stays open (ROADMAP line 14): a host schema API would replace the helper wholesale; the `SchemaSnapshot` mapping layer and the reverse-engineering logic are the parts that survive either way.
+
+## 9. Decision log (2026-11-11, answered by the user)
+
+| # | Decision | Answer | Note |
+|---|---|---|---|
+| D1 | Helper form / JDK floor | Accepted: single-file source launch, JDK 17+ | |
+| D2 | `database.sources` capability | **Approved now** (differs from the recommendation to defer) | Declare as an OPTIONAL capability only when a feature uses it; still no schema API or credential read-back documented, so it only serves connection-management UX. |
+| D3 | Driver acquisition | User-provided jar path + helper-side Maven/Gradle cache discovery | No bundling, no downloader, no `fs.read`, no `net`. The user accepts that `process:java` lets the JVM read files the user can read. |
+| D4 | Passwords | From config at call time, else prompt; never stored; helper stdin only | |
+| D5 | New capabilities | `ui.input` and `tasks.begin` approved (new, beyond pre-approved optional `process:*`) | Declare as optional where the host allows. |
+| D6 | Scope | Read-only metadata | DDL/SQL execution out of scope (G083 execute half). |
+| D7 | First dialects | **All six at once** (differs from the recommendation: PostgreSQL, MySQL, MariaDB, then others) | PostgreSQL, MySQL, MariaDB, H2, SQL Server, Oracle, Db2. Driver coordinates and fixtures are needed for each; only PostgreSQL/MySQL have SQL/changelog emitters today. |
+| D8 | Connect confirmation | Mandatory confirmation for every new URL | |
+| D9 | Warm helper | No: one-shot per request | |
+| D10 | Network | No `net` capability declared; spike verifies child egress | |
+| O1 | Entity-side snapshot alignment | Open (inspect the builder before P2) | |
+
+Next: P0 host spike (see parity/P0_SPIKE.md once written).
