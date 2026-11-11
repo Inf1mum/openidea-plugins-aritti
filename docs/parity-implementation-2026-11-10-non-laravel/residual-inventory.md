@@ -38,7 +38,7 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F32 | Ignore | Template-generator controls, preview persistence | A-M | partial (recent-first) |
 | F33 | Ignore | Unicode/unsupported-pattern unused-rule model | A-S | done (exact bytes; unprovable misses withheld) |
 | F34 | Ignore | Native tree filtering, editor closing, dynamic associations | H | |
-| F35 | Properties | Kotlin, modulepath, custom loader, constant-key, inherited, live graph | A-L | partial (same-file constants, @PropertyKey; Kotlin ctor params, modulepath, custom loader open) |
+| F35 | Properties | Kotlin, modulepath, custom loader, constant-key, inherited, live graph | A-L | partial (same-file constants, @PropertyKey incl. Kotlin constructors; modulepath, custom loader, instance receivers open) |
 | F36 | Properties | Native bundle grouping, encoding chooser | H | |
 | F37 | Ideolog | Native line hiding, heatmap, terminal filtering, exact rendering | H | |
 | F38 | Ideolog | Inline editor syntax from JVM adapter | A-M | no change needed for cached JVM tokens (already present); group-to-token mapping beyond time/severity/category open |
@@ -74,7 +74,7 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F68 | Modulith | Type/member/hierarchy semantics, move-to-API | A-L | partial (use-site checks for exact single-type imports; Kotlin open) |
 | F69 | Modulith | Kotlin descriptor creation, bean-completion module warning | A-S | skip (user decision) |
 | F70 | Batch | Operator next/restart/abandon/recover/stop, datasource authority | A-M | partial (job discovery + reviewed launch-command generation; no operator execution) |
-| F71 | Integration | SpEL/XPath/embedded-language assistance | A-M | partial (SpEL syntax + @bean refs in XML/DSL; XPath and other *-expression attributes open) |
+| F71 | Integration | SpEL/XPath/embedded-language assistance | A-M | partial (SpEL for all XSD *-expression attrs, int-xml XPath syntax; Java DSL XPath open) |
 | F72 | Spring core | Library assignability, effective conditional contexts, bean graph | A-L | partial (literal @ConditionalOnProperty/@Profile/@ConditionalOnMissingBean heuristic, ObjectFactory/SortedSet) |
 | F73 | Spring core | All classpath metadata, dynamic build resolution, converters | A-M | |
 | F74 | Spring core | Data projection/query/entity-graph generators | A-L | partial (projection, record DTO, @EntityGraph checks) |
@@ -86,16 +86,16 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F80 | Spring Web | SpEL/EL injection, URL inlay actions | A-M | |
 | F81 | Spring Web | MVC XML imports/profiles, XSD validation | A-M | partial (import closure, profile beans, resource locations; view-controller view-name open) |
 | F82 | Spring Web | Template catalogue (licence); multi-action marker popup (host) | L/H | blocked |
-| F83 | Spring Web | Cloud Gateway args/DSL, Stream, discovery/config | A-M | partial (arg tables + arity for ~34 factories, .or() DSL chains) |
+| F83 | Spring Web | Cloud Gateway args/DSL, Stream, discovery/config | A-M | partial (arg tables + arity for ~34 factories verified vs source incl. Weight/Retry, .or() DSL chains) |
 | F84 | Spring Web | Cloud auto-configured model, HttpExchange/contract Feign | A-L | partial (@HttpExchange clients + drafts, Feign contextId/configuration) |
 | F85 | Spring Web | GraphQL resolver graph, non-root hints, transport | A-L | partial (Kotlin aliases, BatchMapping, non-root unmapped-field Info hint) |
-| F86 | Spring Web | Messaging/WebSocket dynamic SpEL, SockJS, XML schema model, broker | A-L | partial (XML enum/ref checks, unambiguous placeholders, BindingBuilder chains; producer-side routing key links open) |
+| F86 | Spring Web | Messaging/WebSocket dynamic SpEL, SockJS, XML schema model, broker | A-L | partial (XML enum/ref checks, unambiguous placeholders, BindingBuilder chains, producer routing-key links) |
 | F87 | Spring Web | Web Flow Java/custom flow models | A-M | partial (Java-config flow registries) |
 | F88 | Shell | Cross-file registry, dynamic registration, inherited availability | A-L | partial (inherited availability, duplicate provenance; inherited groups, conventional availability open) |
 | F89 | Shell | Native terminal command-spec hooks | H | |
 | F90 | WS | QName refs across XML/WSDL/XSD, effective context | A-L | partial (XSD attribute/content-model rules, WSDL QName navigation/warnings) |
-| F91 | WS | Full XPath validation, WSDL generation, OXM/CXF semantics | A-L | partial (XSD rules, WSDL QNames, dynamic-wsdl pairs, void @ResponsePayload is Info (Spring-WS ignores it); DefaultWsdl11Definition literals in progress) |
-| F92 | Twig | Trait/embed/namespaced loader, macro-parameter Rename | A-M | partial (`use`d blocks, templateNamespaces, twig.paths + env overrides + falsy-namespace rule verified vs TwigBundle, reviewed macro-param rename; list form in progress) |
+| F91 | WS | Full XPath validation, WSDL generation, OXM/CXF semantics | A-L | partial (XSD rules, WSDL QNames, dynamic-wsdl pairs, DefaultWsdl11Definition checks; void @ResponsePayload is Info) |
+| F92 | Twig | Trait/embed/namespaced loader, macro-parameter Rename | A-M | partial (`use`d blocks, templateNamespaces, twig.paths mapping+list+env overrides verified vs TwigBundle, reviewed macro-param rename) |
 | F93 | Twig | Formatter, custom delimiters | A-M | partial (literal Lexer delimiters in single-project setups; no twig.yaml option found in TwigBundle docs page) |
 | F94 | Twig | Dynamic context, extension types | A-L | partial (controller render() literal variables for completion/definition; compact()/array() and @ns templates open) |
 | F95 | Twig | Embedded type resolution, Enter/pairing, debugger mapping, plugin-lexer rendering | H | |
