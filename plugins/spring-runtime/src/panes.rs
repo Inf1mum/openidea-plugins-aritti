@@ -386,7 +386,10 @@ impl Runtime {
         let requests: Vec<_> = self.pane_record(&key,ctx)?.requests.clone();
         if requests.is_empty() { return Err(Error::Invalid("Select a mapping with explicit HTTP methods.".into())); }
         let index = if requests.len()==1 {0} else {
-            let items:Vec<_>=requests.iter().enumerate().map(|(i,(method,path))|openidea_plugin::PickItem::new(&i.to_string(),&format!("{method} {path}"))).collect();
+            let recent=ctx.project().and_then(|p|Scope::current(&p).ok()).map(|s|crate::persistence::recent_requests(&s)).unwrap_or_default();
+            let rank=|r:&(String,String)|recent.iter().position(|x|x==r).unwrap_or(usize::MAX);
+            let mut order:Vec<usize>=(0..requests.len()).collect();order.sort_by_key(|i|rank(&requests[*i]));
+            let items:Vec<_>=order.iter().map(|&i|{let (method,path)=&requests[i];let tag=if rank(&requests[i])==usize::MAX{""}else{"Recent · "};openidea_plugin::PickItem::new(&i.to_string(),&format!("{tag}{method} {path}"))}).collect();
             let Some(index)=host::pick("Choose a reported mapping",&items)? else {return Ok(())};
             index.parse::<usize>().map_err(|_|Error::Stale)?
         };
@@ -412,6 +415,7 @@ impl Runtime {
         controls::verify(&project,&scope)?;
         if Scope::current(&project)?!=scope {return Err(Error::Stale)}
         self.pane_record(&key,ctx)?;
+        crate::persistence::remember_request(&scope,method,path);
         let bytes=response.body.len();
         let body=String::from_utf8_lossy(&response.body[..bytes.min(64<<10)]);
         self.panes.response=Some((key,format!("{method} {url}\nHTTP {}\nReceived {bytes} bytes at Unix {}. Body shown up to 64 KiB; response headers omitted.\n\n{}",response.status,now(),presentation(&body,64<<10))));
@@ -695,6 +699,22 @@ mod tests {
         runtime.send_pane_request(&ctx).unwrap();assert_eq!(host.requests().len(),1);
         let tabs=runtime.detail(VIEW,&key,&ctx).unwrap();assert!(!format!("{tabs:?}").contains("entered-token"));
         for headers in ["Host: other", "Content-Length: 50", "Bad Header: value", "X-Key: value\rbroken", "missing colon"] {assert!(request_headers(headers).is_err(),"{headers}");}
+    }
+    #[test]
+    fn recent_requests_are_bounded_deduplicated_credential_free_and_listed_first() {
+        let (host,mut runtime)=setup();let host=host.with_capabilities(&["project.read","storage","net:localhost"]);
+        runtime.snapshot.as_mut().unwrap().mappings.push(Mapping{predicate:"/users".into(),requests:vec![("GET".into(),"/users".into()),("POST".into(),"/users".into())],..Default::default()});
+        let ctx=host.invocation();runtime.render_panes(&ctx).unwrap();let key=runtime.panes.rows.iter().find(|(_,r)|r.endpoint=="mappings").unwrap().0.clone();runtime.select_pane(&key,&ctx).unwrap();
+        host.on_fetch(|_|Ok(openidea_plugin::HttpResponse{status:200,headers:vec![],body:b"secret-body".to_vec()}));
+        host.answer_next_prompt(Some(&["1"]));host.answer_next_prompt(Some(&["http://localhost:8080/users?token=abc"]));host.answer_next_prompt(Some(&["Authorization: Bearer entered-token"]));host.answer_next_prompt(Some(&["secret-request-body"]));host.answer_next_prompt(Some(&[]));
+        runtime.send_pane_request(&ctx).unwrap();
+        let scope=Scope::current(&ctx.project().unwrap()).unwrap();
+        assert_eq!(crate::persistence::recent_requests(&scope),vec![("POST".to_string(),"/users".to_string())]);
+        let stored=host.storage().iter().filter(|(k,_)|k.ends_with(":recent-requests")).map(|(_,v)|v.clone()).collect::<String>();
+        for leaked in ["entered-token","secret-body","secret-request-body","abc","8080"] {assert!(!stored.contains(leaked),"{leaked}");}
+        for i in 0..15 {crate::persistence::remember_request(&scope,"GET",&format!("/p{i}"));}
+        crate::persistence::remember_request(&scope,"GET","/p14");crate::persistence::remember_request(&scope,"GET",&"x".repeat(513));
+        let recent=crate::persistence::recent_requests(&scope);assert_eq!(recent.len(),10);assert_eq!(recent[0].1,"/p14");assert_eq!(recent.iter().filter(|r|r.1=="/p14").count(),1);
     }
     #[test]
     fn browser_action_is_get_only_concrete_and_reviewed() {

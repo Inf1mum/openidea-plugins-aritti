@@ -281,6 +281,61 @@ pub fn template_at(text: &str, offset: usize) -> Option<(String, Range<usize>)> 
     complete.then(|| (inner.into(), token.range.start + 1..token.range.end - 1))
 }
 
+/// Templates named by plain `{% use 'x' %}` tags. `None` when the answer would be a guess: `extends`, `use ... with`
+/// renames or a non-literal `use` make the origin of an imported block ambiguous.
+pub fn used_templates(text: &str) -> Option<Vec<String>> {
+    let mut used = Vec::new();
+    for (_, body) in tag_blocks(text) {
+        let first = body.split(char::is_whitespace).next().unwrap_or("");
+        if first == "extends" {
+            return None;
+        }
+        let Some(rest) = body.strip_prefix("use").filter(|_| first == "use") else {
+            continue;
+        };
+        let (template, after) = quoted(rest)?;
+        if !after.trim().is_empty() {
+            return None;
+        }
+        used.push(template.to_owned());
+    }
+    Some(used)
+}
+
+/// Names and name ranges of the `{% block name %}` tags of a template.
+pub fn block_definitions(text: &str) -> Vec<(String, Range<usize>)> {
+    if text.len() > 128 << 10 {
+        return Vec::new();
+    }
+    crate::lex(text)
+        .tags
+        .into_iter()
+        .filter(|t| t.name == "block")
+        .filter_map(|t| t.argument.map(|r| (text[r.clone()].to_owned(), r)))
+        .collect()
+}
+
+/// The name in `block('name')` when the literal contains `offset`.
+pub fn block_call_at(text: &str, offset: usize) -> Option<String> {
+    if !code_at(text, offset, true) {
+        return None;
+    }
+    let token = crate::lex(text)
+        .tokens
+        .into_iter()
+        .find(|t| t.kind == openidea_plugin::syntax::Highlight::String && t.range.start < offset && offset < t.range.end)?;
+    let raw = &text[token.range.clone()];
+    let inner = raw.get(1..raw.len().checked_sub(1)?)?;
+    if inner.is_empty() || inner.contains(['\\', '#']) || !inner.bytes().all(is_word) {
+        return None;
+    }
+    let before = text[..token.range.start].trim_end().strip_suffix('(')?.trim_end().strip_suffix("block")?;
+    if before.bytes().next_back().is_some_and(|b| is_word(b) || b == b'.') {
+        return None;
+    }
+    text[token.range.end..].trim_start().starts_with(')').then(|| inner.to_owned())
+}
+
 /// The word around `offset` and the identifier before a `.` in front of it.
 pub fn dotted_at(text: &str, offset: usize) -> Option<(Option<String>, String, Range<usize>)> {
     let bytes = text.as_bytes();

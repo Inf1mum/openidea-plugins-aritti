@@ -81,19 +81,64 @@ fn persistence_annotation(file: &spring_text::java::JavaFile, ann: &spring_text:
 fn entity_tables(text: &str) -> Vec<(String, Range)> {
     if text.len() > 128 << 10 { return vec![]; }
     let file = spring_text::java::parse(text); let mut out = Vec::new();
+    // Constants are resolved from this file only; cross-file names stay quiet.
+    let mut constants = spring_text::constants::Constants::default();
+    constants.add(&file, text);
     for ty in &file.types {
         if ty.kind != "class" || !ty.annotation("Entity").is_some_and(|ann| persistence_annotation(&file, ann, text)) { continue; }
         let Some(table) = ty.annotation("Table").filter(|ann| persistence_annotation(&file, ann, text)) else { continue; };
-        let literal = |key: &str| table.arg(key).filter(|arg| arg.strings.len() == 1 && arg.text.trim() == format!("\"{}\"", arg.strings[0].value))
-            .map(|arg| arg.strings[0].value.as_str());
+        let literal = |key: &str| table.arg(key).and_then(|arg| {
+            if arg.strings.len() == 1 && arg.text.trim() == format!("\"{}\"", arg.strings[0].value) { return Some(arg.strings[0].value.clone()); }
+            constants.resolve(&arg.text, Some(&ty.name))
+        });
         let Some(name) = literal("name").filter(|value| identifier(value)) else { continue; };
         let name = if table.arg("schema").is_some() {
             let Some(schema) = literal("schema").filter(|value| identifier(value)) else { continue; };
             format!("{schema}.{name}")
-        } else { name.into() };
+        } else { name };
         out.push((name.to_ascii_lowercase(), Range::new(position(text, ty.at), position(text, ty.at + ty.name.len()))));
     }
     out
+}
+/// Spring Boot's default physical naming for a plain `CamelCase` class name; none when the
+/// conversion is ambiguous (digits, acronyms, non-ASCII).
+fn snake_case(name: &str) -> Option<String> {
+    let bytes = name.as_bytes();
+    if !bytes.first()?.is_ascii_uppercase() || !bytes.last()?.is_ascii_lowercase() || !bytes.iter().all(u8::is_ascii_alphabetic)
+        || bytes.windows(2).any(|pair| pair[0].is_ascii_uppercase() && pair[1].is_ascii_uppercase()) { return None; }
+    let mut out = String::new();
+    for (i, c) in name.chars().enumerate() {
+        if i > 0 && c.is_ascii_uppercase() { out.push('_'); }
+        out.push(c.to_ascii_lowercase());
+    }
+    Some(out)
+}
+/// Top-level `@Entity` classes without `@Table`/`@Entity` arguments/superclass: the table is the
+/// implicitly named one. Only valid under Spring Boot's default naming strategies (see `implicit_naming_default`).
+fn implicit_entity_tables(text: &str) -> Vec<(String, Range)> {
+    if text.len() > 128 << 10 { return vec![]; }
+    let file = spring_text::java::parse(text);
+    file.types.iter().filter(|ty| ty.kind == "class" && ty.outer.is_none() && ty.extends.is_empty() && !ty.has(&["Table", "SecondaryTable", "Inheritance", "MappedSuperclass", "Embeddable"]) && !ty.modifiers.iter().any(|m| m == "abstract"))
+        .filter(|ty| ty.annotation("Entity").is_some_and(|ann| ann.args.is_empty() && persistence_annotation(&file, ann, text)))
+        .filter_map(|ty| Some((snake_case(&ty.name)?, Range::new(position(text, ty.at), position(text, ty.at + ty.name.len())))))
+        .collect()
+}
+/// True only with Spring Boot declared at the root and no naming/quoting override anywhere visible.
+fn implicit_naming_default(project: &Project, root: &str) -> bool {
+    let boot = ["pom.xml", "build.gradle", "build.gradle.kts"].iter()
+        .any(|name| project.read_file(&format!("{root}/{name}")).is_ok_and(|text| text.contains("spring-boot")));
+    if !boot { return false; }
+    for glob in ["**/application*.properties", "**/application*.yml", "**/application*.yaml", "**/persistence.xml", "**/hibernate.properties", "**/hibernate.cfg.xml"] {
+        let Ok(files) = project.find_files(glob, 33) else { return false; };
+        if files.len() > 32 { return false; }
+        for path in files {
+            if path.ends_with("persistence.xml") || path.ends_with("hibernate.properties") || path.ends_with("hibernate.cfg.xml") { return false; }
+            let Ok(text) = project.read_file(&path) else { return false; };
+            let lower = text.to_ascii_lowercase();
+            if lower.contains("naming") || lower.contains("quoted") { return false; }
+        }
+    }
+    true
 }
 fn module(path: &str) -> Option<&str> { path.split_once("/src/").map(|(prefix, _)| prefix) }
 struct Owner { files: BTreeSet<String>, definitions: BTreeMap<String, Vec<Location>>, at: Instant }
@@ -117,16 +162,24 @@ impl State {
                 definitions.entry(table.name).or_default().push(Location { path: path.clone(), range: table.range });
             }
         }
-        // A source association is admitted only for a literal, qualified JPA
-        // @Entity/@Table model; implicit naming/classpath inference stays absent.
+        // A source association is admitted only for a literal (or same-file constant) JPA @Entity/@Table model, or a
+        // plainly named @Entity under unmodified Spring Boot naming; no classpath inference.
         if let Ok(java) = project.find_files("**/*.java", 257) {
             if java.len() <= 256 {
+                let implicit_default = implicit_naming_default(project, &root);
+                let mut custom_naming = false;
+                let mut implicit: Vec<(String, String, Range)> = Vec::new();
                 for path in java {
                     if at.elapsed() > Duration::from_millis(400) { break; }
                     if !path.starts_with(&format!("{root}/")) || host::project_of(&path).and_then(|p| p.root().ok()).as_deref() != Some(&root) { continue; }
                     let Ok(text) = project.read_file(&path) else { continue; }; bytes += text.len();
                     if bytes > 4 << 20 { break; }
+                    custom_naming |= text.contains("NamingStrategy");
                     for (name, range) in entity_tables(&text) { definitions.entry(name).or_default().push(Location { path: path.clone(), range }); }
+                    if implicit_default { implicit.extend(implicit_entity_tables(&text).into_iter().map(|(name, range)| (name, path.clone(), range))); }
+                }
+                if implicit_default && !custom_naming && at.elapsed() <= Duration::from_millis(400) {
+                    for (name, path, range) in implicit { definitions.entry(name).or_default().push(Location { path, range }); }
                 }
             }
         }
@@ -194,6 +247,50 @@ mod tests {
         assert!(entity_tables(&source.replace("jakarta.persistence.Table", "com.example.Table")).is_empty());
         assert!(entity_tables(&source.replace("name=\"users\"", "name=TABLE_NAME")).is_empty());
         assert!(entity_tables(&source.replace("@Table(name=\"users\", schema=\"public\")", "")).is_empty());
+    }
+
+    #[test]
+    fn same_file_constants_resolve_table_and_schema_but_foreign_ones_stay_quiet() {
+        let head = "import jakarta.persistence.*; ";
+        let ok = format!("{head}@Entity @Table(name = User.TABLE, schema = SCHEMA) class User {{ static final String TABLE = \"users\"; public static final String SCHEMA = \"public\"; }}");
+        assert_eq!(entity_tables(&ok)[0].0, "public.users");
+        assert!(entity_tables(&format!("{head}@Entity @Table(name = Other.TABLE) class User {{}}")).is_empty());
+        assert!(entity_tables(&format!("{head}@Entity @Table(name = T) class User {{ static final String T = prefix(); }}")).is_empty());
+        assert!(entity_tables(&format!("{head}@Entity @Table(name = T) class User {{ String T = \"users\"; }}")).is_empty());
+    }
+
+    #[test]
+    fn implicit_snake_case_names_are_plain_camel_case_only() {
+        assert_eq!(snake_case("OrderLine").as_deref(), Some("order_line"));
+        assert_eq!(snake_case("User").as_deref(), Some("user"));
+        for ambiguous in ["HTMLPage", "Order2", "UserID", "user", "Ünder"] { assert!(snake_case(ambiguous).is_none(), "{ambiguous}"); }
+        let head = "import jakarta.persistence.*; ";
+        assert_eq!(implicit_entity_tables(&format!("{head}@Entity class OrderLine {{}}"))[0].0, "order_line");
+        for skipped in ["@Entity(name = \"X\") class OrderLine {}", "@Entity @Table(name = \"a\") class OrderLine {}", "@Entity class OrderLine extends Base {}", "@Entity abstract class OrderLine {}", "@Entity @Inheritance class OrderLine {}", "class OrderLine {}"] {
+            assert!(implicit_entity_tables(&format!("{head}{skipped}")).is_empty(), "{skipped}");
+        }
+        assert!(implicit_entity_tables("@Entity class OrderLine {}").is_empty());
+    }
+
+    #[test]
+    fn implicit_names_require_spring_boot_and_no_naming_override() {
+        let entity = "import jakarta.persistence.*; @Entity class OrderLine {}";
+        let run = |setup: &dyn Fn(&openidea_plugin::mock::MockHost)| {
+            let host = openidea_plugin::mock::MockHost::install();
+            host.add_file("src/main/resources/db/migration/V1__a.sql", "CREATE TABLE order_line(id int);");
+            host.add_file("src/main/resources/db/migration/V2__b.sql", "UPDATE order_line SET id=1;");
+            host.add_file("src/main/java/OrderLine.java", entity);
+            setup(&host);
+            let mut state = State::default();
+            let sql = ["/project/src/main/resources/db/migration/V1__a.sql".to_string(), "/project/src/main/resources/db/migration/V2__b.sql".to_string()];
+            state.warm(&host.invocation().project().unwrap(), &sql);
+            let doc = Document { path: sql[1].clone(), language: "sql".into(), version: 1, text: "UPDATE order_line SET id=1;".into() };
+            state.definition(&doc, Position::new(0, 10)).len()
+        };
+        assert_eq!(run(&|h| h.add_file("pom.xml", "<artifactId>spring-boot-starter-data-jpa</artifactId>")), 2);
+        assert_eq!(run(&|_| {}), 1);
+        assert_eq!(run(&|h| { h.add_file("pom.xml", "spring-boot"); h.add_file("src/main/resources/application.properties", "spring.jpa.hibernate.naming.physical-strategy=x"); }), 1);
+        assert_eq!(run(&|h| { h.add_file("pom.xml", "spring-boot"); h.add_file("src/main/java/Cfg.java", "class Cfg implements PhysicalNamingStrategy {}"); }), 1);
     }
 
     #[test]

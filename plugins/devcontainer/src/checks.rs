@@ -8,6 +8,7 @@ use openidea_plugin::Severity;
 pub const UNKNOWN_PROPERTY: &str = "unknown-property";
 pub const INVALID_PROPERTY_VALUE: &str = "invalid-property-value";
 
+pub const COMPOSE_REFERENCE: &str = "compose-reference";
 pub const FEATURES_MALFORMED: &str = "features-malformed";
 pub const FOLDER_STRUCTURE: &str = "folder-structure";
 
@@ -374,6 +375,43 @@ fn check_property_value(text:&str,member:&Member,findings:&mut Vec<Finding>) {
             if text.as_bytes().get(child.value_range.start)==Some(&b'{'){check_port_values(text,child.value_range.start,findings);}
         }
     }else if member.key=="otherPortsAttributes" {check_port_values(text,member.value_range.start,findings);}
+    else if member.key=="hostRequirements" {check_host_requirements(text,member.value_range.start,findings);}
+}
+
+/// Types from the devcontainers/spec schema: `cpus` integer >= 1, `memory`/`storage` `^\d+([tgmk]b)?$`, `gpu` bool, "optional" or {cores, memory}.
+fn check_host_requirements(text:&str,start:usize,findings:&mut Vec<Finding>) {
+    let size=|v:&serde_json::Value|v.as_str().is_some_and(|s|{let digits=s.trim_end_matches(|c:char|c.is_ascii_alphabetic());!digits.is_empty()&&digits.bytes().all(|b|b.is_ascii_digit())&&matches!(&s[digits.len()..],""|"tb"|"gb"|"mb"|"kb")});
+    let count=|v:&serde_json::Value|v.as_u64().is_some_and(|n|n>=1);
+    for member in members(text.as_bytes(),start) {
+        let Ok(value)=serde_json::from_str::<serde_json::Value>(&text[member.value_range.clone()])else{continue;};
+        let (valid,expected)=match member.key.as_str() {
+            "cpus"=>(count(&value),"an integer of at least 1"),
+            "memory"|"storage"=>(size(&value),"a size such as 8gb"),
+            "gpu"=>(value.is_boolean()||value.as_str()==Some("optional")||value.as_object().is_some_and(|o|o.iter().all(|(k,v)|match k.as_str(){"cores"=>count(v),"memory"=>size(v),_=>false})),"true, false, \"optional\" or an object with cores and memory"),
+            _=>continue,
+        };
+        if !valid {findings.push(Finding::warning(member.value_range.clone(),INVALID_PROPERTY_VALUE,format!("`hostRequirements.{}` expects {expected}.",member.key)));}
+    }
+}
+
+/// Literal `dockerComposeFile` entries and `service`, each with its source range. Dynamic (`${...}`) or malformed values are left out.
+pub fn compose_references(text:&str)->(Vec<(String,Range<usize>)>,Option<(String,Range<usize>)>) {
+    let bytes=text.as_bytes();
+    let start=skip_trivia(bytes,if bytes.starts_with(b"\xEF\xBB\xBF"){3}else{0});
+    let (mut files,mut service)=(vec![],None);
+    for member in members(bytes,start) {
+        let Ok(value)=serde_json::from_str::<serde_json::Value>(&text[member.value_range.clone()])else{continue;};
+        let literal=|v:&serde_json::Value|v.as_str().filter(|s|!s.is_empty()&&!s.contains('$')).map(str::to_owned);
+        match member.key.as_str() {
+            "dockerComposeFile"=>{
+                let items=match &value{serde_json::Value::Array(a)=>a.iter().map(literal).collect::<Option<Vec<_>>>(),v=>literal(v).map(|s|vec![s])};
+                if let Some(items)=items{files=items.into_iter().map(|s|(s,member.value_range.clone())).collect();}
+            }
+            "service"=>service=literal(&value).map(|s|(s,member.value_range.clone())),
+            _=>{}
+        }
+    }
+    (files,service)
 }
 fn check_port_values(text:&str,start:usize,findings:&mut Vec<Finding>) {
     for member in members(text.as_bytes(),start) {

@@ -323,6 +323,136 @@ fn owned_project(root: &str) -> Option<openidea_plugin::Project> {
     let project = host::project_of(root)?;
     (project.root().ok().as_deref() == Some(root)).then_some(project)
 }
+const MAX_MODULES: usize = 32;
+fn module_name(raw: &str) -> Option<&str> {
+    let name = raw.trim();
+    let valid = !name.is_empty()
+        && !name.starts_with(['.', '-'])
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
+    valid.then_some(name)
+}
+/// Literal direct `<modules>` of a root POM; profile-scoped modules are ignored.
+fn maven_modules(text: &str) -> Vec<String> {
+    use quick_xml::events::Event;
+    if text.len() > MAX_BUILD || text.contains("<!DOCTYPE") || text.contains("<!ENTITY") {
+        return vec![];
+    }
+    let mut reader = quick_xml::reader::Reader::from_str(text);
+    let mut stack = Vec::<String>::new();
+    let mut modules = Vec::new();
+    loop {
+        match reader.read_event() {
+            Ok(Event::Start(e)) => {
+                let name = e.name().as_ref().to_owned();
+                if stack.is_empty() {
+                    let maven = e.attributes().flatten().any(|a| {
+                        a.key.as_ref() == "xmlns"
+                            && a.value.as_ref() == "http://maven.apache.org/POM/4.0.0"
+                    });
+                    if name != "project" || !maven {
+                        return vec![];
+                    }
+                }
+                stack.push(name);
+            }
+            Ok(Event::End(_)) => {
+                stack.pop();
+            }
+            Ok(Event::Text(t)) if stack == ["project", "modules", "module"] => {
+                let raw = t.xml_content(quick_xml::XmlVersion::Implicit1_0);
+                let Some(name) = module_name(&raw) else {
+                    return vec![];
+                };
+                modules.push(name.to_owned());
+                if modules.len() > MAX_MODULES {
+                    return vec![];
+                }
+            }
+            Ok(Event::Eof) => return modules,
+            Err(_) => return vec![],
+            _ => {}
+        }
+    }
+}
+/// Literal `include` subprojects of a settings script; refuses custom project dirs.
+fn gradle_modules(text: &str) -> Vec<String> {
+    if text.len() > MAX_BUILD || text.contains("/*") || text.contains("projectDir") {
+        return vec![];
+    }
+    let mut modules = Vec::new();
+    for line in text.lines().map(str::trim) {
+        let Some(rest) = line.strip_prefix("include") else {
+            continue;
+        };
+        if !rest.starts_with(['(', ' ']) {
+            continue;
+        }
+        let rest = rest.trim().trim_start_matches('(').trim_end_matches(')');
+        let names = rest
+            .split(',')
+            .map(|t| literal(t.trim()).and_then(|n| module_name(n.strip_prefix(':').unwrap_or(n))))
+            .collect::<Option<Vec<_>>>();
+        let Some(names) = names else {
+            return vec![];
+        };
+        modules.extend(names.into_iter().map(str::to_owned));
+        if modules.len() > MAX_MODULES {
+            return vec![];
+        }
+    }
+    modules
+}
+fn module_runs(project: &openidea_plugin::Project, root: &str) -> Vec<PluginRunConfiguration> {
+    let mut runs = Vec::new();
+    let maven = project
+        .read_file("pom.xml")
+        .ok()
+        .map(|text| maven_modules(&text))
+        .unwrap_or_default();
+    for name in maven {
+        let file = format!("{name}/pom.xml");
+        if project.read_file(&file).ok().is_some_and(|t| maven_boot(&t)) {
+            runs.push(PluginRunConfiguration {
+                id: format!("source-maven-boot-run-module-{name}"),
+                name: format!("Spring Boot: Maven module {name} spring-boot:run"),
+                program: "mvn".into(),
+                args: vec!["--batch-mode".into(), "--file".into(), file, "spring-boot:run".into()],
+                cwd: Some(root.into()),
+                ..Default::default()
+            });
+        }
+    }
+    let settings = ["settings.gradle", "settings.gradle.kts"]
+        .into_iter()
+        .filter_map(|path| project.read_file(path).ok())
+        .collect::<Vec<_>>();
+    if let [text] = settings.as_slice() {
+        for name in gradle_modules(text) {
+            let found = ["build.gradle", "build.gradle.kts"]
+                .into_iter()
+                .filter_map(|b| {
+                    project
+                        .read_file(&format!("{name}/{b}"))
+                        .ok()
+                        .map(|t| gradle_boot(&t, b.ends_with(".kts")))
+                })
+                .collect::<Vec<_>>();
+            if found == [true] {
+                runs.push(PluginRunConfiguration {
+                    id: format!("source-gradle-boot-run-module-{name}"),
+                    name: format!("Spring Boot: Gradle subproject {name} bootRun"),
+                    program: "gradle".into(),
+                    args: vec!["--console=plain".into(), format!(":{name}:bootRun")],
+                    cwd: Some(root.into()),
+                    ..Default::default()
+                });
+            }
+        }
+    }
+    runs
+}
 pub(crate) fn configurations(root: &str) -> Vec<PluginRunConfiguration> {
     if host::setting_bool(SETTING) != Some(true) {
         return vec![];
@@ -365,6 +495,7 @@ pub(crate) fn configurations(root: &str) -> Vec<PluginRunConfiguration> {
             ..Default::default()
         });
     }
+    runs.extend(module_runs(&project, root));
     runs
 }
 impl RunConfigurations for BootTools {
@@ -455,6 +586,42 @@ mod tests {
         assert!(configurations("/project").is_empty());
         assert!(configurations("/other").is_empty());
         assert!(configurations("/project/../project").is_empty());
+        assert!(host.process_runs().is_empty() && host.requests().is_empty());
+    }
+    #[test]
+    fn module_runs_follow_literal_root_modules_and_subprojects_only() {
+        let host = MockHost::install().with_capabilities(&["project.read"]);
+        host.set_setting(SETTING, "true");
+        let root = "<project xmlns=\"http://maven.apache.org/POM/4.0.0\"><modules><module>app</module><module>lib</module></modules><profiles><profile><modules><module>other</module></modules></profile></profiles></project>";
+        host.add_file("pom.xml", root);
+        host.add_file("app/pom.xml", POM);
+        host.add_file("lib/pom.xml", "<project xmlns=\"http://maven.apache.org/POM/4.0.0\"/>");
+        host.add_file("other/pom.xml", POM);
+        let runs = configurations("/project");
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].args, ["--batch-mode", "--file", "app/pom.xml", "spring-boot:run"]);
+        assert_eq!(runs[0].cwd.as_deref(), Some("/project"));
+        assert!(maven_modules("<project><modules><module>a</module></modules></project>").is_empty());
+        assert!(maven_modules(&root.replace("app", "../x")).is_empty());
+        assert!(maven_modules(&format!("<!DOCTYPE project []>{root}")).is_empty());
+
+        host.add_file("pom.xml", "<project/>");
+        host.add_file("settings.gradle", "rootProject.name = 'x'\ninclude ':web', 'lib'\n");
+        host.add_file("web/build.gradle", "plugins { id 'java'; id 'org.springframework.boot' }");
+        host.add_file("lib/build.gradle", "plugins { id 'java' }");
+        let runs = configurations("/project");
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].args, ["--console=plain", ":web:bootRun"]);
+        for refused in [
+            "include(\"web\", foo)",
+            "include 'a/b'",
+            "include 'web'\nproject(':web').projectDir = file('x')",
+            "/* x */ include 'web'",
+        ] {
+            assert!(gradle_modules(refused).is_empty(), "{refused}");
+        }
+        host.add_file("settings.gradle.kts", "include(\"web\")");
+        assert!(configurations("/project").is_empty());
         assert!(host.process_runs().is_empty() && host.requests().is_empty());
     }
 }

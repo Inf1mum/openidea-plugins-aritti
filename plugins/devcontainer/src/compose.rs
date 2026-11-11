@@ -94,7 +94,7 @@ fn yaml_json(value:&yaml_rust2::Yaml)->Option<Value>{
         Yaml::Hash(v)=>{let mut out=serde_json::Map::new();for(k,v)in v{out.insert(k.as_str()?.into(),yaml_json(v)?);}Value::Object(out)},_=>return None,
     })
 }
-fn parse_source(path:&str,source:&str)->Result<Value,Error>{
+pub(crate) fn parse_source(path:&str,source:&str)->Result<Value,Error>{
     if path.ends_with(".yaml")||path.ends_with(".yml") {
         let mut guard=YamlGuard::default();yaml_rust2::parser::Parser::new_from_str(source).load(&mut guard,true).map_err(|_|Error::Invalid("Unreadable Compose YAML.".into()))?;
         if guard.bad{return Err("Use one unambiguous Compose YAML document without aliases, tags or duplicate keys.".into());}
@@ -104,6 +104,65 @@ fn parse_source(path:&str,source:&str)->Result<Value,Error>{
     }else{
         let Unique(value)=serde_json::from_str(source).map_err(|_| Error::Invalid("Use strict JSON without duplicate keys, or choose a .yaml/.yml Compose file. Interpolation and multi-file merging are not resolved by this form.".into()))?;Ok(value)
     }
+}
+
+/// Findings for literal Compose references of a devcontainer.json at `doc_path`. Quiet unless a missing file or a missing service is provable.
+pub(crate) fn reference_findings(doc_path: &str, text: &str) -> Vec<crate::checks::Finding> {
+    let (files, service) = crate::checks::compose_references(text);
+    let Some(project) = host::project_of(doc_path) else { return vec![] };
+    let Ok(root) = project.root() else { return vec![] };
+    let root = root.replace('\\', "/");
+    let prefix = format!("{}/", root.trim_end_matches('/'));
+    let doc_path = doc_path.replace('\\', "/");
+    let Some(folder) = doc_path.rsplit_once('/').map(|(folder, _)| folder) else { return vec![] };
+    let mut findings = vec![];
+    let mut services: Option<Vec<String>> = Some(vec![]);
+    let warn = |range: &std::ops::Range<usize>, message: String| crate::checks::Finding {
+        start: range.start,
+        end: range.end,
+        code: crate::checks::COMPOSE_REFERENCE,
+        message,
+        severity: openidea_plugin::Severity::Warning,
+    };
+    for (file, range) in &files {
+        let mut parts: Vec<&str> = folder.split('/').collect();
+        let normalised = file.replace('\\', "/");
+        for part in normalised.split('/') {
+            match part {
+                "" | "." => {}
+                ".." => {
+                    parts.pop();
+                }
+                part => parts.push(part),
+            }
+        }
+        let absolute = parts.join("/");
+        if file.starts_with('/') || !absolute.starts_with(&prefix) {
+            services = None;
+            continue;
+        }
+        match project.read_file(&absolute) {
+            Err(Error::NotFound(_) | Error::Invalid(_)) => {
+                services = None;
+                findings.push(warn(range, format!("Compose file `{file}` was not found relative to devcontainer.json.")));
+            }
+            Err(_) => services = None,
+            Ok(source) if source.len() > 256 * 1024 => services = None,
+            Ok(source) => match parse_source(&absolute, &source) {
+                Ok(value) if value.get("include").is_none() => match (value.get("services").and_then(Value::as_object), services.as_mut()) {
+                    (Some(map), Some(all)) => all.extend(map.keys().cloned()),
+                    _ => services = None,
+                },
+                _ => services = None,
+            },
+        }
+    }
+    if let (Some((name, range)), Some(all)) = (service, services) {
+        if !files.is_empty() && !all.contains(&name) {
+            findings.push(warn(&range, format!("Service `{name}` is not declared in the referenced Compose file(s).")));
+        }
+    }
+    findings
 }
 
 const MAX_BYTES: usize = 8 * 1024;

@@ -78,6 +78,28 @@ struct Failure {
 fn failure_key(scope: &Scope) -> String {
     format!("{}:failure", scope.key())
 }
+const MAX_RECENT: usize = 10;
+fn recent_key(scope: &Scope) -> String {
+    format!("{}:recent-requests", scope.key())
+}
+/// Most-recent-first "METHOD /path" choices; never URLs, headers, bodies or responses.
+pub(crate) fn recent_requests(scope: &Scope) -> Vec<(String, String)> {
+    let stored = host::storage::get(&recent_key(scope)).ok().flatten().unwrap_or_default();
+    let entries: Vec<(String, String)> = serde_json::from_str(&stored).unwrap_or_default();
+    entries.into_iter().filter(|(m, p)| m.len() <= 16 && p.len() <= 512).take(MAX_RECENT).collect()
+}
+pub(crate) fn remember_request(scope: &Scope, method: &str, path: &str) {
+    if method.len() > 16 || path.len() > 512 {
+        return;
+    }
+    let mut entries = recent_requests(scope);
+    entries.retain(|(m, p)| (m.as_str(), p.as_str()) != (method, path));
+    entries.insert(0, (method.to_owned(), path.to_owned()));
+    entries.truncate(MAX_RECENT);
+    if let Ok(json) = serde_json::to_string(&entries) {
+        let _ = host::storage::set(&recent_key(scope), &json);
+    }
+}
 pub(crate) fn failure(scope: &Scope) -> Option<String> {
     let value = host::storage::get(&failure_key(scope)).ok()??;
     if value.len() > 4096 {

@@ -12,7 +12,7 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F06 | Flyway | Enterprise diff/snapshot/SQL generation (licensed runtime) | H | |
 | F07 | Database | DB/entity-derived init/diff DDL beyond H2 | A-L | |
 | F08 | Database | Native datasource inspection, entity queries, console | H | |
-| F09 | Flyway | Quoted/dialect tables, naming, constants, Kotlin entities, XML mappings | A-M | |
+| F09 | Flyway | Quoted/dialect tables, naming, constants, Kotlin entities, XML mappings | A-M | partial (same-file constants, implicit snake_case naming; quoted ids, Kotlin, XML open) |
 | F10 | Liquibase | Other dialects, online snapshot, GUI undo | U | |
 | F11 | Hibernate | Live schema compare, effective persistence units, other ORM versions | A-M | |
 | F12 | JPQL console | PostgreSQL/MySQL/MariaDB unverified | U | |
@@ -55,7 +55,7 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F49 | Kubernetes | Kustomize transformed/flow/remote refs; generated identity | A-M | partial (generator/replacement file refs) |
 | F50 | Kubernetes | Label graph affinity/node-label models, escaped scalar edits | A-S | done (affinity/spread links + single-line quoted escaped scalars; multiline/block still refused) |
 | F51 | Helm | Go-template scope, tpl/include, OCI registry intelligence | A-L | partial (`.Values` navigation) |
-| F52 | Devcontainer | Full JSON Schema/Compose semantics, template/feature metadata | A-M | |
+| F52 | Devcontainer | Full JSON Schema/Compose semantics, template/feature metadata | A-M | partial (hostRequirements types, Compose file/service refs) |
 | F53 | Devcontainer | Native remote IDE backend, per-launch introspection | H | |
 | F54 | DDEV | Composer root/hooks/cwd, terminal interception (host issues 2407/2408) | H | |
 | F55 | DDEV/Kubernetes | Native Database/debugger/remote/Windows acceptance | U | |
@@ -65,12 +65,12 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F59 | Initializr | Native New Project wizard, JDK/SDK config, IDE build import | H | |
 | F60 | Runtime | External-library/overloaded source semantics | A-L | |
 | F61 | Runtime | Remote/JMX management transport | A-L | |
-| F62 | Runtime | Saved-request history, credential selection, health detail | A-M | |
-| F63 | Boot run | Custom args, build-plugin resolution, multi-module root | A-M | |
+| F62 | Runtime | Saved-request history, credential selection, health detail | A-M | partial (recent requests; health detail tree, bean chooser open) |
+| F63 | Boot run | Custom args, build-plugin resolution, multi-module root | A-M | partial (Maven/Gradle module run entries; args/profiles prompt open) |
 | F64 | Boot metadata | Gradle resolution, inherited properties, alternate repos | A-M | |
 | F65 | Integration | Effective context ownership for global usages | A-L | |
 | F66 | Integration | DSL flow edges, Kotlin DSL | A-M | |
-| F67 | Batch | XML structural/XSD rules; Batch 6 migration | A-M | |
+| F67 | Batch | XML structural/XSD rules; Batch 6 migration | A-M | partial (chunk/tasklet exclusivity) |
 | F68 | Modulith | Type/member/hierarchy semantics, move-to-API | A-L | |
 | F69 | Modulith | Kotlin descriptor creation, bean-completion module warning | A-S | skip (user decision) |
 | F70 | Batch | Operator next/restart/abandon/recover/stop, datasource authority | A-M | |
@@ -95,7 +95,7 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F89 | Shell | Native terminal command-spec hooks | H | |
 | F90 | WS | QName refs across XML/WSDL/XSD, effective context | A-L | |
 | F91 | WS | Full XPath validation, WSDL generation, OXM/CXF semantics | A-L | |
-| F92 | Twig | Trait/embed/namespaced loader, macro-parameter Rename | A-M | |
+| F92 | Twig | Trait/embed/namespaced loader, macro-parameter Rename | A-M | partial (`use`d block navigation; @ns paths, macro-param Rename open) |
 | F93 | Twig | Formatter, custom delimiters | A-M | |
 | F94 | Twig | Dynamic context, extension types | A-L | |
 | F95 | Twig | Embedded type resolution, Enter/pairing, debugger mapping, plugin-lexer rendering | H | |
@@ -103,4 +103,4 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F97 | Symfony | Profiler collector detail, pagination, remote modes | A-M | |
 | F98 | Symfony | Doctrine/forms/container types | A-L | |
 
-Totals at 2026-11-11: 98 items. Done: F14, F27, F33, F42, F50. Skipped: F69. Blocked: F82. Partial: F15, F20, F24, F25, F32, F41, F49, F51, F56, F79, F83, F85, F86 (13). About 78 untouched.
+Totals at 2026-11-11: 98 items. Done: F14, F27, F33, F42, F50. Skipped: F69. Blocked: F82. Partial: F09, F15, F20, F24, F25, F32, F41, F49, F51, F52, F56, F62, F63, F67, F79, F83, F85, F86, F92 (19). About 72 untouched.

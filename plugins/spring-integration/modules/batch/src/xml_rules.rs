@@ -72,6 +72,30 @@ fn required(all:&[Element],i:usize)->&'static [&'static str] {
         _=>&[],
     }
 }
+fn filled<'a>(element:&'a Element,name:&str)->Option<&'a spring_text::xml::Attr> {element.attrs.iter().find(|a|a.name==name&&!a.value.trim().is_empty())}
+/// Mirrors Spring Batch's ChunkElementParser and TaskletParser errors (XSD documents "but not both" for chunk; tasklet is a one-of).
+/// A `#{}` commit-interval becomes a policy bean in the parser, and `${}` values are unresolved, so both stay quiet.
+fn exclusive_choice_problems(text:&str,all:&[Element],i:usize)->Vec<Diagnostic> {
+    let element=&all[i];let mut out=Vec::new();
+    match element.local() {
+        "chunk" => {
+            let (Some(interval),Some(_))=(filled(element,"commit-interval"),filled(element,"chunk-completion-policy")) else{return out;};
+            let mut at=Some(i);
+            while let Some(e)=at.map(|a|&all[a]) {if e.local()=="step"&&(e.attr("parent").is_some()||e.attr("abstract").is_some()) {return out;}at=e.parent;}
+            if interval.value.trim_start().starts_with('#')||interval.value.contains("${") {return out;}
+            out.push(Diagnostic::new(range(text,element.at,element.at+element.name.len()),Severity::Warning,"A chunk must contain either commit-interval or chunk-completion-policy, but not both.").code("chunk-commit-interval-and-policy"));
+        }
+        "tasklet" => {
+            let beans=Some("http://www.springframework.org/schema/beans");
+            let children=all.iter().enumerate().filter(|(j,c)|c.parent==Some(i)&&(c.local()=="chunk"&&xml::namespace(all,*j)==Some(NAMESPACE)||matches!(c.local(),"bean"|"ref")&&xml::namespace(all,*j)==beans)).count();
+            if usize::from(filled(element,"ref").is_some())+children>1 {
+                out.push(Diagnostic::new(range(text,element.at,element.at+element.name.len()),Severity::Warning,"A tasklet may have only one of: ref attribute, chunk element, bean element or ref element.").code("tasklet-multiple-implementations"));
+            }
+        }
+        _=>{}
+    }
+    out
+}
 /// Context-aware invariant rules; version-specific differences are emitted only
 /// for an explicit project compatibility setting (5/6). Modern official XSD
 /// URLs are unversioned and cannot establish the installed runtime version.
@@ -94,6 +118,7 @@ pub fn configured_problems(text:&str,compatibility:Option<&str>)->Vec<Diagnostic
                 }
             }
         }
+        out.extend(exclusive_choice_problems(text,&all,i));
         let version=schema(&all,i,compatibility);
         if version==Some(Schema::Six)&&!deprecated {
             deprecated=true;out.push(Diagnostic::new(range(text,element.at,element.at+element.name.len()),Severity::Hint,"With selected Spring Batch 6 compatibility, the XML namespace is deprecated; plan a Java configuration migration before Batch 7.").code("batch-xml-deprecated"));
@@ -146,6 +171,17 @@ mod tests {
     fn required_ids_cannot_be_blank_but_runtime_values_do_not_invent_source_requirements() {
         let text=official("<b:job id=' '><b:step id='s'><b:job ref=''/></b:step><b:split id='parallel'><b:flow><b:step id=' '/></b:flow></b:split></b:job>");
         let found=problems(&text);assert_eq!(found.len(),2);assert!(found.iter().all(|d|d.code.as_deref()==Some("invalid-attribute-value")));
+    }
+    #[test]
+    fn chunk_and_tasklet_exclusive_choices_are_reported_only_when_provable() {
+        let codes=|body:&str|problems(&official(body)).iter().filter_map(|d|d.code.clone()).collect::<Vec<_>>();
+        assert_eq!(codes("<b:job id='j'><b:step id='s'><b:tasklet><b:chunk commit-interval='5' chunk-completion-policy='p'/></b:tasklet></b:step></b:job>"),["chunk-commit-interval-and-policy"]);
+        assert!(codes("<b:job id='j'><b:step id='s'><b:tasklet><b:chunk commit-interval='#{jobParameters[n]}' chunk-completion-policy='p'/></b:tasklet></b:step></b:job>").is_empty());
+        assert!(codes("<b:job id='j'><b:step id='s'><b:tasklet><b:chunk commit-interval='${n}' chunk-completion-policy='p'/></b:tasklet></b:step></b:job>").is_empty());
+        assert!(codes("<b:job id='j'><b:step id='s' parent='base'><b:tasklet><b:chunk commit-interval='5' chunk-completion-policy='p'/></b:tasklet></b:step></b:job>").is_empty());
+        assert_eq!(codes("<b:job id='j'><b:step id='s'><b:tasklet ref='t'><b:chunk commit-interval='1'/></b:tasklet></b:step></b:job>"),["tasklet-multiple-implementations"]);
+        assert_eq!(codes("<b:job id='j'><b:step id='s'><b:tasklet><b:chunk commit-interval='1'/><b:chunk commit-interval='1'/></b:tasklet></b:step></b:job>"),["tasklet-multiple-implementations"]);
+        assert!(codes("<b:job id='j'><b:step id='s'><b:tasklet ref='t'/></b:step><b:step id='u'><b:tasklet ref=' '><b:chunk commit-interval='1'/></b:tasklet></b:step></b:job>").is_empty());
     }
     #[test]
     fn checks_transaction_attributes_and_exception_classes() {

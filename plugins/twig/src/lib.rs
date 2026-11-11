@@ -352,6 +352,29 @@ impl Providers for Twig {
         };
         let range_in = |text: &str, range: Range<usize>| EditorRange::new(position(text, range.start), position(text, range.end));
 
+        if let Some(name) = navigate::block_call_at(&doc.text, offset) {
+            if is_symfony(&project) || navigate::block_definitions(&doc.text).iter().any(|(n, _)| *n == name) {
+                return Vec::new();
+            }
+            let Some(used) = navigate::used_templates(&doc.text) else {
+                return Vec::new();
+            };
+            let mut found = Vec::new();
+            for template in used {
+                let Some((path, text)) = macros_of(&project, doc, &template) else {
+                    return Vec::new();
+                };
+                let defined: Vec<_> = navigate::block_definitions(&text).into_iter().filter(|(n, _)| *n == name).collect();
+                if defined.len() > 1 {
+                    return Vec::new();
+                }
+                if let Some((_, range)) = defined.into_iter().next() {
+                    found.push(Location { path, range: range_in(&text, range) });
+                }
+            }
+            return if found.len() == 1 { found } else { Vec::new() };
+        }
+
         if let Some((name, _)) = navigate::template_at(&doc.text, offset) {
             if is_symfony(&project) {
                 return Vec::new();
@@ -1445,6 +1468,33 @@ mod project_tests {
         assert!(twig.definition(&d, p).is_empty());
         let (d, p) = at("{% import 'forms.html.twig' as f %}{{ f.^ }}");
         assert!(twig.completion(&d, p, None).is_empty());
+    }
+    #[test]
+    fn use_and_embed_targets_and_used_blocks_resolve_only_when_unambiguous() {
+        let host = host();
+        host.add_file("templates/blocks.twig", "{% block sidebar %}s{% endblock %}{% block dup %}a{% endblock %}{% block dup %}b{% endblock %}");
+        host.add_file("templates/other.twig", "{% block sidebar %}o{% endblock %}");
+        let mut twig = Twig::default();
+        for source in ["{% use 'blocks.t^wig' %}", "{% embed 'blocks.t^wig' %}{% endembed %}", "{% embed 'blocks.t^wig' with {'a':1} only %}{% endembed %}"] {
+            let (d, p) = at(source);
+            assert_eq!(twig.definition(&d, p).len(), 1, "{source}");
+        }
+        let (d, p) = at("{% use 'blocks.twig' %}{{ block('side^bar') }}");
+        let found = twig.definition(&d, p);
+        assert_eq!(found.len(), 1);
+        assert!(found[0].path.ends_with("templates/blocks.twig"));
+        for source in [
+            "{% use 'blocks.twig' with sidebar as side %}{{ block('side^bar') }}",
+            "{% use 'blocks.twig' %}{% use 'other.twig' %}{{ block('side^bar') }}",
+            "{% use 'blocks.twig' %}{{ block('d^up') }}",
+            "{% use 'blocks.twig' %}{% block sidebar %}x{% endblock %}{{ block('side^bar') }}",
+            "{% extends 'other.twig' %}{% use 'blocks.twig' %}{{ block('side^bar') }}",
+            "{% use 'blocks.twig' %}{{ block('missing^') }}",
+            "{% use 'blocks.twig' %}{{ x.block('side^bar') }}",
+        ] {
+            let (d, p) = at(source);
+            assert!(twig.definition(&d, p).is_empty(), "{source}");
+        }
     }
     #[test]
     fn self_macros_use_unsaved_unicode_source_without_project_or_stale_ranges() {

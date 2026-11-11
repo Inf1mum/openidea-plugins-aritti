@@ -163,11 +163,14 @@ fn enabled_findings(path: &str, text: &str) -> Vec<checks::Finding> {
         return hint.map(|hint| checks::Finding { start: token.start, end: token.end, ..hint }).into_iter().collect();
     }
 
-    checks::check(text)
+    let mut findings = checks::check(text);
+    findings.extend(compose::reference_findings(path, text));
+
+    findings
         .into_iter()
         .filter(|f| match f.code {
             UNKNOWN_PROPERTY => properties,
-            checks::INVALID_PROPERTY_VALUE => host::setting_bool("checkPropertyValues").unwrap_or(true),
+            checks::INVALID_PROPERTY_VALUE | checks::COMPOSE_REFERENCE => host::setting_bool("checkPropertyValues").unwrap_or(true),
             FEATURES_MALFORMED => features,
             _ => true,
         })
@@ -667,6 +670,36 @@ mod tests {
         assert!(published(&host,FILE).is_empty());
         host.set_setting("checkPropertyValues","true");
         open(&host,FILE,"{ /* JSONC */ \"image\":\"ubuntu\",\"shutdownAction\":\"none\",\"otherPortsAttributes\":{\"protocol\":\"http\",\"requireLocalPort\":true,},}");
+        assert!(published(&host,FILE).is_empty());
+    }
+
+    #[test]
+    fn host_requirements_follow_the_schema_types() {
+        let host=host();
+        open(&host,FILE,r#"{"hostRequirements":{"cpus":0,"memory":"8 gb","storage":"32gb","gpu":{"cores":1,"x":2}}}"#);
+        assert_eq!(codes(&published(&host,FILE)),["invalid-property-value";3]);
+        open(&host,FILE,r#"{"hostRequirements":{"cpus":4,"memory":"8gb","storage":"100","gpu":"optional","other":1}}"#);
+        assert!(published(&host,FILE).is_empty());
+        open(&host,FILE,r#"{"hostRequirements":{"gpu":{"cores":2,"memory":"4gb"}}}"#);
+        assert!(published(&host,FILE).is_empty());
+    }
+
+    #[test]
+    fn compose_file_and_service_references_are_checked_against_local_files() {
+        let host=host();
+        host.add_file(".devcontainer/docker-compose.yml","services:\n  app:\n    image: x\n");
+        open(&host,FILE,r#"{"dockerComposeFile":"docker-compose.yml","service":"web"}"#);
+        assert_eq!(codes(&published(&host,FILE)),["compose-reference"]);
+        open(&host,FILE,r#"{"dockerComposeFile":["docker-compose.yml","../missing.yml"],"service":"app"}"#);
+        assert_eq!(codes(&published(&host,FILE)),["compose-reference"]);
+        open(&host,FILE,r#"{"dockerComposeFile":"docker-compose.yml","service":"app"}"#);
+        assert!(published(&host,FILE).is_empty());
+        open(&host,FILE,r#"{"dockerComposeFile":"${localEnv:F}.yml","service":"${localEnv:S}"}"#);
+        assert!(published(&host,FILE).is_empty());
+        open(&host,FILE,r#"{"dockerComposeFile":"../../outside.yml","service":"nope"}"#);
+        assert!(published(&host,FILE).is_empty());
+        host.set_setting("checkPropertyValues","false");
+        open(&host,FILE,r#"{"dockerComposeFile":"nope.yml"}"#);
         assert!(published(&host,FILE).is_empty());
     }
 
