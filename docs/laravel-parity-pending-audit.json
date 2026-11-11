@@ -504,6 +504,14 @@
       "disposition": "exact_api_exclusion",
       "detail": "Exact agent-finished trigger/changed-file batch unavailable in pinned API1.4. Reviewed manual, project and on-save helper workflows remain implemented and required under E04/E05; do not invent an event name or automatically run PHP without preferences/capabilities.",
       "evidence": "docs/laravel-baseline-qualification-20261111.md"
+    },
+    {
+      "id": "desktop-index-stall",
+      "leaves": [],
+      "owner": "root/performance",
+      "disposition": "open_defect_cause_unknown",
+      "detail": "On the user's desktop OpenIDEA 0.1.40 the Laravel hub completed its first index after plugin Redémarrer, but after the project's User.php was rewritten externally the hub stayed on 'Indexing Laravel project… 17 of 69 indexing tasks complete', then on '1 of 2 indexing tasks complete' (the post-publish recheck queue, advance_index maintenance branch), for over 2 minutes with the window in front and the host process idle. Progress only moved when a tab click re-rendered the view. The headless released-host harness drives ticks itself and never reproduces this, so the stall is in how the desktop delivers the hub's index-tick polling or in a cancelled begin_task('Laravel') returning early, not in the per-call fuel budget. Not diagnosed further.",
+      "evidence": "Orca computer-use observation 2026-11-11 11:18-11:22; screenshots not retained"
     }
   ],
   "leaves": [
