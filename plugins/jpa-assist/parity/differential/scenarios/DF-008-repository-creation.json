@@ -1,0 +1,43 @@
+{
+  "id": "DF-008",
+  "slug": "repository-creation",
+  "title": "Spring Data repository creation options and batch creation",
+  "ledgerRows": [
+    "G036",
+    "G037",
+    "G038",
+    "G057",
+    "G058",
+    "G130",
+    "G134"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "inputFile": "src/main/java/com/example/shop/domain/Category.java",
+  "inputFiles": [
+    "src/main/java/com/example/shop/domain/CustomerProfile.java",
+    "src/main/java/com/example/shop/service/OrderService.java",
+    "src/main/java/com/example/shop/service/CustomerService.java"
+  ],
+  "inputNote": "Category has no repository, so the creation actions have work to do; Customer/CustomerOrder/Product already have one (skipped in the all-entities run).",
+  "ourAction": "Create Spring Data repository with options\u2026 / Create repositories for entities\u2026 / Inject repository\u2026",
+  "originalAction": "New > Spring Data Repository (JPA Buddy)",
+  "originalActionDocumented": true,
+  "originalActionNote": "Names recalled from public JPA Buddy documentation; the human must correct them from the installed menu. \"unknown\" means not documented.",
+  "inputs": [
+    "Parent interface choices (CrudRepository, JpaRepository, PagingAndSortingRepository, ListCrudRepository)",
+    "Optional JpaSpecificationExecutor",
+    "All entities selected at once",
+    "Injection style: constructor, field @Autowired, Lombok RequiredArgsConstructor"
+  ],
+  "capture": [
+    "created and edited files",
+    "list of parent interfaces offered, verbatim"
+  ],
+  "normalize": [
+    "whitespace",
+    "imports",
+    "annotation-args",
+    "quotes",
+    "member-order"
+  ]
+}

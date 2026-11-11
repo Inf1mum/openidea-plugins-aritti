@@ -1,0 +1,12 @@
+{
+  "scenario": "AC-000",
+  "rows": [],
+  "host": {"version": "OpenIDEA x.y.z", "os": "macOS 15.x arm64", "pluginBuild": "0000000000000000000000000000000000000000000000000000000000000000"},
+  "fixture": "boot-jpa-java-jakarta@<git sha of the fixture copy>",
+  "result": "blocked",
+  "observations": "",
+  "artifacts": [],
+  "checks": {"preview_matches": "n/a", "undo_exact": "n/a", "cancel_clean": "n/a", "stale_refused": "n/a", "crlf_ok": "n/a"},
+  "tester": "",
+  "date": "2000-01-01"
+}

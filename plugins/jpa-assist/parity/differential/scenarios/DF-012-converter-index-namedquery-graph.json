@@ -1,0 +1,41 @@
+{
+  "id": "DF-012",
+  "slug": "converter-index-namedquery-graph",
+  "title": "Attribute converter, index/unique constraint, named query and entity graph",
+  "ledgerRows": [
+    "G007",
+    "G008",
+    "G025",
+    "G048",
+    "G026",
+    "G027"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "inputFile": "src/main/java/com/example/shop/domain/Customer.java",
+  "inputFiles": [
+    "src/main/java/com/example/shop/domain/Product.java",
+    "src/main/java/com/example/shop/domain/StatusConverter.java",
+    "fixtures/legacy-javax-hibernate5/src/main/java/com/example/library/domain/Book.java",
+    "fixtures/legacy-javax-hibernate5/src/main/java/com/example/library/domain/Author.java"
+  ],
+  "ourAction": "Create attribute converter with preview\u2026 / Add index or unique constraint with preview\u2026 / Add named query with preview\u2026 / Add entity graph with preview\u2026",
+  "originalAction": "Converter, index, named query and entity graph wizards (JPA Buddy)",
+  "originalActionDocumented": true,
+  "originalActionNote": "Names recalled from public JPA Buddy documentation; the human must correct them from the installed menu. \"unknown\" means not documented.",
+  "inputs": [
+    "Converter for a Java type, autoApply on and off",
+    "Index on one and two columns; unique constraint",
+    "Second named query on javax (container annotation) vs jakarta (repeatable)",
+    "Entity graph with attribute nodes and a subgraph"
+  ],
+  "capture": [
+    "created and edited files"
+  ],
+  "normalize": [
+    "whitespace",
+    "imports",
+    "annotation-args",
+    "quotes",
+    "member-order"
+  ]
+}

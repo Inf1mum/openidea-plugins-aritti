@@ -1,0 +1,34 @@
+{
+  "id": "DF-004",
+  "slug": "inheritance-creation",
+  "title": "Inheritance creation (single-table, joined, table-per-class) and superclass extraction",
+  "ledgerRows": [
+    "S003",
+    "G019"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "inputFile": "src/main/java/com/example/shop/domain/Vehicle.java",
+  "inputFiles": [
+    "src/main/java/com/example/shop/domain/Truck.java",
+    "src/main/java/com/example/shop/domain/Payment.java"
+  ],
+  "ourAction": "Generate JPA entity with identifier options\u2026 / Extract mapped superclass with preview\u2026",
+  "originalAction": "New > JPA Entity with inheritance options (JPA Buddy); extract superclass: unknown",
+  "originalActionDocumented": false,
+  "originalActionNote": "Names recalled from public JPA Buddy documentation; the human must correct them from the installed menu. \"unknown\" means not documented.",
+  "inputs": [
+    "Root with each strategy; discriminator column/type/length/value",
+    "Subclass with @PrimaryKeyJoinColumn and optional table",
+    "Extract two scalar fields into a @MappedSuperclass"
+  ],
+  "capture": [
+    "created and edited files"
+  ],
+  "normalize": [
+    "whitespace",
+    "imports",
+    "annotation-args",
+    "quotes",
+    "member-order"
+  ]
+}

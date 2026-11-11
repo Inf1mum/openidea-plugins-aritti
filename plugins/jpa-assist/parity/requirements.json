@@ -1787,7 +1787,8 @@
         "icon": "com.intellij.icons.AllIcons.Diff.Remove"
       },
       "evidence": [],
-      "acceptance": []
+      "acceptance": [],
+      "reviewNote": "Reviewed: safe delete of a method is an IDE refactoring (usages search + delete), not a JPA-specific capability; it needs semantic usages, which the host indexer only offers for exact names, and multi-file edits (S007). Leave open; no G row exists. Candidate new row if the owner wants it tracked."
     },
     {
       "id": "A004",
@@ -2406,7 +2407,8 @@
         "icon": "com.intellij.icons.AllIcons.Diff.Remove"
       },
       "evidence": [],
-      "acceptance": []
+      "acceptance": [],
+      "reviewNote": "Reviewed: duplicate registration of the safe-delete-method action (see A003)."
     },
     {
       "id": "A038",
@@ -2421,7 +2423,8 @@
         "icon": "com.intellij.icons.AllIcons.Diff.Remove"
       },
       "evidence": [],
-      "acceptance": []
+      "acceptance": [],
+      "reviewNote": "Reviewed: safe delete of a class; same blockers as A003 (semantic usages, multi-file edits S007). Candidate new row."
     },
     {
       "id": "A039",
@@ -3368,7 +3371,8 @@
         "implementationClass": "com.intellij.jpb.reference.hard.JpabLiteralExpressionAnnotator"
       },
       "evidence": [],
-      "acceptance": []
+      "acceptance": [],
+      "reviewNote": "Reviewed: string-literal annotator for unknown targets; intent not documented publicly (SPECS.md found no page naming it). Needs the original's behavior before it can be mapped or marked not applicable."
     },
     {
       "id": "E019",
@@ -3690,7 +3694,8 @@
         "implementation": "com.intellij.jpb.service.JpabEventDataProvider"
       },
       "evidence": [],
-      "acceptance": []
+      "acceptance": [],
+      "reviewNote": "Reviewed: event data provider is context plumbing for IntelliJ actions; no user-visible capability identified. Likely not applicable, but the owner must sign it off."
     },
     {
       "id": "E039",
