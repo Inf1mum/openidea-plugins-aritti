@@ -189,7 +189,7 @@ fn presentation(text:&str,limit:usize)->String {
 }
 
 fn marker(text: &str, at: usize, tooltip: String) -> LineMarker {
-    LineMarker { line: position(text, at).line, icon: None, tooltip:presentation(&tooltip,4096), target: None }
+    LineMarker { line: position(text, at).line, icon: Some(RUNTIME_MARKER.into()), tooltip:presentation(&tooltip,4096), target: None }
 }
 
 /// The token is a secret the host substitutes into the header; the plugin never reads it.
@@ -961,8 +961,19 @@ impl Plugin for Runtime {
 
 register_plugin!(Runtime, providers, views, details, inlay_hints);
 
+pub(crate) const RUNTIME_MARKER: &str = "icons/marker-runtime.svg";
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn marker_icons_are_declared_in_the_manifest() {
+        let manifest = include_str!("../plugin.toml");
+        for icon in [crate::RUNTIME_MARKER] {
+            assert!(manifest.contains(&format!("icon = \"{icon}\"")));
+            assert!(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(icon).is_file());
+        }
+    }
+
     use super::*;
     use openidea_plugin::HttpResponse;
     use openidea_plugin::mock::MockHost;

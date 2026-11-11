@@ -489,7 +489,7 @@ fn analyze(doc: &Document, f: &JavaFile, index: &Index<Shell>) -> (Vec<Diagnosti
                 for s in &arg.strings {
                     if s.value.contains('$') {continue;}
                     if let Some((path,b))=all_beans_for(index,core).find(|(_,b)|b.0==s.value && names.contains(s.value.as_str())) {
-                        markers.push(LineMarker{line:line_of(m),icon:None,tooltip:format!("Availability provider: {}",s.value),target:Some(Location{path:path.into(),range:b.1})});
+                        markers.push(LineMarker{line:line_of(m),icon:Some(AVAILABILITY_MARKER.into()),tooltip:format!("Availability provider: {}",s.value),target:Some(Location{path:path.into(),range:b.1})});
                     }
                 }
             }
@@ -531,7 +531,7 @@ fn analyze(doc: &Document, f: &JavaFile, index: &Index<Shell>) -> (Vec<Diagnosti
             if let Some(Inherited::Found(path, range)) = inherited_conventional {
                 markers.push(LineMarker {
                     line: line_of(m),
-                    icon: None,
+                    icon: Some(AVAILABILITY_MARKER.into()),
                     tooltip: format!("Availability method: {conventional}() (inherited)"),
                     target: Some(Location { path, range }),
                 });
@@ -543,7 +543,7 @@ fn analyze(doc: &Document, f: &JavaFile, index: &Index<Shell>) -> (Vec<Diagnosti
                     match inherited_indicator(doc, f, index, &class, &s.value) {
                         Inherited::Found(path, range) => markers.push(LineMarker {
                             line: line_of(m),
-                            icon: None,
+                            icon: Some(AVAILABILITY_MARKER.into()),
                             tooltip: format!("Availability method: {}() (inherited)", s.value),
                             target: Some(Location { path, range }),
                         }),
@@ -560,7 +560,7 @@ fn analyze(doc: &Document, f: &JavaFile, index: &Index<Shell>) -> (Vec<Diagnosti
             if let Some(a) = available {
                 markers.push(LineMarker {
                     line: line_of(m),
-                    icon: None,
+                    icon: Some(AVAILABILITY_MARKER.into()),
                     tooltip: format!("Availability method: {}()", a.name),
                     target: Some(Location { path: doc.path.clone(), range: name_of(a) }),
                 });
@@ -731,8 +731,19 @@ impl Plugin for ShellTools {
 
 register_plugin!(ShellTools, providers, diagnostics, hover, file_actions, language_features);
 
+pub(crate) const AVAILABILITY_MARKER: &str = "icons/marker-availability.svg";
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn marker_icons_are_declared_in_the_manifest() {
+        let manifest = include_str!("../plugin.toml");
+        for icon in [crate::AVAILABILITY_MARKER] {
+            assert!(manifest.contains(&format!("icon = \"{icon}\"")));
+            assert!(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(icon).is_file());
+        }
+    }
+
     use super::*;
     use openidea_plugin::mock::MockHost;
 

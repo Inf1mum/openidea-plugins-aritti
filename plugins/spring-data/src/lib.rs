@@ -1416,14 +1416,14 @@ impl DataTools {
             let line = range(&doc.text, t.at, t.at).start.line;
             if let Some((path, c)) = model.class(&domain) {
                 let target = Some(Location { path: path.into(), range: c.range });
-                markers.push(LineMarker { line, icon: None, tooltip: format!("Domain type: {domain}"), target });
+                markers.push(LineMarker { line, icon: Some(DOMAIN_MARKER.into()), tooltip: format!("Domain type: {domain}"), target });
             }
             let custom = format!("{}Impl", t.name);
             if let Some((path, c)) = model.class(&custom) {
                 let target = Some(Location { path: path.into(), range: c.range });
                 markers.push(LineMarker {
                     line,
-                    icon: Some("implemented".into()),
+                    icon: Some(IMPLEMENTATION_MARKER.into()),
                     tooltip: format!("Custom implementation: {custom}"),
                     target,
                 });
@@ -1438,7 +1438,7 @@ impl DataTools {
                     m.name[..parts[0].from.min(m.name.len())].trim_end_matches("By"),
                     describe(&m.name, &parts)
                 );
-                derived_markers.push(LineMarker { line, icon: None, tooltip, target: None });
+                derived_markers.push(LineMarker { line, icon: Some(QUERY_MARKER.into()), tooltip, target: None });
             }
         }
         markers.extend(derived_markers);
@@ -1446,8 +1446,21 @@ impl DataTools {
     }
 }
 
+pub(crate) const DOMAIN_MARKER: &str = "icons/marker-domain.svg";
+pub(crate) const IMPLEMENTATION_MARKER: &str = "icons/marker-implementation.svg";
+pub(crate) const QUERY_MARKER: &str = "icons/marker-query.svg";
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn marker_icons_are_declared_in_the_manifest() {
+        let manifest = include_str!("../plugin.toml");
+        for icon in [crate::DOMAIN_MARKER, crate::IMPLEMENTATION_MARKER, crate::QUERY_MARKER] {
+            assert!(manifest.contains(&format!("icon = \"{icon}\"")));
+            assert!(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(icon).is_file());
+        }
+    }
+
     use super::*;
     use openidea_plugin::mock::MockHost;
 

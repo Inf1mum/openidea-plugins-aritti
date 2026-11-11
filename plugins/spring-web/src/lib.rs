@@ -3,6 +3,9 @@
 //! `@Controller` returns to their template files, and links functional routes
 //! and test URLs to their handlers. Text-based.
 
+pub(crate) const ROUTE_MARKER: &str = "icons/marker-route.svg";
+pub(crate) const TEMPLATE_MARKER: &str = "icons/marker-template.svg";
+
 use endpoints::{FileInfo, Handler};
 use openidea_plugin::providers::{CodeAction, CompletionItem, CompletionKind, Document, LineMarker, Providers};
 use openidea_plugin::text::{offset, position};
@@ -583,7 +586,7 @@ impl WebTools {
                 continue;
             }
             let verb = if e.verb.is_empty() { "ANY" } else { e.verb.as_str() };
-            out.push(LineMarker { line, icon: None, tooltip: format!("URL: {verb} {}", e.path), target: None });
+            out.push(LineMarker { line, icon: Some(ROUTE_MARKER.into()), tooltip: format!("URL: {verb} {}", e.path), target: None });
         }
         out
     }
@@ -862,7 +865,7 @@ impl Providers for WebTools {
             let others = if l.targets.len() > 1 { format!(" (+{} more)", l.targets.len() - 1) } else { String::new() };
             LineMarker {
                 line: position(&doc.text, l.at).line,
-                icon: None,
+                icon: Some(ROUTE_MARKER.into()),
                 tooltip: format!("{}{others}", l.tooltip),
                 target: l.targets.first().cloned(),
             }
@@ -875,7 +878,7 @@ impl Providers for WebTools {
                 let others = if found.len() > 1 { format!(" (+{} more)", found.len() - 1) } else { String::new() };
                 Some(LineMarker {
                     line: position(&doc.text, s.at).line,
-                    icon: None,
+                    icon: Some(TEMPLATE_MARKER.into()),
                     tooltip: format!("View template {}{others}", first.short()),
                     target: Some(first.location()),
                 })
@@ -1176,7 +1179,7 @@ impl WebTools {
             let others = if l.targets.len() > 1 { format!(" (+{} more)", l.targets.len() - 1) } else { String::new() };
             LineMarker {
                 line: position(&doc.text, l.at).line,
-                icon: None,
+                icon: Some(ROUTE_MARKER.into()),
                 tooltip: format!("{}{others}", l.tooltip),
                 target: l.targets.first().cloned(),
             }
@@ -1189,7 +1192,7 @@ impl WebTools {
                 let others = if found.len() > 1 { format!(" (+{} more)", found.len() - 1) } else { String::new() };
                 Some(LineMarker {
                     line: position(&doc.text, s.at).line,
-                    icon: None,
+                    icon: Some(TEMPLATE_MARKER.into()),
                     tooltip: format!("View template {}{others}", first.short()),
                     target: Some(first.location()),
                 })
@@ -1204,6 +1207,15 @@ impl WebTools {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn marker_icons_are_declared_in_the_manifest() {
+        let manifest = include_str!("../plugin.toml");
+        for icon in [crate::ROUTE_MARKER, crate::TEMPLATE_MARKER] {
+            assert!(manifest.contains(&format!("icon = \"{icon}\"")));
+            assert!(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(icon).is_file());
+        }
+    }
+
     use super::*;
     use openidea_plugin::mock::MockHost;
     use openidea_plugin::views::ListItem;

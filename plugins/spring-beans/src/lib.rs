@@ -33,6 +33,8 @@ mod xml_namespace;
 
 pub use model::{Bean, FileModel, Injection, TypeInfo, parse};
 
+pub(crate) const BEAN_MARKER: &str = "icons/marker-bean.svg";
+
 use cache::{Index, Indexes};
 use openidea_plugin::diagnostics::DiagnosticsProvider;
 use openidea_plugin::providers::{CodeAction, CompletionItem, CompletionKind, Document, LineMarker, Providers};
@@ -677,7 +679,7 @@ impl Providers for Navigator {
                     }
                 };
                 let target = Location { path: path.to_string(), range: first.range };
-                markers.push(LineMarker { line: inj.range.start.line, icon: None, tooltip, target: Some(target) });
+                markers.push(LineMarker { line: inj.range.start.line, icon: Some(BEAN_MARKER.into()), tooltip, target: Some(target) });
             }
             for bean in &model.beans {
                 let users = world.users(&doc.path, bean);
@@ -689,7 +691,7 @@ impl Providers for Navigator {
                 let names: Vec<&str> = names.into_iter().collect();
                 markers.push(LineMarker {
                     line: bean.range.start.line,
-                    icon: Some("implemented".into()),
+                    icon: Some(BEAN_MARKER.into()),
                     tooltip: format!("Injected into {}", names.join(", ")),
                     target: Some(first.clone()),
                 });

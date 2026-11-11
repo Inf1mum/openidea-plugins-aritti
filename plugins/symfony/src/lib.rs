@@ -3940,3 +3940,20 @@ mod grouped_ui_parity_tests {
         assert!(host.view_messages().iter().all(|(view,_)|view==VIEW));
     }
 }
+
+#[cfg(test)]
+mod marker_icon_guard {
+    #[test]
+    fn marker_icons_are_declared_in_the_manifest_and_exist() {
+        let manifest = include_str!("../plugin.toml");
+        let declared: Vec<&str> = manifest
+            .lines()
+            .filter_map(|line| line.strip_prefix("icon = \"icons/marker-"))
+            .collect();
+        assert_eq!(declared.len(), 11);
+        for name in declared {
+            let icon = format!("icons/marker-{}", name.trim_end_matches('"'));
+            assert!(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(&icon).is_file(), "{icon}");
+        }
+    }
+}

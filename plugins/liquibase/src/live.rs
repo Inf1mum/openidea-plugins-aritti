@@ -148,7 +148,7 @@ impl State {
                 let path = self.target(&root, &doc.path, include)?;
                 Some(LineMarker {
                     line: changelog::line_of(&doc.text, include.at),
-                    icon: Some("navigate".into()),
+                    icon: Some(crate::INCLUDE_MARKER.into()),
                     tooltip: format!("Open cached source {}", path.rsplit('/').next().unwrap_or(&path)),
                     target: Some(Location { path, range: Range::new(Position::new(0, 0), Position::new(0, 0)) }),
                 })

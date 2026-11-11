@@ -422,7 +422,7 @@ impl Flyway {
             if let Some(definition) = owner.proof.definitions.iter().find(|d| d.name == t.name) {
                 markers.push(LineMarker {
                     line: t.range.start.line,
-                    icon: None,
+                    icon: Some(crate::PLACEHOLDER_MARKER.into()),
                     tooltip: "Declared Flyway placeholder in cached source configuration; runtime overrides are not resolved".into(),
                     target: Some(Location { path: owner.proof.path.clone(), range: definition.range }),
                 });

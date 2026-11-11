@@ -160,14 +160,14 @@ impl DataTools {
             let line = range(&doc.text, t.at, t.at).start.line;
             if let Some((path, c)) = model.class(&domain) {
                 let target = Some(Location { path: path.into(), range: c.range });
-                markers.push(LineMarker { line, icon: None, tooltip: format!("Domain type: {domain}"), target });
+                markers.push(LineMarker { line, icon: Some(DOMAIN_MARKER.into()), tooltip: format!("Domain type: {domain}"), target });
             }
             let custom = format!("{}Impl", t.name);
             if let Some((path, c)) = model.class(&custom) {
                 let target = Some(Location { path: path.into(), range: c.range });
                 markers.push(LineMarker {
                     line,
-                    icon: Some("implemented".into()),
+                    icon: Some(IMPLEMENTATION_MARKER.into()),
                     tooltip: format!("Custom implementation: {custom}"),
                     target,
                 });
@@ -182,7 +182,7 @@ impl DataTools {
                     m.name[..parts[0].from.min(m.name.len())].trim_end_matches("By"),
                     describe(&m.name, &parts)
                 );
-                derived_markers.push(LineMarker { line, icon: None, tooltip, target: None });
+                derived_markers.push(LineMarker { line, icon: Some(QUERY_MARKER.into()), tooltip, target: None });
             }
         }
         markers.extend(derived_markers);

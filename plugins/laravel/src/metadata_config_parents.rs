@@ -1423,7 +1423,7 @@ pub(super) fn markers(index: &Index, project: &Project, doc: &Document) -> Vec<L
         .into_iter()
         .map(|parent| LineMarker {
             line,
-            icon: Some("arrow-up".into()),
+            icon: Some(crate::CONFIG_DEFAULTS_MARKER.into()),
             tooltip: crate::ui_text::format("final.metadata.defaultsTooltip","Go to package defaults for {key}",&[("key",&parent.key)]),
             target: Some(Location {
                 path: parent.target.path.clone(),

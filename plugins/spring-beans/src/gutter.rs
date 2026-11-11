@@ -39,7 +39,7 @@ impl LanguageFeatures for Navigator {
             let Some(next)=self.gutter.next.checked_add(1)else{break;};self.gutter.next=next;
             let ticket=format!("spring-source:{next}:{}:{line}",doc.version);let count=choices.len();
             self.gutter.pending.insert(ticket.clone(),Pending{root:root.clone(),doc:doc.clone(),choices});
-            actions.push(GutterAction{line,icon:Some("implemented".into()),tooltip:if count==1000 {"Choose Spring source target (1000 shown; bounded list)".into()}else{format!("Choose among {count} cached Spring source targets")},command:COMMAND.into(),argument:Some(ticket)});
+            actions.push(GutterAction{line,icon:Some(BEAN_MARKER.into()),tooltip:if count==1000 {"Choose Spring source target (1000 shown; bounded list)".into()}else{format!("Choose among {count} cached Spring source targets")},command:COMMAND.into(),argument:Some(ticket)});
         }actions
     }
 }

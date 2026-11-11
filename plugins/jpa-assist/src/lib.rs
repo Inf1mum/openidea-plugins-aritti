@@ -19,6 +19,8 @@ mod creation;
 mod checks;
 mod file_actions;
 mod generate;
+pub(crate) const REPOSITORY_MARKER: &str = "icons/marker-repository.svg";
+
 mod live;
 mod lombok_checks;
 mod local_graph;
@@ -1503,7 +1505,7 @@ impl Providers for JpaAssist {
 
         vec![LineMarker {
             line: class.pos.line,
-            icon: Some("navigate".into()),
+            icon: Some(REPOSITORY_MARKER.into()),
             tooltip: format!("Repositories: {}", names.join(", ")),
             target: Some(first.clone()),
         }]
@@ -2200,7 +2202,7 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
 
         assert_eq!(markers.len(), 1);
         assert_eq!(markers[0].line, 5);
-        assert_eq!(markers[0].icon.as_deref(), Some("navigate"));
+        assert_eq!(markers[0].icon.as_deref(), Some(REPOSITORY_MARKER));
         assert_eq!(markers[0].tooltip, "Repositories: OrderRepository");
         assert_eq!(markers[0].target.as_ref().unwrap().path, "/project/src/shop/data/OrderRepository.java");
 
@@ -3568,4 +3570,16 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
         assert!(host.requests().is_empty() && host.process_runs().is_empty());
     }
 
+}
+
+#[cfg(test)]
+mod marker_icon_guard {
+    #[test]
+    fn marker_icons_are_declared_in_the_manifest() {
+        let manifest = include_str!("../plugin.toml");
+        for icon in [crate::REPOSITORY_MARKER] {
+            assert!(manifest.contains(&format!("icon = \"{icon}\"")), "{icon}");
+            assert!(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(icon).is_file(), "{icon}");
+        }
+    }
 }

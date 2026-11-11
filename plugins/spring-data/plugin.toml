@@ -4,10 +4,10 @@ version = "0.2.0" # x-release-please-version
 description = "Spring Data repositories in Java and Kotlin: checks derived query method names (findByAddressZipCodeOrderByAgeDesc…) against the domain class and the method's parameter count, completes them with the entity's properties and operator keywords, links repositories to their entity and custom implementation, opens the entity field from a method name with Go to Definition, checks @Query named parameters and @Modifying without @Query, and completes and checks entity names and alias properties in JPQL queries. Independent implementation, not affiliated with JetBrains or Broadcom."
 authors = ["Arnaud RITTI <arnaud.ritti@gmail.com>"]
 license = "MIT"
-change-notes = "Unreleased: closed interface projection getters, record DTO components and literal @EntityGraph attributePaths are checked against the fully scanned in-project entity property tree (Warning only when provable, Info for clear type conflicts); nested derived-query paths follow the documented whole-name-then-right-to-left split with underscore traversal. Unreleased: selected scalar interface projections, source association EntityGraph repositories, typed scalar operator/conjunction/paged/sorted finder repositories and guarded existing-interface finder insertion and Java/Kotlin JPQL/native physical query ranges. Unreleased: reviewed scalar identifier interface projection generation with exact source property names and atomic non-overwriting creation. Unreleased: reviewed atomic JpaRepository creation for proved source-local Java/Kotlin JPA entities, alongside common CrudRepository creation; Mongo/JDBC do not receive JPA-specific actions. Unreleased: current-owner cached repository/domain hover, declared literal JPA query hover, derived-criterion and explicit named Param source hints, versioned current-text diagnostics and conservative annotation/project ownership. Source-local atomic Java/Kotlin CrudRepository creation remains previewed and non-overwriting. Effective classpath, runtime identifier/query binding and semantic usages/Rename are not inferred."
+change-notes = "Unreleased: custom gutter icons for domain type, custom implementation and derived query markers. Unreleased: closed interface projection getters, record DTO components and literal @EntityGraph attributePaths are checked against the fully scanned in-project entity property tree (Warning only when provable, Info for clear type conflicts); nested derived-query paths follow the documented whole-name-then-right-to-left split with underscore traversal. Unreleased: selected scalar interface projections, source association EntityGraph repositories, typed scalar operator/conjunction/paged/sorted finder repositories and guarded existing-interface finder insertion and Java/Kotlin JPQL/native physical query ranges. Unreleased: reviewed scalar identifier interface projection generation with exact source property names and atomic non-overwriting creation. Unreleased: reviewed atomic JpaRepository creation for proved source-local Java/Kotlin JPA entities, alongside common CrudRepository creation; Mongo/JDBC do not receive JPA-specific actions. Unreleased: current-owner cached repository/domain hover, declared literal JPA query hover, derived-criterion and explicit named Param source hints, versioned current-text diagnostics and conservative annotation/project ownership. Source-local atomic Java/Kotlin CrudRepository creation remains previewed and non-overwriting. Effective classpath, runtime identifier/query binding and semantic usages/Rename are not inferred."
 categories = ["frameworks"]
 icon = "icon.svg"
-engines.openidea = "^1.4"
+engines.openidea = "^1.5"
 wasm = "dist/plugin.wasm"
 activation = ["on-language:java", "on-language:kotlin", "on-event:files-changed"]
 
@@ -49,3 +49,15 @@ category = "Spring Data"
 menu = "editor.context"
 command = "show-repository-members"
 when = "editorLangId == java || editorLangId == kotlin"
+
+[[contributes.markerIcons]]
+id = "domain"
+icon = "icons/marker-domain.svg"
+
+[[contributes.markerIcons]]
+id = "implementation"
+icon = "icons/marker-implementation.svg"
+
+[[contributes.markerIcons]]
+id = "query"
+icon = "icons/marker-query.svg"

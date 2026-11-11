@@ -14,6 +14,8 @@ mod file_actions;
 mod generate;
 mod indexer;
 mod json;
+pub(crate) const INCLUDE_MARKER: &str = "icons/marker-include.svg";
+
 mod live;
 mod local_references;
 mod file_references;
@@ -715,7 +717,7 @@ impl Liquibase {
                     };
                     markers.push(LineMarker {
                         line: changelog::line_of(&doc.text, include.at),
-                        icon: Some("navigate".into()),
+                        icon: Some(INCLUDE_MARKER.into()),
                         tooltip: format!("Open {}", path.rsplit('/').next().unwrap_or(&path)),
                         target: Some(Location { path, range: Range::new(Position::new(0, 0), Position::new(0, 0)) }),
                     });
@@ -1776,5 +1778,17 @@ mod custom_group_tests {
         assert_eq!(active["model"]["activeView"],"offline-diff");
         assert!(host.process_runs().is_empty()&&host.terminals().is_empty()&&host.requests().is_empty());
         assert!(host.view_messages().iter().all(|(view,_)|view=="changesets"));
+    }
+}
+
+#[cfg(test)]
+mod marker_icon_guard {
+    #[test]
+    fn marker_icons_are_declared_in_the_manifest() {
+        let manifest = include_str!("../plugin.toml");
+        for icon in [crate::INCLUDE_MARKER] {
+            assert!(manifest.contains(&format!("icon = \"{icon}\"")), "{icon}");
+            assert!(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(icon).is_file(), "{icon}");
+        }
     }
 }

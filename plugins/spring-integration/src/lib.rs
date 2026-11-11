@@ -538,7 +538,7 @@ impl Providers for Integration {
                 found.iter().map(|(p, x)| format!("{} ({}:{})", x.what, file_name(p), x.range.start.line + 1)).collect();
             markers.push(LineMarker {
                 line: r.range.start.line,
-                icon: None,
+                icon: Some(CHANNEL_MARKER.into()),
                 tooltip: format!("{title}: {}", list.join(", ")),
                 target: Some(location(first)),
             });
@@ -657,8 +657,19 @@ pub fn applies(project: &Project) -> bool {
 
 openidea_plugin::register_plugin!(structure::Structure, providers, views, diagnostics, file_actions, hover);
 
+pub(crate) const CHANNEL_MARKER: &str = "icons/marker-channel.svg";
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn marker_icons_are_declared_in_the_manifest() {
+        let manifest = include_str!("../plugin.toml");
+        for icon in [crate::CHANNEL_MARKER] {
+            assert!(manifest.contains(&format!("icon = \"{icon}\"")));
+            assert!(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(icon).is_file());
+        }
+    }
+
     use super::*;
     use openidea_plugin::mock::MockHost;
 

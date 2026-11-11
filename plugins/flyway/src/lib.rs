@@ -15,6 +15,8 @@ mod hibernate_schema;
 mod indexer;
 mod info;
 mod naming;
+pub(crate) const PLACEHOLDER_MARKER: &str = "icons/marker-placeholder.svg";
+
 mod navigation;
 mod table_navigation;
 
@@ -1026,5 +1028,17 @@ mod custom_group_tests {
         assert_eq!(active["model"]["activeView"],"command-output");
         assert!(host.process_runs().is_empty()&&host.terminals().is_empty()&&host.requests().is_empty());
         assert!(host.view_messages().iter().all(|(view,_)|view=="migrations"));
+    }
+}
+
+#[cfg(test)]
+mod marker_icon_guard {
+    #[test]
+    fn marker_icons_are_declared_in_the_manifest() {
+        let manifest = include_str!("../plugin.toml");
+        for icon in [crate::PLACEHOLDER_MARKER] {
+            assert!(manifest.contains(&format!("icon = \"{icon}\"")), "{icon}");
+            assert!(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(icon).is_file(), "{icon}");
+        }
     }
 }

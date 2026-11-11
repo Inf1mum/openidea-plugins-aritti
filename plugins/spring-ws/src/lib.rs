@@ -479,7 +479,7 @@ impl WsTools {
             match found.iter().find(|(_, n, _)| *n == e.local) {
                 Some((path, _, r)) => markers.push(LineMarker {
                     line: e.target.start.line,
-                    icon: None,
+                    icon: Some(SCHEMA_MARKER.into()),
                     tooltip: format!("Payload element <{}> in {}", e.local, file_name(path)),
                     target: Some(Location { path: (*path).into(), range: *r }),
                 }),
@@ -488,7 +488,7 @@ impl WsTools {
         }
         for b in java::bean_names(&f).into_iter().filter(|b| b.ty == "DefaultWsdl11Definition") {
             let line = openidea_plugin::text::position(text, b.at).line;
-            markers.push(LineMarker { line, icon: None, tooltip: format!("Published as /{}.wsdl", b.name), target: None });
+            markers.push(LineMarker { line, icon: Some(WSDL_MARKER.into()), tooltip: format!("Published as /{}.wsdl", b.name), target: None });
         }
         markers
     }
@@ -513,7 +513,7 @@ impl WsTools {
                     let labels: Vec<&str> = handlers.iter().map(|(_, e)| e.label.as_str()).collect();
                     markers.push(LineMarker {
                         line: r.start.line,
-                        icon: None,
+                        icon: Some(ENDPOINT_MARKER.into()),
                         tooltip: format!("Handled by {}", labels.join(", ")),
                         target: Some(Location { path: (*path).into(), range: e.target }),
                     });
@@ -806,8 +806,21 @@ impl Plugin for WsTools {
 
 register_plugin!(WsTools, providers, diagnostics, file_actions);
 
+pub(crate) const SCHEMA_MARKER: &str = "icons/marker-schema.svg";
+pub(crate) const ENDPOINT_MARKER: &str = "icons/marker-endpoint.svg";
+pub(crate) const WSDL_MARKER: &str = "icons/marker-wsdl.svg";
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn marker_icons_are_declared_in_the_manifest() {
+        let manifest = include_str!("../plugin.toml");
+        for icon in [crate::SCHEMA_MARKER, crate::ENDPOINT_MARKER, crate::WSDL_MARKER] {
+            assert!(manifest.contains(&format!("icon = \"{icon}\"")));
+            assert!(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(icon).is_file());
+        }
+    }
+
     use super::*;
     use openidea_plugin::mock::MockHost;
     use openidea_plugin::text::position;

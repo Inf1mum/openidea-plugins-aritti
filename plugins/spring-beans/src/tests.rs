@@ -273,7 +273,7 @@ fn beans_show_where_they_are_injected() {
     let doc = Document {path, language: "java".into(), text: current.text, version: current.version};
     let action = n.gutter_actions(&doc).into_iter().find(|a| a.line == 5).unwrap();
     assert!(action.tooltip.contains("7 cached Spring source targets"), "{}", action.tooltip);
-    assert!(n.checked_markers(&doc).iter().all(|m| m.line != 5 || m.icon.as_deref() != Some("implemented")));
+    assert!(n.checked_markers(&doc).iter().all(|m| m.line != 5 || m.icon.as_deref() != Some(BEAN_MARKER)));
     let selected = n.with_doc(&doc, |world, model| {
         let bean = model.beans.iter().find(|b| b.range.start.line == 5).unwrap();
         let users = world.users(&doc.path, bean);
@@ -3795,4 +3795,11 @@ fn object_factory_and_sorted_set_unwrap_like_spring_dependency_types() {
     let text = "@org.springframework.stereotype.Service class A { A(ObjectFactory<Foo> f, SortedSet<Bar> b, Optional<List<Baz>> z) {} }\n";
     let model = model::parse("A.java", text).unwrap();
     assert_eq!(injected(&model).iter().map(|i| (i.0, i.2)).collect::<Vec<_>>(), [("Foo", false), ("Bar", true), ("Baz", true)]);
+}
+
+#[test]
+fn bean_marker_icon_is_declared_in_the_manifest() {
+    let manifest = include_str!("../plugin.toml");
+    assert!(manifest.contains(&format!("icon = \"{BEAN_MARKER}\"")));
+    assert!(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(BEAN_MARKER).is_file());
 }
