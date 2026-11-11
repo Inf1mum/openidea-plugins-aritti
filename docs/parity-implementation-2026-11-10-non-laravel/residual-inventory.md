@@ -19,19 +19,19 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F13 | JPQL console | Mutation mode, entity-graph editing, effective config | A-M | decided: dry-run only (count preview); commit path not wanted |
 | F14 | OpenAPI | Generator JSON config import | A-S | done |
 | F15 | OpenAPI | Source-context Add path/operation/response | A-M | partial (YAML+JSON Add operation/response/path/query parameter) |
-| F16 | OpenAPI | Remote catalog, SwaggerHub, typed client URL completion | A-M | |
+| F16 | OpenAPI | Remote catalog, SwaggerHub, typed client URL completion | A-M | HOST limit: net: grants are static per manifest, no runtime user-configurable host, redirect refusal not enforceable on v0.1.39. Narrow option: fixed-host SwaggerHub command (undecided) |
 | F17 | OpenAPI | Full compatibility report | A-M | partial (breaking-change report; oneOf/anyOf, constraints, security not analysed) |
 | F18 | OpenAPI | Draft spec from framework mappings | A-L | |
 | F19 | OpenAPI | Staged generation apply/Undo on desktop | U | |
 | F20 | GitLab | GFM mentions/emoji/math, persistent drafts, timeline | A-M | partial (mentions/emoji, math source, local drafts; draft-note request fields verified vs GitLab docs, never run live; native diff-line add open) |
-| F21 | GitLab | Self-hosted servers, named multi-account | A-M | |
+| F21 | GitLab | Self-hosted servers, named multi-account | A-M | HOST limit: same as F16 (static net: grants, static secret slots); only net:*.gitlab.com is possible and adds nothing |
 | F22 | GitLab | Native Review Mode, git-log actions | H | |
 | F23 | GitLab | No live account/glab acceptance | U | |
 | F24 | Dependency Audit | PyPI markers/groups/pylock | A-M | partial (pylock, pyproject/PEP 735 pins; markers not evaluated) |
 | F25 | Dependency Audit | Workspace/link/alias graph | A-M | partial (npm: aliases, workspaces/link local rows) |
 | F26 | Dependency Audit | Coordinate-to-declaration binding; more build profiles | A-M | partial (direct binding + chains; uv.lock/poetry.lock/Yarn v1+berry/npm v3/pnpm v9 checked against real files and fixed; workspace link targets not followed in chains) |
 | F27 | Dependency Audit | Ignore-profile import/export, safe-coordinate rows | A-S | done (import/export + checked/skipped rows on Scan Project; Maven/Gradle/sbt imports lack rows) |
-| F28 | Dependency Audit | Vulnerable-call analysis Java/Kotlin/Python | A-L | |
+| F28 | Dependency Audit | Vulnerable-call analysis Java/Kotlin/Python | A-L | partial (OSV has no symbol data for Maven/PyPI; import-level evidence annotation only, never suppresses; Go/Rust call analysis pre-existing) |
 | F29 | Dependency Audit | Native Problems Security tab, semantic member queries | H | |
 | F30 | dotenv | Runtime-loader/Compose-service/build-stage ownership | A-L | partial (Compose interpolation, service ownership, Dockerfile ARG links; inherited stage ARGs, stale ARG usages after Dockerfile-only save open) |
 | F31 | dotenv | Native value folding/secret hiding, custom triggers | H | |
@@ -64,7 +64,7 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F58 | Initializr | Add Starters effective build models | A-M | partial (Gradle platform BOM/catalog, Maven aggregator module pick, unmanaged explicit versions; metadata field names verified vs real start.spring.io) |
 | F59 | Initializr | Native New Project wizard, JDK/SDK config, IDE build import | H | |
 | F60 | Runtime | External-library/overloaded source semantics | A-L | partial (conditions/configprops source links, overload matching; tree view still lenient) |
-| F61 | Runtime | Remote/JMX management transport | A-L | |
+| F61 | Runtime | Remote/JMX management transport | A-L | partial (read-only localhost JMX allowlist via getAttribute; unauthenticated no-SSL local JMX only; host::start path untested on real process) |
 | F62 | Runtime | Saved-request history, credential selection, health detail | A-M | partial (recent requests, masked health detail tree; gutter bean chooser open) |
 | F63 | Boot run | Custom args, build-plugin resolution, multi-module root | A-M | partial (module runs, Run with Profiles/Arguments; include/config.import discovery open) |
 | F64 | Boot metadata | Gradle resolution, inherited properties, alternate repos | A-M | partial (profile/import discovery + Gradle-cache metadata via optional capability; alternate repos open) |
@@ -103,4 +103,4 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F97 | Symfony | Profiler collector detail, pagination, remote modes | A-M | partial (profiler paging, time/cache/logger collectors; events/request open) |
 | F98 | Symfony | Doctrine/forms/container types | A-L | partial (form-field Info check) |
 
-Totals at 2026-11-11: 98 items. Done: F14, F27, F33, F42, F50. Skipped: F69. Blocked: F82. Decided: F13 dry-run only. Partial: about 68 (see status column). About 25 untouched. Counts are judgment calls; partial does not mean near-complete.
+Totals at 2026-11-11: 98 items. Done: F14, F27, F33, F42, F50. Skipped: F69. Blocked: F82. Decided: F13 dry-run only. Reclassified to host limits this round: F16, F21. Partial: about 57. About 31 untouched. Counts are judgment calls; partial does not mean near-complete.
