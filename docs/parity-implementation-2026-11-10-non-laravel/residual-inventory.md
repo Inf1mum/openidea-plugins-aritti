@@ -13,7 +13,7 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F07 | Database | DB/entity-derived init/diff DDL beyond H2 | A-L | |
 | F08 | Database | Native datasource inspection, entity queries, console | H | |
 | F09 | Flyway | Quoted/dialect tables, naming, constants, Kotlin entities, XML mappings | A-M | partial (constants, implicit naming, quoted/dialect ids, Kotlin entities, orm.xml/persistence.xml; bare root orm.xml not under META-INF open) |
-| F10 | Liquibase | Other dialects, online snapshot, GUI undo | U | partial (offline structure checks; allowed-value lists NOT verified against XSD; other dialects/online snapshot/GUI undo open) |
+| F10 | Liquibase | Other dialects, online snapshot, GUI undo | U | partial (offline structure checks verified against dbchangelog XSD/docs; other dialects, online snapshot, GUI undo open) |
 | F11 | Hibernate | Live schema compare, effective persistence units, other ORM versions | A-M | |
 | F12 | JPQL console | PostgreSQL/MySQL/MariaDB unverified | U | |
 | F13 | JPQL console | Mutation mode, entity-graph editing, effective config | A-M | decided: dry-run only (count preview); commit path not wanted |
@@ -68,7 +68,7 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F62 | Runtime | Saved-request history, credential selection, health detail | A-M | partial (recent requests, masked health detail tree; gutter bean chooser open) |
 | F63 | Boot run | Custom args, build-plugin resolution, multi-module root | A-M | partial (module runs, Run with Profiles/Arguments; include/config.import discovery open) |
 | F64 | Boot metadata | Gradle resolution, inherited properties, alternate repos | A-M | partial (profile/import discovery + Gradle-cache metadata via optional capability; alternate repos open) |
-| F65 | Integration | Effective context ownership for global usages | A-L | partial (import/scan context graph; bare @ComponentScan/@SpringBootApplication scan rule and @ImportResource resolution unverified; Kotlin, reverse ownership open) |
+| F65 | Integration | Effective context ownership for global usages | A-L | partial (import/scan context graph; scan and @ImportResource rules verified against Spring source; filter/exclude args, selector subclass chains, Kotlin open) |
 | F66 | Integration | DSL flow edges, Kotlin DSL | A-M | partial (Java/Kotlin DSL channel edges) |
 | F67 | Batch | XML structural/XSD rules; Batch 6 migration | A-M | partial (chunk/tasklet exclusivity) |
 | F68 | Modulith | Type/member/hierarchy semantics, move-to-API | A-L | |

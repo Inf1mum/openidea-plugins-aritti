@@ -77,8 +77,7 @@ fn qualify(file: &JavaFile, written: &str) -> Option<String> {
     Some(if file.package.is_empty() { written.into() } else { format!("{}.{written}", file.package) })
 }
 
-fn packages(file: &JavaFile, strings: Vec<String>, out: &mut Vec<Ref>) {
-    let _ = file;
+fn packages(strings: Vec<String>, out: &mut Vec<Ref>) {
     for value in strings {
         for pkg in value.split(|c: char| matches!(c, ',' | ';') || c.is_whitespace()).filter(|p| !p.is_empty()) {
             let valid = pkg.split('.').all(|seg| !seg.is_empty() && seg.chars().all(|c| c.is_alphanumeric() || c == '_'));
@@ -87,15 +86,52 @@ fn packages(file: &JavaFile, strings: Vec<String>, out: &mut Vec<Ref>) {
     }
 }
 
+/// `basePackageClasses`: the scanned package is the class's package (ClassUtils.getPackageName).
+/// A nested or default-package class is not provable from the literal alone.
+fn class_packages(file: &JavaFile, classes: Vec<String>, out: &mut Vec<Ref>) {
+    for class in classes {
+        let package = qualify(file, &class)
+            .and_then(|q| q.rsplit_once('.').map(|(p, _)| p.to_string()))
+            .filter(|p| p.rsplit('.').next().is_some_and(|last| last.starts_with(|c: char| c.is_ascii_lowercase())));
+        out.push(package.map_or_else(unsure, |p| edge("scan", p)));
+    }
+}
+
+fn scan_args(file: &JavaFile, a: &java::Annotation, strings: &[&str], classes: &str, out: &mut Vec<Ref>) {
+    let literal_names = a.args.iter().filter(|x| strings.contains(&x.name.as_str())).count();
+    if literal_names > 1 || a.args.iter().any(|x| !strings.contains(&x.name.as_str()) && x.name != classes) {
+        out.push(unsure());
+        return;
+    }
+    for x in &a.args {
+        if x.name == classes {
+            match class_literals(x) {
+                Some(found) => class_packages(file, found, out),
+                None => out.push(unsure()),
+            }
+        } else {
+            match literal_strings(x) {
+                Some(found) => packages(found, out),
+                None => out.push(unsure()),
+            }
+        }
+    }
+}
+
+const IMPORT_HOOKS: [&str; 3] = ["ImportSelector", "DeferredImportSelector", "ImportBeanDefinitionRegistrar"];
+
 /// Context edges and type identities of one Java/Kotlin file.
 pub(crate) fn source_edges(path: &str, file: &JavaFile, text: &str) -> Vec<Ref> {
     let mut out = Vec::new();
     let kotlin = path.ends_with(".kt");
     for t in &file.types {
+        if t.extends.iter().chain(&t.implements).any(|r| IMPORT_HOOKS.contains(&r.name.as_str())) {
+            out.push(unsure());
+        }
         for a in &t.annotations {
             let n = a.name.as_str();
             let qualified = match n {
-                "Import" | "ImportResource" | "ComponentScan" | "Profile" => format!("org.springframework.context.annotation.{n}"),
+                "Import" | "ImportResource" | "ComponentScan" | "ComponentScans" | "Profile" => format!("org.springframework.context.annotation.{n}"),
                 "SpringBootApplication" => "org.springframework.boot.autoconfigure.SpringBootApplication".into(),
                 _ if n.starts_with("Conditional") => {
                     out.push(unsure());
@@ -137,13 +173,11 @@ pub(crate) fn source_edges(path: &str, file: &JavaFile, text: &str) -> Vec<Ref> 
                     }
                     None => out.push(unsure()),
                 },
-                "ComponentScan" | "SpringBootApplication" if a.args.is_empty() && !file.package.is_empty() => {
-                    out.push(edge("scan", file.package.clone()));
+                "ComponentScan" | "SpringBootApplication" if a.args.is_empty() => {
+                    out.push(if file.package.is_empty() { unsure() } else { edge("scan", file.package.clone()) });
                 }
-                "ComponentScan" if only(&["basePackages", "value"]) && a.args.len() == 1 => match literal_strings(&a.args[0]) {
-                    Some(values) => packages(file, values, &mut out),
-                    None => out.push(unsure()),
-                },
+                "ComponentScan" => scan_args(file, a, &["basePackages", "value"], "basePackageClasses", &mut out),
+                "SpringBootApplication" => scan_args(file, a, &["scanBasePackages"], "scanBasePackageClasses", &mut out),
                 _ => out.push(unsure()),
             }
         }
@@ -330,7 +364,7 @@ mod tests {
         format!("<beans xmlns=\"http://www.springframework.org/schema/beans\"><import resource=\"{res}\"/></beans>")
     }
     fn java(imp: &str, name: &str) -> String {
-        format!("package a;\nimport org.springframework.context.annotation.Configuration;\nimport org.springframework.context.annotation.Import;\nimport org.springframework.context.annotation.ImportResource;\nimport org.springframework.context.annotation.ComponentScan;\nimport org.springframework.context.annotation.Profile;\n{imp}\n@Configuration\npublic class {name} {{}}\n")
+        format!("package a;\nimport org.springframework.context.annotation.Configuration;\nimport org.springframework.context.annotation.Import;\nimport org.springframework.context.annotation.ImportResource;\nimport org.springframework.context.annotation.ComponentScan;\nimport org.springframework.context.annotation.Profile;\nimport org.springframework.context.annotation.ComponentScans;\n{imp}\n@Configuration\npublic class {name} {{}}\n")
     }
     fn def<'a>(index: &'a Index<Vec<Ref>>, path: &str) -> (&'a str, &'a Ref) {
         index.iter().find(|(p, _)| *p == path).map(|(p, r)| (p, r.iter().find(|r| r.role == Role::Bean).unwrap())).unwrap()
@@ -366,7 +400,7 @@ mod tests {
 
     #[test]
     fn file_location_dynamic_and_profile_stay_quiet() {
-        for imp in ["@ImportResource(\"file:/x.xml\")", "@ImportResource(\"classpath:${x}.xml\")", "@Import(Missing.class)", "@Profile(\"x\")", "@ComponentScan(basePackages = \"a.**\")", "@ComponentScan(basePackageClasses = A.class)"] {
+        for imp in ["@ImportResource(\"file:/x.xml\")", "@ImportResource(\"classpath:${x}.xml\")", "@Import(Missing.class)", "@Profile(\"x\")", "@ComponentScan(basePackages = \"a.**\")", "@ComponentScans({@ComponentScan(\"a\")})", "@ComponentScan(basePackageClasses = A.Inner.class)", "@ImportResource(\"x.xml\")", "@ImportResource(\"classpath*:x.xml\")"] {
             let a = format!("{J}A.java");
             let index = index(&[(&a, &java(imp, "A"))]);
             let ctx = build(&index);
@@ -385,5 +419,51 @@ mod tests {
         assert_eq!(ctx.member[&c], ctx.member[&a]);
         assert_eq!(ctx.member[&x], ctx.member[&a]);
         let _ = xml_import("a");
+    }
+
+    fn scan_fixture(annotation: &str) -> (Index<Vec<Ref>>, String, String, String) {
+        let (a, sub, other) = (format!("{J}A.java"), format!("{J}sub/C.java"), format!("/p/src/main/java/z/D.java"));
+        let cfg = |pkg: &str, name: &str| format!("package {pkg};\nimport org.springframework.context.annotation.Configuration;\nimport org.springframework.context.annotation.ComponentScan;\nimport org.springframework.boot.autoconfigure.SpringBootApplication;\n@Configuration\npublic class {name} {{}}\n");
+        let head = format!("package a;\nimport org.springframework.context.annotation.Configuration;\nimport org.springframework.context.annotation.ComponentScan;\nimport org.springframework.boot.autoconfigure.SpringBootApplication;\n{annotation}\n@Configuration\npublic class A {{}}\n");
+        (index(&[(&a, &head), (&sub, &cfg("a.sub", "C")), (&other, &cfg("z", "D"))]), a, sub, other)
+    }
+
+    // ComponentScanAnnotationParser: empty basePackages and basePackageClasses => package of the declaring class;
+    // ClassPathScanningCandidateComponentProvider scans "<pkg>/**/*.class", i.e. subpackages too.
+    // SpringBootApplication meta-annotates @ComponentScan and aliases scanBasePackages/scanBasePackageClasses to it.
+    #[test]
+    fn bare_scan_covers_declaring_package_and_subpackages_only() {
+        for annotation in ["@ComponentScan", "@SpringBootApplication"] {
+            let (index, a, sub, other) = scan_fixture(annotation);
+            let ctx = build(&index);
+            assert!(ctx.tainted.is_empty(), "{annotation}");
+            assert_eq!(ctx.member[&sub], ctx.member[&a], "{annotation}");
+            assert!(!ctx.member.contains_key(&other), "{annotation}");
+        }
+    }
+
+    #[test]
+    fn explicit_scan_attributes_replace_the_declaring_package() {
+        for (annotation, covers) in [
+            ("@SpringBootApplication(scanBasePackages = \"z\")", "z"),
+            ("@SpringBootApplication(scanBasePackageClasses = z.D.class)", "z"),
+            ("@ComponentScan(basePackageClasses = a.sub.C.class)", "a.sub"),
+            ("@ComponentScan(value = {\"z\", \"a.sub\"})", "both"),
+            ("@ComponentScan(basePackages = \"z; a.sub\")", "both"),
+        ] {
+            let (index, a, sub, other) = scan_fixture(annotation);
+            let ctx = build(&index);
+            assert!(ctx.tainted.is_empty(), "{annotation}");
+            assert_eq!(ctx.member.contains_key(&sub) && ctx.member[&sub] == ctx.member[&a], covers != "z", "{annotation}");
+            assert_eq!(ctx.member.contains_key(&other) && ctx.member[&other] == ctx.member[&a], covers != "a.sub", "{annotation}");
+        }
+    }
+
+    #[test]
+    fn import_selectors_and_registrars_are_unprovable() {
+        let (a, b) = (format!("{J}A.java"), format!("{J}B.java"));
+        let selector = "package a;\nimport org.springframework.context.annotation.Configuration;\nimport org.springframework.context.annotation.ImportSelector;\n@Configuration\npublic class B implements ImportSelector { public String[] selectImports(Object m) { return null; } }\n";
+        let index = index(&[(&a, &java("@Import(B.class)", "A")), (&b, selector)]);
+        assert!(!build(&index).tainted.is_empty());
     }
 }

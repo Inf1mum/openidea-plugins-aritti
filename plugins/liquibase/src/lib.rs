@@ -1176,6 +1176,33 @@ mod tests {
     }
 
     #[test]
+    fn xsd_changelog_level_preconditions_accept_only_halt_or_warn_changeset_level_four_values() {
+        let host = host();
+        let codes = |text: &str| -> Vec<String> { checked(&host, "/project/db/master.xml", text).into_iter().map(|(c, _)| c).collect() };
+        let root = |on_fail: &str| format!(r#"<databaseChangeLog><preConditions onFail="{on_fail}" onError="WARN"><tableExists tableName="t"/></preConditions></databaseChangeLog>"#);
+        let set = |on_fail: &str| format!(r#"<databaseChangeLog><changeSet id="1" author="a"><preConditions onFail="{on_fail}"><tableExists tableName="t"/></preConditions></changeSet></databaseChangeLog>"#);
+        assert!(codes(&root("HALT")).is_empty() && codes(&root("WARN")).is_empty());
+        assert_eq!(codes(&root("MARK_RAN")), ["invalid-precondition-action"]);
+        assert_eq!(codes(&root("CONTINUE")), ["invalid-precondition-action"]);
+        for ok in ["HALT", "CONTINUE", "MARK_RAN", "WARN"] {
+            assert!(codes(&set(ok)).is_empty(), "{ok}");
+        }
+        assert_eq!(codes(&set("STOP")), ["invalid-precondition-action"]);
+        let yaml = "databaseChangeLog:\n  - preConditions:\n      - onFail: MARK_RAN\n  - changeSet:\n      id: a\n      author: b\n      preConditions:\n        - onFail: MARK_RAN\n";
+        assert_eq!(checked(&host, "/project/db/master.yaml", yaml).into_iter().map(|(c, _)| c).collect::<Vec<_>>(), ["invalid-precondition-action"]);
+    }
+
+    #[test]
+    fn xsd_precondition_children_list_includes_unique_constraint_exists_and_nested_containers() {
+        let host = host();
+        let names = ["and", "or", "not", "dbms", "runningAs", "changeSetExecuted", "tableExists", "columnExists", "sequenceExists", "foreignKeyConstraintExists", "indexExists", "uniqueConstraintExists", "primaryKeyExists", "viewExists", "tableIsEmpty", "rowCount", "sqlCheck", "changeLogPropertyDefined", "expectedQuotingStrategy", "customPrecondition"];
+        for name in names {
+            let text = format!(r#"<databaseChangeLog><changeSet id="1" author="a"><preConditions><not><{name}/></not></preConditions></changeSet></databaseChangeLog>"#);
+            assert!(checked(&host, "/project/db/master.xml", &text).is_empty(), "{name}");
+        }
+    }
+
+    #[test]
     fn reports_structural_yaml_rules() {
         let host = host();
         let text = "databaseChangeLog:\n  - changeSet:\n      id: 1\n      author: bob\n      preConditions:\n        dbms:\n          type: h2\n      changes:\n        - sqlFile:\n            path: nope.sql\n            relativeToChangelogFile: true\n";

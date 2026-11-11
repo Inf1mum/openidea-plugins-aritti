@@ -72,11 +72,12 @@ fn issue(log: &mut Changelog, at: usize, end: usize, error: bool, code: &'static
     log.issues.push(Issue { at, end, error, code, message: message.into() });
 }
 
-const ON_FAIL: [&str; 4] = ["HALT", "CONTINUE", "MARK_RAN", "WARN"];
-const PRECONDITIONS: [&str; 19] = [
+const CHANGESET_ON_FAIL: [&str; 4] = ["HALT", "CONTINUE", "MARK_RAN", "WARN"];
+const CHANGELOG_ON_FAIL: [&str; 2] = ["HALT", "WARN"];
+const PRECONDITIONS: [&str; 20] = [
     "and", "or", "not", "dbms", "runningAs", "changeSetExecuted", "columnExists", "tableExists", "viewExists", "foreignKeyConstraintExists",
     "indexExists", "sequenceExists", "primaryKeyExists", "sqlCheck", "changeLogPropertyDefined", "customPrecondition", "expectedQuotingStrategy",
-    "rowCount", "tableIsEmpty",
+    "rowCount", "tableIsEmpty", "uniqueConstraintExists",
 ];
 const SQL_BOOLEANS: [&str; 8] =
     ["runOnChange", "runAlways", "failOnError", "runInTransaction", "splitStatements", "stripComments", "rollbackSplitStatements", "ignore"];
@@ -85,11 +86,15 @@ fn is_bool(value: &str) -> bool {
     value.eq_ignore_ascii_case("true") || value.eq_ignore_ascii_case("false")
 }
 
-fn bad_on_fail(log: &mut Changelog, flag: &str, value: &str, at: usize, end: usize) {
-    if value.contains("${") || ON_FAIL.contains(&value) {
+fn bad_on_fail(log: &mut Changelog, flag: &str, value: &str, changelog_level: bool, at: usize, end: usize) {
+    let (allowed, accepts) = match changelog_level {
+        true => (&CHANGELOG_ON_FAIL[..], "HALT or WARN"),
+        false => (&CHANGESET_ON_FAIL[..], "HALT, CONTINUE, MARK_RAN or WARN"),
+    };
+    if value.contains("${") || allowed.contains(&value) {
         return;
     }
-    let message = format!("`{flag}` is `{value}`; Liquibase accepts HALT, CONTINUE, MARK_RAN or WARN.");
+    let message = format!("`{flag}` is `{value}`; Liquibase accepts {accepts} here.");
     issue(log, at, end, true, "invalid-precondition-action", message);
 }
 
@@ -167,9 +172,10 @@ fn parse_xml(text: &str) -> Option<Changelog> {
                 None => issue(&mut log, e.at, e.at + e.name.len(), true, "sqlfile-without-path", "`sqlFile` requires a `path` attribute."),
             },
             "preConditions" => {
+                let changelog_level = e.parent.is_some_and(|p| elements[p].local() == "databaseChangeLog");
                 for flag in ["onFail", "onError"] {
                     if let Some(attr) = e.attr(flag) {
-                        bad_on_fail(&mut log, flag, &attr.value, attr.value_at, attr.value_end);
+                        bad_on_fail(&mut log, flag, &attr.value, changelog_level, attr.value_at, attr.value_end);
                     }
                 }
             }
@@ -232,7 +238,7 @@ fn parse_keys(keys: Vec<Key>, format: Format) -> Option<Changelog> {
         }
         for flag in ["onFail", "onError"] {
             if tail.1.starts_with('[') && tail.1.ends_with(&format!("].{flag}")) {
-                bad_on_fail(&mut log, flag, &key.value, key.value_at, key.value_end);
+                bad_on_fail(&mut log, flag, &key.value, rest.starts_with("preConditions"), key.value_at, key.value_end);
             }
         }
     }

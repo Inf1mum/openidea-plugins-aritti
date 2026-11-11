@@ -488,8 +488,9 @@ impl State {
         {
             return Err(invalid("Selected JAR must be a file of at most 8 MiB."));
         }
+        let (tool, build_label) = build_tool_labels(gradle_build);
         let review = format!(
-            "Read local dependency JAR metadata?\n\nProject: {root}\nPOM: {pom}\nDeclared dependency/catalog entry: {}\nDeclared scope: {}\nVersion catalogs: {}\nExact archive: {jar}\n\nReads only META-INF/spring-configuration-metadata.json and additional-spring-configuration-metadata.json from this selected archive. No extraction, code execution, build or network. This is a source-declared snapshot, not a resolved/runtime classpath. Retains other selected artifact snapshots; replaces only this artifact on success. Conflicting metadata is refused.",
+            "Read local dependency JAR metadata?\n\nProject: {root}\n{build_label}: {pom}\nDeclared dependency/catalog entry: {}\nDeclared scope: {}\nVersion catalogs: {}\nExact archive: {jar}\n\nReads only META-INF/spring-configuration-metadata.json and additional-spring-configuration-metadata.json from this selected archive. No extraction, code execution, build or network. This is a source-declared snapshot, not a resolved/runtime classpath. Retains other selected artifact snapshots; replaces only this artifact on success. Conflicting metadata is refused.",
             selected.gav(),
             selected.scope,
             catalog_sources
@@ -498,7 +499,7 @@ impl State {
                 .collect::<Vec<_>>()
                 .join("; ")
         );
-        if !ui_kit::prompts::confirm_exact("Read selected Maven JAR metadata", &review)? {
+        if !ui_kit::prompts::confirm_exact(&format!("Read selected {tool} JAR metadata"), &review)? {
             return Ok(None);
         }
         let ensure = || -> Result<(), Error> {
@@ -738,8 +739,18 @@ fn parse_entries(entries: &[(String, String)]) -> Result<Meta, Error> {
     Ok(result)
 }
 
+fn build_tool_labels(gradle_build: bool) -> (&'static str, &'static str) {
+    if gradle_build { ("Gradle", "Build file") } else { ("Maven", "POM") }
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn confirm_labels_follow_the_build_tool() {
+        assert_eq!(build_tool_labels(true), ("Gradle", "Build file"));
+        assert_eq!(build_tool_labels(false), ("Maven", "POM"));
+    }
+
     use super::*;
     use openidea_plugin::hover::HoverProvider;
     use openidea_plugin::mock::MockHost;

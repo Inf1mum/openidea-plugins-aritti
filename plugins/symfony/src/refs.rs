@@ -165,7 +165,7 @@ pub fn reference_at(language: &str, text: &str, at: usize) -> Option<Reference> 
         return Some(Reference { kind: Kind::Tag, start, end });
     }
 
-    let Some((start, end, closed)) = literal_at(language, text, at) else {
+    let Some((start, end, _)) = literal_at(language, text, at) else {
         return match language {
             "yaml" => yaml_class_at(text, at),
             "twig" => block_tag_at(text, at).map(|(start, end)| Reference { kind: Kind::Block, start, end }),
@@ -175,7 +175,6 @@ pub fn reference_at(language: &str, text: &str, at: usize) -> Option<Reference> 
 
     let (line_start, _) = line_bounds(text, start);
     let before = text[line_start..start - 1].trim_end();
-    let after = if closed { &text[end + 1..] } else { "" };
     let contents = &text[start..end];
     let reference = |kind| Some(Reference { kind, start, end });
 

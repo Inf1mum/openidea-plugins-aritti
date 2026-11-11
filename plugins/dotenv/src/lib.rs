@@ -160,6 +160,12 @@ impl Plugin for DotEnv {
     }
 
     fn handle_events(&mut self, events: &[Event], _ctx: &Invocation) {
+        self.apply_events(events);
+    }
+}
+
+impl DotEnv {
+    fn apply_events(&mut self, events: &[Event]) {
         self.index_projects();
         for event in events {
             let (Event::FileOpened(path) | Event::FileSaved(path)) = event else {
@@ -173,6 +179,7 @@ impl Plugin for DotEnv {
             };
             let read = project.read_file(path);
             if let Some(index) = self.projects.get_mut(&root) {
+                let owners = index.composes_building(path);
                 match read {
                     Ok(text) => {
                         index.update(path, Some(&text));
@@ -183,6 +190,12 @@ impl Plugin for DotEnv {
                         index.complete = false;
                     }
                     Err(_) => index.complete = false,
+                }
+                for compose in owners.iter().filter(|c| *c != path) {
+                    if let Ok(text) = project.read_file(compose) {
+                        index.update(compose, Some(&text));
+                        index.add_compose_env_files(&project, &root, compose, &text);
+                    }
                 }
             }
         }
@@ -388,6 +401,22 @@ mod tests {
         host.add_file("compose.yaml", "services:\n  web:\n    ports: [\"${WEB_PORT}:80\"]\n    image: ${IMAGE}\n    command: ${TAG:-x} ${MISSING}\n    environment:\n      - DB_PASSWORD\n");
         host.add_file("app.php", "<?php env('APP_KEY');");
         host
+    }
+
+    #[test]
+    fn saving_a_build_dockerfile_refreshes_its_arg_links() {
+        let host = MockHost::install();
+        host.set_project_root(Some("/p"));
+        host.add_file(".env", "PHP_VERSION=8\n");
+        host.add_file("compose.yaml", "services:\n  web:\n    build:\n      context: .\n      args:\n        PHP: ${PHP_VERSION}\n");
+        let mut plugin = walked();
+        assert!(plugin.projects["/p"].arg_links.is_empty());
+        host.add_file("Dockerfile", "FROM php\nARG PHP\n");
+        plugin.apply_events(&[Event::FileSaved("/p/Dockerfile".into())]);
+        assert_eq!(plugin.projects["/p"].arg_links.len(), 1);
+        host.add_file("Dockerfile", "FROM php\n");
+        plugin.apply_events(&[Event::FileSaved("/p/Dockerfile".into())]);
+        assert!(plugin.projects["/p"].arg_links.is_empty());
     }
 
     #[test]

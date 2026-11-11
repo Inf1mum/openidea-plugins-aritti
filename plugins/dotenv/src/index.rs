@@ -93,6 +93,8 @@ pub struct Index {
     pub env_file_paths: std::collections::HashSet<String>,
     pub loaders: Vec<EnvLoader>,
     pub arg_links: Vec<ArgLink>,
+    /// (compose file, Dockerfile) pairs for every literal build target, even a missing Dockerfile.
+    pub build_targets: Vec<(String, String)>,
 }
 
 /// A Compose service whose `env_file:` names `env_path`.
@@ -344,6 +346,7 @@ impl Index {
             }
             let relative = if dockerfile.starts_with('/') { dockerfile.to_owned() } else { format!("{context}/{dockerfile}") };
             let Some(dockerfile_path) = confined_path(root, folder, &relative) else { continue };
+            self.build_targets.push((compose_path.to_owned(), dockerfile_path.clone()));
             let Ok(dockerfile_text) = project.read_file(&dockerfile_path) else { continue };
             if dockerfile_text.len() > MAX_SOURCE_BYTES {
                 continue;
@@ -381,9 +384,17 @@ impl Index {
         self.usages.retain(|u| u.location.path != path);
         self.loaders.retain(|l| l.compose_path != path);
         self.arg_links.retain(|l| l.compose_path != path);
+        self.build_targets.retain(|(compose, _)| compose != path);
         if let Some(text) = text {
             self.add(path, text);
         }
+    }
+
+    /// Compose files whose build `dockerfile` is `path`.
+    pub fn composes_building(&self, path: &str) -> Vec<String> {
+        let mut composes: Vec<String> = self.build_targets.iter().filter(|(_, d)| d == path).map(|(c, _)| c.clone()).collect();
+        composes.dedup();
+        composes
     }
 
     pub fn indexes(path: &str) -> bool {
