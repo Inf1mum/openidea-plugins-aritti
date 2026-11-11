@@ -89,6 +89,7 @@ pub struct Extra<'a> {
     pub filters: Vec<&'a str>,
     pub functions: Vec<&'a str>,
     pub tests: Vec<&'a str>,
+    pub variables: Vec<String>,
 }
 
 #[cfg(test)]
@@ -106,6 +107,22 @@ pub fn items_with(text: &str, offset: usize, with_names: bool, extra: &Extra) ->
     let Some(slot) = slot_at(text, start) else { return Vec::new() };
     let replace = Range::new(position(text, start), position(text, end));
 
+    let variables = || -> Vec<CompletionItem> {
+        let mut seen: Vec<&String> = extra.variables.iter().collect();
+        seen.sort_unstable();
+        seen.dedup();
+        seen.into_iter()
+            .map(|name| {
+                let mut item = CompletionItem::new(name, CompletionKind::Variable);
+                item.replace = Some(replace);
+                item
+            })
+            .collect()
+    };
+    if matches!(slot, Slot::Function) && !with_names {
+        return variables();
+    }
+
     let (names, kind, project): (&[&str], _, &[&str]) = match slot {
         Slot::Html => return snippets(replace, start == end),
         _ if !with_names => return Vec::new(),
@@ -115,7 +132,7 @@ pub fn items_with(text: &str, offset: usize, with_names: bool, extra: &Extra) ->
         Slot::Test => (TESTS, CompletionKind::Keyword, &extra.tests),
     };
 
-    names
+    let mut items: Vec<CompletionItem> = names
         .iter()
         .chain(project.iter().filter(|name| !names.contains(name)))
         .map(|name| {
@@ -123,7 +140,11 @@ pub fn items_with(text: &str, offset: usize, with_names: bool, extra: &Extra) ->
             item.replace = Some(replace);
             item
         })
-        .collect()
+        .collect();
+    if matches!(slot, Slot::Function) {
+        items.extend(variables());
+    }
+    items
 }
 
 fn snippets(replace: Range, empty_word: bool) -> Vec<CompletionItem> {

@@ -158,11 +158,11 @@ pub fn binding(text: &str, offset: usize, receiver: Option<&str>, word: &str) ->
     (chosen.len() == 1).then(|| chosen.into_iter().next().unwrap())
 }
 
-fn is_word(b: u8) -> bool {
+pub fn is_word(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_' || b >= 128
 }
 
-fn quoted(rest: &str) -> Option<(&str, &str)> {
+pub fn quoted(rest: &str) -> Option<(&str, &str)> {
     let rest = rest.trim_start();
     let quote = rest.chars().next().filter(|c| matches!(c, '\'' | '"'))?;
     let inner = &rest[1..];
@@ -380,7 +380,7 @@ const REGISTRATIONS: &[(&str, ExtensionKind)] = &[
 
 /// Bounded lexical PHP admission only. Unsupported heredoc/nowdoc source is
 /// withheld wholesale rather than scanning its literal body as registrations.
-fn php_code_mask(php: &str) -> Vec<bool> {
+pub fn php_code_mask(php: &str) -> Vec<bool> {
     let bytes=php.as_bytes(); let mut mask=vec![false;bytes.len()];
     let (mut i,mut code)=(0,false);
     while i<bytes.len() {
@@ -409,6 +409,25 @@ fn php_code_mask(php: &str) -> Vec<bool> {
 }
 
 /// `new TwigFilter('name', …)`, `new TwigFunction('name', …)`, `new TwigTest('name', …)` and the `#[AsTwig…('name')]` attributes of a PHP file.
+/// A bare identifier used as a variable: not a filter, function call, test, and not bound by a `for`/`set`/macro/import tag of this template.
+pub fn plain_variable_at(text: &str, word: Range<usize>) -> bool {
+    let name = &text[word.clone()];
+    let before = text[..word.start].trim_end();
+    if before.ends_with(['|', '.']) || before.ends_with(" is") || before.ends_with(" not") || text[word.end..].trim_start().starts_with('(') {
+        return false;
+    }
+    let has_word = |s: &str| s.split(|c: char| !(c.is_alphanumeric() || c == '_')).any(|w| w == name);
+    !tag_blocks(text).any(|(_, body)| {
+        let head = body.split(|c: char| c.is_whitespace()).next().unwrap_or_default();
+        match head {
+            "for" => has_word(body.split(" in ").next().unwrap_or_default()),
+            "set" => has_word(body.split('=').next().unwrap_or_default()),
+            "macro" | "import" | "from" | "embed" | "with" | "types" => has_word(body),
+            _ => false,
+        }
+    })
+}
+
 pub fn extensions(php: &str) -> Vec<Extension> {
     if php.len() > 128 << 10 || !php.contains("Twig") {
         return Vec::new();

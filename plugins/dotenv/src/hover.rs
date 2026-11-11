@@ -108,6 +108,57 @@ impl HoverProvider for DotEnv {
             );
         }
         let show_values = host::setting_bool("showValues").unwrap_or(true);
+        if let Some(index) = index {
+            let relative = |path: &str| {
+                root.as_deref()
+                    .and_then(|root| path.strip_prefix(&format!("{}/", root.trim_end_matches('/'))))
+                    .unwrap_or(path)
+                    .to_owned()
+            };
+            let mut ownership = String::new();
+            let mut seen_paths = Vec::new();
+            for declaration in &candidates {
+                let path = &declaration.location.path;
+                if !is_env_file(path) || seen_paths.contains(path) {
+                    continue;
+                }
+                seen_paths.push(path.clone());
+                for loader in index.loaders.iter().filter(|l| &l.env_path == path) {
+                    ownership.push_str(&format!(
+                        "- {} loaded by service {} ({}:{})\n",
+                        inline(&relative(path), 256),
+                        inline(&loader.service, 128),
+                        inline(&relative(&loader.compose_path), 256),
+                        loader.line
+                    ));
+                }
+                let interpolation_only = index::file_name(path) == ".env"
+                    && index.compose_folders.contains(index::folder_of(path));
+                if interpolation_only {
+                    ownership.push_str(&format!(
+                        "- {} feeds Compose interpolation only; it is not injected into containers unless an `env_file` lists it\n",
+                        inline(&relative(path), 256)
+                    ));
+                }
+            }
+            for link in index.arg_links.iter().filter(|l| l.env_key == key) {
+                let stage = link.stage.as_deref().map_or("before FROM".to_owned(), |s| format!("stage {s}"));
+                ownership.push_str(&format!(
+                    "- build arg {} of service {} ({}:{}, {stage}) via {}:{}\n",
+                    inline(&link.arg, 128),
+                    inline(&link.service, 128),
+                    inline(&relative(&link.dockerfile_path), 256),
+                    link.dockerfile_line,
+                    inline(&relative(&link.compose_path), 256),
+                    link.compose_line
+                ));
+            }
+            if !ownership.is_empty() && markdown.len() + ownership.len() + FOOTER_RESERVE <= MAX_OUTPUT {
+                markdown.push_str("**Compose ownership**\n\n");
+                markdown.push_str(&ownership);
+                markdown.push('\n');
+            }
+        }
         for declaration in candidates {
             let path = root
                 .as_deref()
@@ -321,5 +372,26 @@ mod tests {
         doc.text = "x".repeat(MAX_TEXT + 1);
         assert!(plugin.hover(&doc, Position::new(0, 0)).is_none());
         assert!(host.process_runs().is_empty());
+    }
+
+    #[test]
+    fn hover_names_loading_services_interpolation_only_env_and_build_arg_owners() {
+        let host = MockHost::install();
+        host.add_file(".env", "PHP_VERSION=8\nAPP_KEY=1\n");
+        host.add_file("web.env", "APP_KEY=2\n");
+        host.add_file(
+            "docker-compose.yml",
+            "services:\n  web:\n    env_file: web.env\n    build:\n      args:\n        PHP: ${PHP_VERSION}\n",
+        );
+        host.add_file("Dockerfile", "ARG PHP\nFROM php AS app\nARG PHP\n");
+        let mut plugin = DotEnv::default();
+        plugin.index_projects();
+        let doc = |path: &str, text: &str| Document { path: path.into(), language: "dotenv".into(), version: 1, text: text.into() };
+        let hover = plugin.hover(&doc("/project/.env", "PHP_VERSION=8\nAPP_KEY=1\n"), Position::new(0, 2)).unwrap();
+        assert!(hover.markdown.contains("feeds Compose interpolation only"));
+        assert!(hover.markdown.contains("build arg ` PHP ` of service ` web ` (` Dockerfile `:3, stage app) via ` docker-compose.yml `:6"));
+        assert!(!hover.markdown.contains("`:1, "));
+        let hover = plugin.hover(&doc("/project/web.env", "APP_KEY=2\n"), Position::new(0, 2)).unwrap();
+        assert!(hover.markdown.contains("loaded by service ` web ` (` docker-compose.yml `:3)"));
     }
 }

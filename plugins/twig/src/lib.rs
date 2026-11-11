@@ -15,6 +15,7 @@ mod injections;
 mod indexing;
 mod complete;
 mod navigate;
+mod php_context;
 mod macro_arguments;
 mod hover;
 
@@ -45,6 +46,8 @@ pub struct Twig {
     reviewed_symbols:reviewed_symbols::State,
     /// Filters, functions and tests registered in the project's PHP, by absolute file path.
     extensions: BTreeMap<String, Vec<Extension>>,
+    /// Literal render-call and `#[Template]` variable sites in project PHP, by absolute file path.
+    renders: BTreeMap<String, Vec<php_context::Site>>,
 }
 
 impl Twig {
@@ -69,9 +72,39 @@ impl Twig {
             project.read_file(path).ok().filter(|s|s.len()<=128<<10)
         }else{None};
         let bytes=source.as_ref().map_or(0,String::len);
+        let sites=source.as_deref().map(php_context::render_sites).unwrap_or_default();
+        if sites.is_empty(){self.renders.remove(path);}else{self.renders.insert(path.to_owned(),sites);}
         let found=source.map(|php|navigate::extensions(&php)).unwrap_or_default();
         if found.is_empty(){self.extensions.remove(path);}else{self.extensions.insert(path.to_owned(),found);}
         bytes
+    }
+
+    /// Literal variable keys passed to this template by project render sites, with the controller key locations.
+    fn template_variables(&self, project: &Project, template_file: &str) -> Vec<(String, Location)> {
+        let Some(root) = project.root().ok() else { return Vec::new() };
+        let Some((fixed, _)) = main_template_dirs(project) else { return Vec::new() };
+        let Some(relative) = template_file.strip_prefix(&format!("{root}/")) else { return Vec::new() };
+        let Some(name) = fixed.iter().find_map(|dir| relative.strip_prefix(&format!("{dir}/"))) else { return Vec::new() };
+        if template_path(project, name).as_deref() != Some(template_file) {
+            return Vec::new();
+        }
+        let roots: Vec<_> = host::projects().unwrap_or_default().into_iter().filter_map(|p| p.root().ok()).collect();
+        let mut found = Vec::new();
+        for (path, sites) in &self.renders {
+            let owned = extension_source(&root, path) && roots.iter().filter(|r| Path::new(path.as_str()).starts_with(r)).max_by_key(|r| r.len()).is_some_and(|r| *r == root);
+            if !owned {
+                continue;
+            }
+            let Some(php) = project.read_file(path).ok().filter(|t| t.len() <= 128 << 10) else { continue };
+            let fresh = php_context::render_sites(&php);
+            for site in sites.iter().filter(|s| s.template == name && fresh.contains(s)) {
+                for (key, range) in &site.keys {
+                    let at = EditorRange::new(position(&php, range.start), position(&php, range.end));
+                    found.push((key.clone(), Location { path: path.clone(), range: at }));
+                }
+            }
+        }
+        found
     }
 
     fn extra_names(&self, root: &str, kind: ExtensionKind) -> Vec<&str> {
@@ -339,21 +372,21 @@ impl Plugin for Twig {
     fn handle_events(&mut self, events: &[Event], _ctx: &Invocation) {
         let started=std::time::Instant::now();
         let mut count=0usize;
-        if events.len()>256 {self.extensions.clear();return;}
+        if events.len()>256 {self.extensions.clear();self.renders.clear();return;}
         for event in events {
-            if started.elapsed()>std::time::Duration::from_millis(100) {self.extensions.clear();return;}
+            if started.elapsed()>std::time::Duration::from_millis(100) {self.extensions.clear();self.renders.clear();return;}
             match event {
                 Event::FileSaved(path) if path.ends_with(".php") => {
                     if let Some(project)=project_of(path) { self.scan_file(&project,path); }
-                    else {self.extensions.remove(path);}
+                    else {self.extensions.remove(path);self.renders.remove(path);}
                 }
                 Event::FilesChanged(batch) => {
                     // No discovery or source reads in filesystem notifications.
                     // Saved-file notification or activation can establish new facts.
                     for path in batch.created.iter().chain(&batch.modified).chain(&batch.removed).take(257) {
                         count+=1;
-                        if count>256 {self.extensions.clear();return;}
-                        self.extensions.remove(path);
+                        if count>256 {self.extensions.clear();self.renders.clear();return;}
+                        self.extensions.remove(path);self.renders.remove(path);
                     }
                 }
                 _ => {}
@@ -441,6 +474,7 @@ impl Providers for Twig {
             filters: self.extra_names(&root, ExtensionKind::Filter),
             functions: self.extra_names(&root, ExtensionKind::Function),
             tests: self.extra_names(&root, ExtensionKind::Test),
+            variables: project.as_ref().map(|p| self.template_variables(p, &doc.path)).unwrap_or_default().into_iter().map(|(name, _)| name).collect(),
         };
 
         complete::items_with(&doc.text, offset, names, &extra)
@@ -519,6 +553,13 @@ impl Providers for Twig {
                 return Vec::new();
             };
             return macro_locations(&path, &text, &name);
+        }
+
+        if receiver.is_none() && navigate::code_at(&doc.text, offset, false) && navigate::plain_variable_at(&doc.text, word_range.clone()) {
+            let found: Vec<Location> = self.template_variables(&project, &doc.path).into_iter().filter(|(name, _)| *name == word).map(|(_, at)| at).collect();
+            if !found.is_empty() {
+                return found;
+            }
         }
 
         if receiver.is_some() || is_symfony(&project) || !navigate::code_at(&doc.text, offset, false) {

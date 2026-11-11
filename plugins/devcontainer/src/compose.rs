@@ -124,23 +124,12 @@ pub(crate) fn reference_findings(doc_path: &str, text: &str) -> Vec<crate::check
         message,
         severity: openidea_plugin::Severity::Warning,
     };
+    let mut depends = vec![];
     for (file, range) in &files {
-        let mut parts: Vec<&str> = folder.split('/').collect();
-        let normalised = file.replace('\\', "/");
-        for part in normalised.split('/') {
-            match part {
-                "" | "." => {}
-                ".." => {
-                    parts.pop();
-                }
-                part => parts.push(part),
-            }
-        }
-        let absolute = parts.join("/");
-        if file.starts_with('/') || !absolute.starts_with(&prefix) {
+        let Some(absolute) = resolve(folder, file, &prefix) else {
             services = None;
             continue;
-        }
+        };
         match project.read_file(&absolute) {
             Err(Error::NotFound(_) | Error::Invalid(_)) => {
                 services = None;
@@ -149,12 +138,31 @@ pub(crate) fn reference_findings(doc_path: &str, text: &str) -> Vec<crate::check
             Err(_) => services = None,
             Ok(source) if source.len() > 256 * 1024 => services = None,
             Ok(source) => match parse_source(&absolute, &source) {
-                Ok(value) if value.get("include").is_none() => match (value.get("services").and_then(Value::as_object), services.as_mut()) {
-                    (Some(map), Some(all)) => all.extend(map.keys().cloned()),
-                    _ => services = None,
-                },
+                Ok(value) if value.get("include").is_none() => {
+                    let facts = crate::compose_semantics::inspect(&value, files.len() == 1);
+                    findings.extend(facts.messages.iter().map(|m| warn(range, format!("Compose file `{file}`: {m}"))));
+                    let own_folder = absolute.rsplit_once('/').map_or("", |(f, _)| f);
+                    for (what, path) in &facts.paths {
+                        let Some(target) = resolve(own_folder, path, &prefix) else { continue };
+                        if matches!(project.stat(&target), Err(Error::NotFound(_) | Error::Invalid(_))) {
+                            findings.push(warn(range, format!("Compose file `{file}`: {what} `{path}` was not found relative to the Compose file.")));
+                        }
+                    }
+                    depends.extend(facts.depends.iter().map(|(from, to)| (file.clone(), range.clone(), from.clone(), to.clone())));
+                    match (value.get("services").and_then(Value::as_object), services.as_mut()) {
+                        (Some(map), Some(all)) => all.extend(map.keys().cloned()),
+                        _ => services = None,
+                    }
+                }
                 _ => services = None,
             },
+        }
+    }
+    if let Some(all) = &services {
+        for (file, range, from, to) in &depends {
+            if !all.contains(to) {
+                findings.push(warn(range, format!("Compose file `{file}`: service `{from}` depends_on `{to}`, which is not declared in the referenced Compose file(s).")));
+            }
         }
     }
     if let (Some((name, range)), Some(all)) = (service, services) {
@@ -163,6 +171,26 @@ pub(crate) fn reference_findings(doc_path: &str, text: &str) -> Vec<crate::check
         }
     }
     findings
+}
+
+/// `rel` resolved against `folder` as a normalised absolute path under `prefix`; None for absolute, dynamic or escaping paths.
+pub(crate) fn resolve(folder: &str, rel: &str, prefix: &str) -> Option<String> {
+    if rel.starts_with('/') || rel.contains('$') {
+        return None;
+    }
+    let mut parts: Vec<&str> = folder.split('/').collect();
+    let rel = rel.replace('\\', "/");
+    for part in rel.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                parts.pop();
+            }
+            part => parts.push(part),
+        }
+    }
+    let absolute = parts.join("/");
+    absolute.starts_with(prefix).then_some(absolute)
 }
 
 const MAX_BYTES: usize = 8 * 1024;
@@ -298,6 +326,19 @@ impl Snapshot {
 mod tests {
     use super::*;
     use openidea_plugin::mock::MockHost;
+    #[test]
+    fn reference_findings_report_missing_env_file_extends_file_and_depends_on_target() {
+        let host = MockHost::install();
+        host.add_file(".devcontainer/devcontainer.json", "");
+        host.add_file(".devcontainer/ok.env", "A=1");
+        host.add_file(".devcontainer/compose.yml", "services:\n  app:\n    image: x\n    depends_on: [db, cache]\n    env_file: [ok.env, missing.env]\n    extends: {file: base.yml, service: s}\n  cache:\n    image: y\n");
+        let text = r#"{"dockerComposeFile":"compose.yml","service":"app"}"#;
+        let messages: Vec<String> = reference_findings("/project/.devcontainer/devcontainer.json", text).into_iter().map(|f| f.message).collect();
+        assert_eq!(messages.len(), 3, "{messages:?}");
+        assert!(messages.iter().any(|m| m.contains("missing.env")));
+        assert!(messages.iter().any(|m| m.contains("base.yml")));
+        assert!(messages.iter().any(|m| m.contains("depends_on `db`")));
+    }
     fn setup(text: &str) -> (MockHost, Project) {
         let host = MockHost::install();
         host.add_file("compose.json", text);

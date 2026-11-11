@@ -4,6 +4,8 @@
 mod checks;
 mod configs;
 mod compose;
+mod compose_semantics;
+mod feature_checks;
 mod create;
 mod dashboard;
 mod dockerfile;
@@ -165,6 +167,7 @@ fn enabled_findings(path: &str, text: &str) -> Vec<checks::Finding> {
 
     let mut findings = checks::check(text);
     findings.extend(compose::reference_findings(path, text));
+    findings.extend(feature_checks::local_feature_findings(path, text));
 
     findings
         .into_iter()

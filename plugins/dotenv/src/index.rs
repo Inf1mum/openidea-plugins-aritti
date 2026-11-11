@@ -3,7 +3,7 @@
 //! plugin keeps this in IntelliJ's file index; here a project walk builds it
 //! and saved files update it.
 
-use crate::{code, docker, parse};
+use crate::{code, docker, ownership, parse};
 use openidea_plugin::{Error, Location, Project, Range, text};
 use std::collections::BTreeSet;
 use std::time::Instant;
@@ -91,6 +91,30 @@ pub struct Index {
     pub compose_folders: std::collections::HashSet<String>,
     /// Files some Compose `env_file:` names; their keys reach containers, not interpolation.
     pub env_file_paths: std::collections::HashSet<String>,
+    pub loaders: Vec<EnvLoader>,
+    pub arg_links: Vec<ArgLink>,
+}
+
+/// A Compose service whose `env_file:` names `env_path`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EnvLoader {
+    pub env_path: String,
+    pub service: String,
+    pub compose_path: String,
+    pub line: usize,
+}
+
+/// A Dockerfile `ARG` that a service's `build.args` feeds from `${env_key}`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ArgLink {
+    pub env_key: String,
+    pub arg: String,
+    pub service: String,
+    pub stage: Option<String>,
+    pub dockerfile_path: String,
+    pub dockerfile_line: usize,
+    pub compose_path: String,
+    pub compose_line: usize,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -266,6 +290,7 @@ impl Index {
         // completeness bit also checks that every expanded environment key has
         // a physical declaration covered by the source-range model.
         let folder = compose_path.rsplit_once(['/', '\\']).map_or("", |(folder, _)| folder);
+        self.add_ownership(project, root, compose_path, text);
         let (files, graph_complete, optional) = docker::compose_env_file_graph(text);
         if !graph_complete { self.complete=false; }
         if files.len() > 128 {
@@ -299,10 +324,63 @@ impl Index {
         }
     }
 
+    fn add_ownership(&mut self, project: &Project, root: &str, compose_path: &str, text: &str) {
+        let folder = folder_of(compose_path);
+        for service in ownership::compose_services(text) {
+            for (file, line) in &service.env_files {
+                let Some(env_path) = confined_path(root, folder, file).filter(|_| !file.contains('$')) else { continue };
+                let loader = EnvLoader { env_path, service: service.name.clone(), compose_path: compose_path.to_owned(), line: *line };
+                if !self.loaders.contains(&loader) {
+                    self.loaders.push(loader);
+                }
+            }
+            if service.build_args.is_empty() {
+                continue;
+            }
+            let context = service.context.as_deref().unwrap_or(".");
+            let dockerfile = service.dockerfile.as_deref().unwrap_or("Dockerfile");
+            if [context, dockerfile].iter().any(|p| p.contains('$') || p.contains("://") || p.starts_with("git@")) {
+                continue;
+            }
+            let relative = if dockerfile.starts_with('/') { dockerfile.to_owned() } else { format!("{context}/{dockerfile}") };
+            let Some(dockerfile_path) = confined_path(root, folder, &relative) else { continue };
+            let Ok(dockerfile_text) = project.read_file(&dockerfile_path) else { continue };
+            if dockerfile_text.len() > MAX_SOURCE_BYTES {
+                continue;
+            }
+            let args = ownership::dockerfile_args(&dockerfile_text);
+            for (arg, env_key, compose_line) in &service.build_args {
+                for declared in args.iter().filter(|a| &a.name == arg && a.stage.is_some()) {
+                    let location = Location { path: dockerfile_path.clone(), range: range(&dockerfile_text, declared.range.clone()) };
+                    let link = ArgLink {
+                        env_key: env_key.clone(),
+                        arg: arg.clone(),
+                        service: service.name.clone(),
+                        stage: declared.stage.clone(),
+                        dockerfile_path: dockerfile_path.clone(),
+                        dockerfile_line: location.range.start.line as usize + 1,
+                        compose_path: compose_path.to_owned(),
+                        compose_line: *compose_line,
+                    };
+                    let usage = Usage { key: env_key.clone(), location };
+                    if !self.usages.contains(&usage) {
+                        self.usages.push(usage);
+                    }
+                    if !self.arg_links.contains(&link) {
+                        self.arg_links.push(link);
+                    }
+                }
+            }
+        }
+        self.bound_facts();
+    }
+
     /// Replaces what `path` declares and uses with `text` (`None`: it is gone).
     pub fn update(&mut self, path: &str, text: Option<&str>) {
         self.declarations.retain(|d| d.location.path != path);
         self.usages.retain(|u| u.location.path != path);
+        self.loaders.retain(|l| l.compose_path != path);
+        self.arg_links.retain(|l| l.compose_path != path);
         if let Some(text) = text {
             self.add(path, text);
         }

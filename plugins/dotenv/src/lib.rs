@@ -6,6 +6,7 @@
 mod code;
 mod docker;
 mod hover;
+mod ownership;
 mod semantic;
 mod source_update;
 mod index;

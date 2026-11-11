@@ -264,21 +264,57 @@ pub fn check(text: &str, chart: &Chart) -> Vec<Finding> {
         if let Some(defines) = &chart.defines {
             found.extend(unknown_includes(action, defines));
         }
-        match head {
-            "if" | "with" | "range" | "define" | "block" => blocks.push(head.to_owned()),
-            "end" => {
-                blocks.pop();
-            }
-            "else" => {
-                let next = words(&blanked).nth(1).unwrap_or("");
-                if let (true, Some(top)) = (REBINDING.contains(&next), blocks.last_mut()) {
-                    *top = next.to_owned();
-                }
-            }
-            _ => {}
-        }
+        step_blocks(&mut blocks, head, &blanked);
     }
     found
+}
+
+fn step_blocks(blocks: &mut Vec<String>, head: &str, blanked: &str) {
+    match head {
+        "if" | "with" | "range" | "define" | "block" => blocks.push(head.to_owned()),
+        "end" => {
+            blocks.pop();
+        }
+        "else" => {
+            let next = words(blanked).nth(1).unwrap_or("");
+            if let (true, Some(top)) = (REBINDING.contains(&next), blocks.last_mut()) {
+                *top = next.to_owned();
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Where `.` points at a byte offset, from the blocks opened before the action holding it.
+pub struct Scope {
+    pub dot_is_root: bool,
+    pub in_define: bool,
+}
+
+pub fn scope_at(text: &str, caret: usize) -> Scope {
+    let mut blocks: Vec<String> = Vec::new();
+    for action in actions(text) {
+        if action.start + action.text.len() + 2 > caret {
+            break;
+        }
+        let blanked = blank_strings(action.text);
+        step_blocks(&mut blocks, first_word(&blanked), &blanked);
+    }
+    Scope {
+        dot_is_root: !blocks.iter().any(|b| REBINDING.contains(&b.as_str())),
+        in_define: blocks.iter().any(|b| b == "define" || b == "block"),
+    }
+}
+
+/// The literal name of an `include`/`template` call whose string holds `caret`.
+pub fn include_name_at(text: &str, caret: usize) -> Option<String> {
+    let action = actions(text).into_iter().find(|a| a.start <= caret && caret <= a.start + a.text.len())?;
+    ["include", "template"]
+        .iter()
+        .filter_map(|word| literal_after(action.text, word))
+        .find(|(at, name)| action.start + at <= caret && caret <= action.start + at + name.len())
+        .map(|(_, name)| name.to_owned())
+        .filter(|name| !name.is_empty())
 }
 
 fn literal_after<'a>(text: &'a str, word: &str) -> Option<(usize, &'a str)> {
@@ -309,26 +345,40 @@ fn unknown_includes(action: &Action, defines: &BTreeSet<String>) -> Vec<Finding>
         .filter_map(|word| literal_after(action.text, word))
         .filter(|(_, name)| !name.is_empty() && !defines.contains(*name))
         .map(|(at, name)| {
-            Finding::new(
-                action.start + at,
-                action.start + at + name.len(),
-                HELM_UNKNOWN_INCLUDE,
-                format!("No `define \"{name}\"` in this chart's templates."),
-            )
+            Finding {
+                severity: Severity::Info,
+                ..Finding::new(
+                    action.start + at,
+                    action.start + at + name.len(),
+                    HELM_UNKNOWN_INCLUDE,
+                    format!("No `define \"{name}\"` in this chart's templates."),
+                )
+            }
+        })
+        .collect()
+}
+
+/// Each `define`/`block` name with the byte offset of its first character.
+pub fn define_spans(text: &str) -> Vec<(String, usize)> {
+    actions(text)
+        .into_iter()
+        .filter_map(|action| {
+            let head = first_word(action.text.trim_start_matches(['-', ' ']));
+            let word = ["define", "block"].into_iter().find(|w| *w == head)?;
+            let after = action.text.find(word)? + word.len();
+            let rest = &action.text[after..];
+            let quoted = rest.trim_start();
+            let quote = quoted.chars().next().filter(|c| matches!(c, '"' | '`'))?;
+            let inner = &quoted[1..];
+            let name = &inner[..inner.find(quote)?];
+            let at = action.start + after + (rest.len() - quoted.len()) + 1;
+            Some((name.to_owned(), at))
         })
         .collect()
 }
 
 pub fn defined_names(text: &str) -> impl Iterator<Item = String> + '_ {
-    actions(text).into_iter().filter_map(|action| {
-        let head = first_word(&action.text.trim_start_matches(['-', ' ']).to_owned()).to_owned();
-        let word = ["define", "block"].into_iter().find(|w| *w == head)?;
-        let after = action.text.find(word)? + word.len();
-        let rest = action.text[after..].trim_start();
-        let quote = rest.chars().next().filter(|c| matches!(c, '"' | '`'))?;
-        let inner = &rest[1..];
-        Some(inner[..inner.find(quote)?].to_owned())
-    })
+    define_spans(text).into_iter().map(|(name, _)| name)
 }
 
 impl Chart {
@@ -442,6 +492,41 @@ mod tests {
         let c = chart("", &["web.name"]);
         let text = "a: {{ include \"web.name\" . }}\nb: {{ include \"web.nope\" . | nindent 4 }}\nc: {{ template \"gone\" . }}\nd: {{ include (print \"x\") . }}\n";
         assert_eq!(flagged(text, &c, HELM_UNKNOWN_INCLUDE), ["web.nope", "gone"]);
+    }
+
+    #[test]
+    fn unknown_includes_are_info() {
+        let c = chart("", &[]);
+        assert!(check("{{ include \"x\" . }}", &c).iter().all(|f| f.severity == Severity::Info));
+    }
+
+    #[test]
+    fn scope_follows_with_range_define_and_ignores_the_action_itself() {
+        let t = "{{ with .Values.a }}X{{ if .b }}Y{{ end }}{{ end }}Z{{ define \"n\" }}W{{ end }}";
+        let at = |m: &str| scope_at(t, t.find(m).unwrap());
+        assert!(!at("X").dot_is_root);
+        assert!(!at("Y").dot_is_root);
+        assert!(at("Z").dot_is_root);
+        assert!(at(".Values.a").dot_is_root);
+        assert!(at("W").in_define);
+        assert!(!at("Z").in_define);
+    }
+
+    #[test]
+    fn include_name_is_found_only_inside_the_literal() {
+        let t = "{{ include \"a.b\" . | nindent 2 }}{{ template \"c\" . }}{{ include (print \"x\") . }}";
+        assert_eq!(include_name_at(t, t.find("a.b").unwrap() + 1).as_deref(), Some("a.b"));
+        assert_eq!(include_name_at(t, t.find("\"c\"").unwrap() + 2).as_deref(), Some("c"));
+        assert_eq!(include_name_at(t, t.find("nindent").unwrap()), None);
+        assert_eq!(include_name_at(t, t.find("print").unwrap()), None);
+    }
+
+    #[test]
+    fn define_spans_point_at_the_name() {
+        let t = "{{- define \"a.b\" -}}x{{- end }}{{ block `c` . }}{{ end }}";
+        let spans = define_spans(t);
+        assert_eq!(spans.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(), ["a.b", "c"]);
+        assert!(spans.iter().all(|(n, at)| t[*at..].starts_with(n.as_str())));
     }
 
     #[test]

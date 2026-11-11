@@ -151,13 +151,26 @@ fn persistence_annotation(file: &spring_text::java::JavaFile, ann: &spring_text:
         && file.imports.iter().any(|import| !import.is_static && matches!(import.path.as_str(), "jakarta.persistence.*" | "javax.persistence.*"))
         && !file.types.iter().any(|ty| ty.name == ann.name)
 }
-fn entity_tables(text: &str) -> Vec<(Vec<Ident>, Range)> {
+type Mapped = (Vec<Ident>, Range, String);
+fn parse_source(text: &str, kotlin: bool) -> spring_text::java::JavaFile {
+    if kotlin { spring_text::kotlin::parse(text) } else { spring_text::java::parse(text) }
+}
+/// Binary class name (`pkg.Outer$Inner`), the form a JPA XML `class` attribute uses.
+fn class_name(file: &spring_text::java::JavaFile, index: usize) -> String {
+    let mut chain = vec![file.types[index].name.as_str()]; let mut at = index;
+    while let Some(outer) = file.types[at].outer { chain.insert(0, &file.types[outer].name); at = outer; }
+    let name = chain.join("$");
+    if file.package.is_empty() { name } else { format!("{}.{name}", file.package) }
+}
+fn entity_tables_in(text: &str, kotlin: bool) -> Vec<Mapped> {
     if text.len() > 128 << 10 { return vec![]; }
-    let file = spring_text::java::parse(text); let mut out = Vec::new();
+    let file = parse_source(text, kotlin); let mut out = Vec::new();
     // Constants are resolved from this file only; cross-file names stay quiet.
     let mut constants = spring_text::constants::Constants::default();
     constants.add(&file, text);
-    for ty in &file.types {
+    // Kotlin `const val` lives in a companion, keyed `Companion.NAME`; two companions in one file would collide.
+    let companion_unique = file.types.iter().filter(|ty| ty.name == "Companion").count() <= 1;
+    for (index, ty) in file.types.iter().enumerate() {
         if ty.kind != "class" || !ty.annotation("Entity").is_some_and(|ann| persistence_annotation(&file, ann, text)) { continue; }
         let Some(table) = ty.annotation("Table").filter(|ann| persistence_annotation(&file, ann, text)) else { continue; };
         let literal = |key: &str| table.arg(key).and_then(|arg| {
@@ -165,7 +178,7 @@ fn entity_tables(text: &str) -> Vec<(Vec<Ident>, Range)> {
             if let [only] = arg.strings.as_slice() {
                 if written.starts_with('"') && written.ends_with('"') && written.len() == only.end - only.at + 2 { return Some(only.value.clone()); }
             }
-            constants.resolve(&arg.text, Some(&ty.name))
+            constants.resolve(&arg.text, Some(&ty.name)).or_else(|| (kotlin && companion_unique).then(|| constants.resolve(arg.text.trim().strip_prefix(&format!("{}.", ty.name)).unwrap_or(&arg.text), Some("Companion"))).flatten())
         });
         let Some(name) = literal("name").and_then(|value| Ident::parse_mapping(&value)) else { continue; };
         let mut parts = vec![name];
@@ -173,10 +186,12 @@ fn entity_tables(text: &str) -> Vec<(Vec<Ident>, Range)> {
             let Some(schema) = literal("schema").and_then(|value| Ident::parse_mapping(&value)) else { continue; };
             parts.insert(0, schema);
         }
-        out.push((parts, Range::new(position(text, ty.at), position(text, ty.at + ty.name.len()))));
+        out.push((parts, Range::new(position(text, ty.at), position(text, ty.at + ty.name.len())), class_name(&file, index)));
     }
     out
 }
+#[cfg(test)]
+fn entity_tables(text: &str) -> Vec<Mapped> { entity_tables_in(text, false) }
 /// Spring Boot's default physical naming for a plain `CamelCase` class name; none when the
 /// conversion is ambiguous (digits, acronyms, non-ASCII).
 fn snake_case(name: &str) -> Option<String> {
@@ -192,14 +207,20 @@ fn snake_case(name: &str) -> Option<String> {
 }
 /// Top-level `@Entity` classes without `@Table`/`@Entity` arguments/superclass: the table is the
 /// implicitly named one. Only valid under Spring Boot's default naming strategies (see `implicit_naming_default`).
-fn implicit_entity_tables(text: &str) -> Vec<(Vec<Ident>, Range)> {
+fn implicit_entity_tables_in(text: &str, kotlin: bool) -> Vec<Mapped> {
     if text.len() > 128 << 10 { return vec![]; }
-    let file = spring_text::java::parse(text);
-    file.types.iter().filter(|ty| ty.kind == "class" && ty.outer.is_none() && ty.extends.is_empty() && !ty.has(&["Table", "SecondaryTable", "Inheritance", "MappedSuperclass", "Embeddable"]) && !ty.modifiers.iter().any(|m| m == "abstract"))
-        .filter(|ty| ty.annotation("Entity").is_some_and(|ann| ann.args.is_empty() && persistence_annotation(&file, ann, text)))
-        .filter_map(|ty| Some((vec![Ident::plain(snake_case(&ty.name)?)], Range::new(position(text, ty.at), position(text, ty.at + ty.name.len())))))
-        .collect()
+    let file = parse_source(text, kotlin);
+    (0..file.types.len()).filter_map(|index| {
+        let ty = &file.types[index];
+        // Kotlin supertypes are not split into class and interface, so any supertype is refused.
+        let plain = ty.kind == "class" && ty.outer.is_none() && ty.extends.is_empty() && (!kotlin || ty.implements.is_empty())
+            && !ty.has(&["Table", "SecondaryTable", "Inheritance", "MappedSuperclass", "Embeddable"]) && !ty.modifiers.iter().any(|m| m == "abstract");
+        let entity = ty.annotation("Entity").is_some_and(|ann| ann.args.is_empty() && persistence_annotation(&file, ann, text));
+        (plain && entity).then(|| Some((vec![Ident::plain(snake_case(&ty.name)?)], Range::new(position(text, ty.at), position(text, ty.at + ty.name.len())), class_name(&file, index)))).flatten()
+    }).collect()
 }
+#[cfg(test)]
+fn implicit_entity_tables(text: &str) -> Vec<Mapped> { implicit_entity_tables_in(text, false) }
 /// True only with Spring Boot declared at the root and no naming/quoting override anywhere visible.
 fn implicit_naming_default(project: &Project, root: &str) -> bool {
     let boot = ["pom.xml", "build.gradle", "build.gradle.kts"].iter()
@@ -216,6 +237,65 @@ fn implicit_naming_default(project: &Project, root: &str) -> bool {
         }
     }
     true
+}
+/// JPA XML mappings that replace annotation metadata: per class (binary name) the literal table, or `None` when the
+/// XML takes over but the table is not literal and unambiguous. `annotations_unreliable` means annotation-derived
+/// tables cannot be trusted (complete-metadata mode, default schema/catalog, or a mapping set we cannot enumerate).
+#[derive(Default)]
+struct XmlMappings { entities: BTreeMap<String, Option<(Vec<Ident>, String, Range)>>, annotations_unreliable: bool }
+fn xml_mappings(project: &Project, root: &str) -> XmlMappings {
+    let unprovable = || XmlMappings { entities: BTreeMap::new(), annotations_unreliable: true };
+    let under_root = |path: &String| path.starts_with(&format!("{root}/"));
+    let (Ok(persistence), Ok(defaults)) = (project.find_files("**/persistence.xml", 9), project.find_files("**/META-INF/orm.xml", 9)) else { return unprovable(); };
+    if persistence.len() > 8 || defaults.len() > 8 { return unprovable(); }
+    let mut files: BTreeSet<String> = defaults.into_iter().filter(under_root).collect(); let mut units = 0;
+    for path in persistence.into_iter().filter(under_root) {
+        let Ok(text) = project.read_file(&path) else { return unprovable(); };
+        let elements = spring_text::xml::elements(&text);
+        units += elements.iter().filter(|e| e.local() == "persistence-unit").count();
+        for element in elements.iter().filter(|e| e.local() == "mapping-file") {
+            let name = text[element.tag_end..].split('<').next().unwrap_or("").trim().trim_start_matches('/');
+            if name.is_empty() || name.contains("..") || name.contains(['*', '?', '[', '{', '\\', ' ']) { return unprovable(); }
+            let Ok(found) = project.find_files(&format!("**/{name}"), 9) else { return unprovable(); };
+            let found: Vec<_> = found.into_iter().filter(|f| under_root(f) && f.ends_with(&format!("/{name}")) && module(f) == module(&path)).collect();
+            let [only] = found.as_slice() else { return unprovable(); };
+            files.insert(only.clone());
+        }
+    }
+    if units > 1 { return unprovable(); }
+    let mut out = XmlMappings::default();
+    for path in files {
+        let Ok(text) = project.read_file(&path) else { return unprovable(); };
+        if text.len() > 256 << 10 { return unprovable(); }
+        let elements = spring_text::xml::elements(&text);
+        let Some(root_index) = elements.iter().position(|e| e.parent.is_none() && e.local() == "entity-mappings") else { return unprovable(); };
+        let has = |name: &str| elements.iter().any(|e| e.local() == name);
+        if has("delimited-identifiers") { return unprovable(); }
+        let defaults = has("schema") || has("catalog");
+        out.annotations_unreliable |= defaults || has("xml-mapping-metadata-complete");
+        let package = elements.iter().find(|e| e.parent == Some(root_index) && e.local() == "package")
+            .map(|e| text[e.tag_end..].split('<').next().unwrap_or("").trim().to_string()).unwrap_or_default();
+        for (index, entity) in elements.iter().enumerate().filter(|(_, e)| e.parent == Some(root_index) && e.local() == "entity") {
+            let Some(class) = entity.attr("class") else { continue; };
+            let written = class.value.trim();
+            let fqn = if package.is_empty() || written.contains('.') { written.to_string() } else { format!("{package}.{written}") };
+            let literal = elements.iter().find(|e| e.parent == Some(index) && e.local() == "table").and_then(|table| {
+                if table.attr("catalog").is_some() { return None; }
+                let mut parts = vec![Ident::parse_mapping(table.value("name")?)?];
+                match table.value("schema") {
+                    Some(schema) => parts.insert(0, Ident::parse_mapping(schema)?),
+                    None if defaults => return None,
+                    None => {}
+                }
+                Some((parts, path.clone(), Range::new(position(&text, class.value_at), position(&text, class.value_end))))
+            });
+            let overrides = elements.iter().any(|e| e.parent == Some(index) && e.local() == "table") || entity.value("metadata-complete") == Some("true");
+            if !overrides { continue; }
+            let ambiguous = out.entities.contains_key(&fqn);
+            out.entities.insert(fqn, if ambiguous { None } else { literal });
+        }
+    }
+    out
 }
 fn module(path: &str) -> Option<&str> { path.split_once("/src/").map(|(prefix, _)| prefix) }
 struct Owner { files: BTreeSet<String>, dialect: Option<Dialect>, definitions: BTreeMap<String, Vec<Location>>, at: Instant }
@@ -242,28 +322,36 @@ impl State {
         }
         // A source association is admitted only for a literal (or same-file constant) JPA @Entity/@Table model, or a
         // plainly named @Entity under unmodified Spring Boot naming; no classpath inference.
-        if let Ok(java) = project.find_files("**/*.java", 257) {
+        let sources = project.find_files("**/*.java", 257).and_then(|mut java| { java.extend(project.find_files("**/*.kt", 257)?); java.retain(|path| path.ends_with(".java") || path.ends_with(".kt")); java.sort(); java.dedup(); Ok(java) });
+        if let Ok(java) = sources {
             if java.len() <= 256 {
                 let implicit_default = implicit_naming_default(project, &root);
+                let xml = xml_mappings(project, &root);
                 let mut custom_naming = false;
-                let mut implicit: Vec<(Vec<Ident>, String, Range)> = Vec::new();
+                let mut explicit: Vec<(Vec<Ident>, String, Range, String)> = Vec::new();
+                let mut implicit: Vec<(Vec<Ident>, String, Range, String)> = Vec::new();
                 for path in java {
                     if at.elapsed() > Duration::from_millis(400) { break; }
                     if !path.starts_with(&format!("{root}/")) || host::project_of(&path).and_then(|p| p.root().ok()).as_deref() != Some(&root) { continue; }
                     let Ok(text) = project.read_file(&path) else { continue; }; bytes += text.len();
                     if bytes > 4 << 20 { break; }
+                    let kotlin = path.ends_with(".kt");
                     custom_naming |= text.contains("NamingStrategy");
-                    for (parts, range) in entity_tables(&text) {
-                        let Some(name) = key(&parts, dialect) else { continue; };
-                        definitions.entry(name).or_default().push(Location { path: path.clone(), range });
-                    }
-                    if implicit_default { implicit.extend(implicit_entity_tables(&text).into_iter().map(|(name, range)| (name, path.clone(), range))); }
+                    explicit.extend(entity_tables_in(&text, kotlin).into_iter().map(|(name, range, class)| (name, path.clone(), range, class)));
+                    if implicit_default { implicit.extend(implicit_entity_tables_in(&text, kotlin).into_iter().map(|(name, range, class)| (name, path.clone(), range, class))); }
                 }
-                if implicit_default && !custom_naming && at.elapsed() <= Duration::from_millis(400) {
-                    for (parts, path, range) in implicit {
-                        let Some(name) = key(&parts, dialect) else { continue; };
-                        definitions.entry(name).or_default().push(Location { path, range });
-                    }
+                let admitted = !xml.annotations_unreliable;
+                let in_time = at.elapsed() <= Duration::from_millis(400);
+                let annotated = explicit.into_iter().filter(|_| admitted && in_time)
+                    .chain(implicit.into_iter().filter(|_| admitted && in_time && implicit_default && !custom_naming));
+                for (parts, path, range, class) in annotated {
+                    if xml.entities.contains_key(&class) { continue; }
+                    let Some(name) = key(&parts, dialect) else { continue; };
+                    definitions.entry(name).or_default().push(Location { path, range });
+                }
+                for (parts, path, range) in xml.entities.into_values().flatten() {
+                    let Some(name) = key(&parts, dialect) else { continue; };
+                    definitions.entry(name).or_default().push(Location { path, range });
                 }
             }
         }
@@ -278,7 +366,7 @@ impl State {
         let Some(tables) = tables(&doc.text) else { return vec![]; };
         let Some(table) = tables.iter().find(|table| !table.definition && table.range.start <= at && at < table.range.end) else { return vec![]; };
         key(&table.parts, owner.dialect).and_then(|name| owner.definitions.get(&name)).filter(|locations| locations.len() <= 32).map(|locations| locations.iter()
-            .filter(|location| !location.path.ends_with(".java") || module(&doc.path).is_none() || module(&doc.path) == module(&location.path))
+            .filter(|location| location.path.ends_with(".sql") || module(&doc.path).is_none() || module(&doc.path) == module(&location.path))
             .cloned().collect()).unwrap_or_default()
     }
 }
@@ -468,4 +556,71 @@ mod tests {
         assert_eq!(run(Some("spring.datasource.url=jdbc:h2:mem:t"), "UPDATE \"Users\" SET id=1;"), 2);
     }
 
+
+    #[test]
+    fn kotlin_entities_resolve_named_args_constants_schema_and_implicit_names() {
+        let head = "package app\nimport jakarta.persistence.*\n";
+        let k = |body: &str| entity_tables_in(&format!("{head}{body}"), true);
+        let found = k("@Entity @Table(name = \"users\", schema = \"public\") data class User(@Id val id: Long)");
+        assert_eq!(key(&found[0].0, None).unwrap(), "public.users");
+        assert_eq!(found[0].2, "app.User");
+        let constant = k("@Entity @Table(name = User.TABLE) class User { companion object { const val TABLE = \"users\" } }");
+        assert_eq!(key(&constant[0].0, None).unwrap(), "users");
+        assert!(k("@Entity @Table(name = \"$prefix\") class User").is_empty());
+        assert!(k("@Entity @Table(name = Other.TABLE) class User").is_empty());
+        assert!(entity_tables_in("@Entity @Table(name = \"a\") class User", true).is_empty());
+        let implicit = |body: &str| implicit_entity_tables_in(&format!("{head}{body}"), true);
+        assert_eq!(key(&implicit("@Entity class OrderLine(@Id val id: Long)")[0].0, None).unwrap(), "order_line");
+        for skipped in ["@Entity class OrderLine : Base()", "@Entity @Table(name = \"a\") class OrderLine", "@Entity(name = \"X\") class OrderLine", "@Entity class HTMLPage"] {
+            assert!(implicit(skipped).is_empty(), "{skipped}");
+        }
+    }
+
+    fn xml_state(files: &[(&str, &str)], java: &str) -> Vec<String> {
+        let host = openidea_plugin::mock::MockHost::install();
+        host.add_file("src/main/resources/db/migration/V1__a.sql", "CREATE TABLE xml_users(id int); CREATE TABLE ann_users(id int);");
+        host.add_file("src/main/resources/db/migration/V2__b.sql", "SELECT * FROM xml_users; SELECT * FROM ann_users;");
+        host.add_file("src/main/java/app/User.java", java);
+        for (path, text) in files { host.add_file(path, text); }
+        let mut state = State::default();
+        let sql = ["/project/src/main/resources/db/migration/V1__a.sql".to_string(), "/project/src/main/resources/db/migration/V2__b.sql".to_string()];
+        state.warm(&host.invocation().project().unwrap(), &sql);
+        let doc = Document { path: sql[1].clone(), language: "sql".into(), version: 1, text: "SELECT * FROM xml_users; SELECT * FROM ann_users;".into() };
+        let mut out: Vec<String> = state.definition(&doc, Position::new(0, 16)).into_iter().chain(state.definition(&doc, Position::new(0, 41))).map(|l| l.path.rsplit('/').next().unwrap().to_string()).filter(|name| !name.ends_with(".sql")).collect();
+        out.sort();
+        out
+    }
+
+    const ANNOTATED: &str = "package app; import jakarta.persistence.*; @Entity @Table(name = \"ann_users\") class User {}";
+    const ORM: &str = "<entity-mappings><package>app</package><entity class=\"User\"><table name=\"xml_users\"/></entity></entity-mappings>";
+
+    #[test]
+    fn xml_mapping_overrides_the_annotation_table_of_the_same_class() {
+        assert_eq!(xml_state(&[], ANNOTATED), ["User.java"]);
+        let both = xml_state(&[("src/main/resources/META-INF/orm.xml", ORM)], ANNOTATED);
+        assert_eq!(both, ["orm.xml"]);
+        let listed = xml_state(&[("src/main/resources/META-INF/persistence.xml", "<persistence><persistence-unit name=\"p\"><mapping-file>mappings/x.xml</mapping-file></persistence-unit></persistence>"),
+            ("src/main/resources/mappings/x.xml", &ORM.replace("<package>app</package>", "").replace("\"User\"", "\"app.User\"").replace("<table name=\"xml_users\"/>", "<table name=\"xml_users\" schema=\"\"/>"))], ANNOTATED);
+        assert_eq!(listed, [] as [&str; 0]);
+    }
+
+    #[test]
+    fn xml_mapping_semantics_that_change_meaning_are_refused() {
+        let unlisted = [("src/main/resources/META-INF/persistence.xml", "<persistence><persistence-unit name=\"p\"><mapping-file>missing.xml</mapping-file></persistence-unit></persistence>")];
+        assert_eq!(xml_state(&unlisted, ANNOTATED), [] as [&str; 0]);
+        let two_units = [("src/main/resources/META-INF/persistence.xml", "<persistence><persistence-unit name=\"a\"/><persistence-unit name=\"b\"/></persistence>")];
+        assert_eq!(xml_state(&two_units, ANNOTATED), [] as [&str; 0]);
+        let complete = ORM.replace("<package>", "<persistence-unit-metadata><xml-mapping-metadata-complete/></persistence-unit-metadata><package>");
+        assert_eq!(xml_state(&[("src/main/resources/META-INF/orm.xml", &complete)], ANNOTATED), ["orm.xml"]);
+        let delimited = ORM.replace("<package>", "<persistence-unit-metadata><persistence-unit-defaults><delimited-identifiers/></persistence-unit-defaults></persistence-unit-metadata><package>");
+        assert_eq!(xml_state(&[("src/main/resources/META-INF/orm.xml", &delimited)], ANNOTATED), [] as [&str; 0]);
+        let default_schema = ORM.replace("<package>", "<schema>s</schema><package>");
+        assert_eq!(xml_state(&[("src/main/resources/META-INF/orm.xml", &default_schema)], ANNOTATED), [] as [&str; 0]);
+        let catalog = ORM.replace("name=\"xml_users\"", "name=\"xml_users\" catalog=\"c\"");
+        assert_eq!(xml_state(&[("src/main/resources/META-INF/orm.xml", &catalog)], ANNOTATED), [] as [&str; 0]);
+        let duplicate = ORM.replace("</entity-mappings>", "<entity class=\"app.User\"><table name=\"other\"/></entity></entity-mappings>");
+        assert_eq!(xml_state(&[("src/main/resources/META-INF/orm.xml", &duplicate)], ANNOTATED), [] as [&str; 0]);
+        let metadata_complete = "<entity-mappings><entity class=\"app.User\" metadata-complete=\"true\"/></entity-mappings>";
+        assert_eq!(xml_state(&[("src/main/resources/META-INF/orm.xml", metadata_complete)], ANNOTATED), [] as [&str; 0]);
+    }
 }

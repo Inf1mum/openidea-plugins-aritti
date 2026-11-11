@@ -30,7 +30,7 @@ pub struct Finding {
 }
 
 impl Finding {
-    fn warning(range: Range<usize>, code: &'static str, message: String) -> Self {
+    pub(crate) fn warning(range: Range<usize>, code: &'static str, message: String) -> Self {
         Self { start: range.start, end: range.end, code, message, severity: Severity::Warning }
     }
 }
@@ -40,10 +40,49 @@ pub enum Context {
     Value { key: String },
 }
 
-struct Member {
-    key: String,
-    key_range: Range<usize>,
-    value_range: Range<usize>,
+pub(crate) struct Member {
+    pub key: String,
+    pub key_range: Range<usize>,
+    pub value_range: Range<usize>,
+}
+
+/// Entries of the top-level `features` object with their option members (empty unless the value is an object).
+pub(crate) fn feature_members(text: &str) -> Vec<(Member, Vec<Member>)> {
+    let bytes = text.as_bytes();
+    let start = skip_trivia(bytes, if bytes.starts_with(b"\xEF\xBB\xBF") { 3 } else { 0 });
+    let Some(features) = members(bytes, start).into_iter().find(|m| m.key == "features" && bytes.get(m.value_range.start) == Some(&b'{')) else {
+        return vec![];
+    };
+    members(bytes, features.value_range.start)
+        .into_iter()
+        .map(|f| {
+            let options = if bytes.get(f.value_range.start) == Some(&b'{') { members(bytes, f.value_range.start) } else { vec![] };
+            (f, options)
+        })
+        .collect()
+}
+
+/// OCI references need a lowercase repository path (distribution spec) and a non-empty tag. Quiet for local, URL and legacy `owner/repo/feature@v1` ids.
+fn feature_id_problem(id: &str) -> Option<&'static str> {
+    if id.starts_with('.') || id.contains("://") || id.contains('$') || !id.contains('/') {
+        return None;
+    }
+    let (name, digest) = match id.split_once('@') {
+        Some((name, digest)) if digest.starts_with("sha256:") => (name, true),
+        Some(_) => return None,
+        None => (id, false),
+    };
+    let last = name.rsplit('/').next().unwrap_or(name);
+    let (path, tag) = match last.split_once(':') {
+        Some((_, tag)) if !digest => (&name[..name.len() - tag.len() - 1], Some(tag)),
+        _ => (name, None),
+    };
+    if tag == Some("") {
+        return Some("has an empty tag after `:`");
+    }
+    // a registry host with a port keeps its `:`, so only the path after the first segment is case-checked
+    let repository = path.split_once('/').map_or(path, |(_, rest)| rest);
+    repository.chars().any(|c| c.is_ascii_uppercase()).then_some("has uppercase letters in its repository path (OCI repository names are lowercase)")
 }
 
 pub fn in_valid_location(path: &str) -> bool {
@@ -444,6 +483,10 @@ fn check_features(text: &str, member: &Member, findings: &mut Vec<Finding>) {
                 FEATURES_MALFORMED,
                 "A feature id must not be empty or contain whitespace".into(),
             ));
+        }
+
+        if let Some(problem) = feature_id_problem(&feature.key) {
+            findings.push(Finding::warning(feature.key_range.clone(), FEATURES_MALFORMED, format!("Feature id `{}` {problem}.", feature.key)));
         }
 
         let value_ok = match bytes[feature.value_range.start] {

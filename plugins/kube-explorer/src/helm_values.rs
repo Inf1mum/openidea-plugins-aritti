@@ -1,12 +1,20 @@
 //! `.Values.a.b` in a chart template navigates to the literal block-mapping key
-//! in the chart's values.yaml. Dynamic forms (`index`, `$`, aliases, merge keys,
-//! flow or quoted keys) are refused; nothing is rendered.
+//! in the chart's values.yaml; `$.Values` reaches the root from inside `with`/`range`,
+//! while a rebound `.`, `define` bodies and `.tpl` files are refused. A literal
+//! `include "x"`/`template "x"` navigates to its `define`. Dynamic forms (`index`,
+//! aliases, merge keys, flow or quoted keys) are refused; nothing is rendered.
 use openidea_plugin::providers::Document;
+use crate::helm;
 use openidea_plugin::{Location, Position, Range, host, text};
 
 const LIMIT: usize = 128 << 10;
+const MAX_FILES: u32 = 200;
 
 fn path_at(doc: &Document, caret: usize) -> Option<Vec<String>> {
+    let scope = helm::scope_at(&doc.text, caret);
+    if scope.in_define || doc.path.ends_with(".tpl") {
+        return None;
+    }
     let before = &doc.text[..caret];
     let open = before.rfind("{{")?;
     if before[open..].contains("}}") {
@@ -19,7 +27,10 @@ fn path_at(doc: &Document, caret: usize) -> Option<Vec<String>> {
         .find(|&f| {
             let tail = &doc.text[f + ".Values.".len()..];
             let len = tail.find(|c| !word(c)).unwrap_or(tail.len());
-            f <= caret && caret <= f + ".Values.".len() + len && !doc.text[..f].ends_with(|c: char| word(c) || c == '$')
+            f <= caret && caret <= f + ".Values.".len() + len && match doc.text[..f].strip_suffix('$') {
+                    Some(head) => !head.ends_with(word),
+                    None => scope.dot_is_root && !doc.text[..f].ends_with(word),
+                }
         })?;
     let tail = &doc.text[from + ".Values.".len()..];
     let len = tail.find(|c| !word(c)).unwrap_or(tail.len());
@@ -73,6 +84,37 @@ fn find_key(values: &str, path: &[String]) -> Option<Range> {
     None
 }
 
+fn define_locations(project: &openidea_plugin::Project, root: &str, chart: &str, name: &str) -> Vec<Location> {
+    let root = root.trim_end_matches('/');
+    if !chart.starts_with(&format!("{root}/")) {
+        return vec![];
+    }
+    let Some(relative) = chart.strip_prefix(&format!("{root}/")) else {
+        return vec![];
+    };
+    let Ok(files) = project.find_files(&format!("{relative}/templates/**"), MAX_FILES) else {
+        return vec![];
+    };
+    if files.len() >= MAX_FILES as usize {
+        return vec![];
+    }
+    let mut found = vec![];
+    for file in files {
+        let path = if file.starts_with('/') { file } else { format!("{root}/{file}") };
+        let Ok(text) = project.read_file(&path) else { continue };
+        if text.len() > LIMIT {
+            continue;
+        }
+        for (defined, at) in helm::define_spans(&text) {
+            if defined == name {
+                let range = Range::new(text::position(&text, at), text::position(&text, at + name.len()));
+                found.push(Location { path: path.clone(), range });
+            }
+        }
+    }
+    found
+}
+
 pub(crate) fn definition(doc: &Document, at: Position) -> Vec<Location> {
     let Some((chart, _)) = doc.path.rsplit_once("/templates/") else {
         return vec![];
@@ -83,8 +125,13 @@ pub(crate) fn definition(doc: &Document, at: Position) -> Vec<Location> {
     let Some(caret) = text::offset(&doc.text, at) else {
         return vec![];
     };
-    let Some(path) = path_at(doc, caret) else {
-        return vec![];
+    let include = helm::include_name_at(&doc.text, caret);
+    let path = match include {
+        Some(_) => vec![],
+        None => match path_at(doc, caret) {
+            Some(path) => path,
+            None => return vec![],
+        },
     };
     let Some(project) = host::project_of(&doc.path) else {
         return vec![];
@@ -92,6 +139,9 @@ pub(crate) fn definition(doc: &Document, at: Position) -> Vec<Location> {
     let Ok(root) = project.root() else {
         return vec![];
     };
+    if let Some(name) = include {
+        return define_locations(&project, &root, chart, &name);
+    }
     let values_path = format!("{chart}/values.yaml");
     if !values_path.starts_with(&format!("{}/", root.trim_end_matches('/'))) {
         return vec![];
@@ -154,14 +204,53 @@ mod tests {
     #[test]
     fn dynamic_missing_block_scalar_and_non_template_stay_quiet() {
         let (_h, d) = setup(
-            "{{ index .Values \"a\" }}\n{{ .Values.image.nope }}\n{{ .Values.image.tag.deep }}\n{{ $.Values.replicas }}\n.Values.replicas\n",
+            "{{ index .Values \"a\" }}\n{{ .Values.image.nope }}\n{{ .Values.image.tag.deep }}\n.Values.replicas\n",
         );
         assert!(at_word(&d, "index .Values").is_empty());
         assert!(at_word(&d, ".Values.image.nope").is_empty());
         assert!(at_word(&d, ".Values.image.tag.deep").is_empty());
-        assert!(at_word(&d, "$.Values").is_empty());
         let mut plain = d.clone();
         plain.path = "/project/chart/other.yaml".into();
         assert!(at_word(&plain, ".Values.replicas").is_empty());
+    }
+
+    #[test]
+    fn rebound_dot_is_quiet_and_dollar_values_reaches_the_root() {
+        let (_h, d) = setup(
+            "{{ with .Values.image }}{{ .Values.replicas }}{{ $.Values.replicas }}{{ end }}{{ range .x }}{{ .Values.replicas }}{{ end }}{{ .Values.replicas }}\n",
+        );
+        let nth = |n: usize| {
+            let i = d.text.match_indices("Values.replicas").nth(n).unwrap().0 + 2;
+            definition(&d, text::position(&d.text, i))
+        };
+        assert!(nth(0).is_empty());
+        assert_eq!(nth(1)[0].range.start, Position::new(5, 0));
+        assert!(nth(2).is_empty());
+        assert_eq!(nth(3)[0].range.start, Position::new(5, 0));
+        assert_eq!(at_word(&d, ".Values.image")[0].range.start, Position::new(0, 0));
+    }
+
+    #[test]
+    fn values_in_define_bodies_and_tpl_files_stay_quiet() {
+        let (_h, d) = setup("{{ define \"c.x\" }}{{ .Values.replicas }}{{ $.Values.replicas }}{{ end }}\n");
+        assert!(at_word(&d, ".Values.replicas").is_empty());
+        let (_h, mut t) = setup("{{ .Values.replicas }}");
+        t.path = "/project/chart/templates/_h.tpl".into();
+        assert!(at_word(&t, ".Values.replicas").is_empty());
+    }
+
+    #[test]
+    fn include_and_template_navigate_to_the_define_name() {
+        let (h, d) = setup("{{ include \"c.name\" . | trunc 3 }}{{ template \"c.name\" . }}{{ include \"c.gone\" . }}{{ include (print \"c.name\") . }}\n");
+        h.add_file("chart/templates/_helpers.tpl", "{{/* x */}}\n{{- define \"c.name\" -}}c{{- end -}}\n");
+        let found = at_word(&d, "c.name");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].path, "/project/chart/templates/_helpers.tpl");
+        assert_eq!(found[0].range, Range::new(Position::new(1, 12), Position::new(1, 18)));
+        let second = d.text.match_indices("c.name").nth(1).unwrap().0 + 1;
+        assert_eq!(definition(&d, text::position(&d.text, second)).len(), 1);
+        assert!(at_word(&d, "c.gone").is_empty());
+        let dynamic = d.text.rfind("c.name").unwrap() + 1;
+        assert!(definition(&d, text::position(&d.text, dynamic)).is_empty());
     }
 }

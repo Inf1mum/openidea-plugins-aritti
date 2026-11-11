@@ -60,12 +60,19 @@ impl Syntax {
     }
     pub fn scope() -> Option<Guard> {
         let mut syntax = Self::default();
+        let mut configured = false;
         for (i, key) in KEYS.iter().enumerate() {
             if let Some(raw) = crate::host::setting(key) {
+                configured = true;
                 if raw.len() > 128 {
                     return None;
                 }
                 syntax.values[i] = serde_json::from_str::<String>(&raw).ok()?;
+            }
+        }
+        if !configured {
+            if let Some(values) = crate::php_context::project_lexer() {
+                syntax.values = values;
             }
         }
         syntax.valid().then(|| syntax.enter())
