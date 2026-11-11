@@ -91,6 +91,7 @@ fn is_spec_file(path: &str) -> bool {
     is_yaml(path) || path.ends_with(".json")
 }
 
+pub(crate) const REF_MARKER: &str = "icons/marker-ref.svg";
 const PREVIEWS: [&str; 2] = ["preview", "preview-any"];
 
 fn escape_json(text: &str) -> String {
@@ -1055,7 +1056,7 @@ impl Providers for OpenApi {
             let (reference,range)=model.operation_reference(&operation)?;
             Some(LineMarker {
                 line:position(&doc.text,operation.at).line,
-                icon:Some("navigate".into()),
+                icon:Some(REF_MARKER.into()),
                 tooltip:format!("{} {}: {reference}",operation.method,operation.path),
                 target:Some(Location {path:doc.path.clone(),range}),
             })
@@ -2715,7 +2716,7 @@ mod tests {
         let markers = OpenApi::default().line_markers(&named("/p/openapi.yaml", text));
         assert_eq!(markers.len(), 1);
         assert_eq!(markers[0].line, 3);
-        assert_eq!(markers[0].icon.as_deref(), Some("navigate"));
+        assert_eq!(markers[0].icon.as_deref(), Some(REF_MARKER));
         assert_eq!(markers[0].tooltip, "GET /pets: #/components/schemas/Pet");
         let target = markers[0].target.as_ref().unwrap();
         assert_eq!(target.range.start.line, 14);
@@ -2761,6 +2762,18 @@ impl openidea_plugin::endpoints::EndpointsProvider for OpenApi {
             return Ok(Vec::new());
         };
         Ok(ui_kit::routes::endpoints(&project_routes(&project)?, "OpenAPI"))
+    }
+}
+
+#[cfg(test)]
+mod marker_icon_tests {
+    use super::*;
+
+    #[test]
+    fn ref_marker_icon_is_declared_in_the_manifest() {
+        let manifest = include_str!("../plugin.toml");
+        assert!(manifest.contains(&format!("icon = \"{REF_MARKER}\"")));
+        assert!(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(REF_MARKER).is_file());
     }
 }
 

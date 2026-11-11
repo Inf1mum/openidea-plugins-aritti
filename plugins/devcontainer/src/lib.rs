@@ -418,7 +418,13 @@ fn feature_items(text: &str, key: std::ops::Range<usize>) -> Vec<CompletionItem>
         .collect()
 }
 
-register_plugin!(Main, providers, views, diagnostics, details, file_actions);
+impl openidea_plugin::RunTargetValidation for Main {
+    fn validate(&mut self, project: &str, _target_id: &str, _launch: &openidea_plugin::RunTargetLaunch) -> Result<(), String> {
+        run_target::validate_running(project)
+    }
+}
+
+register_plugin!(Main, providers, views, diagnostics, details, file_actions, run_target_validation);
 
 #[cfg(test)]
 mod tests {

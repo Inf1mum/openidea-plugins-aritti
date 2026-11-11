@@ -429,7 +429,7 @@ fn scan_lists_vulnerable_dependencies_in_the_view() {
     let host = MockHost::install().with_capabilities(CAPS);
     let mut plugin = scanned(&host);
 
-    assert_eq!(host.notifications()[0].body, "Vulnerable dependencies: 2 of 3 (3 files). See the Vulnerable Dependencies tool window.");
+    assert_eq!(host.project_notifications()[0].1.notification.body, "Vulnerable dependencies: 2 of 3 (3 files). See the Vulnerable Dependencies tool window.");
     assert!(host.refreshed_views().contains(&"vulnerabilities".to_string()));
     assert!(host.diagnostics().is_empty(), "scan does not publish a duplicate producer");
     assert_eq!(plugin.diagnostics(&document("/project/pom.xml", "xml", POM)).len(), 1);
@@ -535,7 +535,7 @@ fn ignored_advisory_is_not_reported() {
     host.set_setting("ignoredAdvisories", r##""# accepted\nGHSA-35jh-r3h4-6jhm  # lodash, no fix yet\n""##);
     let mut plugin = scanned(&host);
 
-    assert_eq!(host.notifications()[0].body, "Vulnerable dependencies: 1 of 3 (3 files). See the Vulnerable Dependencies tool window.");
+    assert_eq!(host.project_notifications()[0].1.notification.body, "Vulnerable dependencies: 1 of 3 (3 files). See the Vulnerable Dependencies tool window.");
     let labels: Vec<String> = tree(&mut plugin, &host).into_iter().map(|i| i.label).collect();
     assert!(!labels.iter().any(|l| l.contains("lodash") || l == "GHSA-35jh-r3h4-6jhm"));
     assert!(labels.contains(&"GHSA-57j2-w4cx-62h2".to_string()));
@@ -1047,7 +1047,7 @@ fn discovery_caps_are_reported_as_partial_and_do_not_pass_commit_review() {
     let report=stored_report(&host.invocation().project().unwrap()).unwrap().unwrap();
     assert_eq!(report.checked_files.len(),200);
     assert!(report.discovery_limited);
-    assert!(host.notifications()[0].body.contains("Partial report"));
+    assert!(host.project_notifications()[0].1.notification.body.contains("Partial report"));
     assert!(report_status(&report,None).contains("discovery reached its limit"));
     let problems=plugin.check("cached-dependencies",&commit_draft(&["/project/m000/pom.xml"]),&host.invocation()).unwrap();
     assert_eq!(problems.len(),1);
@@ -1136,7 +1136,7 @@ fn scoped_ignore_filters_every_surface_and_restores_retained_evidence_without_re
     // A new scan must retain ignored facts too, so restoring does not depend on an old instance.
     plugin.run_command("scan",&host.invocation(),None).unwrap();
     assert_eq!(serde_json::from_str::<Value>(&host.storage()["scan:/project"]).unwrap()["rows"].as_array().unwrap().len(),2);
-    assert!(host.notifications().last().unwrap().body.contains("1 of 3"));
+    assert!(host.project_notifications().last().unwrap().1.notification.body.contains("1 of 3"));
     let requests_after_scan=host.requests().len();
     let mut fresh=DependencyAudit::default();
     assert!(fresh.diagnostics(&doc).is_empty());
@@ -1460,4 +1460,17 @@ fn report_lists_local_workspace_and_marker_notes() {
     assert_eq!(items[0]["cells"][5], "Not checked");
     assert_eq!(items[1]["cells"][0], "Marker not evaluated");
     assert_eq!(value["totalRows"], 2);
+}
+
+#[test]
+fn notify_project_targets_the_project_and_falls_back_globally_when_it_is_gone() {
+    let host = MockHost::install();
+    host.set_project_root(Some("/work/app"));
+    let project = host.invocation().project().unwrap();
+    notify_project(&project, NotificationLevel::Info, "T", "one");
+    assert_eq!(host.project_notifications().len(), 1);
+    assert!(host.notifications().is_empty());
+    host.set_project_root(None);
+    notify_project(&project, NotificationLevel::Info, "T", "two");
+    assert_eq!(host.notifications().len(), 1);
 }

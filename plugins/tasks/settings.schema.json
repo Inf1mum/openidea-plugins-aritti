@@ -47,7 +47,7 @@
     },
     "youtrackHost": {
       "type": "string",
-      "title": "YouTrack Cloud host, such as acme.youtrack.cloud",
+      "title": "YouTrack host, such as acme.youtrack.cloud or youtrack.example.com (self-hosted asks for permission at first use)",
       "default": ""
     },
     "youtrackQuery": {

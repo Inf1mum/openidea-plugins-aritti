@@ -2294,7 +2294,12 @@ fn api14_target_registers_once_and_is_withdrawn_when_disabled_or_unconfigured() 
     assert_eq!(target.args, ["exec", "--raw"]);
     assert_eq!(target.workdir_args, ["--dir={cwd}", "--"]);
     assert_eq!(target.container_root.as_deref(), Some("/var/www/html"));
-    assert!(target.commands.is_empty());
+    assert_eq!(target.commands.len(), 1);
+    let overrides = host.run_targets_with_overrides();
+    let composer = &overrides.values().next().unwrap().commands[0];
+    assert_eq!(composer.name, "composer");
+    assert_eq!(composer.args, ["composer"]);
+    assert_eq!(composer.workdir_args, Some(vec![]));
     host.set_setting("autoConfigureRunTarget", "false");
     plugin.render(VIEW, None, &host.invocation()).unwrap();
     assert!(host.run_targets().is_empty());
@@ -2860,4 +2865,21 @@ fn custom_setup_bridge_preserves_drafts_readonly_fields_and_project_authority() 
     host.set_project_root(None);
     let empty=request(&mut plugin,json!({"op":"render","project":null}));
     assert_eq!(empty["model"]["body"]["kind"],"message");assert!(empty["model"]["toolbar"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn run_target_validation_refuses_stopped_project_and_allows_running() {
+    let launch = openidea_plugin::RunTargetLaunch {
+        operation: openidea_plugin::RunTargetOperation::Run,
+        program: "php".into(),
+        cwd: "/work/my project".into(),
+    };
+    let host = mock();
+    let mut plugin = Main::default();
+    assert!(host.validate_run_target(&mut plugin, "ddev", &launch).is_ok());
+    host.on_process("ddev", |_, _| output(STOPPED));
+    let error = host
+        .validate_run_target(&mut plugin, "ddev", &launch)
+        .unwrap_err();
+    assert!(error.contains("Start it with DDEV: Start"), "{error}");
 }

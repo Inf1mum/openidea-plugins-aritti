@@ -147,8 +147,28 @@ impl DotEnv {
 
 }
 
+const SOURCES_POINT: &str = "aritti.dotenv.sources";
+
+/// Reads what other plugins contributed to [`SOURCES_POINT`]; unknown roles and path-like names are ignored.
+fn contributed_sources() -> Vec<(String, bool)> {
+    let contributions = host::extension_contributions(SOURCES_POINT).unwrap_or_default();
+    contributions
+        .iter()
+        .filter_map(|c| serde_json::from_str::<serde_json::Value>(&c.data).ok())
+        .filter_map(|v| Some((v["fileName"].as_str()?.to_owned(), v["role"].as_str()?.to_owned())))
+        .filter(|(name, _)| !name.contains(['/', '\\']))
+        .filter_map(|(name, role)| match role.as_str() {
+            "declares" => Some((name, true)),
+            "reads" => Some((name, false)),
+            _ => None,
+        })
+        .collect()
+}
+
 impl Plugin for DotEnv {
     fn activate(&mut self, _ctx: &Context) -> Result<(), Error> {
+        index::set_extra_sources(contributed_sources());
+        let _ = host::subscribe(EventKind::ExtensionsChanged);
         let _ = host::subscribe(EventKind::FileOpened);
         let _ = host::subscribe(EventKind::FileSaved);
         self.index_projects();
@@ -166,6 +186,10 @@ impl Plugin for DotEnv {
 
 impl DotEnv {
     fn apply_events(&mut self, events: &[Event]) {
+        if events.iter().any(|e| matches!(e, Event::Other { kind, .. } if kind == EventKind::ExtensionsChanged.name())) {
+            index::set_extra_sources(contributed_sources());
+            self.projects.clear();
+        }
         self.index_projects();
         for event in events {
             let (Event::FileOpened(path) | Event::FileSaved(path)) = event else {
@@ -335,6 +359,31 @@ mod tests {
         let mut plugin = DotEnv::default();
         plugin.index_projects();
         plugin
+    }
+
+    #[test]
+    fn contributed_file_names_are_indexed_and_follow_changes() {
+        let host = project();
+        host.add_file("vars.custom", "FROM_PLUGIN=1\n");
+        host.add_file("run.custom2", "getenv('FROM_PLUGIN');\n");
+        host.set_extension_contributions(
+            SOURCES_POINT,
+            vec![
+                ("acme.x", r#"{"fileName":"vars.custom","role":"declares"}"#),
+                ("acme.x", r#"{"fileName":"run.custom2","role":"reads"}"#),
+                ("acme.x", r#"{"fileName":"../evil","role":"declares"}"#),
+                ("acme.x", r#"{"fileName":"odd","role":"nope"}"#),
+            ],
+        );
+        let mut plugin = DotEnv::default();
+        plugin.activate(&Context::default()).ok();
+        assert_eq!(contributed_sources(), [("vars.custom".to_owned(), true), ("run.custom2".to_owned(), false)]);
+        assert!(index::is_env_file("/p/vars.custom"));
+        assert!(index::Index::indexes("/p/run.custom2"));
+
+        host.set_extension_contributions(SOURCES_POINT, vec![]);
+        plugin.apply_events(&[Event::Other { kind: "extensions-changed".into(), data: "[]".into() }]);
+        assert!(!index::is_env_file("/p/vars.custom"));
     }
 
     #[test]

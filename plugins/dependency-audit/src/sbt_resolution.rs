@@ -470,7 +470,8 @@ pub(crate) fn audit_evidence(project: &Project, e: Evidence) -> Result<(), Error
     saved(&e.root)?;
     persist_report(project, &report)?;
     refresh_report();
-    host::notify(
+    crate::notify_project(
+        project,
         NotificationLevel::Info,
         "sbt dependency audit",
         &format!(

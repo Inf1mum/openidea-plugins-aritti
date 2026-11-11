@@ -4548,3 +4548,10 @@ fn draft_note_requests_match_the_documented_gitlab_fields() {
     );
     assert_eq!(posted[1].1, "https://gitlab.com/api/v4/projects/g%2Fp/merge_requests/7/draft_notes/bulk_publish");
 }
+
+#[test]
+fn thread_marker_icon_is_declared_in_the_manifest() {
+    let manifest = include_str!("../plugin.toml");
+    assert!(manifest.contains(&format!("icon = \"{}\"", crate::branch::THREAD_MARKER)));
+    assert!(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(crate::branch::THREAD_MARKER).is_file());
+}

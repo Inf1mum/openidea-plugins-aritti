@@ -140,15 +140,32 @@ pub fn file_name(path: &str) -> &str {
     path.rsplit(['/', '\\']).next().unwrap_or(path)
 }
 
+thread_local! {
+    /// File names other plugins contributed to `aritti.dotenv.sources`: (name, declares).
+    static EXTRA_SOURCES: std::cell::RefCell<Vec<(String, bool)>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+pub fn set_extra_sources(sources: Vec<(String, bool)>) {
+    EXTRA_SOURCES.with(|extra| *extra.borrow_mut() = sources);
+}
+
+fn extra_source(name: &str) -> Option<bool> {
+    EXTRA_SOURCES.with(|extra| extra.borrow().iter().find(|(n, _)| n == name).map(|(_, declares)| *declares))
+}
+
 pub fn is_env_file(path: &str) -> bool {
     let name = file_name(path);
-    name == ".env" || name == ".flaskenv" || name.starts_with(".env.") || name.ends_with(".env")
+    extra_source(name) == Some(true)
+        || name == ".env" || name == ".flaskenv" || name.starts_with(".env.") || name.ends_with(".env")
 }
 
 fn source(path: &str) -> Option<Source> {
     let name = file_name(path);
     if is_env_file(path) {
         return Some(Source::Env);
+    }
+    if extra_source(name) == Some(false) {
+        return Some(Source::Code);
     }
     if name == "Dockerfile" || name.starts_with("Dockerfile.") || name.to_ascii_lowercase().ends_with(".dockerfile") {
         return Some(Source::Dockerfile);

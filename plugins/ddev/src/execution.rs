@@ -1,6 +1,9 @@
 //! API 1.4 execution target and project-scoped terminal operations.
 use crate::{CONFIG, Main, database, model::Description, runtime, support};
-use openidea_plugin::{Error, Invocation, NotificationLevel, PluginRunTarget, Project, host};
+use openidea_plugin::{
+    Error, Invocation, NotificationLevel, PluginCommandOverride, PluginRunTarget,
+    PluginRunTargetWithOverrides, Project, host,
+};
 
 pub const TARGET: &str = "ddev";
 
@@ -83,7 +86,13 @@ impl Main {
         if self.run_targets.get(&root) == Some(&target) {
             return;
         }
-        match host::register_run_target(project, &target) {
+        let mut with_overrides = PluginRunTargetWithOverrides::from(target.clone());
+        with_overrides.commands = vec![PluginCommandOverride {
+            name: "composer".into(),
+            args: vec!["composer".into()],
+            workdir_args: Some(vec![]),
+        }];
+        match host::register_run_target_with_overrides(project, &with_overrides) {
             Ok(()) => {
                 self.run_targets.insert(root, target);
             }

@@ -392,7 +392,7 @@ pub(crate) fn markers(doc: &Document) -> Vec<LineMarker> {
             let path = target(&project, &root, &doc.path, &r.value)?;
             Some(LineMarker {
                 line: text::position(&doc.text, r.start).line,
-                icon: Some("navigate".into()),
+                icon: Some(crate::KUSTOMIZE_MARKER.into()),
                 tooltip: format!("Open {}", r.value),
                 target: Some(Location {
                     path,

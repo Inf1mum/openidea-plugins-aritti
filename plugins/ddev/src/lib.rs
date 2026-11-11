@@ -679,7 +679,34 @@ fn installed_version(stdout: &str) -> Result<version::Version, Error> {
     Err("DDEV returned no recognizable version.".into())
 }
 
-register_plugin!(Main, views, details, providers, diagnostics, hover);
+impl openidea_plugin::RunTargetValidation for Main {
+    fn validate(
+        &mut self,
+        project: &str,
+        _target_id: &str,
+        _launch: &openidea_plugin::RunTargetLaunch,
+    ) -> Result<(), String> {
+        let Some(project) = host::projects()
+            .unwrap_or_default()
+            .into_iter()
+            .find(|p| p.root().is_ok_and(|root| root == project))
+        else {
+            return Ok(());
+        };
+        let Ok(desc) = run_json(&project, "describe").and_then(|o| Description::parse(&o)) else {
+            return Ok(());
+        };
+        if desc.status == "running" {
+            return Ok(());
+        }
+        Err(format!(
+            "DDEV project \"{}\" is {}. Start it with DDEV: Start first.",
+            desc.name, desc.status
+        ))
+    }
+}
+
+register_plugin!(Main, views, details, providers, diagnostics, hover, run_target_validation);
 
 #[cfg(test)]
 mod tests;

@@ -12,6 +12,7 @@ use crate::sections::Section;
 use crate::{DETAILS, GitLab, first_line, relative_path, review, safe};
 
 pub const STATUS_ITEM: &str = "merge-request";
+pub(crate) const THREAD_MARKER: &str = "icons/marker-thread.svg";
 const RECHECK_SECS: u64 = 300;
 
 pub struct BranchReview {
@@ -438,7 +439,7 @@ impl GitLab {
         self.branch
             .iter()
             .flat_map(|b| b.threads_on(&doc.path))
-            .map(|(line, d)| LineMarker { line, icon: None, tooltip: thread_text(d), target: None })
+            .map(|(line, d)| LineMarker { line, icon: Some(THREAD_MARKER.into()), tooltip: thread_text(d), target: None })
             .collect()
     }
 

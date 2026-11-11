@@ -17,6 +17,7 @@ const HOST: &str = "127.0.0.1";
 pub(crate) struct State {
     safe: bool,
     granted: bool,
+    ask: bool,
     scope_ok: bool,
     next_nonce: u64,
     pending: Option<u64>,
@@ -90,7 +91,16 @@ fn plain(s: &str) -> bool {
 fn no_auth(value: Option<&Value>) -> bool {
     value.is_none_or(|v| v.as_array().is_some_and(Vec::is_empty))
 }
-fn literal_base(url: &str) -> Result<String, Error> {
+fn remote_authority(authority: &str) -> bool {
+    let (host, port) = authority.split_once(':').map_or((authority, None), |(h, p)| (h, Some(p)));
+    let port_ok = port.is_none_or(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()) && p.parse::<u16>().is_ok_and(|n| n > 0));
+    let host_ok = host.len() <= 253
+        && host.split('.').all(|l| !l.is_empty() && !l.starts_with('-') && !l.ends_with('-') && l.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-'));
+    port_ok && host_ok
+}
+/// With `ask` (net:ask granted), a literal `https://host[:port]` server is also accepted; the host asks the user
+/// at send time, so the spec never gains network reach the user has not approved.
+fn literal_base(url: &str, ask: bool) -> Result<String, Error> {
     let rest = url
         .strip_prefix("http://")
         .or_else(|| url.strip_prefix("https://"))
@@ -99,7 +109,14 @@ fn literal_base(url: &str) -> Result<String, Error> {
         return Err(invalid("Unsupported server URL form."));
     }
     let (authority, path) = rest.split_once('/').unwrap_or((rest, ""));
-    let port = authority.strip_prefix("127.0.0.1:").ok_or_else(|| invalid("Only literal 127.0.0.1 with an explicit port is supported."))?;
+    let remote = ask && url.starts_with("https://") && !authority.starts_with("127.0.0.1:") && remote_authority(authority);
+    if remote {
+        if !path.bytes().all(|b| b.is_ascii_alphanumeric() || b"/_-.~".contains(&b)) || path.split('/').any(|p| matches!(p, "." | "..")) {
+            return Err(invalid("Server paths must be literal unencoded segments."));
+        }
+        return Ok(url.trim_end_matches('/').into());
+    }
+    let port = authority.strip_prefix("127.0.0.1:").ok_or_else(|| invalid("Only literal 127.0.0.1 with an explicit port, or an https host when net:ask is granted, is supported."))?;
     if port.is_empty()
         || !port.bytes().all(|b| b.is_ascii_digit())
         || port.starts_with('0')
@@ -161,7 +178,7 @@ fn schema(value: &Value, path: bool) -> Result<Parameter, Error> {
     }
     Ok(Parameter { name: name.into(), path, required, kind: kind.into(), choices })
 }
-fn operations(text: &str) -> Result<Vec<Operation>, Error> {
+fn operations(text: &str, ask: bool) -> Result<Vec<Operation>, Error> {
     if text.len() > MAX_SPEC {
         return Err(invalid("Spec exceeds 128 KiB."));
     }
@@ -186,7 +203,7 @@ fn operations(text: &str) -> Result<Vec<Operation>, Error> {
     if servers[0].get("variables").is_some() {
         return Err(invalid("Server variables are unsupported."));
     }
-    let base = literal_base(servers[0]["url"].as_str().ok_or_else(|| invalid("Missing literal server URL."))?)?;
+    let base = literal_base(servers[0]["url"].as_str().ok_or_else(|| invalid("Missing literal server URL."))?, ask)?;
     let paths = root["paths"].as_object().ok_or_else(|| invalid("Missing paths object."))?;
     if paths.len() > 64 {
         return Err(invalid("Too many paths."));
@@ -346,7 +363,7 @@ impl State {
                 "Local requests require only the literal 127.0.0.1 network grant; additional/broad network grants are unsupported.",
             ));
         }
-        if !self.granted {
+        if !self.granted && !self.ask {
             return Err(Error::Denied(format!("net:{HOST}")));
         }
         Ok(())
@@ -374,11 +391,12 @@ impl State {
         self.next_nonce = self.next_nonce.saturating_add(1);
         self.safe = safe_api(&context.api_version) && self.next_nonce < u64::MAX;
         self.granted = context.has("net:127.0.0.1");
+        self.ask = context.has("net:ask");
         self.scope_ok = context
             .capabilities
             .iter()
             .filter(|c| c.starts_with("net:") || c.starts_with("net.http:") || c.starts_with("net-http:"))
-            .all(|c| c == "net:127.0.0.1");
+            .all(|c| c == "net:127.0.0.1" || c == "net:ask");
     }
     pub fn view(&self, ctx: &Invocation) -> View {
         if self.guard().is_err() {
@@ -424,7 +442,7 @@ impl OpenApi {
         let nonce = self.try_http.begin()?;
         let result = (|| {
             let source = binding(ctx)?;
-            let operations = operations(&source.text)?;
+            let operations = operations(&source.text, self.try_http.ask)?;
             let choices: Vec<_> = operations
                 .iter()
                 .enumerate()
@@ -453,7 +471,7 @@ impl OpenApi {
                 return Err(Error::Stale);
             }
             let review = format!(
-                "Request ticket: {nonce}\nProject: {}\nSource: {} (version {})\n\n{} {}\n\nNo Authorization/Cookie headers, request body, secret-store values or user headers are added. Only declared scalar path/query inputs are sent.\nTimeout: 5 seconds. Host transfer cap: 8 MiB; accepts at most 256 KiB and displays at most 64 KiB.\nAPI 1.4 may follow up to 10 redirects within granted 127.0.0.1 (including other ports/paths). Other hosts and HTTPS-to-HTTP downgrades are denied before connection. Host proxy/TLS settings still apply.\n\nThis immutable preview has not sent anything. Send approves this concrete request once, in the current project/editor/source.",
+                "Request ticket: {nonce}\nProject: {}\nSource: {} (version {})\n\n{} {}\n\nNo Authorization/Cookie headers, request body, secret-store values or user headers are added. Only declared scalar path/query inputs are sent.\nTimeout: 5 seconds. Host transfer cap: 8 MiB; accepts at most 256 KiB and displays at most 64 KiB.\nAPI 1.4 may follow up to 10 redirects within granted 127.0.0.1 (including other ports/paths) or hosts you allowed. Other hosts and HTTPS-to-HTTP downgrades are denied before connection. A host not yet allowed asks you at send time. Host proxy/TLS settings still apply.\n\nThis immutable preview has not sent anything. Send approves this concrete request once, in the current project/editor/source.",
                 source.root, source.path, source.version, op.method, concrete
             );
             if review.len() > 16 << 10 {
@@ -631,6 +649,28 @@ mod tests {
     }
 
     #[test]
+    fn net_ask_allows_https_servers_and_refusal_shows_no_response() {
+        let remote = SPEC.replace("http://127.0.0.1:32109/api", "https://api.example.test/v1");
+        assert!(literal_base("https://api.example.test:8443/v1", true).is_ok());
+        assert!(literal_base("https://api.example.test:8443/v1", false).is_err());
+        for u in ["https://user@api.example.test", "https://API.example.test", "https://a..b", "https://[::1]:1", "https://x:0", "http://api.example.test"] {
+            assert!(literal_base(u, true).is_err(), "{u}");
+        }
+        let h = MockHost::install().with_capabilities(&["project.read", "editor.read", "events", "net:ask"]);
+        h.open_editor("/project/openapi.json", "json", &remote, &[]);
+        let mut p = OpenApi::default();
+        p.activate(&Context { api_version: "1.5".into(), capabilities: vec!["net:ask".into()], ..Context::default() }).unwrap();
+        h.on_fetch(|r| {
+            assert!(r.url.starts_with("https://api.example.test/v1/pets/"));
+            Err(Error::Denied("net:api.example.test".into()))
+        });
+        let key = prepare(&h, &mut p);
+        assert!(h.requests().is_empty());
+        assert!(send(&h, &mut p, &key).is_err());
+        let Body::Message(text) = p.render("try-response", None, &h.invocation()).unwrap().body else { panic!() };
+        assert!(text.contains("denied"));
+    }
+    #[test]
     fn api13_default_denied_or_broader_grants_refuse_before_fetch() {
         let (h, mut p) = setup();
         for api in ["1.3", "1.2", "", "2.0", "bogus", "1.+4", "1.4.", "1.4.preview", "1.4.0.extra"] {
@@ -723,7 +763,7 @@ mod tests {
             "http://127.0.0.1:32109/a%2f",
             "http://[::1]:32109",
         ] {
-            assert!(literal_base(u).is_err(), "{u}");
+            assert!(literal_base(u, false).is_err(), "{u}");
         }
         for source in [
             SPEC.replace("3.1.0", "3.2.0"),
@@ -733,12 +773,12 @@ mod tests {
             SPEC.replace("\"get\":", "\"post\":"),
             SPEC.replace("\"in\":\"query\"", "\"in\":\"header\""),
         ] {
-            assert!(operations(&source).is_err());
+            assert!(operations(&source, false).is_err());
         }
     }
     #[test]
     fn parameter_membership_encoding_and_scalar_validation_do_not_escape_source_scope() {
-        let op = operations(SPEC).unwrap().remove(0);
+        let op = operations(SPEC, false).unwrap().remove(0);
         assert!(url(&op, &["..".into(), "".into()]).is_err());
         assert!(url(&op, &["a\r\nX:y".into(), "".into()]).is_err());
         for source in [
@@ -747,7 +787,7 @@ mod tests {
             SPEC.replace("\"type\":\"string\"", "\"type\":\"string\",\"enum\":[1]"),
             SPEC.replace("\"type\":\"string\"", "\"type\":\"string\",\"enum\":[]"),
         ] {
-            assert!(operations(&source).is_err());
+            assert!(operations(&source, false).is_err());
         }
         assert_eq!(url(&op, &["%2e%2e".into(), "".into()]).unwrap(), "http://127.0.0.1:32109/api/pets/%252e%252e");
     }

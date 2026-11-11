@@ -456,6 +456,22 @@ impl Plan {
         Ok(project)
     }
 }
+pub(crate) fn validate_running(root: &str) -> Result<(), String> {
+    let Some(project) = host::projects()
+        .unwrap_or_default()
+        .into_iter()
+        .find(|p| p.root().is_ok_and(|r| r == root))
+    else {
+        return Ok(());
+    };
+    let Ok(containers) = endpoint(&project).and_then(|e| candidates(&project, root, &e)) else {
+        return Ok(());
+    };
+    if containers.is_empty() {
+        return Err("The dev container is not running. Start it with Dev Container: Start first.".into());
+    }
+    Ok(())
+}
 pub(crate) fn prepare(state: &mut State, ctx: &Invocation) -> Result<Option<String>, Error> {
     prepare_mode(state, ctx, Mode::RootRelative)
 }
@@ -602,6 +618,17 @@ mod tests {
         host.answer_next_prompt(Some(&["yes"]));
         main.run_command("register-mapped-tooling-target", &host.invocation(), None).unwrap();
         format!("register:{}", main.run_target.prepared.as_ref().unwrap().nonce)
+    }
+    #[test]
+    fn validation_refuses_when_no_running_container_and_allows_otherwise() {
+        let host = setup();
+        assert!(validate_running("/work/app").is_ok());
+        host.on_process("docker",|args,_|match args.iter().map(String::as_str).collect::<Vec<_>>().as_slice(){
+            ["context","show"]=>ok("desktop-linux\n"),
+            ["context","inspect","desktop-linux"]=>ok(r#"[{"Name":"desktop-linux","Endpoints":{"docker":{"Host":"unix:///var/run/docker.sock"}}}]"#),
+            _=>ok(""),
+        });
+        assert!(validate_running("/work/app").unwrap_err().contains("not running"));
     }
     fn register_both(host: &MockHost) {
         let project = host.invocation().project().unwrap();

@@ -2257,7 +2257,7 @@ impl Cache {
                 }
                 Some(LineMarker {
                     line: range.start.line,
-                    icon: Some("goto".into()),
+                    icon: Some(crate::LABEL_MARKER.into()),
                     tooltip: "Read-only exact label/key source candidate".into(),
                     target: targets.into_iter().next(),
                 })

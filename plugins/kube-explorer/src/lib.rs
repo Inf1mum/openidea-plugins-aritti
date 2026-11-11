@@ -7,6 +7,9 @@
 //! Every cluster call is a `kubectl` run with the chosen context and
 //! namespace as flags, so the user's kubeconfig is never changed.
 
+pub(crate) const KUSTOMIZE_MARKER: &str = "icons/marker-kustomize.svg";
+pub(crate) const LABEL_MARKER: &str = "icons/marker-label.svg";
+
 mod ui_group;
 mod chart_actions;
 mod checks;
@@ -3438,5 +3441,19 @@ mod rich_panel_owner_tests {
         kube.handle(TREE,ViewEvent::Activate(kube.test_choice_key("ns/other",&host.invocation())),&host.invocation()).unwrap();
         let panel=kube.render(PANEL,None,&host.invocation()).unwrap();
         assert!(kube.draft.is_none());assert!(!format!("{:?}",panel.body).contains("synthetic-private"));
+    }
+}
+
+#[cfg(test)]
+mod marker_icon_tests {
+    #[test]
+    fn marker_icons_are_declared_and_packaged() {
+        let manifest = include_str!("../plugin.toml");
+        for icon in [crate::KUSTOMIZE_MARKER, crate::LABEL_MARKER, "icons/marker-users.svg"] {
+            assert!(manifest.contains(&format!("icon = \"{icon}\"")), "{icon}");
+            assert!(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(icon).is_file(), "{icon}");
+        }
+        assert!(manifest.contains("markers = [\"kube-users:\"]"));
+        assert!(crate::indexer::users_key("kube:x").starts_with("kube-users:"));
     }
 }

@@ -78,7 +78,7 @@ fn api_group(version: &str) -> Option<&str> {
     (crate::is_dns_subdomain(group) && crate::is_dns_label(version) && !version.contains('/')).then_some(group)
 }
 
-fn users_key(resource_key: &str) -> String {
+pub(crate) fn users_key(resource_key: &str) -> String {
     format!("kube-users:{}", resource_key.trim_start_matches("kube:"))
 }
 

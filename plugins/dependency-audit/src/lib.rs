@@ -492,9 +492,15 @@ fn tree_of(root: &str, rows: &[Row], mut display: Option<&mut Display>) -> (Vec<
     (items, targets)
 }
 
+pub(crate) fn notify_project(project: &Project, level: NotificationLevel, title: &str, body: &str) {
+    if project.notify(level, title, body, &[]).is_err() {
+        host::notify(level, title, body);
+    }
+}
+
 fn scan_and_notify(project: &Project, live: &mut live::Live) -> Result<(), Error> {
     let body = scan(project, live)?;
-    host::notify(NotificationLevel::Info, "Dependency Audit", &body);
+    notify_project(project, NotificationLevel::Info, "Dependency Audit", &body);
 
     Ok(())
 }

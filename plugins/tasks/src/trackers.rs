@@ -700,7 +700,7 @@ pub fn search_targets(scope: &Scope) -> Result<Vec<SearchTarget>, Error> {
             _ => continue,
         };
         let allowed = match tracker.id {
-            "youtrack" => cloud_host(&server, ".youtrack.cloud"),
+            "youtrack" => cloud_host(&server, ".youtrack.cloud") || self_hosted_host(&server),
             "jira" => cloud_host(&server, ".atlassian.net"),
             "lighthouse" => cloud_host(&server,".lighthouseapp.com"),
             _ => true,
@@ -734,6 +734,12 @@ pub fn search_targets(scope: &Scope) -> Result<Vec<SearchTarget>, Error> {
         }
     }
     Ok(targets)
+}
+/// A bare DNS name (no userinfo, port or path). Reaching it still needs the user's `net:ask` approval.
+fn self_hosted_host(host: &str) -> bool {
+    host.len() <= 253
+        && host.contains('.')
+        && host.split('.').all(|l| !l.is_empty() && !l.starts_with('-') && !l.ends_with('-') && l.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'))
 }
 fn cloud_host(host: &str, suffix: &str) -> bool {
     host.strip_suffix(suffix)
@@ -998,9 +1004,22 @@ mod tests {
         search_page(&scope, &target, 2).unwrap();
         assert!(host.requests()[0].url.contains("$skip=50"));
         assert!(search_page(&scope, &target, 6).is_err());
-        host.set_setting("youtrackHost", "\"evil.youtrack.cloud.evil.example\"");
+        host.set_setting("youtrackHost", "\"user@evil.example\"");
+        assert!(search_targets(&scope).unwrap().is_empty());
+        host.set_setting("youtrackHost", "\"evil.example:8443\"");
         assert!(search_targets(&scope).unwrap().is_empty());
         assert!(!cloud_host("user@tenant.youtrack.cloud", ".youtrack.cloud"));
+    }
+    #[test]
+    fn self_hosted_youtrack_needs_the_hosts_net_ask_approval() {
+        let host = MockHost::install().with_capabilities(&["secrets", "net:ask"]);
+        host.set_secret("youtrack-token", "token");
+        host.set_setting("youtrackHost", "\"youtrack.corp.example\"");
+        let repositories = BTreeMap::new();
+        let scope = Scope { remotes: &[], repositories: &repositories, query: Some("bug"), page: 1 };
+        let target = search_targets(&scope).unwrap().remove(0);
+        assert_eq!(target.server, "youtrack.corp.example");
+        assert!(matches!(search_page(&scope, &target, 1), Err(Error::Denied(c)) if c == "net:youtrack.corp.example"));
     }
     #[test]
     fn page_parameters_are_tracker_specific_and_cursor_trackers_refuse_more() {
