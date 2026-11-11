@@ -15,14 +15,13 @@
 //! `<module>/src/main/java/db/migration`, accepted only when an existing Java migration already lives there or an
 //! existing versioned SQL layout `<module>/src/main/resources/db/migration` proves the classpath location.
 //! Configured locations or naming refuse. Kotlin migrations are not generated (not compiled/verified).
-use super::migration_action::{absent, absolute, custom_flyway_settings, description_of, flyway_folder, next_version, read_optional, version_key, versioned_ext, MAX_MIGRATIONS};
+use super::migration_action::{absent, absolute, custom_flyway_settings, description_of, flyway_folder, java_migrations, next_version, read_optional, version_key, versioned_ext, JAVA_DIR_SUFFIX, MAX_MIGRATIONS};
 use super::*;
 use std::collections::BTreeSet;
 
 pub(super) const TITLE_JAVA_MIGRATION: &str = "Create Flyway Java migration…";
 pub(super) const TITLE_SQL_CALLBACK: &str = "Create Flyway SQL callback…";
 pub(super) const TITLE_JAVA_CALLBACK: &str = "Create Flyway Java callback…";
-const JAVA_DIR_SUFFIX: &str = "/src/main/java/db/migration";
 const SQL_DIR_SUFFIX: &str = "/src/main/resources/db/migration";
 
 /// (SQL callback name, whether a SQL script of that name is offered). Statement events are only offered for Java.
@@ -149,24 +148,13 @@ fn java_plan(project: &Project, root: &str, doc_directory: &str) -> Result<JavaP
     prove_flyway(project, root, doc_directory)?;
     let mut versions: Vec<String> = Vec::new();
     let mut java_directories = BTreeSet::new();
-    let java = project.find_files("**/V*__*.java", MAX_MIGRATIONS)?;
     let sql = project.find_files("**/src/main/resources/db/migration/**/*", MAX_MIGRATIONS)?;
-    if java.len() >= MAX_MIGRATIONS as usize || sql.len() >= MAX_MIGRATIONS as usize {
+    if sql.len() >= MAX_MIGRATIONS as usize {
         return Err("Migration discovery reached its limit.".into());
     }
-    for file in java.iter().map(|f| absolute(root, f)) {
-        let (directory, name) = file.rsplit_once('/').ok_or(Error::Stale)?;
-        let Some(version) = versioned_ext(name, ".java") else {
-            continue;
-        };
-        if file.contains("/src/test/") || !project.read_file(&file)?.contains("JavaMigration") {
-            continue;
-        }
-        if !directory.ends_with(JAVA_DIR_SUFFIX) {
-            return Err(format!("The existing Java migration {file} is not under the default src/main/java/db/migration location; the location is not proven, so nothing was generated.").into());
-        }
-        versions.push(version.to_owned());
-        java_directories.insert(directory.to_owned());
+    for (directory, version) in java_migrations(project, root)? {
+        versions.push(version);
+        java_directories.insert(directory);
     }
     for file in sql.iter().map(|f| absolute(root, f)) {
         let name = file.rsplit('/').next().unwrap_or_default();

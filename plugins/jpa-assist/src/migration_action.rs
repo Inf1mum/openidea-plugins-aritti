@@ -16,7 +16,7 @@ use persistence_core::schema::{self, Danger, SchemaSnapshot};
 use persistence_core::sql::{self, BackfillValue, Dialect, EmitOptions};
 use super::template_settings::{self, FlywayNaming};
 use persistence_core::naming::{self, DateTime, Inputs};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub(super) const BASELINE_TITLE: &str = "Create schema baseline…";
 pub(super) const MIGRATION_TITLE: &str = "Generate Flyway migration from model changes…";
@@ -227,6 +227,34 @@ pub(super) struct Folder {
     pub(super) directory: String,
     pub(super) version: String,
     pub(super) names: Vec<String>,
+    /// Versions of the versioned SQL and Java migrations of the module; Flyway rejects two migrations of one version.
+    pub(super) versions: Vec<String>,
+}
+
+pub(super) const JAVA_DIR_SUFFIX: &str = "/src/main/java/db/migration";
+
+/// `(directory, version)` of every existing Java migration (`V<version>__<description>.java` extending a
+/// `JavaMigration` type, outside `src/test`), refusing one that is not in the default location.
+pub(super) fn java_migrations(project: &Project, root: &str) -> Result<Vec<(String, String)>, Error> {
+    let java = project.find_files("**/V*__*.java", MAX_MIGRATIONS)?;
+    if java.len() >= MAX_MIGRATIONS as usize {
+        return Err("Migration discovery reached its limit.".into());
+    }
+    let mut found = Vec::new();
+    for file in java.iter().map(|f| absolute(root, f)) {
+        let (directory, name) = file.rsplit_once('/').ok_or(Error::Stale)?;
+        let Some(version) = versioned_ext(name, ".java") else {
+            continue;
+        };
+        if file.contains("/src/test/") || !project.read_file(&file)?.contains("JavaMigration") {
+            continue;
+        }
+        if !directory.ends_with(JAVA_DIR_SUFFIX) {
+            return Err(format!("The existing Java migration {file} is not under the default src/main/java/db/migration location; the location is not proven, so nothing was generated.").into());
+        }
+        found.push((directory.to_owned(), version.to_owned()));
+    }
+    Ok(found)
 }
 
 pub(super) fn flyway_folder(project: &Project, root: &str) -> Result<Folder, Error> {
@@ -250,17 +278,30 @@ fn flyway_folder_with(project: &Project, root: &str, naming: &FlywayNaming) -> R
         }
         folders.entry(directory.to_owned()).or_default().push(name.to_owned());
     }
+    let java = java_migrations(project, root)?;
     let mut with_versions = folders.into_iter().filter(|(_, names)| names.iter().any(|n| versioned(n).is_some()));
-    let (directory, names) = with_versions.next().ok_or("No existing <prefix><version><separator><description>.sql migration (V<version>__<description>.sql by default) was found; the folder and version cannot be determined.")?;
+    let (directory, names) = match with_versions.next() {
+        Some(found) => found,
+        None => {
+            let modules: BTreeSet<&str> = java.iter().filter_map(|(dir, _)| dir.strip_suffix(JAVA_DIR_SUFFIX)).collect();
+            let mut modules = modules.into_iter();
+            let (Some(module), None) = (modules.next(), modules.next()) else {
+                return Err("No existing <prefix><version><separator><description>.sql or Java migration (V<version>__<description> by default) was found; the folder and version cannot be determined.".into());
+            };
+            (format!("{module}{MIGRATION_DIR_SUFFIX}"), Vec::new())
+        }
+    };
     if with_versions.next().is_some() {
         return Err("Several modules contain versioned migrations; the migration folder is ambiguous.".into());
     }
     if path(&directory).as_deref() != Some(directory.as_str()) || !inside(root, &directory) {
         return Err(Error::Stale);
     }
-    let versions: Vec<String> = names.iter().filter_map(|n| versioned(n)).collect();
+    let module_java = format!("{}{JAVA_DIR_SUFFIX}", directory.strip_suffix(MIGRATION_DIR_SUFFIX).unwrap_or_default());
+    let mut versions: Vec<String> = names.iter().filter_map(|n| versioned(n)).collect();
+    versions.extend(java.into_iter().filter(|(dir, _)| *dir == module_java).map(|(_, version)| version));
     let version = next_version(&versions.iter().map(String::as_str).collect::<Vec<_>>());
-    Ok(Folder { directory, version, names })
+    Ok(Folder { directory, version, names, versions })
 }
 
 pub(crate) fn description_of(text: &str) -> String {
@@ -275,7 +316,7 @@ fn chosen_version(folder: &Folder, naming: &FlywayNaming, description: &str, now
     let Some((pattern, needs)) = &naming.version_pattern else {
         return Ok(folder.version.clone());
     };
-    let existing: Vec<&str> = folder.names.iter().filter_map(|n| versioned_named(n, &naming.prefix, &naming.separator, ".sql")).collect();
+    let existing: Vec<&str> = folder.versions.iter().map(String::as_str).collect();
     let mut highest = None;
     if needs.increment {
         for version in &existing {
@@ -776,6 +817,52 @@ mod tests {
         let doc = Document { text: big, ..doc };
         let err = generate(&host, &mut plugin, &doc, "postgresql", &[], &[true]).unwrap_err();
         assert!(format!("{err:?}").contains("16 KiB"), "{err:?}");
+    }
+
+    const JAVA_MIGRATION: &str = "package db.migration;\npublic class V3__Backfill extends org.flywaydb.core.api.migration.BaseJavaMigration {}\n";
+
+    #[test]
+    fn next_version_counts_java_migrations_so_it_never_collides() {
+        let (host, mut plugin, doc) = migration_ready(ENTITY_PLUS);
+        host.add_file("src/main/java/db/migration/V3__Backfill.java", JAVA_MIGRATION);
+        assert_eq!(created(generate_named(&host, &mut plugin, &doc, &[])), "V4__Add_customer_email.sql");
+    }
+
+    #[test]
+    fn next_version_with_only_java_migrations_targets_the_resources_folder() {
+        let (host, mut plugin, doc) = setup(ENTITY_PLUS);
+        host.add_file("db/jpa-schema-baseline.json", &baseline_json(ENTITY));
+        host.add_file("src/main/java/db/migration/V3__Backfill.java", JAVA_MIGRATION);
+        let resolved = generate_named(&host, &mut plugin, &doc, &[]).unwrap();
+        let FileOperation::Create { path, .. } = &resolved.operations[0] else { panic!() };
+        assert_eq!(path, &format!("{MIGRATIONS}/V4__Add_customer_email.sql"));
+    }
+
+    #[test]
+    fn java_migrations_without_a_migration_class_or_in_tests_are_ignored() {
+        let (host, mut plugin, doc) = migration_ready(ENTITY_PLUS);
+        host.add_file("src/main/java/db/migration/V9__NotAMigration.java", "package db.migration;\npublic class V9__NotAMigration {}\n");
+        host.add_file("src/test/java/db/migration/V8__Test.java", JAVA_MIGRATION);
+        assert_eq!(created(generate_named(&host, &mut plugin, &doc, &[])), "V3__Add_customer_email.sql");
+    }
+
+    #[test]
+    fn version_patterns_see_java_migration_versions() {
+        let (host, mut plugin, doc) = migration_ready(ENTITY_PLUS);
+        host.add_file("src/main/java/db/migration/V7__Backfill.java", JAVA_MIGRATION);
+        host.set_setting("flywayVersionPattern", "\"5\"");
+        assert!(generate_named(&host, &mut plugin, &doc, &[]).is_err(), "5 sorts before the Java V7");
+        let (host, mut plugin, doc) = migration_ready(ENTITY_PLUS);
+        host.add_file("src/main/java/db/migration/V1_5__Backfill.java", JAVA_MIGRATION);
+        host.set_setting("flywayVersionPattern", "\"#increment(1,1,0)\"");
+        assert!(generate_named(&host, &mut plugin, &doc, &[]).is_err(), "#increment over a non-plain Java version");
+    }
+
+    #[test]
+    fn no_migrations_at_all_refuses() {
+        let (host, mut plugin, doc) = setup(ENTITY_PLUS);
+        host.add_file("db/jpa-schema-baseline.json", &baseline_json(ENTITY));
+        assert!(generate_named(&host, &mut plugin, &doc, &[]).is_err());
     }
 
     #[test]
