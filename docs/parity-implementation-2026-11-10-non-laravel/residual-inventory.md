@@ -12,33 +12,33 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F06 | Flyway | Enterprise diff/snapshot/SQL generation (licensed runtime) | H | |
 | F07 | Database | DB/entity-derived init/diff DDL beyond H2 | A-L | |
 | F08 | Database | Native datasource inspection, entity queries, console | H | |
-| F09 | Flyway | Quoted/dialect tables, naming, constants, Kotlin entities, XML mappings | A-M | partial (same-file constants, implicit snake_case naming; quoted ids, Kotlin, XML open) |
+| F09 | Flyway | Quoted/dialect tables, naming, constants, Kotlin entities, XML mappings | A-M | partial (constants, implicit naming, quoted/dialect identifiers; Kotlin entities, XML mappings open) |
 | F10 | Liquibase | Other dialects, online snapshot, GUI undo | U | |
 | F11 | Hibernate | Live schema compare, effective persistence units, other ORM versions | A-M | |
 | F12 | JPQL console | PostgreSQL/MySQL/MariaDB unverified | U | |
 | F13 | JPQL console | Mutation mode, entity-graph editing, effective config | A-M | |
 | F14 | OpenAPI | Generator JSON config import | A-S | done |
-| F15 | OpenAPI | Source-context Add path/operation/response | A-M | partial (YAML Add operation/response) |
+| F15 | OpenAPI | Source-context Add path/operation/response | A-M | partial (YAML+JSON Add operation/response/path/query parameter) |
 | F16 | OpenAPI | Remote catalog, SwaggerHub, typed client URL completion | A-M | |
 | F17 | OpenAPI | Full compatibility report | A-M | |
 | F18 | OpenAPI | Draft spec from framework mappings | A-L | |
 | F19 | OpenAPI | Staged generation apply/Undo on desktop | U | |
-| F20 | GitLab | GFM mentions/emoji/math, persistent drafts, timeline | A-M | partial (mentions/emoji) |
+| F20 | GitLab | GFM mentions/emoji/math, persistent drafts, timeline | A-M | partial (mentions/emoji, math source, local drafts; native diff-line add open) |
 | F21 | GitLab | Self-hosted servers, named multi-account | A-M | |
 | F22 | GitLab | Native Review Mode, git-log actions | H | |
 | F23 | GitLab | No live account/glab acceptance | U | |
-| F24 | Dependency Audit | PyPI markers/groups/pylock | A-M | partial (pylock PyPI index) |
-| F25 | Dependency Audit | Workspace/link/alias graph | A-M | partial (npm: aliases) |
+| F24 | Dependency Audit | PyPI markers/groups/pylock | A-M | partial (pylock, pyproject/PEP 735 pins; markers not evaluated) |
+| F25 | Dependency Audit | Workspace/link/alias graph | A-M | partial (npm: aliases, workspaces/link local rows) |
 | F26 | Dependency Audit | Coordinate-to-declaration binding; more build profiles | A-M | |
 | F27 | Dependency Audit | Ignore-profile import/export, safe-coordinate rows | A-S | done (import/export + checked/skipped rows on Scan Project; Maven/Gradle/sbt imports lack rows) |
 | F28 | Dependency Audit | Vulnerable-call analysis Java/Kotlin/Python | A-L | |
 | F29 | Dependency Audit | Native Problems Security tab, semantic member queries | H | |
-| F30 | dotenv | Runtime-loader/Compose-service/build-stage ownership | A-L | |
+| F30 | dotenv | Runtime-loader/Compose-service/build-stage ownership | A-L | partial (Compose interpolation links, Info hints; service/build-stage ownership open) |
 | F31 | dotenv | Native value folding/secret hiding, custom triggers | H | |
 | F32 | Ignore | Template-generator controls, preview persistence | A-M | partial (recent-first) |
 | F33 | Ignore | Unicode/unsupported-pattern unused-rule model | A-S | done (exact bytes; unprovable misses withheld) |
 | F34 | Ignore | Native tree filtering, editor closing, dynamic associations | H | |
-| F35 | Properties | Kotlin, modulepath, custom loader, constant-key, inherited, live graph | A-L | |
+| F35 | Properties | Kotlin, modulepath, custom loader, constant-key, inherited, live graph | A-L | partial (same-file constants, @PropertyKey; Kotlin ctor params, modulepath, custom loader open) |
 | F36 | Properties | Native bundle grouping, encoding chooser | H | |
 | F37 | Ideolog | Native line hiding, heatmap, terminal filtering, exact rendering | H | |
 | F38 | Ideolog | Inline editor syntax from JVM adapter | A-M | |
@@ -49,10 +49,10 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F43 | Quarkus | LS broker desktop acceptance; other OS/profiles; multi-module | U | |
 | F44 | Quarkus | Config overlay: new unsaved files, YAML, third-party sources | A-M | |
 | F45 | Quarkus | Qute Java-embedded routing, custom roots, inherited data model | A-L | |
-| F46 | Quarkus | JAX-RS roots/custom annotations; scheduler expressions | A-M | |
+| F46 | Quarkus | JAX-RS roots/custom annotations; scheduler expressions | A-M | partial (@Scheduled checks, effective REST path) |
 | F47 | Quarkus | MPJava diagnostics while config dirty (upstream LS limit) | H | |
 | F48 | Kubernetes | Complete built-in/CRD schemas, admission/CEL, defaults | A-L | |
-| F49 | Kubernetes | Kustomize transformed/flow/remote refs; generated identity | A-M | partial (generator/replacement file refs) |
+| F49 | Kubernetes | Kustomize transformed/flow/remote refs; generated identity | A-M | partial (generator/replacement refs, inline patch selectors, bases cycles, helm valuesFile) |
 | F50 | Kubernetes | Label graph affinity/node-label models, escaped scalar edits | A-S | done (affinity/spread links + single-line quoted escaped scalars; multiline/block still refused) |
 | F51 | Helm | Go-template scope, tpl/include, OCI registry intelligence | A-L | partial (`.Values` navigation) |
 | F52 | Devcontainer | Full JSON Schema/Compose semantics, template/feature metadata | A-M | partial (hostRequirements types, Compose file/service refs) |
@@ -65,8 +65,8 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F59 | Initializr | Native New Project wizard, JDK/SDK config, IDE build import | H | |
 | F60 | Runtime | External-library/overloaded source semantics | A-L | |
 | F61 | Runtime | Remote/JMX management transport | A-L | |
-| F62 | Runtime | Saved-request history, credential selection, health detail | A-M | partial (recent requests; health detail tree, bean chooser open) |
-| F63 | Boot run | Custom args, build-plugin resolution, multi-module root | A-M | partial (Maven/Gradle module run entries; args/profiles prompt open) |
+| F62 | Runtime | Saved-request history, credential selection, health detail | A-M | partial (recent requests, masked health detail tree; gutter bean chooser open) |
+| F63 | Boot run | Custom args, build-plugin resolution, multi-module root | A-M | partial (module runs, Run with Profiles/Arguments; include/config.import discovery open) |
 | F64 | Boot metadata | Gradle resolution, inherited properties, alternate repos | A-M | |
 | F65 | Integration | Effective context ownership for global usages | A-L | |
 | F66 | Integration | DSL flow edges, Kotlin DSL | A-M | |
@@ -79,28 +79,28 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F73 | Spring core | All classpath metadata, dynamic build resolution, converters | A-M | |
 | F74 | Spring core | Data projection/query/entity-graph generators | A-L | |
 | F75 | Spring core | Security chain, effective authorization | A-L | |
-| F76 | Spring core | JPA hierarchy/XML mappings/converters/reverse engineering | A-L | |
-| F77 | Spring Web | MVC mapping predicates/params, body-aware request samples | A-M | |
+| F76 | Spring core | JPA hierarchy/XML mappings/converters/reverse engineering | A-L | partial (hierarchy identifier, converter checks) |
+| F77 | Spring Web | MVC mapping predicates/params, body-aware request samples | A-M | partial (proven-receiver test-URL completion) |
 | F78 | Spring Web | MVC OpenAPI export conditions, regex/ANY mappings | A-L | |
-| F79 | Spring Web | Thymeleaf selectors, model inference, resolver semantics | A-M | partial (advice model attrs, fragment args) |
+| F79 | Spring Web | Thymeleaf selectors, model inference, resolver semantics | A-M | partial (advice model attrs, @SessionAttributes names, fragment args) |
 | F80 | Spring Web | SpEL/EL injection, URL inlay actions | A-M | |
 | F81 | Spring Web | MVC XML imports/profiles, XSD validation | A-M | |
 | F82 | Spring Web | Template catalogue (licence); multi-action marker popup (host) | L/H | blocked |
-| F83 | Spring Web | Cloud Gateway args/DSL, Stream, discovery/config | A-M | partial (unknown expanded args, shortcut arity) |
+| F83 | Spring Web | Cloud Gateway args/DSL, Stream, discovery/config | A-M | partial (arg tables + arity for ~34 factories, .or() DSL chains) |
 | F84 | Spring Web | Cloud auto-configured model, HttpExchange/contract Feign | A-L | |
 | F85 | Spring Web | GraphQL resolver graph, non-root hints, transport | A-L | partial (Kotlin aliases, BatchMapping) |
 | F86 | Spring Web | Messaging/WebSocket dynamic SpEL, SockJS, XML schema model, broker | A-L | partial (XML enum/ref checks) |
-| F87 | Spring Web | Web Flow Java/custom flow models | A-M | |
-| F88 | Shell | Cross-file registry, dynamic registration, inherited availability | A-L | |
+| F87 | Spring Web | Web Flow Java/custom flow models | A-M | partial (Java-config flow registries) |
+| F88 | Shell | Cross-file registry, dynamic registration, inherited availability | A-L | partial (inherited availability, duplicate provenance; inherited groups, conventional availability open) |
 | F89 | Shell | Native terminal command-spec hooks | H | |
-| F90 | WS | QName refs across XML/WSDL/XSD, effective context | A-L | |
-| F91 | WS | Full XPath validation, WSDL generation, OXM/CXF semantics | A-L | |
-| F92 | Twig | Trait/embed/namespaced loader, macro-parameter Rename | A-M | partial (`use`d block navigation; @ns paths, macro-param Rename open) |
+| F90 | WS | QName refs across XML/WSDL/XSD, effective context | A-L | partial (XSD attribute/content-model rules) |
+| F91 | WS | Full XPath validation, WSDL generation, OXM/CXF semantics | A-L | partial (literal XPath 1.0 syntax validation; prefix checks open) |
+| F92 | Twig | Trait/embed/namespaced loader, macro-parameter Rename | A-M | partial (`use`d blocks, templateNamespaces, reviewed macro-param rename; twig.paths open) |
 | F93 | Twig | Formatter, custom delimiters | A-M | |
 | F94 | Twig | Dynamic context, extension types | A-L | |
 | F95 | Twig | Embedded type resolution, Enter/pairing, debugger mapping, plugin-lexer rendering | H | |
 | F96 | Symfony | Service/route/template/domain reference models, reviewed Rename | A-L | |
-| F97 | Symfony | Profiler collector detail, pagination, remote modes | A-M | |
+| F97 | Symfony | Profiler collector detail, pagination, remote modes | A-M | partial (profiler paging, time/cache/logger collectors; events/request open) |
 | F98 | Symfony | Doctrine/forms/container types | A-L | |
 
-Totals at 2026-11-11: 98 items. Done: F14, F27, F33, F42, F50. Skipped: F69. Blocked: F82. Partial: F09, F15, F20, F24, F25, F32, F41, F49, F51, F52, F56, F62, F63, F67, F79, F83, F85, F86, F92 (19). About 72 untouched.
+Totals at 2026-11-11: 98 items. Done: F14, F27, F33, F42, F50. Skipped: F69. Blocked: F82. Partial: about 36 (see status column). About 55 untouched. Counts are judgment calls; partial does not mean near-complete.
