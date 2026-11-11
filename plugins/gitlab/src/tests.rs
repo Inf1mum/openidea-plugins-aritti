@@ -1072,6 +1072,28 @@ fn viewed_compares_file_last_commit() {
 }
 
 #[test]
+fn local_drafts_tab_flags_stale_heads_and_submits_as_review_drafts() {
+    let host = setup();
+    let mut plugin = selected(&host);
+    let mut store = local_drafts::Store::load("g/p", 7).unwrap();
+    store.add("abcdef1", "src/a.rs", 4, "unsent").unwrap();
+    store.save().unwrap();
+    let view = render_in(&mut plugin, Section::Drafts, &host);
+    let Body::Other { data, .. } = &view.body else { panic!("{view:?}") };
+    assert!(data.contains("Ready") && data.contains("unsent"), "{data}");
+    let mut stale = local_drafts::Store::load("g/p", 7).unwrap();
+    stale.rebind("old");
+    stale.save().unwrap();
+    let view = render_in(&mut plugin, Section::Drafts, &host);
+    let Body::Other { data, .. } = &view.body else { panic!("{view:?}") };
+    assert!(data.contains("STALE"), "{data}");
+    assert!(view.status.unwrap().contains("STALE"));
+    storage::set(sections::SECTION_KEY, "drafts").unwrap();
+    assert!(plugin.handle(DETAILS, ViewEvent::Button("draft-submit".into()), &host.invocation()).is_err());
+    assert_eq!(local_drafts::Store::load("g/p", 7).unwrap().items.len(), 1);
+}
+
+#[test]
 fn files_view_toggles_viewed_without_page_scripts_and_switches_layout() {
     let host = setup();
     host.on_process("git", |_, _| Ok(ProcessOutput { status: Some(128), stdout: String::new(), stderr: "bad object".into() }));
@@ -3300,7 +3322,7 @@ fn section_buttons_list_the_sections_with_the_active_one_marked() {
     let view = plugin.render(DETAILS, None, &host.invocation()).unwrap();
 
     let ids: Vec<&str> = section_buttons(&view).into_iter().map(|(id, _)| id).collect();
-    assert_eq!(ids, ["section:overview", "section:description", "section:changes", "section:commits", "section:files", "section:pipelines", "section:timeline"]);
+    assert_eq!(ids, ["section:overview", "section:description", "section:changes", "section:commits", "section:files", "section:pipelines", "section:timeline", "section:drafts"]);
     assert_eq!(section_buttons(&view)[0].1, "● Overview");
     assert_eq!(section_buttons(&view)[1].1, "Description");
 

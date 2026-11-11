@@ -12,45 +12,45 @@ use yaml_rust2::{
 const MAX_TEXT: usize = 128 << 10;
 const MAX_FILES: usize = 64;
 #[derive(Clone, Debug)]
-struct Scalar {
-    value: String,
-    range: Range,
+pub(crate) struct Scalar {
+    pub(crate) value: String,
+    pub(crate) range: Range,
     string: bool,
     exact: bool,
     escaped: bool,
 }
 #[derive(Debug)]
-enum Node {
+pub(crate) enum Node {
     Scalar(Scalar),
     Map(Vec<(Scalar, Node)>),
     Seq(Vec<Node>),
 }
 impl Node {
-    fn get(&self, key: &str) -> Option<&Node> {
+    pub(crate) fn get(&self, key: &str) -> Option<&Node> {
         if let Self::Map(pairs) = self {
             pairs.iter().find(|(k, _)| k.value == key).map(|(_, v)| v)
         } else {
             None
         }
     }
-    fn at(&self, path: &[&str]) -> Option<&Node> {
+    pub(crate) fn at(&self, path: &[&str]) -> Option<&Node> {
         path.iter().try_fold(self, |node, key| node.get(key))
     }
-    fn scalar(&self) -> Option<&Scalar> {
+    pub(crate) fn scalar(&self) -> Option<&Scalar> {
         if let Self::Scalar(s) = self {
             Some(s)
         } else {
             None
         }
     }
-    fn pairs(&self) -> Option<&[(Scalar, Node)]> {
+    pub(crate) fn pairs(&self) -> Option<&[(Scalar, Node)]> {
         if let Self::Map(p) = self {
             Some(p)
         } else {
             None
         }
     }
-    fn items(&self) -> Option<&[Node]> {
+    pub(crate) fn items(&self) -> Option<&[Node]> {
         if let Self::Seq(p) = self {
             Some(p)
         } else {
@@ -221,7 +221,7 @@ fn spells(source: &str, start: usize, end: usize, key: &str) -> bool {
             && source.as_bytes().get(end) == source.as_bytes().get(start - 1)
             && scan_quoted(source, start - 1, key) == Some(end)
 }
-fn parse(source: &str) -> Option<Vec<Node>> {
+pub(crate) fn parse(source: &str) -> Option<Vec<Node>> {
     if source.len() > MAX_TEXT || source.contains("{{") || source.contains("${") {
         return None;
     }

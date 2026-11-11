@@ -18,6 +18,7 @@ mod component_occurrences;
 mod component_rename;
 mod codegen;
 mod codegen_options;
+mod json_actions;
 mod operation_actions;
 mod section_actions;
 mod yaml_scan;

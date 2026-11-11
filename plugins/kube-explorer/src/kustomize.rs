@@ -7,6 +7,7 @@ use yaml_rust2::Yaml;
 const LIMIT: usize = 128 << 10;
 const FIELDS: &[&str] = &[
     "resources",
+    "bases",
     "components",
     "crds",
     "configurations",
@@ -17,19 +18,20 @@ const FIELDS: &[&str] = &[
 ];
 const GENERATORS: &[&str] = &["configMapGenerator", "secretGenerator"];
 #[derive(Debug)]
-struct Reference {
-    value: String,
-    start: usize,
-    end: usize,
+pub(crate) struct Reference {
+    pub(crate) value: String,
+    pub(crate) start: usize,
+    pub(crate) end: usize,
     component: bool,
+    pub(crate) graph: bool,
 }
-fn named(path: &str) -> bool {
+pub(crate) fn named(path: &str) -> bool {
     matches!(
         path.rsplit(['/', '\\']).next(),
         Some("kustomization.yaml" | "kustomization.yml" | "Kustomization")
     )
 }
-fn owner(doc: &Document) -> Option<(openidea_plugin::Project, String)> {
+pub(crate) fn owner(doc: &Document) -> Option<(openidea_plugin::Project, String)> {
     if doc.language != "yaml" || !named(&doc.path) || doc.text.len() > LIMIT {
         return None;
     }
@@ -45,12 +47,12 @@ fn values(doc: &Yaml) -> Vec<String> {
             found.extend(items.iter().filter_map(|v| v.as_str().map(str::to_owned)));
         }
     }
-    for key in ["patches", "replacements"] {
+    for (key, field) in [("patches", "path"), ("replacements", "path"), ("helmCharts", "valuesFile")] {
         if let Some(items) = doc[key].as_vec() {
             found.extend(
                 items
                     .iter()
-                    .filter_map(|v| v["path"].as_str().map(str::to_owned)),
+                    .filter_map(|v| v[field].as_str().map(str::to_owned)),
             );
         }
     }
@@ -113,7 +115,7 @@ fn scalar(raw: &str) -> Option<(String, usize)> {
     }
     Some((parsed[0].as_str()?.to_owned(), lead + token.len()))
 }
-fn references(doc: &Document) -> Vec<Reference> {
+pub(crate) fn references(doc: &Document) -> Vec<Reference> {
     if doc.text.len() > LIMIT || !named(&doc.path) {
         return vec![];
     }
@@ -165,7 +167,7 @@ fn references(doc: &Document) -> Vec<Reference> {
                     value = Some((rest, at + line.len() - rest.len()));
                 }
             }
-        } else if matches!(field, "patches" | "replacements") {
+        } else if matches!(field, "patches" | "replacements" | "helmCharts") {
             let item = if let Some(item) = content.strip_prefix("- ") {
                 patch_indent = Some(indent);
                 item
@@ -173,7 +175,7 @@ fn references(doc: &Document) -> Vec<Reference> {
                 content
             };
             if (content.starts_with("- ") || patch_indent.is_some_and(|i| indent == i + 2))
-                && let Some(raw) = item.strip_prefix("path:")
+                && let Some(raw) = item.strip_prefix(if field == "helmCharts" { "valuesFile:" } else { "path:" })
             {
                 value = Some((raw, at + line.len() - raw.len()));
             }
@@ -197,6 +199,7 @@ fn references(doc: &Document) -> Vec<Reference> {
                         start: start + lead,
                         end: start + end,
                         component: field == "components",
+                        graph: matches!(field, "resources" | "bases" | "components"),
                     });
                 }
             }
@@ -205,7 +208,7 @@ fn references(doc: &Document) -> Vec<Reference> {
     }
     result
 }
-fn local(root: &str, source: &str, value: &str) -> Option<String> {
+pub(crate) fn local(root: &str, source: &str, value: &str) -> Option<String> {
     if value.is_empty()
         || value.len() > 4096
         || value.starts_with('/')
@@ -229,7 +232,7 @@ fn local(root: &str, source: &str, value: &str) -> Option<String> {
     }
     (path.starts_with(root) && path != Path::new(root)).then(|| path.to_string_lossy().into_owned())
 }
-fn target(
+pub(crate) fn target(
     project: &openidea_plugin::Project,
     root: &str,
     source: &str,
@@ -539,5 +542,19 @@ mod tests {
         let d = doc("configMapGenerator:\n- name: a\n  files:\n  - https://x.io/a.txt\n  - k=gone.txt\n  - ../../../out.txt\n");
         let _h = host(&d);
         assert!(markers(&d).is_empty());
+    }
+
+    #[test]
+    fn helm_charts_values_file_and_bases_navigate() {
+        let d = doc("bases:\n- ../../base\nhelmCharts:\n- name: nginx\n  valuesFile: values/dev.yaml # c\n  additionalValuesFiles:\n  - x.yaml\n- valuesFile: https://x.io/v.yaml\n");
+        let h = host(&d);
+        h.add_file("base/kustomization.yaml", "resources: []\n");
+        h.add_file("overlays/dev/values/dev.yaml", "a: 1\n");
+        let refs = references(&d);
+        assert_eq!(&d.text[refs[1].start..refs[1].end], "values/dev.yaml");
+        assert_eq!(definition(&d, text::position(&d.text, refs[1].start))[0].path, "/p/overlays/dev/values/dev.yaml");
+        assert_eq!(definition(&d, Position::new(1, 4))[0].path, "/p/base/kustomization.yaml");
+        assert_eq!(refs.len(), 3);
+        assert!(definition(&d, text::position(&d.text, refs[2].start)).is_empty());
     }
 }

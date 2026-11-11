@@ -1,10 +1,11 @@
-//! Source-context "Add operation" / "Add response" for YAML block style.
+//! Source-context "Add operation/response/path/parameter" for YAML block style
+//! (JSON lives in json_actions).
 //! Inserts a minimal skeleton at the exact end of an existing block mapping;
 //! refuses flow style, anchors/aliases, multi-document and tab indentation.
 use crate::*;
 
-const METHODS: [&str; 4] = ["get", "post", "put", "delete"];
-const RESPONSES: [&str; 4] = ["200", "400", "404", "default"];
+pub(crate) const METHODS: [&str; 4] = ["get", "post", "put", "delete"];
+pub(crate) const RESPONSES: [&str; 4] = ["200", "400", "404", "default"];
 
 struct Block {
     indent: usize,
@@ -94,6 +95,102 @@ fn block(text: &str, caret: usize, name: &str) -> Option<Block> {
     found
 }
 
+pub(crate) enum Body {
+    Str(&'static str),
+    Object(Vec<(&'static str, Body)>),
+    Array(Vec<Body>),
+}
+
+pub(crate) fn operation_skeleton() -> Body {
+    Body::Object(vec![
+        ("summary", Body::Str("TODO")),
+        ("responses", Body::Object(vec![("200", Body::Object(vec![("description", Body::Str("OK"))]))])),
+    ])
+}
+
+pub(crate) fn parameter_skeleton() -> Body {
+    Body::Object(vec![
+        ("name", Body::Str("TODO")),
+        ("in", Body::Str("query")),
+        ("schema", Body::Object(vec![("type", Body::Str("string"))])),
+    ])
+}
+
+pub(crate) fn render(body: &Body, indent: &str, unit: &str, pretty: bool) -> String {
+    let inner = format!("{indent}{unit}");
+    let (open, close, items): (&str, &str, Vec<String>) = match body {
+        Body::Str(s) => return format!("{s:?}"),
+        Body::Object(m) => ("{", "}", m.iter().map(|(k, v)| format!("{k:?}: {}", render(v, &inner, unit, pretty))).collect()),
+        Body::Array(a) => ("[", "]", a.iter().map(|v| render(v, &inner, unit, pretty)).collect()),
+    };
+    if pretty {
+        let lines: Vec<String> = items.iter().map(|i| format!("{inner}{i}")).collect();
+        return format!("{open}\n{}\n{indent}{close}", lines.join(",\n"));
+    }
+    format!("{open}{}{close}", items.join(", "))
+}
+
+fn path_tokens(pointer: &str) -> Option<Vec<String>> {
+    if pointer == "#/paths" {
+        return Some(Vec::new());
+    }
+    let decoded = pointer.strip_prefix("#/paths/").and_then(percent_decode)?;
+    Some(decoded.split('/').map(|t| t.replace("~1", "/").replace("~0", "~")).collect())
+}
+
+fn list_block(text: &str, header_start: usize) -> Option<Block> {
+    let mut lines = text[header_start..].split_inclusive('\n');
+    let header = lines.next()?;
+    let header_line = header.trim_end_matches(['\n', '\r']);
+    if header_line.trim_start() != "parameters:" {
+        return None;
+    }
+    let indent = header_line.len() - header_line.trim_start().len();
+    let mut pos = header_start + header.len();
+    let mut found: Option<Block> = None;
+    for raw in lines {
+        let line = raw.trim_end_matches(['\n', '\r']);
+        let trimmed = line.trim_start();
+        let end = pos + raw.len();
+        pos = end;
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let here = line.len() - trimmed.len();
+        let dash = trimmed.starts_with("- ") || trimmed == "-";
+        if here < indent || (here == indent && !dash) {
+            break;
+        }
+        let item_indent = found.as_ref().map_or(here, |b| b.indent);
+        if !dash && here == item_indent || here < item_indent {
+            return None;
+        }
+        let block = found.get_or_insert(Block { indent: here, insert_at: end, keys: Vec::new(), needs_newline: false });
+        block.insert_at = end;
+        block.needs_newline = !raw.ends_with('\n');
+    }
+    found
+}
+
+fn parameter_action(doc: &Document, at: usize, name: &str) -> Option<CodeAction> {
+    let text = &doc.text;
+    let item = block(text, at, name)?;
+    if !item.keys.iter().any(|k| k == "parameters") {
+        return Some(action(doc, "Add query parameter".into(), &item, "parameters:\n  - name: TODO\n    in: query\n    schema:\n      type: string"));
+    }
+    let header_line = text[..at].rfind('\n').map_or(0, |i| i + 1);
+    let mut pos = header_line + text[header_line..].split_inclusive('\n').next()?.len();
+    for raw in text[pos..].split_inclusive('\n') {
+        let line = raw.trim_end_matches(['\n', '\r']);
+        if line.len() - line.trim_start().len() == item.indent && line.trim_end() == format!("{}parameters:", " ".repeat(item.indent)) {
+            let list = list_block(text, pos)?;
+            return Some(action(doc, "Add query parameter".into(), &list, "- name: TODO\n  in: query\n  schema:\n    type: string"));
+        }
+        pos += raw.len();
+    }
+    None
+}
+
 fn action(doc: &Document, title: String, block: &Block, body: &str) -> CodeAction {
     let pad = " ".repeat(block.indent);
     let mut text = if block.needs_newline { "\n".to_string() } else { String::new() };
@@ -111,7 +208,8 @@ fn action(doc: &Document, title: String, block: &Block, body: &str) -> CodeActio
 }
 
 pub(crate) fn actions(doc: &Document, selection: Range) -> Vec<CodeAction> {
-    if spec::is_json(&doc.text) || !plain_document(&doc.text) {
+    let json = spec::is_json(&doc.text);
+    if !json && !plain_document(&doc.text) {
         return Vec::new();
     }
     let Some(at) = offset(&doc.text, selection.start) else {
@@ -120,19 +218,28 @@ pub(crate) fn actions(doc: &Document, selection: Range) -> Vec<CodeAction> {
     let Some(proof) = pointer_status::Proof::parse(&doc.text) else {
         return Vec::new();
     };
-    let Some(pointer) = proof.copy_pointer_at(at) else {
+    let Some(tokens) = proof.copy_pointer_at(at).as_deref().and_then(path_tokens) else {
         return Vec::new();
     };
-    let Some(pointer) = pointer.strip_prefix("#/paths/").and_then(percent_decode) else {
-        return Vec::new();
-    };
-    let tokens: Vec<&str> = pointer.split('/').collect();
-    let decode = |t: &str| t.replace("~1", "/").replace("~0", "~");
+    let tokens: Vec<&str> = tokens.iter().map(String::as_str).collect();
+    if json {
+        return json_actions::actions(doc, &tokens);
+    }
     let mut out = Vec::new();
     match tokens.as_slice() {
-        [path] => {
-            let name = decode(path);
-            let Some(block) = block(&doc.text, at, &name) else {
+        [] => {
+            let Some(block) = block(&doc.text, at, "paths") else {
+                return out;
+            };
+            let name = (1..)
+                .map(|n| if n == 1 { "/new-path".to_string() } else { format!("/new-path-{n}") })
+                .find(|c| !block.keys.contains(c))
+                .unwrap_or_default();
+            let body = format!("{name}:\n  get:\n    summary: TODO\n    responses:\n      '200':\n        description: OK");
+            out.push(action(doc, "Add path".into(), &block, &body));
+        }
+        [name] => {
+            let Some(block) = block(&doc.text, at, name) else {
                 return out;
             };
             if block.keys.iter().any(|k| k == "$ref") {
@@ -145,7 +252,9 @@ pub(crate) fn actions(doc: &Document, selection: Range) -> Vec<CodeAction> {
                 let body = format!("{method}:\n  summary: TODO\n  responses:\n    '200':\n      description: OK");
                 out.push(action(doc, format!("Add {method} operation"), &block, &body));
             }
+            out.extend(parameter_action(doc, at, name));
         }
+        [_, method] if METHODS.contains(method) => out.extend(parameter_action(doc, at, method)),
         [_, method, "responses"] if METHODS.contains(method) => {
             let Some(block) = block(&doc.text, at, "responses") else {
                 return out;
@@ -182,7 +291,7 @@ mod tests {
     fn adds_operation_at_end_of_path_item_and_reparses() {
         let found = acts(SPEC, "/pets");
         let titles: Vec<_> = found.iter().map(|a| a.title.as_str()).collect();
-        assert_eq!(titles, ["Add post operation", "Add put operation", "Add delete operation"]);
+        assert_eq!(titles, ["Add post operation", "Add put operation", "Add delete operation", "Add query parameter"]);
         let updated = apply(SPEC, &found[0]);
         assert!(updated.contains("          description: ok\n    post:\n      summary: TODO"));
         let proof = pointer_status::Proof::parse(&updated).unwrap();
@@ -217,7 +326,37 @@ mod tests {
         ] {
             assert!(acts(text, "/a").is_empty(), "{text}");
         }
-        let json = r#"{"openapi":"3.0.3","paths":{"/a":{}}}"#;
+        let json = "{\"openapi\":\"3.0.3\",\"paths\":{\"/a\":{}} // c\n}";
         assert!(acts(json, "/a").is_empty());
+    }
+
+    const PARAMS: &str = "openapi: 3.0.3\npaths:\n  /a:\n    get:\n      parameters:\n      - name: x\n        in: query\n      responses:\n        '200':\n          description: ok\n  /b:\n    parameters: []\n    get:\n      summary: s\n";
+
+    #[test]
+    fn adds_path_with_unique_name_and_reparses() {
+        let found = acts(SPEC, "paths:");
+        assert_eq!(found.iter().map(|a| a.title.as_str()).collect::<Vec<_>>(), ["Add path"]);
+        let once = apply(SPEC, &found[0]);
+        assert!(pointer_status::Proof::parse(&once).unwrap().status("/paths/~1new-path/get/responses/200/description") == pointer_status::Status::Present);
+        let twice = apply(&once, &acts(&once, "paths:")[0]);
+        assert!(pointer_status::Proof::parse(&twice).unwrap().status("/paths/~1new-path-2/get/summary") == pointer_status::Status::Present);
+        assert!(spec::parse(&twice).is_some());
+    }
+
+    #[test]
+    fn adds_parameter_creating_or_merging_block_lists_only() {
+        let created = apply(SPEC, acts(SPEC, "/pets").iter().find(|a| a.title == "Add query parameter").unwrap());
+        assert!(pointer_status::Proof::parse(&created).is_some(), "{created}");
+        assert!(created.contains("    parameters:\n      - name: TODO"), "{created}");
+        assert!(spec::parse(&created).is_some());
+        let op = acts(PARAMS, "get:");
+        let merged = apply(PARAMS, &op[0]);
+        assert!(merged.contains("        in: query\n      - name: TODO\n        in: query\n        schema:\n          type: string\n      responses:"), "{merged}");
+        let proof = pointer_status::Proof::parse(&merged).unwrap();
+        let docs = yaml_rust2::YamlLoader::load_from_str(&merged).unwrap();
+        let params = &docs[0]["paths"]["/a"]["get"]["parameters"];
+        assert_eq!((params.as_vec().unwrap().len(), params[1]["name"].as_str(), params[1]["schema"]["type"].as_str()), (2, Some("TODO"), Some("string")));
+        assert!(proof.status("/paths/~1a/get/responses/200/description") == pointer_status::Status::Present);
+        assert!(acts(PARAMS, "/b").iter().all(|a| a.title != "Add query parameter"));
     }
 }

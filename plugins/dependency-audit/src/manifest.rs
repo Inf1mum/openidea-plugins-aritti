@@ -50,6 +50,7 @@ pub enum Kind {
     PipfileLock,
     Requirements,
     Pylock,
+    Pyproject,
 }
 
 pub const GLOBS: &[&str] = &[
@@ -70,6 +71,7 @@ pub const GLOBS: &[&str] = &[
     "**/requirements.txt",
     "**/pylock.toml",
     "**/pylock.*.toml",
+    "**/pyproject.toml",
 ];
 
 /// PyPI names compare case-insensitively with runs of `-`, `_` and `.` equal (PEP 503).
@@ -91,6 +93,42 @@ pub fn normalise_pypi(name: &str) -> String {
     }
 
     normalised
+}
+
+pub const MARKER: &str = "Marker not evaluated";
+pub const LOCAL: &str = "Local workspace package";
+
+/// A declaration shown in the report beside the audited coordinates: why it was not queried, or a caveat on a queried one.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Note {
+    pub path: String,
+    pub ecosystem: Ecosystem,
+    pub name: String,
+    pub spec: String,
+    pub label: &'static str,
+}
+
+/// Local packages (`workspace:`/`link:` specs, or names of known workspace members) and marker-guarded requirements of one file.
+pub fn notes(path: &str, text: &str, members: &HashSet<String>) -> Vec<Note> {
+    match kind(path) {
+        Some(Kind::Pyproject) => crate::pyproject::parse(path, text).1,
+        Some(Kind::PackageJson) => {
+            let Ok(root) = serde_json::from_str::<Value>(text) else { return Vec::new() };
+            let mut notes = Vec::new();
+            for section in ["dependencies", "devDependencies", "optionalDependencies"] {
+                let Some(entries) = root.get(section).and_then(Value::as_object) else { continue };
+                for (name, spec) in entries {
+                    let Some(spec) = spec.as_str() else { continue };
+                    if spec.starts_with("workspace:") || spec.starts_with("link:") || members.contains(name) {
+                        notes.push(Note { path: path.to_owned(), ecosystem: Ecosystem::Npm, name: name.clone(), spec: spec.to_owned(), label: LOCAL });
+                    }
+                }
+            }
+
+            notes
+        }
+        _ => Vec::new(),
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -125,6 +163,7 @@ pub fn kind(path: &str) -> Option<Kind> {
         "uv.lock" => Some(Kind::UvLock),
         "Pipfile.lock" => Some(Kind::PipfileLock),
         "requirements.txt" => Some(Kind::Requirements),
+        "pyproject.toml" => Some(Kind::Pyproject),
         name if name == "pylock.toml" || (name.starts_with("pylock.") && name.ends_with(".toml")) => Some(Kind::Pylock),
         _ => None,
     }
@@ -157,6 +196,7 @@ pub fn parse(path: &str, text: &str, lock: Option<&str>) -> Vec<Dep> {
         Some(Kind::PipfileLock) => pipfile_lock(path, text),
         Some(Kind::Requirements) => requirements(path, text),
         Some(Kind::Pylock) => pylock(path, text),
+        Some(Kind::Pyproject) => crate::pyproject::parse(path, text).0,
         None => Vec::new(),
     }
 }
@@ -408,6 +448,12 @@ fn package_json(path: &str, text: &str, lock: Option<&str>) -> Vec<Dep> {
             if spec.contains(':') {
                 continue;
             }
+            let local = lock.as_ref().is_some_and(|l| {
+                l.get("packages").and_then(|p| p.get(format!("node_modules/{name}"))).is_some_and(|entry| entry.get("link").is_some())
+            });
+            if local {
+                continue;
+            }
             let locked = lock
                 .as_ref()
                 .and_then(|l| {
@@ -503,7 +549,7 @@ fn package_lock(path: &str, text: &str) -> Vec<Dep> {
 
     let mut deps = Vec::new();
     for (key, entry) in packages {
-        let Some(installed) = key.rsplit("node_modules/").next().filter(|_| key.starts_with("node_modules/")) else {
+        let Some(installed) = key.rsplit("node_modules/").next().filter(|_| key.contains("node_modules/")) else {
             continue;
         };
         if entry.get("link").is_some() {
@@ -1382,6 +1428,33 @@ name = "tool"
         }
         assert!(GLOBS.contains(&"**/pylock.toml") && GLOBS.contains(&"**/pylock.*.toml"));
         assert!(parse("/p/pylock.toml.bak", text, None).is_empty());
+    }
+
+    #[test]
+    fn workspace_and_link_specs_are_local_notes_never_deps() {
+        let text = r#"{"dependencies":{"a":"workspace:^","b":"link:../b","c":"1.0.0","sib":"2.0.0"}}"#;
+        let deps = parse("/p/package.json", text, None);
+        assert_eq!(found(&deps), [("c", "1.0.0"), ("sib", "2.0.0")]);
+        let members = HashSet::from(["sib".to_owned()]);
+        let mut names: Vec<_> = notes("/p/package.json", text, &members).into_iter().map(|n| (n.name, n.label)).collect();
+        names.sort();
+        assert_eq!(names, [("a".into(), LOCAL), ("b".into(), LOCAL), ("sib".into(), LOCAL)]);
+    }
+
+    #[test]
+    fn lock_link_entries_are_local_and_workspace_nested_installs_are_audited() {
+        let manifest = r#"{"dependencies":{"b":"1.0.0"}}"#;
+        let lock = r#"{"lockfileVersion":3,"packages":{"":{},"node_modules/b":{"resolved":"packages/b","link":true},"packages/b":{"version":"1.0.0"},"packages/b/node_modules/x":{"version":"3.0.0"}}}"#;
+        assert!(parse("/p/package.json", manifest, Some(lock)).is_empty());
+        assert_eq!(found(&parse("/p/package-lock.json", lock, None)), [("x", "3.0.0")]);
+    }
+
+    #[test]
+    fn pyproject_is_a_parsed_kind() {
+        assert_eq!(kind("/p/pyproject.toml"), Some(Kind::Pyproject));
+        assert!(GLOBS.contains(&"**/pyproject.toml"));
+        let deps = parse("/p/pyproject.toml", "[project]\ndependencies = [\"a==1.0\"]\n", None);
+        assert_eq!(found(&deps), [("a", "1.0")]);
     }
 
     #[test]

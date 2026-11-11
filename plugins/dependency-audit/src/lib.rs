@@ -1,6 +1,8 @@
 //! Dependency Audit for OpenIDEA: checks dependencies against OSV.dev.
 
 mod manifest;
+mod pyproject;
+mod workspaces;
 mod npm_graph;
 mod build_resolution;
 mod call_analysis;
@@ -30,7 +32,7 @@ use spring_text::index::project_of;
 use spring_text::range;
 use spring_text::tree::Expansion;
 
-use manifest::{Dep, GLOBS, Kind, bumped, kind, lockfile, parse};
+use manifest::{Dep, GLOBS, Kind, Note, bumped, kind, lockfile, parse};
 use osv::{Finding, audit, cached_advisory, compare, ignored_advisories, is_ignored, level};
 
 type Display = HashMap<String, Option<(String, Option<String>)>>;
@@ -130,6 +132,9 @@ struct Report {
     coordinates: Vec<[String; 3]>,
     #[serde(default)]
     skipped_paths: Vec<String>,
+    /// `[label, name, ecosystem, spec, path]` for local workspace packages and marker-guarded requirements.
+    #[serde(default)]
+    notes: Vec<[String; 5]>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -323,6 +328,37 @@ fn scan_report(project: &Project, live: &mut live::Live) -> Result<(String, bool
         file_deps.push((path.clone(), found));
     }
 
+    let package_jsons: HashMap<String, String> =
+        texts.iter().filter(|(p, _)| kind(p) == Some(Kind::PackageJson)).map(|(p, t)| (p.clone(), t.clone())).collect();
+    let mut pnpm_workspaces: HashMap<String, String> = HashMap::new();
+    for path in package_jsons.keys() {
+        let dir = &path[..path.rfind('/').map_or(0, |i| i + 1)];
+        if !pnpm_workspaces.contains_key(dir)
+            && let Ok(text) = project.read_file(&format!("{dir}pnpm-workspace.yaml"))
+        {
+            pnpm_workspaces.insert(dir.to_owned(), text);
+        }
+    }
+    let members = workspaces::members(&package_jsons, &pnpm_workspaces);
+    let mut notes: Vec<Note> = Vec::new();
+    for (path, found) in &mut file_deps {
+        let local: HashSet<String> = members
+            .iter()
+            .filter(|(root, _)| path.starts_with(root.as_str()))
+            .flat_map(|(_, names)| names.iter().cloned())
+            .collect();
+        let file_notes = manifest::notes(path, &texts[path], &local);
+        found.retain(|dep| !file_notes.iter().any(|n| n.label == manifest::LOCAL && n.name == dep.name && dep.ecosystem == n.ecosystem));
+        notes.extend(file_notes);
+    }
+    deps.clear();
+    seen.clear();
+    for dep in file_deps.iter().flat_map(|(_, found)| found) {
+        if seen.insert(dep_key(dep)) {
+            deps.push(dep.clone());
+        }
+    }
+
     if !files.is_empty() && texts.is_empty() {
         return Err(Error::Failed("No discovered dependency file could be read; previous report retained.".into()));
     }
@@ -365,6 +401,11 @@ fn scan_report(project: &Project, live: &mut live::Live) -> Result<(String, bool
             .map(|d| [d.ecosystem.osv().to_owned(), d.ecosystem.osv_name(&d.name), d.version.clone()])
             .collect(),
         skipped_paths,
+        notes: notes
+            .iter()
+            .take(MAX_COORDINATE_ROWS)
+            .map(|n| [n.label.to_owned(), n.name.clone(), n.ecosystem.osv().to_owned(), n.spec.clone(), n.path.clone()])
+            .collect(),
     };
     let visible = scoped::visible_count(&root,&report);
     let kept = persist_report(project, &report);

@@ -470,7 +470,7 @@ fn file_items(files: &[FileDiff], is_viewed: impl Fn(&str) -> bool, as_list: boo
 }
 
 impl GitLab {
-    fn ensure_diffs(&mut self, project: &str, iid: u64) -> Result<(), Error> {
+    pub(crate) fn ensure_diffs(&mut self, project: &str, iid: u64) -> Result<(), Error> {
         if self.diffs.as_ref().map(|(i, _)| *i) != Some(iid) {
             let _task = host::begin_task("Loading changes", false);
             self.diffs = Some((iid, api::Project(project).diffs(iid)?));

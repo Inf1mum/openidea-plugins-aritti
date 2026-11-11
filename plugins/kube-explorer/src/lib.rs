@@ -13,6 +13,7 @@ mod checks;
 mod complete;
 mod kustomize;
 mod helm_values;
+mod kustomize_graph;
 mod crd_schema;
 mod crd_export;
 mod helm_assistance;
@@ -1397,6 +1398,7 @@ fn inspect_text(path: &str, text: &str, cache: &crd_schema::Cache, crossfile:boo
     }
     let mut diagnostics: Vec<_> = findings.iter().filter(|finding| enabled(finding.code)).map(|finding| finding.diagnostic(&text)).collect();
     diagnostics.extend(cache.diagnostics(&Document {path:path.into(),language:"yaml".into(),version:0,text:text.into()}));
+    diagnostics.extend(kustomize_graph::diagnostics(&Document {path:path.into(),language:"yaml".into(),version:0,text:text.into()}));
     diagnostics
 }
 fn inspect(path: &str, cache:&crd_schema::Cache) {
@@ -1680,6 +1682,7 @@ impl KubeExplorer {
 impl Providers for KubeExplorer {
     fn definition(&mut self, doc: &Document, at: Position) -> Vec<openidea_plugin::Location> {
         let mut found = kustomize::definition(doc, at);
+        found.extend(kustomize_graph::definition(doc, at));
         found.extend(helm_values::definition(doc, at));
         found.extend(self.navigation.definition(doc, at));
         found.extend(self.label_refs.definition(doc,at));

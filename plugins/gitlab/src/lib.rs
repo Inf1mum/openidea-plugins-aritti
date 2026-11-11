@@ -20,6 +20,7 @@ mod review;
 mod safe;
 mod sections;
 mod timeline;
+mod local_drafts;
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -411,6 +412,7 @@ struct Details {
 pub struct GitLab {
     me: Option<User>,
     timeline: timeline::State,
+    draft_selected: Option<u64>,
     /// The project and filter `list` was loaded for.
     loaded: Option<(String, String)>,
     /// Root, GitLab project and remote owning all in-memory MR caches.
@@ -484,6 +486,7 @@ impl GitLab {
     fn reset(&mut self) {
         self.loaded = None;
         self.timeline = timeline::State::default();
+        self.draft_selected = None;
         self.threads.clear();
         self.events.clear();
         self.details = None;
@@ -873,6 +876,7 @@ impl GitLab {
             Section::Files => self.render_files(ctx),
             Section::Pipelines => self.render_pipelines(ctx),
             Section::Timeline => self.render_timeline(ctx),
+            Section::Drafts => self.render_local_drafts(ctx),
         }
         .unwrap_or_else(|e| View::message(&e.to_string()).button(Button::new("refresh", "Refresh").icon("refresh")));
 
@@ -906,6 +910,7 @@ impl GitLab {
             Section::Files => self.handle_files(event, ctx),
             Section::Pipelines => self.handle_pipelines(event, ctx),
             Section::Timeline => self.handle_timeline(event, ctx),
+            Section::Drafts => self.handle_local_drafts(event, ctx),
         }
     }
 

@@ -3,7 +3,7 @@
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd, html};
 const MAX_INPUT: usize = 128 << 10;
 pub(crate) const STYLE: &str = r#"
-.gl-markdown{font:inherit;color:var(--ui-fg);line-height:1.5;overflow-wrap:anywhere}.gl-markdown>:first-child{margin-top:0}.gl-markdown pre{overflow:auto;padding:var(--ui-space-2,8px);background:var(--ui-bg-raised,var(--ui-bg));border:1px solid var(--ui-border)}.gl-markdown code{font-family:var(--ui-font-mono,monospace)}.gl-markdown blockquote{margin-inline:0;padding-inline-start:var(--ui-space-3,12px);border-inline-start:2px solid var(--ui-border);color:var(--ui-muted)}.gl-markdown table{border-collapse:collapse;max-width:100%}.gl-markdown td,.gl-markdown th{border:1px solid var(--ui-border);padding:4px 8px}.gl-markdown a{color:var(--ui-accent);text-decoration:underline}.gl-markdown img{display:none}.gl-markdown .gl-mention{color:var(--ui-accent);font-weight:600}
+.gl-markdown{font:inherit;color:var(--ui-fg);line-height:1.5;overflow-wrap:anywhere}.gl-markdown>:first-child{margin-top:0}.gl-markdown pre{overflow:auto;padding:var(--ui-space-2,8px);background:var(--ui-bg-raised,var(--ui-bg));border:1px solid var(--ui-border)}.gl-markdown code{font-family:var(--ui-font-mono,monospace)}.gl-markdown blockquote{margin-inline:0;padding-inline-start:var(--ui-space-3,12px);border-inline-start:2px solid var(--ui-border);color:var(--ui-muted)}.gl-markdown table{border-collapse:collapse;max-width:100%}.gl-markdown td,.gl-markdown th{border:1px solid var(--ui-border);padding:4px 8px}.gl-markdown a{color:var(--ui-accent);text-decoration:underline}.gl-markdown img{display:none}.gl-markdown .gl-mention{color:var(--ui-accent);font-weight:600}.gl-markdown .gl-math{font-family:var(--ui-font-mono,monospace);border:1px dashed var(--ui-border);padding:0 4px}.gl-markdown .gl-math::before,.gl-markdown .gl-math-label{content:"math (source, not rendered) ";color:var(--ui-muted);font-size:.85em}.gl-markdown .gl-math-label{display:block}
 "#;
 fn escape(text: &str) -> String {
     text.replace('&', "&amp;")
@@ -103,11 +103,16 @@ pub(crate) fn fragment(text: &str, base: &str) -> String {
     let text = &text[..limit];
     let mut links = Vec::new();
     let mut in_code = false;
-    let parser=Parser::new_ext(text,Options::ENABLE_TABLES|Options::ENABLE_STRIKETHROUGH|Options::ENABLE_TASKLISTS).map(|event|match event{
+    let mut is_math = false;
+    let parser=Parser::new_ext(text,Options::ENABLE_MATH|Options::ENABLE_TABLES|Options::ENABLE_STRIKETHROUGH|Options::ENABLE_TASKLISTS).map(|event|match event{
         Event::Html(raw)|Event::InlineHtml(raw)=>Event::Text(raw),
         Event::Start(Tag::Image{..})=>Event::Text("[Image: ".into()),Event::End(TagEnd::Image)=>Event::Text("]".into()),
         Event::Start(Tag::Link{dest_url,..})=>{let safe=link(&dest_url,base);links.push(safe.is_some());match safe{Some(url)=>Event::Html(format!("<a href=\"{}\" target=\"_blank\" rel=\"noopener noreferrer\" data-markdown-url=\"{}\">",escape(&url),escape(&url)).into()),None=>Event::Text("".into())}},
         Event::End(TagEnd::Link)=>if links.pop()==Some(true){Event::Html("</a>".into())}else{Event::Text("".into())},
+        Event::InlineMath(src)=>Event::Html(format!("<span class=\"gl-math\">{}</span>",escape(&src)).into()),
+        Event::DisplayMath(src)=>Event::Html(format!("<pre class=\"gl-math\"><span class=\"gl-math-label\"></span>{}</pre>",escape(&src)).into()),
+        Event::Start(Tag::CodeBlock(pulldown_cmark::CodeBlockKind::Fenced(ref info))) if info.split_whitespace().next()==Some("math")=>{in_code=true;is_math=true;Event::Html("<pre class=\"gl-math\"><span class=\"gl-math-label\"></span><code>".into())}
+        Event::End(TagEnd::CodeBlock) if in_code&&is_math=>{in_code=false;is_math=false;Event::Html("</code></pre>".into())}
         Event::Start(Tag::CodeBlock(_))=>{in_code=true;event}
         Event::End(TagEnd::CodeBlock)=>{in_code=false;event}
         Event::Text(ref text) if !in_code=>match decorate(text){Some(html)=>Event::Html(html.into()),None=>event},
@@ -201,6 +206,22 @@ mod tests {
         assert!(html.contains("@x :rocket:"), "{html}");
         assert!(html.contains("@&lt;script&gt;\u{1F44D}"), "{html}");
         assert!(!html.contains("<script") && !html.contains("href=\"https://gitlab.com/alice"));
+    }
+    #[test]
+    fn math_is_escaped_labelled_source_and_code_is_untouched() {
+        let html = fragment(
+            "inline $a<b>_1$ and `$code$`\n\n$$\nx</script><b>\n$$\n\n```math\n\\sum <i>\n```\n\n```\n$not$\n```",
+            "https://gitlab.com/",
+        );
+        assert!(html.contains("<span class=\"gl-math\">a&lt;b&gt;_1</span>"), "{html}");
+        assert!(html.contains("<code>$code$</code>"), "{html}");
+        assert!(html.contains("x&lt;/script&gt;&lt;b&gt;"), "{html}");
+        assert!(html.contains("<code>\\sum &lt;i&gt;\n</code></pre>"), "{html}");
+        assert!(html.contains("$not$"), "{html}");
+        assert_eq!(html.matches("gl-math-label\"></span>").count(), 2, "{html}");
+        for bad in ["<script", "<i>", "<b>"] {
+            assert!(!html.contains(bad), "{html}");
+        }
     }
     #[test]
     fn unicode_and_large_documents_are_bounded_without_panics() {

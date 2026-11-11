@@ -1445,3 +1445,19 @@ fn report_lists_checked_coordinates_and_skipped_files() {
     assert_eq!(items[2]["details"][0]["value"], "npm/ok<b>@2.0.0");
     assert_eq!(items[3]["cells"][7], "pom.xml");
 }
+
+#[test]
+fn report_lists_local_workspace_and_marker_notes() {
+    let _host = MockHost::install();
+    let report: Report = serde_json::from_value(json!({
+        "rows":[],
+        "notes":[["Local workspace package","a","npm","workspace:^","/project/package.json"],["Marker not evaluated","click","PyPI","8.0.0","/project/pyproject.toml"]]
+    })).unwrap();
+    let Body::Other { data, .. } = resource_body("/project", &report, None) else { panic!() };
+    let value: Value = serde_json::from_str(&data).unwrap();
+    let items = value["items"].as_array().unwrap();
+    assert_eq!(items[0]["cells"][0], "Local workspace package");
+    assert_eq!(items[0]["cells"][5], "Not checked");
+    assert_eq!(items[1]["cells"][0], "Marker not evaluated");
+    assert_eq!(value["totalRows"], 2);
+}
