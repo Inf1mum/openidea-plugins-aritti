@@ -14,6 +14,8 @@
 use super::*;
 use persistence_core::schema::{self, Danger, SchemaSnapshot};
 use persistence_core::sql::{self, BackfillValue, Dialect, EmitOptions};
+use super::template_settings::{self, FlywayNaming};
+use persistence_core::naming::{self, DateTime, Inputs};
 use std::collections::BTreeMap;
 
 pub(super) const BASELINE_TITLE: &str = "Create schema baseline…";
@@ -149,12 +151,17 @@ fn is_version(version: &str) -> bool {
 }
 
 /// Version of `V<version>__<description>.sql`, or `None`.
+#[cfg(test)]
 fn versioned(name: &str) -> Option<&str> {
     versioned_ext(name, ".sql")
 }
 
 pub(super) fn versioned_ext<'a>(name: &'a str, suffix: &str) -> Option<&'a str> {
-    let (version, description) = name.strip_prefix('V')?.strip_suffix(suffix)?.split_once("__")?;
+    versioned_named(name, "V", "__", suffix)
+}
+
+fn versioned_named<'a>(name: &'a str, prefix: &str, separator: &str, suffix: &str) -> Option<&'a str> {
+    let (version, description) = name.strip_prefix(prefix)?.strip_suffix(suffix)?.split_once(separator)?;
     (is_version(version) && !description.is_empty()).then_some(version)
 }
 
@@ -223,6 +230,11 @@ pub(super) struct Folder {
 }
 
 pub(super) fn flyway_folder(project: &Project, root: &str) -> Result<Folder, Error> {
+    flyway_folder_with(project, root, &FlywayNaming::default())
+}
+
+fn flyway_folder_with(project: &Project, root: &str, naming: &FlywayNaming) -> Result<Folder, Error> {
+    let versioned = |name: &str| versioned_named(name, &naming.prefix, &naming.separator, ".sql").map(str::to_owned);
     if custom_flyway_settings(project)? {
         return Err("Flyway locations or naming are configured; only the default classpath:db/migration with V__.sql names is supported, and nothing is guessed.".into());
     }
@@ -239,21 +251,49 @@ pub(super) fn flyway_folder(project: &Project, root: &str) -> Result<Folder, Err
         folders.entry(directory.to_owned()).or_default().push(name.to_owned());
     }
     let mut with_versions = folders.into_iter().filter(|(_, names)| names.iter().any(|n| versioned(n).is_some()));
-    let (directory, names) = with_versions.next().ok_or("No existing V<version>__<description>.sql migration was found; the folder and version cannot be determined.")?;
+    let (directory, names) = with_versions.next().ok_or("No existing <prefix><version><separator><description>.sql migration (V<version>__<description>.sql by default) was found; the folder and version cannot be determined.")?;
     if with_versions.next().is_some() {
         return Err("Several modules contain versioned migrations; the migration folder is ambiguous.".into());
     }
     if path(&directory).as_deref() != Some(directory.as_str()) || !inside(root, &directory) {
         return Err(Error::Stale);
     }
-    let versions: Vec<&str> = names.iter().filter_map(|n| versioned(n)).collect();
-    let version = next_version(&versions);
+    let versions: Vec<String> = names.iter().filter_map(|n| versioned(n)).collect();
+    let version = next_version(&versions.iter().map(String::as_str).collect::<Vec<_>>());
     Ok(Folder { directory, version, names })
 }
 
 pub(crate) fn description_of(text: &str) -> String {
     let words: Vec<&str> = text.split(|c: char| !c.is_ascii_alphanumeric()).filter(|w| !w.is_empty()).collect();
     words.join("_").chars().take(100).collect()
+}
+
+/// The version of the new file: the convention's next version, or the configured `flywayVersionPattern` with
+/// `{seq}` standing for that convention version. A patterned version must be a Flyway version and sort after
+/// every existing one; `#increment` needs every existing version to be a plain number.
+fn chosen_version(folder: &Folder, naming: &FlywayNaming, description: &str, now: Option<DateTime>, project: &Project) -> Result<String, Error> {
+    let Some((pattern, needs)) = &naming.version_pattern else {
+        return Ok(folder.version.clone());
+    };
+    let existing: Vec<&str> = folder.names.iter().filter_map(|n| versioned_named(n, &naming.prefix, &naming.separator, ".sql")).collect();
+    let mut highest = None;
+    if needs.increment {
+        for version in &existing {
+            let plain = version.len() <= 18 && version.bytes().all(|b| b.is_ascii_digit());
+            let number: u64 = plain.then(|| version.parse().ok()).flatten().ok_or("#increment needs every existing version to be a plain number; nothing is guessed.")?;
+            highest = highest.max(Some(number));
+        }
+    }
+    let sem_ver = if needs.sem_ver { Some(template_settings::project_version(project)?) } else { None };
+    let inputs = Inputs { seq: Some(&folder.version), highest, description: Some(description), now, sem_ver: sem_ver.as_deref() };
+    let version = naming::expand(pattern, &inputs).map_err(|e| Error::from(format!("flywayVersionPattern: {e}.")))?;
+    if !is_version(&version) {
+        return Err(format!("flywayVersionPattern produced {version:?}, which is not a Flyway version (digits separated by '.' or '_').").into());
+    }
+    if existing.iter().any(|top| version_key(&version) <= version_key(top)) {
+        return Err(format!("The version {version} would not sort after every existing migration; nothing is written.").into());
+    }
+    Ok(version)
 }
 
 pub(super) fn summary(plan: &schema::ChangePlan) -> String {
@@ -347,10 +387,15 @@ pub(super) fn resolve_migration(pending: &Pending, doc: &Document, project: &Pro
     }
     ask_backfills(&plan, &mut options)?;
     let description = host::input("Migration description (ASCII letters and digits)", Some("jpa_model_changes"))?.ok_or(Error::Cancelled)?;
-    let description = description_of(&description);
+    let description = naming::style_description(&description, template_settings::description_style()?);
     if description.is_empty() {
         return Err("Enter a description containing ASCII letters or digits.".into());
     }
+    let flyway_naming = template_settings::flyway_naming()?;
+    let now = match &flyway_naming.version_pattern {
+        Some((_, needs)) => template_settings::ask_date(needs)?,
+        None => None,
+    };
 
     let emitted = sql::emit(&plan, dialect, &options).map_err(|e| Error::from(format!("SQL cannot be generated: {e:?}")))?;
     if emitted.emitted() == 0 {
@@ -373,8 +418,9 @@ pub(super) fn resolve_migration(pending: &Pending, doc: &Document, project: &Pro
         acknowledge(&incomplete)?;
     }
 
-    let folder = flyway_folder(project, root)?;
-    let name = format!("V{}__{description}.sql", folder.version);
+    let folder = flyway_folder_with(project, root, &flyway_naming)?;
+    let version = chosen_version(&folder, &flyway_naming, &description, now, project)?;
+    let name = format!("{}{version}{}{description}.sql", flyway_naming.prefix, flyway_naming.separator);
     if folder.names.iter().any(|n| n.eq_ignore_ascii_case(&name)) {
         return Err(Error::Stale);
     }
@@ -407,7 +453,7 @@ pub(super) fn resolve_migration(pending: &Pending, doc: &Document, project: &Pro
     if crate::schema_snapshot::snapshot_json(&fresh).map_err(Error::from)? != next_baseline.trim_end() {
         return Err(Error::Stale);
     }
-    let again = flyway_folder(project, root)?;
+    let again = flyway_folder_with(project, root, &flyway_naming)?;
     if again.directory != folder.directory || again.version != folder.version {
         return Err(Error::Stale);
     }
@@ -473,6 +519,86 @@ mod tests {
             host.answer_next_prompt(confirm.then_some(&[]));
         }
         plugin.resolve_file_action(doc, pending)
+    }
+
+    fn generate_named(host: &MockHost, plugin: &mut JpaAssist, doc: &Document, extra: &[&str]) -> Result<FileAction, Error> {
+        let pending = action(plugin, doc, MIGRATION_TITLE);
+        host.answer_next_prompt(Some(&["postgresql"]));
+        host.answer_next_prompt(Some(&[]));
+        host.answer_next_prompt(Some(&["Add customer email!"]));
+        for answer in extra {
+            host.answer_next_prompt(Some(&[answer]));
+        }
+        host.answer_next_prompt(Some(&[]));
+        plugin.resolve_file_action(doc, pending)
+    }
+
+    fn created(resolved: Result<FileAction, Error>) -> String {
+        let resolved = resolved.unwrap();
+        let FileOperation::Create { path, .. } = &resolved.operations[0] else { panic!() };
+        path.rsplit('/').next().unwrap().to_owned()
+    }
+
+    #[test]
+    fn default_flyway_naming_settings_equal_the_unset_behavior() {
+        let (host, mut plugin, doc) = migration_ready(ENTITY_PLUS);
+        host.set_setting("flywayMigrationPrefix", "\"V\"");
+        host.set_setting("flywayMigrationSeparator", "\"__\"");
+        host.set_setting("flywayVersionPattern", "\"\"");
+        host.set_setting("migrationDescriptionCase", "\"keep\"");
+        assert_eq!(created(generate_named(&host, &mut plugin, &doc, &[])), "V3__Add_customer_email.sql");
+    }
+
+    #[test]
+    fn flyway_version_patterns_description_case_prefix_and_separator() {
+        let (host, mut plugin, doc) = migration_ready(ENTITY_PLUS);
+        host.set_setting("flywayVersionPattern", "\"#date(yyyyMMddHHmmss)\"");
+        host.set_setting("migrationDescriptionCase", "\"kebab\"");
+        assert_eq!(created(generate_named(&host, &mut plugin, &doc, &["20250309040506"])), "V20250309040506__add-customer-email.sql");
+
+        let (host, mut plugin, doc) = migration_ready(ENTITY_PLUS);
+        host.set_setting("flywayVersionPattern", "\"#increment(100, 10, 000)\"");
+        assert_eq!(created(generate_named(&host, &mut plugin, &doc, &[])), "V012__Add_customer_email.sql");
+
+        let (host, mut plugin, doc) = migration_ready(ENTITY_PLUS);
+        host.set_setting("flywayVersionPattern", "\"{seq}.1\"");
+        host.set_setting("migrationDescriptionCase", "\"lower_snake\"");
+        assert_eq!(created(generate_named(&host, &mut plugin, &doc, &[])), "V3.1__add_customer_email.sql");
+
+        let (host, mut plugin, doc) = migration_ready(ENTITY_PLUS);
+        host.add_file("build.gradle.kts", "version = \"4.7.1-SNAPSHOT\"\n");
+        host.set_setting("flywayVersionPattern", "\"${semVer.getMajor()}_${semVer.getMinor()}_${semVer.getPatch()}\"");
+        assert_eq!(created(generate_named(&host, &mut plugin, &doc, &[])), "V4_7_1__Add_customer_email.sql");
+
+        let (host, mut plugin, doc) = setup(ENTITY_PLUS);
+        host.add_file("db/jpa-schema-baseline.json", &baseline_json(ENTITY));
+        host.add_file("src/main/resources/db/migration/U5___first.sql", "select 1;");
+        host.set_setting("flywayMigrationPrefix", "\"U\"");
+        host.set_setting("flywayMigrationSeparator", "\"___\"");
+        assert_eq!(created(generate_named(&host, &mut plugin, &doc, &[])), "U6___Add_customer_email.sql");
+    }
+
+    #[test]
+    fn flyway_naming_refusals() {
+        let refused = |settings: &[(&str, &str)], extra: &[&str], files: &[(&str, &str)]| {
+            let (host, mut plugin, doc) = migration_ready(ENTITY_PLUS);
+            for (key, value) in settings {
+                host.set_setting(key, value);
+            }
+            for (file, text) in files {
+                host.add_file(file, text);
+            }
+            generate_named(&host, &mut plugin, &doc, extra).is_err()
+        };
+        assert!(refused(&[("flywayVersionPattern", "\"{nope}\"")], &[], &[]), "unknown token");
+        assert!(refused(&[("flywayVersionPattern", "\"#date(yyyyMMdd)\"")], &["2025-03-09"], &[]), "bad date answer");
+        assert!(refused(&[("flywayVersionPattern", "\"#date(yyyyMMdd)\"")], &["20250309"], &[("src/main/resources/db/migration/V20260101__later.sql", "x")]), "sorts before existing");
+        assert!(refused(&[("flywayVersionPattern", "\"x{seq}\"")], &[], &[]), "not a flyway version");
+        assert!(refused(&[("flywayVersionPattern", "\"#increment(1,1,0)\"")], &[], &[("src/main/resources/db/migration/V1_5__dotted.sql", "x")]), "increment over non-plain versions");
+        assert!(refused(&[("flywayVersionPattern", "\"${semVer.getMajor()}\"")], &[], &[]), "no project version");
+        assert!(refused(&[("flywayMigrationPrefix", "\"R\"")], &[], &[]));
+        assert!(refused(&[("flywayMigrationSeparator", "\"_\"")], &[], &[]));
+        assert!(refused(&[("migrationDescriptionCase", "\"loud\"")], &[], &[]));
     }
 
     #[test]

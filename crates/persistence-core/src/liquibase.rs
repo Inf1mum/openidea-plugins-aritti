@@ -26,6 +26,88 @@ pub struct LiquibaseOptions {
     pub author: String,
     /// changeSet ids are `<prefix>-<n>`; letters, digits, `.`, `_`, `-`, at most 64 characters.
     pub id_prefix: String,
+    pub defaults: ChangeSetDefaults,
+}
+
+/// What Liquibase does when a changeSet precondition fails or errors: the four values of the docs' "onFail/onError
+/// precondition values" table (also the XSD's `onChangeSetPreconditionErrorOrFail`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PreconditionAction {
+    Halt,
+    Continue,
+    MarkRan,
+    Warn,
+}
+
+impl PreconditionAction {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Halt => "HALT",
+            Self::Continue => "CONTINUE",
+            Self::MarkRan => "MARK_RAN",
+            Self::Warn => "WARN",
+        }
+    }
+
+    pub fn parse(text: &str) -> Option<Self> {
+        [Self::Halt, Self::Continue, Self::MarkRan, Self::Warn].into_iter().find(|action| action.name() == text)
+    }
+}
+
+/// Optional changeSet knobs; `None` writes nothing. All are attributes or children the 4.29 XSD defines on `changeSet`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ChangeSetAttributes {
+    pub fail_on_error: Option<bool>,
+    pub run_on_change: Option<bool>,
+    /// Comma-separated literal list; each item ASCII letters, digits, `.`, `_`, `-`.
+    pub context: Option<String>,
+    /// Same rule as `context`.
+    pub labels: Option<String>,
+    /// Either one set renders `<preConditions>` for `createTable` and `addColumn` changeSets only.
+    pub on_fail: Option<PreconditionAction>,
+    pub on_error: Option<PreconditionAction>,
+    /// `<rollback/>` in changeSets of `ROLLBACK_UNSUPPORTED` types.
+    pub empty_rollback: Option<bool>,
+}
+
+impl ChangeSetAttributes {
+    /// Fields set in `over` replace the ones here.
+    pub fn overlay(&mut self, over: &Self) {
+        self.fail_on_error = over.fail_on_error.or(self.fail_on_error);
+        self.run_on_change = over.run_on_change.or(self.run_on_change);
+        self.context = over.context.clone().or(self.context.take());
+        self.labels = over.labels.clone().or(self.labels.take());
+        self.on_fail = over.on_fail.or(self.on_fail);
+        self.on_error = over.on_error.or(self.on_error);
+        self.empty_rollback = over.empty_rollback.or(self.empty_rollback);
+    }
+}
+
+/// `all` applies to every changeSet; a `by_type` entry (element name, see `CHANGE_TYPES`) overrides field by field.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ChangeSetDefaults {
+    pub all: ChangeSetAttributes,
+    pub by_type: Vec<(String, ChangeSetAttributes)>,
+}
+
+pub const CHANGE_TYPES: [&str; 16] = [
+    "createTable", "dropTable", "addColumn", "dropColumn", "modifyDataType", "dropNotNullConstraint", "addNotNullConstraint",
+    "dropForeignKeyConstraint", "dropUniqueConstraint", "dropIndex", "addUniqueConstraint", "createIndex", "addForeignKeyConstraint",
+    "renameColumn", "update", "addPrimaryKey",
+];
+
+/// Change types whose docs page lists "Auto Rollback: No" for every database (docs.liquibase.com change-types pages).
+pub const ROLLBACK_UNSUPPORTED: [&str; 6] =
+    ["dropTable", "dropColumn", "modifyDataType", "dropForeignKeyConstraint", "dropUniqueConstraint", "dropIndex"];
+
+impl ChangeSetDefaults {
+    fn for_type(&self, kind: &str) -> ChangeSetAttributes {
+        let mut merged = self.all.clone();
+        for (_, over) in self.by_type.iter().filter(|(name, _)| name == kind) {
+            merged.overlay(over);
+        }
+        merged
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -46,6 +128,11 @@ pub struct ChangeSet {
     /// The change elements (already escaped); present for emitted and policy-skipped changes.
     pub body: Option<String>,
     pub skip: Option<Skip>,
+    /// Extra changeSet attributes, each with a leading space; empty by default.
+    pub attributes: String,
+    /// Rendered `<preConditions>` block (ends with a newline), if any.
+    pub preconditions: Option<String>,
+    pub empty_rollback: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -95,9 +182,12 @@ impl EmittedChangelog {
             };
             match &set.id {
                 Some(id) => out.push_str(&format!(
-                    "    <changeSet id=\"{}\" author=\"{}\">\n{body}    </changeSet>\n",
+                    "    <changeSet id=\"{}\" author=\"{}\"{}>\n{}{body}{}    </changeSet>\n",
                     esc(id),
-                    esc(&self.author)
+                    esc(&self.author),
+                    set.attributes,
+                    set.preconditions.as_deref().unwrap_or(""),
+                    if set.empty_rollback { format!("{PAD}<rollback/>\n") } else { String::new() },
                 )),
                 None => out.push_str(&format!("    <!-- would be:\n{}    -->\n", comment_block(body))),
             }
@@ -521,6 +611,91 @@ fn render_change(planned: &PlannedChange, options: &EmitOptions) -> Result<Vec<I
     }
 }
 
+/// Text of the first ` name="` attribute in already-escaped XML.
+fn attr_of<'a>(xml: &'a str, name: &str) -> Option<&'a str> {
+    let rest = &xml[xml.find(&format!(" {name}=\""))? + name.len() + 3..];
+    Some(&rest[..rest.find('"')?])
+}
+
+fn kind_of(body: &str) -> &str {
+    let name = body.trim_start().strip_prefix('<').unwrap_or("");
+    &name[..name.find(|c: char| !c.is_ascii_alphanumeric()).unwrap_or(name.len())]
+}
+
+fn apply_defaults(set: &mut ChangeSet, defaults: &ChangeSetDefaults) {
+    let Some(body) = set.body.as_deref() else {
+        return;
+    };
+    let kind = kind_of(body).to_owned();
+    let wanted = defaults.for_type(&kind);
+    let flag = |value: bool| if value { "true" } else { "false" };
+    let mut attributes = String::new();
+    if let Some(value) = wanted.run_on_change {
+        attributes.push_str(&format!(" runOnChange=\"{}\"", flag(value)));
+    }
+    if let Some(value) = wanted.fail_on_error {
+        attributes.push_str(&format!(" failOnError=\"{}\"", flag(value)));
+    }
+    if let Some(value) = &wanted.context {
+        attributes.push_str(&format!(" context=\"{}\"", list_text(value)));
+    }
+    if let Some(value) = &wanted.labels {
+        attributes.push_str(&format!(" labels=\"{}\"", list_text(value)));
+    }
+    set.attributes = attributes;
+    set.empty_rollback = wanted.empty_rollback == Some(true) && ROLLBACK_UNSUPPORTED.contains(&kind.as_str());
+    if wanted.on_fail.is_none() && wanted.on_error.is_none() {
+        return;
+    }
+    let check = match (kind.as_str(), attr_of(body, "tableName")) {
+        ("createTable", Some(table)) => format!("<tableExists tableName=\"{table}\"/>"),
+        ("addColumn", Some(table)) => match attr_of(body, "name") {
+            Some(column) => format!("<columnExists tableName=\"{table}\" columnName=\"{column}\"/>"),
+            None => return,
+        },
+        _ => return,
+    };
+    let mut head = String::from("<preConditions");
+    if let Some(action) = wanted.on_fail {
+        head.push_str(&format!(" onFail=\"{}\"", action.name()));
+    }
+    if let Some(action) = wanted.on_error {
+        head.push_str(&format!(" onError=\"{}\"", action.name()));
+    }
+    set.preconditions = Some(format!("{PAD}{head}>\n{PAD}    <not>\n{PAD}        {check}\n{PAD}    </not>\n{PAD}</preConditions>\n"));
+}
+
+fn list_items(option: &'static str, text: &str) -> Result<Vec<String>, LiquibaseError> {
+    let bad = |reason| Err(LiquibaseError::InvalidOption { option, reason });
+    let items: Vec<String> = text.split(',').map(|item| item.trim().to_owned()).collect();
+    if items.len() > 16 {
+        return bad("at most 16 comma-separated items");
+    }
+    for item in &items {
+        if item.is_empty() || item.len() > 64 {
+            return bad("items must be 1 to 64 characters (no empty item between commas)");
+        }
+        if !item.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-')) {
+            return bad("items may contain only ASCII letters, digits, '.', '_' and '-' (no quotes, spaces or expressions)");
+        }
+    }
+    Ok(items)
+}
+
+fn list_text(text: &str) -> String {
+    text.split(',').map(str::trim).collect::<Vec<_>>().join(",")
+}
+
+fn validate_attributes(attributes: &ChangeSetAttributes) -> Result<(), LiquibaseError> {
+    if let Some(context) = &attributes.context {
+        list_items("context", context)?;
+    }
+    if let Some(labels) = &attributes.labels {
+        list_items("labels", labels)?;
+    }
+    Ok(())
+}
+
 fn validate_options(options: &LiquibaseOptions) -> Result<(), LiquibaseError> {
     let bad = |option, reason| Err(LiquibaseError::InvalidOption { option, reason });
     let author = &options.author;
@@ -536,6 +711,13 @@ fn validate_options(options: &LiquibaseOptions) -> Result<(), LiquibaseError> {
     }
     if !prefix.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-')) {
         return bad("id_prefix", "may contain only ASCII letters, digits, '.', '_' and '-'");
+    }
+    validate_attributes(&options.defaults.all)?;
+    for (kind, attributes) in &options.defaults.by_type {
+        if !CHANGE_TYPES.contains(&kind.as_str()) {
+            return bad("defaults", "unknown change type name");
+        }
+        validate_attributes(attributes)?;
     }
     Ok(())
 }
@@ -584,7 +766,7 @@ pub fn emit_xml(plan: &ChangePlan, options: &LiquibaseOptions) -> Result<Emitted
             let ambiguous = matches!(skip, Some(Skip::Policy(_))) && item.danger == Danger::Ambiguous;
             let reason = if ambiguous { format!("{}; needs an explicit decision", item.reason) } else { item.reason };
             let notes = if skip.is_some() { Vec::new() } else { item.notes };
-            let set = ChangeSet { danger: item.danger, reason, id: None, notes, body, skip };
+            let set = ChangeSet { danger: item.danger, reason, id: None, notes, body, skip, attributes: String::new(), preconditions: None, empty_rollback: false };
             if item.post {
                 post.push(set);
             } else {
@@ -598,6 +780,7 @@ pub fn emit_xml(plan: &ChangePlan, options: &LiquibaseOptions) -> Result<Emitted
     for set in changesets.iter_mut().filter(|s| s.skip.is_none()) {
         number += 1;
         set.id = Some(format!("{}-{number}", options.id_prefix));
+        apply_defaults(set, &options.defaults);
     }
     let plan_notes = plan.notes.iter().map(|n| format!("{} / {}: {}", n.table, n.subject, n.reason)).collect();
     Ok(EmittedChangelog { author: options.author.clone(), changesets, plan_notes })
@@ -620,7 +803,7 @@ mod tests {
     }
 
     fn options() -> LiquibaseOptions {
-        LiquibaseOptions { emit: EmitOptions::default(), author: "jpa-assist".into(), id_prefix: "model".into() }
+        LiquibaseOptions { emit: EmitOptions::default(), author: "jpa-assist".into(), id_prefix: "model".into(), defaults: ChangeSetDefaults::default() }
     }
 
     fn orders() -> Table {
@@ -909,7 +1092,7 @@ mod tests {
     fn options_are_validated() {
         let plan = ChangePlan::default();
         for (author, prefix) in [("", "p"), (" a", "p"), ("a${x}", "p"), ("a\nb", "p"), ("a", ""), ("a", "has space"), ("a", "x\"y"), ("a", &"p".repeat(65))] {
-            let o = LiquibaseOptions { emit: EmitOptions::default(), author: author.into(), id_prefix: prefix.into() };
+            let o = LiquibaseOptions { author: author.into(), id_prefix: prefix.into(), ..options() };
             assert!(matches!(emit_xml(&plan, &o), Err(LiquibaseError::InvalidOption { .. })), "{author:?} {prefix:?}");
         }
         let o = LiquibaseOptions { author: "Ann & <Bob>".into(), ..options() };
@@ -1060,6 +1243,131 @@ mod tests {
         o.emit.allow = vec![Danger::NeedsBackfill];
         let text = emit_xml(&backfill_plan(), &o).unwrap().render();
         assert!(!text.contains("<update"), "{text}");
+    }
+
+    fn small_plan() -> ChangePlan {
+        ChangePlan {
+            changes: vec![
+                planned(Change::CreateTable { table: orders() }, Danger::Safe, "new table"),
+                planned(Change::AddColumn { table: "t".into(), column: col("note", LogicalType::Text) }, Danger::Safe, "nullable column"),
+                planned(Change::DropColumn { table: "t".into(), column: "old".into() }, Danger::DataLoss, "drop column"),
+                planned(Change::DropIndex { table: "t".into(), index: Index { name: Some("ix_a".into()), columns: vec!["a".into()], unique: false } }, Danger::Safe, "drop index"),
+                planned(Change::AlterNullability { table: "t".into(), column: "m".into(), nullable: true, column_type: None }, Danger::Safe, "to nullable"),
+            ],
+            notes: vec![],
+        }
+    }
+
+    fn render_with(defaults: ChangeSetDefaults) -> String {
+        let mut o = options();
+        o.emit.allow = vec![Danger::DataLoss];
+        o.defaults = defaults;
+        let text = emit_xml(&small_plan(), &o).unwrap().render();
+        assert_well_formed(&text);
+        text
+    }
+
+    fn all(attributes: ChangeSetAttributes) -> ChangeSetDefaults {
+        ChangeSetDefaults { all: attributes, by_type: vec![] }
+    }
+
+    #[test]
+    fn unset_defaults_reproduce_the_plain_output_byte_for_byte() {
+        let plain = render_with(ChangeSetDefaults::default());
+        assert_eq!(plain, render_with(all(ChangeSetAttributes::default())));
+        assert_eq!(plain, render_with(ChangeSetDefaults { all: ChangeSetAttributes::default(), by_type: vec![("dropTable".into(), ChangeSetAttributes::default())] }));
+        assert!(plain.contains("<changeSet id=\"model-1\" author=\"jpa-assist\">\n        <createTable"), "{plain}");
+        assert!(!plain.contains("rollback") && !plain.contains("preConditions") && !plain.contains("runOnChange"));
+    }
+
+    #[test]
+    fn golden_attribute_knobs() {
+        let text = render_with(all(ChangeSetAttributes {
+            fail_on_error: Some(false),
+            run_on_change: Some(true),
+            context: Some("dev, test".into()),
+            labels: Some("v1.0,shop_cart".into()),
+            ..ChangeSetAttributes::default()
+        }));
+        let head = "<changeSet id=\"model-2\" author=\"jpa-assist\" runOnChange=\"true\" failOnError=\"false\" context=\"dev,test\" labels=\"v1.0,shop_cart\">\n        <addColumn tableName=\"t\">";
+        assert!(text.contains(head), "{text}");
+        assert_eq!(text.matches("failOnError=\"false\"").count(), 8);
+        let only_true = render_with(all(ChangeSetAttributes { fail_on_error: Some(true), ..ChangeSetAttributes::default() }));
+        assert!(only_true.contains("author=\"jpa-assist\" failOnError=\"true\">"), "{only_true}");
+    }
+
+    #[test]
+    fn golden_preconditions_for_create_table_and_add_column_only() {
+        let text = render_with(all(ChangeSetAttributes { on_fail: Some(PreconditionAction::MarkRan), on_error: Some(PreconditionAction::Halt), ..ChangeSetAttributes::default() }));
+        let table = "    <changeSet id=\"model-1\" author=\"jpa-assist\">\n        <preConditions onFail=\"MARK_RAN\" onError=\"HALT\">\n            <not>\n                <tableExists tableName=\"orders\"/>\n            </not>\n        </preConditions>\n        <createTable tableName=\"orders\">";
+        assert!(text.contains(table), "{text}");
+        let column = "        <preConditions onFail=\"MARK_RAN\" onError=\"HALT\">\n            <not>\n                <columnExists tableName=\"t\" columnName=\"note\"/>\n            </not>\n        </preConditions>\n        <addColumn tableName=\"t\">";
+        assert!(text.contains(column), "{text}");
+        assert_eq!(text.matches("<preConditions").count(), 2, "{text}");
+        let warn = render_with(all(ChangeSetAttributes { on_fail: Some(PreconditionAction::Warn), ..ChangeSetAttributes::default() }));
+        assert!(warn.contains("<preConditions onFail=\"WARN\">"), "{warn}");
+        let cont = render_with(all(ChangeSetAttributes { on_error: Some(PreconditionAction::Continue), ..ChangeSetAttributes::default() }));
+        assert!(cont.contains("<preConditions onError=\"CONTINUE\">"), "{cont}");
+    }
+
+    #[test]
+    fn golden_empty_rollback_only_where_there_is_no_automatic_one() {
+        let text = render_with(all(ChangeSetAttributes { empty_rollback: Some(true), ..ChangeSetAttributes::default() }));
+        assert!(text.contains("<dropColumn tableName=\"t\" columnName=\"old\"/>\n        <rollback/>\n    </changeSet>"), "{text}");
+        assert!(text.contains("<dropIndex tableName=\"t\" indexName=\"ix_a\"/>\n        <rollback/>\n    </changeSet>"), "{text}");
+        assert_eq!(text.matches("<rollback/>").count(), 2, "{text}");
+        let off = render_with(all(ChangeSetAttributes { empty_rollback: Some(false), ..ChangeSetAttributes::default() }));
+        assert!(!off.contains("rollback"));
+    }
+
+    #[test]
+    fn per_type_rows_override_the_global_row_field_by_field() {
+        let text = render_with(ChangeSetDefaults {
+            all: ChangeSetAttributes { run_on_change: Some(true), context: Some("dev".into()), ..ChangeSetAttributes::default() },
+            by_type: vec![
+                ("createTable".into(), ChangeSetAttributes { context: Some("prod".into()), fail_on_error: Some(false), ..ChangeSetAttributes::default() }),
+                ("dropColumn".into(), ChangeSetAttributes { run_on_change: Some(false), ..ChangeSetAttributes::default() }),
+            ],
+        });
+        assert!(text.contains("<changeSet id=\"model-1\" author=\"jpa-assist\" runOnChange=\"true\" failOnError=\"false\" context=\"prod\">"), "{text}");
+        assert!(text.contains("<changeSet id=\"model-2\" author=\"jpa-assist\" runOnChange=\"true\" context=\"dev\">"), "{text}");
+        assert!(text.contains("author=\"jpa-assist\" runOnChange=\"false\" context=\"dev\">\n        <dropColumn"), "{text}");
+    }
+
+    #[test]
+    fn changeset_defaults_are_validated() {
+        for bad in ["", "a,,b", "a b", "a\"b", "a\nb", "dev and test", "!dev", "a'b", "a&b", "x,"] {
+            for field in 0..2 {
+                let mut attributes = ChangeSetAttributes::default();
+                if field == 0 { attributes.context = Some(bad.into()) } else { attributes.labels = Some(bad.into()) }
+                let mut o = options();
+                o.defaults = all(attributes);
+                assert!(matches!(emit_xml(&small_plan(), &o), Err(LiquibaseError::InvalidOption { .. })), "{bad:?}");
+            }
+        }
+        let long = vec!["a"; 17].join(",");
+        let mut o = options();
+        o.defaults = all(ChangeSetAttributes { labels: Some(long), ..ChangeSetAttributes::default() });
+        assert!(emit_xml(&small_plan(), &o).is_err());
+        o.defaults = ChangeSetDefaults { all: ChangeSetAttributes::default(), by_type: vec![("dropEverything".into(), ChangeSetAttributes::default())] };
+        assert!(emit_xml(&small_plan(), &o).is_err());
+        o.defaults = ChangeSetDefaults { all: ChangeSetAttributes::default(), by_type: vec![("createTable".into(), ChangeSetAttributes { context: Some("a;b".into()), ..ChangeSetAttributes::default() })] };
+        assert!(emit_xml(&small_plan(), &o).is_err());
+        assert_eq!(PreconditionAction::parse("MARK_RAN"), Some(PreconditionAction::MarkRan));
+        assert_eq!(PreconditionAction::parse("off"), None);
+    }
+
+    #[test]
+    fn defaults_apply_to_backfill_steps_by_their_own_type() {
+        let mut o = backfill_options();
+        o.defaults = ChangeSetDefaults {
+            all: ChangeSetAttributes::default(),
+            by_type: vec![("update".into(), ChangeSetAttributes { fail_on_error: Some(true), ..ChangeSetAttributes::default() })],
+        };
+        let text = emit_xml(&backfill_plan(), &o).unwrap().render();
+        assert_well_formed(&text);
+        assert_eq!(text.matches("failOnError=\"true\"").count(), 3, "{text}");
+        assert!(text.contains("failOnError=\"true\">\n        <update tableName=\"t\">"), "{text}");
     }
 
     fn assert_well_formed(text: &str) {
