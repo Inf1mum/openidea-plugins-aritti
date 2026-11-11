@@ -13,6 +13,7 @@ pub(crate) struct Cache {
 struct Definition {
     api: String,
     kind: String,
+    cluster_scoped: bool,
     schema: Yaml,
     path: String,
 }
@@ -46,6 +47,7 @@ fn definitions(source: &str, path: &str) -> Vec<Definition> {
                     Some(Definition {
                         api: format!("{group}/{}", v["name"].as_str()?),
                         kind: kind.into(),
+                        cluster_scoped: d["spec"]["scope"].as_str() == Some("Cluster"),
                         schema: schema.clone(),
                         path: path.into(),
                     })
@@ -239,6 +241,9 @@ impl Cache {
         }
         let mut messages = Vec::new();
         validate(&docs[0], &def.schema, "", 0, &mut messages);
+        if def.cluster_scoped && !matches!(docs[0]["metadata"]["namespace"], Yaml::BadValue) {
+            messages.push("metadata.namespace is set but the local CRD is cluster-scoped".into());
+        }
         let facts = crate::manifest::documents(&doc.text);
         let span = facts
             .first()
@@ -340,19 +345,21 @@ impl Cache {
     }
 }
 fn validate(value: &Yaml, schema: &Yaml, path: &str, depth: usize, out: &mut Vec<String>) {
+    let int_or_string = schema["x-kubernetes-int-or-string"].as_bool() == Some(true);
     if depth > 16
         || out.len() >= 64
         || ["$ref", "allOf", "anyOf", "oneOf", "not", "if"]
             .iter()
-            .any(|key| !matches!(schema[*key], Yaml::BadValue))
+            .any(|key| !int_or_string && !matches!(schema[*key], Yaml::BadValue))
     {
         return;
     }
-    if matches!(value, Yaml::Null) && schema["nullable"].as_bool() == Some(true) {
+    // Null on a non-nullable field is pruned/defaulted server side, so it is not provable.
+    if matches!(value, Yaml::Null) {
         return;
     }
     let ty = schema["type"].as_str();
-    let correct = if schema["x-kubernetes-int-or-string"].as_bool() == Some(true) {
+    let correct = if int_or_string {
         matches!(value, Yaml::String(_) | Yaml::Integer(_))
     } else {
         match ty {
@@ -506,10 +513,14 @@ fn validate(value: &Yaml, schema: &Yaml, path: &str, depth: usize, out: &mut Vec
             let property = &schema["properties"][key];
             if !matches!(property, Yaml::BadValue) {
                 validate(child, property, &format!("{path}/{key}"), depth + 1, out);
+            } else if schema["x-kubernetes-preserve-unknown-fields"].as_bool() == Some(true) {
             } else if schema["additionalProperties"].as_bool() == Some(false)
-                && schema["x-kubernetes-preserve-unknown-fields"].as_bool() != Some(true)
+                || (schema["properties"].as_hash().is_some()
+                    && matches!(schema["additionalProperties"], Yaml::BadValue)
+                    && !((depth == 0 || schema["x-kubernetes-embedded-resource"].as_bool() == Some(true))
+                        && matches!(key, "apiVersion" | "kind" | "metadata")))
             {
-                out.push(format!("{label}: unknown field {key} (local CRD schema)"));
+                out.push(format!("{label}: unknown field {key} would be pruned (local CRD schema)"));
             } else if schema["additionalProperties"].as_hash().is_some() {
                 validate(
                     child,
@@ -707,5 +718,32 @@ mod tests {
         ] {
             assert!(definitions(&source, "/p/crd.yaml").is_empty());
         }
+    }
+
+    #[test]
+    fn pruning_int_or_string_nullable_and_scope_follow_the_structural_schema_rules() {
+        let schema = crate::convert::source_documents("type: object\nproperties:\n  port:\n    x-kubernetes-int-or-string: true\n    anyOf: [{type: integer}, {type: string}]\n  name: {type: string, nullable: true}\n  free:\n    type: object\n    x-kubernetes-preserve-unknown-fields: true\n  emb:\n    type: object\n    x-kubernetes-embedded-resource: true\n    x-kubernetes-preserve-unknown-fields: true\n  map:\n    type: object\n    additionalProperties: {type: integer}\n").unwrap().remove(0);
+        let ok = crate::convert::source_documents("apiVersion: v1\nkind: K\nmetadata: {name: a}\nport: 80\nname: null\nfree: {x: 1}\nemb: {apiVersion: v1, kind: Pod, metadata: {}}\nmap: {a: 1}\n").unwrap().remove(0);
+        let mut out = vec![];
+        validate(&ok, &schema, "", 0, &mut out);
+        assert!(out.is_empty(), "{out:?}");
+        let bad = crate::convert::source_documents("port: [1]\nstray: 1\nmap: {a: x}\n").unwrap().remove(0);
+        validate(&bad, &schema, "", 0, &mut out);
+        assert!(out.iter().any(|m| m.contains("/port")), "{out:?}");
+        assert!(out.iter().any(|m| m.contains("stray")), "{out:?}");
+        assert!(out.iter().any(|m| m.contains("/map/a")), "{out:?}");
+    }
+
+    #[test]
+    fn cluster_scoped_crd_flags_metadata_namespace() {
+        let crd = CRD.replace("spec:\n  group", "spec:\n  scope: Cluster\n  group");
+        let d = doc("metadata:\n  name: a\n  namespace: ns\n");
+        let h = MockHost::install().with_capabilities(&["project.read"]);
+        h.set_project_root(Some("/p"));
+        h.add_file("widget.yaml", &d.text);
+        h.add_file("crd.yaml", &crd);
+        let mut cache = Cache::default();
+        cache.warm("/p/crd.yaml", &crd);
+        assert!(cache.diagnostics(&d).iter().any(|x| x.message.contains("cluster-scoped")));
     }
 }

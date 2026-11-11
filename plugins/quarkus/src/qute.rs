@@ -247,6 +247,118 @@ fn checked_template(doc: &Document, at: Position) -> Option<String> {
     None
 }
 
+const DEFAULT_SUFFIXES: [&str; 4] = ["qute.html", "qute.txt", "html", "txt"];
+struct QuteConfig {
+    suffixes: Vec<String>,
+    excluded: bool,
+}
+/// Quarkus has no template-root property; literal `quarkus.qute.suffixes` is the provable custom lookup input.
+/// `None` when the property is profiled, dynamic, YAML-only or outside what the html/txt inventory can prove.
+fn qute_config(module: &str, path: &str) -> Option<QuteConfig> {
+    let project = project_of(path)?;
+    let resources = format!("{module}/src/main/resources");
+    for yaml in ["application.yaml", "application.yml"] {
+        if project.read_file(&format!("{resources}/{yaml}")).is_ok_and(|t| t.contains("suffixes") || t.contains("template-path-exclude")) {
+            return None;
+        }
+    }
+    let text = match project.read_file(&format!("{resources}/application.properties")) {
+        Ok(text) if text.len() <= MAX_TEXT => text,
+        Ok(_) => return None,
+        Err(Error::NotFound(_)) | Err(Error::Invalid(_)) => String::new(),
+        Err(_) => return None,
+    };
+    let mut suffixes = DEFAULT_SUFFIXES.map(String::from).to_vec();
+    let mut excluded = false;
+    let mut seen = false;
+    for line in text.lines().map(str::trim).filter(|l| !l.starts_with(['#', '!'])) {
+        let Some((key, value)) = line.split_once(['=', ':']) else { continue; };
+        let key = key.trim();
+        if key.contains("qute.template-path-exclude") { excluded = true; }
+        if !key.contains("qute.suffixes") { continue; }
+        let value = value.trim();
+        if key != "quarkus.qute.suffixes" || seen || value.contains(['$', '{', '"', '\\']) { return None; }
+        seen = true;
+        suffixes = value.split(',').map(|v| v.trim().trim_start_matches('.').to_string()).collect();
+        if suffixes.iter().any(|v| v.is_empty() || !(v.ends_with("html") || v.ends_with("txt")) || !v.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.')) { return None; }
+    }
+    Some(QuteConfig { suffixes, excluded })
+}
+fn template_candidates<'a>(paths: &'a BTreeSet<String>, prefix: &str, id: &str, suffixes: &[String]) -> Vec<&'a String> {
+    let base = format!("{prefix}{id}");
+    paths.iter().filter(|p| **p == base || suffixes.iter().any(|s| **p == format!("{base}.{s}"))).collect()
+}
+/// Literal-only embedded template references: `(from, to, template id, variable/method/record name, declaration offset)`.
+fn embedded_templates(doc: &Document) -> Vec<(usize, usize, String, String, usize)> {
+    let file = source::parse(&doc.text);
+    let mut found = Vec::new();
+    for ty in &file.types {
+        let mut probes = vec![(ty.at, ty.at + ty.name.len(), ty.name.clone(), ty.at)];
+        for m in &ty.members {
+            probes.push((m.at, m.at + m.name.len(), m.name.clone(), m.at));
+            for l in m.annotations.iter().filter(|a| a.name == "Location").filter_map(|a| a.arg("value")).flat_map(|v| v.strings.iter()) {
+                probes.push((l.at, l.end, m.name.clone(), m.at));
+            }
+        }
+        for (from, to, name, decl) in probes {
+            let at = openidea_plugin::text::position(&doc.text, from);
+            if let Some(id) = injected_template(doc, at).or_else(|| checked_template(doc, at)) {
+                if !found.iter().any(|f: &(usize, usize, String, String, usize)| f.0 == from) {
+                    found.push((from, to, id, name, decl));
+                }
+            }
+        }
+    }
+    found
+}
+fn data_literals(text: &str, pattern: &str, out: &mut BTreeSet<String>) {
+    for (at, _) in text.match_indices(pattern) {
+        let chain = &text[at..text.len().min(at + 2000)];
+        let chain = &chain[..chain.find(';').unwrap_or(chain.len())];
+        for (d, _) in chain.match_indices(".data(") {
+            let rest = chain[d + 6..].trim_start();
+            let Some(rest) = rest.strip_prefix('"') else { continue; };
+            let Some(name) = rest.split('"').next() else { continue; };
+            if !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') { out.insert(name.into()); }
+        }
+    }
+}
+/// Names provable for `{name}` in the template with `id`: checked-method parameters, record components and literal `.data("x", ..)` chains.
+fn data_names(doc: &Document, id: &str, suffixes: &[String]) -> BTreeSet<String> {
+    let mut names = BTreeSet::new();
+    if doc.text.len() > MAX_TEXT || !balanced(&doc.text) { return names; }
+    let file = source::parse(&doc.text);
+    for (_, _, template, name, decl) in embedded_templates(doc) {
+        if !(template == id || suffixes.iter().any(|s| format!("{template}.{s}") == id)) { continue; }
+        for ty in &file.types {
+            if ty.at == decl && ty.name == name {
+                names.extend(ty.components.iter().map(|c| c.name.clone()));
+                data_literals(&doc.text, &format!("new {name}("), &mut names);
+            }
+            for m in ty.members.iter().filter(|m| m.at == decl) {
+                names.extend(m.params.iter().map(|p| p.name.clone()));
+                data_literals(&doc.text, &format!("{}.{}(", ty.name, m.name), &mut names);
+                data_literals(&doc.text, &format!("{}.", m.name), &mut names);
+            }
+        }
+    }
+    names
+}
+/// Literal `@TemplateData(namespace = "x")` / `@TemplateExtension(namespace = "x")` namespaces.
+fn namespaces(text: &str) -> BTreeSet<String> {
+    let file = source::parse(text);
+    let mut found = BTreeSet::new();
+    let annotated = file.types.iter().flat_map(|t| t.annotations.iter().chain(t.members.iter().flat_map(|m| m.annotations.iter())));
+    for a in annotated.filter(|a| matches!(a.name.as_str(), "TemplateData" | "TemplateExtension")) {
+        let Some(arg) = a.arg("namespace") else { continue; };
+        let [lit] = arg.strings.as_slice() else { continue; };
+        if source::tokens(&arg.text).len() == 1 && !lit.value.is_empty() && lit.value.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') {
+            found.insert(lit.value.clone());
+        }
+    }
+    found
+}
+
 fn balanced(text: &str) -> bool {
     let mut stack = Vec::new();
     for t in source::tokens(text) {
@@ -765,14 +877,55 @@ impl QuarkusTools {
         let key = (root, module);
         if !self.qute.modules.get(&key).is_some_and(|p| p.at.elapsed() < Duration::from_secs(120)) { return vec![]; }
         let Some(inventory) = self.qute.inventories.get(&key).filter(|i| i.at.elapsed() < NAV_TTL) else { return vec![]; };
+        let Some(config) = qute_config(&key.1, &doc.path).filter(|c| !c.excluded) else { return vec![]; };
         include_literals(&doc.text).into_iter().filter_map(|(from, to, id)| {
-            let base = format!("{prefix}{id}");
-            if inventory.paths.iter().any(|path| path == &base || path == &format!("{base}.html") || path == &format!("{base}.txt")) { return None; }
+            if !template_candidates(&inventory.paths, &prefix, id, &config.suffixes).is_empty() { return None; }
             let mut diagnostic = Diagnostic::new(range(&doc.text, from, to), openidea_plugin::Severity::Info,
                 format!("No source template `{id}` exists in this module's conventional templates directory. A custom template locator may supply it at runtime."));
             diagnostic.code = Some("qute-source-include".into());
             Some(diagnostic)
         }).take(200).collect()
+    }
+    /// Warns only for a literal embedded reference when the fresh, complete inventory and config prove no file matches.
+    pub(super) fn qute_java_diagnostics(&self, doc: &Document) -> Vec<Diagnostic> {
+        if doc.language != "java" || doc.text.len() > MAX_TEXT || !balanced(&doc.text) || !self.live.watching || self.qute.navigation_events_lost { return vec![]; }
+        let Some(root) = self.cached_module(doc) else { return vec![]; };
+        let Some(module) = module(&root, &doc.path) else { return vec![]; };
+        let key = (root, module);
+        if !self.qute.modules.get(&key).is_some_and(|p| p.at.elapsed() < Duration::from_secs(120)) { return vec![]; }
+        let Some(inventory) = self.qute.inventories.get(&key).filter(|i| i.at.elapsed() < NAV_TTL) else { return vec![]; };
+        let Some(config) = qute_config(&key.1, &doc.path).filter(|c| !c.excluded) else { return vec![]; };
+        let prefix = format!("{}/src/main/resources/templates/", key.1);
+        embedded_templates(doc).into_iter().filter(|(.., id, _, _)| !id.is_empty() && !id.ends_with('/')).filter_map(|(from, to, id, _, _)| {
+            if !template_candidates(&inventory.paths, &prefix, &id, &config.suffixes).is_empty() { return None; }
+            let mut diagnostic = Diagnostic::new(range(&doc.text, from, to), openidea_plugin::Severity::Warning,
+                format!("No source template `{id}` exists in this module's templates directory (suffixes: {}). A custom template locator may supply it at runtime.", config.suffixes.join(", ")));
+            diagnostic.code = Some("qute-missing-template".into());
+            Some(diagnostic)
+        }).take(200).collect()
+    }
+    fn qute_data_completion(&self, doc: &Document, key: &(String, String), name_prefix: &str, replace: Range) -> Vec<CompletionItem> {
+        let Some(project) = project_of(&doc.path) else { return vec![]; };
+        let Some(config) = qute_config(&key.1, &doc.path) else { return vec![]; };
+        let templates = format!("{}/src/main/resources/templates/", key.1);
+        let Some(id) = doc.path.strip_prefix(&templates) else { return vec![]; };
+        let Ok(files) = project.find_files("**/src/main/java/**/*.java", 501) else { return vec![]; };
+        if files.len() > 500 { return vec![]; }
+        let java = format!("{}/src/main/java/", key.1);
+        let (mut names, mut spaces) = (BTreeSet::new(), BTreeSet::new());
+        for file in files.iter().filter(|f| f.starts_with(&java)) {
+            let Ok(text) = project.read_file(file) else { continue; };
+            if text.len() > MAX_TEXT || !(text.contains("io.quarkus.qute") || text.contains("Qute")) { continue; }
+            let source = Document { path: file.clone(), language: "java".into(), version: 0, text };
+            names.extend(data_names(&source, id, &config.suffixes));
+            spaces.extend(namespaces(&source.text).into_iter().map(|n| format!("{n}:")));
+        }
+        names.into_iter().chain(spaces).filter(|n| n.starts_with(name_prefix)).take(100).map(|n| {
+            let mut item = CompletionItem::new(&n, CompletionKind::Variable);
+            item.replace = Some(replace);
+            item.detail = Some("Literal Qute data name from Java source".into());
+            item
+        }).collect()
     }
     pub(super) fn qute_completion(&self, doc: &Document, at: Position) -> Vec<CompletionItem> {
         if !matches!(doc.language.as_str(), "html" | "plaintext" | "qute-html") || doc.text.len() > MAX_TEXT || !self.live.watching || self.qute.navigation_events_lost { return vec![]; }
@@ -816,6 +969,10 @@ impl QuarkusTools {
                 item.detail = Some("Cached Qute template".into()); item
             }).collect();
         }
+        let name = &tail[1..];
+        if name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') {
+            return self.qute_data_completion(doc, &key, name, range(&doc.text, start + 1, offset));
+        }
         vec![]
     }
     pub(super) fn qute_definition(
@@ -855,17 +1012,15 @@ impl QuarkusTools {
         {
             let Some(offset) = offset(&doc.text, at) else { return vec![]; };
             let Some((_, _, id)) = include_literals(&doc.text).into_iter().find(|(from, to, _)| *from <= offset && offset < *to) else { return vec![]; };
-            let base = format!("{module}/src/main/resources/templates/{id}");
-            let candidates: Vec<_> = inventory.paths.iter().filter(|path| {
-                *path == &base || *path == &format!("{base}.html") || *path == &format!("{base}.txt")
-            }).collect();
+            let Some(config) = qute_config(&module, &doc.path) else { return vec![]; };
+            let candidates = template_candidates(&inventory.paths, &format!("{module}/src/main/resources/templates/"), id, &config.suffixes);
             let [target] = candidates.as_slice() else { return vec![]; };
             return vec![openidea_plugin::Location { path: (*target).clone(), range: Range::default() }];
         }
         if doc.language == "java" && doc.text.len() <= MAX_TEXT {
             if let Some(name) = injected_template(doc, at).or_else(|| checked_template(doc, at)) {
-                let base = format!("{module}/src/main/resources/templates/{name}");
-                let candidates: Vec<_> = inventory.paths.iter().filter(|path| *path == &base || *path == &format!("{base}.html") || *path == &format!("{base}.txt")).collect();
+                let Some(config) = qute_config(&module, &doc.path) else { return vec![]; };
+                let candidates = template_candidates(&inventory.paths, &format!("{module}/src/main/resources/templates/"), &name, &config.suffixes);
                 if let [target] = candidates.as_slice() {
                     return vec![openidea_plugin::Location { path: (*target).clone(), range: Range::default() }];
                 }
@@ -1634,6 +1789,64 @@ mod tests {
         assert!(QuarkusTools::default().qute_folding(&doc).is_empty());
         assert!(tools.qute_folding(&Document{path:"/project/plain.html".into(),..doc.clone()}).is_empty());
         assert!(tools.qute_folding(&Document{text:"{#if active}\nbody\n{/for}".into(),..doc}).is_empty());
+    }
+
+    fn embedded_setup(props: &str, java: &str) -> (MockHost, QuarkusTools, Document) {
+        let (host, mut tools, _) = navigation_setup();
+        host.add_file("src/main/java/Templates.java", java);
+        if !props.is_empty() { host.add_file("src/main/resources/application.properties", props); }
+        tools.invalidate_qute_navigation(&[openidea_plugin::Event::FileSaved("/project/src/main/resources/templates/pages/home.html".into())]);
+        tools.warm_qute("/project/src/main/java/View.java");
+        (host, tools, doc(java))
+    }
+    const CHECKED: &str = "import io.quarkus.qute.CheckedTemplate; import io.quarkus.qute.TemplateInstance; class Resource { @CheckedTemplate(basePath=\"pages\", defaultName=CheckedTemplate.HYPHENATED_ELEMENT_NAME) static class T { static native TemplateInstance homePage(String user, int count); static native TemplateInstance home(String user); } }";
+    #[test]
+    fn missing_embedded_templates_warn_only_when_inventory_proves_absence() {
+        let (_h, tools, d) = embedded_setup("", CHECKED);
+        let found = tools.qute_java_diagnostics(&d);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].message.contains("pages/home-page"));
+        let loc = "import io.quarkus.qute.Template; import io.quarkus.qute.Location; class V { @Location(\"pages/home.html\") Template a; @Location(\"nope.html\") Template b; @Location(dynamic) Template c; }";
+        let (_h, tools, d) = embedded_setup("", loc);
+        let found = tools.qute_java_diagnostics(&d);
+        assert_eq!(found.len(), 1);
+        assert!(found[0].message.contains("nope.html"));
+        assert!(QuarkusTools::default().qute_java_diagnostics(&d).is_empty());
+        let (_h, tools, d) = embedded_setup("quarkus.qute.template-path-exclude=x\n", loc);
+        assert!(tools.qute_java_diagnostics(&d).is_empty());
+    }
+    #[test]
+    fn literal_suffix_property_extends_resolution_and_dynamic_values_are_quiet() {
+        let java = "import io.quarkus.qute.Template; import io.quarkus.qute.Location; class V { @Location(\"pages/home\") Template a; }";
+        let (host, mut tools, d) = embedded_setup("", java);
+        assert!(tools.qute_java_diagnostics(&d).is_empty());
+        host.add_file("src/main/resources/templates/pages/other.qute.html", "x");
+        let java2 = java.replace("pages/home", "pages/other");
+        host.add_file("src/main/java/View.java", &java2);
+        tools.invalidate_qute_navigation(&[openidea_plugin::Event::FileSaved("/project/src/main/resources/templates/pages/other.qute.html".into())]);
+        tools.warm_qute("/project/src/main/java/View.java");
+        assert!(tools.qute_java_diagnostics(&doc(&java2)).is_empty());
+        host.add_file("src/main/resources/application.properties", "quarkus.qute.suffixes=txt\n");
+        let d2 = tools.qute_java_diagnostics(&doc(&java2));
+        assert_eq!(d2.len(), 1, "{d2:?}");
+        for bad in ["quarkus.qute.suffixes=${S}\n", "%dev.quarkus.qute.suffixes=txt\n", "quarkus.qute.suffixes=xml\n"] {
+            host.add_file("src/main/resources/application.properties", bad);
+            assert!(tools.qute_java_diagnostics(&doc(&java2)).is_empty(), "{bad}");
+        }
+    }
+    #[test]
+    fn template_expression_completion_uses_literal_checked_params_and_data_chains() {
+        let java = "import io.quarkus.qute.CheckedTemplate; import io.quarkus.qute.TemplateInstance; import io.quarkus.qute.TemplateData; @TemplateData(namespace=\"app\") class D {} class Resource { @CheckedTemplate(basePath=\"pages\") static class T { static native TemplateInstance home(String user, int count); } void f() { T.home(\"a\", 1).data(\"extra\", 2).data(dyn, 3); } }";
+        let (host, mut tools, _) = embedded_setup("", java);
+        let text = "<p>{";
+        let path = "/project/src/main/resources/templates/pages/home.html";
+        host.add_file("src/main/resources/templates/pages/home.html", text);
+        tools.warm_live(path, Some(text), Instant::now() + Duration::from_secs(1));
+        let d = Document { path: path.into(), language: "qute-html".into(), version: 1, text: text.into() };
+        let labels: Vec<_> = tools.qute_completion(&d, position(text, text.len())).into_iter().map(|i| i.label).collect();
+        assert_eq!(labels, ["count", "extra", "user", "app:"]);
+        let other = Document { path: "/project/src/main/resources/templates/pages/other.html".into(), ..d };
+        assert_eq!(tools.qute_completion(&other, position(text, text.len())).len(), 1);
     }
 
 }

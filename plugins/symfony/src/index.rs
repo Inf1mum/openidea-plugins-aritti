@@ -60,6 +60,10 @@ pub struct Index {
     pub ambiguous_templates: std::collections::BTreeSet<String>,
     pub template_paths_unknown: bool,
     pub services: Names,
+    /// Services autowiring can reach without a literal definition: resource-loaded FQCN ids and `#[AsAlias]` ids.
+    pub autowired: Names,
+    /// Every route name is literal in scanned files (no compiled routes needed).
+    pub routes_complete: bool,
     /// Keys by domain.
     pub translations: BTreeMap<String, Names>,
     /// YAML translation files by domain, where missing keys can be added.
@@ -370,6 +374,13 @@ impl Index {
             }
         };
 
+        let mut resource_defs = Vec::new();
+        let mut routes_literal = true;
+        let mut route_files_seen = false;
+        let route_php = files(&["config/routes.php", "config/routes/**/*.php"]);
+        routes_literal &= route_php.is_empty();
+        routes_literal &= optional_text(project, "src/Kernel.php", &mut index).find("outes").is_none();
+
         for path in &config {
             let Some(text) = read(path, &mut index) else { continue };
             let relative = relative(path);
@@ -379,6 +390,7 @@ impl Index {
             }
 
             if relative.ends_with(".xml") {
+                routes_literal &= !(text.contains("<routes") && text.contains("<import"));
                 xml_services(path, &text, &mut index.services);
                 xml_params(path, &text, &mut index.parameters);
                 xml_routes(path, &text, &mut index.routes);
@@ -387,11 +399,15 @@ impl Index {
             }
 
             if relative.starts_with("config/routes") {
+                route_files_seen = true;
+                routes_literal &= yaml_routes_literal(&root, path, &text);
                 yaml_routes(path, &text, &mut index.routes);
                 index.route_defs.extend(route_defs::yaml_route_defs(path, &text));
                 continue;
             }
 
+            routes_literal &= !yaml_keys(&text).iter().any(|key| key.key == "resource" && key.parents == ["framework", "router"]);
+            resource_defs.extend(crate::reference_model::resource_defs(path, &text));
             yaml_services(path, &text, &mut index.services);
             yaml_params(path, &text, &mut index.parameters);
             yaml_service_tags(path, &text, &mut index.tags);
@@ -405,6 +421,7 @@ impl Index {
                 match (relative.ends_with(".xml"), routes) {
                     (true, true) => xml_routes(&path, &text, &mut index.routes),
                     (false, true) => {
+                        routes_literal &= yaml_routes_literal(&root, &path, &text);
                         yaml_routes(&path, &text, &mut index.routes);
                         index.route_defs.extend(route_defs::yaml_route_defs(&path, &text));
                     }
@@ -413,6 +430,7 @@ impl Index {
                         xml_service_tags(&path, &text, &mut index.tags);
                     }
                     (false, false) => {
+                        resource_defs.extend(crate::reference_model::resource_defs(&path, &text));
                         yaml_services(&path, &text, &mut index.services);
                         yaml_service_tags(&path, &text, &mut index.tags);
                     }
@@ -422,6 +440,7 @@ impl Index {
 
         for path in &controllers {
             let Some(text) = read(path, &mut index) else { continue };
+            routes_literal &= php_routes_literal(&text);
             php_routes(path, &text, &mut index.routes);
             index.route_defs.extend(route_defs::php_route_defs(path, &text));
             roles(path, &text, &mut index.roles);
@@ -467,6 +486,23 @@ impl Index {
                 xml_services(&path, &text, &mut index.services);
                 xml_params(&path, &text, &mut index.parameters);
                 index.compiled_container = true;
+            }
+        }
+
+        index.routes_complete = routes_literal && route_files_seen && !index.compiled_routes;
+
+        if !index.compiled_container {
+            crate::reference_model::resource_services(&resource_defs, &index.classes, &mut index.autowired);
+            let candidates: Vec<(String, String)> = index.autowired.keys().filter_map(|class| Some((class.clone(), index.classes.get(class)?.path.clone()))).collect();
+            for (class, path) in candidates.into_iter().take(400) {
+                if started.elapsed() > BUDGET * 3 / 4 {
+                    break;
+                }
+                let Ok(text) = project.read_file(&path) else { continue };
+                for (alias, offset) in crate::reference_model::as_aliases(&text) {
+                    let entry = Entry { detail: Some(format!("#[AsAlias] on {class}")), path: path.clone(), at: Lines::new(&text).position(offset) };
+                    index.autowired.insert(alias, entry);
+                }
             }
         }
 
@@ -690,18 +726,18 @@ pub fn twig_paths(text: &str) -> Vec<(String, String)> {
 }
 
 /// Byte offset → editor position, for many offsets of one file.
-struct Lines<'a> {
+pub(crate) struct Lines<'a> {
     text: &'a str,
     starts: Vec<usize>,
 }
 
 impl<'a> Lines<'a> {
-    fn new(text: &'a str) -> Self {
+    pub(crate) fn new(text: &'a str) -> Self {
         let starts = std::iter::once(0).chain(text.match_indices('\n').map(|(i, _)| i + 1)).collect();
         Self { text, starts }
     }
 
-    fn position(&self, at: usize) -> Position {
+    pub(crate) fn position(&self, at: usize) -> Position {
         let line = self.starts.partition_point(|&start| start <= at) - 1;
         let start = self.starts[line];
         let character = self.text[start..at].chars().map(|c| c.len_utf16() as u32).sum();
@@ -827,7 +863,11 @@ pub fn yaml_services(path: &str, text: &str, names: &mut impl Sink) {
             .iter()
             .find(|child| child.key == "class" && child.parents.len() == 2 && child.parents[1] == key.key)
             .map(|child| child.value.trim_matches(['\'', '"']).to_owned());
-        let alias = key.value.trim_matches(['\'', '"']).strip_prefix('@').map(|target| format!("alias of {target}"));
+        let alias = key.value.trim_matches(['\'', '"']).strip_prefix('@').map(|target| format!("alias of {target}")).or_else(|| {
+            keys.iter()
+                .find(|child| child.key == "alias" && child.parents.len() == 2 && child.parents[1] == key.key)
+                .map(|child| format!("alias of {}", child.value.trim_matches(['\'', '"']).trim_start_matches('@')))
+        });
         names.add(&key.key, class.or(alias), path, lines.position(key.offset));
     }
 }
@@ -1211,6 +1251,52 @@ fn route_name_argument(text: &str, args: std::ops::Range<usize>) -> Option<(&str
     }
 
     None
+}
+
+/// Imports of a routing file that only load attribute routes of `src/Controller`
+/// (or a `Kernel.php` checked elsewhere) without renaming them. Entries named
+/// `_…` (profiler, error pages) only define `_` routes.
+fn yaml_routes_literal(root: &str, path: &str, text: &str) -> bool {
+    let keys = yaml_keys(text);
+    let base = path.rsplit_once('/').map_or("", |(dir, _)| dir);
+    let controllers = format!("{root}/src/Controller");
+
+    keys.iter().filter(|key| key.parents.is_empty() && !key.key.starts_with("when@") && !key.key.starts_with('_')).all(|entry| {
+        let child = |parents: &[&str], name: &str| keys.iter().find(|key| key.key == name && key.parents == parents);
+        let Some(resource) = child(&[entry.key.as_str()], "resource") else { return true };
+        if child(&[entry.key.as_str()], "name_prefix").is_some() {
+            return false;
+        }
+        let value = if resource.value.is_empty() {
+            child(&[entry.key.as_str(), "resource"], "path").map(|key| key.value.clone()).unwrap_or_default()
+        } else {
+            resource.value.clone()
+        };
+        let value = without_comment(&value).trim().trim_matches(['\'', '"']).to_owned();
+        let resolved = crate::reference_model::normalize(base, &value);
+        let local = resolved == format!("{root}/src/Kernel.php") || resolved.trim_end_matches('/') == controllers || resolved.starts_with(&format!("{controllers}/"));
+        let kind = child(&[entry.key.as_str()], "type").map(|key| key.value.trim_matches(['\'', '"']).to_owned());
+        local && !value.contains(['*', '{', '@']) && kind.is_none_or(|kind| kind == "attribute" || kind == "annotation")
+    })
+}
+
+/// Every `Route(` of a controller (`#[Route]`, `@Route`) names its route with a
+/// string literal: unnamed routes get generated names the index cannot know.
+fn php_routes_literal(text: &str) -> bool {
+    let class_at = class_declaration(text).unwrap_or(0);
+
+    text.match_indices("Route(")
+        .filter(|(at, _)| {
+            let before = &text[..*at];
+            before.ends_with("#[") || before.ends_with('@') || before.ends_with('\\') || before.ends_with(", ")
+        })
+        .all(|(at, matched)| {
+            let args_start = at + matched.len();
+            let args_end = closing_paren(text, args_start);
+            let named = route_name_argument(text, args_start..args_end).is_some();
+            let declares_name = text[args_start..args_end].contains("name");
+            named || (at < class_at && !declares_name)
+        })
 }
 
 /// Named routes of `#[Route]` attributes and `@Route` annotations. A route on

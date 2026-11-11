@@ -53,6 +53,44 @@ pub struct Changelog {
     pub properties: Vec<String>,
     /// A `property` loads its values from a `file`, so the declared names cannot be listed.
     pub opaque_properties: bool,
+    /// `sqlFile` paths, resolved like includes (`dir` is always false).
+    pub sql_files: Vec<Include>,
+    /// Structural rule violations found while parsing.
+    pub issues: Vec<Issue>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Issue {
+    pub at: usize,
+    pub end: usize,
+    pub error: bool,
+    pub code: &'static str,
+    pub message: String,
+}
+
+fn issue(log: &mut Changelog, at: usize, end: usize, error: bool, code: &'static str, message: impl Into<String>) {
+    log.issues.push(Issue { at, end, error, code, message: message.into() });
+}
+
+const ON_FAIL: [&str; 4] = ["HALT", "CONTINUE", "MARK_RAN", "WARN"];
+const PRECONDITIONS: [&str; 19] = [
+    "and", "or", "not", "dbms", "runningAs", "changeSetExecuted", "columnExists", "tableExists", "viewExists", "foreignKeyConstraintExists",
+    "indexExists", "sequenceExists", "primaryKeyExists", "sqlCheck", "changeLogPropertyDefined", "customPrecondition", "expectedQuotingStrategy",
+    "rowCount", "tableIsEmpty",
+];
+const SQL_BOOLEANS: [&str; 8] =
+    ["runOnChange", "runAlways", "failOnError", "runInTransaction", "splitStatements", "stripComments", "rollbackSplitStatements", "ignore"];
+
+fn is_bool(value: &str) -> bool {
+    value.eq_ignore_ascii_case("true") || value.eq_ignore_ascii_case("false")
+}
+
+fn bad_on_fail(log: &mut Changelog, flag: &str, value: &str, at: usize, end: usize) {
+    if value.contains("${") || ON_FAIL.contains(&value) {
+        return;
+    }
+    let message = format!("`{flag}` is `{value}`; Liquibase accepts HALT, CONTINUE, MARK_RAN or WARN.");
+    issue(log, at, end, true, "invalid-precondition-action", message);
 }
 
 /// Where an include points, as far as the host can tell.
@@ -64,7 +102,7 @@ pub enum Target {
 }
 
 fn empty(format: Format, header: bool) -> Changelog {
-    Changelog { format, header, change_sets: Vec::new(), includes: Vec::new(), changes: Vec::new(), properties: Vec::new(), opaque_properties: false }
+    Changelog { format, header, change_sets: Vec::new(), includes: Vec::new(), changes: Vec::new(), properties: Vec::new(), opaque_properties: false, sql_files: Vec::new(), issues: Vec::new() }
 }
 
 /// `None` when `text` isn't a Liquibase changelog (format by `path`'s extension).
@@ -110,7 +148,10 @@ fn parse_xml(text: &str) -> Option<Changelog> {
             }
             name @ ("include" | "includeAll") => {
                 let dir = name == "includeAll";
-                let Some(attr) = e.attr(if dir { "path" } else { "file" }) else {
+                let required = if dir { "path" } else { "file" };
+                let Some(attr) = e.attr(required) else {
+                    let message = format!("`{name}` requires a `{required}` attribute.");
+                    issue(&mut log, e.at, e.at + e.name.len(), true, "include-without-path", message);
                     continue;
                 };
                 let relative = e.value("relativeToChangelogFile").is_some_and(|v| v.eq_ignore_ascii_case("true"));
@@ -118,7 +159,26 @@ fn parse_xml(text: &str) -> Option<Changelog> {
                 let optional = e.value(flag).is_some_and(|v| v.eq_ignore_ascii_case("false"));
                 log.includes.push(Include { path: attr.value.clone(), relative, dir, optional, at: attr.value_at, end: attr.value_end });
             }
+            "sqlFile" => match e.attr("path") {
+                Some(attr) => {
+                    let relative = e.value("relativeToChangelogFile").is_some_and(|v| v.eq_ignore_ascii_case("true"));
+                    log.sql_files.push(Include { path: attr.value.clone(), relative, dir: false, optional: false, at: attr.value_at, end: attr.value_end });
+                }
+                None => issue(&mut log, e.at, e.at + e.name.len(), true, "sqlfile-without-path", "`sqlFile` requires a `path` attribute."),
+            },
+            "preConditions" => {
+                for flag in ["onFail", "onError"] {
+                    if let Some(attr) = e.attr(flag) {
+                        bad_on_fail(&mut log, flag, &attr.value, attr.value_at, attr.value_end);
+                    }
+                }
+            }
             _ => {}
+        }
+        let parent = e.parent.map(|p| elements[p].local());
+        if matches!(parent, Some("preConditions" | "and" | "or" | "not")) && !e.name.contains(':') && !PRECONDITIONS.contains(&e.local()) {
+            let message = format!("`{}` is not a Liquibase precondition.", e.local());
+            issue(&mut log, e.at, e.at + e.name.len(), false, "unknown-precondition", message);
         }
     }
     Some(log)
@@ -159,11 +219,36 @@ fn parse_keys(keys: Vec<Key>, format: Format) -> Option<Changelog> {
             "property.file" => log.opaque_properties = true,
             _ => {}
         }
+        if let Some(name) = rest.strip_suffix(".sqlFile.path").filter(|r| r.starts_with("changeSet.changes[")) {
+            let _ = name;
+            log.sql_files.push(Include { path: key.value.clone(), relative: false, dir: false, optional: false, at: key.value_at, end: key.value_end });
+        }
+        let Some(tail) = rest.split_once("preConditions") else {
+            continue;
+        };
+        if let Some(child) = tail.1.strip_prefix('.').filter(|c| !c.is_empty() && !c.contains(['.', '['])) {
+            let message = format!("`preConditions` is a list; `{child}` must be a list item (`- {child}: ...`).");
+            issue(&mut log, key.at, key.end, false, "preconditions-shape", message);
+        }
+        for flag in ["onFail", "onError"] {
+            if tail.1.starts_with('[') && tail.1.ends_with(&format!("].{flag}")) {
+                bad_on_fail(&mut log, flag, &key.value, key.value_at, key.value_end);
+            }
+        }
     }
     for key in &keys {
         let Some((n, rest)) = entry(key) else {
             continue;
         };
+        if rest.starts_with("changeSet.changes[") && rest.ends_with(".sqlFile.relativeToChangelogFile") {
+            let prefix = format!("{}.sqlFile.path", rest.trim_end_matches(".sqlFile.relativeToChangelogFile"));
+            let owner = keys.iter().find(|k| entry(k).is_some_and(|(m, r)| m == n && r == prefix));
+            if let Some(owner) = owner {
+                if let Some(i) = log.sql_files.iter().position(|f| f.at == owner.value_at) {
+                    log.sql_files[i].relative = key.value.eq_ignore_ascii_case("true");
+                }
+            }
+        }
         let set = set_of.iter().find(|(m, _)| *m == n).map(|&(_, i)| i);
         match (rest, set) {
             ("changeSet.id", Some(i)) => log.change_sets[i].id = non_empty(&key.value),
@@ -205,6 +290,7 @@ fn strip_comment(line: &str) -> &str {
 fn parse_sql(text: &str) -> Option<Changelog> {
     let mut log = empty(Format::Sql, false);
     let mut first = true;
+    let mut seen_changeset = false;
     let body = text.trim_start_matches('\u{feff}');
     let mut offset = text.len() - body.len();
     for raw in body.split_inclusive('\n') {
@@ -226,6 +312,11 @@ fn parse_sql(text: &str) -> Option<Changelog> {
                 continue;
             }
         }
+        if !seen_changeset && body.get(..8).is_some_and(|k| k.eq_ignore_ascii_case("rollback")) && body[8..].starts_with(char::is_whitespace) {
+            let at = line.as_ptr() as usize - text.as_ptr() as usize + (line.len() - line.trim_start().len());
+            issue(&mut log, at, at + line.trim().len(), false, "rollback-outside-changeset", "`--rollback` before the first `--changeset` belongs to no changeset and is ignored.");
+            continue;
+        }
         let Some(keyword) = body.get(.."changeset".len()) else {
             continue;
         };
@@ -234,6 +325,18 @@ fn parse_sql(text: &str) -> Option<Changelog> {
             continue;
         }
         let (author, id) = changeset_token(args.trim_start());
+        for token in args.split_whitespace() {
+            let Some((key, value)) = token.split_once(':') else {
+                continue;
+            };
+            let value = value.trim_matches('"');
+            if SQL_BOOLEANS.contains(&key) && !is_bool(value) && !value.contains("${") {
+                let at = token.as_ptr() as usize - text.as_ptr() as usize;
+                let message = format!("`{key}` is `{value}`; use `true` or `false` (anything else is read as false).");
+                issue(&mut log, at, at + token.len(), false, "invalid-changeset-attribute", message);
+            }
+        }
+        seen_changeset = true;
         let indent = line.len() - line.trim_start().len();
         log.change_sets.push(ChangeSet { id, author, at: start + indent, end: start + line.len() });
     }

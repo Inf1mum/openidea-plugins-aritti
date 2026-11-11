@@ -27,6 +27,7 @@ mod profiler;
 mod profiler_details;
 mod query_builder_checks;
 mod refs;
+mod reference_model;
 mod rewrites;
 mod route_defs;
 mod route_duplicates;
@@ -110,6 +111,19 @@ fn range_of(text: &str, start: usize, end: usize) -> Range {
 
 fn file_name(path: &str) -> &str {
     path.rsplit('/').next().unwrap_or(path)
+}
+
+/// Autowiring target of a class or interface id. A resource-loaded class counts
+/// only when its file declares a concrete class.
+fn autowired_entry<'a>(index: &'a Index, id: &str) -> Option<&'a Entry> {
+    let entry = index.autowired.get(id)?;
+    if entry.detail.as_deref() != Some(reference_model::RESOURCE_DETAIL) {
+        return Some(entry);
+    }
+
+    let class_path = &index.classes.get(id)?.path;
+    let text = host::project_of(class_path)?.read_file(class_path).ok()?;
+    reference_model::is_instantiable(&text).then_some(entry)
 }
 
 fn location(entry: &Entry, width: u32) -> Option<Location> {
@@ -406,6 +420,25 @@ fn source_service_duplicates(path: &str, language: &str, text: &str) -> Option<V
     }).collect())
 }
 
+/// Compiled routes are authoritative. Otherwise every route must be literal in the
+/// scanned sources, the name a plain one (not `_` internal, FQCN or `Class::method`
+/// alias) and the call a URL generator's.
+fn route_is_missing(index: &Index, text: &str, start: usize, name: &str) -> bool {
+    if index.compiled_routes {
+        return true;
+    }
+    if !index.routes_complete || name.starts_with('_') || name.contains(['\\', ':']) {
+        return false;
+    }
+
+    let before = &text[..start];
+    let call = before.trim_end_matches(['\'', '"']).trim_end_matches('(');
+    call.ends_with("generateUrl") || call.ends_with("redirectToRoute") || {
+        let receiver = call.strip_suffix("->generate").unwrap_or("").to_ascii_lowercase();
+        receiver.ends_with("router") || receiver.ends_with("urlgenerator")
+    }
+}
+
 pub fn problems(index: &Index, path: &str, language: &str, text: &str) -> Vec<Diagnostic> {
     let mut problems = Vec::new();
     let mut problem = |start: usize, end: usize, code: &str, message: String| {
@@ -433,7 +466,7 @@ pub fn problems(index: &Index, path: &str, language: &str, text: &str) -> Vec<Di
         }
 
         match reference.kind {
-            Kind::Route if language != "twig" && index.compiled_routes && !index.routes.contains_key(name) => {
+            Kind::Route if language != "twig" && !index.routes.contains_key(name) && route_is_missing(index, text, reference.start, name) => {
                 problem(reference.start, reference.end, "missing-route", format!("Route \"{name}\" is not defined."));
             }
             Kind::Template
@@ -1134,7 +1167,16 @@ impl Providers for Main {
             return Vec::new();
         };
         let Some(reference) = refs::reference_at(&doc.language, &doc.text, offset) else {
-            return Vec::new();
+            if doc.language != "php" {
+                return Vec::new();
+            }
+            let entry = reference_model::constructor_type_at(&doc.text, offset)
+                .and_then(|class| index.services.get(&class).or_else(|| autowired_entry(index, &class)));
+            return entry
+                .filter(|entry| host::project_of(&entry.path).and_then(|project| project.root().ok()).as_deref() == Some(root.as_str()))
+                .and_then(|entry| location(entry, 0))
+                .into_iter()
+                .collect();
         };
         if reference.kind == Kind::Tag {
             return Vec::new();
@@ -1142,7 +1184,7 @@ impl Providers for Main {
 
         let name = &doc.text[reference.start..reference.end];
         let names = candidates(index, &doc.path, &doc.language, &doc.text, &reference);
-        let Some(entry) = names.get(name) else {
+        let Some(entry) = names.get(name).or_else(|| (reference.kind == Kind::Service).then(|| autowired_entry(index, name)).flatten()) else {
             return Vec::new();
         };
 

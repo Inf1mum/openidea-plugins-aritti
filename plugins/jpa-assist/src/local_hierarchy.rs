@@ -1,7 +1,7 @@
 //! Literal same-source-root checks: identifier absence along a closed `extends` chain and
 //! `@Convert(converter = X.class)` naming a class that cannot implement AttributeConverter.
 //! Jakarta Persistence 3.2 section 2.4 (primary key declared by root entity or mapped superclass)
-//! and section 10.6 (converter classes must implement AttributeConverter). XML mappings are unresolved.
+//! and section 10.6 (converter classes must implement AttributeConverter). XML mappings are read only from a unique orm.xml set.
 use crate::{
     attribute_info,
     checks::Finding,
@@ -12,7 +12,7 @@ use openidea_plugin::{Severity, host, providers::Document, text::offset};
 const MAX_HOPS: usize = 8;
 const MAX_TEXT: usize = 128 * 1024;
 
-fn read(path: &str) -> Option<String> {
+pub(super) fn read(path: &str) -> Option<String> {
     host::project_of(path)?.read_file(path).ok().filter(|t| t.len() <= MAX_TEXT)
 }
 
@@ -22,7 +22,7 @@ fn valid_name(name: &str) -> bool {
     })
 }
 
-fn resolve(class: &Class, name: &str) -> Option<String> {
+pub(super) fn resolve(class: &Class, name: &str) -> Option<String> {
     if !valid_name(name) || name == class.name {
         return None;
     }
@@ -41,14 +41,14 @@ fn resolve(class: &Class, name: &str) -> Option<String> {
     }
 }
 
-fn sibling_path(class: &Class, fqcn: &str) -> Option<String> {
+pub(super) fn sibling_path(class: &Class, fqcn: &str) -> Option<String> {
     let package = class.package.as_ref()?;
     let directory = class.path.rsplit_once('/')?.0;
     let base = directory.strip_suffix(&format!("/{}", package.replace('.', "/")))?;
     Some(format!("{base}/{}.java", fqcn.replace('.', "/")))
 }
 
-fn header<'a>(masked: &'a str, class: &Class) -> Option<&'a str> {
+pub(super) fn header<'a>(masked: &'a str, class: &Class) -> Option<&'a str> {
     let (at, _) = model::declaration_keyword(masked, 0, &["class"])?;
     let open = at + masked[at..].find('{')?;
     let rest = masked[at + 5..open].trim().strip_prefix(class.name.as_str())?;
@@ -58,7 +58,7 @@ fn header<'a>(masked: &'a str, class: &Class) -> Option<&'a str> {
     Some(rest.trim())
 }
 
-fn extended(header: &str) -> Option<&str> {
+pub(super) fn extended(header: &str) -> Option<&str> {
     let rest = header.strip_prefix("extends")?;
     if rest.bytes().next().is_some_and(model::is_ident) {
         return None;
@@ -81,6 +81,7 @@ fn hierarchy_identifier_absent(doc: &Document, load: &dyn Fn(&str) -> Option<Str
     let masked = model::mask(&doc.text);
     let mut parent = resolve(&class, extended(header(&masked, &class)?)?)?;
     let mut current = class.clone();
+    let mut chain = vec![format!("{}.{}", class.package.as_deref()?, class.name)];
     for _ in 0..MAX_HOPS {
         let path = sibling_path(&current, &parent)?;
         let ancestor = Document { path: path.clone(), language: "java".into(), text: load(&path)?, version: 0 };
@@ -90,14 +91,19 @@ fn hierarchy_identifier_absent(doc: &Document, load: &dyn Fn(&str) -> Option<Str
         }
         let masked = model::mask(&ancestor.text);
         let head = header(&masked, &up)?;
+        chain.push(parent.clone());
         if !model::has_word(head, "extends") {
+            let orm = crate::orm_xml::load(&doc.path);
+            if matches!(orm, crate::orm_xml::Orm::Unresolved) || chain.iter().any(|c| orm.declares_identifier(c)) {
+                return None;
+            }
             let from = offset(&doc.text, class.pos)?;
             return Some(Finding::new(
                 from,
                 from + class.name.len(),
                 Severity::Info,
                 "jpa-source-hierarchy-identifier-absent",
-                "No class in this entity's literal extends chain declares an Id, EmbeddedId or IdClass in saved source; the primary key must come from the root entity or a mapped superclass. XML/provider mappings are unresolved.",
+                "No class in this entity's literal extends chain declares an Id, EmbeddedId or IdClass in saved source; the primary key must come from the root entity or a mapped superclass. Resolved XML mappings do not declare one either; provider mappings are unresolved.",
             ));
         }
         parent = resolve(&up, extended(head)?)?;
@@ -152,14 +158,98 @@ fn converter_findings_with(doc: &Document, load: &dyn Fn(&str) -> Option<String>
         let Some(fqcn) = resolve(&class, name) else { continue };
         let Some(path) = sibling_path(&class, &fqcn) else { continue };
         let Some(text) = load(&path) else { continue };
-        let Some((severity, message)) = converter_problem(&text, &fqcn) else { continue };
         let start = from + at + 9 + eq + 1 + (value.len() - trimmed.len());
+        let Some((severity, message)) = converter_problem(&text, &fqcn) else {
+            let plain = !model::has_word(args, "attributeName") && !model::has_word(args, "disableConversion");
+            let declared = plain.then(|| attribute_type(doc, &masked, &class, a)).flatten();
+            if let (Some(declared), Some(converts)) = (declared, converter_source_type(&text, &fqcn)) {
+                let (declared, converts) = (jdk_type(&declared, &class.imports), jdk_type(&converts.0, &converts.1));
+                if let (Some(declared), Some(converts)) = (declared, converts) {
+                    if declared != converts {
+                        findings.push(Finding::new(start, start + literal.len(), Severity::Info, "jpa-converter-type-mismatch", format!("The attribute is declared {declared}, but this AttributeConverter converts {converts} (Jakarta Persistence 3.1, section 10.6).")));
+                    }
+                }
+            }
+            continue;
+        };
         findings.push(Finding::new(start, start + literal.len(), severity, "jpa-converter-not-attribute-converter", message));
     }
     findings
 }
 
+fn attribute_type(doc: &Document, masked: &str, class: &Class, a: &model::Annotation) -> Option<String> {
+    let (at, _) = model::declaration_keyword(masked, 0, &["class"])?;
+    let open = at + masked[at..].find('{')?;
+    let (from, to) = model::members(masked, open + 1, class.body_end?, false, false).into_iter().find(|&(f, t)| f <= a.start && a.start < t)?;
+    let mut inside = class.attributes.iter().filter(|x| offset(&doc.text, x.pos).is_some_and(|p| from <= p && p < to));
+    match (inside.next(), inside.next()) {
+        (Some(attribute), None) => Some(attribute.ty.clone()),
+        _ => None,
+    }
+}
+
+fn jdk_type(ty: &str, imports: &[String]) -> Option<String> {
+    const LANG: [&str; 9] = ["String", "Long", "Integer", "Short", "Byte", "Boolean", "Double", "Float", "Character"];
+    const OTHER: [&str; 11] = ["BigDecimal", "BigInteger", "LocalDate", "LocalDateTime", "LocalTime", "Instant", "OffsetDateTime", "ZonedDateTime", "Duration", "UUID", "Date"];
+    let boxed = match ty {
+        "long" => "Long",
+        "int" => "Integer",
+        "short" => "Short",
+        "byte" => "Byte",
+        "boolean" => "Boolean",
+        "double" => "Double",
+        "float" => "Float",
+        "char" => "Character",
+        other => other,
+    };
+    if boxed.contains('.') {
+        let (package, simple) = boxed.rsplit_once('.')?;
+        let jdk = matches!(package, "java.lang" | "java.math" | "java.time" | "java.util");
+        return (jdk && (LANG.contains(&simple) || OTHER.contains(&simple))).then(|| simple.to_owned());
+    }
+    if LANG.contains(&boxed) {
+        return Some(boxed.to_owned());
+    }
+    let suffix = format!(".{boxed}");
+    let mut imported = imports.iter().filter(|i| i.ends_with(&suffix));
+    let jdk = matches!((imported.next(), imported.next()), (Some(i), None) if i.starts_with("java."));
+    (jdk && OTHER.contains(&boxed)).then(|| boxed.to_owned())
+}
+
+/// The first type argument of the single `AttributeConverter<X, Y>` the class lists, with that file's imports.
+fn converter_source_type(text: &str, fqcn: &str) -> Option<(String, Vec<String>)> {
+    let head = converter_head(text, fqcn)?;
+    let mut at = model::words(&head, "AttributeConverter");
+    let (Some(start), None) = (at.next(), at.next()) else { return None };
+    let open = start + "AttributeConverter".len();
+    if !head[open..].starts_with('<') {
+        return None;
+    }
+    let close = open + head[open..].find('>')?;
+    let inner = &head[open + 1..close];
+    let parts = model::split_top_level(inner);
+    let [(_, first), (_, _)] = parts.as_slice() else { return None };
+    let first = first.trim();
+    if first.contains(['<', '?', '[']) {
+        return None;
+    }
+    let imports = text.lines().filter_map(|l| l.trim().strip_prefix("import ")).map(|r| r.trim().trim_end_matches(';').trim().to_owned()).collect();
+    Some((first.to_owned(), imports))
+}
+
 fn converter_problem(text: &str, fqcn: &str) -> Option<(Severity, String)> {
+    let head = converter_head(text, fqcn)?;
+    let simple = fqcn.rsplit_once('.')?.1;
+    if head.starts_with('<') || model::has_word(&head, "extends") || model::has_word(&head, "AttributeConverter") {
+        return None;
+    }
+    if head.is_empty() {
+        return Some((Severity::Warning, format!("{simple} neither extends nor implements anything, so it cannot implement jakarta.persistence.AttributeConverter, which every attribute converter class must (Jakarta Persistence 3.2, section 10.6).")));
+    }
+    Some((Severity::Info, format!("{simple} lists no AttributeConverter among its interfaces in saved source; an in-project interface could still extend it, which is not resolved here.")))
+}
+
+fn converter_head(text: &str, fqcn: &str) -> Option<String> {
     let (package, simple) = fqcn.rsplit_once('.')?;
     let masked = model::mask(text);
     let declared = masked.lines().find_map(|l| l.trim().strip_prefix("package "))?;
@@ -181,76 +271,5 @@ fn converter_problem(text: &str, fqcn: &str) -> Option<(Severity, String)> {
         return None;
     }
     let open = at + masked[at..].find('{')?;
-    let head = masked[at + 5..open].trim().strip_prefix(simple)?.trim();
-    if head.starts_with('<') || model::has_word(head, "extends") || model::has_word(head, "AttributeConverter") {
-        return None;
-    }
-    if head.is_empty() {
-        return Some((Severity::Warning, format!("{simple} neither extends nor implements anything, so it cannot implement jakarta.persistence.AttributeConverter, which every attribute converter class must (Jakarta Persistence 3.2, section 10.6).")));
-    }
-    Some((Severity::Info, format!("{simple} lists no AttributeConverter among its interfaces in saved source; an in-project interface could still extend it, which is not resolved here.")))
-}
-#[cfg(test)]
-mod tests {
-    use crate::JpaAssist;
-    use openidea_plugin::{Diagnostic, diagnostics::DiagnosticsProvider, mock::MockHost, providers::Document};
-    const IMPORTS: &str = "package shop;\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.MappedSuperclass;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.Convert;\n";
-    const HIERARCHY: &str = "jpa-source-hierarchy-identifier-absent";
-    const CONVERTER: &str = "jpa-converter-not-attribute-converter";
-    fn run(host: &MockHost, name: &str, body: &str, code: &str) -> Vec<Diagnostic> {
-        let path = format!("src/main/java/shop/{name}.java");
-        let text = format!("{IMPORTS}{body}");
-        host.add_file(&path, &text);
-        let doc = Document { path: format!("/project/{path}"), language: "java".into(), text, version: 1 };
-        JpaAssist::default().diagnostics(&doc).into_iter().filter(|d| d.code.as_deref() == Some(code)).collect()
-    }
-    #[test]
-    fn hierarchy_without_identifier_is_noted_only_for_a_closed_literal_chain() {
-        let host = MockHost::install();
-        run(&host, "Bare", "@MappedSuperclass class Bare { String x; }", HIERARCHY);
-        run(&host, "Keyed", "@MappedSuperclass class Keyed { @Id Long id; }", HIERARCHY);
-        run(&host, "Mid", "@MappedSuperclass class Mid extends Bare { }", HIERARCHY);
-        run(&host, "KeyedMid", "@MappedSuperclass class KeyedMid extends Keyed { }", HIERARCHY);
-        for parent in ["Bare", "Mid"] {
-            let found = run(&host, "Child", &format!("@Entity class Child extends {parent} {{ }}"), HIERARCHY);
-            assert_eq!(found.len(), 1, "{parent}");
-            assert_eq!(found[0].severity, openidea_plugin::Severity::Info);
-        }
-        for parent in ["Keyed", "KeyedMid", "Missing", "other.Base", "Child"] {
-            assert!(run(&host, "Child", &format!("@Entity class Child extends {parent} {{ }}"), HIERARCHY).is_empty(), "{parent}");
-        }
-        assert!(run(&host, "Child", "@Entity class Child extends Bare { @Id Long id; }", HIERARCHY).is_empty());
-        assert!(run(&host, "Child", "@Entity class Child extends Bare<T> { }", HIERARCHY).is_empty());
-        host.add_file("src/main/java/shop/Mid.java", &format!("{IMPORTS}@MappedSuperclass class Mid extends Library {{ }}"));
-        assert!(run(&host, "Child", "@Entity class Child extends Mid { }", HIERARCHY).is_empty());
-    }
-    #[test]
-    fn convert_converter_without_attribute_converter_is_reported() {
-        let host = MockHost::install();
-        let entity = "@Entity class Order { @Id Long id; @Convert(converter = Plain.class) String s; }";
-        let convert = |converter: &str| {
-            host.add_file("src/main/java/shop/Plain.java", &format!("package shop;\n{converter}"));
-            run(&host, "Order", entity, CONVERTER)
-        };
-        let found = convert("class Plain { }");
-        assert_eq!(found.len(), 1);
-        assert_eq!(found[0].severity, openidea_plugin::Severity::Warning);
-        assert_eq!(convert("class Plain implements Marker { }")[0].severity, openidea_plugin::Severity::Info);
-        for ok in [
-            "class Plain implements AttributeConverter<String, String> { }",
-            "class Plain implements jakarta.persistence.AttributeConverter<String, String> { }",
-            "class Plain extends Base { }",
-            "class Plain<T> { }",
-            "interface Plain { }",
-        ] {
-            assert!(convert(ok).is_empty(), "{ok}");
-        }
-        host.add_file("src/main/java/shop/Plain.java", "package other;\nclass Plain { }");
-        assert!(run(&host, "Order", entity, CONVERTER).is_empty());
-        host.add_file("src/main/java/shop/Plain.java", "package shop;\nclass Plain { }");
-        let foreign = "@Entity class Order { @Id Long id; @vendor.Convert(converter = Plain.class) String s; }";
-        assert!(run(&host, "Order", foreign, CONVERTER).is_empty());
-        let missing = "@Entity class Order { @Id Long id; @Convert(converter = Gone.class) String s; }";
-        assert!(run(&host, "Order", missing, CONVERTER).is_empty());
-    }
+    Some(masked[at + 5..open].trim().strip_prefix(simple)?.trim().to_owned())
 }

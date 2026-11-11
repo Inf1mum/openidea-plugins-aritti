@@ -283,7 +283,7 @@ impl DiagnosticsProvider for QuarkusTools {
                 annotations: host::setting_bool("quarkus.checkAnnotations").unwrap_or(true),
                 health_metrics: host::setting_bool("quarkus.checkHealthMetrics").unwrap_or(true),
             };
-            java_checks::check(&doc.text, &ctx).into_iter().map(|problem| problem.finding.diagnostic(&doc.text)).collect()
+            java_checks::check(&doc.text, &ctx).into_iter().map(|problem| problem.finding.diagnostic(&doc.text)).chain(self.qute_java_diagnostics(doc)).collect()
         } else if is_quarkus_config(&doc.path)
             && matches!(doc.language.as_str(), "properties" | "quarkus-properties" | "yaml")
             && config::keys(&doc.path, &doc.text).len() <= 512

@@ -88,6 +88,19 @@ pub fn problems(
         out.push((include.at, diagnostic.code("unresolved-include")));
     }
 
+    for issue in &log.issues {
+        let severity = if issue.error { Severity::Error } else { Severity::Warning };
+        out.push((issue.at, Diagnostic::new(range(text, issue.at, issue.end), severity, issue.message.clone()).code(issue.code)));
+    }
+
+    for file in &log.sql_files {
+        if target(file) != Target::Missing {
+            continue;
+        }
+        let message = format!("Cannot find SQL file `{}`.", file.path);
+        out.push((file.at, Diagnostic::new(range(text, file.at, file.end), Severity::Error, message).code("unresolved-sql-file")));
+    }
+
     if let Some(defined) = defined {
         for (start, end, name) in placeholders(text, log.format) {
             if name.starts_with("database.") || log.properties.iter().any(|p| p == name) || defined(name) {

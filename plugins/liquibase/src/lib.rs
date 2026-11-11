@@ -1161,6 +1161,39 @@ mod tests {
     }
 
     #[test]
+    fn reports_structural_xml_rules() {
+        let host = host();
+        let text = r#"<databaseChangeLog>
+    <include/>
+    <changeSet id="1" author="bob">
+        <preConditions onFail="STOP"><tableExistz tableName="t"/><dbms type="h2"/></preConditions>
+        <sqlFile path="nope.sql" relativeToChangelogFile="true"/>
+        <sqlFile/>
+    </changeSet>
+</databaseChangeLog>"#;
+        let codes: Vec<String> = checked(&host, "/project/db/master.xml", text).into_iter().map(|(c, _)| c).collect();
+        assert_eq!(codes, ["include-without-path", "invalid-precondition-action", "unknown-precondition", "unresolved-sql-file", "sqlfile-without-path"]);
+    }
+
+    #[test]
+    fn reports_structural_yaml_rules() {
+        let host = host();
+        let text = "databaseChangeLog:\n  - changeSet:\n      id: 1\n      author: bob\n      preConditions:\n        dbms:\n          type: h2\n      changes:\n        - sqlFile:\n            path: nope.sql\n            relativeToChangelogFile: true\n";
+        let codes: Vec<String> = checked(&host, "/project/db/master.yaml", text).into_iter().map(|(c, _)| c).collect();
+        assert_eq!(codes, ["preconditions-shape", "unresolved-sql-file"]);
+        let ok = "databaseChangeLog:\n  - changeSet:\n      id: 1\n      author: bob\n      preConditions:\n        - onFail: WARN\n        - dbms:\n            type: h2\n";
+        assert!(checked(&host, "/project/db/master.yaml", ok).is_empty());
+    }
+
+    #[test]
+    fn reports_formatted_sql_comment_syntax() {
+        let host = host();
+        let text = "--liquibase formatted sql\n--rollback drop table x;\n--changeset bob:1 runOnChange:yes\nselect 1;\n--rollback select 2;\n";
+        let codes: Vec<String> = checked(&host, "/project/db/a.sql", text).into_iter().map(|(c, _)| c).collect();
+        assert_eq!(codes, ["rollback-outside-changeset", "invalid-changeset-attribute"]);
+    }
+
+    #[test]
     fn stays_silent_outside_changelogs() {
         let host = host();
         assert!(checked(&host, "/project/pom.xml", "<project><changeSet/></project>").is_empty());

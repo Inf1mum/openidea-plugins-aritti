@@ -241,11 +241,19 @@ pub(super) fn findings(doc: &Document) -> Vec<Finding> {
     let Some((class_at, _)) = model::declaration_keyword(&masked, 0, &["class"]) else {
         return vec![];
     };
-    name_references(&doc.text,false,&class).into_iter()
+    let unknown: Vec<_> = name_references(&doc.text,false,&class).into_iter()
         .filter(|r|r.code=="jpa-unknown-entity-graph-node" && identifier(&r.value)
             && anns.iter().any(|a|a.name=="NamedEntityGraph" && a.start<class_at && a.args.is_some_and(|(a,b)|a<=r.start && r.end<=b))
             && !class.attributes.iter().any(|a|a.name==r.value))
         .take(128)
+        .collect();
+    if unknown.is_empty() {
+        return vec![];
+    }
+    let orm = crate::orm_xml::load(&doc.path);
+    let fqcn = format!("{}.{}", class.package.as_deref().unwrap_or_default(), class.name);
+    unknown.into_iter()
+        .filter(|r| !orm.declares_attribute(&fqcn, &r.value) && !matches!(orm, crate::orm_xml::Orm::Unresolved))
         .map(|r|Finding::new(r.start,r.end,Severity::Warning,"jpa-unknown-entity-graph-node",
             format!("No source-declared persistent field '{}' in this current entity's supported field-access model; external mappings are not resolved.",r.value)))
         .collect()
