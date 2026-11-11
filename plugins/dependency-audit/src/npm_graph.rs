@@ -15,6 +15,15 @@ pub(crate) struct Snapshot {
 }
 
 pub(crate) fn resolve(packages: &serde_json::Map<String, Value>, parent: &str, name: &str) -> Option<String> {
+    locate(packages, parent, name, false)
+}
+
+/// Like `resolve`, but a `link: true` entry resolves to its `resolved` workspace member record.
+pub(crate) fn resolve_linked(packages: &serde_json::Map<String, Value>, parent: &str, name: &str) -> Option<String> {
+    locate(packages, parent, name, true)
+}
+
+fn locate(packages: &serde_json::Map<String, Value>, parent: &str, name: &str, follow_links: bool) -> Option<String> {
     if name.is_empty()
         || name.contains(['\\', ':'])
         || name
@@ -31,6 +40,12 @@ pub(crate) fn resolve(packages: &serde_json::Map<String, Value>, parent: &str, n
             } else {
                 format!("{base}/node_modules/{name}")
             };
+            if follow_links {
+                let target = packages.get(&key).filter(|e| e.get("link").and_then(Value::as_bool) == Some(true));
+                if let Some(target) = target.and_then(|e| e.get("resolved")?.as_str()) {
+                    return packages.contains_key(target).then(|| target.to_owned());
+                }
+            }
             if packages.get(&key).is_some_and(|entry| {
                 entry.get("link").and_then(Value::as_bool) != Some(true)
                     && entry.get("version").and_then(Value::as_str).is_some()

@@ -9,6 +9,7 @@ mod jar_archive;
 mod jar_metadata;
 mod java;
 mod java_checks;
+mod jaxrs;
 mod live;
 mod navigation;
 mod qute;
@@ -119,6 +120,9 @@ impl QuarkusTools {
             } }
             clients.into_iter().filter_map(|(name, registered)| registered.map(|value| (name, value))).collect()
         });
+        let module = self.sources.for_document(&doc.path, &doc.text, PROVIDER_BUDGET)
+            .filter(|index| index.complete() && index.iter().all(|(path, info)| source_owned(&owner, path) && info.complete))
+            .map(|index| jaxrs::merge(index.iter().filter(|(path, _)| *path != doc.path).map(|(_, info)| &info.jaxrs)));
         let (project, _) = self.project(doc);
         let configured = self.keys_elsewhere(doc);
         let jars = self.jars.catalog(&doc.path);
@@ -132,6 +136,7 @@ impl QuarkusTools {
             unassigned,
             annotations,
             health_metrics,
+            module: module.as_ref(),
         };
         java_checks::check(&doc.text, &ctx)
     }

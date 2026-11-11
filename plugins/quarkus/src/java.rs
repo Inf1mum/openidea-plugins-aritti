@@ -153,6 +153,7 @@ pub struct JavaInfo {
     pub meta: Option<Meta>,
     /// Literal owned REST interfaces and their explicit registration annotation.
     pub interfaces: Vec<(String, bool)>,
+    pub jaxrs: crate::jaxrs::Facts,
 }
 
 // Resolve only an unqualified, literal same-file type in its lexical owners.
@@ -197,7 +198,7 @@ fn scalar_model_complete(file: &JavaFile, text: &str) -> bool {
 }
 pub fn java_info(path: &str, text: &str) -> Option<JavaInfo> {
     if text.len() > 128 * 1024 {
-        return Some(JavaInfo { package: String::new(), complete: false, locations: Vec::new(), meta: None, interfaces: Vec::new() });
+        return Some(JavaInfo { package: String::new(), complete: false, locations: Vec::new(), meta: None, interfaces: Vec::new(), jaxrs: Default::default() });
     }
     let file = java::parse(text);
     let mut complete = scalar_model_complete(&file, text);
@@ -213,13 +214,15 @@ pub fn java_info(path: &str, text: &str) -> Option<JavaInfo> {
         if path_unknown || registration_unknown { complete = false; }
         if (path_owned || registered_owned) && !registration_unknown { interfaces.push((ty.name.clone(), registered_owned)); }
     }
+    let jaxrs = crate::jaxrs::facts(&file, text);
     let package = file.package;
-    (meta.is_some() || !interfaces.is_empty() || !complete).then_some(JavaInfo {
+    (meta.is_some() || !interfaces.is_empty() || !complete || !jaxrs.is_empty()).then_some(JavaInfo {
         package,
         complete,
         locations: crate::navigation::java_targets(path, text),
         meta,
         interfaces,
+        jaxrs,
     })
 }
 

@@ -5,7 +5,7 @@
 //! `mapped` is false, or `property_path`, `data` or `inherit_data` change it.
 //! Every check stays quiet unless the whole class chain is readable.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
 
 use openidea_plugin::Severity;
@@ -23,6 +23,7 @@ const OPTIONS_THAT_REROUTE: [&str; 4] = ["mapped", "property_path", "data", "inh
 struct Members {
     variables: BTreeSet<String>,
     methods: BTreeSet<String>,
+    types: BTreeMap<String, String>,
 }
 
 impl Members {
@@ -38,7 +39,7 @@ impl Members {
 
 /// `None` when a parent cannot be read, a trait or magic accessor could add members.
 fn members(ctx: &Context, fqcn: &str) -> Option<Members> {
-    let mut found = Members { variables: BTreeSet::new(), methods: BTreeSet::new() };
+    let mut found = Members { variables: BTreeSet::new(), methods: BTreeSet::new(), types: BTreeMap::new() };
     let mut next = Some(fqcn.to_owned());
 
     for _ in 0..6 {
@@ -53,7 +54,13 @@ fn members(ctx: &Context, fqcn: &str) -> Option<Members> {
         let masked = mask(&text);
         let body = &masked[model.body.clone()];
         for (at, _) in body.match_indices('$') {
-            found.variables.insert(body[read_word(body, at + 1)].to_owned());
+            let name = body[read_word(body, at + 1)].to_owned();
+            if !body[..at].ends_with("->") {
+                if let Some(declared) = crate::doctrine::declared_type(body, at) {
+                    found.types.entry(name.clone()).or_insert(declared);
+                }
+            }
+            found.variables.insert(name);
         }
         for method in &model.methods {
             let name = method.name.to_ascii_lowercase();
@@ -209,15 +216,36 @@ fn class_literal(text: &str, range: Range<usize>) -> Option<String> {
     (!class.is_empty() && class.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'\\'))).then(|| class.to_owned())
 }
 
+const ENTITY_TYPE: &str = "Symfony\\Bridge\\Doctrine\\Form\\Type\\EntityType";
+const COLLECTION_TYPE: &str = "Symfony\\Component\\Form\\Extension\\Core\\Type\\CollectionType";
+const CHECKBOX_TYPE: &str = "Symfony\\Component\\Form\\Extension\\Core\\Type\\CheckboxType";
+const CHECKBOX_DOCS: &str = "https://symfony.com/doc/current/reference/forms/types/checkbox.html";
+
+/// `'key' => value` entries of a literal array argument.
+fn option_entries(text: &str, masked: &str, range: Range<usize>) -> Vec<(String, Range<usize>)> {
+    let range = trimmed(masked, range);
+    if !masked[range.clone()].starts_with('[') {
+        return Vec::new();
+    }
+    let mut entries = Vec::new();
+    for entry in arguments(masked, range.start) {
+        let Some(arrow) = masked[entry.clone()].find("=>") else { continue };
+        let Some(key) = string_literal(text, entry.start..entry.start + arrow) else { continue };
+        entries.push((key.to_owned(), trimmed(text, entry.start + arrow + 2..entry.end)));
+    }
+    entries
+}
+
 fn form_fields(ctx: &Context, text: &str) -> Vec<Finding> {
     let Some(model) = class_model(text) else { return Vec::new() };
-    if model.parent.as_deref() != Some("Symfony\\Component\\Form\\AbstractType") || text.contains("inherit_data") {
+    if model.parent.as_deref() != Some("Symfony\\Component\\Form\\AbstractType") {
         return Vec::new();
     }
 
     let masked = mask(text);
-    let Some(entity) = crate::generators::data_class(text, &masked, &model) else { return Vec::new() };
-    let Some(known) = members(ctx, &entity) else { return Vec::new() };
+    let resolve = resolver(text);
+    let entity = crate::generators::data_class(text, &masked, &model).filter(|_| !text.contains("inherit_data"));
+    let known = entity.as_ref().and_then(|entity| members(ctx, entity));
     let Some(build) = model.method("buildForm") else { return Vec::new() };
     let Some(body) = build.body.clone() else { return Vec::new() };
     let Some(builder) = build.params.first().map(|param| format!("${}", param.name)) else { return Vec::new() };
@@ -233,18 +261,59 @@ fn form_fields(ctx: &Context, text: &str) -> Vec<Finding> {
         let open = at + "->add".len();
         let list = arguments(&masked, open);
         let Some(first) = list.first().cloned() else { continue };
-        let Some(name) = string_literal(text, first.clone()) else { continue };
-        let reroutes = list.get(2).is_some_and(|options| OPTIONS_THAT_REROUTE.iter().any(|option| text[options.clone()].contains(&format!("'{option}'")) || text[options.clone()].contains(&format!("\"{option}\""))));
         let options_unread = list.len() > 2 && matching_close(&masked, open).is_none();
-        if reroutes || options_unread || known.has(name) {
+        let options = list.get(2).map(|range| option_entries(text, &masked, range.clone())).unwrap_or_default();
+        let type_class = list.get(1).and_then(|range| class_literal(text, range.clone())).map(|class| resolve(&class));
+        let option = |key: &str| options.iter().find(|(name, _)| name == key).map(|(_, value)| value.clone());
+
+        if !options_unread {
+            found.extend(type_option_findings(ctx, text, &resolve, type_class.as_deref(), &option));
+        }
+
+        let Some(name) = string_literal(text, first.clone()) else { continue };
+        let Some(known) = known.as_ref() else { continue };
+        let reroutes = list.get(2).is_some_and(|options| OPTIONS_THAT_REROUTE.iter().any(|option| text[options.clone()].contains(&format!("'{option}'")) || text[options.clone()].contains(&format!("\"{option}\""))));
+        if reroutes || options_unread {
+            continue;
+        }
+        if !known.has(name) {
+            let short = entity.as_deref().and_then(|entity| entity.rsplit('\\').next()).unwrap_or_default();
+            found.push(Finding::with_severity_info(trimmed(text, first), "form-field-without-property", format!("Field `{name}` maps to no property of {short}; set `'mapped' => false` if it is not stored on the entity.")));
             continue;
         }
 
-        let short = entity.rsplit('\\').next().unwrap_or(&entity);
-        found.push(Finding::with_severity_info(trimmed(text, first), "form-field-without-property", format!("Field `{name}` maps to no property of {short}; set `'mapped' => false` if it is not stored on the entity.")));
+        let declared = known.types.get(name).and_then(|declared| crate::doctrine::scalar_type(declared));
+        if type_class.as_deref() == Some(CHECKBOX_TYPE) && declared.as_deref().is_some_and(|declared| declared != "bool") {
+            found.push(Finding::with_severity_info(trimmed(text, first), "form-field-type-mismatch", format!("CheckboxType is for a boolean value, but property `{name}` is declared `{}` ({CHECKBOX_DOCS}).", declared.unwrap_or_default())));
+        }
     }
 
     found
+}
+
+/// `class`/`choice_label` of EntityType and `entry_type` of CollectionType.
+fn type_option_findings(ctx: &Context, text: &str, resolve: &dyn Fn(&str) -> String, type_class: Option<&str>, option: &dyn Fn(&str) -> Option<Range<usize>>) -> Vec<Finding> {
+    let class_option = match type_class {
+        Some(ENTITY_TYPE) => "class",
+        Some(COLLECTION_TYPE) => "entry_type",
+        _ => return Vec::new(),
+    };
+    let Some(value) = option(class_option) else { return Vec::new() };
+    let absolute = text[value.clone()].starts_with('\\');
+    let Some(class) = class_literal(text, value.clone()).map(|class| if absolute { class } else { resolve(&class) }) else { return Vec::new() };
+    if crate::checks::class_is_missing(ctx, &class) {
+        return vec![Finding::with_severity_info(value, "form-class-option-missing", format!("Class `{class}` of the `{class_option}` option does not exist in the project."))];
+    }
+
+    let (Some(ENTITY_TYPE), Some(label)) = (type_class, option("choice_label")) else { return Vec::new() };
+    let Some(name) = string_literal(text, label.clone()) else { return Vec::new() };
+    match members(ctx, &class) {
+        Some(known) if !known.has(name) => {
+            let short = class.rsplit('\\').next().unwrap_or_default();
+            vec![Finding::with_severity_info(label, "form-choice-label-missing", format!("`choice_label` `{name}` is no property or getter of {short}."))]
+        }
+        _ => Vec::new(),
+    }
 }
 
 /// `segment` is `$builder` followed only by `->add(...)` calls at depth 0.
@@ -264,7 +333,7 @@ fn chain_of_adds(segment: &str, builder: &str) -> bool {
 }
 
 impl Finding {
-    fn with_severity_info(range: Range<usize>, code: &'static str, message: String) -> Finding {
+    pub(crate) fn with_severity_info(range: Range<usize>, code: &'static str, message: String) -> Finding {
         Finding { start: range.start, end: range.end, code, message, severity: Severity::Info, replacement: None }
     }
 }
@@ -339,5 +408,25 @@ mod tests {
         assert_eq!(run(&files, &bad), [("orm-association-missing-property".into(), "'post'".into())]);
         let unknown = ORM.replace("BODY", "#[ORM\\ManyToOne(targetEntity: Missing::class, inversedBy: 'post')]\n    private $author;");
         assert!(run(&files, &unknown).is_empty());
+    }
+
+    #[test]
+    fn entity_type_class_and_choice_label_are_checked() {
+        let author = "<?php\nnamespace App\\Entity;\nclass Author\n{\n    private string $name;\n    public function getTitle(): string { return ''; }\n}\n";
+        let mut index = Index { framework_version: Some((7, 0)), psr4_prefixes: vec!["App\\".into()], ..Index::default() };
+        index.classes.insert("App\\Entity\\Author".into(), Entry { detail: None, path: "/p/Author.php".into(), at: Position::new(0, 0) });
+        let read = |path: &str| (path == "/p/Author.php").then(|| author.to_owned());
+        let ctx = Context::new(&index, &read);
+        let run = |build: &str| {
+            let text = form(build).replace("use App\\Entity\\User;", "use App\\Entity\\Author;\nuse Symfony\\Bridge\\Doctrine\\Form\\Type\\EntityType;\nuse Symfony\\Component\\Form\\Extension\\Core\\Type\\CollectionType;\nuse Symfony\\Component\\Form\\Extension\\Core\\Type\\CheckboxType;").replace("'data_class' => User::class", "'data_class' => Author::class");
+            check(&ctx, "php", &text).into_iter().map(|finding| (finding.code, text[finding.start..finding.end].to_owned())).collect::<Vec<_>>()
+        };
+        assert!(run("$builder->add('name', EntityType::class, ['class' => Author::class, 'choice_label' => 'name'])->add('x', EntityType::class, ['class' => Author::class, 'choice_label' => 'title', 'mapped' => false]);").is_empty());
+        assert_eq!(run("$builder->add('x', EntityType::class, ['class' => Author::class, 'choice_label' => 'nope', 'mapped' => false]);"), [("form-choice-label-missing", "'nope'".into())]);
+        assert_eq!(run("$builder->add('x', EntityType::class, ['class' => Gone::class, 'mapped' => false]);"), [("form-class-option-missing", "Gone::class".into())]);
+        assert!(run("$builder->add('x', EntityType::class, ['class' => \\Vendor\\Thing::class, 'mapped' => false]);").is_empty());
+        assert_eq!(run("$builder->add('x', CollectionType::class, ['entry_type' => Gone::class, 'mapped' => false]);"), [("form-class-option-missing", "Gone::class".into())]);
+        assert!(run("$builder->add('x', ChoiceType::class, ['choices' => Gone::cases(), 'mapped' => false]);").is_empty());
+        assert_eq!(run("$builder->add('name', CheckboxType::class);"), [("form-field-type-mismatch", "'name'".into())]);
     }
 }

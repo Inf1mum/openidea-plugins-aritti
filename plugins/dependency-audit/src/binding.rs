@@ -175,6 +175,7 @@ fn npm_graph(text: &str) -> Option<Graph> {
     if !matches!(root.get("lockfileVersion")?.as_u64()?, 2 | 3) {
         return None;
     }
+    let peers_installed = root.get("lockfileVersion")?.as_u64()? == 3;
     let packages = root.get("packages")?.as_object().filter(|p| p.len() <= MAX_NODES)?;
     let keys: Vec<&String> = packages
         .iter()
@@ -191,7 +192,8 @@ fn npm_graph(text: &str) -> Option<Graph> {
             graph.roots.push(i);
         }
         let mut out = Vec::new();
-        for field in ["dependencies", "optionalDependencies"] {
+        let fields: &[&str] = if peers_installed { &["dependencies", "optionalDependencies", "peerDependencies"] } else { &["dependencies", "optionalDependencies"] };
+        for field in fields {
             for dep in entry.get(field).and_then(Value::as_object).into_iter().flat_map(|m| m.keys()) {
                 if let Some(target) = npm_graph::resolve(packages, key, dep).and_then(|k| index.get(k.as_str()).copied()) {
                     out.push(target);
@@ -308,6 +310,27 @@ fn short(path: &str) -> &str {
     file_name(path)
 }
 
+/// One declaration per workspace member whose own package.json declares the dependency that leads to the coordinate.
+fn member_declarations(lock_path: &str, lock_text: &str, name: &str, version: &str, texts: &HashMap<String, String>) -> Vec<Declaration> {
+    let Some(lock_kind) = kind(lock_path).filter(|k| matches!(k, Kind::PackageLock | Kind::YarnLock | Kind::PnpmLock)) else { return Vec::new() };
+    let base = &lock_path[..lock_path.len() - file_name(lock_path).len()];
+    let mut out = Vec::new();
+    for (dir, path) in crate::workspace_chain::chains(lock_kind, lock_text, name, version) {
+        let manifest_path = format!("{base}{}/package.json", dir.trim_start_matches("./").trim_end_matches('/'));
+        let Some(text) = texts.get(&manifest_path) else { continue };
+        let member = serde_json::from_str::<Value>(text).ok().and_then(|v| v.get("name")?.as_str().map(str::to_owned)).unwrap_or_else(|| dir.clone());
+        let via = path.iter().map(|(n, v)| format!("{n}@{v}")).collect::<Vec<_>>().join(" > ");
+        let file = short(&manifest_path);
+        out.push(match declared(&manifest_path, text, &path[0].0) {
+            Decl::Direct(line) => Declaration { path: manifest_path.clone(), line, evidence: format!("{DECLARED} {file}:{} (workspace {member} > {via}; exact name, literal declaration); resolved by {}", line + 1, short(lock_path)) },
+            Decl::Refused(why) => Declaration { path: manifest_path.clone(), line: 0, evidence: format!("Not bound to a declaration in workspace {member} {file}: {why}") },
+            Decl::Absent => Declaration { path: manifest_path.clone(), line: 0, evidence: format!("Not bound to a declaration in workspace {member} {file}: no literal declaration of {}", path[0].0) },
+        });
+    }
+
+    out
+}
+
 /// Adds navigable declaration sources to rows. `texts` maps file path to its current text.
 pub(crate) fn annotate(rows: &mut [Row], texts: &HashMap<String, String>) {
     for row in rows {
@@ -336,6 +359,9 @@ pub(crate) fn annotate(rows: &mut [Row], texts: &HashMap<String, String>) {
                     let lock_path = source.path.clone();
                     let evidence = source.evidence.clone();
                     out.push(source);
+                    if let Some(lock_text) = texts.get(&lock_path) {
+                        out.extend(member_declarations(&lock_path, lock_text, &name, &row.version, texts));
+                    }
                     let Some(text) = texts.get(&manifest_path) else { continue };
                     if !seen.insert(manifest_path.clone()) {
                         continue;
@@ -440,5 +466,26 @@ mod tests {
             assert_eq!(chain("/p/poetry.lock", poetry, n, v, &direct).unwrap().len(), 2, "{n}");
         }
         assert!(chain("/p/poetry.lock", poetry, "ghost", "9", &direct).is_none());
+    }
+
+    #[test]
+    fn workspace_member_binds_to_its_own_manifest_and_refuses_ambiguity() {
+        let lock = r#"{"lockfileVersion":3,"packages":{"":{"workspaces":["packages/*"]},"node_modules/a":{"resolved":"packages/a","link":true},"packages/a":{"name":"a","version":"1.0.0","dependencies":{"x":"^1"}},"packages/b":{"name":"b","version":"1.0.0","dependencies":{"x":"^1"}},"node_modules/x":{"version":"1.0.0","dependencies":{"z":"1"}},"node_modules/z":{"version":"3.0.0"}}}"#;
+        let mut texts = HashMap::new();
+        texts.insert("/p/package-lock.json".to_owned(), lock.to_owned());
+        texts.insert("/p/package.json".to_owned(), r#"{"workspaces":["packages/*"]}"#.to_owned());
+        texts.insert("/p/packages/a/package.json".to_owned(), "{\n \"name\": \"a\",\n \"dependencies\": {\n  \"x\": \"^1\"\n }\n}".to_owned());
+        texts.insert("/p/packages/b/package.json".to_owned(), r#"{"name":"b","dependencies":{"x":"^1"},"devDependencies":{"x":"^1"}}"#.to_owned());
+        let mut rows = vec![Row {
+            path: "/p/package-lock.json".into(), line: 0, name: "z".into(), version: "3.0.0".into(), fix: None, advisories: vec![], ecosystem: Some("npm".into()),
+            sources: vec![Declaration { path: "/p/package-lock.json".into(), line: 0, evidence: "Lockfile entry".into() }], details: vec![],
+        }];
+        annotate(&mut rows, &texts);
+        let a = rows[0].sources.iter().find(|d| d.path == "/p/packages/a/package.json").unwrap();
+        assert_eq!(a.line, 3);
+        assert!(a.evidence.contains("workspace a > x@1.0.0 > z@3.0.0"), "{}", a.evidence);
+        let b = rows[0].sources.iter().find(|d| d.path == "/p/packages/b/package.json").unwrap();
+        assert!(b.evidence.starts_with("Not bound") && b.evidence.contains("declared more than once"), "{}", b.evidence);
+        assert!(!rows[0].sources.iter().any(|d| d.path == "/p/package.json"));
     }
 }

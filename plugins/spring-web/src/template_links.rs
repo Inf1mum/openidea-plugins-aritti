@@ -5,6 +5,8 @@ use spring_text::xml;
 pub struct Reference {
     pub template: String,
     pub fragment: Option<String>,
+    /// `#id` or `tag#id` markup selector: (tag, id).
+    pub element: Option<(Option<String>, String)>,
 }
 fn name(value: &str) -> bool {
     !value.is_empty()
@@ -35,6 +37,11 @@ pub fn reference(source: &str, at: usize) -> Option<Reference> {
     let (template, fragment) = raw
         .split_once("::")
         .map_or((raw.trim(), None), |(t, f)| (t.trim(), Some(f.trim())));
+    let element = fragment.and_then(|f| {
+        let (tag, id) = f.split_once('#')?;
+        (name(id) && (tag.is_empty() || (name(tag) && !tag.contains('-')))).then(|| ((!tag.is_empty()).then(|| tag.to_owned()), id.to_owned()))
+    });
+    let fragment = if element.is_some() { None } else { fragment };
     let fragment = match fragment.map(|f| match f.split_once('(') {
         Some((id, args)) if args.ends_with(')') => id.trim_end(),
         _ => f,
@@ -56,7 +63,18 @@ pub fn reference(source: &str, at: usize) -> Option<Reference> {
     Some(Reference {
         template: template.to_owned(),
         fragment,
+        element,
     })
+}
+/// The `id` values equal to `wanted` on elements named `tag` (any element when `None`).
+pub fn element_ids(source: &str, tag: Option<&str>, wanted: &str) -> Vec<Range> {
+    xml::elements(source)
+        .into_iter()
+        .filter(|e| tag.is_none_or(|t| e.name == t))
+        .flat_map(|e| e.attrs)
+        .filter(|a| a.name == "id" && a.value == wanted)
+        .map(|a| Range::new(text::position(source, a.value_at), text::position(source, a.value_end)))
+        .collect()
 }
 pub fn declarations(source: &str, wanted: &str) -> Vec<Range> {
     xml::elements(source)
@@ -88,6 +106,22 @@ mod tests {
         assert_eq!(found.template, "parts");
         assert_eq!(found.fragment.as_deref(), Some("title"));
         assert!(reference(source, source.find("${view}").unwrap()).is_none());
+    }
+    #[test]
+    fn id_selectors_are_parsed_and_other_selectors_stay_quiet() {
+        let source = "<a th:replace=\"~{parts :: #main}\"/><a th:replace=\"~{parts :: div#main}\"/><a th:replace=\"~{parts :: .box}\"/><a th:replace=\"~{parts :: div.content}\"/><a th:replace=\"~{parts :: //x}\"/>";
+        let one = reference(source, source.find("#main").unwrap()).unwrap();
+        assert_eq!(one.element, Some((None, "main".into())));
+        assert!(one.fragment.is_none());
+        let two = reference(source, source.find("div#main").unwrap()).unwrap();
+        assert_eq!(two.element, Some((Some("div".into()), "main".into())));
+        for quiet in [".box", "div.content", "//x"] {
+            assert!(reference(source, source.find(quiet).unwrap()).is_none(), "{quiet}");
+        }
+        let target = "<div id='main'/><p id=\"main\"/><span id='x'/>";
+        assert_eq!(element_ids(target, None, "main").len(), 2);
+        assert_eq!(element_ids(target, Some("div"), "main").len(), 1);
+        assert_eq!(element_ids(target, None, "x").len(), 1);
     }
     #[test]
     fn argument_bearing_fragment_calls_navigate_by_name_only() {

@@ -84,6 +84,8 @@ pub struct Context<'a> {
     pub unassigned: bool,
     pub annotations: bool,
     pub health_metrics: bool,
+    /// Resource methods and scheduler identities of the module's other files; `None` while the project is not fully read.
+    pub module: Option<&'a crate::jaxrs::Facts>,
 }
 
 pub fn check(text: &str, ctx: &Context) -> Vec<Problem> {
@@ -91,7 +93,7 @@ pub fn check(text: &str, ctx: &Context) -> Vec<Problem> {
     let mut out = Vec::new();
     let health_metrics = ctx.health_metrics
         && (mentions("HealthCheck") || mentions("@org.eclipse.microprofile.health.") || mentions("@Health") || mentions("@Liveness") || mentions("@Readiness") || mentions("@Wellness") || mentions("@Gauge") || mentions("@org.eclipse.microprofile.metrics.annotation.Gauge"));
-    if !(mentions("@ConfigProperty") || mentions("@RestClient") || mentions("@org.eclipse.microprofile.rest.client.inject.RestClient") || mentions("@Scheduled") || mentions("@io.quarkus.scheduler.Scheduled") || health_metrics) {
+    if !(mentions("@ConfigProperty") || mentions("@RestClient") || mentions("@org.eclipse.microprofile.rest.client.inject.RestClient") || mentions("@Scheduled") || mentions("@io.quarkus.scheduler.Scheduled") || mentions("ws.rs") || mentions("RestPath") || health_metrics) {
         return out;
     }
     let file = java::parse(text);
@@ -101,6 +103,9 @@ pub fn check(text: &str, ctx: &Context) -> Vec<Problem> {
     if ctx.annotations {
         rest_clients(&file, text, ctx, &mut out);
         scheduled(&file, text, ctx, &mut out);
+        let mut found = Vec::new();
+        crate::jaxrs::check(&file, text, ctx.module, &mut found);
+        out.extend(found.into_iter().map(|finding| Problem { finding, fixes: Vec::new() }));
     }
     if health_metrics {
         health(&file, text, &mut out);
@@ -379,6 +384,7 @@ mod tests {
             unassigned: true,
             annotations: true,
             health_metrics: true,
+            module: None,
         };
         check(text, &ctx).iter().map(|p| (p.finding.code, text[p.finding.start..p.finding.end].to_owned())).collect()
     }
@@ -468,6 +474,7 @@ mod tests {
             unassigned: false,
             annotations: false,
             health_metrics: true,
+            module: None,
         };
         check(text, &ctx)
             .into_iter()

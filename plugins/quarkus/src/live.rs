@@ -243,6 +243,17 @@ impl QuarkusTools {
         keys.extend(self.live.env.get(root)?.as_ref()?.iter().cloned());
         Some(keys)
     }
+    fn cached_jaxrs(&mut self, doc: &Document) -> Option<crate::jaxrs::Facts> {
+        if !self.live.watching {
+            return None;
+        }
+        let root = project_of(&doc.path)?.root().ok()?;
+        let index = self.sources.for_cached_document(&doc.path, &doc.text)?;
+        if !index.complete() || !index.iter().all(|(path, info)| source_owned(&root, path) && info.complete) {
+            return None;
+        }
+        Some(crate::jaxrs::merge(index.iter().filter(|(path, _)| *path != doc.path).map(|(_, info)| &info.jaxrs)))
+    }
     fn cached_clients(&mut self, doc: &Document) -> Option<BTreeMap<String, bool>> {
         if !self.live.watching {
             return None;
@@ -274,6 +285,7 @@ impl DiagnosticsProvider for QuarkusTools {
         let lookup = Lookup(vec![&project, &jars, bundled()]);
         let found = if doc.language == "java" && doc.path.ends_with(".java") {
             let clients = self.cached_clients(doc);
+            let module = self.cached_jaxrs(doc);
             let ctx = Context {
                 lookup: &lookup,
                 configured: configured.as_ref(),
@@ -282,6 +294,7 @@ impl DiagnosticsProvider for QuarkusTools {
                 unassigned: host::setting_bool("quarkus.checkUnassigned").unwrap_or(false),
                 annotations: host::setting_bool("quarkus.checkAnnotations").unwrap_or(true),
                 health_metrics: host::setting_bool("quarkus.checkHealthMetrics").unwrap_or(true),
+                module: module.as_ref(),
             };
             java_checks::check(&doc.text, &ctx).into_iter().map(|problem| problem.finding.diagnostic(&doc.text)).chain(self.qute_java_diagnostics(doc)).collect()
         } else if is_quarkus_config(&doc.path)

@@ -113,6 +113,7 @@ pub struct ArgLink {
     pub arg: String,
     pub service: String,
     pub stage: Option<String>,
+    pub based_on: Option<String>,
     pub dockerfile_path: String,
     pub dockerfile_line: usize,
     pub compose_path: String,
@@ -353,24 +354,31 @@ impl Index {
             }
             let args = ownership::dockerfile_args(&dockerfile_text);
             for (arg, env_key, compose_line) in &service.build_args {
-                for declared in args.iter().filter(|a| &a.name == arg && a.stage.is_some()) {
-                    let location = Location { path: dockerfile_path.clone(), range: range(&dockerfile_text, declared.range.clone()) };
-                    let link = ArgLink {
-                        env_key: env_key.clone(),
-                        arg: arg.clone(),
-                        service: service.name.clone(),
-                        stage: declared.stage.clone(),
-                        dockerfile_path: dockerfile_path.clone(),
-                        dockerfile_line: location.range.start.line as usize + 1,
-                        compose_path: compose_path.to_owned(),
-                        compose_line: *compose_line,
-                    };
-                    let usage = Usage { key: env_key.clone(), location };
-                    if !self.usages.contains(&usage) {
-                        self.usages.push(usage);
-                    }
-                    if !self.arg_links.contains(&link) {
-                        self.arg_links.push(link);
+                let reimported = args.iter().any(|a| &a.name == arg && a.stage.is_some() && a.reimports_global);
+                for declared in args.iter().filter(|a| &a.name == arg && (a.stage.is_some() || reimported)) {
+                    let spans = std::iter::once(&declared.range).chain(&declared.uses);
+                    for (i, span) in spans.enumerate() {
+                        let location = Location { path: dockerfile_path.clone(), range: range(&dockerfile_text, span.clone()) };
+                        if i == 0 {
+                            let link = ArgLink {
+                                env_key: env_key.clone(),
+                                arg: arg.clone(),
+                                service: service.name.clone(),
+                                stage: declared.stage.clone(),
+                                based_on: declared.based_on.clone(),
+                                dockerfile_path: dockerfile_path.clone(),
+                                dockerfile_line: location.range.start.line as usize + 1,
+                                compose_path: compose_path.to_owned(),
+                                compose_line: *compose_line,
+                            };
+                            if !self.arg_links.contains(&link) {
+                                self.arg_links.push(link);
+                            }
+                        }
+                        let usage = Usage { key: env_key.clone(), location };
+                        if !self.usages.contains(&usage) {
+                            self.usages.push(usage);
+                        }
                     }
                 }
             }
@@ -630,5 +638,20 @@ mod optional_input_tests {
         h.add_file("compose.yml","x-file: &file {path: missing.env, required: false}\nx-service: &service {env_file: [*file]}\nservices: {app: {<<: *service}}\n");
         let project=h.invocation().project().unwrap();let index=Index::full(&project,"/p",Instant::now()+Duration::from_secs(5));
         assert!(index.complete);assert!(index.declarations.iter().any(|d|d.key=="A"));
+    }
+
+    #[test]
+    fn arg_links_cover_reimported_globals_and_stage_uses() {
+        let host = MockHost::install();
+        host.set_project_root(Some("/p"));
+        host.add_file(".env", "V=1\n");
+        host.add_file("compose.yaml", "services:\n  w:\n    build:\n      args:\n        V: ${V}\n");
+        host.add_file("Dockerfile", "ARG V=1\nFROM php AS a\nFROM a AS b\nARG V\nRUN echo $V\n");
+        let project = host.invocation().project().unwrap();
+        let index = Index::full(&project, "/p", Instant::now() + Duration::from_secs(5));
+        let links: Vec<_> = index.arg_links.iter().map(|l| (l.stage.clone(), l.based_on.clone(), l.dockerfile_line)).collect();
+        assert_eq!(links, [(None, None, 1), (Some("b".into()), Some("a".into()), 4)]);
+        let lines: Vec<_> = index.usages.iter().filter(|u| u.location.path.ends_with("Dockerfile")).map(|u| u.location.range.start.line).collect();
+        assert_eq!(lines, [0, 3, 4]);
     }
 }

@@ -7,7 +7,7 @@ use std::ops::Range;
 use crate::checks::Finding;
 use crate::index::{xml_attribute, xml_tags, yaml_keys};
 use crate::php_checks::{arguments, named, trimmed};
-use crate::php_text::{attributes, imports, mask, matching_close, AttributeUse, Target};
+use crate::php_text::{attributes, class_model, imports, mask, matching_close, AttributeUse, Target};
 
 const MAPPING_NAMESPACE: &str = "Doctrine\\ORM\\Mapping";
 const LIFECYCLE_ATTRIBUTES: [&str; 8] = ["PrePersist", "PostPersist", "PreUpdate", "PostUpdate", "PreRemove", "PostRemove", "PostLoad", "PreFlush"];
@@ -57,7 +57,10 @@ fn mapping_php(text: &str) -> Vec<Finding> {
             Some("OneToMany") => one_to_many(&masked, &attributes, attribute, &mut found),
             Some("OneToOne") => inverse_side_join_column(&masked, &attributes, attribute, &mut found),
             Some("JoinColumn") => nullable_attribute(&masked, attribute, &mut found),
-            Some("Column") => deprecated_column_type(&masked, text, attribute, &mut found),
+            Some("Column") => {
+                deprecated_column_type(&masked, text, attribute, &mut found);
+                column_type_mismatch(&masked, text, attribute, &mut found);
+            }
             Some("DiscriminatorMap") => discriminator_map(&masked, text, attribute, &mut found),
             Some(name) if LIFECYCLE_ATTRIBUTES.contains(&name) => callback_visibility(attribute, &mut found),
             _ => {}
@@ -83,6 +86,59 @@ fn deprecated_column_type(masked: &str, text: &str, attribute: &AttributeUse, fo
         let written = text[value.clone()].trim_matches(['\'', '"']);
         if &masked[name] == "type" && DEPRECATED_COLUMN_TYPES.contains(&written) {
             found.push(Finding::warn(value, "orm-column-deprecated-type", "The `array` and `object` column types are deprecated in DBAL 3 and removed in DBAL 4: store the data as `json`.".into()));
+        }
+    }
+}
+
+/// PHP type written before `$name` at `at` in a property or promoted parameter
+/// (`private ?string $x`); `None` when untyped or not a declaration.
+pub(crate) fn declared_type(masked: &str, at: usize) -> Option<String> {
+    let start = masked[..at].rfind([';', '{', '}', ']', '(', ',']).map_or(0, |found| found + 1);
+    let mut modifier = false;
+    let mut written = None;
+    for token in masked[start..at].split_whitespace() {
+        if matches!(token.to_ascii_lowercase().as_str(), "public" | "protected" | "private" | "var" | "static" | "readonly") {
+            modifier = true;
+            continue;
+        }
+        if written.is_some() || !token.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'\\' | b'?' | b'|')) {
+            return None;
+        }
+        written = Some(token.to_owned());
+    }
+    written.filter(|_| modifier)
+}
+
+/// The single built-in type of a declaration (`?int` is `int`); `None` for classes, unions and `mixed`.
+pub(crate) fn scalar_type(declared: &str) -> Option<String> {
+    let lower = declared.trim_start_matches('?').to_ascii_lowercase();
+    ["int", "string", "bool", "float", "array"].contains(&lower.as_str()).then_some(lower)
+}
+
+/// DBAL types mapping: `string`/`text` are PHP `string`, `integer` `int`,
+/// `boolean` `bool`, `float` `float`, and `datetime_immutable` is a `DateTimeImmutable` object. Flags only a
+/// built-in property type outside that pair; `enumType` columns are skipped.
+fn column_type_mismatch(masked: &str, text: &str, attribute: &AttributeUse, found: &mut Vec<Finding>) {
+    if !masked[attribute.range.clone()].contains('(') || has_named(masked, attribute, "enumType") || class_model(text).is_none() {
+        return;
+    }
+    let Some(at) = property_at(masked, attribute) else { return };
+    let Some(declared) = declared_type(masked, at).and_then(|declared| scalar_type(&declared)) else { return };
+
+    for argument in arguments(masked, attribute.arguments.start - 1) {
+        let Some((name, value)) = named(masked, argument) else { continue };
+        let written = text[value.clone()].trim();
+        let Some(column) = written.strip_prefix('\'').and_then(|rest| rest.strip_suffix('\'')).or_else(|| written.strip_prefix('"').and_then(|rest| rest.strip_suffix('"'))) else { continue };
+        let expected = match column {
+            "string" | "text" => "string",
+            "integer" => "int",
+            "boolean" => "bool",
+            "float" => "float",
+            "datetime_immutable" => "DateTimeImmutable",
+            _ => continue,
+        };
+        if &masked[name] == "type" && declared != expected.to_ascii_lowercase() {
+            found.push(Finding::with_severity_info(value, "orm-column-type-mismatch", format!("Doctrine type `{column}` maps to PHP `{expected}`, but the property is declared `{declared}` (https://www.doctrine-project.org/projects/doctrine-dbal/en/current/reference/types.html).")));
         }
     }
 }
@@ -414,6 +470,20 @@ mod tests {
     fn slice<'a>(text: &'a str, code: &str) -> &'a str {
         let found = check(PATH, "php", text).into_iter().find(|finding| finding.code == code).unwrap();
         &text[found.start..found.end]
+    }
+
+    #[test]
+    fn column_type_must_match_a_built_in_property_type() {
+        let codes = |body: &str| php(&entity(body)).iter().filter(|code| **code == "orm-column-type-mismatch").count();
+        assert_eq!(codes("#[ORM\\Column(type: 'string')]\n    private int $a;"), 1);
+        assert_eq!(codes("#[ORM\\Column(type: 'json')]\n    private ?string $a = null;"), 0);
+        assert_eq!(codes("#[ORM\\Column(type: 'datetime_immutable')]\n    private string $a;"), 1);
+        assert_eq!(codes("#[ORM\\Column(type: 'string')]\n    private ?string $a = null;"), 0);
+        assert_eq!(codes("#[ORM\\Column(type: 'text')]\n    private string $a;"), 0);
+        assert_eq!(codes("#[ORM\\Column(type: 'datetime_immutable')]\n    private ?\\DateTimeImmutable $a;"), 0);
+        assert_eq!(codes("#[ORM\\Column(type: 'string', enumType: Status::class)]\n    private int $a;"), 0);
+        assert_eq!(codes("#[ORM\\Column(type: 'string')]\n    private $a;"), 0);
+        assert_eq!(codes("#[ORM\\Column(type: Types::STRING)]\n    private int $a;"), 0);
     }
 
     #[test]

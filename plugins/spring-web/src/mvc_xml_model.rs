@@ -467,6 +467,17 @@ fn refs(
     }
     Some((beans, refs))
 }
+pub(super) fn view_names(text: &str) -> Vec<spring_text::java::Str> {
+    let Some((es, _)) = model(text) else {
+        return vec![];
+    };
+    (0..es.len())
+        .filter(|i| path(&es, *i).as_deref() == Some("view-controller"))
+        .filter_map(|i| es[i].attrs.iter().find(|a| a.name == "view-name"))
+        .filter(|a| !a.value.trim().is_empty() && !dynamic(&a.value) && !a.value.starts_with("redirect:") && !a.value.starts_with("forward:"))
+        .map(|a| spring_text::java::Str { value: a.value.clone(), at: a.value_at, end: a.value_end })
+        .collect()
+}
 pub(super) fn definition(doc: &Document, at: Position) -> Vec<Location> {
     let Some((es, profile)) = model(&doc.text) else {
         return vec![];

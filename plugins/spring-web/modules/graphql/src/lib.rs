@@ -16,12 +16,11 @@ use std::time::Duration;
 
 mod checks;
 mod mapping_docs;
+mod wiring;
 
 const SCHEMA_GLOBS: &[&str] = &["**/*.graphqls", "**/*.graphql"];
 const JAVA_GLOBS: &[&str] = &["**/*.java", "**/*.kt"];
 const CONFIG_GLOBS: &[&str] = &["**/application*.properties", "**/application*.yml", "**/application*.yaml"];
-/// Text that registers data fetchers by hand, outside the annotated controllers.
-const WIRING: [&str; 5] = ["DataFetcher", "RuntimeWiring", "GraphQlSourceBuilderCustomizer", "TypeRuntimeWiring", "DataLoader"];
 const DOCUMENT_DIR: &str = "/graphql-documents/";
 /// (annotation, operation, default root type).
 const ROOTS: [(&str, &str, &str); 3] = [
@@ -397,8 +396,14 @@ pub fn handlers(text: &str) -> Vec<Handler> {
     handlers_in(text, false)
 }
 
-/// The handler methods of a Java or Kotlin source's controllers.
+/// The handler methods of a Java or Kotlin source's controllers and its literal `RuntimeWiring` registrations.
 pub fn handlers_in(text: &str, is_kotlin: bool) -> Vec<Handler> {
+    let mut out = controller_handlers(text, is_kotlin);
+    out.extend(wiring::wired(text).handlers);
+    out
+}
+
+fn controller_handlers(text: &str, is_kotlin: bool) -> Vec<Handler> {
     let mut file = if is_kotlin { kotlin::parse(text) } else { java::parse(text) };
     if is_kotlin {
         canonicalise_kotlin_aliases(&mut file, text);
@@ -457,7 +462,7 @@ fn schema_file(path: &str, text: &str) -> Option<Schema> {
 }
 
 fn java_file(path: &str, text: &str) -> Option<Vec<Handler>> {
-    if !text.contains("Mapping") {
+    if !text.contains("Mapping") && !text.contains("dataFetcher") {
         return None;
     }
     let found = handlers_in(text, path.ends_with(".kt"));
@@ -552,11 +557,11 @@ const MAPPING_MARKERS: [&str; 5] = ["@SchemaMapping", "@BatchMapping", "@QueryMa
 
 /// Hand wiring, or a mapping annotation the literal handler parser did not accept (dynamic, class-level, aliased): the handler set is then unprovable.
 fn mentions_wiring(path: &str, text: &str) -> Option<bool> {
-    if WIRING.iter().any(|w| text.contains(w)) {
+    if wiring::wired(text).closed {
         return Some(true);
     }
     let marked: usize = MAPPING_MARKERS.iter().map(|m| text.matches(m).count()).sum();
-    (marked > 0 && marked != handlers_in(text, path.ends_with(".kt")).len()).then_some(true)
+    (marked > 0 && marked != controller_handlers(text, path.ends_with(".kt")).len()).then_some(true)
 }
 
 pub struct GraphQlTools {
@@ -1750,6 +1755,67 @@ class BookController {
         host.add_file("src/main/java/com/acme/Wiring.java", "class W { RuntimeWiringConfigurer c() { return null; } }");
         GraphQlTools::default().line_markers(&schema);
         assert!(host.diagnostics().get(&schema.path).is_none_or(Vec::is_empty), "hand wiring anywhere silences it");
+    }
+
+    fn wired_pairs(text: &str) -> (Vec<(String, String)>, bool) {
+        let w = wiring::wired(text);
+        (w.handlers.into_iter().map(|h| (h.ty, h.field)).collect(), w.closed)
+    }
+
+    #[test]
+    fn literal_runtime_wiring_registrations_are_handlers() {
+        let lambda = "import graphql.schema.idl.RuntimeWiring;\n@Configuration class W { @Bean RuntimeWiringConfigurer c() { return wiring -> wiring.type(\"Query\", b -> b.dataFetcher(\"book\", env -> null).dataFetcher(\"books\", env -> null)).type(\"Book\", (t) -> { t.dataFetcher(\"author\", e -> 1); }); } }";
+        let pairs = |v: &[(&str, &str)]| v.iter().map(|(a, b)| (a.to_string(), b.to_string())).collect::<Vec<_>>();
+        assert_eq!(wired_pairs(lambda), (pairs(&[("Query", "book"), ("Query", "books"), ("Book", "author")]), false));
+        let typed = "class W { RuntimeWiringConfigurer c() { return w -> w.type(TypeRuntimeWiring.newTypeWiring(\"Query\").dataFetcher(\"book\", f)).type(newTypeWiring(\"Book\").dataFetcher(\"id\", g)); } }";
+        assert_eq!(wired_pairs(typed), (pairs(&[("Query", "book"), ("Book", "id")]), false));
+        let wired = wiring::wired(lambda);
+        let h = &wired.handlers[0];
+        assert_eq!(h.label, "dataFetcher(\"Query.book\")");
+        assert!(handlers_in(typed, false).iter().any(|h| h.ty == "Book" && h.field == "id"));
+    }
+
+    #[test]
+    fn unrecognised_wiring_use_keeps_the_gate_closed() {
+        for text in [
+            "class W { RuntimeWiringConfigurer c() { return null; } }",
+            "class W { RuntimeWiringConfigurer c() { return w -> w.type(NAME, b -> b.dataFetcher(\"a\", e -> 1)); } }",
+            "class W { RuntimeWiringConfigurer c() { return w -> w.type(\"Q\", b -> b.dataFetcher(FIELD, e -> 1)); } }",
+            "class W { RuntimeWiringConfigurer c() { return w -> w.type(\"Q\", b -> b.dataFetcher(\"a\", e -> 1).defaultDataFetcher(f)); } }",
+            "class W { RuntimeWiringConfigurer c() { return w -> w.type(\"Q\", b -> b.dataFetcher(\"a\", e -> 1)).type(other()); } }",
+            "class W { RuntimeWiringConfigurer c() { return w -> w.type(\"Q\", b -> b.dataFetcher(\"a\", e -> 1)).codeRegistry(r); } }",
+            "class W { RuntimeWiringConfigurer c() { return w -> w.type(\"Q\", b -> b.dataFetcher(\"a\", e -> 1)).wiringFactory(f); } }",
+            "class W { DataFetcher<String> f; RuntimeWiringConfigurer c() { return w -> w.type(\"Q\", b -> b.dataFetcher(\"a\", f)); } }",
+            "class W { void c(GraphQlSourceBuilder b) { b.configureRuntimeWiring(w -> w.type(\"Q\", t -> t.dataFetcher(\"a\", e -> 1))); } }",
+            "class W { Object c() { return DataFetcherFactories.useAsyncExecutor(f, e); } }",
+            "class W { void c(RuntimeWiring.Builder w) { w.type(\"Q\", b -> b.dataFetcher(\"a\", e -> 1)); TypeRuntimeWiring.Builder t = null; } }",
+            "class W { RuntimeWiringConfigurer c() { return w -> { var t = newTypeWiring(\"Q\"); w.type(t); }; } }",
+        ] {
+            assert!(wired_pairs(text).1, "must stay closed: {text}");
+        }
+        assert!(!wired_pairs("class Unrelated { void f(Map m) { m.type(1); } }").1);
+    }
+
+    #[cfg(not(feature = "embedded"))]
+    #[test]
+    fn literal_wiring_serves_fields_and_relaxes_the_hint_gate_only_when_fully_recognised() {
+        let host = MockHost::install();
+        host.add_file("src/main/resources/graphql/schema.graphqls", ARGS_SCHEMA);
+        let wiring = "@Configuration class W { @Bean RuntimeWiringConfigurer c() { return w -> w.type(\"Author\", b -> b.dataFetcher(\"books\", e -> null)); } }";
+        host.add_file("src/main/java/com/acme/Wiring.java", wiring);
+        let schema = doc("src/main/resources/graphql/schema.graphqls", "graphql", ARGS_SCHEMA);
+        let mut tools = GraphQlTools::default();
+        let links = tools.schema_links(&schema);
+        let books = links.iter().find(|(t, f, _)| t == "Author" && f.name == "books").unwrap();
+        assert_eq!(books.2.len(), 1, "SDL field navigates to the registration");
+        let all = host.diagnostics();
+        let found: Vec<_> = all[&schema.path].iter().filter(|d| d.severity == Severity::Info).collect();
+        assert_eq!(found.len(), 1, "Book.title only: {found:?}");
+
+        host.add_file("src/main/java/com/acme/Wiring.java", &wiring.replace("\"books\"", "FIELD"));
+        let mut tools = GraphQlTools::default();
+        tools.schema_links(&schema);
+        assert!(host.diagnostics().get(&schema.path).is_none_or(|v| v.iter().all(|d| d.severity != Severity::Info)), "an unrecognised registration closes the gate");
     }
 
     #[cfg(not(feature = "embedded"))]

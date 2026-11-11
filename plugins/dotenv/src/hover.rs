@@ -142,7 +142,10 @@ impl HoverProvider for DotEnv {
                 }
             }
             for link in index.arg_links.iter().filter(|l| l.env_key == key) {
-                let stage = link.stage.as_deref().map_or("before FROM".to_owned(), |s| format!("stage {s}"));
+                let stage = link.stage.as_deref().map_or("before FROM".to_owned(), |s| match &link.based_on {
+                    Some(base) => format!("stage {s}, based on stage {base}"),
+                    None => format!("stage {s}"),
+                });
                 ownership.push_str(&format!(
                     "- build arg {} of service {} ({}:{}, {stage}) via {}:{}\n",
                     inline(&link.arg, 128),
@@ -390,7 +393,7 @@ mod tests {
         let hover = plugin.hover(&doc("/project/.env", "PHP_VERSION=8\nAPP_KEY=1\n"), Position::new(0, 2)).unwrap();
         assert!(hover.markdown.contains("feeds Compose interpolation only"));
         assert!(hover.markdown.contains("build arg ` PHP ` of service ` web ` (` Dockerfile `:3, stage app) via ` docker-compose.yml `:6"));
-        assert!(!hover.markdown.contains("`:1, "));
+        assert!(hover.markdown.contains("(` Dockerfile `:1, before FROM)"), "re-imported global ARG is linked too");
         let hover = plugin.hover(&doc("/project/web.env", "APP_KEY=2\n"), Position::new(0, 2)).unwrap();
         assert!(hover.markdown.contains("loaded by service ` web ` (` docker-compose.yml `:3)"));
     }

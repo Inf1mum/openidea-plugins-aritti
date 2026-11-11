@@ -16,6 +16,7 @@ mod actions;
 mod editor_actions;
 mod scoped;
 mod binding;
+mod workspace_chain;
 
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};

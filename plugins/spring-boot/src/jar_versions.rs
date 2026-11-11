@@ -138,7 +138,7 @@ pub(super) fn managed(text: &str) -> Result<Vec<Dependency>, Error> {
     }
     Ok(out)
 }
-fn references(text: &str) -> Result<Vec<Dependency>, Error> {
+fn references(text: &str) -> Result<Vec<(Dependency, bool)>, Error> {
     let elements = xml::elements(text);
     let props = properties(text)?;
     let mut out = Vec::new();
@@ -154,22 +154,34 @@ fn references(text: &str) -> Result<Vec<Dependency>, Error> {
             if let Some(d) =
                 coordinate(text, &elements, i, &props, "declared parent/BOM").filter(official)
             {
-                out.push(d);
+                out.push((d, parent));
             }
         }
     }
     Ok(out)
 }
+const MAX_PARENT_DEPTH: usize = 4;
+const MAX_IMPORTS: usize = 8;
 pub(super) fn cache_catalog(
     source: &str,
     cache: &str,
 ) -> Result<(Vec<Dependency>, Vec<(String, String)>), Error> {
-    let mut queue = references(source)?;
+    let mut queue: Vec<(Dependency, bool, usize)> = references(source)?
+        .into_iter()
+        .map(|(d, parent)| (d, parent, 1))
+        .collect();
+    let mut imports = queue.iter().filter(|(_, parent, _)| !parent).count();
+    if imports > MAX_IMPORTS {
+        return Err(invalid("More than 8 imported BOMs; no snapshot loaded."));
+    }
     let mut visited = BTreeSet::new();
     let mut catalogs = Vec::new();
     let mut snapshots = Vec::new();
     let mut bytes = 0;
-    while let Some(dep) = queue.pop() {
+    while let Some((dep, _, depth)) = queue.pop() {
+        if depth > MAX_PARENT_DEPTH {
+            return Err(invalid("Parent/BOM chain deeper than 4; no snapshot loaded."));
+        }
         if !visited.insert(dep.gav()) {
             continue;
         }
@@ -226,7 +238,15 @@ pub(super) fn cache_catalog(
             )));
         }
         catalogs.extend(managed(text)?.into_iter().filter(official));
-        queue.extend(references(text)?);
+        for (d, parent) in references(text)? {
+            if !parent {
+                imports += 1;
+            }
+            queue.push((d, parent, depth + 1));
+        }
+        if imports > MAX_IMPORTS {
+            return Err(invalid("More than 8 imported BOMs; no snapshot loaded."));
+        }
         snapshots.push((path, format!("{:x}", Sha256::digest(raw))));
     }
     let mut entries = BTreeMap::<(String, String), Dependency>::new();

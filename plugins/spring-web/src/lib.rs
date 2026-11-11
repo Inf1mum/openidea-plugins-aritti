@@ -228,8 +228,32 @@ fn view_literals(text: &str, file: &JavaFile) -> Vec<Str> {
     out
 }
 
+const WEB_MVC_CONFIGURER: &str = "org.springframework.web.servlet.config.annotation.WebMvcConfigurer";
+
+/// `registry.addViewController("/x").setViewName("home")` in a file importing the exact `WebMvcConfigurer`.
+fn config_view_literals(text: &str, file: &JavaFile) -> Vec<Str> {
+    let imported = file.imports.iter().any(|i| !i.is_static && i.path == WEB_MVC_CONFIGURER)
+        && !file.imports.iter().any(|i| !i.is_static && i.path.ends_with(".WebMvcConfigurer") && i.path != WEB_MVC_CONFIGURER);
+    if !imported {
+        return Vec::new();
+    }
+    let calls = java::calls(text);
+    calls
+        .iter()
+        .filter(|c| c.name == "setViewName" && c.chained)
+        .filter(|c| calls.iter().any(|p| p.name == "addViewController" && p.end <= c.at && text[p.end..c.at].trim() == "."))
+        .filter_map(|c| c.args.first().and_then(|a| a.string.clone()))
+        .filter(|s| text.get(s.at..s.end) == Some(s.value.as_str()) && !s.value.contains("${") && !["redirect:", "forward:"].iter().any(|p| s.value.starts_with(p)))
+        .collect()
+}
+
 fn source_view_literals(path:&str,text:&str,file:&JavaFile)->Vec<Str>{
-    if !is_kotlin(path){return view_literals(text,file)}
+    if !is_kotlin(path){
+        let mut literals=view_literals(text,file);
+        literals.extend(config_view_literals(text,file));
+        literals.sort_by_key(|s|s.at);
+        return literals
+    }
     let tokens=java::tokens(text);let calls=source_calls(path,text);let mut output=Vec::new();
     let literal=|token:java::Tok<'_>|token.string().filter(|s|text.get(s.at..s.end)==Some(s.value.as_str())&&!s.value.contains('$'));
     for class in file.types.iter().filter(|c|c.has(&["Controller"])&&!c.has(&["RestController","ResponseBody"])&&file.from_spring("Controller")) {
@@ -459,7 +483,7 @@ impl WebTools {
 
     /// The view literals of the document and the templates each names.
     fn views(&mut self, doc: &Document) -> Vec<(Str, Vec<Template>)> {
-        let literals = source_view_literals(&doc.path,&doc.text,&parse_source(&doc.path,&doc.text));
+        let literals = if is_xml(doc) { xml_checks::view_names(&doc.text) } else { source_view_literals(&doc.path,&doc.text,&parse_source(&doc.path,&doc.text)) };
         if literals.is_empty() {
             return Vec::new();
         }
@@ -474,6 +498,15 @@ impl WebTools {
     }
 }
 
+/// XML configuration is not in the versioning inventory: every XML file must be readable and name no view resolver.
+#[cfg(test)]
+fn xml_has_default_views(doc: &Document) -> bool {
+    let Some(project) = project_of(&doc.path) else { return false };
+    let Ok(files) = project.find_files("**/*.xml", 200) else { return false };
+    let resolver = |text: &str| checks::VIEW_RESOLVER_MARKERS.iter().any(|m| text.contains(m)) || text.contains("view-resolvers") || text.contains("InternalResourceViewResolver");
+    !resolver(&doc.text) && files.len() < 200 && files.iter().filter(|f| **f != doc.path).all(|f| project.read_file(f).is_ok_and(|t| !resolver(&t)))
+}
+
 impl WebTools {
     /// Hints for view names no template answers, once the project has templates, every source was read and none brings a view resolver of its own.
     #[cfg(test)]
@@ -486,6 +519,9 @@ impl WebTools {
         };
         let files: Vec<_> = index.iter().map(|(_, v)| *v).collect();
         if !checks::project_has_default_views(index.complete(), &files) {
+            return Vec::new();
+        }
+        if is_xml(doc) && !xml_has_default_views(doc) {
             return Vec::new();
         }
         let views = self.views(doc);
@@ -631,10 +667,16 @@ impl WebTools {
         };
         let mut targets = Vec::new();
         for path in paths {
-            let Some(fragment) = &reference.fragment else { targets.push(Location { path, range: Range::default() }); continue };
+            if reference.fragment.is_none() && reference.element.is_none() { targets.push(Location { path, range: Range::default() }); continue }
             let source = if path == doc.path { doc.text.clone() } else {
                 let Ok(source) = project.read_file(&path) else { continue }; source
             };
+            if let Some((tag, id)) = &reference.element {
+                let ids = template_links::element_ids(&source, tag.as_deref(), id);
+                if let [range] = ids[..] { targets.push(Location { path, range }); }
+                continue;
+            }
+            let Some(fragment) = &reference.fragment else { continue };
             targets.extend(template_links::declarations(&source, fragment).into_iter().map(|range| Location { path:path.clone(), range }));
         }
         targets
@@ -846,7 +888,13 @@ impl Providers for WebTools {
     }
 
     fn definition(&mut self, doc: &Document, at: Position) -> Vec<Location> {
-        if is_xml(doc){return xml_checks::definition(doc,at)}
+        if is_xml(doc){
+            let mut found = xml_checks::definition(doc,at);
+            if let Some(at) = offset(&doc.text, at) {
+                found.extend(self.views(doc).into_iter().filter(|(s, _)| s.holds(at)).flat_map(|(_, f)| f.into_iter().map(|t| t.location())));
+            }
+            return found;
+        }
         let Some(at) = offset(&doc.text, at) else {
             return Vec::new();
         };
@@ -1114,7 +1162,8 @@ impl WebTools {
     fn legacy_parser_markers(&mut self, doc: &Document) -> Vec<LineMarker> {
         if is_xml(doc) {
             let found = xml_checks::check(&doc.text);
-            let diagnostics: Vec<_> = found.iter().map(|f| f.diagnostic(&doc.text)).collect();
+            let mut diagnostics: Vec<_> = found.iter().map(|f| f.diagnostic(&doc.text)).collect();
+            diagnostics.extend(self.unresolved_views(doc));
             publish(&doc.path, &diagnostics);
             return Vec::new();
         }
@@ -1569,6 +1618,65 @@ class UserApiTests {
         host.set_setting("springWeb.reportUnresolvedViews", "false");
         tools.legacy_parser_markers(&d);
         assert!(take_problems().iter().all(|p| p.code.as_deref() != Some("unresolved-view")));
+    }
+
+    const MVC_NS: &str = "http://www.springframework.org/schema/mvc";
+    fn view_controller_xml(view: &str) -> String {
+        format!("<beans xmlns=\"http://www.springframework.org/schema/beans\" xmlns:mvc=\"{MVC_NS}\"><mvc:view-controller path=\"/x\" view-name=\"{view}\"/></beans>")
+    }
+
+    #[test]
+    fn xml_view_controller_navigates_and_hints_only_for_default_resolution() {
+        let host = web_project();
+        let mut tools = WebTools::default();
+        let text = view_controller_xml("users/list");
+        let d = doc("src/main/resources/mvc.xml", &text);
+        let found = tools.definition(&d, position(&text, text.find("users/list").unwrap() + 2));
+        assert_eq!(found[0].path, "/project/src/main/resources/templates/users/list.html");
+
+        let text = view_controller_xml("nowhere");
+        let d = doc("src/main/resources/mvc.xml", &text);
+        tools.legacy_parser_markers(&d);
+        assert!(take_problems().iter().any(|p| p.code.as_deref() == Some("unresolved-view")));
+        let dynamic = view_controller_xml("${v}");
+        assert!(tools.definition(&doc("src/main/resources/mvc.xml", &dynamic), position(&dynamic, dynamic.find("${").unwrap() + 3)).is_empty());
+
+        host.add_file("src/main/resources/other.xml", "<beans><bean class=\"x.InternalResourceViewResolver\"/></beans>");
+        tools.legacy_parser_markers(&d);
+        assert!(take_problems().iter().all(|p| p.code.as_deref() != Some("unresolved-view")));
+    }
+
+    #[test]
+    fn java_config_add_view_controller_resolves_like_controller_views() {
+        let host = web_project();
+        let mut tools = WebTools::default();
+        let imports = "import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;\nimport org.springframework.web.servlet.config.annotation.ViewControllerRegistry;\n";
+        let src = format!("{imports}class Cfg implements WebMvcConfigurer {{ public void addViewControllers(ViewControllerRegistry registry) {{ registry.addViewController(\"/x\").setViewName(\"users/list\"); registry.addViewController(\"/y\").setViewName(\"nowhere\"); }} }}");
+        let d = doc("src/main/java/com/acme/Cfg.java", &src);
+        let found = tools.definition(&d, position(&src, src.find("users/list").unwrap() + 2));
+        assert_eq!(found[0].path, "/project/src/main/resources/templates/users/list.html");
+        tools.legacy_parser_markers(&d);
+        let hints: Vec<_> = take_problems().into_iter().filter(|p| p.code.as_deref() == Some("unresolved-view")).collect();
+        assert_eq!(hints.len(), 1);
+        assert!(hints[0].message.contains("nowhere"));
+        let other = src.replace("import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;", "import com.other.WebMvcConfigurer;");
+        assert!(tools.definition(&doc("src/main/java/com/acme/Cfg.java", &other), position(&other, other.find("users/list").unwrap() + 2)).is_empty());
+        drop(host);
+    }
+
+    #[test]
+    fn thymeleaf_id_selector_navigates_only_to_a_unique_element() {
+        let host = web_project();
+        host.add_file("src/main/resources/templates/layout.html", "<html><div id=\"main\"/><p id=\"dup\"/><p id=\"dup\"/></html>");
+        let mut tools = WebTools::default();
+        let text = "<div th:replace=\"~{layout :: #main}\"/><div th:replace=\"~{layout :: #dup}\"/><div th:replace=\"~{layout :: .box}\"/>";
+        let d = Document { language: "html".into(), ..doc("src/main/resources/templates/home.html", text) };
+        let main = tools.definition(&d, position(text, text.find("#main").unwrap() + 1));
+        assert_eq!(main.len(), 1);
+        assert_eq!(main[0].path, "/project/src/main/resources/templates/layout.html");
+        assert_eq!(main[0].range.start.character, 15);
+        assert!(tools.definition(&d, position(text, text.find("#dup").unwrap() + 1)).is_empty());
+        assert!(tools.definition(&d, position(text, text.find(".box").unwrap() + 1)).is_empty());
     }
 
     #[test]

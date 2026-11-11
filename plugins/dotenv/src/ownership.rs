@@ -169,6 +169,32 @@ pub struct DockerArg {
     /// `None` before the first `FROM`: usable in `FROM` lines only.
     pub stage: Option<String>,
     pub range: Range<usize>,
+    /// `ARG K` without a value: inside a stage it re-imports a global `ARG K`.
+    pub reimports_global: bool,
+    /// `${K}` / `$K` expansions after the declaration, in the same stage.
+    pub uses: Vec<Range<usize>>,
+    /// Stage this one is `FROM` (only informative: ARGs are not inherited).
+    pub based_on: Option<String>,
+}
+
+/// Names expanded in `line` (`$K`, `${K}`, `${K:-d}`) with their byte ranges.
+fn expansions(line: &str, base: usize) -> Vec<(&str, Range<usize>)> {
+    let bytes = line.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] != b'$' {
+            i += 1;
+            continue;
+        }
+        let start = if bytes.get(i + 1) == Some(&b'{') { i + 2 } else { i + 1 };
+        let len = line[start..].bytes().take_while(|b| b.is_ascii_alphanumeric() || *b == b'_').count();
+        if len > 0 && !bytes[start].is_ascii_digit() {
+            out.push((&line[start..start + len], base + start..base + start + len));
+        }
+        i = start + len.max(1);
+    }
+    out
 }
 
 /// `ARG` declarations with the build stage they sit in, per
@@ -178,6 +204,9 @@ pub fn dockerfile_args(text: &str) -> Vec<DockerArg> {
     let mut out = Vec::new();
     let mut stage: Option<String> = None;
     let mut stages = 0;
+    let mut stage_names: Vec<String> = Vec::new();
+    let mut stage_first = 0;
+    let mut based_on: Option<String> = None;
     let mut offset = 0;
     for raw in text.split_inclusive('\n') {
         let line_at = offset;
@@ -191,15 +220,42 @@ pub fn dockerfile_args(text: &str) -> Vec<DockerArg> {
             stages += 1;
             let words: Vec<_> = parts.collect();
             let alias = words.iter().position(|w| w.eq_ignore_ascii_case("AS")).and_then(|i| words.get(i + 1));
-            stage = Some(alias.map_or_else(|| stages.to_string(), |a| (*a).to_owned()));
+            let name = alias.map_or_else(|| stages.to_string(), |a| (*a).to_owned());
+            based_on = words
+                .iter()
+                .find(|w| !w.starts_with("--"))
+                .and_then(|image| stage_names.iter().find(|n| n.eq_ignore_ascii_case(image)).cloned());
+            stage_names.push(name.clone());
+            stage = Some(name);
+            stage_first = out.len();
         } else if instruction.eq_ignore_ascii_case("ARG") {
+            if stage.is_some() {
+                for (name, used) in expansions(&content[instruction.len()..], at + instruction.len()) {
+                    if let Some(arg) = out[stage_first..].iter_mut().find(|a: &&mut DockerArg| a.name == name) {
+                        arg.uses.push(used);
+                    }
+                }
+            }
             let mut cursor = at + instruction.len();
             for word in parts {
                 let start = cursor + text[cursor..].find(word).unwrap_or(0);
                 cursor = start + word.len();
                 let name = word.split('=').next().unwrap_or(word);
                 if !name.is_empty() && !name.contains('$') {
-                    out.push(DockerArg { name: name.to_owned(), stage: stage.clone(), range: start..start + name.len() });
+                    out.push(DockerArg {
+                        name: name.to_owned(),
+                        stage: stage.clone(),
+                        range: start..start + name.len(),
+                        reimports_global: !word.contains('='),
+                        uses: Vec::new(),
+                        based_on: based_on.clone(),
+                    });
+                }
+            }
+        } else if stage.is_some() {
+            for (name, used) in expansions(content, at) {
+                if let Some(arg) = out[stage_first..].iter_mut().find(|a: &&mut DockerArg| a.name == name) {
+                    arg.uses.push(used);
                 }
             }
         }
@@ -245,5 +301,17 @@ mod tests {
             ("A".to_owned(), Some("2".to_owned())),
             ("B".to_owned(), Some("2".to_owned())),
         ]);
+    }
+
+    #[test]
+    fn arg_uses_reimport_and_stage_base() {
+        let text = "ARG V=1\nFROM php AS base\nFROM base AS app\nARG V\nRUN echo ${V:-x} $V $VV\nENV A=$V\n";
+        let args = dockerfile_args(text);
+        let stage = args.iter().find(|a| a.stage.is_some()).unwrap();
+        assert!(stage.reimports_global);
+        assert_eq!(stage.based_on.as_deref(), Some("base"));
+        let names: Vec<_> = stage.uses.iter().map(|r| &text[r.clone()]).collect();
+        assert_eq!(names, ["V", "V", "V"]);
+        assert!(args[0].uses.is_empty() && args[0].stage.is_none());
     }
 }

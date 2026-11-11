@@ -23,6 +23,10 @@ pub(crate) fn check_in_project(doc: &Document) -> Vec<Finding> {
 pub(crate) fn definition(doc: &Document, at: Position) -> Vec<Location> {
     model::definition(doc, at)
 }
+/// Literal `view-name` values of `<mvc:view-controller>` elements.
+pub(crate) fn view_names(text: &str) -> Vec<spring_text::java::Str> {
+    model::view_names(text)
+}
 pub(crate) fn completion(doc: &Document, at: Position) -> Vec<CompletionItem> {
     model::completion(doc, at)
 }

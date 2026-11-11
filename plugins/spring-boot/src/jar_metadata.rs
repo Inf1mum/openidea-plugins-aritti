@@ -264,8 +264,10 @@ fn dependencies(text: &str) -> Result<Vec<Dependency>, Error> {
                     .find(|d| d.group == *group && d.artifact == *artifact)
                     .map(|d| d.version.clone())
             });
-        let Some(version) = version else {
-            continue;
+        let version = match (version, fields.contains_key("version")) {
+            (Some(v), _) => v,
+            (None, false) => String::new(),
+            (None, true) => continue,
         };
         if group
             .split('.')
@@ -438,6 +440,14 @@ impl State {
         } else {
             let mut dependencies = dependencies(&source)?;
             let (catalogs, catalog_sources) = versions::cache_catalog(&source, cache)?;
+            for d in dependencies.iter_mut().filter(|d| d.version.is_empty()) {
+                if let Some(c) = catalogs
+                    .iter()
+                    .find(|c| c.group == d.group && c.artifact == d.artifact)
+                {
+                    d.version = c.version.clone();
+                }
+            }
             for catalog in catalogs {
                 if !dependencies
                     .iter()
@@ -446,6 +456,9 @@ impl State {
                     dependencies.push(catalog);
                 }
             }
+            dependencies.retain(|d| {
+                !d.version.is_empty() && !d.version.to_ascii_uppercase().ends_with("SNAPSHOT")
+            });
             (dependencies, catalog_sources)
         };
         if dependencies.len() > 512 {
@@ -1418,5 +1431,74 @@ mod tests {
         let denied = MockHost::install().with_capabilities(&["project.read", "editor.read"]);
         denied.add_file("build.gradle", "dependencies { implementation 'org.example:config:1.2.3' }");
         assert!(State::default().import_at(&denied.invocation(), CACHE).unwrap().is_none());
+    }
+
+    fn boot_bom(h: &MockHost, v: &str, managed: &str) {
+        let (g, a) = ("org.springframework.boot", "spring-boot-dependencies");
+        h.add_external_file(
+            &format!("/m2/org/springframework/boot/{a}/{v}/{a}-{v}.pom"),
+            &format!("<project><groupId>{g}</groupId><artifactId>{a}</artifactId><version>{v}</version><properties><x.version>{v}</x.version></properties><dependencyManagement><dependencies>{managed}</dependencies></dependencyManagement></project>"),
+        );
+    }
+    fn autoconfigure_jar(h: &MockHost, v: &str) {
+        let path = format!("/m2/org/springframework/boot/spring-boot-autoconfigure/{v}/spring-boot-autoconfigure-{v}.jar");
+        let json = r#"{"properties":[{"name":"managed.versionless.feature","type":"java.lang.Boolean"}]}"#;
+        let bytes = super::super::jar_archive::fixture(&[(
+            "META-INF/spring-configuration-metadata.json",
+            json.as_bytes(),
+            8,
+        )]);
+        h.add_external_file(&path, "");
+        host::fs::write_bytes(&path, &bytes).unwrap();
+    }
+    const MANAGED: &str = "<dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-autoconfigure</artifactId><version>${x.version}</version></dependency>";
+    const VERSIONLESS: &str = "<dependencies><dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-autoconfigure</artifactId></dependency></dependencies>";
+
+    #[test]
+    fn versionless_boot_dependency_is_resolved_from_starter_parent_in_fake_m2() {
+        let h = setup();
+        h.add_file("pom.xml", &format!("<project><parent><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-parent</artifactId><version>4.0.0</version></parent>{VERSIONLESS}</project>"));
+        h.add_external_file("/m2/org/springframework/boot/spring-boot-starter-parent/4.0.0/spring-boot-starter-parent-4.0.0.pom", "<project><parent><groupId>org.springframework.boot</groupId><artifactId>spring-boot-dependencies</artifactId><version>4.0.0</version></parent><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-parent</artifactId><version>4.0.0</version></project>");
+        boot_bom(&h, "4.0.0", MANAGED);
+        autoconfigure_jar(&h, "4.0.0");
+        let mut state = State::default();
+        answer(&h, true);
+        state.import_at(&h.invocation(), "/m2").unwrap();
+        let catalog = state.catalog("/project/application.properties");
+        assert!(spring_text::metadata::Lookup(vec![&catalog]).prop("managed.versionless.feature").is_some());
+    }
+
+    #[test]
+    fn versionless_boot_dependency_is_resolved_from_imported_bom_with_pom_properties() {
+        let h = setup();
+        h.add_file("pom.xml", &format!("<project><dependencyManagement><dependencies><dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-dependencies</artifactId><version>${{boot.v}}</version><type>pom</type><scope>import</scope></dependency></dependencies></dependencyManagement>{VERSIONLESS}<properties><boot.v>4.0.1</boot.v></properties></project>"));
+        boot_bom(&h, "4.0.1", MANAGED);
+        autoconfigure_jar(&h, "4.0.1");
+        let mut state = State::default();
+        answer(&h, true);
+        state.import_at(&h.invocation(), "/m2").unwrap();
+        let catalog = state.catalog("/project/application.properties");
+        assert!(spring_text::metadata::Lookup(vec![&catalog]).prop("managed.versionless.feature").is_some());
+    }
+
+    #[test]
+    fn unresolved_snapshot_and_unmanaged_versionless_dependencies_are_dropped() {
+        let h = setup();
+        h.add_file("pom.xml", &format!("<project><dependencyManagement><dependencies><dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-dependencies</artifactId><version>4.0.2-SNAPSHOT</version><type>pom</type><scope>import</scope></dependency></dependencies></dependencyManagement>{VERSIONLESS}</project>"));
+        boot_bom(&h, "4.0.2-SNAPSHOT", MANAGED);
+        let mut state = State::default();
+        let error = state.import_at(&h.invocation(), "/m2").unwrap_err();
+        assert!(format!("{error:?}").contains("No supported"));
+    }
+
+    #[test]
+    fn more_than_eight_imported_boms_are_refused() {
+        let h = setup();
+        let imports: String = (0..9)
+            .map(|i| format!("<dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-dependencies</artifactId><version>4.0.{i}</version><type>pom</type><scope>import</scope></dependency>"))
+            .collect();
+        let pom = format!("<project><dependencyManagement><dependencies>{imports}</dependencies></dependencyManagement>{VERSIONLESS}</project>");
+        let error = versions::cache_catalog(&pom, "/m2").unwrap_err();
+        assert!(format!("{error:?}").contains("8 imported"));
     }
 }

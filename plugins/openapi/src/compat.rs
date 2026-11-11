@@ -11,13 +11,53 @@
 //! (non-breaking), body removed (info), media type removed (breaking), schema compared as a request.
 //! Responses: 2xx/3xx/default code removed (breaking), 4xx/5xx code removed (info), code added
 //! (non-breaking), media type removed (breaking), schema compared as a response.
-//! Schemas (`properties`, `items`, `allOf` flattened; `oneOf`/`anyOf`, constraints such as
-//! `maxLength`, `nullable`, `additionalProperties` and security are not analysed): type or format
+//! Schemas (`properties`, `items`, `allOf` flattened): type or format
 //! changed (breaking); enum value removed (request breaking, response info); enum value added
 //! (response breaking, request non-breaking); property removed (response breaking, request info);
 //! property added (request required: breaking, otherwise non-breaking); property made required
 //! (request breaking, response non-breaking); property no longer required (response breaking,
 //! request non-breaking).
+//! Schema keywords, per the oasdiff checker rules (github.com/oasdiff/oasdiff, `checker/rules.go`
+//! and `docs/NULLABILITY.md`, severities as registered there; oasdiff WARN, "effect unknown", is
+//! reported here as info):
+//! - `minimum`, `exclusiveMinimum`, `minLength`, `minItems` (and the `max*` mirrors): in a request
+//!   setting or tightening is breaking, loosening non-breaking (oasdiff `request-property-max-set`,
+//!   `-max-decreased`, `-min-increased`, `-max-length-set`, `-min-items-set` ... are ERR, the
+//!   increases/decreases that widen are INFO); in a response loosening is breaking (`response-property-
+//!   max-increased`, `-min-decreased`, `-max-length-increased`, `-max-length-unset`, `-min-items-
+//!   unset`, `-min-length-decreased` are ERR), tightening non-breaking. `minLength`/`minItems` default
+//!   to 0, `minimum` and `maximum` have no default, and only numeric exclusive bounds (3.1) are read.
+//!   Unsetting `maximum`/`maxItems` in a response has no oasdiff rule and is not reported.
+//! - `pattern`: added in a request (ERR) or removed in a response (ERR) is breaking; removed in a
+//!   request (INFO) or added in a response (INFO) non-breaking; changed is info (oasdiff WARN).
+//! - `uniqueItems`: set in a request (ERR) or unset in a response (ERR) breaking; the reverse is
+//!   non-breaking.
+//! - `multipleOf`: set in a request / unset in a response breaking; unset in a request, or the old
+//!   value being a multiple of the new one (generalized), non-breaking in a request; a change that
+//!   is not a generalization is breaking in both directions (oasdiff `-multiple-of-changed`, ERR);
+//!   a response specialized (new a multiple of old) is non-breaking.
+//! - `nullable` (3.0), `type: [x, "null"]` (3.1): request became nullable non-breaking, became not
+//!   nullable breaking; response became nullable breaking, became not nullable info (NULLABILITY.md
+//!   table). The `oneOf`-with-null form is not recognised.
+//! - `type` lists: widened (request non-breaking, response breaking), narrowed (request breaking,
+//!   response info), as `*-list-of-types-widened`/`-narrowed`; `"null"` is ignored here.
+//! - `oneOf`/`anyOf` members (matched by `$ref`, else by identical JSON; only when both sides have
+//!   the keyword): member removed breaking in a request and info in a response, member added
+//!   non-breaking in a request and breaking in a response (`request-property-one-of-removed` ERR,
+//!   `response-property-one-of-added` ERR, and the `any-of` twins). Members are not diffed deeply.
+//! - `readOnly`/`writeOnly` on a property: request readOnly set is info (WARN), unset is breaking
+//!   when the property is required and non-breaking otherwise (`request-required-property-became-
+//!   non-read-only` ERR); response writeOnly set on a required property is breaking (ERR) and info
+//!   otherwise, writeOnly unset and the readOnly changes are info. A request constraint change on a
+//!   `readOnly` schema and a response one on a `writeOnly` schema is info (oasdiff BREAKING-CHANGES.md,
+//!   "the spec shows the change cannot break anyone").
+//! - `deprecated` added to or removed from a schema: info (`request-property-deprecated` INFO).
+//! - Security, on the effective requirements of an operation (its own `security`, else the root one):
+//!   a scheme removed is breaking (`api-security-removed` ERR), a scope added is breaking
+//!   (`api-security-scope-added` ERR), anonymous access (`{}` or no security) removed is breaking
+//!   (`api-security-anonymous-access-removed` ERR); scheme added, scope removed and anonymous access
+//!   added are info (INFO). Components' security scheme definitions are not compared.
+//! - `additionalProperties` has no rule in the oasdiff checker list and is not analysed.
 //! Only local `#/` references are followed; others are reported as info and skipped.
 
 use crate::spec::{self, Key, METHODS};
@@ -149,6 +189,11 @@ impl<'a> Side<'a> {
         if out.items.is_none() {
             out.items = node.child("items");
         }
+        for key in KEYWORDS {
+            if let Some(v) = node.v.get(key) {
+                out.kw.entry(key).or_insert(v);
+            }
+        }
         if depth < 8 {
             if let Some(Value::Array(parts)) = node.v.get("allOf") {
                 for (i, v) in parts.iter().enumerate() {
@@ -167,6 +212,36 @@ struct Eff<'a> {
     format: Option<&'a Value>,
     enums: Option<&'a Vec<Value>>,
     items: Option<Node<'a>>,
+    kw: BTreeMap<&'static str, &'a Value>,
+}
+
+const KEYWORDS: [&str; 14] = [
+    "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "minLength", "maxLength", "pattern", "minItems", "maxItems",
+    "uniqueItems", "multipleOf", "nullable", "readOnly", "writeOnly",
+];
+
+fn types(v: Option<&Value>) -> BTreeSet<String> {
+    match v {
+        Some(Value::String(t)) => BTreeSet::from([t.clone()]),
+        Some(Value::Array(list)) => list.iter().filter_map(Value::as_str).map(str::to_owned).collect(),
+        _ => BTreeSet::new(),
+    }
+}
+
+fn nullable(e: &Eff) -> bool {
+    e.kw.get("nullable").and_then(|v| v.as_bool()) == Some(true) || types(e.ty).contains("null")
+}
+
+fn flag(v: Option<&&Value>) -> bool {
+    v.and_then(|v| v.as_bool()) == Some(true)
+}
+
+fn is_multiple(a: f64, b: f64) -> bool {
+    if b == 0.0 {
+        return false;
+    }
+    let ratio = a / b;
+    (ratio - ratio.round()).abs() < 1e-9
 }
 
 struct Diff<'a> {
@@ -264,6 +339,8 @@ impl<'a> Diff<'a> {
         if !deprecated(&o) && deprecated(&n) {
             self.add(Severity::Info, "operation-deprecated", format!("operation `{label}` was deprecated"), Some(&o.path), Some(&n.path));
         }
+
+        self.security(&o, &n, label);
 
         let mut notes = Vec::new();
         let old_params = Self::params(&self.old, oi, &o, &mut notes);
@@ -410,6 +487,172 @@ impl<'a> Diff<'a> {
         }
     }
 
+    fn keywords(&mut self, o: &Node<'a>, n: &Node<'a>, eo: &Eff<'a>, en: &Eff<'a>, dir: Dir, at: &str) {
+        let (op, np) = (o.path.as_str(), n.path.as_str());
+        let guarded = match dir {
+            Dir::Request => flag(en.kw.get("readOnly")),
+            Dir::Response => flag(en.kw.get("writeOnly")),
+        };
+        let num = |e: &Eff, k: &str| e.kw.get(k).and_then(|v| v.as_f64());
+        let change = |this: &mut Self, what: &str, tightened: bool, shown: String| {
+            let severity = match (dir, tightened) {
+                (Dir::Request, true) | (Dir::Response, false) => Severity::Breaking,
+                _ => Severity::NonBreaking,
+            };
+            let severity = if guarded && severity == Severity::Breaking { Severity::Info } else { severity };
+            let rule = if tightened { "constraint-tightened" } else { "constraint-loosened" };
+            this.add(severity, rule, format!("`{what}` of {at} was {} ({shown})", if tightened { "tightened" } else { "loosened" }), Some(op), Some(np));
+        };
+        // (keyword, upper bound, default when unset, unset loosens)
+        for (key, upper, default, unset_loosens) in [
+            ("maximum", true, None, false),
+            ("exclusiveMaximum", true, None, false),
+            ("maxLength", true, None, true),
+            ("maxItems", true, None, false),
+            ("minimum", false, None, false),
+            ("exclusiveMinimum", false, None, false),
+            ("minLength", false, Some(0.0), false),
+            ("minItems", false, Some(0.0), false),
+        ] {
+            let (a, b) = (num(eo, key).or(default), num(en, key).or(default));
+            let shown = format!("{} to {}", a.map_or("unset".into(), |v| v.to_string()), b.map_or("unset".into(), |v| v.to_string()));
+            let verdict = match (a, b) {
+                (Some(a), Some(b)) if a == b => None,
+                (Some(a), Some(b)) => Some(if upper { b < a } else { b > a }),
+                (None, Some(_)) => Some(true),
+                (Some(_), None) if unset_loosens => Some(false),
+                _ => None,
+            };
+            if let Some(tightened) = verdict {
+                change(self, key, tightened, shown);
+            }
+        }
+        let (pa, pb) = (eo.kw.get("pattern").and_then(|v| v.as_str()), en.kw.get("pattern").and_then(|v| v.as_str()));
+        match (pa, pb) {
+            (Some(a), Some(b)) if a != b => self.add(Severity::Info, "pattern-changed", format!("`pattern` of {at} changed from {} to {}; whether it is compatible is unknown", clean(a), clean(b)), Some(op), Some(np)),
+            (None, Some(_)) => change(self, "pattern", true, "added".into()),
+            (Some(_), None) => change(self, "pattern", false, "removed".into()),
+            _ => {}
+        }
+        match (flag(eo.kw.get("uniqueItems")), flag(en.kw.get("uniqueItems"))) {
+            (false, true) => change(self, "uniqueItems", true, "set".into()),
+            (true, false) => change(self, "uniqueItems", false, "unset".into()),
+            _ => {}
+        }
+        match (num(eo, "multipleOf"), num(en, "multipleOf")) {
+            (None, Some(_)) => change(self, "multipleOf", true, "set".into()),
+            (Some(_), None) => change(self, "multipleOf", false, "unset".into()),
+            (Some(a), Some(b)) if a != b => {
+                if is_multiple(a, b) {
+                    change(self, "multipleOf", false, format!("{a} to {b}"));
+                } else if is_multiple(b, a) && dir == Dir::Response {
+                    change(self, "multipleOf", true, format!("{a} to {b}"));
+                } else {
+                    self.add(Severity::Breaking, "multiple-of-changed", format!("`multipleOf` of {at} changed from {a} to {b}"), Some(op), Some(np));
+                }
+            }
+            _ => {}
+        }
+        match (nullable(eo), nullable(en)) {
+            (false, true) => {
+                let severity = if dir == Dir::Request { Severity::NonBreaking } else { Severity::Breaking };
+                self.add(severity, "became-nullable", format!("{at} became nullable"), Some(op), Some(np));
+            }
+            (true, false) => {
+                let severity = if dir == Dir::Request { Severity::Breaking } else { Severity::Info };
+                self.add(severity, "became-not-nullable", format!("{at} is no longer nullable"), Some(op), Some(np));
+            }
+            _ => {}
+        }
+        for key in ["oneOf", "anyOf"] {
+            let (Some(Value::Array(a)), Some(Value::Array(b))) = (o.v.get(key), n.v.get(key)) else { continue };
+            let id = |m: &Value| m.get("$ref").and_then(Value::as_str).map_or_else(|| m.to_string(), str::to_owned);
+            let (ia, ib): (Vec<String>, Vec<String>) = (a.iter().map(id).collect(), b.iter().map(id).collect());
+            for member in ia.iter().filter(|m| !ib.contains(m)) {
+                let severity = if dir == Dir::Request { Severity::Breaking } else { Severity::Info };
+                self.add(severity, "composition-member-removed", format!("a `{key}` member of {at} was removed: {}", clean(member)), Some(op), Some(np));
+            }
+            for member in ib.iter().filter(|m| !ia.contains(m)) {
+                let severity = if dir == Dir::Request { Severity::NonBreaking } else { Severity::Breaking };
+                self.add(severity, "composition-member-added", format!("a `{key}` member of {at} was added: {}", clean(member)), Some(op), Some(np));
+            }
+        }
+        let deprecated = |node: &Node| node.v.get("deprecated").and_then(Value::as_bool) == Some(true);
+        match (deprecated(o), deprecated(n)) {
+            (false, true) => self.add(Severity::Info, "schema-deprecated", format!("{at} was deprecated"), Some(op), Some(np)),
+            (true, false) => self.add(Severity::Info, "schema-reactivated", format!("{at} is no longer deprecated"), Some(op), Some(np)),
+            _ => {}
+        }
+    }
+
+    fn access_flags(&mut self, po: &Node<'a>, pn: &Node<'a>, dir: Dir, required: bool, what: &str) {
+        let read = |side: &Side<'a>, p: &Node<'a>, key: &str| {
+            let mut e = Eff::default();
+            side.eff(p, 0, &mut e);
+            flag(e.kw.get(key))
+        };
+        let (op, np) = (po.path.as_str(), pn.path.as_str());
+        for (key, rule_set, rule_unset) in [("readOnly", "read-only-set", "read-only-unset"), ("writeOnly", "write-only-set", "write-only-unset")] {
+            let (was, is) = (read(&self.old, po, key), read(&self.new, pn, key));
+            if was == is {
+                continue;
+            }
+            let breaking = match (dir, key, is) {
+                (Dir::Request, "readOnly", false) | (Dir::Response, "writeOnly", true) => required,
+                _ => false,
+            };
+            let severity = if breaking {
+                Severity::Breaking
+            } else if dir == Dir::Request && key == "readOnly" && !is {
+                Severity::NonBreaking
+            } else {
+                Severity::Info
+            };
+            let (rule, verb) = if is { (rule_set, "became") } else { (rule_unset, "is no longer") };
+            self.add(severity, rule, format!("{what} {verb} {key}"), Some(op), Some(np));
+        }
+    }
+
+    fn security(&mut self, o: &Node<'a>, n: &Node<'a>, label: &str) {
+        let read = |side: &Side<'a>, op: &Node<'a>| -> (bool, BTreeMap<String, BTreeSet<String>>) {
+            let list = op.v.get("security").or_else(|| side.root.get("security"));
+            let Some(Value::Array(list)) = list else { return (true, BTreeMap::new()) };
+            let mut schemes: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+            let mut anonymous = list.is_empty();
+            for requirement in list {
+                let Some(map) = requirement.as_object() else { continue };
+                anonymous |= map.is_empty();
+                for (name, scopes) in map {
+                    let entry = schemes.entry(name.clone()).or_default();
+                    entry.extend(scopes.as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_owned));
+                }
+            }
+            (anonymous, schemes)
+        };
+        let ((anon_old, old), (anon_new, new)) = (read(&self.old, o), read(&self.new, n));
+        let (op, np) = (o.path.as_str(), n.path.as_str());
+        match (anon_old, anon_new) {
+            (true, false) => self.add(Severity::Breaking, "security-anonymous-access-removed", format!("`{label}` no longer allows anonymous access"), Some(op), Some(np)),
+            (false, true) => self.add(Severity::Info, "security-anonymous-access-added", format!("`{label}` now allows anonymous access"), Some(op), Some(np)),
+            _ => {}
+        }
+        for name in old.keys().filter(|k| !new.contains_key(*k)) {
+            self.add(Severity::Breaking, "security-scheme-removed", format!("security scheme `{}` was removed from `{label}`", clean(name)), Some(op), Some(np));
+        }
+        for name in new.keys().filter(|k| !old.contains_key(*k)) {
+            self.add(Severity::Info, "security-scheme-added", format!("security scheme `{}` was added to `{label}`", clean(name)), Some(op), Some(np));
+        }
+        for (name, scopes) in &old {
+            let Some(now) = new.get(name) else { continue };
+            for scope in now.difference(scopes) {
+                self.add(Severity::Breaking, "security-scope-added", format!("scope `{}` of security scheme `{}` is now required by `{label}`", clean(scope), clean(name)), Some(op), Some(np));
+            }
+            for scope in scopes.difference(now) {
+                self.add(Severity::Info, "security-scope-removed", format!("scope `{}` of security scheme `{}` is no longer required by `{label}`", clean(scope), clean(name)), Some(op), Some(np));
+            }
+        }
+    }
+
     fn schema(&mut self, o: Node<'a>, n: Node<'a>, dir: Dir, at: &str, depth: usize) {
         if depth > MAX_DEPTH || !self.step() {
             return;
@@ -432,10 +675,22 @@ impl<'a> Diff<'a> {
         let (op, np) = (o.path.as_str(), n.path.as_str());
 
         if let (Some(a), Some(b)) = (eo.ty, en.ty) {
-            if a != b {
-                self.add(Severity::Breaking, "type-changed", format!("type of {at} changed from {} to {}", clean(&a.to_string()), clean(&b.to_string())), Some(op), Some(np));
+            let (ta, tb) = (types(Some(a)), types(Some(b)));
+            let (ta, tb): (BTreeSet<_>, BTreeSet<_>) = (ta.into_iter().filter(|t| t != "null").collect(), tb.into_iter().filter(|t| t != "null").collect());
+            let listed = a.is_array() || b.is_array();
+            if ta != tb {
+                if listed && ta.is_subset(&tb) {
+                    let severity = if dir == Dir::Request { Severity::NonBreaking } else { Severity::Breaking };
+                    self.add(severity, "types-widened", format!("the types of {at} were widened from {} to {}", clean(&a.to_string()), clean(&b.to_string())), Some(op), Some(np));
+                } else if listed && tb.is_subset(&ta) {
+                    let severity = if dir == Dir::Request { Severity::Breaking } else { Severity::Info };
+                    self.add(severity, "types-narrowed", format!("the types of {at} were narrowed from {} to {}", clean(&a.to_string()), clean(&b.to_string())), Some(op), Some(np));
+                } else {
+                    self.add(Severity::Breaking, "type-changed", format!("type of {at} changed from {} to {}", clean(&a.to_string()), clean(&b.to_string())), Some(op), Some(np));
+                }
             }
         }
+        self.keywords(&o, &n, &eo, &en, dir, at);
         if let (Some(a), Some(b)) = (eo.format, en.format) {
             if a != b {
                 self.add(Severity::Breaking, "format-changed", format!("format of {at} changed from {} to {}", clean(&a.to_string()), clean(&b.to_string())), Some(op), Some(np));
@@ -467,6 +722,7 @@ impl<'a> Diff<'a> {
             let Some(pn) = en.props.get(name) else { continue };
             let (was, is) = (eo.required.contains(name), en.required.contains(name));
             let shown = clean(name);
+            self.access_flags(po, pn, dir, is, &format!("property `{shown}` of {at}"));
             match (dir, was, is) {
                 (Dir::Request, false, true) => self.add(Severity::Breaking, "request-property-made-required", format!("property `{shown}` of {at} became required"), Some(&po.path), Some(&pn.path)),
                 (Dir::Request, true, false) => self.add(Severity::NonBreaking, "request-property-made-optional", format!("property `{shown}` of {at} is no longer required"), Some(&po.path), Some(&pn.path)),
@@ -758,4 +1014,110 @@ mod tests {
     fn invalid_documents_are_refused() {
         assert!(compare("/o.json", "{", "/n.json", "{}").is_err());
     }
+    fn schema_req(s: &str) -> String {
+        body(true, s)
+    }
+
+    #[test]
+    fn constraints_by_direction() {
+        let (a, b) = (r#"{"type":"integer","maximum":10,"minimum":1}"#, r#"{"type":"integer","maximum":5,"minimum":2}"#);
+        has(&schema_req(a), &schema_req(b), Severity::Breaking, "constraint-tightened");
+        has(&schema_req(b), &schema_req(a), Severity::NonBreaking, "constraint-loosened");
+        has(&response("200", b), &response("200", a), Severity::Breaking, "constraint-loosened");
+        has(&response("200", a), &response("200", b), Severity::NonBreaking, "constraint-tightened");
+        let s = r#"{"type":"string"}"#;
+        has(&schema_req(s), &schema_req(r#"{"type":"string","maxLength":3}"#), Severity::Breaking, "constraint-tightened");
+        has(&schema_req(s), &schema_req(r#"{"type":"string","minLength":3}"#), Severity::Breaking, "constraint-tightened");
+        has(&response("200", r#"{"type":"string","maxLength":3}"#), &response("200", s), Severity::Breaking, "constraint-loosened");
+        has(&schema_req(s), &schema_req(r#"{"type":"string","exclusiveMaximum":3}"#), Severity::Breaking, "constraint-tightened");
+    }
+
+    #[test]
+    fn item_and_collection_constraints() {
+        let a = r#"{"type":"array","items":{"type":"string"}}"#;
+        has(&schema_req(a), &schema_req(r#"{"type":"array","items":{"type":"string"},"maxItems":2}"#), Severity::Breaking, "constraint-tightened");
+        has(&schema_req(a), &schema_req(r#"{"type":"array","items":{"type":"string"},"minItems":1}"#), Severity::Breaking, "constraint-tightened");
+        has(&schema_req(a), &schema_req(r#"{"type":"array","items":{"type":"string"},"uniqueItems":true}"#), Severity::Breaking, "constraint-tightened");
+        has(&response("200", r#"{"type":"array","items":{"type":"string"},"minItems":1}"#), &response("200", a), Severity::Breaking, "constraint-loosened");
+        has(&response("200", r#"{"type":"array","items":{"type":"string"},"uniqueItems":true}"#), &response("200", a), Severity::Breaking, "constraint-loosened");
+    }
+
+    #[test]
+    fn pattern_and_multiple_of() {
+        let s = r#"{"type":"string"}"#;
+        let p = r#"{"type":"string","pattern":"^a"}"#;
+        has(&schema_req(s), &schema_req(p), Severity::Breaking, "constraint-tightened");
+        has(&response("200", p), &response("200", s), Severity::Breaking, "constraint-loosened");
+        has(&response("200", s), &response("200", p), Severity::NonBreaking, "constraint-tightened");
+        has(&schema_req(p), &schema_req(r#"{"type":"string","pattern":"^b"}"#), Severity::Info, "pattern-changed");
+        let m = |v: u32| format!(r#"{{"type":"integer","multipleOf":{v}}}"#);
+        has(&schema_req(&m(10)), &schema_req(&m(5)), Severity::NonBreaking, "constraint-loosened");
+        has(&schema_req(&m(5)), &schema_req(&m(10)), Severity::Breaking, "multiple-of-changed");
+        has(&schema_req(r#"{"type":"integer"}"#), &schema_req(&m(2)), Severity::Breaking, "constraint-tightened");
+    }
+
+    #[test]
+    fn nullability_by_direction() {
+        let plain = r#"{"type":"string"}"#;
+        let nullable = r#"{"type":"string","nullable":true}"#;
+        has(&schema_req(plain), &schema_req(nullable), Severity::NonBreaking, "became-nullable");
+        has(&schema_req(nullable), &schema_req(plain), Severity::Breaking, "became-not-nullable");
+        has(&response("200", plain), &response("200", nullable), Severity::Breaking, "became-nullable");
+        has(&response("200", nullable), &response("200", plain), Severity::Info, "became-not-nullable");
+        let list = r#"{"type":["string","null"]}"#;
+        has(&response("200", plain), &response("200", list), Severity::Breaking, "became-nullable");
+        assert!(!rules(&response("200", plain), &response("200", list)).iter().any(|r| r.1 == "type-changed"));
+    }
+
+    #[test]
+    fn type_lists() {
+        let (one, two) = (r#"{"type":"string"}"#, r#"{"type":["string","integer"]}"#);
+        has(&schema_req(one), &schema_req(two), Severity::NonBreaking, "types-widened");
+        has(&schema_req(two), &schema_req(one), Severity::Breaking, "types-narrowed");
+        has(&response("200", one), &response("200", two), Severity::Breaking, "types-widened");
+        has(&response("200", two), &response("200", one), Severity::Info, "types-narrowed");
+    }
+
+    #[test]
+    fn one_of_and_any_of_members() {
+        for key in ["oneOf", "anyOf"] {
+            let two = format!(r#"{{"{key}":[{{"type":"string"}},{{"type":"integer"}}]}}"#);
+            let one = format!(r#"{{"{key}":[{{"type":"string"}}]}}"#);
+            has(&schema_req(&two), &schema_req(&one), Severity::Breaking, "composition-member-removed");
+            has(&schema_req(&one), &schema_req(&two), Severity::NonBreaking, "composition-member-added");
+            has(&response("200", &one), &response("200", &two), Severity::Breaking, "composition-member-added");
+            has(&response("200", &two), &response("200", &one), Severity::Info, "composition-member-removed");
+        }
+    }
+
+    #[test]
+    fn read_only_and_write_only() {
+        let obj = |extra: &str, req: &str| format!(r#"{{"type":"object","required":[{req}],"properties":{{"a":{{"type":"string"{extra}}}}}}}"#);
+        let (plain, ro, wo) = (obj("", r#""a""#), obj(r#","readOnly":true"#, r#""a""#), obj(r#","writeOnly":true"#, r#""a""#));
+        has(&schema_req(&ro), &schema_req(&plain), Severity::Breaking, "read-only-unset");
+        has(&schema_req(&obj(r#","readOnly":true"#, "")), &schema_req(&obj("", "")), Severity::NonBreaking, "read-only-unset");
+        has(&schema_req(&plain), &schema_req(&ro), Severity::Info, "read-only-set");
+        has(&response("200", &plain), &response("200", &wo), Severity::Breaking, "write-only-set");
+        has(&response("200", &obj("", "")), &response("200", &obj(r#","writeOnly":true"#, "")), Severity::Info, "write-only-set");
+        let tight = |extra: &str| format!(r#"{{"type":"object","properties":{{"a":{{"type":"integer"{extra}}}}}}}"#);
+        has(&schema_req(&tight(r#","readOnly":true"#)), &schema_req(&tight(r#","readOnly":true,"maximum":3"#)), Severity::Info, "constraint-tightened");
+    }
+
+    #[test]
+    fn deprecated_schema_is_info() {
+        let (a, b) = (r#"{"type":"string"}"#, r#"{"type":"string","deprecated":true}"#);
+        has(&schema_req(a), &schema_req(b), Severity::Info, "schema-deprecated");
+    }
+
+    #[test]
+    fn security_requirements() {
+        let sec = |s: &str| spec(&format!(r#"{{"/p":{{"get":{{"security":{s},"responses":{{}}}}}}}}"#), "{}");
+        has(&sec("[]"), &sec(r#"[{"k":[]}]"#), Severity::Breaking, "security-anonymous-access-removed");
+        has(&sec(r#"[{"k":[]}]"#), &sec(r#"[{"k":["w"]}]"#), Severity::Breaking, "security-scope-added");
+        has(&sec(r#"[{"k":["w"]}]"#), &sec(r#"[{"k":[]}]"#), Severity::Info, "security-scope-removed");
+        has(&sec(r#"[{"k":[]}]"#), &sec(r#"[{"j":[]}]"#), Severity::Breaking, "security-scheme-removed");
+        has(&sec(r#"[{"k":[]}]"#), &sec(r#"[{"k":[]},{"j":[]}]"#), Severity::Info, "security-scheme-added");
+        has(&sec(r#"[{"k":[]}]"#), &sec(r#"[{"k":[]},{}]"#), Severity::Info, "security-anonymous-access-added");
+    }
+
 }

@@ -35,7 +35,7 @@ pub struct Versioning {
 }
 
 /// Sources that bring their own view resolution, so a view name may be served by something other than a template file.
-const VIEW_RESOLVER_MARKERS: [&str; 5] =
+pub(crate) const VIEW_RESOLVER_MARKERS: [&str; 5] =
     ["ViewResolver", "configureViewResolvers", "TilesConfigurer", "AbstractView", "ViewResolverRegistry"];
 
 /// Whether every source was read and none brings a view resolver of its own.
