@@ -1,0 +1,28 @@
+{
+  "id": "DF-003",
+  "slug": "attribute-relationships-kotlin",
+  "title": "Relationship attributes in Kotlin (array-literal cascade)",
+  "ledgerRows": [
+    "S001",
+    "S002"
+  ],
+  "fixture": "boot-jpa-kotlin-jakarta",
+  "inputFile": "src/main/kotlin/com/example/shop/domain/Customer.kt",
+  "ourAction": "Add JPA attribute with preview\u2026",
+  "originalAction": "Add attribute in the JPA Structure/Designer (JPA Buddy)",
+  "originalActionDocumented": true,
+  "originalActionNote": "Names recalled from public JPA Buddy documentation; the human must correct them from the installed menu. \"unknown\" means not documented.",
+  "inputs": [
+    "Same matrix as DF-002 reduced to one case per relationship kind with cascade ALL and fetch LAZY"
+  ],
+  "capture": [
+    "edited files",
+    "refusals verbatim"
+  ],
+  "normalize": [
+    "whitespace",
+    "imports",
+    "annotation-args",
+    "quotes"
+  ]
+}

@@ -1,0 +1,47 @@
+{
+  "id": "DF-017",
+  "slug": "entities-from-sql",
+  "title": "Entities generated from SQL / reverse engineering",
+  "ledgerRows": [
+    "G087",
+    "G088",
+    "G089",
+    "G090",
+    "G091",
+    "G092",
+    "G093",
+    "G094",
+    "G095",
+    "G097",
+    "G099",
+    "G100",
+    "G101",
+    "G102",
+    "G103"
+  ],
+  "fixture": "envers-flyway-liquibase",
+  "inputFile": "sql-import/postgresql-shop.sql",
+  "inputFiles": [
+    "sql-import/mysql-shop.sql"
+  ],
+  "inputNote": "boot-jpa-java-jakarta ships no schema file; the SQL import fixtures live in envers-flyway-liquibase (target package com.example.billing.domain). No file has unknown SQL types, schema-qualified names or a join table: use scratch extra-types.sql from ACCEPTANCE.md SC-5.",
+  "ourAction": "Generate entities from SQL file\u2026",
+  "originalAction": "JPA Entities from DB (JPA Buddy, needs a live data source; record how the original is driven from SQL)",
+  "originalActionDocumented": true,
+  "originalActionNote": "Names recalled from public JPA Buddy documentation; the human must correct them from the installed menu. \"unknown\" means not documented.",
+  "inputs": [
+    "Tables with composite PK, enums, unknown SQL types, views, FKs, JOINED-inheritance PK-as-FK",
+    "Naming algorithm, schema annotation, comments, generation defaults",
+    "Original needs a database connection: run the same DDL in a local database and record it"
+  ],
+  "capture": [
+    "all created entity files"
+  ],
+  "normalize": [
+    "whitespace",
+    "imports",
+    "annotation-args",
+    "quotes",
+    "member-order"
+  ]
+}

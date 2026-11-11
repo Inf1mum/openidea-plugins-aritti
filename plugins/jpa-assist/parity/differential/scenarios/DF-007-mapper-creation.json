@@ -1,0 +1,51 @@
+{
+  "id": "DF-007",
+  "slug": "mapper-creation",
+  "title": "MapStruct mapper creation, mapping methods, generic base mapper and injection",
+  "ledgerRows": [
+    "G069",
+    "G070",
+    "G071",
+    "G072",
+    "G132",
+    "G073",
+    "G074"
+  ],
+  "fixture": "mapstruct-lombok-dto",
+  "inputFile": "src/main/java/com/example/crm/mapper/AccountMapper.java",
+  "inputFiles": [
+    "src/main/java/com/example/crm/domain/Account.java",
+    "src/main/java/com/example/crm/dto/AccountPojoDto.java",
+    "src/main/java/com/example/crm/service/AccountService.java"
+  ],
+  "swap": [
+    {
+      "from": "pom-modelmapper.xml",
+      "step": "cp pom-modelmapper.xml pom.xml (ModelMapper variant)"
+    },
+    {
+      "from": "pom-blaze.xml",
+      "step": "cp pom-blaze.xml pom.xml (Blaze entity view variant)"
+    }
+  ],
+  "ourAction": "Create MapStruct mapper with preview\u2026 / Add mapping method to mapper\u2026 / Create generic base mapper\u2026",
+  "originalAction": "New > MapStruct Mapper (JPA Buddy)",
+  "originalActionDocumented": true,
+  "originalActionNote": "Names recalled from public JPA Buddy documentation; the human must correct them from the installed menu. \"unknown\" means not documented.",
+  "inputs": [
+    "componentModel default, spring, jakarta-cdi",
+    "toDto, toEntity and @MappingTarget update; explicit ignore mappings",
+    "Add a method to an existing mapper; reuse of an existing mapper",
+    "ModelMapper configuration and Blaze entity view if the original offers them: record offer or absence"
+  ],
+  "capture": [
+    "created and edited files"
+  ],
+  "normalize": [
+    "whitespace",
+    "imports",
+    "annotation-args",
+    "quotes",
+    "member-order"
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "id": "DF-005",
+  "slug": "dto-class-creation",
+  "title": "DTO class, scalar DTO, flattened DTO and nested projection creation options",
+  "ledgerRows": [
+    "G059",
+    "G060",
+    "G061",
+    "G062",
+    "G063",
+    "G064",
+    "G065",
+    "G067",
+    "G068",
+    "G078"
+  ],
+  "fixture": "mapstruct-lombok-dto",
+  "inputFile": "src/main/java/com/example/crm/domain/Account.java",
+  "inputFiles": [
+    "src/main/java/com/example/crm/dto/AccountPojoDto.java",
+    "src/main/java/com/example/crm/dto/AccountRecordDto.java"
+  ],
+  "inputNote": "No Customer entity in this fixture; Account (Lombok entity) is the source entity. Existing DTOs dto/AccountPojoDto.java, AccountRecordDto.java, ContactLombokDto.java serve as the reuse case.",
+  "ourAction": "Create DTO class with preview\u2026 / Create scalar DTO with preview\u2026 / Create flattened DTO\u2026 / Create projection with nested association\u2026",
+  "originalAction": "New > DTO (JPA Buddy)",
+  "originalActionDocumented": true,
+  "originalActionNote": "Names recalled from public JPA Buddy documentation; the human must correct them from the installed menu. \"unknown\" means not documented.",
+  "inputs": [
+    "DTO forms: POJO, fluent setters, Lombok getter/setter, Lombok with @Accessors(chain), record",
+    "Field selection incl. an association (flatten and nested)",
+    "Jackson annotation option on/off, validation constraint transfer on/off",
+    "DTO reuse offer when a matching DTO already exists"
+  ],
+  "capture": [
+    "created files",
+    "edited files"
+  ],
+  "normalize": [
+    "whitespace",
+    "imports",
+    "annotation-args",
+    "quotes",
+    "member-order"
+  ]
+}

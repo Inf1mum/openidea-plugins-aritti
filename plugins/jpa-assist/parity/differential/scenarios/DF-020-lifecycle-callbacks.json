@@ -1,0 +1,35 @@
+{
+  "id": "DF-020",
+  "slug": "lifecycle-callbacks",
+  "title": "Lifecycle callbacks and Hibernate listener/user type",
+  "ledgerRows": [
+    "G034",
+    "G124",
+    "G126"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "inputFile": "src/main/java/com/example/shop/domain/Customer.java",
+  "inputFiles": [
+    "src/main/java/com/example/shop/domain/OrderListener.java",
+    "src/main/java/com/example/shop/defects/EntityCallbackDefects.java",
+    "fixtures/boot-jpa-kotlin-jakarta/src/main/kotlin/com/example/shop/domain/Customer.kt"
+  ],
+  "ourAction": "Create Hibernate user type\u2026 / Create Hibernate event listener\u2026 / lifecycle templates",
+  "originalAction": "Lifecycle callback and Hibernate type generation (JPA Buddy): unknown",
+  "originalActionDocumented": false,
+  "originalActionNote": "Names recalled from public JPA Buddy documentation; the human must correct them from the installed menu. \"unknown\" means not documented.",
+  "inputs": [
+    "Each of the seven lifecycle callbacks; Java vs Kotlin templates",
+    "Hibernate user type for a value type"
+  ],
+  "capture": [
+    "created and edited files"
+  ],
+  "normalize": [
+    "whitespace",
+    "imports",
+    "annotation-args",
+    "quotes",
+    "member-order"
+  ]
+}

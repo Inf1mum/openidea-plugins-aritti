@@ -1,0 +1,34 @@
+{
+  "id": "DF-002",
+  "slug": "attribute-relationships",
+  "title": "Attribute creation per relationship kind with cascade, fetch, orphan and order options",
+  "ledgerRows": [
+    "S001",
+    "S002",
+    "G009"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "inputFile": "src/main/java/com/example/shop/domain/Customer.java",
+  "ourAction": "Add JPA attribute with preview\u2026",
+  "originalAction": "Add attribute in the JPA Structure/Designer (JPA Buddy)",
+  "originalActionDocumented": true,
+  "originalActionNote": "Names recalled from public JPA Buddy documentation; the human must correct them from the installed menu. \"unknown\" means not documented.",
+  "inputs": [
+    "For each of OneToOne, OneToMany, ManyToOne, ManyToMany: owning and inverse (mappedBy) side",
+    "Cascade: each single type and ALL; fetch LAZY/EAGER; orphanRemoval true on OneToOne/OneToMany",
+    "@OrderBy and @OrderColumn on a List; Set vs List collection type",
+    "@JoinColumn (name, nullable) on to-one; @JoinTable names on owning ManyToMany"
+  ],
+  "capture": [
+    "edited owner file",
+    "edited inverse file if the tool touches it",
+    "refusals verbatim"
+  ],
+  "normalize": [
+    "whitespace",
+    "imports",
+    "annotation-args",
+    "quotes",
+    "member-order"
+  ]
+}

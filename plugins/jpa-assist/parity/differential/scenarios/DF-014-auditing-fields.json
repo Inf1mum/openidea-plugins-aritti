@@ -1,0 +1,27 @@
+{
+  "id": "DF-014",
+  "slug": "auditing-fields",
+  "title": "Spring Data auditing fields and configuration",
+  "ledgerRows": [
+    "G056"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "inputFile": "src/main/java/com/example/shop/domain/Customer.java",
+  "ourAction": "Add auditing fields\u2026 / Create JPA auditing configuration\u2026",
+  "originalAction": "Auditing support (JPA Buddy): unknown",
+  "originalActionDocumented": false,
+  "originalActionNote": "Names recalled from public JPA Buddy documentation; the human must correct them from the installed menu. \"unknown\" means not documented.",
+  "inputs": [
+    "createdDate/lastModifiedDate as Instant, LocalDateTime, OffsetDateTime; createdBy/lastModifiedBy; @EntityListeners"
+  ],
+  "capture": [
+    "edited and created files"
+  ],
+  "normalize": [
+    "whitespace",
+    "imports",
+    "annotation-args",
+    "quotes",
+    "member-order"
+  ]
+}

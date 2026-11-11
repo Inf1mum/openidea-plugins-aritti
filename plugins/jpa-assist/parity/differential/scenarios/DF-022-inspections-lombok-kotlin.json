@@ -1,0 +1,49 @@
+{
+  "id": "DF-022",
+  "slug": "inspections-lombok-kotlin",
+  "title": "Inspections: Lombok equality/string/constructors and Kotlin data class",
+  "ledgerRows": [
+    "I004",
+    "I005",
+    "I006",
+    "I007",
+    "I012",
+    "F009",
+    "F012",
+    "F015",
+    "F016",
+    "F017",
+    "F018",
+    "F019",
+    "G030"
+  ],
+  "fixture": "mapstruct-lombok-dto",
+  "inputFile": "src/main/java/com/example/crm/defects/LombokDataDefect.java",
+  "inputFiles": [
+    "src/main/java/com/example/crm/defects/LombokEqualsDefect.java",
+    "src/main/java/com/example/crm/defects/LombokToStringDefect.java",
+    "src/main/java/com/example/crm/defects/LombokBuilderDefect.java",
+    "fixtures/boot-jpa-kotlin-jakarta/src/main/kotlin/com/example/shop/defects/KotlinDataClassDefect.kt",
+    "fixtures/boot-jpa-kotlin-jakarta/src/main/kotlin/com/example/shop/defects/KotlinValDefect.kt",
+    "fixtures/boot-jpa-kotlin-jakarta/src/main/kotlin/com/example/shop/defects/KotlinMappingDefects.kt"
+  ],
+  "goldenRef": "GOLDEN.md",
+  "inputNote": "Kotlin cases come from boot-jpa-kotlin-jakarta (cross-fixture paths start with fixtures/); there are no Kotlin Lombok equivalents.",
+  "ourAction": "Live inspections jpa-lombok-* and jpa-kotlin-* and their quick fixes",
+  "originalAction": "Inspections com.intellij.jpb.inspection.Lombok* (display names unknown)",
+  "originalActionDocumented": false,
+  "originalActionNote": "Names recalled from public JPA Buddy documentation; the human must correct them from the installed menu. \"unknown\" means not documented.",
+  "inputs": [
+    "Same procedure as DF-021 on Lombok and Kotlin data class entities; also record severity overrides if the original has a setting"
+  ],
+  "capture": [
+    "diagnostics list as JSON",
+    "edited files after each fix"
+  ],
+  "normalize": [
+    "json",
+    "whitespace",
+    "imports",
+    "annotation-args"
+  ]
+}
