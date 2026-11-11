@@ -1,0 +1,63 @@
+{
+  "id": "RS-120",
+  "rows": [
+    "G067",
+    "G068"
+  ],
+  "claimIds": [
+    "G067-C3",
+    "G068-C1"
+  ],
+  "verifies": {
+    "G067-C3": "the DTO action is offered on, and generates a DTO from, a class that is not a JPA entity (a written plain class)",
+    "G068-C1": "same sentence as G067-C3"
+  },
+  "fixture": "mapstruct-lombok-dto",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/crm/plain/PlainThing.java",
+        "content": "package com.example.crm.plain;\n\npublic class PlainThing {\n\n    private String label;\n\n    private int count;\n}\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/crm/plain/PlainThing.java",
+    "anchor": "class PlainThing"
+  },
+  "action": {
+    "title": "Create scalar DTO with preview\u2026"
+  },
+  "prompts": [
+    {
+      "input": "PlainThingDto"
+    },
+    {
+      "pickMany": [
+        "label",
+        "count"
+      ]
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "createdFiles": [
+      {
+        "path": "src/main/java/com/example/crm/plain/PlainThingDto.java",
+        "contains": [
+          "record PlainThingDto(",
+          "String label",
+          "int count"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "DTO from a non-entity class."
+}

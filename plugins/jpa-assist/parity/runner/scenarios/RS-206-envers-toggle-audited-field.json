@@ -1,0 +1,60 @@
+{
+  "id": "RS-206",
+  "rows": [
+    "G028"
+  ],
+  "claimIds": [
+    "G028-C1"
+  ],
+  "verifies": {
+    "G028-C1": "in a project whose pom declares hibernate-envers, @Audited is added to a single field (description) of a not audited entity from the toggle picker. The class half of the claim is checked by RS-203."
+  },
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "target": {
+    "file": "src/main/java/com/example/billing/domain/InvoiceLine.java",
+    "anchor": "class InvoiceLine"
+  },
+  "action": {
+    "title": "Toggle audited (Envers) with preview…"
+  },
+  "prompts": [
+    {
+      "pickMany": [
+        "audited:description"
+      ]
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pickMany",
+        "titleContains": "Envers toggles",
+        "optionsInclude": [
+          "audited:description"
+        ],
+        "name": "field toggle"
+      }
+    ],
+    "resultFile": [
+      {
+        "path": "src/main/java/com/example/billing/domain/InvoiceLine.java",
+        "matches": [
+          "@Audited\\s*\\n\\s*@Column\\(length = 200\\)\\s*\\n\\s*private String description"
+        ],
+        "notContains": [
+          "@Audited\n@Entity",
+          "@Audited\npublic class"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "Add @Audited to the description field of InvoiceLine only."
+}

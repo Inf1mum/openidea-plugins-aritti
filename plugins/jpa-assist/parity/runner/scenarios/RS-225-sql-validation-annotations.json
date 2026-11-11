@@ -1,0 +1,79 @@
+{
+  "id": "RS-225",
+  "rows": [
+    "G099"
+  ],
+  "claimIds": [
+    "G099-C3"
+  ],
+  "verifies": {
+    "G099-C3": "validation annotations inferred from column metadata: books.title varchar(120) not null yields @NotNull and @Size(max = 120). The plugin has no such setting; the scenario checks the generated output only."
+  },
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "sql-import/rs.sql",
+        "content": "create table authors (\n    id bigserial primary key,\n    name varchar(80) not null\n);\n\ncreate table books (\n    id bigserial primary key,\n    title varchar(120) not null,\n    author_id bigint not null references authors (id)\n);\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "sql-import/rs.sql",
+    "anchor": "create "
+  },
+  "action": {
+    "title": "Generate entities from SQL file…"
+  },
+  "prompts": [
+    {
+      "pickMany": [
+        "authors",
+        "books"
+      ]
+    },
+    {
+      "pick": "java"
+    },
+    {
+      "pick": "com.example.billing.domain"
+    },
+    {
+      "pickMany": [
+        "singular"
+      ]
+    },
+    "default",
+    "default",
+    {
+      "pickMany": [
+        "\u0000all"
+      ]
+    },
+    {
+      "pickMany": [
+        "\u0000all"
+      ]
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "createdFiles": [
+      {
+        "path": "src/main/java/com/example/billing/domain/Book.java",
+        "contains": [
+          "@NotNull",
+          "@Size(max = 120)"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "authors/books: validation annotations from column metadata."
+}

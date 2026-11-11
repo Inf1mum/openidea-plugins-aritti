@@ -1,0 +1,68 @@
+{
+  "id": "RS-316",
+  "rows": [
+    "G118"
+  ],
+  "claimIds": [
+    "G118-C1",
+    "G118-C3"
+  ],
+  "verifies": {
+    "G118-C1": "the SQL callback is created in the existing Flyway migration directory (source root and directory not asked, filled in automatically)",
+    "G118-C3": "the optional description is appended to the callback name in the file name: afterMigrate__audit.sql"
+  },
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "target": {
+    "file": "src/main/java/com/example/billing/domain/Client.java",
+    "anchor": "class Client"
+  },
+  "action": {
+    "title": "Create Flyway SQL callback…"
+  },
+  "prompts": [
+    {
+      "pick": "afterMigrate"
+    },
+    {
+      "input": "audit"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pick",
+        "titleContains": "callback event",
+        "optionsInclude": [
+          "afterMigrate",
+          "beforeMigrate"
+        ],
+        "name": "callback event"
+      },
+      {
+        "kind": "input",
+        "titleContains": "description",
+        "name": "optional description"
+      }
+    ],
+    "createdFiles": [
+      {
+        "path": "src/main/resources/db/migration/afterMigrate__audit.sql"
+      }
+    ]
+  },
+  "checks": {
+    "preview": {
+      "paths": [
+        "V20240131__rename_email.sql"
+      ]
+    },
+    "undo": true,
+    "cancelEach": true,
+    "stale": true
+  },
+  "note": "SQL callback."
+}

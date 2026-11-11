@@ -1,0 +1,27 @@
+{
+  "id": "RS-204",
+  "rows": [
+    "G028"
+  ],
+  "claimIds": [
+    "G028-C2"
+  ],
+  "verifies": {
+    "G028-C2": "in a project whose build files do not declare hibernate-envers the Envers toggle refuses (resolve error mentioning Envers) and nothing changes. Whether the action should instead be hidden is not stated by the claim; either outcome shows the feature is gated."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Category.java",
+    "anchor": "class Category"
+  },
+  "action": {
+    "title": "Toggle audited (Envers) with preview…"
+  },
+  "prompts": [],
+  "expect": {
+    "resolveErrorContains": "Envers",
+    "noFilesChanged": true
+  },
+  "note": "Toggle audited on a project without hibernate-envers."
+}

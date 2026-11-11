@@ -1,0 +1,39 @@
+{
+  "id": "RS-315",
+  "rows": [
+    "G117"
+  ],
+  "claimIds": [
+    "G117-C1"
+  ],
+  "verifies": {
+    "G117-C1": "the generated migrate(Context) holds a PreparedStatement stub with an empty SQL string; the class-extends-BaseJavaMigration/migrate part is checked by RS-314"
+  },
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "target": {
+    "file": "src/main/java/com/example/billing/domain/Client.java",
+    "anchor": "class Client"
+  },
+  "action": {
+    "title": "Create Flyway Java migration…"
+  },
+  "prompts": [
+    {
+      "input": "AddScore"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "resultFile": {
+      "path": "src/main/java/db/migration/V4__AddScore.java",
+      "contains": [
+        "PreparedStatement",
+        "prepareStatement(\"\")"
+      ]
+    }
+  },
+  "note": "Stub content of the Java migration."
+}

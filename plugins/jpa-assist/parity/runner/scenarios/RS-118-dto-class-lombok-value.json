@@ -1,0 +1,68 @@
+{
+  "id": "RS-118",
+  "rows": [
+    "G062"
+  ],
+  "claimIds": [
+    "G062-C1"
+  ],
+  "verifies": {
+    "G062-C1": "the immutable Lombok form produces @Value; redundant access modifiers (private/final on fields, final on the class) are not written"
+  },
+  "fixture": "mapstruct-lombok-dto",
+  "kind": "fileaction",
+  "target": {
+    "file": "src/main/java/com/example/crm/domain/Account.java",
+    "anchor": "class Account"
+  },
+  "action": {
+    "title": "Create DTO class with preview\u2026"
+  },
+  "prompts": [
+    {
+      "pick": "lombok-value"
+    },
+    {
+      "input": "AccountValueDto"
+    },
+    {
+      "pickMany": [
+        "id",
+        "name"
+      ]
+    },
+    {
+      "pick": "create-new"
+    },
+    {
+      "pick": "none"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "createdFiles": [
+      {
+        "path": "src/main/java/com/example/crm/domain/AccountValueDto.java",
+        "contains": [
+          "@Value",
+          "class AccountValueDto"
+        ]
+      }
+    ],
+    "resultFile": {
+      "path": "src/main/java/com/example/crm/domain/AccountValueDto.java",
+      "notContains": [
+        "private ",
+        "final ",
+        "set"
+      ]
+    }
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "Lombok @Value DTO."
+}

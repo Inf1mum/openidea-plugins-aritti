@@ -1,0 +1,58 @@
+{
+  "id": "RS-107",
+  "rows": [
+    "G050"
+  ],
+  "claimIds": [
+    "G050-C1"
+  ],
+  "verifies": {
+    "G050-C1": "the action makes the query generic by adding a Class<T> type parameter and a generic return type"
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "replace": {
+        "file": "src/main/java/com/example/shop/repository/CustomerRepository.java",
+        "from": "    boolean existsByEmail",
+        "to": "    Collection<Customer> findByVersionGreaterThan(long version);\n\n    boolean existsByEmail"
+      }
+    },
+    {
+      "replace": {
+        "file": "src/main/java/com/example/shop/repository/CustomerRepository.java",
+        "from": "import java.util.List;",
+        "to": "import java.util.Collection;\nimport java.util.List;"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/shop/repository/CustomerRepository.java",
+    "anchor": "interface CustomerRepository"
+  },
+  "action": {
+    "title": "Make projection dynamic\u2026"
+  },
+  "prompts": [
+    {
+      "pick": "findByVersionGreaterThan"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "resultFile": {
+      "path": "src/main/java/com/example/shop/repository/CustomerRepository.java",
+      "matches": [
+        "<T>\\s+Collection<T>\\s+findByVersionGreaterThan\\(long version,\\s*Class<T>\\s+\\w+\\)"
+      ]
+    }
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "Dynamic projection conversion."
+}

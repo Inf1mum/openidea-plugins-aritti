@@ -1,0 +1,55 @@
+{
+  "id": "RS-105",
+  "rows": [
+    "G048"
+  ],
+  "claimIds": [
+    "G048-C1"
+  ],
+  "verifies": {
+    "G048-C1": "the reviewed wizard offers the entity's attributes as graph nodes and writes a @NamedEntityGraph on the entity; the visual graph builder layout is not checked."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Category.java",
+    "anchor": "class Category"
+  },
+  "action": {
+    "title": "Add entity graph with preview\u2026"
+  },
+  "prompts": [
+    {
+      "input": "Category.withProducts"
+    },
+    {
+      "pickMany": [
+        "products"
+      ]
+    },
+    {
+      "pickMany": [
+        "name"
+      ]
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "resultFile": {
+      "path": "src/main/java/com/example/shop/domain/Category.java",
+      "contains": [
+        "@NamedEntityGraph",
+        "Category.withProducts",
+        "products",
+        "name"
+      ]
+    }
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "Entity graph on Category with a product subgraph."
+}

@@ -1,0 +1,130 @@
+{
+  "id": "RS-308",
+  "rows": [
+    "G116"
+  ],
+  "claimIds": [
+    "G116-C3"
+  ],
+  "verifies": {
+    "G116-C3": "the other documented precondition actions are honoured: addColumn with onFail HALT and onError CONTINUE, dropColumn with onFail WARN and onError HALT produce exactly those attributes on the respective changeSets (MARK_RAN is covered by RS-007)"
+  },
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "swap": {
+        "file": "pom.xml",
+        "with": "liquibase-variant/pom.xml"
+      }
+    },
+    {
+      "swap": {
+        "file": "src/main/resources/application.properties",
+        "with": "liquibase-variant/overlay/application.properties"
+      }
+    },
+    {
+      "delete": "src/main/resources/db/migration"
+    },
+    {
+      "delete": "src/main/java/db/migration"
+    },
+    {
+      "copy": {
+        "from": "liquibase-variant/overlay/resources/db/changelog",
+        "to": "src/main/resources/db/changelog"
+      }
+    },
+    {
+      "settings": {
+        "liquibaseChangelogNamePattern": "diff-{description}.xml",
+        "liquibaseChangeSetDefaults": [
+          {
+            "changeType": "addColumn",
+            "failOnError": "unset",
+            "runOnChange": "unset",
+            "context": "",
+            "labels": "",
+            "preConditionsOnFail": "HALT",
+            "preConditionsOnError": "CONTINUE",
+            "addEmptyRollback": "unset"
+          },
+          {
+            "changeType": "dropColumn",
+            "failOnError": "unset",
+            "runOnChange": "unset",
+            "context": "",
+            "labels": "",
+            "preConditionsOnFail": "WARN",
+            "preConditionsOnError": "HALT",
+            "addEmptyRollback": "unset"
+          }
+        ]
+      }
+    }
+  ],
+  "preActions": [
+    {
+      "title": "Create schema baseline…",
+      "target": {
+        "file": "src/main/java/com/example/billing/domain/Client.java",
+        "anchor": "class Client"
+      },
+      "prompts": [
+        {
+          "confirm": "yes"
+        }
+      ]
+    }
+  ],
+  "postSetup": [
+    {
+      "replace": {
+        "file": "src/main/java/com/example/billing/domain/Client.java",
+        "from": "    private String notes;",
+        "to": "    @Column(nullable = true)\n    private Integer score;"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/billing/domain/Client.java",
+    "anchor": "class Client"
+  },
+  "action": {
+    "title": "Generate Liquibase changelog from model changes…"
+  },
+  "prompts": [
+    {
+      "pickMany": [
+        "data-loss"
+      ]
+    },
+    {
+      "input": "jpa-assist"
+    },
+    {
+      "input": "cs"
+    },
+    {
+      "input": "model_changes"
+    },
+    {
+      "confirm": "yes"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "resultFile": {
+      "path": "src/main/resources/db/changelog/diff-model_changes.xml",
+      "matches": [
+        "<preConditions[^>]*onFail=\"HALT\"[^>]*>\\s*(<[^>]*>\\s*)*?<addColumn|<preConditions[^>]*onError=\"CONTINUE\"",
+        "<preConditions onFail=\"HALT\"[^>]*onError=\"CONTINUE\"|<preConditions onError=\"CONTINUE\"[^>]*onFail=\"HALT\"",
+        "<preConditions onFail=\"WARN\"[^>]*onError=\"HALT\"|<preConditions onError=\"HALT\"[^>]*onFail=\"WARN\""
+      ]
+    }
+  },
+  "note": "Other precondition actions."
+}

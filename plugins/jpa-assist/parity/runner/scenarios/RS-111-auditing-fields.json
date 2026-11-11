@@ -1,0 +1,75 @@
+{
+  "id": "RS-111",
+  "rows": [
+    "G056"
+  ],
+  "claimIds": [
+    "G056-C1"
+  ],
+  "verifies": {
+    "G056-C1": "the action offers @CreatedBy, @CreatedDate, @LastModifiedBy and @LastModifiedDate and adds the chosen fields with those annotations. The two warnings of G056-C2/C3 are not offered."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/CustomerProfile.java",
+    "anchor": "class CustomerProfile"
+  },
+  "action": {
+    "title": "Add auditing fields\u2026"
+  },
+  "prompts": [
+    {
+      "pickMany": [
+        "createdDate",
+        "lastModifiedDate",
+        "createdBy",
+        "lastModifiedBy"
+      ]
+    },
+    {
+      "pick": "Instant"
+    },
+    {
+      "pick": "String"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pickMany",
+        "titleContains": "auditing fields",
+        "optionsInclude": [
+          "createdDate",
+          "lastModifiedDate",
+          "createdBy",
+          "lastModifiedBy"
+        ],
+        "itemDescriptions": {
+          "createdDate": "@CreatedDate",
+          "createdBy": "@CreatedBy",
+          "lastModifiedDate": "@LastModifiedDate",
+          "lastModifiedBy": "@LastModifiedBy"
+        },
+        "name": "four auditing annotations"
+      }
+    ],
+    "resultFile": {
+      "path": "src/main/java/com/example/shop/domain/CustomerProfile.java",
+      "contains": [
+        "@CreatedBy",
+        "@CreatedDate",
+        "@LastModifiedBy",
+        "@LastModifiedDate"
+      ]
+    }
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "All four auditing fields on CustomerProfile."
+}

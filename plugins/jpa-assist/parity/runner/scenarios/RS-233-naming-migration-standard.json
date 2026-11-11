@@ -1,0 +1,93 @@
+{
+  "id": "RS-233",
+  "rows": [
+    "G032",
+    "G127"
+  ],
+  "claimIds": [
+    "G032-C3",
+    "G127-C2"
+  ],
+  "verifies": {
+    "G032-C3": "with the standard physical strategy configured the migration for PetType uses the unchanged names PetType and birthDate, the same names the runtime strategy produces.",
+    "G127-C2": "same check as G032-C3 (identical claim text)."
+  },
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/resources/application.properties",
+        "content": "spring.application.name=envers-flyway-liquibase\nspring.jpa.hibernate.naming.physical-strategy=org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl\n"
+      }
+    },
+    {
+      "settings": {
+        "flywayVersionPattern": "#date(yyyyMMdd).#increment(1, 1, 0000)"
+      }
+    }
+  ],
+  "preActions": [
+    {
+      "title": "Create schema baseline…",
+      "target": {
+        "file": "src/main/java/com/example/billing/domain/Client.java",
+        "anchor": "class Client"
+      },
+      "prompts": [
+        {
+          "confirm": "yes"
+        }
+      ]
+    }
+  ],
+  "postSetup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/billing/domain/PetType.java",
+        "content": "package com.example.billing.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class PetType {\n\n    @Id\n    private Long id;\n\n    private String birthDate;\n\n    protected PetType() {\n    }\n}\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/billing/domain/Client.java",
+    "anchor": "class Client"
+  },
+  "action": {
+    "title": "Generate Flyway migration from model changes…"
+  },
+  "prompts": [
+    {
+      "pick": "postgresql"
+    },
+    {
+      "pickMany": [
+        "needs-backfill"
+      ]
+    },
+    {
+      "input": "add_pet_type"
+    },
+    {
+      "input": "20240131"
+    },
+    {
+      "confirm": "yes"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "createdFiles": [
+      {
+        "path": "src/main/resources/db/migration/V20240131.0003__add_pet_type.sql",
+        "contains": [
+          "PetType",
+          "birthDate"
+        ]
+      }
+    ]
+  },
+  "note": "Generate a Flyway migration for a new entity with the standard strategy configured."
+}

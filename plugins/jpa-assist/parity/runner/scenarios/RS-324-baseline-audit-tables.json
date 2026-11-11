@@ -1,0 +1,42 @@
+{
+  "id": "RS-324",
+  "rows": [
+    "G125"
+  ],
+  "claimIds": [
+    "G125-C1"
+  ],
+  "verifies": {
+    "G125-C1": "audit tables are generated for the @Audited entities: the baseline snapshot contains client_aud and invoice_aud (and not an audit table for the unaudited InvoiceLine). The revision table of a @RevisionEntity is not checked (the fixture has none)."
+  },
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "target": {
+    "file": "src/main/java/com/example/billing/domain/Client.java",
+    "anchor": "class Client"
+  },
+  "action": {
+    "title": "Create schema baseline…"
+  },
+  "prompts": [
+    {
+      "confirm": "yes"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "resultFile": {
+      "path": "db/jpa-schema-baseline.json",
+      "contains": [
+        "client_aud",
+        "invoice_aud"
+      ],
+      "notContains": [
+        "invoice_line_aud"
+      ]
+    }
+  },
+  "note": "Audit tables in the snapshot."
+}

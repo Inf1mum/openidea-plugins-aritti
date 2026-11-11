@@ -1,0 +1,104 @@
+{
+  "id": "RS-235",
+  "rows": [
+    "G125"
+  ],
+  "claimIds": [
+    "G125-C2"
+  ],
+  "verifies": {
+    "G125-C2": "the audit table suffix is configurable from properties files: with spring.jpa.properties.org.hibernate.envers.audit_table_suffix=_history in application.properties the audit table is client_history (not client_aud)."
+  },
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "replace": {
+        "file": "src/main/java/com/example/billing/domain/Client.java",
+        "from": "@Audited\n",
+        "to": ""
+      }
+    },
+    {
+      "replace": {
+        "file": "src/main/java/com/example/billing/domain/Invoice.java",
+        "from": "@Audited\n",
+        "to": ""
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/resources/application.properties",
+        "content": "spring.application.name=envers-flyway-liquibase\nspring.jpa.hibernate.naming.physical-strategy=org.hibernate.boot.model.naming.CamelCaseToUnderscoresNamingStrategy\nspring.jpa.properties.org.hibernate.envers.audit_table_suffix=_history\n"
+      }
+    },
+    {
+      "settings": {
+        "flywayVersionPattern": "#date(yyyyMMdd).#increment(1, 1, 0000)"
+      }
+    }
+  ],
+  "preActions": [
+    {
+      "title": "Create schema baseline…",
+      "target": {
+        "file": "src/main/java/com/example/billing/domain/Client.java",
+        "anchor": "class Client"
+      },
+      "prompts": [
+        {
+          "confirm": "yes"
+        }
+      ]
+    }
+  ],
+  "postSetup": [
+    {
+      "replace": {
+        "file": "src/main/java/com/example/billing/domain/Client.java",
+        "from": "@Entity\n",
+        "to": "@Entity\n@Audited\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/billing/domain/Client.java",
+    "anchor": "class Client"
+  },
+  "action": {
+    "title": "Generate Flyway migration from model changes…"
+  },
+  "prompts": [
+    {
+      "pick": "postgresql"
+    },
+    {
+      "pickMany": [
+        "needs-backfill"
+      ]
+    },
+    {
+      "input": "add_audit"
+    },
+    {
+      "input": "20240131"
+    },
+    {
+      "confirm": "yes"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "createdFiles": [
+      {
+        "path": "src/main/resources/db/migration/V20240131.0003__add_audit.sql",
+        "contains": [
+          "client_history"
+        ]
+      }
+    ]
+  },
+  "note": "Add @Audited to Client with a custom audit table suffix configured."
+}

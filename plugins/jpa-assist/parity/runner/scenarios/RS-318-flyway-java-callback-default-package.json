@@ -1,0 +1,45 @@
+{
+  "id": "RS-318",
+  "rows": [
+    "G119"
+  ],
+  "claimIds": [
+    "G119-C4"
+  ],
+  "verifies": {
+    "G119-C4": "the default package Flyway scans for Java callbacks is db.callback: invoked from an entity in another package, the callback is created in package db.callback"
+  },
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "target": {
+    "file": "src/main/java/com/example/billing/domain/Client.java",
+    "anchor": "class Client"
+  },
+  "action": {
+    "title": "Create Flyway Java callback…"
+  },
+  "prompts": [
+    {
+      "pickMany": [
+        "beforeMigrate"
+      ]
+    },
+    {
+      "input": "AuditCallback"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "createdFiles": [
+      {
+        "path": "src/main/java/db/callback/AuditCallback.java",
+        "contains": [
+          "package db.callback;"
+        ]
+      }
+    ]
+  },
+  "note": "Callback location default."
+}

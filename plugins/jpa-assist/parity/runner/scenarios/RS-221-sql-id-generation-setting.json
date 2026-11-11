@@ -1,0 +1,91 @@
+{
+  "id": "RS-221",
+  "rows": [
+    "G099"
+  ],
+  "claimIds": [
+    "G099-C1"
+  ],
+  "verifies": {
+    "G099-C1": "with the id generation setting at sequence a Long primary key (items.id) gets @GeneratedValue with SEQUENCE and a String primary key (codes.code) gets no @GeneratedValue, i.e. generation is applied only to numeric primary keys. The documented choices NONE, SEQUENCE, IDENTITY and UUID are checked individually: SEQUENCE here, UUID by RS-222; NONE and IDENTITY are not checked."
+  },
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "sql-import/rs.sql",
+        "content": "create table items (\n    id bigserial primary key,\n    name varchar(40)\n);\n\ncreate table codes (\n    code varchar(10) primary key,\n    label varchar(40)\n);\n"
+      }
+    },
+    {
+      "settings": {
+        "sqlImportIdGeneration": "sequence"
+      }
+    }
+  ],
+  "target": {
+    "file": "sql-import/rs.sql",
+    "anchor": "create "
+  },
+  "action": {
+    "title": "Generate entities from SQL file…"
+  },
+  "prompts": [
+    {
+      "pickMany": [
+        "items",
+        "codes"
+      ]
+    },
+    {
+      "pick": "java"
+    },
+    {
+      "pick": "com.example.billing.domain"
+    },
+    {
+      "pickMany": [
+        "singular"
+      ]
+    },
+    "default",
+    "default",
+    {
+      "pickMany": [
+        "\u0000all"
+      ]
+    },
+    {
+      "pickMany": [
+        "\u0000all"
+      ]
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "createdFiles": [
+      {
+        "path": "src/main/java/com/example/billing/domain/Item.java",
+        "contains": [
+          "GenerationType.SEQUENCE"
+        ]
+      }
+    ],
+    "resultFile": [
+      {
+        "path": "src/main/java/com/example/billing/domain/Code.java",
+        "notContains": [
+          "@GeneratedValue"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "items (bigserial key) and codes (varchar key) with the id generation setting at sequence."
+}

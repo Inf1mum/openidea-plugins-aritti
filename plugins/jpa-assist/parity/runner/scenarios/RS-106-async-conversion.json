@@ -1,0 +1,42 @@
+{
+  "id": "RS-106",
+  "rows": [
+    "G049"
+  ],
+  "claimIds": [
+    "G049-C1"
+  ],
+  "verifies": {
+    "G049-C1": "the action adds @Async and changes the return type to a Future type. Only CompletableFuture is offered (Future and ListenableFuture are not), so the sentence is checked for the one offered type."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "target": {
+    "file": "src/main/java/com/example/shop/repository/CustomerRepository.java",
+    "anchor": "interface CustomerRepository"
+  },
+  "action": {
+    "title": "Make query method asynchronous\u2026"
+  },
+  "prompts": [
+    {
+      "pick": "findByNameContainingIgnoreCaseOrderByNameAsc"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "resultFile": {
+      "path": "src/main/java/com/example/shop/repository/CustomerRepository.java",
+      "matches": [
+        "@Async\\s+CompletableFuture<List<Customer>>\\s+findByNameContainingIgnoreCaseOrderByNameAsc\\("
+      ]
+    }
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "Async conversion of a list-returning query method."
+}

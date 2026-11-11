@@ -1,0 +1,90 @@
+{
+  "id": "RS-109",
+  "rows": [
+    "G053"
+  ],
+  "claimIds": [
+    "G053-C1",
+    "G053-C3"
+  ],
+  "verifies": {
+    "G053-C1": "the action lets you choose the projection form, name the projection and select the entity fields (the entity is the action target); source root and package are not offered, the file is created beside the entity",
+    "G053-C3": "the interface projection form (the only form the documentation names) is offered and produces an interface with getters for the selected fields"
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Category.java",
+    "anchor": "class Category"
+  },
+  "action": {
+    "title": "Create projection with preview\u2026"
+  },
+  "prompts": [
+    {
+      "pick": "interface"
+    },
+    {
+      "input": "CategoryNameView"
+    },
+    {
+      "pickMany": [
+        "id",
+        "name"
+      ]
+    },
+    {
+      "pick": "create-new"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pick",
+        "titleContains": "form",
+        "optionsInclude": [
+          "interface"
+        ],
+        "name": "projection forms"
+      },
+      {
+        "kind": "input",
+        "titleContains": "name"
+      },
+      {
+        "kind": "pickMany",
+        "titleContains": "properties",
+        "optionsInclude": [
+          "id",
+          "name"
+        ],
+        "name": "fields"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "already exists"
+      },
+      {
+        "kind": "confirm"
+      }
+    ],
+    "createdFiles": [
+      {
+        "path": "src/main/java/com/example/shop/domain/CategoryNameView.java",
+        "contains": [
+          "interface CategoryNameView",
+          "Long getId();",
+          "String getName();"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "Interface projection with two fields."
+}

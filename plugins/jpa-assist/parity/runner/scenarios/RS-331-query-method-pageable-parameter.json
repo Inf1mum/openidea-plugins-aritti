@@ -1,0 +1,55 @@
+{
+  "id": "RS-331",
+  "rows": [
+    "S004"
+  ],
+  "claimIds": [
+    "S004-C2"
+  ],
+  "verifies": {
+    "S004-C2": "whether to include a Pageable parameter: choosing the Page return type adds a Pageable parameter to the generated signature. The named-versus-positional parameter control is not offered and is not checked."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "target": {
+    "file": "src/main/java/com/example/shop/repository/ProductRepository.java",
+    "anchor": "interface ProductRepository"
+  },
+  "action": {
+    "title": "Add query method with preview…"
+  },
+  "prompts": [
+    {
+      "pick": "find"
+    },
+    {
+      "pickMany": [
+        "name"
+      ]
+    },
+    {
+      "pick": "is"
+    },
+    {
+      "pick": "none"
+    },
+    {
+      "input": ""
+    },
+    {
+      "pick": "page"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "resultFile": {
+      "path": "src/main/java/com/example/shop/repository/ProductRepository.java",
+      "matches": [
+        "Page<Product>\\s+findByName\\(String name, Pageable pageable\\)"
+      ]
+    }
+  },
+  "note": "Pageable parameter."
+}

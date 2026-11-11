@@ -1,0 +1,57 @@
+{
+  "id": "RS-317",
+  "rows": [
+    "G119"
+  ],
+  "claimIds": [
+    "G119-C2",
+    "G119-C5"
+  ],
+  "verifies": {
+    "G119-C5": "the generated class carries supports(), canHandleInTransaction(), handle() and getCallbackName() (written out in the generated source, not only inherited from a base class)",
+    "G119-C2": "getCallbackName() is generated and the selected event is added to supports()"
+  },
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/db/callback/Placeholder.java",
+        "content": "package db.callback;\n\npublic class Placeholder {\n}\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/db/callback/Placeholder.java",
+    "anchor": "class Placeholder"
+  },
+  "action": {
+    "title": "Create Flyway Java callback…"
+  },
+  "prompts": [
+    {
+      "pickMany": [
+        "beforeMigrate"
+      ]
+    },
+    {
+      "input": "AuditCallback"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "resultFile": {
+      "path": "src/main/java/db/callback/AuditCallback.java",
+      "contains": [
+        "supports(",
+        "BEFORE_MIGRATE",
+        "canHandleInTransaction()",
+        "handle(",
+        "getCallbackName()"
+      ]
+    }
+  },
+  "note": "Java callback skeleton content."
+}

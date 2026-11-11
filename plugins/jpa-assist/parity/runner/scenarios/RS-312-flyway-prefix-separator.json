@@ -1,0 +1,89 @@
+{
+  "id": "RS-312",
+  "rows": [
+    "G120"
+  ],
+  "claimIds": [
+    "G120-C5"
+  ],
+  "verifies": {
+    "G120-C5": "the configured migration prefix U and a three-underscore separator are used for the generated file name (U<date>___description.sql), next to existing U__ files. The option R (repeatable) and the claim that the defaults match Flyway are not checked here (see RS-313)."
+  },
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/resources/db/migration/U5___old.sql",
+        "content": "select 1;\n"
+      }
+    },
+    {
+      "settings": {
+        "flywayMigrationPrefix": "U",
+        "flywayMigrationSeparator": "___",
+        "flywayVersionPattern": "#date(yyyyMMdd)"
+      }
+    }
+  ],
+  "preActions": [
+    {
+      "title": "Create schema baseline…",
+      "target": {
+        "file": "src/main/java/com/example/billing/domain/Client.java",
+        "anchor": "class Client"
+      },
+      "prompts": [
+        {
+          "confirm": "yes"
+        }
+      ]
+    }
+  ],
+  "postSetup": [
+    {
+      "replace": {
+        "file": "src/main/java/com/example/billing/domain/Client.java",
+        "from": "    private String notes;",
+        "to": "    @Column(nullable = true)\n    private Integer score;"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/billing/domain/Client.java",
+    "anchor": "class Client"
+  },
+  "action": {
+    "title": "Generate Flyway migration from model changes…"
+  },
+  "prompts": [
+    {
+      "pick": "postgresql"
+    },
+    {
+      "pickMany": [
+        "data-loss"
+      ]
+    },
+    {
+      "input": "undo_notes"
+    },
+    {
+      "input": "20240131"
+    },
+    {
+      "confirm": "yes"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "createdFiles": [
+      {
+        "path": "src/main/resources/db/migration/U20240131___undo_notes.sql"
+      }
+    ]
+  },
+  "note": "Prefix and separator settings."
+}

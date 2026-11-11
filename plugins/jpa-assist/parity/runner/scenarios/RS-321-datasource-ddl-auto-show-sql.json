@@ -1,0 +1,105 @@
+{
+  "id": "RS-321",
+  "rows": [
+    "G082",
+    "G083"
+  ],
+  "claimIds": [
+    "G082-C2",
+    "G082-C3",
+    "G083-C1",
+    "G083-C2"
+  ],
+  "verifies": {
+    "G082-C2": "Hibernate DDL auto is offered with empty, validate, update, create and create-drop",
+    "G083-C1": "same as G082-C2",
+    "G082-C3": "Show SQL and Format SQL toggles are offered",
+    "G083-C2": "same as G082-C3"
+  },
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/resources/application-dev.properties",
+        "content": "spring.application.name=dev\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/resources/application-dev.properties",
+    "position": {
+      "line": 1,
+      "col": 1
+    }
+  },
+  "action": {
+    "title": "Add datasource configuration…"
+  },
+  "prompts": [
+    {
+      "pick": "postgresql"
+    },
+    {
+      "input": "localhost"
+    },
+    {
+      "input": "5432"
+    },
+    {
+      "input": "shop"
+    },
+    {
+      "input": "shop"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pick",
+        "titleContains": "Database",
+        "name": "database"
+      },
+      {
+        "kind": "input",
+        "titleContains": "host",
+        "name": "host"
+      },
+      {
+        "kind": "input",
+        "titleContains": "port",
+        "name": "port"
+      },
+      {
+        "kind": "input",
+        "titleContains": "name",
+        "name": "name"
+      },
+      {
+        "kind": "input",
+        "titleContains": "username",
+        "name": "user"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "ddl",
+        "optionsInclude": [
+          "validate",
+          "update",
+          "create",
+          "create-drop"
+        ],
+        "name": "Hibernate DDL auto"
+      },
+      {
+        "kind": "confirm",
+        "titleContains": "show",
+        "name": "Show SQL / Format SQL"
+      }
+    ]
+  },
+  "note": "DDL auto and SQL toggles of the datasource generator."
+}

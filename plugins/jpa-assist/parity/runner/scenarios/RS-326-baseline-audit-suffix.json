@@ -1,0 +1,51 @@
+{
+  "id": "RS-326",
+  "rows": [
+    "G125"
+  ],
+  "claimIds": [
+    "G125-C2"
+  ],
+  "verifies": {
+    "G125-C2": "the audit table suffix is configurable from properties files: with spring.jpa.properties.org.hibernate.envers.audit_table_suffix=_history the baseline names client_history and invoice_history instead of *_aud"
+  },
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "replace": {
+        "file": "src/main/resources/application.properties",
+        "from": "spring.flyway.enabled=true",
+        "to": "spring.flyway.enabled=true\nspring.jpa.properties.org.hibernate.envers.audit_table_suffix=_history"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/billing/domain/Client.java",
+    "anchor": "class Client"
+  },
+  "action": {
+    "title": "Create schema baseline…"
+  },
+  "prompts": [
+    {
+      "confirm": "yes"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "resultFile": {
+      "path": "db/jpa-schema-baseline.json",
+      "contains": [
+        "client_history",
+        "invoice_history"
+      ],
+      "notContains": [
+        "client_aud"
+      ]
+    }
+  },
+  "note": "Audit suffix from a properties file."
+}

@@ -1,0 +1,112 @@
+{
+  "id": "RS-310",
+  "rows": [
+    "G120"
+  ],
+  "claimIds": [
+    "G120-C4"
+  ],
+  "verifies": {
+    "G120-C4": "for the documented version 1.2.3-SNAPSHOT+build4 the getters yield the full string, 1, 2, 3 and SNAPSHOT, so the file is named 1.2.3-SNAPSHOT+build4_1_2_3_SNAPSHOT.xml"
+  },
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "swap": {
+        "file": "pom.xml",
+        "with": "liquibase-variant/pom.xml"
+      }
+    },
+    {
+      "swap": {
+        "file": "src/main/resources/application.properties",
+        "with": "liquibase-variant/overlay/application.properties"
+      }
+    },
+    {
+      "delete": "src/main/resources/db/migration"
+    },
+    {
+      "delete": "src/main/java/db/migration"
+    },
+    {
+      "copy": {
+        "from": "liquibase-variant/overlay/resources/db/changelog",
+        "to": "src/main/resources/db/changelog"
+      }
+    },
+    {
+      "replace": {
+        "file": "pom.xml",
+        "from": "<version>0.0.1-SNAPSHOT</version>",
+        "to": "<version>1.2.3-SNAPSHOT+build4</version>"
+      }
+    },
+    {
+      "settings": {
+        "liquibaseChangelogNamePattern": "${semVer.getRawVersion()}_${semVer.getMajor()}_${semVer.getMinor()}_${semVer.getPatch()}_${semVer.getPreRelease()}.xml"
+      }
+    }
+  ],
+  "preActions": [
+    {
+      "title": "Create schema baseline…",
+      "target": {
+        "file": "src/main/java/com/example/billing/domain/Client.java",
+        "anchor": "class Client"
+      },
+      "prompts": [
+        {
+          "confirm": "yes"
+        }
+      ]
+    }
+  ],
+  "postSetup": [
+    {
+      "replace": {
+        "file": "src/main/java/com/example/billing/domain/Client.java",
+        "from": "    private String notes;",
+        "to": "    @Column(nullable = true)\n    private Integer score;"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/billing/domain/Client.java",
+    "anchor": "class Client"
+  },
+  "action": {
+    "title": "Generate Liquibase changelog from model changes…"
+  },
+  "prompts": [
+    {
+      "pickMany": [
+        "data-loss"
+      ]
+    },
+    {
+      "input": "jpa-assist"
+    },
+    {
+      "input": "cs"
+    },
+    {
+      "input": "model_changes"
+    },
+    {
+      "confirm": "yes"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "createdFiles": [
+      {
+        "path": "src/main/resources/db/changelog/1.2.3-SNAPSHOT+build4_1_2_3_SNAPSHOT.xml"
+      }
+    ]
+  },
+  "note": "semVer getters on the documented example version."
+}

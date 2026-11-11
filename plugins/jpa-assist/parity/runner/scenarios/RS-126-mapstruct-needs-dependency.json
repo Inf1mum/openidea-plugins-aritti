@@ -1,0 +1,27 @@
+{
+  "id": "RS-126",
+  "rows": [
+    "G069"
+  ],
+  "claimIds": [
+    "G069-C1"
+  ],
+  "verifies": {
+    "G069-C1": "the mapper option depends on a MapStruct dependency: in a project without MapStruct the action refuses with a MapStruct message and creates nothing. The mapper field inside the DTO window is not offered (separate action)."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Category.java",
+    "anchor": "class Category"
+  },
+  "action": {
+    "title": "Create MapStruct mapper with preview\u2026"
+  },
+  "prompts": [],
+  "expect": {
+    "resolveErrorContains": "MapStruct",
+    "noFilesChanged": true
+  },
+  "note": "MapStruct action without MapStruct."
+}

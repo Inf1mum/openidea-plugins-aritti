@@ -1,0 +1,51 @@
+{
+  "id": "RS-231",
+  "rows": [
+    "G032",
+    "G127"
+  ],
+  "claimIds": [
+    "G032-C2",
+    "G127-C1"
+  ],
+  "verifies": {
+    "G032-C2": "with spring.jpa.hibernate.naming.physical-strategy set to the standard Hibernate strategy (PhysicalNamingStrategyStandardImpl) the logical names are kept: the table is PetType and the column birthDate (no pet_type, no birth_date).",
+    "G127-C1": "same check as G032-C2 (the claim text is identical). Spring (default) is RS-230; CamelCaseToUnderscores and custom strategies are not checked here."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "command",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/PetType.java",
+        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class PetType {\n\n    @Id\n    private Long id;\n\n    private String birthDate;\n\n    protected PetType() {\n    }\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/resources/application.properties",
+        "content": "spring.application.name=boot-jpa-java-jakarta\nspring.jpa.hibernate.ddl-auto=validate\nspring.jpa.hibernate.naming.physical-strategy=org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/PetType.java",
+    "anchor": "class PetType"
+  },
+  "action": {
+    "command": "copy-ddl"
+  },
+  "prompts": [
+    {
+      "pick": "postgresql"
+    }
+  ],
+  "expect": {
+    "clipboardContains": [
+      "PetType",
+      "birthDate"
+    ],
+    "noFilesChanged": true
+  },
+  "note": "copy-ddl with the standard physical strategy configured."
+}

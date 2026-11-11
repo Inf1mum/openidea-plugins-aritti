@@ -1,0 +1,88 @@
+{
+  "id": "RS-226",
+  "rows": [
+    "G101"
+  ],
+  "claimIds": [
+    "G101-C1"
+  ],
+  "verifies": {
+    "G101-C1": "naming rules skip configured table prefixes given as a comma-separated list: tbl_,old_ strips both tbl_alpha -> Alpha and old_beta -> Beta. Suffix lists and column prefix lists are not checked."
+  },
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "sql-import/rs.sql",
+        "content": "create table tbl_alpha (\n    id bigserial primary key,\n    name varchar(40)\n);\n\ncreate table old_beta (\n    id bigserial primary key,\n    name varchar(40)\n);\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "sql-import/rs.sql",
+    "anchor": "create "
+  },
+  "action": {
+    "title": "Generate entities from SQL file…"
+  },
+  "prompts": [
+    {
+      "pickMany": [
+        "tbl_alpha",
+        "old_beta"
+      ]
+    },
+    {
+      "pick": "java"
+    },
+    {
+      "pick": "com.example.billing.domain"
+    },
+    {
+      "pickMany": [
+        "singular",
+        "tablePrefix"
+      ]
+    },
+    {
+      "input": "tbl_,old_"
+    },
+    "default",
+    "default",
+    {
+      "pickMany": [
+        "\u0000all"
+      ]
+    },
+    {
+      "pickMany": [
+        "\u0000all"
+      ]
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "createdFiles": [
+      {
+        "path": "src/main/java/com/example/billing/domain/Alpha.java",
+        "contains": [
+          "public class Alpha"
+        ]
+      },
+      {
+        "path": "src/main/java/com/example/billing/domain/Beta.java",
+        "contains": [
+          "public class Beta"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "Two tables with different prefixes and a comma-separated prefix list."
+}

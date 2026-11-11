@@ -1,0 +1,54 @@
+{
+  "id": "RS-108",
+  "rows": [
+    "G051"
+  ],
+  "claimIds": [
+    "G051-C1"
+  ],
+  "verifies": {
+    "G051-C1": "the action converts a derived query method into an @Query method with a readable JPQL string; the method remains in the repository"
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "replace": {
+        "file": "src/main/java/com/example/shop/repository/CustomerRepository.java",
+        "from": "    boolean existsByEmail",
+        "to": "    Optional<Customer> findByVersion(long version);\n\n    boolean existsByEmail"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/shop/repository/CustomerRepository.java",
+    "anchor": "interface CustomerRepository"
+  },
+  "action": {
+    "title": "Convert derived query to @Query\u2026"
+  },
+  "prompts": [
+    {
+      "pick": "findByVersion"
+    },
+    {
+      "input": "findByVersion"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "resultFile": {
+      "path": "src/main/java/com/example/shop/repository/CustomerRepository.java",
+      "matches": [
+        "@Query\\(\"select \\w+ from Customer \\w+ where \\w+\\.version = :version\"\\)\\s+Optional<Customer>\\s+findByVersion\\(@Param\\(\"version\"\\) long version\\)"
+      ]
+    }
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "Derived-to-JPQL conversion of a method with a primitive parameter."
+}

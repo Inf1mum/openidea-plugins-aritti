@@ -1,0 +1,63 @@
+{
+  "id": "RS-201",
+  "rows": [
+    "G026"
+  ],
+  "claimIds": [
+    "G026-C1"
+  ],
+  "verifies": {
+    "G026-C1": "a Hibernate custom type (a class implementing org.hibernate.usertype.UserType) is generated for an attribute and the attribute is assigned to it with @Type. Only the generation capability is checked: the inspector/structure Add button is a desktop surface. C2 (parameter-based behaviour option) and C3 (inspection with quick fix assigning types) are not offered by the plugin and are not claimed."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/Ticket.java",
+        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Ticket {\n\n    @Id\n    private Long id;\n\n    private Boolean active;\n\n    private String nickname;\n\n    protected Ticket() {\n    }\n}\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Ticket.java",
+    "anchor": "class Ticket"
+  },
+  "action": {
+    "title": "Create Hibernate user type…"
+  },
+  "prompts": [
+    {
+      "pick": "nickname"
+    },
+    {
+      "input": "NicknameType"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "createdFiles": [
+      {
+        "path": "src/main/java/com/example/shop/domain/NicknameType.java",
+        "contains": [
+          "implements UserType<String>"
+        ]
+      }
+    ],
+    "resultFile": [
+      {
+        "path": "src/main/java/com/example/shop/domain/Ticket.java",
+        "contains": [
+          "@Type(NicknameType.class)"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "Generate a Hibernate 6 UserType for a String attribute."
+}

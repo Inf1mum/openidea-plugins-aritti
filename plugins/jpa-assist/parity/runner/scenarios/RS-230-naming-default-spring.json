@@ -1,0 +1,48 @@
+{
+  "id": "RS-230",
+  "rows": [
+    "G032"
+  ],
+  "claimIds": [
+    "G032-C1"
+  ],
+  "verifies": {
+    "G032-C1": "with no naming strategy configured the physical name of PetType (no @Table) is pet_type and of birthDate is birth_date (camel case to underscores, lower case). Observed through the copy-ddl command, which is the only headless surface that prints the physical name; with an explicit @Table name the claim's second half is not checked."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "command",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/PetType.java",
+        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class PetType {\n\n    @Id\n    private Long id;\n\n    private String birthDate;\n\n    protected PetType() {\n    }\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/resources/application.properties",
+        "content": "spring.application.name=boot-jpa-java-jakarta\nspring.jpa.hibernate.ddl-auto=validate\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/PetType.java",
+    "anchor": "class PetType"
+  },
+  "action": {
+    "command": "copy-ddl"
+  },
+  "prompts": [
+    {
+      "pick": "postgresql"
+    }
+  ],
+  "expect": {
+    "clipboardContains": [
+      "CREATE TABLE pet_type",
+      "birth_date"
+    ],
+    "noFilesChanged": true
+  },
+  "note": "copy-ddl on an entity without @Table and without a naming strategy property."
+}

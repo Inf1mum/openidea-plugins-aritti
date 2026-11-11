@@ -1,0 +1,58 @@
+{
+  "id": "RS-130",
+  "rows": [
+    "G058"
+  ],
+  "claimIds": [
+    "G058-C1",
+    "G058-C2",
+    "G058-C3"
+  ],
+  "verifies": {
+    "G058-C1": "the created repository implements RevisionRepository (a separate action rather than a checkbox in the repository window)",
+    "G058-C2": "entity type, ID type and revision number type are inserted automatically: RevisionRepository<Client, Long, Integer> without being asked",
+    "G058-C3": "a Spring Data revision repository is created for the audited entity"
+  },
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "target": {
+    "file": "src/main/java/com/example/billing/domain/Client.java",
+    "anchor": "class Client"
+  },
+  "action": {
+    "title": "Create revision repository\u2026"
+  },
+  "prompts": [
+    {
+      "input": "ClientRevisionRepository"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "input",
+        "titleContains": "Revision repository name"
+      },
+      {
+        "kind": "confirm"
+      }
+    ],
+    "createdFiles": [
+      {
+        "path": "src/main/java/com/example/billing/domain/ClientRevisionRepository.java",
+        "contains": [
+          "interface ClientRevisionRepository",
+          "RevisionRepository<Client, Long, Integer>"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "Revision repository for Client."
+}

@@ -1,0 +1,95 @@
+{
+  "id": "RS-218",
+  "rows": [
+    "G100"
+  ],
+  "claimIds": [
+    "G100-C1"
+  ],
+  "verifies": {
+    "G100-C1": "the comments option offers copying database comments as Javadoc (created file has the table and column text in /** */), AND offers @Comment as an alternative (the options list must include an item mentioning @Comment). The ignore choice is the option left unchosen and is not checked."
+  },
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "sql-import/rs.sql",
+        "content": "create table customers (\n    id bigserial primary key,\n    email varchar(160) not null\n);\n\ncomment on table customers is 'People who buy things';\ncomment on column customers.email is 'Login e-mail address';\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "sql-import/rs.sql",
+    "anchor": "create "
+  },
+  "action": {
+    "title": "Generate entities from SQL file…"
+  },
+  "prompts": [
+    {
+      "pickMany": [
+        "customers"
+      ]
+    },
+    {
+      "pick": "java"
+    },
+    {
+      "pick": "com.example.billing.domain"
+    },
+    {
+      "pickMany": [
+        "comments"
+      ]
+    },
+    {
+      "pickMany": [
+        "\u0000all"
+      ]
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pickMany",
+        "titleContains": "Tables to generate"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "Entity language"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "Target package"
+      },
+      {
+        "kind": "pickMany",
+        "titleContains": "Generation options",
+        "optionsInclude": [
+          "comments",
+          "@Comment"
+        ],
+        "name": "comment handling options"
+      }
+    ],
+    "createdFiles": [
+      {
+        "path": "src/main/java/com/example/billing/domain/Customers.java",
+        "contains": [
+          "/**",
+          "People who buy things",
+          "Login e-mail address"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "customers table with table and column comments."
+}

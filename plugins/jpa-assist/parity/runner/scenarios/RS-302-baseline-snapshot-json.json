@@ -1,0 +1,47 @@
+{
+  "id": "RS-302",
+  "rows": [
+    "G105"
+  ],
+  "claimIds": [
+    "G105-C1"
+  ],
+  "verifies": {
+    "G105-C1": "the Create schema baseline action writes one JSON document (a JSON object file) capturing the model; the New > Data Model Snapshot menu and the Persistence tool window are not covered."
+  },
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "target": {
+    "file": "src/main/java/com/example/billing/domain/Client.java",
+    "anchor": "class Client"
+  },
+  "action": {
+    "title": "Create schema baseline…"
+  },
+  "prompts": [
+    {
+      "confirm": "yes"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "createdFiles": [
+      {
+        "path": "db/jpa-schema-baseline.json"
+      }
+    ],
+    "resultFile": {
+      "path": "db/jpa-schema-baseline.json",
+      "matches": [
+        "^\\s*\\{[\\s\\S]*\\}\\s*$"
+      ]
+    }
+  },
+  "checks": {
+    "undo": true,
+    "cancelEach": true
+  },
+  "note": "Baseline snapshot file is a JSON document."
+}

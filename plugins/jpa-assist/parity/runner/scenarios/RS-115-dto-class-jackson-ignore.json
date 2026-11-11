@@ -1,0 +1,73 @@
+{
+  "id": "RS-115",
+  "rows": [
+    "G061"
+  ],
+  "claimIds": [
+    "G061-C1"
+  ],
+  "verifies": {
+    "G061-C1": "choosing the ignore-unknown Jackson option adds @JsonIgnoreProperties(ignoreUnknown = true) to the DTO (the pom literally declares Jackson, written by setup)"
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "replace": {
+        "file": "pom.xml",
+        "from": "    <dependencies>\n",
+        "to": "    <dependencies>\n        <dependency>\n            <groupId>com.fasterxml.jackson.core</groupId>\n            <artifactId>jackson-annotations</artifactId>\n        </dependency>\n        <dependency>\n            <groupId>com.fasterxml.jackson.core</groupId>\n            <artifactId>jackson-databind</artifactId>\n        </dependency>\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Category.java",
+    "anchor": "class Category"
+  },
+  "action": {
+    "title": "Create DTO class with preview\u2026"
+  },
+  "prompts": [
+    {
+      "pick": "pojo"
+    },
+    {
+      "input": "CategoryJsonDto"
+    },
+    {
+      "pickMany": [
+        "id",
+        "name"
+      ]
+    },
+    {
+      "pick": "create-new"
+    },
+    {
+      "pickMany": [
+        "no-args"
+      ]
+    },
+    {
+      "pick": "ignore-unknown"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "createdFiles": [
+      {
+        "path": "src/main/java/com/example/shop/domain/CategoryJsonDto.java",
+        "contains": [
+          "@JsonIgnoreProperties(ignoreUnknown = true)"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "Jackson ignore-unknown."
+}

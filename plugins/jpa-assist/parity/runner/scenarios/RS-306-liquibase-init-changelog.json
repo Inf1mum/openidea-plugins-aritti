@@ -1,0 +1,86 @@
+{
+  "id": "RS-306",
+  "rows": [
+    "G107"
+  ],
+  "claimIds": [
+    "G107-C1"
+  ],
+  "verifies": {
+    "G107-C1": "Init Schema Changelog from Model generates DDL changesets with a preview: without any baseline the Liquibase action is expected to create a changelog with createTable changesets for the entities"
+  },
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "swap": {
+        "file": "pom.xml",
+        "with": "liquibase-variant/pom.xml"
+      }
+    },
+    {
+      "swap": {
+        "file": "src/main/resources/application.properties",
+        "with": "liquibase-variant/overlay/application.properties"
+      }
+    },
+    {
+      "delete": "src/main/resources/db/migration"
+    },
+    {
+      "delete": "src/main/java/db/migration"
+    },
+    {
+      "copy": {
+        "from": "liquibase-variant/overlay/resources/db/changelog",
+        "to": "src/main/resources/db/changelog"
+      }
+    },
+    {
+      "settings": {
+        "liquibaseChangelogNamePattern": "diff-{description}.xml"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/billing/domain/Client.java",
+    "anchor": "class Client"
+  },
+  "action": {
+    "title": "Generate Liquibase changelog from model changes…"
+  },
+  "prompts": [
+    {
+      "pickMany": [
+        "data-loss"
+      ]
+    },
+    {
+      "input": "jpa-assist"
+    },
+    {
+      "input": "cs"
+    },
+    {
+      "input": "init"
+    },
+    {
+      "confirm": "yes"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "createdFiles": [
+      {
+        "path": "src/main/resources/db/changelog/diff-init.xml",
+        "contains": [
+          "<createTable tableName=\"client\">",
+          "<createTable tableName=\"invoice\">"
+        ]
+      }
+    ]
+  },
+  "note": "Init changelog without a baseline on the Liquibase variant."
+}

@@ -1,0 +1,56 @@
+{
+  "id": "RS-132",
+  "rows": [
+    "G130",
+    "G134"
+  ],
+  "claimIds": [
+    "G130-C3",
+    "G134-C2"
+  ],
+  "verifies": {
+    "G130-C3": "the injection strategy is selectable: with injectionStyle=field-autowired the repository is injected as an @Autowired field",
+    "G134-C2": "same sentence; the strategy is a setting, not a per-action prompt"
+  },
+  "fixture": "mapstruct-lombok-dto",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "settings": {
+        "injectionStyle": "field-autowired"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/crm/service/AccountService.java",
+    "anchor": "class AccountService"
+  },
+  "action": {
+    "title": "Inject repository\u2026"
+  },
+  "prompts": [
+    {
+      "pickLabel": "AccountRepository"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "resultFile": {
+      "path": "src/main/java/com/example/crm/service/AccountService.java",
+      "contains": [
+        "@Autowired",
+        "AccountRepository"
+      ],
+      "notContains": [
+        "public AccountService("
+      ]
+    }
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "Field injection by setting."
+}

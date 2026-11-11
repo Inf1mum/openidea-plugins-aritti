@@ -1,0 +1,27 @@
+{
+  "id": "RS-101",
+  "rows": [
+    "G036"
+  ],
+  "claimIds": [
+    "G036-C3"
+  ],
+  "verifies": {
+    "G036-C3": "the dedicated single-entity action refuses an entity without an @Id field (MissingIdentifierDefect) and creates nothing. RS-002 covers the batch action."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "target": {
+    "file": "src/main/java/com/example/shop/defects/MissingIdentifierDefect.java",
+    "anchor": "class MissingIdentifierDefect"
+  },
+  "action": {
+    "title": "Create Spring Data repository with options\u2026"
+  },
+  "prompts": [],
+  "expect": {
+    "resolveErrorContains": "No @Id",
+    "noFilesChanged": true
+  },
+  "note": "Single repository action on an entity without an identifier."
+}

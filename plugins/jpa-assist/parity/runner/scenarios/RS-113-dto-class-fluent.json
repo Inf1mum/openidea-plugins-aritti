@@ -1,0 +1,68 @@
+{
+  "id": "RS-113",
+  "rows": [
+    "G060"
+  ],
+  "claimIds": [
+    "G060-C1",
+    "G060-C2"
+  ],
+  "verifies": {
+    "G060-C1": "the fluent form generates setters that return this",
+    "G060-C2": "fields are private and setters are generated (same sentence as G059-C3); only-with-Mutable is not a toggle here, the fluent form is itself a mutable form"
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Category.java",
+    "anchor": "class Category"
+  },
+  "action": {
+    "title": "Create DTO class with preview\u2026"
+  },
+  "prompts": [
+    {
+      "pick": "fluent"
+    },
+    {
+      "input": "CategoryFluentDto"
+    },
+    {
+      "pickMany": [
+        "id",
+        "name"
+      ]
+    },
+    {
+      "pick": "create-new"
+    },
+    {
+      "pickMany": [
+        "no-args"
+      ]
+    },
+    {
+      "pick": "none"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "createdFiles": [
+      {
+        "path": "src/main/java/com/example/shop/domain/CategoryFluentDto.java",
+        "contains": [
+          "private String name;",
+          "public CategoryFluentDto setName(String name)",
+          "return this;"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "Fluent DTO."
+}

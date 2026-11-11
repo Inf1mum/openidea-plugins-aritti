@@ -1,0 +1,106 @@
+{
+  "id": "RS-237",
+  "rows": [
+    "G015",
+    "G018"
+  ],
+  "claimIds": [
+    "G015-C1",
+    "G018-C2"
+  ],
+  "verifies": {
+    "G015-C1": "the entity creation flow generating an ID attribute asks for the ID type (pick listing Long and UUID) and then the generation strategy (pick listing Sequence and Identity).",
+    "G018-C2": "same sentence as G015-C1 (the New Entity window generates an ID attribute with an ID type and a generation strategy choice); checked by the same two prompts."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Category.java",
+    "anchor": "class Category"
+  },
+  "action": {
+    "title": "Generate JPA entity with identifier options…"
+  },
+  "prompts": [
+    {
+      "pick": "jakarta"
+    },
+    {
+      "input": "Gadget"
+    },
+    "default",
+    {
+      "input": "id"
+    },
+    "default",
+    {
+      "pick": "long"
+    },
+    {
+      "pick": "sequence"
+    },
+    "default",
+    "default",
+    {
+      "input": "1"
+    },
+    {
+      "input": "50"
+    },
+    {
+      "pickMany": [
+        "version"
+      ]
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pick",
+        "titleContains": "Persistence namespace"
+      },
+      {
+        "kind": "input",
+        "titleContains": "Entity class name"
+      },
+      {
+        "kind": "input",
+        "titleContains": "Table name"
+      },
+      {
+        "kind": "input",
+        "titleContains": "Identifier attribute name"
+      },
+      {
+        "kind": "input",
+        "titleContains": "Identifier column name"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "Identifier type",
+        "optionsInclude": [
+          "Long",
+          "UUID"
+        ],
+        "name": "ID type"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "Identifier generation",
+        "optionsInclude": [
+          "Sequence",
+          "Identity"
+        ],
+        "name": "generation strategy"
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "Generate a Gadget entity choosing a Long id with a sequence strategy."
+}

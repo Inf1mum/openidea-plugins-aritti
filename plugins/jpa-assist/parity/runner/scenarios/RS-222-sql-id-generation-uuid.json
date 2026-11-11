@@ -1,0 +1,74 @@
+{
+  "id": "RS-222",
+  "rows": [
+    "G099"
+  ],
+  "claimIds": [
+    "G099-C1"
+  ],
+  "verifies": {
+    "G099-C1": "the documented UUID id generation choice: with the setting at uuid a uuid primary key gets @GeneratedValue with GenerationType.UUID (editsContain). Only the UUID choice of C1 is checked here."
+  },
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "sql-import/rs.sql",
+        "content": "create table docs (\n    id uuid primary key,\n    title varchar(40)\n);\n"
+      }
+    },
+    {
+      "settings": {
+        "sqlImportIdGeneration": "uuid"
+      }
+    }
+  ],
+  "target": {
+    "file": "sql-import/rs.sql",
+    "anchor": "create "
+  },
+  "action": {
+    "title": "Generate entities from SQL file…"
+  },
+  "prompts": [
+    {
+      "pick": "postgresql"
+    },
+    {
+      "pickMany": [
+        "docs"
+      ]
+    },
+    {
+      "pick": "java"
+    },
+    {
+      "pick": "com.example.billing.domain"
+    },
+    {
+      "pickMany": [
+        "singular"
+      ]
+    },
+    "default",
+    {
+      "pickMany": [
+        "\u0000all"
+      ]
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "editsContain": [
+      "GenerationType\\.UUID"
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "docs table with a uuid key and the id generation setting at uuid."
+}

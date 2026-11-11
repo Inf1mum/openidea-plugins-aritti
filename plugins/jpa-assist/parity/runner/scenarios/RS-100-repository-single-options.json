@@ -1,0 +1,80 @@
+{
+  "id": "RS-100",
+  "rows": [
+    "G036"
+  ],
+  "claimIds": [
+    "G036-C1"
+  ],
+  "verifies": {
+    "G036-C1": "the dedicated action offers a parent-interface choice, a JpaSpecificationExecutor yes/no option and a repository-name input, and the created file carries the chosen parent, the specification executor and the name. Entity selection is the action's target; source root and package are not offered (the file is created beside the entity), so those parts of the sentence are not checked."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Category.java",
+    "anchor": "class Category"
+  },
+  "action": {
+    "title": "Create Spring Data repository with options\u2026"
+  },
+  "prompts": [
+    {
+      "pick": "CrudRepository"
+    },
+    {
+      "pick": "yes"
+    },
+    {
+      "input": "CategoryCatalogRepository"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pick",
+        "titleContains": "parent",
+        "optionsInclude": [
+          "JpaRepository",
+          "CrudRepository"
+        ],
+        "name": "parent interface choice"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "JpaSpecificationExecutor",
+        "optionsInclude": [
+          "yes",
+          "no"
+        ],
+        "name": "specification executor option"
+      },
+      {
+        "kind": "input",
+        "titleContains": "name",
+        "name": "repository name"
+      },
+      {
+        "kind": "confirm",
+        "name": "preview"
+      }
+    ],
+    "createdFiles": [
+      {
+        "path": "src/main/java/com/example/shop/domain/CategoryCatalogRepository.java",
+        "contains": [
+          "interface CategoryCatalogRepository",
+          "extends CrudRepository<Category, Long>, JpaSpecificationExecutor<Category>"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "Single-entity repository creation with parent, specification executor and name."
+}

@@ -1,0 +1,139 @@
+{
+  "id": "RS-300",
+  "rows": [
+    "G109"
+  ],
+  "claimIds": [
+    "G109-C1"
+  ],
+  "verifies": {
+    "G109-C1": "after a baseline, renaming Client.email to Client.mail produces a drop of the old column and an add of the new one in the generated SQL (the data-loss opt-in is answered so the drop is emitted). C2/C3 (merge into one rename from the preview, remove redundant drops) are a packaged web-view checkbox and are not covered."
+  },
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "settings": {
+        "flywayVersionPattern": "#date(yyyyMMdd)"
+      }
+    }
+  ],
+  "preActions": [
+    {
+      "title": "Create schema baseline…",
+      "target": {
+        "file": "src/main/java/com/example/billing/domain/Client.java",
+        "anchor": "class Client"
+      },
+      "prompts": [
+        {
+          "confirm": "yes"
+        }
+      ]
+    }
+  ],
+  "postSetup": [
+    {
+      "replace": {
+        "file": "src/main/java/com/example/billing/domain/Client.java",
+        "from": "    @Column(length = 160)\n    private String email;",
+        "to": "    @Column(length = 160)\n    private String mail;"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/billing/domain/Client.java",
+    "anchor": "class Client"
+  },
+  "action": {
+    "title": "Generate Flyway migration from model changes…"
+  },
+  "prompts": [
+    {
+      "pick": "postgresql"
+    },
+    {
+      "pickMany": [
+        "data-loss"
+      ]
+    },
+    {
+      "input": "rename_email"
+    },
+    {
+      "input": "20240131"
+    },
+    {
+      "confirm": "yes"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pick",
+        "titleContains": "dialect",
+        "optionsInclude": [
+          "postgresql",
+          "mysql"
+        ],
+        "name": "dialect without a database connection"
+      },
+      {
+        "kind": "pickMany",
+        "titleContains": "withheld",
+        "optionsInclude": [
+          "needs-backfill",
+          "data-loss"
+        ],
+        "name": "opt-in to withheld statements"
+      },
+      {
+        "kind": "input",
+        "titleContains": "description",
+        "name": "migration description"
+      },
+      {
+        "kind": "input",
+        "titleContains": "Date for the file name",
+        "name": "date for the #date token"
+      },
+      {
+        "kind": "confirm",
+        "titleContains": "incomplete",
+        "name": "unknown facts reported"
+      },
+      {
+        "kind": "confirm",
+        "titleContains": "Create Flyway migration",
+        "messageContains": "Exact SQL file",
+        "name": "preview before saving"
+      }
+    ],
+    "createdFiles": [
+      {
+        "path": "src/main/resources/db/migration/V20240131__rename_email.sql"
+      }
+    ],
+    "resultFile": {
+      "path": "src/main/resources/db/migration/V20240131__rename_email.sql",
+      "matches": [
+        "ALTER TABLE \"client\" ADD COLUMN \"mail\"",
+        "ALTER TABLE \"client\" DROP COLUMN \"email\""
+      ]
+    }
+  },
+  "checks": {
+    "preview": {
+      "paths": [
+        "V20240131__rename_email.sql"
+      ]
+    },
+    "undo": true,
+    "cancelEach": true,
+    "stale": true
+  },
+  "note": "Rename of a column is emitted as drop plus add (no merge offered in the file action)."
+}

@@ -1,0 +1,61 @@
+{
+  "id": "RS-314",
+  "rows": [
+    "G117"
+  ],
+  "claimIds": [
+    "G117-C2",
+    "G117-C3"
+  ],
+  "verifies": {
+    "G117-C2": "the file name is asked as a description only; prefix V and the next version are filled in automatically (V4 after V1, V2 SQL and V3 Java), the migration lands in the default db.migration package. Changing the source root or package is not offered and not checked.",
+    "G117-C3": "the class name follows the Flyway naming pattern V<version>__<description> and extends BaseJavaMigration with migrate(Context)"
+  },
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "target": {
+    "file": "src/main/java/com/example/billing/domain/Client.java",
+    "anchor": "class Client"
+  },
+  "action": {
+    "title": "Create Flyway Java migration…"
+  },
+  "prompts": [
+    {
+      "input": "AddScore"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "input",
+        "titleContains": "description",
+        "name": "description only"
+      }
+    ],
+    "createdFiles": [
+      {
+        "path": "src/main/java/db/migration/V4__AddScore.java",
+        "contains": [
+          "package db.migration;",
+          "class V4__AddScore extends BaseJavaMigration",
+          "migrate(Context context)"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": {
+      "paths": [
+        "V20240131__rename_email.sql"
+      ]
+    },
+    "undo": true,
+    "cancelEach": true,
+    "stale": true
+  },
+  "note": "Java migration skeleton."
+}

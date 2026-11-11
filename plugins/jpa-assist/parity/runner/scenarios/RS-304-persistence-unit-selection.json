@@ -1,0 +1,50 @@
+{
+  "id": "RS-304",
+  "rows": [
+    "G104",
+    "G106"
+  ],
+  "claimIds": [
+    "G104-C2",
+    "G106-C1"
+  ],
+  "verifies": {
+    "G104-C2": "a persistence unit must be selected before the model snapshot is taken; the first prompt of the baseline action is expected to be a pick over the persistence units of persistence.xml (shopPuA, shopPuB)",
+    "G106-C1": "same sentence: a persistence unit must be selected, runs are per unit"
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "copy": {
+        "from": "persistence-xml-variant/persistence-defects.xml",
+        "to": "src/main/resources/META-INF/persistence.xml"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Category.java",
+    "anchor": "class Category"
+  },
+  "action": {
+    "title": "Create schema baseline…"
+  },
+  "prompts": [
+    {
+      "confirm": "yes"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pick",
+        "titleContains": "persistence unit",
+        "name": "persistence unit choice"
+      }
+    ]
+  },
+  "note": "boot-jpa-java-jakarta with a two-unit persistence.xml; the documented unit selection is expected before the snapshot."
+}

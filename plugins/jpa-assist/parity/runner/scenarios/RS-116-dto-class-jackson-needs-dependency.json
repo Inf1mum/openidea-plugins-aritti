@@ -1,0 +1,51 @@
+{
+  "id": "RS-116",
+  "rows": [
+    "G061"
+  ],
+  "claimIds": [
+    "G061-C2"
+  ],
+  "verifies": {
+    "G061-C2": "without a Jackson annotations dependency in the project the Jackson option cannot be used: the action refuses (the option is still listed in the prompt, it is not hidden)"
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Category.java",
+    "anchor": "class Category"
+  },
+  "action": {
+    "title": "Create DTO class with preview\u2026"
+  },
+  "prompts": [
+    {
+      "pick": "pojo"
+    },
+    {
+      "input": "CategoryJsonDto"
+    },
+    {
+      "pickMany": [
+        "id",
+        "name"
+      ]
+    },
+    {
+      "pick": "create-new"
+    },
+    {
+      "pickMany": [
+        "no-args"
+      ]
+    },
+    {
+      "pick": "ignore-unknown"
+    }
+  ],
+  "expect": {
+    "resolveErrorContains": "Jackson",
+    "noFilesChanged": true
+  },
+  "note": "Jackson option without the dependency."
+}

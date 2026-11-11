@@ -1,0 +1,31 @@
+{
+  "id": "RS-117",
+  "rows": [
+    "G062"
+  ],
+  "claimIds": [
+    "G062-C3"
+  ],
+  "verifies": {
+    "G062-C3": "a Lombok DTO form needs Lombok in the project: with no lombok import and no lombok dependency the action refuses and creates nothing"
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Category.java",
+    "anchor": "class Category"
+  },
+  "action": {
+    "title": "Create DTO class with preview\u2026"
+  },
+  "prompts": [
+    {
+      "pick": "lombok-data"
+    }
+  ],
+  "expect": {
+    "resolveErrorContains": "Lombok",
+    "noFilesChanged": true
+  },
+  "note": "Lombok form without Lombok."
+}

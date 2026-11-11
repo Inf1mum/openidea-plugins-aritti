@@ -1,0 +1,83 @@
+{
+  "id": "RS-325",
+  "rows": [
+    "G125"
+  ],
+  "claimIds": [
+    "G125-C3"
+  ],
+  "verifies": {
+    "G125-C3": "migration scripts are generated for audit tables: adding a column to the audited Client yields a statement for both client and client_aud"
+  },
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "settings": {
+        "flywayVersionPattern": "#date(yyyyMMdd)"
+      }
+    }
+  ],
+  "preActions": [
+    {
+      "title": "Create schema baseline…",
+      "target": {
+        "file": "src/main/java/com/example/billing/domain/Client.java",
+        "anchor": "class Client"
+      },
+      "prompts": [
+        {
+          "confirm": "yes"
+        }
+      ]
+    }
+  ],
+  "postSetup": [
+    {
+      "replace": {
+        "file": "src/main/java/com/example/billing/domain/Client.java",
+        "from": "    private String notes;",
+        "to": "    private String notes;\n\n    @Column(nullable = true)\n    private Integer score;"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/billing/domain/Client.java",
+    "anchor": "class Client"
+  },
+  "action": {
+    "title": "Generate Flyway migration from model changes…"
+  },
+  "prompts": [
+    {
+      "pick": "postgresql"
+    },
+    {
+      "pickMany": [
+        "data-loss"
+      ]
+    },
+    {
+      "input": "audit"
+    },
+    {
+      "input": "20240131"
+    },
+    {
+      "confirm": "yes"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "resultFile": {
+      "path": "src/main/resources/db/migration/V20240131__audit.sql",
+      "contains": [
+        "ALTER TABLE \"client\" ADD COLUMN \"score\"",
+        "ALTER TABLE \"client_aud\" ADD COLUMN \"score\""
+      ]
+    }
+  },
+  "note": "Audit table migration."
+}

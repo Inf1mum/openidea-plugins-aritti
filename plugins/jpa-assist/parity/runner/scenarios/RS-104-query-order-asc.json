@@ -1,0 +1,97 @@
+{
+  "id": "RS-104",
+  "rows": [
+    "G042",
+    "S004"
+  ],
+  "claimIds": [
+    "G042-C2",
+    "S004-C1",
+    "S004-C4"
+  ],
+  "verifies": {
+    "G042-C2": "an Order by prompt lists the entity attributes; ascending order on a chosen attribute appears as OrderBy<Attr>Asc in the method name",
+    "S004-C1": "same sentence as G042-C2: fields to order by can be specified",
+    "S004-C4": "the condition step is one multi-selection over the entity attributes with one operator prompt per selected condition"
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "target": {
+    "file": "src/main/java/com/example/shop/repository/ProductRepository.java",
+    "anchor": "interface ProductRepository"
+  },
+  "action": {
+    "title": "Add query method with preview\u2026"
+  },
+  "prompts": [
+    {
+      "pick": "find"
+    },
+    {
+      "pickMany": [
+        "name"
+      ]
+    },
+    {
+      "pick": "is"
+    },
+    {
+      "pick": "name"
+    },
+    {
+      "pick": "asc"
+    },
+    {
+      "input": ""
+    },
+    {
+      "pick": "list"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pick",
+        "titleContains": "subject"
+      },
+      {
+        "kind": "pickMany",
+        "titleContains": "condition",
+        "optionsInclude": [
+          "name",
+          "price"
+        ],
+        "name": "conditions are entity attributes"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "operator",
+        "name": "one operator per condition"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "order by",
+        "optionsInclude": [
+          "none",
+          "name",
+          "price"
+        ],
+        "name": "ordering fields"
+      }
+    ],
+    "resultFile": {
+      "path": "src/main/java/com/example/shop/repository/ProductRepository.java",
+      "matches": [
+        "List<Product>\\s+findByNameOrderByNameAsc\\(String name\\)"
+      ]
+    }
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "Ascending order on Product."
+}

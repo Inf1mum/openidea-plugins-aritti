@@ -1,0 +1,63 @@
+{
+  "id": "RS-121",
+  "rows": [
+    "G063",
+    "G065"
+  ],
+  "claimIds": [
+    "G063-C2",
+    "G065-C1"
+  ],
+  "verifies": {
+    "G063-C2": "the flat form turns the inner class fields into top-level fields whose names combine the inner property name with the field name (customer + name -> customerName)",
+    "G065-C1": "same sentence"
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/CustomerProfile.java",
+    "anchor": "class CustomerProfile"
+  },
+  "action": {
+    "title": "Create flattened DTO\u2026"
+  },
+  "prompts": [
+    {
+      "input": "ProfileFlatDto"
+    },
+    {
+      "pickMany": [
+        "biography"
+      ]
+    },
+    {
+      "pickMany": [
+        "customer"
+      ]
+    },
+    {
+      "pickMany": [
+        "name"
+      ]
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "createdFiles": [
+      {
+        "path": "src/main/java/com/example/shop/domain/ProfileFlatDto.java",
+        "contains": [
+          "biography",
+          "customerName"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "Flattened DTO."
+}

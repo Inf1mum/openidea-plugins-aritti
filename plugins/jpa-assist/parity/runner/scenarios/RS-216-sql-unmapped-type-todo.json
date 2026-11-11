@@ -1,0 +1,68 @@
+{
+  "id": "RS-216",
+  "rows": [
+    "G094"
+  ],
+  "claimIds": [
+    "G094-C1"
+  ],
+  "verifies": {
+    "G094-C1": "an unmapped SQL type column is emitted commented out with a TODO marker (editsContain a '//' comment containing TODO). The skip choice of the deferred prompt is used."
+  },
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "sql-import/rs.sql",
+        "content": "create table places (\n    id bigserial primary key,\n    name varchar(80),\n    area geometry\n);\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "sql-import/rs.sql",
+    "anchor": "create "
+  },
+  "action": {
+    "title": "Generate entities from SQL file…"
+  },
+  "prompts": [
+    {
+      "pickMany": [
+        "places"
+      ]
+    },
+    {
+      "pick": "java"
+    },
+    {
+      "pick": "com.example.billing.domain"
+    },
+    {
+      "pickMany": [
+        "deferred"
+      ]
+    },
+    {
+      "pickMany": [
+        "\u0000all"
+      ]
+    },
+    {
+      "pick": "skip"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "editsContain": [
+      "(?i)//[^\\n]*TODO"
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "places table with a geometry column, deferred option, column skipped."
+}

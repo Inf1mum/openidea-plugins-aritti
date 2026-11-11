@@ -1,0 +1,60 @@
+{
+  "id": "RS-239",
+  "rows": [
+    "G017"
+  ],
+  "claimIds": [
+    "G017-C1"
+  ],
+  "verifies": {
+    "G017-C1": "the embedded identifier action lists @Embeddable classes of the project for selection: a plain public Serializable embeddable PairKey (public no-arg constructor, equals/hashCode, two fields) written by setup is among the picker's options. Whether every @Embeddable is listed is not claimed here (the plugin's picker is stricter, see the findings)."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/NoId.java",
+    "anchor": "class NoId"
+  },
+  "action": {
+    "title": "Add embedded identifier with preview…"
+  },
+  "prompts": [
+    {
+      "pickLabel": "PairKey"
+    },
+    "default",
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pick",
+        "optionsInclude": [
+          "PairKey"
+        ],
+        "name": "embeddable classes of the project"
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "Embedded identifier on an entity without an id.",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/NoId.java",
+        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.Entity;\n\n@Entity\npublic class NoId {\n\n    private String name;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/PairKey.java",
+        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.Embeddable;\nimport java.io.Serializable;\nimport java.util.Objects;\n\n@Embeddable\npublic class PairKey implements Serializable {\n\n    private Long left;\n\n    private Long right;\n\n    public PairKey() {\n    }\n\n    @Override\n    public boolean equals(Object other) {\n        if (this == other) {\n            return true;\n        }\n        if (!(other instanceof PairKey that)) {\n            return false;\n        }\n        return Objects.equals(left, that.left) && Objects.equals(right, that.right);\n    }\n\n    @Override\n    public int hashCode() {\n        return Objects.hash(left, right);\n    }\n}\n"
+      }
+    }
+  ]
+}

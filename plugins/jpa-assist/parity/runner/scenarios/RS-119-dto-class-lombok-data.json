@@ -1,0 +1,67 @@
+{
+  "id": "RS-119",
+  "rows": [
+    "G062"
+  ],
+  "claimIds": [
+    "G062-C2"
+  ],
+  "verifies": {
+    "G062-C2": "the mutable Lombok form produces @Data with @AllArgsConstructor and @NoArgsConstructor when both constructors are chosen"
+  },
+  "fixture": "mapstruct-lombok-dto",
+  "kind": "fileaction",
+  "target": {
+    "file": "src/main/java/com/example/crm/domain/Account.java",
+    "anchor": "class Account"
+  },
+  "action": {
+    "title": "Create DTO class with preview\u2026"
+  },
+  "prompts": [
+    {
+      "pick": "lombok-data"
+    },
+    {
+      "input": "AccountDataDto"
+    },
+    {
+      "pickMany": [
+        "id",
+        "name"
+      ]
+    },
+    {
+      "pick": "create-new"
+    },
+    {
+      "pickMany": [
+        "no-args",
+        "all-args"
+      ]
+    },
+    {
+      "pick": "none"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "createdFiles": [
+      {
+        "path": "src/main/java/com/example/crm/domain/AccountDataDto.java",
+        "contains": [
+          "@Data",
+          "@AllArgsConstructor",
+          "@NoArgsConstructor"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "Lombok @Data DTO."
+}

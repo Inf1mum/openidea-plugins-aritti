@@ -1,0 +1,67 @@
+{
+  "id": "RS-329",
+  "rows": [
+    "G066"
+  ],
+  "claimIds": [
+    "G066-C2"
+  ],
+  "verifies": {
+    "G066-C2": "with jackson-databind declared in the pom the same Jackson option is accepted and the generated DTO carries @JsonIgnoreProperties(ignoreUnknown = true) (positive case of the dependency gate)"
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "replace": {
+        "file": "pom.xml",
+        "from": "<dependencies>",
+        "to": "<dependencies>\n        <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId></dependency>"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Category.java",
+    "anchor": "class Category"
+  },
+  "action": {
+    "title": "Create DTO class with preview…"
+  },
+  "prompts": [
+    {
+      "pick": "pojo"
+    },
+    {
+      "input": "CategoryDto"
+    },
+    {
+      "pickMany": [
+        "id",
+        "name"
+      ]
+    },
+    {
+      "pick": "create-new"
+    },
+    {
+      "pickMany": [
+        "no-args"
+      ]
+    },
+    {
+      "pick": "ignore-unknown"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "resultFile": {
+      "path": "src/main/java/com/example/shop/domain/CategoryDto.java",
+      "contains": [
+        "@JsonIgnoreProperties(ignoreUnknown = true)"
+      ]
+    }
+  },
+  "note": "Jackson option with the dependency."
+}

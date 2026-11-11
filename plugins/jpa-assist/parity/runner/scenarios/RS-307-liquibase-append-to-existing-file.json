@@ -1,0 +1,112 @@
+{
+  "id": "RS-307",
+  "rows": [
+    "G112",
+    "G115"
+  ],
+  "claimIds": [
+    "G112-C4",
+    "G112-C6",
+    "G115-C3"
+  ],
+  "verifies": {
+    "G112-C4": "when the target file name already exists the changes are appended to it: the name pattern points at the existing db.changelog-master.xml and the expected result keeps the original include lines and gains the addColumn change set",
+    "G112-C6": "save either creates a new script or appends to an existing one: the append branch (existing file) is exercised",
+    "G115-C3": "same sentence as G112-C6"
+  },
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "swap": {
+        "file": "pom.xml",
+        "with": "liquibase-variant/pom.xml"
+      }
+    },
+    {
+      "swap": {
+        "file": "src/main/resources/application.properties",
+        "with": "liquibase-variant/overlay/application.properties"
+      }
+    },
+    {
+      "delete": "src/main/resources/db/migration"
+    },
+    {
+      "delete": "src/main/java/db/migration"
+    },
+    {
+      "copy": {
+        "from": "liquibase-variant/overlay/resources/db/changelog",
+        "to": "src/main/resources/db/changelog"
+      }
+    },
+    {
+      "settings": {
+        "liquibaseChangelogNamePattern": "db.changelog-master.xml"
+      }
+    }
+  ],
+  "preActions": [
+    {
+      "title": "Create schema baseline…",
+      "target": {
+        "file": "src/main/java/com/example/billing/domain/Client.java",
+        "anchor": "class Client"
+      },
+      "prompts": [
+        {
+          "confirm": "yes"
+        }
+      ]
+    }
+  ],
+  "postSetup": [
+    {
+      "replace": {
+        "file": "src/main/java/com/example/billing/domain/Client.java",
+        "from": "    private String notes;",
+        "to": "    @Column(nullable = true)\n    private Integer score;"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/billing/domain/Client.java",
+    "anchor": "class Client"
+  },
+  "action": {
+    "title": "Generate Liquibase changelog from model changes…"
+  },
+  "prompts": [
+    {
+      "pickMany": [
+        "data-loss"
+      ]
+    },
+    {
+      "input": "jpa-assist"
+    },
+    {
+      "input": "cs"
+    },
+    {
+      "input": "model_changes"
+    },
+    {
+      "confirm": "yes"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "resultFile": {
+      "path": "src/main/resources/db/changelog/db.changelog-master.xml",
+      "contains": [
+        "<include",
+        "<addColumn tableName=\"client\">"
+      ]
+    }
+  },
+  "note": "Appending a generated change to an existing changelog file."
+}

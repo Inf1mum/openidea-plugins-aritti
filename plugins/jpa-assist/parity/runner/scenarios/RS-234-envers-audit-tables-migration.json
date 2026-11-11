@@ -1,0 +1,101 @@
+{
+  "id": "RS-234",
+  "rows": [
+    "G125"
+  ],
+  "claimIds": [
+    "G125-C1",
+    "G125-C3"
+  ],
+  "verifies": {
+    "G125-C1": "after the baseline (taken with no audited entity) @Audited is added to Client: the generated migration creates the audit table client_aud for the audited entity AND the revision table revinfo.",
+    "G125-C3": "the audit tables are produced by the migration generator (the generated Flyway SQL contains them), i.e. migration scripts are generated for Envers audit tables."
+  },
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "replace": {
+        "file": "src/main/java/com/example/billing/domain/Client.java",
+        "from": "@Audited\n",
+        "to": ""
+      }
+    },
+    {
+      "replace": {
+        "file": "src/main/java/com/example/billing/domain/Invoice.java",
+        "from": "@Audited\n",
+        "to": ""
+      }
+    },
+    {
+      "settings": {
+        "flywayVersionPattern": "#date(yyyyMMdd).#increment(1, 1, 0000)"
+      }
+    }
+  ],
+  "preActions": [
+    {
+      "title": "Create schema baseline…",
+      "target": {
+        "file": "src/main/java/com/example/billing/domain/Client.java",
+        "anchor": "class Client"
+      },
+      "prompts": [
+        {
+          "confirm": "yes"
+        }
+      ]
+    }
+  ],
+  "postSetup": [
+    {
+      "replace": {
+        "file": "src/main/java/com/example/billing/domain/Client.java",
+        "from": "@Entity\n",
+        "to": "@Entity\n@Audited\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/billing/domain/Client.java",
+    "anchor": "class Client"
+  },
+  "action": {
+    "title": "Generate Flyway migration from model changes…"
+  },
+  "prompts": [
+    {
+      "pick": "postgresql"
+    },
+    {
+      "pickMany": [
+        "needs-backfill"
+      ]
+    },
+    {
+      "input": "add_audit"
+    },
+    {
+      "input": "20240131"
+    },
+    {
+      "confirm": "yes"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "createdFiles": [
+      {
+        "path": "src/main/resources/db/migration/V20240131.0003__add_audit.sql",
+        "contains": [
+          "client_aud",
+          "revinfo"
+        ]
+      }
+    ]
+  },
+  "note": "Add @Audited to Client after a baseline without any audited entity."
+}
