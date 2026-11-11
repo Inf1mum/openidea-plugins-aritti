@@ -633,6 +633,7 @@ pub(crate) fn audit_evidence(project: &Project, evidence: Evidence) -> Result<()
         ),
         checked_files: evidence.files,
         discovery_limited: false,
+        ..Report::default()
     };
     if project.root()? != evidence.root || source_files(project, &evidence.root)? != evidence.before
     {

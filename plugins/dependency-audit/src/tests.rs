@@ -721,7 +721,7 @@ fn packaged_resources_expose_domain_columns_evidence_and_original_activate_keys(
     );
     assert_eq!(model["body"]["facets"], json!([0, 2, 5, 7]));
     let items = model["body"]["items"].as_array().unwrap();
-    assert_eq!(items.len(), 4, "two dependency rows and their two advisory rows");
+    assert_eq!(items.len(), 5, "two dependency rows, their two advisory rows and one clean checked coordinate");
     let dependency = items.iter().find(|r| r["cells"][0] == "Dependency" && r["cells"][1] == "lodash").unwrap();
     assert_eq!(dependency["cells"][2], "npm");
     assert_eq!(dependency["cells"][3], "4.17.15");
@@ -827,7 +827,7 @@ fn failure_to_store_new_results_does_not_delete_a_previous_report() {
     assert_eq!(host.storage()[&key], before);
     let host = host.with_capabilities(CAPS);
     let model = resource_model(&mut plugin, &host);
-    assert_eq!(model["body"]["items"].as_array().unwrap().len(), 4);
+    assert_eq!(model["body"]["items"].as_array().unwrap().len(), 5);
 }
 
 #[test]
@@ -1250,7 +1250,7 @@ fn packaged_ignore_and_empty_report_review_restore_use_declared_controls() {
     let response:Value=serde_json::from_str(&host.view_messages().last().unwrap().1).unwrap();
     assert!(response.get("error").is_none(),"{response}");
     assert_eq!(response["model"]["body"]["kind"],"resources");
-    assert_eq!(response["model"]["body"]["items"].as_array().unwrap().len(),2);
+    assert_eq!(response["model"]["body"]["items"].as_array().unwrap().len(),4);
     assert_eq!(host.requests().len(),requests);
 }
 
@@ -1294,7 +1294,7 @@ fn external_scan_success_and_failure_invalidate_report_but_cached_render_does_no
     assert!(plugin.run_command("scan",&host.invocation(),None).is_err());
     assert_eq!(invalidations(&host).len(),messages+1);
     assert_eq!(host.storage()["scan:/project"],before);
-    let model=resource_model(&mut plugin,&host);assert!(model["status"].as_str().unwrap().contains("rescan failed"));assert_eq!(model["body"]["items"].as_array().unwrap().len(),4);
+    let model=resource_model(&mut plugin,&host);assert!(model["status"].as_str().unwrap().contains("rescan failed"));assert_eq!(model["body"]["items"].as_array().unwrap().len(),5);
 }
 #[test]
 fn scoped_ignore_restore_and_upgrade_notify_committed_state_only() {
@@ -1425,4 +1425,23 @@ fn known_malicious_evidence_is_dated_visible_and_never_inherits_an_old_upgrade()
     assert!(data.contains("123"));
     assert!(!data.contains("99.0"));
     assert!(host.requests().is_empty(),"render remains cache-only");
+}
+
+#[test]
+fn report_lists_checked_coordinates_and_skipped_files() {
+    let _host = MockHost::install();
+    let row = json!({"path":"/project/package.json","line":0,"name":"bad","version":"1.0.0","fix":null,"advisories":["GHSA-x"],"ecosystem":"npm"});
+    let report: Report = serde_json::from_value(json!({
+        "rows":[row],
+        "coordinates":[["npm","bad","1.0.0"],["npm","ok\u{7}<b>","2.0.0"]],
+        "skipped_paths":["/project/pom.xml"]
+    })).unwrap();
+    let Body::Other { data, .. } = resource_body("/project", &report, None) else { panic!() };
+    let value: Value = serde_json::from_str(&data).unwrap();
+    let items = value["items"].as_array().unwrap();
+    let kinds: Vec<_> = items.iter().map(|i| i["cells"][0].as_str().unwrap()).collect();
+    assert_eq!(kinds, ["Dependency", "Advisory", "Checked", "Skipped file"]);
+    assert_eq!(items[2]["cells"][1], "ok<b>");
+    assert_eq!(items[2]["details"][0]["value"], "npm/ok<b>@2.0.0");
+    assert_eq!(items[3]["cells"][7], "pom.xml");
 }

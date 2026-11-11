@@ -30,7 +30,7 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F24 | Dependency Audit | PyPI markers/groups/pylock | A-M | partial (pylock PyPI index) |
 | F25 | Dependency Audit | Workspace/link/alias graph | A-M | partial (npm: aliases) |
 | F26 | Dependency Audit | Coordinate-to-declaration binding; more build profiles | A-M | |
-| F27 | Dependency Audit | Ignore-profile import/export, safe-coordinate rows | A-S | partial (import/export) |
+| F27 | Dependency Audit | Ignore-profile import/export, safe-coordinate rows | A-S | done (import/export + checked/skipped rows on Scan Project; Maven/Gradle/sbt imports lack rows) |
 | F28 | Dependency Audit | Vulnerable-call analysis Java/Kotlin/Python | A-L | |
 | F29 | Dependency Audit | Native Problems Security tab, semantic member queries | H | |
 | F30 | dotenv | Runtime-loader/Compose-service/build-stage ownership | A-L | |
@@ -53,7 +53,7 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F47 | Quarkus | MPJava diagnostics while config dirty (upstream LS limit) | H | |
 | F48 | Kubernetes | Complete built-in/CRD schemas, admission/CEL, defaults | A-L | |
 | F49 | Kubernetes | Kustomize transformed/flow/remote refs; generated identity | A-M | partial (generator/replacement file refs) |
-| F50 | Kubernetes | Label graph affinity/node-label models, escaped scalar edits | A-S | partial (affinity/spread links) |
+| F50 | Kubernetes | Label graph affinity/node-label models, escaped scalar edits | A-S | done (affinity/spread links + single-line quoted escaped scalars; multiline/block still refused) |
 | F51 | Helm | Go-template scope, tpl/include, OCI registry intelligence | A-L | partial (`.Values` navigation) |
 | F52 | Devcontainer | Full JSON Schema/Compose semantics, template/feature metadata | A-M | |
 | F53 | Devcontainer | Native remote IDE backend, per-launch introspection | H | |
@@ -86,7 +86,7 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F80 | Spring Web | SpEL/EL injection, URL inlay actions | A-M | |
 | F81 | Spring Web | MVC XML imports/profiles, XSD validation | A-M | |
 | F82 | Spring Web | Template catalogue (licence); multi-action marker popup (host) | L/H | blocked |
-| F83 | Spring Web | Cloud Gateway args/DSL, Stream, discovery/config | A-M | partial (unknown expanded args) |
+| F83 | Spring Web | Cloud Gateway args/DSL, Stream, discovery/config | A-M | partial (unknown expanded args, shortcut arity) |
 | F84 | Spring Web | Cloud auto-configured model, HttpExchange/contract Feign | A-L | |
 | F85 | Spring Web | GraphQL resolver graph, non-root hints, transport | A-L | partial (Kotlin aliases, BatchMapping) |
 | F86 | Spring Web | Messaging/WebSocket dynamic SpEL, SockJS, XML schema model, broker | A-L | partial (XML enum/ref checks) |
@@ -103,4 +103,4 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F97 | Symfony | Profiler collector detail, pagination, remote modes | A-M | |
 | F98 | Symfony | Doctrine/forms/container types | A-L | |
 
-Totals at 2026-11-11: 98 items; 5 done (F14, F33, F42 plus F27/F56 counted partial), about 14 partial, F69 skipped, F82 blocked.
+Totals at 2026-11-11: 98 items. Done: F14, F27, F33, F42, F50. Skipped: F69. Blocked: F82. Partial: F15, F20, F24, F25, F32, F41, F49, F51, F56, F79, F83, F85, F86 (13). About 78 untouched.

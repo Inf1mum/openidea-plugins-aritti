@@ -109,6 +109,8 @@ struct Declaration {
     evidence: String,
 }
 
+const MAX_COORDINATE_ROWS: usize = 500;
+
 #[derive(Default, Serialize, Deserialize)]
 struct Report {
     rows: Vec<Row>,
@@ -124,6 +126,10 @@ struct Report {
     checked_files: Vec<String>,
     #[serde(default)]
     discovery_limited: bool,
+    #[serde(default)]
+    coordinates: Vec<[String; 3]>,
+    #[serde(default)]
+    skipped_paths: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -290,6 +296,7 @@ fn scan_report(project: &Project, live: &mut live::Live) -> Result<(String, bool
     let mut deps: Vec<Dep> = Vec::new();
     let mut seen = HashSet::new();
     let mut skipped = 0;
+    let mut skipped_paths: Vec<String> = Vec::new();
     for path in &files {
         if task.is_cancelled() {
             return Err(Error::Cancelled);
@@ -300,6 +307,9 @@ fn scan_report(project: &Project, live: &mut live::Live) -> Result<(String, bool
             Err(e) => {
                 host::log(LogLevel::Warn, &format!("Scan skipped {path}: {e}"));
                 skipped += 1;
+                if skipped_paths.len() < MAX_COORDINATE_ROWS {
+                    skipped_paths.push(path.clone());
+                }
                 continue;
             }
         };
@@ -349,6 +359,12 @@ fn scan_report(project: &Project, live: &mut live::Live) -> Result<(String, bool
         dependencies_checked: Some(deps.len()),
         checked_files: texts.keys().cloned().collect(),
         discovery_limited,
+        coordinates: deps
+            .iter()
+            .take(MAX_COORDINATE_ROWS)
+            .map(|d| [d.ecosystem.osv().to_owned(), d.ecosystem.osv_name(&d.name), d.version.clone()])
+            .collect(),
+        skipped_paths,
     };
     let visible = scoped::visible_count(&root,&report);
     let kept = persist_report(project, &report);

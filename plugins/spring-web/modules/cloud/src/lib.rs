@@ -377,6 +377,76 @@ fn unknown_gateway_args(text: &str, keys: &[Key]) -> Vec<Diagnostic> {
     out
 }
 
+/// Required arguments of the shipped factories: their `@NotEmpty`/`@NotNull` Config fields in
+/// spring-cloud-gateway 4.1.5 (a missing one fails binding).
+fn required_args(predicate: bool, name: &str) -> Option<&'static [&'static str]> {
+    Some(match (predicate, name) {
+        (true, "After") => &["datetime"],
+        (true, "Between") => &["datetime1", "datetime2"],
+        (true, "Cookie") => &["name", "regexp"],
+        (true, "Header") => &["header"],
+        (true, "Query") => &["param"],
+        (false, "AddRequestHeader" | "AddRequestParameter" | "AddResponseHeader" | "SetRequestHeader" | "SetResponseHeader") => &["name", "value"],
+        _ => return None,
+    })
+}
+
+/// Shortcut values a factory binds; the default `ShortcutType` ignores the rest, while Host, Method
+/// and Path gather every value into a list.
+fn positional_limit(predicate: bool, name: &str) -> Option<usize> {
+    if predicate && matches!(name, "Host" | "Method" | "Path") {
+        return None;
+    }
+    factory_args(predicate, name).map(<[_]>::len)
+}
+
+/// Too many or too few arguments of a shipped factory in a WebFlux route, in shortcut or expanded form.
+fn gateway_arity(text: &str, keys: &[Key]) -> Vec<Diagnostic> {
+    let flat = |s: &str| s.chars().filter(|c| !matches!(c, '-' | '_')).collect::<String>().to_ascii_lowercase();
+    let dynamic = |s: &str| s.contains("${") || s.contains("#{");
+    let mut out = Vec::new();
+    for k in keys {
+        let Some((list, false)) = route_list(&k.key) else { continue };
+        if dynamic(&k.value) {
+            continue;
+        }
+        let predicate = list == "predicates";
+        let kind = if predicate { "predicate" } else { "filter" };
+        let at = range(text, k.value_at, k.value_at + k.value.len());
+        let mut problem = |code: &str, message: String| out.push(Diagnostic::new(at, Severity::Warning, message).code(code));
+        if let Some(item) = k.key.strip_suffix(".name") {
+            let Some(required) = required_args(predicate, &k.value) else { continue };
+            let args: Vec<&Key> = keys.iter().filter(|a| a.key.strip_prefix(item).is_some_and(|r| r.starts_with(".args"))).collect();
+            let named: Vec<String> = args
+                .iter()
+                .filter_map(|a| a.key.strip_prefix(item)?.strip_prefix(".args."))
+                .map(|a| a.split(['.', '[']).next().unwrap_or("").to_owned())
+                .collect();
+            if named.iter().any(|n| n.starts_with("_genkey_")) || args.iter().any(|a| dynamic(&a.key) || dynamic(&a.value)) {
+                continue;
+            }
+            let missing: Vec<&str> = required.iter().copied().filter(|r| !named.iter().any(|n| flat(n) == flat(r))).collect();
+            if !missing.is_empty() {
+                problem("gateway-missing-args", format!("Gateway {kind} `{}` requires {}", k.value, missing.join(", ")));
+            }
+            continue;
+        }
+        let Some((name, rest)) = k.value.split_once('=') else { continue };
+        let name = name.trim();
+        let values = rest.split(',').map(str::trim).filter(|v| !v.is_empty()).count();
+        if let Some(limit) = positional_limit(predicate, name)
+            && values > limit
+        {
+            problem("gateway-extra-args", format!("Gateway {kind} `{name}` takes {limit} shortcut value(s); the other {} are ignored", values - limit));
+        }
+        let required = required_args(predicate, name).unwrap_or(&[]);
+        if values < required.len() {
+            problem("gateway-missing-args", format!("Gateway {kind} `{name}` requires {}", required.join(", ")));
+        }
+    }
+    out
+}
+
 fn is_jvm(doc: &Document) -> bool {
     matches!(doc.language.as_str(), "java" | "kotlin")
 }
@@ -611,6 +681,7 @@ impl CloudTools {
         let mine = stream_config(&doc.text, &keys);
         let groups = checks::Groups::from_settings();
         let mut problems = unknown_gateway_args(&doc.text, &keys);
+        problems.extend(gateway_arity(&doc.text, &keys));
         if groups.bootstrap
             && checks::is_bootstrap_file(&doc.path)
             && let Some(project) = project_of(&doc.path)
@@ -1222,6 +1293,31 @@ class StreamFunctions {
         tools.line_markers(&d);
         let codes: Vec<_> = host.diagnostics()[&d.path].iter().map(|p| written(props, p.range).to_owned()).collect();
         assert_eq!(codes, ["spring.cloud.gateway.routes[0].filters[0].args.code"]);
+    }
+
+    #[cfg(not(feature = "embedded"))]
+    #[test]
+    fn flags_gateway_shortcut_and_expanded_arity_of_shipped_factories() {
+        let host = setup();
+        let mut tools = CloudTools::default();
+        let yml = "spring:\n  cloud:\n    gateway:\n      routes:\n        - id: r\n          predicates:\n            - Path=/a,/b,/c\n            - Cookie=sid\n            - Header=X-A\n            - Host=a,b,c\n            - name: Cookie\n              args:\n                name: sid\n            - name: Query\n              args:\n                param: p\n            - Custom=a,b,c\n          filters:\n            - StripPrefix=1,2\n            - AddRequestHeader=X\n            - AddRequestHeader=X,${v}\n            - name: AddRequestHeader\n              args:\n                _genkey_0: X\n";
+        let d = doc(&format!("{RESOURCES}/application.yml"), "yaml", yml);
+        tools.line_markers(&d);
+        let found: Vec<_> = host.diagnostics()[&d.path]
+            .iter()
+            .filter(|p| p.code.as_deref().is_some_and(|c| c.starts_with("gateway-")))
+            .map(|p| (p.code.clone().unwrap(), written(yml, p.range).to_owned()))
+            .collect();
+        let found: Vec<_> = found.iter().map(|(c, w)| (c.as_str(), w.as_str())).collect();
+        assert_eq!(
+            found,
+            [
+                ("gateway-missing-args", "Cookie=sid"),
+                ("gateway-missing-args", "Cookie"),
+                ("gateway-extra-args", "StripPrefix=1,2"),
+                ("gateway-missing-args", "AddRequestHeader=X"),
+            ]
+        );
     }
 
     /// Completion labels at the `^` of `text` (not `|`: it composes functions).

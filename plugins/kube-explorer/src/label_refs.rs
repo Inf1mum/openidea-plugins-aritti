@@ -17,6 +17,7 @@ struct Scalar {
     range: Range,
     string: bool,
     exact: bool,
+    escaped: bool,
 }
 #[derive(Debug)]
 enum Node {
@@ -113,7 +114,7 @@ impl MarkedEventReceiver for Reader<'_> {
                 );
                 let start = start + usize::from(quoted);
                 let end = start + value.len();
-                let exact = self.source.get(start..end) == Some(value.as_str())
+                let raw_exact = self.source.get(start..end) == Some(value.as_str())
                     && if quoted {
                         source.starts_with(['\'', '"'])
                             && self
@@ -123,6 +124,11 @@ impl MarkedEventReceiver for Reader<'_> {
                     } else {
                         style == TScalarStyle::Plain
                     };
+                let scanned = (!raw_exact && quoted)
+                    .then(|| scan_quoted(self.source, start - 1, &value))
+                    .flatten();
+                let exact = raw_exact || scanned.is_some();
+                let end = scanned.unwrap_or(end);
                 let string = quoted
                     || matches!(
                         yaml_rust2::Yaml::from_str(&value),
@@ -133,6 +139,7 @@ impl MarkedEventReceiver for Reader<'_> {
                     value: if exact { value } else { String::new() },
                     string,
                     exact,
+                    escaped: scanned.is_some(),
                     range: Range::new(
                         text::position(self.source, start.min(self.source.len())),
                         text::position(self.source, end.min(self.source.len())),
@@ -172,6 +179,47 @@ impl MarkedEventReceiver for Reader<'_> {
             _ => {}
         }
     }
+}
+/// Inner end offset of a single-line quoted scalar opening at `open`, only
+/// when its unescaped text equals the parser's `value`.
+fn scan_quoted(source: &str, open: usize, value: &str) -> Option<usize> {
+    let quote = *source.as_bytes().get(open)?;
+    let rest = source.get(open + 1..)?;
+    let mut raw = String::new();
+    let mut chars = rest.char_indices();
+    while let Some((i, c)) = chars.next() {
+        match (quote, c) {
+            (_, '\n' | '\r') => return None,
+            (b'\'', '\'') => match chars.clone().next() {
+                Some((_, '\'')) => {
+                    chars.next();
+                    raw.push('\'');
+                }
+                _ => return (raw == value).then_some(open + 1 + i),
+            },
+            (b'"', '"') => return (raw == value).then_some(open + 1 + i),
+            (b'"', '\\') => raw.push(match chars.next()?.1 {
+                '\\' => '\\',
+                '"' => '"',
+                '/' => '/',
+                'n' => '\n',
+                't' => '\t',
+                'r' => '\r',
+                _ => return None,
+            }),
+            _ => raw.push(c),
+        }
+    }
+    None
+}
+fn spells(source: &str, start: usize, end: usize, key: &str) -> bool {
+    let Some(raw) = source.get(start..end) else {
+        return false;
+    };
+    raw == key
+        || start > 0
+            && source.as_bytes().get(end) == source.as_bytes().get(start - 1)
+            && scan_quoted(source, start - 1, key) == Some(end)
 }
 fn parse(source: &str) -> Option<Vec<Node>> {
     if source.len() > MAX_TEXT || source.contains("{{") || source.contains("${") {
@@ -746,7 +794,7 @@ fn downward_label(reference: &Node, owner: &Resource, out: &mut Vec<LabelUse>) {
     let Some(path) = reference
         .get("fieldPath")
         .and_then(Node::scalar)
-        .filter(|s| s.string && s.exact)
+        .filter(|s| s.string && s.exact && !s.escaped)
     else {
         return;
     };
@@ -772,6 +820,7 @@ fn downward_label(reference: &Node, owner: &Resource, out: &mut Vec<LabelUse>) {
             range: Range::new(start, end),
             string: true,
             exact: true,
+            escaped: false,
         },
     });
 }
@@ -1385,7 +1434,7 @@ fn resolve_label_action(
         for range in ranges {
             let start = text::offset(&file.source, range.start).ok_or(Error::Stale)?;
             let end = text::offset(&file.source, range.end).ok_or(Error::Stale)?;
-            if file.source.get(start..end) != Some(subject.key.as_str()) {
+            if !spells(&file.source, start, end, &subject.key) {
                 return Err(Error::Stale);
             }
             let replacement = replacement_for(&file.source, range, &new_key)?;
@@ -1803,7 +1852,7 @@ impl Cache {
                     text::offset(&file.source, range.start).ok_or(openidea_plugin::Error::Stale)?;
                 let end =
                     text::offset(&file.source, range.end).ok_or(openidea_plugin::Error::Stale)?;
-                if file.source.get(start..end) != Some(subject.key.as_str()) {
+                if !spells(&file.source, start, end, &subject.key) {
                     return Err(openidea_plugin::Error::Stale);
                 }
                 let replacement = replacement_for(&file.source, range, &new_key)?;
@@ -3131,6 +3180,42 @@ mod tests {
             facts.keys[0].key.range.start,
             caret(&source, "server: http")
         );
+    }
+    #[test]
+    fn quoted_scalar_scanner_proves_round_trip_and_refuses_the_rest() {
+        let scan = |src: &str, value: &str| scan_quoted(src, 0, value);
+        assert_eq!(scan("'it''s' x", "it's"), Some(6));
+        assert_eq!(scan("\"a\\\"b\\/c\\n\"", "a\"b/c\n"), Some(10));
+        assert_eq!(scan("'a''b'", "a'b"), Some(5));
+        assert_eq!(scan("\"a\\u0041\"", "aA"), None);
+        assert_eq!(scan("\"a\\x\"", "ax"), None);
+        assert_eq!(scan("'a\nb'", "a b"), None);
+        assert_eq!(scan("\"ab\"", "abc"), None);
+        assert_eq!(scan("'ab", "ab"), None);
+    }
+    #[test]
+    fn escaped_quoted_key_gets_exact_inner_range_and_multiline_stays_refused() {
+        let source = POD.replace("app: web", "\"example.com\\/app\": web");
+        let facts = facts("/p/pod.yaml", &source).unwrap();
+        let key = &facts
+            .labels
+            .iter()
+            .find(|l| l.key.value == "example.com/app")
+            .unwrap()
+            .key;
+        let (start, end) = (
+            text::offset(&source, key.range.start).unwrap(),
+            text::offset(&source, key.range.end).unwrap(),
+        );
+        assert_eq!(&source[start..end], "example.com\\/app");
+        assert!(spells(&source, start, end, "example.com/app"));
+        assert!(!spells(&source, start, end, "example.com/other"));
+        assert_eq!(
+            replacement_for(&source, key.range, "example.com/new").unwrap(),
+            "example.com/new"
+        );
+        let folded = CM.replace("port: '80'", "port: \"8\n  0\"");
+        assert!(parse(&folded).is_none_or(|nodes| nodes.iter().any(|n| !exact_tree(n))));
     }
     #[test]
     fn key_completion_uses_current_owned_resource_definitions() {

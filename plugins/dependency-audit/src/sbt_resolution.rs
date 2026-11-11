@@ -461,6 +461,7 @@ pub(crate) fn audit_evidence(project: &Project, e: Evidence) -> Result<(), Error
         dependencies_checked: Some(e.deps.len()),
         checked_files: e.before.keys().cloned().collect(),
         discovery_limited: false,
+        ..Report::default()
     };
     if project.root()? != e.root || snapshot(project, &e.root)? != e.before {
         return Err(Error::Stale);

@@ -206,5 +206,25 @@ pub(crate) fn resource_body(root: &str, report: &Report, failure: Option<&ScanFa
             }
         }
     }
+    let flagged: std::collections::HashSet<(String, String, String)> =
+        report.rows.iter().map(|r| (ecosystem(r).to_owned(), r.name.clone(), r.version.clone())).collect();
+    let clean = |s: &str| s.chars().filter(|c| !c.is_control()).collect::<String>();
+    for [eco, name, version] in &report.coordinates {
+        if flagged.contains(&(eco.clone(), name.clone(), version.clone())) {
+            continue;
+        }
+        let (name, eco, version) = (clean(name), clean(eco), clean(version));
+        let details = vec![json!({"label":"Queried coordinate","value":format!("{eco}/{name}@{version}")}),json!({"label":"Result","value":"OSV.dev returned no unignored advisories for this exact coordinate (possibly from the 24-hour cache)."})];
+        if !push_row(&mut items, &mut bytes, json!({"key":format!("checked:{eco}|{name}|{version}"),"label":format!("{name} {version}"),"cells":["Checked",name,eco,version,"-","None","-","-"],"details":details})) {
+            break;
+        }
+    }
+    for path in &report.skipped_paths {
+        let path = clean(&relative(path));
+        if !push_row(&mut items, &mut bytes, json!({"key":format!("skipped:{path}"),"label":path,"cells":["Skipped file","-","-","-","-","Not checked","-",path],"details":[json!({"label":"Why skipped","value":"The dependency file could not be read; its coordinates were not queried."})]})) {
+            break;
+        }
+    }
+    let total_rows = total_rows + report.coordinates.len() + report.skipped_paths.len();
     Body::Other { kind: "resources".into(), data: json!({"columns":["Type","Dependency","Ecosystem","Installed","Fixed","Severity","Advisory","Manifest"],"facets":[0,2,5,7],"totalRows":total_rows,"items":items}).to_string() }
 }
