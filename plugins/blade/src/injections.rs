@@ -1,4 +1,4 @@
-//! Bounded API1.4 injection provider: closed attribute-free HTML raw-text bodies.
+//! Bounded physical-source injections for raw-text bodies and bound component attributes.
 use openidea_plugin::{
     Range,
     injections::{Document, Injection, Injections},
@@ -13,7 +13,8 @@ impl Injections for crate::Blade {
         {
             return Vec::new();
         }
-        bodies(&doc.text)
+        let declarations = declarations::for_path(&doc.path);
+        bodies_with(&doc.text, &declarations)
             .into_iter()
             .map(|(body, language)| Injection {
                 range: Range::new(
@@ -26,7 +27,15 @@ impl Injections for crate::Blade {
     }
 }
 
+#[path = "injection_declarations.rs"]
+mod declarations;
 fn bodies(text: &str) -> Vec<(std::ops::Range<usize>, &'static str)> {
+    bodies_with(text, &std::collections::BTreeSet::new())
+}
+fn bodies_with(
+    text: &str,
+    declared: &std::collections::BTreeSet<String>,
+) -> Vec<(std::ops::Range<usize>, &'static str)> {
     let bytes = text.as_bytes();
     let mut lexer = crate::Lexer {
         text,
@@ -36,6 +45,31 @@ fn bodies(text: &str) -> Vec<(std::ops::Range<usize>, &'static str)> {
     let mut out = Vec::new();
     let mut i = 0;
     while i < bytes.len() && out.len() < 1000 {
+        if bytes[i] == b'@' && (i == 0 || !crate::is_identifier(bytes[i - 1])) {
+            let start = i + 1;
+            let mut end = start;
+            while bytes
+                .get(end)
+                .is_some_and(|b| b.is_ascii_alphanumeric() || *b == b'_')
+            {
+                end += 1;
+            }
+            if declared.contains(&text[start..end]) {
+                let mut open = end;
+                while bytes.get(open).is_some_and(u8::is_ascii_whitespace) {
+                    open += 1;
+                }
+                if bytes.get(open) == Some(&b'(') {
+                    if let Ok(close) = lexer.closing_parenthesis(open) {
+                        if !text[open + 1..close].trim().is_empty() {
+                            out.push((open + 1..close, "php"));
+                        }
+                        i = close + 1;
+                        continue;
+                    }
+                }
+            }
+        }
         // The existing Blade lexer owns comments, echos, PHP and verbatim regions.
         if let Some(end) = lexer.construct(i) {
             if lexer
@@ -71,6 +105,7 @@ fn bodies(text: &str) -> Vec<(std::ops::Range<usize>, &'static str)> {
             .iter()
             .find(|n| name.eq_ignore_ascii_case(n));
         let Some(raw) = raw else {
+            component_attributes(text, i + 1, tag_end, &mut out);
             i = tag_end + 1;
             continue;
         };
@@ -102,6 +137,74 @@ fn bodies(text: &str) -> Vec<(std::ops::Range<usize>, &'static str)> {
         i = end;
     }
     out
+}
+
+// Blade evaluates single-colon bindings on x-/livewire: tags as PHP. Escaped
+// double-colon bindings and ordinary HTML/Alpine attributes retain HTML ownership.
+fn component_attributes(
+    text: &str,
+    start: usize,
+    end: usize,
+    out: &mut Vec<(std::ops::Range<usize>, &'static str)>,
+) {
+    let bytes = text.as_bytes();
+    let mut i = start;
+    while i < end && !bytes[i].is_ascii_whitespace() && bytes[i] != b'/' {
+        i += 1;
+    }
+    let tag = &text[start..i];
+    if !(tag.starts_with("x-") || tag.starts_with("livewire:")) || tag.len() < 3 {
+        return;
+    }
+    while i < end && out.len() < 1000 {
+        while i < end && bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        let name_start = i;
+        while i < end && !bytes[i].is_ascii_whitespace() && !matches!(bytes[i], b'=' | b'/') {
+            i += 1;
+        }
+        if i == name_start {
+            break;
+        }
+        let name = &text[name_start..i];
+        while i < end && bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        if bytes.get(i) != Some(&b'=') {
+            continue;
+        }
+        i += 1;
+        while i < end && bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        let Some(&quote @ (b'\'' | b'"')) = bytes.get(i) else {
+            break;
+        };
+        i += 1;
+        let value_start = i;
+        while i < end && bytes[i] != quote {
+            i += 1;
+        }
+        if i >= end {
+            break;
+        }
+        let value = &text[value_start..i];
+        if name.starts_with(':')
+            && !name.starts_with("::")
+            && name.len() > 1
+            && name[1..]
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
+            && !value.trim().is_empty()
+            && !["{{", "{!!", "<?", "@"]
+                .iter()
+                .any(|hole| value.contains(hole))
+        {
+            out.push((value_start..i, "php"));
+        }
+        i += 1;
+    }
 }
 
 fn tag_end(bytes: &[u8], start: usize) -> Option<usize> {
@@ -151,6 +254,59 @@ fn closing(bytes: &[u8], start: usize, name: &str) -> Option<(usize, usize)> {
 mod tests {
     use super::*;
     #[test]
+    fn declared_custom_directive_arguments_are_physical_current_and_scoped() {
+        use openidea_plugin::mock::MockHost;
+        let host = MockHost::install().with_capabilities(&["project.read"]);
+        host.add_file(
+            "ide.json",
+            r#"{"blade":{"directives":[{"name":"money_2"},{"name":"virtual","prefix":"<?php "}]}}"#,
+        );
+        let mut plugin = crate::Blade;
+        let mut doc = Document {
+            path: "/project/a.blade.php".into(),
+            language: "blade".into(),
+            version: 1,
+            text: "@money_2($amount, 'é😀') @unknown($x) @virtual($x)".into(),
+        };
+        let found = plugin.injections(&doc);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].language, "php");
+        assert_eq!(
+            found[0].range,
+            Range::new(
+                position(&doc.text, 9),
+                position(&doc.text, doc.text.find(')').unwrap())
+            )
+        );
+        doc.text = "{{-- @money_2($x) --}} @money_2($x".into();
+        assert!(plugin.injections(&doc).is_empty());
+        host.add_file("ide.json", "{}");
+        doc.text = "@money_2($x)".into();
+        assert!(plugin.injections(&doc).is_empty());
+    }
+    #[test]
+    fn physical_bound_component_attributes_only() {
+        let source = "😀<x-ui::card :count=\"$count + 1\" ::class=\"active\" title=\"plain\"/><livewire:blog::counter :user='$user'/>";
+        let found = bodies(source);
+        assert_eq!(
+            found
+                .iter()
+                .map(|(r, l)| (&source[r.clone()], *l))
+                .collect::<Vec<_>>(),
+            vec![("$count + 1", "php"), ("$user", "php")]
+        );
+        for source in [
+            "<div :count=\"$x\">",
+            "<x-card :x=\"{{ $x }}\"/>",
+            "{{-- <x-card :x=\"$x\"/> --}}",
+            "@verbatim <x-card :x=\"$x\"/> @endverbatim",
+            "<x-card :x=\"$x",
+            "<textarea><x-card :x=\"$x\"/></textarea>",
+        ] {
+            assert!(bodies(source).is_empty(), "{source}");
+        }
+    }
+    #[test]
     fn closed_static_bodies_and_utf16() {
         let text = "😀\r\n<SCRIPT>let x = 'é😀';</SCRIPT>\n<style>p { color: red; }</style>";
         let ranges = bodies(text);
@@ -198,6 +354,7 @@ mod tests {
     }
     #[test]
     fn fresh_text_controls_results_and_path_guard() {
+        let _host = openidea_plugin::mock::MockHost::install();
         let mut plugin = crate::Blade;
         let mut doc = Document {
             path: "/p/a.blade.php".into(),

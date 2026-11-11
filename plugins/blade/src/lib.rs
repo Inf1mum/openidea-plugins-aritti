@@ -108,6 +108,7 @@ const PHP_CONSTANTS: &[&str] = &["true", "false", "null", "TRUE", "FALSE", "NULL
 const BLOCKS: &[(&str, &[&str])] = &[
     ("if", &["endif"]),
     ("hasSection", &["endif"]),
+    ("hasStack", &["endif"]),
     ("sectionMissing", &["endif"]),
     ("unless", &["endunless"]),
     ("isset", &["endisset"]),
@@ -501,15 +502,24 @@ impl Lexer<'_> {
 
         let name_start = at + 1;
         let mut name_end = name_start;
-        while name_end < self.bytes.len() && self.bytes[name_end].is_ascii_alphabetic() {
+        while name_end < self.bytes.len() && (self.bytes[name_end].is_ascii_alphanumeric() || self.bytes[name_end] == b'_') {
             name_end += 1;
         }
 
         let name = &self.text[name_start..name_end];
         let continues = self.bytes.get(name_end).is_some_and(|b| is_identifier(*b));
-        if continues || !is_directive(name) {
+        if name.is_empty() || continues {
             return None;
         }
+
+        if !is_directive(name) {
+            let tail=self.text[name_end..].trim_start();
+            let in_tag=self.text[..at].rfind('<').is_some_and(|open|self.text[..at].rfind('>').is_none_or(|close|open>close));
+            if tail.starts_with(['=','.',':']) || in_tag&&!tail.starts_with('(') {return None;}
+        }
+
+        // CSS/Tailwind at-rules share Blade's @ spelling and remain CSS text.
+        if !is_directive(name) && (self.bytes.get(name_end)==Some(&b'-') || ["media","supports","keyframes","charset","import","layer","container","property","scope","page","namespace","tailwind","apply","theme","config","utility","variant","source","reference","plugin"].contains(&name)) {return None;}
 
         self.out.push(at..name_end, Highlight::Keyword);
 
@@ -538,6 +548,11 @@ impl Lexer<'_> {
             arguments = Some(open + 1..body_end);
             end = close.map_or(body_end, |c| c + 1);
         }
+
+        // Unknown syntactically valid directives receive lexical PHP coloring,
+        // while pairing, navigation, hover and diagnostics retain only proven
+        // core directive roles. No per-project directive cache is consulted.
+        if !is_directive(name) { return Some(end); }
 
         let has_arguments = arguments.is_some();
         self.out.directives.push(Directive { name: name.to_owned(), arguments, range: at..end });
@@ -1150,4 +1165,12 @@ mod form_role_repro {
   assert_eq!(found.len(),1);assert_eq!(found[0].range.start,openidea_plugin::text::position(&source,source.find("@if($tail)").unwrap()));
  }
 
+}
+
+#[cfg(test)]mod custom_lexical_tests{use super::*;
+ #[test]fn custom_directives_have_lexical_php_colors_without_inventing_pairing_or_scope(){let source="@money_2($amount, 'USD') @endmoney_2";let lexed=lex(source);assert!(lexed.directives.is_empty());assert!(lexed.tokens.iter().any(|token|token.kind==Highlight::Keyword));assert!(lexed.tokens.iter().any(|token|token.kind==Highlight::Variable));}
+}
+
+#[cfg(test)]mod stack_tests{use super::*;
+ #[test]fn has_stack_uses_actual_laravel_if_closer_without_inventing_a_custom_closer(){let text="@hasStack('scripts')\n<script></script>\n@endif";let parsed=lex(text);assert_eq!(parsed.directives.iter().map(|d|d.name.as_str()).collect::<Vec<_>>(),["hasStack","endif"]);assert!(crate::checks::check(text).is_empty());}
 }
