@@ -20,6 +20,7 @@ mod live;
 mod local_graph;
 mod local_callbacks;
 mod local_versions;
+mod local_hierarchy;
 mod local_identifiers;
 mod local_repository;
 mod jpql_language;

@@ -85,6 +85,33 @@ fn role<'a>(es: &'a [xml::Element], i: usize) -> Option<&'a str> {
 fn dynamic(value: &str) -> bool {
     value.contains(['&', '\\']) || value.contains("${") || value.contains("#{")
 }
+/// Attribute names declared by web-services-2.0.xsd, which has no anyAttribute.
+fn declared_attributes(role: &str) -> Option<&'static [&'static str]> {
+    Some(match role {
+        "annotation-driven" => &["marshaller", "unmarshaller"],
+        "interceptors" => &[],
+        "payloadRoot" => &["namespaceUri", "localPart"],
+        "soapAction" => &["value"],
+        "static-wsdl" => &["id", "location"],
+        "xsd" => &["location"],
+        "dynamic-wsdl" => &[
+            "id", "portTypeName", "targetNamespace", "requestSuffix", "responseSuffix",
+            "faultSuffix", "createSoap11Binding", "createSoap12Binding", "transportUri",
+            "locationUri", "serviceName",
+        ],
+        _ => return None,
+    })
+}
+/// (allowed sws children, allowed beans children, at least one child required); the XSD has no wildcards.
+fn content_model(role: &str) -> Option<(&'static [&'static str], &'static [&'static str], bool)> {
+    Some(match role {
+        "interceptors" => (&["payloadRoot", "soapAction"], &["bean", "ref"], true),
+        "payloadRoot" | "soapAction" => (&[], &["bean", "ref"], true),
+        "dynamic-wsdl" => (&["xsd"], &[], false),
+        "static-wsdl" | "xsd" | "annotation-driven" => (&[], &[], false),
+        _ => return None,
+    })
+}
 pub(crate) fn diagnostics(doc: &Document) -> Vec<Diagnostic> {
     let Some(es) = elements(doc) else {
         return vec![];
@@ -112,6 +139,51 @@ pub(crate) fn diagnostics(doc: &Document) -> Vec<Diagnostic> {
                     )
                     .code("sws-required-attribute"),
                 );
+            }
+        }
+        if let Some(allowed) = declared_attributes(role) {
+            for a in e.attrs.iter().filter(|a| {
+                !a.name.contains(':') && a.name != "xmlns" && !allowed.contains(&a.name.as_str())
+            }) {
+                out.push(
+                    Diagnostic::new(
+                        range(&doc.text, a.at, a.at + a.name.len()),
+                        Severity::Warning,
+                        format!("`{}` does not declare the `{}` attribute.", e.local(), a.name),
+                    )
+                    .code("sws-unknown-attribute"),
+                );
+            }
+        }
+        if let Some((sws_children, bean_children, required)) = content_model(role) {
+            let children: Vec<usize> = (0..es.len()).filter(|j| es[*j].parent == Some(i)).collect();
+            if required && children.is_empty() {
+                out.push(
+                    Diagnostic::new(
+                        range(&doc.text, e.at, e.at + e.name.len()),
+                        Severity::Warning,
+                        format!("`{}` requires at least one bean or ref child.", e.local()),
+                    )
+                    .code("sws-required-child"),
+                );
+            }
+            for j in children {
+                let c = &es[j];
+                let allowed = match xml_namespace(&es, j) {
+                    Some(SWS_NAMESPACE) => sws_children.contains(&c.local()),
+                    Some(BEANS) => bean_children.contains(&c.local()),
+                    _ => continue,
+                };
+                if !allowed {
+                    out.push(
+                        Diagnostic::new(
+                            range(&doc.text, c.at, c.at + c.name.len()),
+                            Severity::Warning,
+                            format!("`{}` is not allowed inside `{}`.", c.local(), e.local()),
+                        )
+                        .code("sws-unexpected-child"),
+                    );
+                }
             }
         }
         if role == "oxm-marshaller" {
@@ -342,5 +414,41 @@ mod oxm_contract_tests {
                 "{body}"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod xsd_content_model_tests {
+    use super::*;
+    fn doc(body: &str) -> Document {
+        Document {
+            path: "/project/context.xml".into(),
+            text: format!("<b:beans xmlns:b='{BEANS}' xmlns:s='{SWS_NAMESPACE}' xmlns:x='urn:x'>{body}</b:beans>"),
+            language: "xml".into(),
+            version: 1,
+        }
+    }
+    fn count(d: &Document, code: &str) -> usize {
+        diagnostics(d).iter().filter(|d| d.code.as_deref() == Some(code)).count()
+    }
+    #[test]
+    fn undeclared_attributes_bad_children_and_empty_interceptors_are_reported() {
+        let d = doc(
+            "<s:interceptors order='1'><s:payloadRoot namespaceUri='urn:a'/><s:static-wsdl location='a'/><s:soapAction value='a'><b:property name='p'/></s:soapAction></s:interceptors>\
+             <s:annotation-driven marshaller='m' bogus='1'/>",
+        );
+        assert_eq!(count(&d, "sws-unknown-attribute"), 2);
+        assert_eq!(count(&d, "sws-required-child"), 1);
+        assert_eq!(count(&d, "sws-unexpected-child"), 2);
+    }
+    #[test]
+    fn valid_declarations_prefixed_attributes_and_foreign_children_stay_quiet() {
+        let d = doc(
+            "<s:interceptors><b:bean class='A'/><b:ref bean='r'/><s:payloadRoot namespaceUri='urn:a' localPart='L'><b:ref bean='x'/></s:payloadRoot>\
+             <s:soapAction value='a'><x:custom/></s:soapAction></s:interceptors>\
+             <s:dynamic-wsdl id='i' portTypeName='P' locationUri='/w' x:note='1' transportUri='t' serviceName='S'><s:xsd location='a.xsd'/></s:dynamic-wsdl>\
+             <s:static-wsdl id='w' location='a.wsdl'/><s:annotation-driven unmarshaller='u'/>",
+        );
+        assert!(diagnostics(&d).is_empty(), "{:?}", diagnostics(&d));
     }
 }

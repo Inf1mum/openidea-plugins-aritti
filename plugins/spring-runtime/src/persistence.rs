@@ -4,7 +4,9 @@ use openidea_plugin::{Error, Project, host};
 use serde::{Deserialize, Serialize};
 
 pub(crate) const MAX_BYTES: usize = 8 << 20;
-const SCHEMA: u8 = 1;
+const SCHEMA: u8 = 2;
+/// Schema 1 only lacks `health_details`, which defaults to empty, so it is migrated by reading.
+const OLDEST_READABLE_SCHEMA: u8 = 1;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct Scope {
     pub root: String,
@@ -46,7 +48,7 @@ fn decode(value: &str, scope: &Scope) -> Result<Snapshot, Error> {
     }
     let stored: Envelope = serde_json::from_str(value)
         .map_err(|_| Error::Invalid("The saved runtime snapshot is unreadable; use Clear to discard it.".into()))?;
-    if stored.schema != SCHEMA || stored.scope != *scope || stored.snapshot.url != scope.url {
+    if !(OLDEST_READABLE_SCHEMA..=SCHEMA).contains(&stored.schema) || stored.scope != *scope || stored.snapshot.url != scope.url {
         return Err("The saved runtime snapshot belongs to a different scope or schema; it was not reused.".into());
     }
     Ok(stored.snapshot)
@@ -196,6 +198,18 @@ mod tests {
         write(&s, &snap).unwrap();
         assert_eq!(host.storage()[&s.key()].len(), MAX_BYTES);
         assert_eq!(read(&s).unwrap().unwrap(), snap);
+    }
+    #[test]
+    fn schema_one_cache_is_migrated_without_details_and_rewritten_as_current() {
+        let host = MockHost::install();
+        let s = scope();
+        let mut value = serde_json::to_value(Envelope { schema: 1, scope: s.clone(), snapshot: snapshot() }).unwrap();
+        value["snapshot"].as_object_mut().unwrap().remove("health_details");
+        host::storage::set(&s.key(), &value.to_string()).unwrap();
+        let restored = read(&s).unwrap().unwrap();
+        assert!(restored.health_details.is_empty());
+        write(&s, &restored).unwrap();
+        assert!(host.storage()[&s.key()].starts_with(r#"{"schema":2"#));
     }
     #[test]
     fn owner_url_auth_and_schema_are_checked_independently_of_hash_locator() {

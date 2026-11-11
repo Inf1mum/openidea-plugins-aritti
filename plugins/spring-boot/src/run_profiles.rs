@@ -1,6 +1,6 @@
 //! Read-only, opt-in native runs. Discovery never executes a build or wrapper.
 use crate::BootTools;
-use openidea_plugin::{PluginRunConfiguration, RunConfigurations, host};
+use openidea_plugin::{Error, PickItem, PluginRunConfiguration, RunConfigurations, host};
 const SETTING: &str = "springBoot.nativeRunProfiles";
 const MAX_BUILD: usize = 128 * 1024;
 
@@ -457,6 +457,9 @@ pub(crate) fn configurations(root: &str) -> Vec<PluginRunConfiguration> {
     if host::setting_bool(SETTING) != Some(true) {
         return vec![];
     }
+    discover(root)
+}
+fn discover(root: &str) -> Vec<PluginRunConfiguration> {
     let Some(project) = owned_project(root) else {
         return vec![];
     };
@@ -498,6 +501,148 @@ pub(crate) fn configurations(root: &str) -> Vec<PluginRunConfiguration> {
     runs.extend(module_runs(&project, root));
     runs
 }
+const MAX_PROFILES: usize = 8;
+const MAX_ARGS: usize = 16;
+const MAX_ARG_LEN: usize = 200;
+fn profile_names(raw: &str) -> Result<Vec<String>, Error> {
+    let mut names: Vec<String> = Vec::new();
+    for name in raw.split(',').map(str::trim).filter(|n| !n.is_empty()) {
+        let valid = name.len() <= 64
+            && name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'));
+        if !valid {
+            return Err(Error::Invalid(format!("invalid profile name `{name}`")));
+        }
+        if !names.iter().any(|n| n == name) {
+            names.push(name.to_owned());
+        }
+    }
+    if names.len() > MAX_PROFILES {
+        return Err(Error::Invalid(format!("at most {MAX_PROFILES} profiles")));
+    }
+    Ok(names)
+}
+/// Strict `--key=value` allowlist: no quoting, spaces, shell or Maven/Gradle syntax can pass.
+fn application_args(raw: &str) -> Result<Vec<String>, Error> {
+    let args: Vec<&str> = raw.split_whitespace().collect();
+    if args.len() > MAX_ARGS {
+        return Err(Error::Invalid(format!("at most {MAX_ARGS} arguments")));
+    }
+    for arg in &args {
+        let valid = (|| {
+            let (key, value) = arg.strip_prefix("--")?.split_once('=')?;
+            let key_ok = key.starts_with(|c: char| c.is_ascii_alphabetic())
+                && key
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
+            let value_ok = value
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | ':' | '/' | ',' | '@' | '+'));
+            (arg.len() <= MAX_ARG_LEN
+                && key_ok
+                && value_ok
+                && !key.starts_with("spring.profiles.active"))
+            .then_some(())
+        })();
+        if valid.is_none() {
+            return Err(Error::Invalid(format!(
+                "argument `{arg}` must be --key=value using letters, digits and . _ - : / , @ + only; set profiles separately"
+            )));
+        }
+    }
+    Ok(args.into_iter().map(str::to_owned).collect())
+}
+/// Official properties: Maven `spring-boot.run.profiles` / `spring-boot.run.arguments`;
+/// Gradle `bootRun --args=<string>` with `--spring.profiles.active`.
+fn launch_args(run: &PluginRunConfiguration, profiles: &[String], args: &[String]) -> Vec<String> {
+    let mut out = run.args.clone();
+    if run.program == "mvn" {
+        if !profiles.is_empty() {
+            out.push(format!("-Dspring-boot.run.profiles={}", profiles.join(",")));
+        }
+        if !args.is_empty() {
+            out.push(format!("-Dspring-boot.run.arguments={}", args.join(" ")));
+        }
+        return out;
+    }
+    let mut app = Vec::new();
+    if !profiles.is_empty() {
+        app.push(format!("--spring.profiles.active={}", profiles.join(",")));
+    }
+    app.extend(args.iter().cloned());
+    if !app.is_empty() {
+        out.push(format!("--args={}", app.join(" ")));
+    }
+    out
+}
+fn display(program: &str, args: &[String]) -> String {
+    let quoted = args.iter().map(|a| {
+        if a.contains(' ') {
+            format!("'{a}'")
+        } else {
+            a.clone()
+        }
+    });
+    std::iter::once(program.to_owned()).chain(quoted).collect::<Vec<_>>().join(" ")
+}
+fn discovered_profiles(project: &openidea_plugin::Project) -> Vec<String> {
+    let files = project.find_files("**/application-*.*", 200).unwrap_or_default();
+    let names: std::collections::BTreeSet<String> = files
+        .iter()
+        .filter_map(|f| crate::nav::profile_of(f))
+        .filter(|p| profile_names(p).is_ok_and(|v| v.len() == 1))
+        .collect();
+    names.into_iter().collect()
+}
+/// Reviewed per-launch run: prompts are not settings; nothing runs before confirmation.
+pub(crate) fn run_with_options(ctx: &openidea_plugin::Invocation) -> Result<Option<String>, Error> {
+    let project = ctx.project().ok_or(Error::Stale)?;
+    let root = project.root()?;
+    let mut runs = discover(&root);
+    let run = match runs.len() {
+        0 => return Err(Error::Invalid("no source-owned Spring Boot Maven/Gradle run found".into())),
+        1 => runs.remove(0),
+        _ => {
+            let items: Vec<_> = runs.iter().map(|r| PickItem::new(&r.id, &r.name)).collect();
+            let Some(key) = host::pick("Run which Spring Boot build?", &items)? else {
+                return Ok(None);
+            };
+            runs.into_iter().find(|r| r.id == key).ok_or(Error::Stale)?
+        }
+    };
+    let known = discovered_profiles(&project);
+    let mut raw = String::new();
+    if !known.is_empty() {
+        let items: Vec<_> = known.iter().map(|p| PickItem::new(p, p)).collect();
+        let Some(chosen) = host::pick_many("Active profiles found in application-<profile> files", &items)? else {
+            return Ok(None);
+        };
+        if chosen.iter().any(|c| !known.contains(c)) {
+            return Err(Error::Stale);
+        }
+        raw = chosen.join(",");
+    }
+    let Some(extra) = host::input("Additional profiles (comma-separated, optional)", None)? else {
+        return Ok(None);
+    };
+    raw = format!("{raw},{extra}");
+    let profiles = profile_names(&raw)?;
+    let Some(typed) = host::input("Application arguments (optional, e.g. --server.port=8081 --debug=true)", None)? else {
+        return Ok(None);
+    };
+    let args = application_args(&typed)?;
+    let launch = launch_args(&run, &profiles, &args);
+    let line = display(&run.program, &launch);
+    if !host::confirm(
+        "Run Spring Boot with these options?",
+        &format!("{line}\n\nWorking directory: {root}\nRuns in a terminal tab through your approved process grant."),
+    )? {
+        return Ok(None);
+    }
+    host::open_terminal("Spring Boot", &run.program, &launch)?;
+    Ok(Some(line))
+}
 impl RunConfigurations for BootTools {
     fn configurations(&mut self, project_root: &str) -> Vec<PluginRunConfiguration> {
         configurations(project_root)
@@ -506,7 +651,7 @@ impl RunConfigurations for BootTools {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use openidea_plugin::mock::MockHost;
+    use openidea_plugin::{Plugin, mock::MockHost};
     const POM: &str = "<project xmlns=\"http://maven.apache.org/POM/4.0.0\"><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId><version>4.0.0</version></plugin></plugins></build></project>";
     #[test]
     fn observed_direct_build_plugins_only_establish_source_owned_runs() {
@@ -623,5 +768,60 @@ mod tests {
         host.add_file("settings.gradle.kts", "include(\"web\")");
         assert!(configurations("/project").is_empty());
         assert!(host.process_runs().is_empty() && host.requests().is_empty());
+    }
+    fn s<'a>(v: &'a [&'a str]) -> Option<&'a [&'a str]> {
+        Some(v)
+    }
+    #[test]
+    fn run_with_options_validates_confirms_and_uses_official_properties() {
+        let host = MockHost::install().with_capabilities(&["project.read", "process:mvn"]);
+        host.add_file("pom.xml", POM);
+        host.add_file("src/main/resources/application-dev.yml", "a: 1");
+        host.add_file("application-prod.properties", "a=1");
+        let ctx = host.invocation();
+        let run = |answers: &[Option<&[&str]>]| {
+            for a in answers {
+                host.answer_next_prompt(*a);
+            }
+            BootTools::default().run_command("run-with-options", &ctx, None)
+        };
+        let ok = run(&[
+            s(&["dev"]),
+            s(&["qa-1"]),
+            s(&["--server.port=8081 --x.y=a,b"]),
+            s(&[]),
+        ])
+        .unwrap()
+        .unwrap();
+        assert!(ok.contains("-Dspring-boot.run.profiles=dev,qa-1"), "{ok}");
+        assert!(ok.contains("'-Dspring-boot.run.arguments=--server.port=8081 --x.y=a,b'"), "{ok}");
+        assert_eq!(host.terminals().len(), 1);
+        assert_eq!(host.terminals()[0].program, "mvn");
+        for bad in ["--a=$(id)", "--a=b;rm", "--a=`x`", "-Dfoo=1", "--a", "--a=b&c", "--a='x'", "--a=\"x\"", "--a=|x", "--spring.profiles.active=x", "--a=b\\c", "--a=>x", "--a=*", "-X"] {
+            assert!(application_args(bad).is_err(), "{bad}");
+        }
+        for bad in ["a;b", "$x", "a/b", "../x", "a\"b", "a b", "a`b"] {
+            assert!(profile_names(bad).is_err(), "{bad}");
+        }
+        assert!(application_args(&"--a=b ".repeat(17)).is_err());
+        assert!(profile_names("a,b,c,d,e,f,g,h,i").is_err());
+        assert_eq!(profile_names("dev, dev ,,qa").unwrap(), ["dev", "qa"]);
+        let before = host.terminals().len();
+        assert!(run(&[s(&[]), s(&["x;y"])]).is_err());
+        assert!(run(&[s(&[]), s(&[""]), s(&["--a=$(id)"])]).is_err());
+        assert!(run(&[s(&[]), s(&[""]), s(&[""]), None]).unwrap().is_none());
+        assert_eq!(host.terminals().len(), before);
+        assert!(host.process_runs().is_empty());
+    }
+    #[test]
+    fn gradle_launch_uses_args_string_and_active_profiles() {
+        let run = PluginRunConfiguration {
+            program: "gradle".into(),
+            args: vec!["--console=plain".into(), "bootRun".into()],
+            ..Default::default()
+        };
+        let out = launch_args(&run, &["dev".into(), "qa".into()], &["--debug=true".into()]);
+        assert_eq!(out[2], "--args=--spring.profiles.active=dev,qa --debug=true");
+        assert_eq!(launch_args(&run, &[], &[]), ["--console=plain", "bootRun"]);
     }
 }

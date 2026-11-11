@@ -2,7 +2,7 @@
 //! `@RestClient` injections of interfaces without `@RegisterRestClient`, and `@Scheduled` expressions.
 //! Written from the Quarkus guides (config reference, REST client, scheduler).
 
-use crate::checks::{duration, squash};
+use crate::checks::squash;
 use crate::java::{Injection, injections};
 use spring_text::finding::Finding;
 use spring_text::java::{self, Annotation, JavaFile};
@@ -247,6 +247,67 @@ fn cron_fields_are_free(ctx: &Context) -> bool {
     ctx.configured.is_some_and(|set| !set.contains(&squash("quarkus.scheduler.cron-type")))
 }
 
+/// Keys of `${key}` references without default or nesting, and of a whole-value `{key}` (older style).
+fn config_references(value: &str) -> Vec<&str> {
+    let plain = |key: &str| !key.is_empty() && !key.contains(['{', '}', '$', ':', ' ']);
+    if let Some(key) = value.strip_prefix('{').and_then(|v| v.strip_suffix('}')) {
+        return Some(key).filter(|k| plain(k)).into_iter().collect();
+    }
+    if value.contains("${") && value.split("${").skip(1).any(|rest| !rest.contains('}') || rest.split('}').next().is_some_and(|key| key.contains(['{', '$']))) {
+        return Vec::new();
+    }
+    value.split("${").skip(1).filter_map(|rest| rest.split_once('}').map(|(key, _)| key)).filter(|k| plain(k)).collect()
+}
+
+/// `Duration.parse` after the scheduler's prefixing: a leading digit gets `PT`, or `P` when the value ends in `d`.
+/// Quarkus scheduler reference: "If the value starts with a digit and ends with 'd', 'P' is prepended; if it starts with a digit, 'PT'."
+fn scheduler_interval(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    let prefixed = match lower.chars().next() {
+        Some(c) if c.is_ascii_digit() && lower.ends_with('d') => format!("p{lower}"),
+        Some(c) if c.is_ascii_digit() => format!("pt{lower}"),
+        _ => lower,
+    };
+    let rest = prefixed.strip_prefix(['+', '-']).unwrap_or(&prefixed);
+    let Some(rest) = rest.strip_prefix('p') else { return false };
+    let (days, time) = match rest.split_once('t') {
+        Some((days, time)) => (days, Some(time)),
+        None => (rest, None),
+    };
+    let take = |input: &str, unit: char, fractional: bool| -> Option<(bool, String)> {
+        let end = input.find(|c: char| !(c.is_ascii_digit() || fractional && c == '.' || c == '-' || c == '+'))?;
+        let (number, tail) = input.split_at(end);
+        let tail = tail.strip_prefix(unit)?;
+        let digits = number.trim_start_matches(['+', '-']);
+        let ok = !digits.is_empty() && digits.chars().next().is_some_and(|c| c.is_ascii_digit()) && (fractional || digits.chars().all(|c| c.is_ascii_digit()));
+        Some((ok, tail.to_owned()))
+    };
+    let mut found = false;
+    if !days.is_empty() {
+        match take(days, 'd', false) {
+            Some((true, tail)) if tail.is_empty() => found = true,
+            _ => return false,
+        }
+    }
+    if let Some(time) = time {
+        let mut rest = time.to_owned();
+        if time.is_empty() {
+            return false;
+        }
+        for (unit, fractional) in [('h', false), ('m', false), ('s', true)] {
+            if let Some((ok, tail)) = take(&rest, unit, fractional) {
+                if !ok {
+                    return false;
+                }
+                found = true;
+                rest = tail;
+            }
+        }
+        return found && rest.is_empty();
+    }
+    found
+}
+
 fn scheduled(file: &JavaFile, text: &str, ctx: &Context, out: &mut Vec<Problem>) {
     let annotations: Vec<&Annotation> = file.types.iter().flat_map(|t| &t.members).filter_map(|m| m.annotation("Scheduled")).filter(|a| crate::java::annotation_owned(file, text, a, "io.quarkus.scheduler.Scheduled")).collect();
     for a in annotations {
@@ -259,6 +320,19 @@ fn scheduled(file: &JavaFile, text: &str, ctx: &Context, out: &mut Vec<Problem>)
                 && !value.value.contains(['{', '$']))
             .then_some((arg, value))
         };
+        for name in ["cron", "every", "timeZone", "delayed"] {
+            let Some(arg) = a.arg(name) else { continue };
+            let [value] = arg.strings.as_slice() else { continue };
+            let plain = arg.text.matches('"').count() == 2 && arg.text.starts_with('"') && arg.text.ends_with('"');
+            let Some(configured) = ctx.configured.filter(|_| ctx.unassigned && plain) else { continue };
+            for key in config_references(&value.value) {
+                if configured.contains(&squash(key)) || key.starts_with("quarkus.") {
+                    continue;
+                }
+                let message = format!("`{key}` has no default and no config file sets it; the scheduler fails at startup unless an environment variable or system property provides it. Use `${{{key}:default}}` for an optional value.");
+                out.push(Problem { finding: Finding::new(value.at, value.end, "unassigned-schedule-property", message), fixes: Vec::new() });
+            }
+        }
         if let Some((_, cron)) = literal("cron").filter(|(_, value)| !value.value.is_empty()) {
             let fields = cron.value.split_whitespace().count();
             let off = matches!(cron.value.as_str(), "off" | "disabled");
@@ -273,8 +347,8 @@ fn scheduled(file: &JavaFile, text: &str, ctx: &Context, out: &mut Vec<Problem>)
         if (a.arg("cron").is_none() || literal("cron").is_some_and(|(_, value)| value.value.is_empty()))
             && let Some((_, every)) = literal("every") {
             let value = every.value.trim();
-            if !matches!(value, "off" | "disabled") && !duration(value) {
-                let message = format!("`{value}` is not a duration such as `10s`, `5m` or `PT1H`.");
+            if !matches!(value, "off" | "disabled") && !scheduler_interval(value) {
+                let message = format!("`{value}` is not a duration such as `10s`, `5m`, `2d` or `PT1H`; the scheduler parses it with Duration.parse after adding a `PT` (or `P` for a trailing `d`) prefix to a value starting with a digit.");
                 out.push(Problem { finding: Finding::new(every.at, every.end, "invalid-every", message), fixes: Vec::new() });
             }
         }
@@ -307,6 +381,31 @@ mod tests {
             health_metrics: true,
         };
         check(text, &ctx).iter().map(|p| (p.finding.code, text[p.finding.start..p.finding.end].to_owned())).collect()
+    }
+
+    #[test]
+    fn scheduler_interval_follows_prefix_rules() {
+        for ok in ["10s", "5m", "1h30m", "2d", "1.5s", "PT1H", "P1D", "PT0.5S"] {
+            assert!(scheduler_interval(ok), "{ok}");
+        }
+        for bad in ["10", "30ms", "1h 30m", "soon", "P", "PT", "1d2h", "-"] {
+            assert!(!scheduler_interval(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn schedule_config_references_need_a_configured_key_or_default() {
+        let text = r#"import io.quarkus.scheduler.Scheduled; class J {
+            @Scheduled(every = "${job.every}") void a() {}
+            @Scheduled(every = "${job.other:10s}") void b() {}
+            @Scheduled(cron = "{job.cron}") void c() {}
+            @Scheduled(cron = "${job.known}") void d() {}
+            @Scheduled(every = "${a.${b}}") void e() {}
+            @Scheduled(every = "${quarkus.x}") void f() {}
+        }"#;
+        let found = run(text, &["job.known"], &[]);
+        let refs: Vec<_> = found.iter().filter(|(c, _)| *c == "unassigned-schedule-property").map(|(_, t)| t.as_str()).collect();
+        assert_eq!(refs, ["${job.every}", "{job.cron}"]);
     }
 
     #[test]
@@ -345,7 +444,7 @@ mod tests {
         }"#;
         let found = run(text, &["other"], &[]);
         let codes: Vec<_> = found.iter().map(|(c, _)| *c).collect();
-        assert_eq!(codes, ["invalid-cron", "invalid-every", "scheduled-without-trigger"]);
+        assert_eq!(codes, ["invalid-cron", "unassigned-schedule-property", "invalid-every", "scheduled-without-trigger"]);
         assert_eq!(found[0].1, "0/5 * * * *");
         let other_syntax = run(text, &["quarkus.scheduler.cron-type"], &[]);
         assert!(!other_syntax.iter().any(|(c, _)| *c == "invalid-cron"));

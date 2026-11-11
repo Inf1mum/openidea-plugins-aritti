@@ -882,6 +882,7 @@ impl Plugin for BootTools {
     ) -> Result<Option<String>, Error> {
         match id {
             "configure-source-database" => database::configure(ctx),
+            "run-with-options" => run_profiles::run_with_options(ctx),
             "read-dependency-jar-metadata" => self.jars.import(ctx),
             "show-diagnostics" => self.show_diagnostics(ctx),
             "current-file-placeholder-occurrences" => placeholder_nav::occurrences(ctx),

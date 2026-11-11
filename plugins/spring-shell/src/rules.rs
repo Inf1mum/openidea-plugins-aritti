@@ -23,6 +23,9 @@ fn import_name<'a>(text: &'a str, import: &'a java::Import) -> (&'a str, bool) {
     }
     (import.path.rsplit('.').next().unwrap_or(""), false)
 }
+pub(super) fn import_aliased(text: &str, import: &java::Import) -> bool {
+    import_name(text, import).1
+}
 fn generic_shadow(code: &str, name: &str) -> bool {
     let mut depth = 0usize;
     for token in java::tokens(code) {

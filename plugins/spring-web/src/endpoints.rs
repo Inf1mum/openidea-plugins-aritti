@@ -217,6 +217,70 @@ pub fn typed_requests(path: &str, text: &str) -> Vec<Request> {
     scan_requests(path, text, true)
 }
 
+const CLIENT_TYPES: [(&str, &str, &str); 10] = [
+    ("MockMvc", "org.springframework.test.web.servlet.MockMvc", "mock"),
+    ("MockMvcBuilders", "org.springframework.test.web.servlet.setup.MockMvcBuilders", "mock"),
+    ("WebTestClient", "org.springframework.test.web.reactive.server.WebTestClient", "client"),
+    ("RestTestClient", "org.springframework.test.web.servlet.client.RestTestClient", "client"),
+    ("RestClient", "org.springframework.web.client.RestClient", "client"),
+    ("WebClient", "org.springframework.web.reactive.function.client.WebClient", "client"),
+    ("RestTemplate", "org.springframework.web.client.RestTemplate", "template"),
+    ("TestRestTemplate", "org.springframework.boot.test.web.client.TestRestTemplate", "template"),
+    ("TestRestTemplate", "org.springframework.boot.resttestclient.TestRestTemplate", "template"),
+    ("MockMvcRequestBuilders", "org.springframework.test.web.servlet.request.MockMvcRequestBuilders", "static"),
+];
+
+fn imports_class(file: &java::JavaFile, fqn: &str) -> bool {
+    let package = fqn.rsplit_once('.').map_or("", |(p, _)| p);
+    file.imports.iter().any(|i| !i.is_static && (i.path == fqn || i.path.strip_suffix(".*") == Some(package)))
+}
+
+/// Names proved lexically to hold a Spring test/HTTP client: a declaration
+/// `Type name` / `name: Type`, or `name = Type(...)` / `name = Type.factory(...)`,
+/// where `Type` is imported from its Spring package in this same file.
+/// ponytail: scope-blind (a name declared anywhere in the file); a same name
+/// with two different client kinds is dropped.
+fn proved_receivers(path: &str, text: &str) -> std::collections::BTreeMap<String, &'static str> {
+    let file = parse_source(path, text);
+    let toks = java::tokens(text);
+    let kind_of = |simple: &str| {
+        CLIENT_TYPES.iter().find(|(n, fqn, k)| *n == simple && *k != "static" && imports_class(&file, fqn)).map(|(_, _, k)| *k)
+    };
+    let mut out = std::collections::BTreeMap::<String, &'static str>::new();
+    let mut conflicts = Vec::new();
+    for i in 0..toks.len() {
+        if !toks[i].is_ident() {
+            continue;
+        }
+        let kind = if i > 0 && toks[i - 1].is_ident() && toks.get(i + 1).is_some_and(|n| matches!(n.s, ";" | "=" | "," | ")")) {
+            kind_of(toks[i - 1].s)
+        } else if toks.get(i + 1).is_some_and(|n| n.s == ":") && toks.get(i + 2).is_some_and(|t| t.is_ident()) {
+            kind_of(toks[i + 2].s)
+        } else {
+            None
+        };
+        let initial = (|| {
+            if toks.get(i + 1)?.s != "=" {
+                return None;
+            }
+            let mut j = i + 2;
+            if toks.get(j)?.s == "new" {
+                j += 1;
+            }
+            let root = toks.get(j)?;
+            matches!(toks.get(j + 1)?.s, "(" | ".").then(|| kind_of(root.s)).flatten()
+        })();
+        let Some(kind) = kind.or(initial) else { continue };
+        if out.insert(toks[i].s.to_owned(), kind).is_some_and(|old| old != kind) {
+            conflicts.push(toks[i].s.to_owned());
+        }
+    }
+    for name in conflicts {
+        out.remove(&name);
+    }
+    out
+}
+
 fn scan_requests(path: &str, text: &str, typing: bool) -> Vec<Request> {
     if path.ends_with(".http") || path.ends_with(".rest") {
         return http_requests(text, typing);
@@ -231,31 +295,37 @@ fn scan_requests(path: &str, text: &str, typing: bool) -> Vec<Request> {
         return Vec::new();
     }
     let calls = source_calls(path, text);
+    let file = parse_source(path, text);
+    let proved = proved_receivers(path, text);
+    let proves = |r: &Option<String>, kind: &str| r.as_ref().and_then(|r| proved.get(r)).is_some_and(|k| *k == kind);
+    let builders = CLIENT_TYPES[9].1;
+    let static_builder = |name: &str| file.imports.iter().any(|i| i.is_static && (i.path == format!("{builders}.{name}") || i.path == format!("{builders}.*")));
     let mut out = Vec::new();
     for c in calls.iter().filter(|c| !c.is_new || is_kotlin(path)) {
         let Some(url) = c.args.first().and_then(|a| a.string.as_ref()) else { continue };
-        let templated = c.receiver.as_ref().is_some_and(|r| {
-            let r = r.to_lowercase();
-            r.contains("template") || r.contains("rest")
-        });
         let lower = c.name.to_uppercase();
         let verb = if mock
             && !c.chained
             && VERBS.contains(&lower.as_str())
             && c.name == c.name.to_lowercase()
-            && c.receiver.as_ref().is_none_or(|r| r == "MockMvcRequestBuilders" || r.to_lowercase().contains("mvc"))
+            && match c.receiver.as_deref() {
+                None => static_builder(&c.name),
+                Some("MockMvcRequestBuilders") => imports_class(&file, builders),
+                Some(_) => proves(&c.receiver, "mock"),
+            }
         {
             lower
         } else if client && c.name == "uri" {
             let before = calls.iter().find(|p| {
                 p.args.is_empty()
+                    && proves(&p.receiver, "client")
                     && VERBS.contains(&p.name.to_uppercase().as_str())
                     && p.name == p.name.to_lowercase()
                     && text.get(p.end..c.at).is_some_and(|gap| gap.trim() == ".")
             });
             let Some(before) = before else { continue };
             before.name.to_uppercase()
-        } else if template && !templated {
+        } else if template && !proves(&c.receiver, "template") {
             continue;
         } else if template && c.name == "exchange" {
             let Some(method) = c.args.get(1) else { continue };
@@ -458,7 +528,14 @@ class Routes(private val h: UserHandler) {
 
     #[test]
     fn reads_test_requests() {
-        let src = r#"class T {
+        let src = r#"
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.reactive.server.WebTestClient;
+import org.springframework.web.client.RestTemplate;
+class T {
+            MockMvc mockMvc; WebTestClient webTestClient; WebTestClient client; RestTemplate rest;
             void t() {
                 mockMvc.perform(get("/a/{id}", 1)).andExpect(x);
                 mockMvc.perform(MockMvcRequestBuilders.patch("/b"));
@@ -485,5 +562,41 @@ class Routes(private val h: UserHandler) {
     fn annotated_mappings_are_endpoints_too() {
         let src = "@RestController @RequestMapping(\"/u\") class U { @GetMapping(\"/{id}\") void get() {} @RequestMapping void any() {} }";
         assert_eq!(found("U.java", src), pairs(&[("GET", "/u/{id}"), ("", "/u")]));
+    }
+
+    #[test]
+    fn client_receivers_need_same_file_declaration_and_exact_imports() {
+        let path = "/p/src/test/java/T.java";
+        let list = |src: &str| requests(path, src).into_iter().map(|r| (r.verb, r.path)).collect::<Vec<_>>();
+        let java = r#"
+import org.springframework.web.client.RestClient;
+import org.springframework.test.web.reactive.server.WebTestClient;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.boot.test.web.client.TestRestTemplate;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+class T {
+    @Autowired TestRestTemplate trt;
+    void t() {
+        var rc = RestClient.create("http://x");
+        WebTestClient wtc = WebTestClient.bindToController(new C()).build();
+        var mvc = MockMvcBuilders.standaloneSetup(new C()).build();
+        rc.get().uri("/rc");
+        wtc.post().uri("/wtc");
+        mvc.perform(delete("/mvc"));
+        trt.getForObject("/trt", String.class);
+        other.get().uri("/unknown");
+        unknownTemplate.getForObject("/nope", String.class);
+    }
+}"#;
+        assert_eq!(
+            list(java),
+            [("GET".into(), "/rc".into()), ("POST".into(), "/wtc".into()), ("DELETE".into(), "/mvc".into()), ("GET".into(), "/trt".into())]
+        );
+        let foreign = java.replace("org.springframework.web.client.RestClient", "acme.RestClient").replace("org.springframework.boot.test", "acme.test");
+        assert_eq!(list(&foreign), [("POST".into(), "/wtc".into()), ("DELETE".into(), "/mvc".into())]);
+        let no_static = java.replace("import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;", "");
+        assert_eq!(list(&no_static).len(), 3);
+        let kotlin = "import org.springframework.web.reactive.function.client.WebClient\nclass T { lateinit var web: WebClient\nfun t() { web.get().uri(\"/k\"); val c = WebClient.create(); c.put().uri(\"/k2\") } }";
+        assert_eq!(requests("/p/src/test/kotlin/T.kt", kotlin).len(), 2);
     }
 }

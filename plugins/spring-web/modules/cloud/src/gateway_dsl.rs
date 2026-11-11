@@ -98,6 +98,9 @@ impl Chain<'_> {
         let mut paths = Vec::new();
         let mut methods = Vec::new();
         let mut first = true;
+        let mut or_kind: Option<String> = None;
+        let mut joined_by_or = false;
+        let mut used_and = false;
         loop {
             self.take(".")?;
             let name = self.ident()?.to_owned();
@@ -109,8 +112,12 @@ impl Chain<'_> {
                     } else {
                         &mut methods
                     };
-                    // Preserve predicate meaning rather than flatten repeated AND groups.
-                    if !target.is_empty() {
+                    // Repeated AND groups cannot be flattened; a pure `.or()` chain of one
+                    // predicate kind is exactly the union of its values.
+                    if !target.is_empty() && !(joined_by_or && or_kind.as_deref() == Some(name.as_str()) && !used_and) {
+                        return None;
+                    }
+                    if joined_by_or && or_kind.as_deref() != Some(name.as_str()) {
                         return None;
                     }
                     if name == "method"
@@ -121,9 +128,10 @@ impl Chain<'_> {
                         return None;
                     }
                     target.extend(values);
+                    joined_by_or = false;
                     first = false;
                 }
-                "uri" if !first => {
+                "uri" if !first && !joined_by_or => {
                     self.take("(")?;
                     let (uri, uri_range) = self.literal()?;
                     self.take(")")?;
@@ -143,8 +151,23 @@ impl Chain<'_> {
             }
             // BooleanSpec requires explicit AND to return to PredicateSpec.
             if self.toks.get(self.i + 1).is_some_and(|t| t.s == "and") {
+                if or_kind.is_some() {
+                    return None;
+                }
+                used_and = true;
                 self.take(".")?;
                 self.take("and")?;
+                self.take("(")?;
+                self.take(")")?;
+                joined_by_or = false;
+            } else if self.toks.get(self.i + 1).is_some_and(|t| t.s == "or") {
+                if used_and || (or_kind.is_some() && or_kind.as_deref() != Some(name.as_str())) {
+                    return None;
+                }
+                or_kind = Some(name.clone());
+                joined_by_or = true;
+                self.take(".")?;
+                self.take("or")?;
                 self.take("(")?;
                 self.take(")")?;
             } else if !self.toks.get(self.i + 1).is_some_and(|t| t.s == "uri") {
@@ -283,13 +306,28 @@ mod tests {
         assert_eq!(slice(found[0].method_ranges[1]), "HEAD");
     }
     #[test]
+    fn pure_or_chains_of_one_predicate_kind_are_the_union_of_their_values() {
+        let text = source(
+            "builder.routes().route(\"a\", r -> r.path(\"/a\").or().path(\"/b\", \"/c\").uri(\"lb://a\")).route(\"m\", r -> r.method(\"GET\").or().method(\"POST\").uri(\"lb://m\")).build()",
+        );
+        let found = routes("Gateway.java", &text);
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0].paths, ["/a", "/b", "/c"]);
+        assert!(found[0].methods.is_empty());
+        assert_eq!(found[0].path_ranges.len(), 3);
+        assert_eq!(found[1].methods, ["GET", "POST"]);
+    }
+    #[test]
     fn dynamic_foreign_shadowed_or_nested_chains_are_not_inferred() {
         let valid = "builder.routes().route(\"x\", r -> r.path(\"/x\").uri(\"lb://x\")).build()";
         for bad in [
             valid.replace("\"x\", r", "ID, r"),
             valid.replace("\"lb://x\"", "uri"),
             valid.replace("r.path", "other.path"),
-            valid.replace(".uri(\"lb://x\")", ".or().path(\"/y\").uri(\"lb://x\")"),
+            valid.replace(".uri(\"lb://x\")", ".or().method(\"GET\").uri(\"lb://x\")"),
+            valid.replace(".uri(\"lb://x\")", ".and().path(\"/y\").uri(\"lb://x\")"),
+            valid.replace(".uri(\"lb://x\")", ".or().path(\"/y\").and().path(\"/z\").uri(\"lb://x\")"),
+            valid.replace("r.path(\"/x\")", "r.method(\"GET\").and().path(\"/x\").or().path(\"/y\")"),
             valid.replace("r.path(\"/x\")", "helper(r -> r.path(\"/x\"))"),
             valid.replace("\"/x\"", "\"/x\" + SUFFIX"),
             valid.replace("\"/x\"", "\"/\\u0078\""),

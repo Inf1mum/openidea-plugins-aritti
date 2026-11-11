@@ -8,6 +8,7 @@ mod indexing;
 mod resource_completion;
 mod namespace_values;
 mod xpath;
+mod xpath_syntax;
 mod resource_paths;
 mod annotation_owners;
 mod schema_qnames;
@@ -621,14 +622,17 @@ impl DiagnosticsProvider for WsTools {
                 .collect::<Vec<_>>());
             return problems;
         }
-        if !matches!(doc.language.as_str(), "java" | "kotlin") || doc.text.len() > MAX_DOCUMENT_BYTES || !self.watching {
+        if !matches!(doc.language.as_str(), "java" | "kotlin") || doc.text.len() > MAX_DOCUMENT_BYTES {
             return Vec::new();
         }
-        let Some(index) = self.schemas.for_cached_document(&doc.path, &doc.text) else { return Vec::new() };
+        let mut problems = xpath::syntax_diagnostics(doc);
+        if !self.watching {
+            return problems;
+        }
+        let Some(index) = self.schemas.for_cached_document(&doc.path, &doc.text) else { return problems };
         if !complete_schemas(index) || !self.unreadable_schemas.is_empty() {
-            return Vec::new();
+            return problems;
         }
-        let mut problems = Vec::new();
         if index.iter().all(|(_, file)| file.qnames_complete) {
             for endpoint in endpoints_with_syntax(&parse_source(&doc.path, &doc.text), &doc.text, doc.path.ends_with(".kt")) {
                 let Some(namespace) = endpoint.namespace else { continue };

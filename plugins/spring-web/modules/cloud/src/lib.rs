@@ -342,6 +342,28 @@ fn factory_args(predicate: bool, name: &str) -> Option<&'static [&'static str]> 
         (true, "Method") => &["methods"],
         (true, "Path") => &["patterns", "matchTrailingSlash"],
         (true, "Query") => &["param", "regexp"],
+        (true, "RemoteAddr") => &["sources"],
+        (true, "XForwardedRemoteAddr") => &["maxTrustedIndex", "sources"],
+        (true, "Weight") => &["group", "weight"],
+        (false, "Retry") => &["retries", "series", "statuses", "methods", "exceptions", "backoff", "routeId"],
+        (false, "RewriteLocationResponseHeader") => &["stripVersion", "locationHeaderName", "hostValue", "protocols"],
+        (false, "RewriteResponseHeader") => &["name", "regexp", "replacement"],
+        (false, "MapRequestHeader") => &["fromHeader", "toHeader"],
+        (false, "RedirectTo") => &["status", "url", "includeRequestParams"],
+        (false, "CircuitBreaker") => &["name", "fallbackUri", "routeId", "statusCodes", "resumeWithoutError"],
+        (false, "RequestRateLimiter") => &["keyResolver", "rateLimiter", "statusCode", "denyEmptyKey", "emptyKeyStatus", "routeId"],
+        (false, "RequestSize") => &["maxSize"],
+        (false, "SecureHeaders") => &[
+            "xssProtectionHeader",
+            "strictTransportSecurity",
+            "frameOptions",
+            "contentTypeOptions",
+            "referrerPolicy",
+            "contentSecurityPolicy",
+            "downloadOptions",
+            "permittedCrossDomainPolicies",
+        ],
+        (false, "SaveSession" | "PreserveHostHeader") => &[],
         (false, "AddRequestHeader" | "AddRequestParameter" | "AddResponseHeader" | "SetRequestHeader" | "SetResponseHeader") => &["name", "value"],
         (false, "RemoveRequestHeader" | "RemoveResponseHeader") => &["name"],
         (false, "PrefixPath") => &["prefix"],
@@ -371,7 +393,7 @@ fn unknown_gateway_args(text: &str, keys: &[Key]) -> Vec<Diagnostic> {
             continue;
         }
         let kind = if predicate { "predicate" } else { "filter" };
-        let message = format!("Gateway {kind} `{}` has no argument `{first}`; it takes {}", name.value, known.join(", "));
+        let message = format!("Gateway {kind} `{}` has no argument `{first}`; it takes {}", name.value, if known.is_empty() { "none".to_owned() } else { known.join(", ") });
         out.push(Diagnostic::new(range(text, k.at, k.end), Severity::Warning, message).code("unknown-gateway-arg"));
     }
     out
@@ -386,16 +408,27 @@ fn required_args(predicate: bool, name: &str) -> Option<&'static [&'static str]>
         (true, "Cookie") => &["name", "regexp"],
         (true, "Header") => &["header"],
         (true, "Query") => &["param"],
+        (true, "RemoteAddr") => &["sources"],
         (false, "AddRequestHeader" | "AddRequestParameter" | "AddResponseHeader" | "SetRequestHeader" | "SetResponseHeader") => &["name", "value"],
         _ => return None,
     })
 }
 
-/// Shortcut values a factory binds; the default `ShortcutType` ignores the rest, while Host, Method
-/// and Path gather every value into a list.
+/// Shortcut values a factory binds; the default `ShortcutType` ignores the rest, while Host, Method,
+/// Path, RemoteAddr and XForwardedRemoteAddr gather every value into a list. Retry's shortcut order
+/// is its 7 fields (backoff.* flattened), CircuitBreaker's is `name`; RequestRateLimiter, RequestSize,
+/// SecureHeaders, SaveSession and PreserveHostHeader declare no shortcut order at all (4.1.5).
 fn positional_limit(predicate: bool, name: &str) -> Option<usize> {
-    if predicate && matches!(name, "Host" | "Method" | "Path") {
+    if predicate && matches!(name, "Host" | "Method" | "Path" | "RemoteAddr" | "XForwardedRemoteAddr") {
         return None;
+    }
+    if !predicate {
+        match name {
+            "Retry" => return Some(7),
+            "CircuitBreaker" => return Some(1),
+            "RequestRateLimiter" | "RequestSize" | "SecureHeaders" | "SaveSession" | "PreserveHostHeader" => return Some(0),
+            _ => {}
+        }
     }
     factory_args(predicate, name).map(<[_]>::len)
 }
@@ -1316,6 +1349,34 @@ class StreamFunctions {
                 ("gateway-missing-args", "Cookie"),
                 ("gateway-extra-args", "StripPrefix=1,2"),
                 ("gateway-missing-args", "AddRequestHeader=X"),
+            ]
+        );
+    }
+
+    #[cfg(not(feature = "embedded"))]
+    #[test]
+    fn gateway_arity_covers_gathered_default_and_empty_shortcut_factories() {
+        let host = setup();
+        let mut tools = CloudTools::default();
+        let yml = "spring:\n  cloud:\n    gateway:\n      routes:\n        - id: r\n          predicates:\n            - RemoteAddr=1.1.1.1/24,2.2.2.2\n            - XForwardedRemoteAddr=1.1.1.1,2.2.2.2\n            - Weight=g,8\n            - Weight=g,8,9\n            - name: RemoteAddr\n          filters:\n            - Retry=3,BAD_GATEWAY,GET,10ms,50ms,2,true\n            - Retry=3,BAD_GATEWAY,GET,10ms,50ms,2,true,x\n            - RewriteLocationResponseHeader=AS_IN_REQUEST,Location,h,p\n            - RewriteLocationResponseHeader=AS_IN_REQUEST,Location,h,p,x\n            - RequestRateLimiter=5\n            - CircuitBreaker=cb\n            - CircuitBreaker=cb,forward:/f\n            - SaveSession\n            - name: RemoveRequestHeader\n            - name: RequestRateLimiter\n              args:\n                deny-empty-key: false\n                bogus: 1\n";
+        let d = doc(&format!("{RESOURCES}/application.yml"), "yaml", yml);
+        tools.line_markers(&d);
+        let found: Vec<_> = host.diagnostics()[&d.path]
+            .iter()
+            .filter(|p| p.code.as_deref().is_some_and(|c| c.starts_with("gateway-") || c.starts_with("unknown-gateway-arg")))
+            .map(|p| (p.code.clone().unwrap(), written(yml, p.range).to_owned()))
+            .collect();
+        let found: Vec<_> = found.iter().map(|(c, w)| (c.as_str(), w.as_str())).collect();
+        assert_eq!(
+            found,
+            [
+                ("unknown-gateway-arg", "bogus"),
+                ("gateway-extra-args", "Weight=g,8,9"),
+                ("gateway-missing-args", "RemoteAddr"),
+                ("gateway-extra-args", "Retry=3,BAD_GATEWAY,GET,10ms,50ms,2,true,x"),
+                ("gateway-extra-args", "RewriteLocationResponseHeader=AS_IN_REQUEST,Location,h,p,x"),
+                ("gateway-extra-args", "RequestRateLimiter=5"),
+                ("gateway-extra-args", "CircuitBreaker=cb,forward:/f"),
             ]
         );
     }

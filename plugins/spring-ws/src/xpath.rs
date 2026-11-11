@@ -341,6 +341,52 @@ fn references_with_package(doc: &Document, package: &[Binding]) -> Vec<(String, 
     }
     out
 }
+fn syntax_problem(doc: &Document, at: usize, value: &str) -> Option<Diagnostic> {
+    let (message, from, to) = xpath_syntax::check(value).err()?;
+    let (start, end) = if to > from { (at + from, at + to) } else { (at.saturating_sub(1), at + value.len() + 1) };
+    Some(
+        Diagnostic::new(range(&doc.text, start, end), Severity::Warning, format!("Invalid XPath 1.0 expression: {message}."))
+            .code("invalid-xpath"),
+    )
+}
+/// Syntax errors in literal `@XPathParam` values and sole-literal `XPathExpressionFactory.createXPathExpression` arguments.
+pub(crate) fn syntax_diagnostics(doc: &Document) -> Vec<Diagnostic> {
+    let Some(file) = source(doc) else {
+        return vec![];
+    };
+    let owners = annotation_owners::Owners::new(&file, &doc.text, doc.language == "kotlin");
+    let mut out = vec![];
+    for ty in &file.types {
+        for method in ty.methods() {
+            for a in method.params.iter().flat_map(|p| &p.annotations) {
+                if a.name != "XPathParam" || !owners.known(&doc.text, a, &format!("{PREFIX}XPathParam")) {
+                    continue;
+                }
+                if let Some(value) = literal(a, "value", &doc.text) {
+                    out.extend(syntax_problem(doc, value.at, &value.value));
+                }
+            }
+        }
+    }
+    let tokens = java::tokens(&doc.text);
+    for w in tokens.windows(7) {
+        let [factory, dot, name, open, lit, next, _] = [w[0], w[1], w[2], w[3], w[4], w[5], w[6]];
+        let literal_text = lit.s.len() >= 2 && lit.s.starts_with('"') && !lit.s.starts_with("\"\"\"") && lit.s.ends_with('"');
+        if factory.s != "XPathExpressionFactory"
+            || dot.s != "."
+            || name.s != "createXPathExpression"
+            || open.s != "("
+            || !literal_text
+            || !matches!(next.s, ")" | ",")
+            || lit.s.contains(['\\', '$'])
+            || !owners.written_known("XPathExpressionFactory", "org.springframework.xml.xpath.XPathExpressionFactory")
+        {
+            continue;
+        }
+        out.extend(syntax_problem(doc, lit.at + 1, &lit.s[1..lit.s.len() - 1]));
+    }
+    out
+}
 pub(crate) fn definition(nav: &mut WsTools, doc: &Document, at: Position) -> Option<Vec<Location>> {
     let package = cached_package(nav, doc);
     if let Some(link) = prefix_links(doc, &package)
@@ -934,5 +980,63 @@ mod unknown_prefix_completion_test {
         let values = WsTools::default().completion(&doc, at, None);
         assert_eq!(values.len(), 1);
         assert_eq!(values[0].label, "p");
+    }
+}
+
+#[cfg(test)]
+mod syntax_diagnostic_tests {
+    use super::*;
+    const XP: &str = "import org.springframework.ws.server.endpoint.annotation.XPathParam; import org.springframework.xml.xpath.XPathExpressionFactory; ";
+    fn doc(body: &str, language: &str) -> Document {
+        Document {
+            path: if language == "kotlin" { "/p/E.kt" } else { "/p/E.java" }.into(),
+            language: language.into(),
+            text: format!("{}{body}", if language == "kotlin" { XP.replace("; ", "\n") } else { XP.into() }),
+            ..Default::default()
+        }
+    }
+    #[test]
+    fn invalid_literal_xpath_param_warns_on_the_token() {
+        let d = doc("class E { void h(@XPathParam(\"/a/b[\") String v) {} }", "java");
+        let found = syntax_diagnostics(&d);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].severity, Severity::Warning);
+        let at = d.text.find("b[").unwrap() + 1;
+        assert_eq!(found[0].range, range(&d.text, at, at + 1));
+    }
+    #[test]
+    fn valid_non_literal_and_foreign_stay_quiet() {
+        for body in [
+            "class E { void h(@XPathParam(\"/p:a[@id='1']/text()\") String v) {} }",
+            "class E { static final String X=\"[\"; void h(@XPathParam(X) String v) {} }",
+            "class E { void h(@XPathParam(\"/a[\" + \"b\") String v) {} }",
+            "class E { void h(@XPathParam(\"/a[$x\") String v) {} }",
+            "class E { void h(@XPathParam(\"/a[\\n\") String v) {} }",
+            "class E { void h(@Other(\"/a[\") String v) {} }",
+            "class E { Object h() { return XPathExpressionFactory.createXPathExpression(\"//a\"); } }",
+            "class E { Object h(String s) { return XPathExpressionFactory.createXPathExpression(s); } }",
+            "class E { Object h(String s) { return XPathExpressionFactory.createXPathExpression(\"//a[\" + s); } }",
+        ] {
+            assert!(syntax_diagnostics(&doc(body, "java")).is_empty(), "{body}");
+        }
+        let foreign = "class XPathExpressionFactory { static void createXPathExpression(String s){} } class E { void h(){ XPathExpressionFactory.createXPathExpression(\"a[\"); } }";
+        let mut d = doc(foreign, "java");
+        d.text = foreign.into();
+        assert!(syntax_diagnostics(&d).is_empty());
+    }
+    #[test]
+    fn create_xpath_expression_literal_is_checked_including_namespace_overload_and_kotlin() {
+        let java = doc("class E { Object h(java.util.Map m) { return XPathExpressionFactory.createXPathExpression(\"//a[\", m); } }", "java");
+        assert_eq!(syntax_diagnostics(&java).len(), 1);
+        let kotlin = doc("class E { fun h() = XPathExpressionFactory.createXPathExpression(\"a b\") }", "kotlin");
+        assert_eq!(syntax_diagnostics(&kotlin).len(), 1);
+    }
+    #[test]
+    fn empty_literal_is_reported_over_the_quotes() {
+        let d = doc("class E { void h(@XPathParam(\"\") String v) {} }", "java");
+        let found = syntax_diagnostics(&d);
+        assert_eq!(found.len(), 1);
+        let q = d.text.find("\"\"").unwrap();
+        assert_eq!(found[0].range, range(&d.text, q, q + 2));
     }
 }

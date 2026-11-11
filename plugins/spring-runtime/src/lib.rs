@@ -365,14 +365,25 @@ impl Tree<'_> {
         if !open {
             return;
         }
+        self.health_details(snap, "");
         for (path, status) in &snap.health[1..] {
             let parent = path.rsplit_once('/').map_or("health".to_owned(), |(p, _)| format!("health/{p}"));
             let mut item =
                 TreeItem::new(&format!("health/{path}"), simple_path(path)).parent(&parent).detail(status).icon(health_icon(status));
-            if snap.health.iter().any(|(p, _)| p.starts_with(&format!("{path}/"))) {
+            if snap.health.iter().any(|(p, _)| p.starts_with(&format!("{path}/"))) || snap.health_details.iter().any(|(p, ..)| p == path) {
                 item = item.expandable(true);
             }
             if !self.push(item) {break;}
+            self.health_details(snap, path);
+        }
+    }
+
+    fn health_details(&mut self, snap: &Snapshot, path: &str) {
+        let parent = if path.is_empty() { "health".to_owned() } else { format!("health/{path}") };
+        for (i, (_, key, value)) in snap.health_details.iter().enumerate().filter(|(_, (p, ..))| p == path) {
+            if !self.push(TreeItem::new(&format!("{parent}#{i}"), key).parent(&parent).detail(value)) {
+                return;
+            }
         }
     }
 

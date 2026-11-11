@@ -116,9 +116,10 @@ fn records(s: &Snapshot) -> Vec<Record> {
             if path.is_empty() { "Application health" } else { path },
             "health",
             format!(
-                "Component: {}\nReported status: {}\nHealth details beyond status are not retained in this model.",
+                "Component: {}\nReported status: {}\nDetails (bounded, secrets masked):\n{}",
                 if path.is_empty() { "application" } else { path },
-                known(status)
+                known(status),
+                health_detail_lines(s, path)
             ),
             None
         ));
@@ -1089,4 +1090,9 @@ mod tests {
         assert!(rows.iter().all(|r| r.body.len() <= 8192));
         assert!(rows.iter().all(|r| r.target.is_none()));
     }
+}
+
+fn health_detail_lines(s: &Snapshot, path: &str) -> String {
+    let lines: Vec<String> = s.health_details.iter().filter(|(p, ..)| p == path).map(|(_, k, v)| format!("{k}: {v}")).collect();
+    if lines.is_empty() { "none reported".to_owned() } else { lines.join("\n") }
 }

@@ -582,7 +582,7 @@ impl WebTools {
     fn template_completions(&mut self, doc: &Document, at: usize) -> Vec<CompletionItem> {
         let Some(slot) = template_links::completion(&doc.text, at) else {
             let Some((_,replace))=model_links::reference(&doc.text,at) else{return Vec::new()};
-            let mut items=self.model_candidates(doc).into_iter().map(|(name,location)|CompletionItem{detail:Some(format!("MVC model · {}",location.path)),replace:Some(replace),..CompletionItem::new(&name,CompletionKind::Variable)}).collect::<Vec<_>>();
+            let mut items=self.model_candidates(doc).into_iter().map(|(name,location,session)|CompletionItem{detail:Some(format!("{} · {}",if session{"Session attribute"}else{"MVC model"},location.path)),replace:Some(replace),..CompletionItem::new(&name,CompletionKind::Variable)}).collect::<Vec<_>>();
             items.sort_by(|a,b|a.label.cmp(&b.label));items.dedup_by(|a,b|a.label==b.label);return items
         };
         match slot {
@@ -600,25 +600,25 @@ impl WebTools {
         }
     }
 
-    fn model_candidates(&mut self,doc:&Document)->Vec<(String,Location)>{
+    fn model_candidates(&mut self,doc:&Document)->Vec<(String,Location,bool)>{
         let Some(project)=project_of(&doc.path) else{return Vec::new()};
         let mut views=self.templates(doc).into_iter().filter(|t|t.path==doc.path).map(|t|t.name).collect::<Vec<_>>();
         if let Some((_,path))=doc.path.split_once("/src/main/resources/templates/") {if let Some((name,_))=path.rsplit_once('.') {views.push(name.into());}}
-        let candidates=self.models.get(&project,PROVIDER_BUDGET).iter().flat_map(|(path,facts)|facts.iter().filter(|f|f.view==model_links::ALL_VIEWS||views.contains(&f.view)).map(move|f|(f.name.clone(),f.view.clone(),Location{path:path.into(),range:f.range}))).take(200).collect::<Vec<_>>();
+        let candidates=self.models.get(&project,PROVIDER_BUDGET).iter().flat_map(|(path,facts)|facts.iter().filter(|f|f.view==model_links::ALL_VIEWS||views.contains(&f.view)).map(move|f|(f.name.clone(),f.view.clone(),f.session,Location{path:path.into(),range:f.range}))).take(200).collect::<Vec<_>>();
         let mut fresh=BTreeMap::new();let mut output=Vec::new();
-        for (name,view,location) in candidates {
+        for (name,view,session,location) in candidates {
             if !fresh.contains_key(&location.path) {
                 if fresh.len()>=64 {continue}
                 let facts=project.read_file(&location.path).ok().filter(|source|source.len()<=128<<10).and_then(|source|model_links::facts(&location.path,&source));
                 fresh.insert(location.path.clone(),facts);
             }
-            if fresh.get(&location.path).and_then(|facts|facts.as_ref()).is_some_and(|facts|facts.iter().any(|f|f.name==name&&f.view==view&&f.range==location.range)){output.push((name,location));}
+            if fresh.get(&location.path).and_then(|facts|facts.as_ref()).is_some_and(|facts|facts.iter().any(|f|f.name==name&&f.view==view&&f.range==location.range)){output.push((name,location,session));}
         }
         output
     }
     fn model_targets(&mut self,doc:&Document,at:usize)->Vec<Location>{
         let Some((name,_))=model_links::reference(&doc.text,at) else{return Vec::new()};
-        self.model_candidates(doc).into_iter().filter(|(candidate,_)|*candidate==name).map(|(_,location)|location).collect()
+        self.model_candidates(doc).into_iter().filter(|(candidate,..)|*candidate==name).map(|(_,location,_)|location).collect()
     }
 
     fn template_targets(&mut self, doc: &Document, at: usize) -> Vec<Location> {
@@ -1359,7 +1359,12 @@ class UserApi {
 }
 "#;
 
-    const USER_TESTS: &str = r#"@WebMvcTest
+    const USER_TESTS: &str = r#"import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
+import org.springframework.test.web.reactive.server.WebTestClient;
+import org.springframework.boot.test.web.client.TestRestTemplate;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+@WebMvcTest
 class UserApiTests {
     @Autowired MockMvc mockMvc;
     @Autowired WebTestClient webTestClient;
@@ -1386,15 +1391,15 @@ class UserApiTests {
         let d = doc("src/test/java/com/acme/UserApiTests.java", USER_TESTS);
         let markers = tools.legacy_parser_markers(&d);
         let found: Vec<_> = markers.iter().map(|m| (m.line, m.target.as_ref().unwrap().range.start.line)).collect();
-        assert_eq!(found, [(7, 7), (8, 10), (10, 4), (11, 7), (12, 12), (13, 10)]);
+        assert_eq!(found, [(12, 7), (13, 10), (15, 4), (16, 7), (17, 12), (18, 10)]);
         assert_eq!(markers[0].tooltip, "Handler of GET /users/{id}");
 
-        let at = Position::new(7, 30);
+        let at = Position::new(12, 30);
         let targets = tools.definition(&d, at);
         assert_eq!(targets.len(), 1);
         assert_eq!(targets[0].path, "/project/src/main/java/com/acme/UserApi.java");
         assert_eq!(targets[0].range.start.line, 7);
-        assert!(tools.definition(&d, Position::new(9, 30)).is_empty(), "no POST /users mapping");
+        assert!(tools.definition(&d, Position::new(14, 30)).is_empty(), "no POST /users mapping");
         let main = doc("src/main/java/com/acme/UserApi.java", USERS);
         let urls: Vec<_> = tools.legacy_parser_markers(&main).into_iter().map(|m| (m.line, m.tooltip, m.target.is_none())).collect();
         assert!(urls.contains(&(7, "URL: GET /users/{id}".to_owned(), true)), "{urls:?}");
@@ -1461,12 +1466,12 @@ class UserApiTests {
         let mut tools = WebTools::default();
         let typing = USER_TESTS.replace("get(\"/users/{id}\", 1)", "get(\"\", 1)");
         let d = doc("src/test/java/com/acme/UserApiTests.java", &typing);
-        let items = tools.completion(&d, Position::new(7, 29), None);
+        let items = tools.completion(&d, Position::new(12, 29), None);
         let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
         assert_eq!(labels, ["/users", "/users/by-{name}", "/users/{id}", "/users/{id}/orders"]);
         let get = USER_TESTS.replace("get(\"/users/{id}\", 1)", "get(\"/users/\", 1)");
         let d = doc("src/test/java/com/acme/UserApiTests.java", &get);
-        let labels: Vec<_> = tools.completion(&d, Position::new(7, 31), None).into_iter().map(|i| i.label).collect();
+        let labels: Vec<_> = tools.completion(&d, Position::new(12, 31), None).into_iter().map(|i| i.label).collect();
         assert!(labels.contains(&"/users/{id}".to_owned()) && labels.contains(&"/users".to_owned()), "{labels:?}");
         assert!(tools.completion(&d, Position::new(2, 5), None).is_empty());
     }

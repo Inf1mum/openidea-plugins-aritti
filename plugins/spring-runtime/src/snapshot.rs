@@ -10,6 +10,33 @@ use spring_text::config::canonical;
 pub const ENDPOINTS: [&str; 9] = ["beans", "env", "conditions", "health", "mappings", "configprops", "scheduledtasks", "loggers", "caches"];
 /// What Actuator shows for a value it hides.
 pub const MASK: &str = "******";
+pub const HEALTH_DEPTH: usize = 4;
+pub const HEALTH_NODES: usize = 200;
+
+/// Control characters dropped, length bounded.
+fn health_text(s: &str, max: usize) -> String {
+    let clean: String = s.chars().filter(|c| !c.is_control()).collect();
+    if clean.chars().count() <= max {
+        return clean;
+    }
+    format!("{}…", clean.chars().take(max).collect::<String>())
+}
+
+fn sensitive_key(key: &str) -> bool {
+    let k = key.to_ascii_lowercase();
+    ["password", "passwd", "secret", "token", "key", "credential", "auth"].iter().any(|w| k.contains(w))
+}
+
+/// `scheme://user:pw@host` becomes `scheme://******@host`.
+fn mask_userinfo(v: &str) -> String {
+    let Some(i) = v.find("://") else { return v.to_owned() };
+    let rest = &v[i + 3..];
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    match authority.rfind('@') {
+        Some(at) => format!("{}{MASK}{}", &v[..i + 3], &rest[at..]),
+        None => v.to_owned(),
+    }
+}
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Snapshot {
@@ -27,6 +54,9 @@ pub struct Snapshot {
     pub conditions: Vec<Condition>,
     /// `""` is the application, `db`, `db/primary`… its components.
     pub health: Vec<(String, String)>,
+    /// `(component path, key, value)`: bounded, escaped and masked at parse time. Absent in schema 1 caches.
+    #[serde(default)]
+    pub health_details: Vec<(String, String, String)>,
     pub mappings: Vec<Mapping>,
     pub configprops: Vec<PropsBean>,
     pub scheduled: Vec<Scheduled>,
@@ -269,13 +299,52 @@ impl Snapshot {
     }
 
     /// Boot 2.2+ nests `components`; older versions put them under `details`.
+    /// At most `HEALTH_DEPTH` levels and `HEALTH_NODES` components plus detail rows are kept.
     fn read_health(&mut self, path: &str, v: &Value) {
         let Some(status) = v["status"].as_str() else { return };
-        self.health.push((path.to_owned(), status.to_owned()));
-        let children = if v["components"].is_object() { &v["components"] } else { &v["details"] };
-        for (name, c) in entries(children) {
-            let child = if path.is_empty() { name.clone() } else { format!("{path}/{name}") };
+        if self.health.len() + self.health_details.len() >= HEALTH_NODES {
+            return;
+        }
+        self.health.push((path.to_owned(), health_text(status, 64)));
+        let depth = if path.is_empty() { 0 } else { path.split('/').count() };
+        let mut children: Vec<(&String, &Value)> = entries(&v["components"]).collect();
+        let is_component = |c: &Value| c.get("status").is_some_and(Value::is_string);
+        for (name, c) in entries(&v["details"]) {
+            if is_component(c) {
+                children.push((name, c));
+            } else {
+                self.read_health_detail(path, &health_text(name, 64), c, 0);
+            }
+        }
+        if depth >= HEALTH_DEPTH {
+            return;
+        }
+        for (name, c) in children {
+            let name = health_text(&name.replace('/', "_"), 64);
+            let child = if path.is_empty() { name } else { format!("{path}/{name}") };
             self.read_health(&child, c);
+        }
+    }
+
+    fn read_health_detail(&mut self, path: &str, key: &str, v: &Value, level: usize) {
+        if self.health.len() + self.health_details.len() >= HEALTH_NODES {
+            return;
+        }
+        match v {
+            Value::Object(o) if level < 2 => {
+                for (k, c) in o {
+                    self.read_health_detail(path, &format!("{key}.{}", health_text(k, 64)), c, level + 1);
+                }
+            }
+            Value::Null => {}
+            _ => {
+                let raw = match v {
+                    Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                };
+                let value = if sensitive_key(key) { MASK.to_owned() } else { health_text(&mask_userinfo(&raw), 200) };
+                self.health_details.push((path.to_owned(), health_text(key, 128), value));
+            }
         }
     }
 
@@ -394,5 +463,50 @@ pub(crate) fn supported_shape(endpoint: &str, json: &Value) -> bool {
             managers.values().all(|manager| manager.is_object() && manager.get("caches").is_some_and(Value::is_object))
         }),
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod health_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn parse(v: Value) -> Snapshot {
+        let mut s = Snapshot::default();
+        s.read_health("", &v);
+        s
+    }
+
+    #[test]
+    fn keeps_details_and_masks_secrets_before_storage() {
+        let s = parse(json!({"status":"UP","components":{"db":{"status":"UP","details":{
+            "database":"PostgreSQL","apiToken":"abc","url":"jdbc:x://bob:pw@h:1/d","pool":{"password":"p","size":3}}}}}));
+        let d: std::collections::HashMap<_, _> = s.health_details.iter().map(|(_, k, v)| (k.as_str(), v.as_str())).collect();
+        assert_eq!(d["database"], "PostgreSQL");
+        assert_eq!(d["apiToken"], MASK);
+        assert_eq!(d["pool.password"], MASK);
+        assert_eq!(d["pool.size"], "3");
+        assert_eq!(d["url"], "jdbc:x://******@h:1/d");
+        assert!(!serde_json::to_string(&s).unwrap().contains("pw@"));
+    }
+
+    #[test]
+    fn legacy_details_children_stay_components() {
+        let s = parse(json!({"status":"UP","details":{"db":{"status":"DOWN"},"free":10}}));
+        assert_eq!(s.health, vec![("".into(), "UP".into()), ("db".into(), "DOWN".into())]);
+        assert_eq!(s.health_details, vec![("".into(), "free".into(), "10".into())]);
+    }
+
+    #[test]
+    fn depth_nodes_and_value_length_are_bounded() {
+        let mut deep = json!({"status":"UP"});
+        for _ in 0..8 {
+            deep = json!({"status":"UP","components":{"c":deep}});
+        }
+        assert_eq!(parse(deep).health.len(), HEALTH_DEPTH + 1);
+        let wide: serde_json::Map<String, Value> = (0..500).map(|i| (format!("c{i}"), json!({"status":"UP"}))).collect();
+        assert_eq!(parse(json!({"status":"UP","components":wide})).health.len(), HEALTH_NODES);
+        let s = parse(json!({"status":"UP","details":{"note":"é\u{7}".repeat(500)}}));
+        assert!(s.health_details[0].2.chars().count() <= 201 && !s.health_details[0].2.contains('\u{7}'));
     }
 }

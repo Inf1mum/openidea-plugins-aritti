@@ -8,6 +8,8 @@ pub struct Fact {
     pub view: String,
     pub name: String,
     pub range: Range,
+    /// Declared by `@SessionAttributes`: a name only, set elsewhere.
+    pub session: bool,
 }
 pub fn facts(path: &str, source: &str) -> Option<Vec<Fact>> {
     let file = parse_source(path, source);
@@ -21,6 +23,25 @@ pub fn facts(path: &str, source: &str) -> Option<Vec<Fact>> {
             .iter()
             .filter(|v| class.at <= v.at && v.at < class.end)
             .collect::<Vec<_>>();
+        if let Some(a) = class
+            .annotation("SessionAttributes")
+            .filter(|_| file.from_spring("SessionAttributes"))
+        {
+            let names = a.strings(&["names", "value"]);
+            for name in names
+                .into_iter()
+                .filter(|s| !s.value.is_empty() && !s.value.contains(['$', '#']))
+            {
+                for view in &class_views {
+                    out.push(Fact {
+                        view: crate::view_name(&view.value).into(),
+                        name: name.value.clone(),
+                        range: range(source, name.at, name.end),
+                        session: true,
+                    });
+                }
+            }
+        }
         for method in class.methods() {
             if let Some(a) = method
                 .annotation("ModelAttribute")
@@ -36,6 +57,7 @@ pub fn facts(path: &str, source: &str) -> Option<Vec<Fact>> {
                             view: crate::view_name(&view.value).into(),
                             name: value.value.clone(),
                             range: range(source, value.at, value.end),
+ session: false,
                         });
                     }
                 }
@@ -113,6 +135,7 @@ pub fn facts(path: &str, source: &str) -> Option<Vec<Fact>> {
                             view: crate::view_name(&view.value).into(),
                             name: name.value.clone(),
                             range: range(source, name.at, name.end),
+ session: false,
                         });
                     }
                 }
@@ -151,6 +174,7 @@ pub fn facts(path: &str, source: &str) -> Option<Vec<Fact>> {
                         view: crate::view_name(&view.value).into(),
                         name: value.value.clone(),
                         range: range(source, value.at, value.end),
+ session: false,
                     });
                 }
             }
@@ -175,6 +199,7 @@ pub fn facts(path: &str, source: &str) -> Option<Vec<Fact>> {
                     view: ALL_VIEWS.into(),
                     name: value.value.clone(),
                     range: range(source, value.at, value.end),
+ session: false,
                 });
             }
         }
@@ -320,5 +345,20 @@ mod tests {
             Some("account")
         );
         assert!(reference(s, last + 8).is_none());
+    }
+    #[test]
+    fn session_attribute_names_belong_only_to_their_controller_views() {
+        let source = "import org.springframework.web.bind.annotation.SessionAttributes; @Controller @SessionAttributes({\"cart\", \"user\"}) class C { @GetMapping(\"/a\") String a(){return \"shop/cart\";} }";
+        let found = facts("/p/C.java", source).unwrap();
+        assert_eq!(
+            found.iter().map(|f| (f.view.as_str(), f.name.as_str(), f.session)).collect::<Vec<_>>(),
+            [("shop/cart", "cart", true), ("shop/cart", "user", true)]
+        );
+        let single = "@Controller @SessionAttributes(names = \"x\") class C { @GetMapping(\"/a\") String a(){return \"v\";} }";
+        assert_eq!(facts("/p/C.java", single).unwrap().len(), 1);
+        let foreign = "import other.SessionAttributes; @Controller @SessionAttributes(\"x\") class C { @GetMapping(\"/a\") String a(){return \"v\";} }";
+        assert!(facts("/p/C.java", foreign).is_none());
+        let rest = "@RestController @SessionAttributes(\"x\") class C { @GetMapping(\"/a\") String a(){return \"v\";} }";
+        assert!(facts("/p/C.java", rest).is_none());
     }
 }

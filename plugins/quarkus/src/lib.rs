@@ -485,7 +485,9 @@ impl Plugin for QuarkusTools {
 impl openidea_plugin::language_features::LanguageFeatures for QuarkusTools {
     fn folding(&mut self, doc: &Document) -> Vec<openidea_plugin::language_features::FoldRange> { self.qute_folding(doc) }
     fn code_lenses(&mut self,doc:&Document)->Vec<openidea_plugin::language_features::CodeLens> {
-        if self.cached_module(doc).is_none() {return Vec::new();} source_features::lenses(doc)
+        if self.cached_module(doc).is_none() {return Vec::new();}
+        let prefix = source_features::rest_prefix(&doc.path);
+        source_features::lenses_with(doc, prefix.as_deref())
     }
     fn document_symbols(&mut self,doc:&Document)->Vec<openidea_plugin::language_features::DocumentSymbol> {
         if self.cached_module(doc).is_none() {return Vec::new();} source_features::symbols(doc)

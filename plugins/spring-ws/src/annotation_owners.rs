@@ -112,7 +112,7 @@ impl Owners {
     pub(crate) fn resource_constructor(&self, written: &str) -> bool {
         self.written_known(written, "org.springframework.core.io.ClassPathResource")
     }
-    fn written_known(&self, written: &str, expected: &str) -> bool {
+    pub(crate) fn written_known(&self, written: &str, expected: &str) -> bool {
         let root = expected.split('.').next().unwrap_or("");
         if written == expected {
             return !self.shadowed.contains(root) && !self.imports.contains_key(root);

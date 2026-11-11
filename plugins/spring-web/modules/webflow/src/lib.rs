@@ -8,7 +8,7 @@ use openidea_plugin::views::{Body, Button, View, ViewEvent, Viewport, Views};
 use openidea_plugin::{Diagnostic, Error, Event, EventKind, Invocation, Location, Plugin, Position, Range, Severity, host};
 use spring_text::diagram::{self, Edge, Node};
 use spring_text::index::{Index, Indexes, PROVIDER_BUDGET};
-use spring_text::{beans, contains, range, xml};
+use spring_text::{beans, contains, java, range, xml};
 use std::collections::{BTreeMap, BTreeSet};
 
 mod actions;
@@ -16,7 +16,7 @@ mod actions;
 const NAMESPACE: &str = "http://www.springframework.org/schema/webflow";
 const CONFIG_NAMESPACE: &str = "http://www.springframework.org/schema/webflow-config";
 const STATES: [&str; 5] = ["view-state", "action-state", "decision-state", "subflow-state", "end-state"];
-const GLOBS: &[&str] = &["**/*.xml"];
+const GLOBS: &[&str] = &["**/*.xml", "**/*.java"];
 const VIEW: &str = "flow";
 const NO_FLOW: &str = "Open a Web Flow definition (flow XML) to see its states.";
 
@@ -217,9 +217,54 @@ pub fn parse_registry(text: &str) -> Registry {
     out
 }
 
+/// A literal-only `FlowDefinitionRegistryBuilder` chain in a Java config class:
+/// `addFlowLocation("/p.xml"[, "id"])` (id defaults to the file name, as in XML) and
+/// `setBasePath("/dir")`. `addFlowLocationPattern` registers no id of its own here; its flows
+/// get the file name or, under a base path, the folder. Dynamic arguments are skipped.
+pub fn parse_java_registry(text: &str) -> Registry {
+    let mut out = Registry::default();
+    if !text.contains("FlowDefinitionRegistryBuilder") && !text.contains("AbstractFlowConfiguration") {
+        return out;
+    }
+    let file = java::parse(text);
+    if !file.imports.iter().any(|i| i.path.starts_with("org.springframework.webflow.config.")) {
+        return out;
+    }
+    let toks = java::tokens(text);
+    let literal = |i: usize| {
+        let t = toks.get(i)?;
+        let s = t.string().filter(|s| !t.s.starts_with("\"\"\"") && !t.s.contains('\\') && !s.value.contains("${") && !s.value.trim().is_empty())?;
+        Some(s.value)
+    };
+    for i in 1..toks.len() {
+        if toks[i - 1].s != "." || toks.get(i + 1).map(|t| t.s) != Some("(") {
+            continue;
+        }
+        let Some(first) = literal(i + 2) else { continue };
+        let after = toks.get(i + 3).map(|t| t.s);
+        match (toks[i].s, after) {
+            ("setBasePath", Some(")")) => out.base_paths.push(first.trim().to_owned()),
+            ("addFlowLocation", Some(")")) => out.locations.push((stem(&first).to_owned(), first.trim().to_owned())),
+            ("addFlowLocation", Some(",")) => {
+                if let (Some(id), Some(close)) = (literal(i + 4), toks.get(i + 5)) {
+                    if close.s == ")" || close.s == "," {
+                        out.locations.push((id.trim().to_owned(), first.trim().to_owned()));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
 fn index_file(path: &str, text: &str) -> Option<FileInfo> {
     if beans::ignored(path) {
         return None;
+    }
+    if path.ends_with(".java") {
+        let registry = parse_java_registry(text);
+        return Some(FileInfo { flow: None, registry }).filter(|i| i.registry != Registry::default());
     }
     let info = FileInfo { flow: parse_flow(text), registry: parse_registry(text) };
     Some(info).filter(|i| i.flow.is_some() || i.registry != Registry::default())
@@ -716,6 +761,32 @@ mod tests {
         let d = doc(&format!("{FLOWS}/caller.xml"), &caller);
         assert_eq!(found(w.definition(&d, at(&caller, "subflow=\"common\""))), [("common.xml".to_owned(), 0)]);
         assert_eq!(found(w.definition(&d, at(&caller, "subflow=\"booking\""))), [("booking-flow.xml".to_owned(), 1)]);
+    }
+
+    const JAVA_CONFIG: &str = "import org.springframework.webflow.config.AbstractFlowConfiguration;\nimport org.springframework.webflow.config.FlowDefinitionRegistryBuilder;\nclass Cfg extends AbstractFlowConfiguration {\n  FlowDefinitionRegistry r() {\n    return getFlowDefinitionRegistryBuilder().setBasePath(\"/WEB-INF/flows\").addFlowLocation(\"/pay/checkout.xml\", \"javaPay\").addFlowLocation(\"/common.xml\").addFlowLocation(DYN, \"dyn\").addFlowLocation(\"/x.xml\", ID).addFlowLocation(\"/pay\" + S, \"cat\").addFlowLocationPattern(\"/**/*-flow.xml\").build();\n  }\n}\n";
+
+    #[test]
+    fn reads_literal_java_config_flow_registries_only() {
+        let r = parse_java_registry(JAVA_CONFIG);
+        assert_eq!(r.base_paths, ["/WEB-INF/flows"]);
+        assert_eq!(
+            r.locations,
+            [("javaPay".to_owned(), "/pay/checkout.xml".to_owned()), ("common".to_owned(), "/common.xml".to_owned())]
+        );
+        let foreign = JAVA_CONFIG.replace("org.springframework.webflow.config.", "acme.");
+        assert_eq!(parse_java_registry(&foreign), Registry::default());
+    }
+
+    #[test]
+    fn java_config_flow_ids_resolve_subflows() {
+        let host = setup();
+        host.add_file("src/main/java/Cfg.java", JAVA_CONFIG);
+        let mut w = WebFlow::default();
+        let caller = format!("<flow xmlns=\"{NAMESPACE}\"><subflow-state id=\"s\" subflow=\"javaPay\"/><subflow-state id=\"t\" subflow=\"nope\"/></flow>");
+        let d = doc(&format!("{FLOWS}/caller.xml"), &caller);
+        assert_eq!(found(w.definition(&d, at(&caller, "subflow=\"javaPay\""))), [("checkout.xml".to_owned(), 0)]);
+        assert!(labels(w.completion(&d, at(&caller, "subflow=\"javaPay\""), None)).contains(&"javaPay".to_owned()));
+        assert!(w.definition(&d, at(&caller, "subflow=\"nope\"")).is_empty());
     }
 
     #[test]

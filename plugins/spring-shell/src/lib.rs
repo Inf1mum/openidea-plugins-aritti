@@ -40,6 +40,26 @@ pub struct Shell {
     /// Bean names, and whether the bean is an `AvailabilityProvider`.
     pub beans: Vec<(String, Range, bool)>,
     pub core_beans: Vec<(String, Range, bool)>,
+    pub classes: Vec<ClassInfo>,
+}
+
+/// What a literal superclass-chain walk needs of a declared type.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ClassInfo {
+    pub qualified: String,
+    pub kind: String,
+    pub base: Base,
+    /// Zero-argument methods by name.
+    pub methods: Vec<(String, Range)>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Base {
+    /// No `extends`/`implements`: the chain ends at `Object`.
+    Root,
+    /// Exactly one plain supertype, resolved by import or package.
+    Named(String),
+    Unknown,
 }
 
 /// Spring Shell's default command name: `addUser` → `add-user`.
@@ -264,8 +284,58 @@ fn scan(path: &str, text: &str) -> Option<Shell> {
     let Some(f) = source_model(path, text) else {
         return Some(Shell { incomplete: true, ..Default::default() });
     };
-    let shell = Shell { incomplete: false, commands: commands(&f, text), groups: groups(&f, text), beans: beans(&f, text), core_beans: beans_for(&f,text,"org.springframework.shell.core.command.availability.AvailabilityProvider") };
+    let shell = Shell { incomplete: false, commands: commands(&f, text), groups: groups(&f, text), beans: beans(&f, text), core_beans: beans_for(&f,text,"org.springframework.shell.core.command.availability.AvailabilityProvider"), classes: class_infos(&f, text) };
     (shell != Shell::default()).then_some(shell)
+}
+
+fn class_infos(f: &JavaFile, text: &str) -> Vec<ClassInfo> {
+    let aliased = f.imports.iter().any(|i| rules::import_aliased(text, i));
+    f.types.iter().enumerate().map(|(i, t)| {
+        let base = match t.supers().collect::<Vec<_>>().as_slice() {
+            [] => Base::Root,
+            [s] if !aliased && s.args.is_empty() && !s.array && s.text == s.name => Base::Named(f.resolve(&s.name)),
+            _ => Base::Unknown,
+        };
+        let methods = t.methods().filter(|m| m.params.is_empty()).map(|m| (m.name.clone(), range(text, m.at, m.at + m.name.len()))).collect();
+        ClassInfo { qualified: f.qualified(i), kind: t.kind.clone(), base, methods }
+    }).collect()
+}
+
+enum Inherited {
+    Found(String, Range),
+    Missing,
+    Unknown,
+}
+
+/// Looks `name` up the project-declared superclass chain of `class`, like
+/// `ReflectionUtils.findMethod`. Anything not literally declared once as a
+/// class in the project makes the answer `Unknown`.
+fn inherited_indicator(doc: &Document, f: &JavaFile, index: &Index<Shell>, class: &str, name: &str) -> Inherited {
+    let local = class_infos(f, &doc.text);
+    let declared = |qualified: &str| -> Vec<(String, &ClassInfo)> {
+        let others = index.iter().filter(|(p, _)| *p != doc.path).flat_map(|(p, s)| s.classes.iter().map(move |c| (p.to_owned(), c)));
+        others.chain(local.iter().map(|c| (doc.path.clone(), c))).filter(|(_, c)| c.qualified == qualified).collect()
+    };
+    let Some(start) = local.iter().find(|c| c.qualified == class) else { return Inherited::Unknown };
+    let mut next = start.base.clone();
+    let mut seen = vec![class.to_owned()];
+    loop {
+        let parent = match next {
+            Base::Root => return Inherited::Missing,
+            Base::Unknown => return Inherited::Unknown,
+            Base::Named(q) => q,
+        };
+        let found = declared(&parent);
+        let [(path, info)] = found.as_slice() else { return Inherited::Unknown };
+        if info.kind != "class" || seen.contains(&parent) || seen.len() > 16 {
+            return Inherited::Unknown;
+        }
+        if let Some((_, at)) = info.methods.iter().find(|(n, _)| n == name) {
+            return Inherited::Found(path.clone(), *at);
+        }
+        seen.push(parent);
+        next = info.base.clone();
+    }
 }
 
 fn all_commands(index: &Index<Shell>) -> impl Iterator<Item = (&str, &Command)> {
@@ -321,8 +391,8 @@ fn analyze(doc: &Document, f: &JavaFile, index: &Index<Shell>) -> (Vec<Diagnosti
     for c in &mine {
         let other = all_commands(index)
             .find(|(p, o)| (*p == doc.path || index.fresh()) && o.key == c.key && !(*p == doc.path && o.anchor == c.anchor));
-        if let Some((_, o)) = other {
-            let message = format!("Command `{}` is also declared by {}.{}.", c.key, simple(&o.class), o.method);
+        if let Some((p, o)) = other {
+            let message = format!("Command `{}` is also declared by {}.{} in {}.", c.key, simple(&o.class), o.method, p);
             problems.push(problem(c.anchor, Severity::Error, "duplicate-command", message));
         }
     }
@@ -370,6 +440,27 @@ fn analyze(doc: &Document, f: &JavaFile, index: &Index<Shell>) -> (Vec<Diagnosti
                 };
                 t.methods().find(|a| a.name == conventional && a.params.is_empty()).or_else(|| candidate(false)).or_else(|| candidate(true))
             };
+            if available.is_none() && t.supers().next().is_some() {
+                let explicit = m.annotation("ShellMethodAvailability").filter(|a| rules::supported(f, text, a));
+                let named = explicit.and_then(|a| rules::literals(a, "value")).filter(|v| v.len() == 1 && !v[0].value.contains('$'));
+                if let Some(s) = named.map(|v| v[0]) {
+                    match inherited_indicator(doc, f, index, &class, &s.value) {
+                        Inherited::Found(path, range) => markers.push(LineMarker {
+                            line: line_of(m),
+                            icon: None,
+                            tooltip: format!("Availability method: {}() (inherited)", s.value),
+                            target: Some(Location { path, range }),
+                        }),
+                        Inherited::Missing if index.fresh() && !matches!(s.value.as_str(), "getClass" | "hashCode" | "toString" | "clone" | "finalize" | "wait" | "notify" | "notifyAll") => problems.push(problem(
+                            rules::literal_range(text, s),
+                            Severity::Warning,
+                            "availability-method-reference",
+                            "No zero-argument indicator method has this literal name in the class or its project superclass chain.".into(),
+                        )),
+                        _ => {}
+                    }
+                }
+            }
             if let Some(a) = available {
                 markers.push(LineMarker {
                     line: line_of(m),
@@ -1079,5 +1170,79 @@ mod core_provider_tests {
         assert!(markers.iter().any(|m|m.tooltip=="Availability provider: ready"));
         assert!(!markers.iter().any(|m|m.tooltip.contains("legacy")));
         assert!(h.process_runs().is_empty()&&h.requests().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod inherited_availability_tests {
+    use super::*;
+    use openidea_plugin::mock::MockHost;
+
+    const IMPORTS: &str = "import org.springframework.shell.standard.ShellComponent; import org.springframework.shell.standard.ShellMethod; import org.springframework.shell.standard.ShellMethodAvailability; import org.springframework.shell.Availability;\n";
+
+    fn child(name: &str, base: &str) -> String {
+        format!("package p;\n{IMPORTS}@ShellComponent class Child extends {base} {{ @ShellMethod(key=\"run\",value=\"Run\") @ShellMethodAvailability(\"{name}\") void run(){{}} }}")
+    }
+
+    fn doc(path: &str, text: &str) -> Document {
+        Document { path: format!("/project/src/main/java/p/{path}"), language: "java".into(), version: 1, text: text.into() }
+    }
+
+    fn run(files: &[(&str, &str)], name: &str, base: &str) -> (Vec<String>, Vec<Diagnostic>) {
+        let host = MockHost::install();
+        for (path, text) in files {
+            host.add_file(&format!("src/main/java/p/{path}"), text);
+        }
+        let text = child(name, base);
+        host.add_file("src/main/java/p/Child.java", &text);
+        let mut tools = ShellTools::default();
+        let d = doc("Child.java", &text);
+        let markers = tools.line_markers(&d).into_iter().map(|m| format!("{}|{}", m.tooltip, m.target.map(|t| t.path).unwrap_or_default())).collect();
+        (markers, tools.diagnostics(&d))
+    }
+
+    const BASE: &str = "package p; import org.springframework.shell.Availability; abstract class Base { Availability gate(){return null;} }";
+
+    #[test]
+    fn links_availability_method_declared_in_project_superclass_chain() {
+        let mid = "package p; class Mid extends Base {}";
+        let (markers, problems) = run(&[("Base.java", BASE), ("Mid.java", mid)], "gate", "Mid");
+        assert_eq!(markers, ["Availability method: gate() (inherited)|/project/src/main/java/p/Base.java"]);
+        assert!(problems.is_empty(), "{problems:?}");
+    }
+
+    #[test]
+    fn reports_missing_name_only_for_a_fully_literal_chain() {
+        let (_, problems) = run(&[("Base.java", BASE)], "nope", "Base");
+        assert_eq!(problems.iter().filter(|p| p.code.as_deref() == Some("availability-method-reference")).count(), 1, "{problems:?}");
+        let with_interface = "package p; abstract class Base implements java.lang.Runnable {}";
+        let (_, quiet) = run(&[("Base.java", with_interface)], "nope", "Base");
+        assert!(quiet.is_empty(), "{quiet:?}");
+        let (_, quiet) = run(&[], "nope", "Library");
+        assert!(quiet.is_empty(), "{quiet:?}");
+        let (_, quiet) = run(&[("Base.java", BASE)], "toString", "Base");
+        assert!(quiet.is_empty(), "{quiet:?}");
+    }
+
+    #[test]
+    fn ambiguous_or_non_class_ancestors_stay_quiet() {
+        let twin = "package p; class Base { }";
+        let (markers, quiet) = run(&[("Base.java", BASE), ("sub/Base.java", twin)], "gate", "Base");
+        assert!(markers.is_empty() && quiet.is_empty(), "{markers:?} {quiet:?}");
+        let (_, quiet) = run(&[("Base.java", "package p; interface Base { }")], "nope", "Base");
+        assert!(quiet.is_empty(), "{quiet:?}");
+    }
+
+    #[test]
+    fn duplicate_command_names_the_other_file() {
+        let host = MockHost::install();
+        let text = format!("package p;\n{IMPORTS}@ShellComponent class A {{ @ShellMethod(key=\"run\",value=\"Run\") void a(){{}} }}");
+        host.add_file("src/main/java/p/A.java", &text);
+        host.add_file("src/main/java/p/B.java", &text.replace("class A", "class B"));
+        let mut tools = ShellTools::default();
+        tools.line_markers(&doc("A.java", &text));
+        let problems = tools.diagnostics(&doc("A.java", &text));
+        let message = problems.iter().find(|p| p.code.as_deref() == Some("duplicate-command")).map(|p| p.message.clone()).unwrap_or_default();
+        assert!(message.ends_with("B.a in /project/src/main/java/p/B.java."), "{message}");
     }
 }

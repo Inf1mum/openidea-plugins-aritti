@@ -45,6 +45,9 @@ fn path(file: &JavaFile, text: &str, annotations: &[Annotation]) -> Option<Strin
         .then(|| value.trim_matches('/').into())
 }
 fn facts(doc: &Document) -> Vec<Fact> {
+    facts_with(doc, None)
+}
+fn facts_with(doc: &Document, prefix: Option<&str>) -> Vec<Fact> {
     if doc.language != "java" || !doc.path.ends_with(".java") || doc.text.len() > MAX_TEXT {
         return vec![];
     }
@@ -80,7 +83,15 @@ fn facts(doc: &Document) -> Vec<Fact> {
                     } else {
                         declared
                     };
-                    out.push(Fact{title:format!("{verb} {declared}"),detail:format!("Declared JAX-RS source mapping\nHTTP method: {verb}\nPath: {declared}\nJava method: {}::{}\n\nApplication root paths, inheritance, registration and runtime conditions are not resolved. This is not a running endpoint URL.",ty.name,method.name),span});
+                    let effective = prefix.map(|p| join_path(&[p, &declared])).filter(|e| *e != declared);
+                    let (title, effective_note) = match &effective {
+                        Some(e) => (
+                            format!("{verb} {declared} (effective {e})"),
+                            format!("Effective path: {e}\nComposed from quarkus.http.root-path, then @ApplicationPath or else quarkus.rest.path, class @Path and method @Path, all literal. Environment, profile and system-property overrides are not read.\n"),
+                        ),
+                        None => (format!("{verb} {declared}"), String::new()),
+                    };
+                    out.push(Fact{title,detail:format!("Declared JAX-RS source mapping\nHTTP method: {verb}\nPath: {declared}\n{effective_note}Java method: {}::{}\n\nInheritance, registration and runtime conditions are not resolved. This is not a running endpoint URL.",ty.name,method.name),span});
                 }
             }
             for a in method
@@ -109,8 +120,93 @@ fn facts(doc: &Document) -> Vec<Fact> {
     out.truncate(256);
     out
 }
+fn join_path(parts: &[&str]) -> String {
+    let joined: Vec<&str> = parts.iter().flat_map(|p| p.split('/')).filter(|s| !s.is_empty()).collect();
+    format!("/{}", joined.join("/"))
+}
+
+fn config_values(text: &str, wanted: &[&str]) -> Option<std::collections::BTreeMap<String, String>> {
+    let mut found = std::collections::BTreeMap::new();
+    for line in text.lines() {
+        let line = line.trim();
+        if line.starts_with(['#', '!']) || line.is_empty() {
+            continue;
+        }
+        let Some(at) = line.find(['=', ':']) else {
+            continue;
+        };
+        let key = line[..at].trim();
+        let bare = key.trim_start_matches('%');
+        let profiled = key.starts_with('%') && bare.split_once('.').is_some_and(|(_, k)| wanted.contains(&k));
+        if profiled || (wanted.contains(&key) && found.insert(key.to_owned(), line[at + 1..].trim().to_owned()).is_some()) {
+            return None;
+        }
+    }
+    Some(found)
+}
+
+fn literal_segment_path(value: &str) -> Option<&str> {
+    (value.len() <= 256 && !value.contains(['$', '{', '}', '%', '\\', '?', '#', ' ', '"', '\'']) && !value.split('/').any(|s| s == "." || s == ".."))
+        .then_some(value)
+}
+
+/// Literal composed prefix for resource paths: root-path, then `@ApplicationPath` (which replaces
+/// `quarkus.rest.path`, per Quarkus source and its ApplicationPath test) or else `quarkus.rest.path`.
+/// `None` when anything is non-literal or ambiguous.
+pub(crate) fn rest_prefix(path: &str) -> Option<String> {
+    let project = crate::project_of(path)?;
+    let module = crate::navigation::module(path)?;
+    let resources = format!("{module}/src/main/resources");
+    for yaml in ["application.yaml", "application.yml"] {
+        if project.read_file(&format!("{resources}/{yaml}")).is_ok() {
+            return None;
+        }
+    }
+    let props = match project.read_file(&format!("{resources}/application.properties")) {
+        Ok(text) if text.len() <= MAX_TEXT => text,
+        Ok(_) => return None,
+        Err(Error::NotFound(_)) => String::new(),
+        Err(_) => return None,
+    };
+    let config = config_values(&props, &["quarkus.http.root-path", "quarkus.rest.path"])?;
+    let root = literal_segment_path(config.get("quarkus.http.root-path").map_or("/", String::as_str))?;
+    let files = project.find_files("**/src/main/java/**/*.java", 2001).ok()?;
+    if files.len() > 2000 {
+        return None;
+    }
+    let mut application_path: Option<String> = None;
+    for file in files.iter().filter(|f| f.starts_with(&format!("{module}/src/main/java/"))) {
+        let Ok(text) = project.read_file(file) else {
+            return None;
+        };
+        if !text.contains("ApplicationPath") || text.len() > MAX_TEXT {
+            continue;
+        }
+        let parsed = java::parse(&text);
+        for ty in &parsed.types {
+            for a in ty.annotations.iter().filter(|a| a.name == "ApplicationPath") {
+                if !["jakarta.ws.rs.ApplicationPath", "javax.ws.rs.ApplicationPath"].iter().any(|q| owned(&parsed, &text, a, q)) {
+                    continue;
+                }
+                let value = literal(a, "value").and_then(literal_segment_path)?;
+                if application_path.replace(value.to_owned()).is_some() {
+                    return None;
+                }
+            }
+        }
+    }
+    let rest = match application_path {
+        Some(value) => value,
+        None => literal_segment_path(config.get("quarkus.rest.path").map_or("", String::as_str))?.to_owned(),
+    };
+    Some(join_path(&[root, &rest]))
+}
+
 pub(crate) fn lenses(doc: &Document) -> Vec<CodeLens> {
-    facts(doc).into_iter().map(|f|CodeLens{range:f.span,title:f.title.clone(),command:COMMAND.into(),argument:Some(serde_json::json!({"path":doc.path,"version":doc.version,"line":f.span.start.line,"character":f.span.start.character,"title":f.title}).to_string())}).collect()
+    lenses_with(doc, None)
+}
+pub(crate) fn lenses_with(doc: &Document, prefix: Option<&str>) -> Vec<CodeLens> {
+    facts_with(doc, prefix).into_iter().map(|f|CodeLens{range:f.span,title:f.title.clone(),command:COMMAND.into(),argument:Some(serde_json::json!({"path":doc.path,"version":doc.version,"line":f.span.start.line,"character":f.span.start.character,"title":f.title}).to_string())}).collect()
 }
 pub(crate) fn symbols(doc: &Document) -> Vec<DocumentSymbol> {
     facts(doc)
@@ -147,7 +243,8 @@ pub(crate) fn inspect(ctx: &Invocation, arg: Option<&str>) -> Result<(), Error> 
     {
         return Err(Error::Stale);
     }
-    let fact = facts(&doc)
+    let prefix = rest_prefix(&doc.path);
+    let fact = facts_with(&doc, prefix.as_deref())
         .into_iter()
         .find(|f| {
             payload["title"].as_str() == Some(f.title.as_str())
@@ -273,6 +370,43 @@ mod tests {
             text.replace("@Path(\"/api\")", ""),
         ] {
             assert!(facts(&self::doc(&text)).is_empty());
+        }
+    }
+    fn rest_titles(files: &[(&str, &str)], resource: &str) -> Vec<String> {
+        let host = openidea_plugin::mock::MockHost::install();
+        for (p, t) in files {
+            host.add_file(p, t);
+        }
+        let path = "/project/src/main/java/Resource.java";
+        host.add_file(path, resource);
+        let prefix = rest_prefix(path);
+        lenses_with(&doc(resource), prefix.as_deref()).into_iter().map(|l| l.title).collect()
+    }
+    const RES: &str = "import jakarta.ws.rs.Path; import jakarta.ws.rs.GET; @Path(\"r\") class Resource { @GET @Path(\"h\") String h() { return null; } }";
+    const PROPS: &str = "/project/src/main/resources/application.properties";
+    const APP: &str = "import jakarta.ws.rs.ApplicationPath; @ApplicationPath(\"/api\") class A extends jakarta.ws.rs.core.Application {}";
+    const APP_FILE: &str = "/project/src/main/java/A.java";
+    #[test]
+    fn rest_root_composes_root_path_application_path_class_and_method() {
+        let t = rest_titles(&[(PROPS, "quarkus.http.root-path=/app\nquarkus.rest.path=/ignored\n"), (APP_FILE, APP)], RES);
+        assert_eq!(t, ["GET /r/h (effective /app/api/r/h)"]);
+    }
+    #[test]
+    fn rest_path_applies_without_application_path_and_default_root_is_quiet() {
+        assert_eq!(rest_titles(&[(PROPS, "quarkus.rest.path=v1\n")], RES), ["GET /r/h (effective /v1/r/h)"]);
+        assert_eq!(rest_titles(&[(PROPS, "other=1\n")], RES), ["GET /r/h"]);
+    }
+    #[test]
+    fn rest_root_stays_quiet_when_ambiguous_or_non_literal() {
+        let second = APP.replace("class A", "class B");
+        for files in [
+            vec![(PROPS, "quarkus.rest.path=${x}\n")],
+            vec![(PROPS, "quarkus.rest.path=/a\nquarkus.rest.path=/b\n")],
+            vec![(PROPS, "%dev.quarkus.http.root-path=/dev\n")],
+            vec![(APP_FILE, APP), ("/project/src/main/java/B.java", second.as_str())],
+            vec![(APP_FILE, "import jakarta.ws.rs.ApplicationPath; @ApplicationPath(P) class A {}")],
+        ] {
+            assert_eq!(rest_titles(&files, RES), ["GET /r/h"]);
         }
     }
     #[test]

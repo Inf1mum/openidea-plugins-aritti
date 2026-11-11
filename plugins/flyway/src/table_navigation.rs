@@ -2,7 +2,65 @@
 use openidea_plugin::{Location, Position, Project, Range, host, providers::Document, text::position};
 use std::{collections::{BTreeMap, BTreeSet}, time::{Duration, Instant}};
 #[derive(Clone)]
-struct Token { word: String, start: usize, end: usize }
+struct Token { word: String, text: String, start: usize, end: usize, quote: Option<char> }
+/// Identifier part as written: `quote` is the opening delimiter (`"`, `` ` `` or `[`) when delimited.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Ident { text: String, quote: Option<char> }
+impl Ident {
+    fn plain(text: impl Into<String>) -> Self { Ident { text: text.into(), quote: None } }
+    /// JPA name as written in `@Table`: plain, `"x"`, `` `x` `` or `[x]`; delimiters are Hibernate's quoting syntax.
+    fn parse_mapping(value: &str) -> Option<Self> {
+        let first = value.chars().next()?;
+        let close = match first { '"' => '"', '`' => '`', '[' => ']', _ => return identifier(value).then(|| Ident::plain(value)) };
+        let inner = value.strip_prefix(first)?.strip_suffix(close)?;
+        if inner.is_empty() || inner.contains(['"', '`', '[', ']', '\n']) { return None; }
+        Some(Ident { text: inner.into(), quote: Some(first) })
+    }
+}
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(crate) enum Dialect { Postgres, H2, Oracle, MySql, SqlServer }
+/// Canonical lookup key; none when resolution would depend on an unknown dialect or on server settings.
+/// Unquoted names fold per dialect (lower when unknown, which only has to be consistent on both sides);
+/// quoted names stay exact, except SQL Server's case-insensitive collation.
+fn key(parts: &[Ident], dialect: Option<Dialect>) -> Option<String> {
+    let mut out = Vec::new();
+    for part in parts {
+        out.push(match (part.quote, dialect) {
+            (None, Some(Dialect::H2 | Dialect::Oracle)) => part.text.to_ascii_uppercase(),
+            (None, _) => part.text.to_ascii_lowercase(),
+            (Some(_), None) => return None,
+            (Some('"'), Some(Dialect::Postgres | Dialect::H2 | Dialect::Oracle)) => part.text.clone(),
+            (Some('"' | '['), Some(Dialect::SqlServer)) => part.text.to_ascii_lowercase(),
+            (Some('`'), Some(Dialect::MySql)) => part.text.clone(),
+            _ => return None,
+        });
+    }
+    Some(out.join("."))
+}
+fn dialect_of(text: &str) -> Result<Vec<Dialect>, ()> {
+    let lower = text.to_ascii_lowercase();
+    let mut found = Vec::new();
+    for (marker, dialect) in [("jdbc:postgresql:", Dialect::Postgres), ("org.postgresql.driver", Dialect::Postgres), ("jdbc:h2:", Dialect::H2), ("org.h2.driver", Dialect::H2),
+        ("jdbc:oracle:", Dialect::Oracle), ("oracle.jdbc.", Dialect::Oracle), ("jdbc:mysql:", Dialect::MySql), ("jdbc:mariadb:", Dialect::MySql), ("com.mysql.", Dialect::MySql), ("org.mariadb.jdbc", Dialect::MySql),
+        ("jdbc:sqlserver:", Dialect::SqlServer), ("com.microsoft.sqlserver", Dialect::SqlServer)] {
+        if lower.contains(marker) && !found.contains(&dialect) { found.push(dialect); }
+    }
+    if found.contains(&Dialect::H2) && ["database_to_upper", "database_to_lower", "case_insensitive_identifiers", "mode="].iter().any(|flag| lower.contains(flag)) { return Err(()); }
+    Ok(found)
+}
+/// Dialect only from explicit datasource URL/driver text in Spring or Flyway config; conflicting or absent evidence is none.
+fn detect_dialect(project: &Project) -> Option<Dialect> {
+    let mut all: Vec<Dialect> = Vec::new();
+    for glob in ["**/application*.properties", "**/application*.yml", "**/application*.yaml", "**/flyway.conf", "**/flyway.toml"] {
+        let files = project.find_files(glob, 33).ok()?;
+        if files.len() > 32 { return None; }
+        for path in files {
+            let found = dialect_of(&project.read_file(&path).ok()?).ok()?;
+            for dialect in found { if !all.contains(&dialect) { all.push(dialect); } }
+        }
+    }
+    if all.len() == 1 { all.pop() } else { None }
+}
 fn tokens(text: &str) -> Option<Vec<Token>> {
     if text.len() > 128 << 10 { return None; }
     let bytes = text.as_bytes(); let mut at = 0; let mut out = Vec::new();
@@ -24,29 +82,44 @@ fn tokens(text: &str) -> Option<Vec<Token>> {
                     if bytes.get(at) == Some(&b'\'') { at += 1; } else { break; }
                 } else if bytes[at] == b'\\' { return None; } else { at += 1; }
             }
-            out.push(Token { word: "<literal>".into(), start: at, end: at }); continue;
+            out.push(Token { word: "<literal>".into(), text: String::new(), start: at, end: at, quote: None }); continue;
         }
-        // Quoted identifiers/dollar quoting need dialect-specific ownership.
-        if matches!(bytes[at], b'"' | b'`' | b'[' | b'$') { return None; }
+        let close = match bytes[at] { b'"' => Some('"'), b'`' => Some('`'), b'[' => Some(']'), _ => None };
+        if let Some(close) = close {
+            let (start, open) = (at, bytes[at] as char);
+            at += 1;
+            let mut name = String::new();
+            loop {
+                let found = text[at..].find(close)?;
+                name.push_str(&text[at..at + found]);
+                at += found + 1;
+                if text[at..].starts_with(close) { name.push(close); at += 1; } else { break; }
+            }
+            if name.is_empty() || name.contains('\n') { return None; }
+            out.push(Token { word: "<quoted>".into(), text: name, start, end: at, quote: Some(open) }); continue;
+        }
+        if bytes[at] == b'$' { return None; }
         let start = at;
         if bytes[at].is_ascii_alphabetic() || bytes[at] == b'_' {
             at += 1;
             while bytes.get(at).is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'_') { at += 1; }
-            out.push(Token { word: text[start..at].to_ascii_lowercase(), start, end: at });
+            out.push(Token { word: text[start..at].to_ascii_lowercase(), text: text[start..at].into(), start, end: at, quote: None });
         } else {
             let ch = text[at..].chars().next()?; at += ch.len_utf8();
-            out.push(Token { word: ch.to_string(), start, end: at });
+            out.push(Token { word: ch.to_string(), text: String::new(), start, end: at, quote: None });
         }
     }
     Some(out)
 }
 fn identifier(word: &str) -> bool { word.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_') && word.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_') }
 #[derive(Clone)]
-struct Table { name: String, range: Range, definition: bool }
+struct Table { parts: Vec<Ident>, range: Range, definition: bool }
+fn name_part(token: &Token) -> bool { token.quote.is_some() || identifier(&token.word) }
 fn tables(text: &str) -> Option<Vec<Table>> {
     let tokens = tokens(text)?; let mut out = Vec::new();
     for (i, token) in tokens.iter().enumerate() {
-        let previous = i.checked_sub(1).and_then(|j| tokens.get(j)).map(|t| t.word.as_str());
+        let previous = i.checked_sub(1).and_then(|j| tokens.get(j)).filter(|t| t.quote.is_none()).map(|t| t.word.as_str());
+        if token.quote.is_some() { continue; }
         let definition = token.word == "table" && previous == Some("create");
         let reference = (matches!(token.word.as_str(), "from" | "join" | "references") || token.word == "update" && previous != Some("on"))
             || token.word == "into" && previous == Some("insert")
@@ -59,13 +132,13 @@ fn tables(text: &str) -> Option<Vec<Table>> {
             if !tokens.get(next).is_some_and(|t| t.word == "exists") { continue; }
             next += 1;
         }
-        let Some(first) = tokens.get(next).filter(|t| identifier(&t.word)) else { continue; };
-        let mut name = first.word.clone(); let mut end = first.end;
+        let Some(first) = tokens.get(next).filter(|t| name_part(t)) else { continue; };
+        let mut parts = vec![Ident { text: first.text.clone(), quote: first.quote }]; let mut end = first.end;
         while tokens.get(next + 1).is_some_and(|t| t.word == ".") {
-            let Some(part) = tokens.get(next + 2).filter(|t| identifier(&t.word)) else { return None; };
-            name.push('.'); name.push_str(&part.word); end = part.end; next += 2;
+            let Some(part) = tokens.get(next + 2).filter(|t| name_part(t)) else { return None; };
+            parts.push(Ident { text: part.text.clone(), quote: part.quote }); end = part.end; next += 2;
         }
-        out.push(Table { name, range: Range::new(position(text, first.start), position(text, end)), definition });
+        out.push(Table { parts, range: Range::new(position(text, first.start), position(text, end)), definition });
     }
     Some(out)
 }
@@ -78,7 +151,7 @@ fn persistence_annotation(file: &spring_text::java::JavaFile, ann: &spring_text:
         && file.imports.iter().any(|import| !import.is_static && matches!(import.path.as_str(), "jakarta.persistence.*" | "javax.persistence.*"))
         && !file.types.iter().any(|ty| ty.name == ann.name)
 }
-fn entity_tables(text: &str) -> Vec<(String, Range)> {
+fn entity_tables(text: &str) -> Vec<(Vec<Ident>, Range)> {
     if text.len() > 128 << 10 { return vec![]; }
     let file = spring_text::java::parse(text); let mut out = Vec::new();
     // Constants are resolved from this file only; cross-file names stay quiet.
@@ -88,15 +161,19 @@ fn entity_tables(text: &str) -> Vec<(String, Range)> {
         if ty.kind != "class" || !ty.annotation("Entity").is_some_and(|ann| persistence_annotation(&file, ann, text)) { continue; }
         let Some(table) = ty.annotation("Table").filter(|ann| persistence_annotation(&file, ann, text)) else { continue; };
         let literal = |key: &str| table.arg(key).and_then(|arg| {
-            if arg.strings.len() == 1 && arg.text.trim() == format!("\"{}\"", arg.strings[0].value) { return Some(arg.strings[0].value.clone()); }
+            let written = arg.text.trim();
+            if let [only] = arg.strings.as_slice() {
+                if written.starts_with('"') && written.ends_with('"') && written.len() == only.end - only.at + 2 { return Some(only.value.clone()); }
+            }
             constants.resolve(&arg.text, Some(&ty.name))
         });
-        let Some(name) = literal("name").filter(|value| identifier(value)) else { continue; };
-        let name = if table.arg("schema").is_some() {
-            let Some(schema) = literal("schema").filter(|value| identifier(value)) else { continue; };
-            format!("{schema}.{name}")
-        } else { name };
-        out.push((name.to_ascii_lowercase(), Range::new(position(text, ty.at), position(text, ty.at + ty.name.len()))));
+        let Some(name) = literal("name").and_then(|value| Ident::parse_mapping(&value)) else { continue; };
+        let mut parts = vec![name];
+        if table.arg("schema").is_some() {
+            let Some(schema) = literal("schema").and_then(|value| Ident::parse_mapping(&value)) else { continue; };
+            parts.insert(0, schema);
+        }
+        out.push((parts, Range::new(position(text, ty.at), position(text, ty.at + ty.name.len()))));
     }
     out
 }
@@ -115,12 +192,12 @@ fn snake_case(name: &str) -> Option<String> {
 }
 /// Top-level `@Entity` classes without `@Table`/`@Entity` arguments/superclass: the table is the
 /// implicitly named one. Only valid under Spring Boot's default naming strategies (see `implicit_naming_default`).
-fn implicit_entity_tables(text: &str) -> Vec<(String, Range)> {
+fn implicit_entity_tables(text: &str) -> Vec<(Vec<Ident>, Range)> {
     if text.len() > 128 << 10 { return vec![]; }
     let file = spring_text::java::parse(text);
     file.types.iter().filter(|ty| ty.kind == "class" && ty.outer.is_none() && ty.extends.is_empty() && !ty.has(&["Table", "SecondaryTable", "Inheritance", "MappedSuperclass", "Embeddable"]) && !ty.modifiers.iter().any(|m| m == "abstract"))
         .filter(|ty| ty.annotation("Entity").is_some_and(|ann| ann.args.is_empty() && persistence_annotation(&file, ann, text)))
-        .filter_map(|ty| Some((snake_case(&ty.name)?, Range::new(position(text, ty.at), position(text, ty.at + ty.name.len())))))
+        .filter_map(|ty| Some((vec![Ident::plain(snake_case(&ty.name)?)], Range::new(position(text, ty.at), position(text, ty.at + ty.name.len())))))
         .collect()
 }
 /// True only with Spring Boot declared at the root and no naming/quoting override anywhere visible.
@@ -141,7 +218,7 @@ fn implicit_naming_default(project: &Project, root: &str) -> bool {
     true
 }
 fn module(path: &str) -> Option<&str> { path.split_once("/src/").map(|(prefix, _)| prefix) }
-struct Owner { files: BTreeSet<String>, definitions: BTreeMap<String, Vec<Location>>, at: Instant }
+struct Owner { files: BTreeSet<String>, dialect: Option<Dialect>, definitions: BTreeMap<String, Vec<Location>>, at: Instant }
 #[derive(Default)]
 pub(crate) struct State { owners: BTreeMap<String, Owner> }
 impl State {
@@ -149,7 +226,7 @@ impl State {
         let Ok(root) = project.root() else { return; };
         self.owners.remove(&root);
         if files.len() > 128 { return; }
-        let at = Instant::now(); let mut definitions: BTreeMap<String, Vec<Location>> = BTreeMap::new(); let mut bytes = 0;
+        let at = Instant::now(); let dialect = detect_dialect(project); let mut definitions: BTreeMap<String, Vec<Location>> = BTreeMap::new(); let mut bytes = 0;
         let mut accepted = BTreeSet::new();
         for path in files {
             if !path.ends_with(".sql") || !path.starts_with(&format!("{root}/")) { continue; }
@@ -159,7 +236,8 @@ impl State {
             let Some(tables) = tables(&text) else { continue; };
             accepted.insert(path.clone());
             for table in tables.into_iter().filter(|table| table.definition) {
-                definitions.entry(table.name).or_default().push(Location { path: path.clone(), range: table.range });
+                let Some(name) = key(&table.parts, dialect) else { continue; };
+                definitions.entry(name).or_default().push(Location { path: path.clone(), range: table.range });
             }
         }
         // A source association is admitted only for a literal (or same-file constant) JPA @Entity/@Table model, or a
@@ -168,23 +246,29 @@ impl State {
             if java.len() <= 256 {
                 let implicit_default = implicit_naming_default(project, &root);
                 let mut custom_naming = false;
-                let mut implicit: Vec<(String, String, Range)> = Vec::new();
+                let mut implicit: Vec<(Vec<Ident>, String, Range)> = Vec::new();
                 for path in java {
                     if at.elapsed() > Duration::from_millis(400) { break; }
                     if !path.starts_with(&format!("{root}/")) || host::project_of(&path).and_then(|p| p.root().ok()).as_deref() != Some(&root) { continue; }
                     let Ok(text) = project.read_file(&path) else { continue; }; bytes += text.len();
                     if bytes > 4 << 20 { break; }
                     custom_naming |= text.contains("NamingStrategy");
-                    for (name, range) in entity_tables(&text) { definitions.entry(name).or_default().push(Location { path: path.clone(), range }); }
+                    for (parts, range) in entity_tables(&text) {
+                        let Some(name) = key(&parts, dialect) else { continue; };
+                        definitions.entry(name).or_default().push(Location { path: path.clone(), range });
+                    }
                     if implicit_default { implicit.extend(implicit_entity_tables(&text).into_iter().map(|(name, range)| (name, path.clone(), range))); }
                 }
                 if implicit_default && !custom_naming && at.elapsed() <= Duration::from_millis(400) {
-                    for (name, path, range) in implicit { definitions.entry(name).or_default().push(Location { path, range }); }
+                    for (parts, path, range) in implicit {
+                        let Some(name) = key(&parts, dialect) else { continue; };
+                        definitions.entry(name).or_default().push(Location { path, range });
+                    }
                 }
             }
         }
         if self.owners.len() >= 8 { self.owners.clear(); }
-        self.owners.insert(root, Owner { files: accepted, definitions, at });
+        self.owners.insert(root, Owner { files: accepted, dialect, definitions, at });
     }
     pub fn invalidate(&mut self, path: &str) { self.owners.retain(|root, _| !path.starts_with(&format!("{root}/"))); }
     pub fn definition(&self, doc: &Document, at: Position) -> Vec<Location> {
@@ -193,7 +277,7 @@ impl State {
         let Some(owner) = self.owners.get(&root).filter(|owner| owner.at.elapsed() < Duration::from_secs(120) && owner.files.contains(&doc.path)) else { return vec![]; };
         let Some(tables) = tables(&doc.text) else { return vec![]; };
         let Some(table) = tables.iter().find(|table| !table.definition && table.range.start <= at && at < table.range.end) else { return vec![]; };
-        owner.definitions.get(&table.name).filter(|locations| locations.len() <= 32).map(|locations| locations.iter()
+        key(&table.parts, owner.dialect).and_then(|name| owner.definitions.get(&name)).filter(|locations| locations.len() <= 32).map(|locations| locations.iter()
             .filter(|location| !location.path.ends_with(".java") || module(&doc.path).is_none() || module(&doc.path) == module(&location.path))
             .cloned().collect()).unwrap_or_default()
     }
@@ -207,10 +291,10 @@ mod tests {
         let found = tables(text).unwrap();
         assert_eq!(found.len(), 2);
         assert!(found[0].definition && !found[1].definition);
-        assert_eq!(found[0].name, "public.users");
-        assert_eq!(found[1].name, "public.users");
+        assert_eq!(key(&found[0].parts, None).unwrap(), "public.users");
+        assert_eq!(key(&found[1].parts, None).unwrap(), "public.users");
         assert!(tables("select $$ CREATE TABLE hidden(x int) $$;").is_none());
-        assert!(tables("CREATE TABLE \"Users\"(id int)").is_none());
+        assert!(tables("CREATE TABLE \"Users\"(id int)").is_some());
         assert!(tables("/* unfinished").is_none());
     }
     #[test]
@@ -243,7 +327,7 @@ mod tests {
         let source = "import jakarta.persistence.Entity; import jakarta.persistence.Table; @Entity @Table(name=\"users\", schema=\"public\") class User {}";
         let found = entity_tables(source);
         assert_eq!(found.len(), 1);
-        assert_eq!(found[0].0, "public.users");
+        assert_eq!(key(&found[0].0, None).unwrap(), "public.users");
         assert!(entity_tables(&source.replace("jakarta.persistence.Table", "com.example.Table")).is_empty());
         assert!(entity_tables(&source.replace("name=\"users\"", "name=TABLE_NAME")).is_empty());
         assert!(entity_tables(&source.replace("@Table(name=\"users\", schema=\"public\")", "")).is_empty());
@@ -253,7 +337,7 @@ mod tests {
     fn same_file_constants_resolve_table_and_schema_but_foreign_ones_stay_quiet() {
         let head = "import jakarta.persistence.*; ";
         let ok = format!("{head}@Entity @Table(name = User.TABLE, schema = SCHEMA) class User {{ static final String TABLE = \"users\"; public static final String SCHEMA = \"public\"; }}");
-        assert_eq!(entity_tables(&ok)[0].0, "public.users");
+        assert_eq!(key(&entity_tables(&ok)[0].0, None).unwrap(), "public.users");
         assert!(entity_tables(&format!("{head}@Entity @Table(name = Other.TABLE) class User {{}}")).is_empty());
         assert!(entity_tables(&format!("{head}@Entity @Table(name = T) class User {{ static final String T = prefix(); }}")).is_empty());
         assert!(entity_tables(&format!("{head}@Entity @Table(name = T) class User {{ String T = \"users\"; }}")).is_empty());
@@ -265,7 +349,7 @@ mod tests {
         assert_eq!(snake_case("User").as_deref(), Some("user"));
         for ambiguous in ["HTMLPage", "Order2", "UserID", "user", "Ünder"] { assert!(snake_case(ambiguous).is_none(), "{ambiguous}"); }
         let head = "import jakarta.persistence.*; ";
-        assert_eq!(implicit_entity_tables(&format!("{head}@Entity class OrderLine {{}}"))[0].0, "order_line");
+        assert_eq!(key(&implicit_entity_tables(&format!("{head}@Entity class OrderLine {{}}"))[0].0, None).unwrap(), "order_line");
         for skipped in ["@Entity(name = \"X\") class OrderLine {}", "@Entity @Table(name = \"a\") class OrderLine {}", "@Entity class OrderLine extends Base {}", "@Entity abstract class OrderLine {}", "@Entity @Inheritance class OrderLine {}", "class OrderLine {}"] {
             assert!(implicit_entity_tables(&format!("{head}{skipped}")).is_empty(), "{skipped}");
         }
@@ -309,6 +393,79 @@ mod tests {
         assert!(locations.iter().any(|location| location.path == "/project/a/src/main/java/User.java"));
         assert!(!locations.iter().any(|location| location.path.contains("/b/")));
         assert!(entity_tables(&entity.replace("import jakarta.persistence.*;", "import jakarta.persistence.*; import custom.*;")).is_empty());
+    }
+
+    fn ids(sql: &str) -> Vec<Ident> { tables(sql).unwrap().remove(0).parts }
+
+    #[test]
+    fn quoted_identifiers_tokenize_with_escapes_in_every_dialect_style() {
+        assert_eq!(ids("CREATE TABLE \"a\"\"b\".\"C\"(x int)"), vec![Ident { text: "a\"b".into(), quote: Some('"') }, Ident { text: "C".into(), quote: Some('"') }]);
+        assert_eq!(ids("CREATE TABLE `a``b`(x int)")[0], Ident { text: "a`b".into(), quote: Some('`') });
+        assert_eq!(ids("CREATE TABLE [dbo].[a]]b](x int)")[1], Ident { text: "a]b".into(), quote: Some('[') });
+        assert_eq!(tables("SELECT 1 FROM \"from\"; CREATE TABLE \"table\"(x int)").unwrap().len(), 2);
+        for broken in ["CREATE TABLE \"x(id int)", "CREATE TABLE `x", "CREATE TABLE [x", "CREATE TABLE \"\"(id int)"] { assert!(tables(broken).is_none(), "{broken}"); }
+    }
+
+    #[test]
+    fn identifier_keys_fold_unquoted_per_dialect_and_keep_quoted_exact() {
+        let plain = |t: &str| Ident::plain(t);
+        let quoted = |t: &str, q: char| Ident { text: t.into(), quote: Some(q) };
+        assert_eq!(key(&[plain("Users")], Some(Dialect::Postgres)).unwrap(), "users");
+        assert_eq!(key(&[plain("Users")], Some(Dialect::H2)).unwrap(), "USERS");
+        assert_eq!(key(&[plain("Users")], Some(Dialect::Oracle)).unwrap(), "USERS");
+        assert_eq!(key(&[quoted("Users", '"')], Some(Dialect::Postgres)).unwrap(), "Users");
+        assert_eq!(key(&[quoted("USERS", '"')], Some(Dialect::H2)), key(&[plain("users")], Some(Dialect::H2)));
+        assert_ne!(key(&[quoted("Users", '"')], Some(Dialect::Postgres)), key(&[plain("Users")], Some(Dialect::Postgres)));
+        assert_eq!(key(&[quoted("Users", '[')], Some(Dialect::SqlServer)).unwrap(), "users");
+        assert_eq!(key(&[quoted("Users", '`')], Some(Dialect::MySql)).unwrap(), "Users");
+        assert!(key(&[quoted("Users", '"')], None).is_none());
+        assert!(key(&[quoted("Users", '`')], Some(Dialect::Postgres)).is_none());
+        assert!(key(&[quoted("Users", '[')], Some(Dialect::Postgres)).is_none());
+        assert!(key(&[quoted("Users", '"')], Some(Dialect::MySql)).is_none());
+        assert_eq!(key(&[plain("Users")], None).unwrap(), "users");
+    }
+
+    #[test]
+    fn dialect_needs_explicit_unambiguous_url_or_driver_evidence() {
+        let run = |files: &[(&str, &str)]| {
+            let host = openidea_plugin::mock::MockHost::install();
+            for (path, text) in files { host.add_file(path, text); }
+            detect_dialect(&host.invocation().project().unwrap())
+        };
+        assert_eq!(run(&[("src/main/resources/application.properties", "spring.datasource.url=jdbc:postgresql://db/app")]), Some(Dialect::Postgres));
+        assert_eq!(run(&[("flyway.conf", "flyway.url=jdbc:mariadb://db/app")]), Some(Dialect::MySql));
+        assert_eq!(run(&[("src/main/resources/application.yml", "driver-class-name: org.h2.Driver")]), Some(Dialect::H2));
+        assert_eq!(run(&[("application.properties", "spring.datasource.url=${DB_URL}")]), None);
+        assert_eq!(run(&[("application.properties", "jdbc:postgresql://x"), ("flyway.conf", "flyway.url=jdbc:h2:mem:x")]), None);
+        assert_eq!(run(&[("application.properties", "spring.datasource.url=jdbc:h2:mem:x;MODE=PostgreSQL")]), None);
+    }
+
+    #[test]
+    fn quoted_entity_names_match_quoted_sql_only_with_explicit_dialect() {
+        let entity = "import jakarta.persistence.*; @Entity @Table(name = \"\\\"Users\\\"\", schema = \"[Sales]\") class User {}";
+        let parts = &entity_tables(entity)[0].0;
+        assert_eq!(parts[1], Ident { text: "Users".into(), quote: Some('"') });
+        assert_eq!(parts[0].quote, Some('['));
+        assert!(entity_tables(&entity.replace("\\\"Users\\\"", "\\\"Us\\\"ers\\\"")).is_empty());
+        let run = |url: Option<&str>, sql: &str| {
+            let host = openidea_plugin::mock::MockHost::install();
+            let java = "import jakarta.persistence.*; @Entity @Table(name = \"\\\"Users\\\"\") class User {}";
+            host.add_file("src/main/resources/db/migration/V1__a.sql", "CREATE TABLE \"Users\"(id int);");
+            host.add_file("src/main/resources/db/migration/V2__b.sql", sql);
+            host.add_file("src/main/java/User.java", java);
+            if let Some(url) = url { host.add_file("src/main/resources/application.properties", url); }
+            let files = ["/project/src/main/resources/db/migration/V1__a.sql".to_string(), "/project/src/main/resources/db/migration/V2__b.sql".to_string()];
+            let mut state = State::default();
+            state.warm(&host.invocation().project().unwrap(), &files);
+            let doc = Document { path: files[1].clone(), language: "sql".into(), version: 1, text: sql.into() };
+            state.definition(&doc, Position::new(0, 10)).len()
+        };
+        let pg = Some("spring.datasource.url=jdbc:postgresql://db/app");
+        assert_eq!(run(pg, "UPDATE \"Users\" SET id=1;"), 2);
+        assert_eq!(run(pg, "UPDATE users SET id=1;"), 0);
+        assert_eq!(run(pg, "UPDATE \"users\" SET id=1;"), 0);
+        assert_eq!(run(None, "UPDATE \"Users\" SET id=1;"), 0);
+        assert_eq!(run(Some("spring.datasource.url=jdbc:h2:mem:t"), "UPDATE \"Users\" SET id=1;"), 2);
     }
 
 }
