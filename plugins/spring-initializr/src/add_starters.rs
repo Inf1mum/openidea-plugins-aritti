@@ -1221,5 +1221,26 @@ mod tests {
         let (host, mut l, _) = setup(&text);
         assert!(l.run_command("add-starters", &host.invocation(), None).is_err());
     }
-
+    #[test]
+    fn real_start_spring_io_responses_yield_expected_starters() {
+        const REAL_META: &str = include_str!("fixtures/initializr-metadata.json");
+        const REAL_COORDS: &str = include_str!("fixtures/initializr-dependencies.json");
+        let parent = "<parent><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-parent</artifactId><version>3.5.16</version><relativePath/></parent>\n";
+        let managed = POM.replace("<version>3.5.16</version>", "<version>4.1.2</version>");
+        let unmanaged = POM.replace(parent, "");
+        let ids = |text: &str| {
+            let (host, mut l, _) = setup(text);
+            host.on_fetch(|req| {
+                Ok(openidea_plugin::HttpResponse {
+                    status: 200,
+                    body: if req.url.contains("metadata/client") { REAL_META } else { REAL_COORDS }.as_bytes().to_vec(),
+                    ..Default::default()
+                })
+            });
+            l.run_command("add-starters", &host.invocation(), None).unwrap();
+            l.starter_edits.cache.as_ref().unwrap().starters.iter().map(|s| (s.id.clone(), s.version.clone())).collect::<Vec<_>>()
+        };
+        assert_eq!(ids(&managed), vec![("web".to_string(), None)]);
+        assert_eq!(ids(&unmanaged), vec![("camel".to_string(), Some("4.22.0".to_string()))]);
+    }
 }

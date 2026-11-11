@@ -106,8 +106,8 @@ pub(crate) fn void_response_payload(doc: &Document) -> Vec<Diagnostic> {
                 out.push(
                     Diagnostic::new(
                         range(&doc.text, a.at, a.end),
-                        Severity::Warning,
-                        format!("`{}` returns void, so @ResponsePayload has no payload to write.", m.name),
+                        Severity::Info,
+                        format!("`{}` returns void, so Spring-WS ignores @ResponsePayload (DefaultMethodEndpointAdapter skips return handling for void); remove it or return a payload.", m.name),
                     )
                     .code("void-response-payload"),
                 );
@@ -193,6 +193,7 @@ mod tests {
         let _h = MockHost::install();
         let bad = void_response_payload(&java("@PayloadRoot(namespace=\"urn:a\", localPart=\"XRequest\") @ResponsePayload public void x() {}"));
         assert_eq!(bad.len(), 1);
+        assert_eq!(bad[0].severity, Severity::Info);
         assert_eq!(bad[0].code.as_deref(), Some("void-response-payload"));
         for ok in [
             "@PayloadRoot(namespace=\"urn:a\", localPart=\"XRequest\") @ResponsePayload public Object x() { return null; }",

@@ -633,7 +633,7 @@ fn comments_on_diff_lines_carry_the_position() {
     assert!(posted[0].1.ends_with("/merge_requests/7/discussions"));
     assert_eq!(
         posted[0].2,
-        r#"{"body":"gone?","position":{"base_sha":"abcdef0","head_sha":"abcdef1","new_line":null,"new_path":"src/a.rs","old_line":4,"old_path":"src/a.rs","position_type":"text","start_sha":"start"}}"#
+        r#"{"body":"gone?","position":{"base_sha":"abcdef0","head_sha":"abcdef1","new_path":"src/a.rs","old_line":4,"old_path":"src/a.rs","position_type":"text","start_sha":"start"}}"#
     );
     assert!(posted[1].1.ends_with("/merge_requests/7/draft_notes"));
     assert!(posted[1].2.contains(r#""new_line":3"#) && posted[1].2.contains(r#""old_line":3"#));
@@ -4528,4 +4528,23 @@ mod source_cli_checkout {
         h.on_fetch(move|r|if r.url.split('?').next()==Some("https://gitlab.com/api/v4/projects/g%2Fp/merge_requests/7"){let sha=if moved.get(){"ffffffffffffffffffffffffffffffffffffffff"}else{SHA};ok(&MR.replace("\"source_project_id\": 5","\"source_project_id\": 9").replace("\"abc123\"",&format!("\"{sha}\"")))}else{gitlab(r)});
         h.answer_next_prompt(Some(&["ok"]));assert!(p.checkout_source_cli(&h.invocation()).is_err());assert!(h.terminals().is_empty());
     }
+}
+
+#[test]
+fn draft_note_requests_match_the_documented_gitlab_fields() {
+    let host = setup();
+    let api = api::Project("g/p");
+    let refs = api::DiffRefs { base_sha: "b".into(), head_sha: "h".into(), start_sha: "s".into() };
+
+    api.create_draft(7, "hi", Some(api::diff_position(&refs, "a.rs", "b.rs", None, Some(4))), None).unwrap();
+    api.publish_drafts(7).unwrap();
+
+    let posted = writes(&host);
+    assert_eq!(posted[0].1, "https://gitlab.com/api/v4/projects/g%2Fp/merge_requests/7/draft_notes");
+    let body: serde_json::Value = serde_json::from_str(&posted[0].2).unwrap();
+    assert_eq!(
+        body,
+        serde_json::json!({"note": "hi", "position": {"position_type": "text", "base_sha": "b", "start_sha": "s", "head_sha": "h", "old_path": "a.rs", "new_path": "b.rs", "new_line": 4}})
+    );
+    assert_eq!(posted[1].1, "https://gitlab.com/api/v4/projects/g%2Fp/merge_requests/7/draft_notes/bulk_publish");
 }

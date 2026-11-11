@@ -269,16 +269,21 @@ struct Branch {
 
 /// The `position` of a new diff comment on line `old`/`new` (1-based; both for a context line).
 pub fn diff_position(refs: &DiffRefs, old_path: &str, new_path: &str, old: Option<u32>, new: Option<u32>) -> Value {
-    json!({
+    let mut position = json!({
         "position_type": "text",
         "base_sha": refs.base_sha,
         "start_sha": refs.start_sha,
         "head_sha": refs.head_sha,
         "old_path": old_path,
         "new_path": new_path,
-        "old_line": old,
-        "new_line": new,
-    })
+    });
+    if let Some(old) = old {
+        position["old_line"] = json!(old);
+    }
+    if let Some(new) = new {
+        position["new_line"] = json!(new);
+    }
+    position
 }
 
 /// Percent-encodes everything but RFC 3986 unreserved characters.

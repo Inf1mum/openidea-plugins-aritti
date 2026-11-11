@@ -157,13 +157,13 @@ fn block(lines: &[&str]) -> Option<Block> {
             return None;
         }
         let namespace = match ns.as_str() {
-            "" | "~" | "null" => None,
+            "" | "~" | "null" | "Null" | "NULL" | "false" | "False" | "FALSE" | "0" => None,
             value => {
                 let value = scalar(value)?;
                 if value.contains('%') {
                     return None;
                 }
-                Some(value)
+                (!value.is_empty() && value != "0").then_some(value)
             }
         };
         result.paths.push((dir, namespace));
@@ -189,6 +189,15 @@ mod tests {
         assert_eq!(
             paths(text),
             vec![some("email/default/templates", None), some("backend/templates", Some("admin")), some("lib/ui", Some("ui")), some("plain/dir", None)]
+        );
+    }
+
+    #[test]
+    fn falsy_namespaces_are_the_main_namespace_like_twig_extension_not_namespace_check() {
+        let text = "twig:\n    paths:\n        a: ''\n        b: \"\"\n        c: '0'\n        d: 0\n        e: false\n        f: ~\n        g: 'null'\n";
+        assert_eq!(
+            paths(text),
+            vec![some("a", None), some("b", None), some("c", None), some("d", None), some("e", None), some("f", None), some("g", Some("null"))]
         );
     }
 

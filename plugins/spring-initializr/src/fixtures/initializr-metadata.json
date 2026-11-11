@@ -1,0 +1,62 @@
+{
+ "bootVersion": {
+  "default": "4.1.2",
+  "values": [
+   {
+    "id": "4.1.2",
+    "name": "4.1.2"
+   },
+   {
+    "id": "4.0.9",
+    "name": "4.0.9"
+   }
+  ]
+ },
+ "dependencies": {
+  "values": [
+   {
+    "name": "Developer Tools",
+    "values": [
+     {
+      "id": "devtools",
+      "name": "Spring Boot DevTools"
+     },
+     {
+      "id": "modulith",
+      "name": "Spring Modulith",
+      "versionRange": "[4.0.0,4.3.0-M1)"
+     }
+    ]
+   },
+   {
+    "name": "Web",
+    "values": [
+     {
+      "id": "web",
+      "name": "Spring Web"
+     }
+    ]
+   },
+   {
+    "name": "Messaging",
+    "values": [
+     {
+      "id": "camel",
+      "name": "Apache Camel",
+      "versionRange": "[4.0.0,4.2.0-M1)"
+     }
+    ]
+   },
+   {
+    "name": "AI",
+    "values": [
+     {
+      "id": "spring-ai-vectordb-milvus",
+      "name": "Milvus Vector Database",
+      "versionRange": "[4.0.0,4.3.0-M1)"
+     }
+    ]
+   }
+  ]
+ }
+}

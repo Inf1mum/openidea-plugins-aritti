@@ -12,6 +12,7 @@ authors = ["Arnaud Ritti <arnaud.ritti@gmail.com>", "JetBrains s.r.o. and contri
 homepage = "https://github.com/JetBrains/intellij-community/tree/master/plugins/gitlab"
 license = "Apache-2.0"
 change-notes = """\
+Draft and diff comments omit the unused old/new line instead of sending null, matching the GitLab draft notes API. \
 Bounded CommonMark descriptions/diff comments escape raw HTML, block unsafe links and remote image fetching, with shared native tokens and snapshot-bound link activation. \
 Re-request assigned review with fresh owner/head checks; two declared credential slots isolate identity and snapshot caches. \
 Optional approved glab 1.x adapter follows a freshly validated selected job in a native managed log tab. \

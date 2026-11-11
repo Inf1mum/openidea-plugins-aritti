@@ -1,8 +1,8 @@
 """Classification and flattening of Quarkus configuration buffers into Properties text.
 
-Ordinals follow quarkus.io/guides/config-reference (.env 295, config/application.properties 260,
-classpath application.properties 250, microprofile-config.properties 100). The YAML guide only says YAML
-beats application.properties and config/application.yaml beats application.yaml, so YAML uses 255/265.
+Ordinals verified against SmallRye Config source: .env 295 (DotEnvConfigSourceProvider), config/application.properties 260,
+classpath application.properties 250, microprofile-config.properties 100 (SmallRyeConfigBuilder), YAML classpath 255 and
+config/application.yaml 265 (YamlConfigSourceLoader.InClassPath / InFileSystem).
 """
 import re
 from pathlib import Path

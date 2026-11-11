@@ -185,7 +185,7 @@ fn npm_graph(text: &str) -> Option<Graph> {
     let mut graph = Graph { nodes: Vec::new(), edges: Vec::new(), roots: Vec::new() };
     for (i, key) in keys.iter().enumerate() {
         let entry = &packages[key.as_str()];
-        let name = key.rsplit("node_modules/").next()?.to_owned();
+        let name = entry.get("name").and_then(Value::as_str).or(key.rsplit("node_modules/").next())?.to_owned();
         graph.nodes.push((name, entry["version"].as_str()?.to_owned()));
         if key.matches("node_modules/").count() == 1 {
             graph.roots.push(i);

@@ -253,8 +253,12 @@ impl Cache {
         messages
             .into_iter()
             .map(|message| {
-                crate::checks::Finding::new(span.0, span.1, "crd-schema", message)
-                    .diagnostic(&doc.text)
+                let info = message.contains(NULL_PRUNED);
+                let mut finding = crate::checks::Finding::new(span.0, span.1, "crd-schema", message);
+                if info {
+                    finding.severity = openidea_plugin::Severity::Info;
+                }
+                finding.diagnostic(&doc.text)
             })
             .collect()
     }
@@ -344,6 +348,7 @@ impl Cache {
             .collect()
     }
 }
+const NULL_PRUNED: &str = "null on a non-nullable field is pruned";
 fn validate(value: &Yaml, schema: &Yaml, path: &str, depth: usize, out: &mut Vec<String>) {
     let int_or_string = schema["x-kubernetes-int-or-string"].as_bool() == Some(true);
     if depth > 16
@@ -354,7 +359,6 @@ fn validate(value: &Yaml, schema: &Yaml, path: &str, depth: usize, out: &mut Vec
     {
         return;
     }
-    // Null on a non-nullable field is pruned/defaulted server side, so it is not provable.
     if matches!(value, Yaml::Null) {
         return;
     }
@@ -512,6 +516,15 @@ fn validate(value: &Yaml, schema: &Yaml, path: &str, depth: usize, out: &mut Vec
             };
             let property = &schema["properties"][key];
             if !matches!(property, Yaml::BadValue) {
+                if matches!(child, Yaml::Null) && property["nullable"].as_bool() != Some(true) {
+                    let outcome = if matches!(property["default"], Yaml::BadValue) {
+                        "dropped"
+                    } else {
+                        "replaced by the default"
+                    };
+                    out.push(format!("{path}/{key}: {NULL_PRUNED}; it is {outcome} before validation (local CRD schema)"));
+                    continue;
+                }
                 validate(child, property, &format!("{path}/{key}"), depth + 1, out);
             } else if schema["x-kubernetes-preserve-unknown-fields"].as_bool() == Some(true) {
             } else if schema["additionalProperties"].as_bool() == Some(false)
@@ -732,6 +745,20 @@ mod tests {
         assert!(out.iter().any(|m| m.contains("/port")), "{out:?}");
         assert!(out.iter().any(|m| m.contains("stray")), "{out:?}");
         assert!(out.iter().any(|m| m.contains("/map/a")), "{out:?}");
+    }
+
+    #[test]
+    fn null_on_non_nullable_field_is_pruned_or_defaulted_per_structural_schema_docs() {
+        // kubernetes.io CRD docs, "Defaulting and Nullable": non-nullable null is pruned before defaulting,
+        // default applied if present; nullable: true keeps null.
+        let schema = crate::convert::source_documents("type: object\nproperties:\n  spec:\n    type: object\n    properties:\n      foo: {type: string, nullable: false, default: d}\n      bar: {type: string, nullable: true}\n      baz: {type: string}\n").unwrap().remove(0);
+        let value = crate::convert::source_documents("spec: {foo: null, bar: null, baz: null}\n").unwrap().remove(0);
+        let mut out = vec![];
+        validate(&value, &schema, "", 0, &mut out);
+        assert_eq!(out.len(), 2, "{out:?}");
+        assert!(out[0].contains("/spec/foo") && out[0].contains("replaced by the default"), "{out:?}");
+        assert!(out[1].contains("/spec/baz") && out[1].contains("dropped"), "{out:?}");
+        assert!(out.iter().all(|m| !m.contains("expected")), "{out:?}");
     }
 
     #[test]

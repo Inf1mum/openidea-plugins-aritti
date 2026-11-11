@@ -562,7 +562,7 @@ fn package_lock(path: &str, text: &str) -> Vec<Dep> {
         deps.push(Dep {
             path: path.to_owned(),
             ecosystem: Ecosystem::Npm,
-            name: installed.to_owned(),
+            name: entry.get("name").and_then(Value::as_str).unwrap_or(installed).to_owned(),
             version: version.to_owned(),
             at: (start, start + key.len()),
             version_at: None,
@@ -861,16 +861,19 @@ fn yarn_lock(path: &str, text: &str) -> Vec<Dep> {
     let mut header: Option<(&str, usize)> = None;
     for (at, line) in lines(text) {
         if !line.starts_with([' ', '#']) && line.ends_with(':') {
-            header = line.split(',').next().and_then(|first| {
-                let first = first.trim_end_matches(':');
-                let (spec, inside) = quoted(first).unwrap_or((first, 0));
-                let split = spec.rfind('@').filter(|&i| i > 0)?;
-                let range = &spec[split + 1..];
-                if range.contains(':') && !range.starts_with("npm:") {
-                    return None;
-                }
+            header = line.trim_end_matches(':').split(',').next().and_then(|first| {
+                let first = first.trim();
+                let (spec, inside) = quoted(first).unwrap_or((first.trim_start_matches('"'), usize::from(first.starts_with('"'))));
+                let split = spec.char_indices().skip(1).find(|&(_, c)| c == '@')?.0;
+                let (name, range) = (&spec[..split], &spec[split + 1..]);
+                let Some(alias) = range.strip_prefix("npm:") else {
+                    return (!range.contains(':')).then_some((name, at + inside));
+                };
+                let Some(real) = alias.rfind('@').filter(|&i| i > 0).map(|i| &alias[..i]) else {
+                    return Some((name, at + inside));
+                };
 
-                Some((&spec[..split], at + inside))
+                Some((real, at + inside + spec.find(real)?))
             });
 
             continue;
@@ -908,13 +911,16 @@ fn pnpm_lock(path: &str, text: &str) -> Vec<Dep> {
         };
         let (key, inside) = quoted(key).unwrap_or((key, 0));
         let slash = usize::from(key.starts_with('/'));
-        let key = key[slash..].split('(').next().unwrap_or_default();
-        let Some(split) = key.rfind('@').filter(|&i| i > 0) else {
-            continue;
+        let key = key.split('(').next().unwrap_or_default();
+        let (name, version) = match key.rsplit_once('/').filter(|(name, version)| slash == 1 && name.len() > 1 && is_version(version)) {
+            Some((name, version)) => (&name[1..], version.split('_').next().unwrap_or_default()),
+            None => match key[slash..].rfind('@').filter(|&i| i > 0) {
+                Some(split) => (&key[slash..slash + split], &key[slash + split + 1..]),
+                None => continue,
+            },
         };
-        let version = &key[split + 1..];
         if is_version(version) {
-            deps.push(lock_dep(path, Ecosystem::Npm, &key[..split], version, at + 2 + inside + slash));
+            deps.push(lock_dep(path, Ecosystem::Npm, name, version, at + 2 + inside + slash));
         }
     }
 
@@ -1351,6 +1357,25 @@ source = { registry = "https://pypi.org/simple/" }
         let deps = parse("/p/yarn.lock", berry, None);
         assert_eq!(found(&deps), [("lodash", "4.17.21")]);
         assert_eq!(&berry[deps[0].at.0..deps[0].at.1], "lodash");
+    }
+
+    #[test]
+    fn real_world_lockfile_excerpts() {
+        let berry = "__metadata:\n  version: 10\n  cacheKey: 10\n\n\"@babel/core@npm:^7.11.6, @babel/core@npm:^7.12.3\":\n  version: 7.26.10\n  resolution: \"@babel/core@npm:7.26.10\"\n\n\"react-helmet-async@npm:@slorber/react-helmet-async@*, react-helmet-async@npm:@slorber/react-helmet-async@1.3.0\":\n  version: 1.3.0\n  resolution: \"@slorber/react-helmet-async@npm:1.3.0\"\n\n\"@yarnpkg/builder@workspace:^, @yarnpkg/builder@workspace:packages/yarnpkg-builder\":\n  version: 0.0.0-use.local\n\n\"node-gyp@npm:latest\":\n  version: 11.1.0\n";
+        let deps = parse("/p/yarn.lock", berry, None);
+        assert_eq!(found(&deps), [("@babel/core", "7.26.10"), ("@slorber/react-helmet-async", "1.3.0"), ("node-gyp", "11.1.0")]);
+        for dep in &deps {
+            assert_eq!(&berry[dep.at.0..dep.at.1], dep.name);
+        }
+
+        let pnpm5 = "lockfileVersion: 5.4\n\npackages:\n\n  /@babel/core/7.0.0_react@18.0.0:\n    dev: true\n\n  /lodash/4.17.21:\n    dev: false\n";
+        assert_eq!(found(&parse("/p/pnpm-lock.yaml", pnpm5, None)), [("@babel/core", "7.0.0"), ("lodash", "4.17.21")]);
+
+        let pnpm9 = "lockfileVersion: '9.0'\n\nimporters:\n\n  .:\n    dependencies:\n      react:\n        specifier: 18.0.0\n        version: 18.0.0\n\npackages:\n\n  '@conventional-changelog/git-client@3.1.2':\n    resolution: {integrity: x}\n\nsnapshots:\n\n  '@conventional-changelog/git-client@3.1.2(conventional-commits-filter@6.0.1)':\n    dependencies:\n      a: 1.0.0\n";
+        assert_eq!(found(&parse("/p/pnpm-lock.yaml", pnpm9, None)), [("@conventional-changelog/git-client", "3.1.2")]);
+
+        let npm = r#"{"name":"npm","lockfileVersion":3,"packages":{"":{"name":"npm","workspaces":["workspaces/*"]},"node_modules/@npmcli/arborist":{"resolved":"workspaces/arborist","link":true},"node_modules/str":{"name":"string-width","version":"4.2.3"},"workspaces/arborist":{"name":"@npmcli/arborist","version":"9.0.0"},"workspaces/arborist/node_modules/x":{"version":"1.0.0","peer":true}}}"#;
+        assert_eq!(found(&parse("/p/package-lock.json", npm, None)), [("string-width", "4.2.3"), ("x", "1.0.0")]);
     }
 
     #[test]

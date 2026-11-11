@@ -572,3 +572,32 @@ mod health_tests {
         assert!(s.health_details[0].2.chars().count() <= 201 && !s.health_details[0].2.contains('\u{7}'));
     }
 }
+
+#[cfg(test)]
+mod boot_shape_tests {
+    use super::*;
+    use serde_json::json;
+
+    // Shapes verified against spring-boot 3.5.x sources: ConditionsReportEndpoint.ContextConditionsDescriptor
+    // (positiveMatches, negativeMatches{notMatched,matched}, exclusions, unconditionalClasses, parentId),
+    // ConfigurationPropertiesReportEndpoint.ConfigurationPropertiesBeanDescriptor (prefix, properties, inputs),
+    // MappingsEndpoint.ContextMappingsDescriptor.mappings + HandlerMethodDescription (className, name, descriptor).
+    #[test]
+    fn reads_boot_3_descriptor_shapes() {
+        let mut s = Snapshot::default();
+        s.read("conditions", &json!({"contexts":{"app":{
+            "positiveMatches":{"A#a":[{"condition":"OnClassCondition","message":"found class"}]},
+            "negativeMatches":{"B":{"notMatched":[{"condition":"OnBeanCondition","message":"no bean"}],"matched":[]}},
+            "exclusions":[],"unconditionalClasses":["C"],"parentId":null}}}));
+        assert_eq!(s.conditions.len(), 2);
+        assert_eq!(s.conditions[1].messages, vec!["no bean"]);
+        s.read("configprops", &json!({"contexts":{"app":{"beans":{"acme.mail-com.acme.Mail":{
+            "prefix":"acme.mail","properties":{"host":"h"},"inputs":{"host":{"value":"h","origin":"x"}}}},"parentId":null}}}));
+        assert_eq!((s.configprops[0].prefix.as_str(), s.configprops[0].ty.as_str()), ("acme.mail", "com.acme.Mail"));
+        assert_eq!(s.configprops[0].props, vec![("host".to_owned(), "h".to_owned())]);
+        s.read("mappings", &json!({"contexts":{"app":{"mappings":{"dispatcherServlets":{"dispatcherServlet":[{
+            "handler":"h","predicate":"p","details":{"handlerMethod":{"className":"com.acme.Users","name":"find","descriptor":"()V"},
+            "requestMappingConditions":{"methods":["GET"],"patterns":["/u"]}}}]}},"parentId":null}}}));
+        assert_eq!(s.mappings[0].method, Some(("com.acme.Users".to_owned(), "find".to_owned())));
+    }
+}

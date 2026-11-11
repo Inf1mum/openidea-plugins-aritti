@@ -1,0 +1,41 @@
+{
+ "bootVersion": "4.1.2",
+ "dependencies": {
+  "web": {
+   "groupId": "org.springframework.boot",
+   "artifactId": "spring-boot-starter-webmvc",
+   "scope": "compile"
+  },
+  "devtools": {
+   "groupId": "org.springframework.boot",
+   "artifactId": "spring-boot-devtools",
+   "scope": "runtime"
+  },
+  "camel": {
+   "groupId": "org.apache.camel.springboot",
+   "artifactId": "camel-spring-boot-starter",
+   "scope": "compile",
+   "version": "4.22.0"
+  },
+  "spring-ai-vectordb-milvus": {
+   "groupId": "org.springframework.ai",
+   "artifactId": "spring-ai-starter-vector-store-milvus",
+   "scope": "compile",
+   "bom": "spring-ai"
+  },
+  "modulith": {
+   "groupId": "org.springframework.modulith",
+   "artifactId": "spring-modulith-starter-core",
+   "scope": "compile",
+   "bom": "spring-modulith"
+  }
+ },
+ "repositories": {
+  "shibboleth-releases": {
+   "name": "Shibboleth Releases Repository",
+   "url": "https://build.shibboleth.net/maven/releases",
+   "snapshotEnabled": false
+  }
+ },
+ "boms": {}
+}
