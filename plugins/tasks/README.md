@@ -37,7 +37,7 @@ GitHub/GitLab/Codeberg use `page`; YouTrack uses `$skip`/`$top`. Each page conta
 issues, with a five-page limit per query/selection. Next is offered after a full page, so the
 following page may be empty; results are not claimed to be exhaustive. Jira enhanced-JQL
 search follows its opaque `nextPageToken` rather than offsets or full-page guesses,
-including short/empty pages with a continuation. Tokens are session-only, bounded
+including short/empty pages with a continuation. Prefix a Jira search with `jql:` to send your own JQL (at most 256 bytes, balanced quotes/parentheses, no trailing `and`/`or`/`not`, at most one final `ORDER BY field [ASC|DESC], …`); field and operator names are left for Jira to judge. Without the prefix the text becomes `text ~ "…"`. Tokens are session-only, bounded
 to4096bytes and query/tenant/root/page scoped; malformed/repeated/cyclic or
 inconsistent terminal metadata is refused without caching that page. Previous
 uses the exact page/cursor cache; query/server changes reset the cursor, and
