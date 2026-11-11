@@ -134,3 +134,14 @@ claim, because no explicit claim states those surfaces' behaviour in a headless-
 * The headless host has no file watcher: after `postSetup` the runner re-syncs buffers it had opened.
 * One main action per scenario (plus `preActions`); the plugin's cross-file cache is primed by opening every source file,
   running diagnostics once and sending `FileOpened` events, as the IDE does.
+
+## Reliability: run on a quiet machine, at least three times
+
+The released host drops editor-provider results that exceed its time budget (50 ms). On a loaded machine (a load average
+of about 80 was observed while several builds ran) scenarios that need code actions fail intermittently: the same scenario
+failed once and passed once with no code change. A single passing run therefore proves nothing, and a failing run under load
+is not a product failure.
+
+Receipts used as ledger evidence must come from at least three separate runs on an otherwise idle machine
+(`scripts/update-jpa-ledger.py --runner-out RUN1 --runner-out RUN2 --runner-out RUN3`). A scenario counts as passing only if
+it passed in every run and its receipts are byte-identical; anything else is recorded as `flaky` and keeps the row open.
