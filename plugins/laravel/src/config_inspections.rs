@@ -8,8 +8,8 @@ pub(crate) fn missing(index: &Index, name: &str) -> bool {
     let mut prefix = name;
     while let Some((parent, _)) = prefix.rsplit_once('.') {
         if let Some(entry) = index.config.get(parent) {
-            return !index.config_incomplete.contains(&entry.path)
-                && matches!(entry.detail.as_deref(), Some("array" | "config file"));
+            let wholly_incomplete = index.config_incomplete.contains(&entry.path) && !index.config_gap_is_local(&entry.path, parent);
+            return !wholly_incomplete && matches!(entry.detail.as_deref(), Some("array" | "config file"));
         }
         prefix = parent;
     }

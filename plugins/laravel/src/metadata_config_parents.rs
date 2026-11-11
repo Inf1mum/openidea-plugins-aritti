@@ -814,6 +814,51 @@ pub(super) fn finish(project: &Project, metadata: &mut Metadata) {
         );
     }
 }
+/// Options whose second array level the installed framework loader merges, proven from its source.
+fn framework_mergeable(key: &str, code: &str) -> &'static [&'static str] {
+    let mergeable: &[&str] = match key {
+        "auth" => &["guards", "providers", "passwords"],
+        "broadcasting" | "database" | "queue" => &["connections"],
+        "cache" => &["stores"],
+        "filesystems" => &["disks"],
+        "logging" => &["channels"],
+        "mail" => &["mailers"],
+        _ => &[],
+    };
+    if mergeable.is_empty() {
+        return mergeable;
+    }
+    let snippet = format!(
+        "'{key}'=>[{}]",
+        mergeable.iter().map(|s| format!("'{s}'")).collect::<Vec<_>>().join(",")
+    );
+    if code.contains(&snippet) { mergeable } else { &[] }
+}
+/// Default merging needs the app file's top-level keys and its mergeable options' keys. A file whose
+/// only unknown keys sit in other arrays can still be merged exactly.
+fn merge_blocked(
+    index: &Index,
+    root: &str,
+    key: &str,
+    mergeable: &[&str],
+    entries: &[(String, crate::index::Entry)],
+) -> bool {
+    if index.config_incomplete.contains(&format!("{root}/config")) {
+        return true;
+    }
+    let file = format!("{root}/config/{key}.php");
+    let refined = |path: &str| {
+        if index.config_merge_incomplete.contains(path) {
+            return false;
+        }
+        let Some(arrays) = index.config_local_arrays.get(path) else {
+            return false;
+        };
+        !arrays.contains(key) && !mergeable.iter().any(|option| arrays.contains(&format!("{key}.{option}")))
+    };
+    let blocks = |path: &str| index.config_incomplete.contains(path) && !(path == file && refined(path));
+    blocks(&file) || entries.iter().any(|(_, entry)| blocks(&entry.path))
+}
 fn app_config_incomplete(index: &Index, root: &str, key: &str) -> bool {
     let directory = format!("{root}/config");
     index.config_incomplete.iter().any(|path| {
@@ -957,9 +1002,7 @@ fn merge_framework_inventory(project: &Project, index: &mut Index) {
         return;
     }
     let Some(bootstrap) = read_recorded(project, &mut index.metadata, &format!("{root}/bootstrap/app.php"), BYTES) else {
-        index
-            .config_incomplete
-            .extend(index.config.values().map(|entry| entry.path.clone()));
+        { let paths = index.config.values().map(|entry| entry.path.clone()).collect::<Vec<_>>(); index.merge_incomplete_extend(paths); }
         index.metadata.issues.push(
             "Framework bootstrap ownership/source unavailable; base defaults withheld".into(),
         );
@@ -1024,19 +1067,15 @@ fn merge_framework_inventory(project: &Project, index: &mut Index) {
             .filter(|(name, _)| *name == key || name.starts_with(&prefix))
             .map(|(n, e)| (n.clone(), e.clone()))
             .collect();
-        if app_config_incomplete(index, &root, key)
-            || app_entries
-                .iter()
-                .any(|(_, e)| index.config_incomplete.contains(&e.path))
-        {
+        if merge_blocked(index, &root, key, framework_mergeable(key, &code), &app_entries) {
             for (_, entry) in app_entries {
-                index.config_incomplete.insert(entry.path);
+                index.merge_incomplete_insert(entry.path);
             }
             continue;
         }
         let Some(source) = read_recorded(project, &mut index.metadata, &path, BYTES) else {
             for (_, entry) in app_entries {
-                index.config_incomplete.insert(entry.path);
+                index.merge_incomplete_insert(entry.path);
             }
             continue;
         };
@@ -1046,17 +1085,14 @@ fn merge_framework_inventory(project: &Project, index: &mut Index) {
                 "Framework config inventory reached 2-MiB read bound; remaining defaults withheld"
                     .into(),
             );
-            index
-                .config_incomplete
-                .extend(index.config.values().map(|entry| entry.path.clone()));
+            { let paths = index.config.values().map(|entry| entry.path.clone()).collect::<Vec<_>>(); index.merge_incomplete_extend(paths); }
             break;
         }
         let masked = php::mask_comments(&source);
-        let (mut leaves, complete) = crate::config_arrays::paths(&masked, key);
+        let base_coverage = crate::config_arrays::coverage(&masked, key, None);
+        let (mut leaves, complete) = (base_coverage.leaves, base_coverage.complete);
         if leaves.len() > remaining_leaves {
-            index
-                .config_incomplete
-                .extend(index.config.values().map(|entry| entry.path.clone()));
+            { let paths = index.config.values().map(|entry| entry.path.clone()).collect::<Vec<_>>(); index.merge_incomplete_extend(paths); }
             index.metadata.issues.push(
                 "Framework config inventory exceeded 32768-key bound; remaining defaults withheld"
                     .into(),
@@ -1067,34 +1103,7 @@ fn merge_framework_inventory(project: &Project, index: &mut Index) {
         let Some(anchor) = config_return(&source) else {
             continue;
         };
-        let mergeable: &[&str] = match key {
-            "auth" => &["guards", "providers", "passwords"],
-            "broadcasting" | "database" | "queue" => &["connections"],
-            "cache" => &["stores"],
-            "filesystems" => &["disks"],
-            "logging" => &["channels"],
-            "mail" => &["mailers"],
-            _ => &[],
-        };
-        // Prove the per-option contract from the installed loader, rather than
-        // applying current framework behavior to every version/config name.
-        let mergeable = if mergeable.is_empty() {
-            mergeable
-        } else {
-            let snippet = format!(
-                "'{key}'=>[{}]",
-                mergeable
-                    .iter()
-                    .map(|s| format!("'{s}'"))
-                    .collect::<Vec<_>>()
-                    .join(",")
-            );
-            if code.contains(&snippet) {
-                mergeable
-            } else {
-                &[]
-            }
-        };
+        let mergeable = framework_mergeable(key, &code);
         renumber_merge(index, &mut leaves, &prefix);
         for option in mergeable {
             renumber_merge(index, &mut leaves, &format!("{prefix}{option}."));
@@ -1106,9 +1115,26 @@ fn merge_framework_inventory(project: &Project, index: &mut Index) {
             .map(|(n, e)| (n.clone(), e.clone()))
             .collect();
         if !complete {
-            index.config_incomplete.insert(path.clone());
-            for (_, e) in &app_entries {
-                index.config_incomplete.insert(e.path.clone());
+            let arrays = &base_coverage.incomplete_arrays;
+            let confined = !base_coverage.global
+                && !arrays.contains(key)
+                && !mergeable.iter().any(|option| arrays.contains(&format!("{key}.{option}")));
+            if confined {
+                // Only arrays the merge never reads are unknown: the merged key set stays exact elsewhere.
+                let app_file = format!("{root}/config/{key}.php");
+                let files = std::iter::once(path.clone())
+                    .chain(std::iter::once(app_file))
+                    .chain(app_entries.iter().map(|(_, e)| e.path.clone()))
+                    .collect::<BTreeSet<_>>();
+                for file in files {
+                    index.config_incomplete.insert(file.clone());
+                    index.config_local_arrays.entry(file).or_default().extend(arrays.iter().cloned());
+                }
+            } else {
+                index.merge_incomplete_insert(path.clone());
+                for (_, e) in &app_entries {
+                    index.merge_incomplete_insert(e.path.clone());
+                }
             }
         }
         index
@@ -1204,9 +1230,7 @@ pub(super) fn merge_inventory(project: &Project, index: &mut Index) {
             if declarations.iter().any(|pending| {
                 pending_proof(&index.metadata, pending).is_some_and(|(framework, _)| framework)
             }) {
-                index
-                    .config_incomplete
-                    .extend(index.config.values().map(|entry| entry.path.clone()));
+                { let paths = index.config.values().map(|entry| entry.path.clone()).collect::<Vec<_>>(); index.merge_incomplete_extend(paths); }
                 index.metadata.issues.push("Dynamic package configuration key prevents authoritative missing-key diagnostics".into());
             }
             continue;
@@ -1223,7 +1247,7 @@ pub(super) fn merge_inventory(project: &Project, index: &mut Index) {
         let distinct: BTreeSet<_> = declarations.iter().map(|p| p.defaults.as_str()).collect();
         if distinct.len() != 1 {
             for (_, entry) in app_entries {
-                index.config_incomplete.insert(entry.path);
+                index.merge_incomplete_insert(entry.path);
             }
             index.metadata.issues.push(format!(
                 "Config defaults for {key} have ambiguous provider order; defaults withheld"
@@ -1238,30 +1262,26 @@ pub(super) fn merge_inventory(project: &Project, index: &mut Index) {
             continue;
         };
         if pending.defaults.is_empty(){
-            for (_,entry) in app_entries{index.config_incomplete.insert(entry.path);}
+            for (_,entry) in app_entries{index.merge_incomplete_insert(entry.path);}
             continue;
         }
         let path = format!("{root}/{}", pending.defaults);
         let Some(source) = read_recorded(project, &mut index.metadata, &path, BYTES) else {
             for (_, entry) in app_entries {
-                index.config_incomplete.insert(entry.path);
+                index.merge_incomplete_insert(entry.path);
             }
             continue;
         };
         bytes += source.len();
         if bytes > 2 * 1024 * 1024 {
             index.metadata.issues.push("Config default inventory reached its 2-MiB read budget; remaining defaults withheld".into());
-            index
-                .config_incomplete
-                .extend(index.config.values().map(|entry| entry.path.clone()));
+            { let paths = index.config.values().map(|entry| entry.path.clone()).collect::<Vec<_>>(); index.merge_incomplete_extend(paths); }
             break;
         }
         let masked = php::mask_comments(&source);
         let (mut leaves, complete) = crate::config_arrays::paths(&masked, &key);
         if leaves.len() > remaining_leaves {
-            index
-                .config_incomplete
-                .extend(index.config.values().map(|entry| entry.path.clone()));
+            { let paths = index.config.values().map(|entry| entry.path.clone()).collect::<Vec<_>>(); index.merge_incomplete_extend(paths); }
             index.metadata.issues.push(
                 "Package config inventory exceeded 32768-key bound; remaining defaults withheld"
                     .into(),
@@ -1279,7 +1299,7 @@ pub(super) fn merge_inventory(project: &Project, index: &mut Index) {
             .is_some_and(|entry| !matches!(entry.detail.as_deref(), Some("array" | "config file")));
         if app_incomplete || app_scalar {
             for (_, entry) in app_entries {
-                index.config_incomplete.insert(entry.path);
+                index.merge_incomplete_insert(entry.path);
             }
             index.metadata.issues.push(format!(
                 "Config defaults for {key} have an unresolved app override; defaults withheld"
@@ -1298,9 +1318,9 @@ pub(super) fn merge_inventory(project: &Project, index: &mut Index) {
             })
             .collect();
         if !complete {
-            index.config_incomplete.insert(path.clone());
+            index.merge_incomplete_insert(path.clone());
             for (_, entry) in &app_entries {
-                index.config_incomplete.insert(entry.path.clone());
+                index.merge_incomplete_insert(entry.path.clone());
             }
         }
         if config_return(&source).is_none() {
@@ -1352,9 +1372,7 @@ pub(super) fn merge_inventory(project: &Project, index: &mut Index) {
         }
     }
     if global_uncertain {
-        index
-            .config_incomplete
-            .extend(index.config.values().map(|entry| entry.path.clone()));
+        { let paths = index.config.values().map(|entry| entry.path.clone()).collect::<Vec<_>>(); index.merge_incomplete_extend(paths); }
     }
 }
 
@@ -1847,7 +1865,7 @@ mod tests {
             index
                 .config
                 .retain(|name, _| name != "demo" && !name.starts_with("demo."));
-            index.config_incomplete.insert(incomplete.into());
+            index.merge_incomplete_insert(incomplete.into());
             merge_inventory(&host.invocation().project().unwrap(), &mut index);
             assert!(!index.config.contains_key("demo"));
             assert!(!crate::config_inspections::missing(&index, "demo.unread"));

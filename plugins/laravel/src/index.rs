@@ -88,6 +88,10 @@ pub struct Index {
     /// Bounded source previews for Config browsing; never runtime values.
     pub config_expressions: BTreeMap<String, String>,
     pub config_incomplete: BTreeSet<String>,
+    /// Config files whose only unknown keys sit inside the listed dotted arrays; keys elsewhere are authoritative.
+    pub config_local_arrays: BTreeMap<String, BTreeSet<String>>,
+    /// Files that default-merging could not reconcile; these stay wholly incomplete.
+    pub config_merge_incomplete: BTreeSet<String>,
     pub translations: Names,
     /// Every locale definition for inventory browsing; completion keeps its preferred definition.
     pub translations_by_locale: BTreeMap<String, Names>,
@@ -684,6 +688,33 @@ fn cache_declarations(index:&mut Index,text:&str,path:&str,relative:&str,roots:&
 }
 
 impl Index {
+    /// Unknown keys are confined to arrays that neither are nor contain `parent`: keys elsewhere in the file are authoritative.
+    pub(crate) fn config_gap_is_local(&self, path: &str, parent: &str) -> bool {
+        !self.config_merge_incomplete.contains(path)
+            && self.config_local_arrays.get(path).is_some_and(|arrays| {
+                // A spread or unknown key may overwrite siblings, so descendants of an unknown array are unknown too.
+                !arrays.iter().any(|array| parent == array || parent.strip_prefix(array.as_str()).is_some_and(|rest| rest.starts_with('.')))
+            })
+    }
+    /// Config files, or arrays inside files whose other keys are known, that could not be fully inventoried.
+    pub(crate) fn config_coverage_gaps(&self) -> Vec<String> {
+        let mut gaps = BTreeSet::new();
+        for path in &self.config_incomplete {
+            match self.config_local_arrays.get(path).filter(|_| !self.config_merge_incomplete.contains(path)) {
+                Some(arrays) => gaps.extend(arrays.iter().cloned()),
+                None => { gaps.insert(path.rsplit('/').next().unwrap_or(path).to_owned()); }
+            }
+        }
+        gaps.into_iter().collect()
+    }
+    /// Default merging could not reconcile this file, so no per-array coverage may be trusted for it.
+    pub(crate) fn merge_incomplete_insert(&mut self, path: String) {
+        self.config_merge_incomplete.insert(path.clone());
+        self.config_incomplete.insert(path);
+    }
+    pub(crate) fn merge_incomplete_extend(&mut self, paths: impl IntoIterator<Item = String>) {
+        for path in paths { self.merge_incomplete_insert(path); }
+    }
     /// Reparse a current route document using its proven application mount.
     /// The parser retains byte offsets into the original document.
     pub(crate) fn parse_routes(&self,path:&str,source:&str)->Vec<routes::RouteDef>{
@@ -856,8 +887,12 @@ impl Index {
 
             index.config.add(&file_key, Some("config file".into()), &path, Position::new(0, 0), 0);
             let masked = php::mask_comments(&text);
-            let (leaves, complete) = crate::config_arrays::paths(&masked, &file_key);
-            if !complete { index.config_incomplete.insert(path.clone()); }
+            let coverage = crate::config_arrays::coverage(&masked, &file_key, None);
+            let (leaves, complete) = (coverage.leaves, coverage.complete);
+            if !complete {
+                index.config_incomplete.insert(path.clone());
+                if !coverage.global { index.config_local_arrays.insert(path.clone(), coverage.incomplete_arrays); }
+            }
             let lines = Lines::new(&text);
             for leaf in leaves {
                 if !leaf.array && !index.config.contains_key(&leaf.path) {

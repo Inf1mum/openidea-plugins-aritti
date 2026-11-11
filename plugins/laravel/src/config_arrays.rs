@@ -133,25 +133,33 @@ struct Walker<'a> {
     text: &'a str,
     out: Vec<Leaf>,
     complete: bool,
+    global_incomplete: bool,
+    incomplete_arrays: std::collections::BTreeSet<String>,
     key_resolver: Option<&'a dyn Fn(Range<usize>) -> Option<String>>,
 }
 impl Walker<'_> {
+    fn mark_incomplete(&mut self, prefix: &str) {
+        self.complete = false;
+        self.incomplete_arrays.insert(prefix.to_owned());
+    }
     fn walk(&mut self, open: usize, prefix: &str, depth: usize) {
         if depth > MAX_DEPTH {
             self.complete = false;
+            self.global_incomplete = true;
             return;
         }
         let mut next = Some(0i64);
         for item in php::items(self.text, open) {
             if self.out.len() >= MAX_ENTRIES {
-                self.complete = false;
+                self.mark_incomplete(prefix);
+                self.global_incomplete = true;
                 return;
             }
             let expression = php::trimmed(self.text, item.value.clone());
             let value = &self.text[expression.clone()];
             if item.key.is_none() && value.starts_with("...") {
                 next = None;
-                self.complete = false;
+                self.mark_incomplete(prefix);
                 continue;
             }
             let resolved = if let Some(range) = item.key {
@@ -178,7 +186,7 @@ impl Walker<'_> {
                     let raw = &self.text[range.clone()];
                     if number.to_string() != raw && format!("+{number}") != raw {
                         next = None;
-                        self.complete = false;
+                        self.mark_incomplete(prefix);
                         continue;
                     }
                     next = next.and_then(|n| {
@@ -207,14 +215,14 @@ impl Walker<'_> {
                 } else {
                     // Unknown keys may change subsequent implicit integer offsets.
                     next = None;
-                    self.complete = false;
+                    self.mark_incomplete(prefix);
                     None
                 }
             } else if let Some(number) = next {
                 next = number.checked_add(1);
                 Some((number.to_string(), expression.start, 0))
             } else {
-                self.complete = false;
+                self.mark_incomplete(prefix);
                 None
             };
             let Some((key, offset, width)) = resolved else {
@@ -224,7 +232,7 @@ impl Walker<'_> {
             let nested = array(self.text, expression.clone());
             // A computed array or merge remains a source expression, not invented child keys.
             if nested.is_none() && (value.starts_with('[') || value.starts_with("array(")) {
-                self.complete = false;
+                self.mark_incomplete(&path);
             }
             let literal = php::literal(self.text, expression.clone()).map(|(s, _)| s.to_owned());
             self.out.push(Leaf {
@@ -252,20 +260,40 @@ pub(crate) fn paths_with_keys(
     prefix: &str,
     key_resolver: Option<&dyn Fn(Range<usize>) -> Option<String>>,
 ) -> (Vec<Leaf>, bool) {
+    let coverage = coverage(masked, prefix, key_resolver);
+    (coverage.leaves, coverage.complete)
+}
+/// Which part of a config file could not be fully inventoried.
+pub(crate) struct Coverage {
+    pub leaves: Vec<Leaf>,
+    pub complete: bool,
+    /// The whole file is unknown (size, depth, entry bound, heredoc or no returned array).
+    pub global: bool,
+    /// Dotted arrays whose own key set is unknown; arrays elsewhere in the file stay authoritative.
+    pub incomplete_arrays: std::collections::BTreeSet<String>,
+}
+pub(crate) fn coverage(
+    masked: &str,
+    prefix: &str,
+    key_resolver: Option<&dyn Fn(Range<usize>) -> Option<String>>,
+) -> Coverage {
+    let unknown = || Coverage { leaves: vec![], complete: false, global: true, incomplete_arrays: Default::default() };
     if masked.len() > MAX_SOURCE || masked.contains("<<<") {
-        return (vec![], false);
+        return unknown();
     }
     let Some(open) = returned(masked) else {
-        return (vec![], false);
+        return unknown();
     };
     let mut walker = Walker {
         text: masked,
         out: vec![],
         complete: true,
+        global_incomplete: false,
+        incomplete_arrays: Default::default(),
         key_resolver,
     };
     walker.walk(open, prefix, 0);
-    (walker.out, walker.complete)
+    Coverage { leaves: walker.out, complete: walker.complete, global: walker.global_incomplete, incomplete_arrays: walker.incomplete_arrays }
 }
 
 #[cfg(test)]
@@ -354,5 +382,15 @@ return [Alias::class => ['enabled'=>true], \DateTimeZone::class => 'cast'];";
         assert!(!complete);
         assert!(rows.is_empty());
         assert!(!paths("<?php return ['text'=><<<TXT\nhi\nTXT];", "test").1);
+    }
+    #[test]
+    fn coverage_names_only_the_arrays_whose_keys_are_unknown() {
+        let source = "<?php return ['name'=>'x','previous_keys'=>[...array_filter(explode(',',env('K')))],'links'=>[public_path('s')=>storage_path('a')],'ok'=>['a'=>1]];";
+        let found = coverage(source, "app", None);
+        assert!(!found.complete && !found.global);
+        assert_eq!(found.incomplete_arrays.into_iter().collect::<Vec<_>>(), ["app.links", "app.previous_keys"]);
+        let spread = coverage("<?php return [...$a,'k'=>1];", "app", None);
+        assert_eq!(spread.incomplete_arrays.into_iter().collect::<Vec<_>>(), ["app"]);
+        assert!(coverage("<?php return foo();", "app", None).global);
     }
 }

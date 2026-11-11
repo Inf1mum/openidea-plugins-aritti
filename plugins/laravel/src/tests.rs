@@ -3141,6 +3141,26 @@ fn config_unsupported_arrays_report_partial_coverage_without_discarding_known_ke
     assert!(!plugin.view_index(&ctx).unwrap().partial,"Config uncertainty must not suppress unrelated diagnostics");
 }
 #[test]
+fn unknown_keys_confined_to_one_array_keep_other_config_diagnostics_authoritative() {
+    let host=MockHost::install();
+    host.add_file("config/site.php","<?php return ['name'=>'x','previous_keys'=>[...array_filter(explode(',',env('K')))],'nested'=>['kept'=>['leaf'=>1]]];");
+    host.add_file("config/depot.php","<?php return ['default'=>'local','links'=>[public_path('storage')=>storage_path('app/public')],'disks'=>['local'=>['driver'=>'local']]];");
+    host.add_file("config/dynamic.php","<?php return [...$extra,'known'=>['child'=>true]];");
+    let mut plugin=activated(&host);let ctx=host.invocation();
+    let index=plugin.view_index(&ctx).unwrap();
+    assert!(missing_config(index,"site.absent"));
+    assert!(missing_config(index,"site.nested.kept.absent"));
+    assert!(missing_config(index,"depot.disks.local.absent"));
+    assert!(!missing_config(index,"site.previous_keys.0"));
+    assert!(!missing_config(index,"depot.links.anything"));
+    assert!(!missing_config(index,"dynamic.known.unknown"), "a top-level spread can overwrite any sibling");
+    assert!(!missing_config(index,"dynamic.absent"));
+    assert_eq!(index.config_coverage_gaps(),["depot.links","dynamic","site.previous_keys"]);
+    let view=plugin.render("laravel-config",None,&ctx).unwrap();
+    let status=view.status.unwrap();
+    assert!(status.contains("site.previous_keys") && status.contains("depot.links"),"{status}");
+}
+#[test]
 #[ignore="requires LARAVEL_CONFIG_FIXTURE_DIR containing actual config PHP files"]
 fn captured_config_directory_coverage() {
     let dir=std::path::PathBuf::from(std::env::var("LARAVEL_CONFIG_FIXTURE_DIR").unwrap());

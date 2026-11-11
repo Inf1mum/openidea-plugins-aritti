@@ -2139,8 +2139,9 @@ impl Views for Main {
             let partial = index.partial;
             let has_index_issues=!index.metadata.issues.is_empty();
             let native_components_partial=index.packages.native_partial;
-            let config_incomplete = index.config_incomplete.len();
-            let config_coverage = index.config_incomplete.iter().take(3).map(|path| path.rsplit('/').next().unwrap_or(path)).collect::<Vec<_>>().join(", ");
+            let config_gaps = index.config_coverage_gaps();
+            let config_incomplete = config_gaps.len();
+            let config_coverage = config_gaps.iter().take(3).map(String::as_str).collect::<Vec<_>>().join(", ");
             let toolbar = |body| {
                 let mut view = View::new(body);
                 if routes_active {
