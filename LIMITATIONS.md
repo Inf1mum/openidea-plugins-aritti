@@ -1051,7 +1051,7 @@ Port of `org.jetbrains.plugins.gitlab` 263.7307.200 (intellij-community tag
 - **Blocks:**
   - the original's "Create / View merge request" actions after a push.
 - **Why:**
-  - `ui.show-notification` has no actions.
+  - (Closed in API 1.4: notifications can carry actions that run a plugin command; API 1.5 adds `Project::notify` for one project's window.) The remaining gap is a push event.
   - There is no push event; `vcs-changed` gives only the repository root.
 - **Workaround in the port:**
   - A pushed branch with no merge request shows *GitLab: Create MR* in the status bar.
