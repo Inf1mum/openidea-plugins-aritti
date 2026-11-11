@@ -11,12 +11,23 @@ use spring_text::{beans, decapitalize, parse_source};
 const NAMESPACE: &str = "http://www.springframework.org/schema/websocket";
 const COMPONENTS: [&str; 6] = ["Component", "Service", "Repository", "Controller", "RestController", "Configuration"];
 
+const BOOLEAN: &[&str] = &["true", "false", "1", "0"];
+
+/// Written from spring-websocket.xsd: only `use="required"` attributes, `xsd:boolean` attributes and bean-name attributes.
 const RULES: &[Rule] = &[
-    Rule { required: &["path"], ..Rule::new("stomp-endpoint") },
+    Rule { enums: &[("preserve-publish-order", BOOLEAN)], refs: &["path-matcher", "path-helper", "validator"], ..Rule::new("message-broker") },
     Rule { required: &["path", "handler"], refs: &["handler"], ..Rule::new("mapping") },
-    Rule { required: &["prefix"], ..Rule::new("simple-broker") },
-    Rule { required: &["prefix"], ..Rule::new("stomp-broker-relay") },
+    Rule { enums: &[("auto-startup", BOOLEAN)], refs: &["scheduler"], ..Rule::new("simple-broker") },
+    Rule { enums: &[("auto-startup", BOOLEAN)], ..Rule::new("stomp-broker-relay") },
     Rule { required: &["ref"], refs: &["ref"], ..Rule::new("handshake-handler") },
+    Rule { required: &["ref"], refs: &["ref"], ..Rule::new("stomp-error-handler") },
+    Rule {
+        enums: &[("websocket-enabled", BOOLEAN), ("session-cookie-needed", BOOLEAN), ("suppress-cors", BOOLEAN)],
+        refs: &["scheduler", "message-codec"],
+        ..Rule::new("sockjs")
+    },
+    Rule { enums: &[("register-defaults", BOOLEAN)], ..Rule::new("transport-handlers") },
+    Rule { enums: &[("register-defaults", BOOLEAN)], ..Rule::new("message-converters") },
 ];
 
 /// The bean names a source declares: component classes, `@Bean` methods and XML bean ids.
@@ -64,7 +75,7 @@ mod tests {
     use super::*;
 
     const XML: &str = r#"<beans xmlns="http://www.springframework.org/schema/beans" xmlns:websocket="http://www.springframework.org/schema/websocket">
-  <websocket:message-broker><websocket:stomp-endpoint/><websocket:simple-broker prefix="/topic"/></websocket:message-broker>
+  <websocket:message-broker><websocket:stomp-endpoint/><websocket:simple-broker prefix="/topic"/><websocket:stomp-error-handler/></websocket:message-broker>
   <websocket:handlers><websocket:mapping path="/echo" handler="echoHandler"/><websocket:mapping handler="ghost"/></websocket:handlers>
   <bean id="echoHandler" class="com.acme.Echo"/>
 </beans>"#;
@@ -82,12 +93,22 @@ mod tests {
         assert_eq!(
             found,
             [
-                ("missing-attribute", "websocket:stomp-endpoint".to_owned(), Severity::Warning),
+                ("missing-attribute", "websocket:stomp-error-handler".to_owned(), Severity::Warning),
                 ("missing-attribute", "websocket:mapping".to_owned(), Severity::Warning),
                 ("unresolved-reference", "ghost".to_owned(), Severity::Info),
             ]
         );
         assert_eq!(check(XML, None).len(), 2);
         assert!(check("<beans><mapping/></beans>", None).is_empty());
+    }
+
+    #[test]
+    fn optional_attributes_are_quiet_and_enums_and_refs_checked() {
+        let xml = r#"<beans xmlns:websocket="http://www.springframework.org/schema/websocket">
+  <websocket:message-broker preserve-publish-order="yes" validator="ghost" path-matcher="${m}"><websocket:stomp-endpoint><websocket:sockjs suppress-cors="1" scheduler="sched"/></websocket:stomp-endpoint><websocket:simple-broker/><websocket:stomp-broker-relay/></websocket:message-broker>
+</beans>"#;
+        let is_bean = |n: &str| n == "sched";
+        let found: Vec<_> = check(xml, Some(&is_bean)).into_iter().map(|f| (f.code, xml[f.start..f.end].to_owned())).collect();
+        assert_eq!(found, [("invalid-attribute-value", "yes".to_owned()), ("unresolved-reference", "ghost".to_owned())]);
     }
 }

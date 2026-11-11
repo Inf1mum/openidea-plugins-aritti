@@ -604,7 +604,7 @@ impl WebTools {
         let Some(project)=project_of(&doc.path) else{return Vec::new()};
         let mut views=self.templates(doc).into_iter().filter(|t|t.path==doc.path).map(|t|t.name).collect::<Vec<_>>();
         if let Some((_,path))=doc.path.split_once("/src/main/resources/templates/") {if let Some((name,_))=path.rsplit_once('.') {views.push(name.into());}}
-        let candidates=self.models.get(&project,PROVIDER_BUDGET).iter().flat_map(|(path,facts)|facts.iter().filter(|f|views.contains(&f.view)).map(move|f|(f.name.clone(),f.view.clone(),Location{path:path.into(),range:f.range}))).take(200).collect::<Vec<_>>();
+        let candidates=self.models.get(&project,PROVIDER_BUDGET).iter().flat_map(|(path,facts)|facts.iter().filter(|f|f.view==model_links::ALL_VIEWS||views.contains(&f.view)).map(move|f|(f.name.clone(),f.view.clone(),Location{path:path.into(),range:f.range}))).take(200).collect::<Vec<_>>();
         let mut fresh=BTreeMap::new();let mut output=Vec::new();
         for (name,view,location) in candidates {
             if !fresh.contains_key(&location.path) {

@@ -19,11 +19,12 @@ const RABBIT: &[Rule] = &[
             ("mismatched-queues-fatal", BOOLEAN),
             ("auto-declare", BOOLEAN),
         ],
-        refs: &[],
+        refs: &["connection-factory", "message-converter", "task-executor", "task-scheduler", "error-handler", "transaction-manager"],
     },
     Rule { element: "listener", required: &["ref"], enums: &[], refs: &["ref"] },
-    Rule { element: "connection-factory", required: &[], enums: &[("publisher-confirms", BOOLEAN), ("publisher-returns", BOOLEAN)], refs: &[] },
-    Rule { element: "admin", required: &[], enums: &[("auto-startup", BOOLEAN), ("ignore-declaration-exceptions", BOOLEAN)], refs: &[] },
+    Rule { element: "connection-factory", required: &[], enums: &[("publisher-confirms", BOOLEAN), ("publisher-returns", BOOLEAN)], refs: &["connection-factory", "executor"] },
+    Rule { element: "template", required: &[], enums: &[], refs: &["connection-factory", "message-converter"] },
+    Rule { element: "admin", required: &[], enums: &[("auto-startup", BOOLEAN), ("ignore-declaration-exceptions", BOOLEAN)], refs: &["connection-factory"] },
     Rule { element: "queue", required: &[], enums: &[("durable", BOOLEAN), ("exclusive", BOOLEAN), ("auto-delete", BOOLEAN)], refs: &[] },
     Rule { element: "direct-exchange", required: &["name"], enums: &[("durable", BOOLEAN), ("auto-delete", BOOLEAN)], refs: &[] },
     Rule { element: "topic-exchange", required: &["name"], enums: &[("durable", BOOLEAN), ("auto-delete", BOOLEAN)], refs: &[] },
@@ -40,8 +41,19 @@ const JMS: &[Rule] = &[
             ("container-type", &["default", "default102", "simple", "simple102"]),
             ("destination-type", &["queue", "topic", "durableTopic", "sharedTopic", "sharedDurableTopic"]),
             ("cache", &["none", "connection", "session", "consumer", "auto"]),
+            ("response-destination-type", &["queue", "topic"]),
         ],
-        refs: &[],
+        refs: &["connection-factory", "task-executor", "destination-resolver", "message-converter", "error-handler", "transaction-manager"],
+    },
+    Rule {
+        element: "jca-listener-container",
+        required: &[],
+        enums: &[
+            ("acknowledge", &["auto", "client", "dups-ok", "transacted"]),
+            ("destination-type", &["queue", "topic", "durableTopic"]),
+            ("response-destination-type", &["queue", "topic"]),
+        ],
+        refs: &["resource-adapter", "activation-spec-factory", "destination-resolver", "message-converter", "transaction-manager"],
     },
     Rule { element: "listener", required: &["destination", "ref"], enums: &[], refs: &["ref"] },
 ];
@@ -244,4 +256,30 @@ pub fn method_names(index: &Index<Info>, class_fqn: &str) -> Vec<String> {
     names.sort();
     names.dedup();
     names
+}
+
+#[cfg(test)]
+mod schema_tests {
+    use super::*;
+
+    fn codes(rules: &[Rule], xml: &str) -> Vec<(&'static str, String)> {
+        let els = xml::elements(xml);
+        check(&els, rules, |b| b == "known").into_iter().map(|f| (f.code, xml[f.start..f.end].to_owned())).collect()
+    }
+
+    #[test]
+    fn jms_jca_container_enums_and_refs() {
+        let xml = r#"<jms:jca-listener-container resource-adapter="ra" destination-type="sharedTopic" response-destination-type="topic" acknowledge="client"/>"#;
+        assert_eq!(
+            codes(JMS, xml),
+            [("invalid-attribute-value", "sharedTopic".to_owned()), ("unresolved-reference", "ra".to_owned())]
+        );
+        assert_eq!(codes(JMS, r#"<jms:listener-container response-destination-type="both" connection-factory="known"/>"#), [("invalid-attribute-value", "both".to_owned())]);
+    }
+
+    #[test]
+    fn rabbit_container_and_template_refs() {
+        let xml = r#"<rabbit:listener-container connection-factory="known" error-handler="${h}" message-converter="ghost"/><rabbit:template connection-factory="nope"/>"#;
+        assert_eq!(codes(RABBIT, xml), [("unresolved-reference", "ghost".to_owned()), ("unresolved-reference", "nope".to_owned())]);
+    }
 }

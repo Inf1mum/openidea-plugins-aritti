@@ -1178,7 +1178,7 @@ client.onConnect = () => {
     fn websocket_xml_is_checked_against_project_beans() {
         let host = MockHost::install();
         host.add_file("src/main/resources/ws.xml", r#"<bean id="echoHandler" class="com.acme.Echo"/>"#);
-        let text = r#"<beans xmlns:websocket="http://www.springframework.org/schema/websocket"><websocket:handlers><websocket:mapping path="/e" handler="echoHandler"/><websocket:mapping path="/g" handler="ghost"/></websocket:handlers><websocket:stomp-endpoint/></beans>"#;
+        let text = r#"<beans xmlns:websocket="http://www.springframework.org/schema/websocket"><websocket:handlers><websocket:mapping path="/e" handler="echoHandler"/><websocket:mapping path="/g" handler="ghost"/></websocket:handlers><websocket:stomp-error-handler/></beans>"#;
         let d = Document { path: "/project/src/main/resources/ws2.xml".into(), language: "xml".into(), version: 1, text: text.into() };
         assert!(WebSocketTools::default().line_markers(&d).is_empty());
         let found: Vec<_> = host.diagnostics()[&d.path].iter().map(|x| (x.code.clone().unwrap(), x.severity)).collect();

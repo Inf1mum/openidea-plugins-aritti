@@ -476,7 +476,7 @@ mod tests {
             path: "/project/ws.xml".into(),
             language: "xml".into(),
             version: 1,
-            text: r#"<w:message-broker xmlns:w="http://www.springframework.org/schema/websocket"><w:stomp-endpoint/></w:message-broker>"#
+            text: r#"<w:message-broker xmlns:w="http://www.springframework.org/schema/websocket"><w:stomp-error-handler/></w:message-broker>"#
                 .into(),
         };
         assert!(tools.diagnostics(&xml).iter().any(|d| d.code.as_deref() == Some("missing-attribute")));

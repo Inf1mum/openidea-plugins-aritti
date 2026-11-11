@@ -156,8 +156,33 @@ pub fn facts(path: &str, source: &str) -> Option<Vec<Fact>> {
             }
         }
     }
+    for class in file.types.iter().filter(|c| {
+        c.annotation("ControllerAdvice")
+            .is_some_and(|a| a.args.is_empty())
+            && file.from_spring("ControllerAdvice")
+    }) {
+        for a in class
+            .methods()
+            .filter_map(|m| m.annotation("ModelAttribute"))
+            .filter(|_| file.from_spring("ModelAttribute"))
+        {
+            if let Some(value) = a
+                .strings(&["name", "value"])
+                .first()
+                .filter(|s| !s.value.is_empty() && !s.value.contains(['$', '#']))
+            {
+                out.push(Fact {
+                    view: ALL_VIEWS.into(),
+                    name: value.value.clone(),
+                    range: range(source, value.at, value.end),
+                });
+            }
+        }
+    }
     (!out.is_empty()).then_some(out)
 }
+/// View marker for unrestricted `@ControllerAdvice` attributes (every view).
+pub const ALL_VIEWS: &str = "*";
 pub fn reference(source: &str, at: usize) -> Option<(String, Range)> {
     let all = xml::elements(source);
     for (i, e) in all.iter().enumerate() {
@@ -265,6 +290,17 @@ mod tests {
                 .collect::<Vec<_>>(),
             [("users/show", "account"), ("users/list", "rows")]
         );
+    }
+    #[test]
+    fn unrestricted_controller_advice_model_attributes_apply_to_every_view() {
+        let source = "@ControllerAdvice class A { @ModelAttribute(\"user\") User u(){return null;} @ModelAttribute User skipped(){return null;} }";
+        let found = facts("/p/A.java", source).unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!((&*found[0].view, &*found[0].name), (ALL_VIEWS, "user"));
+        let scoped = "@ControllerAdvice(basePackages=\"x\") class A { @ModelAttribute(\"user\") User u(){return null;} }";
+        assert!(facts("/p/A.java", scoped).is_none());
+        let foreign = "import other.ControllerAdvice; @ControllerAdvice class A { @ModelAttribute(\"user\") User u(){return null;} }";
+        assert!(facts("/p/A.java", foreign).is_none());
     }
     #[test]
     fn discarded_or_foreign_model_and_view_objects_do_not_publish_names() {

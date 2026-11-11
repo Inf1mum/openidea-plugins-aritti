@@ -330,6 +330,53 @@ fn route_list(key: &str) -> Option<(&'static str, bool)> {
     (index(&rest[list.len()..])? == rest.len() - list.len()).then_some((list, mvc))
 }
 
+/// Expanded argument names of the shipped factories, read from each factory's `Config`
+/// class in spring-cloud-gateway 4.1 (others, such as Retry, are not listed).
+fn factory_args(predicate: bool, name: &str) -> Option<&'static [&'static str]> {
+    Some(match (predicate, name) {
+        (true, "After") => &["datetime"],
+        (true, "Between") => &["datetime1", "datetime2"],
+        (true, "Cookie") => &["name", "regexp"],
+        (true, "Header") => &["header", "regexp"],
+        (true, "Host") => &["patterns"],
+        (true, "Method") => &["methods"],
+        (true, "Path") => &["patterns", "matchTrailingSlash"],
+        (true, "Query") => &["param", "regexp"],
+        (false, "AddRequestHeader" | "AddRequestParameter" | "AddResponseHeader" | "SetRequestHeader" | "SetResponseHeader") => &["name", "value"],
+        (false, "RemoveRequestHeader" | "RemoveResponseHeader") => &["name"],
+        (false, "PrefixPath") => &["prefix"],
+        (false, "RewritePath") => &["regexp", "replacement"],
+        (false, "SetPath") => &["template"],
+        (false, "SetStatus") => &["status"],
+        (false, "StripPrefix") => &["parts"],
+        _ => return None,
+    })
+}
+
+/// Unknown expanded `args.<name>` keys of a shipped factory in a WebFlux route.
+fn unknown_gateway_args(text: &str, keys: &[Key]) -> Vec<Diagnostic> {
+    let flat = |s: &str| s.chars().filter(|c| !matches!(c, '-' | '_')).collect::<String>().to_ascii_lowercase();
+    let mut out = Vec::new();
+    for k in keys {
+        let Some((item, arg)) = k.key.split_once(".args.") else { continue };
+        let Some((list, false)) = route_list(&format!("{item}.name")) else { continue };
+        let Some(name) = keys.iter().find(|n| n.key == format!("{item}.name")) else { continue };
+        if name.value.contains("${") {
+            continue;
+        }
+        let predicate = list == "predicates";
+        let Some(known) = factory_args(predicate, &name.value) else { continue };
+        let first = arg.split(['.', '[']).next().unwrap_or("");
+        if first.is_empty() || first.starts_with("_genkey_") || known.iter().any(|a| flat(a) == flat(first)) {
+            continue;
+        }
+        let kind = if predicate { "predicate" } else { "filter" };
+        let message = format!("Gateway {kind} `{}` has no argument `{first}`; it takes {}", name.value, known.join(", "));
+        out.push(Diagnostic::new(range(text, k.at, k.end), Severity::Warning, message).code("unknown-gateway-arg"));
+    }
+    out
+}
+
 fn is_jvm(doc: &Document) -> bool {
     matches!(doc.language.as_str(), "java" | "kotlin")
 }
@@ -563,7 +610,7 @@ impl CloudTools {
         let keys = config::keys(&doc.path, &doc.text);
         let mine = stream_config(&doc.text, &keys);
         let groups = checks::Groups::from_settings();
-        let mut problems = Vec::new();
+        let mut problems = unknown_gateway_args(&doc.text, &keys);
         if groups.bootstrap
             && checks::is_bootstrap_file(&doc.path)
             && let Some(project) = project_of(&doc.path)
@@ -1154,6 +1201,27 @@ class StreamFunctions {
         let problems = &host.diagnostics()[&props.path];
         assert_eq!(problems.len(), 1);
         assert_eq!((written(PROPERTIES, problems[0].range), problems[0].severity), ("Bogus", Severity::Info));
+    }
+
+    #[cfg(not(feature = "embedded"))]
+    #[test]
+    fn flags_unknown_expanded_gateway_args_of_shipped_factories() {
+        let host = setup();
+        let mut tools = CloudTools::default();
+        let yml = "spring:\n  cloud:\n    gateway:\n      routes:\n        - id: r\n          predicates:\n            - name: Path\n              args:\n                patterns: /a\n                match-trailing-slash: false\n                pattern: /b\n            - name: Custom\n              args:\n                anything: 1\n          filters:\n            - name: StripPrefix\n              args:\n                part: 1\n            - name: AddRequestHeader\n              args:\n                _genkey_0: X\n                value: v\n";
+        let d = doc(&format!("{RESOURCES}/application.yml"), "yaml", yml);
+        tools.line_markers(&d);
+        let found: Vec<_> = host.diagnostics()[&d.path]
+            .iter()
+            .filter(|p| p.code.as_deref() == Some("unknown-gateway-arg"))
+            .map(|p| written(yml, p.range).to_owned())
+            .collect();
+        assert_eq!(found, ["pattern", "part"]);
+        let props = "spring.cloud.gateway.routes[0].filters[0].name=SetStatus\nspring.cloud.gateway.routes[0].filters[0].args.status=404\nspring.cloud.gateway.routes[0].filters[0].args.code=1\n";
+        let d = doc(&format!("{RESOURCES}/application.properties"), "properties", props);
+        tools.line_markers(&d);
+        let codes: Vec<_> = host.diagnostics()[&d.path].iter().map(|p| written(props, p.range).to_owned()).collect();
+        assert_eq!(codes, ["spring.cloud.gateway.routes[0].filters[0].args.code"]);
     }
 
     /// Completion labels at the `^` of `text` (not `|`: it composes functions).

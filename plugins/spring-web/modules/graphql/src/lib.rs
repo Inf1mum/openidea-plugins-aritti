@@ -321,11 +321,74 @@ fn literal_annotation(a: &Annotation, allowed: &[&str], aliases: &[&str]) -> boo
         && a.args.iter().filter(|arg|aliases.contains(&arg.name.as_str())).count()<=1
         && a.args.iter().enumerate().all(|(i,arg)|!a.args[..i].iter().any(|before|before.name==arg.name))
 }
+const ALIASABLE: [(&str, &str); 8] = [
+    ("org.springframework.stereotype", "Controller"),
+    ("org.springframework.web.bind.annotation", "RestController"),
+    ("org.springframework.graphql.data.method.annotation", "SchemaMapping"),
+    ("org.springframework.graphql.data.method.annotation", "QueryMapping"),
+    ("org.springframework.graphql.data.method.annotation", "MutationMapping"),
+    ("org.springframework.graphql.data.method.annotation", "SubscriptionMapping"),
+    ("org.springframework.graphql.data.method.annotation", "BatchMapping"),
+    ("org.springframework.graphql.data.method.annotation", "Argument"),
+];
+
+fn import_alias<'a>(text: &'a str, i: &java::Import) -> Option<&'a str> {
+    let tail = text.get(i.end..).unwrap_or("").split('\n').next().unwrap_or("");
+    match java::tokens(tail).as_slice() {
+        [a, name, ..] if a.s == "as" => Some(name.s),
+        _ => None,
+    }
+}
+
+fn is_exact_alias_import(text: &str, i: &java::Import, simple: &str, package: &str) -> bool {
+    !i.is_static && i.path == format!("{package}.{simple}") && import_alias(text, i).is_some_and(|alias| alias != simple)
+}
+
+/// Kotlin `import <spring annotation> as Alias`: the alias is renamed to the real annotation and literal uses of the hidden real name are made unrecognisable.
+fn canonicalise_kotlin_aliases(file: &mut java::JavaFile, text: &str) {
+    let mut renames: Vec<(String, &'static str)> = Vec::new();
+    for (package, simple) in ALIASABLE {
+        let aliases: Vec<&str> = file
+            .imports
+            .iter()
+            .filter(|i| is_exact_alias_import(text, i, simple, package))
+            .filter_map(|i| import_alias(text, i))
+            .collect();
+        let [alias] = aliases.as_slice() else { continue };
+        let taken = file.imports.iter().filter(|i| !i.is_static && (import_alias(text, i) == Some(*alias) || i.path.rsplit('.').next() == Some(*alias) && import_alias(text, i).is_none())).count() != 1
+            || file.types.iter().any(|t| t.name == *alias)
+            || java::tokens(text).windows(2).any(|p| p[0].s == "typealias" && p[1].s == *alias);
+        if taken {
+            continue;
+        }
+        renames.push((alias.to_string(), simple));
+    }
+    if renames.is_empty() {
+        return;
+    }
+    let rename = |a: &mut java::Annotation| {
+        if let Some((_, real)) = renames.iter().find(|(alias, _)| *alias == a.name) {
+            a.name = (*real).to_owned();
+        } else if renames.iter().any(|(_, real)| *real == a.name) {
+            a.name = format!("!{}", a.name);
+        }
+    };
+    for t in &mut file.types {
+        t.annotations.iter_mut().for_each(rename);
+        for m in &mut t.members {
+            m.annotations.iter_mut().for_each(rename);
+            for p in &mut m.params {
+                p.annotations.iter_mut().for_each(rename);
+            }
+        }
+    }
+}
+
 fn owned_annotation(file:&java::JavaFile,text:&str,simple:&str,package:&str)->bool {
     !file.types.iter().any(|t|t.name==simple) && !java::tokens(text).windows(2).any(|p|p[0].s=="typealias"&&p[1].s==simple) && !file.imports.iter().any(|i|{
         let tail=text.get(i.end..).unwrap_or("").split('\n').next().unwrap_or("");let tokens=java::tokens(tail);
         let alias=match tokens.as_slice(){[a,name,..] if a.s=="as"=>Some(name.s),_=>None};
-        !i.is_static && (alias==Some(simple) || i.path.rsplit('.').next()==Some(simple) && (i.path!=format!("{package}.{simple}")||alias.is_some()))
+        !i.is_static && !is_exact_alias_import(text,i,simple,package) && (alias==Some(simple) || i.path.rsplit('.').next()==Some(simple) && (i.path!=format!("{package}.{simple}")||alias.is_some()))
     })
 }
 
@@ -336,7 +399,10 @@ pub fn handlers(text: &str) -> Vec<Handler> {
 
 /// The handler methods of a Java or Kotlin source's controllers.
 pub fn handlers_in(text: &str, is_kotlin: bool) -> Vec<Handler> {
-    let file = if is_kotlin { kotlin::parse(text) } else { java::parse(text) };
+    let mut file = if is_kotlin { kotlin::parse(text) } else { java::parse(text) };
+    if is_kotlin {
+        canonicalise_kotlin_aliases(&mut file, text);
+    }
     let span = |at: usize, s: &str| range(text, at, at + s.len());
     let mut out = Vec::new();
     for c in file.types.iter().filter(|t| t.annotations.iter().any(|a| matches!(a.name.as_str(),"Controller"|"RestController") && owned_annotation(&file,text,&a.name,if a.name=="Controller"{"org.springframework.stereotype"}else{"org.springframework.web.bind.annotation"}))) {
@@ -1164,6 +1230,13 @@ class BookController {
         ] {assert!(handlers(source).is_empty(),"{source}");}
         let h=handlers("@Controller class C { @QueryMapping String find(@Argument(NAME) String wrong){} }").remove(0);assert!(h.args.is_empty());
         let batch=handlers("@Controller class C { @BatchMapping(typeName=\"Book\",maxBatchSize=LIMIT) Object author(List<Book> books){} }");assert_eq!(batch.len(),1);assert_eq!(batch[0].ty,"Book");
+        let alias=|imports:&str,body:&str|handlers_in(&format!("{imports}\n@Ctl class C {{ {body} }}"),true);
+        let spring="import org.springframework.stereotype.Controller as Ctl\nimport org.springframework.graphql.data.method.annotation.QueryMapping as QM\nimport org.springframework.graphql.data.method.annotation.Argument as Arg";
+        let found=alias(spring,"@QM fun find(@Arg id:String):String=\"x\"");assert_eq!(found.len(),1);assert_eq!((found[0].ty.as_str(),found[0].field.as_str()),("Query","find"));assert_eq!(found[0].args[0].0,"id");
+        assert!(alias(spring,"@QueryMapping fun find():String=\"x\"").is_empty(),"hidden real name");
+        assert!(alias(&format!("{spring}\nimport other.QM"),"@QM fun find():String=\"x\"").is_empty());
+        assert!(alias("import foreign.Controller as Ctl\nimport org.springframework.graphql.data.method.annotation.QueryMapping as QM","@QM fun find():String=\"x\"").is_empty());
+        assert!(alias(&format!("{spring}\ntypealias QM = Foo"),"@QM fun find():String=\"x\"").is_empty());
         assert!(handlers_in("import other.X as QueryMapping\n@Controller class C { @QueryMapping fun find():String=\"x\" }",true).is_empty());
     }
     #[test]

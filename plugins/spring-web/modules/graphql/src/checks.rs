@@ -4,9 +4,9 @@
 use spring_text::finding::Finding;
 use spring_text::java::{JavaFile, Member, TypeRef};
 
-const INVALID_RETURNS: [&str; 22] = [
+const INVALID_RETURNS: [&str; 28] = [
     "void", "Unit", "boolean", "byte", "short", "int", "long", "float", "double", "char", "Boolean", "Byte", "Short",
-    "Integer", "Long", "Float", "Double", "Character", "String", "Object", "Iterable", "Optional",
+    "Integer", "Long", "Float", "Double", "Character", "String", "Object", "Iterable", "Optional", "Void", "Stream", "Number", "CharSequence", "BigDecimal", "BigInteger",
 ];
 
 fn invalid_return(ty: &TypeRef) -> bool {
@@ -104,6 +104,27 @@ mod tests {
         assert!(flagged(&foreign).is_empty());
         let plain = controller("void").replace("@Controller", "@Component");
         assert!(flagged(&plain).is_empty());
+    }
+
+    #[test]
+    fn non_collection_scalar_and_stream_returns_warn() {
+        for ret in ["Void", "Stream<String>", "Number", "CharSequence", "BigDecimal", "Mono<Void>", "Mono<Stream<String>>"] {
+            assert_eq!(flagged(&controller(ret)).len(), 1, "{ret}");
+        }
+    }
+
+    #[test]
+    fn nested_valid_generic_shapes_are_quiet() {
+        for ret in ["Flux<List<String>>", "Flux<Map<Book, String>>", "Map<Book, List<String>>", "Mono<Map<Book, List<String>>>", "List<Map<String, String>>", "java.util.Map<Book, String>"] {
+            assert!(flagged(&controller(ret)).is_empty(), "{ret}");
+        }
+    }
+
+    #[test]
+    fn kotlin_nullable_and_valid_returns() {
+        let text = "@Controller\nclass C {\n    @BatchMapping\n    fun a(books: List<Book>): Map<Book, String> = emptyMap()\n    @BatchMapping\n    fun b(books: List<Book>): Mono<Map<Book, String>> = x()\n    @BatchMapping\n    fun c(books: List<Book>): String? = null\n}\n";
+        let found: Vec<_> = batch_mapping_return(&kotlin::parse(text), text).iter().map(|f| text[f.start..f.end].to_owned()).collect();
+        assert_eq!(found, ["String"]);
     }
 
     #[test]

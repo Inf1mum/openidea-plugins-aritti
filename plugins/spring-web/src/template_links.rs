@@ -35,7 +35,10 @@ pub fn reference(source: &str, at: usize) -> Option<Reference> {
     let (template, fragment) = raw
         .split_once("::")
         .map_or((raw.trim(), None), |(t, f)| (t.trim(), Some(f.trim())));
-    let fragment = match fragment {
+    let fragment = match fragment.map(|f| match f.split_once('(') {
+        Some((id, args)) if args.ends_with(')') => id.trim_end(),
+        _ => f,
+    }) {
         Some(f) if name(f) => Some(f.to_owned()),
         Some(_) => return None,
         None => None,
@@ -85,6 +88,16 @@ mod tests {
         assert_eq!(found.template, "parts");
         assert_eq!(found.fragment.as_deref(), Some("title"));
         assert!(reference(source, source.find("${view}").unwrap()).is_none());
+    }
+    #[test]
+    fn argument_bearing_fragment_calls_navigate_by_name_only() {
+        let source = "<div th:replace=\"~{parts :: title('a', 2)}\"/><div th:replace=\"parts :: box(x=1)\"/><div th:replace=\"~{parts :: bad(}\"/><div th:replace=\"~{parts :: a b(1)}\"/>";
+        let one = reference(source, source.find("parts").unwrap()).unwrap();
+        assert_eq!(one.fragment.as_deref(), Some("title"));
+        let two = reference(source, source.find("box").unwrap()).unwrap();
+        assert_eq!(two.fragment.as_deref(), Some("box"));
+        assert!(reference(source, source.find("bad").unwrap()).is_none());
+        assert!(reference(source, source.find("a b").unwrap()).is_none());
     }
 }
 
