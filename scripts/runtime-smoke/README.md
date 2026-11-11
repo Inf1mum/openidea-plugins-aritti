@@ -1,6 +1,6 @@
 # Real-Wasm runtime smoke
 
-This isolated harness runs the released API1.4 host and actual freshly built
+This isolated harness runs the released API 1.5 host (OpenIDEA v0.1.42, rev `e702e4da7b0333e81bc818e26be72db1d157ec5d`, pinned in `Cargo.toml`; moved from v0.1.40 / API 1.4 so `jpa-assist`, which needs `^1.5`, installs) and actual freshly built
 plugin components against a synthetic project under a temporary directory.
 It uses independent config/data/plugin installation/trust stores, never the
 user's installation. It does not open a desktop window or publish packages.
@@ -52,3 +52,13 @@ through view ticks, view/config completion, go to definition, missing-view diagn
 and the "create missing view" quick fix applied as a native workspace edit and removed
 by native grouped Undo. The web hub is not rendered headlessly (the host returns a
 fallback message), so tabs and their interactions still need the desktop.
+
+## JPA Assist released-host runner (headless)
+
+`jpa_assist` installs the freshly built `plugins/jpa-assist` into a private host and drives scripted prompts, previews, native edits and Undo against a disposable fixture copy (needs plugin API 1.5):
+
+```sh
+(cd plugins/jpa-assist && openidea-plugin build)
+cargo build --manifest-path scripts/runtime-smoke/Cargo.toml --bins
+target/debug/jpa_assist "$PWD" /tmp/jpa-assist-out plugins/jpa-assist/parity/fixtures/boot-jpa-java-jakarta
+```

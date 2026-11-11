@@ -10,6 +10,8 @@ A requirement is complete only as **verified-parity** with differential acceptan
 
 The released SDK remains a hard boundary. No vendored SDK, host patch or shell-write workaround may bypass missing source-edit guarantees. Full parity cannot be released while an SDK blocker is open.
 
+**Contract amendment 2026-11-11.** Approved by the user: documentation may serve as reference evidence because the original plugin cannot be obtained. An acceptance case may set `referenceType: documentation` (default `observed`) and then carries `referenceSources` (https URLs), `referenceClaims` (each citing the documented statement it verifies), `docsRetrievedOn`, a passing result, an existing `implementationEvidence` file and a test. A row is `verified-parity` only if every claim listed in `parity/claims/<ROWID>.json` (when that file exists) is covered by an acceptance case's `claimIds`. Documentation-derived verification is weaker than observed verification: the checker reports the two counts separately and marks every row verified that way. Behavior the documentation does not state cannot be verified this way and stays an open gap. `--release` still fails while any gap is open.
+
 ## Accepted UX
 
 Two persistence tool windows maximum:
