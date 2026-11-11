@@ -48,13 +48,15 @@ fn find_unused(text:&str,entries:&[(String,bool)])->Result<(Vec<Span<usize>>,usi
         let body=line.trim_end_matches(['\r','\n']);let start=offset;offset+=line.len();
         let Some(rule)=matcher::Rule::parse(body) else {continue;};
         rules+=1;if rules>512||Instant::now()>=deadline {return Err("Unused-rule analysis exceeded its rule/time limit; no partial results.".into());}
-        if rule.pattern.len()>512||!rule.pattern.is_ascii()||rule.pattern.contains("[[:") {unsupported+=1;continue;}
+        if rule.pattern.len()>512||rule.pattern.contains("[[:")||(!rule.pattern.is_ascii()&&rule.pattern.contains(['?','['])) {unsupported+=1;continue;}
         let Some(glob)=matcher(&rule) else {unsupported+=1;continue;};
         let mut found=false;
         for (path,dir) in entries {
             if Instant::now()>=deadline{return Err("Unused-rule analysis exceeded its time limit; no partial results.".into());}
             if matched(&rule,&glob,path,*dir){found=true;break;}
         }
+        // Git matches bytes and does not prove NFC/NFD equivalence here: a miss against a non-ASCII pattern is only trusted when no inventory path is non-ASCII.
+        if !found&&!rule.pattern.is_ascii()&&entries.iter().any(|(p,_)|!p.is_ascii()) {unsupported+=1;continue;}
         if !found {out.push(start..start+body.len());}
     }
     Ok((out,unsupported))
@@ -123,7 +125,7 @@ impl State {
         let value:serde_json::Value=serde_json::from_str(&output).map_err(|_|Error::Stale)?;
         self.snapshot=Some(Snapshot{root,base,doc:doc.clone(),serial:self.serial,at:Instant::now(),unused,fingerprint:value["fingerprint"].as_str().ok_or(Error::Stale)?.into(),count:entries.len(),unsupported});
         let mut diagnostics=super::diagnostics(&doc.text,check::dialect(&path).ok_or(Error::Stale)?);diagnostics.extend(self.diagnostics(&doc));host::publish_diagnostics(&path,&diagnostics)?;
-        host::notify(NotificationLevel::Info,"Complete unused-entry snapshot",&format!("{} paths captured; {} unmatched entries; {} unsupported rules withheld. ASCII glob matching conservatively ignores case. Snapshot eligibility lasts120seconds and delivered filesystem/source changes withdraw it. Results describe capture time; rerun to refresh. Source unchanged.",entries.len(),self.snapshot.as_ref().unwrap().unused.len(),self.snapshot.as_ref().unwrap().unsupported));
+        host::notify(NotificationLevel::Info,"Complete unused-entry snapshot",&format!("{} paths captured; {} unmatched entries; {} unsupported rules withheld. Glob matching conservatively ignores case; non-ASCII patterns are judged only by exact bytes and withheld when non-ASCII paths exist without a match, or when they use ? or [. Snapshot eligibility lasts120seconds and delivered filesystem/source changes withdraw it. Results describe capture time; rerun to refresh. Source unchanged.",entries.len(),self.snapshot.as_ref().unwrap().unused.len(),self.snapshot.as_ref().unwrap().unsupported));
         Ok(None)
     }
 }
@@ -142,6 +144,21 @@ mod tests {
         let (spans,unsupported)=find_unused(text,&entries).unwrap();assert_eq!(unsupported,0);
         assert_eq!(spans.iter().map(|r|&text[r.clone()]).collect::<Vec<_>>(),["missing.*","!future.txt"]);
         assert!(find_unused(&"a\n".repeat(513),&[]).is_err());
+    }
+    #[test]
+    fn non_ascii_patterns_match_exact_bytes_and_refuse_unprovable_misses() {
+        let entries=vec![("caf\u{e9}.log".into(),false),("\u{65e5}\u{672c}/a.txt".into(),false)];
+        let text="caf\u{e9}.log\n\u{65e5}\u{672c}/\n*\u{e9}.log\nna\u{ef}ve.txt\ncaf??.log\ncaf[\u{e9}].log\n";
+        let (spans,unsupported)=find_unused(text,&entries).unwrap();
+        assert_eq!(unsupported,2);
+        assert!(spans.is_empty(),"{spans:?}");
+        let (spans,unsupported)=find_unused("na\u{ef}ve.txt\nmissing\n",&[("a.txt".into(),false)]).unwrap();
+        assert_eq!(unsupported,0);
+        assert_eq!(spans.len(),2);
+        let (spans,_)=find_unused("caf?.log\n",&entries).unwrap();
+        assert_eq!(spans.len(),1,"? is one byte, as in Git");
+        let (spans,unsupported)=find_unused("missing\n",&entries).unwrap();
+        assert_eq!((spans.len(),unsupported),(1,0));
     }
     #[test]
     fn snapshots_gate_native_diagnostics_and_reviewed_source_removal() {

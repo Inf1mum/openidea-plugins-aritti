@@ -505,7 +505,7 @@ impl Plugin for DependencyAudit {
             let Some(key) = actions::choose_advisory(ctx, arg.unwrap(), id == "ignore-finding")? else { return Ok(None); };
             selected = key;Some(selected.as_str())
         } else { arg };
-        if matches!(id,"ignore-finding" | "review-ignores") { return self.scoped_command(id,ctx,arg); }
+        if matches!(id,"ignore-finding" | "review-ignores" | "export-ignores" | "import-ignores") { return self.scoped_command(id,ctx,arg); }
         if matches!(id,"preview-upgrade" | "open-advisory") { return self.resource_command(id,ctx,arg); }
         if id == "resolve-sbt-dependencies"{self.sbt_resolution.start(ctx)?;return Ok(None);}
         if id == "analyze-vulnerable-calls"{self.call_analysis.start(ctx)?;return Ok(None);}

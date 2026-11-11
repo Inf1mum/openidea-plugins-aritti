@@ -397,6 +397,126 @@ fn selector_parts(node: &Node) -> Option<(Vec<(Scalar, Scalar)>, Vec<Expression>
     }
     Some((labels, expressions))
 }
+fn scheduling_selector(
+    owner: &Resource,
+    target: Target,
+    parts: (Vec<(Scalar, Scalar)>, Vec<Expression>),
+) -> Selector {
+    Selector {
+        owner: owner.clone(),
+        own_template: false,
+        labels: parts.0,
+        expressions: parts.1,
+        target,
+        namespace_terms: None,
+        pod_terms: None,
+    }
+}
+fn only_keys(node: &Node, allowed: &[&str]) -> bool {
+    node.pairs()
+        .is_some_and(|pairs| pairs.iter().all(|(k, _)| allowed.contains(&k.value.as_str())))
+}
+fn spread_selectors(pod: &Node, owner: &Resource, out: &mut Vec<Selector>) {
+    for item in pod
+        .get("topologySpreadConstraints")
+        .and_then(Node::items)
+        .into_iter()
+        .flatten()
+    {
+        if !only_keys(
+            item,
+            &[
+                "maxSkew",
+                "topologyKey",
+                "whenUnsatisfiable",
+                "labelSelector",
+                "minDomains",
+                "nodeAffinityPolicy",
+                "nodeTaintsPolicy",
+            ],
+        ) {
+            continue;
+        }
+        if let Some(parts) = item.get("labelSelector").and_then(selector_parts) {
+            out.push(scheduling_selector(owner, Target::Pod, parts));
+        }
+    }
+}
+/// Exact scheduling selectors only: node affinity terms with plain
+/// matchExpressions (no matchFields/Gt/Lt), and pod (anti)affinity or topology
+/// spread terms with only a labelSelector (default own-namespace scope). Terms
+/// using namespaces, namespaceSelector or matchLabelKeys are refused.
+fn collect_scheduling_selectors(pod: &Node, owner: &Resource, out: &mut Vec<Selector>) {
+    spread_selectors(pod, owner, out);
+    let Some(affinity) = pod.get("affinity") else {
+        return;
+    };
+    let node_term = |term: &Node, out: &mut Vec<Selector>| {
+        if !only_keys(term, &["matchExpressions"]) {
+            return;
+        }
+        if let Some(parts) = selector_parts(term).filter(|p| !p.1.is_empty()) {
+            out.push(scheduling_selector(owner, Target::Node, parts));
+        }
+    };
+    let pod_term = |term: &Node, out: &mut Vec<Selector>| {
+        if !only_keys(term, &["labelSelector", "topologyKey"]) {
+            return;
+        }
+        if let Some(parts) = term.get("labelSelector").and_then(selector_parts) {
+            out.push(scheduling_selector(owner, Target::Pod, parts));
+        }
+    };
+    let required = "requiredDuringSchedulingIgnoredDuringExecution";
+    let preferred = "preferredDuringSchedulingIgnoredDuringExecution";
+    if let Some(node_affinity) = affinity.get("nodeAffinity") {
+        for term in node_affinity
+            .at(&[required, "nodeSelectorTerms"])
+            .and_then(Node::items)
+            .into_iter()
+            .flatten()
+        {
+            node_term(term, out);
+        }
+        for item in node_affinity
+            .get(preferred)
+            .and_then(Node::items)
+            .into_iter()
+            .flatten()
+        {
+            if only_keys(item, &["weight", "preference"])
+                && let Some(term) = item.get("preference")
+            {
+                node_term(term, out);
+            }
+        }
+    }
+    for family in ["podAffinity", "podAntiAffinity"] {
+        let Some(block) = affinity.get(family) else {
+            continue;
+        };
+        for term in block
+            .get(required)
+            .and_then(Node::items)
+            .into_iter()
+            .flatten()
+        {
+            pod_term(term, out);
+        }
+        for item in block
+            .get(preferred)
+            .and_then(Node::items)
+            .into_iter()
+            .flatten()
+        {
+            if only_keys(item, &["weight", "podAffinityTerm"])
+                && let Some(term) = item.get("podAffinityTerm")
+            {
+                pod_term(term, out);
+            }
+        }
+    }
+}
 fn facts(path: &str, source: &str) -> Option<Facts> {
     let mut out = Facts::default();
     for (document, node) in parse(source)?.into_iter().enumerate() {
@@ -486,6 +606,7 @@ fn facts(path: &str, source: &str) -> Option<Facts> {
             if let Some(pod) = node.at(base) {
                 collect_key_refs(pod, &namespace, &mut out.references);
                 collect_label_uses(pod, &owner, &mut out.label_uses);
+                collect_scheduling_selectors(pod, &owner, &mut out.selectors);
                 if let Some(labels) = label_map(pod.get("nodeSelector")).filter(|l| !l.is_empty()) {
                     out.selectors.push(Selector {
                         owner: owner.clone(),
@@ -2443,6 +2564,38 @@ mod tests {
         host.add_file("namespace.yaml", &ns);
         cache.warm("/p/namespace.yaml", &ns);
         assert_eq!(cache.definition(&doc, at).len(), 1);
+    }
+    #[test]
+    fn affinity_and_spread_selectors_link_exact_terms_and_refuse_extended_scope() {
+        let source = "apiVersion: v1\nkind: Pod\nmetadata: {name: web, namespace: app}\nspec:\n  affinity:\n    nodeAffinity:\n      requiredDuringSchedulingIgnoredDuringExecution:\n        nodeSelectorTerms:\n          - matchExpressions: [{key: disk, operator: In, values: [ssd]}]\n          - matchExpressions: [{key: gpu, operator: Gt, values: ['1']}]\n    podAntiAffinity:\n      requiredDuringSchedulingIgnoredDuringExecution:\n        - topologyKey: zone\n          labelSelector: {matchLabels: {role: db}}\n        - topologyKey: zone\n          namespaces: [other]\n          labelSelector: {matchLabels: {role: cache}}\n  topologySpreadConstraints:\n    - maxSkew: 1\n      topologyKey: zone\n      whenUnsatisfiable: DoNotSchedule\n      labelSelector: {matchLabels: {role: web}}\n  containers: []\n";
+        let n = node("worker-a", "{disk: ssd, gpu: '2'}");
+        let db = "apiVersion: v1\nkind: Pod\nmetadata: {name: db, namespace: app, labels: {role: db}}\nspec: {containers: []}\n";
+        let foreign = "apiVersion: v1\nkind: Pod\nmetadata: {name: db2, namespace: other, labels: {role: db}}\nspec: {containers: []}\n";
+        let cache_pod = "apiVersion: v1\nkind: Pod\nmetadata: {name: c, namespace: other, labels: {role: cache}}\nspec: {containers: []}\n";
+        let (_host, cache) = setup(&[
+            ("pod.yaml", source),
+            ("node.yaml", &n),
+            ("db.yaml", db),
+            ("foreign.yaml", foreign),
+            ("cache.yaml", cache_pod),
+        ]);
+        let doc = document("pod.yaml", source);
+        let found = cache.definition(&doc, caret(source, "disk, operator"));
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].path, "/p/node.yaml");
+        let found = cache.definition(&doc, caret(source, "role: db"));
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].path, "/p/db.yaml");
+        assert!(cache.definition(&doc, caret(source, "gpu, operator")).is_empty());
+        assert!(cache.definition(&doc, caret(source, "role: cache")).is_empty());
+    }
+    #[test]
+    fn node_affinity_with_matchfields_is_not_modeled() {
+        let source = "apiVersion: v1\nkind: Pod\nmetadata: {name: web, namespace: app}\nspec:\n  affinity:\n    nodeAffinity:\n      requiredDuringSchedulingIgnoredDuringExecution:\n        nodeSelectorTerms:\n          - matchExpressions: [{key: disk, operator: Exists}]\n            matchFields: [{key: metadata.name, operator: In, values: [a]}]\n  containers: []\n";
+        let n = node("worker-a", "{disk: ssd}");
+        let (_host, cache) = setup(&[("pod.yaml", source), ("node.yaml", &n)]);
+        let doc = document("pod.yaml", source);
+        assert!(cache.definition(&doc, caret(source, "disk, operator")).is_empty());
     }
     fn node(name: &str, labels: &str) -> String {
         format!("apiVersion: v1\nkind: Node\nmetadata: {{name: {name}, labels: {labels}}}\n")

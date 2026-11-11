@@ -4,7 +4,16 @@ use openidea_plugin::PickItem;
 
 const MAX_ENTRIES: usize = 200;
 const MAX_BYTES: usize = 256 << 10;
+const PROFILE_FILE: &str = ".openidea/dependency-audit-ignores.json";
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Profile {
+    format: String,
+    version: u32,
+    ignores: Vec<Ignore>,
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct Ignore {
     ecosystem: String,
     name: String,
@@ -147,6 +156,39 @@ fn save(root: &str, before: &Option<String>, rows: &[Ignore]) -> Result<(), Erro
     }
     host::storage::set(&key(root)?, &json)
 }
+fn encode_profile(rows: &[Ignore]) -> Result<String, Error> {
+    let profile = Profile { format: "openidea-dependency-audit-ignores".into(), version: 1, ignores: rows.to_vec() };
+    serde_json::to_string_pretty(&profile).map_err(|e| Error::Failed(e.to_string()))
+}
+fn decode_profile(text: &str) -> Result<Vec<Ignore>, Error> {
+    let bad = |m: &str| Error::Invalid(format!("Ignore profile rejected: {m}. Nothing was imported."));
+    if text.len() > MAX_BYTES {
+        return Err(bad("file exceeds the size limit"));
+    }
+    let profile: Profile = serde_json::from_str(text).map_err(|_| bad("not a valid profile document"))?;
+    if profile.format != "openidea-dependency-audit-ignores" || profile.version != 1 {
+        return Err(bad("unsupported format or version"));
+    }
+    if profile.ignores.len() > MAX_ENTRIES || profile.ignores.iter().any(|r| !valid(r)) {
+        return Err(bad("too many entries or an invalid entry"));
+    }
+    Ok(profile.ignores)
+}
+/// Existing entries win; returns the merged list and how many incoming rows were new.
+fn merge_profile(existing: &[Ignore], incoming: Vec<Ignore>) -> Result<(Vec<Ignore>, usize), Error> {
+    let mut merged = existing.to_vec();
+    for r in incoming {
+        let same = |e: &Ignore| e.ecosystem == r.ecosystem && e.name == r.name && e.version == r.version && e.id.eq_ignore_ascii_case(&r.id);
+        if !merged.iter().any(same) {
+            merged.push(r);
+        }
+    }
+    if merged.len() > MAX_ENTRIES {
+        return Err(Error::Invalid("Import would exceed the scoped-ignore limit; restore entries first. Nothing was imported.".into()));
+    }
+    let added = merged.len() - existing.len();
+    Ok((merged, added))
+}
 fn owner(ctx: &Invocation, root: &str) -> Result<(), Error> {
     if ctx.project().and_then(|p| p.root().ok()).as_deref() != Some(root) {
         return Err(Error::Stale);
@@ -171,6 +213,46 @@ impl DependencyAudit {
         let project = ctx.project().ok_or("Open a project first.")?;
         let root = project.root()?;
         let (before, mut ignores) = read(&root)?;
+        if id == "export-ignores" {
+            if ignores.is_empty() {
+                return Ok(Some("No project-scoped ignores to export.".into()));
+            }
+            let path = format!("{root}/{PROFILE_FILE}");
+            if project.exists(&path)? {
+                return Err(Error::Invalid(format!("{PROFILE_FILE} already exists; rename or delete it first. Nothing was overwritten.")));
+            }
+            let text = encode_profile(&ignores)?;
+            let review = format!("Write {} scoped ignore(s) (with reasons) to {path}.\nReview the file before committing it; it is not applied anywhere else.", ignores.len());
+            if !ui_kit::prompts::confirm_exact("Export scoped ignores?", &review)? {
+                return Ok(None);
+            }
+            owner(ctx, &root)?;
+            if project.exists(&path)? {
+                return Err(Error::Stale);
+            }
+            project.write_file(&path, &text)?;
+            return Ok(Some(format!("Exported {} scoped ignore(s) to {PROFILE_FILE}.", ignores.len())));
+        }
+        if id == "import-ignores" {
+            let path = format!("{root}/{PROFILE_FILE}");
+            let incoming = decode_profile(&project.read_file(&path)?)?;
+            let (merged, added) = merge_profile(&ignores, incoming)?;
+            if added == 0 {
+                return Ok(Some("The profile contains no new ignores; nothing changed.".into()));
+            }
+            let list = merged[ignores.len()..]
+                .iter()
+                .map(|r| format!("{} {} {} / {} - {}", r.ecosystem, r.name, r.version, r.id, r.reason))
+                .collect::<Vec<_>>()
+                .join("\n");
+            if !ui_kit::prompts::confirm_exact("Import scoped ignores?", &format!("Add {added} new ignore(s) from {path}; existing entries are kept:\n{list}"))? {
+                return Ok(None);
+            }
+            owner(ctx, &root)?;
+            save(&root, &before, &merged)?;
+            self.invalidate_report();
+            return Ok(Some(format!("Imported {added} scoped ignore(s).")));
+        }
         if id == "review-ignores" {
             if ignores.is_empty() {
                 return Ok(Some("No project-scoped ignores are stored. Global ignoredAdvisories is a separate setting.".into()));
@@ -280,6 +362,36 @@ mod tests {
         assert!(load("/project").is_empty());
         assert!(read("/project").is_err());
         assert_eq!(host.storage()["scoped-ignores:/project"], "[]");
+    }
+    #[test]
+    fn profile_round_trips_and_rejects_bad_input() {
+        let _host = MockHost::install();
+        let text = encode_profile(&[record()]).unwrap();
+        assert_eq!(decode_profile(&text).unwrap(), vec![record()]);
+        let mut bad_id = record();
+        bad_id.id = "../x".into();
+        let mut no_reason = record();
+        no_reason.reason = " ".into();
+        for rows in [vec![bad_id], vec![no_reason]] {
+            assert!(decode_profile(&encode_profile(&rows).unwrap()).is_err());
+        }
+        assert!(decode_profile(&text.replace("\"version\": 1", "\"version\": 2")).is_err());
+        assert!(decode_profile(&text.replace("\"ignores\"", "\"extra\": 1, \"ignores\"")).is_err());
+        assert!(decode_profile(&text.replace("\"at\"", "\"x\": 1, \"at\"")).is_err());
+        assert!(decode_profile("not json").is_err());
+        assert!(decode_profile(&" ".repeat(MAX_BYTES + 1)).is_err());
+        assert!(decode_profile(&encode_profile(&vec![record(); MAX_ENTRIES + 1]).unwrap()).is_err());
+    }
+    #[test]
+    fn merge_keeps_existing_skips_duplicates_and_enforces_limit() {
+        let mut other = record();
+        other.version = "2.0.0".into();
+        let mut dup = record();
+        dup.reason = "different reason".into();
+        let (merged, added) = merge_profile(&[record()], vec![dup, other.clone()]).unwrap();
+        assert_eq!((added, merged.len(), merged[0].reason.as_str()), (1, 2, "Tracked risk acceptance"));
+        let full: Vec<_> = (0..MAX_ENTRIES).map(|i| Ignore { version: format!("{i}"), ..record() }).collect();
+        assert!(merge_profile(&full, vec![other]).is_err());
     }
     #[test]
     fn unsafe_or_ambiguous_snapshot_ids_cannot_create_scopes() {

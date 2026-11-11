@@ -339,6 +339,96 @@ fn youtrack(tracker: &Tracker, scope: &Scope) -> Result<Vec<Task>, Error> {
     }))
 }
 
+/// Plain text becomes a quoted `text ~` search; `jql: <query>` is sent as
+/// owned JQL after a local shape check only (the server still decides validity).
+pub fn jira_search_jql(input: &str) -> Result<String, Error> {
+    let input = input.trim();
+    let raw = input
+        .get(..4)
+        .filter(|prefix| prefix.eq_ignore_ascii_case("jql:"))
+        .map(|_| input[4..].trim());
+    let Some(jql) = raw else {
+        return Ok(format!(
+            "text ~ \"{}\" order by updated DESC",
+            input.replace('\\', "\\\\").replace('"', "\\\"")
+        ));
+    };
+    let refuse = |message: &str| Err(Error::Invalid(format!("Invalid JQL: {message}")));
+    if jql.is_empty() {
+        return refuse("the query after `jql:` is empty.");
+    }
+    if jql.len() > 256 {
+        return refuse("use at most 256 bytes.");
+    }
+    if jql.chars().any(char::is_control) {
+        return refuse("control characters are not allowed.");
+    }
+    let (mut quote, mut escaped, mut depth) = (None::<char>, false, 0i32);
+    let mut unquoted = String::new();
+    for c in jql.chars() {
+        if let Some(q) = quote {
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == q {
+                quote = None;
+            }
+            unquoted.push('q');
+            continue;
+        }
+        match c {
+            '"' | '\'' => {
+                quote = Some(c);
+                unquoted.push('q');
+                continue;
+            }
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            _ => {}
+        }
+        if depth < 0 {
+            return refuse("unmatched `)`.");
+        }
+        unquoted.push(c);
+    }
+    if quote.is_some() {
+        return refuse("unterminated quoted string.");
+    }
+    if depth != 0 {
+        return refuse("unmatched `(`.");
+    }
+    let lower = unquoted.to_ascii_lowercase();
+    let words: Vec<&str> = lower.split_whitespace().collect();
+    let Some(order) = words.windows(2).position(|w| w == ["order", "by"]) else {
+        return match words.last() {
+            Some(&("and" | "or" | "not")) => refuse("query ends with a dangling operator."),
+            _ => Ok(jql.into()),
+        };
+    };
+    if order == 0 {
+        return Ok(jql.into());
+    }
+    if words[order + 2..].windows(2).any(|w| w == ["order", "by"]) {
+        return refuse("ORDER BY may appear only once.");
+    }
+    if matches!(words[order - 1], "and" | "or" | "not") {
+        return refuse("ORDER BY follows a dangling operator.");
+    }
+    let clause = words[order + 2..].join(" ");
+    if clause.is_empty() {
+        return refuse("ORDER BY needs at least one field.");
+    }
+    for field in clause.split(',') {
+        let parts: Vec<&str> = field.split_whitespace().collect();
+        let shaped = matches!(parts.as_slice(), [_] | [_, "asc" | "desc"]);
+        if !shaped || parts[0].contains(['(', ')']) {
+            return refuse("ORDER BY must be `field [ASC|DESC], ...` and come last.");
+        }
+    }
+    Ok(jql.into())
+}
+
 fn jira(tracker: &Tracker, scope: &Scope) -> Result<Vec<Task>, Error> {
     Ok(jira_page(tracker, scope, None)?.issues)
 }
@@ -348,10 +438,7 @@ fn jira_page(tracker: &Tracker, scope: &Scope, cursor: Option<&str>) -> Result<S
     }
     let site = site("jiraHost", "Jira")?;
     let jql = match scope.query {
-        Some(text) => format!(
-            "text ~ \"{}\" order by updated DESC",
-            text.replace('\\', "\\\\").replace('"', "\\\"")
-        ),
+        Some(text) => jira_search_jql(text)?,
         None => setting("jiraQuery").unwrap_or_default(),
     };
     let mut url = format!(
@@ -1159,5 +1246,47 @@ mod lighthouse_tests {
         assert_eq!(h.requests()[0].body.as_deref(),Some(b"<ticket><state>resolved</state></ticket>".as_slice()));
         let before=h.requests().len();h.set_setting("lighthouseProject","\"43\"");
         assert!(close_issue(&task).is_err());assert_eq!(h.requests().len(),before);
+    }
+}
+
+#[cfg(test)]
+mod jql_tests {
+    use super::jira_search_jql;
+
+    #[test]
+    fn plain_text_stays_a_quoted_text_search() {
+        assert_eq!(jira_search_jql(r#"a"b"#).unwrap(), r#"text ~ "a\"b" order by updated DESC"#);
+    }
+
+    #[test]
+    fn owned_jql_passes_through_when_well_shaped() {
+        for ok in [
+            "JQL: project = APP AND status in (\"In Progress\", Done) order by updated DESC, key",
+            "jql:summary ~ \"order by (\" ORDER BY \"Story Points\" asc",
+            "jql:order by created",
+        ] {
+            assert_eq!(jira_search_jql(ok).unwrap(), ok[4..].trim(), "{ok}");
+        }
+    }
+
+    #[test]
+    fn malformed_jql_is_refused_locally() {
+        for bad in [
+            "jql:",
+            "jql:project = \"A",
+            "jql:(project = A",
+            "jql:project = A)",
+            "jql:project = A and",
+            "jql:project = A order by",
+            "jql:project = A order by key sideways",
+            "jql:project = A order by key, ",
+            "jql:project = A order by key order by id",
+            "jql:project = A and order by key",
+            "jql:project = A\u{7}",
+            &format!("jql:{}", "a".repeat(257)),
+        ] {
+            let error = jira_search_jql(bad).unwrap_err().to_string();
+            assert!(error.contains("Invalid JQL"), "{bad}: {error}");
+        }
     }
 }

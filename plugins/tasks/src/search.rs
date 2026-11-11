@@ -33,7 +33,7 @@ fn invalid(message: &str) -> Error {
     Error::Invalid(message.into())
 }
 fn query() -> Result<Option<String>, Error> {
-    let Some(query) = host::input("Search issues (1–256 bytes)", None)? else {
+    let Some(query) = host::input("Search issues (1–256 bytes; Jira: prefix jql: for raw JQL)", None)? else {
         return Ok(None);
     };
     let query = query.trim();

@@ -16,7 +16,7 @@ fn preview(proof:&Value,archive:bool)->Result<String,Error> {
     let mut text=format!("Destination: {}\nArchive SHA-256: {}\nAdapter: Python {} / {}\n\n",proof["target"].as_str().ok_or(Error::Stale)?,proof["sha256"].as_str().ok_or(Error::Stale)?,proof["python"].as_str().ok_or(Error::Stale)?,proof["platform"].as_str().ok_or(Error::Stale)?);
     for file in files {text.push_str(&format!("{} · {} bytes · mode {} · SHA-256 {}\n",file["path"].as_str().ok_or(Error::Stale)?,file["bytes"],file["mode"],file["sha256"].as_str().ok_or(Error::Stale)?));}
     if let Some(dirs)=proof["directories"].as_array() {for directory in dirs {text.push_str(&format!("Directory: {}\n",directory.as_str().ok_or(Error::Stale)?));}}
-    if archive {text.push_str("\nAll archive files, including binary wrappers, are extracted as data into a private staging directory. Executable bits are retained; regular modes are normalized to 644/755. No wrapper, build, project script or generated executable is run. The complete staged tree is committed with an exclusive directory rename. An occupied destination is never merged/replaced. Failed staging is retained; no automatic cleanup. After commit, request the normal project trust/open flow in a new window.");}
+    if archive {text.push_str("\nAll archive files, including binary wrappers, are extracted as data into a private staging directory. Unix permission bits are retained (group/other write bits cleared, owner read/write forced; setuid/setgid/sticky, links and special entries are refused) and ZIP entry modification times are applied to files. No wrapper, build, project script or generated executable is run. The complete staged tree is committed with an exclusive directory rename. An occupied destination is never merged/replaced. Failed staging is retained; no automatic cleanup. After commit, request the normal project trust/open flow in a new window.");}
     Ok(text)
 }
 impl Launcher {
@@ -131,6 +131,37 @@ mod tests {
         assert_eq!(std::fs::read(scratch.0.join("demo/.mvn/wrapper/maven-wrapper.jar")).unwrap(),[0,255,128,10]);
         #[cfg(unix)] {use std::os::unix::fs::PermissionsExt;assert_eq!(std::fs::metadata(scratch.0.join("demo/mvnw")).unwrap().permissions().mode()&0o777,0o755);}
         let again=run(&request);assert!(!again.status.success());assert_eq!(std::fs::read(scratch.0.join("demo/pom.xml")).unwrap(),b"<project/>");
+    }
+    #[test]
+    #[cfg(unix)]
+    fn actual_adapter_preserves_safe_modes_and_timestamps_and_refuses_unsafe_ones() {
+        use std::os::unix::fs::PermissionsExt;
+        let scratch=Scratch::new();let archive=scratch.0.join("project.zip");
+        let mut writer=zip::ZipWriter::new(Cursor::new(Vec::new()));
+        let old=zip::DateTime::from_date_and_time(2001,2,3,4,6,8).unwrap();
+        for (name,mode) in [("pom.xml",0o664u32),("gradlew",0o775),("run.sh",0o700),("ro.txt",0o444)] {
+            writer.start_file(name,zip::write::SimpleFileOptions::default().unix_permissions(mode).last_modified_time(old)).unwrap();writer.write_all(b"x").unwrap();
+        }
+        std::fs::write(&archive,writer.finish().unwrap().into_inner()).unwrap();
+        let mut request=json!({"operation":"inspect","archive":archive,"parent":scratch.0,"artifact":"demo"});
+        let inspected=run(&request);assert!(inspected.status.success(),"{}",String::from_utf8_lossy(&inspected.stderr));
+        request["proof"]=serde_json::from_slice(&inspected.stdout).unwrap();request["operation"]=json!("extract");
+        let extracted=run(&request);assert!(extracted.status.success(),"{}",String::from_utf8_lossy(&extracted.stderr));
+        let mode=|n:&str|std::fs::metadata(scratch.0.join("demo").join(n)).unwrap().permissions().mode()&0o7777;
+        assert_eq!((mode("pom.xml"),mode("gradlew"),mode("run.sh"),mode("ro.txt")),(0o644,0o755,0o700,0o644));
+        let expected=request["proof"]["files"][0]["mtime"].as_i64().unwrap();
+        let modified=std::fs::metadata(scratch.0.join("demo/pom.xml")).unwrap().modified().unwrap().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+        assert_eq!(modified,expected);assert!((expected-981173168).abs()<=86400);
+        for (name,mode) in [("setuid",0o4755u32),("sticky",0o1755),("setgid",0o2755)] {
+            let mut writer=zip::ZipWriter::new(Cursor::new(Vec::new()));
+            writer.start_file(name,zip::write::SimpleFileOptions::default().unix_permissions(mode)).unwrap();writer.write_all(b"x").unwrap();
+            let mut bytes=writer.finish().unwrap().into_inner();
+            let central=bytes.windows(4).position(|w|w==b"PK\x01\x02").unwrap();
+            bytes[central+38..central+42].copy_from_slice(&((0o100000|mode)<<16).to_le_bytes());
+            std::fs::write(&archive,bytes).unwrap();
+            let refused=json!({"operation":"inspect","archive":archive,"parent":scratch.0,"artifact":"other"});
+            assert!(!run(&refused).status.success());assert!(!scratch.0.join("other").exists());
+        }
     }
     #[test]
     fn actual_adapter_rejects_traversal_case_collisions_and_changed_archive_after_review() {

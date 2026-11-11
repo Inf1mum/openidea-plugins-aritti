@@ -1,5 +1,5 @@
 # Isolated Python 3 standard-library adapter. Archives are data, never executed.
-import ctypes, hashlib, json, os, platform, stat, sys, tempfile, zipfile
+import ctypes, hashlib, json, os, platform, stat, sys, tempfile, time, zipfile
 
 def require(ok, message):
     if not ok:
@@ -29,6 +29,16 @@ def commit(stage, target):
     if result:
         error = ctypes.get_errno()
         raise OSError(error, os.strerror(error))
+
+def safe_mode(mode):
+    # Keep rwx bits, but never group/other write, and always owner read/write so files stay editable.
+    return ((mode & 0o755) | 0o600) if mode & 0o777 else 0o644
+
+def zip_mtime(date_time):
+    try:
+        return int(time.mktime(tuple(date_time) + (0, 0, -1)))
+    except (OverflowError, ValueError):
+        return None
 
 def validate(archive):
     require(os.path.getsize(archive) <= 8 << 20, 'Archive exceeds 8 MiB')
@@ -67,9 +77,8 @@ def validate(archive):
                 continue
             data = z.read(info)  # validates CRC before any extraction
             require(len(data) == info.file_size, 'Truncated archive entry')
-            executable = bool(mode & 0o111)
-            permissions = 0o755 if executable else 0o644
-            manifest.append({'path':name, 'bytes':len(data), 'mode':permissions, 'sha256':hashlib.sha256(data).hexdigest()})
+            permissions = safe_mode(mode)
+            manifest.append({'path':name, 'bytes':len(data), 'mode':permissions, 'mtime':zip_mtime(info.date_time), 'sha256':hashlib.sha256(data).hexdigest()})
             contents[name] = data
     for name in entries:
         parts = name.split('/')
@@ -143,6 +152,8 @@ def main():
             with open(destination, 'xb') as stream:
                 stream.write(contents[entry['path']])
             os.chmod(destination, entry['mode'])
+            if entry['mtime'] is not None:
+                os.utime(destination, (entry['mtime'], entry['mtime']))
         require(identity(parent)==proof['identity'], 'Destination parent identity changed')
         commit(stage,target)
         stage = None

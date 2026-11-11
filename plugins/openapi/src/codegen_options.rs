@@ -58,6 +58,46 @@ fn relative_template(root: &str, input: &str) -> Result<String, Error> {
     }
     Ok(format!("{}/{input}", root.trim_end_matches('/')))
 }
+fn valid_value(value: &str) -> bool {
+    value.len() <= 2048 && !value.chars().any(char::is_control) && !value.contains([',', '='])
+}
+fn parse_config(
+    text: &str,
+    available: &[(String, String)],
+) -> Result<Vec<(String, String)>, Error> {
+    if text.len() > 16 << 10 {
+        return Err("Generator JSON config exceeds 16KiB.".into());
+    }
+    let serde_json::Value::Object(map) = serde_json::from_str(text)
+        .map_err(|_| Error::from("Generator JSON config is not valid JSON."))?
+    else {
+        return Err("Generator JSON config must be an object.".into());
+    };
+    let mut values = Vec::new();
+    for (key, value) in map {
+        let lower = key.to_ascii_lowercase();
+        if ["password", "secret", "token", "credential", "apikey", "api_key", "auth"]
+            .iter()
+            .any(|word| lower.contains(word))
+        {
+            return Err("Generator JSON config must not contain secrets; pass them natively.".into());
+        }
+        if !available.iter().any(|(name, _)| name == &key) {
+            return Err(format!("Generator JSON config option `{key}` is not offered by the installed generator.").into());
+        }
+        let value = match value {
+            serde_json::Value::String(v) => v,
+            serde_json::Value::Bool(v) => v.to_string(),
+            serde_json::Value::Number(v) => v.to_string(),
+            _ => return Err(format!("Generator JSON config option `{key}` must be a string, number or boolean.").into()),
+        };
+        if !valid_value(&value) {
+            return Err(format!("Generator JSON config option `{key}` has an unsupported value.").into());
+        }
+        values.push((key, value));
+    }
+    Ok(values)
+}
 pub(crate) fn collect(project: &Project, root: &str, generator: &str) -> Result<Options, Error> {
     let help = project.run_process(
         "swagger-codegen",
@@ -90,10 +130,32 @@ pub(crate) fn collect(project: &Project, root: &str, generator: &str) -> Result<
             .ok_or(Error::Stale)?;
         let description: String = description.chars().take(300).collect();
         let value = host::input(&format!("{key}: {description}"), None)?.ok_or(Error::Cancelled)?;
-        if value.len() > 2048 || value.chars().any(char::is_control) || value.contains([',', '=']) {
+        if !valid_value(&value) {
             return Err("Option values must be at most2048 bytes without controls, comma or equals; use a native CLI config file for more complex values.".into());
         }
         options.values.push((key, value));
+    }
+    let config = host::input(
+        "Generator JSON config file, relative to project (empty skips; values are shown for review)",
+        Some(""),
+    )?
+    .ok_or(Error::Cancelled)?;
+    if !config.is_empty() {
+        let path = relative_template(root, &config)?;
+        if host::project_of(&path)
+            .and_then(|p| p.root().ok())
+            .as_deref()
+            != Some(root)
+            || project.stat(&path)?.kind != openidea_plugin::FileKind::File
+        {
+            return Err("Generator JSON config is not a file owned by this project.".into());
+        }
+        for (key, value) in parse_config(&project.read_file(&path)?, &available)? {
+            if options.values.iter().any(|(k, _)| k == &key) {
+                return Err(format!("Option `{key}` is set both interactively and in the JSON config.").into());
+            }
+            options.values.push((key, value));
+        }
     }
     options.values.sort();
     let directory = host::input(
@@ -189,6 +251,7 @@ mod tests {
         h.on_process("swagger-codegen",|args,_|{assert_eq!(args,["config-help","-l","java"]);Ok(ProcessOutput{status:Some(0),stdout:"log\nCONFIG OPTIONS\n\tapiPackage\n\t    Generated API package\n\tlibrary\n\t    Library template (jersey2, okhttp-gson)\n".into(),stderr:String::new()})});
         h.answer_next_prompt(Some(&["apiPackage"]));
         h.answer_next_prompt(Some(&["com.example.api"]));
+        h.answer_next_prompt(Some(&[""]));
         h.answer_next_prompt(Some(&["codegen-templates"]));
         h.answer_next_prompt(Some(&["handlebars"]));
         let project = host::projects().unwrap().remove(0);
@@ -217,5 +280,24 @@ mod tests {
         ] {
             assert!(relative_template("/project", path).is_err());
         }
+    }
+    #[test]
+    fn json_config_is_bounded_known_scalar_and_secret_free() {
+        let known = [("apiPackage".to_string(), String::new()), ("library".to_string(), String::new())];
+        assert_eq!(
+            parse_config(r#"{"apiPackage":"a.b","library":true}"#, &known).unwrap(),
+            [("apiPackage".into(), "a.b".into()), ("library".into(), "true".into())]
+        );
+        for bad in [
+            "[]",
+            "nope",
+            r#"{"unknown":"x"}"#,
+            r#"{"library":{"a":1}}"#,
+            r#"{"library":"a,b"}"#,
+            r#"{"apiToken":"x"}"#,
+        ] {
+            assert!(parse_config(bad, &known).is_err(), "{bad}");
+        }
+        assert!(parse_config(&format!("{{\"library\":\"{}\"}}", "x".repeat(17000)), &known).is_err());
     }
 }
