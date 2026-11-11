@@ -61,3 +61,7 @@ decoded the editor's current Unicode text; Java escapes, continuation and
 profile-specific file filtering match the official properties-source behavior.
 Sources retain the official fixed ordinals; this companion does not introduce
 new runtime config sources or claim runtime-only configuration behavior.
+
+## YAML, .env, config/ and new files
+
+The broker flattens YAML (`config_sources.py`: literal single-document block mappings; `.` joined keys, `[n]` list indexes, quoted keys kept quoted, quoted top-level `"%profile"` keys, `~` null key; anchors/aliases/tags/flow/block scalars/tabs/multi-document refused) and `.env` into Properties text and adds `format`, `ordinal`, `profile` to each snapshot document. Sources LSP4MP does not model (YAML, `.env`, new unsaved files) are inserted by descending ordinal: `.env` 295, `config/application.properties` 260, classpath `application.properties` 250 (config-reference); YAML 255 and `config/application.yaml` 265 (the YAML guide only fixes YAML over properties and config/ over classpath). `.env` keys are matched by environment-name conversion (`%dev.a.b` is `_DEV_A_B`). Only dirty buffers are added; a saved YAML or `.env` file is not an LSP4MP source, so unsaved edits show while saved ones do not. List scalars are emitted as `key[n]` only (no comma-joined `key`).

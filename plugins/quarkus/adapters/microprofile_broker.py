@@ -8,6 +8,7 @@ import time
 from urllib.parse import unquote, urlparse
 from qute_jdt_broker import Broker, CALLBACKS, child_environment
 from config_overlay import ConfigOverlay
+from config_sources import classify
 
 MP_CALLBACKS = frozenset(('microprofile/projectInfo', 'microprofile/propertyDefinition',
     'microprofile/propertyDocumentation', 'microprofile/java/fileInfo',
@@ -31,8 +32,7 @@ def useful_hover(value):
     return bool(contents)
 
 def config_uri(uri):
-    name = Path(unquote(urlparse(uri).path)).name
-    return name == 'microprofile-config.properties' or name.startswith('application') and name.endswith('.properties')
+    return classify(unquote(urlparse(uri).path)) is not None
 
 class MicroProfileBroker(Broker):
     def __init__(self, *args, **kwargs):

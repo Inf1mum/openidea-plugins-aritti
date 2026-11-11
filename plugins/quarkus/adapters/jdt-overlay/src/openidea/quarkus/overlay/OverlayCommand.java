@@ -55,7 +55,7 @@ public final class OverlayCommand implements IDelegateCommandHandler {
             for (var item : json.getAsJsonArray("documents")) {
                 JsonObject document = item.getAsJsonObject();
                 Path path = physicalPath(document.get("uri").getAsString());
-                if (!path.startsWith(root) || !path.getFileName().toString().endsWith(".properties")
+                if (!path.startsWith(root) || !configName(path.getFileName().toString())
                         || document.get("text").getAsString().length() > MAX_TEXT
                         || document.get("version").getAsLong() < 0 || documents.put(path, document) != null)
                     throw new IllegalArgumentException("Invalid overlay document");
@@ -81,17 +81,35 @@ public final class OverlayCommand implements IDelegateCommandHandler {
                     mp.evictConfigSourcesCache();
                     touched.add(mp);
                     List<IConfigSource> sources = mp.getConfigSources();
+                    List<Path> existing = new ArrayList<>();
                     for (int i = 0; i < sources.size(); i++) {
                         IConfigSource original = sources.get(i);
                         if (!(original instanceof PropertiesConfigSource) || original.getSourceConfigFileURI() == null) continue;
                         Path source;
                         try { source = physicalPath(original.getSourceConfigFileURI()); }
                         catch (java.io.IOException | RuntimeException ex) { continue; }
+                        existing.add(source);
                         JsonObject document = documents.get(source);
                         if (document != null) {
                             sources.set(i, new OverlaySource(original, document.get("text").getAsString()));
                             applied.add(source);
                         }
+                    }
+                    for (var entry : documents.entrySet()) {
+                        Path path = entry.getKey();
+                        JsonObject document = entry.getValue();
+                        String format = document.has("format") ? document.get("format").getAsString() : "properties";
+                        if (applied.contains(path) || !path.startsWith(projectRoot) || existing.contains(path)) continue;
+                        if ("properties".equals(format) && Files.exists(path)) continue;
+                        int ordinal = document.has("ordinal") ? document.get("ordinal").getAsInt() : 250;
+                        String profile = document.has("profile") && !document.get("profile").isJsonNull()
+                            ? document.get("profile").getAsString() : null;
+                        OverlaySource added = new OverlaySource(path.getFileName().toString(), document.get("uri").getAsString(),
+                            ordinal, profile, "env".equals(format), document.get("text").getAsString());
+                        int at = 0;
+                        while (at < sources.size() && sources.get(at).getOrdinal() >= ordinal) at++;
+                        sources.add(at, added);
+                        applied.add(path);
                     }
                 }
             } catch (Exception ex) {
@@ -105,6 +123,9 @@ public final class OverlayCommand implements IDelegateCommandHandler {
                 (applied.contains(entry.getKey()) ? accepted : unsupported).add(entry.getValue().get("uri").getAsString());
             return Map.of("generation", generation, "applied", accepted, "unsupported", unsupported);
         }
+    }
+    static boolean configName(String name) {
+        return name.equals(".env") || name.endsWith(".properties") || name.endsWith(".yaml") || name.endsWith(".yml");
     }
     static Path physicalPath(String uri) throws java.io.IOException {
         Path path = localPath(uri);

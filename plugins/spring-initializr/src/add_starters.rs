@@ -29,6 +29,7 @@ struct Proof {
     existing: BTreeSet<(String, String)>,
     newline: &'static str,
     gradle: Option<bool>,
+    refs: Vec<String>,
 }
 fn literal(value: &str) -> bool {
     !value.is_empty() && value.len() <= 128 && value.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
@@ -317,7 +318,7 @@ fn maven_proof(doc: &Document) -> Option<Proof> {
             return None;
         }
     }
-    Some(Proof { boot, management, at, end, before, after, inner, existing, newline,gradle:None })
+    Some(Proof { boot, management, at, end, before, after, inner, existing, newline,gradle:None,refs:Vec::new() })
 }
 fn root(doc: &Document) -> Option<String> {
     let project = host::project_of(&doc.path)?;
@@ -534,8 +535,13 @@ impl Launcher {
         if host::storage::get(&session::locator(&self.owner, "selector"))? != cache.selector {
             return Err(Error::Stale);
         }
+        let catalog = if p.gradle.is_some() { gradle::catalog(&p, &pending.root)? } else { None };
+        let mut existing = p.existing.clone();
+        if let Some(c) = &catalog {
+            existing.extend(c.used.iter().cloned());
+        }
         let available: Vec<_> =
-            cache.starters.iter().filter(|s| (p.gradle.is_none()||s.scope!="provided")&&!p.existing.contains(&("org.springframework.boot".into(), s.artifact.clone()))).collect();
+            cache.starters.iter().filter(|s| (p.gradle.is_none()||s.scope!="provided")&&!existing.contains(&("org.springframework.boot".into(), s.artifact.clone()))).collect();
         let items: Vec<_> = available
             .iter()
             .map(|s| {
@@ -555,13 +561,20 @@ impl Launcher {
         }
         let inner = &p.inner;
         let mut insertion = p.before.clone();
+        let mut catalog_lines = Vec::new();
         for id in &ids {
             let s = available.iter().find(|s| s.id == *id).ok_or(Error::Stale)?;
             let n = p.newline;
             if let Some(kotlin)=p.gradle {
                 let config=match s.scope.as_str(){"compile"=>"implementation","runtime"=>"runtimeOnly","test"=>"testImplementation",_=>return Err("Gradle does not infer provided or unknown scope mappings.".into())};
-                let coordinate=format!("org.springframework.boot:{}",s.artifact);
-                insertion.push_str(&if kotlin {format!("{inner}{config}(\"{coordinate}\"){n}")}else{format!("{inner}{config} '{coordinate}'{n}")});
+                let reference=if let Some(c)=&catalog {
+                    let (line,accessor)=c.entry(&s.artifact).ok_or("A version catalog alias for this starter already names another module.")?;
+                    if !line.is_empty(){catalog_lines.push(line);}
+                    format!("libs.{accessor}")
+                } else {
+                    format!("{}org.springframework.boot:{}{}",if kotlin{"\""}else{"'"},s.artifact,if kotlin{"\""}else{"'"})
+                };
+                insertion.push_str(&if kotlin {format!("{inner}{config}({reference}){n}")}else{format!("{inner}{config} {reference}{n}")});
                 continue;
             }
             insertion.push_str(&format!(
@@ -579,10 +592,19 @@ impl Launcher {
         if proof(&Document { text: after.clone(), ..doc.clone() }).is_none() {
             return Err(Error::Stale);
         }
-        let preview = format!(
+        let catalog_edit = catalog.as_ref().filter(|_| !catalog_lines.is_empty()).map(|c| {
+            let (at, text) = c.insertion(&catalog_lines, p.newline);
+            let mut resulting = c.text.clone();
+            resulting.insert_str(at, &text);
+            (c.path.clone(), at, text, resulting)
+        });
+        let mut preview = format!(
             "File: {}\nSource version: {}\nBoot dependency management: {} — {}\nMetadata: {START}, version-bound session cache (15 min maximum)\nNo repositories, BOMs or explicit dependency versions added.\n\nExact complete resulting file:\n{after}",
             doc.path, doc.version, p.management,p.boot
         );
+        if let Some((path, _, _, resulting)) = &catalog_edit {
+            preview.push_str(&format!("\n\nVersion catalog {path}, exact complete resulting file:\n{resulting}"));
+        }
         if !ui_kit::prompts::confirm_exact("Apply previewed build starters?", &preview)? {
             return Err(Error::Cancelled);
         }
@@ -596,10 +618,16 @@ impl Launcher {
         }
         self.starter_edits.pending.remove(token);
         let at = position(&doc.text, p.at);
+        let mut edits = vec![(doc.path.clone(), vec![TextEdit { range: Range::new(at, position(&doc.text, p.end)), text: insertion }])];
+        if let Some((path, offset, text, _)) = catalog_edit {
+            let c = catalog.as_ref().ok_or(Error::Stale)?;
+            let at = position(&c.text, offset);
+            edits.push((path, vec![TextEdit { range: Range::new(at, at), text }]));
+        }
         Ok(FileAction {
             title: "Add previewed Spring Boot starters".into(),
             kind: Some("source".into()),
-            edits: vec![(doc.path.clone(), vec![TextEdit { range: Range::new(at, position(&doc.text, p.end)), text: insertion }])],
+            edits,
             ..FileAction::default()
         })
     }

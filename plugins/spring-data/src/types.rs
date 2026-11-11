@@ -46,6 +46,12 @@ pub fn mismatch(property: &str, param: &TypeRef) -> Option<String> {
     })
 }
 
+/// A message when two property types are both well-known and of different kinds.
+pub fn kinds_differ(a: &str, b: &str) -> Option<String> {
+    let (ka, kb) = (kind_of(a)?, kind_of(b)?);
+    (ka != kb).then(|| format!("`{a}` holds {}, but it is declared `{b}`, {}.", ka.label(), kb.label()))
+}
+
 const COLLECTIONS: [&str; 6] = ["List", "Set", "Collection", "Iterable", "Page", "Slice"];
 const STREAMS: [&str; 2] = ["Stream", "Streamable"];
 

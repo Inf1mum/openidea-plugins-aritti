@@ -44,6 +44,14 @@ public final class OverlaySourceTest {
         equal(Set.of("%test.message"), profile.getAllKeys());
         try { profile.getAllKeys().clear(); throw new AssertionError("mutable keys"); }
         catch (UnsupportedOperationException expected) { }
+        OverlaySource yaml = new OverlaySource("application.yaml", "file:///reviewed/application.yaml", 255, null, false, "a.b=1\n%dev.a.b=2\n");
+        equal("2", yaml.getProperty("%dev.a.b"));
+        equal(255, yaml.getOrdinal());
+        OverlaySource env = new OverlaySource(".env", "file:///reviewed/.env", 295, null, true, "QUARKUS_HTTP_PORT=81\n_DEV_QUARKUS_HTTP_PORT=82\n");
+        equal("81", env.getProperty("quarkus.http.port"));
+        equal("82", env.getProperty("%dev.quarkus.http.port"));
+        equal(null, env.getProperty("quarkus.http.host"));
+        equal(295, env.getPropertyInformations("quarkus.http.port").get(0).getSourceConfigFileURI() == null ? 0 : 295);
         equal(java.nio.file.Path.of("/reviewed/application.properties"), OverlayCommand.localPath("file:///reviewed/application.properties"));
         for (String bad : List.of("https://example.com/a", "file://remote/a", "file:///a?x=1", "file:///a#fragment")) {
             try { OverlayCommand.localPath(bad); throw new AssertionError("accepted " + bad); }

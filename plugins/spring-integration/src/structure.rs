@@ -550,7 +550,7 @@ mod tests {
             ("package com.acme; import org.springframework.integration.dsl.MessageChannels; class Flow { Object channel(){return MessageChannels.queue(\"orders\");} }",true),
             ("package com.acme; import fake.integration.MessageChannels; class Flow { Object channel(){return MessageChannels.queue(\"orders\");} }",false),
             ("package com.acme; import org.springframework.integration.dsl.MessageChannels; class Flow { Object channel(){Object MessageChannels=null; return MessageChannels.queue(\"orders\");} }",false),
-            ("package com.acme; import org.springframework.integration.dsl.IntegrationFlow; class Flow { Object flow(){return IntegrationFlow.from(\"start\").handle(handler).channel(\"orders\");} }",false),
+            ("package com.acme; import org.springframework.integration.dsl.IntegrationFlow; class Flow { Object flow(){return IntegrationFlow.from(\"start\").handle(handler).channel(\"orders\");} }",true),
             ("package com.acme; import org.springframework.integration.dsl.IntegrationFlow; class Flow { Object flow(){return unrelated.channel(c -> fake.queue(\"orders\"));} }",false),
             ("package com.acme; import org.springframework.integration.dsl.IntegrationFlow; class Flow { Object flow(){return IntegrationFlow.from(\"orders\"+suffix);} }",false),
         ] {

@@ -69,6 +69,11 @@ fn lex(text: &str) -> Option<Vec<Token>> {
     }
     Some(out)
 }
+enum Dep {
+    Coord(String),
+    Platform(String),
+    Ref(String),
+}
 struct Parser<'a> {
     text: &'a str,
     tokens: Vec<Token>,
@@ -113,6 +118,38 @@ impl Parser<'_> {
         let a = self.tokens.get(from)?.start;
         let z = self.tokens.get(self.at.checked_sub(1)?)?.end;
         (!self.text[a..z].contains('\n')).then_some(())
+    }
+    fn dependency(&mut self) -> Option<Dep> {
+        let paren = self.peek("(");
+        if paren {
+            self.take("(")?;
+        } else if self.kotlin {
+            return None;
+        }
+        let dep = if self.peek("platform") {
+            self.take("platform")?;
+            Dep::Platform(self.call_string()?)
+        } else if self.peek("libs") {
+            let mut accessor = String::from("libs");
+            self.at += 1;
+            while self.peek(".") {
+                self.at += 1;
+                let token = self.tokens.get(self.at)?;
+                if token.quote.is_some() {
+                    return None;
+                }
+                accessor.push('.');
+                accessor.push_str(&token.value);
+                self.at += 1;
+            }
+            Dep::Ref(accessor)
+        } else {
+            Dep::Coord(self.string()?)
+        };
+        if paren {
+            self.take(")")?;
+        }
+        Some(dep)
     }
     fn exact(&mut self, values: &[&str]) -> Option<()> {
         for v in values {
@@ -169,13 +206,13 @@ pub(super) fn proof(doc: &Document) -> Option<Proof> {
         p.one_line(from)?;
     }
     p.take("}")?;
-    if plugins.len() != 3
-        || !plugins.contains("java")
-        || !plugins.contains("io.spring.dependency-management")
-    {
+    if !plugins.contains("java") {
         return None;
     }
+    let managed_by_plugin = plugins.contains("io.spring.dependency-management");
     let boot = boot?;
+    let mut platform = None;
+    let mut refs = Vec::new();
     let mut seen = BTreeSet::new();
     let mut existing = BTreeSet::new();
     let mut insert = None;
@@ -243,15 +280,34 @@ pub(super) fn proof(doc: &Document) -> Option<Proof> {
                     {
                         return None;
                     }
+                    let config_name = config.value.clone();
                     p.at += 1;
-                    let coord = p.call_string()?;
+                    let dep = p.dependency()?;
                     p.one_line(from)?;
-                    let parts = coord.split(':').collect::<Vec<_>>();
-                    if !(parts.len() == 2 || parts.len() == 3)
-                        || parts.iter().any(|v| !literal(v))
-                        || !existing.insert((parts[0].into(), parts[1].into()))
-                    {
-                        return None;
+                    match dep {
+                        Dep::Ref(accessor) => refs.push(accessor),
+                        Dep::Platform(coord) => {
+                            let parts = coord.split(':').collect::<Vec<_>>();
+                            if config_name != "implementation"
+                                || platform.is_some()
+                                || parts.len() != 3
+                                || parts[0] != "org.springframework.boot"
+                                || parts[1] != "spring-boot-dependencies"
+                                || !ga_version(parts[2])
+                            {
+                                return None;
+                            }
+                            platform = Some(parts[2].to_owned());
+                        }
+                        Dep::Coord(coord) => {
+                            let parts = coord.split(':').collect::<Vec<_>>();
+                            if !(parts.len() == 2 || parts.len() == 3)
+                                || parts.iter().any(|v| !literal(v))
+                                || !existing.insert((parts[0].into(), parts[1].into()))
+                            {
+                                return None;
+                            }
+                        }
                     }
                     let at = p.tokens[from].start;
                     let line = doc.text[..at].rfind('\n').map_or(0, |i| i + 1);
@@ -292,9 +348,21 @@ pub(super) fn proof(doc: &Document) -> Option<Proof> {
         }
     }
     let at = insert?;
+    let management = if managed_by_plugin {
+        if platform.is_some() {
+            return None;
+        }
+        "literal Boot plugin plus dependency-management 1.1.7; source-declared management only"
+    } else {
+        if platform.as_deref() != Some(&boot) {
+            return None;
+        }
+        "literal Boot plugin plus platform(spring-boot-dependencies) BOM of the same version"
+    };
     Some(Proof {
         boot,
-        management: "literal Boot plugin plus dependency-management 1.1.7; source-declared management only",
+        management,
+        refs,
         at,
         end: at,
         before: String::new(),
@@ -330,7 +398,6 @@ pub(super) fn fresh(doc: &Document, root: &str) -> Result<(), Error> {
         "gradle.properties",
         "buildSrc",
         "build-logic",
-        "gradle/libs.versions.toml",
         "init.gradle",
         "init.gradle.kts",
         ".mvn/maven.config",
@@ -340,6 +407,8 @@ pub(super) fn fresh(doc: &Document, root: &str) -> Result<(), Error> {
             return Err("Competing build, version catalog, properties, init/build logic or Maven configuration is unsupported.".into());
         }
     }
+    let p = proof(doc).ok_or(Error::Stale)?;
+    catalog(&p, root)?;
     for (name, expected) in [
         ("settings.gradle", !kotlin),
         ("settings.gradle.kts", kotlin),
@@ -370,6 +439,137 @@ pub(super) fn fresh(doc: &Document, root: &str) -> Result<(), Error> {
         }
     }
     Ok(())
+}
+
+pub(super) struct Catalog {
+    pub text: String,
+    pub path: String,
+    pub used: BTreeSet<(String, String)>,
+    accessors: BTreeMap<String, (String, String)>,
+    insert: usize,
+    has_libraries: bool,
+}
+fn accessor(alias: &str) -> String {
+    alias.replace(['-', '_'], ".")
+}
+fn catalog_key(key: &str) -> bool {
+    !key.is_empty() && key.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+}
+fn quoted(value: &str) -> Option<&str> {
+    let v = value.trim().strip_prefix('"')?.strip_suffix('"')?;
+    (!v.contains(['"', '\\', '$'])).then_some(v)
+}
+/// Literal `gradle/libs.versions.toml` only: versions/libraries/plugins tables of one-line entries.
+pub(super) fn catalog(p: &Proof, root: &str) -> Result<Option<Catalog>, Error> {
+    let project = host::project_of(&format!("{root}/build.gradle")).ok_or(Error::Stale)?;
+    let path = format!("{root}/gradle/libs.versions.toml");
+    if !project.exists(&path)? {
+        if p.refs.is_empty() {
+            return Ok(None);
+        }
+        return Err("Build references a version catalog that is not present.".into());
+    }
+    let text = project.read_file(&path)?;
+    let refuse = || Error::from("Only a literal one-line versions/libraries/plugins libs.versions.toml is supported; no catalog model is inferred.");
+    if text.len() > MAX_SOURCE || text.contains(['\r']) && !text.replace("\r\n", "").chars().all(|c| c != '\r') {
+        return Err(refuse());
+    }
+    let mut section = "";
+    let mut seen = BTreeSet::new();
+    let mut accessors = BTreeMap::new();
+    let mut insert = None;
+    let mut offset = 0;
+    for raw in text.split_inclusive('\n') {
+        let line = raw.trim();
+        let end = offset + raw.len();
+        offset = end;
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if let Some(name) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
+            if !matches!(name, "versions" | "libraries" | "plugins") || !seen.insert(name.to_owned()) {
+                return Err(refuse());
+            }
+            section = match name {
+                "versions" => "versions",
+                "libraries" => "libraries",
+                _ => "plugins",
+            };
+            if section == "libraries" {
+                insert = Some(end);
+            }
+            continue;
+        }
+        let (key, value) = line.split_once('=').ok_or_else(refuse)?;
+        let key = key.trim();
+        if section.is_empty() || !catalog_key(key) || value.contains(['\\', '$']) {
+            return Err(refuse());
+        }
+        match section {
+            "versions" => {
+                quoted(value).ok_or_else(refuse)?;
+            }
+            "libraries" => {
+                let body = value.trim().strip_prefix('{').and_then(|v| v.strip_suffix('}')).ok_or_else(refuse)?;
+                let mut module = None;
+                for field in body.split(',') {
+                    let (k, v) = field.split_once('=').ok_or_else(refuse)?;
+                    let v = quoted(v).ok_or_else(refuse)?;
+                    match k.trim() {
+                        "module" if module.is_none() => module = Some(v),
+                        "version" | "version.ref" => {}
+                        _ => return Err(refuse()),
+                    }
+                }
+                let (g, a) = module.and_then(|m| m.split_once(':')).ok_or_else(refuse)?;
+                if !literal(g) || !literal(a) || accessors.insert(accessor(key), (g.to_owned(), a.to_owned())).is_some() {
+                    return Err(refuse());
+                }
+                insert = Some(end);
+            }
+            _ => {
+                if !value.trim().starts_with('{') && quoted(value).is_none() {
+                    return Err(refuse());
+                }
+            }
+        }
+    }
+    let mut used = BTreeSet::new();
+    for r in &p.refs {
+        let found = r.strip_prefix("libs.").and_then(|a| accessors.get(a)).ok_or_else(refuse)?;
+        used.insert(found.clone());
+    }
+    let has_libraries = insert.is_some();
+    Ok(Some(Catalog { insert: insert.unwrap_or(text.len()), text, path, used, accessors, has_libraries }))
+}
+impl Catalog {
+    /// Returns the catalog line and the `libs.` accessor for a starter, or None when the alias is taken by another module.
+    pub(super) fn entry(&self, artifact: &str) -> Option<(String, String)> {
+        let accessor = accessor(artifact);
+        match self.accessors.get(&accessor) {
+            Some((g, a)) if g == "org.springframework.boot" && a == artifact => Some((String::new(), accessor)),
+            Some(_) => None,
+            None => Some((format!("{artifact} = {{ module = \"org.springframework.boot:{artifact}\" }}"), accessor)),
+        }
+    }
+    /// Edit offset and text for the added catalog lines.
+    pub(super) fn insertion(&self, lines: &[String], newline: &str) -> (usize, String) {
+        let mut out = String::new();
+        if !self.text.is_empty() && !self.text[..self.insert].ends_with('\n') {
+            out.push_str(newline);
+        }
+        if !self.has_libraries {
+            if !self.text.is_empty() {
+                out.push_str(newline);
+            }
+            out.push_str(&format!("[libraries]{newline}"));
+        }
+        for line in lines {
+            out.push_str(line);
+            out.push_str(newline);
+        }
+        (self.insert, out)
+    }
 }
 
 #[cfg(test)]
@@ -638,6 +838,93 @@ mod tests {
             assert!(prepared.is_err());
             assert_eq!(h.editor_text(), GROOVY);
         }
+    }
+    fn apply(h: &MockHost, d: &Document, a: &FileAction) -> (String, Option<String>) {
+        let edit = |text: &str, e: &openidea_plugin::TextEdit| {
+            let mut out = text.to_owned();
+            out.replace_range(offset(text, e.range.start).unwrap()..offset(text, e.range.end).unwrap(), &e.text);
+            out
+        };
+        let build = edit(&d.text, &a.edits[0].1[0]);
+        let catalog = a.edits.get(1).map(|(path, edits)| {
+            assert!(path.ends_with("/gradle/libs.versions.toml"));
+            edit(&host::project_of(path).unwrap().read_file(path).unwrap(), &edits[0])
+        });
+        (build, catalog)
+    }
+    const CATALOG: &str = "[versions]\nspring = \"3.5.16\"\n\n[libraries]\nspring-boot-starter = { module = \"org.springframework.boot:spring-boot-starter\" }\n";
+    #[test]
+    fn platform_bom_without_dependency_management_plugin_is_supported_and_reparses() {
+        for kotlin in [false, true] {
+            let base = if kotlin { KOTLIN } else { GROOVY };
+            let platform = if kotlin {
+                "    implementation(platform(\"org.springframework.boot:spring-boot-dependencies:3.5.16\"))\n"
+            } else {
+                "    implementation platform('org.springframework.boot:spring-boot-dependencies:3.5.16')\n"
+            };
+            let dm = if kotlin { "    id(\"io.spring.dependency-management\") version \"1.1.7\"\n" } else { "    id 'io.spring.dependency-management' version '1.1.7'\n" };
+            let text = base.replace(dm, "").replace("dependencies {\n", &format!("dependencies {{\n{platform}"));
+            let (h, mut l, d) = ready(&text, kotlin);
+            let a = resolve(&h, &mut l, &d, &["web"]);
+            let (build, catalog) = apply(&h, &d, &a);
+            assert!(catalog.is_none());
+            assert!(proof(&Document { text: build.clone(), ..d.clone() }).is_some());
+            assert!(build.contains("spring-boot-starter-web"));
+            let mismatched = text.replace("dependencies:3.5.16", "dependencies:3.4.0");
+            let (h, mut l, _) = setup(&mismatched, kotlin);
+            assert!(l.run_command("add-starters", &h.invocation(), None).is_err());
+            assert_eq!(h.fetches(), 0);
+            let unmanaged = base.replace(dm, "");
+            assert!(proof(&Document { text: unmanaged, ..d.clone() }).is_none());
+        }
+    }
+    #[test]
+    fn literal_version_catalog_gets_entry_and_alias_reference_and_reparses() {
+        for kotlin in [false, true] {
+            let text = if kotlin { KOTLIN } else { GROOVY };
+            let (h, mut l, d) = setup(text, kotlin);
+            h.add_file("gradle/libs.versions.toml", CATALOG);
+            l.run_command("add-starters", &h.invocation(), None).unwrap();
+            let a = resolve(&h, &mut l, &d, &["web"]);
+            let (build, catalog) = apply(&h, &d, &a);
+            let catalog = catalog.unwrap();
+            assert!(catalog.ends_with("spring-boot-starter = { module = \"org.springframework.boot:spring-boot-starter\" }\nspring-boot-starter-web = { module = \"org.springframework.boot:spring-boot-starter-web\" }\n"));
+            assert!(build.contains(if kotlin { "implementation(libs.spring.boot.starter.web)" } else { "implementation libs.spring.boot.starter.web" }));
+            let reparsed = proof(&Document { text: build, ..d.clone() }).unwrap();
+            assert_eq!(reparsed.refs, ["libs.spring.boot.starter.web"]);
+            h.add_file("gradle/libs.versions.toml", &catalog);
+            assert!(catalog_ok(&reparsed));
+        }
+    }
+    fn catalog_ok(p: &Proof) -> bool {
+        catalog(p, "/project").is_ok_and(|c| c.is_some_and(|c| c.used.contains(&("org.springframework.boot".into(), "spring-boot-starter-web".into()))))
+    }
+    #[test]
+    fn catalog_refs_resolve_dedupe_and_unrecognised_catalogs_refuse() {
+        let referenced = GROOVY.replace("'org.springframework.boot:spring-boot-starter'", "libs.spring.boot.starter");
+        let (h, mut l, d) = setup(&referenced, false);
+        h.add_file("gradle/libs.versions.toml", CATALOG);
+        l.run_command("add-starters", &h.invocation(), None).unwrap();
+        let a = resolve(&h, &mut l, &d, &["web"]);
+        assert!(apply(&h, &d, &a).0.contains("libs.spring.boot.starter.web"));
+        for bad in ["[bundles]\nx = [\"a\"]\n", "[libraries]\nx = { module = \"a:b\", other = \"c\" }\n", "[libraries]\nx = { module = \"a:b\" \n"] {
+            let (h, mut l, _) = setup(&referenced, false);
+            h.add_file("gradle/libs.versions.toml", bad);
+            assert!(l.run_command("add-starters", &h.invocation(), None).is_err(), "{bad}");
+            assert_eq!(h.fetches(), 0);
+        }
+        let (h, mut l, _) = setup(&referenced, false);
+        assert!(l.run_command("add-starters", &h.invocation(), None).is_err());
+        assert_eq!(h.fetches(), 0);
+        let _ = h;
+    }
+    #[test]
+    fn catalog_without_libraries_table_gets_one() {
+        let (h, mut l, d) = setup(GROOVY, false);
+        h.add_file("gradle/libs.versions.toml", "[versions]\nspring = \"3.5.16\"");
+        l.run_command("add-starters", &h.invocation(), None).unwrap();
+        let a = resolve(&h, &mut l, &d, &["web"]);
+        assert_eq!(apply(&h, &d, &a).1.unwrap(), "[versions]\nspring = \"3.5.16\"\n\n[libraries]\nspring-boot-starter-web = { module = \"org.springframework.boot:spring-boot-starter-web\" }\n");
     }
     #[test]
     fn cold_provider_does_no_fetch_and_resolved_action_cannot_replay() {

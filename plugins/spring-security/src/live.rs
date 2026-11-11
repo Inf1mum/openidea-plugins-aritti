@@ -95,7 +95,7 @@ impl DiagnosticSettings {
             Some("web-security-configurer-adapter" | "enable-global-method-security" | "authorize-requests" | "removed-request-matcher" | "global-method-security" | "use-expressions-false") => self.migration,
             Some("role-prefix") => self.roles,
             Some("no-op-password-encoder" | "plain-text-password") => self.passwords,
-            Some("unbalanced-expression" | "empty-security-function" | "unknown-security-function") => self.expressions,
+            Some("unbalanced-expression" | "empty-security-function" | "unknown-security-function" | "unknown-method-parameter") => self.expressions,
             Some("missing-attribute" | "invalid-attribute-value") => self.xml,
             Some("duplicate-pattern" | "unreachable-patterns" | "matcher-order" | "matchers-after-any-request") => self.matchers,
             _ => true,

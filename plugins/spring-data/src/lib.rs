@@ -157,6 +157,9 @@ pub struct Class {
     pub has_id: bool,
     /// Column and field names given by `@Field`, `@Column` and `@JsonProperty`.
     pub aliases: Vec<String>,
+    pub record: bool,
+    /// Getter names of a closed interface projection (no parents, no `@Value`, only getters).
+    pub getters: Option<Vec<String>>,
 }
 
 fn element(ty: &TypeRef) -> String {
@@ -170,7 +173,31 @@ fn element(ty: &TypeRef) -> String {
 fn classes(path: &str, text: &str) -> Option<Vec<Class>> {
     let file = parse_source(path, text);
     let kotlin = is_kotlin(path);
-    let out: Vec<Class> = file.types.iter().filter(|t| t.kind == "class" || t.kind == "record").map(|t| class(text, t, kotlin)).collect();
+    let out: Vec<Class> = file
+        .types
+        .iter()
+        .filter(|t| t.kind == "class" || t.kind == "record" || (t.kind == "interface" && closed_getters(t, kotlin).is_some()))
+        .map(|t| class(text, t, kotlin))
+        .collect();
+    (!out.is_empty()).then_some(out)
+}
+
+/// Property names of a Java interface made only of getters; `None` when it is open or not provably closed.
+fn closed_getters(t: &TypeDecl, kotlin: bool) -> Option<Vec<String>> {
+    if kotlin || !t.extends.is_empty() || t.annotation("Value").is_some() {
+        return None;
+    }
+    let mut out = Vec::new();
+    for m in t.methods() {
+        if m.body.is_some() || m.modifiers.iter().any(|x| x == "default" || x == "static") {
+            continue;
+        }
+        if !m.params.is_empty() || m.has(&["Value"]) {
+            return None;
+        }
+        let bare = m.name.strip_prefix("get").or_else(|| m.name.strip_prefix("is")).filter(|b| b.starts_with(char::is_uppercase))?;
+        out.push(bare.to_owned());
+    }
     (!out.is_empty()).then_some(out)
 }
 
@@ -223,7 +250,7 @@ fn class(text: &str, t: &TypeDecl, kotlin: bool) -> Class {
         .filter(|a| matches!(a.name.as_str(), "Field" | "Column" | "JsonProperty"))
         .flat_map(|a| a.strings(&["value", "name"]).into_iter().map(|s| s.value.clone()))
         .collect();
-    Class { name: t.name.clone(), range: range(text, t.at, t.at + t.name.len()), parent, props, entity, has_id, aliases }
+    Class { name: t.name.clone(), range: range(text, t.at, t.at + t.name.len()), parent, props, entity, has_id, aliases, record: t.kind == "record", getters: closed_getters(t, kotlin) }
 }
 
 /// Equal ignoring case, or one edit away from names of 5+ characters, two from names of 8+.
@@ -704,12 +731,16 @@ fn problems(model: &Model, text: &str, file: &JavaFile) -> Vec<Diagnostic> {
             {
                 out.push(warning(text, a.at, a.end, "modifying-without-query", "@Modifying only applies to @Query methods.".into()));
             }
+            if text.contains("data.jpa") && let Some(a) = m.annotation("EntityGraph") {
+                out.extend(entity_graph_problems(model, &domain, a, text));
+            }
             if !derived_method(m) {
                 continue;
             }
             let Some(parts) = derived(&m.name) else {
                 continue;
             };
+            out.extend(projection_problems(model, &domain, m, text));
             for part in &parts {
                 if let Resolved::Missing { from, to, name, ty } = resolve(model, &domain, &m.name, part.from, part.to) {
                     out.push(warning(text, m.at + from, m.at + to, "unknown-property", format!("`{ty}` has no property `{name}`.")));
@@ -731,6 +762,85 @@ fn problems(model: &Model, text: &str, file: &JavaFile) -> Vec<Diagnostic> {
                 let message = format!("`{}` needs {expected} argument(s) for its criteria but declares {declared}.", m.name);
                 out.push(warning(text, m.at, m.at + m.name.len(), "query-argument-count", message));
             }
+        }
+    }
+    out
+}
+
+const RESULT_WRAPPERS: [&str; 9] = ["List", "Set", "Collection", "Iterable", "Page", "Slice", "Stream", "Streamable", "Optional"];
+
+/// A property the entity provably has: the bean spelling of a getter (`getURL` is `URL`, `getName` is `name`).
+fn has_bean_property(props: &[(&str, &Prop)], bare: &str) -> bool {
+    let mut chars = bare.chars();
+    let upper_pair = chars.next().is_some_and(char::is_uppercase) && chars.next().is_some_and(char::is_uppercase);
+    props.iter().any(|(_, p)| p.name == bare || (!upper_pair && p.name == uncapitalize(bare)))
+}
+
+/// A closed interface projection or a record DTO returned by a derived query must only name properties of the domain class.
+fn projection_problems(model: &Model, domain: &str, m: &Member, text: &str) -> Vec<Diagnostic> {
+    let Some(ty) = &m.ty else { return Vec::new() };
+    let verb = ["find", "read", "get", "query", "search", "stream"].iter().any(|v| m.name.starts_with(v));
+    if !verb || m.params.iter().any(|p| p.ty.name == "Class") {
+        return Vec::new();
+    }
+    let result = match ty.args.last() {
+        Some(arg) if RESULT_WRAPPERS.contains(&ty.name.as_str()) => arg,
+        _ => ty,
+    };
+    if result.name == domain || result.array || !result.args.is_empty() {
+        return Vec::new();
+    }
+    let Some((_, class)) = model.class(&result.name) else { return Vec::new() };
+    let Some(props) = model.props(domain) else { return Vec::new() };
+    if class.entity.is_some() {
+        return Vec::new();
+    }
+    let at = (result.at, result.at + result.name.len());
+    let mut out = Vec::new();
+    let missing = |what: &str, name: &str| {
+        warning(text, at.0, at.1, "projection-unknown-property", format!("`{}` has no property `{name}` for {what} `{}`.", model.label(domain), result.name))
+    };
+    if let Some(getters) = &class.getters {
+        for bare in getters.iter().filter(|b| !has_bean_property(&props, b)) {
+            out.push(missing("projection", &uncapitalize(bare)));
+        }
+    } else if class.record {
+        for component in &class.props {
+            let Some((_, property)) = props.iter().find(|(_, p)| p.name == component.name) else {
+                out.push(missing("record", &component.name));
+                continue;
+            };
+            if let Some(message) = types::kinds_differ(&property.ty, &component.ty) {
+                let message = format!("Record `{}` component `{}`: {message}", result.name, component.name);
+                out.push(Diagnostic::new(range(text, at.0, at.1), Severity::Info, message).code("projection-property-type"));
+            }
+        }
+    }
+    out
+}
+
+/// `@EntityGraph(attributePaths = {...})` literals: each path must walk the entity's properties.
+fn entity_graph_problems(model: &Model, domain: &str, a: &java::Annotation, text: &str) -> Vec<Diagnostic> {
+    let mut out = Vec::new();
+    for s in a.strings(&["attributePaths", "value"]) {
+        if s.value.len() != s.end - s.at {
+            continue;
+        }
+        let mut ty = domain.to_owned();
+        let segments: Vec<&str> = s.value.split('.').collect();
+        for (i, segment) in segments.iter().enumerate() {
+            let Some(props) = model.props(&ty) else { break };
+            let Some((_, p)) = props.iter().find(|(_, p)| p.name == *segment) else {
+                let message = format!("`{}` has no attribute `{segment}`.", model.label(&ty));
+                out.push(warning(text, s.at, s.end, "entity-graph-unknown-attribute", message));
+                break;
+            };
+            if i + 1 < segments.len() && types::kind_of(&p.ty).is_some() && !p.ty.contains('.') {
+                let message = format!("`{segment}` is `{}`, not an association; `{}` cannot follow it.", p.ty, segments[i + 1]);
+                out.push(warning(text, s.at, s.end, "entity-graph-not-association", message));
+                break;
+            }
+            ty = target(p).to_owned();
         }
     }
     out
@@ -1777,6 +1887,56 @@ public interface UserRepository extends JpaRepository<User, Long> {
         let problems = &host.diagnostics()["/project/src/main/kotlin/com/acme/PersonRepository.kt"];
         assert_eq!(problems.len(), 1);
         assert_eq!(problems[0].message, "`Person` has no property `nmae`.");
+    }
+
+
+    fn data_findings(text: &str) -> Vec<(String, String)> {
+        let host = setup();
+        host.add_file("src/main/java/com/acme/NameOnly.java", "package com.acme;\ninterface NameOnly {\n    String getFirstName();\n    String getFullName();\n    String getNmae();\n    default String both() { return getFirstName(); }\n}\n");
+        host.add_file("src/main/java/com/acme/OpenView.java", "package com.acme;\ninterface OpenView {\n    @Value(\"#{target.x}\")\n    String getAnything();\n}\n");
+        host.add_file("src/main/java/com/acme/UserDto.java", "package com.acme;\nrecord UserDto(String firstName, String age, String bogus) {}\n");
+        let mut tools = DataTools::default();
+        tools.legacy_parser_markers(&doc(text));
+        let problems = host.diagnostics().get("/project/src/main/java/com/acme/UserRepository.java").cloned().unwrap_or_default();
+        problems
+            .iter()
+            .map(|d| (d.code.clone().unwrap(), text[offset(text, d.range.start).unwrap()..offset(text, d.range.end).unwrap()].to_owned()))
+            .collect()
+    }
+
+    fn repo_with(body: &str) -> String {
+        format!("package com.acme;\nimport org.springframework.data.jpa.repository.EntityGraph;\ninterface UserRepository extends JpaRepository<User, Long> {{\n{body}\n}}\n")
+    }
+
+    #[test]
+    fn nested_paths_top_distinct_and_order_by_resolve_against_literal_properties() {
+        let ok = repo_with("List<User> findByAddressCityAndAgeGreaterThan(String c, int a);\nList<User> findDistinctTop3ByAddress_ZipCodeOrderByAgeDesc(String z);\nList<User> findTop3ByAddressCityOrderByAddressZipCodeAsc(String c);");
+        assert_eq!(data_findings(&ok), []);
+        let bad = repo_with("List<User> findByAddressTownAndAgeGreaterThan(String c, int a);\nList<User> findFirst3ByAddressCityOrderByAddressZip(String c);");
+        let codes: Vec<_> = data_findings(&bad).into_iter().map(|(c, t)| (c, t)).collect();
+        assert_eq!(codes, [("unknown-property".to_owned(), "Town".to_owned()), ("unknown-property".to_owned(), "Zip".to_owned())]);
+    }
+
+    #[test]
+    fn closed_interface_projection_getters_must_be_entity_properties() {
+        let found = data_findings(&repo_with("List<NameOnly> findByAge(int a);\nOptional<OpenView> findFirstByAge(int a);\nList<NameOnly> countFoo();"));
+        assert_eq!(found, [("projection-unknown-property".to_owned(), "NameOnly".to_owned())]);
+    }
+
+    #[test]
+    fn record_projection_components_are_checked_by_name_and_clear_type_conflict() {
+        let found = data_findings(&repo_with("Page<UserDto> findByAge(int a, Pageable p);"));
+        let codes: Vec<_> = found.iter().map(|(c, _)| c.as_str()).collect();
+        assert_eq!(codes, ["projection-property-type", "projection-unknown-property"]);
+    }
+
+    #[test]
+    fn entity_graph_paths_walk_entity_properties() {
+        let ok = repo_with("@EntityGraph(attributePaths = {\"orders\", \"address.city\", \"owner.anything\"})\nList<User> findByAge(int a);");
+        assert_eq!(data_findings(&ok), []);
+        let bad = repo_with("@EntityGraph(attributePaths = {\"ordres\", \"age.x\", \"address.cty\"})\nList<User> findByAge(int a);");
+        let codes: Vec<_> = data_findings(&bad).into_iter().map(|(c, _)| c).collect();
+        assert_eq!(codes, ["entity-graph-unknown-attribute", "entity-graph-not-association", "entity-graph-unknown-attribute"]);
     }
 
     #[test]

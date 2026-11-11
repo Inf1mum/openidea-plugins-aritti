@@ -487,7 +487,7 @@ impl DiagnosticsProvider for DataTools {
             let model = model(index, &file, watching, &doc.path);
             found.extend(problems(&model, &doc.text, &file).into_iter().filter(|d| {
                 !matches!(d.code.as_deref(), Some("query-parameter-type" | "query-return-type"))
-                    && (model.complete || !matches!(d.code.as_deref(), Some("unknown-property" | "mongo-unknown-field")))
+                    && (model.complete || !matches!(d.code.as_deref(), Some("unknown-property" | "mongo-unknown-field" | "projection-unknown-property" | "projection-property-type" | "entity-graph-unknown-attribute" | "entity-graph-not-association")))
             }));
         }
         found.truncate(500);

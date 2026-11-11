@@ -16,6 +16,7 @@ mod import_tree;
 mod batch_runtime;
 mod java_hover;
 mod source_scope;
+mod dsl_flows;
 
 mod source_provenance;
 use source_provenance::{source_type_owned,source_bean_owned};
@@ -200,33 +201,24 @@ fn parse_source(path: &str, text: &str) -> Vec<Ref> {
             }
         }
     }
-    if !annotations_supported || kotlin && text.contains('`') || !text.contains("IntegrationFlow") && !text.contains("MessageChannels") {
+    if !annotations_supported || kotlin && text.contains('`') || !text.contains("IntegrationFlow") && !text.contains("integrationFlow") && !text.contains("MessageChannels") {
         return out;
     }
     let calls = spring_text::source_calls(path, text);
-    let mut flow_ends=Vec::new();
     for c in &calls {
         let Some(s) = c.args.first().and_then(|a| a.string.as_ref()) else {
             continue;
         };
         let receiver = c.receiver.as_deref();
         if c.args[0].text.trim_start().starts_with("\"\"\"") || s.value.contains('\\') || kotlin && s.value.contains('$') || text.get(s.at..s.end)!=Some(s.value.as_str()) {continue;}
-        match c.name.as_str() {
-            n if CHANNEL_FACTORIES.contains(&n) && receiver == Some("MessageChannels") && dsl_factory_owned(&file,text,c,"MessageChannels") => {
-                out.push(str_ref(text, s, Role::Declares, format!("MessageChannels.{n}"), false));
-            }
-            "from" if matches!(receiver, Some("IntegrationFlow" | "IntegrationFlows")) && dsl_factory_owned(&file,text,c,receiver.unwrap()) => {
-                out.push(str_ref(text, s, Role::Consumes, "IntegrationFlow.from".into(), false));
-                flow_ends.push(c.end);
-            }
-            // The DSL creates the channel when no bean has that name, so it is never unresolved.
-            "channel" if !c.is_new && c.chained && flow_ends.iter().any(|end|text.get(*end..c.at).is_some_and(|gap|spring_text::java::tokens(gap).iter().map(|t|t.s).eq(["."]))) => {
-                out.push(str_ref(text, s, Role::Declares, "flow .channel".into(), false));
-                out.push(str_ref(text, s, Role::Produces, "flow .channel".into(), false));
-                flow_ends.push(c.end);
-            }
-            _ => {}
+        if CHANNEL_FACTORIES.contains(&c.name.as_str()) && receiver == Some("MessageChannels") && dsl_factory_owned(&file,text,c,"MessageChannels") {
+            out.push(str_ref(text, s, Role::Declares, format!("MessageChannels.{}", c.name), false));
         }
+    }
+    // The DSL creates a channel when no bean has that name, so a flow `.channel("x")` is never unresolved.
+    dsl_flows::java_chains(&file, text, &calls, kotlin, &mut out);
+    if kotlin {
+        dsl_flows::kotlin_flows(&file, text, &calls, &mut out);
     }
     out
 }
@@ -668,6 +660,7 @@ interface OrderGateway {
         "@MessagingGateway OrderGateway",
         "@ServiceActivator bill()",
         "@Transformer audit()",
+        "IntegrationFlow.from",
         "audit",
         "confirmations",
         "errorChannel",
@@ -695,6 +688,8 @@ interface OrderGateway {
         ("quotes", "<int-http:outbound-gateway>"),
         ("<int-http:outbound-gateway>", "quoted"),
         ("@Transformer audit()", "nowhere"),
+        ("orders", "IntegrationFlow.from"),
+        ("IntegrationFlow.from", "shipping"),
     ];
     const CONFIG_PATH: &str = "/project/src/main/java/com/acme/FlowConfig.java";
     const BILLING_PATH: &str = "/project/src/main/java/com/acme/Billing.java";
@@ -725,7 +720,7 @@ interface OrderGateway {
     #[test]
     fn reads_channels_from_java_and_xml() {
         let config = parse(CONFIG_PATH, CONFIG);
-        assert_eq!(names(&config, Role::Declares), ["orders", "late", "shipping", "audit", "late"]);
+        assert_eq!(names(&config, Role::Declares), ["orders", "late", "audit", "late", "shipping"]);
         assert_eq!(names(&config, Role::Consumes), ["orders"]);
         assert_eq!(names(&config, Role::Produces), ["shipping"]);
 

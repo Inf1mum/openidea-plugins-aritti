@@ -634,6 +634,88 @@ struct Request {
     query: String,
     parameters: Vec<(String, String, String)>,
     max_rows: u32,
+    /// Reviewed UPDATE/DELETE text; `query` then holds only its equivalent count SELECT.
+    mutation: Option<String>,
+}
+const MUTATION_SETTING: &str = "jpaAssist.jpqlMutationPreview";
+/// Pure analysis of a single JPQL UPDATE/DELETE: returns the equivalent `select count(*)` query.
+fn mutation_count_query(statement: &str) -> Result<String, Error> {
+    let refuse = |why: &str| Err(Error::from(format!("Mutation statement refused: {why}.")));
+    let text = statement.trim();
+    let lower = text.to_ascii_lowercase();
+    if text.contains([';', '\0']) || ["--", "/*", "*/", "//"].iter().any(|c| text.contains(c)) {
+        return refuse("multiple statements or comments");
+    }
+    if text.chars().any(|c| c.is_control() && !c.is_whitespace()) {
+        return refuse("control characters");
+    }
+    if lower.contains("function(") || lower.contains("sql(") || lower.contains("native") {
+        return refuse("native SQL or provider functions");
+    }
+    let original: Vec<&str> = text.split_whitespace().collect();
+    let lowered: Vec<String> = original.iter().map(|w| w.to_ascii_lowercase()).collect();
+    let words: Vec<&str> = lowered.iter().map(String::as_str).collect();
+    let ident = |w: &str| {
+        !w.is_empty()
+            && w.bytes().enumerate().all(|(i, b)| {
+                b == b'_' || b == b'.' || b.is_ascii_alphabetic() || (i > 0 && b.is_ascii_digit())
+            })
+    };
+    if words.last() == Some(&"where") {
+        return refuse("empty WHERE clause");
+    }
+    let where_at = lower.find(" where ").map(|i| i + 7);
+    let tail = where_at.map(|i| text[i..].trim()).filter(|t| !t.is_empty());
+    if where_at.is_some() && tail.is_none() {
+        return refuse("empty WHERE clause");
+    }
+    let (entity_at, alias_at) = match words.as_slice() {
+        ["update", "versioned", ..] => return refuse("versioned update"),
+        ["delete", "from", _, rest @ ..] | ["delete", _, rest @ ..] => {
+            let entity_at = if words[1] == "from" { 2 } else { 1 };
+            let after = entity_at + 1;
+            let alias_at = match rest.first() {
+                None | Some(&"where") => None,
+                Some(&"as") => Some(after + 1),
+                Some(_) => Some(after),
+            };
+            (entity_at, alias_at)
+        }
+        ["update", _, rest @ ..] => {
+            if !lower.contains(" set ") {
+                return refuse("UPDATE without SET");
+            }
+            let alias_at = match rest.first() {
+                Some(&"set") | None => None,
+                Some(&"as") => Some(3),
+                Some(_) => Some(2),
+            };
+            (1, alias_at)
+        }
+        _ => return refuse("only one UPDATE or DELETE JPQL statement"),
+    };
+    let entity = original[entity_at];
+    let alias = alias_at.map(|i| original.get(i).copied().unwrap_or(""));
+    if !ident(entity) || alias.is_some_and(|a| !ident(a) || a.contains('.') || a.eq_ignore_ascii_case("set")) {
+        return refuse("unsupported entity or alias syntax");
+    }
+    let from = match alias {
+        Some(a) => format!("{entity} {a}"),
+        None => entity.to_owned(),
+    };
+    Ok(match tail {
+        Some(t) => format!("select count(*) from {from} where {t}"),
+        None => format!("select count(*) from {from}"),
+    })
+}
+/// The datasource is provably local embedded H2 only; tcp/ssl/zip/remote forms are refused.
+fn offline_h2(dialect: Dialect, url: &str) -> bool {
+    let Some(rest) = url.strip_prefix("jdbc:h2:") else {
+        return false;
+    };
+    dialect.key == "h2"
+        && !rest.is_empty()
+        && !["tcp:", "ssl:", "zip:", "http", "//"].iter().any(|p| rest.starts_with(p))
 }
 fn bounded(value: Option<&Value>, max: usize) -> Result<String, Error> {
     value
@@ -662,7 +744,20 @@ fn request(value: &Value, dialect: Dialect) -> Result<Request, Error> {
     {
         return Err("Use a bare explicit JDBC target URL without URL credentials, properties, or init scripts; credentials have separate fields.".into());
     }
-    let query = bounded(value.get("query"), 8192)?;
+    let mut query = bounded(value.get("query"), 8192)?;
+    let mut mutation = None;
+    let head = query.trim_start().to_ascii_lowercase();
+    if head.starts_with("update ") || head.starts_with("delete ") {
+        if !host::setting_bool(MUTATION_SETTING).unwrap_or(false) {
+            return Err(format!("JPQL UPDATE/DELETE needs the opt-in setting {MUTATION_SETTING}; preview only, never executed.").into());
+        }
+        if !offline_h2(dialect, &url) {
+            return Err("Mutation preview is limited to a local embedded H2 target; remote datasources are refused.".into());
+        }
+        let count = mutation_count_query(&query)?;
+        mutation = Some(query.trim().to_owned());
+        query = count;
+    }
     if !query
         .trim_start()
         .to_ascii_lowercase()
@@ -713,6 +808,11 @@ fn request(value: &Value, dialect: Dialect) -> Result<Request, Error> {
             parameters.push((name, kind, bounded(p.get("value"), 2048)?));
         }
     }
+    if mutation.is_some() {
+        let lower = mutation.as_deref().unwrap_or("").to_ascii_lowercase();
+        let tail = lower.find(" where ").map_or("", |i| &lower[i..]);
+        parameters.retain(|(n, _, _)| tail.contains(&format!(":{}", n.to_ascii_lowercase())));
+    }
     let max_rows = value
         .get("maxRows")
         .map(|v| {
@@ -730,6 +830,7 @@ fn request(value: &Value, dialect: Dialect) -> Result<Request, Error> {
         query,
         parameters,
         max_rows,
+        mutation,
     })
 }
 fn input_line(text: &str) -> String {
@@ -767,6 +868,19 @@ impl Request {
         Ok(result)
     }
     fn review(&self) -> String {
+        if let Some(statement) = &self.mutation {
+            return format!(
+                "MUTATION DRY-RUN (the statement below is NOT executed; commit is unavailable: the pinned adapter is read-only and always rolls back)\nOffline H2 target: {}\nStatement:\n{}\nParameter values (WHERE only):\n{}\nRow-count preview runs this SELECT:\n{}",
+                self.url,
+                ui_kit::prompts::readable_source(statement),
+                self.parameters
+                    .iter()
+                    .map(|(n, t, v)| format!("{n}: {t} = {}", ui_kit::prompts::readable_source(v)))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+                ui_kit::prompts::readable_source(&self.query)
+            );
+        }
         format!(
             "Exact manual JDBC target: {}\nDriver: {}\nCredentials: separate profile fields, hidden from this view/arguments\nIntegration qualified with H2 2.2.224; other supplied driver versions/servers are unverified.\nSELECT (max{}rows;15sec driver query timeout):\n{}\nTyped parameters:\n{}",
             self.url,
@@ -1249,6 +1363,62 @@ mod tests {
         let mut parsed = json(&proof).unwrap();
         parsed["facts"][plan.runtime] = format!("jar:runtime/jdbc.jar:{}", "e".repeat(64)).into();
         assert!(plan.validate(&project, &parsed.to_string()).is_err());
+    }
+    #[test]
+    fn mutation_analysis_builds_count_and_refuses_unsafe_statements() {
+        assert_eq!(
+            mutation_count_query("delete from Customer c where c.id = :id").unwrap(),
+            "select count(*) from Customer c where c.id = :id"
+        );
+        assert_eq!(
+            mutation_count_query("update Customer as c set c.name = :n where c.id = :id").unwrap(),
+            "select count(*) from Customer c where c.id = :id"
+        );
+        assert_eq!(
+            mutation_count_query("delete from Customer").unwrap(),
+            "select count(*) from Customer"
+        );
+        for bad in [
+            "delete from Customer; delete from Order",
+            "delete from Customer -- x",
+            "delete from Customer /* x */",
+            "update versioned Customer set name = 'a'",
+            "update Customer c where c.id = 1",
+            "delete from Customer where function('sql', x) = 1",
+            "select c from Customer c",
+            "delete from Customer where",
+        ] {
+            assert!(mutation_count_query(bad).is_err(), "{bad}");
+        }
+    }
+    #[test]
+    fn mutation_preview_requires_setting_and_offline_h2_and_never_executes() {
+        let (host, original, _) = fixture(PROFILE6);
+        let project = host.invocation().project().unwrap();
+        let mut changed = original.clone();
+        changed["query"] = "update Customer c set c.name = :n where c.id = :id".into();
+        changed["parameters"] = serde_json::json!([
+            {"name":"n","type":"string","value":"x"},
+            {"name":"id","type":"long","value":"1"}
+        ]);
+        host.add_file("profile.json", &changed.to_string());
+        assert!(read_plan(&project, "profile.json").is_err());
+        host.set_setting(MUTATION_SETTING, "true");
+        let plan = read_plan(&project, "profile.json").unwrap();
+        assert_eq!(plan.request.query, "select count(*) from Customer c where c.id = :id");
+        assert_eq!(plan.request.parameters.len(), 1);
+        let review = plan.request.review();
+        assert!(review.contains("NOT executed") && review.contains("jdbc:h2:/disposable/fixture"));
+        assert!(review.contains("c.name = :n"));
+        for url in ["jdbc:h2:tcp://host/db", "jdbc:h2:ssl://host/db"] {
+            changed["jdbc"]["url"] = url.into();
+            host.add_file("profile.json", &changed.to_string());
+            assert!(read_plan(&project, "profile.json").is_err());
+        }
+        changed["jdbc"]["url"] = "jdbc:postgresql://host/db".into();
+        changed["dialect"] = "postgresql".into();
+        host.add_file("profile.json", &changed.to_string());
+        assert!(read_plan(&project, "profile.json").is_err());
     }
     #[test]
     fn typed_result_decoder_enforces_bounds_and_stdin_keeps_exact_reviewed_bytes() {

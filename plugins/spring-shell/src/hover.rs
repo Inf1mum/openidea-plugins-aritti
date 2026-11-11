@@ -1,6 +1,6 @@
 //! Read-only descriptions; these navigation spans are not rename anchors.
 use super::*;
-use openidea_plugin::hover::{Hover, HoverProvider};
+use openidea_plugin::{host, hover::{Hover, HoverProvider}};
 
 fn closed_literal(token: &java::Tok<'_>) -> bool {
     let quote = if token.s.starts_with("\"\"\"") { "\"\"\"" } else { "\"" };
@@ -85,6 +85,32 @@ fn markdown(text: &str) -> String {
     out
 }
 
+impl ShellTools {
+    /// A selector naming a `@ShellMethod` command the class inherits from a project superclass.
+    fn inherited_hover(&mut self, doc: &Document, class: &str, key: &str, span: Range) -> Option<Hover> {
+        let project = host::project_of(&doc.path)?;
+        let index = self.indexes.for_document(&doc.path, &doc.text, PROVIDER_BUDGET)?;
+        let found = named(index, class, key);
+        let [(path, inherited)] = found.as_slice() else { return None };
+        if *path == doc.path {
+            return None;
+        }
+        let declaring = Document {
+            path: path.clone(),
+            language: if path.ends_with(".kt") { "kotlin" } else { "java" }.into(),
+            version: 0,
+            text: project.read_file(path).ok()?,
+        };
+        let f = document_model(&declaring)?;
+        let literal = literal_targets(&f, &declaring.text);
+        let all = commands(&f, &declaring.text);
+        let mut matching = all.iter().filter(|c| c.target == inherited.target && literal.contains(&(c.target.start.line, c.target.start.character)));
+        let first = matching.next()?;
+        let description = method_description(&f, &declaring.text, first)?;
+        Some(Hover::new(format!("**Spring Shell command:** {}\n\n{}\n\nInherited from `{}`.", markdown(&first.key), markdown(description), simple(&first.class))).range(span))
+    }
+}
+
 impl HoverProvider for ShellTools {
     fn hover(&mut self, doc: &Document, at: Position) -> Option<Hover> {
         let byte = offset(&doc.text, at)?;
@@ -132,6 +158,9 @@ impl HoverProvider for ShellTools {
             let key = words(&[literal]);
             let class = class_at(&f, byte);
             let own: Vec<_> = declared.iter().filter(|c| c.key == key && c.class == class).collect();
+            if own.is_empty() {
+                return self.inherited_hover(doc, &class, &key, span);
+            }
             return render(own, span);
         }
         None
@@ -293,5 +322,22 @@ mod tests {
             assert_ne!(source(&d, c.anchor), c.key, "{c:?}");
         }
         assert_eq!(declared.iter().map(|c| c.key.as_str()).collect::<Vec<_>>(), ["db dump all", "list-users", "spaced name"]);
+    }
+
+    #[test]
+    fn availability_selector_hover_describes_inherited_command_and_declaring_class() {
+        let h = MockHost::install();
+        let base = "package p; import org.springframework.shell.standard.ShellMethod;\n@org.springframework.shell.standard.ShellComponent class Base { @ShellMethod(key=\"shared\",value=\"Shared *thing*.\") void shared(){} }";
+        let child = "package p; import org.springframework.shell.standard.ShellMethodAvailability;\n@org.springframework.shell.standard.ShellComponent class Child extends Base { @ShellMethodAvailability(\"shared\") Availability gate(){return null;} }";
+        h.add_file("src/main/java/p/Base.java", base);
+        h.add_file("src/main/java/p/Child.java", child);
+        let d = Document { path: "/project/src/main/java/p/Child.java".into(), language: "java".into(), version: 1, text: child.into() };
+        let mut tools = ShellTools::default();
+        let hover = tools.hover(&d, at(child, "shared\"")).unwrap();
+        assert_eq!(hover.markdown, "**Spring Shell command:** shared\n\nShared \\*thing\\*.\n\nInherited from `Base`.");
+        assert_eq!(source(&d, hover.range.unwrap()), "shared");
+        let unknown = child.replace("extends Base", "extends Library");
+        let d = Document { text: unknown.clone(), version: 3, ..d };
+        assert!(tools.hover(&d, at(&unknown, "shared\"")).is_none());
     }
 }

@@ -1,5 +1,10 @@
 {
   "properties": {
+    "jpaAssist.jpqlMutationPreview": {
+      "type": "boolean",
+      "title": "Allow JPQL UPDATE/DELETE row-count preview in the console (offline H2 only; the statement is never executed)",
+      "default": false
+    },
     "ddlDialect": {
       "type": "string",
       "title": "SQL dialect for copied DDL",

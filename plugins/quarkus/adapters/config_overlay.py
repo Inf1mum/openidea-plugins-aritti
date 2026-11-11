@@ -6,6 +6,8 @@ import re
 import tempfile
 from urllib.parse import unquote, urlparse
 
+from config_sources import snapshot_fields
+
 MAX_DOCUMENTS = 32
 MAX_CHARACTERS = 512 * 1024
 MAX_SNAPSHOT = 8 * 1024 * 1024
@@ -122,7 +124,13 @@ class ConfigOverlay:
             if not entry or not isinstance(entry.get('text'), str) or not isinstance(entry.get('version'), int):
                 unsupported.add(uri)
                 continue
-            canonical = str(Path(unquote(urlparse(uri).path)).resolve())
+            path = Path(unquote(urlparse(uri).path))
+            try:
+                entry = {**entry, **snapshot_fields(path, entry['text'])}
+            except ValueError:
+                unsupported.add(uri)
+                continue
+            canonical = str(path.resolve())
             if canonical in seen:
                 unsupported.update((uri, seen[canonical]))
                 continue

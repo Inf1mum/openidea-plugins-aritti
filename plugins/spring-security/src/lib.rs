@@ -654,6 +654,7 @@ fn problems(path: &str, text: &str) -> Vec<Problem> {
         }
     }
     let security = file.imports.iter().any(|i| i.path.starts_with("org.springframework.security"));
+    out.extend(method_expression_problems(text, &file));
     for c in spring_text::source_calls(path, text) {
         let name_end = c.at + c.name.len();
         let renamed = match c.name.as_str() {
@@ -734,6 +735,73 @@ fn problems(path: &str, text: &str) -> Vec<Problem> {
             }
         }
         out.sort_by_key(|p| p.diagnostic.range.start);
+    }
+    out
+}
+
+/// `#name` variables of a SpEL expression: byte offset of the name and the name; skips string literals.
+fn spel_variables(expr: &str) -> Vec<(usize, &str)> {
+    let mut out = Vec::new();
+    let bytes = expr.as_bytes();
+    let mut quote = None;
+    let mut i = 0;
+    while i < bytes.len() {
+        let c = bytes[i];
+        match quote {
+            Some(q) => {
+                if c == q {
+                    quote = None;
+                }
+            }
+            None if c == b'\'' || c == b'"' => quote = Some(c),
+            None if c == b'#' && bytes.get(i + 1).is_some_and(|b| b.is_ascii_alphabetic() || *b == b'_') => {
+                let end = (i + 1..bytes.len()).find(|&j| !is_ident_byte(bytes[j])).unwrap_or(bytes.len());
+                out.push((i + 1, &expr[i + 1..end]));
+                i = end;
+                continue;
+            }
+            None => {}
+        }
+        i += 1;
+    }
+    out
+}
+
+/// Literal SpEL of `@PreAuthorize`/`@PostAuthorize`: balanced syntax, argument-less role/authority functions
+/// and `#name` references that no parameter of the method (nor its `@P`/`@Param`) declares.
+fn method_expression_problems(text: &str, file: &JavaFile) -> Vec<Problem> {
+    let mut out = Vec::new();
+    for member in file.types.iter().flat_map(|t| &t.members) {
+        let mut names: BTreeSet<&str> = member.params.iter().map(|p| p.name.as_str()).collect();
+        let mut names_known = true;
+        for param in &member.params {
+            for alias in param.annotations.iter().filter(|a| a.name == "P" || a.name == "Param") {
+                let literals = alias.strings(&["value"]);
+                names_known &= !literals.is_empty();
+                names.extend(literals.iter().map(|s| s.value.as_str()));
+            }
+        }
+        for a in member.annotations.iter().filter(|a| a.name == "PreAuthorize" || a.name == "PostAuthorize") {
+            for s in a.strings(&["value"]).into_iter().filter(|s| s.value.len() == s.end - s.at) {
+                for (from, to, code, severity, message) in expression_problems(&s.value) {
+                    if code == "unbalanced-expression" || code == "empty-security-function" {
+                        out.push(Problem { diagnostic: problem(text, s.at + from, s.at + to, severity, code, message) });
+                    }
+                }
+                if is_unbalanced(&s.value) || !names_known {
+                    continue;
+                }
+                for (at, name) in spel_variables(&s.value) {
+                    let assigned = s.value[at + name.len()..].trim_start().strip_prefix('=').is_some_and(|rest| !rest.starts_with('='));
+                    if matches!(name, "this" | "root") || names.contains(name) || assigned {
+                        continue;
+                    }
+                    let message = format!("`#{name}` does not match a parameter of this method (Spring Security resolves parameter names, or `@P`/`@Param` values).");
+                    let diagnostic = problem(text, s.at + at - 1, s.at + at + name.len(), Severity::Warning, "unknown-method-parameter", message);
+                    out.push(Problem { diagnostic });
+                }
+            }
+        }
     }
     out
 }
@@ -1281,6 +1349,23 @@ class SecurityConfig : WebSecurityConfigurerAdapter() {
         assert_eq!(java_spans(lambda, "matchers-after-any-request"), ["requestMatchers", "anyRequest"]);
         let chained = "http.authorizeHttpRequests().anyRequest().authenticated().antMatchers(\"/b\").denyAll();\nhttp.authorizeHttpRequests().requestMatchers(\"/ok\").permitAll();";
         assert_eq!(java_spans(chained, "matchers-after-any-request"), ["antMatchers"]);
+    }
+
+    #[test]
+    fn method_security_literals_are_checked() {
+        let src = |m: &str| format!("import org.springframework.security.access.prepost.PreAuthorize;\nclass C {{\n{m}\n}}");
+        let run = |m: &str, code: &str| spans("/project/C.java", &src(m), code);
+        let bad = "@PreAuthorize(\"#id == authentication.name and hasRole('A')\")\nvoid f(String name) {}";
+        assert_eq!(run(bad, "unknown-method-parameter"), ["#id"]);
+        let good = "@PreAuthorize(\"#id == authentication.name and #this != null and #n.isEmpty()\")\nvoid f(String id, @P(\"n\") String x) {}";
+        assert!(run(good, "unknown-method-parameter").is_empty());
+        let unknown_alias = "@PreAuthorize(\"#zzz == 1\")\nvoid f(@P(NAME) String x) {}";
+        assert!(run(unknown_alias, "unknown-method-parameter").is_empty());
+        let literal = "@PreAuthorize(\"'#nope' == 'x'\")\nvoid f() {}";
+        assert!(run(literal, "unknown-method-parameter").is_empty());
+        assert_eq!(run("@PreAuthorize(\"hasRole('A'\")\nvoid f() {}", "unbalanced-expression"), ["hasRole('A'"]);
+        assert_eq!(run("@PreAuthorize(\"hasRole()\")\nvoid f() {}", "empty-security-function"), ["hasRole()"]);
+        assert!(run("@PreAuthorize(\"hasAuthority('x') or permitAll\")\nvoid f() {}", "unbalanced-expression").is_empty());
     }
 
     #[test]

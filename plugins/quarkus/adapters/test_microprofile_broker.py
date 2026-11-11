@@ -110,9 +110,9 @@ class MicroProfileProtocolTests(unittest.TestCase):
             self.assertNotIn('SESSION_CREDENTIAL',child_environment({'inherit_environment':['APP_PORT']}))
 
     def test_admitted_configuration_names_are_explicit_and_java_state_stays_shared(self):
-        for name in ('application.properties','application-prod.properties','META-INF/microprofile-config.properties'):
+        for name in ('application.properties','application-prod.properties','META-INF/microprofile-config.properties','application.yaml','config/application.yml','.env'):
             self.assertTrue(config_uri('file:///project/'+name))
-        for name in ('messages.properties','application.yaml','file.java'):
+        for name in ('messages.properties','other.yaml','file.java'):
             self.assertFalse(config_uri('file:///project/'+name))
 
 if __name__=='__main__':
