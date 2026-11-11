@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
 const HELPER: &str = include_str!("../adapters/self_hosted_bridge.py");
+const GENERIC_HELPER: &str = include_str!("../adapters/generic_bridge.py");
+const GENERIC_REGEX: &str = include_str!("../adapters/GenericRegex.java");
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Profile {
@@ -40,7 +42,37 @@ fn profile_id(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|b| b.is_ascii_hexdigit())
 }
 fn family(value: &str) -> bool {
-    matches!(value, "redmine" | "mantis")
+    matches!(value, "redmine" | "mantis" | "generic")
+}
+fn generic_key(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 64
+        && !value.contains("..")
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+}
+fn number_ok(family: &str, value: &str) -> bool {
+    if family == "generic" {
+        return generic_key(value);
+    }
+    decimal(value)
+}
+fn project_ok(family: &str, value: &str) -> bool {
+    if family == "generic" {
+        return value.is_empty();
+    }
+    decimal(value)
+}
+fn status_ok(family: &str, value: &str) -> bool {
+    if family == "generic" {
+        return value.len() <= 128 && !value.chars().any(char::is_control);
+    }
+    decimal(value)
+}
+fn under_base(base: &str, url: &str) -> bool {
+    url.strip_prefix(base)
+        .is_some_and(|rest| rest.starts_with('/') && rest.len() <= 1024 && !rest.chars().any(char::is_control))
 }
 fn profile_path(value: &str) -> bool {
     value.starts_with('/')
@@ -97,7 +129,7 @@ pub fn profiles() -> Result<Vec<Profile>, Error> {
                 || !seen.insert((p.family.clone(), p.base_url.clone()))
         })
     {
-        return Err("Use at most16 unique Redmine/Mantis HTTPS DNS profile descriptors with normalized absolute credential paths.".into());
+        return Err("Use at most16 unique Redmine/Mantis/Generic HTTPS DNS profile descriptors with normalized absolute credential paths.".into());
     }
     Ok(profiles)
 }
@@ -110,7 +142,11 @@ fn configured(family: &str, base: &str) -> Result<Profile, Error> {
 pub fn id(family: &str, base: &str, number: &str) -> String {
     format!(
         "{}-{}-{number}",
-        if family == "redmine" { "RM" } else { "MB" },
+        match family {
+            "redmine" => "RM",
+            "mantis" => "MB",
+            _ => "GN",
+        },
         &digest(base)[..16]
     )
 }
@@ -134,17 +170,22 @@ pub fn identity(task: &Task) -> bool {
     if !family(&p.family)
         || task.tracker.as_deref() != Some(p.family.as_str())
         || server(&p.base_url).is_none()
-        || !decimal(&p.number)
-        || !decimal(&p.project_id)
+        || !number_ok(&p.family, &p.number)
+        || !project_ok(&p.family, &p.project_id)
         || !profile_id(&p.profile_id)
         || p.revision.is_empty()
         || p.revision.len() > 512
         || p.revision.chars().any(char::is_control)
         || !matches!(p.guard.as_str(), "etag" | "fresh-read" | "none")
-        || p.can_close && (!decimal(&p.close_status_id) || p.guard == "none")
-        || !p.close_status_id.is_empty() && !decimal(&p.close_status_id)
+        || p.can_close && (p.close_status_id.is_empty() || !status_ok(&p.family, &p.close_status_id) || p.guard == "none")
+        || !p.close_status_id.is_empty() && !status_ok(&p.family, &p.close_status_id)
     {
         return false;
+    }
+    if p.family == "generic" {
+        return task.id == id(&p.family, &p.base_url, &p.number)
+            && task.api.as_deref().is_some_and(|u| under_base(&p.base_url, u))
+            && task.url.as_deref().is_some_and(|u| under_base(&p.base_url, u));
     }
     let (api, web) = urls(&p.family, &p.base_url, &p.number);
     task.id == id(&p.family, &p.base_url, &p.number)
@@ -159,8 +200,15 @@ impl Drop for Private {
 }
 fn invoke(profile: &Profile, request: Value) -> Result<Value, Error> {
     let directory = host::fs::plugin_dir()?;
-    let helper = format!("{directory}/self_hosted_bridge.py");
-    host::fs::write_file(&helper, HELPER)?;
+    host::fs::write_file(&format!("{directory}/self_hosted_bridge.py"), HELPER)?;
+    let helper = if profile.family == "generic" {
+        host::fs::write_file(&format!("{directory}/GenericRegex.java"), GENERIC_REGEX)?;
+        let generic = format!("{directory}/generic_bridge.py");
+        host::fs::write_file(&generic, GENERIC_HELPER)?;
+        generic
+    } else {
+        format!("{directory}/self_hosted_bridge.py")
+    };
     host::fs::write_file(
         &format!("{directory}/fogbugz_bridge.py"),
         include_str!("../adapters/fogbugz_bridge.py"),
@@ -264,15 +312,22 @@ fn parse(result: &Value, profile: &Profile) -> Result<Vec<Task>, Error> {
         let can_close = item["canClose"]
             .as_bool()
             .ok_or("Invalid tracker transition permissions.")?;
-        let (api, web) = urls(&profile.family, &profile.base_url, number);
-        if !decimal(number)
-            || !decimal(project)
+        let (api, web) = if profile.family == "generic" {
+            (
+                item["api"].as_str().unwrap_or_default().to_owned(),
+                item["url"].as_str().unwrap_or_default().to_owned(),
+            )
+        } else {
+            urls(&profile.family, &profile.base_url, number)
+        };
+        if !number_ok(&profile.family, number)
+            || !project_ok(&profile.family, project)
             || summary.is_empty()
             || summary.len() > 4096
             || summary.chars().any(char::is_control)
             || description.len() > 32768
             || description.contains('\0')
-            || item["url"] != web
+            || item["url"] != web.as_str()
             || !seen.insert(number)
         {
             return Err("Invalid, foreign or duplicate tracker issue record.".into());
@@ -322,7 +377,7 @@ pub fn search(scope: &Scope, family: &str) -> Result<Vec<Task>, Error> {
     if !ui_kit::prompts::confirm_exact(
         "Search this self-hosted tracker?",
         &format!(
-            "Approved Python3 reads the externally provisioned0600 credential profile and calls this exact HTTPS service; redirects are refused.\nFamily: {family}\nBase URL: {}\nProfile: {}\nQuery parameters: {}\nPage: {} (at most50results)\nRedmine supports documented issue filter parameters. Mantis requires project_id and optional filter_id. No unsupported free-text search is invented.",
+            "Approved Python3 reads the externally provisioned0600 credential profile and calls this exact HTTPS service; redirects are refused.\nFamily: {family}\nBase URL: {}\nProfile: {}\nQuery parameters: {}\nPage: {} (at most50results)\nRedmine supports documented issue filter parameters. Mantis requires project_id and optional filter_id. Generic sends the query text as the profile-declared search parameter. No unsupported free-text search is invented.",
             profile.base_url,
             serde_json::to_string(&profile.profile_path).unwrap_or_default(),
             serde_json::to_string(query).unwrap_or_default(),
@@ -510,5 +565,24 @@ mod tests {
         configure(&h, &[]);
         assert!(close(&task).is_err());
         assert!(h.process_runs().is_empty());
+    }
+    #[test]
+    fn generic_rows_keep_declared_urls_under_their_base_and_alphanumeric_keys() {
+        let p = profile("generic");
+        let reply = || json!({"profileId":"a".repeat(64),"issues":[{"number":"TASK-1","projectId":"","summary":"Example","description":"","url":"https://tracker.example/project/issues/TASK-1","api":"https://tracker.example/project/api/issues/TASK-1","closed":false,"revision":"b".repeat(64),"canClose":true,"closeStatusId":"DONE","guard":"etag"}]});
+        let tasks = parse(&reply(), &p).unwrap();
+        assert!(identity(&tasks[0]));
+        assert!(trackers::can_update_state(&tasks[0]));
+        assert_ne!(tasks[0].id, id("redmine", &p.base_url, "TASK-1"));
+        for (field, value) in [
+            ("url", "https://tracker.example/project-foreign/issues/TASK-1"),
+            ("api", "https://other.example/project/api/issues/TASK-1"),
+            ("number", "../x"),
+            ("projectId", "1"),
+        ] {
+            let mut bad = reply();
+            bad["issues"][0][field] = json!(value);
+            assert!(parse(&bad, &p).is_err(), "{field}");
+        }
     }
 }

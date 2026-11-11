@@ -44,7 +44,7 @@ fn closed_identity(task: &Task) -> bool {
     };
     match task.tracker.as_deref() {
         Some("fogbugz") => crate::fogbugz::identity(task),
-        Some("redmine"|"mantis") => crate::self_hosted::identity(task),
+        Some("redmine"|"mantis"|"generic") => crate::self_hosted::identity(task),
         Some("github") | Some("forgejo") => {
             let github = task.tracker.as_deref() == Some("github");
             let prefix = if github { "https://api.github.com/repos/" } else { "https://codeberg.org/api/v1/repos/" };

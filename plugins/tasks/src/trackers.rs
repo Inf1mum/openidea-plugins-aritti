@@ -30,9 +30,10 @@ pub struct Tracker {
     fetch: fn(&Tracker, &Scope) -> Result<Vec<Task>, Error>,
 }
 
-const TRACKERS: [Tracker; 10] = [
+const TRACKERS: [Tracker; 11] = [
     Tracker { id: "redmine", name: "Redmine (local credential bridge)", secrets: &[], headers: &[], fetch: |_,scope| crate::self_hosted::search(scope,"redmine") },
     Tracker { id: "mantis", name: "MantisBT (local credential bridge)", secrets: &[], headers: &[], fetch: |_,scope| crate::self_hosted::search(scope,"mantis") },
+    Tracker { id: "generic", name: "Generic REST/regex (local credential bridge)", secrets: &[], headers: &[], fetch: |_,scope| crate::self_hosted::search(scope,"generic") },
     Tracker { id: "fogbugz", name: "FogBugz (local credential bridge)", secrets: &[], headers: &[], fetch: |_,scope| crate::fogbugz::search(scope) },
     Tracker { id: "lighthouse", name: "Lighthouse", secrets: &["lighthouse-token"], headers: &[("X-LighthouseToken", "{{secret:lighthouse-token}}")], fetch: lighthouse },
     Tracker {
@@ -96,7 +97,7 @@ pub fn fetch_all(scope: &Scope) -> Fetched {
 
     for tracker in &TRACKERS {
         // Approved external credential bridges run only inside explicit Search Issues.
-        if matches!(tracker.id,"fogbugz"|"redmine"|"mantis") { continue; }
+        if matches!(tracker.id,"fogbugz"|"redmine"|"mantis"|"generic") { continue; }
         if !tracker.secrets.iter().all(|s| host::secret_is_set(s)) {
             continue;
         }
@@ -128,7 +129,7 @@ pub fn name(task: &Task) -> &str {
 
 /// The Close Task form offers "Update issue state" for these.
 pub fn can_update_state(task: &Task) -> bool {
-    if matches!(task.tracker.as_deref(),Some("redmine"|"mantis")) {return crate::self_hosted::identity(task) && task.self_hosted.as_ref().is_some_and(|p|p.can_close) && !task.closed;}
+    if matches!(task.tracker.as_deref(),Some("redmine"|"mantis"|"generic")) {return crate::self_hosted::identity(task) && task.self_hosted.as_ref().is_some_and(|p|p.can_close) && !task.closed;}
     (task.tracker.as_deref()==Some("fogbugz") && crate::fogbugz::identity(task) && task.fogbugz.as_ref().is_some_and(|p| p.can_close) && !task.closed) || matches!(task.tracker.as_deref(), Some("github" | "gitlab" | "forgejo" | "youtrack" | "jira" | "lighthouse"))
 }
 
@@ -138,7 +139,7 @@ pub fn can_post_time(task: &Task) -> bool {
 
 /// TaskRepository.setTaskState with the tracker's resolved state.
 pub fn close_issue(task: &Task) -> Result<(), Error> {
-    if matches!(task.tracker.as_deref(),Some("redmine"|"mantis")) {return crate::self_hosted::close(task);}
+    if matches!(task.tracker.as_deref(),Some("redmine"|"mantis"|"generic")) {return crate::self_hosted::close(task);}
     if task.tracker.as_deref()==Some("fogbugz") { return crate::fogbugz::close(task); }
     let (tracker, api) = issue_api(task)?;
 
@@ -568,7 +569,7 @@ impl SearchTarget {
     pub fn paginated(&self) -> bool {
         matches!(
             self.tracker,
-            "github" | "gitlab" | "forgejo" | "youtrack" | "jira" | "trello" | "lighthouse" | "redmine" | "mantis"
+            "github" | "gitlab" | "forgejo" | "youtrack" | "jira" | "trello" | "lighthouse" | "redmine" | "mantis" | "generic"
         )
     }
 }
@@ -576,7 +577,7 @@ pub fn search_targets(scope: &Scope) -> Result<Vec<SearchTarget>, Error> {
     let mut targets = Vec::new();
     let bridge_profiles=crate::self_hosted::profiles()?;
     for tracker in &TRACKERS {
-        if matches!(tracker.id,"redmine"|"mantis") {
+        if matches!(tracker.id,"redmine"|"mantis"|"generic") {
             for profile in bridge_profiles.iter().filter(|p|p.family==tracker.id) {
                 targets.push(SearchTarget {tracker:tracker.id,server:crate::self_hosted::server(&profile.base_url).ok_or(Error::Stale)?.into(),repository:Some(profile.base_url.clone()),label:format!("{} · {}",tracker.name,profile.base_url)});
                 if targets.len()>16 {return Err("Issue search supports at most16server/profile selections.".into());}
@@ -756,7 +757,7 @@ pub fn search_page_cursor(
                 .is_some_and(|tail| !tail.is_empty() && tail.bytes().all(|b| b.is_ascii_digit()))
         };
         let endpoint = match target.tracker {
-            "redmine"|"mantis" => crate::self_hosted::identity(&issue) && issue.self_hosted.as_ref().is_some_and(|p|p.family==target.tracker&&Some(&p.base_url)==target.repository.as_ref()&&crate::self_hosted::server(&p.base_url)==Some(target.server.as_str())),
+            "redmine"|"mantis"|"generic" => crate::self_hosted::identity(&issue) && issue.self_hosted.as_ref().is_some_and(|p|p.family==target.tracker&&Some(&p.base_url)==target.repository.as_ref()&&crate::self_hosted::server(&p.base_url)==Some(target.server.as_str())),
             "fogbugz" => crate::fogbugz::identity(&issue) && issue.fogbugz.as_ref().is_some_and(|p| p.host==target.server),
             "github" => path.rsplit_once("/issues/").is_some_and(|(base, tail)| {
                 base.starts_with("repos/")

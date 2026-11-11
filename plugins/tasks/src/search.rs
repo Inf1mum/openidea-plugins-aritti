@@ -132,7 +132,7 @@ impl Search {
         let Some(mut selected) = choose(&targets)? else {
             return Ok(None);
         };
-        if matches!(targets[selected].tracker,"redmine"|"mantis") {let Some(next)=contextual_query(&targets[selected],&query)? else{return Ok(None);};query=next;}
+        if matches!(targets[selected].tracker,"redmine"|"mantis"|"generic") {let Some(next)=contextual_query(&targets[selected],&query)? else{return Ok(None);};query=next;}
         let (mut page, mut force) = (1, false);
         let mut cursor: Option<String> = None;
         for _ in 0..MAX_STEPS {
@@ -308,7 +308,7 @@ impl Search {
                     force = false;
                 }
                 "@query" => {
-                    let next=if matches!(target.tracker,"redmine"|"mantis") {contextual_query(target,&query)?}else{query_input()?};
+                    let next=if matches!(target.tracker,"redmine"|"mantis"|"generic") {contextual_query(target,&query)?}else{query_input()?};
                     let Some(next) = next else {
                         return Ok(None);
                     };
@@ -322,7 +322,7 @@ impl Search {
                         return Ok(None);
                     };
                     selected = next;
-                    if matches!(targets[selected].tracker,"redmine"|"mantis") {let Some(next)=contextual_query(&targets[selected],&query)? else{return Ok(None);};query=next;}
+                    if matches!(targets[selected].tracker,"redmine"|"mantis"|"generic") {let Some(next)=contextual_query(&targets[selected],&query)? else{return Ok(None);};query=next;}
                     page = 1;
                     cursor = None;
                     force = false;

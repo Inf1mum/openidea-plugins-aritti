@@ -356,6 +356,9 @@ installations under different URL prefixes retain distinct task identities.
 [Setup, supported query parameters and server contracts](adapters/SELF_HOSTED.md)
 include the exact profile format.
 
+The `generic` family covers other REST trackers through a user-declared JSON-pointer or
+Java-regex contract: see [adapters/GENERIC.md](adapters/GENERIC.md).
+
 Search Issues offers those servers with actual documented filter parameters and
 up to five50-result pages. Redmine uses server status metadata and offset/limit;
 Mantis requires a project and reads that project's status/workflow metadata.

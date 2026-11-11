@@ -67,3 +67,8 @@ parity from these tests. Concrete remaining source/adapter/native acceptance
 journeys are in /tmp/parity-editor-tools.md, /tmp/parity-properties-compiler-profile.md,
 /tmp/parity-ideolog-live.md, /tmp/parity-quarkus-qute.md,
 /tmp/parity-fogbugz-bridge.md and /tmp/parity-self-hosted-bridge.md.
+
+UPDATE 2026-11-11 (resumed): the Generic adapter above is now tested (11/11 bridge
+tests pass) and natively wired as the `generic` family in plugins/tasks
+(self_hosted.rs, trackers.rs, search.rs, settings.schema.json, adapters/GENERIC.md).
+Bugzilla/Trac dropped by decision. Full installer CLI and real-host smoke not run.

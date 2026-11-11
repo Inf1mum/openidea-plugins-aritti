@@ -674,7 +674,7 @@ impl Tasks {
             }
             // A fresh explicit credential-bridge search renews its non-secret
             // event/profile proof while preserving local task time/branch/context.
-            if matches!(issue.tracker.as_deref(),Some("fogbugz"|"redmine"|"mantis")) {
+            if matches!(issue.tracker.as_deref(),Some("fogbugz"|"redmine"|"mantis"|"generic")) {
                 if let Some(existing)=tasks.tasks.iter_mut().chain(tasks.issues.iter_mut()).find(|t|t.id==id) {
                     existing.summary=issue.summary.clone(); existing.description=issue.description.clone();
                     existing.url=issue.url.clone(); existing.api=issue.api.clone(); existing.fogbugz=issue.fogbugz.clone(); existing.self_hosted=issue.self_hosted.clone();
@@ -1106,7 +1106,7 @@ fn refresh_issues(project: &Project, quiet: bool) -> Result<(), Error> {
             }
         }
 
-        let retained_bridge: Vec<_> = tasks.issues.iter().filter(|t| matches!(t.tracker.as_deref(),Some("fogbugz"|"redmine"|"mantis"))).cloned().collect();
+        let retained_bridge: Vec<_> = tasks.issues.iter().filter(|t| matches!(t.tracker.as_deref(),Some("fogbugz"|"redmine"|"mantis"|"generic"))).cloned().collect();
         tasks.issues = fetched.issues;
         tasks.issues.extend(retained_bridge);
         Ok(())
