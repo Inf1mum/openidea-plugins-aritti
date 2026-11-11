@@ -23,13 +23,13 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F17 | OpenAPI | Full compatibility report | A-M | partial (breaking-change report; oneOf/anyOf, constraints, security not analysed) |
 | F18 | OpenAPI | Draft spec from framework mappings | A-L | |
 | F19 | OpenAPI | Staged generation apply/Undo on desktop | U | |
-| F20 | GitLab | GFM mentions/emoji/math, persistent drafts, timeline | A-M | partial (mentions/emoji, math source, local drafts; native diff-line add open) |
+| F20 | GitLab | GFM mentions/emoji/math, persistent drafts, timeline | A-M | partial (mentions/emoji, math source, local drafts; draft-note request fields verified vs GitLab docs, never run live; native diff-line add open) |
 | F21 | GitLab | Self-hosted servers, named multi-account | A-M | |
 | F22 | GitLab | Native Review Mode, git-log actions | H | |
 | F23 | GitLab | No live account/glab acceptance | U | |
 | F24 | Dependency Audit | PyPI markers/groups/pylock | A-M | partial (pylock, pyproject/PEP 735 pins; markers not evaluated) |
 | F25 | Dependency Audit | Workspace/link/alias graph | A-M | partial (npm: aliases, workspaces/link local rows) |
-| F26 | Dependency Audit | Coordinate-to-declaration binding; more build profiles | A-M | partial (direct binding + chains; uv.lock/poetry.lock fixed against real uv/pydantic/poetry lockfiles; npm/yarn/pnpm lockfiles untested on real files) |
+| F26 | Dependency Audit | Coordinate-to-declaration binding; more build profiles | A-M | partial (direct binding + chains; uv.lock/poetry.lock/Yarn v1+berry/npm v3/pnpm v9 checked against real files and fixed; workspace link targets not followed in chains) |
 | F27 | Dependency Audit | Ignore-profile import/export, safe-coordinate rows | A-S | done (import/export + checked/skipped rows on Scan Project; Maven/Gradle/sbt imports lack rows) |
 | F28 | Dependency Audit | Vulnerable-call analysis Java/Kotlin/Python | A-L | |
 | F29 | Dependency Audit | Native Problems Security tab, semantic member queries | H | |
@@ -47,11 +47,11 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F41 | Tasks | Generic family real-host smoke; no live tenant for any bridge | U | partial (installer check done) |
 | F42 | Tasks | Owned JQL editor; other trackers need bridges | A-S | done (`jql:` prefix); Bugzilla/Trac dropped |
 | F43 | Quarkus | LS broker desktop acceptance; other OS/profiles; multi-module | U | |
-| F44 | Quarkus | Config overlay: new unsaved files, YAML, third-party sources | A-M | partial (saved + dirty YAML, .env, config/ sources; YAML ordinals 255/265 unconfirmed; live JDT LS tests not run) |
+| F44 | Quarkus | Config overlay: new unsaved files, YAML, third-party sources | A-M | partial (saved + dirty YAML, .env, config/ sources; ordinals 255/265/260/250/295/100 verified against SmallRye; live JDT LS tests not run) |
 | F45 | Quarkus | Qute Java-embedded routing, custom roots, inherited data model | A-L | partial (unresolved template warnings, suffixes, data-model completion; inherited/generic models open; no template-root property exists) |
 | F46 | Quarkus | JAX-RS roots/custom annotations; scheduler expressions | A-M | partial (@Scheduled checks, effective REST path) |
 | F47 | Quarkus | MPJava diagnostics while config dirty (upstream LS limit) | H | |
-| F48 | Kubernetes | Complete built-in/CRD schemas, admission/CEL, defaults | A-L | partial (CRD pruning/int-or-string/scope checks; null handling unconfirmed; built-in schemas, admission/CEL open) |
+| F48 | Kubernetes | Complete built-in/CRD schemas, admission/CEL, defaults | A-L | partial (CRD pruning/int-or-string/scope checks; null on non-nullable = Info per docs, source not read; built-in schemas, admission/CEL open) |
 | F49 | Kubernetes | Kustomize transformed/flow/remote refs; generated identity | A-M | partial (generator/replacement refs, inline patch selectors, bases cycles, helm valuesFile) |
 | F50 | Kubernetes | Label graph affinity/node-label models, escaped scalar edits | A-S | done (affinity/spread links + single-line quoted escaped scalars; multiline/block still refused) |
 | F51 | Helm | Go-template scope, tpl/include, OCI registry intelligence | A-L | partial (.Values nav, include/template nav, with/range scope; else-branch scope conservative) |
@@ -61,7 +61,7 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F55 | DDEV/Kubernetes | Native Database/debugger/remote/Windows acceptance | U | |
 | F56 | Initializr | ZIP timestamps/modes; non-start.spring.io grants | A-S | partial (modes/mtime done; grants not) |
 | F57 | Initializr | Linux/Windows exclusive-commit profiles never run | U | |
-| F58 | Initializr | Add Starters effective build models | A-M | partial (Gradle platform BOM/catalog, Maven aggregator module pick, unmanaged explicit versions; metadata field names inferred from code) |
+| F58 | Initializr | Add Starters effective build models | A-M | partial (Gradle platform BOM/catalog, Maven aggregator module pick, unmanaged explicit versions; metadata field names verified vs real start.spring.io) |
 | F59 | Initializr | Native New Project wizard, JDK/SDK config, IDE build import | H | |
 | F60 | Runtime | External-library/overloaded source semantics | A-L | partial (conditions/configprops source links, overload matching; tree view still lenient) |
 | F61 | Runtime | Remote/JMX management transport | A-L | |
@@ -94,9 +94,9 @@ Counted from the family reports; class and size are judgment calls, not report d
 | F88 | Shell | Cross-file registry, dynamic registration, inherited availability | A-L | partial (inherited availability, duplicate provenance; inherited groups, conventional availability open) |
 | F89 | Shell | Native terminal command-spec hooks | H | |
 | F90 | WS | QName refs across XML/WSDL/XSD, effective context | A-L | partial (XSD attribute/content-model rules, WSDL QName navigation/warnings) |
-| F91 | WS | Full XPath validation, WSDL generation, OXM/CXF semantics | A-L | partial (XSD rules, WSDL QNames, dynamic-wsdl pairs, void @ResponsePayload warning UNVERIFIED against docs; DefaultWsdl11Definition literals open) |
-| F92 | Twig | Trait/embed/namespaced loader, macro-parameter Rename | A-M | partial (`use`d blocks, templateNamespaces, reviewed macro-param rename; twig.paths open) |
-| F93 | Twig | Formatter, custom delimiters | A-M | partial (literal Lexer delimiters in single-project setups; twig.yaml option unconfirmed) |
+| F91 | WS | Full XPath validation, WSDL generation, OXM/CXF semantics | A-L | partial (XSD rules, WSDL QNames, dynamic-wsdl pairs, void @ResponsePayload is Info (Spring-WS ignores it); DefaultWsdl11Definition literals in progress) |
+| F92 | Twig | Trait/embed/namespaced loader, macro-parameter Rename | A-M | partial (`use`d blocks, templateNamespaces, twig.paths + env overrides + falsy-namespace rule verified vs TwigBundle, reviewed macro-param rename; list form in progress) |
+| F93 | Twig | Formatter, custom delimiters | A-M | partial (literal Lexer delimiters in single-project setups; no twig.yaml option found in TwigBundle docs page) |
 | F94 | Twig | Dynamic context, extension types | A-L | partial (controller render() literal variables for completion/definition; compact()/array() and @ns templates open) |
 | F95 | Twig | Embedded type resolution, Enter/pairing, debugger mapping, plugin-lexer rendering | H | |
 | F96 | Symfony | Service/route/template/domain reference models, reviewed Rename | A-L | partial (Doctrine links, autowiring alias navigation, missing-route warning, translation domains) |
