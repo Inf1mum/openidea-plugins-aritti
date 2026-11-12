@@ -340,17 +340,36 @@ pub(super) fn eligible(doc: &Document, selection: Range) -> bool {
         .is_some()
 }
 pub(super) fn resolve(pending: &Pending, doc: &Document) -> Result<FileAction, Error> {
-    resolve_with(
+    let project = current(pending, doc)?;
+    let class = parse_class(&doc.text, &doc.path).ok_or(Error::Stale)?;
+    let renamed = std::cell::RefCell::new(None::<(String, String)>);
+    let mapper_plan = std::cell::RefCell::new(None::<mapstruct_links::Plan>);
+    let mut action = resolve_with(
         pending,
         doc,
         |old| {
-            host::input(
+            let new = host::input(
                 "New source-local attribute name (this file only)",
                 Some(old),
-            )
+            )?;
+            if let Some(new) = &new {
+                *renamed.borrow_mut() = Some((old.to_owned(), new.clone()));
+            }
+            Ok(new)
         },
-        |preview| ui_kit::prompts::confirm_exact("Rename source-local JPA attribute?", preview),
-    )
+        |preview| {
+            let Some((old, new)) = renamed.borrow().clone() else { return Ok(false) };
+            let plan = projection_links::rename_plan_for(&project, &pending.root, &class, &[], &old, &new);
+            let shown = format!("{preview}{}", plan.preview());
+            *mapper_plan.borrow_mut() = Some(plan);
+            ui_kit::prompts::confirm_exact("Rename source-local JPA attribute?", &shown)
+        },
+    )?;
+    if let Some(plan) = mapper_plan.into_inner() {
+        plan.verify(&project)?;
+        plan.extend(&mut action)?;
+    }
+    Ok(action)
 }
 pub(super) fn resolve_with(
     pending: &Pending,

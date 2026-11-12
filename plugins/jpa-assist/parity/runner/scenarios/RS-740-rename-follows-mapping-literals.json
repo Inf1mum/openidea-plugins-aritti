@@ -1,0 +1,92 @@
+{
+  "id": "RS-740",
+  "rows": [],
+  "claimIds": [],
+  "verifies": {},
+  "kindExerciser": true,
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/Gizmo.java",
+        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.Column;\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.NamedAttributeNode;\nimport jakarta.persistence.NamedEntityGraph;\nimport java.lang.Long;\nimport java.lang.String;\n\n@Entity\n@NamedEntityGraph(name = \"Gizmo.withTitle\", attributeNodes = @NamedAttributeNode(\"title\"))\npublic class Gizmo {\n\n    @Id\n    private Long id;\n\n    @Column(name = \"title\")\n    private String title;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/dto/GizmoDto.java",
+        "content": "package com.example.shop.dto;\n\npublic record GizmoDto(\n        Long id,\n        String name\n) {\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/mapper/GizmoMapper.java",
+        "content": "package com.example.shop.mapper;\n\nimport com.example.shop.domain.Gizmo;\nimport com.example.shop.dto.GizmoDto;\nimport org.mapstruct.Mapper;\nimport org.mapstruct.Mapping;\n\n@Mapper\npublic interface GizmoMapper {\n    @Mapping(source = \"title\", target = \"name\")\n    GizmoDto toDto(Gizmo gizmo);\n\n    @Mapping(source = \"name\", target = \"title\")\n    Gizmo toEntity(GizmoDto dto);\n}\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Gizmo.java",
+    "position": {
+      "line": 19,
+      "col": 22
+    }
+  },
+  "action": {
+    "title": "Rename source-local JPA attribute with preview…"
+  },
+  "prompts": [
+    {
+      "input": "label"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "input",
+        "titleContains": "new source-local attribute name"
+      },
+      {
+        "kind": "confirm",
+        "messageContains": "GizmoMapper"
+      }
+    ],
+    "resultFile": [
+      {
+        "path": "src/main/java/com/example/shop/domain/Gizmo.java",
+        "contains": [
+          "private String label;"
+        ],
+        "notContains": [
+          "private String title;"
+        ]
+      },
+      {
+        "path": "src/main/java/com/example/shop/mapper/GizmoMapper.java",
+        "contains": [
+          "source = \"label\", target = \"name\"",
+          "source = \"name\", target = \"label\""
+        ],
+        "notContains": [
+          "\"title\""
+        ]
+      },
+      {
+        "path": "src/main/java/com/example/shop/dto/GizmoDto.java",
+        "contains": [
+          "String name"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true,
+    "cancelEach": true
+  },
+  "note": "Kind exerciser, no documented claim: the source-local rename also renames the first segment of the @Mapping source literal (the entity is the method's source type) and of the target literal (the entity is the return type) in the mapper whose types are proved by its imports; the DTO side name stays."
+}

@@ -1,0 +1,46 @@
+{
+  "id": "RS-746",
+  "rows": [],
+  "claimIds": [],
+  "verifies": {},
+  "kindExerciser": true,
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/Parcel.java",
+        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Parcel {\n\n    @Id\n    private Long id;\n\n    private String name;\n\n    private String color;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/dto/ParcelDto.java",
+        "content": "package com.example.shop.dto;\n\npublic record ParcelDto(\n        Long id,\n        String label,\n        String color\n) {\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/mapper/ParcelMapper.java",
+        "content": "package com.example.shop.mapper;\n\nimport com.example.shop.domain.Parcel;\nimport com.example.shop.dto.ParcelDto;\nimport org.mapstruct.InheritInverseConfiguration;\nimport org.mapstruct.Mapper;\nimport org.mapstruct.Mapping;\n\n@Mapper\npublic interface ParcelMapper {\n    @Mapping(source = \"label\", target = \"name\")\n    Parcel toEntity(ParcelDto dto);\n\n    @InheritInverseConfiguration\n    ParcelDto toDto(Parcel parcel);\n}\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Parcel.java",
+    "anchor": "class Parcel"
+  },
+  "action": {
+    "title": "Synchronize linked DTOs with this entity…"
+  },
+  "prompts": [
+    {
+      "pick": "toDtos"
+    }
+  ],
+  "expect": {
+    "resolveErrorContains": "already in sync",
+    "noFilesChanged": true
+  },
+  "note": "Kind exerciser, no documented claim: the pair (name, label) is read from toEntity and also reaches the @InheritInverseConfiguration method."
+}

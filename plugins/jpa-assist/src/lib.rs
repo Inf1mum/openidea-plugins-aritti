@@ -12,6 +12,8 @@
 //! - The Persistence tool window lists the project's entities.
 
 mod attribute_info;
+#[path = "mapstruct_index.rs"]
+mod mapstruct_index;
 mod auditing_checks;
 mod build;
 mod datasource_facts;
@@ -1252,6 +1254,8 @@ impl JpaAssist {
             }
         }
 
+        let entity_names: std::collections::HashSet<String> = self.entities().iter().map(|class| class.name.clone()).collect();
+        self.artifacts.link_mapped(project, &files, &entity_names);
         self.artifacts.sort();
         self.scanned = true;
         Ok(())
@@ -1910,7 +1914,7 @@ impl DiagnosticsProvider for JpaAssist {
     }
 }
 
-register_plugin!(JpaAssist, providers, diagnostics, hover, views, file_actions, syntax, injections);
+register_plugin!(JpaAssist, providers, diagnostics, hover, views, file_actions, syntax, injections, indexing);
 
 #[cfg(test)]
 mod tests {

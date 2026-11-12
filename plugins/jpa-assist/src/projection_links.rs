@@ -297,11 +297,13 @@ pub(super) fn linked_types(project: &Project, root: &str, conventions: &Conventi
     if files.len() >= SCAN_LIMIT as usize {
         return Err("The project has too many sources to discover linked projections.".into());
     }
+    let (mut mapped, mut scanned) = (Vec::new(), Vec::new());
     for file in files {
         if Instant::now() >= deadline {
             return Err("Linked projection discovery timed out.".into());
         }
         let file = if file.starts_with('/') { file } else { format!("{}/{file}", root.trim_end_matches('/')) };
+        scanned.push(file.clone());
         if file == own_path || path(&file).as_deref() != Some(file.as_str()) || !inside(root, &file) {
             continue;
         }
@@ -310,6 +312,13 @@ pub(super) fn linked_types(project: &Project, root: &str, conventions: &Conventi
         let text = project.read_file(&file)?;
         if text.len() > MAX_TEXT {
             continue;
+        }
+        if !entity.kotlin {
+            for name in mapstruct_links::dto_names(&text, &qualified) {
+                if !mapped.contains(&name) {
+                    mapped.push(name);
+                }
+            }
         }
         let by_comment_possible = conventions.link.is_some() && text.contains("/**");
         if !by_name && !by_comment_possible {
@@ -337,6 +346,10 @@ pub(super) fn linked_types(project: &Project, root: &str, conventions: &Conventi
             found.push(linked);
         }
     }
+    let known: Vec<String> = found.iter().map(|item| item.path.clone()).collect();
+    let (by_mapper, unreadable) = mapstruct_links::extra_linked(project, &scanned, &mapped, own_path, &known)?;
+    found.extend(by_mapper);
+    skipped.extend(unreadable);
     found.sort_by(|a, b| a.path.cmp(&b.path));
     Ok((found, skipped))
 }
@@ -513,6 +526,23 @@ fn verify_unchanged(project: &Project, linked: &[&Linked]) -> Result<(), Error> 
     Ok(())
 }
 
+fn qualified_name(package: Option<&str>, name: &str) -> String {
+    package.map_or_else(|| name.to_owned(), |package| format!("{package}.{name}"))
+}
+
+/// Per linked type, the `(entity attribute, property)` pairs that MapStruct mappers match by `@Mapping`; none when mappers cannot be read.
+fn mapped_pairs(project: &Project, root: &str, entity: &Class, linked: &[Linked]) -> Vec<Vec<(String, String)>> {
+    let sources = mapstruct_links::java_sources(project, root).and_then(|files| mapstruct_links::mappers(project, &files)).unwrap_or_default();
+    let entity_name = qualified_name(entity.package.as_deref(), &entity.name);
+    linked.iter().map(|item| mapstruct_links::correspondences(&sources, &entity_name, &qualified_name(item.package.as_deref(), &item.name))).collect()
+}
+
+pub(super) fn rename_plan_for(project: &Project, root: &str, entity: &Class, linked: &[Linked], old: &str, new: &str) -> mapstruct_links::Plan {
+    let mut renames = vec![(qualified_name(entity.package.as_deref(), &entity.name), old.to_owned(), new.to_owned())];
+    renames.extend(linked.iter().filter(|item| item.has_property(old)).map(|item| (qualified_name(item.package.as_deref(), &item.name), old.to_owned(), new.to_owned())));
+    mapstruct_links::rename_plan(project, root, &renames)
+}
+
 pub(super) fn resolve_sync(pending: &Pending, doc: &Document, project: &Project) -> Result<FileAction, Error> {
     resolve_sync_of(pending, doc, project, Kind::Projection)
 }
@@ -526,6 +556,9 @@ pub(super) fn resolve_sync_of(pending: &Pending, doc: &Document, project: &Proje
         return Err(format!("{}{}", no_linked_message(kind), skipped_note(&skipped)).into());
     }
     let (to_linked, noun) = (if kind == Kind::Dto { "toDtos" } else { "toProjections" }, kind.noun());
+    let pairs = mapped_pairs(project, &pending.root, &class, &linked);
+    let renamed_by_mapping = |index: usize, attribute: &str| pairs[index].iter().any(|(a, d)| a == attribute && linked[index].has_property(d));
+    let owned_by_mapping = |index: usize, property: &str| pairs[index].iter().any(|(a, d)| d == property && class.attributes.iter().any(|attribute| &attribute.name == a));
     let directions = [
         PickItem::new(to_linked, &format!("Entity to {noun}: add or remove properties in linked types")),
         PickItem::new("toEntity", &format!("{} to entity: add attributes the entity lacks", crate::model::capitalize(noun))),
@@ -539,13 +572,13 @@ pub(super) fn resolve_sync_of(pending: &Pending, doc: &Document, project: &Proje
                 let interface = matches!(item.shape, Shape::JavaInterface | Shape::KotlinInterface);
                 let wanted = entity_properties(&class, interface);
                 for (name, ty) in &wanted {
-                    if !item.props.iter().any(|prop| &prop.name == name) {
+                    if !item.props.iter().any(|prop| &prop.name == name) && !renamed_by_mapping(index, name) {
                         items.push(PickItem::new(&format!("add:{index}:{name}"), &format!("Add {name} to {}", item.name)).description(ty));
                         plan.push((index, Change::Add { name: name.clone(), ty: ty.clone() }));
                     }
                 }
                 for prop in &item.props {
-                    if !class.attributes.iter().any(|attribute| attribute.name == prop.name) {
+                    if !class.attributes.iter().any(|attribute| attribute.name == prop.name) && !owned_by_mapping(index, &prop.name) {
                         items.push(PickItem::new(&format!("remove:{index}:{}", prop.name), &format!("Remove {} from {}", prop.name, item.name)).description("no longer an attribute of the entity"));
                         plan.push((index, Change::Remove(prop.name.clone())));
                     }
@@ -556,7 +589,7 @@ pub(super) fn resolve_sync_of(pending: &Pending, doc: &Document, project: &Proje
             let mut seen: Vec<(String, String)> = Vec::new();
             for (index, item) in linked.iter().enumerate() {
                 for prop in &item.props {
-                    if class.attributes.iter().any(|attribute| attribute.name == prop.name) {
+                    if class.attributes.iter().any(|attribute| attribute.name == prop.name) || owned_by_mapping(index, &prop.name) {
                         continue;
                     }
                     if let Some((_, other)) = seen.iter().find(|(name, _)| *name == prop.name) {
@@ -625,9 +658,11 @@ pub(super) fn resolve_sync_of(pending: &Pending, doc: &Document, project: &Proje
             documents.push((item.path.clone(), converted));
         }
     }
+    let matched = pairs.iter().flatten().filter(|(a, d)| a != d).map(|(a, d)| format!("{a} = {d}")).collect::<Vec<_>>();
+    let matched = if matched.is_empty() { String::new() } else { format!("\nMatched through MapStruct @Mapping, not added or removed: {}\n", matched.join(", ")) };
     if !ui_kit::prompts::confirm_exact(
         &format!("Synchronize entity and linked {noun}?"),
-        &format!("Entity: {}\nSource version: {}\n{}{}\n\n{preview}Only the listed changes are applied; nothing is renamed or removed from the entity. Plain DTO classes are not parsed.", doc.path, doc.version, linked.iter().map(|l| format!("Linked: {}\n", l.path)).collect::<String>(), skipped_note(&skipped)),
+        &format!("Entity: {}\nSource version: {}\n{}{}{matched}\n\n{preview}Only the listed changes are applied; nothing is renamed or removed from the entity. Plain DTO classes are not parsed.", doc.path, doc.version, linked.iter().map(|l| format!("Linked: {}\n", l.path)).collect::<String>(), skipped_note(&skipped)),
     )? {
         return Err(Error::Cancelled);
     }
@@ -654,6 +689,7 @@ pub(super) fn resolve_rename_of(pending: &Pending, doc: &Document, project: &Pro
         return Err(format!("{}{}", no_linked_message(kind), skipped_note(&skipped)).into());
     }
     let renamed = std::cell::RefCell::new(None::<(String, String)>);
+    let mapper_plan = std::cell::RefCell::new(None::<mapstruct_links::Plan>);
     let mut action = attribute_refactor::resolve_with(
         pending,
         doc,
@@ -675,6 +711,9 @@ pub(super) fn resolve_rename_of(pending: &Pending, doc: &Document, project: &Pro
             if extra.is_empty() {
                 extra = format!("\nNo linked type declares `{old}`.{}", skipped_note(&skipped));
             }
+            let plan = rename_plan_for(project, &pending.root, &class, &linked, &old, &new);
+            extra.push_str(&plan.preview());
+            *mapper_plan.borrow_mut() = Some(plan);
             ui_kit::prompts::confirm_exact(&format!("Rename attribute and update linked {noun}?"), &format!("{preview}\n{extra}"))
         },
     )?;
@@ -685,6 +724,10 @@ pub(super) fn resolve_rename_of(pending: &Pending, doc: &Document, project: &Pro
     }
     let project = current(pending, doc)?;
     verify_unchanged(&project, &linked.iter().collect::<Vec<_>>())?;
+    if let Some(plan) = mapper_plan.into_inner() {
+        plan.verify(&project)?;
+        plan.extend(&mut action)?;
+    }
     action.title = format!("{} and update linked {noun}", action.title);
     Ok(action)
 }

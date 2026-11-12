@@ -62,6 +62,10 @@ mod mapper_more_action;
 mod mapper_naming;
 #[path = "dto_links.rs"]
 mod dto_links;
+#[path = "mapstruct_model.rs"]
+pub(crate) mod mapstruct_model;
+#[path = "mapstruct_links.rs"]
+pub(crate) mod mapstruct_links;
 #[path = "dto_validation.rs"]
 mod dto_validation;
 #[path = "entity_view_window.rs"]
