@@ -4,7 +4,7 @@
 <link rel="stylesheet" href="./resources/property-grid.css"><link rel="stylesheet" href="./designer.css">
 <script defer src="./resources/native-icons.js"></script><script defer src="./resources/icons.js"></script>
 <script defer src="./resources/widgets.js"></script><script defer src="./resources/controls.js"></script>
-<script defer src="./resources/property-grid.js"></script><script defer src="./creator.js"></script><script defer src="./attribute.js"></script><script defer src="./relationship.js"></script><script defer src="./migration.js"></script><script defer src="./designer.js"></script>
+<script defer src="./resources/property-grid.js"></script><script defer src="./creator.js"></script><script defer src="./palette.js"></script><script defer src="./attribute.js"></script><script defer src="./relationship.js"></script><script defer src="./migration.js"></script><script defer src="./designer.js"></script>
 </head><body class="ui-embedded-panel">
 <div class="designer-shell">
   <div class="ui-toolbar" role="toolbar" aria-label="Persistence inspection">
@@ -12,22 +12,52 @@
     <button class="ui-button ui-button--quiet" id="reset" type="button" disabled>Reset</button>
   </div>
   <div class="ui-tabs" role="tablist" aria-label="Designer pages">
-    <button type="button" id="tab-inspect" role="tab" aria-controls="inspect-panel" aria-selected="true">Inspect</button>
+    <button type="button" id="tab-inspect" role="tab" aria-controls="inspect-panel" aria-selected="true">Designer</button>
     <button type="button" id="tab-create" role="tab" aria-controls="create-panel" aria-selected="false" tabindex="-1">Create</button>
     <button type="button" id="tab-changes" role="tab" aria-controls="changes-panel" aria-selected="false" tabindex="-1">Changes</button>
     <button type="button" id="tab-migration" role="tab" aria-controls="migration-panel" aria-selected="false" tabindex="-1">Migration</button>
   </div>
   <main class="ui-scroll-area">
     <section id="inspect-panel" role="tabpanel" aria-labelledby="tab-inspect">
+      <section class="designer-section" id="palette" aria-labelledby="palette-title">
+        <h2 class="designer-heading" id="palette-title">JPA Palette</h2>
+        <input class="ui-input" type="search" id="palette-search" aria-label="Search palette" placeholder="Search palette" autocomplete="off">
+        <div class="palette-body">
+          <div id="palette-categories" class="palette-categories" role="listbox" aria-label="Palette categories" aria-orientation="vertical"></div>
+          <ul id="palette-items" class="palette-items" aria-label="Palette items"></ul>
+        </div>
+        <p id="palette-count" class="ui-help" aria-live="polite"></p>
+        <p id="palette-detail" class="ui-help" role="status" aria-live="polite"></p>
+      </section>
+      <section class="designer-section" id="inspector" aria-labelledby="inspector-title">
+      <h2 class="designer-heading" id="inspector-title">JPA Inspector</h2>
       <div class="ui-empty" id="empty"><p>Open a persistence source file, then inspect its current declaration.</p></div>
       <div id="source" hidden>
         <div class="source-caption"><strong id="class-name"></strong><span class="ui-badge" id="role"></span></div>
         <p id="source-path" class="ui-help"></p>
-        <label class="ui-field" for="attribute">Attribute<select class="ui-select" id="attribute"></select></label>
+        <div class="inspector-head">
+          <label class="ui-field inspector-attribute" for="attribute">Attribute<select class="ui-select" id="attribute"></select></label>
+          <details class="inspector-actions" id="inspector-actions"><summary class="ui-button" aria-haspopup="true">Actions</summary>
+            <div class="inspector-menu" role="group" aria-label="Inspector actions">
+              <button class="ui-button ui-button--quiet" type="button" id="action-prepare-column" disabled>Preview column edits</button>
+              <button class="ui-button ui-button--quiet" type="button" id="action-prepare-relationship" disabled>Preview relationship edits</button>
+              <button class="ui-button ui-button--quiet" type="button" id="action-add-attribute">Add attribute…</button>
+              <button class="ui-button ui-button--quiet" type="button" id="action-discard" disabled>Discard edits</button>
+            </div>
+          </details>
+        </div>
         <p id="inspection-note" class="ui-help"></p>
-        <form id="properties-form" novalidate><fieldset class="ui-property-grid" id="properties"><legend class="ui-visually-hidden">Column mapping</legend></fieldset></form>
-        <p class="ui-help" id="provenance"></p>
-        <div class="designer-actions"><button class="ui-button ui-button--primary" id="prepare" type="button" disabled>Preview Changes</button></div>
+        <input class="ui-input" type="search" id="inspector-search" aria-label="Search properties" placeholder="Search properties" autocomplete="off">
+        <p id="inspector-no-match" class="ui-help" hidden>No properties match.</p>
+        <details class="ui-disclosure inspector-section" id="section-general" open><summary>General</summary>
+          <fieldset class="ui-property-grid" id="general-properties"><legend class="ui-visually-hidden">General</legend></fieldset>
+        </details>
+        <details class="ui-disclosure inspector-section" id="section-column" open><summary>Column mapping</summary>
+          <form id="properties-form" novalidate><fieldset class="ui-property-grid" id="properties"><legend class="ui-visually-hidden">Column mapping</legend></fieldset></form>
+          <div class="designer-actions"><button class="ui-button ui-button--primary" id="prepare" type="button" disabled>Preview Changes</button></div>
+        </details>
+        <details class="ui-disclosure inspector-section" id="section-association" open hidden><summary>Association</summary>
+          <fieldset class="ui-property-grid" id="association-properties"><legend class="ui-visually-hidden">Association</legend></fieldset>
         <form id="relationship-form" class="creator-form" hidden novalidate>
           <fieldset id="relationship-fields" class="creator-fields creator-group"><legend>Relationship mapping</legend>
             <label class="ui-field" id="rel-fetch-row">Fetch<select class="ui-select" id="rel-fetch"><option value="LAZY">Lazy</option><option value="EAGER">Eager</option></select></label>
@@ -52,6 +82,8 @@
           <p id="rel-validation" class="ui-help" role="status" aria-live="polite"></p>
           <button class="ui-button ui-button--primary" id="prepare-relationship" type="button" disabled>Preview Relationship Changes</button>
         </form>
+        </details>
+        <p class="ui-help" id="provenance"></p>
         <details id="add-attribute" class="creator-form"><summary>Add attribute</summary>
           <form id="attribute-form" novalidate>
             <fieldset id="attribute-configuration" class="creator-fields">
@@ -89,6 +121,7 @@
           </form>
         </details>
       </div>
+      </section>
     </section>
     <section id="create-panel" role="tabpanel" aria-labelledby="tab-create" hidden>
       <p class="ui-help">Create a persistence class in an empty Java or Kotlin editor. The source path determines its name, package and language.</p>

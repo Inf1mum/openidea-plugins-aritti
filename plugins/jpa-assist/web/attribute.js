@@ -58,6 +58,10 @@
     if (next === key) return;
     key = next; reset();
   }
+  function preset({kind: next, enumerated}) {
+    $('attr-kind').value = next; $('attr-enum').checked = !!enumerated;
+    dependencies(); change();
+  }
   form.addEventListener('submit', event => event.preventDefault());
   function changed() {
     dirty = true; dependencies();
@@ -69,7 +73,7 @@
   form.addEventListener('input', changed); form.addEventListener('change', changed);
   dependencies();
   window.jpaAttribute = Object.freeze({
-    configure, draft, reset,
+    configure, draft, reset, preset,
     onChange(callback) { change = callback; },
     dirty() { return dirty; },
     valid() { return !!key && form.checkValidity(); },

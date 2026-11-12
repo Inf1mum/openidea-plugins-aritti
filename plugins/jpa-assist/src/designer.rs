@@ -700,7 +700,11 @@ impl State {
             .selected
             .as_deref()
             .and_then(|name| crate::relationship_edit::properties(doc, name).ok().flatten());
-        json!({"root":root,"empty":false,"relationship":relationship,"source":SourceIdentity {root:root.into(),path:doc.path.clone(),language:if class.kotlin {Language::Kotlin} else {Language::Java},version:doc.version},
+        let association = self
+            .selected
+            .as_deref()
+            .and_then(|name| crate::relationship_edit::association(doc, name).ok().flatten());
+        json!({"root":root,"empty":false,"relationship":relationship,"association":association,"source":SourceIdentity {root:root.into(),path:doc.path.clone(),language:if class.kotlin {Language::Kotlin} else {Language::Java},version:doc.version},
             "className":class.name,"role":format!("{:?}",class.kind),"attributes":class.attributes.iter().map(|a|json!({"name":a.name,"type":a.ty})).collect::<Vec<_>>(),
             "selected":self.selected,"properties":props,"inspectionNote":note,"pending":pending,"creation":null,
             "canApply":true,"provenance":"Current source declaration; inherited, compiler, XML and database mappings remain unresolved."})
@@ -1467,6 +1471,10 @@ mod tests {
         assert_eq!(inspected["model"]["selected"], "pets");
         let keys: Vec<_> = inspected["model"]["relationship"].as_array().unwrap().iter().map(|p| p["key"].as_str().unwrap().to_owned()).collect();
         assert_eq!(keys, ["fetch", "orphanRemoval", "cascade", "orderBy"]);
+        let association = &inspected["model"]["association"];
+        assert_eq!(association["cardinality"], "OneToMany");
+        assert_eq!(association["owningSide"], false);
+        assert_eq!(association["mappedBy"], "owner");
         let reply = request(&mut plugin, &host, 3, json!({"kind":"prepare-relationship","changes":[{"property":"orphanRemoval","value":true},{"property":"fetch","value":"EAGER"}]})).unwrap();
         assert_eq!(reply["ok"], true, "{reply}");
         assert_eq!(host.editor_text(), source);

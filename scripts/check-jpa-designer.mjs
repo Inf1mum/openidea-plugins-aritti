@@ -31,6 +31,64 @@ try {
     const reply = async (model, extra = {}) => page.evaluate(({model, extra}) => { const r = window.requests.at(-1); window.reply({...r, ok: true, model, ...extra}); }, {model, extra});
     await reply(fixture);
     assert.equal(await page.getByLabel('Precision', {exact: true}).isDisabled(), true);
+    const palette = page.locator('#palette');
+    assert.deepEqual(await page.getByRole('option').allTextContents(), ['Attributes', 'Lifecycle Callbacks', 'Indexes', 'Named Query', 'Utilities']);
+    assert.deepEqual(await page.locator('#palette-items .palette-item > span').allTextContents(), ['Association', 'Basic Type', 'Element Collection', 'Embedded', 'Embedded Id', 'Enum', 'Id', 'Transient', 'Version', 'From DB']);
+    assert.equal(await page.getByRole('option', {name: 'Attributes'}).getAttribute('aria-selected'), 'true');
+    assert.equal(await page.locator('.palette-item[aria-disabled=true]').count(), 2, 'Version and From DB are disabled, attribute kinds are enabled once a source is loaded');
+    await page.getByRole('button', {name: /^From DB/}).click({force: true});
+    assert.match(await page.locator('#palette-detail').textContent(), /live database connection/);
+    assert.equal(await page.locator('#add-attribute').evaluate(d => d.open), false, 'a disabled item opens nothing');
+    await page.getByRole('option', {name: 'Attributes'}).focus();
+    await page.keyboard.press('ArrowDown');
+    assert.equal(await page.getByRole('option', {name: 'Lifecycle Callbacks'}).getAttribute('aria-selected'), 'true');
+    assert.deepEqual(await page.locator('#palette-items .palette-item > span').allTextContents(), ['@PrePersist', '@PostPersist', '@PreUpdate', '@PostUpdate', '@PreRemove', '@PostRemove', '@PostLoad']);
+    await page.getByRole('button', {name: /^@PreUpdate/}).click();
+    assert.match(await page.locator('#palette-detail').textContent(), /Add @PreUpdate callback/);
+    await page.getByRole('option', {name: 'Utilities'}).click();
+    assert.deepEqual(await page.locator('#palette-items .palette-item > span').allTextContents(), ['equals() and hashCode()', 'toString()']);
+    await page.getByLabel('Search palette').fill('query');
+    assert.deepEqual(await page.locator('#palette-items .palette-item > span').allTextContents(), ['Named Query'], 'search spans every category');
+    assert.match(await page.locator('#palette-count').textContent(), /1 of 21/);
+    await page.getByLabel('Search palette').fill('zzz');
+    assert.match(await palette.locator('#palette-items').textContent(), /No palette items match/);
+    await page.getByLabel('Search palette').press('Escape');
+    assert.equal(await page.getByLabel('Search palette').inputValue(), '');
+    await page.getByRole('option', {name: 'Attributes'}).click();
+    await page.getByRole('button', {name: /^Enum/}).click();
+    assert.equal(await page.locator('#add-attribute').evaluate(d => d.open), true);
+    assert.equal(await page.locator('#attr-kind').inputValue(), 'none');
+    assert.equal(await page.locator('#attr-enum').isChecked(), true);
+    assert.equal(await page.locator('#attr-name').evaluate(e => e === document.activeElement), true);
+    await page.getByRole('button', {name: /^Association/}).click();
+    assert.equal(await page.locator('#attr-kind').inputValue(), 'ManyToOne');
+    assert.equal(await page.locator('#prepare-attribute').isDisabled(), true, 'a preset kind still needs a name');
+    await page.evaluate(() => window.jpaAttribute.reset());
+    await page.locator('#add-attribute > summary').click();
+    assert.equal(await page.locator('#inspector-actions').evaluate(d => d.open), false);
+    await page.locator('#inspector-actions > summary').click();
+    assert.equal(await page.getByRole('button', {name: 'Preview column edits'}).isDisabled(), true);
+    await page.getByRole('button', {name: 'Add attribute…'}).click();
+    assert.equal(await page.locator('#add-attribute').evaluate(d => d.open), true);
+    assert.equal(await page.locator('#inspector-actions').evaluate(d => d.open), false);
+    await page.locator('#add-attribute > summary').click();
+    assert.equal(await page.locator('#general-properties').getByLabel('Name', {exact: true}).inputValue(), 'name');
+    assert.equal(await page.locator('#general-properties').getByLabel('Name', {exact: true}).isDisabled(), true);
+    assert.equal(await page.locator('#general-properties').getByLabel('Type', {exact: true}).inputValue(), 'String');
+    assert.equal(await page.locator('#general-properties').getByLabel('Transient', {exact: true}).isChecked(), false);
+    assert.equal(await page.locator('#section-association').isVisible(), false, 'no Association section for a basic attribute');
+    assert.equal(await page.locator('#section-general').evaluate(d => d.open), true);
+    await page.locator('#section-general > summary').click();
+    assert.equal(await page.locator('#section-general').evaluate(d => d.open), false);
+    await page.locator('#section-general > summary').click();
+    await page.getByLabel('Search properties').fill('length');
+    assert.equal(await page.locator('#section-general').isVisible(), false);
+    assert.equal(await page.getByLabel('Length', {exact: true}).isVisible(), true);
+    assert.equal(await page.getByLabel('Precision', {exact: true}).isVisible(), false);
+    await page.getByLabel('Search properties').fill('nothing-like-this');
+    assert.equal(await page.locator('#inspector-no-match').isVisible(), true);
+    await page.getByLabel('Search properties').fill('');
+    assert.equal(await page.getByLabel('Precision', {exact: true}).isVisible(), true);
     await page.getByLabel('Length', {exact: true}).fill('120');
     assert.equal(await page.getByRole('button', {name: 'Inspect at Caret', exact: true}).isDisabled(), true);
     assert.equal(await page.getByRole('button', {name: 'Preview Changes', exact: true}).isEnabled(), true);
@@ -87,7 +145,7 @@ try {
     assert.equal(await page.locator('#attr-name').inputValue(), '');
     await page.locator('#add-attribute > summary').click();
     assert.equal(await page.locator('#relationship-form').isVisible(), false);
-    const relationship = {...fixture, relationship: [
+    const relationship = {...fixture, attributes: [{name: 'name', type: 'List<Line>'}], association: {cardinality: 'OneToMany', owningSide: false, mappedBy: 'owner', mappedByResolved: true}, relationship: [
       {key: 'fetch', label: 'Fetch', value: 'LAZY', origin: 'annotation-default', editable: true},
       {key: 'orphanRemoval', label: 'Orphan removal', value: false, origin: 'annotation-default', editable: true},
       {key: 'cascade', label: 'Cascade', value: ['PERSIST'], origin: 'explicit', editable: true},
@@ -95,6 +153,16 @@ try {
     await page.getByRole('button', {name: 'Inspect at Caret', exact: true}).click();
     await reply(relationship);
     assert.equal(await page.locator('#relationship-form').isVisible(), true);
+    assert.equal(await page.locator('#section-association').isVisible(), true);
+    assert.equal(await page.getByLabel('Cardinality', {exact: true}).inputValue(), 'One to many');
+    assert.equal(await page.getByLabel('Collection type', {exact: true}).inputValue(), 'List');
+    assert.equal(await page.getByLabel('Owning side', {exact: true}).isChecked(), false);
+    assert.equal(await page.getByLabel('Mapped by', {exact: true}).inputValue(), 'owner');
+    await page.screenshot({path: resolve(output, `${engine}-${theme}-${width}x${height}-designer.png`)});
+    await page.locator('main').evaluate(m => { m.scrollTop = 0; });
+    await page.screenshot({path: resolve(output, `${engine}-${theme}-${width}x${height}-designer-top.png`)});
+    assert.equal(await page.getByLabel('Mapped by', {exact: true}).isDisabled(), true);
+    assert.equal(await page.getByLabel('Fetch type', {exact: true}).inputValue(), 'LAZY');
     assert.equal(await page.locator('#rel-optional-row').isVisible(), false);
     assert.equal(await page.locator('#prepare-relationship').isDisabled(), true);
     await page.locator('#rel-orphan').check();
@@ -107,7 +175,7 @@ try {
     assert.equal(await page.locator('#rel-orphan').isChecked(), true, 'Rejected preview retains relationship edits');
     await page.getByRole('button', {name: 'Reset', exact: true}).click();
     assert.equal(await page.locator('#rel-orphan').isChecked(), false);
-    const mapping = {...fixture, relationship: [
+    const mapping = {...fixture, association: {cardinality: 'ManyToMany', owningSide: true, mappedBy: null, mappedByResolved: true}, relationship: [
       {key: 'fetch', label: 'Fetch', value: 'LAZY', origin: 'annotation-default', editable: true},
       {key: 'cascade', label: 'Cascade', value: [], origin: 'annotation-default', editable: true},
       {key: 'joinTable', label: 'Join table', value: {name: 'order_tag', joinColumn: 'order_id', inverseColumn: 'tag_id'}, origin: 'explicit', editable: true},
@@ -130,7 +198,7 @@ try {
     assert.equal(await page.locator('#rel-order-by').inputValue(), 'name DESC, id', 'Rejected preview retains join and ordering edits');
     await page.getByRole('button', {name: 'Reset', exact: true}).click();
     assert.equal(await page.locator('#rel-join-table-inverse').inputValue(), 'tag_id');
-    const toOne = {...fixture, relationship: [
+    const toOne = {...fixture, association: {cardinality: 'ManyToOne', owningSide: true, mappedBy: null, mappedByResolved: true}, relationship: [
       {key: 'fetch', label: 'Fetch', value: 'EAGER', origin: 'annotation-default', editable: true},
       {key: 'optional', label: 'Optional', value: true, origin: 'annotation-default', editable: true},
       {key: 'cascade', label: 'Cascade', value: [], origin: 'annotation-default', editable: true},
@@ -150,7 +218,7 @@ try {
     await page.getByRole('button', {name: 'Inspect at Caret', exact: true}).click();
     await reply(fixture);
     assert.equal(await page.locator('#relationship-form').isVisible(), false);
-    await page.getByRole('tab', {name: 'Inspect', exact: true}).focus();
+    await page.getByRole('tab', {name: 'Designer', exact: true}).focus();
     await page.keyboard.press('ArrowRight');
     assert.equal(await page.getByRole('tab', {name: 'Create', exact: true}).getAttribute('aria-selected'), 'true');
     await page.getByRole('button', {name: 'Use Open File', exact: true}).click();
@@ -218,12 +286,12 @@ try {
     await page.getByRole('button', {name: 'Apply to Source', exact: true}).click();
     await reply({...fixture, source: {...target, version: 2}, className: 'Customer', attributes: [{name: 'key', type: 'java.lang.Integer'}], selected: 'key', properties: [], creation: null});
     assert.match(await page.locator('#status').textContent(), /Source updated/);
-    assert.deepEqual(await page.getByRole('tab').allTextContents(), ['Inspect', 'Create', 'Changes', 'Migration']);
+    assert.deepEqual(await page.getByRole('tab').allTextContents(), ['Designer', 'Create', 'Changes', 'Migration']);
     await page.getByRole('tab', {name: 'Changes', exact: true}).focus();
     await page.keyboard.press('ArrowRight');
     assert.equal(await page.getByRole('tab', {name: 'Migration', exact: true}).getAttribute('aria-selected'), 'true');
     await page.keyboard.press('ArrowRight');
-    assert.equal(await page.getByRole('tab', {name: 'Inspect', exact: true}).getAttribute('aria-selected'), 'true');
+    assert.equal(await page.getByRole('tab', {name: 'Designer', exact: true}).getAttribute('aria-selected'), 'true');
     await page.keyboard.press('ArrowLeft');
     assert.equal(await page.getByRole('tab', {name: 'Migration', exact: true}).getAttribute('aria-selected'), 'true');
     await page.keyboard.press('Home');
@@ -326,4 +394,4 @@ try {
   }
 } finally { await browser.close(); }
 writeFileSync(resolve(output, `${engine}-results.json`), JSON.stringify(results, null, 2));
-console.log(`PASS ${engine}: ${results.length} Designer layouts, mapping and class creation, typed IDs/generators, migration plan/SQL preview, stale replies and keyboard navigation`);
+console.log(`PASS ${engine}: ${results.length} Designer layouts, palette and inspector, mapping and class creation, typed IDs/generators, migration plan/SQL preview, stale replies and keyboard navigation`);

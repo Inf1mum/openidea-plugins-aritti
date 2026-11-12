@@ -32,6 +32,11 @@
     $('apply').disabled = busy || !pending || !model?.canApply;
     $('discard').disabled = busy;
     if (grid) grid.disable(busy || pending);
+    $('action-prepare-column').disabled = $('prepare').disabled;
+    $('action-prepare-relationship').disabled = $('prepare-relationship').disabled;
+    $('action-discard').disabled = $('reset').disabled;
+    $('action-add-attribute').disabled = busy || pending || !root || !model || !!model.empty;
+    window.jpaPalette.configure(!model || model.empty || !model.source ? 'Inspect an entity first.' : busy || pending ? 'Finish the current request or preview first.' : '');
     mig.freeze(busy); $('mig-plan').disabled = busy || !root;
     const dirtyMessage = 'Preview or reset your edits before inspecting another attribute.';
     if (!busy && !pending && dirty) $('status').textContent = dirtyMessage;
@@ -52,6 +57,48 @@
     const context = model?.source ? {path: model.source.path, version: model.source.version, attribute: model.selected} : null;
     bridge.postMessage(JSON.stringify({channel: 'jpa-designer', protocol: 1, frame, sequence: seq, root, context, operation}));
   }
+  const readOnly = (key, label, value, detail) => ({key, label, value, origin: 'explicit', editable: false, detail});
+  const cardinality = {ManyToOne: 'Many to one', OneToMany: 'One to many', OneToOne: 'One to one', ManyToMany: 'Many to many'};
+  function inspectorRows(next) {
+    const picked = next.attributes.find(a => a.name === next.selected);
+    const fetch = (next.relationship || []).find(p => p.key === 'fetch');
+    const grids = window.uiKitPropertyGrid;
+    grids.render($('general-properties'), [
+      readOnly('name', 'Name', picked?.name ?? '', 'Read-only here'),
+      readOnly('type', 'Type', picked?.type ?? '', 'Declared type, read-only here'),
+      readOnly('transient', 'Transient', false, 'Transient attributes are not listed'),
+      readOnly('mutable', 'Mutable', '', 'Not read from source'),
+      readOnly('fetchType', 'Fetch type', fetch?.value ?? '', fetch ? 'Edit it under Association' : 'Applies to associations'),
+      readOnly('fetchMode', 'Fetch mode', '', 'Not read from source'),
+    ]);
+    const association = next.association;
+    $('section-association').hidden = !association;
+    if (!association) { $('association-properties').replaceChildren(); return; }
+    const type = picked?.type || '', collection = type.includes('<') ? type.slice(0, type.indexOf('<')) : '';
+    grids.render($('association-properties'), [
+      readOnly('cardinality', 'Cardinality', cardinality[association.cardinality] || association.cardinality, 'Declared relationship annotation'),
+      readOnly('collectionType', 'Collection type', collection, collection ? 'From the declared type' : 'Not a collection'),
+      readOnly('owningSide', 'Owning side', association.owningSide, association.owningSide ? 'No mappedBy declared' : 'mappedBy declared'),
+      readOnly('mappedBy', 'Mapped by', association.mappedBy ?? '', association.mappedByResolved ? (association.mappedBy ? 'Declared in source' : 'Not declared') : 'Expression not understood'),
+    ]);
+  }
+  function filterInspector() {
+    const q = $('inspector-search').value.trim().toLowerCase();
+    let shown = 0, total = 0;
+    for (const section of document.querySelectorAll('.inspector-section')) {
+      const rows = [...section.querySelectorAll('.ui-property-row, #relationship-fields > :is(.ui-field, .ui-check, fieldset)')].filter(row => !row.hidden);
+      let matches = 0;
+      for (const row of rows) { const match = !q || row.textContent.toLowerCase().includes(q); row.classList.toggle('is-filtered', !match); if (match) matches++; }
+      const keep = !q || matches > 0 || section.querySelector('summary').textContent.toLowerCase().includes(q);
+      section.classList.toggle('is-filtered', !keep);
+      if (q && keep) section.open = true;
+      if (!section.hidden) { total++; if (keep) shown++; }
+    }
+    $('inspector-no-match').hidden = !q || shown > 0 || total === 0;
+  }
+  function openAttributeForm() {
+    $('add-attribute').open = true; $('attr-name').focus(); $('add-attribute').scrollIntoView({block: 'nearest'});
+  }
   function render(next) {
     if (model && model.root !== next.root) mig.clear();
     model = next; root = next.root;
@@ -66,13 +113,14 @@
       $('inspection-note').textContent = next.inspectionNote || '';
       $('attribute').replaceChildren(...next.attributes.map(a => { const option = document.createElement('option'); option.value = a.name; option.textContent = `${a.name}: ${a.type}`; option.selected = a.name === next.selected; return option; }));
       grid = window.uiKitPropertyGrid.render($('properties'), next.properties, controls);
-    } else { grid = null; $('properties').replaceChildren(); }
+      inspectorRows(next);
+    } else { grid = null; $('properties').replaceChildren(); $('general-properties').replaceChildren(); $('association-properties').replaceChildren(); $('section-association').hidden = true; }
     if (next.pending) {
       $('preview-path').textContent = next.source.path;
       $('before').textContent = next.pending.before; $('after').textContent = next.pending.after;
       tab('changes');
     }
-    controls();
+    controls(); filterInspector();
   }
   if (bridge) bridge.onMessage(raw => {
     let message; try { message = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch { return; }
@@ -103,6 +151,13 @@
     if (message.ok && completed === 'bind-creation') tab('create');
     if (message.ok && completed === 'reset') { creator.reset(); attr.reset(); rel.reset(); tab(model?.creation ? 'create' : 'inspect'); controls(); }
   });
+  window.jpaPalette.onChoose(choice => { attr.preset(choice); openAttributeForm(); });
+  $('inspector-search').addEventListener('input', filterInspector);
+  $('inspector-search').addEventListener('keydown', event => { if (event.key === 'Escape' && event.target.value) { event.preventDefault(); event.target.value = ''; filterInspector(); } });
+  for (const [id, run] of [['action-prepare-column', () => $('prepare').click()], ['action-prepare-relationship', () => $('prepare-relationship').click()], ['action-add-attribute', openAttributeForm], ['action-discard', () => $('reset').click()]]) {
+    $(id).addEventListener('click', () => { $('inspector-actions').open = false; run(); });
+  }
+  $('inspector-actions').addEventListener('keydown', event => { if (event.key === 'Escape' && event.currentTarget.open) { event.currentTarget.open = false; event.currentTarget.querySelector('summary').focus(); } });
   $('inspect').addEventListener('click', () => send({kind: 'inspect'}, 'inspect'));
   $('bind-creation').addEventListener('click', () => send({kind: 'bind-creation'}, 'bind-creation'));
   $('prepare-class').addEventListener('click', () => { if (creator.valid()) send({kind: 'prepare-class', draft: creator.draft()}, 'prepare-class'); });

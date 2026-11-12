@@ -317,6 +317,23 @@ pub(crate) fn properties(doc: &Document, name: &str) -> Result<Option<Vec<Value>
     Ok(Some(out))
 }
 
+/// Read-only facts shown next to the editable relationship properties; `Ok(None)` for non-relationships.
+pub(crate) fn association(doc: &Document, name: &str) -> Result<Option<Value>, Error> {
+    let Some(target) = target(doc, name)? else {
+        return Ok(None);
+    };
+    let mapped_by = model::arg(&doc.text, &target.masked, &target.annotation, "mappedBy");
+    let mapped_by_name = mapped_by
+        .and_then(|raw| raw.strip_prefix('"').and_then(|r| r.strip_suffix('"')))
+        .filter(|n| !n.contains(['"', '\\']));
+    Ok(Some(json!({
+        "cardinality": relation_name(target.relation),
+        "owningSide": mapped_by.is_none(),
+        "mappedBy": mapped_by_name,
+        "mappedByResolved": mapped_by.is_none() || mapped_by_name.is_some(),
+    })))
+}
+
 fn args_edits(
     doc: &Document,
     masked: &str,
