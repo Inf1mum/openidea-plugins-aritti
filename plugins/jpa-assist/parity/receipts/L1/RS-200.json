@@ -1,0 +1,89 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-200/prompts.json",
+      "sha256": "348c87e06649f56189e90af5076eae845b9e9b718c46e2d8eccd9e68686aaeab"
+    },
+    {
+      "path": "artifacts/RS-200/preview.txt",
+      "sha256": "bc2a4e1515c412718a93a7f7693a7f7693744d999bb9419fe08ccdac52d31304"
+    },
+    {
+      "path": "artifacts/RS-200/edits.json",
+      "sha256": "2710d67668ea5f84322aea03ea3dc383261a289b412e2743f910d44270acd04b"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "created",
+      "path": "src/main/java/com/example/shop/domain/ActiveFlagConverter.java"
+    }
+  ],
+  "claimIds": [
+    "G025-C2",
+    "G025-C3"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "823e3f932a3f52b59b397b5f2c53763f3e9263c4fa51ae2e808f763c22d47e5e",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 2180 bytes, 1 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 entity attribute type",
+      "detail": "quickPick \"Attribute to convert (identifiers, versions, enums, temporals, LOBs, relationships and annotated attributes are not offered)\" options [\"active\", \"nickname\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 2 database column type",
+      "detail": "quickPick \"Database column type (Y in AttributeConverter<X, Y>)\" options [\"String\", \"Integer\", \"Long\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 3 class name",
+      "detail": "input \"Converter class name (same package)\" options []",
+      "pass": true
+    },
+    {
+      "check": "prompt 4 auto-applicable or explicit",
+      "detail": "quickPick \"How should the converter be applied?\" options [\"explicit\", \"auto\"]",
+      "pass": true
+    },
+    {
+      "check": "created file src/main/java/com/example/shop/domain/ActiveFlagConverter.java",
+      "detail": "created true; missing []",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree 21338c360e498c52181aa2d53aa62d51dac3e98383ef6407dc1f6c6ec334813b vs setup 21338c360e498c52181aa2d53aa62d51dac3e98383ef6407dc1f6c6ec334813b; still different []",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G025"
+  ],
+  "scenario": "RS-200",
+  "scenarioSha256": "e37803b633316a0f110c2bbaf8d88e1eaae5ee790504ca6fec1b3454ad3c7143",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "21338c360e498c52181aa2d53aa62d51dac3e98383ef6407dc1f6c6ec334813b",
+  "status": "pass",
+  "treeHashAfterRestore": "21338c360e498c52181aa2d53aa62d51dac3e98383ef6407dc1f6c6ec334813b",
+  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6"
+}

@@ -1,0 +1,68 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-323/prompts.json",
+      "sha256": "dfff67ba4c72a6b6d3ab9c3e7fc43a01bb6e7f1606e514f57b06552b8b94af8f"
+    },
+    {
+      "path": "artifacts/RS-323/preview.txt",
+      "sha256": "5c0b393bd12b0eef2849371cb0a03332fc6c75d4c91f3f0a301e5a56cafee8bd"
+    },
+    {
+      "path": "artifacts/RS-323/edits.json",
+      "sha256": "e26b54827d76a074dfcdd9b1cbbc1a7c5ecbb1e9113b5ff9d9106ab855fe26d2"
+    },
+    {
+      "path": "artifacts/RS-323/result-src__main__resources__db__migration__V20240131__naming.sql",
+      "sha256": "b3987ea8420968c5d8209f807c5551fc01187dd31a9a2f67fff85075a716f7f5"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "created",
+      "path": "db/jpa-schema-baseline.next.json"
+    },
+    {
+      "change": "created",
+      "path": "src/main/resources/db/migration/V20240131__naming.sql"
+    }
+  ],
+  "claimIds": [
+    "G032-C2",
+    "G127-C1"
+  ],
+  "fixture": "envers-flyway-liquibase",
+  "fixtureTreeHashAfter": "687656a4da611b1c530a76c2322b34c214425b901f6babd16b737ebf31b220c9",
+  "fixtureTreeHashBefore": "45aed493755025a396ea6b12397dbf7d0bb79d3c5f3f00d3c6ec342c85499b55",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "pre-action \"Create schema baseline…\" applied",
+      "detail": "1 prompts, 1 operations",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/resources/db/migration/V20240131__naming.sql",
+      "detail": "1153 bytes",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G032",
+    "G127"
+  ],
+  "scenario": "RS-323",
+  "scenarioSha256": "331009b63cd124e449139ce78f5326d5c46e9a06d3b1bd428b932008abd682d4",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "a466fe11cd112611e9ba98d4f8837e68ae13aec796e4d04e07cff90efc52ee28",
+  "status": "pass",
+  "treeHashAfterRestore": null,
+  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6"
+}

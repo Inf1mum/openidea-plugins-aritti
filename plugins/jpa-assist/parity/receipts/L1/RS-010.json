@@ -1,0 +1,81 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-010/diagnostics.json",
+      "sha256": "9129f1e5276f3d59bf203836e512a93a2f80124878e765088b8d8b8ca2ba06e5"
+    }
+  ],
+  "changedFiles": [],
+  "claimIds": [
+    "F005-C1",
+    "G020-C1",
+    "G021-C1",
+    "G022-C1"
+  ],
+  "fixture": "mapstruct-lombok-dto",
+  "fixtureTreeHashAfter": "73884411f199a9fc556959605344b11f1bf38ed58f99e4f178644623d2c87449",
+  "fixtureTreeHashBefore": "1eec857dae020a4b37294e6f89a2cd0410163626d63e515b529f6303ab130c34",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "diagnostics",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "diagnostic jpa-lombok-constructors src/main/java/com/example/crm/defects/LombokBuilderDefect.java:null",
+      "detail": "13 diagnostics in total",
+      "pass": true
+    },
+    {
+      "check": "diagnostic jpa-lombok-constructors src/main/java/com/example/crm/defects/LombokAllArgsDefect.java:null",
+      "detail": "13 diagnostics in total",
+      "pass": true
+    },
+    {
+      "check": "diagnostic jpa-lombok-data src/main/java/com/example/crm/defects/LombokDataDefect.java:null",
+      "detail": "13 diagnostics in total",
+      "pass": true
+    },
+    {
+      "check": "diagnostic jpa-lombok-equals src/main/java/com/example/crm/defects/LombokEqualsDefect.java:null",
+      "detail": "13 diagnostics in total",
+      "pass": true
+    },
+    {
+      "check": "diagnostic jpa-lombok-to-string src/main/java/com/example/crm/defects/LombokToStringDefect.java:null",
+      "detail": "13 diagnostics in total",
+      "pass": true
+    },
+    {
+      "check": "no diagnostic jpa-lombok-data src/main/java/com/example/crm/domain/Account.java",
+      "detail": "absence check",
+      "pass": true
+    },
+    {
+      "check": "no diagnostic jpa-lombok-constructors src/main/java/com/example/crm/domain/Account.java",
+      "detail": "absence check",
+      "pass": true
+    },
+    {
+      "check": "no diagnostic jpa-lombok-constructors src/main/java/com/example/crm/domain/Contact.java",
+      "detail": "absence check",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "F005",
+    "G020",
+    "G021",
+    "G022"
+  ],
+  "scenario": "RS-010",
+  "scenarioSha256": "f9797e62796e3eb06460296e9fe0332318d36a01c62af4c5b1678f4a848888d2",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "73884411f199a9fc556959605344b11f1bf38ed58f99e4f178644623d2c87449",
+  "status": "pass",
+  "treeHashAfterRestore": null,
+  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6"
+}

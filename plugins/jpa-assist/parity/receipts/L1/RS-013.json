@@ -1,0 +1,65 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-013/prompts.json",
+      "sha256": "7a748076f01ca34f23f5829a32925f219cdaa15b8b4a732b1b2950d8642bc79d"
+    },
+    {
+      "path": "artifacts/RS-013/clipboard.txt",
+      "sha256": "4a4aabe80d4d27114ee6cbae432368a40e8c035b22f4fc1669b8a14f79a66a86"
+    }
+  ],
+  "changedFiles": [],
+  "claimIds": [],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "command",
+  "kindExerciser": true,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "command ran",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 SQL dialect choice",
+      "detail": "quickPick \"SQL dialect\" options [\"postgresql\", \"mysql\"]",
+      "pass": true
+    },
+    {
+      "check": "no files changed",
+      "detail": "0 changed, 0 workspace edits applied",
+      "pass": true
+    },
+    {
+      "check": "clipboard contains \"CREATE TABLE category\"",
+      "detail": "1 clipboard writes, 144 bytes",
+      "pass": true
+    },
+    {
+      "check": "clipboard contains \"PRIMARY KEY\"",
+      "detail": "1 clipboard writes, 144 bytes",
+      "pass": true
+    },
+    {
+      "check": "clipboard contains \"name VARCHAR\"",
+      "detail": "1 clipboard writes, 144 bytes",
+      "pass": true
+    }
+  ],
+  "rows": [],
+  "scenario": "RS-013",
+  "scenarioSha256": "2e66f18d17b330139fd85d4f270f7bfc36e601e6aa4be874ace73ec3cd4bd7e5",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "status": "pass",
+  "treeHashAfterRestore": null,
+  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6"
+}

@@ -1,0 +1,80 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-130/prompts.json",
+      "sha256": "80f122ec60ed5e401ecf84e102c1a53bda73e34c213bdd0591c1182f9df7889e"
+    },
+    {
+      "path": "artifacts/RS-130/preview.txt",
+      "sha256": "18ed4dde7c25da037c74a3d7533611f7608904e1c9e8f6f9ec49c8f3dfcaddb1"
+    },
+    {
+      "path": "artifacts/RS-130/edits.json",
+      "sha256": "150f42d473487643e57ecd73e4a24dd62adf6d19e4e6916a6c576a93ebc70345"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "created",
+      "path": "src/main/java/com/example/billing/domain/ClientRevisionRepository.java"
+    }
+  ],
+  "claimIds": [
+    "G058-C1",
+    "G058-C2",
+    "G058-C3"
+  ],
+  "fixture": "envers-flyway-liquibase",
+  "fixtureTreeHashAfter": "3bb602be51f13a2cbcc15f24d3f753b6621ebb67ee274f1ad3037c7004500221",
+  "fixtureTreeHashBefore": "45aed493755025a396ea6b12397dbf7d0bb79d3c5f3f00d3c6ec342c85499b55",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 1352 bytes, 1 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 matches the documented shape",
+      "detail": "input \"Revision repository name (same package)\" options []",
+      "pass": true
+    },
+    {
+      "check": "prompt 2 matches the documented shape",
+      "detail": "confirm \"Create revision repository?\" options []",
+      "pass": true
+    },
+    {
+      "check": "created file src/main/java/com/example/billing/domain/ClientRevisionRepository.java",
+      "detail": "created true; missing []",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree 45aed493755025a396ea6b12397dbf7d0bb79d3c5f3f00d3c6ec342c85499b55 vs setup 45aed493755025a396ea6b12397dbf7d0bb79d3c5f3f00d3c6ec342c85499b55; still different []",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G058"
+  ],
+  "scenario": "RS-130",
+  "scenarioSha256": "171a01f49f58aabd7dc4eed943fd62fa08fe7c1438acebd27ee2fe17937dd28b",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "45aed493755025a396ea6b12397dbf7d0bb79d3c5f3f00d3c6ec342c85499b55",
+  "status": "pass",
+  "treeHashAfterRestore": "45aed493755025a396ea6b12397dbf7d0bb79d3c5f3f00d3c6ec342c85499b55",
+  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6"
+}

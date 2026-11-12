@@ -1,0 +1,61 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-231/prompts.json",
+      "sha256": "e2ce0733121d22bb531d1c572c80f2c0af93c391e33676ad5f45833080f5de61"
+    },
+    {
+      "path": "artifacts/RS-231/clipboard.txt",
+      "sha256": "da2123baef5b86614a5f23211b77f8c2639b1d6afca1eae3ede6c5fb4c03291c"
+    }
+  ],
+  "changedFiles": [],
+  "claimIds": [
+    "G032-C2",
+    "G127-C1"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "3d0d550f3cc6e6f211a11ae15f344c836dec6d6d7f9993d42b47066acf786125",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "command",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "command ran",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "no files changed",
+      "detail": "0 changed, 0 workspace edits applied",
+      "pass": true
+    },
+    {
+      "check": "clipboard contains \"PetType\"",
+      "detail": "1 clipboard writes, 123 bytes",
+      "pass": true
+    },
+    {
+      "check": "clipboard contains \"birthDate\"",
+      "detail": "1 clipboard writes, 123 bytes",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G032",
+    "G127"
+  ],
+  "scenario": "RS-231",
+  "scenarioSha256": "301b00b35dd36442416ae06e48b782cc768cf78287bbf91b31f9f24cb4209f8e",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "3d0d550f3cc6e6f211a11ae15f344c836dec6d6d7f9993d42b47066acf786125",
+  "status": "pass",
+  "treeHashAfterRestore": null,
+  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6"
+}

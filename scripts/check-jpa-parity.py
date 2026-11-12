@@ -67,7 +67,7 @@ def claim_ids(key, claims_dir):
         return None
     doc = json.loads(path.read_text())
     items = doc.get('claims', []) if isinstance(doc, dict) else doc
-    return {c.get('id') if isinstance(c, dict) else c for c in items}
+    return {c.get('id') if isinstance(c, dict) else c for c in items if not isinstance(c, dict) or c.get('strength', 'explicit') == 'explicit'}
 
 
 def validate_documentation_case(key, case):

@@ -1,0 +1,62 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-310/prompts.json",
+      "sha256": "85d2bcb18a4160137aeadd69b71bbccf754905dc0b93694f05248c7cc525b9af"
+    },
+    {
+      "path": "artifacts/RS-310/preview.txt",
+      "sha256": "2654801d8dc20bff187a827feb2e45dc8a9fbb437f9a0ff3dc26f8bab39563d8"
+    },
+    {
+      "path": "artifacts/RS-310/edits.json",
+      "sha256": "a5d7cd486cb626da6e45e53c9202ca85bed4cd54d1f4c68289094e1cd50168c0"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "created",
+      "path": "db/jpa-schema-baseline.next.json"
+    },
+    {
+      "change": "created",
+      "path": "src/main/resources/db/changelog/1.2.3-SNAPSHOT+build4_1_2_3_SNAPSHOT.xml"
+    }
+  ],
+  "claimIds": [
+    "G120-C4"
+  ],
+  "fixture": "envers-flyway-liquibase",
+  "fixtureTreeHashAfter": "808d13f5837eebc80b6a9f11cd3a6a4f18a8b5e84ab3aa7a64807e5f85def60f",
+  "fixtureTreeHashBefore": "45aed493755025a396ea6b12397dbf7d0bb79d3c5f3f00d3c6ec342c85499b55",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "pre-action \"Create schema baseline…\" applied",
+      "detail": "1 prompts, 1 operations",
+      "pass": true
+    },
+    {
+      "check": "created file src/main/resources/db/changelog/1.2.3-SNAPSHOT+build4_1_2_3_SNAPSHOT.xml",
+      "detail": "created true; missing []",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G120"
+  ],
+  "scenario": "RS-310",
+  "scenarioSha256": "0f4ad0a8244096ac3be6fd64a634511e34086c44f72811ddf60a706ecdfa64c0",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "94d76a8573ba4db6c39d80195de2518978588804a5f2771eb257e17d0aa0fdf8",
+  "status": "pass",
+  "treeHashAfterRestore": null,
+  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6"
+}

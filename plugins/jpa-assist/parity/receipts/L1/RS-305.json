@@ -1,0 +1,57 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-305/prompts.json",
+      "sha256": "1bcbb8d6a0afbf65a9b0d751c73bb252603930d290e3a4de21aad0a078c26298"
+    },
+    {
+      "path": "artifacts/RS-305/preview.txt",
+      "sha256": "f1d37f4145c07d8b99b844946bed96011fb237daca91993b2a3c74d52667746f"
+    },
+    {
+      "path": "artifacts/RS-305/edits.json",
+      "sha256": "ece77ffa4d89d4dba180f5bb65f3b56d64464291620296028799193acce938e7"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "created",
+      "path": "db/jpa-schema-baseline.next.json"
+    },
+    {
+      "change": "created",
+      "path": "src/main/resources/db/migration/V20240131__init.sql"
+    }
+  ],
+  "claimIds": [
+    "G107-C2"
+  ],
+  "fixture": "envers-flyway-liquibase",
+  "fixtureTreeHashAfter": "853b0b6f318edb547f886c9533a8bac8617f0b0f1524f080161f68f748f97b25",
+  "fixtureTreeHashBefore": "45aed493755025a396ea6b12397dbf7d0bb79d3c5f3f00d3c6ec342c85499b55",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "created file src/main/resources/db/migration/V20240131__init.sql",
+      "detail": "created true; missing []",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G107"
+  ],
+  "scenario": "RS-305",
+  "scenarioSha256": "3cc2c28e68c243422e5fb09f273245a4d9007dcf5b1275b615e2835b0442d1c4",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "45aed493755025a396ea6b12397dbf7d0bb79d3c5f3f00d3c6ec342c85499b55",
+  "status": "pass",
+  "treeHashAfterRestore": null,
+  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6"
+}

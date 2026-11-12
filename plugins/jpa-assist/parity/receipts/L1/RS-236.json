@@ -1,0 +1,72 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-236/prompts.json",
+      "sha256": "e047ed5736ac729a38af3b70fd2be6bf8710b7e9b43a2914f1172c929beac50e"
+    },
+    {
+      "path": "artifacts/RS-236/preview.txt",
+      "sha256": "51e7019bd273f09618c11057fd6f9e88cbed27d9220b7baac0255e40b6e129de"
+    },
+    {
+      "path": "artifacts/RS-236/edits.json",
+      "sha256": "e3c162bcfb6cf392c71c2d021668f0ea7e88112d78281a13f6a42403b338d21b"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "created",
+      "path": "db/jpa-schema-baseline.next.json"
+    },
+    {
+      "change": "created",
+      "path": "src/main/resources/db/migration/V4__add_price.sql"
+    }
+  ],
+  "claimIds": [
+    "G126-C1"
+  ],
+  "fixture": "envers-flyway-liquibase",
+  "fixtureTreeHashAfter": "93ffc755248e524d72c18e729bf56f45a16679c1ef071e176c90bae5b22c64e3",
+  "fixtureTreeHashBefore": "45aed493755025a396ea6b12397dbf7d0bb79d3c5f3f00d3c6ec342c85499b55",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "pre-action \"Create schema baseline…\" applied",
+      "detail": "1 prompts, 1 operations",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 matches the documented shape",
+      "detail": "quickPick \"SQL dialect (no database connection)\" options [\"postgresql\", \"mysql\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 2 matches the documented shape",
+      "detail": "quickPick \"Also emit statements withheld by default (each is marked in the preview)\" options [\"needs-backfill\", \"data-loss\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 3 prompt for the SQL type of the custom-type column",
+      "detail": "input \"SQL type for column client.price (Java type Money); for example varchar(255), bigint, numeric(19,2); leave empty to withhold it\" options []",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G126"
+  ],
+  "scenario": "RS-236",
+  "scenarioSha256": "6ec3e7f46f23a4addd50cf04bc53009c06ac684b09ffb8da8799e9c175d68d1d",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "c192c17774e41585400f3181e012d1c80c03c3be0371215763b17779ecd43172",
+  "status": "pass",
+  "treeHashAfterRestore": null,
+  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6"
+}

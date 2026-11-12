@@ -1,0 +1,159 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-007/prompts.json",
+      "sha256": "948776b81004965aa5d029e050ff90b4780b855e74141185e0d6c705ce49b1d4"
+    },
+    {
+      "path": "artifacts/RS-007/preview.txt",
+      "sha256": "b1829fc505f5504ae6ad915ef676a764e73cfe75507a9bca3a1b50e792e0ce38"
+    },
+    {
+      "path": "artifacts/RS-007/edits.json",
+      "sha256": "0e95fe0c8b01f543a3d4c32fa88f49227abbe3e3e3a44c38b401314efbb789dc"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "created",
+      "path": "db/jpa-schema-baseline.next.json"
+    },
+    {
+      "change": "created",
+      "path": "src/main/resources/db/changelog/1.2.3-SNAPSHOT_1_2_3_SNAPSHOT.xml"
+    }
+  ],
+  "claimIds": [
+    "G112-C2",
+    "G116-C1",
+    "G116-C2",
+    "G116-C3",
+    "G116-C4",
+    "G120-C3"
+  ],
+  "fixture": "envers-flyway-liquibase",
+  "fixtureTreeHashAfter": "4330b312f7f977f6cd0f0fa47a9d8a020578b64044e35a9244b988cbe673b8af",
+  "fixtureTreeHashBefore": "45aed493755025a396ea6b12397dbf7d0bb79d3c5f3f00d3c6ec342c85499b55",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "pre-action \"Create schema baseline…\" applied",
+      "detail": "1 prompts, 1 operations",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 3295 bytes, 2 edits, restricted to [\"1.2.3-SNAPSHOT_1_2_3_SNAPSHOT.xml\"], missing []",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 danger levels are opt-in",
+      "detail": "quickPick \"Also emit changes withheld by default (each is marked in the preview)\" options [\"needs-backfill\", \"data-loss\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 2 changeSet author",
+      "detail": "input \"changeSet author\" options []",
+      "pass": true
+    },
+    {
+      "check": "prompt 3 changeSet id prefix",
+      "detail": "input \"changeSet id prefix (ids are <prefix>-<n>)\" options []",
+      "pass": true
+    },
+    {
+      "check": "prompt 4 changelog description",
+      "detail": "input \"Changelog description (ASCII letters and digits)\" options []",
+      "pass": true
+    },
+    {
+      "check": "prompt 5 unknown facts are reported, not guessed",
+      "detail": "confirm \"Incomplete schema information\" options []",
+      "pass": true
+    },
+    {
+      "check": "prompt 6 preview before saving",
+      "detail": "confirm \"Create Liquibase changelog?\" options []",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/resources/db/changelog/1.2.3-SNAPSHOT_1_2_3_SNAPSHOT.xml",
+      "detail": "2062 bytes",
+      "pass": true
+    },
+    {
+      "check": "created file src/main/resources/db/changelog/1.2.3-SNAPSHOT_1_2_3_SNAPSHOT.xml",
+      "detail": "created true; missing []",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree 79413f010e655f51a6f88c6e985c65df38b657a86b08d7b820982fb3e11324cb vs setup 79413f010e655f51a6f88c6e985c65df38b657a86b08d7b820982fb3e11324cb; still different []",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 1 of 6 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 2 of 6 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 3 of 6 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 4 of 6 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 5 of 6 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 6 of 6 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "stale buffer edit after the first prompt is refused",
+      "detail": "OutOfSync: the document changed meanwhile",
+      "pass": true
+    },
+    {
+      "check": "stale buffer edit at the final prompt is refused",
+      "detail": "OutOfSync: the document changed meanwhile",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G112",
+    "G116",
+    "G120"
+  ],
+  "scenario": "RS-007",
+  "scenarioSha256": "851e635a6007dd1593236257bff8d29379a3a9cc91807f3812d8d2c8344d55f1",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "79413f010e655f51a6f88c6e985c65df38b657a86b08d7b820982fb3e11324cb",
+  "status": "pass",
+  "treeHashAfterRestore": "79413f010e655f51a6f88c6e985c65df38b657a86b08d7b820982fb3e11324cb",
+  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6"
+}

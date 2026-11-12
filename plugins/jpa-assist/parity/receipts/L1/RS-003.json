@@ -1,0 +1,122 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-003/prompts.json",
+      "sha256": "5d9a0d0fa3f0c28ac584fcf6a987cf8f05a900b04c0645dda2c3ca0050459ee5"
+    },
+    {
+      "path": "artifacts/RS-003/preview.txt",
+      "sha256": "4d8050db7dfa3666062bd1fe519490692581dabb10614ec1216489b74dfd7d2b"
+    },
+    {
+      "path": "artifacts/RS-003/edits.json",
+      "sha256": "ece8cc6a014cfbd9f1ce97fd9861a5fa9fd1148b3bda454587604483f32b53d4"
+    },
+    {
+      "path": "artifacts/RS-003/result-src__main__java__com__example__shop__domain__Contact.java",
+      "sha256": "cf0f6daf0c7cd52d552fedadc31cf6ca52c2e2c18b0ab30a75ed247047354c63"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "created",
+      "path": "src/main/java/com/example/shop/domain/BaseContact.java"
+    },
+    {
+      "change": "modified",
+      "path": "src/main/java/com/example/shop/domain/Contact.java"
+    }
+  ],
+  "claimIds": [
+    "G019-C2",
+    "G019-C4"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "d1ef5adf5dfe06622b224e94b0b4bca35b13dd72a4bfbdb77e345ea8fac9d6bc",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 1239 bytes, 4 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 name of the generated class",
+      "detail": "input \"Mapped superclass name (same package)\" options []",
+      "pass": true
+    },
+    {
+      "check": "prompt 2 attributes the user chooses to move",
+      "detail": "quickPick \"Attributes to move (identifiers, versions, relationships and unknown annotations are not offered)\" options [\"label\", \"phone\", \"note\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 3 preview",
+      "detail": "confirm \"Extract mapped superclass?\" options []",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/java/com/example/shop/domain/Contact.java",
+      "detail": "465 bytes",
+      "pass": true
+    },
+    {
+      "check": "created file src/main/java/com/example/shop/domain/BaseContact.java",
+      "detail": "created true; missing []",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree 6aecd339e38419a98f3ee0a2062c6065467df67e15c3235710c45edde196bb63 vs setup 6aecd339e38419a98f3ee0a2062c6065467df67e15c3235710c45edde196bb63; still different []",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 1 of 3 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 2 of 3 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 3 of 3 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "stale buffer edit after the first prompt is refused",
+      "detail": "OutOfSync: the document changed meanwhile",
+      "pass": true
+    },
+    {
+      "check": "stale buffer edit at the final prompt is refused",
+      "detail": "OutOfSync: the document changed meanwhile",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G019"
+  ],
+  "scenario": "RS-003",
+  "scenarioSha256": "0375c786a855501a3c3a0f81b5acc65ee8be2c3fdee62569efae60607fd494b7",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "6aecd339e38419a98f3ee0a2062c6065467df67e15c3235710c45edde196bb63",
+  "status": "pass",
+  "treeHashAfterRestore": "6aecd339e38419a98f3ee0a2062c6065467df67e15c3235710c45edde196bb63",
+  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6"
+}

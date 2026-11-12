@@ -1,0 +1,75 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-114/prompts.json",
+      "sha256": "b2bf8e251683523a420ecb0c1b7eba2d26763565d567876e2f3e77db29620603"
+    },
+    {
+      "path": "artifacts/RS-114/preview.txt",
+      "sha256": "e6cd3e5558a24d6a0360e1819ced107393f1cb1344b8d530b6a4e8242dcc6223"
+    },
+    {
+      "path": "artifacts/RS-114/edits.json",
+      "sha256": "d1510a284c10c50ae154d4069ae3c021c61182913ce213406bea307c0d8f1462"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "created",
+      "path": "src/main/java/com/example/shop/domain/CategoryImmutableDto.java"
+    }
+  ],
+  "claimIds": [
+    "G059-C2",
+    "G068-C2"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "e9858ed08c8fdd00b5128a99cf22382375ff6a367c0a315aee0d4312e92541c2",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 683 bytes, 1 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/java/com/example/shop/domain/CategoryImmutableDto.java",
+      "detail": "113 bytes",
+      "pass": true
+    },
+    {
+      "check": "created file src/main/java/com/example/shop/domain/CategoryImmutableDto.java",
+      "detail": "created true; missing []",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98 vs setup d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98; still different []",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G059",
+    "G068"
+  ],
+  "scenario": "RS-114",
+  "scenarioSha256": "3a2a6584a517c54ab276d4053a84436660c8575f31e2289dc9590e38c354546e",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "status": "pass",
+  "treeHashAfterRestore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6"
+}

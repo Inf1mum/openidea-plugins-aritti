@@ -1,0 +1,82 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-131/prompts.json",
+      "sha256": "1e6edc2366f4708d4195106d7d6ef74fb6dcd152e7bbceae4f15885fa6a958d0"
+    },
+    {
+      "path": "artifacts/RS-131/preview.txt",
+      "sha256": "a20775adf616527575c1d6de1678d083743021c74b8cfdd391320323dc6e509c"
+    },
+    {
+      "path": "artifacts/RS-131/edits.json",
+      "sha256": "4aa539714634a2849fb156292936a07d02c747aaa919d9ad704cc75de9ea786f"
+    },
+    {
+      "path": "artifacts/RS-131/result-src__main__java__com__example__crm__service__AccountService.java",
+      "sha256": "6572afe88b23d32d939798e1ae51e09b2c8a375a5f8c8360f8a2c75f28bc5e11"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "modified",
+      "path": "src/main/java/com/example/crm/service/AccountService.java"
+    }
+  ],
+  "claimIds": [
+    "G130-C1"
+  ],
+  "fixture": "mapstruct-lombok-dto",
+  "fixtureTreeHashAfter": "9857ea2cbd13a6d8ce3abadeee2beced23ef7a7a2a46eaa64eab6afc99f20b67",
+  "fixtureTreeHashBefore": "1eec857dae020a4b37294e6f89a2cd0410163626d63e515b529f6303ab130c34",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 876 bytes, 2 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 matches the documented shape",
+      "detail": "quickPick \"Repository to inject\" options [\"0\", \"1\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 2 matches the documented shape",
+      "detail": "confirm \"Inject repository?\" options []",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/java/com/example/crm/service/AccountService.java",
+      "detail": "477 bytes",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree 1eec857dae020a4b37294e6f89a2cd0410163626d63e515b529f6303ab130c34 vs setup 1eec857dae020a4b37294e6f89a2cd0410163626d63e515b529f6303ab130c34; still different []",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G130"
+  ],
+  "scenario": "RS-131",
+  "scenarioSha256": "25ac576743682e05a1e06882237c4b64540d1c84f226e233ddb01fe10435a58d",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "1eec857dae020a4b37294e6f89a2cd0410163626d63e515b529f6303ab130c34",
+  "status": "pass",
+  "treeHashAfterRestore": "1eec857dae020a4b37294e6f89a2cd0410163626d63e515b529f6303ab130c34",
+  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6"
+}

@@ -1,0 +1,68 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-239/prompts.json",
+      "sha256": "671231a48c498d7572880f28a3d2be01acec76e841a3da2547736a8de47e39de"
+    },
+    {
+      "path": "artifacts/RS-239/preview.txt",
+      "sha256": "f55d7af4acfa3e0d151ce324af9f5535b25fddeb42d1f7b336d1e8b8b255417c"
+    },
+    {
+      "path": "artifacts/RS-239/edits.json",
+      "sha256": "1d311a150aae9eccae2f0811256edefa2a842b0f5191db8322a60554b31bf907"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "modified",
+      "path": "src/main/java/com/example/shop/domain/NoId.java"
+    }
+  ],
+  "claimIds": [
+    "G017-C1"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "986735872314c70e088f974f5ab848ac21b2eaab057a1bad229016e16f55b52d",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 1022 bytes, 1 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 embeddable classes of the project",
+      "detail": "quickPick \"Embedded identifier class\" options [\"0\"]",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree f7de28dd499aa64f3dbc89a3304c1049f635122177dd3d1ee46e89598dae3636 vs setup f7de28dd499aa64f3dbc89a3304c1049f635122177dd3d1ee46e89598dae3636; still different []",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G017"
+  ],
+  "scenario": "RS-239",
+  "scenarioSha256": "014554f07b0fcc9e07913664ffaea0b882a32713d3ca9b508bfac51f05b74485",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "f7de28dd499aa64f3dbc89a3304c1049f635122177dd3d1ee46e89598dae3636",
+  "status": "pass",
+  "treeHashAfterRestore": "f7de28dd499aa64f3dbc89a3304c1049f635122177dd3d1ee46e89598dae3636",
+  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6"
+}

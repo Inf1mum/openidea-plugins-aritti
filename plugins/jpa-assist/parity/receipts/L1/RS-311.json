@@ -1,0 +1,63 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-311/prompts.json",
+      "sha256": "2e84f39f6ed905f01061d5654f03d86082fa80296518cebd0cc708234125753a"
+    },
+    {
+      "path": "artifacts/RS-311/preview.txt",
+      "sha256": "9d800bcdecf11b926b67a7187dfa07143eb66bd00bfaeda130ef0d0644f5515e"
+    },
+    {
+      "path": "artifacts/RS-311/edits.json",
+      "sha256": "4c9c0ff8f9f03ca3a9ec37cf6ef3180913ea2fc419a58fb32486725858e13df1"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "created",
+      "path": "db/jpa-schema-baseline.next.json"
+    },
+    {
+      "change": "created",
+      "path": "src/main/resources/db/migration/V123__semver.sql"
+    }
+  ],
+  "claimIds": [
+    "G120-C3",
+    "G120-C4"
+  ],
+  "fixture": "envers-flyway-liquibase",
+  "fixtureTreeHashAfter": "75aa0df28c1eef871f8413af89f132281725df8db2f37610c7a9f49e55b6ec6a",
+  "fixtureTreeHashBefore": "45aed493755025a396ea6b12397dbf7d0bb79d3c5f3f00d3c6ec342c85499b55",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "pre-action \"Create schema baseline…\" applied",
+      "detail": "1 prompts, 1 operations",
+      "pass": true
+    },
+    {
+      "check": "created file src/main/resources/db/migration/V123__semver.sql",
+      "detail": "created true; missing []",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G120"
+  ],
+  "scenario": "RS-311",
+  "scenarioSha256": "f64e8a4f4229e7973c5d6279c86607b32235614ad5dedeb7264e67f88ccbd7b2",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "2996685f8719950927c38098625c891489d8b57324955b054f83345f5adf6417",
+  "status": "pass",
+  "treeHashAfterRestore": null,
+  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6"
+}

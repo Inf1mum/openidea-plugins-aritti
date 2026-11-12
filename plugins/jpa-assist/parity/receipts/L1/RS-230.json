@@ -1,0 +1,59 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-230/prompts.json",
+      "sha256": "3e51ac8d0c2ff9b62b68ce263ad9976a854409bcfa4e609d02a11229822bbbc1"
+    },
+    {
+      "path": "artifacts/RS-230/clipboard.txt",
+      "sha256": "80e0dcf08a876ff37d5b6ed62171121203f4919a0a299334e857b6dc120b7a9f"
+    }
+  ],
+  "changedFiles": [],
+  "claimIds": [
+    "G032-C1"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "31e3a9746ba7a1b90042077d0929213974c81753bd5212e998ec60ad3c49a10b",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "command",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "command ran",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "no files changed",
+      "detail": "0 changed, 0 workspace edits applied",
+      "pass": true
+    },
+    {
+      "check": "clipboard contains \"CREATE TABLE pet_type\"",
+      "detail": "1 clipboard writes, 126 bytes",
+      "pass": true
+    },
+    {
+      "check": "clipboard contains \"birth_date\"",
+      "detail": "1 clipboard writes, 126 bytes",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G032"
+  ],
+  "scenario": "RS-230",
+  "scenarioSha256": "3ec9aa067e15caa3025c51a8897fa1d9c7ebe2e7d1641d6d730fe79104c94c98",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "31e3a9746ba7a1b90042077d0929213974c81753bd5212e998ec60ad3c49a10b",
+  "status": "pass",
+  "treeHashAfterRestore": null,
+  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6"
+}

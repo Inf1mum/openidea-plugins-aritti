@@ -1,0 +1,123 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-005/prompts.json",
+      "sha256": "39445efd0f6886e8ded1636d5b99009916a74e0f43262a8f47fb9853c959bb21"
+    },
+    {
+      "path": "artifacts/RS-005/preview.txt",
+      "sha256": "8d5419639109e0b51a160f73f455254b37eafdb8ab39097abe8287342a8200ed"
+    },
+    {
+      "path": "artifacts/RS-005/edits.json",
+      "sha256": "ef22754532ce894dc39c4efcb88fdfa76954ebfa504efbff55638d33fa391812"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "created",
+      "path": "src/main/java/com/example/shop/domain/CategoryDto.java"
+    }
+  ],
+  "claimIds": [
+    "G059-C1"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "7487038b37deca3da82fbb2688a9c6be7edd2958ffb6272877f865cc7531fff3",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 665 bytes, 1 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 DTO name",
+      "detail": "input \"DTO type name (same package; ending in Dto)\" options []",
+      "pass": true
+    },
+    {
+      "check": "prompt 2 DTO fields",
+      "detail": "quickPick \"Source scalar fields (relationships, embedded and unknown types omitted)\" options [\"id\", \"name\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 3 reuse or create a new DTO",
+      "detail": "quickPick \"A compatible type with these fields already exists\" options [\"$PROJECT/src/main/java/com/example/shop/dto/CustomerSummary.java\", \"$PROJECT/src/main/java/com/example/shop/dto/CustomerDto.java\", \"create-new\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 4 preview",
+      "detail": "confirm \"Create source-derived scalar DTO?\" options []",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/java/com/example/shop/domain/CategoryDto.java",
+      "detail": "104 bytes",
+      "pass": true
+    },
+    {
+      "check": "created file src/main/java/com/example/shop/domain/CategoryDto.java",
+      "detail": "created true; missing []",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98 vs setup d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98; still different []",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 1 of 4 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 2 of 4 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 3 of 4 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 4 of 4 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "stale buffer edit after the first prompt is refused",
+      "detail": "OutOfSync: the document changed meanwhile",
+      "pass": true
+    },
+    {
+      "check": "stale buffer edit at the final prompt is refused",
+      "detail": "OutOfSync: the document changed meanwhile",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G059"
+  ],
+  "scenario": "RS-005",
+  "scenarioSha256": "bfc835d16d9cc64e82fb2dfabe079ad6503bb8f4b09343e1bfcdd6b2ac2a72d7",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "status": "pass",
+  "treeHashAfterRestore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6"
+}

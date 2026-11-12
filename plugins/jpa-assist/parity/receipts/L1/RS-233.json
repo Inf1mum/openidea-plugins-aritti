@@ -1,0 +1,64 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-233/prompts.json",
+      "sha256": "23289e494bb4b84cbedb6229f1e9f5e140e2b6bc3320d524197d43546f8879af"
+    },
+    {
+      "path": "artifacts/RS-233/preview.txt",
+      "sha256": "1e152d0e67a580516a8c17b96ad036db1e8c4366219629bc6e1cefb67423ccdf"
+    },
+    {
+      "path": "artifacts/RS-233/edits.json",
+      "sha256": "9aeccb112429a7632589f33a9428269c672ef3279508d51bf880f6c4c863f141"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "created",
+      "path": "db/jpa-schema-baseline.next.json"
+    },
+    {
+      "change": "created",
+      "path": "src/main/resources/db/migration/V20240131.0004__add_pet_type.sql"
+    }
+  ],
+  "claimIds": [
+    "G032-C3",
+    "G127-C2"
+  ],
+  "fixture": "envers-flyway-liquibase",
+  "fixtureTreeHashAfter": "ef2028aab646bb8b819e7f92790b7eb9d9bd6b825bc6a885aa99a9c2e36e7c3c",
+  "fixtureTreeHashBefore": "45aed493755025a396ea6b12397dbf7d0bb79d3c5f3f00d3c6ec342c85499b55",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "pre-action \"Create schema baseline…\" applied",
+      "detail": "1 prompts, 1 operations",
+      "pass": true
+    },
+    {
+      "check": "created file src/main/resources/db/migration/V20240131.0004__add_pet_type.sql",
+      "detail": "created true; missing []",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G032",
+    "G127"
+  ],
+  "scenario": "RS-233",
+  "scenarioSha256": "00e17d5d7a626612bf86fe9b24c81c6d18dbe0cd0536147c55523642cbbad76e",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "dc42643783097b92bac8e3138b63bf80d9c2463d7d01b745964ffcf2b5d4fccb",
+  "status": "pass",
+  "treeHashAfterRestore": null,
+  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6"
+}

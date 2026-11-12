@@ -1,0 +1,58 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-306/prompts.json",
+      "sha256": "3ce55bfb1b5e75b14cb2f5c479031488c378c791eef8b01825d53748b2931fcd"
+    },
+    {
+      "path": "artifacts/RS-306/preview.txt",
+      "sha256": "f57b201a60d117298d0702870ba56da5f6986ca98a779f93773a74bfb1f5e220"
+    },
+    {
+      "path": "artifacts/RS-306/edits.json",
+      "sha256": "f968a4a36325118931b69741dfdd3cb8763349d9a44db25cb5e2d05c3a7821cb"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "created",
+      "path": "db/jpa-schema-baseline.next.json"
+    },
+    {
+      "change": "created",
+      "path": "src/main/resources/db/changelog/diff-init.xml"
+    }
+  ],
+  "claimIds": [
+    "G107-C1"
+  ],
+  "fixture": "envers-flyway-liquibase",
+  "fixtureTreeHashAfter": "6cb83b52c66da7d6da98bc79fa63efb6f4c04a80ade964f73de6371ddbc464fb",
+  "fixtureTreeHashBefore": "45aed493755025a396ea6b12397dbf7d0bb79d3c5f3f00d3c6ec342c85499b55",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "created file src/main/resources/db/changelog/diff-init.xml",
+      "detail": "created true; missing [\"<createTable tableName=\\\"invoice\\\">\"]",
+      "pass": false
+    }
+  ],
+  "rows": [
+    "G107"
+  ],
+  "scenario": "RS-306",
+  "scenarioSha256": "74b5222b7b4d1bcdef6d06a8813465d991a035026a1563c85349d61fdfe42d74",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "53a13c0210419d9709ad733cab089dbb8757735b6efecf7e1d682cb580b736ed",
+  "status": "fail",
+  "treeHashAfterRestore": null,
+  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6",
+  "flaky": "failed in every run"
+}

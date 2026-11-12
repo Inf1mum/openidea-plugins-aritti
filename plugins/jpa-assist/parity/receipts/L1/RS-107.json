@@ -1,0 +1,72 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-107/prompts.json",
+      "sha256": "3a0d86ac5c4c34126d858cbc3426c69d9db27de1ba649806336a076aa67e747f"
+    },
+    {
+      "path": "artifacts/RS-107/preview.txt",
+      "sha256": "90b6136dabd6dbe857f960520ef84153aa77e941b14ec7c1a859f50b5483f470"
+    },
+    {
+      "path": "artifacts/RS-107/edits.json",
+      "sha256": "ca7251ea15cb6531345ddc133f766aeaca6e74d64678af5ef19788bcc839775a"
+    },
+    {
+      "path": "artifacts/RS-107/result-src__main__java__com__example__shop__repository__CustomerRepository.java",
+      "sha256": "a71e70c761ce283e0b83b74f8a85745f72f891eda6b8b0e70a2eff246ea872e6"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "modified",
+      "path": "src/main/java/com/example/shop/repository/CustomerRepository.java"
+    }
+  ],
+  "claimIds": [
+    "G050-C1"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "211b1fb11e9c7dbdcfa79c3393f37bef562331bf9ac0fbc04be7056b0616656e",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 2453 bytes, 2 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/java/com/example/shop/repository/CustomerRepository.java",
+      "detail": "1948 bytes",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree 1e0852c6e89abc76dbc3a196ae64e92e906688b087ca45bda7628aba78359bd1 vs setup 1e0852c6e89abc76dbc3a196ae64e92e906688b087ca45bda7628aba78359bd1; still different []",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G050"
+  ],
+  "scenario": "RS-107",
+  "scenarioSha256": "ee9f0462a0533d1af8f1afa667a794208ef0ff3b8498ed6e9f931fe8436ced77",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "1e0852c6e89abc76dbc3a196ae64e92e906688b087ca45bda7628aba78359bd1",
+  "status": "pass",
+  "treeHashAfterRestore": "1e0852c6e89abc76dbc3a196ae64e92e906688b087ca45bda7628aba78359bd1",
+  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6"
+}

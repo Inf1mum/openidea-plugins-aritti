@@ -1,0 +1,107 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-103/prompts.json",
+      "sha256": "c2f17b9b3637c1b948e05c99ec1548ea8658d59f856cf6553c5e457ef43ae72e"
+    },
+    {
+      "path": "artifacts/RS-103/preview.txt",
+      "sha256": "c1529a16a813d5e3f4e9683edb2f94bbdd1973a7cd02591b4c45073512aca181"
+    },
+    {
+      "path": "artifacts/RS-103/edits.json",
+      "sha256": "460958ae3a4609f12ab2b50d8aa760613d13dceab6f7b9f5ae1277b736a51051"
+    },
+    {
+      "path": "artifacts/RS-103/result-src__main__java__com__example__shop__repository__OrderRepository.java",
+      "sha256": "edc1318c4d0d373502aaa9f8f3e25687e4a0d83debd1cc88030e4503e8effb6d"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "modified",
+      "path": "src/main/java/com/example/shop/repository/OrderRepository.java"
+    }
+  ],
+  "claimIds": [
+    "G041-C1"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "c7d5ebcef86bab64dfec57de370759d6fd5a04b140ff9bb14f3683f853a5fc41",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 1500 bytes, 2 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 matches the documented shape",
+      "detail": "quickPick \"Query subject\" options [\"find\", \"count\", \"exists\", \"delete\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 2 matches the documented shape",
+      "detail": "quickPick \"Condition attributes (plain scalar attributes only; relationship paths are not offered)\" options [\"id\", \"placedAt\", \"total\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 3 matches the documented shape",
+      "detail": "quickPick \"Operator for total (BigDecimal)\" options [\"is\", \"not\", \"greaterThan\", \"lessThan\", \"between\", \"in\", \"isNull\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 4 matches the documented shape",
+      "detail": "quickPick \"Order by\" options [\"none\", \"id\", \"placedAt\", \"total\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 5 matches the documented shape",
+      "detail": "input \"Top/First limit (blank for none)\" options []",
+      "pass": true
+    },
+    {
+      "check": "prompt 6 wrapper types",
+      "detail": "quickPick \"Return type\" options [\"list\", \"optional\", \"single\", \"page\", \"slice\", \"stream\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 7 matches the documented shape",
+      "detail": "confirm \"Add query method?\" options []",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/java/com/example/shop/repository/OrderRepository.java",
+      "detail": "1136 bytes",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98 vs setup d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98; still different []",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G041"
+  ],
+  "scenario": "RS-103",
+  "scenarioSha256": "ea9b8dbe2c7c1d831aad2a7cca07731bee351d07edb3e17fe220523518190708",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "status": "pass",
+  "treeHashAfterRestore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6"
+}

@@ -1,0 +1,77 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-226/prompts.json",
+      "sha256": "9e601ae5c30947767232415fbc58599bd6d1bb60e8575bf55d095932cf1ce8eb"
+    },
+    {
+      "path": "artifacts/RS-226/preview.txt",
+      "sha256": "dec403dcdf17ef5ec4a8deecc8b4973229a651020e9638241b1f7f36f9b701bd"
+    },
+    {
+      "path": "artifacts/RS-226/edits.json",
+      "sha256": "c611bee7d16bc6532b2cff84e8f4600e04a4b86e935118d026aaba80422145f3"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "created",
+      "path": "src/main/java/com/example/billing/domain/Alpha.java"
+    },
+    {
+      "change": "created",
+      "path": "src/main/java/com/example/billing/domain/Beta.java"
+    }
+  ],
+  "claimIds": [
+    "G101-C1"
+  ],
+  "fixture": "envers-flyway-liquibase",
+  "fixtureTreeHashAfter": "83fc4ccce7258347a9a0243c9c87c646ced3530f386ca0ce0be8385ca9cb6336",
+  "fixtureTreeHashBefore": "45aed493755025a396ea6b12397dbf7d0bb79d3c5f3f00d3c6ec342c85499b55",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 2734 bytes, 2 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "created file src/main/java/com/example/billing/domain/Alpha.java",
+      "detail": "created true; missing []",
+      "pass": true
+    },
+    {
+      "check": "created file src/main/java/com/example/billing/domain/Beta.java",
+      "detail": "created true; missing []",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree 2d5efe0422d7179ad63c3ec217fbdb3a512d10c97e49ba3a03f8a37b195f4473 vs setup 2d5efe0422d7179ad63c3ec217fbdb3a512d10c97e49ba3a03f8a37b195f4473; still different []",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G101"
+  ],
+  "scenario": "RS-226",
+  "scenarioSha256": "7bce2b66bd60e84ebcf95c961d4be5b3bdfee896b1d54e7b8991235d40884765",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "2d5efe0422d7179ad63c3ec217fbdb3a512d10c97e49ba3a03f8a37b195f4473",
+  "status": "pass",
+  "treeHashAfterRestore": "2d5efe0422d7179ad63c3ec217fbdb3a512d10c97e49ba3a03f8a37b195f4473",
+  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6"
+}

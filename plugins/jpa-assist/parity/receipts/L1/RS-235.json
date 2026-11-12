@@ -1,0 +1,62 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-235/prompts.json",
+      "sha256": "91883a8910a0e149cef5b08ad8ff31e7b06fb4ac8c8ac161306a1178c45239e3"
+    },
+    {
+      "path": "artifacts/RS-235/preview.txt",
+      "sha256": "03d6779e2dd2b9135d9219bd37ac4114e6ef2b3449e0b51260f6e708485ea191"
+    },
+    {
+      "path": "artifacts/RS-235/edits.json",
+      "sha256": "31e9c48a603c43a06fa56337728e5df8dd7ef23b60e68c74529a150822b0e56d"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "created",
+      "path": "db/jpa-schema-baseline.next.json"
+    },
+    {
+      "change": "created",
+      "path": "src/main/resources/db/migration/V20240131.0004__add_audit.sql"
+    }
+  ],
+  "claimIds": [
+    "G125-C2"
+  ],
+  "fixture": "envers-flyway-liquibase",
+  "fixtureTreeHashAfter": "b0817625e57790f717cf983c4694b514e426105fc58d52b632e0923737413e98",
+  "fixtureTreeHashBefore": "45aed493755025a396ea6b12397dbf7d0bb79d3c5f3f00d3c6ec342c85499b55",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "pre-action \"Create schema baseline…\" applied",
+      "detail": "1 prompts, 1 operations",
+      "pass": true
+    },
+    {
+      "check": "created file src/main/resources/db/migration/V20240131.0004__add_audit.sql",
+      "detail": "created true; missing []",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G125"
+  ],
+  "scenario": "RS-235",
+  "scenarioSha256": "e59191efd775b41d8edbe0fc35b0e2d3eec26fff0ae4af1c84229ea7ed124f5e",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "fc13b9164e584ec61b72f0e33436c4e94fa6a52f0985c5c799ce21ad6945d6a6",
+  "status": "pass",
+  "treeHashAfterRestore": null,
+  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6"
+}

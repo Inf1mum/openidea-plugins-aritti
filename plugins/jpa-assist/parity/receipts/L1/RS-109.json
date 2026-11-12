@@ -1,0 +1,94 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-109/prompts.json",
+      "sha256": "198854288e3c08ef84e887c260c0225883a6305a3cb60d90864c54c1edc9273f"
+    },
+    {
+      "path": "artifacts/RS-109/preview.txt",
+      "sha256": "38bbdcd668407bd66c71dfcbf638ddb24d85e14343148df24a90ac35f069c283"
+    },
+    {
+      "path": "artifacts/RS-109/edits.json",
+      "sha256": "26572f8ed3960ad92694b82e03ef6f20d7299038ab82b9abf037927d47d7c098"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "created",
+      "path": "src/main/java/com/example/shop/domain/CategoryNameView.java"
+    }
+  ],
+  "claimIds": [
+    "G053-C1",
+    "G053-C3"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "8b4ee206df9e209432d60a4a22bfe27feb47f739f5ed66b80bd638f1c638d095",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 737 bytes, 1 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 projection forms",
+      "detail": "quickPick \"Projection form\" options [\"interface\", \"record\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 2 matches the documented shape",
+      "detail": "input \"Projection type name (same package)\" options []",
+      "pass": true
+    },
+    {
+      "check": "prompt 3 fields",
+      "detail": "quickPick \"Projection properties (plain scalar attributes only)\" options [\"id\", \"name\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 4 matches the documented shape",
+      "detail": "quickPick \"A compatible type with these fields already exists\" options [\"$PROJECT/src/main/java/com/example/shop/dto/CustomerSummary.java\", \"$PROJECT/src/main/java/com/example/shop/dto/CustomerDto.java\", \"create-new\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 5 matches the documented shape",
+      "detail": "confirm \"Create Spring Data projection?\" options []",
+      "pass": true
+    },
+    {
+      "check": "created file src/main/java/com/example/shop/domain/CategoryNameView.java",
+      "detail": "created true; missing []",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98 vs setup d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98; still different []",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G053"
+  ],
+  "scenario": "RS-109",
+  "scenarioSha256": "f0230cf7f82df2f11c4d8ad7dacab841a674632c3626a12b9942656b6b861939",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "status": "pass",
+  "treeHashAfterRestore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6"
+}

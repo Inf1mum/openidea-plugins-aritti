@@ -1,0 +1,95 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-104/prompts.json",
+      "sha256": "8fb6815da440ab7f72c03b04380944cd9c93f7077686347e5dec6d611183beaf"
+    },
+    {
+      "path": "artifacts/RS-104/preview.txt",
+      "sha256": "f5fa81b738a43b7ea9499abab11a4f188b1b19dd54641dcdd1397c7b0414acea"
+    },
+    {
+      "path": "artifacts/RS-104/edits.json",
+      "sha256": "2ae156ee34626bf88a36c8ec464bd473fcda8d4b586b46e17ef950923b792510"
+    },
+    {
+      "path": "artifacts/RS-104/result-src__main__java__com__example__shop__repository__ProductRepository.java",
+      "sha256": "105b2d3fc8399ad1616ed68acad7a747242e1c517e6b0078df8d49d7a88e7247"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "modified",
+      "path": "src/main/java/com/example/shop/repository/ProductRepository.java"
+    }
+  ],
+  "claimIds": [
+    "G042-C2",
+    "S004-C1",
+    "S004-C4"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "59e6042a05b9b444a27b52788d9295a44febd4e8d7fd757fb202620589ceab03",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 793 bytes, 1 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 matches the documented shape",
+      "detail": "quickPick \"Query subject\" options [\"find\", \"count\", \"exists\", \"delete\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 2 conditions are entity attributes",
+      "detail": "quickPick \"Condition attributes (plain scalar attributes only; relationship paths are not offered)\" options [\"id\", \"name\", \"price\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 3 one operator per condition",
+      "detail": "quickPick \"Operator for name (String)\" options [\"is\", \"not\", \"ignoreCase\", \"like\", \"containing\", \"containingIgnoreCase\", \"startingWith\", \"startingWithIgnoreCase\", \"endingWith\", \"endingWithIgnoreCase\", \"in\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 4 ordering fields",
+      "detail": "quickPick \"Order by\" options [\"none\", \"id\", \"name\", \"price\"]",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/java/com/example/shop/repository/ProductRepository.java",
+      "detail": "433 bytes",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98 vs setup d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98; still different []",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G042",
+    "S004"
+  ],
+  "scenario": "RS-104",
+  "scenarioSha256": "75ee5e40522b27a86e9e24027f56b4dd9a679214e03c1badeff26aa3bb2b8402",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "status": "pass",
+  "treeHashAfterRestore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6"
+}

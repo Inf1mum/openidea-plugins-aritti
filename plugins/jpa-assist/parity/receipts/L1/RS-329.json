@@ -1,0 +1,57 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-329/prompts.json",
+      "sha256": "c5b6f1df5b031a5664b21188c03920b4b7834f46f11215966c59ea28bef72eb8"
+    },
+    {
+      "path": "artifacts/RS-329/preview.txt",
+      "sha256": "abea17f3bdde618aa0061ec41d149db66273bf7f8f96b058a7205f148f555e44"
+    },
+    {
+      "path": "artifacts/RS-329/edits.json",
+      "sha256": "df482b7533c2d97c09c75837e31ba995f7969b9a22efa3d1ba8079dea89bb166"
+    },
+    {
+      "path": "artifacts/RS-329/result-src__main__java__com__example__shop__domain__CategoryDto.java",
+      "sha256": "2b3ad18316776bcd7bf02b15551f43a78044522385a500c231c0fffd282ad115"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "created",
+      "path": "src/main/java/com/example/shop/domain/CategoryDto.java"
+    }
+  ],
+  "claimIds": [
+    "G066-C2"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "8ff91a310a9d14b56832dec38cb3a0502f5e9dbec918bda347117fc47cd3c32a",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/java/com/example/shop/domain/CategoryDto.java",
+      "detail": "495 bytes",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G066"
+  ],
+  "scenario": "RS-329",
+  "scenarioSha256": "cc0bccfaa799fc5b117d20cbcfdc52f76e295953d974fe17e0b3dfebda4b13e2",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "42db32e8d8ee99caf0edd811fc1cce4c835869e90745168d1e667d2685f38112",
+  "status": "pass",
+  "treeHashAfterRestore": null,
+  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6"
+}

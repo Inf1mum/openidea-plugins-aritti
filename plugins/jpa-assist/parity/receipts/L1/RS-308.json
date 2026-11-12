@@ -1,0 +1,66 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-308/prompts.json",
+      "sha256": "251bc446ea2710b02d8f95d401c5248ae8ac9f01eea895d1f1ce2a59d568becd"
+    },
+    {
+      "path": "artifacts/RS-308/preview.txt",
+      "sha256": "136e31f67fbc8cb80a6d616105b320ab54eb404f246175f1f119c5b9be805ade"
+    },
+    {
+      "path": "artifacts/RS-308/edits.json",
+      "sha256": "7db7bf219b3a0317480811bb2c97d5ff6f7d05db73b2787f53731f49fe77297e"
+    },
+    {
+      "path": "artifacts/RS-308/result-src__main__resources__db__changelog__diff-model_changes.xml",
+      "sha256": "a8c769e5f6210d153776afb71854b4ffc770c631e872512c77adbd93d6cb5f95"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "created",
+      "path": "db/jpa-schema-baseline.next.json"
+    },
+    {
+      "change": "created",
+      "path": "src/main/resources/db/changelog/diff-model_changes.xml"
+    }
+  ],
+  "claimIds": [
+    "G116-C3"
+  ],
+  "fixture": "envers-flyway-liquibase",
+  "fixtureTreeHashAfter": "0b666176240dd91626d0e679c525883cd7333b2aac8a009ee5da02a2ca950169",
+  "fixtureTreeHashBefore": "45aed493755025a396ea6b12397dbf7d0bb79d3c5f3f00d3c6ec342c85499b55",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "pre-action \"Create schema baseline…\" applied",
+      "detail": "1 prompts, 1 operations",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/resources/db/changelog/diff-model_changes.xml",
+      "detail": "2188 bytes",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G116"
+  ],
+  "scenario": "RS-308",
+  "scenarioSha256": "ddd735de2f3fed8b32851a4e981793d22a7f4028bca5efd628dc1782e4008a4e",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "66a8ba4c10c10b9e1272caa5b633797b7ce1020f3fde55578d84973828e9a1fd",
+  "status": "pass",
+  "treeHashAfterRestore": null,
+  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6"
+}

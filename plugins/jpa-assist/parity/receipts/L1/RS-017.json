@@ -1,0 +1,113 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-017/prompts.json",
+      "sha256": "c873cf077273c88b7e8d00fb4bce84696cf45df6db3dcf8b57b60e50c405b2ad"
+    },
+    {
+      "path": "artifacts/RS-017/preview.txt",
+      "sha256": "70f88312efdc88409ab8dca3f8b6c6cfdf7f3fb1362144300ed73cf0438a078a"
+    },
+    {
+      "path": "artifacts/RS-017/edits.json",
+      "sha256": "ccb143fdc99e910b1717996c42fcf0664e7b361c070573b65458a46f8d23d499"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "created",
+      "path": "src/main/java/com/example/shop/domain/Tag.java"
+    }
+  ],
+  "claimIds": [
+    "G014-C1"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "ad9e39c7c73b909c00db4d45196a37b70bca95ef0dd3ef43ff5545ab5253f48e",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 1690 bytes, 1 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "prompt count",
+      "detail": "expected 6, saw 6",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 tables",
+      "detail": "quickPick \"Tables to generate entities for (at most 20)\" options [\"tags\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 2 package follows the tables; no language picker in between",
+      "detail": "quickPick \"Target package for the entities\" options [\"com.example.shop\", \"com.example.shop.defects\", \"com.example.shop.domain\", \"com.example.shop.dto\", \"com.example.shop.repository\", \"com.example.shop.service\", \"\\0other\"]",
+      "pass": true
+    },
+    {
+      "check": "created file src/main/java/com/example/shop/domain/Tag.java",
+      "detail": "created true; missing []",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree f298c922c12ba6c6404ce708c370b21fc3b27bc7f6eed9540c0b5885fa70c656 vs setup f298c922c12ba6c6404ce708c370b21fc3b27bc7f6eed9540c0b5885fa70c656; still different []",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 1 of 6 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 2 of 6 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 3 of 6 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 4 of 6 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 5 of 6 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 6 of 6 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G014"
+  ],
+  "scenario": "RS-017",
+  "scenarioSha256": "54ca4fe95a5304ea5c1cefa83deecd1d3735b40bac0716553f78825f6cc6c32f",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "f298c922c12ba6c6404ce708c370b21fc3b27bc7f6eed9540c0b5885fa70c656",
+  "status": "pass",
+  "treeHashAfterRestore": "f298c922c12ba6c6404ce708c370b21fc3b27bc7f6eed9540c0b5885fa70c656",
+  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6"
+}

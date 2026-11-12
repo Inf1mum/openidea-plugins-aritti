@@ -1,0 +1,77 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-102/prompts.json",
+      "sha256": "b206ba67a4b4d31a0b6f0ba87e3f8977bb316c41d1af40d7482dfd331a2ba93e"
+    },
+    {
+      "path": "artifacts/RS-102/preview.txt",
+      "sha256": "9e1887479ba954b1948fbccd3035138cd5550734e59af86cf50c1573404e13c3"
+    },
+    {
+      "path": "artifacts/RS-102/edits.json",
+      "sha256": "3927733a5e459bc7706fa2bb15aeea1aeeb5e99fe37b944afe8b2d26b4b88c31"
+    },
+    {
+      "path": "artifacts/RS-102/result-src__main__java__com__example__shop__repository__CustomerRepository.java",
+      "sha256": "2e09933c42bfc9716e8188cfebd650cb258989111dfcdea943942d346e5975c1"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "modified",
+      "path": "src/main/java/com/example/shop/repository/CustomerRepository.java"
+    }
+  ],
+  "claimIds": [
+    "G040-C3"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "ea9af6f2b2c9f820c6e3305a0467785500a5231240d5eab6476d29b78b29a932",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 2239 bytes, 1 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 subject keywords",
+      "detail": "quickPick \"Query subject\" options [\"find\", \"count\", \"exists\", \"delete\"]",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/java/com/example/shop/repository/CustomerRepository.java",
+      "detail": "1877 bytes",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98 vs setup d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98; still different []",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G040"
+  ],
+  "scenario": "RS-102",
+  "scenarioSha256": "4babc4cd72131d66aa017bcedca87300aee1921a34e50459bbcf31751429f340",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "status": "pass",
+  "treeHashAfterRestore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6"
+}

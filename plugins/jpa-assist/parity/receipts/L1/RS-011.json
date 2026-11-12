@@ -1,0 +1,46 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-011/completions.json",
+      "sha256": "ca4954f92c14ebd067858fa96180d6c0e36886f9616b7cb7bcd7c077951a2311"
+    }
+  ],
+  "changedFiles": [],
+  "claimIds": [],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "41f592a5666aeafdcc57b07dc6aec7420a4a92317f5235dca3e7217cd7b27aea",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "completion",
+  "kindExerciser": true,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "completion offers \"findByName\"",
+      "detail": "2 items: [\"findByName\", \"findByProducts\"]",
+      "pass": true
+    },
+    {
+      "check": "completion does not offer \"findByNonexistent\"",
+      "detail": "2 items",
+      "pass": true
+    },
+    {
+      "check": "completion does not offer \"findByZip\"",
+      "detail": "2 items",
+      "pass": true
+    }
+  ],
+  "rows": [],
+  "scenario": "RS-011",
+  "scenarioSha256": "a65b859e37ad69da6061fa11ba4c958e006bd40c0bcb5f44ae577e17779fd7c2",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "41f592a5666aeafdcc57b07dc6aec7420a4a92317f5235dca3e7217cd7b27aea",
+  "status": "pass",
+  "treeHashAfterRestore": null,
+  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6"
+}

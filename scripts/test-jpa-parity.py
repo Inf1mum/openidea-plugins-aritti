@@ -62,6 +62,10 @@ EXISTING = 'scripts/check-jpa-parity.py'
 class EvidenceLevelAndDocumentationTests(unittest.TestCase):
     def setUp(self):
         self.ledger = json.loads((ROOT / 'plugins/jpa-assist/parity/requirements.json').read_text())
+        for entry in self.ledger['requirements']:
+            entry.update(status='partial')
+            for key in ('evidenceLevel', 'acceptance', 'evidence'):
+                entry.pop(key, None)
         self.row = self.ledger['requirements'][0]
         self.empty_claims = tempfile.TemporaryDirectory()
         self.addCleanup(self.empty_claims.cleanup)
@@ -138,6 +142,13 @@ class EvidenceLevelAndDocumentationTests(unittest.TestCase):
             self.verify_row(self.docs_case(claimIds=['c1', 'c2']))
             self.assertEqual(self.validate(directory), [])
 
+    def test_implied_claims_need_no_acceptance_case(self):
+        with tempfile.TemporaryDirectory() as directory:
+            (Path(directory) / f"{self.row['id']}.json").write_text(json.dumps({'claims': [
+                {'id': 'c1', 'strength': 'explicit'}, {'id': 'c2', 'strength': 'implied'}]}))
+            self.verify_row(self.docs_case(claimIds=['c1']))
+            self.assertEqual(self.validate(directory), [])
+
     def test_missing_claims_file_is_tolerated(self):
         self.verify_row(self.docs_case())
         self.assertEqual(self.validate(), [])
@@ -148,7 +159,8 @@ class EvidenceLevelAndDocumentationTests(unittest.TestCase):
         out = json.loads(subprocess.run([sys.executable, script, '--json'], capture_output=True, text=True).stdout)
         for key in ('evidenceCoverage', 'verifiedObservedReference', 'verifiedDocumentationReference'):
             self.assertIn(key, out)
-        self.assertEqual(len(out['openGaps']), 355)
+        ledger = json.loads((ROOT / 'plugins/jpa-assist/parity/requirements.json').read_text())
+        self.assertEqual(len(out['openGaps']), sum(e['status'] != 'verified-parity' for e in ledger['requirements']))
 
 
 if __name__ == '__main__':

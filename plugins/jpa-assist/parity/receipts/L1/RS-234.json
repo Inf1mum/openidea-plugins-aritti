@@ -1,0 +1,63 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-234/prompts.json",
+      "sha256": "22a68c4add0bff770b30a7042c628faa31843e74960987fa9e70af7df1e733d5"
+    },
+    {
+      "path": "artifacts/RS-234/preview.txt",
+      "sha256": "767f0ee30ea0a9e19393f54bc4eda0ff8937cfa343ec6b92931f9e824f744737"
+    },
+    {
+      "path": "artifacts/RS-234/edits.json",
+      "sha256": "fdba3130ff14ae88579bd897ca3bca4c63b0ccffe575d7e079fec3eb926bc1cd"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "created",
+      "path": "db/jpa-schema-baseline.next.json"
+    },
+    {
+      "change": "created",
+      "path": "src/main/resources/db/migration/V20240131.0004__add_audit.sql"
+    }
+  ],
+  "claimIds": [
+    "G125-C1",
+    "G125-C3"
+  ],
+  "fixture": "envers-flyway-liquibase",
+  "fixtureTreeHashAfter": "698f8da7b8bc14db444ffb1e023ca9dc47ec18f4003a51686f988da63d86139e",
+  "fixtureTreeHashBefore": "45aed493755025a396ea6b12397dbf7d0bb79d3c5f3f00d3c6ec342c85499b55",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "pre-action \"Create schema baseline…\" applied",
+      "detail": "1 prompts, 1 operations",
+      "pass": true
+    },
+    {
+      "check": "created file src/main/resources/db/migration/V20240131.0004__add_audit.sql",
+      "detail": "created true; missing []",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G125"
+  ],
+  "scenario": "RS-234",
+  "scenarioSha256": "a9a8545e95c692f7f84ab393d918c72a84586fa95ceac6cc5666502f98f6955c",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "12c1a00b23d83341c44164cf4b508045b54f8d15000938b8f40b0cf9f7595796",
+  "status": "pass",
+  "treeHashAfterRestore": null,
+  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6"
+}

@@ -1,0 +1,84 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-128/prompts.json",
+      "sha256": "dc950c371790f1b9a4873e6557bab17cbc5f5ce2bd087b9f3dbe9e5e5fe8a807"
+    },
+    {
+      "path": "artifacts/RS-128/preview.txt",
+      "sha256": "e776ca35c09001a184294de6277794afbe9756ca1b130a28e3e3498fa4b120df"
+    },
+    {
+      "path": "artifacts/RS-128/edits.json",
+      "sha256": "0508a318a248630e3a9e865227fe9bd267f5687a9bc996d3e89e0303d10ca75b"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "created",
+      "path": "src/main/java/com/example/crm/domain/AccountView.java"
+    }
+  ],
+  "claimIds": [
+    "G074-C1",
+    "G074-C3"
+  ],
+  "fixture": "mapstruct-lombok-dto",
+  "fixtureTreeHashAfter": "82102fb0d824b646d76ff2aa5be858a4bfc4f8e00a00cf47a9c925aec90f95ac",
+  "fixtureTreeHashBefore": "1eec857dae020a4b37294e6f89a2cd0410163626d63e515b529f6303ab130c34",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 904 bytes, 1 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 matches the documented shape",
+      "detail": "input \"Entity view interface name (same package)\" options []",
+      "pass": true
+    },
+    {
+      "check": "prompt 2 matches the documented shape",
+      "detail": "quickPick \"Entity view attributes besides the id (plain scalars; primitive boolean is not offered)\" options [\"name\", \"email\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 3 matches the documented shape",
+      "detail": "confirm \"Create Blaze entity view?\" options []",
+      "pass": true
+    },
+    {
+      "check": "created file src/main/java/com/example/crm/domain/AccountView.java",
+      "detail": "created true; missing []",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree b4917cf44ea215fa43dae4b583a47f8862df8f0a6deb780d065efdf851a44104 vs setup b4917cf44ea215fa43dae4b583a47f8862df8f0a6deb780d065efdf851a44104; still different []",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G074"
+  ],
+  "scenario": "RS-128",
+  "scenarioSha256": "dbef946af6a5e574b85c7ca215e1f38868e227b8bf510a93b9c386c226db9244",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "b4917cf44ea215fa43dae4b583a47f8862df8f0a6deb780d065efdf851a44104",
+  "status": "pass",
+  "treeHashAfterRestore": "b4917cf44ea215fa43dae4b583a47f8862df8f0a6deb780d065efdf851a44104",
+  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6"
+}

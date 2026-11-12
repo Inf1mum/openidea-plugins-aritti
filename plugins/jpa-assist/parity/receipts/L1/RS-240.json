@@ -1,0 +1,84 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-240/prompts.json",
+      "sha256": "24657254871802bdcd4280b66773e3ad8c4bfe83c9f8db5ff089715fb83281de"
+    },
+    {
+      "path": "artifacts/RS-240/preview.txt",
+      "sha256": "490cef8ffcd39104dbe8eaa16b3869c0048b6c96f122a33b2ed6ab53d57a45e0"
+    },
+    {
+      "path": "artifacts/RS-240/edits.json",
+      "sha256": "04a73c1550b181b3935e2332a403b641f663f0e5ce8cb2bbcb41cc1fe878d76a"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "modified",
+      "path": "src/main/java/com/example/shop/domain/Category.java"
+    }
+  ],
+  "claimIds": [
+    "G033-C1",
+    "G033-C2"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "d525ad03b2bf1f0357fd46d26eb817b729409a789916716dce0d5165344d98fa",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 2082 bytes, 1 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 constants location",
+      "detail": "quickPick \"Where to put the Java name constants\" options [\"nested\", \"direct\"]",
+      "pass": true
+    },
+    {
+      "check": "resolved edits contain /= \"Category\"/",
+      "detail": "1 edit texts, 276 bytes",
+      "pass": true
+    },
+    {
+      "check": "resolved edits contain /= \"category\"/",
+      "detail": "1 edit texts, 276 bytes",
+      "pass": true
+    },
+    {
+      "check": "resolved edits contain /= \"name\"/",
+      "detail": "1 edit texts, 276 bytes",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98 vs setup d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98; still different []",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G033"
+  ],
+  "scenario": "RS-240",
+  "scenarioSha256": "7d49f7aa816a2291ddaa107ad30333392e0a2d476a2e20dd6d356ee400828ccd",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "status": "pass",
+  "treeHashAfterRestore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6"
+}

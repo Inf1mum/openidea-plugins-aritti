@@ -1,0 +1,104 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-316/prompts.json",
+      "sha256": "e3642b15bcdb896a9d1c75ab24661de250c0855a94c2c744f8083bb6b54526e0"
+    },
+    {
+      "path": "artifacts/RS-316/preview.txt",
+      "sha256": "3b68a72825e832d23f9820c9d192807616de6465465d97354c34536c5eeb5935"
+    },
+    {
+      "path": "artifacts/RS-316/edits.json",
+      "sha256": "412372cf86c614525fc1f10dd52c63a6fe8bfc59370c6d32f8b353723dbde044"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "created",
+      "path": "src/main/resources/db/migration/afterMigrate__audit.sql"
+    }
+  ],
+  "claimIds": [
+    "G118-C1",
+    "G118-C3"
+  ],
+  "fixture": "envers-flyway-liquibase",
+  "fixtureTreeHashAfter": "bbe8fea3caf334fcfa10763bae1566506786f50b34d756cfba0fa68d72585226",
+  "fixtureTreeHashBefore": "45aed493755025a396ea6b12397dbf7d0bb79d3c5f3f00d3c6ec342c85499b55",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 298 bytes, 1 edits, restricted to [\"V20240131__rename_email.sql\"], missing []",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 callback event",
+      "detail": "quickPick \"Flyway callback event\" options [\"beforeClean\", \"afterClean\", \"afterCleanError\", \"beforeMigrate\", \"beforeEachMigrate\", \"afterEachMigrate\", \"afterEachMigrateError\", \"beforeRepeatables\", \"afterVersioned\", \"afterMigrateApplied\", \"afterMigrate\", \"afterMigrateError\", \"beforeValidate\", \"afterValidate\", \"afterValidateError\", \"beforeBaseline\", \"afterBaseline\", \"afterBaselineError\", \"beforeRepair\", \"afterRepair\", \"afterRepairError\", \"beforeInfo\", \"afterInfo\", \"afterInfoError\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 2 optional description",
+      "detail": "input \"Callback description (optional, ASCII letters and digits)\" options []",
+      "pass": true
+    },
+    {
+      "check": "created file src/main/resources/db/migration/afterMigrate__audit.sql",
+      "detail": "created true; missing []",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree 45aed493755025a396ea6b12397dbf7d0bb79d3c5f3f00d3c6ec342c85499b55 vs setup 45aed493755025a396ea6b12397dbf7d0bb79d3c5f3f00d3c6ec342c85499b55; still different []",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 1 of 3 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 2 of 3 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 3 of 3 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "stale buffer edit after the first prompt is refused",
+      "detail": "OutOfSync: the document changed meanwhile",
+      "pass": true
+    },
+    {
+      "check": "stale buffer edit at the final prompt is refused",
+      "detail": "OutOfSync: the document changed meanwhile",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G118"
+  ],
+  "scenario": "RS-316",
+  "scenarioSha256": "5aa5a0d44f09f1e13379811972d7dab079f8ea02941fe559b1beb52aa7f71781",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "45aed493755025a396ea6b12397dbf7d0bb79d3c5f3f00d3c6ec342c85499b55",
+  "status": "pass",
+  "treeHashAfterRestore": "45aed493755025a396ea6b12397dbf7d0bb79d3c5f3f00d3c6ec342c85499b55",
+  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6"
+}

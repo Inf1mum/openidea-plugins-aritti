@@ -1,0 +1,152 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-300/prompts.json",
+      "sha256": "f9d2de74101ae033646f290fa23574c7fe3371baa5a64b5b1b25528341d44e73"
+    },
+    {
+      "path": "artifacts/RS-300/preview.txt",
+      "sha256": "716289e55660fa1b32a95f4e49fb8942c5b441b6cbe03404acfedf52d5274ede"
+    },
+    {
+      "path": "artifacts/RS-300/edits.json",
+      "sha256": "453d6c243a60178e2ee72b52aad148341c6845b9c40a8fb6f20a0abf8568ae17"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "created",
+      "path": "db/jpa-schema-baseline.next.json"
+    },
+    {
+      "change": "created",
+      "path": "src/main/resources/db/migration/V20240131__rename_email.sql"
+    }
+  ],
+  "claimIds": [
+    "G109-C1"
+  ],
+  "fixture": "envers-flyway-liquibase",
+  "fixtureTreeHashAfter": "96e488aa301110dc89b8fcd79ef00a8e1aa80a6b16f07705aaedb021d3ee04d4",
+  "fixtureTreeHashBefore": "45aed493755025a396ea6b12397dbf7d0bb79d3c5f3f00d3c6ec342c85499b55",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "pre-action \"Create schema baseline…\" applied",
+      "detail": "1 prompts, 1 operations",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 2030 bytes, 2 edits, restricted to [\"V20240131__rename_email.sql\"], missing []",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 dialect without a database connection",
+      "detail": "quickPick \"SQL dialect (no database connection)\" options [\"postgresql\", \"mysql\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 2 opt-in to withheld statements",
+      "detail": "quickPick \"Also emit statements withheld by default (each is marked in the preview)\" options [\"needs-backfill\", \"data-loss\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 3 migration description",
+      "detail": "input \"Migration description (ASCII letters and digits)\" options []",
+      "pass": true
+    },
+    {
+      "check": "prompt 4 date for the #date token",
+      "detail": "input \"Date for the file name (UTC, yyyyMMdd or yyyyMMddHHmmss)\" options []",
+      "pass": true
+    },
+    {
+      "check": "prompt 5 unknown facts reported",
+      "detail": "confirm \"Incomplete schema information\" options []",
+      "pass": true
+    },
+    {
+      "check": "prompt 6 preview before saving",
+      "detail": "confirm \"Create Flyway migration?\" options []",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/resources/db/migration/V20240131__rename_email.sql",
+      "detail": "1133 bytes",
+      "pass": true
+    },
+    {
+      "check": "created file src/main/resources/db/migration/V20240131__rename_email.sql",
+      "detail": "created true; missing []",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree 65fa814a5eb1faf7fb2706fe8a640beb98810aadf4ad2d0228e110b539e8efe5 vs setup 65fa814a5eb1faf7fb2706fe8a640beb98810aadf4ad2d0228e110b539e8efe5; still different []",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 1 of 6 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 2 of 6 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 3 of 6 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 4 of 6 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 5 of 6 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 6 of 6 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "stale buffer edit after the first prompt is refused",
+      "detail": "OutOfSync: the document changed meanwhile",
+      "pass": true
+    },
+    {
+      "check": "stale buffer edit at the final prompt is refused",
+      "detail": "OutOfSync: the document changed meanwhile",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G109"
+  ],
+  "scenario": "RS-300",
+  "scenarioSha256": "f01e2881fd25568155174ea27cf60580a281b7594480573906acec4e682ce510",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "65fa814a5eb1faf7fb2706fe8a640beb98810aadf4ad2d0228e110b539e8efe5",
+  "status": "pass",
+  "treeHashAfterRestore": "65fa814a5eb1faf7fb2706fe8a640beb98810aadf4ad2d0228e110b539e8efe5",
+  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6"
+}

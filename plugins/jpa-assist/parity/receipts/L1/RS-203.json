@@ -1,0 +1,77 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-203/prompts.json",
+      "sha256": "94076bdde1e24849882eb6b62a020d0e236fa127735e14cfa9540d4bb4ff5f0e"
+    },
+    {
+      "path": "artifacts/RS-203/preview.txt",
+      "sha256": "2130f3870bb3b2339abf4ef9290228fb3916b06ef8a68ee84e44a3368aee614d"
+    },
+    {
+      "path": "artifacts/RS-203/edits.json",
+      "sha256": "27848e684962fa723f8860333f33c0367e92b57972992b36382bc25f455aed44"
+    },
+    {
+      "path": "artifacts/RS-203/result-src__main__java__com__example__billing__domain__InvoiceLine.java",
+      "sha256": "99d0d32a844e0ad9db07a15bc38e6363517f1cec0bae2ba61ed42419159a5b4e"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "modified",
+      "path": "src/main/java/com/example/billing/domain/InvoiceLine.java"
+    }
+  ],
+  "claimIds": [
+    "G028-C1"
+  ],
+  "fixture": "envers-flyway-liquibase",
+  "fixtureTreeHashAfter": "a4406ffd9c77e5a2b95a849ff74ba91c313155be26ef3a79a4277da1b912b23a",
+  "fixtureTreeHashBefore": "45aed493755025a396ea6b12397dbf7d0bb79d3c5f3f00d3c6ec342c85499b55",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 1639 bytes, 2 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 class toggle",
+      "detail": "quickPick \"Envers toggles (annotations with arguments are not offered for removal)\" options [\"class\", \"audited:id\", \"notaudited:id\", \"audited:invoice\", \"notaudited:invoice\", \"audited:description\", \"notaudited:description\", \"audited:quantity\", \"notaudited:quantity\"]",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/java/com/example/billing/domain/InvoiceLine.java",
+      "detail": "1372 bytes",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree 45aed493755025a396ea6b12397dbf7d0bb79d3c5f3f00d3c6ec342c85499b55 vs setup 45aed493755025a396ea6b12397dbf7d0bb79d3c5f3f00d3c6ec342c85499b55; still different []",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G028"
+  ],
+  "scenario": "RS-203",
+  "scenarioSha256": "bfcb73804cf48f32b5f2420ce200ffad355dbe32bf19d70b311e78997bf25b78",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "45aed493755025a396ea6b12397dbf7d0bb79d3c5f3f00d3c6ec342c85499b55",
+  "status": "pass",
+  "treeHashAfterRestore": "45aed493755025a396ea6b12397dbf7d0bb79d3c5f3f00d3c6ec342c85499b55",
+  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6"
+}

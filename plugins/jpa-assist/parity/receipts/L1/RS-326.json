@@ -1,0 +1,57 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-326/prompts.json",
+      "sha256": "d63a92c61981c6d76974454ea36f2879593887b10ec06b2d5340a1c1c3bb7278"
+    },
+    {
+      "path": "artifacts/RS-326/preview.txt",
+      "sha256": "c7dc38717067340e0ed6403a41f85cd447a14313fa1675128adb1b0338d26288"
+    },
+    {
+      "path": "artifacts/RS-326/edits.json",
+      "sha256": "512e136b665cf0ab0533b227f1f8631241c6534df7aa5272ee2b7941e4f24cb9"
+    },
+    {
+      "path": "artifacts/RS-326/result-db__jpa-schema-baseline.json",
+      "sha256": "fadd01ada8b9b771e10ddc05352eeac84c5a13b7e9591ba9fd4611e0d4d686b3"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "created",
+      "path": "db/jpa-schema-baseline.json"
+    }
+  ],
+  "claimIds": [
+    "G125-C2"
+  ],
+  "fixture": "envers-flyway-liquibase",
+  "fixtureTreeHashAfter": "ac8100310176e4ab88a9294deb950fb79249c508412c76650cf0cf76c18995bb",
+  "fixtureTreeHashBefore": "45aed493755025a396ea6b12397dbf7d0bb79d3c5f3f00d3c6ec342c85499b55",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "result file db/jpa-schema-baseline.json",
+      "detail": "26689 bytes",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G125"
+  ],
+  "scenario": "RS-326",
+  "scenarioSha256": "1456d8621f4ea33dd0e7dfb4122f3430af58b36f2bd055ba9c9b991d2b8846ec",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "816293ca0d5ef59c6a889f59f29ea41e17706e75f3801faabb2175b85648153a",
+  "status": "pass",
+  "treeHashAfterRestore": null,
+  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6"
+}

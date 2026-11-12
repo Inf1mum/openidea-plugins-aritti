@@ -1,0 +1,68 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-202/prompts.json",
+      "sha256": "79aca6e7e0a341012e2d1c4522d7a0b3d3ef3521bc58dea63c8c9fb1b43c4b57"
+    },
+    {
+      "path": "artifacts/RS-202/preview.txt",
+      "sha256": "f42fb80615592bc94dff7821f64fb1d1c1fcacbd81212c97635cf19d7ef925b2"
+    },
+    {
+      "path": "artifacts/RS-202/edits.json",
+      "sha256": "53ebef0c4482b79a9c985ed9387dd11f59ca86025ade54cbcf8c93042e9ae09c"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "created",
+      "path": "src/main/java/com/example/shop/domain/TicketLoadListener.java"
+    }
+  ],
+  "claimIds": [
+    "G027-C1"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "666fc525eb713b8fa8291af31f191ed4e29f7d88e6160f0ec72933379428d84f",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 1197 bytes, 1 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "created file src/main/java/com/example/shop/domain/TicketLoadListener.java",
+      "detail": "created true; missing []",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree 21338c360e498c52181aa2d53aa62d51dac3e98383ef6407dc1f6c6ec334813b vs setup 21338c360e498c52181aa2d53aa62d51dac3e98383ef6407dc1f6c6ec334813b; still different []",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G027"
+  ],
+  "scenario": "RS-202",
+  "scenarioSha256": "6fffbf34abc654892cc7402d5454b95820f3bd6b65818341f66a505336de08c8",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "21338c360e498c52181aa2d53aa62d51dac3e98383ef6407dc1f6c6ec334813b",
+  "status": "pass",
+  "treeHashAfterRestore": "21338c360e498c52181aa2d53aa62d51dac3e98383ef6407dc1f6c6ec334813b",
+  "wasmSha256": "6f1169349051dc0ad91a6e7138e13cece7f8d2df317fbf140e99829b563bc7b6"
+}
