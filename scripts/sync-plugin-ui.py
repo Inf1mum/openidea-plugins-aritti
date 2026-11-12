@@ -120,6 +120,8 @@ def config(manifest, package):
     if field_actions.exists(): result['field_actions'] = json.loads(field_actions.read_text())
     toolbar_icon_buttons = package/'src/ui_toolbar_icon_buttons.json'
     if toolbar_icon_buttons.exists(): result['toolbar_icon_buttons'] = json.loads(toolbar_icon_buttons.read_text())
+    toolbar_groups = package/'src/ui_toolbar_groups.json'
+    if toolbar_groups.exists(): result['toolbar_groups'] = json.loads(toolbar_groups.read_text())
     context_buttons = package/'src/ui_context_buttons.json'
     if context_buttons.exists(): result['context_buttons'] = json.loads(context_buttons.read_text())
     return result

@@ -79,6 +79,8 @@ struct Config {
     #[serde(default)]
     toolbar_icon_buttons: std::collections::BTreeMap<String, Vec<String>>,
     #[serde(default)]
+    toolbar_groups: std::collections::BTreeMap<String, Vec<ToolbarGroup>>,
+    #[serde(default)]
     group: Option<Group>,
 }
 
@@ -86,6 +88,15 @@ struct Config {
 struct Group {
     primary: String,
     tabs: Vec<ViewTab>,
+}
+
+#[derive(Deserialize, Serialize)]
+struct ToolbarGroup {
+    id: String,
+    label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    icon: Option<String>,
+    items: Vec<String>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -551,7 +562,7 @@ pub fn handle_with_actions<T: Plugin + Views>(plugin: &mut T, view: &str, event:
             .map(|a|json!({"id":a.id,"label":a.label,"kind":a.kind,"keys":a.keys,"icon":a.icon,"replacesOpen":a.replaces_open})).collect());
         Ok(json!({"title":title,"plugin":config.title,"uiLanguage":config.ui_language,"body":body(model.body),"status":model.status,
             "toolbar":model.toolbar.iter().map(|b|json!({"key":b.id,"label":b.label,"icon":b.icon,"enabled":b.enabled})).collect::<Vec<_>>(),
-            "actions":actions,"fieldActions":config.field_actions,"contextButtons":config.context_buttons.get(view),"iconButtons":config.toolbar_icon_buttons.get(view),
+            "actions":actions,"fieldActions":config.field_actions,"contextButtons":config.context_buttons.get(view),"iconButtons":config.toolbar_icon_buttons.get(view),"toolbarGroups":config.toolbar_groups.get(view),
             "activeView":view,"viewTabs":config.group_for(&physical).map(|group| &group.tabs)}))
     })();
     let answer = match result {
@@ -898,6 +909,7 @@ mod group_tests {
         "group":{"primary":"routes","tabs":[{"id":"routes","label":"Routes","icon":"web"},{"id":"details","label":"Details"}]},
         "actions":[{"view":"details","id":"copy","label":"Copy","kind":"route"}],
         "opaque_views":["details"],
+        "toolbar_groups":{"routes":[{"id":"more","label":"More","icon":"more","items":["open","create-token"]}]},
         "project_free_buttons":["create-token","disabled"]
     }"#;
     const FRAME: &str = "0123456789abcdef0123456789abcdef";
@@ -944,6 +956,7 @@ mod group_tests {
         assert_eq!(initial["model"]["activeView"],"routes");
         assert_eq!(initial["model"]["viewTabs"].as_array().unwrap().len(),2);
         assert_eq!(initial["model"]["viewTabs"][0]["icon"],"web");
+        assert_eq!(initial["model"]["toolbarGroups"][0]["items"],json!(["open","create-token"]));
         assert!(initial["model"]["viewTabs"][1].get("icon").is_none());
         let changed=request(&host,&mut demo,json!({"op":"select-view","target":"details","targetView":"routes"}));
         assert_eq!(changed["model"]["activeView"],"details");
