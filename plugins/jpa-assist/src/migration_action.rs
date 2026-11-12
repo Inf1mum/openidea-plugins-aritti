@@ -202,7 +202,7 @@ use crate::schema_snapshot::CUSTOM_TYPE_REASON;
 /// Columns of a custom Java type get no automatic SQL mapping (JetBrains database versioning help); the user names the
 /// target type once per column name and Java type, so an audit table's mirror column reuses the answer. Empty input
 /// leaves the column unmapped, so its statement stays withheld.
-pub(super) fn ask_custom_types(plan: &mut schema::ChangePlan) -> Result<(), Error> {
+pub(super) fn ask_custom_types(plan: &mut schema::ChangePlan, dbms: Option<&str>) -> Result<(), Error> {
     let mut answers: BTreeMap<(String, String), Option<schema::Column>> = BTreeMap::new();
     let mut ask = |table: &str, column: &mut schema::Column| -> Result<(), Error> {
         let Fact::Unknown(reason) = &column.sql_type else {
@@ -218,7 +218,7 @@ pub(super) fn ask_custom_types(plan: &mut schema::ChangePlan) -> Result<(), Erro
             }
             return Ok(());
         }
-        if let Some(mapped) = super::type_map::mapped(&java_type)? {
+        if let Some(mapped) = super::type_map::mapped(&java_type, dbms)? {
             sql::apply_type_text(column, &mapped).map_err(|why| Error::from(format!("sqlTypeMappings maps {java_type} to {mapped:?}, which was refused: {why}.")))?;
             answers.insert(key, Some(column.clone()));
             return Ok(());
@@ -622,7 +622,7 @@ pub(super) fn resolve_migration(pending: &Pending, doc: &Document, project: &Pro
             _ => return Err(Error::Stale),
         });
     }
-    ask_custom_types(&mut prepared.plan)?;
+    ask_custom_types(&mut prepared.plan, Some(if dialect == Dialect::MySql { "mysql" } else { "postgresql" }))?;
     let (plan, model, baseline) = (&prepared.plan, &prepared.model.snapshot, &prepared.baseline);
     crate::file_actions::rename_merge::ask_renames(plan, &mut options)?;
     ask_backfills(plan, &mut options)?;

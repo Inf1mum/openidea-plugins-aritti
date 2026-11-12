@@ -16,7 +16,8 @@
    "source": "https://www.jetbrains.com/help/idea/database-versioning.html",
    "strength": "explicit",
    "ourFeature": "migration_action.rs",
-   "verifiableHeadless": false
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Code action 'Create scalar SQL table draft with preview…' at the entity class (Alt+Enter equivalent). Not available: gutter icon, New > DDL by Entity."
   },
   {
    "id": "G122-C2",

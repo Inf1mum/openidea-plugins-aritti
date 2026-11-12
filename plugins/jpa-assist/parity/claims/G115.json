@@ -21,7 +21,8 @@
    "source": "https://www.jetbrains.com/help/idea/database-versioning.html",
    "strength": "explicit",
    "ourFeature": "migration_action.rs",
-   "verifiableHeadless": false
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Tuning prompts (withheld statements, rename merge) followed by a read-only exact-SQL confirm in the Flyway/Liquibase migration actions. Not checked: the Preview dialog and editing inside it."
   },
   {
    "id": "G115-C2",

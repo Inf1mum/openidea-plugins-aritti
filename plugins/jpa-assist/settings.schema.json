@@ -470,6 +470,7 @@
         "type": "object",
         "properties": {
           "type": {"type": "string", "title": "Java type, converter, Hibernate type or annotation text", "default": ""},
+          "dbms": {"type": "string", "title": "Only for this database in Flyway migrations (postgresql, mysql); empty applies to all", "default": ""},
           "sqlType": {"type": "string", "title": "SQL type", "default": ""}
         }
       },

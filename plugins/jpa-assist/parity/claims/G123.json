@@ -16,7 +16,8 @@
    "source": "https://www.jetbrains.com/help/idea/jpa-buddy-database-versioning.html",
    "strength": "explicit",
    "ourFeature": "ddl_action.rs",
-   "verifiableHeadless": false
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Command 'JPA: Copy DDL of Current Entity' (command palette, editor context menu) generates the CREATE TABLE statement. Not checked: JPA Palette, Editor Toolbar, statement kinds other than CREATE TABLE."
   },
   {
    "id": "G123-C2",

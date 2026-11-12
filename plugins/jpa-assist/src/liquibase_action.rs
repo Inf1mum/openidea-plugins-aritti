@@ -308,9 +308,9 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> R
     let picked = host::pick_many("Also emit changes withheld by default (each is marked in the preview)", &withheld)?.ok_or(Error::Cancelled)?;
     let mut emit = EmitOptions { allow: describe_options(&picked)?, ..EmitOptions::default() };
     let mut routing = crate::file_actions::change_routing::split(&mut prepared.plan)?;
-    ask_custom_types(&mut prepared.plan)?;
+    ask_custom_types(&mut prepared.plan, None)?;
     apply_default_lengths(&mut prepared.plan);
-    ask_custom_types(&mut routing.secondary)?;
+    ask_custom_types(&mut routing.secondary, None)?;
     apply_default_lengths(&mut routing.secondary);
     let (plan, model, baseline) = (&prepared.plan, &prepared.model.snapshot, &prepared.baseline);
     crate::file_actions::rename_merge::ask_renames(plan, &mut emit)?;

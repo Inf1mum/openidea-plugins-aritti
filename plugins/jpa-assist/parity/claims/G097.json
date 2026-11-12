@@ -52,7 +52,8 @@
    "source": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
    "strength": "explicit",
    "ourFeature": "Generate entities from SQL file… (ddl_entities_action.rs, ddl_parse.rs)",
-   "verifiableHeadless": false
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Generating entities from a SQL file always adds the inverse side of a foreign key (@OneToMany(mappedBy) on the referenced entity) although its table has no matching column. Not checked: the dialog's References group and per-reference choice."
   }
  ],
  "undocumented": [],

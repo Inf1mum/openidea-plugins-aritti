@@ -1,0 +1,63 @@
+{
+  "id": "RS-662",
+  "rows": [
+    "G118"
+  ],
+  "claimIds": [
+    "G118-C2"
+  ],
+  "verifies": {
+    "G118-C2": "surfaceEquivalent: the callback event is chosen in a pick prompt that lists the Flyway events (afterMigrate, beforeMigrate and more) and the choice is used: beforeMigrate yields beforeMigrate__x.sql. NOT checked: the original's Choose Callback Event dialog (layout, list widget)."
+  },
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "target": {
+    "file": "src/main/java/com/example/billing/domain/Client.java",
+    "anchor": "class Client"
+  },
+  "action": {
+    "title": "Create Flyway SQL callback…"
+  },
+  "prompts": [
+    {
+      "pick": "beforeMigrate"
+    },
+    {
+      "input": "seed"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pick",
+        "titleContains": "callback event",
+        "optionsInclude": [
+          "afterMigrate",
+          "beforeMigrate",
+          "beforeEachMigrate",
+          "afterEachMigrate"
+        ],
+        "name": "callback event"
+      }
+    ],
+    "createdFiles": [
+      {
+        "path": "src/main/resources/db/migration/beforeMigrate__seed.sql"
+      }
+    ]
+  },
+  "checks": {
+    "preview": {
+      "paths": [
+        "V20240131__rename_email.sql"
+      ]
+    },
+    "undo": true,
+    "cancelEach": true,
+    "stale": true
+  },
+  "note": "SQL callback, event chosen in the pick prompt."
+}
