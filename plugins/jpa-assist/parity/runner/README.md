@@ -44,7 +44,7 @@ $BIN REPO OUT [FIXTURE_DIR] [WASM] [--smoke] [--scenario FILE|DIR ...] [--only .
   "setup": [ ... ],                     // applied to the disposable copy before the host starts
   "preActions": [ ... ],                // code actions applied (natively) after the host starts, before the main action
   "postSetup": [ ... ],                 // setup steps applied after preActions (open buffers are re-synced)
-  "kind": "fileaction|diagnostics|completion|hover|command|tree|lineMarkers",
+  "kind": "fileaction|diagnostics|completion|hover|command|tree|lineMarkers|designer",
   "target": { "file": "...", ... },     // see below
   "action": { "title": "exact code-action title" } | { "command": "id", "arg": "..." } | { "view": "structure" },
   "prompts": [ answers in the order the plugin asks ],
@@ -103,6 +103,7 @@ missing or mismatching answer cancels the prompt and fails the scenario (`script
 | `hoverContains`, `clipboardContains`, `treeNodes`, `markersInclude` | substrings of hover markdown, clipboard text, tree label+detail, marker tooltip |
 | `treeChildren` | list of label chains `["Customer", "Repositories", "CustomerRepository"]`: each label is a child of the previous (the first is a root item) |
 | `treeAbsent` | substrings that must not occur in any tree label+detail |
+| `designerReplies` | `designer` kind: checks on the plugin's reply to one message, see "designer scenarios" |
 | `goldenFile` | `{file, actual, ownOutputSnapshot: true}` byte comparison with a stored copy of our own output. It must say `ownOutputSnapshot: true` and is never documentation evidence. No shipped scenario uses it. |
 
 ### tree scenarios with view events
@@ -112,6 +113,47 @@ and before the checked render; `$PROJECT` in keys and in a command's `action.arg
 an active editor (Locate Open File). `prompts` answer what the events open. `"grants": ["project.write"]` consents to the optional
 `project.write` capability for the scenario (the project-creating commands need it; no other scenario is granted it). The headless host
 has no file watcher, so the tree rendered after a created file does not show it: check the created file, not the new node.
+
+### designer scenarios (web-view messages)
+
+`kind: designer` drives the plugin's packaged web view through the released host's real message path: each message is posted
+with `PluginHost::view_event(plugin, view, ViewEvent::Message{text})`, the host entry the web view's `openidea.postMessage`
+reaches (it is size-capped and dispatched to the plugin's `handle`, exactly as in the IDE). The plugin answers with
+`host::post_view_message`; the runner's event sink collects those `PluginEvent::ViewMessage` events and parses each as JSON. The
+view is rendered once first (as mounting it would). `target` gives the view an active editor (the class `inspect` reads).
+
+```jsonc
+"kind": "designer",
+"action": {"view": "designer", "messages": [
+  {"operation": {"kind": "snapshot"}},                                   // channel, protocol 1, frame, sequence 1..n, root are filled in
+  {"operation": {"kind": "reverse-inventory", "path": "$PROJECT/db/x.sql", "dialect": null, "schema": "shop", "table": null}},
+  {"operation": {"kind": "select", "attribute": "label"}, "context": "auto"},          // "auto": path/version/attribute of the previous reply's model
+  {"operation": {"kind": "apply", "token": "$last:/model/pending/token"}, "context": "auto"},   // $last:/json/pointer = a value of the previous reply
+  {"setup": [{"replace": {"file": "db/x.sql", "from": "a", "to": "b"}}]}               // harness step between messages (not sent, not counted); same steps as setup
+]},
+"expect": {"designerReplies": [
+  {"message": 2, "path": "reverse.relations", "anyItem": {"name": "shop.orders", "group": "table"}},
+  {"message": 3, "path": "model.selected", "equals": "label"},
+  {"message": 1, "handlerError": "Stale"}
+]}
+```
+
+Messages are the JSON objects the web view posts (`web/*.js`); any field given explicitly (`frame`, `sequence`, `root`, `protocol`) wins
+over the default, which is how stale or malformed frames are sent. `$PROJECT` is substituted in every string. Messages are numbered
+from 1 in the order sent (`setup` entries do not count). A `designerReplies` entry names a `message` (default: the last) and a dotted `path`
+into the reply (`reverse.relations`, `migration.changes.0.location`, numbers index arrays), plus exactly one operator: `equals`,
+`exists` (a non-null value), `contains` (substring of a string, or an equal element of an array), `matches` (regex over a string),
+`length` (array, string or object), `anyItem` / `noItem` (an array item whose listed fields all equal the given ones), `countWhere`
+`{where, count}`, or `handlerError` (the handler refused the frame, e.g. a stale sequence, and the text it returned contains the string; no `path`).
+The reply is the last message of the frame the plugin posted for that request. The settings the plugin reads on each reply
+(`jpaAssist.designer.*`, `schemaChangeLocations`, ...) are set with `setup` `settings`. Receipt artifact: `designer-exchange.json` (each
+request as sent, the handler result and the parsed reply).
+
+Exercised: the plugin's request validation, frame registry, inspector model, prepare/apply (an edit of the open buffer), SQL inventory,
+migration plan and layout reply, all in the real wasm. NOT exercised: the web view's HTML, JavaScript, CSS, controls, colours and
+layout (no browser runs; that is `scripts/check-jpa-designer.mjs`), the host's size cap on messages, and anything that needs a live database.
+Limits of the headless host: it has no file watcher, so a file ADDED after start-up is not listed by `reverse-sources`; edits of existing
+files made by a `setup` step are re-synced into open buffers.
 
 ### checks (fileaction only unless noted)
 

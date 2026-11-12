@@ -1,0 +1,106 @@
+{
+  "id": "RS-934",
+  "rows": [],
+  "claimIds": [],
+  "verifies": {},
+  "kindExerciser": true,
+  "fixture": "envers-flyway-liquibase",
+  "setup": [
+    {
+      "settings": {
+        "schemaDangerLevels": [
+          {
+            "changeType": "dropColumn",
+            "level": "CAUTION"
+          }
+        ]
+      }
+    }
+  ],
+  "preActions": [
+    {
+      "title": "Create schema baseline…",
+      "target": {
+        "file": "src/main/java/com/example/billing/domain/Client.java",
+        "anchor": "class Client"
+      },
+      "prompts": [
+        {
+          "confirm": "yes"
+        }
+      ]
+    }
+  ],
+  "postSetup": [
+    {
+      "replace": {
+        "file": "src/main/java/com/example/billing/domain/Client.java",
+        "from": "    private String notes;",
+        "to": "    private Integer score;"
+      }
+    }
+  ],
+  "kind": "designer",
+  "target": {
+    "file": "src/main/java/com/example/billing/domain/Client.java",
+    "anchor": "class Client"
+  },
+  "action": {
+    "view": "designer",
+    "messages": [
+      {
+        "operation": {
+          "kind": "snapshot"
+        }
+      },
+      {
+        "operation": {
+          "kind": "plan-migration",
+          "routes": [
+            {
+              "changeType": "dropColumn",
+              "location": "secondary"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "expect": {
+    "designerReplies": [
+      {
+        "path": "migration.statementTypes",
+        "message": 2,
+        "length": 14
+      },
+      {
+        "path": "migration.statementTypes",
+        "message": 2,
+        "anyItem": {
+          "type": "dropColumn",
+          "levelOverride": "CAUTION",
+          "location": "secondary"
+        }
+      },
+      {
+        "path": "migration.statementTypes",
+        "message": 2,
+        "anyItem": {
+          "type": "addColumn",
+          "levelOverride": null,
+          "location": "primary"
+        }
+      },
+      {
+        "path": "migration.statementTypes",
+        "message": 2,
+        "anyItem": {
+          "type": "createIndex",
+          "location": "primary",
+          "count": 0
+        }
+      }
+    ]
+  },
+  "note": "Kind exerciser (G123-C2 stays desktop-worded): the plan model carries one statementTypes row per change type with its saved level override, the location in force and the number of plan changes of that type."
+}

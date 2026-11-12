@@ -1,0 +1,131 @@
+{
+  "id": "RS-941",
+  "rows": [],
+  "claimIds": [],
+  "verifies": {},
+  "kindExerciser": true,
+  "fixture": "boot-jpa-java-jakarta",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/Widget.java",
+        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.Column;\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.Table;\nimport java.lang.Long;\nimport java.lang.String;\n\n@Entity\n@Table(name = \"widget\")\npublic class Widget {\n\n    @Id\n    private Long id;\n\n    @Column(name = \"label\")\n    private String label;\n}\n"
+      }
+    }
+  ],
+  "kind": "designer",
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Widget.java",
+    "anchor": "class Widget"
+  },
+  "action": {
+    "view": "designer",
+    "messages": [
+      {
+        "operation": {
+          "kind": "snapshot"
+        }
+      },
+      {
+        "operation": {
+          "kind": "inspect"
+        }
+      },
+      {
+        "operation": {
+          "kind": "select",
+          "attribute": "label"
+        },
+        "context": "auto"
+      },
+      {
+        "operation": {
+          "kind": "prepare",
+          "changes": [
+            {
+              "property": "nullable",
+              "value": false
+            }
+          ]
+        },
+        "context": "auto"
+      },
+      {
+        "operation": {
+          "kind": "apply",
+          "token": "$last:/model/pending/token"
+        },
+        "context": "auto"
+      }
+    ]
+  },
+  "expect": {
+    "designerReplies": [
+      {
+        "path": "model.empty",
+        "message": 2,
+        "equals": false
+      },
+      {
+        "path": "model.className",
+        "message": 2,
+        "equals": "Widget"
+      },
+      {
+        "path": "model.attributes",
+        "message": 2,
+        "anyItem": {
+          "name": "label",
+          "type": "String"
+        }
+      },
+      {
+        "path": "model.selected",
+        "message": 3,
+        "equals": "label"
+      },
+      {
+        "path": "model.properties",
+        "message": 3,
+        "anyItem": {
+          "key": "nullable",
+          "editable": true
+        }
+      },
+      {
+        "path": "model.pending.after",
+        "message": 4,
+        "matches": "nullable\\s*=\\s*false"
+      },
+      {
+        "path": "model.pending.before",
+        "message": 4,
+        "matches": "@Column\\(name = \\\"label\\\"\\)"
+      },
+      {
+        "path": "model.pending.kind",
+        "message": 4,
+        "equals": "column"
+      },
+      {
+        "path": "ok",
+        "message": 5,
+        "equals": true
+      },
+      {
+        "path": "model.pending",
+        "message": 5,
+        "exists": false
+      },
+      {
+        "path": "model.properties",
+        "message": 5,
+        "anyItem": {
+          "key": "nullable",
+          "value": false
+        }
+      }
+    ]
+  },
+  "note": "Kind exerciser (G006-C1 stays desktop-worded): inspect at the Widget class returns the class model; selecting an attribute returns its editable column properties; a prepared change carries the exact before and after text and applying it edits the open source in place (version bumped, property updated)."
+}

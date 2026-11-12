@@ -1,0 +1,105 @@
+{
+  "id": "RS-923",
+  "rows": [
+    "G087"
+  ],
+  "claimIds": [
+    "G087-C1"
+  ],
+  "verifies": {
+    "G087-C1": "Compared with the project's entity scan, the relation list puts shop.widget (mapped by the Widget entity) in group mapped, the tables shop.orders and shop.shipments in group table and shop.order_totals in group view, so Mapped Relations, Tables and Views can be shown as three groups. Not checked: the web view's layout, colours and controls, and live databases. The group headings as drawn and the original's modal dialog are not checked; the source is a SQL file."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "setup": [
+    {
+      "write": {
+        "path": "db/shop.sql",
+        "content": "CREATE SCHEMA shop;\nCREATE SCHEMA audit;\nCREATE TABLE shop.widget (id BIGINT PRIMARY KEY, label VARCHAR(100), colour VARCHAR(20), weight INTEGER);\nCREATE TABLE shop.orders (id BIGINT PRIMARY KEY, widget_id BIGINT REFERENCES shop.widget(id), total NUMERIC(10,2));\nCREATE TABLE shop.shipments (id BIGINT PRIMARY KEY, sent DATE);\nCREATE VIEW shop.order_totals AS SELECT id, total FROM shop.orders;\nCREATE TABLE audit.log (id BIGINT PRIMARY KEY, message TEXT);\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/Widget.java",
+        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.Column;\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.Table;\n\n@Entity\n@Table(name = \"widget\")\npublic class Widget {\n\n    @Id\n    private Long id;\n\n    @Column(name = \"label\")\n    private String label;\n}\n"
+      }
+    }
+  ],
+  "kind": "designer",
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Widget.java",
+    "anchor": "class Widget"
+  },
+  "action": {
+    "view": "designer",
+    "messages": [
+      {
+        "operation": {
+          "kind": "snapshot"
+        }
+      },
+      {
+        "operation": {
+          "kind": "reverse-inventory",
+          "path": "$PROJECT/db/shop.sql",
+          "dialect": null,
+          "schema": "shop",
+          "table": null
+        }
+      }
+    ]
+  },
+  "expect": {
+    "designerReplies": [
+      {
+        "path": "reverse.relations",
+        "message": 2,
+        "anyItem": {
+          "name": "shop.widget",
+          "group": "mapped",
+          "view": false
+        }
+      },
+      {
+        "path": "reverse.relations",
+        "message": 2,
+        "anyItem": {
+          "name": "shop.orders",
+          "group": "table"
+        }
+      },
+      {
+        "path": "reverse.relations",
+        "message": 2,
+        "anyItem": {
+          "name": "shop.shipments",
+          "group": "table"
+        }
+      },
+      {
+        "path": "reverse.relations",
+        "message": 2,
+        "anyItem": {
+          "name": "shop.order_totals",
+          "group": "view",
+          "view": true
+        }
+      },
+      {
+        "path": "reverse.relations",
+        "message": 2,
+        "countWhere": {
+          "where": {
+            "group": "mapped"
+          },
+          "count": 1
+        }
+      },
+      {
+        "path": "reverse.modelScanned",
+        "message": 2,
+        "equals": true
+      }
+    ]
+  },
+  "note": "Grouped relations: mapped, table, view."
+}

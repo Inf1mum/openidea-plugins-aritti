@@ -1,0 +1,46 @@
+{
+  "id": "RS-936",
+  "rows": [
+    "G005"
+  ],
+  "claimIds": [
+    "G005-C3"
+  ],
+  "verifies": {
+    "G005-C3": "With jpaAssist.designer.showPalette false the reply's layout.palette is false (true by default, RS-940); the web view hides its JPA Palette section on that flag. Not checked: the web view's layout, colours and controls, and live databases. The settings page and the CSS that hides the section are not exercised."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "setup": [
+    {
+      "settings": {
+        "jpaAssist.designer.showPalette": false
+      }
+    }
+  ],
+  "kind": "designer",
+  "action": {
+    "view": "designer",
+    "messages": [
+      {
+        "operation": {
+          "kind": "snapshot"
+        }
+      }
+    ]
+  },
+  "expect": {
+    "designerReplies": [
+      {
+        "path": "layout.palette",
+        "message": 1,
+        "equals": false
+      },
+      {
+        "path": "layout.inspector",
+        "message": 1,
+        "equals": true
+      }
+    ]
+  },
+  "note": "layout.palette follows showPalette."
+}

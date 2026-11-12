@@ -1,0 +1,122 @@
+{
+  "id": "RS-928",
+  "rows": [
+    "G098"
+  ],
+  "claimIds": [
+    "G098-C1"
+  ],
+  "verifies": {
+    "G098-C1": "After reverse-sources and reverse-inventory, a column added to the selected SQL file on disk is returned by the next reverse-inventory request and the file list is returned again by the next reverse-sources (the panel's refresh sends exactly these two requests again). Not checked: the web view's layout, colours and controls, and live databases. Syncing an IDE data source with a live database; no connection is made. A SQL file ADDED after start-up is not checked: the headless host has no file watcher, so its file index does not list it."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "setup": [
+    {
+      "write": {
+        "path": "db/shop.sql",
+        "content": "CREATE SCHEMA shop;\nCREATE SCHEMA audit;\nCREATE TABLE shop.widget (id BIGINT PRIMARY KEY, label VARCHAR(100), colour VARCHAR(20), weight INTEGER);\nCREATE TABLE shop.orders (id BIGINT PRIMARY KEY, widget_id BIGINT REFERENCES shop.widget(id), total NUMERIC(10,2));\nCREATE TABLE shop.shipments (id BIGINT PRIMARY KEY, sent DATE);\nCREATE VIEW shop.order_totals AS SELECT id, total FROM shop.orders;\nCREATE TABLE audit.log (id BIGINT PRIMARY KEY, message TEXT);\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/Widget.java",
+        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.Column;\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.Table;\n\n@Entity\n@Table(name = \"widget\")\npublic class Widget {\n\n    @Id\n    private Long id;\n\n    @Column(name = \"label\")\n    private String label;\n}\n"
+      }
+    }
+  ],
+  "kind": "designer",
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Widget.java",
+    "anchor": "class Widget"
+  },
+  "action": {
+    "view": "designer",
+    "messages": [
+      {
+        "operation": {
+          "kind": "snapshot"
+        }
+      },
+      {
+        "operation": {
+          "kind": "reverse-sources"
+        }
+      },
+      {
+        "operation": {
+          "kind": "reverse-inventory",
+          "path": "$PROJECT/db/shop.sql",
+          "dialect": null,
+          "schema": "shop",
+          "table": "shop.shipments"
+        }
+      },
+      {
+        "setup": [
+          {
+            "replace": {
+              "file": "db/shop.sql",
+              "from": "sent DATE",
+              "to": "sent DATE, carrier VARCHAR(20)"
+            }
+          }
+        ]
+      },
+      {
+        "operation": {
+          "kind": "reverse-sources"
+        }
+      },
+      {
+        "operation": {
+          "kind": "reverse-inventory",
+          "path": "$PROJECT/db/shop.sql",
+          "dialect": null,
+          "schema": "shop",
+          "table": "shop.shipments"
+        }
+      }
+    ]
+  },
+  "expect": {
+    "designerReplies": [
+      {
+        "path": "reverse.sqlFiles",
+        "message": 2,
+        "length": 1
+      },
+      {
+        "path": "reverse.selected.columns",
+        "message": 3,
+        "length": 2
+      },
+      {
+        "path": "reverse.selected.columns",
+        "message": 3,
+        "noItem": {
+          "name": "carrier"
+        }
+      },
+      {
+        "path": "reverse.sqlFiles",
+        "message": 4,
+        "anyItem": {
+          "label": "db/shop.sql"
+        }
+      },
+      {
+        "path": "reverse.selected.columns",
+        "message": 5,
+        "length": 3
+      },
+      {
+        "path": "reverse.selected.columns",
+        "message": 5,
+        "anyItem": {
+          "name": "carrier"
+        }
+      }
+    ]
+  },
+  "note": "Refresh re-reads the selected file."
+}

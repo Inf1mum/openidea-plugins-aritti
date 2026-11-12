@@ -1,0 +1,102 @@
+{
+  "id": "RS-935",
+  "rows": [],
+  "claimIds": [],
+  "verifies": {},
+  "kindExerciser": true,
+  "fixture": "envers-flyway-liquibase",
+  "setup": [
+    {
+      "settings": {
+        "jpaAssist.identifierPolicy": "uppercase",
+        "jpaAssist.maxIdentifierLength": "30",
+        "jpaAssist.indexForeignKeys": true
+      }
+    }
+  ],
+  "preActions": [
+    {
+      "title": "Create schema baseline…",
+      "target": {
+        "file": "src/main/java/com/example/billing/domain/Client.java",
+        "anchor": "class Client"
+      },
+      "prompts": [
+        {
+          "confirm": "yes"
+        }
+      ]
+    }
+  ],
+  "postSetup": [
+    {
+      "replace": {
+        "file": "src/main/java/com/example/billing/domain/Client.java",
+        "from": "    private String notes;",
+        "to": "    private Integer score;"
+      }
+    }
+  ],
+  "kind": "designer",
+  "target": {
+    "file": "src/main/java/com/example/billing/domain/Client.java",
+    "anchor": "class Client"
+  },
+  "action": {
+    "view": "designer",
+    "messages": [
+      {
+        "operation": {
+          "kind": "snapshot"
+        }
+      },
+      {
+        "operation": {
+          "kind": "plan-migration"
+        }
+      }
+    ]
+  },
+  "expect": {
+    "designerReplies": [
+      {
+        "path": "migration.createTableOptions",
+        "message": 2,
+        "length": 4
+      },
+      {
+        "path": "migration.createTableOptions",
+        "message": 2,
+        "anyItem": {
+          "setting": "jpaAssist.identifierPolicy",
+          "value": "uppercase"
+        }
+      },
+      {
+        "path": "migration.createTableOptions",
+        "message": 2,
+        "anyItem": {
+          "setting": "jpaAssist.maxIdentifierLength",
+          "value": "30"
+        }
+      },
+      {
+        "path": "migration.createTableOptions",
+        "message": 2,
+        "anyItem": {
+          "setting": "jpaAssist.indexForeignKeys",
+          "value": "yes"
+        }
+      },
+      {
+        "path": "migration.createTableOptions",
+        "message": 2,
+        "anyItem": {
+          "setting": "jpaAssist.primaryKeyConstraintName",
+          "value": "unnamed"
+        }
+      }
+    ]
+  },
+  "note": "Kind exerciser (G123-C2 stays desktop-worded): createTableOptions in the plan model shows the effective CREATE TABLE settings."
+}

@@ -1,0 +1,36 @@
+{
+  "id": "RS-939",
+  "rows": [],
+  "claimIds": [],
+  "verifies": {},
+  "kindExerciser": true,
+  "fixture": "boot-jpa-java-jakarta",
+  "setup": [
+    {
+      "settings": {
+        "jpaAssist.designer.showEditorToolbar": false
+      }
+    }
+  ],
+  "kind": "designer",
+  "action": {
+    "view": "designer",
+    "messages": [
+      {
+        "operation": {
+          "kind": "snapshot"
+        }
+      }
+    ]
+  },
+  "expect": {
+    "designerReplies": [
+      {
+        "path": "layout.toolbar",
+        "message": 1,
+        "equals": false
+      }
+    ]
+  },
+  "note": "Kind exerciser: layout.toolbar follows showEditorToolbar."
+}

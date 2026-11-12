@@ -44,7 +44,8 @@
    "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
    "strength": "explicit",
    "ourFeature": "not implemented",
-   "verifiableHeadless": false
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Setting jpaAssist.designer.showInspector hides the JPA Inspector of the Persistence Designer (replies carry layout.inspector; the palette and editor toolbar have their own settings). Not checked: JPA Structure visibility (a separate host tool window with no designer setting), the settings page rendering, the hiding itself."
   }
  ],
  "undocumented": [

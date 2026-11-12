@@ -1,0 +1,81 @@
+{
+  "id": "RS-924",
+  "rows": [
+    "G087"
+  ],
+  "claimIds": [
+    "G087-C1"
+  ],
+  "verifies": {
+    "G087-C1": "The mapped relation shop.widget carries unmapped = 2 (colour and weight have no attribute in Widget) and columns = 4, which is the number the panel prints as 'N unmapped columns'; unmapped relations (tables, views) carry 0. Not checked: the web view's layout, colours and controls, and live databases. The label text as drawn is not checked."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "setup": [
+    {
+      "write": {
+        "path": "db/shop.sql",
+        "content": "CREATE SCHEMA shop;\nCREATE SCHEMA audit;\nCREATE TABLE shop.widget (id BIGINT PRIMARY KEY, label VARCHAR(100), colour VARCHAR(20), weight INTEGER);\nCREATE TABLE shop.orders (id BIGINT PRIMARY KEY, widget_id BIGINT REFERENCES shop.widget(id), total NUMERIC(10,2));\nCREATE TABLE shop.shipments (id BIGINT PRIMARY KEY, sent DATE);\nCREATE VIEW shop.order_totals AS SELECT id, total FROM shop.orders;\nCREATE TABLE audit.log (id BIGINT PRIMARY KEY, message TEXT);\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/Widget.java",
+        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.Column;\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.Table;\n\n@Entity\n@Table(name = \"widget\")\npublic class Widget {\n\n    @Id\n    private Long id;\n\n    @Column(name = \"label\")\n    private String label;\n}\n"
+      }
+    }
+  ],
+  "kind": "designer",
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Widget.java",
+    "anchor": "class Widget"
+  },
+  "action": {
+    "view": "designer",
+    "messages": [
+      {
+        "operation": {
+          "kind": "snapshot"
+        }
+      },
+      {
+        "operation": {
+          "kind": "reverse-inventory",
+          "path": "$PROJECT/db/shop.sql",
+          "dialect": null,
+          "schema": "shop",
+          "table": null
+        }
+      }
+    ]
+  },
+  "expect": {
+    "designerReplies": [
+      {
+        "path": "reverse.relations",
+        "message": 2,
+        "anyItem": {
+          "name": "shop.widget",
+          "unmapped": 2,
+          "columns": 4
+        }
+      },
+      {
+        "path": "reverse.relations",
+        "message": 2,
+        "anyItem": {
+          "name": "shop.orders",
+          "unmapped": 0
+        }
+      },
+      {
+        "path": "reverse.relations",
+        "message": 2,
+        "anyItem": {
+          "name": "shop.order_totals",
+          "unmapped": 0
+        }
+      }
+    ]
+  },
+  "note": "Unmapped-column count on a mapped relation."
+}

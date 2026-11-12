@@ -1,0 +1,48 @@
+{
+  "id": "RS-933",
+  "rows": [],
+  "claimIds": [],
+  "verifies": {},
+  "kindExerciser": true,
+  "fixture": "envers-flyway-liquibase",
+  "kind": "designer",
+  "target": {
+    "file": "src/main/java/com/example/billing/domain/Client.java",
+    "anchor": "class Client"
+  },
+  "action": {
+    "view": "designer",
+    "messages": [
+      {
+        "operation": {
+          "kind": "snapshot"
+        }
+      },
+      {
+        "operation": {
+          "kind": "plan-migration"
+        }
+      }
+    ]
+  },
+  "expect": {
+    "designerReplies": [
+      {
+        "path": "migration.state",
+        "message": 2,
+        "equals": "no-baseline"
+      },
+      {
+        "path": "ok",
+        "message": 2,
+        "equals": true
+      },
+      {
+        "path": "migration.fileAction",
+        "message": 2,
+        "equals": "Generate Flyway migration from model changes…"
+      }
+    ]
+  },
+  "note": "Kind exerciser: without a baseline snapshot plan-migration answers state no-baseline and names the file action."
+}
