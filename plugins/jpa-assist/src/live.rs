@@ -242,6 +242,7 @@ pub(super) const KNOWN_CODES: &[&str] = &[
     "jpa-xml-class-unknown", "jpa-xml-property", "jpa-xml-provider", "jpa-xml-unit-name", "jpa-xml-value",
     "jpa-unsupported-type", "jpa-entity-field-without-relationship", "jpa-incompatible-table", "jpa-composite-id-not-serializable",
     "jpa-converter-type-mismatch", "jpa-converter-not-attribute-converter",
+    "jpa-unknown-mapped-by", "jpa-unknown-mapstruct-property",
 ];
 
 /// Every inspection is on by default and, where the original registers a counterpart, a warning (see `ORIGINAL_INSPECTION_CODES`); `None` removes the finding, `Some` replaces its severity. Malformed rows and unknown codes or levels are skipped.

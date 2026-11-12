@@ -134,8 +134,10 @@ pub(super) fn findings(doc: &Document) -> Vec<Finding> {
         .collect();
 
     let mut found = vec![];
-    if class.kind == Kind::Entity && !class.kotlin {
+    if matches!(class.kind, Kind::Entity | Kind::Embeddable) && !class.kotlin {
         constructors(doc, &class, &members, &mut found);
+    }
+    if class.kind == Kind::Entity && !class.kotlin {
         final_members(&members, &mut found);
     }
     for member in &members {
@@ -168,8 +170,7 @@ fn constructors(doc: &Document, class: &Class, members: &[Member], found: &mut V
         let Some(close) = model::closing(member.decl.as_bytes(), stop) else {
             return;
         };
-        let accessible = model::has_word(member.head(), "public") || model::has_word(member.head(), "protected");
-        if accessible && member.decl[stop + 1..close].trim().is_empty() {
+        if member.decl[stop + 1..close].trim().is_empty() {
             return;
         }
     }
@@ -182,7 +183,7 @@ fn constructors(doc: &Document, class: &Class, members: &[Member], found: &mut V
             at + class.name.len(),
             Severity::Error,
             "jpa-no-arg-constructor",
-            "An entity class must have a public or protected constructor with no parameters (Jakarta Persistence 2.1). Constructors from Lombok or XML are not resolved.",
+            format!("{} class must have a constructor with no parameters (Jakarta Persistence 2.1). Constructors from Lombok or XML are not resolved.", if class.kind == Kind::Embeddable { "An embeddable" } else { "An entity" }),
         ));
     }
 }
@@ -427,11 +428,13 @@ mod tests {
     fn missing_no_arg_constructor() {
         let bad = java("@Id long id;\npublic Person(long id) { this.id = id; }", &[]);
         assert_eq!(j(&bad, "jpa-no-arg-constructor"), ["Person"]);
-        let private = java("@Id long id;\nprivate Person() {}\npublic Person(long id) {}", &[]);
-        assert_eq!(j(&private, "jpa-no-arg-constructor"), ["Person"]);
+        let embeddable = bad.replace("@Entity", "@Embeddable").replace("import jakarta.persistence.Entity;", "import jakarta.persistence.Embeddable;");
+        assert_eq!(j(&embeddable, "jpa-no-arg-constructor"), ["Person"]);
+        assert!(j(&embeddable.replace("public Person(long", "public Person() {}\npublic Person(long"), "jpa-no-arg-constructor").is_empty());
         for ok in [
             "@Id long id;",
             "@Id long id;\nprotected Person() {}\npublic Person(long id) {}",
+            "@Id long id;\nprivate Person() {}\npublic Person(long id) {}",
             "@Id long id;\npublic Person() {}",
             "@Id long id;\nPerson create() { return new Person(1); }",
         ] {

@@ -1,0 +1,37 @@
+{
+  "id": "RS-619",
+  "rows": [],
+  "claimIds": [],
+  "kindExerciser": true,
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "diagnostics",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/w6/Parcel.java",
+        "content": "package com.example.shop.w6;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.OneToMany;\nimport java.util.List;\n\n@Entity\npublic class Parcel {\n    @Id\n    private Long id;\n\n    @OneToMany(mappedBy = \"parcle\")\n    private List<Item> items;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/w6/Item.java",
+        "content": "package com.example.shop.w6;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.ManyToOne;\n\n@Entity\npublic class Item {\n    @Id\n    private Long id;\n\n    @ManyToOne\n    private Parcel parcel;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/resources/META-INF/orm.xml",
+        "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<entity-mappings xmlns=\"https://jakarta.ee/xml/ns/persistence/orm\" version=\"3.0\"/>\n"
+      }
+    }
+  ],
+  "expect": {
+    "diagnosticsAbsent": [
+      {
+        "rule": "jpa-unknown-mapped-by",
+        "file": "src/main/java/com/example/shop/w6/Parcel.java"
+      }
+    ]
+  },
+  "note": "A mapping file may redeclare the entities, so the rule stays silent."
+}

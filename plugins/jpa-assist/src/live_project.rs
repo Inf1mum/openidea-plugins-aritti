@@ -20,6 +20,9 @@ use crate::{
 };
 use openidea_plugin::{Severity, host, providers::Document, text::offset};
 
+#[path = "live_references.rs"]
+mod references;
+
 const MAX_HOPS: usize = 8;
 const MAX_TEXT: usize = 128 * 1024;
 const MAX_SOURCES: u32 = 128;
@@ -104,10 +107,12 @@ pub(super) fn findings(doc: &Document) -> Vec<Finding> {
             found.extend(field_types(doc));
             found.extend(incompatible_table(doc));
             found.extend(composite_id(doc));
+            found.extend(references::mapped_by(doc));
         }
     }
     if doc.language == "java" {
         found.extend(repository_references(doc, &masked));
+        found.extend(references::mapstruct(doc));
     }
     found
 }
@@ -350,7 +355,7 @@ fn field_types(doc: &Document) -> Vec<Finding> {
     found
 }
 
-fn incompatible_table(doc: &Document) -> Vec<Finding> {
+pub(super) fn incompatible_table(doc: &Document) -> Vec<Finding> {
     if !setting("checkIncompatibleTable") || !doc.text.contains("Table") {
         return vec![];
     }
@@ -371,7 +376,8 @@ fn incompatible_table(doc: &Document) -> Vec<Finding> {
         Severity::Warning,
         "jpa-incompatible-table",
         "This entity extends the root of a SINGLE_TABLE hierarchy, which stores every subclass in the root's table, so @Table has no effect here. Remove it.",
-    )]
+    )
+    .fix("Remove @Table", vec![checks::remove_annotation(&doc.text, table)])]
 }
 
 fn composite_id(doc: &Document) -> Vec<Finding> {
@@ -983,6 +989,17 @@ mod tests {
             assert_eq!(found.len(), 1, "{root}");
             assert_eq!(found[0].0, Severity::Warning);
         }
+    }
+
+    #[test]
+    fn table_on_a_single_table_subclass_offers_to_remove_it() {
+        use openidea_plugin::providers::Providers;
+        let (host, text) = subclass("", "@Table(name = \"sub\")");
+        host.add_file(SUB, &text);
+        let doc = Document { path: format!("/project/{SUB}"), language: "java".into(), text: text.clone(), version: 1 };
+        let line = openidea_plugin::text::position(&text, text.find("@Table").unwrap());
+        let actions = JpaAssist::default().code_actions(&doc, openidea_plugin::Range::new(line, line));
+        assert!(actions.iter().any(|a| a.title == "Remove @Table"));
     }
 
     #[test]

@@ -191,7 +191,7 @@ not-persistent only without mapping files). `jpa-repository-id` stays legacy: it
 `jpa-source-repository-id`. New there: `jpa-unsupported-type` (`checkUnsupportedFieldType`),
 `jpa-entity-field-without-relationship` (`checkEntityFieldRelationship`), `jpa-incompatible-table`
 (`checkIncompatibleTable`) and `jpa-composite-id-not-serializable` (`checkCompositeIdSerializable`, `javax.persistence`
-sources only). None of the four new rules has a quick fix.
+sources only). `jpa-incompatible-table` offers "Remove @Table"; the other new rules have no quick fix. Also live: `jpa-unknown-mapped-by` (`checkMappedBy`, `mappedBy` naming no attribute of a target entity proven in the same source root; silent for inherited-unproven, wildcard, library or XML-mapped targets) and `jpa-unknown-mapstruct-property` (`checkMapStructMappings`, MapStruct `@Mapping` source/target literals that match no property of plain project classes). Hibernate `@Type(type)` references are not checked.
 
 Original comparison: `JpaObjectClassSignatureInspection`, `JpaAttributeTypeInspection`
 and `JpaMissingIdInspection` use UAST/resolved persistence roles and model browsers;

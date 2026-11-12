@@ -25,7 +25,7 @@ impl Finding {
         Self { start, end, severity, code, message: message.into(), fix: None }
     }
 
-    fn fix(mut self, title: &'static str, edits: Vec<Edit>) -> Self {
+    pub(super) fn fix(mut self, title: &'static str, edits: Vec<Edit>) -> Self {
         self.fix = Some((title, edits));
         self
     }
@@ -168,6 +168,17 @@ fn lombok_data_fix_owned(text: &str, masked: &str, a: &Annotation) -> Option<Vec
     Some(vec![Edit{start:a.start,end:a.end(),text:format!("@lombok.Getter{separator}@lombok.Setter")}])
 }
 
+pub(super) fn remove_annotation(text: &str, a: &Annotation) -> Edit {
+    let line_start = text[..a.start].rfind('\n').map_or(0, |p| p + 1);
+    let rest = &text[a.end()..];
+    let line_end = rest.find('\n').map_or(text.len(), |p| a.end() + p + 1);
+    let alone = text[line_start..a.start].trim().is_empty() && text[a.end()..line_end].trim().is_empty();
+    match alone {
+        true => Edit { start: line_start, end: line_end, text: String::new() },
+        false => Edit { start: a.start, end: a.end(), text: String::new() },
+    }
+}
+
 pub(super) fn owned_class_start(text: &str, masked: &str, class: &Class) -> Option<usize> {
     if class.body_end.is_none() || class.name.is_empty() || class.name.len() > 128 { return None; }
     let (at, keyword) = declaration_keyword(masked, 0, &["class", "interface", "enum", "record", "object"])?;
@@ -270,7 +281,8 @@ fn entity_findings(text: &str, kotlin: bool, owned_class: Option<&Class>) -> Vec
                 Severity::Warning,
                 "jpa-lombok-equals",
                 "The generated equals and hashCode compare mutable fields and a generated id, so the entity's hash code changes once it is persisted.",
-            )),
+            )
+            .fix("Remove @EqualsAndHashCode", vec![remove_annotation(text, a)])),
             "ManyToOne" | "OneToOne" if class_at_owned.is_none_or(|at| a.start > at) => if let Some(class)=owned_class {fetch_finding_owned(&masked,a,true,class)} else {fetch_finding(text,&masked,a,true,kotlin)},
             "OneToMany" | "ManyToMany" | "ElementCollection" if class_at_owned.is_none_or(|at| a.start > at) => if let Some(class)=owned_class {fetch_finding_owned(&masked,a,false,class)} else {fetch_finding(text,&masked,a,false,kotlin)},
             _ => None,
@@ -1940,6 +1952,14 @@ public final class Order {
 
         let with_args = "@Entity class A { @Id Long id; @ManyToOne(optional = false) B b; }";
         assert!(fixed(with_args, "jpa-eager-to-one", false).contains("@ManyToOne(fetch = FetchType.LAZY, optional = false)"));
+    }
+
+    #[test]
+    fn equals_and_hash_code_fix_removes_the_annotation_line_or_only_the_annotation() {
+        let alone = "@Entity\n@EqualsAndHashCode(of = \"id\")\nclass A { @Id Long id; }";
+        assert_eq!(fixed(alone, "jpa-lombok-equals", false), "@Entity\nclass A { @Id Long id; }");
+        let inline = "@Entity @EqualsAndHashCode class A { @Id Long id; }";
+        assert_eq!(fixed(inline, "jpa-lombok-equals", false), "@Entity  class A { @Id Long id; }");
     }
 
     #[test]
