@@ -1,0 +1,45 @@
+{
+  "id": "RS-762",
+  "rows": [],
+  "claimIds": [],
+  "kindExerciser": true,
+  "fixture": "mapstruct-lombok-dto",
+  "kind": "completion",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/crm/domain/Parcel.java",
+        "content": "package com.example.crm.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Parcel {\n\n    @Id\n    private Long id;\n\n    private String name;\n\n    private String color;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/crm/dto/ParcelDto.java",
+        "content": "package com.example.crm.dto;\n\npublic record ParcelDto(\n        Long id,\n        String name\n) {\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/crm/service/ParcelService.java",
+        "content": "package com.example.crm.service;\n\nimport com.example.crm.domain.Parcel;\nimport com.example.crm.dto.ParcelDto;\nimport java.util.List;\nimport org.springframework.stereotype.Service;\n\n@Service\npublic class ParcelService {\n\n    void run(ParcelDto dto) {\n        dto.mapTo\n    }\n}\n"
+      }
+    },
+    {
+      "swap": {
+        "file": "pom.xml",
+        "with": "pom-modelmapper.xml"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/crm/service/ParcelService.java",
+    "anchor": "dto.mapTo",
+    "at": "end"
+  },
+  "expect": {
+    "completionsInclude": [
+      "mapToParcel"
+    ]
+  },
+  "note": "ModelMapper mapTo on a DTO offers the entity it is named after."
+}

@@ -3,7 +3,9 @@
 //!
 //! Table attributes: `tableName`, `baseTableName`, `referencedTableName`. Column attributes follow the table named in
 //! the same tag (`columnName`, `oldColumnName`, `newColumnName`, `baseColumnNames`/`referencedColumnNames` with their
-//! base/referenced table) or, for `<column name>`, the nearest enclosing `tableName`.
+//! base/referenced table, and `columnNames` of addPrimaryKey/addUniqueConstraint with their `tableName`) or, for
+//! `<column name>` (createIndex and createTable children), the nearest enclosing `tableName`. The plural attributes hold
+//! comma separated lists: the column after the last comma is completed.
 use super::*;
 use crate::schema_snapshot::Scope;
 use persistence_core::schema::Fact;
@@ -100,10 +102,19 @@ fn wanted(text: &str, caret: usize) -> Option<(usize, Wanted)> {
     let wanted = match attr {
         "tableName" | "baseTableName" | "referencedTableName" => Wanted::Table,
         "columnName" | "oldColumnName" | "newColumnName" => Wanted::Columns(attribute(full_tag, "tableName")?),
+        "columnNames" => Wanted::Columns(attribute(full_tag, "tableName")?),
         "baseColumnNames" => Wanted::Columns(attribute(full_tag, "baseTableName")?),
         "referencedColumnNames" => Wanted::Columns(attribute(full_tag, "referencedTableName")?),
         "name" if full_tag.starts_with("<column") && !full_tag.starts_with("<columns") => Wanted::Columns(attribute(full_tag, "tableName").or_else(|| nearest_table(&text[..tag_start]))?),
         _ => return None,
+    };
+    let value_start = match attr {
+        "columnNames" | "baseColumnNames" | "referencedColumnNames" => {
+            let typed = &text[value_start..caret];
+            let after_comma = typed.rfind(',').map_or(0, |at| at + 1);
+            value_start + after_comma + typed[after_comma..].len() - typed[after_comma..].trim_start().len()
+        }
+        _ => value_start,
     };
     Some((value_start, wanted))
 }
@@ -161,6 +172,19 @@ mod tests {
         assert!(matches!(wanted(LOG, caret), Some((_, Wanted::Columns(t))) if t == "invoice"));
         let caret = at("referencedColumnNames=\"i", 24);
         assert!(matches!(wanted(LOG, caret), Some((_, Wanted::Columns(t))) if t == "client"));
+    }
+
+    const KEYS: &str = "<databaseChangeLog>\n<changeSet id=\"1\" author=\"a\">\n<addPrimaryKey tableName=\"cli\" columnNames=\"id, ti\"/>\n<addUniqueConstraint columnNames=\"\" tableName=\"cli\"/>\n<addPrimaryKey columnNames=\"x\"/>\n</changeSet>\n</databaseChangeLog>";
+
+    #[test]
+    fn plain_column_names_follow_the_table_of_the_tag_and_complete_after_the_last_comma() {
+        let caret = KEYS.find("ti\"/>").unwrap() + 2;
+        let (value_start, found) = wanted(KEYS, caret).unwrap();
+        assert!(matches!(found, Wanted::Columns(table) if table == "cli"));
+        assert_eq!(&KEYS[value_start..caret], "ti");
+        let caret = KEYS.find("columnNames=\"\" tableName").unwrap() + 13;
+        assert!(matches!(wanted(KEYS, caret), Some((_, Wanted::Columns(table))) if table == "cli"));
+        assert!(wanted(KEYS, KEYS.find("columnNames=\"x").unwrap() + 13).is_none());
     }
 
     #[test]

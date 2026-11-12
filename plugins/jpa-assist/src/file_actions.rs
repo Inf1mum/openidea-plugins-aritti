@@ -95,6 +95,8 @@ mod injection_detect;
 mod unresolved_create;
 #[path = "call_assist.rs"]
 mod call_assist;
+#[path = "entity_view_injection.rs"]
+pub(crate) mod entity_view_injection;
 #[path = "project_parents.rs"]
 mod project_parents;
 #[path = "query_options.rs"]
@@ -187,6 +189,7 @@ enum Operation {
     UnresolvedRepository,
     UnresolvedProjection,
     UnresolvedDto,
+    UnresolvedContext(unresolved_create::Created),
     CreateRepositoryMethod,
     RenameWithDtos,
     NestedProjection,
@@ -272,6 +275,7 @@ impl Operation {
             Self::UnresolvedRepository => "unresolved-repository",
             Self::UnresolvedProjection => "unresolved-projection",
             Self::UnresolvedDto => "unresolved-dto",
+            Self::UnresolvedContext(_) => "unresolved-context",
             Self::CreateRepositoryMethod => "create-repository-method",
             Self::RenameWithDtos => "rename-dtos",
             Self::QueryAsync => "query-async",
@@ -715,6 +719,7 @@ impl FileActions for JpaAssist {
                 unresolved_create::Created::Repository => Operation::UnresolvedRepository,
                 unresolved_create::Created::Projection => Operation::UnresolvedProjection,
                 unresolved_create::Created::Dto => Operation::UnresolvedDto,
+                other => Operation::UnresolvedContext(other),
             }, title));
         }
         if self.generation.pending.len() > 8 {
@@ -894,6 +899,7 @@ impl FileActions for JpaAssist {
             Operation::UnresolvedRepository => unresolved_create::resolve(&pending, doc, &project, unresolved_create::Created::Repository),
             Operation::UnresolvedProjection => unresolved_create::resolve(&pending, doc, &project, unresolved_create::Created::Projection),
             Operation::UnresolvedDto => unresolved_create::resolve(&pending, doc, &project, unresolved_create::Created::Dto),
+            Operation::UnresolvedContext(created) => unresolved_create::resolve(&pending, doc, &project, created),
             Operation::CreateRepositoryMethod => call_assist::resolve_create_method(&pending, doc, &project),
             Operation::NestedProjection => nested_dto_action::resolve(&pending, doc, &project),
             Operation::FlatDto => nested_dto_action::resolve_flat(&pending, doc, &project),

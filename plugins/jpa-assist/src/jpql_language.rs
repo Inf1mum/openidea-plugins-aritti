@@ -245,6 +245,7 @@ impl Injections for JpaAssist {
             return vec![];
         }
         let mut out = api_queries(doc);
+        out.extend(crate::file_actions::entity_view_injection::injections(doc));
         let Some(class) = attribute_info::snapshot(doc) else {
             return out;
         };

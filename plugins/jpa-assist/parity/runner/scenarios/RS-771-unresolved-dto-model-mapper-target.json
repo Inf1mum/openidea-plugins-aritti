@@ -1,0 +1,73 @@
+{
+  "id": "RS-771",
+  "rows": [],
+  "claimIds": [],
+  "kindExerciser": true,
+  "fixture": "mapstruct-lombok-dto",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/crm/domain/Parcel.java",
+        "content": "package com.example.crm.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Parcel {\n\n    @Id\n    private Long id;\n\n    private String name;\n\n    private String color;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/crm/service/ParcelService.java",
+        "content": "package com.example.crm.service;\n\nimport com.example.crm.domain.Parcel;\nimport org.modelmapper.ModelMapper;\nimport org.springframework.stereotype.Service;\n\n@Service\npublic class ParcelService {\n\n    private final ModelMapper modelMapper;\n\n    ParcelService(ModelMapper modelMapper) {\n        this.modelMapper = modelMapper;\n    }\n\n    Object run(Parcel parcel) {\n        return modelMapper.map(parcel, ParcelView.class);\n    }\n}\n"
+      }
+    },
+    {
+      "swap": {
+        "file": "pom.xml",
+        "with": "pom-modelmapper.xml"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/crm/service/ParcelService.java",
+    "anchor": "ParcelView"
+  },
+  "action": {
+    "title": "Create missing DTO from this usage\u2026"
+  },
+  "prompts": [
+    {
+      "pickMany": [
+        "id",
+        "name"
+      ]
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pickMany",
+        "titleContains": "DTO fields"
+      },
+      {
+        "kind": "confirm",
+        "messageContains": "ParcelView"
+      }
+    ],
+    "createdFiles": [
+      {
+        "path": "src/main/java/com/example/crm/domain/ParcelView.java",
+        "contains": [
+          "public record ParcelView(",
+          "String name"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true,
+    "cancelEach": true
+  },
+  "note": "The Dto.class target of modelMapper.map(parcel, Dto.class) is created for the entity of the first argument's declared type."
+}

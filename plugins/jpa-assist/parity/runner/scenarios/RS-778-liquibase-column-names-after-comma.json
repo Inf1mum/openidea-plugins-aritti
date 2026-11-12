@@ -1,0 +1,55 @@
+{
+  "id": "RS-778",
+  "rows": [],
+  "claimIds": [],
+  "kindExerciser": true,
+  "fixture": "envers-flyway-liquibase",
+  "kind": "completion",
+  "setup": [
+    {
+      "swap": {
+        "file": "pom.xml",
+        "with": "liquibase-variant/pom.xml"
+      }
+    },
+    {
+      "swap": {
+        "file": "src/main/resources/application.properties",
+        "with": "liquibase-variant/overlay/application.properties"
+      }
+    },
+    {
+      "delete": "src/main/resources/db/migration"
+    },
+    {
+      "delete": "src/main/java/db/migration"
+    },
+    {
+      "copy": {
+        "from": "liquibase-variant/overlay/resources/db/changelog",
+        "to": "src/main/resources/db/changelog"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/resources/db/changelog/changes/003-probe.xml",
+        "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<databaseChangeLog xmlns=\"http://www.liquibase.org/xml/ns/dbchangelog\">\n    <changeSet id=\"3\" author=\"a\">\n        <addUniqueConstraint tableName=\"client\" columnNames=\"email, di\"/>\n    </changeSet>\n</databaseChangeLog>\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/resources/db/changelog/changes/003-probe.xml",
+    "anchor": "columnNames=\"email, di",
+    "at": "end"
+  },
+  "expect": {
+    "completionsInclude": [
+      "display_name"
+    ],
+    "completionsExclude": [
+      "email",
+      "number"
+    ]
+  },
+  "note": "The column after the last comma of columnNames is completed, filtered by what is typed after it."
+}
