@@ -10,7 +10,7 @@ categories = ["languages", "tools"]
 icon = "icon.svg"
 engines.openidea = "^1.5"
 wasm = "dist/plugin.wasm"
-activation = ["on-language:ideolog", "on-language:log", "on-event:editor-focused", "on-event:file-opened", "on-event:file-saved", "on-event:files-changed", "on-event:settings-changed", "on-event:file-closed", "on-view:patterns", "on-view:jvm-observations", "on-view:live-tail"]
+activation = ["on-language:ideolog", "on-language:log", "on-event:editor-focused", "on-event:file-opened", "on-event:file-saved", "on-event:files-changed", "on-event:settings-changed", "on-event:file-closed", "on-view:patterns"]
 
 # Highlighting needs none; the navigation commands read the log and open files,
 # the status item follows the focused editor, the Patterns view keeps its patterns in storage.
@@ -36,7 +36,6 @@ title = "Ideolog"
 
 [[contributes.views]]
 id = "patterns"
-group = "ideolog"
 title = "Ideolog"
 icon = "file-log"
 location = "bottom"
@@ -133,13 +132,6 @@ title = "Ideolog: Capture JVM Regex and Date Observations"
 category = "Ideolog"
 when = "editorFocus"
 
-[[contributes.views]]
-id = "jvm-observations"
-group = "ideolog"
-title = "JVM Observations"
-icon = "file-log"
-location = "bottom"
-
 [[contributes.providers]]
 kinds = ["folding"]
 languages = ["log"]
@@ -153,14 +145,6 @@ category = "Ideolog"
 id = "stop-tail"
 title = "Ideolog: Stop Live Log Tail"
 category = "Ideolog"
-
-[[contributes.views]]
-id = "live-tail"
-group = "ideolog"
-title = "Live Log Tail"
-icon = "file-log"
-location = "bottom"
-web = "web/live-tail.html"
 
 [[contributes.providers]]
 kinds = ["selection-ranges"]

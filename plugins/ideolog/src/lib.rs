@@ -106,7 +106,7 @@ impl Plugin for Ideolog {
 
     fn run_command(&mut self, id: &str, ctx: &Invocation, _arg: Option<&str>) -> Result<Option<String>, Error> {
         if id == "extend-log-selection" { self.extend_log_selection(ctx)?; return Ok(None); }
-        if id == "live-tail" { host::reveal_view(live_tail::VIEW)?; return Ok(None); }
+        if id == "live-tail" { ui_kit::web::reveal_view(live_tail::VIEW, include_str!("ui_config.json"))?; return Ok(None); }
         if id == "stop-tail" { self.stop_tail(); return Ok(None); }
         if id == "capture-jvm" { self.capture_jvm(ctx)?; return Ok(None); }
         if id == "mark-log-source" { semantic::mark(self, ctx)?; return Ok(None); }
@@ -210,7 +210,7 @@ impl Views for Ideolog {
     fn render(&mut self, view: &str, _viewport: Option<Viewport>, _ctx: &Invocation) -> Result<View, Error> {
         (|| -> Result<View, Error> {
             match view {
-                live_tail::VIEW => Ok(self.render_tail()),
+                live_tail::VIEW => Ok(self.render_tail(_ctx)),
                 "jvm-observations" => self.render_jvm(_ctx),
                 viewer::VIEW => self.render_log(_viewport,_ctx),
                 patterns::VIEW => Ok(patterns::render(&self.pattern_editor)),
@@ -221,7 +221,7 @@ impl Views for Ideolog {
 
     fn handle(&mut self, view: &str, event: ViewEvent, _ctx: &Invocation) -> Result<(), Error> {
         if ui_kit::web::handle(self, view, &event, _ctx, include_str!("ui_config.json"))? { return Ok(()); }
-        if view==live_tail::VIEW { if let ViewEvent::Message(raw)=event { return self.tail_message(&raw,_ctx); } return Ok(()); }
+        if view==live_tail::VIEW { return self.handle_tail(event,_ctx); }
         if view=="jvm-observations" { return self.handle_jvm(event,_ctx); }
         if view==viewer::VIEW {return self.handle_log(event,_ctx);}
         let result = match view {
@@ -980,7 +980,7 @@ mod external_patterns_refresh_tests {
             assert_eq!(host.view_messages().len(),before + 1);
             let answer: serde_json::Value = serde_json::from_str(&host.view_messages().last().unwrap().1).unwrap();
             assert_eq!(answer["model"]["activeView"], patterns::VIEW);
-            assert_eq!(answer["model"]["viewTabs"].as_array().unwrap().len(), 2);
+            assert_eq!(answer["model"]["viewTabs"].as_array().unwrap().len(), 4);
             assert!(matches!(plugin.render(patterns::VIEW,None,&host.invocation()).unwrap().body,Body::Message(_)));
         }
         assert!(host.requests().is_empty());assert!(host.process_runs().is_empty());

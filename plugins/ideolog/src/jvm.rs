@@ -5,7 +5,7 @@ use openidea_plugin::{
     views::{Body, Button, Table},
 };
 use std::time::{Duration, Instant};
-const VIEW: &str = "jvm-observations";
+pub(crate) const VIEW: &str = "jvm-observations";
 const SOURCE: &str = include_str!("../adapters/IdeologProbe.java");
 const MAX_OUTPUT: usize = 256 << 10;
 struct PrivateInput(String);
@@ -297,8 +297,8 @@ impl Ideolog {
             provenance,
             rows,
         });
-        host::reveal_view(VIEW)?;
-        host::refresh_view(VIEW);
+        ui_kit::web::reveal_view(VIEW, include_str!("ui_config.json"))?;
+        ui_kit::web::refresh_view(VIEW, include_str!("ui_config.json"));
         Ok(())
     }
     /// Only exact, warmed observations can supplement the semantic provider.
@@ -495,7 +495,7 @@ impl Ideolog {
                     }
                 }
                 self.jvm.snapshot = None;
-                host::refresh_view(VIEW);
+                ui_kit::web::refresh_view(VIEW, include_str!("ui_config.json"));
                 Ok(())
             }
             ViewEvent::Activate(key) => {

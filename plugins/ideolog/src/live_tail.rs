@@ -1,7 +1,7 @@
 //! Owned live-tail alternative. JVM helper follows one confined UTF8 file;
 //! visible-panel messages only drain bounded output, never bootstrap an app.
 use super::*;
-use openidea_plugin::views::Body;
+use openidea_plugin::views::{Body, Button};
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 pub const VIEW: &str = "live-tail";
@@ -11,9 +11,6 @@ struct Lease {
     child: host::Child,
     root: String,
     path: String,
-    frame: String,
-    nonce: String,
-    sequence: u64,
     expires: Instant,
     next: Instant,
     pending: String,
@@ -30,7 +27,6 @@ pub(crate) struct LiveTail {
     rows: VecDeque<String>,
     bytes: usize,
     status: String,
-    used: Vec<String>,
 }
 fn hex_decode(value: &str) -> Result<Vec<u8>, Error> {
     if value.len() > 8192 || value.len() % 2 != 0 {
@@ -151,15 +147,9 @@ impl Ideolog {
     fn start_tail(
         &mut self,
         ctx: &Invocation,
-        frame: &str,
-        nonce: &str,
-        sequence: u64,
     ) -> Result<(), Error> {
         if self.tail.lease.is_some() {
             return Err("Stop the active tail before starting another source.".into());
-        }
-        if self.tail.used.len() >= 64 || self.tail.used.iter().any(|old| old == nonce) {
-            return Err(Error::Stale);
         }
         let editor = ctx
             .editor()
@@ -181,7 +171,7 @@ impl Ideolog {
         if !ui_kit::prompts::confirm_exact(
             "Follow this local log?",
             &format!(
-                "Approved Java17+ helper reads only this UTF8 regular file through a secure directory handle.\nProject: {root}\nFile: {path}\nInitial tail: last64KiB; appends follow for at most5minutes/1MiB.\nNo project/application bootstrap. Rotation/truncation starts a new generation. Symlinks, unavailable secure-directory profiles and invalid UTF8 stop the helper. Hiding this panel requests Stop."
+                "Approved Java17+ helper reads only this UTF8 regular file through a secure directory handle.\nProject: {root}\nFile: {path}\nInitial tail: last64KiB; appends follow for at most5minutes/1MiB.\nNo project/application bootstrap. Rotation/truncation starts a new generation. Symlinks, unavailable secure-directory profiles and invalid UTF8 stop the helper. Switching tabs or closing the panel stops polling; the lease expires after 5 minutes."
             ),
         )? {
             return Err(Error::Cancelled);
@@ -210,14 +200,10 @@ impl Ideolog {
         self.tail.root = root.clone();
         self.tail.path = path.clone();
         self.tail.status = "Starting approved JVM tail profile…".into();
-        self.tail.used.push(nonce.into());
         self.tail.lease = Some(Lease {
             child,
             root,
             path,
-            frame: frame.into(),
-            nonce: nonce.into(),
-            sequence,
             expires: Instant::now() + Duration::from_secs(305),
             next: Instant::now(),
             pending: String::new(),
@@ -284,65 +270,60 @@ impl Ideolog {
         }
         Ok(())
     }
-    pub(crate) fn render_tail(&self) -> View {
-        View::new(Body::Html(include_str!("../web/live-tail.html").into())).status("Owned UTF8 live-tail alternative · visible panel only · text filtering does not hide native editor lines")
-    }
-    pub(crate) fn tail_message(&mut self, raw: &str, ctx: &Invocation) -> Result<(), Error> {
-        if raw.len() > 2048 {
-            return Err(Error::Stale);
-        }
-        let request: serde_json::Value = serde_json::from_str(raw).map_err(|_| Error::Stale)?;
-        let get = |name: &str| {
-            request
-                .get(name)
-                .and_then(|v| v.as_str())
-                .ok_or(Error::Stale)
+    pub(crate) fn render_tail(&self, ctx: &Invocation) -> View {
+        let owned = ctx.project().and_then(|p| p.root().ok()).as_deref() == Some(&self.tail.root);
+        let rows = self.tail.rows.iter().filter(|_| owned);
+        let items: Vec<_> = rows
+            .enumerate()
+            .map(|(at, line)| serde_json::json!({"key": at.to_string(), "cells": [line]}))
+            .collect();
+        let active = owned && self.tail.lease.is_some();
+        let poll = active.then(|| serde_json::json!({"intervalMs": 1000, "message": {"op": "tail-tick"}}));
+        let status = if owned {
+            format!("{} · {} · {} recent complete lines (at most 512 / 128 KiB)", self.tail.path, self.tail.status, items.len())
+        } else {
+            "Focus a project log and choose Start. UTF-8 files; Java 17+ helper, confirmed before each start.".into()
         };
-        if get("channel")? != "ideolog-tail" {
-            return Err(Error::Stale);
-        }
-        let frame = get("frame")?;
-        let nonce = get("nonce")?;
-        let op = get("op")?;
-        let valid = |s: &str| s.len() == 32 && s.bytes().all(|b| b.is_ascii_hexdigit());
-        if !valid(frame) || !valid(nonce) {
-            return Err(Error::Stale);
-        }
-        let sequence = request
-            .get("sequence")
-            .and_then(|v| v.as_u64())
-            .filter(|n| *n > 0)
-            .ok_or(Error::Stale)?;
-        let result = match op {
-            "hello" => {
-                self.tail_lifecycle(ctx);
+        View::new(Body::Other {
+            kind: "resources".into(),
+            data: serde_json::json!({"columns": ["Line"], "items": items, "backgroundPoll": poll, "searchPlaceholder": "Filter lines…"}).to_string(),
+        })
+        .status(&status)
+        .button(Button::new("start-tail", "Start").icon("run").enabled(!active))
+        .button(Button::new("stop-tail", "Stop").icon("stop").enabled(active))
+    }
+    pub(crate) fn handle_tail(&mut self, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {
+        match event {
+            ViewEvent::Button(id) if id == "start-tail" => {
+                let result = self.start_tail(ctx);
+                ui_kit::web::refresh_view(VIEW, include_str!("ui_config.json"));
+                result
+            }
+            ViewEvent::Button(id) if id == "stop-tail" => {
+                self.stop_tail();
+                ui_kit::web::refresh_view(VIEW, include_str!("ui_config.json"));
                 Ok(())
             }
-            "start" => self.start_tail(ctx, frame, nonce, sequence),
-            "tick" | "stop" => (|| -> Result<(), Error> {
-                let lease = self.tail.lease.as_mut().ok_or(Error::Stale)?;
-                if lease.frame != frame || lease.nonce != nonce || sequence <= lease.sequence {
-                    return Err(Error::Stale);
-                }
-                lease.sequence = sequence;
-                if op == "stop" {
-                    self.tail.stop("Stopped explicitly; tail rows retained");
-                    Ok(())
-                } else {
-                    self.poll_tail(ctx)
-                }
-            })(),
-            _ => Err(Error::Stale),
-        };
-        let owned = ctx.project().and_then(|p| p.root().ok()).as_deref() == Some(&self.tail.root);
-        let active = owned
-            && self
-                .tail
-                .lease
-                .as_ref()
-                .is_some_and(|l| l.frame == frame && l.nonce == nonce);
-        let model = serde_json::json!({"active":active,"status":result.err().map(|e|e.to_string()).unwrap_or_else(||if owned{self.tail.status.clone()}else{"Choose an owned project log and Start.".into()}),"path":if owned{&self.tail.path}else{""},"rows":if owned{self.tail.rows.iter().cloned().collect::<Vec<_>>()}else{vec![]}});
-        host::post_view_message(VIEW,&serde_json::json!({"channel":"ideolog-tail","frame":frame,"nonce":nonce,"sequence":sequence,"model":model}).to_string())?;
+            ViewEvent::Message(raw) => self.tail_tick(&raw, ctx),
+            _ => Ok(()),
+        }
+    }
+    fn tail_tick(&mut self, raw: &str, ctx: &Invocation) -> Result<(), Error> {
+        let request: serde_json::Value = serde_json::from_str(raw).map_err(|_| Error::Stale)?;
+        if request["op"] != "tail-tick" || self.tail.lease.is_none() {
+            return Err(Error::Stale);
+        }
+        let before = (self.tail.rows.len(), self.tail.bytes, self.tail.status.clone());
+        let result = self.poll_tail(ctx);
+        if let Err(error) = &result {
+            self.tail.status = error.to_string();
+        }
+        let reply = serde_json::json!({"_backgroundPoll": request["_backgroundPoll"]});
+        ui_kit::web::post_view_message(VIEW, &reply.to_string(), include_str!("ui_config.json"))?;
+        let after = (self.tail.rows.len(), self.tail.bytes, self.tail.status.clone());
+        if before != after || self.tail.lease.is_none() {
+            ui_kit::web::refresh_view(VIEW, include_str!("ui_config.json"));
+        }
         Ok(())
     }
     pub(crate) fn tail_lifecycle(&mut self, ctx: &Invocation) {
@@ -377,9 +358,6 @@ mod tests {
             child,
             root: root.into(),
             path: path.into(),
-            frame: "a".repeat(32),
-            nonce: "b".repeat(32),
-            sequence: 1,
             expires: Instant::now() + Duration::from_secs(30),
             next: Instant::now(),
             pending: String::new(),
@@ -447,8 +425,8 @@ mod tests {
         let (host, tail) = fixture("/project", "/project/app.log");
         let mut plugin = Ideolog::default();
         plugin.tail = tail;
-        let bad=serde_json::json!({"channel":"ideolog-tail","frame":"c".repeat(32),"nonce":"b".repeat(32),"sequence":2,"op":"stop"}).to_string();
-        plugin.tail_message(&bad, &host.invocation()).unwrap();
+        let stale = serde_json::json!({"op": "unknown"}).to_string();
+        assert!(plugin.tail_tick(&stale, &host.invocation()).is_err());
         assert!(plugin.tail.lease.is_some());
         plugin.tail.rows.push_back("last good".into());
         host.set_project_root(Some("/other"));
