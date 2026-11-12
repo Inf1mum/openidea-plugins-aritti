@@ -1,0 +1,88 @@
+{
+  "id": "RS-420",
+  "rows": [
+    "G026"
+  ],
+  "claimIds": [
+    "G026-C2"
+  ],
+  "verifies": {
+    "G026-C2": "the user-type generator asks whether the type's behaviour may be changed by parameters; answering 'parameters' generates a class that implements org.hibernate.usertype.ParameterizedType (setParameterValues(Properties)) next to UserType, and the entity is assigned the type with @Type. The generated class is not compiled here (a unit test compiles it against Hibernate 6.6); that an @Parameter value reaches setParameterValues at runtime is not checked."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/Ticket.java",
+        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Ticket {\n\n    @Id\n    private Long id;\n\n    private Boolean active;\n\n    private String nickname;\n\n    protected Ticket() {\n    }\n}\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Ticket.java",
+    "anchor": "class Ticket"
+  },
+  "action": {
+    "title": "Create Hibernate user type…"
+  },
+  "prompts": [
+    {
+      "pick": "nickname"
+    },
+    {
+      "input": "NicknameType"
+    },
+    {
+      "pick": "parameters"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pick",
+        "titleContains": "Attribute to map with a user type"
+      },
+      {
+        "kind": "input",
+        "titleContains": "User type class name"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "User type parameters",
+        "optionsInclude": [
+          "fixed",
+          "parameters"
+        ],
+        "name": "parameter option"
+      }
+    ],
+    "createdFiles": [
+      {
+        "path": "src/main/java/com/example/shop/domain/NicknameType.java",
+        "contains": [
+          "implements UserType<String>, ParameterizedType",
+          "import org.hibernate.usertype.ParameterizedType;",
+          "import java.util.Properties;",
+          "public void setParameterValues(Properties parameters)"
+        ]
+      }
+    ],
+    "resultFile": [
+      {
+        "path": "src/main/java/com/example/shop/domain/Ticket.java",
+        "contains": [
+          "@Type(NicknameType.class)"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "Hibernate 6 UserType generated with the parameter option switched on."
+}

@@ -29,6 +29,16 @@
       "pick": "listener"
     },
     {
+      "pick": "none"
+    },
+    "default",
+    "default",
+    "default",
+    {
+      "pickLabel": "src/main/java"
+    },
+    "default",
+    {
       "confirm": "yes"
     }
   ],

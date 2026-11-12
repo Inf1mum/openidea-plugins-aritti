@@ -1,0 +1,76 @@
+{
+  "id": "RS-424",
+  "rows": [
+    "G029"
+  ],
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "target": {
+    "file": "src/main/java/com/example/billing/domain/Client.java",
+    "anchor": "class Client"
+  },
+  "action": {
+    "title": "Create Envers revision entity with preview…"
+  },
+  "claimIds": [
+    "G029-C2"
+  ],
+  "verifies": {
+    "G029-C2": "the second documented parent: choosing the tracking parent with the table tracked_revision generates a revision entity extending org.hibernate.envers.DefaultTrackingModifiedEntitiesRevisionEntity (the documentation's DefaultTrackingModifyingEntitiesRevisionEntity) mapped to that table, and the preview names the hibernate.envers.track_entities_changed_in_revision requirement. That setting is not written or checked."
+  },
+  "prompts": [
+    {
+      "input": "TrackedRevision"
+    },
+    {
+      "input": ""
+    },
+    {
+      "pick": "none"
+    },
+    {
+      "pick": "tracking"
+    },
+    {
+      "input": "tracked_revision"
+    },
+    {
+      "pickLabel": "src/main/java"
+    },
+    "default",
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "input",
+        "titleContains": "revision entity name"
+      }
+    ],
+    "createdFiles": [
+      {
+        "path": "src/main/java/com/example/billing/domain/TrackedRevision.java",
+        "contains": [
+          "extends DefaultTrackingModifiedEntitiesRevisionEntity",
+          "@Table(name = \"tracked_revision\")"
+        ]
+      }
+    ],
+    "resultFile": [
+      {
+        "path": "src/main/java/com/example/billing/domain/TrackedRevision.java",
+        "notContains": [
+          "@RevisionNumber",
+          "@Id"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "Revision entity with the tracking parent."
+}

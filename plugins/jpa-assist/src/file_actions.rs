@@ -74,7 +74,7 @@ mod revision_repo_action;
 mod modelmapper_action;
 pub(crate) use naming_action::{column_name as naming_column_name, table_name as naming_table_name};
 pub(crate) use mapper_action::build_text;
-pub(crate) use hibernate_action::{hibernate6, hibernate_core_majors, spring_boot_majors};
+pub(crate) use hibernate_action::{hibernate6, hibernate_core_majors, spring_boot_majors, type_findings as hibernate_type_findings};
 // Reuse the unchanged plain manual scalar source gate for current-request templates.
 pub(super) fn scalar_source(doc: &Document) -> Option<Class> { ddl_action::source(doc) }
 

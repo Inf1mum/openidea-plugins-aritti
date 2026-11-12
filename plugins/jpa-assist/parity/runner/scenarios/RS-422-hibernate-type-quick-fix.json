@@ -1,0 +1,47 @@
+{
+  "id": "RS-422",
+  "rows": [
+    "G026"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/Ticket.java",
+        "content": "package com.example.shop.domain;\n\nimport java.util.Map;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Ticket {\n\n    @Id\n    private Long id;\n\n    private Map<String, Object> attributes;\n\n    private String nickname;\n\n    protected Ticket() {\n    }\n}\n"
+      }
+    }
+  ],
+  "claimIds": [
+    "G026-C3"
+  ],
+  "verifies": {
+    "G026-C3": "the quick fix of the jpa-hibernate-type inspection (code action 'Assign Hibernate JSON type (@JdbcTypeCode)' offered at the attribute) adds @JdbcTypeCode(SqlTypes.JSON) and its two imports to the entity in one undoable edit. The diagnostic itself is checked by RS-421; the inspection covers the Hibernate 6 core JSON type only, not the Hibernate Types library."
+  },
+  "kind": "fileaction",
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Ticket.java",
+    "anchor": "private Map<String, Object> attributes"
+  },
+  "action": {
+    "title": "Assign Hibernate JSON type (@JdbcTypeCode)"
+  },
+  "prompts": [],
+  "expect": {
+    "actionOffered": true,
+    "resultFile": [
+      {
+        "path": "src/main/java/com/example/shop/domain/Ticket.java",
+        "contains": [
+          "@JdbcTypeCode(SqlTypes.JSON)",
+          "import org.hibernate.annotations.JdbcTypeCode;",
+          "import org.hibernate.type.SqlTypes;"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "undo": true
+  },
+  "note": "Apply the quick fix of the Hibernate type inspection."
+}

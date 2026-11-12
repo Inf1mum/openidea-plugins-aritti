@@ -195,7 +195,7 @@ mod tests {
             .iter()
             .find(|d| d.code.as_deref() == Some("jpa-source-identifier-absent"))
             .unwrap();
-        assert_eq!(d.severity, openidea_plugin::Severity::Info);
+        assert_eq!(d.severity, openidea_plugin::Severity::Warning);
         assert!(d.message.contains("XML/provider mappings are unresolved"));
         assert_eq!(
             &source[offset(&source, d.range.start).unwrap()..offset(&source, d.range.end).unwrap()],

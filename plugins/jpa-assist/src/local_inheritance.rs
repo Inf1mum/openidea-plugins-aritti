@@ -203,13 +203,13 @@ mod tests {
     }
 
     #[test]
-    fn table_per_class_with_a_discriminator_column_is_info() {
+    fn table_per_class_with_a_discriminator_column_is_a_warning() {
         let host = MockHost::install();
         let code = "jpa-discriminator-table-per-class";
         let body = |strategy: &str| format!("@Entity @Inheritance(strategy = InheritanceType.{strategy}) @DiscriminatorColumn(name = \"T\") class Root {{ @Id Long id; }}");
         let found = run(&host, "Root", &all(&[]), &body("TABLE_PER_CLASS"), code);
         assert_eq!(found.len(), 1);
-        assert_eq!(found[0].severity, Severity::Info);
+        assert_eq!(found[0].severity, Severity::Warning);
         assert!(run(&host, "Root", &all(&[]), &body("SINGLE_TABLE"), code).is_empty());
         assert!(run(&host, "Root", &all(&[]), &body("JOINED"), code).is_empty());
     }
@@ -284,7 +284,7 @@ mod tests {
         converter("Boolean");
         let found = entity("String", "");
         assert_eq!(found.len(), 1);
-        assert_eq!(found[0].severity, Severity::Info);
+        assert_eq!(found[0].severity, Severity::Warning);
         assert_eq!(entity("long", "").len(), 1);
         for quiet in ["Boolean", "boolean", "java.lang.Boolean", "List<String>", "Custom", "Date"] {
             assert!(entity(quiet, "").is_empty(), "{quiet}");
