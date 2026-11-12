@@ -2502,12 +2502,17 @@ fn laravel_window_has_separate_resource_tabs() {
     let view = plugin.render(VIEW, None, &ctx).unwrap();
     assert!(matches!(view.body, Body::List(_)));
     assert!(view.toolbar.iter().all(|b| !b.id.starts_with("section:")));
-    for (tab, prefix) in [("laravel-middleware", "middleware:"), ("laravel-env", "env:")] {
-        let view = plugin.render(tab, None, &ctx).unwrap();
-        let Body::Tree(items) = view.body else { panic!("not a resource list") };
-        assert!(items.iter().all(|item| item.key.starts_with(prefix) && item.parent.is_none()));
-        assert!(view.toolbar.iter().all(|b| !b.id.starts_with("section:")));
-    }
+    let view = plugin.render("laravel-middleware", None, &ctx).unwrap();
+    let Body::Tree(items) = view.body else { panic!("not a resource list") };
+    assert!(items.iter().all(|item| item.key.starts_with("middleware:") && item.parent.is_none()));
+    assert!(view.toolbar.iter().all(|b| !b.id.starts_with("section:")));
+    let view = plugin.render("laravel-env", None, &ctx).unwrap();
+    let Body::Other { kind, data } = view.body else { panic!("not a resource table") };
+    assert_eq!(kind, "resources");
+    let table: serde_json::Value = serde_json::from_str(&data).unwrap();
+    assert_eq!(table["columns"], serde_json::json!(["Name", "Value", "File"]));
+    assert!(table["items"].as_array().unwrap().iter().all(|item| item["key"].as_str().unwrap().starts_with("env:")));
+    assert!(view.toolbar.iter().all(|b| !b.id.starts_with("section:")));
     let group: serde_json::Value = serde_json::from_str(include_str!("ui_group.json")).unwrap();
     let tabs = group["tabs"].as_array().unwrap();
     assert_eq!(tabs.len(), 13);

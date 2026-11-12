@@ -2101,6 +2101,15 @@ fn component_inventory(index: &Index, project: &Project) -> Body {
     }).to_string() }
 }
 
+fn env_inventory(index: &Index, root: &str) -> Body {
+    let items: Vec<serde_json::Value> = index.env.iter().map(|(name, entry)| {
+        let value = index.env_values.get(name).map_or("", String::as_str);
+        let file = entry.path.strip_prefix(root).unwrap_or(&entry.path).trim_start_matches(['/', '\\']);
+        serde_json::json!({"key":format!("env:{name}"),"cells":[name,value,file],"icon":"file-config"})
+    }).collect();
+    Body::Other { kind:"resources".into(), data:serde_json::json!({"columns":[crate::ui_text::text("column.name", "Name"),crate::ui_text::text("column.value", "Value"),crate::ui_text::text("column.file", "File")],"columnStyles":["code","code","muted"],"showRowIcons":true,"searchPlaceholder":crate::ui_text::text("search.laravel-env", "Filter environment variables…"),"facetLabels":{"2":"All files"},"facets":[2],"items":items}).to_string() }
+}
+
 fn config_inventory(index: &Index, root: &str) -> Body {
     let items: Vec<serde_json::Value> = index.config.iter().map(|(name, entry)| {
         let value = index.config_expressions.get(name).map(String::as_str).unwrap_or_else(|| entry.detail.as_deref().unwrap_or("Expression unavailable"));
@@ -2322,6 +2331,8 @@ impl Views for Main {
                 toolbar(view_inventory(index, &ctx.project().ok_or(Error::Stale)?))
             } else if group == "config" {
                 toolbar(config_inventory(index, &ctx.project().and_then(|p| p.root().ok()).unwrap_or_default()))
+            } else if group == "env" {
+                toolbar(env_inventory(index, &ctx.project().and_then(|p| p.root().ok()).unwrap_or_default()))
             } else if group == "translation" {
                 toolbar(translation_inventory(index, &ctx.project().and_then(|p| p.root().ok()).unwrap_or_default()))
             } else {
