@@ -37,6 +37,8 @@ mod jpql_language;
 mod source_diagram;
 mod query_console;
 mod inspections_more;
+#[path = "live_project.rs"]
+mod live_project;
 mod local_listener;
 mod model;
 mod naming_strategy;

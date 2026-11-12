@@ -1,0 +1,31 @@
+{
+  "id": "RS-584",
+  "rows": [],
+  "claimIds": [],
+  "kindExerciser": true,
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "diagnostics",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/w2/Plain.java",
+        "content": "package com.example.shop.w2;\n\npublic class Plain {\n    int x;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/w2/Linked.java",
+        "content": "package com.example.shop.w2;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.ManyToOne;\n\n@Entity\npublic class Linked {\n    @Id\n    private Long id;\n    @ManyToOne\n    private Plain plain;\n}\n"
+      }
+    }
+  ],
+  "expect": {
+    "diagnostics": [
+      {
+        "rule": "jpa-relationship-target",
+        "file": "src/main/java/com/example/shop/w2/Linked.java"
+      }
+    ]
+  },
+  "note": "Association target is a project class without @Entity."
+}

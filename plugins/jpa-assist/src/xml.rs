@@ -178,6 +178,12 @@ pub fn inspect_owned(text: &str) -> Vec<Finding> {
         Lookup::Unknown
     })
 }
+pub fn inspect_owned_with(text: &str, orm_present: bool, lookup: &dyn Fn(&str) -> Lookup) -> Vec<Finding> {
+    let Some(model) = crate::xml_context::descriptor(text) else {
+        return vec![];
+    };
+    inspect_elements(parse(text).into_iter().filter(|element| model.elements.contains(&element.start)).collect(), orm_present, lookup)
+}
 fn inspect_elements(elements: Vec<Element>, orm_present: bool, lookup: &dyn Fn(&str) -> Lookup) -> Vec<Finding> {
     let mut findings = Vec::new();
     let mut units: Vec<&str> = Vec::new();

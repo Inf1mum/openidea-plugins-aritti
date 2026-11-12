@@ -110,7 +110,7 @@ pub(crate) fn declaration_name(masked: &str) -> Option<&str> {
 }
 
 /// The effective strategy of the nearest entity ancestor that is a proven hierarchy root, only for a fully literal closed chain.
-fn root_strategy(doc: &Document, load: &dyn Fn(&str) -> Option<String>) -> Option<String> {
+pub(crate) fn root_strategy(doc: &Document, load: &dyn Fn(&str) -> Option<String>) -> Option<String> {
     let mut current = attribute_info::snapshot(doc)?;
     let masked = model::mask(&doc.text);
     let mut parent = resolve(&current, extended(header(&masked, &current)?)?)?;
