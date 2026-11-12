@@ -352,7 +352,7 @@ pub(super) fn resolve(pending: &Pending, doc: &Document) -> Result<FileAction, E
         |preview| ui_kit::prompts::confirm_exact("Rename source-local JPA attribute?", preview),
     )
 }
-fn resolve_with(
+pub(super) fn resolve_with(
     pending: &Pending,
     doc: &Document,
     input: impl FnOnce(&str) -> Result<Option<String>, Error>,

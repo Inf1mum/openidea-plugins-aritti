@@ -136,6 +136,7 @@ impl State {
         if let Some(root) = &root {
             self.update(root, &doc.path, &doc.text);
         }
+        crate::auditing_checks::observe(doc);
         let text = doc.text.as_str();
         let mut findings = if doc.language == "xml" {
             if !setting("checkPersistenceXml") {
@@ -206,6 +207,7 @@ impl State {
             findings.extend(crate::inspections_more::findings(doc));
             findings.extend(crate::local_graph::findings(doc));
             findings.extend(crate::local_listener::findings(doc));
+            findings.extend(crate::auditing_checks::findings(doc));
             findings.extend(crate::local_listener::callback_findings(doc));
             if setting("checkListenerSignatures") {
                 findings.extend(crate::local_callbacks::findings(doc));
@@ -224,7 +226,7 @@ impl State {
 
 /// Every code a check can emit; `inspectionSeverities` rows naming anything else are ignored.
 pub(super) const KNOWN_CODES: &[&str] = &[
-    "attribute-type", "jpa-attribute-multiple-relations", "jpa-callback-modifiers", "jpa-column-length-type", "jpa-column-precision-type",
+    "attribute-type", "jpa-attribute-multiple-relations", "jpa-auditing-listener-missing", "jpa-auditing-not-enabled", "jpa-callback-modifiers", "jpa-column-length-type", "jpa-column-precision-type",
     "jpa-data-class", "jpa-duplicate-embedded-id", "jpa-duplicate-lifecycle-event", "jpa-duplicate-version", "jpa-eager-fetch",
     "jpa-eager-to-one", "jpa-embeddable-identifier", "jpa-entity-multiple-roles", "jpa-entity-nested", "jpa-entity-not-a-class",
     "jpa-final-entity", "jpa-final-member", "jpa-generated-value-type", "jpa-generated-value-without-id", "jpa-immutable-collection",

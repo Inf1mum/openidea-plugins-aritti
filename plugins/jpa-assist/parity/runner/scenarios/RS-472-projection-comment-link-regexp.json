@@ -1,0 +1,112 @@
+{
+  "id": "RS-472",
+  "rows": [
+    "G055"
+  ],
+  "claimIds": [
+    "G055-C4"
+  ],
+  "verifies": {
+    "G055-C4": "with the name regexp disabled and projectionCommentLinkRegexp \\{@link (?<entity>[\\w.]+)\\} a record whose Javadoc links the qualified entity (GadgetSummary) is linked and offered by the synchronization; a type without that comment (GadgetOther) and one named like the default pattern (GadgetProjection) are not. Linking by Javadoc only."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "settings": {
+        "projectionNameRegexp": "",
+        "projectionCommentLinkRegexp": "\\{@link (?<entity>[\\w.]+)\\}"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/Gadget.java",
+        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Gadget {\n\n    @Id\n    private Long id;\n\n    private String name;\n\n    private String color;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/dto/GadgetSummary.java",
+        "content": "package com.example.shop.dto;\n\n/** Summary of {@link com.example.shop.domain.Gadget}. */\npublic record GadgetSummary(\n        Long id,\n        String name\n) {\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/dto/GadgetOther.java",
+        "content": "package com.example.shop.dto;\n\n/** Something else. */\npublic record GadgetOther(Long id, String name) {\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/dto/GadgetProjection.java",
+        "content": "package com.example.shop.dto;\n\npublic interface GadgetProjection {\n    Long getId();\n    String getName();\n}\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Gadget.java",
+    "anchor": "class Gadget"
+  },
+  "action": {
+    "title": "Synchronize linked projections with this entity…"
+  },
+  "prompts": [
+    {
+      "pick": "toProjections"
+    },
+    {
+      "pickMany": [
+        "add:0:color"
+      ]
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pick",
+        "titleContains": "direction"
+      },
+      {
+        "kind": "pickMany",
+        "titleContains": "changes",
+        "optionsInclude": [
+          "add:0:color"
+        ],
+        "optionsExclude": [
+          "add:1:color"
+        ]
+      },
+      {
+        "kind": "confirm"
+      }
+    ],
+    "resultFile": [
+      {
+        "path": "src/main/java/com/example/shop/dto/GadgetSummary.java",
+        "contains": [
+          "String color"
+        ]
+      },
+      {
+        "path": "src/main/java/com/example/shop/dto/GadgetOther.java",
+        "notContains": [
+          "color"
+        ]
+      },
+      {
+        "path": "src/main/java/com/example/shop/dto/GadgetProjection.java",
+        "notContains": [
+          "color"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "Comment link regexp links by Javadoc."
+}

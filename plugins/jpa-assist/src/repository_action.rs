@@ -90,11 +90,18 @@ pub(super) fn eligible(doc: &Document) -> bool {
 }
 
 pub(super) fn render(doc: &Document, facts: &Facts, parent: &str, specification: bool, name: &str) -> Result<(String, String), Error> {
-    let package_name = package(doc).ok_or(Error::Stale)?;
     let Some(&(_, parent_package)) = parents(facts.jakarta).iter().find(|(simple, _)| *simple == parent) else {
         return Err("Choose one of the offered parent interfaces.".into());
     };
-    let mut imports = vec![format!("{parent_package}.{parent}")];
+    render_with(doc, facts, parent, parent_package, specification, name)
+}
+
+pub(super) fn render_with(doc: &Document, facts: &Facts, parent: &str, parent_package: &str, specification: bool, name: &str) -> Result<(String, String), Error> {
+    let package_name = package(doc).ok_or(Error::Stale)?;
+    let mut imports = Vec::new();
+    if parent_package != package_name {
+        imports.push(format!("{parent_package}.{parent}"));
+    }
     if specification {
         imports.push(format!("{JPA_PACKAGE}.{SPECIFICATION_EXECUTOR}"));
     }
@@ -102,7 +109,7 @@ pub(super) fn render(doc: &Document, facts: &Facts, parent: &str, specification:
     imports.sort();
     imports.dedup();
     let simple_names: Vec<_> = imports.iter().filter_map(|i| i.rsplit('.').next()).collect();
-    if !identifier(name) || name == facts.entity || simple_names.contains(&name) || simple_names.contains(&facts.entity.as_str()) {
+    if !identifier(name) || name == parent || name == facts.entity || simple_names.contains(&name) || simple_names.contains(&facts.entity.as_str()) {
         return Err("Choose a valid repository name that does not clash with the entity or imported types.".into());
     }
     let mut supers = vec![format!("{parent}<{}, {}>", facts.entity, facts.id_type)];
@@ -111,10 +118,11 @@ pub(super) fn render(doc: &Document, facts: &Facts, parent: &str, specification:
     }
     let semicolon = if facts.kotlin { "" } else { ";" };
     let imports: String = imports.iter().map(|i| format!("import {i}{semicolon}\n")).collect();
+    let imports = if imports.is_empty() { imports } else { format!("{imports}\n") };
     let mut text = if facts.kotlin {
-        format!("package {package_name}\n\n{imports}\ninterface {name} : {}\n", supers.join(", "))
+        format!("package {package_name}\n\n{imports}interface {name} : {}\n", supers.join(", "))
     } else {
-        format!("package {package_name};\n\n{imports}\npublic interface {name} extends {} {{\n}}\n", supers.join(", "))
+        format!("package {package_name};\n\n{imports}public interface {name} extends {} {{\n}}\n", supers.join(", "))
     };
     if doc.text.contains("\r\n") {
         text = text.replace('\n', "\r\n");
@@ -128,8 +136,13 @@ pub(super) fn render(doc: &Document, facts: &Facts, parent: &str, specification:
 
 pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> Result<FileAction, Error> {
     current(pending, doc)?;
+    if revision_repo_action::eligible_view(doc) {
+        return revision_repo_action::resolve_view(pending, doc, project);
+    }
     let facts = source(doc).map_err(Error::from)?;
-    let items: Vec<_> = parents(facts.jakarta).iter().map(|(simple, _)| PickItem::new(simple, simple)).collect();
+    let project_parents = project_parents::discover(project, &pending.root, &doc.path).unwrap_or_default();
+    let mut items: Vec<_> = parents(facts.jakarta).iter().map(|(simple, _)| PickItem::new(simple, simple)).collect();
+    items.extend(project_parents.iter().map(|found| PickItem::new(&format!("project:{}", found.name), &found.name).description(&format!("project repository in {}", found.package))));
     let parent = host::pick("Repository parent interface", &items)?.ok_or(Error::Cancelled)?;
     let choices = [PickItem::new("no", "No"), PickItem::new("yes", "Yes, also extend JpaSpecificationExecutor")];
     let specification = host::pick("Add JpaSpecificationExecutor?", &choices)?.ok_or(Error::Cancelled)? == "yes";
@@ -137,7 +150,13 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> R
     let name = host::input("Repository name (same package)", Some(&default))?.ok_or(Error::Cancelled)?;
     let name = name.trim().to_owned();
     current(pending, doc)?;
-    let (target, text) = render(doc, &facts, &parent, specification, &name)?;
+    let (target, text) = match parent.strip_prefix("project:") {
+        Some(chosen) => {
+            let found = project_parents.iter().find(|found| found.name == chosen).ok_or("Choose one of the offered parent interfaces.")?;
+            render_with(doc, &facts, &found.name, &found.package, specification, &name)?
+        }
+        None => render(doc, &facts, &parent, specification, &name)?,
+    };
     let directory = doc.path.rsplit_once('/').ok_or(Error::Stale)?.0;
     if path(&target).as_deref() != Some(target.as_str()) || !inside(&pending.root, &target) {
         return Err(Error::Stale);
@@ -370,6 +389,50 @@ mod tests {
         assert!(result.is_err(), "List* parents are not offered for javax (Spring Data 2.x)");
         let (_, result) = run(JAVA_PATH, &java("jakarta.persistence", "Long"), "java", &["PagingAndSortingRepository", "no", "OrderRepository"]);
         assert!(result.is_err(), "plain PagingAndSortingRepository is not offered for jakarta");
+    }
+
+    #[test]
+    fn a_project_repository_can_be_the_parent_and_needs_no_import_in_its_own_package() {
+        let base = "package shop;\n\nimport org.springframework.data.jpa.repository.JpaRepository;\n\npublic interface BaseRepository<T, ID> extends JpaRepository<T, ID> {\n}\n";
+        let host = MockHost::install().with_capabilities(&["project.read", "editor.read"]);
+        host.add_file("src/main/java/shop/BaseRepository.java", base);
+        host.add_file("src/main/java/other/ChainRepository.java", "package other;\n\nimport shop.BaseRepository;\n\npublic interface ChainRepository<T, K> extends BaseRepository<T, K> {\n}\n");
+        let text = java("jakarta.persistence", "Long");
+        host.open_editor(JAVA_PATH, "java", &text, &[]);
+        let doc = Document { path: JAVA_PATH.into(), language: "java".into(), text, version: 1 };
+        let mut plugin = JpaAssist::default();
+        let pending = plugin.file_actions(&doc, Range::default()).into_iter().find(|a| a.title == TITLE).unwrap();
+        host.answer_next_prompt(Some(&["project:BaseRepository"]));
+        host.answer_next_prompt(Some(&["no"]));
+        host.answer_next_prompt(Some(&["OrderRepository"]));
+        host.answer_next_prompt(Some(&[]));
+        let (_, text) = created(plugin.resolve_file_action(&doc, pending));
+        assert_eq!(text, "package shop;\n\npublic interface OrderRepository extends BaseRepository<Order, Long> {\n}\n");
+        let pending = plugin.file_actions(&doc, Range::default()).into_iter().find(|a| a.title == TITLE).unwrap();
+        host.answer_next_prompt(Some(&["project:ChainRepository"]));
+        host.answer_next_prompt(Some(&["no"]));
+        host.answer_next_prompt(Some(&["OrderRepository"]));
+        host.answer_next_prompt(Some(&[]));
+        let (_, text) = created(plugin.resolve_file_action(&doc, pending));
+        assert!(text.contains("import other.ChainRepository;") && text.contains("extends ChainRepository<Order, Long>"), "{text}");
+    }
+
+    #[test]
+    fn the_standard_action_is_offered_on_an_entity_view_and_needs_blaze_persistence() {
+        let view = "package shop;\n\nimport com.blazebit.persistence.view.EntityView;\nimport com.blazebit.persistence.view.IdMapping;\n\n@EntityView(Order.class)\npublic interface OrderView {\n\n    @IdMapping\n    Long getId();\n}\n";
+        let view_path = "/project/src/main/java/shop/OrderView.java";
+        let host = MockHost::install().with_capabilities(&["project.read", "editor.read"]);
+        host.add_file("pom.xml", "<project><dependencies><dependency><groupId>com.blazebit</groupId><artifactId>blaze-persistence-integration-spring-data-3.4</artifactId></dependency></dependencies></project>");
+        host.open_editor(view_path, "java", view, &[]);
+        let doc = Document { path: view_path.into(), language: "java".into(), text: view.into(), version: 1 };
+        let mut plugin = JpaAssist::default();
+        let titles: Vec<_> = plugin.file_actions(&doc, Range::default()).into_iter().map(|a| a.title).collect();
+        assert!(titles.iter().any(|t| t == TITLE) && !titles.iter().any(|t| t == BATCH_TITLE), "{titles:?}");
+        let pending = plugin.file_actions(&doc, Range::default()).into_iter().find(|a| a.title == TITLE).unwrap();
+        host.answer_next_prompt(Some(&["OrderViewRepository"]));
+        host.answer_next_prompt(Some(&[]));
+        let (_, text) = created(plugin.resolve_file_action(&doc, pending));
+        assert!(text.contains("extends EntityViewRepository<OrderView, Long>"), "{text}");
     }
 
     #[test]

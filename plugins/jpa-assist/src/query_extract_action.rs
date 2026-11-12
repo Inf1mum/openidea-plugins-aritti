@@ -38,17 +38,17 @@ pub(super) fn eligible(doc: &Document) -> bool {
             .is_some_and(|repo| repo.methods.iter().any(|m| !m.declared_query && verb_of(&m.name).is_some()))
 }
 
-struct Param {
-    name: String,
+pub(super) struct Param {
+    pub(super) name: String,
     ty: String,
     insert_at: usize,
 }
 
-struct Plan {
-    query: String,
+pub(super) struct Plan {
+    pub(super) query: String,
     count_query: Option<String>,
     modifying: bool,
-    params: Vec<Param>,
+    pub(super) params: Vec<Param>,
     member_start: usize,
     name_span: (usize, usize),
     has_modifying: bool,
@@ -178,7 +178,7 @@ fn path_of(attr: &Attr) -> String {
     format!("e.{}", attr.name)
 }
 
-fn plan(doc: &Document, facts: &Facts, attrs: &[Attr], entity_text: &str, name: &str) -> Result<Plan, String> {
+pub(super) fn plan(doc: &Document, facts: &Facts, attrs: &[Attr], entity_text: &str, name: &str) -> Result<Plan, String> {
     let kotlin = facts.kotlin;
     let masked = mask(&doc.text);
     let repo = queries::parse_repository(&doc.text, kotlin).ok_or("Not a repository.")?;
@@ -332,7 +332,7 @@ fn plan(doc: &Document, facts: &Facts, attrs: &[Attr], entity_text: &str, name: 
     })
 }
 
-fn edits(doc: &Document, facts: &Facts, plan: &Plan, new_name: &str) -> Result<Vec<TextEdit>, Error> {
+pub(super) fn edits(doc: &Document, facts: &Facts, plan: &Plan, new_name: &str) -> Result<Vec<TextEdit>, Error> {
     let masked_line_start = doc.text[..plan.member_start].rfind('\n').map_or(0, |at| at + 1);
     let indent = &doc.text[masked_line_start..plan.member_start];
     let eol = if doc.text.contains("\r\n") { "\r\n" } else { "\n" };

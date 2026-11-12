@@ -1,0 +1,89 @@
+{
+  "id": "RS-466",
+  "rows": [
+    "G054"
+  ],
+  "claimIds": [
+    "G054-C1"
+  ],
+  "verifies": {
+    "G054-C1": "projection to entity direction: a property of the linked projection (balance, BigDecimal, with its import) that the entity lacks is added to the entity as a field with the import, and the projection is left unchanged. Only additions to the entity are offered; the entity to projection direction is checked in RS-465."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/Gadget.java",
+        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Gadget {\n\n    @Id\n    private Long id;\n\n    private String name;\n\n    private String color;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/dto/GadgetProjection.java",
+        "content": "package com.example.shop.dto;\n\nimport java.math.BigDecimal;\n\npublic interface GadgetProjection {\n    Long getId();\n    String getName();\n    BigDecimal getBalance();\n}\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Gadget.java",
+    "anchor": "class Gadget"
+  },
+  "action": {
+    "title": "Synchronize linked projections with this entity…"
+  },
+  "prompts": [
+    {
+      "pick": "toEntity"
+    },
+    {
+      "pickMany": [
+        "entity:0:balance"
+      ]
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pick",
+        "titleContains": "direction"
+      },
+      {
+        "kind": "pickMany",
+        "titleContains": "changes",
+        "optionsInclude": [
+          "entity:0:balance"
+        ]
+      },
+      {
+        "kind": "confirm"
+      }
+    ],
+    "resultFile": [
+      {
+        "path": "src/main/java/com/example/shop/domain/Gadget.java",
+        "contains": [
+          "import java.math.BigDecimal;",
+          "private BigDecimal balance;"
+        ]
+      },
+      {
+        "path": "src/main/java/com/example/shop/dto/GadgetProjection.java",
+        "notContains": [
+          "Gadget "
+        ],
+        "contains": [
+          "BigDecimal getBalance();"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "Projection to entity synchronization."
+}

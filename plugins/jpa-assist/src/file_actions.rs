@@ -46,6 +46,12 @@ mod converter_action;
 mod hibernate_action;
 #[path = "projection_action.rs"]
 mod projection_action;
+#[path = "projection_links.rs"]
+mod projection_links;
+#[path = "project_parents.rs"]
+mod project_parents;
+#[path = "query_options.rs"]
+mod query_options;
 #[path = "nested_dto_action.rs"]
 mod nested_dto_action;
 #[path = "repository_action.rs"]
@@ -123,11 +129,14 @@ enum Operation {
     HibernateListener,
     SpringRepository,
     SpringProjection,
+    SyncProjections,
+    RenameWithProjections,
     NestedProjection,
     FlatDto,
     ValidationConstraint,
     LombokAnnotations,
     QueryMethod,
+    QueryMethodOptions,
     QueryExtract,
     QueryEdit,
     QueryAsync,
@@ -189,6 +198,9 @@ impl Operation {
             Self::QueryMethod => "query-method",
             Self::QueryExtract => "query-extract",
             Self::QueryEdit => "query-edit",
+            Self::QueryMethodOptions => "query-options",
+            Self::SyncProjections => "sync-projections",
+            Self::RenameWithProjections => "rename-projections",
             Self::QueryAsync => "query-async",
             Self::QueryDynamicProjection => "query-dynamic-projection",
             Self::SpringProjection => "spring-projection",
@@ -502,6 +514,8 @@ impl FileActions for JpaAssist {
         if repository_action::eligible(doc) {
             operations.push((Operation::SpringRepository, repository_action::TITLE));
             operations.push((Operation::SpringRepositories, repository_action::BATCH_TITLE));
+        } else if revision_repo_action::eligible_view(doc) {
+            operations.push((Operation::SpringRepository, repository_action::TITLE));
         }
         if revision_repo_action::eligible(doc) {
             operations.push((Operation::RevisionRepository, revision_repo_action::TITLE));
@@ -518,6 +532,7 @@ impl FileActions for JpaAssist {
         }
         if query_method_action::eligible(doc) {
             operations.push((Operation::QueryMethod, query_method_action::TITLE));
+            operations.push((Operation::QueryMethodOptions, query_method_action::OPTIONS_TITLE));
         }
         if query_extract_action::eligible(doc) {
             operations.push((Operation::QueryExtract, query_extract_action::TITLE));
@@ -543,6 +558,7 @@ impl FileActions for JpaAssist {
         }
         if projection_action::eligible(doc) {
             operations.push((Operation::SpringProjection, projection_action::TITLE));
+            operations.push((Operation::SyncProjections, projection_links::SYNC_TITLE));
         }
         if nested_dto_action::eligible(doc) {
             operations.push((Operation::NestedProjection, nested_dto_action::TITLE));
@@ -596,6 +612,7 @@ impl FileActions for JpaAssist {
             operations.push((Operation::InjectRepository, injection_action::TITLE));
         }
         if attribute_refactor::eligible(doc,selection) {operations.push((Operation::Rename,attribute_refactor::TITLE));}
+        if attribute_refactor::eligible(doc,selection) && projection_action::eligible(doc) {operations.push((Operation::RenameWithProjections,projection_links::RENAME_TITLE));}
         if self.generation.pending.len() > 8 {
             self.generation.pending.clear();
         }
@@ -752,11 +769,14 @@ impl FileActions for JpaAssist {
             Operation::HibernateListener => hibernate_action::resolve_listener_action(&pending, doc, &project),
             Operation::SpringRepository => repository_action::resolve(&pending, doc, &project),
             Operation::QueryMethod => query_method_action::resolve(&pending, doc, &project),
+            Operation::QueryMethodOptions => query_method_action::resolve_with_options(&pending, doc, &project),
             Operation::QueryExtract => query_extract_action::resolve(&pending, doc, &project),
             Operation::QueryEdit => query_edit_action::resolve(&pending, doc, &project),
             Operation::QueryAsync => query_convert_action::resolve_async(&pending, doc),
             Operation::QueryDynamicProjection => query_convert_action::resolve_dynamic(&pending, doc),
             Operation::SpringProjection => projection_action::resolve(&pending, doc, &project),
+            Operation::SyncProjections => projection_links::resolve_sync(&pending, doc, &project),
+            Operation::RenameWithProjections => projection_links::resolve_rename(&pending, doc, &project),
             Operation::NestedProjection => nested_dto_action::resolve(&pending, doc, &project),
             Operation::FlatDto => nested_dto_action::resolve_flat(&pending, doc, &project),
             Operation::IndexConstraint => index_query_action::resolve_index(&pending, doc),
