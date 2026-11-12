@@ -1,0 +1,36 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-600/diagnostics.json",
+      "sha256": "8c18b1366f1861eece1b51762a082ad0824e62b300b48fbdc2df41d327ffbaf1"
+    }
+  ],
+  "changedFiles": [],
+  "claimIds": [],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "929e42d250a05944cb458e5119d36ffcd8a306a3256968093b47422c1d20dd9d",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "diagnostics",
+  "kindExerciser": true,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "no diagnostic jpa-converter-type-mismatch src/main/java/com/example/shop/w6/ObjHolder.java",
+      "detail": "absence check",
+      "pass": true
+    }
+  ],
+  "rows": [],
+  "scenario": "RS-600",
+  "scenarioSha256": "a29697a118db5c5d876309ef4b0dbfbf876fcd2641efd0f792f7bc4f13b8f8be",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "929e42d250a05944cb458e5119d36ffcd8a306a3256968093b47422c1d20dd9d",
+  "status": "pass",
+  "treeHashAfterRestore": null,
+  "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204"
+}

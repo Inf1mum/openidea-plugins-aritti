@@ -1,0 +1,77 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-660/prompts.json",
+      "sha256": "8f6a385eb80b59b94ed5cdaaf4a2ac18db4990197a068546c52816585ae20e00"
+    },
+    {
+      "path": "artifacts/RS-660/preview.txt",
+      "sha256": "e68167cba509aedaf7cb8c6b15d546d9ded1b5d2dc50e89b99281f58fc9122a3"
+    },
+    {
+      "path": "artifacts/RS-660/edits.json",
+      "sha256": "83c5e76496fe1b1e371328c46dd719d6378261fd5c3312e852b737f2b010412f"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "created",
+      "path": "src/main/java/com/example/billing/domain/Author.java"
+    },
+    {
+      "change": "created",
+      "path": "src/main/java/com/example/billing/domain/Book.java"
+    }
+  ],
+  "claimIds": [
+    "G097-C5"
+  ],
+  "fixture": "envers-flyway-liquibase",
+  "fixtureTreeHashAfter": "eff7e517e36ad4db3de4149d8e442ed80c141b34cd3edba4b8b8478b5821c913",
+  "fixtureTreeHashBefore": "45aed493755025a396ea6b12397dbf7d0bb79d3c5f3f00d3c6ec342c85499b55",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 3473 bytes, 2 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/java/com/example/billing/domain/Author.java",
+      "detail": "1038 bytes",
+      "pass": true
+    },
+    {
+      "check": "created file src/main/java/com/example/billing/domain/Author.java",
+      "detail": "created true; missing []",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree db4a57838b43900c0946e1a96ae422382a462aad4ad22cc164ad6a4e77841f62 vs setup db4a57838b43900c0946e1a96ae422382a462aad4ad22cc164ad6a4e77841f62; still different []",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G097"
+  ],
+  "scenario": "RS-660",
+  "scenarioSha256": "db4b5e114a70b7a744b8fedfa0692f0866d844502e4760faee3487e705b94d0e",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "db4a57838b43900c0946e1a96ae422382a462aad4ad22cc164ad6a4e77841f62",
+  "status": "pass",
+  "treeHashAfterRestore": "db4a57838b43900c0946e1a96ae422382a462aad4ad22cc164ad6a4e77841f62",
+  "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204"
+}

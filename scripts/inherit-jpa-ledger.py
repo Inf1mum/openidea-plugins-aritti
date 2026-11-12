@@ -2,7 +2,7 @@
 """Close extension-point rows (E/A/I/F) that map to G/S/F rows which are all verified-parity by their own evidence.
 
 Dry-run by default; `--apply` writes the ledger. An inherited row repeats no test: it records `referenceType: inherited`
-and the rows it inherits from, and the checker counts it apart. Rows with notApplicable, no mappedTo, or a target that is
+and the rows it inherits from, and the checker counts it apart. Rows with notApplicable, a knownGap (a capability of the original we lack), no mappedTo, or a target that is
 open or itself inherited stay open.
 """
 import argparse
@@ -19,7 +19,7 @@ def inheritable(entries):
     result = []
     for entry in entries:
         targets = entry.get('mappedTo')
-        if entry['status'] == 'verified-parity' or entry.get('notApplicable') or not targets or entry['id'][:1] not in 'EAIF':
+        if entry['status'] == 'verified-parity' or entry.get('notApplicable') or entry.get('knownGap') or not targets or entry['id'][:1] not in 'EAIF':
             continue
         rows = [by_id.get(t) for t in targets]
         if all(r and r['status'] == 'verified-parity' and not any(

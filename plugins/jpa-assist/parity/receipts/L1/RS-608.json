@@ -1,0 +1,63 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-608/prompts.json",
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "path": "artifacts/RS-608/preview.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "artifacts/RS-608/edits.json",
+      "sha256": "3df9f98d7f4e49e0c38f05699ebb3c08d60f9f3434cc19d23725db27aec5de67"
+    },
+    {
+      "path": "artifacts/RS-608/result-src__main__java__com__example__shop__w6__NoId.java",
+      "sha256": "8d0ea9c931ef5cf48ea76a88e5395926b6972b7ee37afab1d04858c34d6eafcc"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "modified",
+      "path": "src/main/java/com/example/shop/w6/NoId.java"
+    }
+  ],
+  "claimIds": [],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "abcc37e1104e8378b6d60572c419e93e384d80c262efb4a63b54348df37fef9e",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": true,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/java/com/example/shop/w6/NoId.java",
+      "detail": "183 bytes",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree e2413cdf61b588f8ca338a040f8c4318be9c91dbfc97a32a6022b018e352dc77 vs setup e2413cdf61b588f8ca338a040f8c4318be9c91dbfc97a32a6022b018e352dc77; still different []",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [],
+  "scenario": "RS-608",
+  "scenarioSha256": "980a96422d373aaf62b190413a4eae29e276dc7bca2bfcf0925507f7c8b0afe3",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "e2413cdf61b588f8ca338a040f8c4318be9c91dbfc97a32a6022b018e352dc77",
+  "status": "pass",
+  "treeHashAfterRestore": "e2413cdf61b588f8ca338a040f8c4318be9c91dbfc97a32a6022b018e352dc77",
+  "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204"
+}

@@ -1,0 +1,96 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-628/prompts.json",
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "path": "artifacts/RS-628/preview.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "artifacts/RS-628/edits.json",
+      "sha256": "d0dfc66d9bef46fdfd528a8aa7e9d28d5f6c96a465047e6d25dd81cc94b9e4ef"
+    },
+    {
+      "path": "artifacts/RS-628/result-src__main__kotlin__com__example__shop__domain__Gadget.kt",
+      "sha256": "0fea965821b70341194839c8bfcd0e23f724a5d9da46ca5c5cde4217e29253a8"
+    },
+    {
+      "path": "artifacts/RS-628/result-src__main__kotlin__com__example__shop__domain__Ticket.kt",
+      "sha256": "e3542624a49d10f63a53f9dd49ad3959172126ede9362a74b327717475b9462d"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "modified",
+      "path": "src/main/kotlin/com/example/shop/domain/Ticket.kt"
+    }
+  ],
+  "claimIds": [
+    "G034-C2"
+  ],
+  "fixture": "boot-jpa-kotlin-jakarta",
+  "fixtureTreeHashAfter": "d0620f11f8bf85aed87c02a75eeff0924ceb82950aa5aa2975ed0170839653b2",
+  "fixtureTreeHashBefore": "c3474627b665c9d01c13e23904197e8ffbd21fb283d0e904c35688a3e2c23249",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "pre-action \"Generate JPA entity…\" applied",
+      "detail": "6 prompts, 1 operations",
+      "pass": true
+    },
+    {
+      "check": "pre-action \"Add JPA attribute with preview…\" applied",
+      "detail": "5 prompts, 0 operations",
+      "pass": true
+    },
+    {
+      "check": "pre-action \"Add index or unique constraint with preview…\" applied",
+      "detail": "5 prompts, 0 operations",
+      "pass": true
+    },
+    {
+      "check": "pre-action \"Add index or unique constraint with preview…\" applied",
+      "detail": "4 prompts, 0 operations",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/kotlin/com/example/shop/domain/Gadget.kt",
+      "detail": "770 bytes",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/kotlin/com/example/shop/domain/Ticket.kt",
+      "detail": "210 bytes",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree 63f0a331fc4be2b756c6ef6a571bac2ca2f9f50573331e0757795e8f9bca34ad vs setup 63f0a331fc4be2b756c6ef6a571bac2ca2f9f50573331e0757795e8f9bca34ad; still different []",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G034"
+  ],
+  "scenario": "RS-628",
+  "scenarioSha256": "6ee2c43534b96facd00493f1322e7002f1ec754e221c9652d7f810644a79e0c5",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "63f0a331fc4be2b756c6ef6a571bac2ca2f9f50573331e0757795e8f9bca34ad",
+  "status": "pass",
+  "treeHashAfterRestore": "63f0a331fc4be2b756c6ef6a571bac2ca2f9f50573331e0757795e8f9bca34ad",
+  "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204"
+}

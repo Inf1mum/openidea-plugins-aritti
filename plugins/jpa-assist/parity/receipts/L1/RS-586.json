@@ -2,7 +2,7 @@
   "artifacts": [
     {
       "path": "artifacts/RS-586/diagnostics.json",
-      "sha256": "ba321f3ef5b05ece1873e3d95771f93a096165cb0723f94bf8edc405e8e130ae"
+      "sha256": "a726dfbbae95ad05a94e74618ba4efaa248dee500f8f92552da7ba8fa6e79f13"
     }
   ],
   "changedFiles": [],
@@ -21,7 +21,7 @@
     },
     {
       "check": "diagnostic jpa-unknown-map-key src/main/java/com/example/shop/w2/Shelf.java:null",
-      "detail": "64 diagnostics in total",
+      "detail": "65 diagnostics in total",
       "pass": true
     }
   ],
@@ -32,5 +32,5 @@
   "setupTreeHash": "70c8fef7a2b3ecdd44a5c38e9ca4415cb86f2251f475eb4ebf0907166df725e6",
   "status": "pass",
   "treeHashAfterRestore": null,
-  "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad"
+  "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204"
 }

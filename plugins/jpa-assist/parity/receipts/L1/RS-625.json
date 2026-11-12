@@ -1,0 +1,87 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-625/prompts.json",
+      "sha256": "141be16db3f7d3f2f4ba7d1dbce273e1f0bfd56fcd380eec4a68e8fab5d34b96"
+    },
+    {
+      "path": "artifacts/RS-625/preview.txt",
+      "sha256": "a035406ee2125d24d05029e5569760e67976c738263e9ed91edafea5e0291e1c"
+    },
+    {
+      "path": "artifacts/RS-625/edits.json",
+      "sha256": "bcb03574e5555279d72edf85e44b86a7b05772a51f81d5eb52b4503677ce4556"
+    },
+    {
+      "path": "artifacts/RS-625/result-src__main__java__com__example__crm__domain__Account.java",
+      "sha256": "8a47a92fb4e218c183fbecd93b1248e0f45945212c80fdb91db6870f5d7cc10d"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "modified",
+      "path": "src/main/java/com/example/crm/domain/Account.java"
+    }
+  ],
+  "claimIds": [
+    "G023-C1"
+  ],
+  "fixture": "mapstruct-lombok-dto",
+  "fixtureTreeHashAfter": "6276f88f55f8ca9084a946cbaf5ab87a0250eb182232a6bd1e5343ed6e045e96",
+  "fixtureTreeHashBefore": "1eec857dae020a4b37294e6f89a2cd0410163626d63e515b529f6303ab130c34",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 1057 bytes, 2 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 lombok annotations",
+      "detail": "quickPick \"Lombok annotations to add or remove\" options [\"Getter\", \"Setter\", \"NoArgsConstructor\", \"AllArgsConstructor\", \"Builder\", \"ToString\", \"EqualsAndHashCode\"]",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/java/com/example/crm/domain/Account.java",
+      "detail": "872 bytes",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree 1eec857dae020a4b37294e6f89a2cd0410163626d63e515b529f6303ab130c34 vs setup 1eec857dae020a4b37294e6f89a2cd0410163626d63e515b529f6303ab130c34; still different []",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 1 of 2 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 2 of 2 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G023"
+  ],
+  "scenario": "RS-625",
+  "scenarioSha256": "4f821bc0a6ae9bd514650fa85598330b9a7c94b9228e431f3a4507259ec67f92",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "1eec857dae020a4b37294e6f89a2cd0410163626d63e515b529f6303ab130c34",
+  "status": "pass",
+  "treeHashAfterRestore": "1eec857dae020a4b37294e6f89a2cd0410163626d63e515b529f6303ab130c34",
+  "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204"
+}

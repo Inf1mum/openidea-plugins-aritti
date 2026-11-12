@@ -151,6 +151,8 @@ def validate(data, claims_dir=CLAIMS_DIR):
             errors.extend(validate_evidence_level(key, entry['evidenceLevel']))
         if entry.get('status') == 'blocked' and not entry.get('blocker'):
             errors.append(f'{key}: blocked requirements need an exact blocker')
+        if entry.get('status') == 'verified-parity' and entry.get('knownGap'):
+            errors.append(f'{key}: verified-parity with a knownGap')
         if entry.get('status') == 'verified-parity':
             acceptance = entry.get('acceptance')
             if not entry.get('implementation') or not entry.get('evidence') or not acceptance:

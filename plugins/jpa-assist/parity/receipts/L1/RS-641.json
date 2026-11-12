@@ -1,0 +1,192 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-641/prompts.json",
+      "sha256": "78601ce3a79529d5e86e716dc4eda0477f316dc9df1674ef96648d7f7f78fec8"
+    },
+    {
+      "path": "artifacts/RS-641/preview.txt",
+      "sha256": "00163060747d10becf63abd8493663522d79996ad5019926836eb30f5ba3f45c"
+    },
+    {
+      "path": "artifacts/RS-641/edits.json",
+      "sha256": "83afcb9e9afdc871dd4900d1cb334b995b9c197a6c1fe35362ba017b6141fdd7"
+    },
+    {
+      "path": "artifacts/RS-641/result-src__main__java__com__example__shop__domain__ParcelRepository.java",
+      "sha256": "f2e918bf15e03cc8bf49e9b3586aae58ad021ef44895d00661d2ec136fdf3db2"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "modified",
+      "path": "src/main/java/com/example/shop/domain/ParcelRepository.java"
+    }
+  ],
+  "claimIds": [
+    "G047-C1"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "3b2cb72218222b390b7fc4894c30d2a685a1c03cff656f3f23b19ba74bbf43f8",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 684 bytes, 1 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 matches the documented shape",
+      "detail": "quickPick \"Conditions to keep (deselect to remove)\" options [\"0\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 2 matches the documented shape",
+      "detail": "quickPick \"Add conditions (plain scalar attributes)\" options [\"id\", \"name\", \"color\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 3 matches the documented shape",
+      "detail": "quickPick \"Operator for color (String)\" options [\"is\", \"not\", \"ignoreCase\", \"like\", \"containing\", \"containingIgnoreCase\", \"startingWith\", \"startingWithIgnoreCase\", \"endingWith\", \"endingWithIgnoreCase\", \"in\", \"isNull\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 4 matches the documented shape",
+      "detail": "quickPick \"Change operator of\" options [\"0\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 5 matches the documented shape",
+      "detail": "quickPick \"Operator for name (String)\" options [\"is\", \"not\", \"ignoreCase\", \"like\", \"containing\", \"containingIgnoreCase\", \"startingWith\", \"startingWithIgnoreCase\", \"endingWith\", \"endingWithIgnoreCase\", \"in\", \"isNull\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 6 matches the documented shape",
+      "detail": "quickPick \"Condition order\" options [\"keep\", \"0\", \"1\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 7 matches the documented shape",
+      "detail": "quickPick \"Combine all conditions with\" options [\"and\", \"or\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 8 matches the documented shape",
+      "detail": "quickPick \"Ordering\" options [\"~keep\", \"~clear\", \"attr:id\", \"attr:name\", \"attr:color\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 9 matches the documented shape",
+      "detail": "input \"Top/First limit (blank for none)\" options []",
+      "pass": true
+    },
+    {
+      "check": "prompt 10 matches the documented shape",
+      "detail": "quickPick \"Return type\" options [\"list\", \"optional\", \"single\", \"page\", \"slice\", \"stream\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 11 matches the documented shape",
+      "detail": "confirm \"Edit query method?\" options []",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/java/com/example/shop/domain/ParcelRepository.java",
+      "detail": "268 bytes",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree 9b0cc673f4ddd720cc7e75eb4c7fea8f67db7773407a4788dd6e8c801690f024 vs setup 9b0cc673f4ddd720cc7e75eb4c7fea8f67db7773407a4788dd6e8c801690f024; still different []",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 1 of 11 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 2 of 11 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 3 of 11 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 4 of 11 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 5 of 11 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 6 of 11 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 7 of 11 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 8 of 11 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 9 of 11 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 10 of 11 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 11 of 11 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "stale buffer edit after the first prompt is refused",
+      "detail": "OutOfSync: the document changed meanwhile",
+      "pass": true
+    },
+    {
+      "check": "stale buffer edit at the final prompt is refused",
+      "detail": "OutOfSync: the document changed meanwhile",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G047"
+  ],
+  "scenario": "RS-641",
+  "scenarioSha256": "f022598190f61a2371dd997a71994698c8b3ab80c6950fb52cf7813d2282b97b",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "9b0cc673f4ddd720cc7e75eb4c7fea8f67db7773407a4788dd6e8c801690f024",
+  "status": "pass",
+  "treeHashAfterRestore": "9b0cc673f4ddd720cc7e75eb4c7fea8f67db7773407a4788dd6e8c801690f024",
+  "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204"
+}

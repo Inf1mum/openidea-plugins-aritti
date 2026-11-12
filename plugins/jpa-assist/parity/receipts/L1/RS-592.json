@@ -2,7 +2,7 @@
   "artifacts": [
     {
       "path": "artifacts/RS-592/diagnostics.json",
-      "sha256": "7460903c631c217bbaf4b20a25414b2ece31eea8ba7812b064c13e8e4ebb8c1d"
+      "sha256": "c6b9f0458542031953cc9dc2b284e0e18bd66490748bb43fd268400699405703"
     }
   ],
   "changedFiles": [],
@@ -21,7 +21,7 @@
     },
     {
       "check": "diagnostic jpa-unsupported-type src/main/java/com/example/shop/w2/Priced.java:null",
-      "detail": "63 diagnostics in total",
+      "detail": "64 diagnostics in total",
       "pass": true
     }
   ],
@@ -32,5 +32,5 @@
   "setupTreeHash": "33a0e0fd34b869817fc6265b37e767c944feabf17f0eb9ab7552aea111de711d",
   "status": "pass",
   "treeHashAfterRestore": null,
-  "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad"
+  "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204"
 }

@@ -1,0 +1,36 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-610/diagnostics.json",
+      "sha256": "6abcbb70b6f9c998a9c01a0a8257870cb9a780e192e114fb6588ddc449a29be8"
+    }
+  ],
+  "changedFiles": [],
+  "claimIds": [],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "b403c12b861ab818717b17ceda59713069fe1e96da5838e0dc8755764cd3ec45",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "diagnostics",
+  "kindExerciser": true,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "diagnostic jpa-unknown-mapped-by src/main/java/com/example/shop/w6/Parcel.java:13",
+      "detail": "65 diagnostics in total",
+      "pass": true
+    }
+  ],
+  "rows": [],
+  "scenario": "RS-610",
+  "scenarioSha256": "43aa437e9cd9a3d283be20d9980f81c608914cfc17828a2bf53cdd4f09145c1c",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "b403c12b861ab818717b17ceda59713069fe1e96da5838e0dc8755764cd3ec45",
+  "status": "pass",
+  "treeHashAfterRestore": null,
+  "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204"
+}

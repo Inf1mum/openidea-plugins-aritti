@@ -2,7 +2,7 @@
   "artifacts": [
     {
       "path": "artifacts/RS-595/diagnostics.json",
-      "sha256": "cc6980a3cabe99b121590ca011c810ba8b623e0a4f6fedeb814366cc43ed6c77"
+      "sha256": "b550d7c398a1979178f345506bebe5a4c2c8fe3d660e2856ccfe5fd9c34c0ebf"
     }
   ],
   "changedFiles": [],
@@ -32,5 +32,5 @@
   "setupTreeHash": "1898fc362303aaa36ab870f51e15c9d9c74aa055040ff7545e657635cb7b9a5e",
   "status": "pass",
   "treeHashAfterRestore": null,
-  "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad"
+  "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204"
 }

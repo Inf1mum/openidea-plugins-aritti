@@ -108,10 +108,10 @@
     "G126"
   ],
   "scenario": "RS-528",
-  "scenarioSha256": "a44842b5a971dcd68f61fdafabfeb2ffa4486f9751bfe10560d99b9a12b59cdc",
+  "scenarioSha256": "895691b2889f76a1fa9dcc2532f15435b273814ad714b5669a1988c4332b6b69",
   "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
   "setupTreeHash": "d60a01e85e33e25143bc4e815218068c251c9494169eafd676bef72e60aacf66",
   "status": "pass",
   "treeHashAfterRestore": "d60a01e85e33e25143bc4e815218068c251c9494169eafd676bef72e60aacf66",
-  "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad"
+  "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204"
 }

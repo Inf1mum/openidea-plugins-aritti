@@ -2,7 +2,7 @@
   "artifacts": [
     {
       "path": "artifacts/RS-583/diagnostics.json",
-      "sha256": "e8664a28a27560cdea8fddf37b16775d50260c0ca4881fe7dd606a4a7e5365b4"
+      "sha256": "4b7fab13acc489500d4e2d2d5e3959d43c914b2aaf6d1ccf2e6a12239b208042"
     }
   ],
   "changedFiles": [],
@@ -21,7 +21,7 @@
     },
     {
       "check": "diagnostic jpa-listener-without-callbacks src/main/java/com/example/shop/w2/Audited.java:null",
-      "detail": "63 diagnostics in total",
+      "detail": "64 diagnostics in total",
       "pass": true
     }
   ],
@@ -32,5 +32,5 @@
   "setupTreeHash": "80c2c9f669b3190e0e165a0f18ea20c1c165e6d1f121fe55ca4cc7f5127b381d",
   "status": "pass",
   "treeHashAfterRestore": null,
-  "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad"
+  "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204"
 }

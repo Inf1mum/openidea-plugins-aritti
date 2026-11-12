@@ -2,7 +2,7 @@
   "artifacts": [
     {
       "path": "artifacts/RS-427/diagnostics.json",
-      "sha256": "ec009d311c562df5d8841a23783655aae59874a925a3a5190f5d8c850a122383"
+      "sha256": "8f8178439237f945cec3e35d448ec6acd2978edd902902a6a6c5097791f68c72"
     }
   ],
   "changedFiles": [],
@@ -23,12 +23,12 @@
     },
     {
       "check": "diagnostic jpa-source-identifier-absent src/main/java/com/example/shop/domain/NoIdDefect.java:null",
-      "detail": "64 diagnostics in total",
+      "detail": "66 diagnostics in total",
       "pass": true
     },
     {
       "check": "diagnostic jpa-duplicate-version src/main/java/com/example/shop/domain/DupVersionDefect.java:null",
-      "detail": "64 diagnostics in total",
+      "detail": "66 diagnostics in total",
       "pass": true
     }
   ],
@@ -36,10 +36,10 @@
     "G030"
   ],
   "scenario": "RS-427",
-  "scenarioSha256": "10ac6a49fb243e385b400ae8b4595e5081c6a7ef169ced3beb75cf985218d5e0",
+  "scenarioSha256": "d0910e2efc9b809069fac26312de3d37a017801b4f7a2b864af6e1d704e6a245",
   "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
   "setupTreeHash": "1d51b34a499d8520064159b33ab38dad3d196f6f68ddf2d2c73001f93288594e",
   "status": "pass",
   "treeHashAfterRestore": null,
-  "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad"
+  "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204"
 }

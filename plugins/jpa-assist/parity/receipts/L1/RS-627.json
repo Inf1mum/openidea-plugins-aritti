@@ -1,0 +1,102 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-627/prompts.json",
+      "sha256": "bd545fa2747bf2d2aee4d84d301fec6f7e877b17bc5bd2335c713076209b6b85"
+    },
+    {
+      "path": "artifacts/RS-627/preview.txt",
+      "sha256": "ebfc94da5bc2b414f3f815188fdf96750c31fc814852ab4f7f59cc2675ec6d3c"
+    },
+    {
+      "path": "artifacts/RS-627/edits.json",
+      "sha256": "80aefde4fe1522b39e26cd73e2403fadb694943f3d7a51a1261beda254993d06"
+    },
+    {
+      "path": "artifacts/RS-627/result-src__main__java__com__example__shop__domain__Sku.java",
+      "sha256": "619ee9ec7b704f54f6d69883f23a856e542112234389ce734f9546d228f53f0b"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "modified",
+      "path": "src/main/java/com/example/shop/domain/Sku.java"
+    }
+  ],
+  "claimIds": [
+    "G035-C1"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "e07a2a2e3500dda32b47e5dda22440394ab68feeb035eab0e46efab1c6069f5a",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "pre-action \"Generate lazy-safe toString with preview…\" applied",
+      "detail": "2 prompts, 0 operations",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 1653 bytes, 2 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 basis",
+      "detail": "quickPick \"Equality basis\" options [\"identifier\", \"business-key\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 2 fields",
+      "detail": "quickPick \"Business key fields (identifiers, generated values and associations are not offered)\" options [\"code\", \"label\"]",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/java/com/example/shop/domain/Sku.java",
+      "detail": "1047 bytes",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree 403c7aadf129edbfb9460ba3b6ebb313ebcdb2925649c6b8a3116325d24cc947 vs setup 403c7aadf129edbfb9460ba3b6ebb313ebcdb2925649c6b8a3116325d24cc947; still different []",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 1 of 3 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 2 of 3 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 3 of 3 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G035"
+  ],
+  "scenario": "RS-627",
+  "scenarioSha256": "0896c7f24f132f74d93356dd5622831512ac476288f78563063742d297d84471",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "403c7aadf129edbfb9460ba3b6ebb313ebcdb2925649c6b8a3116325d24cc947",
+  "status": "pass",
+  "treeHashAfterRestore": "403c7aadf129edbfb9460ba3b6ebb313ebcdb2925649c6b8a3116325d24cc947",
+  "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204"
+}

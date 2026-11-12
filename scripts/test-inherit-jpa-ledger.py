@@ -42,6 +42,12 @@ class InheritTests(unittest.TestCase):
         by_id = {e['id']: e for e in json.loads(path.read_text())['requirements']}
         self.assertEqual(by_id['E002']['status'], 'unverified')
 
+    def test_a_known_gap_never_inherits(self):
+        verified = row('G001', 'verified-parity', acceptance=[{'referenceType': 'documentation'}])
+        path = self.ledger([verified, row('E001', mappedTo=['G001'], knownGap='capability missing')])
+        inherit.main(['--ledger', str(path), '--apply'])
+        self.assertEqual(json.loads(path.read_text())['requirements'][1]['status'], 'unverified')
+
     def test_dry_run_changes_nothing(self):
         verified = row('G001', 'verified-parity', acceptance=[{'referenceType': 'documentation'}])
         path = self.ledger([verified, row('E001', mappedTo=['G001'])])

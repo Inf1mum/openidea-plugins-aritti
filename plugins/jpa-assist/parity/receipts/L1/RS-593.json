@@ -2,7 +2,7 @@
   "artifacts": [
     {
       "path": "artifacts/RS-593/diagnostics.json",
-      "sha256": "cb640caecf91c70549dae611cb7e2e11c6b8a6db75e3e6f375d499fa895a7fb9"
+      "sha256": "18a1ec1e1c86f244ab3dbf9648fffb2addb8ff842ed24bdf13ec5974dd59cb0e"
     }
   ],
   "changedFiles": [],
@@ -21,7 +21,7 @@
     },
     {
       "check": "diagnostic jpa-entity-field-without-relationship src/main/java/com/example/shop/w2/Priced.java:null",
-      "detail": "63 diagnostics in total",
+      "detail": "64 diagnostics in total",
       "pass": true
     }
   ],
@@ -32,5 +32,5 @@
   "setupTreeHash": "fe1fca7f87c268772fc47059c07ac5c0054b2af6e3cbab164428c8c799adc31b",
   "status": "pass",
   "treeHashAfterRestore": null,
-  "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad"
+  "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204"
 }

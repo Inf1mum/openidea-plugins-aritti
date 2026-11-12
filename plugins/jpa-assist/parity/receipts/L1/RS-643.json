@@ -1,0 +1,122 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-643/prompts.json",
+      "sha256": "b737fca34e878c0f7b873220cd306bd7ce9396795d59960dc695646b75000665"
+    },
+    {
+      "path": "artifacts/RS-643/preview.txt",
+      "sha256": "fafb3d57d3595086b40511defb3ce28374a0ad8377e42eebeed2fdbf99587206"
+    },
+    {
+      "path": "artifacts/RS-643/edits.json",
+      "sha256": "48789a4c7ec7d8fe64610c82d267523eeceba1afa3fbf8175deccafca7a6f1dd"
+    },
+    {
+      "path": "artifacts/RS-643/result-src__main__java__com__example__crm__domain__WidgetMapper.java",
+      "sha256": "f9e167f4d5d77650449b9139ec48a9b2da597c96b95ced9cb0c0dc6bd441fb5b"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "modified",
+      "path": "src/main/java/com/example/crm/domain/WidgetMapper.java"
+    }
+  ],
+  "claimIds": [
+    "G070-C1"
+  ],
+  "fixture": "mapstruct-lombok-dto",
+  "fixtureTreeHashAfter": "4c5e0a153ee32406dcb4af020654201353595d79cf0436ebb26a57387ad7a9d2",
+  "fixtureTreeHashBefore": "1eec857dae020a4b37294e6f89a2cd0410163626d63e515b529f6303ab130c34",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 797 bytes, 2 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 matches the documented shape",
+      "detail": "quickPick \"Entity to map\" options [\"$PROJECT/src/main/java/com/example/crm/domain/Gadget.java\", \"$PROJECT/src/main/java/com/example/crm/domain/Widget.java\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 2 matches the documented shape",
+      "detail": "quickPick \"Existing DTO to map\" options [\"$PROJECT/src/main/java/com/example/crm/dto/AccountRecordDto.java\", \"$PROJECT/src/main/java/com/example/crm/dto/GadgetDto.java\", \"$PROJECT/src/main/java/com/example/crm/dto/WidgetDto.java\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 3 matches the documented shape",
+      "detail": "quickPick \"Mapping methods to add\" options [\"toDto\", \"toEntity\", \"updateEntity\", \"toDtoList\", \"toEntityList\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 4 matches the documented shape",
+      "detail": "confirm \"Add mapping methods?\" options []",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/java/com/example/crm/domain/WidgetMapper.java",
+      "detail": "243 bytes",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree ba93352ef54efaa6cc2d56a6432a85b63f43985bf3406ffbcd3ffdd393153ce2 vs setup ba93352ef54efaa6cc2d56a6432a85b63f43985bf3406ffbcd3ffdd393153ce2; still different []",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 1 of 4 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 2 of 4 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 3 of 4 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 4 of 4 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "stale buffer edit after the first prompt is refused",
+      "detail": "OutOfSync: the document changed meanwhile",
+      "pass": true
+    },
+    {
+      "check": "stale buffer edit at the final prompt is refused",
+      "detail": "OutOfSync: the document changed meanwhile",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G070"
+  ],
+  "scenario": "RS-643",
+  "scenarioSha256": "e84a28e593620208d3878aa18e179baddfcfc3a63dfd2f1fd2449594f4ef8241",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "ba93352ef54efaa6cc2d56a6432a85b63f43985bf3406ffbcd3ffdd393153ce2",
+  "status": "pass",
+  "treeHashAfterRestore": "ba93352ef54efaa6cc2d56a6432a85b63f43985bf3406ffbcd3ffdd393153ce2",
+  "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204"
+}

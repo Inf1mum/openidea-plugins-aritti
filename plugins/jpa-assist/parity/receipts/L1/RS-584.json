@@ -2,7 +2,7 @@
   "artifacts": [
     {
       "path": "artifacts/RS-584/diagnostics.json",
-      "sha256": "63f1da2ceac34fe831f8392d603db07b23fd0e8d580a53da5408d179e9e203e7"
+      "sha256": "0d5b870e96ded3d4a8879c22a083e7fdb96568e64ad73c3cde9ad00270dcdd69"
     }
   ],
   "changedFiles": [],
@@ -21,7 +21,7 @@
     },
     {
       "check": "diagnostic jpa-relationship-target src/main/java/com/example/shop/w2/Linked.java:null",
-      "detail": "64 diagnostics in total",
+      "detail": "65 diagnostics in total",
       "pass": true
     }
   ],
@@ -32,5 +32,5 @@
   "setupTreeHash": "04a047d15d1e60d51f028ec29957f549913705a4bbfd76489a623caea09de82b",
   "status": "pass",
   "treeHashAfterRestore": null,
-  "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad"
+  "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204"
 }

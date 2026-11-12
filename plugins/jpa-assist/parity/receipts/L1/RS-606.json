@@ -1,0 +1,41 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-606/diagnostics.json",
+      "sha256": "24edbd22b4912b095adf741bc8fcbddf8877821db6ca63614bdf1846c2427675"
+    }
+  ],
+  "changedFiles": [],
+  "claimIds": [],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "b325d4c19dfe91ee523a62254683c584c88c0a85ad3a3f6517a66ac39d7600e1",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "diagnostics",
+  "kindExerciser": true,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "no diagnostic jpa-lombok-to-string src/main/java/com/example/shop/w6/DataOnly.java",
+      "detail": "absence check",
+      "pass": true
+    },
+    {
+      "check": "no diagnostic jpa-lombok-to-string src/main/java/com/example/shop/w6/EagerToString.java",
+      "detail": "absence check",
+      "pass": true
+    }
+  ],
+  "rows": [],
+  "scenario": "RS-606",
+  "scenarioSha256": "0d54904cbdd00d2464e86b961c57217040236ffbea8ff041d38511b3e334bcd7",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "b325d4c19dfe91ee523a62254683c584c88c0a85ad3a3f6517a66ac39d7600e1",
+  "status": "pass",
+  "treeHashAfterRestore": null,
+  "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204"
+}

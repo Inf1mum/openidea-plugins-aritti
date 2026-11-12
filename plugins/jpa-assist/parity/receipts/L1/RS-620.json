@@ -1,0 +1,91 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-620/prompts.json",
+      "sha256": "4675a05fc80c34dbf169745d36c9ec44746c5a12deb72d126a06ffc354a7b3a9"
+    },
+    {
+      "path": "artifacts/RS-620/preview.txt",
+      "sha256": "7fb951167205b5c10ba3bbc6f7cd8ad268eb0acb28b2dede316998d3c53627f2"
+    },
+    {
+      "path": "artifacts/RS-620/edits.json",
+      "sha256": "2710d67668ea5f84322aea03ea3dc383261a289b412e2743f910d44270acd04b"
+    },
+    {
+      "path": "artifacts/RS-620/result-src__main__java__com__example__shop__domain__NicknameType.java",
+      "sha256": "05d1b7f7755c7ae15055c009481d434cbd16d89e6994805e0f3058552c924d47"
+    },
+    {
+      "path": "artifacts/RS-620/result-src__main__java__com__example__shop__domain__Ticket.java",
+      "sha256": "ee6487bffdb78e796e89a4d2719fbff8e2340293a2d3962a0ec7ef41a3608070"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "created",
+      "path": "src/main/java/com/example/shop/domain/ActiveFlagConverter.java"
+    }
+  ],
+  "claimIds": [
+    "G003-C2"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "f867de91db020172c0e0c7af731bf021a7f5fbeb907fc7fb4ca7dd2636974e38",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "pre-action \"Create Hibernate user type…\" applied",
+      "detail": "4 prompts, 1 operations",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 2249 bytes, 1 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/java/com/example/shop/domain/NicknameType.java",
+      "detail": "1777 bytes",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/java/com/example/shop/domain/Ticket.java",
+      "detail": "323 bytes",
+      "pass": true
+    },
+    {
+      "check": "created file src/main/java/com/example/shop/domain/ActiveFlagConverter.java",
+      "detail": "created true; missing []",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree 1e19eb24c13dd2f97e9fb2d36066ed6c6af895663c27b83a98c82c2101ea8fe8 vs setup 1e19eb24c13dd2f97e9fb2d36066ed6c6af895663c27b83a98c82c2101ea8fe8; still different []",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G003"
+  ],
+  "scenario": "RS-620",
+  "scenarioSha256": "1becdfe3b612b6c882d0d08d72b6e6ce2724b2795ee3e8cbe13c72a763150b66",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "1e19eb24c13dd2f97e9fb2d36066ed6c6af895663c27b83a98c82c2101ea8fe8",
+  "status": "pass",
+  "treeHashAfterRestore": "1e19eb24c13dd2f97e9fb2d36066ed6c6af895663c27b83a98c82c2101ea8fe8",
+  "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204"
+}

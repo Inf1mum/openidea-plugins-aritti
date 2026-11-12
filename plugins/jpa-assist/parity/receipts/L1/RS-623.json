@@ -1,0 +1,113 @@
+{
+  "artifacts": [
+    {
+      "path": "artifacts/RS-623/prompts.json",
+      "sha256": "b42b524c96dc20a693fe7dce13c745ff391d3ee5c2a537106be4eb7150c3fd16"
+    },
+    {
+      "path": "artifacts/RS-623/preview.txt",
+      "sha256": "e07d293a1cc366aa10e6af51c274af953b113ee5d096872662c58a66d38cee7d"
+    },
+    {
+      "path": "artifacts/RS-623/edits.json",
+      "sha256": "9d7d26bdd7a6d57221e19c842ae04d274066ee549ec7c93b279b3061924573d2"
+    },
+    {
+      "path": "artifacts/RS-623/result-src__main__java__com__example__shop__domain__Account.java",
+      "sha256": "a55ac384eaf575bc52354ed1d5705b3b61cdb0db341c7628ee36f6f4702e2ca0"
+    }
+  ],
+  "changedFiles": [
+    {
+      "change": "modified",
+      "path": "src/main/java/com/example/shop/domain/Account.java"
+    }
+  ],
+  "claimIds": [
+    "G010-C1",
+    "G010-C2"
+  ],
+  "fixture": "boot-jpa-java-jakarta",
+  "fixtureTreeHashAfter": "b7ebd7efd24ebb67e5b54e44b04a19c4aa174f3c3b326e73375ca955a35f8582",
+  "fixtureTreeHashBefore": "d7ba3870487eb0d2b961570490def51287efd7889115ec145772c6d00a647e98",
+  "hostRev": "e702e4da7b0333e81bc818e26be72db1d157ec5d",
+  "kind": "fileaction",
+  "kindExerciser": false,
+  "results": [
+    {
+      "check": "install into the private released host",
+      "detail": "None",
+      "pass": true
+    },
+    {
+      "check": "confirm preview contains every resulting changed text",
+      "detail": "preview 575 bytes, 2 edits, restricted to [], missing []",
+      "pass": true
+    },
+    {
+      "check": "prompt 1 attributes",
+      "detail": "quickPick \"Attribute to validate\" options [\"id\", \"title\", \"quantity\"]",
+      "pass": true
+    },
+    {
+      "check": "prompt 2 constraints applicable to a String",
+      "detail": "quickPick \"Constraint\" options [\"NotNull\", \"Null\", \"NotBlank\", \"NotEmpty\", \"Size\", \"Pattern\", \"Email\"]",
+      "pass": true
+    },
+    {
+      "check": "result file src/main/java/com/example/shop/domain/Account.java",
+      "detail": "291 bytes",
+      "pass": true
+    },
+    {
+      "check": "native grouped Undo restores the disposable copy",
+      "detail": "undo Some(Ok(())); tree 09c9c2627441f3e512de825785d32e652ae3c94ae4167febc700be3ccf8f85ce vs setup 09c9c2627441f3e512de825785d32e652ae3c94ae4167febc700be3ccf8f85ce; still different []",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 1 of 6 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 2 of 6 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 3 of 6 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 4 of 6 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 5 of 6 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "Cancel at prompt 6 of 6 leaves the tree unchanged",
+      "detail": "no edit applied, tree hash equals the setup state",
+      "pass": true
+    },
+    {
+      "check": "tree is back to the setup state at the end",
+      "detail": "restored",
+      "pass": true
+    }
+  ],
+  "rows": [
+    "G010"
+  ],
+  "scenario": "RS-623",
+  "scenarioSha256": "85cc4462026971e2057f1fe6853f523d829f09f56249e18c3070025ad1651486",
+  "scope": "L1 headless released host; structural expectations taken from the documented claims; no parity claim",
+  "setupTreeHash": "09c9c2627441f3e512de825785d32e652ae3c94ae4167febc700be3ccf8f85ce",
+  "status": "pass",
+  "treeHashAfterRestore": "09c9c2627441f3e512de825785d32e652ae3c94ae4167febc700be3ccf8f85ce",
+  "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204"
+}

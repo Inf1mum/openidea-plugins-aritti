@@ -2,7 +2,7 @@
   "artifacts": [
     {
       "path": "artifacts/RS-590/diagnostics.json",
-      "sha256": "66bb733dcc08951414b1b4b93f4d6748df173b3cbae14f04479cb34126946164"
+      "sha256": "a67dd8e77bfdec57f44a110caa47f3433f34abc3b55d7cb76d91cee036040eff"
     }
   ],
   "changedFiles": [],
@@ -21,7 +21,7 @@
     },
     {
       "check": "diagnostic jpa-unknown-named-query src/main/java/com/example/shop/w2/GizmoRepository.java:null",
-      "detail": "63 diagnostics in total",
+      "detail": "64 diagnostics in total",
       "pass": true
     }
   ],
@@ -32,5 +32,5 @@
   "setupTreeHash": "8ede3670745fc1754085e5a4c51ae294d4063e89685536729bfae1c9f5826732",
   "status": "pass",
   "treeHashAfterRestore": null,
-  "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad"
+  "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204"
 }

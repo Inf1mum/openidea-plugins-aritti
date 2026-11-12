@@ -2,7 +2,7 @@
   "artifacts": [
     {
       "path": "artifacts/RS-594/diagnostics.json",
-      "sha256": "3b9f2798ccaa60c98f3bf2dac69370a16ecaf083af26764c89a5785d590356a0"
+      "sha256": "aaf14afd99a8a31075bb939319dc7a53c07b3f82306ed5e9acce19c73d23a774"
     }
   ],
   "changedFiles": [],
@@ -21,7 +21,7 @@
     },
     {
       "check": "diagnostic jpa-incompatible-table src/main/java/com/example/shop/w2/Leaf.java:null",
-      "detail": "63 diagnostics in total",
+      "detail": "64 diagnostics in total",
       "pass": true
     }
   ],
@@ -32,5 +32,5 @@
   "setupTreeHash": "b3e4f09a95a52af87dde6809eccc6938964221f0641e39aa2b4bb107b4d6b374",
   "status": "pass",
   "treeHashAfterRestore": null,
-  "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad"
+  "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204"
 }

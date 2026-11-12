@@ -130,11 +130,11 @@ def apply_level1(parity, ledger, receipts, analysis, destination):
         }
 
 
-def close_rows(parity, ledger, receipts, analysis, destination, docs_date):
+def close_rows(parity, ledger, receipts, analysis, destination, docs_date, exclude=()):
     rows = {entry['id']: entry for entry in ledger['requirements']}
     closed = []
     for row, item in sorted(analysis.items()):
-        if not item['closable']:
+        if not item['closable'] or row in exclude:
             continue
         entry = rows[row]
         explicit = explicit_claims(parity, row)
@@ -182,6 +182,7 @@ def main(argv=None):
     parser.add_argument('--min-runs', type=int, default=3, help='minimum number of runner outputs (default 3)')
     parser.add_argument('--apply', action='store_true', help='copy receipts and record evidenceLevel.L1')
     parser.add_argument('--close', action='store_true', help='with --apply: close fully covered rows as verified-parity (documentation-derived)')
+    parser.add_argument('--exclude', action='append', default=[], metavar='ROW', help='with --close: keep this closable row open (its L1 evidence is still recorded)')
     parser.add_argument('--docs-date', default='2026-11-11', help='retrieval date recorded on documentation cases')
     parser.add_argument('--parity-dir', default=str(PARITY))
     parser.add_argument('--json', action='store_true')
@@ -202,7 +203,7 @@ def main(argv=None):
         destination = parity / 'receipts' / 'L1'
         apply_level1(parity, ledger, receipts, analysis, destination)
         if args.close:
-            closed = close_rows(parity, ledger, receipts, analysis, destination, args.docs_date)
+            closed = close_rows(parity, ledger, receipts, analysis, destination, args.docs_date, set(args.exclude))
         ledger_path.write_text(json.dumps(ledger, indent=2, ensure_ascii=False) + '\n')
     if args.json:
         print(json.dumps({'rows': {r: {k: sorted(v) if isinstance(v, set) else v for k, v in i.items()} for r, i in analysis.items()},

@@ -137,6 +137,18 @@ class UpdateLedgerTests(unittest.TestCase):
         self.assertEqual(f.ledger()['G001']['status'], 'verified-parity')
         self.assertEqual(f.ledger()['G002']['status'], 'partial')
 
+    def test_excluded_rows_stay_open_but_keep_level_one_evidence(self):
+        f = Fixture()
+        f.row('G001', claims=[('explicit', True)])
+        f.row('G002', claims=[('explicit', True)])
+        f.finish()
+        f.receipt('RS-001', ['G001'], ['G001-C1'])
+        f.receipt('RS-002', ['G002'], ['G002-C1'])
+        f.run(self.module, '--apply', '--close', '--exclude', 'G002')
+        self.assertEqual(f.ledger()['G001']['status'], 'verified-parity')
+        self.assertEqual(f.ledger()['G002']['status'], 'partial')
+        self.assertEqual(f.ledger()['G002']['evidenceLevel']['L1']['status'], 'pass')
+
     def test_close_requires_apply(self):
         f = Fixture()
         f.row('G001', claims=[('explicit', True)])

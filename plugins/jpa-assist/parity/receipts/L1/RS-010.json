@@ -2,7 +2,7 @@
   "artifacts": [
     {
       "path": "artifacts/RS-010/diagnostics.json",
-      "sha256": "9129f1e5276f3d59bf203836e512a93a2f80124878e765088b8d8b8ca2ba06e5"
+      "sha256": "e0d3c507352eae1a3babaf72c8d6da509a17b0ddcc4d613f83557ab268ed7496"
     }
   ],
   "changedFiles": [],
@@ -26,27 +26,27 @@
     },
     {
       "check": "diagnostic jpa-lombok-constructors src/main/java/com/example/crm/defects/LombokBuilderDefect.java:null",
-      "detail": "13 diagnostics in total",
+      "detail": "11 diagnostics in total",
       "pass": true
     },
     {
       "check": "diagnostic jpa-lombok-constructors src/main/java/com/example/crm/defects/LombokAllArgsDefect.java:null",
-      "detail": "13 diagnostics in total",
+      "detail": "11 diagnostics in total",
       "pass": true
     },
     {
       "check": "diagnostic jpa-lombok-data src/main/java/com/example/crm/defects/LombokDataDefect.java:null",
-      "detail": "13 diagnostics in total",
+      "detail": "11 diagnostics in total",
       "pass": true
     },
     {
       "check": "diagnostic jpa-lombok-equals src/main/java/com/example/crm/defects/LombokEqualsDefect.java:null",
-      "detail": "13 diagnostics in total",
+      "detail": "11 diagnostics in total",
       "pass": true
     },
     {
       "check": "diagnostic jpa-lombok-to-string src/main/java/com/example/crm/defects/LombokToStringDefect.java:null",
-      "detail": "13 diagnostics in total",
+      "detail": "11 diagnostics in total",
       "pass": true
     },
     {
@@ -77,5 +77,5 @@
   "setupTreeHash": "73884411f199a9fc556959605344b11f1bf38ed58f99e4f178644623d2c87449",
   "status": "pass",
   "treeHashAfterRestore": null,
-  "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad"
+  "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204"
 }

@@ -184,6 +184,11 @@ class EvidenceLevelAndDocumentationTests(unittest.TestCase):
                        acceptance=[{'scenario': 'i', 'referenceType': 'inherited', 'inheritedFrom': [reqs[1]['id']], 'scope': 's', 'result': 'pass'}])
         self.assertTrue(any('its own evidence' in e for e in self.validate()))
 
+    def test_a_known_gap_cannot_be_verified(self):
+        self.verify_row(self.docs_case())
+        self.row['knownGap'] = 'capability missing'
+        self.assertTrue(any('knownGap' in e for e in self.validate()))
+
     def test_documentation_case_requires_sources_claims_date_and_file(self):
         for override in (
             {'referenceSources': []}, {'referenceSources': ['http://example.com']}, {'referenceSources': 'https://x'},

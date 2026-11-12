@@ -2,7 +2,7 @@
   "artifacts": [
     {
       "path": "artifacts/RS-588/diagnostics.json",
-      "sha256": "50849698024af32a390fb2fdd09e86f9af3fa22a4632a6356699b0951c65005b"
+      "sha256": "21e261b52c2acac69c521047a4c583a6076b9895abb8cc3c1638f773e8b57b7e"
     }
   ],
   "changedFiles": [],
@@ -21,7 +21,7 @@
     },
     {
       "check": "diagnostic jpa-unknown-entity-graph src/main/java/com/example/shop/w2/GizmoRepository.java:null",
-      "detail": "63 diagnostics in total",
+      "detail": "64 diagnostics in total",
       "pass": true
     }
   ],
@@ -32,5 +32,5 @@
   "setupTreeHash": "beb50e7d2e2152038cce6dd41b8068d9cff9f7abc04e3cf790a6df5a8e15f626",
   "status": "pass",
   "treeHashAfterRestore": null,
-  "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad"
+  "wasmSha256": "2328da6dff96a1af8dba9fbba3ca469f9b07102be6e876d5c955d9c3a28ff204"
 }
