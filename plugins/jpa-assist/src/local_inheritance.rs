@@ -284,7 +284,7 @@ mod tests {
         converter("Boolean");
         let found = entity("String", "");
         assert_eq!(found.len(), 1);
-        assert_eq!(found[0].severity, Severity::Info);
+        assert_eq!(found[0].severity, Severity::Warning);
         assert_eq!(entity("long", "").len(), 1);
         for quiet in ["Boolean", "boolean", "java.lang.Boolean", "List<String>", "Custom", "Date"] {
             assert!(entity(quiet, "").is_empty(), "{quiet}");
@@ -296,5 +296,43 @@ mod tests {
         assert!(entity("String", "").is_empty());
         host.add_file("src/main/java/shop/Flag.java", "package shop;\nimport java.util.Date;\nimport jakarta.persistence.AttributeConverter;\nclass Flag implements AttributeConverter<Date, String> { }");
         assert_eq!(entity("String", "").len(), 1);
+    }
+
+    #[test]
+    fn converter_accepts_supertypes_of_the_attribute_type() {
+        let host = MockHost::install();
+        let code = "jpa-converter-type-mismatch";
+        let header = format!("{}import java.io.Serializable;
+", all(&[]));
+        let entity = |ty: &str| run(&host, "Order", &header, &format!("@Entity class Order {{ @Id Long id; @Convert(converter = Flag.class) {ty} s; }}"), code);
+        let converter = |x: &str| host.add_file("src/main/java/shop/Flag.java", &format!("package shop;\nimport java.io.Serializable;\nimport jakarta.persistence.AttributeConverter;\nclass Flag implements AttributeConverter<{x}, String> {{ }}"));
+        for (converts, quiet, flagged) in [("Object", "Long", ""), ("Number", "Long", "String"), ("CharSequence", "String", "Long"), ("Serializable", "String", "Object")] {
+            converter(converts);
+            assert!(entity(quiet).is_empty(), "{converts} accepts {quiet}");
+            if !flagged.is_empty() {
+                assert_eq!(entity(flagged).len(), 1, "{converts} rejects {flagged}");
+            }
+        }
+    }
+
+    #[test]
+    fn converter_between_project_classes_follows_the_extends_chain() {
+        let host = MockHost::install();
+        let code = "jpa-converter-type-mismatch";
+        let header = all(&[]);
+        let entity = |ty: &str| run(&host, "Order", &header, &format!("@Entity class Order {{ @Id Long id; @Convert(converter = Flag.class) {ty} s; }}"), code);
+        host.add_file("src/main/java/shop/Flag.java", "package shop;\nimport jakarta.persistence.AttributeConverter;\nclass Flag implements AttributeConverter<Base, String> { }");
+        host.add_file("src/main/java/shop/Base.java", "package shop;\nclass Base { }");
+        host.add_file("src/main/java/shop/Child.java", "package shop;\nclass Child extends Base { }");
+        host.add_file("src/main/java/shop/Other.java", "package shop;\nclass Other { }");
+        host.add_file("src/main/java/shop/Contract.java", "package shop;\ninterface Contract { }");
+        assert!(entity("Base").is_empty());
+        assert!(entity("Child").is_empty());
+        assert_eq!(entity("Other").len(), 1);
+        assert!(entity("Missing").is_empty());
+        host.add_file("src/main/java/shop/Child.java", "package shop;\nimport other.Parent;\nclass Child extends Parent { }");
+        assert!(entity("Child").is_empty());
+        host.add_file("src/main/java/shop/Flag.java", "package shop;\nimport jakarta.persistence.AttributeConverter;\nclass Flag implements AttributeConverter<Contract, String> { }");
+        assert!(entity("Other").is_empty());
     }
 }
