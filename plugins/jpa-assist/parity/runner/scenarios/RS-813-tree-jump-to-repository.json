@@ -1,0 +1,29 @@
+{
+  "id": "RS-813",
+  "rows": [
+    "G039"
+  ],
+  "claimIds": [
+    "G039-C2"
+  ],
+  "verifies": {
+    "G039-C2": "OPEN half, weakly: activating a repository node (artifact:repository:...) in the Persistence tree is accepted by the view handler, which calls the host open-location API without error. The runner cannot observe an editor opening or its caret, and the original's open-implementation gesture is NOT checked. Create-new is RS-812."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "tree",
+  "action": {
+    "view": "structure",
+    "viewEvents": [
+      {
+        "activate": "artifact:repository:$PROJECT/src/main/java/com/example/shop/repository/CustomerRepository.java"
+      }
+    ]
+  },
+  "expect": {
+    "treeNodes": [
+      "CustomerRepository"
+    ],
+    "noFilesChanged": true
+  },
+  "note": "Activate a repository node of the Persistence tree."
+}

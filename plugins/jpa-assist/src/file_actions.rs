@@ -81,6 +81,12 @@ mod related_entity_action;
 #[path = "tree_create_action.rs"]
 mod tree_create_action;
 pub(crate) fn run_tree_command(plugin: &mut JpaAssist, id: &str, ctx: &Invocation) -> Result<Option<String>, Error> { tree_create_action::run(plugin, id, ctx) }
+#[path = "structure_actions.rs"]
+mod structure_actions;
+pub(crate) fn run_structure_command(plugin: &mut JpaAssist, id: &str, ctx: &Invocation, arg: Option<&str>) -> Result<Option<String>, Error> { structure_actions::run(plugin, id, ctx, arg) }
+pub(crate) fn structure_button(plugin: &mut JpaAssist, id: &str, ctx: &Invocation) -> Result<(), Error> { structure_actions::button(plugin, id, ctx) }
+pub(crate) fn structure_select(key: String) { structure_actions::select(key) }
+pub(crate) fn structure_filter(items: Vec<TreeItem>) -> Vec<TreeItem> { structure_actions::filter(items) }
 #[path = "converter_action.rs"]
 mod converter_action;
 #[path = "hibernate_action.rs"]

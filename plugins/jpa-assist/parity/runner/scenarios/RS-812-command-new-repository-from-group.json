@@ -1,0 +1,70 @@
+{
+  "id": "RS-812",
+  "rows": [
+    "G001",
+    "G002",
+    "G039"
+  ],
+  "claimIds": [
+    "G001-C2",
+    "G002-C1",
+    "G039-C2"
+  ],
+  "verifies": {
+    "G001-C2": "CREATE-NEW half only: the New > Spring Data Repository entry of the Repositories group (command structure-new-repository with the group item key) creates a repository for that entity through the reviewed non-overwriting flow. Grouping is RS-811; jump-to is RS-813.",
+    "G002-C1": "CREATE-NEW half only, same check as G001-C2.",
+    "G039-C2": "CREATE-NEW half: creating a repository from the Repositories group item writes ProductAuditRepository extending JpaRepository<Product, Long>. Opening an implementation is RS-813."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "command",
+  "grants": [
+    "project.write"
+  ],
+  "action": {
+    "command": "structure-new-repository",
+    "arg": "group:repositories:$PROJECT/src/main/java/com/example/shop/domain/Widget.java"
+  },
+  "prompts": [
+    {
+      "pick": "JpaRepository"
+    },
+    {
+      "pick": "no"
+    },
+    {
+      "input": "WidgetAuditRepository"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "createdFiles": [
+      {
+        "path": "src/main/java/com/example/shop/domain/WidgetAuditRepository.java",
+        "contains": [
+          "interface WidgetAuditRepository extends JpaRepository<Widget, Long>"
+        ]
+      }
+    ]
+  },
+  "note": "Create a repository from the Repositories group item of a Widget entity whose repository is in another package.",
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Widget.java",
+    "anchor": "class Widget"
+  },
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/Widget.java",
+        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Widget {\n\n    @Id\n    private Long id;\n\n    protected Widget() {\n    }\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/repository/WidgetRepository.java",
+        "content": "package com.example.shop.repository;\n\nimport com.example.shop.domain.Widget;\nimport org.springframework.data.jpa.repository.JpaRepository;\n\npublic interface WidgetRepository extends JpaRepository<Widget, Long> {\n}\n"
+      }
+    }
+  ]
+}

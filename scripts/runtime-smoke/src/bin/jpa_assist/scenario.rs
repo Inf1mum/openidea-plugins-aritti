@@ -15,13 +15,24 @@ pub(crate) struct Loaded {
 const KINDS: &[&str] = &["fileaction", "diagnostics", "completion", "hover", "command", "tree", "lineMarkers"];
 const EXPECT_KEYS: &[&str] = &[
     "promptSequence", "promptCount", "editsContain", "resultFile", "createdFiles", "noFilesChanged", "diagnostics", "diagnosticsAbsent",
-    "completionsInclude", "completionsExclude", "hoverContains", "clipboardContains", "treeNodes", "markersInclude", "actionOffered",
+    "completionsInclude", "completionsExclude", "hoverContains", "clipboardContains", "treeNodes", "treeChildren", "treeAbsent", "markersInclude", "actionOffered",
     "resolveErrorContains", "goldenFile",
 ];
 const CHECK_KEYS: &[&str] = &["preview", "undo", "cancelEach", "stale"];
 const TOP_KEYS: &[&str] = &[
-    "id", "rows", "claimIds", "verifies", "fixture", "setup", "preActions", "postSetup", "kind", "target", "action", "prompts", "expect", "checks", "note", "kindExerciser", "warm",
+    "id", "rows", "claimIds", "verifies", "fixture", "setup", "preActions", "postSetup", "kind", "target", "action", "prompts", "expect", "checks", "note", "kindExerciser", "warm", "grants",
 ];
+
+fn tree_event(v: &Value, project: &str) -> ViewEvent {
+    let text = |key: &str| v[key].as_str().unwrap_or_default().replace("$PROJECT", project);
+    if v["select"].is_string() {
+        ViewEvent::Select { key: text("select") }
+    } else if v["activate"].is_string() {
+        ViewEvent::Activate { key: text("activate") }
+    } else {
+        ViewEvent::Button { id: text("button") }
+    }
+}
 
 fn strs(v: &Value) -> Vec<String> {
     v.as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect()).unwrap_or_default()
@@ -206,6 +217,14 @@ pub(crate) fn validate(repo: &Path, scenarios: &[Loaded]) -> Vec<String> {
         }
         if kind == "tree" && v["action"]["view"].as_str().is_none_or(str::is_empty) {
             err("action.view is required".into());
+        }
+        if strs(&v["grants"]).iter().any(|g| g != "project.write") {
+            err("grants may only name project.write".into());
+        }
+        for event in v["action"]["viewEvents"].as_array().cloned().unwrap_or_default() {
+            if event.as_object().is_none_or(|o| o.len() != 1 || !["button", "select", "activate"].iter().any(|k| event[*k].as_str().is_some_and(|t| !t.is_empty()))) {
+                err("action.viewEvents entries are one-key objects: button, select or activate with a nonempty string".into());
+            }
         }
         for pre in v["preActions"].as_array().cloned().unwrap_or_default() {
             if pre["title"].as_str().is_none_or(str::is_empty) || !safe_relative(pre["target"]["file"].as_str().unwrap_or("")) {
@@ -697,6 +716,23 @@ fn evaluate(expect: &Value, obs: &Obs, project: &Path, before: &BTreeMap<String,
     for want in strs(&expect["clipboardContains"]) {
         res.add(&format!("clipboard contains {want:?}"), clip.to_lowercase().contains(&want.to_lowercase()), format!("{} clipboard writes, {} bytes", obs.clipboard.len(), clip.len()));
     }
+    for want in strs(&expect["treeAbsent"]) {
+        res.add(&format!("tree has no node {want:?}"), !obs.nodes.iter().any(|n| n.contains(&want)), format!("{} nodes", obs.nodes.len()));
+    }
+    for chain in expect["treeChildren"].as_array().cloned().unwrap_or_default() {
+        let labels = strs(&chain);
+        let items = obs.tree_raw["body"]["value"].as_array().cloned().unwrap_or_default();
+        let mut parents: Vec<Option<String>> = vec![None];
+        for label in &labels {
+            let next: Vec<Option<String>> = items
+                .iter()
+                .filter(|n| n["label"].as_str() == Some(label.as_str()) && parents.iter().any(|p| p.as_deref() == n["parent"].as_str()))
+                .map(|n| n["key"].as_str().map(str::to_owned))
+                .collect();
+            parents = next;
+        }
+        res.add(&format!("tree path {}", labels.join(" > ")), !parents.is_empty(), format!("{} nodes", items.len()));
+    }
     for want in strs(&expect["treeNodes"]) {
         res.add(&format!("tree node {want:?}"), obs.nodes.iter().any(|n| n.contains(&want)), format!("{} nodes", obs.nodes.len()));
     }
@@ -736,7 +772,7 @@ async fn run_one(repo: &Path, out: &Path, wasm: &Path, wasm_sha: &str, loaded: &
     let scrub = vec![(project.display().to_string(), "$PROJECT"), (base.display().to_string(), "$TMP")];
     let mut res = Results { items: vec![], scrub: scrub.clone() };
     let mut arts = Artifacts { dir: out.join("artifacts").join(&id), rel: format!("artifacts/{id}"), list: vec![], scrub };
-    let rt = boot(&base, &project, repo, wasm, settings.as_deref())?;
+    let rt = boot(&base, &project, repo, wasm, settings.as_deref(), &strs(&sc["grants"]))?;
     res.add("install into the private released host", rt.install_error.is_none(), format!("{:?}", rt.install_error));
     let mut obs = Obs::default();
     let mut after_hash = setup_hash.clone();
@@ -969,7 +1005,8 @@ async fn run_one(repo: &Path, out: &Path, wasm: &Path, wasm_sha: &str, loaded: &
                     let with_editor = Invocation { editor, ..invocation.clone() };
                     *rt.script.lock().unwrap() = Script { answers: answers.clone().into(), ..Script::default() };
                     let command = sc["action"]["command"].as_str().unwrap_or("");
-                    let result = rt.plugins.run_command(ID, command, sc["action"]["arg"].as_str(), with_editor);
+                    let arg = sc["action"]["arg"].as_str().map(|a| a.replace("$PROJECT", &project.display().to_string()));
+                    let result = rt.plugins.run_command(ID, command, arg.as_deref(), with_editor);
                     let mut script = rt.script.lock().unwrap();
                     obs.prompts = std::mem::take(&mut script.seen);
                     obs.problems = std::mem::take(&mut script.problems);
@@ -984,7 +1021,33 @@ async fn run_one(repo: &Path, out: &Path, wasm: &Path, wasm_sha: &str, loaded: &
                 }
                 "tree" => {
                     let view = sc["action"]["view"].as_str().unwrap_or("");
-                    let model = rt.plugins.render_view(ID, view, None, invocation.clone());
+                    let editor = if target_rel.is_empty() {
+                        None
+                    } else {
+                        let lang = language_for(&target, &sc["target"]);
+                        let doc = provider_doc(&rt.host, &target, &lang)?;
+                        let range = locate(&doc.text, &sc["target"])?;
+                        Some(ide_plugin::EditorContext { path: target.clone(), language: lang, selections: vec![range] })
+                    };
+                    let with_editor = Invocation { editor, ..invocation.clone() };
+                    *rt.script.lock().unwrap() = Script { answers: answers.clone().into(), ..Script::default() };
+                    if sc["action"]["viewEvents"].as_array().is_some_and(|events| !events.is_empty()) {
+                        let _ = rt.plugins.render_view(ID, view, None, with_editor.clone());
+                    }
+                    for event in sc["action"]["viewEvents"].as_array().cloned().unwrap_or_default() {
+                        let event = tree_event(&event, &project.display().to_string());
+                        let sent = rt.plugins.view_event(ID, view, event.clone(), with_editor.clone());
+                        res.add(&format!("view event {event:?} handled"), sent.is_ok(), format!("{:?}", sent.as_ref().err()));
+                    }
+                    {
+                        let mut script = rt.script.lock().unwrap();
+                        obs.prompts = std::mem::take(&mut script.seen);
+                        obs.problems = std::mem::take(&mut script.problems);
+                    }
+                    arts.put("prompts.json", &serde_json::to_vec_pretty(&obs.prompts)?);
+                    after_files = snapshot(&project);
+                    after_hash = tree_hash(&project);
+                    let model = rt.plugins.render_view(ID, view, None, with_editor.clone());
                     match model {
                         Ok(model) => {
                             obs.tree_raw = serde_json::to_value(&model)?;

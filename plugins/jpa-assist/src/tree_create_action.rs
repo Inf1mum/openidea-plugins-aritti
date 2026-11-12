@@ -33,8 +33,11 @@ fn selection(ctx: &Invocation) -> Result<String, Error> {
 }
 
 pub(super) fn run(plugin: &mut JpaAssist, id: &str, ctx: &Invocation) -> Result<Option<String>, Error> {
+    run_on(plugin, id, selection(ctx)?)
+}
+
+pub(super) fn run_on(plugin: &mut JpaAssist, id: &str, selected: String) -> Result<Option<String>, Error> {
     let command = COMMANDS.iter().find(|command| command.id == id).ok_or_else(|| Error::NotFound(format!("command {id}")))?;
-    let selected = selection(ctx)?;
     let project = host::project_of(&selected).ok_or("The selection does not belong to an open project.")?;
     let root = path(&project.root()?).ok_or(Error::Stale)?;
     if !inside(&root, &selected) {
@@ -119,7 +122,7 @@ fn new_entity(project: &Project, root: &str, selected: &str, is_folder: bool) ->
 }
 
 /// Checks every step first, then writes the new files and the edited text. Nothing is overwritten and no other operation kind is run.
-fn apply(project: &Project, root: &str, action: FileAction) -> Result<(), Error> {
+pub(super) fn apply(project: &Project, root: &str, action: FileAction) -> Result<(), Error> {
     let mut creates = Vec::new();
     for operation in &action.operations {
         let FileOperation::Create { path: target, text, overwrite: false } = operation else {

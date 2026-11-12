@@ -101,7 +101,17 @@ missing or mismatching answer cancels the prompt and fails the scenario (`script
 | `diagnostics` / `diagnosticsAbsent` | `{rule, file (suffix), line?}` (line is 1-based) |
 | `completionsInclude` / `completionsExclude` | labels (substring) |
 | `hoverContains`, `clipboardContains`, `treeNodes`, `markersInclude` | substrings of hover markdown, clipboard text, tree label+detail, marker tooltip |
+| `treeChildren` | list of label chains `["Customer", "Repositories", "CustomerRepository"]`: each label is a child of the previous (the first is a root item) |
+| `treeAbsent` | substrings that must not occur in any tree label+detail |
 | `goldenFile` | `{file, actual, ownOutputSnapshot: true}` byte comparison with a stored copy of our own output. It must say `ownOutputSnapshot: true` and is never documentation evidence. No shipped scenario uses it. |
+
+### tree scenarios with view events
+
+`action.viewEvents` (tree kind) sends `{"button": id}`, `{"select": key}` or `{"activate": key}` to the view after one priming render
+and before the checked render; `$PROJECT` in keys and in a command's `action.arg` is the disposable copy. `target.file` gives the view
+an active editor (Locate Open File). `prompts` answer what the events open. `"grants": ["project.write"]` consents to the optional
+`project.write` capability for the scenario (the project-creating commands need it; no other scenario is granted it). The headless host
+has no file watcher, so the tree rendered after a created file does not show it: check the created file, not the new node.
 
 ### checks (fileaction only unless noted)
 

@@ -16,7 +16,8 @@
    "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
    "strength": "explicit",
    "ourFeature": "designer.rs",
-   "verifiableHeadless": false
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Headless on the Persistence view surface: toolbar Add button (a pick list of Entity, JPA Converter, Hibernate Custom Type, Spring Data Repository, DTO, Projection, Persistence Unit) and the right-click New submenu create a new entity through the reviewed non-overwriting flow (RS-814, RS-815). Not checked: the Add button glyph or dropdown drawing (OpenIDEA toolbar buttons have no dropdown) and the tool window layout."
   },
   {
    "id": "G003-C2",
@@ -26,7 +27,7 @@
    "strength": "explicit",
    "ourFeature": "converter_action.rs, hibernate_action.rs",
    "verifiableHeadless": true,
-   "surfaceEquivalent": "Headless on the BEHAVIOUR: our plugin offers a JPA attribute converter (code action 'Create attribute converter with preview…') and a Hibernate custom type (code action 'Create Hibernate user type…') for an entity attribute. Not checked: the original's Add button in the JPA Structure tool window and a single shared chooser; ours are two separate editor actions."
+   "surfaceEquivalent": "Headless on the BEHAVIOUR: our plugin offers a JPA attribute converter (code action 'Create attribute converter with preview…') and a Hibernate custom type (code action 'Create Hibernate user type…') for an entity attribute. Not checked: the original's Add button in the JPA Structure tool window and a single shared chooser; ours are two separate editor actions, and the Persistence view toolbar Add list now offers both in one list (RS-816, RS-817); the dropdown drawing is not checked."
   }
  ],
  "undocumented": [

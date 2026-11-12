@@ -21,7 +21,8 @@
    "source": "https://www.jetbrains.com/help/idea/persistence-tool-window.html",
    "strength": "explicit",
    "ourFeature": "lib.rs, structure_related.rs",
-   "verifiableHeadless": false
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Headless on the native Persistence tree view model (OpenIDEA has no JPA Structure tool window; the plugin's Persistence view is its equivalent): persistence units, managed entities and their Spring Data repositories are nodes nested unit > entity > Repositories > repository (RS-810). Not checked: tool window layout and drawing, and the original's configuration-file and converter rows."
   },
   {
    "id": "G001-C2",
@@ -30,7 +31,8 @@
    "source": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
    "strength": "explicit",
    "ourFeature": "lib.rs, structure_related.rs",
-   "verifiableHeadless": false
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Headless on the Persistence view: each entity's Repositories group lists its repositories across packages (RS-811), the Repositories item menu creates a new repository (RS-812) and activating a repository node calls open-location (RS-813). Not checked: that an editor actually opens (the runner cannot observe it) and the original's tool window drawing."
   }
  ],
  "undocumented": [

@@ -219,7 +219,7 @@ pub(crate) struct Rt {
     pub install_error: Option<String>,
 }
 
-fn boot(base: &Path, project: &Path, repo: &Path, wasm: &Path, settings_toml: Option<&str>) -> R<Rt> {
+fn boot(base: &Path, project: &Path, repo: &Path, wasm: &Path, settings_toml: Option<&str>, grants: &[String]) -> R<Rt> {
     std::fs::create_dir_all(base.join("config"))?;
     if let Some(text) = settings_toml {
         std::fs::write(base.join("config/settings.toml"), text)?;
@@ -276,7 +276,7 @@ fn boot(base: &Path, project: &Path, repo: &Path, wasm: &Path, settings_toml: Op
     copy_tree(&repo.join(PLUGIN_SOURCE), &staged, STAGE_SKIP)?;
     std::fs::create_dir_all(staged.join("dist"))?;
     std::fs::copy(wasm, staged.join("dist/plugin.wasm"))?;
-    let consent = Consent { optional: ["clipboard", "editor.write"].map(String::from).to_vec(), ..Default::default() };
+    let consent = Consent { optional: ["clipboard", "editor.write"].map(String::from).into_iter().chain(grants.iter().cloned()).collect(), ..Default::default() };
     let installed = plugins.install_from_dir(&staged, &consent);
     Ok(Rt { host, plugins, script, clipboard, applied, install_error: installed.err().map(|e| e.to_string()) })
 }
@@ -387,7 +387,7 @@ async fn smoke(repo: &Path, output: &Path, fixture: &Path, wasm: &Path) -> R<boo
     let pristine_hash = tree_hash(&project);
     let mut report = Report { checks: vec![], failed: false };
 
-    let rt = boot(&base, &project, repo, wasm, None)?;
+    let rt = boot(&base, &project, repo, wasm, None, &[])?;
     let Rt { host, plugins, script, clipboard, applied, .. } = rt;
     let wasm_sha = sha(&std::fs::read(wasm)?);
     report.check("install into the private released host", rt.install_error.is_none(), format!("wasm sha256 {wasm_sha}; {:?}", rt.install_error));
