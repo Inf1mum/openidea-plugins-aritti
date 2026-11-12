@@ -1,0 +1,54 @@
+{
+  "id": "RS-571",
+  "rows": [
+    "G132"
+  ],
+  "claimIds": [
+    "G132-C3"
+  ],
+  "verifies": {
+    "G132-C3": "on the collection parcels (declared List<Parcel>) typing mapTo offers mapToParcelDto and scaffolds the stream call parcels.stream().map(parcelMapper::toDto).collect(Collectors.toList()) from the single-instance mapper method; a mapper method taking the collection is used directly when it exists (unit-tested only). The single-instance case is RS-570. The import of Collectors is an additional edit the runner cannot see."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "completion",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/Parcel.java",
+        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Parcel {\n\n    @Id\n    private Long id;\n\n    private String name;\n\n    private String color;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/web/ParcelMapper.java",
+        "content": "package com.example.shop.web;\n\nimport com.example.shop.domain.Parcel;\nimport com.example.shop.dto.ParcelDto;\nimport org.mapstruct.Mapper;\n\n@Mapper(componentModel = \"spring\")\npublic interface ParcelMapper {\n    ParcelDto toDto(Parcel parcel);\n\n    Parcel toEntity(ParcelDto dto);\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/dto/ParcelDto.java",
+        "content": "package com.example.shop.dto;\n\npublic record ParcelDto(\n        Long id,\n        String name\n) {\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/service/ParcelService.java",
+        "content": "package com.example.shop.service;\n\nimport com.example.shop.domain.Parcel;\nimport java.util.List;\nimport org.springframework.stereotype.Service;\n\n@Service\npublic class ParcelService {\n\n    void run(Parcel parcel, List<Parcel> parcels) {\n        parcels.mapTo\n    }\n}\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/shop/service/ParcelService.java",
+    "anchor": "parcels.mapTo",
+    "at": "end"
+  },
+  "expect": {
+    "completionsInclude": [
+      "parcels.stream().map(parcelMapper::toDto)"
+    ],
+    "completionsExclude": [
+      "toEntity"
+    ]
+  },
+  "note": "mapTo mapper call."
+}

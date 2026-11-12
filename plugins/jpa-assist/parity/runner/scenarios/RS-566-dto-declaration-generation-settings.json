@@ -1,0 +1,88 @@
+{
+  "id": "RS-566",
+  "rows": [
+    "G077"
+  ],
+  "claimIds": [
+    "G077-C1"
+  ],
+  "verifies": {
+    "G077-C1": "the DTO generator follows three of the six documented settings: dtoClassPostfix Data (the proposed name is ParcelData and a name not ending in Data is refused), dtoClassComment (the class comment with the qualified entity name above the type) and dtoSerializableType serializable-with-version-uid (implements Serializable, import and serialVersionUID). Comment link regexp is RS-565, name regexp RS-563; the Lombok option and the settings page are not covered."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "settings": {
+        "dtoClassPostfix": "Data",
+        "dtoClassComment": "Transfer object of {@link {entity}}",
+        "dtoSerializableType": "serializable-with-version-uid"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/Parcel.java",
+        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Parcel {\n\n    @Id\n    private Long id;\n\n    private String name;\n\n    private String color;\n}\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Parcel.java",
+    "anchor": "class Parcel"
+  },
+  "action": {
+    "title": "Create scalar DTO with preview…"
+  },
+  "prompts": [
+    "default",
+    {
+      "pickMany": [
+        "id",
+        "name"
+      ]
+    },
+    {
+      "pick": "create-new"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "input",
+        "titleContains": "ending in Data",
+        "defaultIs": "ParcelData"
+      },
+      {
+        "kind": "pickMany",
+        "titleContains": "fields"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "already exists"
+      },
+      {
+        "kind": "confirm"
+      }
+    ],
+    "createdFiles": [
+      {
+        "path": "src/main/java/com/example/shop/domain/ParcelData.java",
+        "contains": [
+          "/** Transfer object of {@link com.example.shop.domain.Parcel} */",
+          "public record ParcelData(",
+          "implements Serializable",
+          "import java.io.Serializable;",
+          "private static final long serialVersionUID = 1L;"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "DTO Declaration settings applied to a generated DTO."
+}

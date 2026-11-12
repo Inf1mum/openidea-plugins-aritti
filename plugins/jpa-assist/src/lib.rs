@@ -1509,6 +1509,10 @@ impl Providers for JpaAssist {
         if !jpql.is_empty() {return jpql;}
         let fields=local_graph::completion(doc,at);
         if !fields.is_empty() {return fields;}
+        let dto=self.dto_field_completion(doc,at);
+        if !dto.is_empty() {return dto;}
+        let calls=self.call_completion(doc,at);
+        if !calls.is_empty() {return calls;}
         self.cached_repository_completion(doc, at)
     }
 

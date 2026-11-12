@@ -729,7 +729,7 @@ fn spring_mappers(project: &Project, root: &str, own: &str) -> Result<(Vec<injec
 pub(super) fn resolve_inject(pending: &Pending, doc: &Document, project: &Project) -> Result<FileAction, Error> {
     current(pending, doc)?;
     let src = injection_action::analyze(doc).map_err(Error::from)?;
-    let style = injection_action::style()?;
+    let style = super::injection_detect::style_for(&doc.text)?;
     let (mappers, other) = spring_mappers(project, &pending.root, &doc.path)?;
     if mappers.is_empty() {
         return Err(format!(

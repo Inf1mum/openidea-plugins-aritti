@@ -1,0 +1,56 @@
+{
+  "id": "RS-570",
+  "rows": [
+    "G132"
+  ],
+  "claimIds": [
+    "G132-C2",
+    "G132-C3"
+  ],
+  "verifies": {
+    "G132-C2": "on the single instance parcel (declared Parcel) typing mapTo offers mapToParcelDto and scaffolds the call parcelMapper.toDto(parcel) from the existing Spring MapStruct mapper (a mapper method that returns the entity, toEntity, is not offered for a Parcel argument); the injection of ParcelMapper is an additional edit the runner cannot see (unit tests), so G132-C2 is only partly verified here. Collections are RS-571 (G132-C3 covers both). Creating a new mapper is not covered and mappers with another component model are not offered.",
+    "G132-C3": "on the single instance parcel (declared Parcel) typing mapTo offers mapToParcelDto and scaffolds the call parcelMapper.toDto(parcel) from the existing Spring MapStruct mapper (a mapper method that returns the entity, toEntity, is not offered for a Parcel argument); the injection of ParcelMapper is an additional edit the runner cannot see (unit tests), so G132-C2 is only partly verified here. Collections are RS-571 (G132-C3 covers both). Creating a new mapper is not covered and mappers with another component model are not offered."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "completion",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/Parcel.java",
+        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Parcel {\n\n    @Id\n    private Long id;\n\n    private String name;\n\n    private String color;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/web/ParcelMapper.java",
+        "content": "package com.example.shop.web;\n\nimport com.example.shop.domain.Parcel;\nimport com.example.shop.dto.ParcelDto;\nimport org.mapstruct.Mapper;\n\n@Mapper(componentModel = \"spring\")\npublic interface ParcelMapper {\n    ParcelDto toDto(Parcel parcel);\n\n    Parcel toEntity(ParcelDto dto);\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/dto/ParcelDto.java",
+        "content": "package com.example.shop.dto;\n\npublic record ParcelDto(\n        Long id,\n        String name\n) {\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/service/ParcelService.java",
+        "content": "package com.example.shop.service;\n\nimport com.example.shop.domain.Parcel;\nimport java.util.List;\nimport org.springframework.stereotype.Service;\n\n@Service\npublic class ParcelService {\n\n    void run(Parcel parcel, List<Parcel> parcels) {\n        parcel.mapTo\n    }\n}\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/shop/service/ParcelService.java",
+    "anchor": "parcel.mapTo",
+    "at": "end"
+  },
+  "expect": {
+    "completionsInclude": [
+      "mapToParcelDto : parcelMapper.toDto(parcel)"
+    ],
+    "completionsExclude": [
+      "toEntity"
+    ]
+  },
+  "note": "mapTo mapper call."
+}

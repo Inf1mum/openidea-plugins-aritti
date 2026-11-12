@@ -80,6 +80,16 @@ mod hibernate_action;
 mod projection_action;
 #[path = "projection_links.rs"]
 mod projection_links;
+#[path = "dto_conventions.rs"]
+mod dto_conventions;
+#[path = "dto_complete.rs"]
+mod dto_complete;
+#[path = "injection_detect.rs"]
+mod injection_detect;
+#[path = "unresolved_create.rs"]
+mod unresolved_create;
+#[path = "call_assist.rs"]
+mod call_assist;
 #[path = "project_parents.rs"]
 mod project_parents;
 #[path = "query_options.rs"]
@@ -168,6 +178,12 @@ enum Operation {
     SpringProjection,
     SyncProjections,
     RenameWithProjections,
+    SyncDtos,
+    UnresolvedRepository,
+    UnresolvedProjection,
+    UnresolvedDto,
+    CreateRepositoryMethod,
+    RenameWithDtos,
     NestedProjection,
     FlatDto,
     ValidationConstraint,
@@ -245,6 +261,12 @@ impl Operation {
             Self::QueryMethodOptions => "query-options",
             Self::SyncProjections => "sync-projections",
             Self::RenameWithProjections => "rename-projections",
+            Self::SyncDtos => "sync-dtos",
+            Self::UnresolvedRepository => "unresolved-repository",
+            Self::UnresolvedProjection => "unresolved-projection",
+            Self::UnresolvedDto => "unresolved-dto",
+            Self::CreateRepositoryMethod => "create-repository-method",
+            Self::RenameWithDtos => "rename-dtos",
             Self::QueryAsync => "query-async",
             Self::QueryDynamicProjection => "query-dynamic-projection",
             Self::SpringProjection => "spring-projection",
@@ -609,6 +631,7 @@ impl FileActions for JpaAssist {
         if projection_action::eligible(doc) {
             operations.push((Operation::SpringProjection, projection_action::TITLE));
             operations.push((Operation::SyncProjections, projection_links::SYNC_TITLE));
+            operations.push((Operation::SyncDtos, projection_links::SYNC_DTO_TITLE));
         }
         if nested_dto_action::eligible(doc) {
             operations.push((Operation::NestedProjection, nested_dto_action::TITLE));
@@ -670,7 +693,17 @@ impl FileActions for JpaAssist {
             operations.push((Operation::TodoRemove, ddl_todo_action::REMOVE_TITLE));
         }
         if attribute_refactor::eligible(doc,selection) {operations.push((Operation::Rename,attribute_refactor::TITLE));}
-        if attribute_refactor::eligible(doc,selection) && projection_action::eligible(doc) {operations.push((Operation::RenameWithProjections,projection_links::RENAME_TITLE));}
+        if attribute_refactor::eligible(doc,selection) && projection_action::eligible(doc) {operations.push((Operation::RenameWithProjections,projection_links::RENAME_TITLE));operations.push((Operation::RenameWithDtos,projection_links::RENAME_DTO_TITLE));}
+        if call_assist::eligible(doc, selection) {
+            operations.push((Operation::CreateRepositoryMethod, call_assist::CREATE_METHOD_TITLE));
+        }
+        for (created, title) in unresolved_create::offers(doc, selection) {
+            operations.push((match created {
+                unresolved_create::Created::Repository => Operation::UnresolvedRepository,
+                unresolved_create::Created::Projection => Operation::UnresolvedProjection,
+                unresolved_create::Created::Dto => Operation::UnresolvedDto,
+            }, title));
+        }
         if self.generation.pending.len() > 8 {
             self.generation.pending.clear();
         }
@@ -841,6 +874,12 @@ impl FileActions for JpaAssist {
             Operation::SpringProjection => projection_action::resolve(&pending, doc, &project),
             Operation::SyncProjections => projection_links::resolve_sync(&pending, doc, &project),
             Operation::RenameWithProjections => projection_links::resolve_rename(&pending, doc, &project),
+            Operation::SyncDtos => projection_links::resolve_sync_of(&pending, doc, &project, projection_links::Kind::Dto),
+            Operation::RenameWithDtos => projection_links::resolve_rename_of(&pending, doc, &project, projection_links::Kind::Dto),
+            Operation::UnresolvedRepository => unresolved_create::resolve(&pending, doc, &project, unresolved_create::Created::Repository),
+            Operation::UnresolvedProjection => unresolved_create::resolve(&pending, doc, &project, unresolved_create::Created::Projection),
+            Operation::UnresolvedDto => unresolved_create::resolve(&pending, doc, &project, unresolved_create::Created::Dto),
+            Operation::CreateRepositoryMethod => call_assist::resolve_create_method(&pending, doc, &project),
             Operation::NestedProjection => nested_dto_action::resolve(&pending, doc, &project),
             Operation::FlatDto => nested_dto_action::resolve_flat(&pending, doc, &project),
             Operation::IndexConstraint => index_query_action::resolve_index(&pending, doc),

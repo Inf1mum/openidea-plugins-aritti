@@ -1,0 +1,84 @@
+{
+  "id": "RS-562",
+  "rows": [
+    "G075"
+  ],
+  "claimIds": [
+    "G075-C1"
+  ],
+  "verifies": {
+    "G075-C1": "renaming the entity attribute title to label through 'Rename attribute and update linked DTOs…' renames the field (and its entity graph node, by the existing source-local rename) and, in the same action and the same Undo, the component of the linked record CrateDto (String title becomes String label). It is an explicit action, not a hook on the IDE's Rename refactoring (the released API has none), offered only where the source-local rename is; mapper code (MapStruct/ModelMapper) is not updated."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/Crate.java",
+        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.Column;\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.NamedAttributeNode;\nimport jakarta.persistence.NamedEntityGraph;\nimport java.lang.Long;\nimport java.lang.String;\n\n@Entity\n@NamedEntityGraph(name = \"Crate.withTitle\", attributeNodes = @NamedAttributeNode(\"title\"))\npublic class Crate {\n\n    @Id\n    private Long id;\n\n    @Column(name = \"title\")\n    private String title;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/dto/CrateDto.java",
+        "content": "package com.example.shop.dto;\n\npublic record CrateDto(\n        Long id,\n        String title\n) {\n}\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Crate.java",
+    "position": {
+      "line": 19,
+      "col": 22
+    }
+  },
+  "action": {
+    "title": "Rename attribute and update linked DTOs…"
+  },
+  "prompts": [
+    {
+      "input": "label"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "input",
+        "titleContains": "new attribute name"
+      },
+      {
+        "kind": "confirm",
+        "messageContains": "CrateDto"
+      }
+    ],
+    "resultFile": [
+      {
+        "path": "src/main/java/com/example/shop/domain/Crate.java",
+        "contains": [
+          "private String label;",
+          "@NamedAttributeNode(\"label\")"
+        ],
+        "notContains": [
+          "private String title;"
+        ]
+      },
+      {
+        "path": "src/main/java/com/example/shop/dto/CrateDto.java",
+        "contains": [
+          "String label"
+        ],
+        "notContains": [
+          "String title"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "Rename with linked DTO."
+}

@@ -495,7 +495,7 @@ pub(super) fn lombok_provable(doc: &Document, project: &Project, root: &str) -> 
 pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> Result<FileAction, Error> {
     current(pending, doc)?;
     let src = analyze(doc).map_err(Error::from)?;
-    let style = style()?;
+    let style = super::injection_detect::style_for(&doc.text)?;
     let repositories = discover(project, &pending.root, &doc.path)?;
     if repositories.is_empty() {
         return Err("No Spring Data repository interface (a *Repository.java or *Repository.kt file naming an entity) was found in this project.".into());
