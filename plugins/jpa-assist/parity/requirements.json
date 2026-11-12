@@ -2523,11 +2523,93 @@
       "id": "G054",
       "family": "Spring Data",
       "capability": "Projection synchronization",
-      "status": "unverified",
+      "status": "verified-parity",
       "baseline": "Missing",
       "finding": "Local attribute Rename does not propagate to projection files.",
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-465.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-466.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-467.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-468.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "RS-465",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html"
+          ],
+          "referenceClaims": [
+            "G054-C1: An entity and its projection can be synchronized in either direction."
+          ],
+          "claimIds": [
+            "G054-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-465.json",
+          "test": "jpa_assist --only RS-465",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-466",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html"
+          ],
+          "referenceClaims": [
+            "G054-C1: An entity and its projection can be synchronized in either direction."
+          ],
+          "claimIds": [
+            "G054-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-466.json",
+          "test": "jpa_assist --only RS-466",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-467",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html"
+          ],
+          "referenceClaims": [
+            "G054-C3: Adding an entity attribute can add the field to all required DTOs at once."
+          ],
+          "claimIds": [
+            "G054-C3"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-467.json",
+          "test": "jpa_assist --only RS-467",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-468",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html"
+          ],
+          "referenceClaims": [
+            "G054-C2: Renaming an entity attribute also updates the related fields in its DTOs."
+          ],
+          "claimIds": [
+            "G054-C2"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-468.json",
+          "test": "jpa_assist --only RS-468",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        }
+      ],
       "evidenceLevel": {
         "L1": {
           "status": "pass",
@@ -2539,7 +2621,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-467.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-468.json"
           ],
-          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
+          "wasmSha256": "a011ad4ae5391bd1d5148a7dfeffb448c697a645c046e1830e5176c1232cf46c",
           "claimsCovered": [
             "G054-C1",
             "G054-C2",
@@ -2551,7 +2633,13 @@
             "G054-C3"
           ]
         }
-      }
+      },
+      "implementation": [
+        "plugins/jpa-assist/src/projection_links.rs",
+        "plugins/jpa-assist/src/projection_action.rs",
+        "plugins/jpa-assist/src/dto_convert_action.rs",
+        "plugins/jpa-assist/src/attribute_refactor.rs"
+      ]
     },
     {
       "id": "G055",
@@ -4092,11 +4180,33 @@
       "id": "G075",
       "family": "DTOs and mappers",
       "capability": "Rename propagation",
-      "status": "unverified",
+      "status": "verified-parity",
       "baseline": "Missing",
       "finding": "Our explicit Rename affects only one strict entity document and local graph literals.",
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-562.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "RS-562",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html"
+          ],
+          "referenceClaims": [
+            "G075-C1: Renaming an entity property can be refactored together with its related DTO fields."
+          ],
+          "claimIds": [
+            "G075-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-562.json",
+          "test": "jpa_assist --only RS-562",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        }
+      ],
       "evidenceLevel": {
         "L1": {
           "status": "pass",
@@ -4105,7 +4215,7 @@
           "receipts": [
             "plugins/jpa-assist/parity/receipts/L1/RS-562.json"
           ],
-          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
+          "wasmSha256": "a011ad4ae5391bd1d5148a7dfeffb448c697a645c046e1830e5176c1232cf46c",
           "claimsCovered": [
             "G075-C1"
           ],
@@ -4113,17 +4223,83 @@
             "G075-C1"
           ]
         }
-      }
+      },
+      "implementation": [
+        "plugins/jpa-assist/src/projection_links.rs",
+        "plugins/jpa-assist/src/attribute_refactor.rs"
+      ]
     },
     {
       "id": "G076",
       "family": "DTOs and mappers",
       "capability": "Attribute synchronization",
-      "status": "unverified",
+      "status": "verified-parity",
       "baseline": "Missing",
       "finding": "No add-field-to-related-DTOs operation or DTO field completion.",
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-560.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-561.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-567.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "RS-560",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html"
+          ],
+          "referenceClaims": [
+            "G076-C1: A new entity field can be added to all required DTOs in one operation."
+          ],
+          "claimIds": [
+            "G076-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-560.json",
+          "test": "jpa_assist --only RS-560",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-561",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-paid-features.html"
+          ],
+          "referenceClaims": [
+            "G076-C3: An entity can be synchronized with its DTO and vice versa."
+          ],
+          "claimIds": [
+            "G076-C3"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-paid-features.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-561.json",
+          "test": "jpa_assist --only RS-561",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-567",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html"
+          ],
+          "referenceClaims": [
+            "G076-C2: Typing a field name missing from a DTO adds the field to the class, including for associations."
+          ],
+          "claimIds": [
+            "G076-C2"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-567.json",
+          "test": "jpa_assist --only RS-567",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        }
+      ],
       "evidenceLevel": {
         "L1": {
           "status": "pass",
@@ -4134,7 +4310,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-561.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-567.json"
           ],
-          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
+          "wasmSha256": "a011ad4ae5391bd1d5148a7dfeffb448c697a645c046e1830e5176c1232cf46c",
           "claimsCovered": [
             "G076-C1",
             "G076-C2",
@@ -4146,17 +4322,103 @@
             "G076-C3"
           ]
         }
-      }
+      },
+      "implementation": [
+        "plugins/jpa-assist/src/projection_links.rs",
+        "plugins/jpa-assist/src/dto_complete.rs"
+      ]
     },
     {
       "id": "G077",
       "family": "DTOs and mappers",
       "capability": "Declaration conventions",
-      "status": "unverified",
+      "status": "verified-parity",
       "baseline": "Missing",
       "finding": "No configurable serialization/comment/name linkage.",
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-563.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-564.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-565.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-566.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "RS-563",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html"
+          ],
+          "referenceClaims": [
+            "G077-C3: A class name regexp associates a DTO with its entity by class name for projects with a mandatory DTO naming convention."
+          ],
+          "claimIds": [
+            "G077-C3"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-563.json",
+          "test": "jpa_assist --only RS-563",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-564",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html"
+          ],
+          "referenceClaims": [
+            "G077-C2: An empty comment link regexp disables comment-based entity association."
+          ],
+          "claimIds": [
+            "G077-C2"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-564.json",
+          "test": "jpa_assist --only RS-564",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-565",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html"
+          ],
+          "referenceClaims": [
+            "G077-C1: Tools | JPA Buddy | DTO Declaration offers settings for serializable type, class name postfix, Lombok use, comment link regexp, class name regexp and class comment."
+          ],
+          "claimIds": [
+            "G077-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-565.json",
+          "test": "jpa_assist --only RS-565",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-566",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html"
+          ],
+          "referenceClaims": [
+            "G077-C1: Tools | JPA Buddy | DTO Declaration offers settings for serializable type, class name postfix, Lombok use, comment link regexp, class name regexp and class comment."
+          ],
+          "claimIds": [
+            "G077-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-566.json",
+          "test": "jpa_assist --only RS-566",
+          "scope": "released host v0.1.42, headless, fixture boot-jpa-java-jakarta; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        }
+      ],
       "evidenceLevel": {
         "L1": {
           "status": "pass",
@@ -4168,7 +4430,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-565.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-566.json"
           ],
-          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
+          "wasmSha256": "a011ad4ae5391bd1d5148a7dfeffb448c697a645c046e1830e5176c1232cf46c",
           "claimsCovered": [
             "G077-C1",
             "G077-C2",
@@ -4180,7 +4442,12 @@
             "G077-C3"
           ]
         }
-      }
+      },
+      "implementation": [
+        "plugins/jpa-assist/src/dto_conventions.rs",
+        "plugins/jpa-assist/src/projection_links.rs",
+        "plugins/jpa-assist/src/dto_action.rs"
+      ]
     },
     {
       "id": "G078",
@@ -6127,11 +6394,57 @@
       "id": "G114",
       "family": "Database versioning",
       "capability": "Model completion",
-      "status": "unverified",
+      "status": "verified-parity",
       "baseline": "Missing integration",
       "finding": "Changelog object names are not supplied by a shared JPA model.",
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-507.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-508.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "RS-507",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy.html"
+          ],
+          "referenceClaims": [
+            "G114-C1: Liquibase changelogs offer autocomplete for table and column names.",
+            "G114-C2: The completion values are taken directly from the JPA data model."
+          ],
+          "claimIds": [
+            "G114-C1",
+            "G114-C2"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-507.json",
+          "test": "jpa_assist --only RS-507",
+          "scope": "released host v0.1.42, headless, fixture envers-flyway-liquibase; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-508",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy.html"
+          ],
+          "referenceClaims": [
+            "G114-C1: Liquibase changelogs offer autocomplete for table and column names.",
+            "G114-C2: The completion values are taken directly from the JPA data model."
+          ],
+          "claimIds": [
+            "G114-C1",
+            "G114-C2"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-508.json",
+          "test": "jpa_assist --only RS-508",
+          "scope": "released host v0.1.42, headless, fixture envers-flyway-liquibase; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        }
+      ],
       "evidenceLevel": {
         "L1": {
           "status": "pass",
@@ -6141,7 +6454,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-507.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-508.json"
           ],
-          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
+          "wasmSha256": "a011ad4ae5391bd1d5148a7dfeffb448c697a645c046e1830e5176c1232cf46c",
           "claimsCovered": [
             "G114-C1",
             "G114-C2"
@@ -6151,7 +6464,10 @@
             "G114-C2"
           ]
         }
-      }
+      },
+      "implementation": [
+        "plugins/jpa-assist/src/liquibase_completion.rs"
+      ]
     },
     {
       "id": "G115",
@@ -6753,11 +7069,55 @@
       "id": "G121",
       "family": "Database versioning",
       "capability": "Schema-error repair",
-      "status": "unverified",
+      "status": "verified-parity",
       "baseline": "Missing",
       "finding": "No stack-trace-to-JPA-diff repair action.",
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-509.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-510.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "RS-509",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-database-versioning.html"
+          ],
+          "referenceClaims": [
+            "G121-C1: A SchemaManagementException occurs when ddl-auto is validate and Hibernate cannot map entities to tables.",
+            "G121-C2: DDL filling the difference between JPA entities and the database can be generated from the stack trace."
+          ],
+          "claimIds": [
+            "G121-C1",
+            "G121-C2"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-database-versioning.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-509.json",
+          "test": "jpa_assist --only RS-509",
+          "scope": "released host v0.1.42, headless, fixture envers-flyway-liquibase; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        },
+        {
+          "scenario": "RS-510",
+          "referenceType": "documentation",
+          "referenceSources": [
+            "https://www.jetbrains.com/help/idea/jpa-buddy-database-versioning.html"
+          ],
+          "referenceClaims": [
+            "G121-C1: A SchemaManagementException occurs when ddl-auto is validate and Hibernate cannot map entities to tables."
+          ],
+          "claimIds": [
+            "G121-C1"
+          ],
+          "docsRetrievedOn": "2026-11-11",
+          "referenceEvidence": "https://www.jetbrains.com/help/idea/jpa-buddy-database-versioning.html",
+          "implementationEvidence": "plugins/jpa-assist/parity/receipts/L1/RS-510.json",
+          "test": "jpa_assist --only RS-510",
+          "scope": "released host v0.1.42, headless, fixture envers-flyway-liquibase; documented claims only (documentation-derived, not an observed comparison)",
+          "result": "pass"
+        }
+      ],
       "evidenceLevel": {
         "L1": {
           "status": "pass",
@@ -6767,7 +7127,7 @@
             "plugins/jpa-assist/parity/receipts/L1/RS-509.json",
             "plugins/jpa-assist/parity/receipts/L1/RS-510.json"
           ],
-          "wasmSha256": "de31489f4be4409469ea861fdb7c35058828d638aeb10f132084bab530bf53ad",
+          "wasmSha256": "a011ad4ae5391bd1d5148a7dfeffb448c697a645c046e1830e5176c1232cf46c",
           "claimsCovered": [
             "G121-C1",
             "G121-C2"
@@ -6777,7 +7137,10 @@
             "G121-C2"
           ]
         }
-      }
+      },
+      "implementation": [
+        "plugins/jpa-assist/src/schema_repair_action.rs"
+      ]
     },
     {
       "id": "G122",

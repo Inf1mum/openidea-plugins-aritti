@@ -1,49 +1,49 @@
 {
- "row": "G054",
- "capability": "Projection synchronization",
- "sources": [
-  {
-   "url": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
-   "retrievedOn": "2026-11-12",
-   "note": "Spring Data help page; WebFetch extraction (paraphrase)"
-  },
-  {
-   "url": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
-   "retrievedOn": "2026-11-12",
-   "note": "DTO generator help page; WebFetch extraction (paraphrase)"
-  }
- ],
- "claims": [
-  {
-   "id": "G054-C1",
-   "statement": "An entity and its projection can be synchronized in either direction.",
-   "supports": "sync an entity with its projection in either direction",
-   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
-   "strength": "explicit",
-   "ourFeature": "projection_action.rs",
-   "verifiableHeadless": true
-  },
-  {
-   "id": "G054-C2",
-   "statement": "Renaming an entity attribute also updates the related fields in its DTOs.",
-   "supports": "Renaming an entity attribute updates related DTO fields",
-   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
-   "strength": "explicit",
-   "ourFeature": "attribute_refactor.rs, dto_convert_action.rs",
-   "verifiableHeadless": true
-  },
-  {
-   "id": "G054-C3",
-   "statement": "Adding an entity attribute can add the field to all required DTOs at once.",
-   "supports": "adding a new entity attribute can add the field to DTOs",
-   "source": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
-   "strength": "explicit",
-   "ourFeature": "dto_convert_action.rs",
-   "verifiableHeadless": true
-  }
- ],
- "undocumented": [
-  "projection-specific rename propagation (page states it for DTOs only)"
- ],
- "verdict": "documented"
+  "row": "G054",
+  "capability": "Projection synchronization",
+  "sources": [
+    {
+      "url": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+      "retrievedOn": "2026-11-12",
+      "note": "Spring Data help page; WebFetch extraction (paraphrase)"
+    },
+    {
+      "url": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
+      "retrievedOn": "2026-11-12",
+      "note": "DTO generator help page; WebFetch extraction (paraphrase)"
+    }
+  ],
+  "claims": [
+    {
+      "id": "G054-C1",
+      "statement": "An entity and its projection can be synchronized in either direction.",
+      "supports": "sync an entity with its projection in either direction",
+      "source": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
+      "strength": "explicit",
+      "ourFeature": "projection_action.rs",
+      "verifiableHeadless": true
+    },
+    {
+      "id": "G054-C2",
+      "statement": "Renaming an entity attribute also updates the related fields in its DTOs.",
+      "supports": "Renaming an entity attribute updates related DTO fields",
+      "source": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
+      "strength": "explicit",
+      "ourFeature": "attribute_refactor.rs, dto_convert_action.rs",
+      "verifiableHeadless": true
+    },
+    {
+      "id": "G054-C3",
+      "statement": "Adding an entity attribute can add the field to all required DTOs at once.",
+      "supports": "adding a new entity attribute can add the field to DTOs",
+      "source": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
+      "strength": "explicit",
+      "ourFeature": "dto_convert_action.rs",
+      "verifiableHeadless": true
+    }
+  ],
+  "undocumented": [
+    "projection-specific rename propagation (page states it for DTOs only)"
+  ],
+  "verdict": "documented"
 }
