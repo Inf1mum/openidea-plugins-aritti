@@ -1,6 +1,7 @@
 //! Shared source-model and draft contracts. Unknown facts are never absence facts.
 use serde::{Deserialize, Serialize};
 
+pub mod connection;
 pub mod ddl_parse;
 pub mod generation;
 pub mod introspect;

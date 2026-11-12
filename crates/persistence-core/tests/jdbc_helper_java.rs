@@ -170,7 +170,6 @@ fn helper_against_h2() {
         "jdbc:mysql://h/db?autoDeserialize=true&queryInterceptors=x.Y".to_owned(),
         "jdbc:postgresql://h/db?password=hunter22".to_owned(),
         "jdbc:sqlserver://h;databaseName=d;authenticationScheme=JavaKerberos".to_owned(),
-        "jdbc:oracle:thin:@(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=h)))".to_owned(),
     ] {
         let response = raw(base("testConnection", &connection(&jar, hostile.clone()), json!({})));
         let code = error_code(&response);
@@ -199,5 +198,103 @@ fn helper_against_h2() {
     let output = JavaRunner.run("{not json", 10_000).unwrap();
     assert!(output.stdout.contains("\"BadRequest\"") && output.stdout.ends_with('\n'));
 
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+const ALLOWED: &str = "driver does not accept this URL";
+
+#[test]
+fn url_policy_table() {
+    if std::env::var("JPA_JDBC_JAVA").as_deref() != Ok("1") {
+        eprintln!("skipped: set JPA_JDBC_JAVA=1");
+        return;
+    }
+    let Some(jar) = h2_jar() else {
+        eprintln!("skipped: no H2 jar (set JPA_JDBC_H2_JAR)");
+        return;
+    };
+    // (url, expected code, message fragment). The H2 driver returns null for foreign schemes, so an allowed URL surfaces as
+    // UrlUnsupported with ALLOWED; policy refusals carry other messages.
+    let disabled = "disabled until";
+    let cases: &[(&str, &str, &str)] = &[
+        ("jdbc:postgresql://db.example:5432/app", "UrlUnsupported", ALLOWED),
+        ("jdbc:postgresql:app", "UrlUnsupported", ALLOWED),
+        ("jdbc:postgresql://", "UrlUnsupported", ALLOWED),
+        ("jdbc:postgresql://h1:5432,h2:5433/app?sslmode=verify-full&sslrootcert=/etc/ca.pem&ApplicationName=x", "UrlUnsupported", ALLOWED),
+        ("jdbc:mysql://db.example:3306/app?sslMode=VERIFY_IDENTITY&connectionTimeZone=UTC", "UrlUnsupported", ALLOWED),
+        ("jdbc:mysql+srv://db.example/app", "UrlUnsupported", ALLOWED),
+        ("jdbc:mysql:replication://a:1,b:2/app", "UrlUnsupported", ALLOWED),
+        ("jdbc:mariadb://db.example:3306/app?sslMode=verify-full", "UrlUnsupported", ALLOWED),
+        ("jdbc:mariadb:sequential://a,b/app", "UrlUnsupported", ALLOWED),
+        ("jdbc:sqlserver://host\\inst:1433;databaseName=d;encrypt=true;trustServerCertificate=false", "UrlUnsupported", ALLOWED),
+        ("jdbc:sqlserver://;serverName=host;databaseName=d", "UrlUnsupported", ALLOWED),
+        ("jdbc:oracle:thin:@//db.example:1521/svc", "UrlUnsupported", disabled),
+        ("jdbc:db2://db.example:50000/app", "UrlUnsupported", disabled),
+        ("jdbc:sqlite:/tmp/x.db", "UrlUnsupported", "not supported"),
+        ("jdbc:postgresql://user:pw@h/db", "UrlRejected", "shape"),
+        ("jdbc:postgresql://h/db?user=u&socketFactory=x.Y", "UrlRejected", "socketfactory"),
+        ("jdbc:postgresql://h/db?sslfactory=org.postgresql.ssl.NonValidatingFactory", "UrlRejected", "sslfactory"),
+        ("jdbc:postgresql://h/db?sslhostnameverifier=x.Y", "UrlRejected", "sslhostnameverifier"),
+        ("jdbc:postgresql://h/db?sslpasswordcallback=x.Y", "UrlRejected", "sslpasswordcallback"),
+        ("jdbc:postgresql://h/db?authenticationPluginClassName=x.Y", "UrlRejected", "authenticationpluginclassname"),
+        ("jdbc:postgresql://h/db?loggerFile=/tmp/x", "UrlRejected", "loggerfile"),
+        ("jdbc:postgresql://h/db?sslkey=/etc/passwd", "UrlRejected", "sslkey"),
+        ("jdbc:postgresql://h/db?options=-c%20search_path=x", "UrlRejected", "options"),
+        ("jdbc:postgresql://h/db?service=x", "UrlRejected", "service"),
+        ("jdbc:postgresql://h/db?replication=database", "UrlRejected", "replication"),
+        ("jdbc:postgresql://h/db?somethingNew=1", "UrlRejected", "not allowed for postgresql"),
+        ("jdbc:postgresql://h/db?ssl=true&sslmode=require&password=x", "UrlRejected", "password"),
+        ("jdbc:mysql://h/db?allowLoadLocalInfile=true", "UrlRejected", "allowloadlocalinfile"),
+        ("jdbc:mysql://h/db?allowLoadLocalInfileInPath=/", "UrlRejected", "allowloadlocalinfileinpath"),
+        ("jdbc:mysql://h/db?socketFactory=x.Y", "UrlRejected", "socketfactory"),
+        ("jdbc:mysql://h/db?authenticationPlugins=x.Y", "UrlRejected", "authenticationplugins"),
+        ("jdbc:mysql://h/db?logger=x.Y", "UrlRejected", "logger"),
+        ("jdbc:mysql://h/db?sessionVariables=sql_mode=x", "UrlRejected", "sessionvariables"),
+        ("jdbc:mysql://h/db?trustCertificateKeyStoreUrl=file:///x", "UrlRejected", "trustcertificatekeystoreurl"),
+        ("jdbc:mysql://h/db?useConfigs=maxPerformance", "UrlRejected", "useconfigs"),
+        ("jdbc:mysql://h/db?allowMultiQueries=true", "UrlRejected", "allowmultiqueries"),
+        ("jdbc:mysql://(host=h,port=1,socketFactory=x.Y)/db", "UrlRejected", "shape"),
+        ("jdbc:mysql://address=(host=h)(port=1)/db", "UrlRejected", "shape"),
+        ("jdbc:mysql://h/db?connect%54imeout=1&auto%44eserialize=true", "UrlRejected", "autodeserialize"),
+        ("jdbc:mariadb://h/db?localSocket=/var/run/x.sock", "UrlRejected", "localsocket"),
+        ("jdbc:mariadb://h/db?pipe=x", "UrlRejected", "pipe"),
+        ("jdbc:mariadb://h/db?initSql=drop%20table%20x", "UrlRejected", "initsql"),
+        ("jdbc:mariadb://h/db?serverSslCert=/etc/x", "UrlRejected", "serversslcert"),
+        ("jdbc:mariadb://h/db?trustStore=/x&keyStore=/y", "UrlRejected", "truststore"),
+        ("jdbc:mariadb://h/db?credentialType=x", "UrlRejected", "credentialtype"),
+        ("jdbc:mariadb://h/db?permitMysqlScheme", "UrlRejected", "permitmysqlscheme"),
+        ("jdbc:mysql://h/db?socketFactory", "UrlRejected", "socketfactory"),
+        ("jdbc:mariadb://h/db?tlsSocketType=x", "UrlRejected", "tlssockettype"),
+        ("jdbc:sqlserver://h;authenticationScheme=JavaKerberos", "UrlRejected", "authenticationscheme"),
+        ("jdbc:sqlserver://h;socketFactoryClass=x.Y", "UrlRejected", "socketfactoryclass"),
+        ("jdbc:sqlserver://h;trustManagerClass=x.Y", "UrlRejected", "trustmanagerclass"),
+        ("jdbc:sqlserver://h;keyStoreLocation=/x", "UrlRejected", "keystorelocation"),
+        ("jdbc:sqlserver://h;trustStore=/x", "UrlRejected", "truststore"),
+        ("jdbc:sqlserver://h;accessTokenCallbackClass=x.Y", "UrlRejected", "accesstokencallbackclass"),
+        ("jdbc:sqlserver://h;failoverPartner=other", "UrlRejected", "failoverpartner"),
+        ("jdbc:sqlserver://h;jaasConfigurationName=x", "UrlRejected", "jaasconfigurationname"),
+        ("jdbc:sqlserver://h;databaseName=d;sslProtocol=TLS", "UrlRejected", "not allowed for sqlserver"),
+        ("jdbc:sqlserver://h;databaseName=d;password=x", "UrlRejected", "password"),
+        ("jdbc:sqlserver://h;databaseName=d;integratedSecurity=true", "UrlRejected", "not allowed for sqlserver"),
+        ("jdbc:sqlserver://h:abc;databaseName=d", "UrlRejected", "shape"),
+        ("jdbc:oracle:thin:@(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=h)))", "UrlUnsupported", disabled),
+    ];
+    let dir = std::env::temp_dir().join(format!("jpa-jdbc-urls-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    for (url, code, fragment) in cases {
+        let request = json!({"v":1,"id":"x","op":"testConnection","deadlineMs":20000,"conn":connection(&jar, (*url).to_owned()),"secrets":{"password":""},"args":{}});
+        let response = raw(request);
+        let actual = response["error"]["code"].as_str().unwrap_or("");
+        let message = response["error"]["message"].as_str().unwrap_or("").to_lowercase();
+        assert_eq!(actual, *code, "{url} -> {response}");
+        assert!(message.contains(&fragment.to_lowercase()), "{url} expected message containing {fragment:?}, got {response}");
+    }
+
+    for (vendor, key) in [("jdbc:postgresql://h/db", "sslfactory"), ("jdbc:mysql://h/db", "allowLoadLocalInfile"), ("jdbc:mariadb://h/db", "localSocket"), ("jdbc:sqlserver://h", "authenticationScheme")] {
+        let mut conn = connection(&jar, vendor.to_owned());
+        conn.props.insert(key.into(), "x".into());
+        let request = json!({"v":1,"id":"x","op":"testConnection","deadlineMs":20000,"conn":conn,"secrets":{"password":""},"args":{}});
+        assert_eq!(raw(request)["error"]["code"], "UrlRejected", "{vendor} props {key}");
+    }
     std::fs::remove_dir_all(&dir).ok();
 }

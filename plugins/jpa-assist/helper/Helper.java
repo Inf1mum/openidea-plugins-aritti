@@ -76,31 +76,58 @@ public class Helper {
     static final Set<String> SYSTEM_SCHEMAS = Set.of("information_schema", "pg_catalog", "pg_toast", "mysql",
             "performance_schema", "sys", "sysibm", "syscat", "sysstat", "sysfun", "sysproc", "syspublic");
 
-    // Properties that make a driver load classes, read files, run SQL or leak secrets. Lower case.
-    // Written from knowledge of known driver CVE classes; re-check against current driver docs.
+    // Evidence for every rule: parity/JDBC_URL_RULES.md. A key outside ALLOWED_KEYS is always rejected; DENIED_KEYS only
+    // gives known-dangerous keys a sharper error and is rejected for every vendor first.
     static final Set<String> DENIED_KEYS = Set.of(
-            "password", "pwd", "passwd",
-            "socketfactory", "socketfactoryarg", "sslfactory", "sslfactoryarg", "sslhostnameverifier",
-            "sslpasswordcallback", "authenticationpluginclassname", "loggerfile", "loggerlevel",
-            "jaaslogin", "jaasapplicationname", "replication",
-            "allowloadlocalinfile", "allowloadlocalinfileinpath", "allowlocalinfile", "allowurlinlocalinfile",
+            "password", "pwd", "passwd", "password1", "password2", "password3",
+            "socketfactory", "socketfactoryarg", "socketfactoryclass", "sslfactory", "sslfactoryarg", "sslhostnameverifier",
+            "sslpasswordcallback", "sslpassword", "sslcert", "sslkey", "authenticationpluginclassname", "loggerfile", "loggerlevel",
+            "connectexecutor", "connectexecutorarg", "classloaderstrategy", "service", "passfile", "options", "gsslib",
+            "jaaslogin", "jaasapplicationname", "jaasconfigurationname", "usedefaultjaasconfig", "kerberosservername", "sspiserviceclass",
+            "replication", "allowloadlocalinfile", "allowloadlocalinfileinpath", "allowlocalinfile", "allowurlinlocalinfile",
             "autodeserialize", "queryinterceptors", "statementinterceptors", "exceptioninterceptors",
-            "connectionlifecycleinterceptors", "propertiestransform", "authenticationplugins",
-            "defaultauthenticationplugin", "clientinfoprovider", "loadbalancestrategy", "logger",
-            "profilersql", "credentialtype", "tlssockettype", "pamusecleartext", "restrictedauth",
+            "connectionlifecycleinterceptors", "propertiestransform", "authenticationplugins", "disabledauthenticationplugins",
+            "defaultauthenticationplugin", "authenticationwebauthncallbackhandler", "authenticationopenidconnectcallbackhandler",
+            "clientinfoprovider", "loadbalancestrategy", "loadbalanceexceptionchecker", "ha.loadbalancestrategy",
+            "queryinfocachefactory", "serverconfigcachefactory", "logger", "profilereventhandler", "profilersql", "autogeneratetestcasescript",
+            "keymanagerfactoryprovider", "trustmanagerfactoryprovider", "keystoreprovider", "sslcontextprovider",
+            "ociconfigfile", "serverrsapublickeyfile", "trustcertificatekeystoreurl", "clientcertificatekeystoreurl",
+            "keystore", "truststore", "serversslcert", "credentialtype", "tlssockettype", "pamusecleartext", "restrictedauth",
+            "initsql", "sessionvariables", "useconfigs", "allowmultiqueries", "localsocket", "pipe", "localsocketaddress",
+            "socksproxyhost", "socksproxyport", "dnssrv", "usecompression", "permitmysqlscheme",
+            "authenticationscheme", "accesstokencallbackclass", "accesstoken", "trustmanagerclass", "trustmanagerconstructorarg",
+            "keystorelocation", "keystoreauthentication", "keystoresecret", "clientcertificate", "clientkey", "clientkeypassword",
+            "failoverpartner", "gsscredential", "fipsprovider", "enclaveattestationurl",
+            "pluginname", "securitymechanism", "sslkeystorelocation", "ssltruststorelocation", "tracefile", "tracedirectory",
+            "oracle.net.tns_admin", "tns_admin", "oracle.net.wallet_location", "wallet_location", "oracle.jdbc.config",
             "init", "runscript", "trace_level_file", "trace_level_system_out", "auto_server");
 
-    static final Map<String, Set<String>> STRICT_KEYS = Map.of(
-            "sqlserver", Set.of("databasename", "database", "encrypt", "trustservercertificate", "hostnameincertificate",
-                    "applicationintent", "instancename", "logintimeout", "applicationname", "user"),
+    // Keys each vendor may carry in a URL or in conn.props (lower case). Anything else is UrlRejected.
+    static final Map<String, Set<String>> ALLOWED_KEYS = Map.of(
+            "postgresql", Set.of("user", "ssl", "sslmode", "sslrootcert", "applicationname", "currentschema", "connecttimeout",
+                    "logintimeout", "sockettimeout", "tcpkeepalive", "readonly", "targetservertype", "loadbalancehosts",
+                    "hostrecheckseconds", "sslresponsetimeout", "channelbinding"),
+            "mysql", Set.of("user", "sslmode", "allowpublickeyretrieval", "tlsversions", "tlsciphersuites", "connecttimeout",
+                    "sockettimeout", "connectiontimezone", "servertimezone", "nulldatabasemeanscurrent", "useinformationschema",
+                    "getproceduresreturnsfunctions"),
+            "mariadb", Set.of("user", "sslmode", "connecttimeout", "allowpublickeyretrieval"),
+            "sqlserver", Set.of("user", "databasename", "database", "servername", "portnumber", "instancename", "encrypt",
+                    "trustservercertificate", "hostnameincertificate", "applicationintent", "logintimeout", "applicationname"),
             "oracle", Set.of("user"),
-            "db2", Set.of("sslconnection", "user"),
+            "db2", Set.of("user"),
             "h2", Set.of("user"));
 
+    // Not yet confirmed against vendor documentation; see parity/JDBC_URL_RULES.md. Rejected as UrlUnsupported.
+    static final Set<String> UNVERIFIED_VENDORS = Set.of("oracle", "db2");
+
     static final Pattern KEY_PATTERN = Pattern.compile("(?:^|[?&;(,:@/])\\s*([a-z0-9_.\\-]+)\\s*=");
-    static final Pattern SQLSERVER_URL = Pattern.compile("^jdbc:sqlserver://[\\w.\\-\\\\:\\[\\]]+(;.*)?$", Pattern.CASE_INSENSITIVE);
-    static final Pattern ORACLE_URL = Pattern.compile("^jdbc:oracle:thin:@(//)?[\\w.\\-]+(:\\d+)?([:/][\\w.\\-]+)?$", Pattern.CASE_INSENSITIVE);
-    static final Pattern DB2_URL = Pattern.compile("^jdbc:db2://[\\w.\\-]+(:\\d+)?/[\\w.\\-]+(:.*)?$", Pattern.CASE_INSENSITIVE);
+    static final String HOSTS = "[\\w.\\-:,\\[\\]]";
+    static final Pattern POSTGRESQL_URL = Pattern.compile("^jdbc:postgresql:(?://" + HOSTS + "*(?:/[\\w.\\-%]*)?|[\\w.\\-%]+)(?:\\?[^#]*)?$", Pattern.CASE_INSENSITIVE);
+    static final Pattern MYSQL_URL = Pattern.compile("^jdbc:mysql(?:\\+srv)?:(?:loadbalance:|replication:)?//" + HOSTS + "*(?:/[\\w.\\-%]*)?(?:\\?[^#]*)?$", Pattern.CASE_INSENSITIVE);
+    static final Pattern MARIADB_URL = Pattern.compile("^jdbc:mariadb:(?:replication:|loadbalance:|sequential:|load-balance-read:)?//" + HOSTS + "+(?:/[\\w.\\-%]*)?(?:\\?[^#]*)?$", Pattern.CASE_INSENSITIVE);
+    static final Pattern SQLSERVER_URL = Pattern.compile("^jdbc:sqlserver://(?:[\\w.\\-]+(?:\\\\[\\w.\\-$]+)?(?::\\d{1,5})?)?(?:;.*)?$", Pattern.CASE_INSENSITIVE);
+    static final Pattern ORACLE_URL = Pattern.compile("^jdbc:oracle:thin:@//[\\w.\\-]+(?::\\d{1,5})?/[\\w.\\-]+$", Pattern.CASE_INSENSITIVE);
+    static final Pattern DB2_URL = Pattern.compile("^jdbc:db2://[\\w.\\-]+(?::\\d{1,5})?/[\\w.\\-]+(?::.*)?$", Pattern.CASE_INSENSITIVE);
     static final Pattern H2_URL = Pattern.compile("^jdbc:h2:(file:[^;?]+|tcp://[^;?]+|[/~][^;?]*)$");
 
     static final List<String> secrets = new CopyOnWriteArrayList<>();
@@ -378,7 +405,7 @@ public class Helper {
         String vendor;
         if (lower.startsWith("jdbc:postgresql:")) {
             vendor = "postgresql";
-        } else if (lower.startsWith("jdbc:mysql:")) {
+        } else if (lower.startsWith("jdbc:mysql:") || lower.startsWith("jdbc:mysql+srv:")) {
             vendor = "mysql";
         } else if (lower.startsWith("jdbc:mariadb:")) {
             vendor = "mariadb";
@@ -403,23 +430,34 @@ public class Helper {
         if (decoded.indexOf('\0') >= 0) {
             throw new HelperException("UrlRejected", "URL contains a NUL character");
         }
-        boolean shapeOk = true;
+        if (UNVERIFIED_VENDORS.contains(vendor)) {
+            throw new HelperException("UrlUnsupported", vendor + " URLs are disabled until their rules are verified");
+        }
+        Pattern shape;
         switch (vendor) {
+            case "postgresql":
+                shape = POSTGRESQL_URL;
+                break;
+            case "mysql":
+                shape = MYSQL_URL;
+                break;
+            case "mariadb":
+                shape = MARIADB_URL;
+                break;
             case "sqlserver":
-                shapeOk = SQLSERVER_URL.matcher(url).matches();
+                shape = SQLSERVER_URL;
                 break;
             case "oracle":
-                shapeOk = ORACLE_URL.matcher(url).matches();
+                shape = ORACLE_URL;
                 break;
             case "db2":
-                shapeOk = DB2_URL.matcher(url).matches();
-                break;
-            case "h2":
-                shapeOk = H2_URL.matcher(url).matches();
+                shape = DB2_URL;
                 break;
             default:
+                shape = H2_URL;
                 break;
         }
+        boolean shapeOk = shape.matcher(url).matches();
         if (!shapeOk) {
             throw new HelperException("UrlRejected", "URL shape is not allowed for " + vendor);
         }
@@ -429,15 +467,26 @@ public class Helper {
         while (m.find()) {
             keys.add(m.group(1));
         }
-        for (String key : props.keySet()) {
-            keys.add(key.toLowerCase(Locale.ROOT));
+        String delimiter = vendor.equals("sqlserver") ? ";" : vendor.equals("postgresql") || vendor.equals("mysql") || vendor.equals("mariadb") ? "&" : null;
+        int tail = vendor.equals("sqlserver") ? decoded.indexOf(';') : decoded.indexOf('?');
+        if (delimiter != null && tail >= 0) {
+            for (String token : decoded.substring(tail + 1).split(delimiter)) {
+                int eq = token.indexOf('=');
+                String name = (eq < 0 ? token : token.substring(0, eq)).trim();
+                if (!name.isEmpty()) {
+                    keys.add(name);
+                }
+            }
         }
-        Set<String> strict = STRICT_KEYS.get(vendor);
+        for (String key : props.keySet()) {
+            keys.add(key.trim().toLowerCase(Locale.ROOT));
+        }
+        Set<String> strict = ALLOWED_KEYS.get(vendor);
         for (String key : keys) {
             if (DENIED_KEYS.contains(key)) {
                 throw new HelperException("UrlRejected", "property '" + key + "' is not allowed");
             }
-            if (strict != null && !strict.contains(key)) {
+            if (!strict.contains(key)) {
                 throw new HelperException("UrlRejected", "property '" + key + "' is not allowed for " + vendor);
             }
         }

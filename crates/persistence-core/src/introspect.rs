@@ -28,6 +28,8 @@ pub enum ErrorCode {
     HelperProtocol,
     Cancelled,
     HostBudget,
+    /// The optional `process:java` grant is not given.
+    ProcessDenied,
     // Reported by the helper.
     ProtocolVersion,
     BadRequest,
@@ -101,7 +103,9 @@ pub struct RunOutput {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LaunchError {
-    /// `process:java` denied, or the program could not be started.
+    /// `process:java` is not granted.
+    Denied(String),
+    /// The program could not be started.
     NotStarted(String),
     Cancelled,
     /// The host killed the call at its time budget before a response arrived.
@@ -444,6 +448,7 @@ impl<R: Runner> Client<R> {
             Ok(output) => output,
             Err(LaunchError::Cancelled) => return Err(HelperError::new(ErrorCode::Cancelled, "cancelled")),
             Err(LaunchError::Timeout) => return Err(HelperError::new(ErrorCode::HostBudget, "the helper did not answer within the host time budget")),
+            Err(LaunchError::Denied(why)) => return Err(HelperError::new(ErrorCode::ProcessDenied, why)),
             Err(LaunchError::NotStarted(why)) => return Err(self.scrubbed(HelperError::new(ErrorCode::JvmMissing, format!("could not start java: {why}")))),
         };
         self.parse(&id, output)
@@ -725,8 +730,10 @@ mod tests {
 
     #[test]
     fn launch_failures_map_to_plugin_side_codes() {
-        let denied = Err(LaunchError::NotStarted("process:java denied".into()));
-        assert_eq!(client(vec![denied]).ping().unwrap_err().code, ErrorCode::JvmMissing);
+        let not_started = Err(LaunchError::NotStarted("no such file".into()));
+        assert_eq!(client(vec![not_started]).ping().unwrap_err().code, ErrorCode::JvmMissing);
+        let denied = Err(LaunchError::Denied("process:java".into()));
+        assert_eq!(client(vec![denied]).ping().unwrap_err().code, ErrorCode::ProcessDenied);
         assert_eq!(client(vec![Err(LaunchError::Cancelled)]).ping().unwrap_err().code, ErrorCode::Cancelled);
         assert_eq!(client(vec![Err(LaunchError::Timeout)]).ping().unwrap_err().code, ErrorCode::HostBudget);
 
