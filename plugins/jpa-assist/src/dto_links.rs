@@ -31,9 +31,6 @@ fn leading_comment(text: &str) -> Option<&str> {
 /// DTOs of the entity at `own` that the DTO Declaration settings link to it.
 pub(super) fn linked(project: &Project, root: &str, own: &str, kotlin: bool) -> Result<Vec<Candidate>, Error> {
     let (by_name, by_comment) = (pattern("dtoNameRegexp", true)?, pattern("dtoCommentLinkRegexp", false)?);
-    if by_name.is_none() && by_comment.is_none() {
-        return Ok(Vec::new());
-    }
     let Some(entity) = parse_class(&project.read_file(own)?, own) else {
         return Ok(Vec::new());
     };
@@ -44,18 +41,26 @@ pub(super) fn linked(project: &Project, root: &str, own: &str, kotlin: bool) -> 
         return Err("The project has too many sources to discover linked DTOs.".into());
     }
     let deadline = Instant::now() + Duration::from_secs(3);
-    let mut found = Vec::new();
+    let (mut found, mut mapped, mut scanned) = (Vec::new(), Vec::new(), Vec::new());
     for file in files {
         if Instant::now() >= deadline {
             return Err("Linked DTO discovery timed out.".into());
         }
         let file = if file.starts_with('/') { file } else { format!("{}/{file}", root.trim_end_matches('/')) };
+        scanned.push(file.clone());
         if file == own || path(&file).as_deref() != Some(file.as_str()) || !inside(root, &file) {
             continue;
         }
         let stem = file.rsplit('/').next().and_then(|name| name.rsplit_once('.')).map_or("", |(stem, _)| stem);
         let named = by_name.as_ref().and_then(|regex| regex.captures(stem)).and_then(|caps| caps.name("entity").map(|m| m.as_str() == entity.name)).unwrap_or(false);
         let text = project.read_file(&file)?;
+        if !kotlin {
+            for name in mapstruct_links::dto_names(&text, &qualified) {
+                if !mapped.contains(&name) {
+                    mapped.push(name);
+                }
+            }
+        }
         let commented = by_comment.as_ref().zip(leading_comment(&text)).is_some_and(|(regex, comment)| {
             regex.captures_iter(comment).filter_map(|caps| caps.name("entity").map(|m| m.as_str().trim().to_owned())).any(|value| value == qualified || value == entity.name)
         });
@@ -66,6 +71,19 @@ pub(super) fn linked(project: &Project, root: &str, own: &str, kotlin: bool) -> 
             continue;
         };
         found.push(Candidate { path: file, name, badge: if named { "linked by class name" } else { "linked by comment" } });
+    }
+    for name in mapped.iter().take(SCAN_LIMIT as usize) {
+        let Some(file) = mapstruct_links::locate(&scanned, name) else { continue };
+        if file == own || found.iter().any(|known: &Candidate| known.path == file) {
+            continue;
+        }
+        let text = project.read_file(&file)?;
+        if ["@Entity", "@MappedSuperclass", "@Embeddable"].iter().any(|marker| text.contains(marker)) {
+            continue;
+        }
+        if let Some((name, _)) = dto_convert_action::declared_fields(&text, &file) {
+            found.push(Candidate { path: file, name, badge: "linked by mapper method" });
+        }
     }
     found.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(found)

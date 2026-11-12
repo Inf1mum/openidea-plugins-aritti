@@ -2,6 +2,7 @@
 //! DTOs and projections linked to an entity, Liquibase changelogs and saved connection profiles.
 //! Purely lexical; what cannot be established from scanned source stays unknown. Nothing here reads a password.
 use crate::model::{has_word, mask, split_top_level};
+use crate::file_actions::mapstruct_links::{declaration_offset, locate, mapped_types};
 use crate::file_actions::projection_links::{Conventions, Kind};
 use crate::structure_related::{ARTIFACT_PREFIX, GROUP_PREFIX, Locations, MAX_GROUP_CHILDREN};
 use crate::xml;
@@ -54,7 +55,10 @@ pub struct Artifacts {
     /// DTOs and projections by the simple name of the entity they are linked to.
     pub linked: HashMap<String, Vec<Found>>,
     changelogs: Option<Vec<Found>>,
+    mapper_pairs: Vec<(String, String)>,
 }
+
+const MAX_MAPPER_PAIRS: usize = 2000;
 
 fn declaration() -> &'static Regex {
     static DECLARATION: OnceLock<Regex> = OnceLock::new();
@@ -81,6 +85,9 @@ impl Artifacts {
     pub fn observe(&mut self, links: &Links, path: &str, text: &str) {
         if text.len() > MAX_TEXT {
             return;
+        }
+        if text.contains("@Mapper") && self.mapper_pairs.len() < MAX_MAPPER_PAIRS {
+            self.mapper_pairs.extend(mapped_types(text));
         }
         let stem = path.rsplit('/').next().and_then(|file| file.rsplit_once('.')).map_or("", |(stem, _)| stem);
         let mentions_converter = text.contains("AttributeConverter");
@@ -133,6 +140,34 @@ impl Artifacts {
                     self.user_types.push(found((*base).to_owned()));
                 }
             }
+        }
+    }
+
+    /// Links the DTO side of every scanned MapStruct mapper method to the entity side (a named entity of `entities`).
+    pub fn link_mapped(&mut self, project: &Project, files: &[String], entities: &HashSet<String>) {
+        let simple = |qualified: &str| qualified.rsplit('.').next().unwrap_or(qualified).to_owned();
+        let mut seen = HashSet::new();
+        for (source, target) in std::mem::take(&mut self.mapper_pairs) {
+            let (entity, dto) = match (entities.contains(&simple(&source)), entities.contains(&simple(&target))) {
+                (true, false) => (simple(&source), target),
+                (false, true) => (simple(&target), source),
+                _ => continue,
+            };
+            if !seen.insert((entity.clone(), dto.clone())) {
+                continue;
+            }
+            let Some(path) = locate(files, &dto) else { continue };
+            if self.linked.get(&entity).is_some_and(|known| known.iter().any(|found| found.path == path)) {
+                continue;
+            }
+            let Ok(text) = project.read_file(&path) else { continue };
+            if text.len() > MAX_TEXT || ["@Entity", "@MappedSuperclass", "@Embeddable"].iter().any(|marker| text.contains(marker)) {
+                continue;
+            }
+            let name = simple(&dto);
+            let Some(offset) = declaration_offset(&text, &name) else { continue };
+            let found = Found { name, detail: "DTO · linked by mapper method".to_owned(), path, pos: crate::position(&text, offset) };
+            self.linked.entry(entity).or_default().push(found);
         }
     }
 
