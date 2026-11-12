@@ -328,6 +328,11 @@
       "title": "Note unidirectional @OneToMany associations that use a link table",
       "default": true
     },
+    "jpaAssist.editorStatusItem": {
+      "type": "boolean",
+      "title": "Show the JPA status bar item for the focused entity, DTO, projection or repository (stands in for the editor toolbar; its command lists related artifacts)",
+      "default": true
+    },
     "jpaAssist.checkAssociationFetch": {
       "type": "boolean",
       "title": "Advise lazy fetching: explicit EAGER on any association and the EAGER default of @ManyToOne and @OneToOne (Hibernate User Guide 29.6.1)",

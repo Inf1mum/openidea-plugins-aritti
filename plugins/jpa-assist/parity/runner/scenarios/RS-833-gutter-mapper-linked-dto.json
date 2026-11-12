@@ -1,0 +1,33 @@
+{
+  "id": "RS-833",
+  "rows": [],
+  "claimIds": [],
+  "verifies": {},
+  "kindExerciser": true,
+  "fixture": "boot-jpa-java-jakarta",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/web/ShopSummary.java",
+        "content": "package com.example.shop.web;\n\npublic class ShopSummary {\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/web/CustomerMapper.java",
+        "content": "package com.example.shop.web;\n\nimport com.example.shop.domain.Customer;\nimport org.mapstruct.Mapper;\n\n@Mapper(componentModel = \"spring\")\npublic interface CustomerMapper {\n    ShopSummary toSummary(Customer customer);\n}\n"
+      }
+    }
+  ],
+  "kind": "lineMarkers",
+  "target": {
+    "file": "src/main/java/com/example/shop/web/ShopSummary.java",
+    "anchor": "class ShopSummary"
+  },
+  "expect": {
+    "markersInclude": [
+      "Entity Customer: DTO · linked by mapper method"
+    ]
+  },
+  "note": "Kind exerciser, covers no documented claim: a type with no naming convention but returned by a MapStruct mapper method of the entity gets the marker."
+}

@@ -115,6 +115,10 @@ mod auditing_action;
 mod validation_action;
 #[path = "query_method_action.rs"]
 mod query_method_action;
+#[path = "attribute_repo_method.rs"]
+mod attribute_repo_method;
+#[path = "association_advice.rs"]
+mod association_advice;
 #[path = "query_extract_action.rs"]
 mod query_extract_action;
 #[path = "query_edit_action.rs"]
@@ -220,6 +224,7 @@ enum Operation {
     SchemaRepair,
     RelatedEntityTo,
     RelatedEntityFrom,
+    AttributeRepositoryMethod,
 }
 impl Operation {
     fn key(self) -> &'static str {
@@ -303,6 +308,7 @@ impl Operation {
             Self::EntityViewRepository => "entity-view-repository",
             Self::RelatedEntityTo => "related-entity-to",
             Self::RelatedEntityFrom => "related-entity-from",
+            Self::AttributeRepositoryMethod => "attribute-repository-method",
         }
     }
 }
@@ -720,6 +726,9 @@ impl FileActions for JpaAssist {
         }
         if attribute_refactor::eligible(doc,selection) {operations.push((Operation::Rename,attribute_refactor::TITLE));}
         if attribute_refactor::eligible(doc,selection) && projection_action::eligible(doc) {operations.push((Operation::RenameWithProjections,projection_links::RENAME_TITLE));operations.push((Operation::RenameWithDtos,projection_links::RENAME_DTO_TITLE));}
+        if attribute_repo_method::attribute_under(doc, selection).is_some_and(|(class, _)| host::project_of(&doc.path).is_some_and(|project| !self.repositories_of(&project, &class.name).is_empty())) {
+            operations.push((Operation::AttributeRepositoryMethod, attribute_repo_method::TITLE));
+        }
         if call_assist::eligible(doc, selection) {
             operations.push((Operation::CreateRepositoryMethod, call_assist::CREATE_METHOD_TITLE));
         }
@@ -836,7 +845,7 @@ impl FileActions for JpaAssist {
                 let after = checked_after(doc, &edits)?;
                 if !ui_kit::prompts::confirm_exact(
                     "Add JPA attribute?",
-                    &format!("Target: {}\nSource version: {}\n\n{after}", doc.path, doc.version),
+                    &format!("Target: {}\nSource version: {}\n\n{after}{}", doc.path, doc.version, association_advice::note(&doc.path, &doc.language, &doc.text, &after)),
                 )? {
                     return Err(Error::Cancelled);
                 }
@@ -849,6 +858,7 @@ impl FileActions for JpaAssist {
                 })
             }
             Operation::Inverse => self.resolve_inverse(&pending, doc, &project),
+            Operation::AttributeRepositoryMethod => attribute_repo_method::resolve(&pending, doc, &project),
             Operation::RelatedEntityTo => related_entity_action::resolve(&pending, doc, &project, related_entity_action::Direction::To),
             Operation::RelatedEntityFrom => related_entity_action::resolve(&pending, doc, &project, related_entity_action::Direction::From),
             Operation::ValidationConstraint => validation_action::resolve(&pending, doc),
@@ -1005,7 +1015,7 @@ impl JpaAssist {
         let after = checked_after(doc, &edits)?;
         if !ui_kit::prompts::confirm_exact(
             "Add inverse attribute to this entity?",
-            &format!("{label}\nRead-only owner: {owner_path}\nEdit only: {} (version {})\n\n{after}", doc.path, doc.version),
+            &format!("{label}\nRead-only owner: {owner_path}\nEdit only: {} (version {})\n\n{after}{}", doc.path, doc.version, association_advice::note(&doc.path, &doc.language, &doc.text, &after)),
         )? {
             return Err(Error::Cancelled);
         }

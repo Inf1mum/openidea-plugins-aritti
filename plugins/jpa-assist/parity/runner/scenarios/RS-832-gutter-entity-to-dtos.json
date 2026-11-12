@@ -1,0 +1,27 @@
+{
+  "id": "RS-832",
+  "rows": [],
+  "claimIds": [],
+  "verifies": {},
+  "kindExerciser": true,
+  "fixture": "boot-jpa-java-jakarta",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/dto/CustomerProjection.java",
+        "content": "package com.example.shop.dto;\n\npublic interface CustomerProjection {\n    String getName();\n}\n"
+      }
+    }
+  ],
+  "kind": "lineMarkers",
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Customer.java",
+    "anchor": "class Customer"
+  },
+  "expect": {
+    "markersInclude": [
+      "DTOs and projections: CustomerDto, CustomerProjection"
+    ]
+  },
+  "note": "Kind exerciser, covers no documented claim (the docs describe the DTO to entity direction only): the entity gets a marker naming its linked DTOs and projections, targeting the first."
+}

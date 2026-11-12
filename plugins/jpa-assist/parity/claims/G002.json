@@ -43,8 +43,9 @@
    "supports": "DTOs appear in Dto & Projections section; gutter icon in the DTO class navigates to its entity",
    "source": "https://www.jetbrains.com/help/idea/jpa-buddy-dto-generator.html",
    "strength": "explicit",
-   "ourFeature": "repository scan incomplete (structure_related.rs)",
-   "verifiableHeadless": false
+   "ourFeature": "editor_links.rs: gutter marker on a DTO, structure group DTOs and Projections",
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Gutter line marker (navigate icon) in the DTO to its entity, and the DTOs and Projections group of the structure view. Not checked: gutter drawing, the click, the original's icon, the JPA Structure tab layout."
   }
  ],
  "undocumented": [

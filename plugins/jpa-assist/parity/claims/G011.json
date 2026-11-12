@@ -15,8 +15,9 @@
    "supports": "Editor Toolbar contains relevant actions depending on the file content",
    "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
    "strength": "explicit",
-   "ourFeature": "not implemented",
-   "verifiableHeadless": false
+   "ourFeature": "editor_links.rs: status bar item and command editor-related",
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Status bar item plus command 'JPA: Related Artifacts of This File' listing related artifacts and, in an entity, entity commands; the list depends on the file (entity, DTO or projection, repository). Not checked: a toolbar at the top of the editor (the host has no editor toolbar contribution), the original's toolbar actions (generate attribute, indexes: code actions here), the status bar item text (unit tests only)."
   },
   {
    "id": "G011-C2",

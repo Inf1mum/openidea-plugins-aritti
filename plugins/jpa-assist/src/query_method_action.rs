@@ -537,14 +537,18 @@ fn pick_one(title: &str, items: &[PickItem]) -> Result<String, Error> {
 }
 
 pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> Result<FileAction, Error> {
-    resolve_flow(pending, doc, project, false)
+    resolve_flow(pending, doc, project, false, None)
+}
+
+pub(super) fn resolve_for_attribute(pending: &Pending, doc: &Document, project: &Project, attribute: &str) -> Result<FileAction, Error> {
+    resolve_flow(pending, doc, project, false, Some(attribute))
 }
 
 pub(super) fn resolve_with_options(pending: &Pending, doc: &Document, project: &Project) -> Result<FileAction, Error> {
-    resolve_flow(pending, doc, project, true)
+    resolve_flow(pending, doc, project, true, None)
 }
 
-fn resolve_flow(pending: &Pending, doc: &Document, project: &Project, options: bool) -> Result<FileAction, Error> {
+fn resolve_flow(pending: &Pending, doc: &Document, project: &Project, options: bool, preselected: Option<&str>) -> Result<FileAction, Error> {
     current(pending, doc)?;
     let mut facts = source(doc).map_err(Error::from)?;
     facts.keywords = Keywords::load().map_err(Error::from)?;
@@ -566,8 +570,12 @@ fn resolve_flow(pending: &Pending, doc: &Document, project: &Project, options: b
     };
 
     let items: Vec<_> = attrs.iter().map(|attr| PickItem::new(&attr.name, &attr.name).description(&attr.ty)).collect();
-    let chosen = host::pick_many("Condition attributes (plain scalar attributes only; relationship paths are not offered)", &items)?
-        .ok_or(Error::Cancelled)?;
+    let chosen = match preselected {
+        Some(name) if attrs.iter().any(|attr| attr.name == name) => vec![name.to_owned()],
+        Some(_) => return Err("The attribute is not a plain scalar attribute the query method flow supports.".into()),
+        None => host::pick_many("Condition attributes (plain scalar attributes only; relationship paths are not offered)", &items)?
+            .ok_or(Error::Cancelled)?,
+    };
     let mut conditions = Vec::new();
     for name in &chosen {
         let Some(attr) = attrs.iter().find(|attr| attr.name == *name).filter(|_| !conditions.iter().any(|(seen, _): &(&Attr, &str)| seen.name == *name)) else {

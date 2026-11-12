@@ -22,6 +22,8 @@ mod designer;
 mod creation;
 #[path = "converter_markers.rs"]
 mod converter_markers;
+#[path = "editor_links.rs"]
+mod editor_links;
 mod checks;
 mod file_actions;
 mod generate;
@@ -1368,6 +1370,7 @@ impl Plugin for JpaAssist {
             "source-diagram"=>{self.refresh_source_diagram(ctx)?;ui_kit::web::reveal_view(source_diagram::VIEW,include_str!("ui_config.json"))?;Ok(None)},
             "structure-source" => { self.navigate_structure(arg.ok_or(Error::Stale)?, ctx)?; Ok(None) }
             "find-attribute-usages" => {file_actions::find_attribute_usages(ctx)?; Ok(None)}
+            editor_links::COMMAND => editor_links::run(ctx, &mut |project, entity| self.repositories_of(project, entity)),
             "copy-ddl" => {
                 let class = self.entity_of(ctx, arg)?;
                 let Some(dialect) = effective_dialect(ctx)? else {
@@ -1427,6 +1430,7 @@ impl Plugin for JpaAssist {
 
     fn handle_events(&mut self, events: &[Event], _ctx: &Invocation) {
         converter_markers::events(events, _ctx);
+        editor_links::events(events, _ctx);
         self.source_diagram_events(events);
 
         if self.structure_located.is_some() && events.iter().any(|event| matches!(event,
@@ -1567,6 +1571,7 @@ impl Providers for JpaAssist {
     fn line_markers(&mut self, doc: &Document) -> Vec<LineMarker> {
         let mut markers = self.repository_markers(doc);
         markers.extend(converter_markers::markers(doc));
+        markers.extend(editor_links::markers(doc));
         markers.sort_by_key(|marker| marker.line);
         markers
     }

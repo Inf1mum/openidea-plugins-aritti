@@ -232,7 +232,7 @@ fn first_type_argument(header: &str, base: &str) -> Option<String> {
     (!ty.contains('<')).then(|| ty.to_owned())
 }
 
-fn member_start(masked: &str, name_at: usize) -> usize {
+pub(crate) fn member_start(masked: &str, name_at: usize) -> usize {
     let bytes = masked.as_bytes();
     let mut depth = 0;
     let mut i = name_at;

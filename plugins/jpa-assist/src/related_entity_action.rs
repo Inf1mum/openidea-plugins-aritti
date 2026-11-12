@@ -176,8 +176,10 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project, dire
     if !ui_kit::prompts::confirm_exact(
         "Create related entity?",
         &format!(
-            "Namespace: {ns}\nNew entity ({heading}): {target}\n\n{source}\nEdited entity: {} (version {})\n\n{after}\nOne host-managed undoable edit; no existing file is overwritten.",
-            doc.path, doc.version
+            "Namespace: {ns}\nNew entity ({heading}): {target}\n\n{source}\nEdited entity: {} (version {})\n\n{after}{}{}\nOne host-managed undoable edit; no existing file is overwritten.",
+            doc.path, doc.version,
+            super::association_advice::note(&doc.path, &doc.language, &doc.text, &after),
+            super::association_advice::note(&target, &doc.language, &bare, &source)
         ),
     )? {
         return Err(Error::Cancelled);

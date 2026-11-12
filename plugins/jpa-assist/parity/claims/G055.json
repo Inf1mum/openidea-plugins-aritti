@@ -51,8 +51,9 @@
    "supports": "Dto & Projections section and Editor Toolbar",
    "source": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
    "strength": "explicit",
-   "ourFeature": "structure_related.rs",
-   "verifiableHeadless": false
+   "ourFeature": "structure_related.rs group DTOs and Projections; editor_links.rs command editor-related",
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Structure view group DTOs and Projections plus the related-artifacts command (status bar item click) standing in for the editor toolbar. Not checked: a toolbar at the top of the editor."
   },
   {
    "id": "G055-C6",
@@ -60,8 +61,9 @@
    "supports": "gutter icon takes you to its entity",
    "source": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
    "strength": "explicit",
-   "ourFeature": "not implemented",
-   "verifiableHeadless": false
+   "ourFeature": "editor_links.rs",
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Gutter line marker (navigate icon) in the projection to its entity. Not checked: gutter drawing, the click, the original's icon."
   }
  ],
  "undocumented": [
