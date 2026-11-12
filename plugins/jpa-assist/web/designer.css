@@ -63,3 +63,7 @@ html, body { margin: 0; height: 100%; overflow-x: clip; background: var(--ui-bg)
 #inspector-search { margin-top: var(--ui-space-2); width: 100%; }
 @media (max-width: 300px) { .palette-body { grid-template-columns: minmax(0, 1fr); } .palette-categories { max-height: 9em; } .palette-items { max-height: 12em; } }
 .designer-section .ui-help:empty { display: none; }
+
+body.no-palette #palette, body.minimal #palette, body.no-toolbar .designer-shell > .ui-toolbar { display: none; }
+body.no-inspector #inspector-title, body.no-inspector #empty, body.no-inspector #source > :not(#add-attribute) { display: none; }
+body.minimal #inspector-search, body.minimal #provenance, body.minimal #source-path, body.minimal #section-general { display: none; }

@@ -31,6 +31,26 @@ try {
     const reply = async (model, extra = {}) => page.evaluate(({model, extra}) => { const r = window.requests.at(-1); window.reply({...r, ok: true, model, ...extra}); }, {model, extra});
     await reply(fixture);
     assert.equal(await page.getByLabel('Precision', {exact: true}).isDisabled(), true);
+    const withLayout = async layout => {
+      const count = await page.evaluate(() => window.requests.length);
+      await page.evaluate(() => window.reply({channel: 'jpa-designer', invalidate: true}));
+      await page.waitForFunction(n => window.requests.length > n, count);
+      await reply(fixture, {layout: {palette: true, inspector: true, toolbar: true, minimal: false, ...layout}});
+    };
+    const shown = async selector => page.locator(selector).first().isVisible();
+    await withLayout({palette: false});
+    assert.deepEqual([await shown('#palette'), await shown('#inspector-title'), await shown('#inspect')], [false, true, true], 'showPalette off hides the palette only');
+    await withLayout({inspector: false});
+    assert.deepEqual([await shown('#palette'), await shown('#inspector-title'), await shown('#attribute'), await shown('#inspector-search')], [true, false, false, false], 'showInspector off hides the inspector');
+    await page.getByRole('button', {name: /^Enum/}).click();
+    assert.equal(await page.locator('#add-attribute').evaluate(d => d.open), true, 'the palette still opens the Add attribute form without the inspector');
+    await page.locator('#add-attribute').evaluate(d => { d.open = false; });
+    await withLayout({toolbar: false});
+    assert.equal(await shown('#inspect'), false, 'showEditorToolbar off hides the toolbar');
+    await withLayout({minimal: true});
+    assert.deepEqual([await shown('#palette'), await shown('#inspector-search'), await shown('#section-general'), await shown('#section-column')], [false, false, false, true], 'minimal mode keeps the column mapping only');
+    await withLayout({});
+    assert.deepEqual([await shown('#palette'), await shown('#inspector-title'), await shown('#inspect'), await shown('#section-general')], [true, true, true, true], 'default layout shows everything');
     const palette = page.locator('#palette');
     assert.deepEqual(await page.getByRole('option').allTextContents(), ['Attributes', 'Lifecycle Callbacks', 'Indexes', 'Named Query', 'Utilities']);
     assert.deepEqual(await page.locator('#palette-items .palette-item > span').allTextContents(), ['Association', 'Basic Type', 'Element Collection', 'Embedded', 'Embedded Id', 'Enum', 'Id', 'Transient', 'Version', 'From DB']);

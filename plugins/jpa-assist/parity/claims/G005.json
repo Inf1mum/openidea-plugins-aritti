@@ -34,7 +34,8 @@
    "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
    "strength": "explicit",
    "ourFeature": "not implemented",
-   "verifiableHeadless": false
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Setting jpaAssist.designer.showPalette on the Settings > JPA Assist > Visual Designer page hides the JPA Palette section of the Persistence Designer view (replies carry the layout, designer.rs test; web/designer.css hides it, scripts/check-jpa-designer.mjs). Not checked: the settings page rendering, a palette in the editor itself (none exists)."
   }
  ],
  "undocumented": [

@@ -711,6 +711,12 @@ impl State {
     }
 }
 
+/// Visibility settings of the Designer view, read again on every reply.
+fn layout() -> Value {
+    let flag = |key: &str, default: bool| host::setting_bool(&format!("jpaAssist.designer.{key}")).unwrap_or(default);
+    json!({"palette":flag("showPalette",true),"inspector":flag("showInspector",true),"toolbar":flag("showEditorToolbar",true),"minimal":flag("minimalMode",false)})
+}
+
 const MAX_PLAN_CHANGES: usize = 500;
 const MAX_PLAN_NOTES: usize = 200;
 const MAX_MIGRATION_SQL: usize = 64 * 1024;
@@ -955,7 +961,7 @@ impl JpaAssist {
             return Err(Error::Invalid("Invalid designer protocol/frame.".into()));
         }
         let Some(project) = ctx.project() else {
-            return host::post_view_message(VIEW, &json!({"channel":CHANNEL,"frame":request.frame,"sequence":request.sequence,"model":{"empty":true,"root":null}}).to_string());
+            return host::post_view_message(VIEW, &json!({"channel":CHANNEL,"frame":request.frame,"sequence":request.sequence,"layout":layout(),"model":{"empty":true,"root":null}}).to_string());
         };
         let root = project.root()?;
         if let Some((owner, sequence)) = self.designer.frames.get(&request.frame) {
@@ -1214,7 +1220,7 @@ impl JpaAssist {
                 &error.to_string(),
             );
         }
-        host::post_view_message(VIEW, &json!({"channel":CHANNEL,"frame":request.frame,"sequence":request.sequence,"ok":result.is_ok(),"model":self.designer.model(&root),"migration":migration}).to_string())
+        host::post_view_message(VIEW, &json!({"channel":CHANNEL,"frame":request.frame,"sequence":request.sequence,"ok":result.is_ok(),"layout":layout(),"model":self.designer.model(&root),"migration":migration}).to_string())
     }
 }
 
@@ -1406,6 +1412,18 @@ mod tests {
             request(&mut plugin, &host, 5, json!({"kind":"apply","token":token})).unwrap()["ok"],
             false
         );
+    }
+    #[test]
+    fn replies_carry_the_visibility_settings_of_the_layout() {
+        let (host, mut plugin) = setup();
+        let reply = request(&mut plugin, &host, 1, json!({"kind":"snapshot"})).unwrap();
+        assert_eq!(reply["layout"], json!({"palette":true,"inspector":true,"toolbar":true,"minimal":false}));
+        for key in ["showPalette", "showInspector", "showEditorToolbar"] {
+            host.set_setting(&format!("jpaAssist.designer.{key}"), "false");
+        }
+        host.set_setting("jpaAssist.designer.minimalMode", "true");
+        let reply = request(&mut plugin, &host, 2, json!({"kind":"inspect"})).unwrap();
+        assert_eq!(reply["layout"], json!({"palette":false,"inspector":false,"toolbar":false,"minimal":true}));
     }
     fn attribute_draft(kind: &str, name: &str, ty: &str) -> Value {
         json!({"name":name,"kind":kind,"type":ty,"enumerated":false,"notNull":false,"unique":false,
