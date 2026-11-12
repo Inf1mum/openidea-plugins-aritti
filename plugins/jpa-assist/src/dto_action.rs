@@ -316,7 +316,7 @@ fn string_literal(value: &str) -> bool {
     at == bytes.len() - 1
 }
 
-fn split_outside_strings(text: &str, separator: u8) -> Option<Vec<&str>> {
+pub(super) fn split_outside_strings(text: &str, separator: u8) -> Option<Vec<&str>> {
     let bytes = text.as_bytes();
     let mut parts = Vec::new();
     let (mut start, mut at, mut quoted) = (0, 0, false);
@@ -383,7 +383,7 @@ fn transfer_one(name: &str, args: Option<&str>) -> Result<String, Error> {
     Ok(format!("@{name}({})", joined.join(", ")))
 }
 
-fn transferred(doc: &Document, chosen: &[(String, String)]) -> Result<(HashMap<String, Vec<String>>, String), Error> {
+pub(super) fn transferred(doc: &Document, chosen: &[(String, String)]) -> Result<(HashMap<String, Vec<String>>, String), Error> {
     let (class, namespace) = validation_action::source(doc)
         .ok_or("The entity validation annotations cannot be read (unsupported entity shape); no DTO was generated.")?;
     let masked = mask(&doc.text);
@@ -684,15 +684,20 @@ pub(super) fn resolve_class(pending: &Pending, doc: &Document, project: &Project
     let applicable = annotations(&mask(&doc.text)).iter().any(|a| TRANSFER.contains(&a.name));
     if applicable {
         let validator_proven = project_facts::detect(project, directory).bean_validation == project_facts::Fact::Yes;
-        let choices: Vec<_> = [("none", "Do not copy validation"), ("copy", "Copy NotNull, NotBlank, Size, Min, Max, Pattern, Email (literal arguments)")]
-            .into_iter()
-            .filter(|(key, _)| *key != "copy" || validator_proven)
+        let choices: Vec<_> = [
+            ("none", "Do not copy validation"),
+            ("copy", "Copy NotNull, NotBlank, Size, Min, Max, Pattern, Email (literal arguments)"),
+            ("configure", "Configure each constraint: keep or drop it, set its message, add NotNull, NotBlank or Email"),
+        ]
+        .into_iter()
+        .filter(|(key, _)| *key == "none" || validator_proven)
             .collect();
         let items: Vec<_> = choices.iter().map(|(key, label)| PickItem::new(key, label)).collect();
         let answer = host::pick("Bean Validation transfer", &items)?.ok_or(Error::Cancelled)?;
         match answer.as_str() {
             "none" => {}
             "copy" => (constraints, namespace) = transferred(doc, &fields)?,
+            "configure" => (constraints, namespace) = dto_validation::configure(doc, &fields)?,
             _ => return Err("Choose one of the offered validation options.".into()),
         }
     }
@@ -1037,6 +1042,22 @@ mod tests {
         assert_eq!(offered(Some(("pom.xml", "<project><artifactId>spring-boot-starter-web</artifactId></project>"))), Some(false));
         assert_eq!(offered(None), Some(false));
         assert_eq!(offered(Some(("build.gradle", "implementation(libs.validation)"))), Some(false));
+    }
+
+    #[test]
+    fn configured_validation_keeps_drops_rewords_and_adds_constraints() {
+        let answers: [&[&str]; 11] = [&["pojo"], &["CustomerDto"], &["title", "code"], &[], &["none"], &["configure"], &["0", "1"], &["title|NotNull"], &["Title is required"], &[""], &["Must be set"]];
+        let text = text_of(run_class(VALID, Some(("pom.xml", POM_VALIDATION)), &answers, true).1);
+        assert!(text.contains("    @NotBlank(message = \"Title is required\")\n    @Size(min = 2, max = 40, message = \"too, long\")\n    @NotNull(message = \"Must be set\")\n    private String title;"), "{text}");
+        assert!(text.contains("    @NotNull(message = \"Must be set\")\n    private String title;") && !text.contains("@Pattern"), "{text}");
+        assert!(text.contains("import jakarta.validation.constraints.NotNull;"), "{text}");
+        let nothing: [&[&str]; 8] = [&["pojo"], &["CustomerDto"], &["title"], &[], &["none"], &["configure"], &[], &[]];
+        let text = text_of(run_class(VALID, Some(("pom.xml", POM_VALIDATION)), &nothing, true).1);
+        assert!(!text.contains("@NotBlank") && !text.contains("validation"), "{text}");
+        let forged: [&[&str]; 7] = [&["pojo"], &["CustomerDto"], &["title"], &[], &["none"], &["configure"], &["9"]];
+        assert!(run_class(VALID, Some(("pom.xml", POM_VALIDATION)), &forged, true).1.is_err());
+        let unproven: [&[&str]; 6] = [&["pojo"], &["CustomerDto"], &["title"], &[], &["none"], &["configure"]];
+        assert!(run_class(VALID, None, &unproven, true).1.is_err());
     }
 
     #[test]

@@ -75,6 +75,42 @@ fn scan(doc: &Document) -> Result<Pojo, &'static str> {
     Ok(Pojo { name, kotlin, line_start, open, close, members, lombok_accessors, masked })
 }
 
+pub(super) struct PojoField {
+    pub(super) name: String,
+    pub(super) ty: String,
+    pub(super) line_start: usize,
+    pub(super) indent: String,
+}
+
+/// Instance fields of a Java class that is eligible for conversion, with the offset of their line.
+pub(super) fn fields(doc: &Document) -> Result<Vec<PojoField>, Error> {
+    let pojo = scan(doc).map_err(Error::from)?;
+    if pojo.kotlin {
+        return Ok(Vec::new());
+    }
+    let mut found = Vec::new();
+    for &(start, end) in &pojo.members {
+        let clean = crate::model::without_annotations(&pojo.masked, start, end);
+        let Some(declaration) = clean.trim().strip_suffix(';') else {
+            continue;
+        };
+        let head = declaration.split('=').next().unwrap_or_default().trim();
+        if head.contains('(') || head.split_whitespace().any(|word| matches!(word, "static" | "transient")) {
+            continue;
+        }
+        let Some((left, name)) = head.rsplit_once(char::is_whitespace) else {
+            continue;
+        };
+        let Some(ty) = left.split_whitespace().last() else {
+            continue;
+        };
+        let first = start + pojo.masked[start..].len() - pojo.masked[start..].trim_start().len();
+        let line_start = pojo.masked[..first].rfind('\n').map_or(0, |i| i + 1);
+        found.push(PojoField { name: name.trim().to_owned(), ty: ty.to_owned(), line_start, indent: pojo.masked[line_start..first].to_owned() });
+    }
+    Ok(found)
+}
+
 pub(super) fn eligible(doc: &Document) -> bool {
     doc.text.len() <= MAX_TEXT && scan(doc).is_ok()
 }
@@ -169,7 +205,7 @@ pub(super) fn plan(doc: &Document, namespace: Namespace, table: &str, draft: &pe
 }
 
 pub(super) fn resolve(pending: &Pending, doc: &Document) -> Result<FileAction, Error> {
-    current(pending, doc)?;
+    let project = current(pending, doc)?;
     let pojo = scan(doc).map_err(Error::from)?;
     let items = [PickItem::new("jakarta", "Jakarta Persistence"), PickItem::new("javax", "Javax Persistence")];
     let namespace = match host::pick("Persistence namespace for the new entity", &items)?.ok_or(Error::Cancelled)?.as_str() {
@@ -179,12 +215,14 @@ pub(super) fn resolve(pending: &Pending, doc: &Document) -> Result<FileAction, E
     };
     let table = host::input("Table name", Some(&naming_table_name(&pojo.name)))?.ok_or(Error::Cancelled)?;
     let draft = super::identifier_action::prompt(namespace, &pojo.name)?;
-    let edits = plan(doc, namespace, &table, &draft)?;
+    let (relation_edits, relation_notes) = pojo_relations::choose(&project, &pending.root, doc, namespace)?;
+    let mut edits = plan(doc, namespace, &table, &draft)?;
+    edits.extend(relation_edits);
     let after = checked_after(doc, &edits)?;
     if !ui_kit::prompts::confirm_exact(
         "Convert class to JPA entity?",
         &format!(
-            "Target: {}\nSource version: {}\n\n{after}\nCurrent source only: the existing members are not mapped or changed; review relationships, column types and the no-argument constructor.",
+            "Target: {}\nSource version: {}\n\n{after}\nCurrent source only: the existing members are not mapped or changed (except the relationships chosen above); review relationships, column types and the no-argument constructor.{relation_notes}",
             doc.path, doc.version
         ),
     )? {

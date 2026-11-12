@@ -139,6 +139,9 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> R
     if revision_repo_action::eligible_view(doc) {
         return revision_repo_action::resolve_view(pending, doc, project);
     }
+    if let Some(action) = entity_view_window::offer(pending, doc, project)? {
+        return Ok(action);
+    }
     let facts = source(doc).map_err(Error::from)?;
     let project_parents = project_parents::discover(project, &pending.root, &doc.path).unwrap_or_default();
     let mut items: Vec<_> = parents(facts.jakarta).iter().map(|(simple, _)| PickItem::new(simple, simple)).collect();

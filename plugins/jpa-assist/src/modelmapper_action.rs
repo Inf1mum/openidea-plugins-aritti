@@ -24,7 +24,7 @@ const STRATEGIES: [(&str, &str); 3] = [
     ("LOOSE", "LOOSE: only the last destination property, all its tokens required"),
     ("STRICT", "STRICT: source and destination tokens match precisely and in order"),
 ];
-const BLAZE_ARTIFACTS: [&str; 2] = ["blaze-persistence-entity-view-api", "blaze-persistence-entity-view-api-jakarta"];
+pub(super) const BLAZE_ARTIFACTS: [&str; 2] = ["blaze-persistence-entity-view-api", "blaze-persistence-entity-view-api-jakarta"];
 const MAX_SCAN: u32 = 65;
 
 pub(super) fn eligible_service(doc: &Document) -> bool {
@@ -44,7 +44,7 @@ fn declares(text: &str, group: &str, artifacts: &[&str]) -> bool {
     })
 }
 
-fn build_proof(project: &Project, root: &str, doc: &Document, group: &str, artifacts: &[&str], label: &str) -> Result<(), Error> {
+pub(super) fn build_proof(project: &Project, root: &str, doc: &Document, group: &str, artifacts: &[&str], label: &str) -> Result<(), Error> {
     let directory = doc.path.rsplit_once('/').ok_or(Error::Stale)?.0;
     let gathered = base::build_text(project, root, directory)?;
     if !declares(&gathered, group, artifacts) {
@@ -57,18 +57,18 @@ fn build_proof(project: &Project, root: &str, doc: &Document, group: &str, artif
     Ok(())
 }
 
-fn crlf(doc: &Document, text: String) -> String {
+pub(super) fn crlf(doc: &Document, text: String) -> String {
     if doc.text.contains("\r\n") { text.replace('\n', "\r\n") } else { text }
 }
 
-fn java_only(doc: &Document) -> Result<(), Error> {
+pub(super) fn java_only(doc: &Document) -> Result<(), Error> {
     if doc.language == "kotlin" {
         return Err("This action supports Java sources only; Kotlin output was not verified.".into());
     }
     Ok(())
 }
 
-fn type_name(name: &str, reserved: &[&str]) -> bool {
+pub(super) fn type_name(name: &str, reserved: &[&str]) -> bool {
     identifier(name) && !reserved.contains(&name)
 }
 
@@ -355,7 +355,7 @@ pub(super) fn resolve_conversion(pending: &Pending, doc: &Document, project: &Pr
     })
 }
 
-fn view_fields(class: &Class) -> Option<((String, String), Vec<(String, String)>)> {
+pub(super) fn view_fields(class: &Class) -> Option<((String, String), Vec<(String, String)>)> {
     if class.kotlin {
         return None;
     }

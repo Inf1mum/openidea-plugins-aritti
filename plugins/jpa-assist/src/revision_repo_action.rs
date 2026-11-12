@@ -82,12 +82,12 @@ fn envers_proof(project: &Project, root: &str, doc: &Document) -> Result<(), Err
     proof(project, root, doc, SPRING_DATA, &["spring-data-envers".to_owned()], "Spring Data Envers")
 }
 
-fn blaze_proof(project: &Project, root: &str, doc: &Document) -> Result<(), Error> {
+pub(super) fn blaze_proof(project: &Project, root: &str, doc: &Document) -> Result<(), Error> {
     let artifacts: Vec<String> = BLAZE_SUFFIXES.iter().map(|suffix| format!("blaze-persistence-integration-spring-data-{suffix}")).collect();
     proof(project, root, doc, "com.blazebit", &artifacts, "The Blaze-Persistence Spring Data integration")
 }
 
-fn scan(project: &Project, root: &str, mut visit: impl FnMut(&str, &str) -> Result<(), Error>) -> Result<(), Error> {
+pub(super) fn scan_sources(project: &Project, root: &str, mut visit: impl FnMut(&str, &str) -> Result<(), Error>) -> Result<(), Error> {
     let deadline = Instant::now() + Duration::from_secs(5);
     for extension in ["java", "kt"] {
         let files = project.find_files(&format!("**/*.{extension}"), MAX_SCANNED)?;
@@ -186,7 +186,7 @@ fn revision_number_of(file: &str, masked: &str) -> Result<&'static str, Error> {
 /// (revision number type, human readable basis) from a bounded scan of every Java/Kotlin source.
 fn revision_number(project: &Project, root: &str) -> Result<(&'static str, String), Error> {
     let mut found: Vec<(String, &'static str)> = Vec::new();
-    scan(project, root, |file, text| {
+    scan_sources(project, root, |file, text| {
         if !text.contains("RevisionEntity") {
             return Ok(());
         }
@@ -319,7 +319,7 @@ fn render_enable(doc: &Document, name: &str) -> Result<(String, String), Error> 
 }
 
 fn no_existing_enablement(project: &Project, root: &str) -> Result<(), Error> {
-    scan(project, root, |file, text| {
+    scan_sources(project, root, |file, text| {
         if !["EnableEnversRepositories", "EnversRevisionRepositoryFactoryBean", "EnableJpaRepositories"].iter().any(|word| text.contains(word)) {
             return Ok(());
         }
@@ -428,6 +428,10 @@ fn view_source(doc: &Document) -> Result<View, String> {
     Ok(View { name: (*name).to_owned(), id_type, uuid })
 }
 
+pub(super) fn view_ok(doc: &Document) -> bool {
+    view_source(doc).is_ok()
+}
+
 pub(super) fn eligible_view(doc: &Document) -> bool {
     doc.text.contains("EntityView") && view_source(doc).is_ok()
 }
@@ -452,7 +456,7 @@ fn render_view(doc: &Document, view: &View, name: &str) -> Result<(String, Strin
 
 fn blaze_enabled(project: &Project, root: &str) -> Option<bool> {
     let mut found = false;
-    scan(project, root, |_, text| {
+    scan_sources(project, root, |_, text| {
         found |= text.contains("EnableBlazeRepositories") && has_word(&mask(text), "EnableBlazeRepositories");
         Ok(())
     })

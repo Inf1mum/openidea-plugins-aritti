@@ -1,0 +1,152 @@
+{
+  "id": "RS-543",
+  "rows": [
+    "G067"
+  ],
+  "claimIds": [
+    "G067-C1",
+    "G067-C2"
+  ],
+  "verifies": {
+    "G067-C1": "a plain Java class Invoice with a body (no persistence annotations) is converted into an entity by the code action Entity from POJO: @Entity, @Table and a generated identifier are added to the invoking file. The sentence says any Java or Kotlin class: classes without a body, final or generic classes, classes with a superclass and Kotlin data classes are refused (not checked here); the Kotlin half is RS-402.",
+    "G067-C2": "fields whose type is an entity of the project (Customer, List<Line>) are detected as relationships and the cardinality is proposed from the other side (the Customer side holds a collection of Invoice, so ManyToOne; Line holds one Invoice, so OneToMany(mappedBy = invoice)); the user selects the kind (selecting existing entities). NOT covered: generating the related entities - the action edits only the current file, so a related plain class (Tag) is reported in the preview and its field stays unmapped."
+  },
+  "fixture": "mapstruct-lombok-dto",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/crm/domain/Invoice.java",
+        "content": "package com.example.crm.domain;\n\nimport java.util.List;\n\npublic class Invoice {\n\n    private String title;\n\n    private Customer customer;\n\n    private List<Line> lines;\n\n    private Tag tag;\n\n    public String getTitle() {\n        return title;\n    }\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/crm/domain/Customer.java",
+        "content": "package com.example.crm.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.OneToMany;\nimport java.util.List;\n\n@Entity\npublic class Customer {\n\n    @Id\n    private Long id;\n\n    @OneToMany(mappedBy = \"customer\")\n    private List<Invoice> invoices;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/crm/domain/Line.java",
+        "content": "package com.example.crm.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.ManyToOne;\n\n@Entity\npublic class Line {\n\n    @Id\n    private Long id;\n\n    @ManyToOne\n    private Invoice invoice;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/crm/domain/Tag.java",
+        "content": "package com.example.crm.domain;\n\npublic class Tag {\n\n    private String label;\n}\n"
+      }
+    }
+  ],
+  "kind": "fileaction",
+  "target": {
+    "file": "src/main/java/com/example/crm/domain/Invoice.java",
+    "anchor": "public class Invoice"
+  },
+  "action": {
+    "title": "Entity from POJO with preview…"
+  },
+  "prompts": [
+    {
+      "pick": "jakarta"
+    },
+    {
+      "input": "invoices"
+    },
+    {
+      "input": "id"
+    },
+    "default",
+    {
+      "pick": "long"
+    },
+    {
+      "pick": "identity"
+    },
+    {
+      "pick": "ManyToOne"
+    },
+    {
+      "pick": "OneToMany"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pick",
+        "titleContains": "Persistence namespace"
+      },
+      {
+        "kind": "input",
+        "titleContains": "Table name"
+      },
+      {
+        "kind": "input",
+        "titleContains": "Identifier attribute name"
+      },
+      {
+        "kind": "input",
+        "titleContains": "Identifier column name"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "Identifier type"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "Identifier generation"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "Relationship of `customer`",
+        "optionsInclude": [
+          "ManyToOne",
+          "OneToOne",
+          "Leave unmapped"
+        ],
+        "itemDescriptions": {
+          "ManyToOne": "@jakarta.persistence.ManyToOne"
+        }
+      },
+      {
+        "kind": "pick",
+        "titleContains": "Relationship of `lines`",
+        "optionsInclude": [
+          "OneToMany",
+          "ManyToMany"
+        ],
+        "itemDescriptions": {
+          "OneToMany": "@jakarta.persistence.OneToMany(mappedBy = \"invoice\")"
+        }
+      },
+      {
+        "kind": "confirm",
+        "messageContains": "`tag` (Tag) is a project class that is not an entity"
+      }
+    ],
+    "promptCount": 9,
+    "resultFile": {
+      "path": "src/main/java/com/example/crm/domain/Invoice.java",
+      "contains": [
+        "@jakarta.persistence.Entity",
+        "@jakarta.persistence.Table(name = \"invoices\")",
+        "    @jakarta.persistence.ManyToOne\n    private Customer customer;",
+        "    @jakarta.persistence.OneToMany(mappedBy = \"invoice\")\n    private List<Line> lines;",
+        "    private Tag tag;"
+      ],
+      "notContains": [
+        "ManyToOne\n    private Tag"
+      ]
+    }
+  },
+  "checks": {
+    "preview": true,
+    "undo": true,
+    "cancelEach": true,
+    "stale": true
+  },
+  "note": "Relationship detection."
+}

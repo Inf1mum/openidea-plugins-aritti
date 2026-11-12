@@ -1,0 +1,187 @@
+{
+  "id": "RS-549",
+  "rows": [
+    "G074"
+  ],
+  "claimIds": [
+    "G074-C2",
+    "G074-C4",
+    "G074-C5"
+  ],
+  "verifies": {
+    "G074-C2": "the Creatable and Updatable options add @CreatableEntityView and @UpdatableEntityView (both, above @EntityView) to the generated view; the annotation names and the com.blazebit.persistence.view package were checked against the blaze-persistence-entity-view-api 1.6.14 jar and the Blaze manual (chapter Updatable entity views), and the generated sources compile against that jar in an opt-in test, not in this scenario.",
+    "G074-C4": "with the options ticked every attribute of the view (the id, the scalar attribute and the inner views) gets a setter next to its getter; the read-only form (no options) has no setters (unit test).",
+    "G074-C5": "associations are offered as inner entity views: the to-one association Agent becomes a nested interface AgentView and the to-many association Remarks a separate file RemarkView referenced as List<RemarkView>; inner views carry the same Creatable/Updatable annotations. Parent view, package and source root choices of the dialog are not offered; cascading (@UpdatableMapping) is not generated."
+  },
+  "fixture": "mapstruct-lombok-dto",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/crm/domain/Ticket.java",
+        "content": "package com.example.crm.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.ManyToOne;\nimport jakarta.persistence.OneToMany;\nimport java.util.List;\n\n@Entity\npublic class Ticket {\n\n    @Id\n    private Long id;\n\n    private String note;\n\n    @ManyToOne\n    private Agent agent;\n\n    @OneToMany(mappedBy = \"ticket\")\n    private List<Remark> remarks;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/crm/domain/Agent.java",
+        "content": "package com.example.crm.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Agent {\n\n    @Id\n    private Long id;\n\n    private String name;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/crm/domain/Remark.java",
+        "content": "package com.example.crm.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Remark {\n\n    @Id\n    private Long id;\n\n    private String text;\n}\n"
+      }
+    },
+    {
+      "swap": {
+        "file": "pom.xml",
+        "with": "pom-blaze.xml"
+      }
+    }
+  ],
+  "kind": "fileaction",
+  "target": {
+    "file": "src/main/java/com/example/crm/domain/Ticket.java",
+    "anchor": "class Ticket"
+  },
+  "action": {
+    "title": "Create Blaze entity view with options…"
+  },
+  "prompts": [
+    {
+      "input": "TicketView"
+    },
+    {
+      "pickMany": [
+        "note"
+      ]
+    },
+    {
+      "pickMany": [
+        "creatable",
+        "updatable"
+      ]
+    },
+    {
+      "pickMany": [
+        "agent",
+        "remarks"
+      ]
+    },
+    {
+      "pick": "nested"
+    },
+    {
+      "input": "AgentView"
+    },
+    {
+      "pickMany": [
+        "name"
+      ]
+    },
+    {
+      "pick": "new-class"
+    },
+    {
+      "input": "RemarkView"
+    },
+    {
+      "pickMany": [
+        "text"
+      ]
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "input",
+        "titleContains": "Entity view interface name"
+      },
+      {
+        "kind": "pickMany",
+        "titleContains": "attributes besides the id"
+      },
+      {
+        "kind": "pickMany",
+        "titleContains": "Entity view kind",
+        "optionsInclude": [
+          "creatable",
+          "updatable"
+        ]
+      },
+      {
+        "kind": "pickMany",
+        "titleContains": "Associations as inner entity views",
+        "optionsInclude": [
+          "agent",
+          "remarks"
+        ]
+      },
+      {
+        "kind": "pick",
+        "titleContains": "Inner entity view for `agent`",
+        "optionsInclude": [
+          "nested",
+          "new-class"
+        ]
+      },
+      {
+        "kind": "input",
+        "titleContains": "Inner entity view name for `agent`"
+      },
+      {
+        "kind": "pickMany",
+        "titleContains": "Attributes of Agent"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "Inner entity view for `remarks`"
+      },
+      {
+        "kind": "input",
+        "titleContains": "Inner entity view name for `remarks`"
+      },
+      {
+        "kind": "pickMany",
+        "titleContains": "Attributes of Remark"
+      },
+      {
+        "kind": "confirm"
+      }
+    ],
+    "createdFiles": [
+      {
+        "path": "src/main/java/com/example/crm/domain/TicketView.java",
+        "contains": [
+          "@CreatableEntityView\n@UpdatableEntityView\n@EntityView(Ticket.class)\npublic interface TicketView {",
+          "@IdMapping\n    Long getId();\n\n    void setId(Long id);",
+          "String getNote();\n\n    void setNote(String note);",
+          "AgentView getAgent();\n\n    void setAgent(AgentView agent);",
+          "List<RemarkView> getRemarks();\n\n    void setRemarks(List<RemarkView> remarks);",
+          "@EntityView(Agent.class)\n    interface AgentView {",
+          "void setName(String name);",
+          "import com.blazebit.persistence.view.CreatableEntityView;",
+          "import com.blazebit.persistence.view.UpdatableEntityView;"
+        ]
+      },
+      {
+        "path": "src/main/java/com/example/crm/domain/RemarkView.java",
+        "contains": [
+          "@CreatableEntityView\n@UpdatableEntityView\n@EntityView(Remark.class)\npublic interface RemarkView {",
+          "void setText(String text);"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true,
+    "cancelEach": true,
+    "stale": true
+  },
+  "note": "Entity view options."
+}

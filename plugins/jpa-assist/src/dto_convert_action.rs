@@ -464,7 +464,7 @@ fn norm(ty: &str) -> String {
     compact(ty.trim_start_matches("final ")).trim_end_matches('?').to_owned()
 }
 
-fn declared_fields(text: &str, path: &str) -> Option<(String, Vec<(String, String)>)> {
+pub(super) fn declared_fields(text: &str, path: &str) -> Option<(String, Vec<(String, String)>)> {
     if text.len() > MAX_TEXT {
         return None;
     }
@@ -602,7 +602,12 @@ pub(super) fn reusable(project: &Project, root: &str, directory: &str, kotlin: b
 /// Offers to reuse a compatible existing DTO. Reusing creates nothing, so it ends the creation
 /// action with an "already exists" message; declining continues.
 pub(super) fn offer_reuse(project: &Project, root: &str, directory: &str, kotlin: bool, own: &str, wanted: &[(String, String)]) -> Result<(), Error> {
-    let found = reusable(project, root, directory, kotlin, own, wanted)?;
+    let mut found = reusable(project, root, directory, kotlin, own, wanted)?;
+    for linked in dto_links::linked(project, root, own, kotlin)?.into_iter().rev() {
+        if !found.iter().any(|known| known.path == linked.path) {
+            found.insert(0, linked);
+        }
+    }
     if found.is_empty() {
         return Ok(());
     }
@@ -843,6 +848,33 @@ mod tests {
         let Err(Error::Failed(message)) = result else { panic!("expected refusal") };
         assert!(message.starts_with(&format!("Already exists: {}", SUMMARY.0)), "{message}");
         assert!(message.contains("superset") && message.contains(EXACT_CLASS.0) && message.contains("exact match"), "{message}");
+    }
+
+    #[test]
+    fn a_dto_linked_by_the_dto_declaration_regexp_is_offered_even_when_its_fields_differ() {
+        let host = MockHost::install().with_capabilities(&["project.read", "editor.read"]);
+        host.open_editor(EPATH, "java", ENTITY, &[]);
+        host.add_file(EPATH, ENTITY);
+        host.add_file("/project/src/main/java/other/web/CustomerView.java", "package other.web;\npublic record CustomerView(String label) {\n}\n");
+        let doc = Document { path: EPATH.into(), text: ENTITY.into(), language: "java".into(), version: 1 };
+        let run = |regexp: Option<&str>, last: Option<&str>| {
+            if let Some(regexp) = regexp {
+                host.set_setting("dtoNameRegexp", regexp);
+            }
+            let mut plugin = JpaAssist::default();
+            let pending = plugin.file_actions(&doc, Range::default()).into_iter().find(|a| a.title == "Create scalar DTO with preview…").unwrap();
+            host.answer_next_prompt(Some(&["CustomerDto"]));
+            host.answer_next_prompt(Some(&["id", "title"]));
+            if let Some(last) = last {
+                host.answer_next_prompt(Some(&[last]));
+            }
+            host.answer_next_prompt(Some(&[]));
+            plugin.resolve_file_action(&doc, pending)
+        };
+        assert!(run(None, None).is_ok(), "no linked type: the flow goes straight to the confirmation");
+        let result = run(Some("\"(?<entity>.*)View\""), Some("/project/src/main/java/other/web/CustomerView.java"));
+        let Err(Error::Failed(message)) = result else { panic!("expected the already-exists refusal, got {:?}", result.map(|a| a.title)) };
+        assert!(message.contains("CustomerView.java") && message.contains("linked by class name"), "{message}");
     }
 
     #[test]

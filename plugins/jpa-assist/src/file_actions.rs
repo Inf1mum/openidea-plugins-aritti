@@ -44,6 +44,20 @@ mod entity_graph_action;
 mod mapper_action;
 #[path = "mapper_more_action.rs"]
 mod mapper_more_action;
+#[path = "mapper_naming.rs"]
+mod mapper_naming;
+#[path = "dto_links.rs"]
+mod dto_links;
+#[path = "dto_validation.rs"]
+mod dto_validation;
+#[path = "entity_view_window.rs"]
+mod entity_view_window;
+#[path = "entity_view_options.rs"]
+mod entity_view_options;
+#[path = "dto_assoc_action.rs"]
+mod dto_assoc_action;
+#[path = "pojo_relations.rs"]
+mod pojo_relations;
 #[path = "converter_action.rs"]
 mod converter_action;
 #[path = "hibernate_action.rs"]
@@ -130,6 +144,8 @@ enum Operation {
     ModelMapperConfig,
     ModelMapperConversion,
     BlazeEntityView,
+    BlazeEntityViewOptions,
+    DtoAssociations,
     AttributeConverter,
     HibernateUserType,
     HibernateJson,
@@ -200,6 +216,8 @@ impl Operation {
             Self::ModelMapperConfig => "modelmapper-config",
             Self::ModelMapperConversion => "modelmapper-conversion",
             Self::BlazeEntityView => "blaze-entity-view",
+            Self::BlazeEntityViewOptions => "blaze-entity-view-options",
+            Self::DtoAssociations => "dto-associations",
             Self::AttributeConverter => "attribute-converter",
             Self::HibernateUserType => "hibernate-user-type",
             Self::HibernateJson => "hibernate-json",
@@ -579,6 +597,9 @@ impl FileActions for JpaAssist {
                 operations.push((Operation::FlatDto, nested_dto_action::FLAT_TITLE));
             }
         }
+        if dto_assoc_action::eligible(doc) {
+            operations.push((Operation::DtoAssociations, dto_assoc_action::TITLE));
+        }
         if mapper_action::eligible(doc) {
             operations.push((Operation::MapstructMapper, mapper_action::TITLE));
         }
@@ -598,6 +619,7 @@ impl FileActions for JpaAssist {
         }
         if modelmapper_action::eligible_view(doc) {
             operations.push((Operation::BlazeEntityView, modelmapper_action::VIEW_TITLE));
+            operations.push((Operation::BlazeEntityViewOptions, entity_view_options::TITLE));
         }
         if converter_action::eligible(doc) {
             operations.push((Operation::AttributeConverter, converter_action::TITLE));
@@ -783,6 +805,8 @@ impl FileActions for JpaAssist {
             Operation::ModelMapperConfig => modelmapper_action::resolve_config(&pending, doc, &project),
             Operation::ModelMapperConversion => modelmapper_action::resolve_conversion(&pending, doc, &project),
             Operation::BlazeEntityView => modelmapper_action::resolve_view(&pending, doc, &project),
+            Operation::BlazeEntityViewOptions => entity_view_options::resolve(&pending, doc, &project),
+            Operation::DtoAssociations => dto_assoc_action::resolve(&pending, doc, &project),
             Operation::AttributeConverter => converter_action::resolve(&pending, doc, &project),
             Operation::HibernateUserType => hibernate_action::resolve_type_action(&pending, doc, &project),
             Operation::HibernateJson => hibernate_action::resolve_json_action(&pending, doc, &project),
