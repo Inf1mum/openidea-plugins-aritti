@@ -1,0 +1,67 @@
+{
+  "id": "RS-509",
+  "rows": [
+    "G121"
+  ],
+  "claimIds": [
+    "G121-C1",
+    "G121-C2"
+  ],
+  "verifies": {
+    "G121-C1": "the action is offered on a document holding a SchemaManagementException stack trace with Hibernate's Schema-validation messages (the ddl-auto=validate start-up failure) and refuses nothing else; that Hibernate raises the exception for ddl-auto=validate is Hibernate behaviour and is not checked (RS-510 checks the action is absent without the trace)",
+    "G121-C2": "DDL filling the difference between the entities and the database is generated from the trace: the reported missing column becomes ALTER TABLE ... ADD COLUMN and the missing table a CREATE TABLE from the entity model, a missing sequence is reported as not generated, nothing is generated for tables or columns the trace does not name; the exact trigger (intention in the run console) and the output format of the original are not documented and not checked; there is no live database"
+  },
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "logs/startup.log",
+        "content": "2024-01-31 10:00:00 ERROR o.s.boot.SpringApplication : Application run failed\norg.springframework.beans.factory.BeanCreationException: Error creating bean with name 'entityManagerFactory'\nCaused by: org.hibernate.tool.schema.spi.SchemaManagementException: Schema-validation: missing column [email] in table [client]\n\tat org.hibernate.tool.schema.internal.AbstractSchemaValidator.validateTable(AbstractSchemaValidator.java:100)\nCaused by: org.hibernate.tool.schema.spi.SchemaManagementException: Schema-validation: missing table [invoice]\nSchema-validation: missing sequence [client_seq]\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "logs/startup.log",
+    "anchor": "SchemaManagementException",
+    "language": "plaintext"
+  },
+  "action": {
+    "title": "Generate DDL for schema-validation errors…"
+  },
+  "prompts": [
+    {
+      "pick": "postgresql"
+    },
+    {
+      "confirm": "yes"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "createdFiles": [
+      {
+        "path": "db/jpa-schema-repair.sql",
+        "contains": [
+          "ALTER TABLE \"client\" ADD COLUMN \"email\"",
+          "CREATE TABLE \"invoice\""
+        ]
+      }
+    ],
+    "resultFile": {
+      "path": "db/jpa-schema-repair.sql",
+      "notContains": [
+        "phone",
+        "display_name"
+      ]
+    }
+  },
+  "checks": {
+    "preview": true,
+    "undo": true,
+    "cancelEach": true
+  },
+  "note": "Repair DDL from a pasted startup log."
+}

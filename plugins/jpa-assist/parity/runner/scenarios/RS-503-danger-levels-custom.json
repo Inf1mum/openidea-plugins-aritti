@@ -1,0 +1,155 @@
+{
+  "id": "RS-503",
+  "rows": [
+    "G108"
+  ],
+  "claimIds": [
+    "G108-C3"
+  ],
+  "verifies": {
+    "G108-C3": "schemaDangerLevels (a settings page row per change type) changes the level shown for dropColumn from DANGER to CAUTION in the preview while addColumn keeps SAFE; the settings location Tools > Database Versioning > Diff Changes is not reproduced, and the override changes only the label, not which statements are withheld"
+  },
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "swap": {
+        "file": "pom.xml",
+        "with": "liquibase-variant/pom.xml"
+      }
+    },
+    {
+      "swap": {
+        "file": "src/main/resources/application.properties",
+        "with": "liquibase-variant/overlay/application.properties"
+      }
+    },
+    {
+      "delete": "src/main/resources/db/migration"
+    },
+    {
+      "delete": "src/main/java/db/migration"
+    },
+    {
+      "copy": {
+        "from": "liquibase-variant/overlay/resources/db/changelog",
+        "to": "src/main/resources/db/changelog"
+      }
+    },
+    {
+      "settings": {
+        "liquibaseChangelogNamePattern": "diff-{description}.xml",
+        "schemaDangerLevels": [
+          {
+            "changeType": "dropColumn",
+            "level": "CAUTION"
+          }
+        ]
+      }
+    }
+  ],
+  "preActions": [
+    {
+      "title": "Create schema baseline…",
+      "target": {
+        "file": "src/main/java/com/example/billing/domain/Client.java",
+        "anchor": "class Client"
+      },
+      "prompts": [
+        {
+          "confirm": "yes"
+        }
+      ]
+    }
+  ],
+  "postSetup": [
+    {
+      "replace": {
+        "file": "src/main/java/com/example/billing/domain/Client.java",
+        "from": "    private String notes;",
+        "to": "    @Column(nullable = true)\n    private Integer score;"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/billing/domain/Client.java",
+    "anchor": "class Client"
+  },
+  "action": {
+    "title": "Generate Liquibase changelog from model changes…"
+  },
+  "prompts": [
+    {
+      "pickMany": [
+        "data-loss"
+      ]
+    },
+    {
+      "input": "jpa-assist"
+    },
+    {
+      "input": "cs"
+    },
+    {
+      "input": "model_changes"
+    },
+    {
+      "confirm": "yes"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pickMany",
+        "titleContains": "withheld",
+        "name": "withheld changes opt-in"
+      },
+      {
+        "kind": "input",
+        "titleContains": "changeSet author",
+        "name": "author"
+      },
+      {
+        "kind": "input",
+        "titleContains": "id prefix",
+        "name": "id prefix"
+      },
+      {
+        "kind": "input",
+        "titleContains": "description",
+        "name": "description"
+      },
+      {
+        "kind": "confirm",
+        "titleContains": "incomplete",
+        "name": "unknown facts reported"
+      },
+      {
+        "kind": "confirm",
+        "titleContains": "Create Liquibase changelog",
+        "messageContains": "[SAFE] addColumn client_aud.score\n[CAUTION] dropColumn client.notes",
+        "name": "preview before saving"
+      }
+    ],
+    "createdFiles": [
+      {
+        "path": "src/main/resources/db/changelog/diff-model_changes.xml",
+        "contains": [
+          "<dropColumn tableName=\"client\" columnName=\"notes\"/>"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": {
+      "paths": [
+        "diff-model_changes.xml"
+      ]
+    },
+    "undo": true
+  },
+  "note": "Customised level for dropColumn."
+}

@@ -1,0 +1,64 @@
+{
+  "id": "RS-508",
+  "rows": [
+    "G114"
+  ],
+  "claimIds": [
+    "G114-C1",
+    "G114-C2"
+  ],
+  "verifies": {
+    "G114-C1": "column-name half of the sentence: inside <column name=\"\"> under an addColumn whose tableName is client the column names are offered",
+    "G114-C2": "the column names come from the JPA entity model of that table: display_name (from @Column(name)) and email are offered, a column of another table (number of invoice) and an invented name are not"
+  },
+  "fixture": "envers-flyway-liquibase",
+  "kind": "completion",
+  "setup": [
+    {
+      "swap": {
+        "file": "pom.xml",
+        "with": "liquibase-variant/pom.xml"
+      }
+    },
+    {
+      "swap": {
+        "file": "src/main/resources/application.properties",
+        "with": "liquibase-variant/overlay/application.properties"
+      }
+    },
+    {
+      "delete": "src/main/resources/db/migration"
+    },
+    {
+      "delete": "src/main/java/db/migration"
+    },
+    {
+      "copy": {
+        "from": "liquibase-variant/overlay/resources/db/changelog",
+        "to": "src/main/resources/db/changelog"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/resources/db/changelog/changes/003-probe.xml",
+        "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<databaseChangeLog xmlns=\"http://www.liquibase.org/xml/ns/dbchangelog\">\n    <changeSet id=\"3\" author=\"a\">\n        <addColumn tableName=\"client\">\n            <column name=\"\"/>\n        </addColumn>\n    </changeSet>\n</databaseChangeLog>\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/resources/db/changelog/changes/003-probe.xml",
+    "anchor": "<column name=\"",
+    "at": "end"
+  },
+  "expect": {
+    "completionsInclude": [
+      "display_name",
+      "email"
+    ],
+    "completionsExclude": [
+      "number",
+      "zzz"
+    ]
+  },
+  "note": "Column name completion in a Liquibase changelog."
+}

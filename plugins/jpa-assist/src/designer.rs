@@ -793,13 +793,14 @@ fn plan_json(project: &openidea_plugin::Project, root: &str) -> Result<Value, Er
     let pending_baseline = migration::read_optional(project, &next)?.is_some();
     let truncated = plan.changes.len() > MAX_PLAN_CHANGES || plan.notes.len() > MAX_PLAN_NOTES;
     let targets = sql::backfill_targets(&plan, &[]);
+    let levels = crate::file_actions::danger_levels::overrides().unwrap_or_default();
     let changes: Vec<Value> = plan
         .changes
         .iter()
         .take(MAX_PLAN_CHANGES)
         .map(|planned| {
             let (kind, table, detail) = change_summary(&planned.change);
-            let mut item = json!({"kind":kind,"table":table,"detail":detail,"danger":planned.danger,"reason":planned.reason});
+            let mut item = json!({"kind":kind,"table":table,"detail":detail,"danger":planned.danger,"reason":planned.reason,"level":crate::file_actions::danger_levels::level_of(planned, &levels).label()});
             if let schema::Change::RenameCandidate { from, to, .. } = &planned.change {
                 item["from"] = json!(from);
                 item["to"] = json!(to);

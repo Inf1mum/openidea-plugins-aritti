@@ -321,6 +321,8 @@ fn persistence_properties(text: &str) -> Vec<(String, String)> {
 pub enum Scope {
     All,
     Unit { name: String, classes: Vec<String>, exclude_unlisted: bool },
+    /// The base scope narrowed to the listed entity classes (Init DDL "Selected Entities").
+    Entities { base: Box<Scope>, classes: Vec<String> },
 }
 
 impl Scope {
@@ -344,6 +346,29 @@ impl Scope {
 
         Some(Scope::Unit { name: unit.to_owned(), classes, exclude_unlisted })
     }
+}
+
+/// Qualified names of the entities a scope covers, for the "Selected Entities" choice.
+pub fn entity_names(docs: &[Document], scope: &Scope) -> Vec<String> {
+    let mut names = Vec::new();
+    for doc in docs {
+        if !doc.text.contains("@Entity") || model::language_of(&doc.path).is_none() || doc.text.len() > MAX_TEXT {
+            continue;
+        }
+        let Some(info) = Info::parse(doc) else {
+            continue;
+        };
+        let listed = match scope {
+            Scope::Unit { classes, .. } => classes.contains(&info.qualified),
+            _ => true,
+        };
+        if info.class.kind == Kind::Entity && listed {
+            names.push(info.qualified.clone());
+        }
+    }
+    names.sort();
+    names.dedup();
+    names
 }
 
 pub struct ScopedSnapshot {
@@ -390,7 +415,14 @@ const AUDIT_NOTE_SEQUENCES: &str = "sequence objects (for example REVINFO_SEQ) a
 const AUDIT_NOTE_COLLECTIONS: &str = "audit tables of collections and join tables are not modelled";
 
 fn build(docs: &[Document], scope: &Scope, naming: &NamingStrategy, envers: &EnversConfig) -> ScopedSnapshot {
+    let (scope, selected) = match scope {
+        Scope::Entities { base, classes } => (&**base, Some(classes)),
+        other => (other, None),
+    };
     let mut notes: Vec<String> = Vec::new();
+    if let Some(classes) = selected {
+        notes.push(format!("limited to {} selected entities; foreign keys to entities outside the selection are not checked", classes.len()));
+    }
     let mut complete = true;
     let mut infos = Vec::new();
 
@@ -448,6 +480,9 @@ fn build(docs: &[Document], scope: &Scope, naming: &NamingStrategy, envers: &Env
             if !classes.contains(&model.infos[idx].qualified) {
                 continue;
             }
+        }
+        if selected.is_some_and(|classes| !classes.contains(&model.infos[idx].qualified)) {
+            continue;
         }
         let (table, built) = model.build_table(idx);
         if let (Some(base), Some(built)) = (&table, &built) {
@@ -568,19 +603,36 @@ struct BaselineFile {
     notes: Vec<String>,
 }
 
-pub fn baseline_json(snapshot: &SchemaSnapshot, options: &BaselineOptions) -> Result<String, String> {
-    snapshot.validate().map_err(|e| format!("{e:?}"))?;
-    let mut sorted = snapshot.clone();
-    sorted.normalize();
-
-    let scope = match options.scope {
+fn scope_json(scope: &Scope) -> serde_json::Value {
+    match scope {
         Scope::All => serde_json::json!({ "kind": "all" }),
         Scope::Unit { name, classes, exclude_unlisted } => {
             let mut classes = classes.clone();
             classes.sort();
             serde_json::json!({ "kind": "unit", "name": name, "classes": classes, "excludeUnlistedClasses": exclude_unlisted })
         }
-    };
+        Scope::Entities { base, classes } => {
+            let mut value = scope_json(base);
+            let mut classes = classes.clone();
+            classes.sort();
+            value["entities"] = serde_json::json!(classes);
+            value
+        }
+    }
+}
+
+/// The entity classes a baseline was limited to; `None` when it covers its whole scope.
+pub fn recorded_entities(json: &str) -> Option<Vec<String>> {
+    let value: serde_json::Value = serde_json::from_str(json).ok()?;
+    value.get("scope")?.get("entities")?.as_array()?.iter().map(|v| v.as_str().map(str::to_owned)).collect()
+}
+
+pub fn baseline_json(snapshot: &SchemaSnapshot, options: &BaselineOptions) -> Result<String, String> {
+    snapshot.validate().map_err(|e| format!("{e:?}"))?;
+    let mut sorted = snapshot.clone();
+    sorted.normalize();
+
+    let scope = scope_json(options.scope);
     let mut notes = options.notes.to_vec();
     notes.sort();
     notes.dedup();
@@ -599,7 +651,7 @@ pub fn recorded_unit(json: &str) -> Option<String> {
 pub fn scoped_json(scoped: &ScopedSnapshot, scope: &Scope) -> Result<String, String> {
     match scope {
         Scope::All => snapshot_json(&scoped.snapshot),
-        Scope::Unit { .. } => baseline_json(&scoped.snapshot, &BaselineOptions { scope, notes: &scoped.notes }),
+        Scope::Unit { .. } | Scope::Entities { .. } => baseline_json(&scoped.snapshot, &BaselineOptions { scope, notes: &scoped.notes }),
     }
 }
 
@@ -1535,6 +1587,17 @@ public class Order {{
         assert!(scoped.snapshot.complete);
         assert!(scoped.notes.is_empty());
         assert_eq!(snapshot_from_entities_scoped(&two_entities(), &Scope::All).snapshot.tables.len(), 4);
+    }
+
+    #[test]
+    fn selected_entities_narrow_the_scope_and_are_recorded() {
+        let scope = Scope::Entities { base: Box::new(Scope::All), classes: vec!["shop.Customer".into()] };
+        let scoped = snapshot_from_entities_scoped(&two_entities(), &scope);
+        assert_eq!(scoped.snapshot.tables.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(), ["customers"]);
+        let json = scoped_json(&scoped, &scope).unwrap();
+        assert_eq!(recorded_entities(&json), Some(vec!["shop.Customer".to_owned()]));
+        assert_eq!(recorded_unit(&json), None);
+        assert_eq!(entity_names(&two_entities(), &Scope::All), ["shop.Customer", "shop.Invoice"]);
     }
 
     #[test]

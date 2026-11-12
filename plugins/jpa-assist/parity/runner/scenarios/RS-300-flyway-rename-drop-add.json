@@ -58,6 +58,12 @@
       ]
     },
     {
+      "pick": "keep"
+    },
+    {
+      "pick": "keep"
+    },
+    {
       "input": "rename_email"
     },
     {
@@ -89,6 +95,20 @@
           "data-loss"
         ],
         "name": "opt-in to withheld statements"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "merge into a rename",
+        "optionsInclude": [
+          "keep",
+          "merge"
+        ],
+        "name": "rename merge offered, declined"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "merge into a rename",
+        "name": "rename merge offered for the audit table, declined"
       },
       {
         "kind": "input",
