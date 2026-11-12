@@ -6,6 +6,7 @@
   const attr = window.jpaAttribute;
   const rel = window.jpaRelationship;
   const mig = window.jpaMigration;
+  const rev = window.jpaReverse, preview = window.jpaPreview;
   const tabs = ['inspect', 'create', 'changes', 'migration'];
   let frame = makeFrame(), sequence = 0, root = null, busy = false, grid = null, model = null;
   let pendingRequest = null;
@@ -37,7 +38,7 @@
     $('action-discard').disabled = $('reset').disabled;
     $('action-add-attribute').disabled = busy || pending || !root || !model || !!model.empty;
     window.jpaPalette.configure(!model || model.empty || !model.source ? 'Inspect an entity first.' : busy || pending ? 'Finish the current request or preview first.' : '');
-    mig.freeze(busy); $('mig-plan').disabled = busy || !root;
+    mig.freeze(busy); rev.freeze(busy); $('mig-plan').disabled = busy || !root;
     const dirtyMessage = 'Preview or reset your edits before inspecting another attribute.';
     if (!busy && !pending && dirty) $('status').textContent = dirtyMessage;
     else if ($('status').textContent === dirtyMessage) $('status').textContent = '';
@@ -100,7 +101,7 @@
     $('add-attribute').open = true; $('attr-name').focus(); $('add-attribute').scrollIntoView({block: 'nearest'});
   }
   function render(next) {
-    if (model && model.root !== next.root) mig.clear();
+    if (model && model.root !== next.root) { mig.clear(); rev.clear(); }
     model = next; root = next.root;
     creator.configure(next.creation || null); attr.configure(next.empty ? null : next.source);
     rel.configure(next.empty ? null : next.relationship || null, next.source, next.selected);
@@ -132,7 +133,7 @@
     if (message.frame !== frame || message.sequence !== pendingRequest?.sequence) return;
     const completed = pendingRequest.operation.kind;
     clearTimeout(pendingRequest.timer); pendingRequest = null; busy = false;
-    if (message.reset) { frame = makeFrame(); sequence = 0; root = null; model = null; grid = null; creator.configure(null); attr.configure(null); rel.configure(null); mig.clear(); send({kind: 'snapshot'}); return; }
+    if (message.reset) { frame = makeFrame(); sequence = 0; root = null; model = null; grid = null; creator.configure(null); attr.configure(null); rel.configure(null); mig.clear(); rev.clear(); send({kind: 'snapshot'}); return; }
     // A rejected request must not erase unprepared user input. A changed owner
     // or source revision still forces a fresh model rather than rebasing edits.
     const sameSource = model?.source && message.model?.source && model.root === message.model.root
@@ -147,6 +148,7 @@
       mig.freeze(false);
       if (message.ok) $('status').textContent = '';
     }
+    if (completed.startsWith('reverse-')) { if (message.ok && message.reverse) rev.show(message.reverse); controls(); }
     if (message.ok && completed === 'apply') { tab('inspect'); $('status').textContent = 'Source updated. Undo is available in the editor.'; }
     if (message.ok && completed === 'bind-creation') tab('create');
     if (message.ok && completed === 'reset') { creator.reset(); attr.reset(); rel.reset(); tab(model?.creation ? 'create' : 'inspect'); controls(); }
@@ -162,6 +164,8 @@
   $('bind-creation').addEventListener('click', () => send({kind: 'bind-creation'}, 'bind-creation'));
   $('prepare-class').addEventListener('click', () => { if (creator.valid()) send({kind: 'prepare-class', draft: creator.draft()}, 'prepare-class'); });
   mig.onChange(controls);
+  rev.onRequest(operation => send(operation));
+  preview.onRoutes(routes => send(routes ? {kind: 'plan-migration', routes} : {kind: 'plan-migration'}, 'mig-plan'));
   $('mig-plan').addEventListener('click', () => send({kind: 'plan-migration'}, 'mig-plan'));
   $('mig-generate').addEventListener('click', () => { if (mig.valid()) send({kind: 'generate-migration', ...mig.draft()}, 'mig-generate'); });
   creator.onChange(controls); attr.onChange(controls); rel.onChange(controls);

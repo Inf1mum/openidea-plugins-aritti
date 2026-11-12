@@ -15,8 +15,9 @@
    "supports": "click the Refresh IDEA Data Source icon",
    "source": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
    "strength": "explicit",
-   "ourFeature": "not implemented",
-   "verifiableHeadless": false
+   "ourFeature": "Designer 'From database / SQL' panel (reverse_panel.rs, web/reverse.js)",
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Headless on the SURFACE equivalent only for re-running on demand: the panel's Refresh data source icon button re-lists the SQL files and re-reads the selected file and the entity scan (browser check: refresh sends reverse-sources then reverse-inventory). Not checked: syncing an IDE data source with a live database; no connection is made."
   }
  ],
  "undocumented": [

@@ -1,10 +1,10 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="./resources/tokens.css"><link rel="stylesheet" href="./resources/components.css">
-<link rel="stylesheet" href="./resources/property-grid.css"><link rel="stylesheet" href="./designer.css">
+<link rel="stylesheet" href="./resources/property-grid.css"><link rel="stylesheet" href="./designer.css"><link rel="stylesheet" href="./reverse.css">
 <script defer src="./resources/native-icons.js"></script><script defer src="./resources/icons.js"></script>
 <script defer src="./resources/widgets.js"></script><script defer src="./resources/controls.js"></script>
-<script defer src="./resources/property-grid.js"></script><script defer src="./creator.js"></script><script defer src="./palette.js"></script><script defer src="./attribute.js"></script><script defer src="./relationship.js"></script><script defer src="./migration.js"></script><script defer src="./designer.js"></script>
+<script defer src="./resources/property-grid.js"></script><script defer src="./creator.js"></script><script defer src="./palette.js"></script><script defer src="./attribute.js"></script><script defer src="./relationship.js"></script><script defer src="./preview.js"></script><script defer src="./migration.js"></script><script defer src="./reverse.js"></script><script defer src="./designer.js"></script>
 </head><body class="ui-embedded-panel">
 <div class="designer-shell">
   <div class="ui-toolbar" role="toolbar" aria-label="Persistence inspection">
@@ -180,6 +180,7 @@
         <p id="create-validation" class="ui-help" role="status" aria-live="polite"></p>
         <button class="ui-button ui-button--primary" id="prepare-class" type="button" disabled>Preview Class</button>
       </form>
+      <section class="designer-section" id="reverse-root" aria-label="From database / SQL"></section>
     </section>
     <section id="changes-panel" role="tabpanel" aria-labelledby="tab-changes" hidden>
       <div class="ui-empty" id="no-changes"><p>No prepared changes. Edit a supported property, then preview the result.</p></div>
@@ -197,6 +198,7 @@
       <div id="mig-result" hidden>
         <p id="mig-summary" class="ui-help" role="status" aria-live="polite"></p>
         <ul id="mig-incomplete" class="ui-alert ui-alert--warning migration-list" hidden></ul>
+        <div id="mig-routing"></div>
         <div id="mig-groups"></div>
         <details id="mig-notes" hidden><summary>Facts that could not be compared</summary><ul id="mig-notes-list" class="migration-list"></ul></details>
         <form id="mig-options" class="creator-form" novalidate>
