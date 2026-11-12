@@ -21,7 +21,7 @@ use std::collections::BTreeMap;
 const HELPER: &str = include_str!("../helper/Helper.java");
 const HELPER_FILE: &str = "JdbcHelper.java";
 const DRIVERS_FILE: &str = "jdbc-drivers.json";
-const PROFILES_KEY: &str = "jdbc.profiles";
+pub(crate) const PROFILES_KEY: &str = "jdbc.profiles";
 const CONFIRMED_KEY: &str = "jdbc.confirmed";
 const MAX_CONFIRMED: usize = 200;
 const TITLE: &str = "JPA Assist";
@@ -86,6 +86,26 @@ fn install_helper() -> Result<String, Error> {
 fn load_profiles() -> Result<Vec<Profile>, Error> {
     let text = host::storage::get(PROFILES_KEY)?;
     parse_profiles(text.as_deref()).map_err(Error::Invalid)
+}
+
+pub fn saved_profiles() -> Result<Vec<Profile>, Error> {
+    load_profiles()
+}
+
+/// Shows one saved profile: never the password, which is not stored.
+pub fn describe_saved(name: &str) {
+    let text = match load_profiles().map(|profiles| profiles.into_iter().find(|p| p.name == name)) {
+        Ok(Some(p)) => format!(
+            "`{}`: {} {}, user {}, driver jar {}. The password is asked for when connecting.",
+            p.name,
+            p.dbms.label(),
+            p.target(),
+            p.user.as_deref().filter(|u| !u.is_empty()).unwrap_or("(none)"),
+            p.driver_jar.as_deref().unwrap_or("from the driver registry"),
+        ),
+        _ => format!("Connection `{name}` is no longer saved."),
+    };
+    info(&text);
 }
 
 fn save_profiles(profiles: &[Profile]) -> Result<(), Error> {

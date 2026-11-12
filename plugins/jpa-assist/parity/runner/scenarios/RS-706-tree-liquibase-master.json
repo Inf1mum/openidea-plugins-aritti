@@ -1,0 +1,34 @@
+{
+  "rows": [],
+  "claimIds": [],
+  "verifies": {},
+  "kindExerciser": true,
+  "fixture": "boot-jpa-java-jakarta",
+  "id": "RS-706",
+  "kind": "tree",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/resources/db/changelog/db.changelog-master.xml",
+        "content": "<databaseChangeLog xmlns=\"http://www.liquibase.org/xml/ns/dbchangelog\">\n  <include file=\"db/changelog/001-init.xml\"/>\n</databaseChangeLog>\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/resources/db/changelog/001-init.xml",
+        "content": "<databaseChangeLog xmlns=\"http://www.liquibase.org/xml/ns/dbchangelog\">\n</databaseChangeLog>\n"
+      }
+    }
+  ],
+  "action": {
+    "view": "structure"
+  },
+  "expect": {
+    "treeNodes": [
+      "Liquibase",
+      "db.changelog-master.xml",
+      "master · 1 include entries"
+    ]
+  },
+  "note": "Kind exerciser, covers no documented claim (G001/G002/G039 describe the tool window, a desktop surface): a top-level Liquibase group lists the master changelog found in the project."
+}

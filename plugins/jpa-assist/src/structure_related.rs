@@ -1,6 +1,7 @@
 //! Persistence tree grouping: persistence units and the artifacts related to each entity.
 //! Purely lexical. A fact that cannot be established from scanned source is labelled unknown, never guessed.
 use crate::model::{Class, Relation};
+use crate::structure_artifacts::Found;
 use crate::xml;
 use openidea_plugin::views::TreeItem;
 use openidea_plugin::{Location, Position, Project};
@@ -109,6 +110,7 @@ pub struct Related<'a> {
     duplicates: &'a HashSet<String>,
     repositories: &'a HashMap<String, Vec<(String, Location)>>,
     repositories_complete: bool,
+    linked: &'a HashMap<String, Vec<Found>>,
     incoming: HashMap<&'a str, Vec<(&'a Class, &'a crate::model::Attribute, &'static str)>>,
 }
 
@@ -118,8 +120,9 @@ impl<'a> Related<'a> {
         duplicates: &'a HashSet<String>,
         repositories: &'a HashMap<String, Vec<(String, Location)>>,
         repositories_complete: bool,
+        linked: &'a HashMap<String, Vec<Found>>,
     ) -> Self {
-        let mut related = Self { entities, duplicates, repositories, repositories_complete, incoming: HashMap::new() };
+        let mut related = Self { entities, duplicates, repositories, repositories_complete, linked, incoming: HashMap::new() };
         for owner in entities {
             for attribute in &owner.attributes {
                 let Some(role) = role(attribute.relation) else { continue };
@@ -174,6 +177,31 @@ impl<'a> Related<'a> {
             *budget -= shown;
         };
 
+        let mut outgoing = Vec::new();
+        for attribute in &entity.attributes {
+            let Some(role) = role(attribute.relation) else { continue };
+            let key = format!("{ARTIFACT_PREFIX}outgoing:{}#{}", entity.path, attribute.name);
+            let detail = |state: &str| format!("{role} via {} · {state}", attribute.name);
+            outgoing.push(match self.resolve(&attribute.target) {
+                Target::Entity(target) => (key, target.name.clone(), detail("entity"), "db-foreign-key", (target.path.clone(), target.pos)),
+                Target::Ambiguous => (key, attribute.target.clone(), detail("unknown: duplicate simple name"), "db-foreign-key", (entity.path.clone(), attribute.pos)),
+                Target::Unknown => (key, attribute.target.clone(), detail("unknown: not a scanned entity"), "db-foreign-key", (entity.path.clone(), attribute.pos)),
+            });
+        }
+        group("outgoing", "Refers to", outgoing, items, locations, budget);
+
+        let mut incoming = Vec::new();
+        if self.duplicates.contains(&entity.name) {
+            let key = format!("{ARTIFACT_PREFIX}note:incoming-ambiguous:{}", entity.path);
+            incoming.push((key, "Unknown".into(), "duplicated simple name; incoming associations not attributed".into(), "db-foreign-key", at.clone()));
+        }
+        for (owner, attribute, role) in self.incoming.get(entity.path.as_str()).into_iter().flatten() {
+            let key = format!("{ARTIFACT_PREFIX}incoming:{}#{}", owner.path, attribute.name);
+            let label = format!("{}.{}", owner.name, attribute.name);
+            incoming.push((key, label, format!("{role} · owner scanned"), "db-foreign-key", (owner.path.clone(), attribute.pos)));
+        }
+        group("incoming", "Referenced by", incoming, items, locations, budget);
+
         let mut repositories = Vec::new();
         // The repository index keeps only the simple entity name, so a duplicated name cannot be attributed.
         let simple = self.repositories.get(&entity.name).filter(|_| !self.duplicates.contains(&entity.name));
@@ -196,30 +224,20 @@ impl<'a> Related<'a> {
         }
         group("repositories", "Repositories", repositories, items, locations, budget);
 
-        let mut outgoing = Vec::new();
-        for attribute in &entity.attributes {
-            let Some(role) = role(attribute.relation) else { continue };
-            let key = format!("{ARTIFACT_PREFIX}outgoing:{}#{}", entity.path, attribute.name);
-            let detail = |state: &str| format!("{role} via {} · {state}", attribute.name);
-            outgoing.push(match self.resolve(&attribute.target) {
-                Target::Entity(target) => (key, target.name.clone(), detail("entity"), "db-foreign-key", (target.path.clone(), target.pos)),
-                Target::Ambiguous => (key, attribute.target.clone(), detail("unknown: duplicate simple name"), "db-foreign-key", (entity.path.clone(), attribute.pos)),
-                Target::Unknown => (key, attribute.target.clone(), detail("unknown: not a scanned entity"), "db-foreign-key", (entity.path.clone(), attribute.pos)),
-            });
-        }
-        group("outgoing", "Outgoing associations", outgoing, items, locations, budget);
-
-        let mut incoming = Vec::new();
+        let mut dtos = Vec::new();
         if self.duplicates.contains(&entity.name) {
-            let key = format!("{ARTIFACT_PREFIX}note:incoming-ambiguous:{}", entity.path);
-            incoming.push((key, "Unknown".into(), "duplicated simple name; incoming associations not attributed".into(), "db-foreign-key", at.clone()));
+            if self.linked.get(&entity.name).is_some_and(|found| !found.is_empty()) {
+                let key = format!("{ARTIFACT_PREFIX}note:dto-ambiguous:{}", entity.path);
+                dtos.push((key, "Unknown".into(), "duplicated simple name; DTOs and projections not attributed".into(), "record", at.clone()));
+            }
+        } else {
+            for found in self.linked.get(&entity.name).into_iter().flatten() {
+                let key = format!("{ARTIFACT_PREFIX}linked:{}>{}", entity.path, found.path);
+                let icon = if found.detail.starts_with("Projection") { "interface" } else { "record" };
+                dtos.push((key, found.name.clone(), found.detail.clone(), icon, (found.path.clone(), found.pos)));
+            }
         }
-        for (owner, attribute, role) in self.incoming.get(entity.path.as_str()).into_iter().flatten() {
-            let key = format!("{ARTIFACT_PREFIX}incoming:{}#{}", owner.path, attribute.name);
-            let label = format!("{}.{}", owner.name, attribute.name);
-            incoming.push((key, label, format!("{role} · owner scanned"), "db-foreign-key", (owner.path.clone(), attribute.pos)));
-        }
-        group("incoming", "Incoming associations", incoming, items, locations, budget);
+        group("dtos", "DTOs and Projections", dtos, items, locations, budget);
 
         cut
     }
@@ -372,5 +390,228 @@ mod tests {
         plugin.handle("structure", ViewEvent::Button("expand-all".into()), &host.invocation()).unwrap();
         let (_, status) = tree(&mut plugin, &host);
         assert!(!status.unwrap().contains("incomplete"));
+    }
+
+    const MONEY_CONVERTER: &str = "package shop.conv;\nimport jakarta.persistence.*;\n@Converter(autoApply = true)\npublic class MoneyConverter implements AttributeConverter<Money, Long> {}\n";
+    const JSON_TYPE: &str = "package shop.conv;\npublic class JsonType implements UserType<Object> {}\n";
+    const UNIT_XML: &str = "<persistence><persistence-unit name=\"main\"><class>shop.Order</class></persistence-unit></persistence>";
+
+    #[test]
+    fn converters_and_custom_types_group_under_each_unit_and_open_their_files() {
+        let host = host();
+        host.add_file("src/META-INF/persistence.xml", UNIT_XML);
+        host.add_file("src/shop/conv/MoneyConverter.java", MONEY_CONVERTER);
+        host.add_file("src/shop/conv/JsonType.java", JSON_TYPE);
+        let mut plugin = JpaAssist::default();
+        let (items, _) = tree(&mut plugin, &host);
+        let unit = items.iter().find(|i| i.key.starts_with("unit:") && i.label == "main").unwrap();
+
+        let converters = find(&items, &format!("group:converters:{}", unit.key));
+        assert_eq!(converters.label, "JPA Converters");
+        assert_eq!(converters.parent.as_deref(), Some(unit.key.as_str()));
+        let converter = items.iter().find(|i| i.parent.as_deref() == Some(converters.key.as_str())).unwrap();
+        assert_eq!(converter.label, "MoneyConverter");
+        assert_eq!(converter.detail.as_deref(), Some("Money \u{2194} Long \u{b7} auto-apply"));
+        let types = find(&items, &format!("group:usertypes:{}", unit.key));
+        assert_eq!(types.label, "Hibernate Custom Types");
+        let user_type = items.iter().find(|i| i.parent.as_deref() == Some(types.key.as_str())).unwrap();
+        assert_eq!((user_type.label.as_str(), user_type.detail.as_deref()), ("JsonType", Some("UserType")));
+
+        plugin.handle("structure", ViewEvent::Activate(converter.key.clone()), &host.invocation()).unwrap();
+        plugin.handle("structure", ViewEvent::Activate(user_type.key.clone()), &host.invocation()).unwrap();
+        plugin.handle("structure", ViewEvent::Activate(converters.key.clone()), &host.invocation()).unwrap();
+        let opened = host.opened_locations();
+        assert_eq!(opened.len(), 2);
+        assert_eq!(opened[0].0, "/project/src/shop/conv/MoneyConverter.java");
+        assert_eq!(opened[1].0, "/project/src/shop/conv/JsonType.java");
+    }
+
+    #[test]
+    fn without_units_converters_sit_at_the_top_and_absent_ones_are_omitted() {
+        let host = host();
+        let mut plugin = JpaAssist::default();
+        let (items, _) = tree(&mut plugin, &host);
+        assert!(!items.iter().any(|i| i.key.starts_with("group:converters:") || i.key.starts_with("group:usertypes:")));
+        assert!(!items.iter().any(|i| i.key.starts_with("group:dtos:") || i.key == "group:liquibase:"));
+
+        host.add_file("src/shop/conv/MoneyConverter.java", MONEY_CONVERTER);
+        let mut plugin = JpaAssist::default();
+        let (items, _) = tree(&mut plugin, &host);
+        let converters = find(&items, "group:converters:");
+        assert_eq!(converters.parent, None);
+        assert!(!items.iter().any(|i| i.key.starts_with("group:usertypes:")));
+    }
+
+    #[test]
+    fn converter_group_is_bounded() {
+        let host = host();
+        for n in 0..25 {
+            host.add_file(&format!("src/shop/conv/C{n}.java"), &format!("package shop.conv;\npublic class C{n} implements AttributeConverter<A, B> {{}}\n"));
+        }
+        let mut plugin = JpaAssist::default();
+        let (items, status) = tree(&mut plugin, &host);
+        let group = find(&items, "group:converters:");
+        assert_eq!(group.detail.as_deref(), Some("20 of 25"));
+        assert_eq!(items.iter().filter(|i| i.parent.as_deref() == Some(group.key.as_str())).count(), 20);
+        assert!(status.unwrap().contains("truncated"));
+    }
+
+    #[test]
+    fn linked_dtos_and_projections_group_beside_repositories() {
+        let host = host();
+        host.add_file("src/shop/dto/OrderDto.java", "package shop.dto;\npublic record OrderDto(Long id) {}\n");
+        host.add_file("src/shop/dto/OrderProjection.java", "package shop.dto;\npublic interface OrderProjection {\n Long getId();\n}\n");
+        host.add_file("src/shop/dto/GhostDto.java", "package shop.dto;\npublic record GhostDto(Long id) {}\n");
+        host.add_file("src/shop/dto/CustomerDto.java", "package shop.dto;\npublic record SomethingElse(Long id) {}\n");
+        let mut plugin = JpaAssist::default();
+        let (items, _) = tree(&mut plugin, &host);
+        let order = format!("{ENTITY_KEY_PREFIX}/project/src/shop/Order.java");
+
+        let group = find(&items, "group:dtos:/project/src/shop/Order.java");
+        assert_eq!((group.label.as_str(), group.parent.as_deref()), ("DTOs and Projections", Some(order.as_str())));
+        let children: Vec<(&str, &str)> = items.iter().filter(|i| i.parent.as_deref() == Some(group.key.as_str())).map(|i| (i.label.as_str(), i.detail.as_deref().unwrap())).collect();
+        assert_eq!(children, [("OrderDto", "DTO \u{b7} linked by class name"), ("OrderProjection", "Projection \u{b7} linked by class name")]);
+        assert!(!items.iter().any(|i| i.key.starts_with("group:dtos:/project/src/shop/Customer")));
+        assert!(!items.iter().any(|i| i.label == "GhostDto" || i.label == "SomethingElse"));
+
+        let position = |key: &str| items.iter().position(|i| i.key == key).unwrap();
+        assert!(position("group:repositories:/project/src/shop/Order.java") < position(&group.key));
+
+        let dto = items.iter().find(|i| i.label == "OrderDto").unwrap();
+        plugin.handle("structure", ViewEvent::Activate(dto.key.clone()), &host.invocation()).unwrap();
+        assert_eq!(host.opened_locations()[0].0, "/project/src/shop/dto/OrderDto.java");
+    }
+
+    #[test]
+    fn dtos_of_a_duplicated_entity_name_are_unknown() {
+        let host = host();
+        host.add_file("src/other/Order.java", &entity("other", "Order", ""));
+        host.add_file("src/shop/dto/OrderDto.java", "package shop.dto;\npublic record OrderDto(Long id) {}\n");
+        let mut plugin = JpaAssist::default();
+        let (items, _) = tree(&mut plugin, &host);
+        assert!(!items.iter().any(|i| i.label == "OrderDto"));
+        assert!(items.iter().any(|i| i.key.starts_with("artifact:note:dto-ambiguous:")));
+    }
+
+    fn changelog(body: &str) -> String {
+        format!("<databaseChangeLog xmlns=\"http://www.liquibase.org/xml/ns/dbchangelog\">{body}</databaseChangeLog>")
+    }
+
+    #[test]
+    fn liquibase_group_lists_master_and_included_changelogs() {
+        let host = host();
+        host.add_file("src/main/resources/db/changelog/db.changelog-master.xml", &changelog("<include file=\"db/changelog/001-init.xml\"/>"));
+        host.add_file("src/main/resources/db/changelog/001-init.xml", &changelog(""));
+        host.add_file("src/main/resources/db/changelog/loose-changelog.yaml", "databaseChangeLog:\n  - changeSet: {}\n");
+        host.add_file("docs/changelog-notes.xml", "<notes/>");
+        let mut plugin = JpaAssist::default();
+        let (items, _) = tree(&mut plugin, &host);
+        let group = find(&items, "group:liquibase:");
+        assert_eq!((group.label.as_str(), group.parent.as_deref(), group.detail.as_deref()), ("Liquibase", None, Some("3")));
+        let children: Vec<(&str, &str)> = items.iter().filter(|i| i.parent.as_deref() == Some(group.key.as_str())).map(|i| (i.label.as_str(), i.detail.as_deref().unwrap())).collect();
+        assert_eq!(
+            children,
+            [
+                ("db.changelog-master.xml", "master \u{b7} 1 include entries"),
+                ("001-init.xml", "included by db.changelog-master.xml"),
+                ("loose-changelog.yaml", "changelog"),
+            ]
+        );
+        let master = items.iter().find(|i| i.label == "db.changelog-master.xml").unwrap();
+        plugin.handle("structure", ViewEvent::Activate(master.key.clone()), &host.invocation()).unwrap();
+        assert_eq!(host.opened_locations()[0].0, "/project/src/main/resources/db/changelog/db.changelog-master.xml");
+    }
+
+    #[test]
+    fn liquibase_group_is_bounded() {
+        let host = host();
+        for n in 0..60 {
+            host.add_file(&format!("src/main/resources/db/changelog/{n:03}-changelog.xml"), &changelog(""));
+        }
+        let mut plugin = JpaAssist::default();
+        let (items, _) = tree(&mut plugin, &host);
+        let group = find(&items, "group:liquibase:");
+        assert_eq!(group.detail.as_deref(), Some("50 of 51+"));
+        assert_eq!(items.iter().filter(|i| i.parent.as_deref() == Some(group.key.as_str())).count(), 50);
+    }
+
+    const SENTINEL: &str = "S3NT1NEL-pw";
+
+    fn profile(name: &str, url: &str) -> persistence_core::connection::Profile {
+        persistence_core::connection::Profile {
+            name: name.into(),
+            dbms: persistence_core::connection::Dbms::PostgreSql,
+            url_template: url.into(),
+            user: Some("app".into()),
+            driver_jar: None,
+            schema_filter: Default::default(),
+            spring_source: None,
+        }
+    }
+
+    #[test]
+    fn saved_connections_show_name_and_credential_free_target_never_a_password() {
+        let host = host();
+        let profiles = [profile("dev", "jdbc:postgresql://localhost:5432/scheduler?sslmode=require")];
+        openidea_plugin::host::storage::set("jdbc.profiles", &persistence_core::connection::profiles_json(&profiles)).unwrap();
+        let mut plugin = JpaAssist::default();
+        let (items, _) = tree(&mut plugin, &host);
+        let group = find(&items, "group:connections:");
+        assert_eq!((group.label.as_str(), group.parent.as_deref(), group.detail.as_deref()), ("DB connections", None, Some("1")));
+        let dev = find(&items, "connection:dev");
+        assert_eq!(dev.parent.as_deref(), Some(group.key.as_str()));
+        assert_eq!(dev.detail.as_deref(), Some("PostgreSQL: localhost:5432, database scheduler \u{b7} user app"));
+        assert_eq!(dev.icon.as_deref(), Some("db-postgres"));
+        for item in &items {
+            assert!(!format!("{item:?}").contains(SENTINEL), "{}", item.key);
+        }
+
+        plugin.handle("structure", ViewEvent::Activate(dev.key.clone()), &host.invocation()).unwrap();
+        let notes = host.notifications();
+        assert_eq!(notes.len(), 1);
+        assert!(notes[0].body.contains("localhost:5432, database scheduler") && !notes[0].body.contains(SENTINEL));
+        assert!(host.opened_locations().is_empty());
+    }
+
+    #[test]
+    fn a_stored_profile_with_a_password_in_its_url_is_unknown_and_never_shown() {
+        let host = host();
+        let profiles = [profile("dev", &format!("jdbc:postgresql://localhost:5432/scheduler?user=app&password={SENTINEL}"))];
+        openidea_plugin::host::storage::set("jdbc.profiles", &persistence_core::connection::profiles_json(&profiles)).unwrap();
+        let mut plugin = JpaAssist::default();
+        let (items, _) = tree(&mut plugin, &host);
+        assert_eq!(find(&items, "group:connections:").detail.as_deref(), Some("unknown"));
+        assert_eq!(find(&items, "connection:none").label, "Unknown");
+        for item in &items {
+            assert!(!format!("{item:?}").contains(SENTINEL), "{}", item.key);
+        }
+    }
+
+    #[test]
+    fn empty_connections_group_says_so_and_activating_it_runs_the_manage_command() {
+        let host = host();
+        let mut plugin = JpaAssist::default();
+        let (items, _) = tree(&mut plugin, &host);
+        let hint = find(&items, "connection:none");
+        assert_eq!(hint.label, "No saved connections");
+        assert_eq!(hint.parent.as_deref(), Some("group:connections:"));
+
+        let profiles = [profile("dev", "jdbc:postgresql://localhost:5432/scheduler")];
+        openidea_plugin::host::storage::set("jdbc.profiles", &persistence_core::connection::profiles_json(&profiles)).unwrap();
+        host.answer_next_prompt(Some(&["filter"]));
+        plugin.handle("structure", ViewEvent::Activate("group:connections:".into()), &host.invocation()).unwrap();
+        assert!(host.notifications().iter().any(|n| n.body.contains("Filter reset")));
+    }
+
+    #[test]
+    fn expand_all_opens_the_new_groups() {
+        let host = host();
+        host.add_file("src/shop/conv/MoneyConverter.java", MONEY_CONVERTER);
+        let mut plugin = JpaAssist::default();
+        tree(&mut plugin, &host);
+        plugin.handle("structure", ViewEvent::Button("expand-all".into()), &host.invocation()).unwrap();
+        let (items, _) = tree(&mut plugin, &host);
+        assert!(find(&items, "group:converters:").expandable);
+        assert!(find(&items, "group:connections:").expandable);
     }
 }
