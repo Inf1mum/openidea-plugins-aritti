@@ -1,0 +1,20 @@
+{
+  "rows": [],
+  "claimIds": [],
+  "verifies": {},
+  "kindExerciser": true,
+  "fixture": "boot-jpa-java-jakarta",
+  "id": "RS-701",
+  "kind": "tree",
+  "action": {
+    "view": "structure"
+  },
+  "expect": {
+    "treeNodes": [
+      "JPA Converters",
+      "DateStringConverter",
+      "LocalDate ↔ String"
+    ]
+  },
+  "note": "Kind exerciser, covers no documented claim (G001/G002/G039 describe the tool window, a desktop surface): the native structure view lists the fixture's attribute converter with its attribute and column types under a JPA Converters group."
+}

@@ -19,7 +19,7 @@ const DEFAULT_DTO_NAME_REGEXP: &str = "(?<entity>.*)Dto";
 
 /// The two declaration families that share the linking, sync and rename machinery; they differ only in settings and wording.
 #[derive(Clone, Copy, PartialEq)]
-pub(super) enum Kind {
+pub(crate) enum Kind {
     Projection,
     Dto,
 }
@@ -48,7 +48,7 @@ impl Kind {
 }
 const SCAN_LIMIT: u32 = 1001;
 
-pub(super) struct Conventions {
+pub(crate) struct Conventions {
     pub(super) postfix: String,
     name: Option<Regex>,
     comment: String,
@@ -73,7 +73,7 @@ impl Conventions {
         Self::load_for(Kind::Projection)
     }
 
-    pub(super) fn load_for(kind: Kind) -> Result<Self, String> {
+    pub(crate) fn load_for(kind: Kind) -> Result<Self, String> {
         let [postfix_key, name_key, comment_key, link_key] = kind.settings();
         let (default_postfix, default_regexp) = kind.defaults();
         let postfix = host::setting_string(postfix_key).unwrap_or_else(|| default_postfix.into());
@@ -93,7 +93,7 @@ impl Conventions {
     }
 
     /// The simple entity name a type named `stem` is linked to, by name pattern first, then by the first Javadoc in `text`.
-    pub(super) fn entity_of(&self, stem: &str, text: &str) -> Option<String> {
+    pub(crate) fn entity_of(&self, stem: &str, text: &str) -> Option<String> {
         let by_name = self.name.as_ref().and_then(|regex| regex.captures(stem)).and_then(|caps| caps.name("entity").map(|m| m.as_str().to_owned()));
         if by_name.is_some() {
             return by_name;

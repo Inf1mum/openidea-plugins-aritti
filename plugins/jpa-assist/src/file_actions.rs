@@ -79,7 +79,7 @@ mod hibernate_action;
 #[path = "projection_action.rs"]
 mod projection_action;
 #[path = "projection_links.rs"]
-mod projection_links;
+pub(crate) mod projection_links;
 #[path = "dto_conventions.rs"]
 mod dto_conventions;
 #[path = "dto_complete.rs"]

@@ -50,6 +50,7 @@ mod queries;
 mod relationship_edit;
 mod repository_completion;
 mod schema_snapshot;
+mod structure_artifacts;
 mod structure_related;
 mod wizard;
 mod xml;
@@ -617,6 +618,10 @@ pub struct JpaAssist {
     builds: HashMap<String, Build>,
     /// Repositories per project root, read lazily.
     repositories: HashMap<String, RepositoryIndex>,
+    /// Converters, custom types, linked DTOs and projections, changelogs of the structure root.
+    artifacts: structure_artifacts::Artifacts,
+    /// Non-entity group nodes of the last structure render, for Expand All.
+    structure_groups: HashSet<String>,
 }
 
 #[derive(Default)]
@@ -1219,6 +1224,8 @@ impl JpaAssist {
     fn scan(&mut self, project: &Project) -> Result<(), Error> {
         let task = host::begin_task("Finding JPA entities", true);
         let files = self.sources(project);
+        let links = structure_artifacts::Links::load();
+        self.artifacts = structure_artifacts::Artifacts::default();
 
         for (i, path) in files.iter().enumerate() {
             if task.is_cancelled() {
@@ -1232,6 +1239,7 @@ impl JpaAssist {
             let Ok(text) = project.read_file(path) else {
                 continue;
             };
+            self.artifacts.observe(&links, path, &text);
             if !["@Entity", "@MappedSuperclass", "@Embeddable"].iter().any(|m| text.contains(m)) {
                 continue;
             }
@@ -1244,6 +1252,7 @@ impl JpaAssist {
             }
         }
 
+        self.artifacts.sort();
         self.scanned = true;
         Ok(())
     }
@@ -1681,7 +1690,7 @@ impl JpaAssist {
     }
 
     fn navigate_structure(&self, key: &str, ctx: &Invocation) -> Result<(), Error> {
-        if key.starts_with(UNIT_PREFIX) && !self.locations.contains_key(key) { return Ok(()); }
+        if (key.starts_with(UNIT_PREFIX) || key.starts_with(GROUP_PREFIX)) && !self.locations.contains_key(key) { return Ok(()); }
         let (path, at) = self.locations.get(key).ok_or(Error::Stale)?;
         let project = ctx.project().ok_or(Error::Stale)?;
         if self.structure_root.as_deref() != Some(project.root()?.as_str())
@@ -1719,6 +1728,7 @@ impl Views for JpaAssist {
                 self.classes.clear(); self.sources.clear(); self.missing.clear();
                 self.locations.clear(); self.expanded.clear(); self.scanned = false;
                 self.duplicate_names.clear(); self.units = None; self.seeded_groups.clear();
+                self.artifacts = Default::default();
                 self.structure_root = Some(root.clone());
                 self.structure_located = None;
             }
@@ -1730,8 +1740,9 @@ impl Views for JpaAssist {
                 self.scan(&project)?;
             }
             let (repository_files, repositories_complete) = self.repository_facts(&project);
+            self.artifacts.changelogs(&project);
             if self.units.is_none() { self.units = Some(structure_related::units(&project)); }
-            for key in ["unit:unassigned", "unit:ambiguous"].map(String::from).into_iter().chain(self.units.iter().flatten().map(Unit::key)) {
+            for key in ["unit:unassigned", "unit:ambiguous", structure_artifacts::LIQUIBASE_KEY, structure_artifacts::CONNECTIONS_KEY].map(String::from).into_iter().chain(self.units.iter().flatten().map(Unit::key)) {
                 if self.seeded_groups.insert(key.clone()) { self.expanded.insert(key); }
             }
             let located = self.structure_located.as_ref();
@@ -1739,12 +1750,17 @@ impl Views for JpaAssist {
             let mut locations = HashMap::new();
             let entities = self.entities();
             let units = self.units.as_deref().unwrap_or_default();
-            let related = Related::new(&entities, &self.duplicate_names, &repository_files, repositories_complete);
+            let related = Related::new(&entities, &self.duplicate_names, &repository_files, repositories_complete, &self.artifacts.linked);
+            let mut structure_groups = HashSet::new();
+            let mut extras_cut = false;
             let mut related_budget = structure_related::MAX_RELATED_NODES;
             let mut related_cut = false;
 
             let mut groups: Vec<(Option<String>, Vec<&Class>)> = Vec::new();
             if units.is_empty() {
+                if !entities.is_empty() {
+                    extras_cut |= self.artifacts.unit_groups(None, &mut items, &mut locations, &mut structure_groups, &self.expanded);
+                }
                 groups.push((None, entities.clone()));
             } else {
                 let mut members: Vec<Vec<&Class>> = vec![Vec::new(); units.len()];
@@ -1762,6 +1778,7 @@ impl Views for JpaAssist {
                     let detail = format!("persistence.xml · {} listed", entities_count(entities.len()));
                     items.push(TreeItem::new(&key, &unit.name).icon("folder").detail(&detail).expandable(self.expanded.contains(&key)));
                     locations.insert(key.clone(), (unit.path.clone(), unit.pos));
+                    extras_cut |= self.artifacts.unit_groups(Some(&key), &mut items, &mut locations, &mut structure_groups, &self.expanded);
                     groups.push((Some(key), entities));
                 }
                 for (key, label, detail, entities) in [
@@ -1809,12 +1826,16 @@ impl Views for JpaAssist {
                 related_cut |= related.nodes(entity, &key, &self.expanded, &mut related_budget, &mut items, &mut locations);
             } }
 
+            extras_cut |= self.artifacts.liquibase_group(&mut items, &mut locations, &mut structure_groups, &self.expanded);
+            structure_artifacts::connection_group(jdbc_connect::saved_profiles(), &mut items, &mut structure_groups, &self.expanded);
+
             let mut status = entities_count(entities.len());
-            if related_cut { status.push_str(" · related artifacts truncated"); }
+            if related_cut || extras_cut { status.push_str(" · related artifacts truncated"); }
             if !repositories_complete { status.push_str(" · repository scan incomplete"); }
             if !self.duplicate_names.is_empty() { status.push_str(" · duplicate class names unknown"); }
             if let Some(located) = located { status.push_str(&format!(" · Located {}", file_stem(&located.path))); }
             self.locations = locations;
+            self.structure_groups = structure_groups;
 
             if items.is_empty() {
                 return Ok(View::message("No JPA entities found in this project.").button(Button::new("refresh", "Refresh").icon("refresh")));
@@ -1841,6 +1862,7 @@ impl Views for JpaAssist {
                 self.missing.clear();
                 self.duplicate_names.clear();
                 self.units = None;
+                self.artifacts.forget_changelogs();
                 self.repositories.clear();
                 self.scanned = false;
                 self.structure_located = None;
@@ -1850,9 +1872,15 @@ impl Views for JpaAssist {
                 if id == "expand-all" {
                     self.expanded.extend(self.locations.keys().filter(|key| key.starts_with(ENTITY_KEY_PREFIX) || key.starts_with(GROUP_PREFIX) || key.starts_with(UNIT_PREFIX)).cloned());
                     self.expanded.extend(["unit:unassigned", "unit:ambiguous"].map(String::from));
+                    self.expanded.extend(self.structure_groups.iter().cloned());
                 } else { self.expanded.clear(); }
                 host::refresh_view(view);
             }
+            ViewEvent::Activate(key) if key == structure_artifacts::CONNECTIONS_KEY || key == structure_artifacts::NO_CONNECTIONS_KEY => {
+                jdbc_connect::run("jdbc-manage", _ctx)?;
+                host::refresh_view(view);
+            }
+            ViewEvent::Activate(key) if key.starts_with(structure_artifacts::CONNECTION_PREFIX) => jdbc_connect::describe_saved(&key[structure_artifacts::CONNECTION_PREFIX.len()..]),
             ViewEvent::Activate(key) => self.navigate_structure(&key, _ctx)?,
             ViewEvent::Expand(key) => {
                 self.expanded.insert(key);
@@ -2518,7 +2546,7 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
         let view = plugin.render("structure", None, &host.invocation()).unwrap();
         let Body::Tree(items) = view.body else { panic!("a tree") };
         let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
-        assert_eq!(labels, ["Customer", "id", "name", "Incoming associations", "Order.customer", "Order", "id", "number", "customer", "Repositories", "OrderRepository", "Outgoing associations", "Customer"]);
+        assert_eq!(labels, ["Customer", "id", "name", "Referenced by", "Order.customer", "Order", "id", "number", "customer", "Refers to", "Customer", "Repositories", "OrderRepository", "DB connections", "No saved connections"]);
 
         assert_eq!(view.status.as_deref(), Some("2 entities"));
 
