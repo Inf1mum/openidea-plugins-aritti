@@ -6,6 +6,11 @@
       "enum": ["constructor", "field-autowired", "lombok-required-args"],
       "default": "constructor"
     },
+    "injectionAutoDetect": {
+      "type": "boolean",
+      "title": "Detect the bean injection type from the target class (an existing @RequiredArgsConstructor, @Autowired field or constructor injection) before falling back to injectionStyle",
+      "default": true
+    },
     "mapperComponentModel": {
       "type": "string",
       "title": "Default MapStruct componentModel offered first by Create MapStruct mapper (default, spring or jakarta-cdi; default keeps the original order)",
@@ -85,6 +90,47 @@
       "type": "string",
       "title": "Projection Declaration: comment link regexp linking a projection to its entity through its Javadoc; needs an (?<entity>...) group, empty disables",
       "default": ""
+    },
+    "dtoClassPostfix": {
+      "type": "string",
+      "title": "DTO Declaration: class name postfix of a generated DTO (default name is the entity name plus this; the DTO name must end with it)",
+      "default": "Dto"
+    },
+    "dtoNameRegexp": {
+      "type": "string",
+      "title": "DTO Declaration: class name regexp linking a DTO to its entity by type name; needs an (?<entity>...) group, empty disables",
+      "default": "(?<entity>.*)Dto"
+    },
+    "dtoClassComment": {
+      "type": "string",
+      "title": "DTO Declaration: class comment generated above a DTO type ({entity} is the qualified entity name, {entityName} the simple name), empty for none",
+      "default": ""
+    },
+    "dtoCommentLinkRegexp": {
+      "type": "string",
+      "title": "DTO Declaration: comment link regexp linking a DTO to its entity through its Javadoc; needs an (?<entity>...) group, empty disables",
+      "default": ""
+    },
+    "dtoSerializableType": {
+      "type": "string",
+      "title": "DTO Declaration: serializable type of a generated DTO (none, Serializable, or Serializable with a serialVersionUID)",
+      "enum": ["none", "serializable", "serializable-with-version-uid"],
+      "default": "none"
+    },
+    "dtoUseLombok": {
+      "type": "boolean",
+      "title": "DTO Declaration: offer the Lombok @Data form first when creating a DTO class",
+      "default": false
+    },
+    "repositoryClassSuffix": {
+      "type": "string",
+      "title": "Spring Data Repository: class name suffix that makes an unresolved reference offer to create a repository",
+      "default": "Repository"
+    },
+    "unresolvedProjectionSuffixes": {
+      "type": "string",
+      "title": "Projection Declaration: comma-separated suffixes that make an unresolved reference offer to create a projection",
+      "default": "Info,Prj,Projection,VO,Vo,View,Request,Browse"
     },
     "jpaAssist.jpqlMutationPreview": {
       "type": "boolean",

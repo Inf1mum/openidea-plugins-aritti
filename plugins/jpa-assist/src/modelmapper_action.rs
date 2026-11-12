@@ -305,7 +305,7 @@ pub(super) fn resolve_conversion(pending: &Pending, doc: &Document, project: &Pr
     current(pending, doc)?;
     java_only(doc)?;
     super::injection_action::analyze(doc).map_err(Error::from)?;
-    let style = super::injection_action::style()?;
+    let style = super::injection_detect::style_for(&doc.text)?;
     build_proof(project, &pending.root, doc, "org.modelmapper", &["modelmapper"], "ModelMapper")?;
     let candidates = more::entities(project, &pending.root, doc, false)?;
     if candidates.is_empty() {

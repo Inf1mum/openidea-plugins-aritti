@@ -141,17 +141,18 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> R
     }
     let unproven = !class.kotlin && project_facts::detect(project, doc.path.rsplit_once('/').ok_or(Error::Stale)?.0).java_level.is_none();
     let available = fields(&class).ok_or("No bounded unambiguous scalar fields are available for a DTO.")?;
-    let default = format!("{}Dto", class.name);
-    let Some(name) = host::input("DTO type name (same package; ending in Dto)", Some(&default))? else {
+    let conventions = dto_conventions::conventions()?;
+    let default = conventions.default_name(&class.name);
+    let Some(name) = host::input(&format!("DTO type name (same package; ending in {})", conventions.postfix), Some(&default))? else {
         return Err(Error::Cancelled);
     };
     if !identifier(&name)
-        || !name.ends_with("Dto")
+        || !name.ends_with(conventions.postfix.as_str())
         || name == class.name
         || class.imports.iter().any(|import| import.rsplit('.').next() == Some(name.as_str()))
         || class.attributes.iter().any(|attribute| attribute.ty.rsplit('.').next() == Some(name.as_str()))
     {
-        return Err("Use a non-conflicting Java/Kotlin identifier ending in Dto (at most 128 bytes).".into());
+        return Err(format!("Use a non-conflicting Java/Kotlin identifier ending in {} (at most 128 bytes).", conventions.postfix).into());
     }
     current(pending, doc)?;
     let items: Vec<_> = available.iter().map(|(name, ty)| PickItem::new(name, name).description(ty)).collect();
@@ -171,12 +172,14 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> R
     class.attributes.retain(|attribute| attribute.relation == Relation::None && selected.contains(attribute.name.as_str()));
     let none = |_: &str| None;
     let generated = dto(&class, &none, Some(&chosen));
-    let original = if class.kotlin { format!("data class {default}(") } else { format!("public record {default}(") };
+    let generated_name = format!("{}Dto", class.name);
+    let original = if class.kotlin { format!("data class {generated_name}(") } else { format!("public record {generated_name}(") };
     let replacement = if class.kotlin { format!("data class {name}(") } else { format!("public record {name}(") };
     if !generated.contains(&original) {
         return Err(Error::Stale);
     }
     let generated = generated.replacen(&original, &replacement, 1);
+    let generated = dto_conventions::finish(generated, &class, &name, &conventions, dto_conventions::serializable()?)?;
     let declared = package(doc).ok_or(Error::Stale)?;
     if generated.len() > MAX_TEXT || !generated.starts_with(&format!("package {declared}{}\n", if class.kotlin { "" } else { ";" })) {
         return Err("DTO output exceeds the validated source/package bound.".into());
@@ -592,7 +595,11 @@ pub(super) fn resolve_class(pending: &Pending, doc: &Document, project: &Project
         return Err("No bounded unambiguous scalar field has a bean-safe name for a DTO class.".into());
     }
     let directory = doc.path.rsplit_once('/').ok_or(Error::Stale)?.0;
-    let choices: Vec<_> = STYLES.iter().map(|(_, key, label)| PickItem::new(key, label)).collect();
+    let lombok_first = host::setting_bool("dtoUseLombok").unwrap_or(false);
+    let rank = |key: &str| if !lombok_first { 0 } else if key == "lombok-data" { 0 } else if key.starts_with("lombok") { 1 } else { 2 };
+    let mut ordered = STYLES.to_vec();
+    ordered.sort_by_key(|(_, key, _)| rank(key));
+    let choices: Vec<_> = ordered.iter().map(|(_, key, label)| PickItem::new(key, label)).collect();
     let key = host::pick("DTO class form", &choices)?.ok_or(Error::Cancelled)?;
     let style = STYLES.iter().find(|(_, k, _)| *k == key).map(|(s, _, _)| *s).ok_or("Choose one of the offered DTO class forms.")?;
     if style.lombok()
@@ -601,18 +608,19 @@ pub(super) fn resolve_class(pending: &Pending, doc: &Document, project: &Project
     {
         return Err("Lombok is not provably used: the entity imports no lombok type and no pom.xml/build.gradle(.kts) above it declares org.projectlombok:lombok literally; no DTO was generated.".into());
     }
-    let default = format!("{}Dto", class.name);
-    let Some(name) = host::input("DTO class name (same package; ending in Dto)", Some(&default))? else {
+    let conventions = dto_conventions::conventions()?;
+    let default = conventions.default_name(&class.name);
+    let Some(name) = host::input(&format!("DTO class name (same package; ending in {})", conventions.postfix), Some(&default))? else {
         return Err(Error::Cancelled);
     };
     let name = name.trim().to_owned();
     if !identifier(&name)
-        || !name.ends_with("Dto")
+        || !name.ends_with(conventions.postfix.as_str())
         || name == class.name
         || class.imports.iter().any(|import| import.rsplit('.').next() == Some(name.as_str()))
         || class.attributes.iter().any(|attribute| attribute.ty.rsplit('.').next() == Some(name.as_str()))
     {
-        return Err("Use a non-conflicting Java identifier ending in Dto (at most 128 bytes).".into());
+        return Err(format!("Use a non-conflicting Java identifier ending in {} (at most 128 bytes).", conventions.postfix).into());
     }
     current(pending, doc)?;
     let items: Vec<_> = available.iter().map(|(n, t)| PickItem::new(n, n).description(t)).collect();
@@ -712,6 +720,7 @@ pub(super) fn resolve_class(pending: &Pending, doc: &Document, project: &Project
         namespace: &namespace,
     };
     let mut generated = render_class(&class, &declared, &plan);
+    generated = dto_conventions::finish(generated, &class, &name, &conventions, dto_conventions::serializable()?)?;
     if generated.lines().filter_map(|line| line.trim().strip_prefix("import ")).any(|import| import.trim_end_matches(';').rsplit('.').next() == Some(name.as_str())) {
         return Err("DTO name conflicts with an imported output type.".into());
     }
@@ -795,6 +804,22 @@ mod tests {
         };
         assert!(action.edits.is_empty());
         (path, text)
+    }
+    #[test]
+    fn dto_declaration_settings_name_comment_and_serialize_the_record() {
+        let (host, mut plugin, doc) = setup("/project/src/main/java/shop/Customer.java", JAVA, "java");
+        host.set_setting("dtoClassPostfix", "\"Data\"");
+        host.set_setting("dtoClassComment", "\"Transfer object of {@link {entity}}\"");
+        host.set_setting("dtoSerializableType", "\"serializable\"");
+        let pending = action(&mut plugin, &doc);
+        answer(&host, "CustomerData", &["id", "title"], true);
+        let resolved = plugin.resolve_file_action(&doc, pending).unwrap();
+        let (path, text) = created(&resolved);
+        assert!(path.ends_with("CustomerData.java"));
+        assert!(text.contains("/** Transfer object of {@link shop.Customer} */\npublic record CustomerData(") && text.contains(") implements Serializable {"), "{text}");
+        let pending = action(&mut plugin, &doc);
+        host.answer_next_prompt(Some(&["CustomerDto"]));
+        assert!(plugin.resolve_file_action(&doc, pending).is_err(), "a name without the configured postfix is refused");
     }
     #[test]
     fn java_dto_is_exact_reviewed_create_from_selected_current_source_fields_only() {

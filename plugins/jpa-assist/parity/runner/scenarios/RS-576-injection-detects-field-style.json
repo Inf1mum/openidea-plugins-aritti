@@ -1,0 +1,86 @@
+{
+  "id": "RS-576",
+  "rows": [
+    "G134"
+  ],
+  "claimIds": [
+    "G134-C1"
+  ],
+  "verifies": {
+    "G134-C1": "the injectionAutoDetect setting (default on) makes 'Inject repository…' follow the class: ParcelService already injects through an @Autowired field while injectionStyle is the default constructor, and the repository is injected as an @Autowired field too. The setting being off is RS-577; detection of Lombok and constructor styles, and the other callers (mapper, ModelMapper), are unit-tested only."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/Parcel.java",
+        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Parcel {\n\n    @Id\n    private Long id;\n\n    private String name;\n\n    private String color;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/ParcelRepository.java",
+        "content": "package com.example.shop.domain;\n\nimport java.util.List;\nimport org.springframework.data.jpa.repository.JpaRepository;\n\npublic interface ParcelRepository extends JpaRepository<Parcel, Long> {\n    List<Parcel> findByName(String name);\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/web/ParcelMapper.java",
+        "content": "package com.example.shop.web;\n\nimport com.example.shop.domain.Parcel;\nimport com.example.shop.dto.ParcelDto;\nimport org.mapstruct.Mapper;\n\n@Mapper(componentModel = \"spring\")\npublic interface ParcelMapper {\n    ParcelDto toDto(Parcel parcel);\n\n    Parcel toEntity(ParcelDto dto);\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/dto/ParcelDto.java",
+        "content": "package com.example.shop.dto;\n\npublic record ParcelDto(\n        Long id,\n        String name\n) {\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/service/ParcelService.java",
+        "content": "package com.example.shop.service;\n\nimport com.example.shop.domain.Parcel;\nimport java.util.List;\nimport org.springframework.stereotype.Service;\nimport com.example.shop.web.ParcelMapper;\nimport org.springframework.beans.factory.annotation.Autowired;\n\n@Service\npublic class ParcelService {\n\n    @Autowired\n    private ParcelMapper helper;\n}\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/shop/service/ParcelService.java",
+    "anchor": "class ParcelService"
+  },
+  "action": {
+    "title": "Inject repository…"
+  },
+  "prompts": [
+    {
+      "pickLabel": "ParcelRepository"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pick",
+        "titleContains": "Repository to inject"
+      },
+      {
+        "kind": "confirm"
+      }
+    ],
+    "resultFile": {
+      "path": "src/main/java/com/example/shop/service/ParcelService.java",
+      "contains": [
+        "@Autowired\n    private ParcelRepository parcelRepository;"
+      ],
+      "notContains": [
+        "public ParcelService("
+      ]
+    }
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "Injection type detection."
+}

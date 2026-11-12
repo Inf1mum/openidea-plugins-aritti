@@ -12,7 +12,40 @@ use regex_lite::Regex;
 
 pub(super) const SYNC_TITLE: &str = "Synchronize linked projections with this entity…";
 pub(super) const RENAME_TITLE: &str = "Rename attribute and update linked projections…";
+pub(super) const SYNC_DTO_TITLE: &str = "Synchronize linked DTOs with this entity…";
+pub(super) const RENAME_DTO_TITLE: &str = "Rename attribute and update linked DTOs…";
 const DEFAULT_NAME_REGEXP: &str = "(?<entity>.*)Projection";
+const DEFAULT_DTO_NAME_REGEXP: &str = "(?<entity>.*)Dto";
+
+/// The two declaration families that share the linking, sync and rename machinery; they differ only in settings and wording.
+#[derive(Clone, Copy, PartialEq)]
+pub(super) enum Kind {
+    Projection,
+    Dto,
+}
+
+impl Kind {
+    fn noun(self) -> &'static str {
+        match self {
+            Self::Projection => "projections",
+            Self::Dto => "DTOs",
+        }
+    }
+
+    fn settings(self) -> [&'static str; 4] {
+        match self {
+            Self::Projection => ["projectionClassPostfix", "projectionNameRegexp", "projectionClassComment", "projectionCommentLinkRegexp"],
+            Self::Dto => ["dtoClassPostfix", "dtoNameRegexp", "dtoClassComment", "dtoCommentLinkRegexp"],
+        }
+    }
+
+    fn defaults(self) -> (&'static str, &'static str) {
+        match self {
+            Self::Projection => ("Projection", DEFAULT_NAME_REGEXP),
+            Self::Dto => ("Dto", DEFAULT_DTO_NAME_REGEXP),
+        }
+    }
+}
 const SCAN_LIMIT: u32 = 1001;
 
 pub(super) struct Conventions {
@@ -37,20 +70,38 @@ fn pattern(setting: &str, default: &str, anchored: bool) -> Result<Option<Regex>
 
 impl Conventions {
     pub(super) fn load() -> Result<Self, String> {
-        let postfix = host::setting_string("projectionClassPostfix").unwrap_or_else(|| "Projection".into());
+        Self::load_for(Kind::Projection)
+    }
+
+    pub(super) fn load_for(kind: Kind) -> Result<Self, String> {
+        let [postfix_key, name_key, comment_key, link_key] = kind.settings();
+        let (default_postfix, default_regexp) = kind.defaults();
+        let postfix = host::setting_string(postfix_key).unwrap_or_else(|| default_postfix.into());
         if !postfix.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '_') {
-            return Err("projectionClassPostfix may contain only letters, digits and underscores.".into());
+            return Err(format!("{postfix_key} may contain only letters, digits and underscores."));
         }
-        let comment = host::setting_string("projectionClassComment").unwrap_or_default();
+        let comment = host::setting_string(comment_key).unwrap_or_default();
         if comment.contains("*/") || comment.len() > 1024 {
-            return Err("projectionClassComment must be shorter than 1 KiB and must not contain `*/`.".into());
+            return Err(format!("{comment_key} must be shorter than 1 KiB and must not contain `*/`."));
         }
         Ok(Self {
             postfix,
-            name: pattern("projectionNameRegexp", DEFAULT_NAME_REGEXP, true)?,
+            name: pattern(name_key, default_regexp, true)?,
             comment,
-            link: pattern("projectionCommentLinkRegexp", "", false)?,
+            link: pattern(link_key, "", false)?,
         })
+    }
+
+    /// The simple entity name a type named `stem` is linked to, by name pattern first, then by the first Javadoc in `text`.
+    pub(super) fn entity_of(&self, stem: &str, text: &str) -> Option<String> {
+        let by_name = self.name.as_ref().and_then(|regex| regex.captures(stem)).and_then(|caps| caps.name("entity").map(|m| m.as_str().to_owned()));
+        if by_name.is_some() {
+            return by_name;
+        }
+        let start = text.find("/**")?;
+        let comment = &text[start..start + text[start..].find("*/")? + 2];
+        let found = self.link.as_ref()?.captures_iter(comment).find_map(|caps| caps.name("entity").map(|m| m.as_str().trim().to_owned()))?;
+        found.rsplit('.').next().map(str::to_owned)
     }
 
     pub(super) fn default_name(&self, entity: &str) -> String {
@@ -141,7 +192,7 @@ fn bean_property(method: &str) -> Option<(String, &'static str)> {
 }
 
 /// The linked shape of `text`, `Ok(None)` when the file is not a type named `stem`.
-fn parse(path: &str, text: &str, kotlin: bool) -> Result<Option<(Linked, Option<String>)>, String> {
+pub(super) fn parse(path: &str, text: &str, kotlin: bool) -> Result<Option<(Linked, Option<String>)>, String> {
     let stem = path.rsplit('/').next().and_then(|file| file.rsplit_once('.')).map(|(stem, _)| stem).unwrap_or_default();
     let masked = mask(text);
     if annotations(&masked).iter().any(|a| a.name == "Entity") {
@@ -295,6 +346,31 @@ fn simple_type(ty: &str) -> &str {
 }
 
 impl Linked {
+    pub(super) fn in_list(&self, at: usize) -> bool {
+        at >= self.list.0 && at <= self.list.1
+    }
+
+    pub(super) fn is_interface(&self) -> bool {
+        matches!(self.shape, Shape::JavaInterface | Shape::KotlinInterface)
+    }
+
+    pub(super) fn has_property(&self, name: &str) -> bool {
+        self.props.iter().any(|prop| prop.name == name)
+    }
+
+    /// The declaration of a new property as it is written inside this type's member or parameter list.
+    pub(super) fn member(&self, name: &str, ty: &str) -> String {
+        match self.shape {
+            Shape::Record => format!("{ty} {name}"),
+            Shape::JavaInterface => format!("{ty} {}();", projection_action::getter(name, ty)),
+            Shape::KotlinInterface | Shape::DataClass => format!("val {name}: {}?", ty.trim_end_matches('?')),
+        }
+    }
+
+    pub(super) fn import_for(&self, entity: &Class, ty: &str) -> Option<String> {
+        self.import_for_added(entity, ty)
+    }
+
     fn import_for_added(&self, entity: &Class, ty: &str) -> Option<String> {
         let simple = simple_type(ty);
         let import = entity.imports.iter().find(|import| import.rsplit('.').next() == Some(simple) && !import.ends_with('*'))?;
@@ -420,8 +496,12 @@ fn skipped_note(skipped: &[String]) -> String {
     if skipped.is_empty() { String::new() } else { format!("\nLinked but not edited: {}", skipped.join("; ")) }
 }
 
-fn no_linked_message() -> &'static str {
-    "No linked projection or DTO was found. A type is linked by a name matching projectionNameRegexp (an empty value disables it) or by a Javadoc comment matching projectionCommentLinkRegexp."
+fn no_linked_message(kind: Kind) -> String {
+    let [_, name, _, link] = kind.settings();
+    match kind {
+        Kind::Projection => format!("No linked projection or DTO was found. A type is linked by a name matching {name} (an empty value disables it) or by a Javadoc comment matching {link}."),
+        Kind::Dto => format!("No linked DTO was found. A type is linked by a name matching {name} (an empty value disables it) or by a Javadoc comment matching {link}."),
+    }
 }
 
 fn verify_unchanged(project: &Project, linked: &[&Linked]) -> Result<(), Error> {
@@ -434,22 +514,27 @@ fn verify_unchanged(project: &Project, linked: &[&Linked]) -> Result<(), Error> 
 }
 
 pub(super) fn resolve_sync(pending: &Pending, doc: &Document, project: &Project) -> Result<FileAction, Error> {
+    resolve_sync_of(pending, doc, project, Kind::Projection)
+}
+
+pub(super) fn resolve_sync_of(pending: &Pending, doc: &Document, project: &Project, kind: Kind) -> Result<FileAction, Error> {
     current(pending, doc)?;
     let class = dto_action::source(doc).ok_or(Error::Stale)?;
-    let conventions = Conventions::load()?;
+    let conventions = Conventions::load_for(kind)?;
     let (linked, skipped) = linked_types(project, &pending.root, &conventions, &class, &doc.path)?;
     if linked.is_empty() {
-        return Err(format!("{}{}", no_linked_message(), skipped_note(&skipped)).into());
+        return Err(format!("{}{}", no_linked_message(kind), skipped_note(&skipped)).into());
     }
+    let (to_linked, noun) = (if kind == Kind::Dto { "toDtos" } else { "toProjections" }, kind.noun());
     let directions = [
-        PickItem::new("toProjections", "Entity to projections: add or remove properties in linked types"),
-        PickItem::new("toEntity", "Projections to entity: add attributes the entity lacks"),
+        PickItem::new(to_linked, &format!("Entity to {noun}: add or remove properties in linked types")),
+        PickItem::new("toEntity", &format!("{} to entity: add attributes the entity lacks", crate::model::capitalize(noun))),
     ];
     let direction = host::pick("Synchronization direction", &directions)?.ok_or(Error::Cancelled)?;
     let mut items = Vec::new();
     let mut plan: Vec<(usize, Change)> = Vec::new();
     match direction.as_str() {
-        "toProjections" => {
+        key if key == to_linked => {
             for (index, item) in linked.iter().enumerate() {
                 let interface = matches!(item.shape, Shape::JavaInterface | Shape::KotlinInterface);
                 let wanted = entity_properties(&class, interface);
@@ -541,7 +626,7 @@ pub(super) fn resolve_sync(pending: &Pending, doc: &Document, project: &Project)
         }
     }
     if !ui_kit::prompts::confirm_exact(
-        "Synchronize entity and linked projections?",
+        &format!("Synchronize entity and linked {noun}?"),
         &format!("Entity: {}\nSource version: {}\n{}{}\n\n{preview}Only the listed changes are applied; nothing is renamed or removed from the entity. Plain DTO classes are not parsed.", doc.path, doc.version, linked.iter().map(|l| format!("Linked: {}\n", l.path)).collect::<String>(), skipped_note(&skipped)),
     )? {
         return Err(Error::Cancelled);
@@ -549,7 +634,7 @@ pub(super) fn resolve_sync(pending: &Pending, doc: &Document, project: &Project)
     let project = current(pending, doc)?;
     verify_unchanged(&project, &linked.iter().collect::<Vec<_>>())?;
     Ok(FileAction {
-        title: format!("Synchronize {} with linked projections", class.name),
+        title: format!("Synchronize {} with linked {noun}", class.name),
         kind: Some("refactor.rewrite".into()),
         edits: documents,
         ..FileAction::default()
@@ -557,18 +642,23 @@ pub(super) fn resolve_sync(pending: &Pending, doc: &Document, project: &Project)
 }
 
 pub(super) fn resolve_rename(pending: &Pending, doc: &Document, project: &Project) -> Result<FileAction, Error> {
+    resolve_rename_of(pending, doc, project, Kind::Projection)
+}
+
+pub(super) fn resolve_rename_of(pending: &Pending, doc: &Document, project: &Project, kind: Kind) -> Result<FileAction, Error> {
     let class = dto_action::source(doc).ok_or(Error::Stale)?;
-    let conventions = Conventions::load()?;
+    let conventions = Conventions::load_for(kind)?;
+    let noun = kind.noun();
     let (linked, skipped) = linked_types(project, &pending.root, &conventions, &class, &doc.path)?;
     if linked.is_empty() {
-        return Err(format!("{}{}", no_linked_message(), skipped_note(&skipped)).into());
+        return Err(format!("{}{}", no_linked_message(kind), skipped_note(&skipped)).into());
     }
     let renamed = std::cell::RefCell::new(None::<(String, String)>);
     let mut action = attribute_refactor::resolve_with(
         pending,
         doc,
         |old| {
-            let new = host::input("New attribute name (also renames the property in linked projections)", Some(old))?;
+            let new = host::input(&format!("New attribute name (also renames the property in linked {noun})"), Some(old))?;
             if let Some(new) = &new {
                 *renamed.borrow_mut() = Some((old.to_owned(), new.trim().to_owned()));
             }
@@ -585,7 +675,7 @@ pub(super) fn resolve_rename(pending: &Pending, doc: &Document, project: &Projec
             if extra.is_empty() {
                 extra = format!("\nNo linked type declares `{old}`.{}", skipped_note(&skipped));
             }
-            ui_kit::prompts::confirm_exact("Rename attribute and update linked projections?", &format!("{preview}\n{extra}"))
+            ui_kit::prompts::confirm_exact(&format!("Rename attribute and update linked {noun}?"), &format!("{preview}\n{extra}"))
         },
     )?;
     let Some((old, new)) = renamed.into_inner() else { return Err(Error::Cancelled) };
@@ -595,7 +685,7 @@ pub(super) fn resolve_rename(pending: &Pending, doc: &Document, project: &Projec
     }
     let project = current(pending, doc)?;
     verify_unchanged(&project, &linked.iter().collect::<Vec<_>>())?;
-    action.title = format!("{} and update linked projections", action.title);
+    action.title = format!("{} and update linked {noun}", action.title);
     Ok(action)
 }
 

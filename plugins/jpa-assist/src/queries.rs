@@ -401,7 +401,7 @@ pub fn boxed(ty: &str) -> String {
 }
 
 /// The parameter list and return type of a parsed derived query, and the classes they need imported.
-fn signature(name: &str, verb: &str, parsed: &Parsed, entity: &str, kotlin: bool) -> (String, Option<String>, Vec<String>) {
+pub fn signature(name: &str, verb: &str, parsed: &Parsed, entity: &str, kotlin: bool) -> (String, Option<String>, Vec<String>) {
     let mut imports = Vec::new();
     let mut params = Vec::new();
     let mut used: Vec<String> = Vec::new();

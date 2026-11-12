@@ -1,0 +1,69 @@
+{
+  "id": "RS-572",
+  "rows": [
+    "G133"
+  ],
+  "claimIds": [
+    "G133-C1"
+  ],
+  "verifies": {
+    "G133-C1": "the reference ParcelRepository (a field type, no such type exists) ends with the default repository suffix Repository and the entity Parcel exists, so 'Create missing Spring Data repository…' creates ParcelRepository next to the entity with the entity's id type and adds the import to the referencing class. The quick-fix wizard of the original is not reproduced: this is a previewed create, no further wizard opens (G133-C4 is not covered). Nothing is offered inside an entity class or for an imported name."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/Parcel.java",
+        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Parcel {\n\n    @Id\n    private Long id;\n\n    private String name;\n\n    private String color;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/service/ParcelService.java",
+        "content": "package com.example.shop.service;\n\nimport com.example.shop.domain.Parcel;\nimport java.util.List;\nimport org.springframework.stereotype.Service;\n\n@Service\npublic class ParcelService {\n\n    private ParcelRepository parcels;\n}\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/shop/service/ParcelService.java",
+    "anchor": "ParcelRepository"
+  },
+  "action": {
+    "title": "Create missing Spring Data repository…"
+  },
+  "prompts": [
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "confirm",
+        "messageContains": "ParcelRepository"
+      }
+    ],
+    "createdFiles": [
+      {
+        "path": "src/main/java/com/example/shop/domain/ParcelRepository.java",
+        "contains": [
+          "public interface ParcelRepository extends JpaRepository<Parcel, Long>"
+        ]
+      }
+    ],
+    "resultFile": [
+      {
+        "path": "src/main/java/com/example/shop/service/ParcelService.java",
+        "contains": [
+          "import com.example.shop.domain.ParcelRepository;"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "Unresolved repository reference."
+}

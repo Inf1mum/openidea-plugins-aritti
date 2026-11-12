@@ -1,0 +1,66 @@
+{
+  "id": "RS-573",
+  "rows": [
+    "G133"
+  ],
+  "claimIds": [
+    "G133-C1"
+  ],
+  "verifies": {
+    "G133-C1": "the suffix is the Spring Data Repository setting (repositoryClassSuffix): with Store, the reference ParcelStore triggers the repository creation and the generated ParcelStore extends JpaRepository<Parcel, Long>; with the same setting the name ParcelRepository would not be offered. The default Repository is RS-572."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "settings": {
+        "repositoryClassSuffix": "Store"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/Parcel.java",
+        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Parcel {\n\n    @Id\n    private Long id;\n\n    private String name;\n\n    private String color;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/service/ParcelService.java",
+        "content": "package com.example.shop.service;\n\nimport com.example.shop.domain.Parcel;\nimport java.util.List;\nimport org.springframework.stereotype.Service;\n\n@Service\npublic class ParcelService {\n\n    private ParcelStore parcels;\n}\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/shop/service/ParcelService.java",
+    "anchor": "ParcelStore"
+  },
+  "action": {
+    "title": "Create missing Spring Data repository…"
+  },
+  "prompts": [
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "confirm",
+        "messageContains": "ParcelStore"
+      }
+    ],
+    "createdFiles": [
+      {
+        "path": "src/main/java/com/example/shop/domain/ParcelStore.java",
+        "contains": [
+          "public interface ParcelStore extends JpaRepository<Parcel, Long>"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "Repository suffix setting."
+}
