@@ -12,6 +12,9 @@ use openidea_plugin::{
 };
 use regex_lite::Regex;
 
+#[path = "call_more.rs"]
+mod more;
+
 pub(super) const CREATE_METHOD_TITLE: &str = "Create repository method from this call…";
 const SPRING_STEREOTYPES: [&str; 6] = ["Service", "Component", "Controller", "RestController", "Repository", "Configuration"];
 const VERBS: [&str; 4] = ["find", "exists", "count", "delete"];
@@ -49,7 +52,7 @@ fn simple(ty: &str) -> &str {
 }
 
 /// The declared type of the variable `name` in `text`, with the element type for a collection.
-fn declared_type(text: &str, name: &str, kotlin: bool) -> Option<(String, bool)> {
+pub(super) fn declared_type(text: &str, name: &str, kotlin: bool) -> Option<(String, bool)> {
     let collection = r"(?:List|Set|Collection|Iterable)\s*<\s*[\w.]+\s*>";
     let pattern = if kotlin {
         format!(r"\b{name}\s*:\s*({collection}|[A-Z][\w.]*)")
@@ -221,7 +224,9 @@ impl JpaAssist {
         if receiver.name.starts_with(|ch: char| ch.is_ascii_uppercase()) {
             return self.repository_calls(doc, &project, &root, &receiver, &typed);
         }
-        mapper_calls(doc, &project, &root, &receiver, &typed)
+        let mut items = mapper_calls(doc, &project, &root, &receiver, &typed);
+        items.extend(more::instance_calls(doc, &project, &root, &receiver, &typed));
+        items
     }
 
     fn repository_calls(&mut self, doc: &Document, project: &Project, root: &str, receiver: &Receiver, typed: &str) -> Vec<CompletionItem> {

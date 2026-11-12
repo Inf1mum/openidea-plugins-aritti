@@ -1,0 +1,66 @@
+{
+  "id": "RS-775",
+  "rows": [],
+  "claimIds": [],
+  "kindExerciser": true,
+  "fixture": "mapstruct-lombok-dto",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/crm/domain/Parcel.java",
+        "content": "package com.example.crm.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Parcel {\n\n    @Id\n    private Long id;\n\n    private String name;\n\n    private String color;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/crm/mapper/ParcelMapper.java",
+        "content": "package com.example.crm.mapper;\n\nimport com.example.crm.domain.Parcel;\nimport org.mapstruct.Mapper;\nimport org.mapstruct.MappingTarget;\n\n@Mapper(componentModel = \"spring\")\npublic interface ParcelMapper {\n    void update(ParcelPatch patch, @MappingTarget Parcel parcel);\n}\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/crm/mapper/ParcelMapper.java",
+    "anchor": "ParcelPatch"
+  },
+  "action": {
+    "title": "Create missing DTO from this usage\u2026"
+  },
+  "prompts": [
+    {
+      "pickMany": [
+        "id",
+        "name"
+      ]
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pickMany",
+        "titleContains": "DTO fields"
+      },
+      {
+        "kind": "confirm",
+        "messageContains": "ParcelPatch"
+      }
+    ],
+    "createdFiles": [
+      {
+        "path": "src/main/java/com/example/crm/domain/ParcelPatch.java",
+        "contains": [
+          "public record ParcelPatch(",
+          "String name"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "An unresolved parameter type is created for the entity of the @MappingTarget parameter."
+}

@@ -1,0 +1,82 @@
+{
+  "id": "RS-766",
+  "rows": [],
+  "claimIds": [],
+  "kindExerciser": true,
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/Parcel.java",
+        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Parcel {\n\n    @Id\n    private Long id;\n\n    private String name;\n\n    private String color;\n\n    private Carrier carrier;\n}\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Parcel.java",
+    "anchor": "Carrier carrier"
+  },
+  "action": {
+    "title": "Create missing entity\u2026"
+  },
+  "prompts": [
+    {
+      "pick": "ManyToOne"
+    },
+    {
+      "pick": "IDENTITY"
+    },
+    "default",
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pick",
+        "titleContains": "Relationship"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "ID strategy"
+      },
+      {
+        "kind": "input",
+        "titleContains": "Table name"
+      },
+      {
+        "kind": "confirm",
+        "messageContains": "Carrier"
+      }
+    ],
+    "createdFiles": [
+      {
+        "path": "src/main/java/com/example/shop/domain/Carrier.java",
+        "contains": [
+          "@Entity",
+          "@Table(name = \"carrier\")",
+          "GenerationType.IDENTITY",
+          "public class Carrier"
+        ]
+      }
+    ],
+    "resultFile": [
+      {
+        "path": "src/main/java/com/example/shop/domain/Parcel.java",
+        "contains": [
+          "@ManyToOne\n    private Carrier carrier;",
+          "import jakarta.persistence.ManyToOne;"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true,
+    "cancelEach": true,
+    "stale": true
+  },
+  "note": "Create the entity for an unresolved attribute type and annotate the attribute."
+}

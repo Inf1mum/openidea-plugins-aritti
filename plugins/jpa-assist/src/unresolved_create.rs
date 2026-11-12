@@ -7,11 +7,17 @@ use super::projection_links::{Conventions, Kind as Family};
 use crate::model::{import_edit, is_ident};
 use openidea_plugin::text::offset;
 
+#[path = "unresolved_context.rs"]
+mod context;
+
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub(super) enum Created {
     Repository,
     Projection,
     Dto,
+    Entity,
+    MappedSuperclass,
+    ContextDto,
 }
 
 pub(super) const REPOSITORY_TITLE: &str = "Create missing Spring Data repository…";
@@ -56,6 +62,12 @@ fn stem_of<'a>(name: &'a str, suffix: &str) -> Option<&'a str> {
 }
 
 pub(super) fn offers(doc: &Document, selection: Range) -> Vec<(Created, &'static str)> {
+    let mut offered = named_offers(doc, selection);
+    offered.extend(context::offers(doc, selection));
+    offered
+}
+
+fn named_offers(doc: &Document, selection: Range) -> Vec<(Created, &'static str)> {
     let Some(name) = word_at(doc, selection) else {
         return Vec::new();
     };
@@ -125,18 +137,32 @@ fn pick_fields(title: &str, available: &[(String, String)]) -> Result<Vec<(Strin
 }
 
 pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project, created: Created) -> Result<FileAction, Error> {
+    if matches!(created, Created::Entity | Created::MappedSuperclass | Created::ContextDto) {
+        return context::resolve(pending, doc, project, created);
+    }
+    resolve_with(pending, doc, project, created, None)
+}
+
+/// `context_entity`: the entity a DTO is created for when its name does not say (usage-driven DTO creation).
+fn resolve_with(pending: &Pending, doc: &Document, project: &Project, created: Created, context_entity: Option<String>) -> Result<FileAction, Error> {
     current(pending, doc)?;
     let name = word_at(doc, pending.selection).ok_or(Error::Stale)?;
     let kotlin = doc.language == "kotlin";
-    let (suffix, family) = match created {
-        Created::Repository => (repository_suffix(), None),
-        Created::Dto => (dto_postfix(), Some(Family::Dto)),
-        Created::Projection => (projection_suffixes().into_iter().find(|suffix| stem_of(&name, suffix).is_some()).ok_or(Error::Stale)?, Some(Family::Projection)),
-    };
-    let stem = stem_of(&name, &suffix).ok_or(Error::Stale)?.to_owned();
-    let entity_name = match family {
-        Some(Family::Dto) => Conventions::load_for(Family::Dto)?.entity_of(&name, "").unwrap_or(stem),
-        _ => stem,
+    let entity_name = match context_entity {
+        Some(entity) => entity,
+        None => {
+            let (suffix, family) = match created {
+                Created::Repository => (repository_suffix(), None),
+                Created::Dto => (dto_postfix(), Some(Family::Dto)),
+                Created::Projection => (projection_suffixes().into_iter().find(|suffix| stem_of(&name, suffix).is_some()).ok_or(Error::Stale)?, Some(Family::Projection)),
+                _ => return Err(Error::Stale),
+            };
+            let stem = stem_of(&name, &suffix).ok_or(Error::Stale)?.to_owned();
+            match family {
+                Some(Family::Dto) => Conventions::load_for(Family::Dto)?.entity_of(&name, "").unwrap_or(stem),
+                _ => stem,
+            }
+        }
     };
     if type_exists(project, &pending.root, &name)? {
         return Err(format!("A type named `{name}` already exists in this project; nothing is created.").into());
@@ -187,6 +213,7 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project, crea
             let generated = dto_conventions::finish(generated.replacen(&original, &replacement, 1), &source, &name, &conventions, dto_conventions::serializable()?)?;
             (format!("{directory}/{name}.{}", if source.kotlin { "kt" } else { "java" }), generated)
         }
+        _ => return Err(Error::Stale),
     };
     if path(&target).as_deref() != Some(target.as_str()) || !inside(&pending.root, &target) || text.len() > MAX_TEXT {
         return Err(Error::Stale);
@@ -268,7 +295,7 @@ mod tests {
         let entity = Document { path: "/project/src/main/java/shop/domain/Customer.java".into(), text: ENTITY.replace("private String title;", "private CustomerDto title;"), ..doc };
         let start = entity.text.find("CustomerDto").unwrap();
         let range = Range::new(openidea_plugin::text::position(&entity.text, start), openidea_plugin::text::position(&entity.text, start + 2));
-        assert!(plugin.file_actions(&entity, range).iter().all(|action| !action.title.starts_with("Create missing")));
+        assert!(plugin.file_actions(&entity, range).iter().all(|action| ![REPOSITORY_TITLE, PROJECTION_TITLE, DTO_TITLE].contains(&action.title.as_str())));
     }
 
     #[test]
