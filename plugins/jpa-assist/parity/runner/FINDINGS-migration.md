@@ -92,3 +92,7 @@ Runner issue observed: when several scenarios share one runner process, later on
 ## Row-level conclusion
 
 No row has every explicit headless claim covered and passing. Rows passing everything we could express: G105 (C1, C2) and G118 (C1, C3; C4 is IDE-side). G032 and G127 pass their expressible claims but have a claim that is not headless or not covered. Every other row has a failing claim, a not-offered claim, or both.
+
+## Open after the fix round (2026-11-12)
+
+- **RS-306 (G107-C1):** still fails 3 of 3. The Liquibase init changelog skips every table with a decimal column because `decimal(p,s)` syntax is not shown in the Liquibase docs read (column change-type reference and data-type handling page: only `VARCHAR(255)` is sized, decimals appear as bare `DECIMAL`/`NUMBER` names). Left failing rather than emit unverified syntax. Foreign keys without a constraintName are skipped for the same reason.
