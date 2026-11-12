@@ -33,11 +33,11 @@ class Fixture:
         self.out.mkdir(parents=True)
         self.rows = []
 
-    def row(self, row_id, status='partial', claims=(), implementation=('plugins/jpa-assist/src/x.rs',)):
+    def row(self, row_id, status='partial', claims=(), implementation=('plugins/jpa-assist/src/x.rs',), source='https://example.com/doc'):
         self.rows.append({'id': row_id, 'family': 'F', 'capability': row_id, 'status': status, 'implementation': list(implementation)})
         (self.parity / 'claims' / f'{row_id}.json').write_text(json.dumps({
             'row': row_id, 'claims': [
-                {'id': f'{row_id}-C{n}', 'statement': f'{row_id} claim {n}', 'supports': 's', 'source': 'https://example.com/doc',
+                {'id': f'{row_id}-C{n}', 'statement': f'{row_id} claim {n}', 'supports': 's', 'source': source,
                  'strength': strength, 'ourFeature': 'f', 'verifiableHeadless': headless}
                 for n, (strength, headless) in enumerate(claims, 1)]}))
 
@@ -148,6 +148,19 @@ class UpdateLedgerTests(unittest.TestCase):
         self.assertEqual(f.ledger()['G001']['status'], 'verified-parity')
         self.assertEqual(f.ledger()['G002']['status'], 'partial')
         self.assertEqual(f.ledger()['G002']['evidenceLevel']['L1']['status'], 'pass')
+
+    def test_a_claim_sourced_from_the_original_closes_as_source_reading(self):
+        f = Fixture()
+        f.row('G001', claims=[('explicit', True)], source='audit/jpa-buddy-263.7307.112/decompiled/main/X.java')
+        f.finish()
+        f.receipt('RS-001', ['G001'], ['G001-C1'])
+        f.run(self.module, '--apply', '--close', '--docs-date', '2026-11-12')
+        entry = f.ledger()['G001']
+        self.assertEqual(entry['status'], 'verified-parity')
+        case = entry['acceptance'][0]
+        self.assertEqual(case['referenceType'], 'source-reading')
+        self.assertEqual(case['referenceFiles'], ['audit/jpa-buddy-263.7307.112/decompiled/main/X.java'])
+        self.assertEqual(case['sourceReadOn'], '2026-11-12')
 
     def test_close_requires_apply(self):
         f = Fixture()
