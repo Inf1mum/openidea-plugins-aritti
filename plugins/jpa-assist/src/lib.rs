@@ -552,6 +552,8 @@ fn owned_entity_quickfixes(doc: &Document) -> Vec<Finding> {
     let mut found=checks::inspect_entity_owned(&doc.text,class.kotlin,&class);
     found.extend(lombok_checks::findings(&doc.text,&class,setting("checkLombokEquality"),setting("checkLombokToString"),setting("checkLombokConstructors")));
     found.extend(inspections_more::findings(doc));
+    found.extend(live_project::incompatible_table(doc));
+    found.extend(local_repository::missing_identifier(doc).filter(|f| f.fix.is_some()));
     found.extend(file_actions::hibernate_type_findings(doc));
     if !setting("checkAssociationFetch") {
         found.retain(|f| !matches!(f.code, "jpa-eager-fetch" | "jpa-eager-to-one"));

@@ -1,6 +1,6 @@
 //! Positive source identifier compatibility only. No classpath or absent-type inference.
 use crate::{attribute_info, model};
-use openidea_plugin::{providers::Document, text::offset};
+use openidea_plugin::{host, providers::Document, text::offset};
 fn canonical(ty: &str) -> Option<&str> {
     Some(match ty {
         "long" | "java.lang.Long" => "java.lang.Long",
@@ -82,13 +82,39 @@ pub(super) fn missing_identifier(doc: &Document) -> Option<crate::checks::Findin
         return None;
     }
     let from = offset(&doc.text, class.pos)?;
-    Some(crate::checks::Finding::new(
+    let fqcn = class.package.as_deref().map(|package| format!("{package}.{}", class.name));
+    let hbm_free = host::project_of(&doc.path).and_then(|p| p.find_files("**/*.hbm.xml", 1).ok()).is_some_and(|found| found.is_empty());
+    let proven = hbm_free && fqcn.is_some_and(|f| !crate::orm_xml::load(&doc.path).may_declare(&f));
+    if !proven {
+        return Some(crate::checks::Finding::new(
+            from,
+            from + class.name.len(),
+            openidea_plugin::Severity::Info,
+            "jpa-source-identifier-absent",
+            "This complete source-local entity declares no Id or EmbeddedId. Add an identifier if it is annotation-mapped; effective XML/provider mappings are unresolved.",
+        ));
+    }
+    let mut finding = crate::checks::Finding::new(
         from,
         from + class.name.len(),
-        openidea_plugin::Severity::Info,
+        openidea_plugin::Severity::Error,
         "jpa-source-identifier-absent",
-        "This complete source-local entity declares no Id or EmbeddedId. Add an identifier if it is annotation-mapped; effective XML/provider mappings are unresolved.",
-    ))
+        "This entity declares no Id or EmbeddedId, and no mapping XML in the project maps it, so it has no primary key (Jakarta Persistence 3.2, section 2.4).",
+    );
+    finding.fix = create_id_fix(&doc.text, &class, open);
+    Some(finding)
+}
+
+fn create_id_fix(text: &str, class: &model::Class, open: usize) -> Option<(&'static str, Vec<model::Edit>)> {
+    let entity = class.imports.iter().find(|i| matches!(i.as_str(), "jakarta.persistence.Entity" | "javax.persistence.Entity"))?;
+    let namespace = entity.trim_end_matches(".Entity");
+    if class.attributes.iter().any(|a| a.name == "id") || class.imports.iter().any(|i| i.ends_with(".Id")) {
+        return None;
+    }
+    let eol = if text.contains("\r\n") { "\r\n" } else { "\n" };
+    let mut edits = vec![model::Edit::insert(open + 1, &format!("{eol}    @Id{eol}    private Long id;{eol}"))];
+    edits.extend(model::import_edit(text, &[&format!("{namespace}.Id")], false));
+    Some(("Create id", edits))
 }
 
 pub(super) fn repository(doc: &Document) -> Option<(String, String, usize, usize)> {
@@ -195,8 +221,8 @@ mod tests {
             .iter()
             .find(|d| d.code.as_deref() == Some("jpa-source-identifier-absent"))
             .unwrap();
-        assert_eq!(d.severity, openidea_plugin::Severity::Info);
-        assert!(d.message.contains("XML/provider mappings are unresolved"));
+        assert_eq!(d.severity, openidea_plugin::Severity::Error);
+        assert!(d.message.contains("no mapping XML"));
         assert_eq!(
             &source[offset(&source, d.range.start).unwrap()..offset(&source, d.range.end).unwrap()],
             "Person"
@@ -216,6 +242,45 @@ mod tests {
                 "{unknown}"
             );
         }
+    }
+
+    #[test]
+    fn xml_that_may_map_the_class_keeps_the_note_at_info_without_a_fix() {
+        let host = MockHost::install().with_capabilities(&["project.read"]);
+        let mut plugin = JpaAssist::default();
+        let source = ENTITY.replace("@jakarta.persistence.Id long id;", "long id;");
+        let path = "/project/src/main/java/shop/Person.java";
+        let level = |plugin: &mut JpaAssist| {
+            let found = plugin.diagnostics(&doc(path, &source));
+            found.into_iter().find(|d| d.code.as_deref() == Some("jpa-source-identifier-absent")).map(|d| d.severity)
+        };
+        assert_eq!(level(&mut plugin), Some(openidea_plugin::Severity::Error));
+        host.add_file("src/main/resources/META-INF/orm.xml", "<entity-mappings xmlns=\"x\"><entity class=\"shop.Other\"><attributes><id name=\"k\"/></attributes></entity></entity-mappings>");
+        assert_eq!(level(&mut plugin), Some(openidea_plugin::Severity::Error));
+        host.add_file("src/main/resources/META-INF/orm.xml", "<entity-mappings xmlns=\"x\"><entity class=\"shop.Person\"><attributes><id name=\"k\"/></attributes></entity></entity-mappings>");
+        assert_eq!(level(&mut plugin), Some(openidea_plugin::Severity::Info));
+        host.add_file("src/main/resources/META-INF/orm.xml", "<entity-mappings xmlns=\"x\"/>");
+        host.add_file("src/main/resources/legacy.hbm.xml", "<hibernate-mapping/>");
+        assert_eq!(level(&mut plugin), Some(openidea_plugin::Severity::Info));
+    }
+
+    #[test]
+    fn create_id_fix_is_one_edit_with_the_import_and_skips_name_clashes() {
+        let _host = MockHost::install().with_capabilities(&["project.read"]);
+        let class = |text: &str| model::parse_class(text, "src/main/java/shop/Person.java").unwrap();
+        let text = "package shop;\nimport jakarta.persistence.Entity;\n@Entity\nclass Person {\n  String name;\n}\n";
+        let open = text.find('{').unwrap();
+        let (title, edits) = create_id_fix(text, &class(text), open).unwrap();
+        assert_eq!(title, "Create id");
+        let mut after = text.to_owned();
+        let mut ordered: Vec<_> = edits.iter().collect();
+        ordered.sort_by_key(|e| std::cmp::Reverse(e.start));
+        for e in ordered {
+            after.replace_range(e.start..e.end, &e.text);
+        }
+        assert_eq!(after, "package shop;\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n@Entity\nclass Person {\n    @Id\n    private Long id;\n\n  String name;\n}\n");
+        let clash = text.replace("String name;", "String id;");
+        assert!(create_id_fix(&clash, &class(&clash), clash.find('{').unwrap()).is_none());
     }
 
     #[test]

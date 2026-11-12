@@ -60,7 +60,7 @@ pub(super) fn findings(doc: &Document) -> Vec<Finding> {
             .iter()
             .filter(|a| offset(&doc.text, a.pos).is_some_and(|p| from <= p && p < to))
             .collect();
-        let [attribute] = attrs.as_slice() else {
+        let [_] = attrs.as_slice() else {
             return vec![];
         };
         if local.iter().any(|a| a.name == "Id") {
@@ -70,20 +70,17 @@ pub(super) fn findings(doc: &Document) -> Vec<Finding> {
         if selected.len() > 1 || selected.iter().any(|a| a.args.is_some()) {
             return vec![];
         }
-        if !selected.is_empty() {
-            let Some(pos) = offset(&doc.text, attribute.pos) else {
-                return vec![];
-            };
-            if doc.text.get(pos..pos + attribute.name.len()) != Some(attribute.name.as_str()) {
-                return vec![];
-            }
-            versions.push((pos, attribute.name.len()));
+        if let Some(version) = selected.first() {
+            versions.push((version.start, version.end()));
         }
     }
     if !field_id {
         return vec![];
     }
-    versions.into_iter().skip(1).map(|(at,len)| Finding::new(at,at+len,Severity::Error,"jpa-duplicate-version","This source-local field-access entity already declares a version attribute. Use one optimistic-lock version per entity hierarchy; inherited and external mappings are not resolved.")).collect()
+    if versions.len() < 2 {
+        return vec![];
+    }
+    versions.into_iter().map(|(from,to)| Finding::new(from,to,Severity::Error,"jpa-duplicate-version","This source-local field-access entity already declares a version attribute. Use one optimistic-lock version per entity hierarchy; inherited and external mappings are not resolved.")).collect()
 }
 #[cfg(test)]
 mod tests {
@@ -108,11 +105,13 @@ mod tests {
             .into_iter()
             .filter(|d| d.code.as_deref() == Some("jpa-duplicate-version"))
             .collect();
-        assert_eq!(found.len(), 1);
+        assert_eq!(found.len(), 2);
+        let first_start = offset(SOURCE, found[0].range.start).unwrap();
+        assert_eq!(&SOURCE[first_start..first_start + 22], "@Version long revision");
         assert_eq!(
-            &SOURCE[offset(SOURCE, found[0].range.start).unwrap()
-                ..offset(SOURCE, found[0].range.end).unwrap()],
-            "other"
+            &SOURCE[offset(SOURCE, found[1].range.start).unwrap()
+                ..offset(SOURCE, found[1].range.end).unwrap()],
+            "@Version"
         );
         for source in [
             SOURCE.replace("@Version long other;", "long other;"),

@@ -1,0 +1,38 @@
+{
+  "id": "RS-608",
+  "rows": [],
+  "claimIds": [],
+  "kindExerciser": true,
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/w6/NoId.java",
+        "content": "package com.example.shop.w6;\n\nimport jakarta.persistence.Entity;\n\n@Entity\npublic class NoId {\n\n    private String name;\n}\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/shop/w6/NoId.java",
+    "anchor": "public class NoId"
+  },
+  "action": {
+    "title": "Create id"
+  },
+  "checks": {
+    "undo": true
+  },
+  "expect": {
+    "resultFile": {
+      "path": "src/main/java/com/example/shop/w6/NoId.java",
+      "contains": [
+        "import jakarta.persistence.Id;",
+        "@Id",
+        "private Long id;",
+        "private String name;"
+      ]
+    }
+  },
+  "note": "The Create id quick fix inserts an @Id field and its import in the single document."
+}
