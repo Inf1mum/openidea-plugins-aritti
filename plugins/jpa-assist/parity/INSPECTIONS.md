@@ -6,26 +6,26 @@ Paths are under `plugins/jpa-assist/src/` unless noted. Status words follow READ
 action/quick-fix feed, not live; **missing** = no rule. "Intent" for missing rows comes only from the ledger text and the public
 JPA Buddy docs (https://www.jpa-buddy.com/documentation/ , entity-designer inspections screenshot named in
 `docs/jpa-buddy-gap-analysis-2026-11-10.md`); the docs name inspections but do not list the catalogue, so everything else is `intent unverified`.
-Nothing was decompiled. Rows added by this increment are marked NEW (`inspections_more.rs`, live, each with a `jpaAssist.check*` toggle).
+Wave 2 (below) read the decompiled original (`audit/jpa-buddy-263.7307.112`, read-only) to learn intent; nothing was copied. Rows added by this increment are marked NEW (`inspections_more.rs`, live, each with a `jpaAssist.check*` toggle).
 
 ## F rows
 
 | Id | Capability | Our rule | Status | Missing: inferred intent |
 |---|---|---|---|---|
-| F001 | Column mapping on a relationship | none | missing | Ledger: `@Column` versus association incompatibility. Spec says `@JoinColumn` maps association columns; whether providers ignore or reject `@Column` there is unverified, so not implemented. |
-| F002 | Unsupported persistent field type | `attribute-type` (`checks.rs:590`, Temporal/Enumerated/Version) | live (partial) | General persistent-type/converter classification: intent unverified beyond the ledger text. |
-| F003 | Serializable composite key | none | missing | Ledger: composite-key contract (`@IdClass` class serializable). Needs the key class from another document; cached facts do not hold it. Intent beyond that unverified. |
-| F004 | Converter type compatibility | none | missing | Ledger: effective `AttributeConverter<X,Y>` generic target matching the attribute type. Needs resolved generics; intent unverified beyond the ledger. |
+| F001 | Column mapping on a relationship | none | missing | None of the 12 inspections the original registers checks `@Column` on an association (read from source), so there is no original behaviour to follow; semantics in providers unverified. Not implemented. |
+| F002 | Unsupported persistent field type | `attribute-type` (`checks.rs:590`) and NEW `jpa-unsupported-type` (`live_project.rs`, Warning) | live (partial) | Original `UnsupportedTypeWithoutConverterInspection` (I003): a non-static, non-transient field whose type is not basic, enum, entity, generic, `Serializable`, with no relationship/`@Embedded`/`@EmbeddedId`/`@Lob`/`@Transient`/`@Type`/converter. Ours flags only a project class proven plain (no supertypes, no persistence annotation, no mapping XML, no project `AttributeConverter` mentioning it); JDK and library types stay silent. |
+| F003 | Serializable composite key | NEW `jpa-composite-id-not-serializable` (Error) | live (partial) | Original `CompositeIdClassSerializableInspection` (I011): `@EmbeddedId` member whose class does not resolve as Serializable; skipped on Hibernate 6 projects; error highlight. Ours: `javax.persistence` sources only (Hibernate 6 uses `jakarta`), field `@EmbeddedId`, key class with no supertypes at all. `@IdClass` is not checked (the original does not either). |
+| F004 | Converter type compatibility | `jpa-converter-type-mismatch` (`local_hierarchy.rs`, Info, live; code now in `KNOWN_CODES`) | live (partial) | Original `ConverterSpecifiedIncorrectlyInspection` (I009): `@Convert(converter = X.class)` whose `AttributeConverter` entity type is not assignable from the field type; fix removes `@Convert`. Ours compares exact JDK types only, no assignability, no fix. The original's default level is warning; our rule keeps Info (existing test). |
 | F005 | Entity construction | NEW `jpa-no-arg-constructor` (`inspections_more.rs:152`); Kotlin side: `jpa-kotlin-plugin-missing` (`checks.rs:985`), `jpa-lombok-constructors` (`lombok_checks.rs:385`) | live (Java explicit ctors only; Lombok/Kotlin delegated) | Entities with no explicit constructor, or Lombok-generated ctors, are not judged. |
-| F006 | Entity-valued field without relationship mapping | none | missing | Ledger: field whose type is an entity but carries no association annotation; needs positive target-role facts. Not implemented. |
+| F006 | Entity-valued field without relationship mapping | NEW `jpa-entity-field-without-relationship` (Warning) | live (own rule) | The original's `UnsupportedTypeWithoutConverterInspection` explicitly skips entity-typed fields, so no original counterpart in the 12 inspections; implemented from the ledger text with positive target-role facts (target resolved as an `@Entity` in the same source root). |
 | F007 | Absent identifier | `jpa-source-identifier-absent` (`local_repository.rs:40`, info, live); `entity-missing-id` (`checks.rs:427`, inherited-aware, legacy not live) | live (info, source-local) + legacy | XML/provider/inherited ids unresolved. |
 | F008 | Conflicting identity declarations | `jpa-duplicate-embedded-id` (`local_identifiers.rs:72`, live), `jpa-multiple-id-kinds` (`checks.rs:786`, live), `jpa-embeddable-identifier` (`checks.rs:698`, live) | live (partial) | General composite-key modelling absent. |
-| F009 | Equality owner/class checks | none (generation only) | missing | Ledger: validate a user-written `equals`; intent unverified. |
-| F010 | Converter role annotation | none | missing | Ledger: general converter-declaration diagnostic (`@Converter` role); intent unverified. |
+| F009 | Equality owner/class checks | `jpa-lombok-equals`, `jpa-lombok-equals-field`, `jpa-lombok-data`, `jpa-data-class` (equality-on-entity inspections I006/I007/I012) | live (partial) | No original inspection validates a hand-written `equals`; the original's equality inspections are the Lombok and Kotlin data-class ones. Hand-written `equals` validation: no counterpart, not implemented. |
+| F010 | Converter role annotation | `jpa-converter-not-attribute-converter` (`local_hierarchy.rs`, live) | live (partial) | The original's I009 only checks the type match (see F004); a class named in `@Convert` that cannot be an `AttributeConverter` is our own rule. Missing `@Converter` role annotation: no original counterpart. |
 | F011 | Multiple version fields | `jpa-duplicate-version` (`local_versions.rs:86`, live, source-local); `attribute-type` for version types | live (partial) | Inherited/effective mappings unknown. |
 | F012 | Paged results without paging input | `plugins/spring-data/src/checks.rs:94` `page-without-pageable` | other plugin, live there | Not in jpa-assist. |
-| F013 | Inverse one-to-one lazy caveat | none; README documents that inverse `@OneToOne(mappedBy)` is deliberately not flagged | missing | Ledger: general LAZY advice does not model owning-side/provider limits. Intent unverified. |
-| F014 | Table mapping under single-table inheritance | none | missing | Ledger: inheritance strategy/discriminator model absent; `@Table` on a SINGLE_TABLE subclass is the likely target but unverified. |
+| F013 | Inverse one-to-one lazy caveat | none; README documents that inverse `@OneToOne(mappedBy)` is deliberately not flagged | missing | No original inspection among the 12 registered mentions `mappedBy` (the only `mappedBy` uses in the decompiled plugin are entity-designer UI updaters and the create-inverse intention). No original counterpart; not implemented. |
+| F014 | Table mapping under single-table inheritance | NEW `jpa-incompatible-table` (Warning) | live | Original `IncompatibleTableAnnotationInspection` (I010): entity whose hierarchy root is a different entity with SINGLE_TABLE or unspecified strategy and which carries `@Table`; fix removes `@Table`. Ours: closed literal `extends` chain (`local_inheritance::root_strategy`), no mapping XML, no fix. |
 | F015 | Kotlin generated equality/string methods | `jpa-data-class` (`checks.rs:249`), `jpa-val-attribute` (`checks.rs:375`), `jpa-immutable-collection` (`checks.rs:394`) | live (partial) | Full generated-method semantics not modelled. |
 | F016 | Lombok string loading/recursion | `jpa-lombok-to-string` (`lombok_checks.rs:302`, live) | live (partial) | Exclusion fixes for existing `@ToString` incomplete per ledger. |
 | F017 | Write query marker | `plugins/spring-data/src/checks.rs:100` `query_needs_modifying` | other plugin | Not in jpa-assist. |
@@ -38,15 +38,15 @@ Nothing was decompiled. Rows added by this increment are marked NEW (`inspection
 |---|---|---|---|---|
 | I001 | EntityIdMissingInspection | see F007 | live (info) / legacy | |
 | I002 | DuplicateVersionAnnotationInspection | `jpa-duplicate-version` | live | |
-| I003 | UnsupportedTypeWithoutConverterInspection | none (see F002 `attribute-type`) | missing | Name suggests a persistent type with no converter; intent unverified. |
+| I003 | UnsupportedTypeWithoutConverterInspection | NEW `jpa-unsupported-type` | live (partial) | See F002. |
 | I004 | LombokToStringLazyInspection | `jpa-lombok-to-string` | live (partial) | |
 | I005 | LombokToStringLazyIncludeInspection | `jpa-lombok-to-string` (include side unverified) | live (partial) | |
 | I006 | LombokEqualsAndHashCodeInspection | `jpa-lombok-equals` / `jpa-lombok-equals-field` | live | |
 | I007 | LombokDataInspection | `jpa-lombok-data` | live | |
 | I008 | NoArgsConstructorInspection | NEW `jpa-no-arg-constructor` (Java), `jpa-lombok-constructors`, `jpa-kotlin-plugin-missing` | live (partial) | Entities with no explicit constructors not judged. |
-| I009 | ConverterSpecifiedIncorrectlyInspection | none | missing | Intent unverified (converter mis-specification). |
-| I010 | IncompatibleTableAnnotationInspection | none | missing | Name suggests `@Table` incompatible with the inheritance setup (F014); unverified. |
-| I011 | CompositeIdClassSerializableInspection | none | missing | See F003. |
+| I009 | ConverterSpecifiedIncorrectlyInspection | `jpa-converter-type-mismatch` | live (partial) | See F004. |
+| I010 | IncompatibleTableAnnotationInspection | NEW `jpa-incompatible-table` | live | See F014. |
+| I011 | CompositeIdClassSerializableInspection | NEW `jpa-composite-id-not-serializable` | live (partial) | See F003. |
 | I012 | DataClassEqualsAndHashCodeInspection (Kotlin) | `jpa-data-class` (`checks.rs:249`) | live | |
 
 G030 (Inspection configuration): boolean `jpaAssist.check*` toggles only; no severity/scope configuration. Unchanged.
@@ -70,3 +70,36 @@ constructors with generic types also stay quiet because the existing `trusted_an
 Considered and skipped: `@Id` on floating-point (the 3.2 spec text fetched no longer carries that warning; unverified), `@Enumerated`/`@Temporal`
 misuse (exists: `attribute-type`), missing `@Id` (exists: F007), final entity class (exists: `jpa-final-entity`), `mappedBy` target
 existence (needs project-wide completeness; README keeps it non-live), `@Lob` with `@Enumerated` (no spec statement found).
+
+## Wave 2: legacy rules wired live, new rules, unmapped rows (`src/live_project.rs`)
+
+Intent confirmed from the decompiled original (read-only): the 12 `localInspection` registrations (the descriptor lists each twice, 24 lines; all `enabledByDefault`,
+no explicit level, default problem highlight `GENERIC_ERROR_OR_WARNING` = warning; `EntityIdMissing`, `DuplicateVersion`, `NoArgsConstructor` and
+`CompositeIdClassSerializable` override it with `GENERIC_ERROR`, i.e. error). Existing `ORIGINAL_INSPECTION_CODES` forces Warning on `jpa-source-identifier-absent`,
+`jpa-duplicate-version` and `jpa-no-arg-constructor`; the originals of those three highlight as errors, so that earlier decision is worth revisiting.
+Added to `ORIGINAL_INSPECTION_CODES`: `jpa-unsupported-type`, `jpa-incompatible-table` (their originals use the default level). Not added:
+`jpa-composite-id-not-serializable` (original error), `jpa-converter-type-mismatch` (already live as Info; an existing test pins that).
+
+| Code | Was | Toggle | Rule |
+|---|---|---|---|
+| `jpa-kotlin-plugin-missing`, `jpa-redundant-constructor`, `jpa-redundant-open` | legacy | `checkKotlinEntities` | legacy `inspect_kotlin_build` over the literal Gradle/Maven build files from the file's directory up to the project root; unfamiliar builds (`alias(`, `subprojects`, `noArg`, ...) unknown |
+| `jpa-listener-without-callbacks` | legacy | `checkListenerUsage` | external listener resolved by imports/package, same source root, no mapping XML at all |
+| `jpa-relationship-target` | legacy | `checkAttributeSignatures` | association target resolved as above; not an entity, or an embeddable/mapped superclass; quiet with `targetEntity` |
+| `jpa-unknown-attribute-override`, `jpa-unknown-maps-id`, `jpa-unknown-map-key` | legacy | `checkMappingNames` | owner attributes from the closed `extends` chain of strict persistence-only sources; quiet when XML may declare the owner |
+| `jpa-unknown-entity-graph`, `jpa-unknown-entity-graph-path` | legacy | `checkEntityGraphs` | Spring Data `@EntityGraph` (exact import) on a repository with an exact Spring Data base and an in-project entity; names need a complete scan of at most 128 Java and 128 Kotlin files with every graph name a literal; `getEntityGraph(...)` calls are not judged (receiver type unproven) |
+| `jpa-unknown-named-query` | legacy | `checkQueryReferences` | `@Query(name = "...")` in such a repository, same completeness rule; `createNamedQuery(...)` calls are not judged |
+| `jpa-xml-class-unknown`, `jpa-xml-class-not-persistent` | legacy | `checkPersistenceXml` | unknown only when the class's package has sources in the project and no file of that name exists; not-persistent only when found once and no mapping file exists |
+| `jpa-repository-id` | legacy | none | NOT wired: its live form is `jpa-source-repository-id` (same comparison with source ownership proof), wiring both would report twice. Remains legacy. |
+| `jpa-unsupported-type`, `jpa-entity-field-without-relationship`, `jpa-incompatible-table`, `jpa-composite-id-not-serializable` | new | `checkUnsupportedFieldType`, `checkEntityFieldRelationship`, `checkIncompatibleTable`, `checkCompositeIdSerializable` | see F002, F006, F014, F003 |
+
+Unmapped ledger rows (`unmapped.md`), read from the original:
+
+| Row | Original behaviour | Plugin counterpart |
+|---|---|---|
+| A003, A037 | `SafeDeleteMethodAction`: runs the IntelliJ platform `SafeDeleteHandler` on a method selected in the JPA Buddy tool window's repository inspector | Not applicable: the platform Safe Delete refactoring (usage search, conflict dialog) has no OpenIDEA plugin API. |
+| A038 | `SafeDeleteClassAction`: same handler for a class | Not applicable, same reason. (Attribute safe delete, G075/G076, is the part with a counterpart.) |
+| E018 | `JpabLiteralExpressionAnnotator`: warning annotator for string literals whose JPA Buddy "hard reference" does not resolve (attribute names in `@MapKey`, `@AttributeOverride`, `@NamedAttributeNode`, ...; wrong-reference highlight, optional fixes) | Mapped to the unresolved-name rules: `jpa-unknown-attribute-override`, `jpa-unknown-maps-id`, `jpa-unknown-map-key`, `jpa-unknown-entity-graph-node`, `jpa-unknown-entity-graph-path`, `jpa-unknown-named-query` (all warnings). The IntelliJ reference/annotator mechanism itself has no equivalent; no quick fixes. |
+| E038 | `JpabEventDataProvider`: tells the platform's action-event machinery that the tool window toolbar place is a global action place and that the ORM framework is JPA | Not applicable: IntelliJ-internal context plumbing with no user-visible behaviour. |
+
+Not implemented (no original inspection, intent unverifiable): F001, F013, hand-written `equals` validation (F009). F012 and F017 stay in `plugins/spring-data`.
+Residual: the new and wired rules read other files from disk (saved state); an unsaved edit in another file is not seen until it is saved.

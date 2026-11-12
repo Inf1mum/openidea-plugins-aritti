@@ -1,0 +1,31 @@
+{
+  "id": "RS-582",
+  "rows": [],
+  "claimIds": [],
+  "kindExerciser": true,
+  "fixture": "boot-jpa-kotlin-jakarta",
+  "kind": "diagnostics",
+  "setup": [
+    {
+      "write": {
+        "path": "build.gradle.kts",
+        "content": "plugins {\n    kotlin(\"jvm\") version \"2.0.21\"\n    kotlin(\"plugin.jpa\") version \"2.0.21\"\n}\n\nallOpen {\n    annotation(\"jakarta.persistence.Entity\")\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/kotlin/com/example/shop/w2/Gadget.kt",
+        "content": "package com.example.shop.w2\n\nimport jakarta.persistence.Entity\nimport jakarta.persistence.Id\n\n@Entity\nopen class Gadget(@Id var id: Long? = null)\n"
+      }
+    }
+  ],
+  "expect": {
+    "diagnostics": [
+      {
+        "rule": "jpa-redundant-open",
+        "file": "src/main/kotlin/com/example/shop/w2/Gadget.kt"
+      }
+    ]
+  },
+  "note": "allOpen names jakarta.persistence.Entity, so open on the entity is redundant."
+}

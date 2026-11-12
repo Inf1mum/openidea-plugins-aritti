@@ -1,0 +1,25 @@
+{
+  "id": "RS-581",
+  "rows": [],
+  "claimIds": [],
+  "kindExerciser": true,
+  "fixture": "boot-jpa-kotlin-jakarta",
+  "kind": "diagnostics",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/kotlin/com/example/shop/w2/Gadget.kt",
+        "content": "package com.example.shop.w2\n\nimport jakarta.persistence.Entity\nimport jakarta.persistence.Id\n\n@Entity\nclass Gadget(@Id var id: Long?) {\n    constructor() {}\n\n    var name: String = \"\"\n}\n"
+      }
+    }
+  ],
+  "expect": {
+    "diagnostics": [
+      {
+        "rule": "jpa-redundant-constructor",
+        "file": "src/main/kotlin/com/example/shop/w2/Gadget.kt"
+      }
+    ]
+  },
+  "note": "kotlin-jpa is applied in the fixture build, so an empty no-arg constructor is redundant."
+}

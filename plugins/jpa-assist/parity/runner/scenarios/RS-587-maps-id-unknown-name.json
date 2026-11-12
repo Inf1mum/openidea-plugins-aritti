@@ -1,0 +1,31 @@
+{
+  "id": "RS-587",
+  "rows": [],
+  "claimIds": [],
+  "kindExerciser": true,
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "diagnostics",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/w2/PieceKey.java",
+        "content": "package com.example.shop.w2;\n\nimport jakarta.persistence.Embeddable;\n\n@Embeddable\npublic class PieceKey {\n    Long ownerId;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/w2/Owned.java",
+        "content": "package com.example.shop.w2;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.EmbeddedId;\nimport jakarta.persistence.MapsId;\nimport jakarta.persistence.OneToOne;\n\n@Entity\npublic class Owned {\n    @EmbeddedId\n    private PieceKey id;\n\n    @MapsId(\"missing\")\n    @OneToOne\n    private Linked owner;\n}\n"
+      }
+    }
+  ],
+  "expect": {
+    "diagnostics": [
+      {
+        "rule": "jpa-unknown-maps-id",
+        "file": "src/main/java/com/example/shop/w2/Owned.java"
+      }
+    ]
+  },
+  "note": "MapsId names an attribute the embedded id class does not have."
+}

@@ -284,7 +284,9 @@ mod tests {
         let _h = host();
         let mut p = JpaAssist::default();
         let good = "<persistence xmlns='https://jakarta.ee/xml/ns/persistence'><persistence-unit name='u' transaction-type='BAD'><class>example.O</class></persistence-unit></persistence>";
-        assert_eq!(p.diagnostics(&doc(good)).len(), 1);
+        let mut codes: Vec<_> = p.diagnostics(&doc(good)).into_iter().filter_map(|d| d.code).collect();
+        codes.sort();
+        assert_eq!(codes, ["jpa-xml-class-unknown", "jpa-xml-value"]);
         assert_eq!(complete(&mut p, good), ["example.Owned"]);
         for bad in [
             good.replace("xmlns=", "xmlns:xml=").replace("<persistence", "<xml:persistence").replace("</persistence", "</xml:persistence"),

@@ -249,7 +249,7 @@ fn converter_problem(text: &str, fqcn: &str) -> Option<(Severity, String)> {
     Some((Severity::Info, format!("{simple} lists no AttributeConverter among its interfaces in saved source; an in-project interface could still extend it, which is not resolved here.")))
 }
 
-fn converter_head(text: &str, fqcn: &str) -> Option<String> {
+pub(super) fn converter_head(text: &str, fqcn: &str) -> Option<String> {
     let (package, simple) = fqcn.rsplit_once('.')?;
     let masked = model::mask(text);
     let declared = masked.lines().find_map(|l| l.trim().strip_prefix("package "))?;

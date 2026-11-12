@@ -1,0 +1,35 @@
+{
+  "id": "RS-591",
+  "rows": [],
+  "claimIds": [],
+  "kindExerciser": true,
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "diagnostics",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/w2/Plain.java",
+        "content": "package com.example.shop.w2;\n\npublic class Plain {\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/resources/META-INF/persistence.xml",
+        "content": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<persistence xmlns=\"https://jakarta.ee/xml/ns/persistence\" version=\"3.0\">\n  <persistence-unit name=\"w2\">\n    <class>com.example.shop.w2.Plain</class>\n    <class>com.example.shop.w2.Gone</class>\n  </persistence-unit>\n</persistence>\n"
+      }
+    }
+  ],
+  "expect": {
+    "diagnostics": [
+      {
+        "rule": "jpa-xml-class-not-persistent",
+        "file": "src/main/resources/META-INF/persistence.xml"
+      },
+      {
+        "rule": "jpa-xml-class-unknown",
+        "file": "src/main/resources/META-INF/persistence.xml"
+      }
+    ]
+  },
+  "note": "Plain exists without a persistence annotation; Gone is missing from a package the project owns."
+}

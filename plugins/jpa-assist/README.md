@@ -175,6 +175,24 @@ build-derived quick fixes require already established build facts and are not wa
 implicitly by live requests. No new full-project review command invokes the unsafe
 legacy global/simple-name cache.
 
+`src/live_project.rs` restores part of that list as live checks, each on positive evidence only: a class is resolved
+through the current file's imports or package, read from the package path inside the same source root and must declare
+that top-level class; wildcard imports, library types, XML mapping files that may add to the class (`orm.xml`,
+`mapping-file`), oversized files and incomplete project scans (more than 128 Java or Kotlin files, a source that declares
+a non-literal name, `jpa-named-queries.properties`) keep a rule silent. Live again: `jpa-kotlin-plugin-missing`,
+`jpa-redundant-constructor`, `jpa-redundant-open` (literal Gradle/Maven build files only; setting
+`checkKotlinEntities`), `jpa-listener-without-callbacks` (`checkListenerUsage`), `jpa-relationship-target`
+(`checkAttributeSignatures`), `jpa-unknown-attribute-override`, `jpa-unknown-maps-id`, `jpa-unknown-map-key`
+(`checkMappingNames`), `jpa-unknown-entity-graph`, `jpa-unknown-entity-graph-path` (`checkEntityGraphs`; Spring Data
+`@EntityGraph` with an exact import, repository base from an exact Spring Data import, entity in the project),
+`jpa-unknown-named-query` (`checkQueryReferences`, `@Query(name)` only) and `jpa-xml-class-unknown` /
+`jpa-xml-class-not-persistent` (`checkPersistenceXml`; unknown only when the class's package has sources in the project,
+not-persistent only without mapping files). `jpa-repository-id` stays legacy: its live form is
+`jpa-source-repository-id`. New there: `jpa-unsupported-type` (`checkUnsupportedFieldType`),
+`jpa-entity-field-without-relationship` (`checkEntityFieldRelationship`), `jpa-incompatible-table`
+(`checkIncompatibleTable`) and `jpa-composite-id-not-serializable` (`checkCompositeIdSerializable`, `javax.persistence`
+sources only). None of the four new rules has a quick fix.
+
 Original comparison: `JpaObjectClassSignatureInspection`, `JpaAttributeTypeInspection`
 and `JpaMissingIdInspection` use UAST/resolved persistence roles and model browsers;
 our source subset cannot reproduce those semantics. The reviewed persistence tree

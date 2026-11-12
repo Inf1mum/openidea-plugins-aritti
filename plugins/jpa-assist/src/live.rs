@@ -2,7 +2,7 @@
 use crate::{
     checks::*,
     model::{Class, annotations, mask, parse_class, words},
-    setting, xml,
+    setting,
 };
 use openidea_plugin::providers::Document;
 use openidea_plugin::{Diagnostic, host};
@@ -143,7 +143,7 @@ impl State {
                 return vec![];
             }
             // Unknown project/library mappings are not negative evidence.
-            xml::inspect_owned(text)
+            crate::live_project::xml_findings(doc)
         } else {
             if !trusted_annotations(text) {
                 return vec![];
@@ -205,6 +205,7 @@ impl State {
             if setting("checkClassSignature") { findings.extend(crate::local_inheritance::findings(doc)); }
             if setting("checkClassSignature") { findings.extend(crate::persistence_unit::findings(doc)); }
             findings.extend(crate::inspections_more::findings(doc));
+            findings.extend(crate::live_project::findings(doc));
             findings.extend(crate::file_actions::hibernate_type_findings(doc));
             findings.extend(crate::local_graph::findings(doc));
             findings.extend(crate::local_listener::findings(doc));
@@ -239,6 +240,8 @@ pub(super) const KNOWN_CODES: &[&str] = &[
     "jpa-unknown-entity-graph-node", "jpa-unknown-entity-graph-path", "jpa-unknown-map-key", "jpa-unknown-maps-id", "jpa-unknown-named-query",
     "jpa-unknown-query-parameter", "jpa-val-attribute", "jpa-xml-class", "jpa-xml-class-duplicate", "jpa-xml-class-not-persistent",
     "jpa-xml-class-unknown", "jpa-xml-property", "jpa-xml-provider", "jpa-xml-unit-name", "jpa-xml-value",
+    "jpa-unsupported-type", "jpa-entity-field-without-relationship", "jpa-incompatible-table", "jpa-composite-id-not-serializable",
+    "jpa-converter-type-mismatch", "jpa-converter-not-attribute-converter",
 ];
 
 /// Every inspection is on by default and, where the original registers a counterpart, a warning (see `ORIGINAL_INSPECTION_CODES`); `None` removes the finding, `Some` replaces its severity. Malformed rows and unknown codes or levels are skipped.
@@ -293,6 +296,7 @@ fn apply_configured_severities(findings: &mut Vec<Finding>) {
 const ORIGINAL_INSPECTION_CODES: &[&str] = &[
     "jpa-data-class", "jpa-source-identifier-absent", "jpa-duplicate-version", "jpa-lombok-to-string",
     "jpa-lombok-equals", "jpa-lombok-data", "jpa-no-arg-constructor",
+    "jpa-unsupported-type", "jpa-incompatible-table",
 ];
 // Every consumed framework annotation needs canonical source ownership before
 // live diagnostics/cache admission. Wildcards and local lookalikes are unknown.

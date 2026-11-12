@@ -1,0 +1,31 @@
+{
+  "id": "RS-583",
+  "rows": [],
+  "claimIds": [],
+  "kindExerciser": true,
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "diagnostics",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/w2/IdleListener.java",
+        "content": "package com.example.shop.w2;\n\npublic class IdleListener {\n    public void touch() {\n    }\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/w2/Audited.java",
+        "content": "package com.example.shop.w2;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.EntityListeners;\n\n@Entity\n@EntityListeners(IdleListener.class)\npublic class Audited {\n    @Id\n    private Long id;\n\n}\n"
+      }
+    }
+  ],
+  "expect": {
+    "diagnostics": [
+      {
+        "rule": "jpa-listener-without-callbacks",
+        "file": "src/main/java/com/example/shop/w2/Audited.java"
+      }
+    ]
+  },
+  "note": "Listener class in the same package declares no lifecycle callback."
+}

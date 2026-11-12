@@ -1,0 +1,31 @@
+{
+  "id": "RS-590",
+  "rows": [],
+  "claimIds": [],
+  "kindExerciser": true,
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "diagnostics",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/w2/Gizmo.java",
+        "content": "package com.example.shop.w2;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Gizmo {\n    @Id\n    private Long id;\n    private String name;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/w2/GizmoRepository.java",
+        "content": "package com.example.shop.w2;\n\nimport java.util.List;\nimport org.springframework.data.jpa.repository.EntityGraph;\nimport org.springframework.data.jpa.repository.JpaRepository;\nimport org.springframework.data.jpa.repository.Query;\n\npublic interface GizmoRepository extends JpaRepository<Gizmo, Long> {\n    @Query(name = \"Gizmo.gone\")\n    List<Gizmo> byName();\n}\n"
+      }
+    }
+  ],
+  "expect": {
+    "diagnostics": [
+      {
+        "rule": "jpa-unknown-named-query",
+        "file": "src/main/java/com/example/shop/w2/GizmoRepository.java"
+      }
+    ]
+  },
+  "note": "No @NamedQuery of that name in any project source."
+}
