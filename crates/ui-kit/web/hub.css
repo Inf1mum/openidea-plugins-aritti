@@ -122,3 +122,4 @@ main:has(.command-workspace-host){overflow:hidden}
 .resource-group th{text-align:left;font-weight:600;padding:0;background:var(--ui-surface-raised,transparent)}
 .resource-group-toggle{display:flex;align-items:center;gap:var(--ui-space-1);width:100%;border:0;background:none;color:inherit;font:inherit;padding:var(--ui-space-1) var(--ui-space-2);cursor:pointer}
 .resource-group-count{color:var(--ui-muted);font-weight:400}
+.ui-table td.resource-grouped{padding-left:calc(var(--ui-space-2) + 20px)}

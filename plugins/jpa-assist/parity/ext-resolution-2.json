@@ -1,0 +1,703 @@
+{
+  "resolvedOn": "2026-11-12",
+  "part": 2,
+  "rows": {
+    "E078": {
+      "decision": "keep",
+      "mappedTo": [
+        "G003"
+      ],
+      "notApplicable": null,
+      "currentMappedTo": [
+        "G003"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml"
+      ],
+      "originalBehaviour": "Structure-view creation submenu: entity, entity from POJO, revision entity, entity with relation to/from, repository, projection, DTO, mapper, converter, custom type.",
+      "ourFeature": "structure view plus JPA: New Entity command; other creators are code actions or commands, no grouped creation menu",
+      "scenarios": [],
+      "confidence": "medium",
+      "note": "Blocking target G003: its claims are worded as the JPA Structure tab and are not headless-verifiable (G003-C1/C2); our structure view has no creation group."
+    },
+    "E079": {
+      "decision": "keep",
+      "mappedTo": [
+        "G003"
+      ],
+      "notApplicable": null,
+      "currentMappedTo": [
+        "G003"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml"
+      ],
+      "originalBehaviour": "Wrapper group that only references the structure creation submenu (E078).",
+      "ourFeature": "none",
+      "scenarios": [],
+      "confidence": "medium",
+      "note": "Same as E078: surface of the structure tab, blocked on G003."
+    },
+    "E080": {
+      "decision": "remap",
+      "mappedTo": [
+        "G003"
+      ],
+      "notApplicable": null,
+      "currentMappedTo": [
+        "G003",
+        "G011"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml"
+      ],
+      "originalBehaviour": "Toolbar popup (plus icon) in the structure tool window that shows the creation submenu.",
+      "ourFeature": "structure view toolbar (no plus menu)",
+      "scenarios": [],
+      "confidence": "medium",
+      "note": "G011 is the editor header toolbar, not the structure tool window toolbar; this group is the structure-tab Add menu, so only G003 applies. Still open (G003)."
+    },
+    "E081": {
+      "decision": "remap",
+      "mappedTo": [
+        "G003",
+        "G012"
+      ],
+      "notApplicable": null,
+      "currentMappedTo": [
+        "G003",
+        "G011"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml"
+      ],
+      "originalBehaviour": "Structure toolbar group: the plus popup, then Show JPA settings and Configure tool window.",
+      "ourFeature": "structure view toolbar",
+      "scenarios": [],
+      "confidence": "medium",
+      "note": "Replaces G011 (editor toolbar) with G012 (panel layout, configure tool window); the settings entry is A033 (G129/G030). Both targets are open."
+    },
+    "E082": {
+      "decision": "missing",
+      "mappedTo": null,
+      "notApplicable": null,
+      "currentMappedTo": [
+        "G003",
+        "G013"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml"
+      ],
+      "originalBehaviour": "Project-tree New-menu group offering entity, DTO and an Other submenu on a package or class.",
+      "ourFeature": "none (only the Tools menu command JPA: New Entity)",
+      "scenarios": [],
+      "confidence": "medium",
+      "note": "Real capability absent: no projectView.context menu with creation commands, although the host supports that menu. Owner G003 (or G013).",
+      "ownerRow": "G003"
+    },
+    "E083": {
+      "decision": "missing",
+      "mappedTo": null,
+      "notApplicable": null,
+      "currentMappedTo": [
+        "G003"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml"
+      ],
+      "originalBehaviour": "Submenu of the project-tree New group: entity from POJO, projection, mapper, revision entity, entity view, relation entities, converter, custom type.",
+      "ourFeature": "none",
+      "scenarios": [],
+      "confidence": "medium",
+      "note": "Same gap as E082: no project-tree creation submenu; each creator exists only as a code action or command. Owner G003.",
+      "ownerRow": "G003"
+    },
+    "E085": {
+      "decision": "keep",
+      "mappedTo": [
+        "G006"
+      ],
+      "notApplicable": null,
+      "currentMappedTo": [
+        "G006"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml"
+      ],
+      "originalBehaviour": "Gutter popup group for an entity or attribute: sync entity with DTO, create mapper, create related entity, create repository, create DTO, extract mapped superclass.",
+      "ourFeature": "code actions for each creator; no gutter popup group",
+      "scenarios": [],
+      "confidence": "medium",
+      "note": "Blocking target G006 (mapping inspector, thin, no headless claim). The member actions are separate rows; the group is the inspector/gutter surface."
+    },
+    "E086": {
+      "decision": "keep",
+      "mappedTo": [
+        "G006"
+      ],
+      "notApplicable": null,
+      "currentMappedTo": [
+        "G006"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml"
+      ],
+      "originalBehaviour": "Inspector toolbar group: the gutter actions plus three safe-delete actions (attribute, method, class).",
+      "ourFeature": "none",
+      "scenarios": [],
+      "confidence": "medium",
+      "note": "Blocking target G006; safe-delete members are notApplicable (A003/A037/A038)."
+    },
+    "E090": {
+      "decision": "remap",
+      "mappedTo": [
+        "G133",
+        "G045",
+        "G014"
+      ],
+      "notApplicable": null,
+      "currentMappedTo": [
+        "G133",
+        "G014"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/decompiled/main/com/intellij/jpb/kt/codeinsight/KotlinQuickFixProvider.java"
+      ],
+      "originalBehaviour": "Kotlin unresolved-reference quick fixes: create custom entity, create projection (on a type reference), create method in repository (on a call).",
+      "ourFeature": "Create missing Spring Data repository/projection/DTO (Kotlin supported, unresolved_create.rs); Create repository method from this call (call_assist.rs)",
+      "scenarios": [
+        "RS-572",
+        "RS-573",
+        "RS-574",
+        "RS-575"
+      ],
+      "confidence": "medium",
+      "note": "Adds G045 for the create-method fix. No create-custom-entity fix exists in our plugin. G133 and G045 are open."
+    },
+    "E091": {
+      "decision": "keep",
+      "mappedTo": [
+        "G079",
+        "G002"
+      ],
+      "notApplicable": null,
+      "currentMappedTo": [
+        "G079",
+        "G002"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/decompiled/main/com/intellij/jpb/kt/model/dto/KtDtoEntityAttributeLineMarkerProvider.java"
+      ],
+      "originalBehaviour": "Kotlin DTO class gutter markers linking each DTO field to the entity attribute it mirrors.",
+      "ourFeature": "none (host has no line-marker targets)",
+      "scenarios": [],
+      "confidence": "low",
+      "note": "Blocking G079 (gutter navigation, no API per memory note); G002 also open."
+    },
+    "E093": {
+      "decision": "keep",
+      "mappedTo": [
+        "F002"
+      ],
+      "notApplicable": null,
+      "currentMappedTo": [
+        "F002"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/embedded-descriptors/intellij.javaee.jpabuddy.database.xml",
+        "audit/jpa-buddy-263.7307.112/registrations.json"
+      ],
+      "originalBehaviour": "UAST annotator registered as AttributeTypeAnnotator; the class body is not in the decompiled tree, so the behaviour is unknown.",
+      "ourFeature": "attribute-type and jpa-unsupported-type rules",
+      "scenarios": [],
+      "confidence": "low",
+      "note": "Surprising: implementation class absent from decompiled/. Mapping to F002 is plausible but unverified; F002 is partial with documented divergences."
+    },
+    "E094": {
+      "decision": "notApplicable",
+      "mappedTo": null,
+      "notApplicable": "Suppressor of IntelliJ platform inspections (JpaMissingId, AssociationNotMarked) so JPA Buddy's own replace them; OpenIDEA has no platform JPA inspections to suppress, and our rules are toggled through jpaAssist.check* settings (G030).",
+      "currentMappedTo": [
+        "G030"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/embedded-descriptors/intellij.javaee.jpabuddy.database.xml",
+        "audit/jpa-buddy-263.7307.112/decompiled/main/com/intellij/jpb/database/suppressor/JpaInspectionSuppressor.java",
+        "audit/jpa-buddy-263.7307.112/decompiled/module/com/intellij/jpb/inspection/EntityInspectionSuppressor.java"
+      ],
+      "originalBehaviour": "Returns a fixed list of platform inspection tool ids as suppressed (missing id, association not marked); no suppress quick fixes.",
+      "ourFeature": "none",
+      "scenarios": [],
+      "confidence": "high",
+      "note": "No user-visible behaviour except hiding duplicates of platform inspections."
+    },
+    "E095": {
+      "decision": "keep",
+      "mappedTo": [
+        "G002"
+      ],
+      "notApplicable": null,
+      "currentMappedTo": [
+        "G002"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/embedded-descriptors/intellij.javaee.jpabuddy.database.xml",
+        "audit/jpa-buddy-263.7307.112/decompiled/main/com/intellij/jpb/database/jpa/JpabLinemarkerActionsProvider.java"
+      ],
+      "originalBehaviour": "Supplies the actions in the entity and attribute gutter popup, taken from the inspector line-marker group (E085).",
+      "ourFeature": "none (no gutter popup menu)",
+      "scenarios": [],
+      "confidence": "medium",
+      "note": "Blocking G079 and G002 (gutter surfaces, no headless claim)."
+    },
+    "E096": {
+      "decision": "missing",
+      "mappedTo": null,
+      "notApplicable": null,
+      "currentMappedTo": [
+        "G052"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/embedded-descriptors/intellij.javaee.jpabuddy.database.xml",
+        "audit/jpa-buddy-263.7307.112/decompiled/main/com/intellij/jpb/database/jpa/JpqlInjector.java"
+      ],
+      "originalBehaviour": "Injects JPQL into string literals inside Blaze-Persistence mapping annotations of @EntityView classes, wrapped as select ... from <entity>. Ultimate and Blaze projects only.",
+      "ourFeature": "JPQL injection for @NamedQuery/@NamedNativeQuery only (jpql_language.rs)",
+      "scenarios": [],
+      "confidence": "medium",
+      "note": "Original is not G052 query completion; it injects into entity-view mapping literals. Not implemented. Owner G074 (entity views, verified) or G052.",
+      "ownerRow": "G074"
+    },
+    "E097": {
+      "decision": "remap",
+      "mappedTo": [
+        "G011",
+        "G005"
+      ],
+      "notApplicable": null,
+      "currentMappedTo": [
+        "G113"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/embedded-descriptors/intellij.javaee.jpabuddy.liquibase.xml",
+        "audit/jpa-buddy-263.7307.112/decompiled/main/com/intellij/jpb/liquibase/enp/LiquibaseEditorNotificationProvider.java"
+      ],
+      "originalBehaviour": "Editor header toolbar on Liquibase changelogs: run update (library present), Add change palette menu, generate init changelog, generate diff changelog.",
+      "ourFeature": "command Generate Liquibase changelog from model changes (liquibase_action.rs); no header toolbar",
+      "scenarios": [
+        "RS-007",
+        "RS-306"
+      ],
+      "confidence": "medium",
+      "note": "This is the editor toolbar (G011) plus the change palette (G005), not the changelog inspector. The generating actions are in verified rows (G112, G104); the surface rows stay open."
+    },
+    "E099": {
+      "decision": "keep",
+      "mappedTo": [
+        "G113"
+      ],
+      "notApplicable": null,
+      "currentMappedTo": [
+        "G113"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/embedded-descriptors/intellij.javaee.jpabuddy.liquibase.xml",
+        "audit/jpa-buddy-263.7307.112/decompiled/main/com/intellij/jpb/liquibase/toolwindow/inspector/JpaDdlInspectorActionsProvider.java"
+      ],
+      "originalBehaviour": "Routes the Liquibase inspector's action and gutter groups (delete tag) to the inspector.",
+      "ourFeature": "none",
+      "scenarios": [],
+      "confidence": "medium",
+      "note": "Blocking G113: no changelog inspector in our plugin and G113 has no explicit claim."
+    },
+    "E100": {
+      "decision": "keep",
+      "mappedTo": [
+        "G113"
+      ],
+      "notApplicable": null,
+      "currentMappedTo": [
+        "G113"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/embedded-descriptors/intellij.javaee.jpabuddy.liquibase.xml",
+        "audit/jpa-buddy-263.7307.112/decompiled/main/com/intellij/jpb/liquibase/toolwindow/inspector/item/loader/LiquibaseTagItemLoader.java"
+      ],
+      "originalBehaviour": "Loads the inspector rows for the selected changelog XML tag.",
+      "ourFeature": "none",
+      "scenarios": [],
+      "confidence": "medium",
+      "note": "Plumbing of the inspector, but its visible result is the G113 inspector we lack; keep with G113."
+    },
+    "E101": {
+      "decision": "keep",
+      "mappedTo": [
+        "G113"
+      ],
+      "notApplicable": null,
+      "currentMappedTo": [
+        "G113"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/embedded-descriptors/intellij.javaee.jpabuddy.liquibase.xml",
+        "audit/jpa-buddy-263.7307.112/decompiled/main/com/intellij/jpb/liquibase/toolwindow/inspector/LiquibaseInspectorModelProvider.java"
+      ],
+      "originalBehaviour": "Resolves the caret or selection in a changelog to an inspector model for the tag.",
+      "ourFeature": "none",
+      "scenarios": [],
+      "confidence": "medium",
+      "note": "Same as E100: blocked on G113."
+    },
+    "E103": {
+      "decision": "remap",
+      "mappedTo": [
+        "G005",
+        "G113"
+      ],
+      "notApplicable": null,
+      "currentMappedTo": [
+        "G116",
+        "G113"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/embedded-descriptors/intellij.javaee.jpabuddy.liquibase.xml",
+        "audit/jpa-buddy-263.7307.112/decompiled/main/com/intellij/jpb/liquibase/toolwindow/palette/type/LiquibasePaletteType.java"
+      ],
+      "originalBehaviour": "Palette listing Liquibase change types that can be added to a changelog.",
+      "ourFeature": "none (G116 covers changeset templates, not a palette)",
+      "scenarios": [],
+      "confidence": "medium",
+      "note": "G116 is changeset template settings, not a palette; the palette is G005. G113 kept because the palette sits with the changelog inspector. Both open."
+    },
+    "E104": {
+      "decision": "keep",
+      "mappedTo": [
+        "G113"
+      ],
+      "notApplicable": null,
+      "currentMappedTo": [
+        "G113"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/embedded-descriptors/intellij.javaee.jpabuddy.liquibase.xml",
+        "audit/jpa-buddy-263.7307.112/decompiled/main/com/intellij/jpb/liquibase/toolwindow/inspector/prop/descriptor/LiquibaseBooleanExprDescriptor.java"
+      ],
+      "originalBehaviour": "Inspector toggle for every boolean attribute of a change tag.",
+      "ourFeature": "none",
+      "scenarios": [],
+      "confidence": "medium",
+      "note": "Blocked on G113 (inspector widget)."
+    },
+    "E105": {
+      "decision": "keep",
+      "mappedTo": [
+        "G113"
+      ],
+      "notApplicable": null,
+      "currentMappedTo": [
+        "G113"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/embedded-descriptors/intellij.javaee.jpabuddy.liquibase.xml",
+        "audit/jpa-buddy-263.7307.112/decompiled/main/com/intellij/jpb/liquibase/toolwindow/inspector/prop/descriptor/LiquibaseColumnTypeDescription.java"
+      ],
+      "originalBehaviour": "Inspector dropdown of database target types for column type attributes (type, newDataType, columnDataType).",
+      "ourFeature": "none (no type completion in changelogs)",
+      "scenarios": [],
+      "confidence": "medium",
+      "note": "Blocked on G113."
+    },
+    "E106": {
+      "decision": "keep",
+      "mappedTo": [
+        "G113"
+      ],
+      "notApplicable": null,
+      "currentMappedTo": [
+        "G113"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/embedded-descriptors/intellij.javaee.jpabuddy.liquibase.xml",
+        "audit/jpa-buddy-263.7307.112/decompiled/main/com/intellij/jpb/liquibase/toolwindow/inspector/prop/descriptor/LiquibaseContextDescriptor.java"
+      ],
+      "originalBehaviour": "Inspector picker for the context attribute from contexts used in the project's changelogs.",
+      "ourFeature": "none",
+      "scenarios": [],
+      "confidence": "medium",
+      "note": "Blocked on G113."
+    },
+    "E107": {
+      "decision": "keep",
+      "mappedTo": [
+        "G113"
+      ],
+      "notApplicable": null,
+      "currentMappedTo": [
+        "G113"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/embedded-descriptors/intellij.javaee.jpabuddy.liquibase.xml",
+        "audit/jpa-buddy-263.7307.112/decompiled/main/com/intellij/jpb/liquibase/toolwindow/inspector/prop/descriptor/LiquibaseDbmsDescriptor.java"
+      ],
+      "originalBehaviour": "Inspector picker for dbms from the supported DBMS list.",
+      "ourFeature": "none (RS-530 covers dbms-aware type output, not a picker)",
+      "scenarios": [],
+      "confidence": "medium",
+      "note": "Blocked on G113."
+    },
+    "E108": {
+      "decision": "keep",
+      "mappedTo": [
+        "G113"
+      ],
+      "notApplicable": null,
+      "currentMappedTo": [
+        "G113"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/embedded-descriptors/intellij.javaee.jpabuddy.liquibase.xml",
+        "audit/jpa-buddy-263.7307.112/decompiled/main/com/intellij/jpb/liquibase/toolwindow/inspector/prop/descriptor/LiquibaseFileNameDescriptor.java"
+      ],
+      "originalBehaviour": "Inspector file chooser for file path attributes.",
+      "ourFeature": "none",
+      "scenarios": [],
+      "confidence": "medium",
+      "note": "Blocked on G113."
+    },
+    "E109": {
+      "decision": "keep",
+      "mappedTo": [
+        "G113"
+      ],
+      "notApplicable": null,
+      "currentMappedTo": [
+        "G113"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/embedded-descriptors/intellij.javaee.jpabuddy.liquibase.xml",
+        "audit/jpa-buddy-263.7307.112/decompiled/main/com/intellij/jpb/liquibase/toolwindow/inspector/prop/descriptor/LiquibaseLabelsDescriptor.java"
+      ],
+      "originalBehaviour": "Inspector picker for labels collected from project changelogs.",
+      "ourFeature": "none",
+      "scenarios": [],
+      "confidence": "medium",
+      "note": "Blocked on G113."
+    },
+    "E110": {
+      "decision": "keep",
+      "mappedTo": [
+        "G113"
+      ],
+      "notApplicable": null,
+      "currentMappedTo": [
+        "G113"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/embedded-descriptors/intellij.javaee.jpabuddy.liquibase.xml",
+        "audit/jpa-buddy-263.7307.112/decompiled/main/com/intellij/jpb/liquibase/toolwindow/inspector/prop/descriptor/LiquibaseSequenceNameDescriptor.java",
+        "audit/jpa-buddy-263.7307.112/decompiled/main/com/intellij/jpb/liquibase/toolwindow/inspector/prop/LiquibaseSequenceNameItem.java"
+      ],
+      "originalBehaviour": "Inspector picker of sequence names from the JPA model, with navigation to the declaration.",
+      "ourFeature": "none (table and column completion only)",
+      "scenarios": [],
+      "confidence": "medium",
+      "note": "Blocked on G113."
+    },
+    "E111": {
+      "decision": "keep",
+      "mappedTo": [
+        "G113"
+      ],
+      "notApplicable": null,
+      "currentMappedTo": [
+        "G113"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/embedded-descriptors/intellij.javaee.jpabuddy.liquibase.xml",
+        "audit/jpa-buddy-263.7307.112/decompiled/main/com/intellij/jpb/liquibase/toolwindow/inspector/prop/descriptor/SchemaNameDescriptor.java"
+      ],
+      "originalBehaviour": "Inspector field for schemaName.",
+      "ourFeature": "none",
+      "scenarios": [],
+      "confidence": "medium",
+      "note": "Blocked on G113."
+    },
+    "E112": {
+      "decision": "remap",
+      "mappedTo": [
+        "G114"
+      ],
+      "notApplicable": null,
+      "currentMappedTo": [
+        "G113"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/embedded-descriptors/intellij.javaee.jpabuddy.liquibase.xml",
+        "audit/jpa-buddy-263.7307.112/decompiled/main/com/intellij/jpb/liquibase/toolwindow/inspector/prop/descriptor/TableColumnNameDescriptor.java",
+        "audit/jpa-buddy-263.7307.112/decompiled/main/com/intellij/jpb/liquibase/toolwindow/inspector/prop/ChooseTableColumnNameItem.java"
+      ],
+      "originalBehaviour": "Pick a column name from the model for single-column attributes (columnName family, name under a column tag).",
+      "ourFeature": "Liquibase changelog column-name completion from the JPA model (liquibase_completion.rs)",
+      "scenarios": [
+        "RS-508"
+      ],
+      "confidence": "medium",
+      "note": "Same data and attributes (columnName, oldColumnName, newColumnName, name in column); the inspector widget is another surface of the same capability. Exact original attribute list unavailable (LiquibaseConstant not decompiled)."
+    },
+    "E113": {
+      "decision": "missing",
+      "mappedTo": null,
+      "notApplicable": null,
+      "currentMappedTo": [
+        "G113"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/embedded-descriptors/intellij.javaee.jpabuddy.liquibase.xml",
+        "audit/jpa-buddy-263.7307.112/decompiled/main/com/intellij/jpb/liquibase/toolwindow/inspector/prop/descriptor/TableColumnNamesDescriptor.java"
+      ],
+      "originalBehaviour": "Pick several columns for columnNames, baseColumnNames and referencedColumnNames.",
+      "ourFeature": "completion for baseColumnNames and referencedColumnNames only (liquibase_completion.rs)",
+      "scenarios": [
+        "RS-508"
+      ],
+      "confidence": "medium",
+      "note": "Our completion lacks the plain columnNames attribute (addPrimaryKey, addUniqueConstraint). Owner G114 (verified for table/column completion; this is an undocumented tail).",
+      "ownerRow": "G114"
+    },
+    "E114": {
+      "decision": "remap",
+      "mappedTo": [
+        "G114"
+      ],
+      "notApplicable": null,
+      "currentMappedTo": [
+        "G113"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/embedded-descriptors/intellij.javaee.jpabuddy.liquibase.xml",
+        "audit/jpa-buddy-263.7307.112/decompiled/main/com/intellij/jpb/liquibase/toolwindow/inspector/prop/descriptor/TableNameDescriptor.java",
+        "audit/jpa-buddy-263.7307.112/decompiled/main/com/intellij/jpb/liquibase/toolwindow/inspector/prop/ChooseTableNameItem.java"
+      ],
+      "originalBehaviour": "Pick a table name from the model for tableName, baseTableName and referencedTableName.",
+      "ourFeature": "Liquibase changelog table-name completion from the JPA model (liquibase_completion.rs)",
+      "scenarios": [
+        "RS-507"
+      ],
+      "confidence": "medium",
+      "note": "Same attributes and data source as our completion; G114-C1/C2 verified by RS-507. Inspector widget not replicated."
+    },
+    "E118": {
+      "decision": "keep",
+      "mappedTo": [
+        "G113"
+      ],
+      "notApplicable": null,
+      "currentMappedTo": [
+        "G113"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/embedded-descriptors/intellij.javaee.jpabuddy.liquibase.xml"
+      ],
+      "originalBehaviour": "Gutter action group of the Liquibase inspector: delete tag (A041).",
+      "ourFeature": "none",
+      "scenarios": [],
+      "confidence": "medium",
+      "note": "Blocked on G113."
+    },
+    "E119": {
+      "decision": "keep",
+      "mappedTo": [
+        "G113"
+      ],
+      "notApplicable": null,
+      "currentMappedTo": [
+        "G113"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/embedded-descriptors/intellij.javaee.jpabuddy.liquibase.xml"
+      ],
+      "originalBehaviour": "Inspector action group of the Liquibase inspector: delete tag.",
+      "ourFeature": "none",
+      "scenarios": [],
+      "confidence": "medium",
+      "note": "Blocked on G113."
+    },
+    "E120": {
+      "decision": "remap",
+      "mappedTo": [
+        "G011"
+      ],
+      "notApplicable": null,
+      "currentMappedTo": [
+        "G115"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/embedded-descriptors/intellij.javaee.jpabuddy.flyway.xml",
+        "audit/jpa-buddy-263.7307.112/decompiled/main/com/intellij/jpb/flyway/enp/SqlEditorNotificationProvider.java"
+      ],
+      "originalBehaviour": "Editor header toolbar on SQL files (non-Ultimate only): add DDL change, generate init schema, generate diff changes.",
+      "ourFeature": "commands Generate Flyway migration from model changes and Create schema baseline (no header toolbar)",
+      "scenarios": [
+        "RS-006"
+      ],
+      "confidence": "medium",
+      "note": "This is the editor toolbar (G011), not the G115 preview. The generating actions are in verified rows; only the toolbar surface is open."
+    },
+    "E121": {
+      "decision": "keep",
+      "mappedTo": [
+        "G122"
+      ],
+      "notApplicable": null,
+      "currentMappedTo": [
+        "G122"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/embedded-descriptors/intellij.javaee.jpabuddy.flyway.xml",
+        "audit/jpa-buddy-263.7307.112/decompiled/main/com/intellij/jpb/flyway/toolwindow/DdlEntityEditorNotificationProvider.java"
+      ],
+      "originalBehaviour": "Adds a DDL scripts action first in the entity editor header when the entity has a table name.",
+      "ourFeature": "JPA: Copy DDL of Current Entity",
+      "scenarios": [],
+      "confidence": "medium",
+      "note": "G122 is right (DDL by entity); open because G122-C1 names gutter, intention and project-tree entry points and C2 scratch, clipboard and console targets."
+    },
+    "E123": {
+      "decision": "remap",
+      "mappedTo": [
+        "G122"
+      ],
+      "notApplicable": null,
+      "currentMappedTo": [
+        "G113"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/embedded-descriptors/intellij.javaee.jpabuddy.flyway.xml",
+        "audit/jpa-buddy-263.7307.112/decompiled/main/com/intellij/jpb/flyway/toolwindow/inspector/FlywayDdlInspectorActionsProvider.java"
+      ],
+      "originalBehaviour": "Provides the Flyway generate-DDL-by-entities action to the inspector for entities.",
+      "ourFeature": "JPA: Copy DDL of Current Entity",
+      "scenarios": [],
+      "confidence": "medium",
+      "note": "The group only holds FlywayGenerateDdlByEntities, which is G122, not the changelog inspector G113. Open (G122 partial)."
+    },
+    "E128": {
+      "decision": "remap",
+      "mappedTo": [
+        "G122"
+      ],
+      "notApplicable": null,
+      "currentMappedTo": [
+        "G113"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/embedded-descriptors/intellij.javaee.jpabuddy.flyway.xml"
+      ],
+      "originalBehaviour": "Gutter group containing only the generate-DDL-by-entities action.",
+      "ourFeature": "JPA: Copy DDL of Current Entity (command, no gutter entry)",
+      "scenarios": [],
+      "confidence": "medium",
+      "note": "Same as E123: DDL by entity from the entity gutter is G122. Open."
+    }
+  }
+}

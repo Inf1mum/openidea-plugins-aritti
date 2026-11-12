@@ -83,9 +83,14 @@ pub(crate) fn view(index: &Index<FileModel>) -> View {
         ];
         let profiles = if world.inactive_reason(path, bean).is_some() { format!("{profiles} (inactive)") } else { profiles };
         let cells = [&bean.name, &bean.ty, &bean.kind, &profiles, path].into_iter().map(|s| clip(s)).collect::<Vec<_>>();
-        rows.push(json!({"key":location_key(path,bean.range),"label":clip(&bean.name),"cells":cells,"details":details}));
+        let icon = match bean.kind.as_str() {
+            "Spring Data repository" => "interface",
+            "@Bean" => "method",
+            _ => "class",
+        };
+        rows.push(json!({"key":location_key(path,bean.range),"label":clip(&bean.name),"cells":cells,"icon":icon,"details":details}));
     }
-    let mut data = json!({"columns":["Name","Type","Kind","Profiles","Source"],"facets":[2,3,4],"groupBy":2,"items":rows,"totalRows":total});
+    let mut data = json!({"columns":["Name","Type","Kind","Profiles","Source"],"facets":[3,4],"groupBy":2,"displayColumns":[0,1],"showRowIcons":true,"items":rows,"totalRows":total});
     while data.to_string().len() > MAX_BODY {
         let items = data["items"].as_array_mut().unwrap();
         if items.is_empty() {

@@ -8002,16 +8002,14 @@
       "evidence": [],
       "acceptance": [],
       "mappedTo": [
-        "G034",
-        "G035",
-        "G033"
+        "G035"
       ]
     },
     {
       "id": "A008",
       "family": "action",
       "capability": "JpbCreateRepositoryMethod",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml",
         "tag": "action",
@@ -8019,11 +8017,30 @@
         "class": "com.intellij.jpb.action.CreateRepositoryMethodAction",
         "icon": "com.intellij.jpa.jpb.model.JpaIcons.SpringData.FindCollection"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-001.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-102.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-463.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-464.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G040, G043",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G040",
+            "G043"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G040",
-        "G045"
+        "G043"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/src/query_method_action.rs"
       ]
     },
     {
@@ -8041,8 +8058,8 @@
       "evidence": [],
       "acceptance": [],
       "mappedTo": [
-        "G081",
-        "G082"
+        "G080",
+        "G081"
       ]
     },
     {
@@ -8158,7 +8175,7 @@
       "id": "A015",
       "family": "action",
       "capability": "JpbCreateEntityFromPojo",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml",
         "tag": "action",
@@ -8166,11 +8183,26 @@
         "class": "com.intellij.jpb.action.creation.entity.CreateEntityFromPojoAction",
         "icon": "com.intellij.icons.AllIcons.Javaee.PersistenceEntity"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-120.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-543.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G067",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G067"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
-        "G067",
-        "G013"
+        "G067"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/src/dto_convert_action.rs"
       ]
     },
     {
@@ -8215,7 +8247,7 @@
       "id": "A017",
       "family": "action",
       "capability": "JpbCreateJpaRepository",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml",
         "tag": "action",
@@ -8223,11 +8255,31 @@
         "class": "com.intellij.jpb.action.creation.repository.CreateJpaRepositoryAction",
         "icon": "com.intellij.jpa.jpb.model.JpaIcons.SpringData.Repository"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-002.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-100.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-101.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-460.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G036, G037",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G036",
+            "G037"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G036",
-        "G039"
+        "G037"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/src/file_actions.rs",
+        "plugins/jpa-assist/src/repository_action.rs"
       ]
     },
     {
@@ -8693,7 +8745,6 @@
       "evidence": [],
       "acceptance": [],
       "mappedTo": [
-        "G129",
         "G030"
       ]
     },
@@ -8962,7 +9013,7 @@
       "evidence": [],
       "acceptance": [],
       "mappedTo": [
-        "G086"
+        "G096"
       ]
     },
     {
@@ -9051,7 +9102,7 @@
       "id": "I004",
       "family": "localInspection",
       "capability": "com.intellij.jpb.inspection.LombokToStringLazyInspection",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml",
         "tag": "localInspection",
@@ -9061,12 +9112,25 @@
         "key": "inspection.LombokToStringInspection",
         "implementationClass": "com.intellij.jpb.inspection.LombokToStringLazyInspection"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-010.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G021",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G021"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
-        "F016",
-        "G021",
-        "G030"
+        "G021"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/src/lombok_checks.rs"
       ]
     },
     {
@@ -9139,7 +9203,7 @@
       "id": "I008",
       "family": "localInspection",
       "capability": "com.intellij.jpb.inspection.NoArgsConstructorInspection",
-      "status": "partial",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml",
         "tag": "localInspection",
@@ -9149,17 +9213,29 @@
         "key": "inspection.NoArgsConstructorInspection",
         "implementationClass": "com.intellij.jpb.inspection.NoArgsConstructorInspection"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-010.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from F005, G022",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "F005",
+            "G022"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "F005",
-        "F018",
-        "G022",
-        "G030"
+        "G022"
       ],
       "finding": "Seven live rules in inspections_more.rs (jpa-no-arg-constructor, jpa-final-member [+quick fix], jpa-generated-value-without-id, jpa-generated-value-type, jpa-column-length-type, jpa-column-precision-type, jpa-unidirectional-one-to-many) each with a settings toggle, each citing the Jakarta Persistence 3.2 spec/Javadoc or Hibernate 6.6 guide; strict closed-class/exact-annotation gate (a single @Override silences them); Java-only for the first two. Mapping of every F/I row in parity/INSPECTIONS.md. Not implemented: F001, F003/I011, F004, F006, F009, F010/I009, F013, F014/I010, I003.",
       "implementation": [
-        "plugins/jpa-assist/src/inspections_more.rs"
+        "plugins/jpa-assist/src/inspections_more.rs",
+        "plugins/jpa-assist/src/lombok_checks.rs"
       ]
     },
     {
@@ -9179,7 +9255,6 @@
       "evidence": [],
       "acceptance": [],
       "mappedTo": [
-        "F010",
         "F004",
         "G030"
       ]
@@ -9663,14 +9738,28 @@
       "id": "F016",
       "family": "Inspection families",
       "capability": "Lombok string loading/recursion",
-      "status": "unverified",
+      "status": "verified-parity",
       "baseline": "Missing dedicated fixes",
       "finding": "Data replacement and scalar toString generation do not implement exclusion choices for existing ToString.",
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-010.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G021",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G021"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
-        "S005",
         "G021"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/src/lombok_checks.rs"
       ]
     },
     {
@@ -9690,15 +9779,31 @@
       "id": "F018",
       "family": "Inspection families",
       "capability": "Lombok constructor generation",
-      "status": "unverified",
+      "status": "verified-parity",
       "baseline": "Missing",
       "finding": "No live Builder/AllArgsConstructor versus constructor availability rule found.",
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-010.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from F005, G022",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "F005",
+            "G022"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
-        "S005",
         "F005",
         "G022"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/src/inspections_more.rs",
+        "plugins/jpa-assist/src/lombok_checks.rs"
       ]
     },
     {
@@ -9915,9 +10020,7 @@
       },
       "evidence": [],
       "acceptance": [],
-      "mappedTo": [
-        "G034"
-      ]
+      "notApplicable": "IntelliJ ImplicitUsageProvider: marks methods carrying PostLoad/PostPersist/PrePersist-style callback annotations as used so the platform 'unused declaration' inspection stays quiet. The OpenIDEA plugin API has no implicit-usage extension point and jpa-assist never emits unused-method diagnostics, so there is nothing to suppress or replicate."
     },
     {
       "id": "E012",
@@ -9965,11 +10068,7 @@
       },
       "evidence": [],
       "acceptance": [],
-      "mappedTo": [
-        "G117",
-        "G118",
-        "G119"
-      ]
+      "notApplicable": "IntelliJ ImplicitUsageProvider: treats members of classes extending the Flyway Java migration base class or implementing the Flyway callback interface as used, silencing the platform 'unused' inspection. No plugin extension point exists and jpa-assist emits no unused diagnostics."
     },
     {
       "id": "E014",
@@ -10089,9 +10188,7 @@
       },
       "evidence": [],
       "acceptance": [],
-      "mappedTo": [
-        "G030"
-      ]
+      "notApplicable": "Suppresses the IDE's own bundled missing-identifier inspection when the IDE is not the Ultimate edition, so only the plugin's own missing-id inspection reports. OpenIDEA has no platform JPA inspection to suppress and our rule jpa-source-identifier-absent is the only reporter; no user-visible behaviour to replicate."
     },
     {
       "id": "E020",
@@ -10147,15 +10244,15 @@
       "evidence": [],
       "acceptance": [],
       "mappedTo": [
-        "G052",
-        "G131"
+        "G131",
+        "G132"
       ]
     },
     {
       "id": "E022",
       "family": "Registered completion.contributor",
       "capability": "fieldCompletionContributor",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml",
         "tag": "completion.contributor",
@@ -10164,10 +10261,28 @@
         "order": "last, before javaLegacy",
         "implementationClass": "com.intellij.jpb.completion.FieldCompletionContributor"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-560.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-561.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-567.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G076",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G076"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
-        "G052"
+        "G076"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/src/dto_complete.rs",
+        "plugins/jpa-assist/src/projection_links.rs"
       ]
     },
     {
@@ -10266,9 +10381,7 @@
       },
       "evidence": [],
       "acceptance": [],
-      "mappedTo": [
-        "G030"
-      ]
+      "notApplicable": "Discards compiler-style error highlights whose text contains one specific Lombok builder all-args message, i.e. hides a platform false positive. OpenIDEA plugins neither run the Java compiler nor receive or filter platform highlights; our rules never emit that message."
     },
     {
       "id": "E030",
@@ -10446,7 +10559,7 @@
       "evidence": [],
       "acceptance": [],
       "mappedTo": [
-        "G081"
+        "G082"
       ]
     },
     {
@@ -10534,34 +10647,84 @@
       "id": "E042",
       "family": "Registered entityDtoSearcher",
       "capability": "com.intellij.jpb.action.creation.entity.CommentDtoSearcher",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml",
         "tag": "entityDtoSearcher",
         "implementation": "com.intellij.jpb.action.creation.entity.CommentDtoSearcher"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-122.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-541.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-542.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-563.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-564.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-565.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-566.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G064, G077",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G064",
+            "G077"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G064",
-        "G079"
+        "G077"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/src/dto_action.rs",
+        "plugins/jpa-assist/src/dto_conventions.rs",
+        "plugins/jpa-assist/src/dto_convert_action.rs",
+        "plugins/jpa-assist/src/projection_links.rs"
       ]
     },
     {
       "id": "E043",
       "family": "Registered entityDtoSearcher",
       "capability": "com.intellij.jpb.action.creation.entity.NamePatternDtoSearcher",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml",
         "tag": "entityDtoSearcher",
         "implementation": "com.intellij.jpb.action.creation.entity.NamePatternDtoSearcher"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-122.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-541.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-542.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-563.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-564.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-565.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-566.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G064, G077",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G064",
+            "G077"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
         "G064",
-        "G079"
+        "G077"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/src/dto_action.rs",
+        "plugins/jpa-assist/src/dto_conventions.rs",
+        "plugins/jpa-assist/src/dto_convert_action.rs",
+        "plugins/jpa-assist/src/projection_links.rs"
       ]
     },
     {
@@ -11269,9 +11432,7 @@
       },
       "evidence": [],
       "acceptance": [],
-      "mappedTo": [
-        "G003"
-      ]
+      "notApplicable": "Menu container: places already registered actions (generate attribute, sync with DTO, related entity, named query, lifecycle callback, index, utilities, repository method, datasource, mapper methods, sync DTO with entity) under the editor Generate menu. It has no behaviour of its own; each member is its own A row mapped to its feature, and OpenIDEA exposes them as code actions and commands."
     },
     {
       "id": "E078",
@@ -11322,8 +11483,7 @@
       "evidence": [],
       "acceptance": [],
       "mappedTo": [
-        "G003",
-        "G011"
+        "G003"
       ]
     },
     {
@@ -11340,7 +11500,7 @@
       "acceptance": [],
       "mappedTo": [
         "G003",
-        "G011"
+        "G012"
       ]
     },
     {
@@ -11530,6 +11690,7 @@
       "acceptance": [],
       "mappedTo": [
         "G133",
+        "G045",
         "G014"
       ]
     },
@@ -11619,9 +11780,7 @@
       },
       "evidence": [],
       "acceptance": [],
-      "mappedTo": [
-        "G030"
-      ]
+      "notApplicable": "Suppressor of IntelliJ platform inspections (JpaMissingId, AssociationNotMarked) so JPA Buddy's own replace them; OpenIDEA has no platform JPA inspections to suppress, and our rules are toggled through jpaAssist.check* settings (G030)."
     },
     {
       "id": "E095",
@@ -11670,7 +11829,8 @@
       "evidence": [],
       "acceptance": [],
       "mappedTo": [
-        "G113"
+        "G011",
+        "G005"
       ]
     },
     {
@@ -11809,7 +11969,7 @@
       "evidence": [],
       "acceptance": [],
       "mappedTo": [
-        "G116",
+        "G005",
         "G113"
       ]
     },
@@ -11945,16 +12105,32 @@
       "id": "E112",
       "family": "Registered inspectorItemProvider",
       "capability": "com.intellij.jpb.liquibase.toolwindow.inspector.prop.descriptor.TableColumnNameDescriptor",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.liquibase.xml",
         "tag": "inspectorItemProvider",
         "implementation": "com.intellij.jpb.liquibase.toolwindow.inspector.prop.descriptor.TableColumnNameDescriptor"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-507.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-508.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G114",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G114"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
-        "G113"
+        "G114"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/src/liquibase_completion.rs"
       ]
     },
     {
@@ -11977,16 +12153,32 @@
       "id": "E114",
       "family": "Registered inspectorItemProvider",
       "capability": "com.intellij.jpb.liquibase.toolwindow.inspector.prop.descriptor.TableNameDescriptor",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.liquibase.xml",
         "tag": "inspectorItemProvider",
         "implementation": "com.intellij.jpb.liquibase.toolwindow.inspector.prop.descriptor.TableNameDescriptor"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-507.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-508.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G114",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G114"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
-        "G113"
+        "G114"
+      ],
+      "implementation": [
+        "plugins/jpa-assist/src/liquibase_completion.rs"
       ]
     },
     {
@@ -12136,7 +12328,7 @@
       "evidence": [],
       "acceptance": [],
       "mappedTo": [
-        "G115"
+        "G011"
       ]
     },
     {
@@ -12206,7 +12398,7 @@
       "evidence": [],
       "acceptance": [],
       "mappedTo": [
-        "G113"
+        "G122"
       ]
     },
     {
@@ -12366,7 +12558,7 @@
       "evidence": [],
       "acceptance": [],
       "mappedTo": [
-        "G113"
+        "G122"
       ]
     },
     {
@@ -12458,16 +12650,36 @@
       "id": "E132",
       "family": "Registered group",
       "capability": "com.intellij.jpb.flyway.database.console",
-      "status": "unverified",
+      "status": "verified-parity",
       "reference": {
         "descriptor": "embedded-descriptors/intellij.javaee.jpabuddy.flyway.xml",
         "tag": "group",
         "id": "com.intellij.jpb.flyway.database.console"
       },
-      "evidence": [],
-      "acceptance": [],
+      "evidence": [
+        "plugins/jpa-assist/parity/receipts/L1/RS-006.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-007.json",
+        "plugins/jpa-assist/parity/receipts/L1/RS-307.json"
+      ],
+      "acceptance": [
+        {
+          "scenario": "inherited from G112",
+          "referenceType": "inherited",
+          "inheritedFrom": [
+            "G112"
+          ],
+          "scope": "registered extension point of the original, implemented through the mapped user-visible rows; no separate test",
+          "result": "pass"
+        }
+      ],
       "mappedTo": [
-        "G123"
+        "G112"
+      ],
+      "implementation": [
+        "crates/persistence-core/src/liquibase.rs",
+        "crates/persistence-core/src/sql.rs",
+        "plugins/jpa-assist/src/liquibase_action.rs",
+        "plugins/jpa-assist/src/migration_action.rs"
       ]
     },
     {
