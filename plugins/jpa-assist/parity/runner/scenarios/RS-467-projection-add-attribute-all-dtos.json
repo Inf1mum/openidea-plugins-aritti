@@ -1,0 +1,113 @@
+{
+  "id": "RS-467",
+  "rows": [
+    "G054"
+  ],
+  "claimIds": [
+    "G054-C3"
+  ],
+  "verifies": {
+    "G054-C3": "the entity attribute color is missing from two linked types (the record GadgetDto and the interface GadgetProjection, linked by the name pattern) and one selection adds it to both in a single action; an unlinked record (GadgetUnrelated) is not offered and is untouched. Only the explicit synchronization action does this: typing a missing field in a DTO is not covered."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "settings": {
+        "projectionNameRegexp": "(?<entity>.*)(?:Projection|Dto)"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/Gadget.java",
+        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Gadget {\n\n    @Id\n    private Long id;\n\n    private String name;\n\n    private String color;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/dto/GadgetProjection.java",
+        "content": "package com.example.shop.dto;\n\npublic interface GadgetProjection {\n    Long getId();\n    String getName();\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/dto/GadgetDto.java",
+        "content": "package com.example.shop.dto;\n\npublic record GadgetDto(\n        Long id,\n        String name\n) {\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/dto/GadgetUnrelated.java",
+        "content": "package com.example.shop.dto;\n\npublic record GadgetUnrelated(Long id, String name) {\n}\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Gadget.java",
+    "anchor": "class Gadget"
+  },
+  "action": {
+    "title": "Synchronize linked projections with this entity…"
+  },
+  "prompts": [
+    {
+      "pick": "toProjections"
+    },
+    {
+      "pickMany": [
+        "add:0:color",
+        "add:1:color"
+      ]
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pick",
+        "titleContains": "direction"
+      },
+      {
+        "kind": "pickMany",
+        "titleContains": "changes",
+        "optionsInclude": [
+          "add:0:color",
+          "add:1:color"
+        ],
+        "optionsExclude": [
+          "add:2:color"
+        ]
+      },
+      {
+        "kind": "confirm"
+      }
+    ],
+    "resultFile": [
+      {
+        "path": "src/main/java/com/example/shop/dto/GadgetDto.java",
+        "contains": [
+          "String color"
+        ]
+      },
+      {
+        "path": "src/main/java/com/example/shop/dto/GadgetProjection.java",
+        "contains": [
+          "String getColor();"
+        ]
+      },
+      {
+        "path": "src/main/java/com/example/shop/dto/GadgetUnrelated.java",
+        "notContains": [
+          "color"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "One attribute into several DTOs."
+}

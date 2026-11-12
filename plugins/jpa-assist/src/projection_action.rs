@@ -53,7 +53,7 @@ pub(super) fn getter(name: &str, ty: &str) -> String {
     format!("{prefix}{head}{}", chars.as_str())
 }
 
-fn render(class: &Class, package_name: &str, form: Form, name: &str, fields: &[(String, String)]) -> String {
+pub(super) fn render(class: &Class, package_name: &str, form: Form, name: &str, fields: &[(String, String)]) -> String {
     let semicolon = if class.kotlin { "" } else { ";" };
     let mut imports: Vec<String> =
         fields.iter().filter_map(|(_, ty)| class.qualified(ty.trim_end_matches('?').split('<').next().unwrap_or(ty).rsplit('.').next().unwrap_or(ty))).collect();
@@ -100,7 +100,8 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> R
     if available.is_empty() {
         return Err("No plain scalar attribute has a name usable as a projection property.".into());
     }
-    let default = format!("{}Projection", class.name);
+    let conventions = projection_links::Conventions::load()?;
+    let default = conventions.default_name(&class.name);
     let name = host::input("Projection type name (same package)", Some(&default))?.ok_or(Error::Cancelled)?.trim().to_owned();
     if !identifier(&name)
         || name == class.name
@@ -120,7 +121,7 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> R
     let reuse_directory = doc.path.rsplit_once('/').ok_or(Error::Stale)?.0;
     dto_convert_action::offer_reuse(project, &pending.root, reuse_directory, class.kotlin, &doc.path, &fields)?;
     let declared = package(doc).ok_or(Error::Stale)?;
-    let mut text = render(&class, &declared, form, &name, &fields);
+    let mut text = conventions.with_comment(&render(&class, &declared, form, &name, &fields), class.package.as_deref(), &class.name);
     if text
         .lines()
         .filter_map(|line| line.trim().strip_prefix("import "))
@@ -247,6 +248,22 @@ mod tests {
         assert!(result.is_err());
         let (_, result) = run(JPATH, JAVA, "java", "bogus", "CustomerProjection", &["id"], true);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn configured_class_comment_is_generated_above_the_projection() {
+        let host_settings = |host: &MockHost| host.set_setting("projectionClassComment", "\"Projection of {@link {entity}}\"");
+        let host = MockHost::install().with_capabilities(&["project.read", "editor.read"]);
+        host_settings(&host);
+        host.open_editor(JPATH, "java", JAVA, &[]);
+        let doc = Document { path: JPATH.into(), text: JAVA.into(), language: "java".into(), version: 1 };
+        let mut plugin = JpaAssist::default();
+        let pending = plugin.file_actions(&doc, Range::default()).into_iter().find(|a| a.title == TITLE).unwrap();
+        for answer in [&["interface"][..], &["CustomerView"], &["id"], &[]] {
+            host.answer_next_prompt(Some(answer));
+        }
+        let (_, text) = text_of(plugin.resolve_file_action(&doc, pending));
+        assert!(text.contains("\n/** Projection of {@link shop.Customer} */\npublic interface CustomerView {"), "{text}");
     }
 
     #[test]

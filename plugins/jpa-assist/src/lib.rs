@@ -12,6 +12,7 @@
 //! - The Persistence tool window lists the project's entities.
 
 mod attribute_info;
+mod auditing_checks;
 mod build;
 mod datasource_facts;
 mod designer;

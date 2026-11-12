@@ -1,0 +1,161 @@
+{
+  "id": "RS-462",
+  "rows": [
+    "G041",
+    "S004"
+  ],
+  "claimIds": [
+    "G041-C2",
+    "S004-C3"
+  ],
+  "verifies": {
+    "G041-C2": "the query window offers a 'new projection interface or DTO' result (the +) with a name input and a property selection; the new closed projection interface is created beside the repository and the generated query method returns List of it. The DTO form is a record (Java 16+) and is covered by a unit test only.",
+    "S004-C3": "same sentence as G041-C2, covered by the same flow. It is the add-method window ('Add query method with result and parameter options…') that offers the +; the 'Edit query method…' window is not extended, so the edit window itself is not covered."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "target": {
+    "file": "src/main/java/com/example/shop/repository/ProductRepository.java",
+    "anchor": "interface ProductRepository"
+  },
+  "action": {
+    "title": "Add query method with result and parameter options…"
+  },
+  "prompts": [
+    {
+      "pick": "find"
+    },
+    {
+      "pickMany": [
+        "name"
+      ]
+    },
+    {
+      "pick": "is"
+    },
+    {
+      "pick": "none"
+    },
+    {
+      "input": ""
+    },
+    {
+      "pick": "list"
+    },
+    {
+      "pick": "new"
+    },
+    {
+      "pick": "projection"
+    },
+    {
+      "input": "ProductNames"
+    },
+    {
+      "pickMany": [
+        "name",
+        "price"
+      ]
+    },
+    {
+      "pick": "derived"
+    },
+    {
+      "pick": "no"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pick",
+        "titleContains": "subject"
+      },
+      {
+        "kind": "pickMany",
+        "titleContains": "condition"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "operator"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "order by"
+      },
+      {
+        "kind": "input",
+        "titleContains": "limit"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "return type"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "result element",
+        "optionsInclude": [
+          "entity",
+          "new"
+        ],
+        "name": "the + choice"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "new result type",
+        "optionsInclude": [
+          "projection"
+        ]
+      },
+      {
+        "kind": "input",
+        "titleContains": "name"
+      },
+      {
+        "kind": "pickMany",
+        "titleContains": "properties",
+        "optionsInclude": [
+          "id",
+          "name",
+          "price"
+        ]
+      },
+      {
+        "kind": "pick",
+        "titleContains": "parameter binding"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "pageable parameter"
+      },
+      {
+        "kind": "confirm"
+      }
+    ],
+    "createdFiles": [
+      {
+        "path": "src/main/java/com/example/shop/repository/ProductNames.java",
+        "contains": [
+          "package com.example.shop.repository;",
+          "import java.math.BigDecimal;",
+          "public interface ProductNames",
+          "String getName();",
+          "BigDecimal getPrice();"
+        ]
+      }
+    ],
+    "resultFile": {
+      "path": "src/main/java/com/example/shop/repository/ProductRepository.java",
+      "matches": [
+        "List<ProductNames>\\s+findByName\\(String name\\)"
+      ]
+    }
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "New projection from the query window."
+}

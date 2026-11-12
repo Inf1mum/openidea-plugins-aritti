@@ -15,6 +15,7 @@ use crate::{
 };
 
 pub(super) const TITLE: &str = "Add query method with preview…";
+pub(super) const OPTIONS_TITLE: &str = "Add query method with result and parameter options…";
 pub(super) const DOMAIN: &str = "org.springframework.data.domain";
 pub(super) const MAX_LIMIT: u32 = 10_000;
 
@@ -75,7 +76,7 @@ impl Keywords {
             negation: pick("queryNegationKeyword", &["Not", "IsNot"])?,
             boolean: if boolean == "True" { "" } else { "Is" },
             null: pick("queryNullKeyword", &["IsNull", "Null"])?,
-            contains: pick("queryContainsKeyword", &["Containing", "Contains"])?,
+            contains: pick("queryContainsKeyword", &["Containing", "IsContaining", "Contains"])?,
             ignore_case: pick("queryIgnoreCaseKeyword", &["IgnoreCase", "IgnoringCase"])?,
             temporal_after_before: pick("queryDateKeywords", &["GreaterThanLessThan", "AfterBefore"])? == "AfterBefore",
         })
@@ -161,6 +162,10 @@ pub(super) struct Facts {
     body: Body,
     pub(super) existing: Vec<(String, Vec<String>)>,
     pub(super) keywords: Keywords,
+    /// A projection or DTO type that replaces the entity in the return type (query window "+").
+    pub(super) result: Option<String>,
+    /// Add a `Pageable` parameter even when the return type is not a `Page` or `Slice`.
+    pub(super) pageable: bool,
 }
 
 enum Body {
@@ -221,7 +226,7 @@ pub(super) fn source(doc: &Document) -> Result<Facts, String> {
         .iter()
         .map(|method| (method.name.clone(), parameter_types(&masked, method.end, kotlin).unwrap_or_default()))
         .collect();
-    Ok(Facts { entity: repo.entity, kotlin, body, existing, keywords: Keywords::DEFAULT })
+    Ok(Facts { entity: repo.entity, kotlin, body, existing, keywords: Keywords::DEFAULT, result: None, pageable: false })
 }
 
 pub(super) fn eligible(doc: &Document) -> bool {
@@ -403,7 +408,7 @@ pub(super) fn declaration_text(kotlin: bool, name: &str, parameter_list: &str, r
 
 fn render_method(facts: &Facts, spec: &Spec) -> Result<Rendered, String> {
     let kotlin = facts.kotlin;
-    let entity = &facts.entity;
+    let entity = facts.result.as_ref().unwrap_or(&facts.entity);
     if spec.conditions.is_empty() && !(spec.subject == Subject::Find && spec.order.is_some()) {
         return Err("Choose at least one condition (an ordering alone is allowed for find).".into());
     }
@@ -451,7 +456,10 @@ fn render_method(facts: &Facts, spec: &Spec) -> Result<Rendered, String> {
     }
     let name = format!("{subject}By{predicate}");
 
-    if matches!(spec.returns, Returns::Page | Returns::Slice) {
+    if facts.pageable && !matches!(spec.returns, Returns::List | Returns::Stream) && spec.subject == Subject::Find {
+        return Err("A Pageable parameter without a Page or Slice result is supported for List and Stream results only.".into());
+    }
+    if matches!(spec.returns, Returns::Page | Returns::Slice) || facts.pageable {
         imports.push(format!("{DOMAIN}.Pageable"));
         params.push(("pageable".into(), "Pageable".into()));
     }
@@ -529,6 +537,14 @@ fn pick_one(title: &str, items: &[PickItem]) -> Result<String, Error> {
 }
 
 pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> Result<FileAction, Error> {
+    resolve_flow(pending, doc, project, false)
+}
+
+pub(super) fn resolve_with_options(pending: &Pending, doc: &Document, project: &Project) -> Result<FileAction, Error> {
+    resolve_flow(pending, doc, project, true)
+}
+
+fn resolve_flow(pending: &Pending, doc: &Document, project: &Project, options: bool) -> Result<FileAction, Error> {
     current(pending, doc)?;
     let mut facts = source(doc).map_err(Error::from)?;
     facts.keywords = Keywords::load().map_err(Error::from)?;
@@ -607,17 +623,27 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> R
     };
 
     let spec = Spec { subject, conditions, any, order, limit, returns };
+    let choices = if options { Some(query_options::ask(pending, doc, project, &class, subject, returns)?) } else { None };
+    if let Some(choices) = &choices {
+        facts.result = choices.created.as_ref().map(|created| created.name.clone());
+        facts.pageable = choices.pageable;
+    }
     current(pending, doc)?;
-    let edits = edits(doc, &facts, &spec)?;
-    let after = patched(&doc.text, &edits)?;
+    let mut edits = edits(doc, &facts, &spec)?;
+    let mut after = patched(&doc.text, &edits)?;
+    let name = render_method(&facts, &spec)?.name;
+    if let Some(choices) = choices.as_ref().filter(|choices| choices.binding != query_options::Binding::Derived) {
+        (edits, after) = query_options::bind_parameters(doc, &facts, &attrs, &entity_text, &after, &name, choices.binding)?;
+    }
     if after.len() > MAX_TEXT {
         return Err("Generated source exceeds the supported bound.".into());
     }
-    let name = render_method(&facts, &spec)?.name;
+    let created = choices.and_then(|choices| choices.created);
+    let new_type = created.as_ref().map(|created| format!("\nNew file: {}\n{}", created.path, created.text)).unwrap_or_default();
     if !ui_kit::prompts::confirm_exact(
         "Add query method?",
         &format!(
-            "Target: {}\nSource version: {}\n\n{after}\nOnly this repository source is edited. The entity {} was found by file name in this project; mappings in XML or inherited attributes are not resolved, and no Spring Data version is read.",
+            "Target: {}\nSource version: {}\n\n{after}{new_type}\nOnly this repository source is edited. The entity {} was found by file name in this project; mappings in XML or inherited attributes are not resolved, and no Spring Data version is read.",
             doc.path, doc.version, facts.entity
         ),
     )? {
@@ -628,6 +654,7 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> R
         title: format!("Add query method {name}"),
         kind: Some("refactor.rewrite".into()),
         edits: vec![(doc.path.clone(), edits)],
+        operations: created.into_iter().map(|created| FileOperation::Create { path: created.path, text: created.text, overwrite: false }).collect(),
         ..FileAction::default()
     })
 }
@@ -709,6 +736,18 @@ mod tests {
             let text = apply(&doc, result);
             assert!(text.contains(&format!("    {expected}\n}}\n")), "{expected}\n{text}");
         }
+    }
+
+    #[test]
+    fn is_containing_is_an_approved_spelling_and_the_unlisted_one_is_refused() {
+        let host = MockHost::install();
+        host.set_setting("queryContainsKeyword", "\"IsContaining\"");
+        assert_eq!(Keywords::load().unwrap().contains, "IsContaining");
+        let attr = Attr { name: "name".into(), ty: "String".into(), kind: AttrKind::Text, nullable: false, import: None };
+        let suffixes: Vec<_> = attr.operators_with(&Keywords::load().unwrap()).into_iter().map(|operator| operator.suffix).collect();
+        assert!(suffixes.contains(&"IsContaining".to_owned()) && suffixes.contains(&"IsContainingIgnoreCase".to_owned()));
+        host.set_setting("queryContainsKeyword", "\"Includes\"");
+        assert!(Keywords::load().is_err());
     }
 
     #[test]
@@ -837,7 +876,7 @@ mod tests {
         let attrs = attributes(&class, JAVA_ENTITY);
         let props: Vec<Prop> = attrs.iter().map(|a| Prop { name: a.name.clone(), ty: a.ty.clone(), fqcn: None, target: None }).collect();
         let lookup = |owner: &str| (owner == "Order").then(|| props.clone());
-        let facts = Facts { entity: "Order".into(), kotlin: false, body: Body::Braces(0), existing: vec![], keywords: Keywords::DEFAULT };
+        let facts = Facts { entity: "Order".into(), kotlin: false, body: Body::Braces(0), existing: vec![], keywords: Keywords::DEFAULT, result: None, pageable: false };
         let mut generated = 0;
         for attr in &attrs {
             for operator in attr.operators() {
@@ -899,7 +938,7 @@ mod tests {
         let attrs = attributes(&class, JAVA_ENTITY);
         let props: Vec<Prop> = attrs.iter().map(|a| Prop { name: a.name.clone(), ty: a.ty.clone(), fqcn: None, target: None }).collect();
         let lookup = |owner: &str| (owner == "Order").then(|| props.clone());
-        let facts = Facts { entity: "Order".into(), kotlin: false, body: Body::Braces(0), existing: vec![], keywords };
+        let facts = Facts { entity: "Order".into(), kotlin: false, body: Body::Braces(0), existing: vec![], keywords, result: None, pageable: false };
         let named = |attr: &str, key: &'static str| {
             let attr = attrs.iter().find(|a| a.name == attr).unwrap();
             let spec = Spec { subject: Subject::Find, conditions: vec![(attr, key)], any: false, order: None, limit: None, returns: Returns::List };

@@ -1,0 +1,42 @@
+{
+  "id": "RS-476",
+  "rows": [
+    "G057"
+  ],
+  "claimIds": [
+    "G057-C1"
+  ],
+  "verifies": {
+    "G057-C1": "the 'when Blaze-Persistence is present' condition: without the Blaze Spring Data integration in the build the same action refuses with a message naming it and creates nothing. Only the negative half; the positive half is RS-475."
+  },
+  "fixture": "mapstruct-lombok-dto",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/crm/domain/AccountView.java",
+        "content": "package com.example.crm.domain;\n\nimport com.blazebit.persistence.view.EntityView;\nimport com.blazebit.persistence.view.IdMapping;\n\n@EntityView(Account.class)\npublic interface AccountView {\n\n    @IdMapping\n    Long getId();\n\n    String getName();\n}\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/crm/domain/AccountView.java",
+    "anchor": "interface AccountView"
+  },
+  "action": {
+    "title": "Create Spring Data repository with options…"
+  },
+  "prompts": [
+    {
+      "input": "AccountViewRepository"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "resolveErrorContains": "Blaze-Persistence",
+    "noFilesChanged": true
+  },
+  "note": "Entity view without Blaze."
+}

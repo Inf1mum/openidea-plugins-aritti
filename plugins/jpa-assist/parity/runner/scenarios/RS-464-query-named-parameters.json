@@ -1,0 +1,78 @@
+{
+  "id": "RS-464",
+  "rows": [
+    "G043"
+  ],
+  "claimIds": [
+    "G043-C1"
+  ],
+  "verifies": {
+    "G043-C1": "the named alternative of the window's parameter control: named binding generates @Query JPQL with :name and :price and an @Param on each parameter, without a Pageable parameter when the switch is off. The positional alternative and the Pageable switch set to yes are checked in RS-463."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "target": {
+    "file": "src/main/java/com/example/shop/repository/ProductRepository.java",
+    "anchor": "interface ProductRepository"
+  },
+  "action": {
+    "title": "Add query method with result and parameter options…"
+  },
+  "prompts": [
+    {
+      "pick": "find"
+    },
+    {
+      "pickMany": [
+        "name",
+        "price"
+      ]
+    },
+    {
+      "pick": "like"
+    },
+    {
+      "pick": "greaterThan"
+    },
+    {
+      "pick": "and"
+    },
+    {
+      "pick": "none"
+    },
+    {
+      "input": ""
+    },
+    {
+      "pick": "list"
+    },
+    {
+      "pick": "entity"
+    },
+    {
+      "pick": "named"
+    },
+    {
+      "pick": "no"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "resultFile": {
+      "path": "src/main/java/com/example/shop/repository/ProductRepository.java",
+      "matches": [
+        "@Query\\(\"select e from Product e where e\\.name like :name and e\\.price > :price\"\\)\\s+List<Product>\\s+findByNameLikeAndPriceGreaterThan\\(@Param\\(\"name\"\\) String name, @Param\\(\"price\"\\) BigDecimal price\\)"
+      ],
+      "notContains": [
+        "Pageable pageable)"
+      ]
+    }
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "Named parameters."
+}

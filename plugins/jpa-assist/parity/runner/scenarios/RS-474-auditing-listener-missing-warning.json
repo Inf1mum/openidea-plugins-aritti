@@ -1,0 +1,43 @@
+{
+  "id": "RS-474",
+  "rows": [
+    "G056"
+  ],
+  "claimIds": [
+    "G056-C3"
+  ],
+  "verifies": {
+    "G056-C3": "an entity with @CreatedDate and no AuditingEntityListener in @EntityListeners gets a warning that the listener is not registered; the enable warning is absent because the project declares @EnableJpaAuditing (written by setup). Entities with a superclass are not checked and an orm.xml default listener counts as registered (unit tests)."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "diagnostics",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/Invoice.java",
+        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\nimport java.time.Instant;\nimport org.springframework.data.annotation.CreatedDate;\n\n@Entity\npublic class Invoice {\n\n    @Id\n    private Long id;\n\n    @CreatedDate\n    private Instant createdDate;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/config/AuditingConfig.java",
+        "content": "package com.example.shop.config;\n\nimport org.springframework.context.annotation.Configuration;\nimport org.springframework.data.jpa.repository.config.EnableJpaAuditing;\n\n@Configuration\n@EnableJpaAuditing\npublic class AuditingConfig {\n}\n"
+      }
+    }
+  ],
+  "expect": {
+    "diagnostics": [
+      {
+        "rule": "jpa-auditing-listener-missing",
+        "file": "src/main/java/com/example/shop/domain/Invoice.java"
+      }
+    ],
+    "diagnosticsAbsent": [
+      {
+        "rule": "jpa-auditing-not-enabled",
+        "file": "src/main/java/com/example/shop/domain/Invoice.java"
+      }
+    ]
+  },
+  "note": "Missing AuditingEntityListener."
+}

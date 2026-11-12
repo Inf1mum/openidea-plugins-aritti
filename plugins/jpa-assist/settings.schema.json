@@ -50,8 +50,8 @@
     },
     "queryContainsKeyword": {
       "type": "string",
-      "title": "Containing keyword in generated query names (Containing or Contains)",
-      "enum": ["Containing", "Contains"],
+      "title": "Containing keyword in generated query names (Containing, IsContaining or Contains)",
+      "enum": ["Containing", "IsContaining", "Contains"],
       "default": "Containing"
     },
     "queryIgnoreCaseKeyword": {
@@ -65,6 +65,26 @@
       "title": "Comparison keywords for date and time attributes in generated query names (GreaterThan/LessThan or After/Before)",
       "enum": ["GreaterThanLessThan", "AfterBefore"],
       "default": "GreaterThanLessThan"
+    },
+    "projectionClassPostfix": {
+      "type": "string",
+      "title": "Projection Declaration: class name postfix of a generated projection (default name is the entity name plus this)",
+      "default": "Projection"
+    },
+    "projectionNameRegexp": {
+      "type": "string",
+      "title": "Projection Declaration: name pattern regexp linking a projection to its entity by type name; needs an (?<entity>...) group, empty disables",
+      "default": "(?<entity>.*)Projection"
+    },
+    "projectionClassComment": {
+      "type": "string",
+      "title": "Projection Declaration: class comment generated above a projection type ({entity} is the qualified entity name, {entityName} the simple name), empty for none",
+      "default": ""
+    },
+    "projectionCommentLinkRegexp": {
+      "type": "string",
+      "title": "Projection Declaration: comment link regexp linking a projection to its entity through its Javadoc; needs an (?<entity>...) group, empty disables",
+      "default": ""
     },
     "jpaAssist.jpqlMutationPreview": {
       "type": "boolean",
@@ -252,7 +272,7 @@
       "items": {
         "type": "object",
         "properties": {
-          "code": {"type": "string", "title": "Rule code", "default": "attribute-type", "enum": ["attribute-type", "jpa-attribute-multiple-relations", "jpa-callback-modifiers", "jpa-column-length-type", "jpa-column-precision-type", "jpa-data-class", "jpa-duplicate-embedded-id", "jpa-duplicate-lifecycle-event", "jpa-duplicate-version", "jpa-eager-fetch", "jpa-eager-to-one", "jpa-embeddable-identifier", "jpa-entity-multiple-roles", "jpa-entity-nested", "jpa-entity-not-a-class", "jpa-final-entity", "jpa-final-member", "jpa-generated-value-type", "jpa-generated-value-without-id", "jpa-hibernate-type", "jpa-immutable-collection", "jpa-kotlin-plugin-missing", "jpa-listener-constructor", "jpa-listener-without-callbacks", "jpa-lombok-constructors", "jpa-lombok-data", "jpa-lombok-equals", "jpa-lombok-equals-field", "jpa-lombok-to-string", "jpa-many-to-many-cascade-remove", "jpa-many-to-many-list", "jpa-missing-setter", "jpa-mixed-access", "jpa-multiple-id-kinds", "jpa-no-arg-constructor", "jpa-redundant-constructor", "jpa-redundant-open", "jpa-relationship-target", "jpa-relationship-type", "jpa-repository-id", "jpa-source-identifier-absent", "jpa-source-repository-id", "jpa-unidirectional-one-to-many", "jpa-unknown-attribute-override", "jpa-unknown-entity-graph", "jpa-unknown-entity-graph-node", "jpa-unknown-entity-graph-path", "jpa-unknown-map-key", "jpa-unknown-maps-id", "jpa-unknown-named-query", "jpa-unknown-query-parameter", "jpa-val-attribute", "jpa-xml-class", "jpa-xml-class-duplicate", "jpa-xml-class-not-persistent", "jpa-xml-class-unknown", "jpa-xml-property", "jpa-xml-provider", "jpa-xml-unit-name", "jpa-xml-value"]},
+          "code": {"type": "string", "title": "Rule code", "default": "attribute-type", "enum": ["attribute-type", "jpa-attribute-multiple-relations", "jpa-auditing-listener-missing", "jpa-auditing-not-enabled", "jpa-callback-modifiers", "jpa-column-length-type", "jpa-column-precision-type", "jpa-data-class", "jpa-duplicate-embedded-id", "jpa-duplicate-lifecycle-event", "jpa-duplicate-version", "jpa-eager-fetch", "jpa-eager-to-one", "jpa-embeddable-identifier", "jpa-entity-multiple-roles", "jpa-entity-nested", "jpa-entity-not-a-class", "jpa-final-entity", "jpa-final-member", "jpa-generated-value-type", "jpa-generated-value-without-id", "jpa-hibernate-type", "jpa-immutable-collection", "jpa-kotlin-plugin-missing", "jpa-listener-constructor", "jpa-listener-without-callbacks", "jpa-lombok-constructors", "jpa-lombok-data", "jpa-lombok-equals", "jpa-lombok-equals-field", "jpa-lombok-to-string", "jpa-many-to-many-cascade-remove", "jpa-many-to-many-list", "jpa-missing-setter", "jpa-mixed-access", "jpa-multiple-id-kinds", "jpa-no-arg-constructor", "jpa-redundant-constructor", "jpa-redundant-open", "jpa-relationship-target", "jpa-relationship-type", "jpa-repository-id", "jpa-source-identifier-absent", "jpa-source-repository-id", "jpa-unidirectional-one-to-many", "jpa-unknown-attribute-override", "jpa-unknown-entity-graph", "jpa-unknown-entity-graph-node", "jpa-unknown-entity-graph-path", "jpa-unknown-map-key", "jpa-unknown-maps-id", "jpa-unknown-named-query", "jpa-unknown-query-parameter", "jpa-val-attribute", "jpa-xml-class", "jpa-xml-class-duplicate", "jpa-xml-class-not-persistent", "jpa-xml-class-unknown", "jpa-xml-property", "jpa-xml-provider", "jpa-xml-unit-name", "jpa-xml-value"]},
           "severity": {"type": "string", "title": "Severity", "enum": ["error", "warning", "info", "hint", "off"], "default": "warning"}
         }
       },
