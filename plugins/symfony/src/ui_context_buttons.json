@@ -1,7 +1,11 @@
 {
+  "symfony-about": [],
   "symfony": [],
+  "symfony-entities": [],
   "symfony-templates": [],
   "symfony-services": [],
+  "symfony-config": [],
+  "symfony-env": [],
   "symfony-translations": [],
   "symfony-profiler": [],
   "twig-paths": [],

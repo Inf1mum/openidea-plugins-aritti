@@ -336,6 +336,105 @@ name Type #}`; blocks, macros, loops and `with` have their own scope), what
 other templates pass with `{% include 'x' with {…} %}` / `include()`, the
 `twig: globals:` of `config/packages/twig.yaml`, `app`, `_self` and `_context`.
 
+### Type inference for members
+
+After `variable.` in Twig and `$variable->` / `$this->property->` in PHP, members
+are completed for variables whose class the project sources state: in Twig a
+`{# @var name Class #}` comment or what a controller passes to `render()`; in
+PHP a typed parameter or promoted property, `new Class`, `$repository->find()` /
+`findOneBy()` (the entity comes from `@extends ServiceEntityRepository<Entity>`
+or `parent::__construct($registry, Entity::class)`), `$em->find(Entity::class, …)`,
+`getRepository(Entity::class)->find()` and `$container->get(Class::class)`.
+Twig offers what `object.name` can read (public properties, public no-argument
+methods, and `getX`/`isX`/`hasX`/`canX` as `x`), following `post.author.`
+through return and property types and project parent classes. Matching is
+textual and bounded: a reassigned or unknown value, a union type or a library
+class (`vendor/` is not read) has no type and no members.
+
+Collections are followed too: `{% for post in posts %}` types `post` when `posts`
+comes from `findAll()` / `findBy()`, a `{# @var posts Post[] #}` comment, or a
+member whose docblock says `Post[]` or `Collection<int, Post>` (so
+`{% for comment in post.comments %}` works, also through `|slice`, `|reverse`,
+`|sort` and `|filter`). Loop variables are scoped to their `{% for %}` body.
+Go to Definition (⌘B) on a member of a typed variable, in Twig and in PHP, jumps to
+its property or method, including ones declared in project parent classes.
+
+More sources of types: `$this->` inside a class offers its own members of every
+visibility and the public and protected ones of project parents;
+`$container->get('app.mailer')` follows the service id (and aliases) to the
+class declared in `config/**`; query-builder chains such as
+`$repo->createQueryBuilder('p')->…->getQuery()->getResult()` give a list of the
+repository's entity (`getOneOrNullResult()` / `getSingleResult()` give one), and
+`$em->createQueryBuilder()->select(…)->from(Post::class, 'p')` the entity named in
+`from()`. Hover on a typed member or variable shows its inferred type (marked as
+inferred from sources).
+
+### Forms
+
+`$this->createForm(PostType::class)` (and `FormFactoryInterface::create()`) types
+the form; passed to `render()` as `form` or `form.createView()`, Twig completes
+`form.` with the fields the form type adds in `buildForm()`, `form.title.` with
+the form view members, `form.vars.` with the usual variables, and follows embedded
+project form types (`form.address.street`). Go to Definition on a field jumps to its
+`->add('title', …)`. In PHP, `$form->get('…')`, `has()` and `remove()` complete the
+field names, and the options array of `$builder->add('x', ChoiceType::class, ['…'])`
+completes the option names of the built-in field type (from Symfony's public
+documentation) plus those every type has. Custom field types offer only the common
+options; `data_class`, `block_prefix` and extension options are not read.
+
+## Stimulus, assets, UX components and route parameters
+
+- **Stimulus:** `data-controller="…"` (several names, space separated),
+  `stimulus_controller('…')`, `stimulus_action('…')` and `stimulus_target('…')` complete and
+  go to the controller file. Names come from `assets/controllers/**/*_controller.{js,ts}`
+  (`users/list_item_controller.js` is `users--list-item`).
+- **Assets:** `vite_entry_script_tags('…')` / `vite_entry_link_tags('…')` complete the
+  `input` entries of `vite.config.{js,ts,mjs,mts}` and `assets/entrypoints/*`; `importmap('…')`
+  keeps completing `importmap.php` entries; `asset('…')` also completes AssetMapper logical
+  paths under `assets/`.
+- **Twig types:** class names complete inside `{% types name: '…' %}` (without the `?` and `[]`
+  decorations) and in `enum_cases('…')` / `enum('…')`.
+- **Route parameters:** the placeholders of a route (`/posts/{slug}/{page<\d+>?1}`) complete in
+  the argument array of `path()` / `url()` (Twig) and `generateUrl()` / `redirectToRoute()` /
+  `->generate()` (PHP), once the route's name is known from its definition.
+- **UX Twig components:** `<twig:Name>`, `</twig:Name>` and `component('Name')` complete and go to
+  the component class (`#[AsTwigComponent]` / `#[AsLiveComponent]` under `src/**/Components/`, with
+  `name:` and `template:` arguments) or, for anonymous components, to
+  `templates/components/**`. Inside `<twig:Name …>`, attribute names complete from the class's
+  public properties and `mount()` parameters plus `{% props %}` of the template;
+  `<twig:block name="…">` completes the blocks of the enclosing component's template.
+  Components of vendor bundles and ones registered by service tag are not known.
+
+## About tab
+
+The first tab summarises the application: project path, package name, description, version, the
+installed Symfony version and the versions of key packages from `composer.lock`, the Composer
+requirements, whether the compiled container and routes were found, counts of what the source index
+holds, and which `.env*` files exist (never their values). It runs no PHP; **Run bin/console about**
+opens `php bin/console about` in a terminal tab for runtime details.
+
+## Config, Env and Entities tabs
+
+Three more tabs of the tool window list what the index holds: **Config** (container
+parameter names of `config/**` and the compiled container, with their locations; values are not read), **Env** (variable
+names of `.env`, `.env.local`, `.env.dev`, `.env.test`, `.env.prod` and their `.local` variants,
+with the files defining them; **values are never read into the index or shown**) and
+**Entities** (Doctrine entities of `src/Entity/` and the `dir:` of `doctrine.orm.mappings`,
+read from `#[ORM\Entity]` attributes: table, repository class, fields with their Doctrine
+type, nullability and `id`, and relations with their target). Entities expand into their fields and
+relations; activating a row opens its declaration. Legacy annotations, XML and YAML mappings,
+embeddables and mapped superclasses are not read.
+
+## MCP tools
+
+Nine read-only project tools return compact CSV from the cached source index (nothing runs PHP):
+`routes`, `services`, `commands`, `templates`, `parameters` (names only), `entities` (class, table, repository,
+fields, relations) and `env` (names and defining files, never values), each with `query`, `offset`, `limit`,
+`template_usage` (controllers rendering a template, and templates that extend, include, embed,
+import or use it) and `profiler_requests` (token, method, redacted URL, status and time from the
+profiler's CSV index file). Per-request profiler details run project PHP and are not offered
+as a tool; Twig extension and Doctrine/form tools are not provided either.
+
 ## New file templates
 
 New menu entries for a PHP class with a fixed `App\…` namespace: Command (plain,
@@ -473,19 +572,20 @@ name is the main namespace; added to `twig: paths:`).
 
 ## Not ported
 
-These features rely on PhpStorm's PHP, Twig and YAML PSI and type inference,
-which the OpenIDEA plugin API has no equivalent for:
+These features rely on PhpStorm's PHP, Twig and YAML PSI and full type inference,
+which the OpenIDEA plugin API has no equivalent for (member types are inferred
+textually, see above):
 
-- container `get()` return types, Twig variable types (`{{ post.| }}`),
-  form types and options, Doctrine (DQL, repositories, QueryBuilder beyond
-  the removed methods above), serializer;
+- Doctrine DQL strings and QueryBuilder field completion, serializer, form
+  `data_class` and extension options;
 - the remaining inspections and intentions (they need resolved PHP types);
-- refactorings, find usages, MCP tools, the profiler's per-request panels;
+- refactorings, find usages, MCP tools for Twig extensions, Doctrine and forms, the
+  profiler's per-request panels;
 - general template generation forms beyond the guarded FileActions creation
   subset documented below;
 - Doctrine `JOIN ... WITH` to `ON` and QueryBuilder `clearParameter`: no public
   deprecation notice to build a rule from; `@Template` docblock completion
-  (legacy annotations); Vite entry completion; run configurations.
+  (legacy annotations); run configurations.
 
 Matching is textual: a call is recognised by its method name, not its class,
 and templates are looked up in `templates/` and the `twig: paths:` directories of

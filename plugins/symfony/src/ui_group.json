@@ -2,9 +2,19 @@
   "primary": "symfony",
   "tabs": [
     {
+      "id": "symfony-about",
+      "label": "About",
+      "icon": "info"
+    },
+    {
       "id": "symfony",
       "label": "Routes",
       "icon": "web"
+    },
+    {
+      "id": "symfony-entities",
+      "label": "Entities",
+      "icon": "database"
     },
     {
       "id": "symfony-templates",
@@ -15,6 +25,16 @@
       "id": "symfony-services",
       "label": "Services",
       "icon": "class"
+    },
+    {
+      "id": "symfony-config",
+      "label": "Config",
+      "icon": "settings"
+    },
+    {
+      "id": "symfony-env",
+      "label": "Env",
+      "icon": "variable"
     },
     {
       "id": "symfony-translations",

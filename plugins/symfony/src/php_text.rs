@@ -367,6 +367,8 @@ pub struct Method {
     pub return_type: Option<String>,
     /// The simple return type as a class (resolved through `use`) or lower-case built-in.
     pub return_class: Option<String>,
+    /// The class of the items when the docblock `@return` says `Foo[]` or `Collection<int, Foo>`.
+    pub element_class: Option<String>,
     pub body: Option<Range<usize>>,
 }
 
@@ -377,6 +379,10 @@ pub struct Property {
     pub is_static: bool,
     /// The simple declared type, as for [`Param::type_name`].
     pub type_name: Option<String>,
+    /// The class of the items when the docblock `@var` says `Foo[]` or `Collection<int, Foo>`.
+    pub element_class: Option<String>,
+    /// Where the name is declared in the file.
+    pub name_range: Range<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -443,6 +449,38 @@ fn parameter_of(text: &str, masked: &str, header: &Header, range: Range<usize>) 
         has_attribute,
         range,
     })
+}
+
+/// The item class of a docblock type in `declaration` (`@var` or `@return`): `Foo[]`,
+/// `Collection<int, Foo>`, `array<Foo>`, `list<Foo>`, `iterable<Foo>`; `None` for anything else.
+fn docblock_element(declaration: &str, tag: &str, header: &Header) -> Option<String> {
+    let start = declaration.rfind("/**")?;
+    let docblock = &declaration[start..];
+    let line = docblock[docblock.find(tag)? + tag.len()..].lines().next()?;
+    let line = line.trim_start();
+    let mut depth = 0usize;
+    let length = line
+        .char_indices()
+        .find(|(_, character)| match character {
+            '<' => {
+                depth += 1;
+                false
+            }
+            '>' => {
+                depth = depth.saturating_sub(1);
+                false
+            }
+            character => character.is_whitespace() && depth == 0,
+        })
+        .map_or(line.len(), |(at, _)| at);
+    let ty = line[..length].trim_end_matches("*/");
+    let element = match (ty.find('<'), ty.rfind('>')) {
+        (Some(open), Some(close)) if open < close => ty[open + 1..close].rsplit(',').next()?,
+        _ => ty.split('|').find_map(|part| part.strip_suffix("[]"))?,
+    };
+    let element = element.trim().trim_start_matches('?');
+    let valid = !element.is_empty() && element.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'\\'));
+    (valid && !BUILT_IN_TYPES.contains(&element.to_ascii_lowercase().as_str())).then(|| resolve(element, header))
 }
 
 /// The class (resolved through `use`) or lower-case built-in of a simple declared type; `None` for unions and intersections.
@@ -530,7 +568,7 @@ fn properties_of(text: &str, masked: &str, header: &Header, body: &Range<usize>,
                     _ => Visibility::Public,
                 };
                 let declared = words.iter().filter(|word| !is_modifier(word)).copied().collect::<Vec<_>>().join(" ");
-                properties.push(Property { name: text[name].to_owned(), visibility, is_static: lower.iter().any(|word| word == "static"), type_name: declared_type(&declared, header) });
+                properties.push(Property { name_range: name.clone(), name: text[name].to_owned(), visibility, is_static: lower.iter().any(|word| word == "static"), type_name: declared_type(&declared, header), element_class: docblock_element(&text[boundary..at], "@var", header) });
             }
             _ => {}
         }
@@ -539,7 +577,7 @@ fn properties_of(text: &str, masked: &str, header: &Header, body: &Range<usize>,
     if let Some(constructor) = methods.iter().find(|method| method.name.eq_ignore_ascii_case("__construct")) {
         for param in constructor.params.iter().filter(|param| param.promoted) {
             let visibility = if param.public { Visibility::Public } else { Visibility::Private };
-            properties.push(Property { name: param.name.clone(), visibility, is_static: false, type_name: param.type_name.clone() });
+            properties.push(Property { name: param.name.clone(), visibility, is_static: false, type_name: param.type_name.clone(), element_class: None, name_range: param.range.clone() });
         }
     }
 
@@ -584,6 +622,7 @@ fn method_at(text: &str, masked: &str, header: &Header, boundary: usize, at: usi
         params,
         parameters: open..close + 1,
         return_class: return_type.as_deref().and_then(|declared| declared_type(declared, header)),
+        element_class: docblock_element(&text[boundary..at], "@return", header),
         return_type,
         body: (masked.as_bytes().get(end) == Some(&b'{')).then(|| end..next),
     };
@@ -998,5 +1037,18 @@ mod tests {
         assert_eq!(model.method("getAuthor").unwrap().return_class.as_deref(), Some("App\\Entity\\User"));
         assert_eq!(model.method("isPublished").unwrap().return_class.as_deref(), Some("bool"));
         assert_eq!(model.method("tags").unwrap().return_class, None);
+    }
+
+    #[test]
+    fn docblocks_give_the_item_class_of_collections_and_lists() {
+        let text = "<?php\nnamespace App\\Entity;\nuse App\\Entity\\Comment as Reply;\nuse Doctrine\\Common\\Collections\\Collection;\nclass Post\n{\n    /** @var Collection<int, Reply> */\n    private Collection $replies;\n    /** @var Tag[] */\n    private array $tags = [];\n    /** @var string[] */\n    private array $names = [];\n    /**\n     * @return Collection<int, Reply>\n     */\n    public function getReplies(): Collection { return $this->replies; }\n    /** @return Tag[]|null */\n    public function getTags(): ?array { return null; }\n    public function getNames(): array { return []; }\n}\n";
+        let model = class_model(text).unwrap();
+        let property = |name: &str| model.properties.iter().find(|property| property.name == name).unwrap().element_class.clone();
+        assert_eq!(property("replies").as_deref(), Some("App\\Entity\\Comment"));
+        assert_eq!(property("tags").as_deref(), Some("App\\Entity\\Tag"));
+        assert_eq!(property("names"), None);
+        assert_eq!(model.method("getReplies").unwrap().element_class.as_deref(), Some("App\\Entity\\Comment"));
+        assert_eq!(model.method("getTags").unwrap().element_class.as_deref(), Some("App\\Entity\\Tag"));
+        assert_eq!(model.method("getNames").unwrap().element_class, None);
     }
 }

@@ -317,6 +317,10 @@ impl Snapshot {
         if root!=self.root || project_source(&root).ok().as_deref()!=Some(self.source.as_str()) {return;}
         if let Some(row)=self.rows.as_ref().and_then(|rows|rows.iter().find(|r|self.row_key(&r.token)==key)) {self.selected=Some(row.token.clone());}
     }
+    /// The cached index rows as (token, method, redacted URL, status, time), newest first.
+    pub(crate) fn requests(&self) -> Option<Vec<(String, String, String, String, i64)>> {
+        self.rows.as_ref().map(|rows| rows.iter().map(|r| (r.token.clone(), r.method.clone(), r.url.clone(), r.status.clone(), r.time)).collect())
+    }
     pub fn close_details(&mut self) { self.details = None; }
     /// Moves within the cached snapshot only; never re-reads the index.
     pub fn turn_page(&mut self, forward: bool) {

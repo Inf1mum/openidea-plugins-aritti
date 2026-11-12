@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use crate::php_text::{self, ClassModel, Visibility, BUILT_IN_TYPES};
 
 const FINDERS: [&str; 3] = ["find", "findOneBy", "findOneById"];
+const LIST_FINDERS: [&str; 2] = ["findAll", "findBy"];
 const MAX_PARENTS: usize = 8;
 
 /// What a value is, before project sources are read.
@@ -14,6 +15,27 @@ pub enum TypeHint {
     Class(String),
     /// The entity a repository class manages.
     EntityOf(String),
+    /// A list of what the inner hint stands for.
+    ElementsOf(Box<TypeHint>),
+    /// A service by id, resolved through the service index.
+    Service(String),
+    /// A query builder over the entity the inner hint stands for.
+    Builder(Box<TypeHint>),
+    /// A form (or its view) of a form type class.
+    Form(String),
+}
+
+/// A value Twig can read members from, or iterate.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Value {
+    Object(String),
+    List(String),
+    /// The view of a form built from this form type class.
+    Form(String),
+    /// The view of one form field.
+    Field,
+    /// `form.vars`.
+    Vars,
 }
 
 /// A member Twig can read with `object.name`.
@@ -23,6 +45,11 @@ pub struct Member {
     pub detail: String,
     /// A class (resolved through `use`) or lower-case built-in.
     pub type_name: Option<String>,
+    /// The class of the items, when the docblock types a collection or list.
+    pub element_type: Option<String>,
+    /// The class that declares it and where, as offsets in that class's source.
+    pub owner: String,
+    pub range: std::ops::Range<usize>,
 }
 
 /// The source of a class by its fully qualified name.
@@ -42,7 +69,7 @@ fn identifier_end(text: &str) -> usize {
     text.bytes().position(|byte| !(byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'\\'))).unwrap_or(text.len())
 }
 
-fn scope_at<'a>(model: &ClassModel, masked: &str, resolve: &'a dyn Fn(&str) -> String, at: usize) -> Scope<'a> {
+fn scope_at<'a>(model: &ClassModel, text: &str, masked: &str, resolve: &'a dyn Fn(&str) -> String, at: usize) -> Scope<'a> {
     let mut scope = Scope {
         known: BTreeMap::new(),
         properties: model.properties.iter().filter(|property| !property.is_static).filter_map(|property| Some((property.name.clone(), property.type_name.clone().filter(|name| is_class_type(name))?))).collect(),
@@ -57,8 +84,12 @@ fn scope_at<'a>(model: &ClassModel, masked: &str, resolve: &'a dyn Fn(&str) -> S
         }
 
         let body = method.body.clone().unwrap_or(at..at);
+        let mut offset = body.start;
+        // Statements split on the masked text (strings hidden), read from the real text.
         for statement in masked[body.start..at.max(body.start)].split(';') {
-            let Some((name, rhs)) = assignment(statement) else { continue };
+            let original = &text[offset..offset + statement.len()];
+            offset += statement.len() + 1;
+            let Some((name, rhs)) = assignment(original) else { continue };
             match expression_hint(rhs, &scope) {
                 Some(hint) => scope.known.insert(name.to_owned(), hint),
                 None => scope.known.remove(name),
@@ -74,10 +105,10 @@ pub fn render_variable_types(text: &str, at: usize, entries: &[(String, String)]
     let Some(model) = php_text::class_model(text) else { return types };
     let masked = php_text::mask(text);
     let resolve = php_text::resolver(text);
-    let scope = scope_at(&model, &masked, &resolve, at);
+    let scope = scope_at(&model, text, &masked, &resolve, at);
 
     for (key, expression) in entries {
-        if let Some(hint) = expression_hint(&php_text::mask(expression), &scope) {
+        if let Some(hint) = expression_hint(expression, &scope) {
             types.insert(key.clone(), hint);
         }
     }
@@ -89,7 +120,7 @@ pub fn receiver_hint_at(text: &str, at: usize, receiver: &str) -> Option<TypeHin
     let model = php_text::class_model(text)?;
     let masked = php_text::mask(text);
     let resolve = php_text::resolver(text);
-    receiver_hint(receiver, &scope_at(&model, &masked, &resolve, at))
+    receiver_hint(receiver, &scope_at(&model, text, &masked, &resolve, at))
 }
 
 /// `$receiver->partial` at `at` in masked PHP: the receiver (`$var` or `$this->property`) and the word being typed.
@@ -111,6 +142,29 @@ pub fn member_access_at(masked: &str, at: usize) -> Option<(String, usize, usize
     valid.then(|| (receiver.to_owned(), start, end))
 }
 
+/// What `$this->name` reaches inside the class declared in `text`: its own members of every
+/// visibility, and the public and protected ones of project parents.
+pub fn this_members(load: Loader, text: &str) -> Vec<Member> {
+    let Some(model) = php_text::class_model(text) else { return Vec::new() };
+    let mut found: BTreeMap<String, Member> = BTreeMap::new();
+    let parents = model.parent.as_deref().map(|parent| chain(load, parent)).unwrap_or_default();
+
+    for (class, own) in parents.iter().rev().map(|class| (class, false)).chain(std::iter::once((&model, true))) {
+        let visible = |visibility: Visibility| own || visibility != Visibility::Private;
+        let own_type = |name: &Option<String>| match name.as_deref() {
+            Some("self" | "static") => Some(class.fqcn.clone()),
+            other => other.map(str::to_owned),
+        };
+        for property in class.properties.iter().filter(|property| visible(property.visibility) && !property.is_static) {
+            found.insert(property.name.clone(), Member { name: property.name.clone(), detail: format!("${}", property.name), type_name: own_type(&property.type_name), element_type: property.element_class.clone(), owner: class.fqcn.clone(), range: property.name_range.clone() });
+        }
+        for method in class.methods.iter().filter(|method| visible(method.visibility) && !method.name.starts_with("__")) {
+            found.insert(method.name.clone(), Member { name: method.name.clone(), detail: format!("{}()", method.name), type_name: own_type(&method.return_class), element_type: method.element_class.clone(), owner: class.fqcn.clone(), range: method.name_range.clone() });
+        }
+    }
+    found.into_values().collect()
+}
+
 /// Every instance member reachable as `$object->name`: public properties and public methods.
 pub fn instance_members(load: Loader, fqcn: &str) -> Vec<Member> {
     let mut found: BTreeMap<String, Member> = BTreeMap::new();
@@ -120,10 +174,10 @@ pub fn instance_members(load: Loader, fqcn: &str) -> Vec<Member> {
             other => other.map(str::to_owned),
         };
         for property in model.properties.iter().filter(|property| property.visibility == Visibility::Public && !property.is_static) {
-            found.insert(property.name.clone(), Member { name: property.name.clone(), detail: format!("${}", property.name), type_name: own(&property.type_name) });
+            found.insert(property.name.clone(), Member { name: property.name.clone(), detail: format!("${}", property.name), type_name: own(&property.type_name), element_type: property.element_class.clone(), owner: model.fqcn.clone(), range: property.name_range.clone() });
         }
         for method in model.methods.iter().filter(|method| method.visibility == Visibility::Public && !method.is_static && !method.name.starts_with("__")) {
-            found.insert(method.name.clone(), Member { name: method.name.clone(), detail: format!("{}()", method.name), type_name: own(&method.return_class) });
+            found.insert(method.name.clone(), Member { name: method.name.clone(), detail: format!("{}()", method.name), type_name: own(&method.return_class), element_type: method.element_class.clone(), owner: model.fqcn.clone(), range: method.name_range.clone() });
         }
     }
     found.into_values().collect()
@@ -153,8 +207,139 @@ fn class_constant(argument: &str, scope: &Scope) -> Option<String> {
     (!name.is_empty() && name.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'\\'))).then(|| (scope.resolve)(name))
 }
 
+fn string_literal(argument: &str) -> Option<String> {
+    let argument = argument.trim();
+    let quote = argument.chars().next().filter(|quote| matches!(quote, '\'' | '"'))?;
+    let inner = argument[1..].split(quote).next()?;
+    (!inner.is_empty() && !inner.contains(['\\', '$', '{'])).then(|| inner.to_owned())
+}
+
+/// `root->a(x)->b->c(y)`: the root and the member accesses with their argument text (`None` for properties).
+fn split_calls(expression: &str) -> Option<(String, Vec<(String, Option<String>)>)> {
+    let expression = expression.replace("?->", "->");
+    let bytes = expression.as_bytes();
+    let (mut depth, mut start, mut parts) = (0usize, 0usize, Vec::new());
+    let mut at = 0;
+    while at < bytes.len() {
+        match bytes[at] {
+            b'(' | b'[' | b'{' => depth += 1,
+            b')' | b']' | b'}' => depth = depth.saturating_sub(1),
+            b'-' if depth == 0 && bytes.get(at + 1) == Some(&b'>') => {
+                parts.push(&expression[start..at]);
+                start = at + 2;
+                at += 1;
+            }
+            _ => {}
+        }
+        at += 1;
+    }
+    parts.push(&expression[start..]);
+
+    let mut parts = parts.into_iter();
+    let mut root = parts.next()?.trim().to_owned();
+    let mut calls: Vec<(String, Option<String>)> = Vec::new();
+    for part in parts {
+        let part = part.trim();
+        let name = &part[..identifier_end(part)];
+        if name.is_empty() {
+            return None;
+        }
+        let rest = part[name.len()..].trim_start();
+        let arguments = match rest.strip_prefix('(') {
+            Some(inner) => Some(inner[..inner.rfind(')')?].to_owned()),
+            None if rest.is_empty() => None,
+            None => return None,
+        };
+        calls.push((name.to_owned(), arguments));
+    }
+    if root == "$this" && calls.first().is_some_and(|(_, arguments)| arguments.is_none()) {
+        root = format!("$this->{}", calls.remove(0).0);
+    }
+    Some((root, calls))
+}
+
+fn is_manager(class: &str) -> bool {
+    ["EntityManagerInterface", "EntityManager", "ObjectManager"].iter().any(|name| class.ends_with(name))
+}
+
+fn is_container(class: &str) -> bool {
+    class.ends_with("ContainerInterface") || class.ends_with("ServiceLocator")
+}
+
+const BUILDER_CALLS: [&str; 22] = [
+    "select", "addSelect", "where", "andWhere", "orWhere", "join", "innerJoin", "leftJoin", "orderBy", "addOrderBy", "groupBy", "addGroupBy", "having", "andHaving", "orHaving", "setParameter", "setParameters",
+    "setMaxResults", "setFirstResult", "distinct", "indexBy", "setCacheable",
+];
+
+/// Where a call chain currently is.
+enum Flow {
+    Form(String),
+    Object(String),
+    Repository(TypeHint),
+    Builder(Option<TypeHint>),
+    Query(Option<TypeHint>),
+    Entity(TypeHint),
+    Elements(TypeHint),
+}
+
+fn flow_hint(expression: &str, scope: &Scope) -> Option<TypeHint> {
+    let (root, mut calls) = split_calls(expression)?;
+    let first_is_get = calls.first().is_some_and(|(name, _)| name == "get");
+    let first_argument = |arguments: &Option<String>| arguments.as_deref().and_then(|arguments| arguments.split(',').next()).unwrap_or_default().to_owned();
+    let mut flow = match receiver_hint(&root, scope) {
+        _ if root == "$this" && calls.first().is_some_and(|(name, arguments)| name == "createForm" && arguments.is_some()) => {
+            let (_, arguments) = calls.remove(0);
+            Flow::Form(class_constant(&first_argument(&arguments), scope)?)
+        }
+        Some(TypeHint::Form(form)) => Flow::Form(form),
+        Some(TypeHint::Class(class)) => Flow::Object(class),
+        Some(TypeHint::Builder(entity)) => Flow::Builder(Some(*entity)),
+        _ if first_is_get && root.to_ascii_lowercase().contains("container") => Flow::Object("Container".into()),
+        _ => return None,
+    };
+
+    for (name, arguments) in &calls {
+        let arguments = arguments.as_deref();
+        let first = arguments.and_then(|arguments| arguments.split(',').next()).unwrap_or_default();
+        flow = match (flow, name.as_str()) {
+            (Flow::Form(form), "createView" | "handleRequest" | "setData" | "add" | "remove") => Flow::Form(form),
+            (Flow::Object(class), "create") if class.ends_with("FormFactoryInterface") => Flow::Form(class_constant(first, scope)?),
+            (Flow::Object(class), "get") if is_container(&class) || class == "Container" => {
+                if let Some(service) = class_constant(first, scope) {
+                    Flow::Entity(TypeHint::Class(service))
+                } else {
+                    Flow::Entity(TypeHint::Service(string_literal(first)?))
+                }
+            }
+            (Flow::Object(class), "getRepository") if is_manager(&class) => Flow::Repository(TypeHint::Class(class_constant(first, scope)?)),
+            (Flow::Object(class), "createQueryBuilder") => Flow::Builder(if is_manager(&class) { None } else { Some(TypeHint::EntityOf(class)) }),
+            (Flow::Object(class), "find") if is_manager(&class) => Flow::Entity(TypeHint::Class(class_constant(first, scope)?)),
+            (Flow::Object(class), finder) if !is_manager(&class) && FINDERS.contains(&finder) => Flow::Entity(TypeHint::EntityOf(class)),
+            (Flow::Object(class), finder) if !is_manager(&class) && LIST_FINDERS.contains(&finder) => Flow::Elements(TypeHint::EntityOf(class)),
+            (Flow::Repository(entity), "createQueryBuilder") => Flow::Builder(Some(entity)),
+            (Flow::Repository(entity), finder) if FINDERS.contains(&finder) => Flow::Entity(entity),
+            (Flow::Repository(entity), finder) if LIST_FINDERS.contains(&finder) => Flow::Elements(entity),
+            (Flow::Builder(_), "from") => Flow::Builder(Some(TypeHint::Class(class_constant(first, scope)?))),
+            (Flow::Builder(entity), call) if BUILDER_CALLS.contains(&call) => Flow::Builder(entity),
+            (Flow::Builder(entity), "getQuery") => Flow::Query(entity),
+            (Flow::Query(entity), "getResult" | "execute") => Flow::Elements(entity?),
+            (Flow::Query(entity), "getOneOrNullResult" | "getSingleResult") => Flow::Entity(entity?),
+            _ => return None,
+        };
+    }
+
+    match flow {
+        Flow::Entity(hint) => Some(hint),
+        Flow::Elements(hint) => Some(TypeHint::ElementsOf(Box::new(hint))),
+        Flow::Builder(entity) => entity.map(|entity| TypeHint::Builder(Box::new(entity))),
+        Flow::Form(form) => Some(TypeHint::Form(form)),
+        _ => None,
+    }
+}
+
 fn expression_hint(expression: &str, scope: &Scope) -> Option<TypeHint> {
-    let expression = expression.split("??").next()?.trim().trim_start_matches('(').trim_end_matches(')').trim();
+    let expression = expression.split("??").next()?.trim().trim_start_matches('(').trim().trim_end_matches(';');
+    let expression = expression.strip_suffix(')').filter(|rest| rest.matches('(').count() == rest.matches(')').count()).unwrap_or(expression).trim();
 
     if let Some(rest) = expression.strip_prefix("new ") {
         let rest = rest.trim_start();
@@ -168,35 +353,7 @@ fn expression_hint(expression: &str, scope: &Scope) -> Option<TypeHint> {
         }
     }
 
-    // `$container->get(X::class)`: the service id is its class.
-    if let Some((receiver, rest)) = expression.split_once("->get(") {
-        let close = rest.find(')').unwrap_or(rest.len());
-        let service = class_constant(&rest[..close], scope)?;
-        let container = receiver.to_ascii_lowercase().contains("container")
-            || matches!(receiver_hint(receiver, scope), Some(TypeHint::Class(name)) if name.ends_with("ContainerInterface") || name.ends_with("ServiceLocator"));
-        return (container && rest.get(close + 1..).unwrap_or_default().trim().is_empty()).then_some(TypeHint::Class(service));
-    }
-
-    // `<receiver>->getRepository(X::class)->find…(` and `<receiver>->find(X::class, …)`.
-    if let Some((before, rest)) = expression.split_once("->getRepository(") {
-        let close = rest.find(')')?;
-        let entity = class_constant(&rest[..close], scope)?;
-        let call = rest[close + 1..].trim_start().strip_prefix("->")?;
-        let name = &call[..identifier_end(call)];
-        return (receiver_hint(before, scope).is_some() && FINDERS.contains(&name)).then_some(TypeHint::Class(entity));
-    }
-
-    let (at, name) = FINDERS.iter().filter_map(|name| Some((expression.find(&format!("->{name}("))?, *name))).min_by_key(|(at, _)| *at)?;
-    let receiver = &expression[..at];
-    let arguments = &expression[at + "->".len() + name.len() + 1..];
-    let first = arguments.split([',', ')']).next().unwrap_or_default();
-    if let Some(entity) = class_constant(first, scope) {
-        return receiver_hint(receiver, scope).map(|_| TypeHint::Class(entity));
-    }
-    match receiver_hint(receiver, scope)? {
-        TypeHint::Class(repository) => Some(TypeHint::EntityOf(repository)),
-        TypeHint::EntityOf(_) => None,
-    }
+    flow_hint(expression, scope)
 }
 
 /// The entity class a repository manages: `@extends ServiceEntityRepository<Post>` or `parent::__construct($registry, Post::class)`.
@@ -221,11 +378,25 @@ fn repository_entity(source: &str) -> Option<String> {
     })
 }
 
+/// The class of a service by id.
+pub type ServiceClass<'a> = &'a dyn Fn(&str) -> Option<String>;
+
 /// The class a hint stands for, reading repository sources when needed.
-pub fn hint_class(hint: &TypeHint, load: Loader) -> Option<String> {
+pub fn hint_class(hint: &TypeHint, load: Loader, service: ServiceClass) -> Option<String> {
     match hint {
         TypeHint::Class(name) => Some(name.clone()),
         TypeHint::EntityOf(repository) => repository_entity(&load(repository)?),
+        TypeHint::Service(id) => service(id),
+        TypeHint::ElementsOf(_) | TypeHint::Builder(_) | TypeHint::Form(_) => None,
+    }
+}
+
+/// What a hint stands for as a value: an object, or a list of objects.
+pub fn hint_value(hint: &TypeHint, load: Loader, service: ServiceClass) -> Option<Value> {
+    match hint {
+        TypeHint::Form(form) => Some(Value::Form(form.clone())),
+        TypeHint::ElementsOf(inner) => Some(Value::List(hint_class(inner, load, service)?)),
+        other => Some(Value::Object(hint_class(other, load, service)?)),
     }
 }
 
@@ -261,7 +432,7 @@ pub fn members(load: Loader, fqcn: &str) -> Vec<Member> {
         };
 
         for property in model.properties.iter().filter(|property| property.visibility == Visibility::Public && !property.is_static) {
-            found.insert(property.name.clone(), Member { name: property.name.clone(), detail: format!("${}", property.name), type_name: own(&property.type_name) });
+            found.insert(property.name.clone(), Member { name: property.name.clone(), detail: format!("${}", property.name), type_name: own(&property.type_name), element_type: property.element_class.clone(), owner: model.fqcn.clone(), range: property.name_range.clone() });
         }
 
         for method in model.methods.iter().filter(|method| method.visibility == Visibility::Public && !method.is_static && !method.name.starts_with("__")) {
@@ -275,37 +446,98 @@ pub fn members(load: Loader, fqcn: &str) -> Vec<Member> {
                 Some(lower_first(rest))
             });
             let name = accessor.unwrap_or_else(|| method.name.clone());
-            found.insert(name.clone(), Member { name, detail: format!("{}()", method.name), type_name });
+            found.insert(name.clone(), Member { name, detail: format!("{}()", method.name), type_name, element_type: method.element_class.clone(), owner: model.fqcn.clone(), range: method.name_range.clone() });
         }
     }
 
     found.into_values().collect()
 }
 
-/// The class of `object.name`, when it is a class.
-pub fn member_class(load: Loader, fqcn: &str, name: &str) -> Option<String> {
-    members(load, fqcn).into_iter().find(|member| member.name == name)?.type_name.filter(|name| is_class_type(name))
+/// The value of `object.name`: an object when its type is a class, a list when a docblock types its items.
+pub fn member_value(load: Loader, fqcn: &str, name: &str) -> Option<Value> {
+    let member = members(load, fqcn).into_iter().find(|member| member.name == name)?;
+    match (member.element_type, member.type_name) {
+        (Some(element), _) => Some(Value::List(element)),
+        (None, Some(class)) if is_class_type(&class) => Some(Value::Object(class)),
+        _ => None,
+    }
 }
 
-/// `{# @var name Type #}` comments before `offset`: variable name to class.
-pub fn var_comment_types(text: &str, offset: usize) -> BTreeMap<String, String> {
-    let mut types = BTreeMap::new();
+fn view_member(name: &str, detail: &str, owner: &str) -> Member {
+    Member { name: name.to_owned(), detail: detail.to_owned(), type_name: None, element_type: None, owner: owner.to_owned(), range: 0..0 }
+}
+
+/// What a Twig value offers after a dot: an object's members, or a form view's fields and view members.
+pub fn value_members(load: Loader, value: &Value) -> Vec<Member> {
+    match value {
+        Value::Object(class) => members(load, class),
+        Value::List(_) => Vec::new(),
+        Value::Vars => crate::forms::VARS.iter().map(|name| view_member(name, "form.vars", "")).collect(),
+        Value::Field => crate::forms::VIEW_MEMBERS.iter().map(|name| view_member(name, "FormView", "")).collect(),
+        Value::Form(form) => {
+            let mut found: Vec<Member> = load(form)
+                .map(|source| crate::forms::fields(&source))
+                .unwrap_or_default()
+                .into_iter()
+                .map(|field| Member { name: field.name.clone(), detail: "field".into(), type_name: field.type_name, element_type: None, owner: form.clone(), range: field.range })
+                .collect();
+            found.extend(crate::forms::VIEW_MEMBERS.iter().map(|name| view_member(name, "FormView", "")));
+            found
+        }
+    }
+}
+
+/// The value of `value.name`.
+pub fn value_member(load: Loader, value: &Value, name: &str) -> Option<Value> {
+    match value {
+        Value::Object(class) => member_value(load, class, name),
+        Value::List(_) | Value::Vars | Value::Field => None,
+        Value::Form(form) => {
+            if name == "vars" {
+                return Some(Value::Vars);
+            }
+            let field = value_members(load, value).into_iter().find(|member| member.name == name && member.owner == *form)?;
+            // An embedded project form type keeps its own fields.
+            match field.type_name.filter(|class| load(class).is_some_and(|source| !crate::forms::fields(&source).is_empty())) {
+                Some(nested) => Some(Value::Form(nested)),
+                None => Some(Value::Field),
+            }
+        }
+    }
+}
+
+/// The value a docblock-style type stands for: `Foo`, `Foo[]` or `Collection<Foo>`.
+fn type_value(declared: &str) -> Option<Value> {
+    let declared = declared.trim_start_matches('\\').trim_start_matches('?');
+    let (name, list) = match (declared.find('<'), declared.rfind('>')) {
+        (Some(open), Some(close)) if open < close => (declared[open + 1..close].rsplit(',').next()?.trim().trim_start_matches('\\'), true),
+        _ => match declared.strip_suffix("[]") {
+            Some(item) => (item, true),
+            None => (declared, false),
+        },
+    };
+    let valid = !name.is_empty() && is_class_type(name) && name.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'\\'));
+    valid.then(|| if list { Value::List(name.to_owned()) } else { Value::Object(name.to_owned()) })
+}
+
+/// `{# @var name Type #}` comments before `offset`: variable name to value.
+pub fn var_comment_values(text: &str, offset: usize) -> BTreeMap<String, Value> {
+    let mut values = BTreeMap::new();
     for (at, _) in text[..offset.min(text.len())].match_indices("{#") {
         let Some(end) = text[at..].find("#}") else { continue };
         let body = text[at + 2..at + end].trim();
         let Some(rest) = body.strip_prefix("@var") else { continue };
         let words: Vec<&str> = rest.split_whitespace().collect();
         let [first, second, ..] = words[..] else { continue };
-        let (name, class) = match (first.starts_with('$') || !first.contains('\\') && second.contains('\\') || first.chars().next().is_some_and(char::is_lowercase), second) {
-            (true, class) => (first.trim_start_matches('$'), class),
-            (false, name) => (second.trim_start_matches('$'), first),
-        };
-        let class = class.trim_start_matches('\\').trim_end_matches("[]");
-        if is_class_type(class) && !class.is_empty() && name.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_') {
-            types.insert(name.to_owned(), class.to_owned());
+        let name_first = first.starts_with('$') || !first.contains('\\') && second.contains('\\') || first.chars().next().is_some_and(char::is_lowercase);
+        let (name, declared) = if name_first { (first.trim_start_matches('$'), second) } else { (second.trim_start_matches('$'), first) };
+        if name.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_') {
+            if let Some(value) = type_value(declared) {
+                values.insert(name.to_owned(), value);
+            }
         }
     }
-    types
+    values
 }
 
 #[cfg(test)]
@@ -360,17 +592,20 @@ mod tests {
         assert_eq!(names, ["author", "id", "published", "slug", "summary"]);
         assert_eq!(found["author"].type_name.as_deref(), Some("App\\Entity\\User"));
         assert_eq!(found["author"].detail, "getAuthor()");
-        assert_eq!(member_class(&load, "App\\Entity\\Post", "author").as_deref(), Some("App\\Entity\\User"));
-        assert_eq!(member_class(&load, "App\\Entity\\Post", "published"), None);
+        assert_eq!(member_value(&load, "App\\Entity\\Post", "author"), Some(Value::Object("App\\Entity\\User".into())));
+        assert_eq!(member_value(&load, "App\\Entity\\Post", "published"), None);
     }
 
     #[test]
     fn var_comments_name_variables_in_either_order() {
         let text = "{# @var post \\App\\Entity\\Post #}\n{# @var \\App\\Entity\\User author #}\n{# @var $count int #}\n{# plain comment #}\n{{ post. }}";
-        let found = var_comment_types(text, text.len());
-        assert_eq!(found["post"], "App\\Entity\\Post");
-        assert_eq!(found["author"], "App\\Entity\\User");
+        let found = var_comment_values(text, text.len());
+        assert_eq!(found["post"], Value::Object("App\\Entity\\Post".into()));
+        assert_eq!(found["author"], Value::Object("App\\Entity\\User".into()));
         assert!(!found.contains_key("count"));
+        let lists = var_comment_values("{# @var posts \\App\\Entity\\Post[] #}\n{# @var tags Collection<App\\Entity\\Tag> #}", 200);
+        assert_eq!(lists["posts"], Value::List("App\\Entity\\Post".into()));
+        assert_eq!(lists["tags"], Value::List("App\\Entity\\Tag".into()));
     }
 
     #[test]
@@ -382,7 +617,7 @@ mod tests {
         assert_eq!(found.get("one"), Some(&mailer));
         assert_eq!(found.get("two"), Some(&mailer));
         assert_eq!(found.get("three"), Some(&mailer));
-        assert_eq!(found.get("four"), None);
+        assert_eq!(found.get("four"), Some(&TypeHint::Service("app.mailer".into())));
     }
 
     #[test]
@@ -393,5 +628,52 @@ mod tests {
         assert_eq!(member_access_at(masked, masked.len()), Some(("$this->posts".into(), 14, 14)));
         assert_eq!(member_access_at("$a->b->", 7), None);
         assert_eq!(member_access_at("foo()->x", 8), None);
+    }
+
+    #[test]
+    fn list_finders_give_lists_of_the_entity() {
+        let text = "<?php\nnamespace App;\nuse App\\Entity\\Post;\nuse App\\Repository\\PostRepository;\nclass C\n{\n    public function a(PostRepository $repo, $em)\n    {\n        $all = $repo->findAll();\n        $some = $repo->findBy(['x' => 1]);\n        $typed = $em->getRepository(Post::class)->findAll();\n        return $this->render('t', []);\n    }\n}\n";
+        let at = text.find("$this->render(").unwrap();
+        let found = render_variable_types(text, at, &[("all".into(), "$all".into()), ("some".into(), "$some".into()), ("typed".into(), "$typed".into())]);
+        let repository = TypeHint::ElementsOf(Box::new(TypeHint::EntityOf("App\\Repository\\PostRepository".into())));
+        assert_eq!(found["all"], repository);
+        assert_eq!(found["some"], repository);
+        assert!(!found.contains_key("typed"), "untyped $em receiver gives no hint");
+    }
+
+    #[test]
+    fn query_builder_chains_end_in_lists_or_one_entity() {
+        let text = "<?php\nnamespace App;\nuse App\\Entity\\Post;\nuse App\\Repository\\PostRepository;\nuse Doctrine\\ORM\\EntityManagerInterface;\nclass C\n{\n    public function a(PostRepository $repo, EntityManagerInterface $em)\n    {\n        $qb = $repo->createQueryBuilder('p')->where('p.x = 1')->orderBy('p.id');\n        $list = $repo->createQueryBuilder('p')->andWhere('p.x = :x')->setParameter('x', 1)->setMaxResults(5)->getQuery()->getResult();\n        $one = $qb->getQuery()->getOneOrNullResult();\n        $many = $qb->setMaxResults(3)->getQuery()->execute();\n        $manager = $em->createQueryBuilder()->select('p')->from(Post::class, 'p')->getQuery()->getResult();\n        $array = $repo->createQueryBuilder('p')->getQuery()->getArrayResult();\n        $unknown = $repo->createQueryBuilder('p')->customStep()->getQuery()->getResult();\n        return $this->render('t', []);\n    }\n}\n";
+        let at = text.find("$this->render(").unwrap();
+        let keys = ["qb", "list", "one", "many", "manager", "array", "unknown"];
+        let entries: Vec<(String, String)> = keys.iter().map(|key| ((*key).to_owned(), format!("${key}"))).collect();
+        let found = render_variable_types(text, at, &entries);
+        let repository = TypeHint::EntityOf("App\\Repository\\PostRepository".into());
+        assert_eq!(found["qb"], TypeHint::Builder(Box::new(repository.clone())));
+        assert_eq!(found["list"], TypeHint::ElementsOf(Box::new(repository.clone())));
+        assert_eq!(found["one"], repository);
+        assert_eq!(found["many"], TypeHint::ElementsOf(Box::new(repository)));
+        assert_eq!(found["manager"], TypeHint::ElementsOf(Box::new(TypeHint::Class("App\\Entity\\Post".into()))));
+        assert!(!found.contains_key("array") && !found.contains_key("unknown"));
+    }
+
+    #[test]
+    fn split_calls_reads_properties_and_nested_arguments() {
+        let (root, calls) = split_calls("$this->posts->findBy(['a' => f(1)], null)?->x").unwrap();
+        assert_eq!(root, "$this->posts");
+        assert_eq!(calls, [("findBy".to_owned(), Some("['a' => f(1)], null".to_owned())), ("x".to_owned(), None)]);
+        assert!(split_calls("$a->b(").is_none());
+    }
+
+    #[test]
+    fn this_members_include_private_own_and_protected_parent_members() {
+        let sources: BTreeMap<&str, &str> = BTreeMap::from([(
+            "App\\Base",
+            "<?php\nnamespace App;\nclass Base\n{\n    protected int $level = 1;\n    private int $hidden = 2;\n    protected function boot(): void {}\n    public function id(): int { return 1; }\n    private function secret(): void {}\n}\n",
+        )]);
+        let load = |name: &str| sources.get(name).map(|source| (*source).to_owned());
+        let own = "<?php\nnamespace App;\nclass Child extends Base\n{\n    private string $label = '';\n    public function __construct(private Base $base) {}\n    private function helper(): static { return $this; }\n}\n";
+        let names: Vec<_> = this_members(&load, own).into_iter().map(|member| member.name).collect();
+        assert_eq!(names, ["base", "boot", "helper", "id", "label", "level"]);
     }
 }

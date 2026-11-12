@@ -22,6 +22,11 @@ impl HoverProvider for Main {
             return None;
         }
         let at = text::offset(&doc.text, at)?;
+        if let Some(index) = self.index_for(&doc.path) {
+            if let Some(hover) = type_hover(index, doc, at) {
+                return Some(hover);
+            }
+        }
         let r = ownership::reference(doc, at)?;
         let name = &doc.text[r.start..r.end];
         if is_dynamic(name) {

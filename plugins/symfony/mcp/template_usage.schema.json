@@ -1,0 +1,15 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "template": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 300,
+      "description": "Twig template name, e.g. blog/index.html.twig or @Acme/page.html.twig."
+    }
+  },
+  "required": [
+    "template"
+  ]
+}
