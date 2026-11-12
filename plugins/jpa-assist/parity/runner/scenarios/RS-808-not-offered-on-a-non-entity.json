@@ -1,0 +1,28 @@
+{
+  "id": "RS-808",
+  "rows": [],
+  "claimIds": [],
+  "fixture": "boot-jpa-java-jakarta",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/attrs/RsDto.java",
+        "content": "package com.example.shop.attrs;\n\npublic class RsDto {\n    private String email;\n}\n"
+      }
+    }
+  ],
+  "kind": "fileaction",
+  "target": {
+    "file": "src/main/java/com/example/shop/attrs/RsDto.java",
+    "anchor": "class RsDto"
+  },
+  "action": {
+    "title": "Add attributes from database columns…"
+  },
+  "prompts": [],
+  "expect": {
+    "actionOffered": false
+  },
+  "kindExerciser": true,
+  "note": "Plain classes do not get the action."
+}

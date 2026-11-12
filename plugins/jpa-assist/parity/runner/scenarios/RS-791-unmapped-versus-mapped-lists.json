@@ -1,0 +1,102 @@
+{
+  "id": "RS-791",
+  "rows": [
+    "G096"
+  ],
+  "claimIds": [
+    "G096-C2"
+  ],
+  "verifies": {
+    "G096-C2": "surfaceEquivalent: the prompt that selects columns lists only the Columns (unmapped) of the table (created_at, balance, legacy_code, doc) and none of the mapped ones (id, email, full_name, region_id); the already mapped columns are shown separately in the preview as \"Already mapped by RsAccount (4)\" with the attribute that maps each. Not checked: one dialog with both lists side by side, the Mapped Columns widget."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/attrs/RsAccount.java",
+        "content": "package com.example.shop.attrs;\n\nimport jakarta.persistence.Column;\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.JoinColumn;\nimport jakarta.persistence.ManyToOne;\nimport jakarta.persistence.Table;\n\n@Entity\n@Table(name = \"rs_accounts\")\npublic class RsAccount {\n\n    @Id\n    private Long id;\n\n    @Column(name = \"email\")\n    private String mail;\n\n    private String fullName;\n\n    @ManyToOne\n    @JoinColumn(name = \"region_id\")\n    private RsRegion region;\n\n    public Long getId() {\n        return id;\n    }\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "db/rs_accounts.sql",
+        "content": "CREATE TABLE rs_accounts (\n  id bigserial PRIMARY KEY,\n  email varchar(120) NOT NULL,\n  full_name varchar(80),\n  created_at timestamptz NOT NULL,\n  balance numeric(12,2),\n  region_id bigint,\n  legacy_code varchar(10),\n  doc jsonb\n);\n"
+      }
+    }
+  ],
+  "kind": "fileaction",
+  "target": {
+    "file": "src/main/java/com/example/shop/attrs/RsAccount.java",
+    "anchor": "class RsAccount"
+  },
+  "action": {
+    "title": "Add attributes from database columns…"
+  },
+  "prompts": [
+    {
+      "pickLabel": "db/rs_accounts.sql"
+    },
+    {
+      "pickMany": [
+        "balance"
+      ]
+    },
+    {
+      "pickMany": [
+        "editNames"
+      ]
+    },
+    "default",
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pick",
+        "titleContains": "rs_accounts"
+      },
+      {
+        "kind": "pickMany",
+        "titleContains": "not mapped by RsAccount",
+        "optionsInclude": [
+          "created_at",
+          "balance",
+          "legacy_code",
+          "doc"
+        ],
+        "optionsExclude": [
+          "id",
+          "email",
+          "full_name",
+          "region_id"
+        ]
+      },
+      {
+        "kind": "pickMany",
+        "titleContains": "Attribute options"
+      },
+      {
+        "kind": "input"
+      },
+      {
+        "kind": "confirm",
+        "messageContains": "Already mapped by RsAccount (4)"
+      }
+    ],
+    "resultFile": [
+      {
+        "path": "src/main/java/com/example/shop/attrs/RsAccount.java",
+        "contains": [
+          "private BigDecimal balance;"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "Columns offered versus the already mapped list in the preview."
+}
