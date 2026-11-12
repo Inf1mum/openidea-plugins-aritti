@@ -152,6 +152,7 @@ enum Operation {
     EqualityMethods,
     LazySafeToString,
     DdlEntities,
+    DdlEntityAttrs,
     TodoUncomment,
     TodoRemove,
     SchemaBaseline,
@@ -231,6 +232,7 @@ impl Operation {
             Self::EqualityMethods => "equality-methods",
             Self::LazySafeToString => "lazy-safe-to-string",
             Self::DdlEntities => "ddl-entities",
+            Self::DdlEntityAttrs => "ddl-entity-attrs",
             Self::TodoUncomment => "todo-uncomment",
             Self::TodoRemove => "todo-remove",
             Self::SchemaBaseline => "schema-baseline",
@@ -546,6 +548,9 @@ impl FileActions for JpaAssist {
             operations.push((Operation::Identifier,"Add JPA identifier with preview…"));
             operations.push((Operation::EmbeddedIdentifier,embedded_id_action::TITLE));
         }
+        if ddl_entities_action::attrs_eligible(doc) {
+            operations.push((Operation::DdlEntityAttrs, ddl_entities_action::ATTRS_TITLE));
+        }
         if entity_from_class::eligible(doc) {
             operations.push((Operation::EntityFromClass, entity_from_class::TITLE));
         }
@@ -841,6 +846,7 @@ impl FileActions for JpaAssist {
             Operation::EqualityMethods => equality_action::resolve_equals(&pending, doc, &project),
             Operation::LazySafeToString => equality_action::resolve_to_string(&pending, doc),
             Operation::DdlEntities => ddl_entities_action::resolve(&pending, doc, &project),
+            Operation::DdlEntityAttrs => ddl_entities_action::attrs_resolve(&pending, doc, &project),
             Operation::TodoUncomment => ddl_todo_action::resolve(&pending, doc, true),
             Operation::TodoRemove => ddl_todo_action::resolve(&pending, doc, false),
             Operation::SchemaRepair => schema_repair_action::resolve(&pending, doc, &project),

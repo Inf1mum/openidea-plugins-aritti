@@ -17,6 +17,9 @@ use persistence_core::schema::{Column, Fact, ForeignKey, Index, LogicalType, Tab
 use std::collections::{BTreeMap, BTreeSet};
 #[path = "ddl_entities_extra.rs"]
 mod extra;
+#[path = "ddl_entity_attrs.rs"]
+mod attrs;
+pub(super) use attrs::{eligible as attrs_eligible, resolve as attrs_resolve, TITLE as ATTRS_TITLE};
 
 pub(super) const TITLE: &str = "Generate entities from SQL file…";
 const MAX_FILES: usize = 20;
@@ -88,6 +91,8 @@ enum Deferred {
 
 #[derive(Clone, Default)]
 struct Options {
+    /// Columns are added to an existing entity: no key is required or mapped.
+    existing: bool,
     id_generation: IdGeneration,
     /// `sqlImportFetch = default`: generated `@ManyToOne` keeps the JPA default instead of an explicit LAZY.
     default_fetch: bool,
@@ -392,7 +397,9 @@ fn gate<'a>(parsed: &'a ParsedDdl, ti: usize, dialect: SqlDialect, options: &Opt
         Fact::Known(_) => return refuse("no columns".into()),
         Fact::Unknown(reason) => return refuse(format!("columns are not fully known ({reason})")),
     };
+    static NO_KEY: String = String::new();
     let key = match &table.primary_key {
+        _ if options.existing => &NO_KEY,
         Fact::Known(key) if key.len() == 1 => &key[0],
         Fact::Known(key) if key.is_empty() => return refuse("no primary key; an entity needs an @Id".into()),
         Fact::Known(key) => return refuse(format!("composite primary key ({}) is not generated", key.join(", "))),
@@ -420,7 +427,7 @@ fn gate<'a>(parsed: &'a ParsedDdl, ti: usize, dialect: SqlDialect, options: &Opt
     if !identifier(&class) || taken(&class, options) {
         return refuse(format!("class name `{class}` is not usable (keyword or generated import name)"));
     }
-    if !columns.iter().any(|c| c.name.eq_ignore_ascii_case(key)) {
+    if !options.existing && !columns.iter().any(|c| c.name.eq_ignore_ascii_case(key)) {
         return refuse(format!("primary key column {key} is not a column"));
     }
     Ok(Gate { columns, key, foreign_keys, uniques, schema, name, class })

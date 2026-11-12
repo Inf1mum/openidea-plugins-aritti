@@ -1,0 +1,89 @@
+{
+  "id": "RS-806",
+  "rows": [
+    "G096"
+  ],
+  "claimIds": [
+    "G096-C1"
+  ],
+  "verifies": {
+    "G096-C1": "surfaceEquivalent: the column of an @Embedded type found in the project (street) counts as mapped and is not offered. Not checked: tool window entries, live database."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/attrs/RsAddress.java",
+        "content": "package com.example.shop.attrs;\n\nimport jakarta.persistence.Embeddable;\n\n@Embeddable\npublic class RsAddress {\n\n    private String street;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/attrs/RsAccount.java",
+        "content": "package com.example.shop.attrs;\n\nimport jakarta.persistence.Column;\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.JoinColumn;\nimport jakarta.persistence.ManyToOne;\nimport jakarta.persistence.Table;\nimport jakarta.persistence.Embedded;\n\n@Entity\n@Table(name = \"rs_accounts\")\npublic class RsAccount {\n\n    @Id\n    private Long id;\n\n    @Embedded\n    private RsAddress address;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "db/rs_accounts.sql",
+        "content": "CREATE TABLE rs_accounts (\n  id bigserial PRIMARY KEY,\n  street varchar(20),\n  zip varchar(5)\n);\n"
+      }
+    }
+  ],
+  "kind": "fileaction",
+  "target": {
+    "file": "src/main/java/com/example/shop/attrs/RsAccount.java",
+    "anchor": "class RsAccount"
+  },
+  "action": {
+    "title": "Add attributes from database columns…"
+  },
+  "prompts": [
+    {
+      "pickLabel": "db/rs_accounts.sql"
+    },
+    {
+      "pickMany": [
+        "zip"
+      ]
+    },
+    {
+      "pickMany": [
+        "editNames"
+      ]
+    },
+    "default",
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pick"
+      },
+      {
+        "kind": "pickMany",
+        "optionsInclude": [
+          "zip"
+        ],
+        "optionsExclude": [
+          "street"
+        ]
+      }
+    ],
+    "resultFile": [
+      {
+        "path": "src/main/java/com/example/shop/attrs/RsAccount.java",
+        "contains": [
+          "private String zip;"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "Embedded columns count as mapped."
+}

@@ -1,0 +1,90 @@
+{
+  "id": "RS-804",
+  "rows": [
+    "G096"
+  ],
+  "claimIds": [
+    "G096-C1"
+  ],
+  "verifies": {
+    "G096-C1": "surfaceEquivalent: a column whose derived attribute name is already used in the entity asks for another name instead of writing a duplicate. Not checked: tool window entries, live database."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/attrs/RsAccount.java",
+        "content": "package com.example.shop.attrs;\n\nimport jakarta.persistence.Column;\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.JoinColumn;\nimport jakarta.persistence.ManyToOne;\nimport jakarta.persistence.Table;\n\n@Entity\n@Table(name = \"rs_accounts\")\npublic class RsAccount {\n\n    @Id\n    private Long id;\n\n    @Column(name = \"email\")\n    private String mail;\n\n    private String fullName;\n\n    @ManyToOne\n    @JoinColumn(name = \"region_id\")\n    private RsRegion region;\n\n    public Long getId() {\n        return id;\n    }\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "db/rs_accounts.sql",
+        "content": "CREATE TABLE rs_accounts (\n  id bigserial PRIMARY KEY,\n  region varchar(20)\n);\n"
+      }
+    }
+  ],
+  "kind": "fileaction",
+  "target": {
+    "file": "src/main/java/com/example/shop/attrs/RsAccount.java",
+    "anchor": "class RsAccount"
+  },
+  "action": {
+    "title": "Add attributes from database columns…"
+  },
+  "prompts": [
+    {
+      "pickLabel": "db/rs_accounts.sql"
+    },
+    {
+      "pickMany": [
+        "region"
+      ]
+    },
+    {
+      "pickMany": [
+        "editNames"
+      ]
+    },
+    "default",
+    {
+      "input": "regionName"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pick"
+      },
+      {
+        "kind": "pickMany"
+      },
+      {
+        "kind": "pickMany"
+      },
+      {
+        "kind": "input"
+      },
+      {
+        "kind": "input",
+        "titleContains": "already used"
+      }
+    ],
+    "resultFile": [
+      {
+        "path": "src/main/java/com/example/shop/attrs/RsAccount.java",
+        "contains": [
+          "private String regionName;"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "Name clash is asked again."
+}

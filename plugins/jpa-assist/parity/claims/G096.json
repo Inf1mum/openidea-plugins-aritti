@@ -15,8 +15,9 @@
    "supports": "Create Entity Attributes from DB...",
    "source": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
    "strength": "explicit",
-   "ourFeature": "not implemented",
-   "verifiableHeadless": false
+   "ourFeature": "ddl_entity_attrs.rs",
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Code action 'Add attributes from database columns…' on the entity class (Alt+Enter equivalent): adds the columns of the entity's table that it does not map yet, read from a SQL DDL file of the project, or from a saved connection (read-only, confirmed first; needs process:java, not covered headlessly). Not available: the Database and Persistence tool window entries."
   },
   {
    "id": "G096-C2",
@@ -24,8 +25,9 @@
    "supports": "Columns: not mapped; Mapped Columns: already mapped",
    "source": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
    "strength": "explicit",
-   "ourFeature": "not implemented",
-   "verifiableHeadless": false
+   "ourFeature": "ddl_entity_attrs.rs",
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "The column prompt lists only the unmapped columns; the already mapped columns (with the attribute that maps each) are shown separately in the exact preview. Not available: one dialog with both lists side by side."
   }
  ],
  "undocumented": [

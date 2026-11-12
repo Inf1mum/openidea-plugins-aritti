@@ -1,0 +1,39 @@
+{
+  "id": "RS-797",
+  "rows": [],
+  "claimIds": [],
+  "fixture": "boot-jpa-java-jakarta",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/attrs/RsAccount.java",
+        "content": "package com.example.shop.attrs;\n\nimport jakarta.persistence.Column;\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.JoinColumn;\nimport jakarta.persistence.ManyToOne;\nimport jakarta.persistence.Table;\n\n@Entity\n@Table(name = \"rs_accounts\")\npublic class RsAccount {\n\n    @Id\n    private Long id;\n\n    @Column(name = \"email\")\n    private String mail;\n\n    private String fullName;\n\n    @ManyToOne\n    @JoinColumn(name = \"region_id\")\n    private RsRegion region;\n\n    public Long getId() {\n        return id;\n    }\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "db/other.sql",
+        "content": "CREATE TABLE rs_accounts_audit (\n  id bigserial PRIMARY KEY,\n  email varchar(120) NOT NULL,\n  full_name varchar(80),\n  created_at timestamptz NOT NULL,\n  balance numeric(12,2),\n  region_id bigint,\n  legacy_code varchar(10),\n  doc jsonb\n);\n"
+      }
+    }
+  ],
+  "kind": "fileaction",
+  "target": {
+    "file": "src/main/java/com/example/shop/attrs/RsAccount.java",
+    "anchor": "class RsAccount"
+  },
+  "action": {
+    "title": "Add attributes from database columns…"
+  },
+  "prompts": [
+    {
+      "pickLabel": "db/other.sql"
+    }
+  ],
+  "expect": {
+    "resolveErrorContains": "was not found in the chosen source",
+    "noFilesChanged": true
+  },
+  "kindExerciser": true,
+  "note": "Table absent from the chosen file."
+}

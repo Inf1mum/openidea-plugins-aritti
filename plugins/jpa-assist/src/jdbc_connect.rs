@@ -213,9 +213,9 @@ fn spring_password(project: Option<Project>, source: &SpringSource) -> Option<St
 }
 
 /// Config first, else a prompt that says it shows the typed text (the host has no masked prompt).
-fn password_for(ctx: &Invocation, profile: &Profile) -> Result<Option<String>, Error> {
+fn password_for(project: Option<Project>, profile: &Profile) -> Result<Option<String>, Error> {
     if let Some(source) = &profile.spring_source {
-        if let Some(password) = spring_password(ctx.project(), source) {
+        if let Some(password) = spring_password(project, source) {
             return Ok(Some(password));
         }
     }
@@ -229,6 +229,10 @@ fn password_for(ctx: &Invocation, profile: &Profile) -> Result<Option<String>, E
 
 /// Validates, confirms the target, gets the password and builds the client. `None`: stopped, already reported.
 fn prepare(ctx: &Invocation, profile: &Profile) -> Result<Option<Client<HostRunner>>, Error> {
+    prepare_with(ctx.project(), profile)
+}
+
+pub(crate) fn prepare_with(project: Option<Project>, profile: &Profile) -> Result<Option<Client<HostRunner>>, Error> {
     if let Err(why) = profile.validate() {
         fail(&format!("Connection `{}` cannot be used: {why}", profile.name));
         return Ok(None);
@@ -240,7 +244,7 @@ fn prepare(ctx: &Invocation, profile: &Profile) -> Result<Option<Client<HostRunn
     if !confirm_target(profile, &jar)? {
         return Ok(None);
     }
-    let Some(password) = password_for(ctx, profile)? else {
+    let Some(password) = password_for(project, profile)? else {
         return Ok(None);
     };
     let helper = match install_helper() {
