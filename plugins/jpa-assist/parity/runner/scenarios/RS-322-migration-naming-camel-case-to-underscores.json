@@ -63,6 +63,12 @@
       ]
     },
     {
+      "pick": "keep"
+    },
+    {
+      "pick": "keep"
+    },
+    {
       "input": "naming"
     },
     {
