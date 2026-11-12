@@ -12,6 +12,7 @@ from pathlib import Path
 PLUGIN = Path(__file__).resolve().parent.parent / 'plugins/jpa-assist'
 PAGES = ['designer', 'code-generation', 'reverse-engineering', 'database-versioning', 'inspections', 'query-console', 'other']
 RULES = [
+    (r'jpaAssist\.editorStatusItem', 'designer', 'Editor'),
     (r'jpaAssist\.designer\.minimalMode', 'designer', 'Layout'),
     (r'jpaAssist\.designer\.', 'designer', 'Panels'),
     (r'injection', 'code-generation', 'Injection'),

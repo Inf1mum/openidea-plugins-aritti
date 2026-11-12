@@ -1,5 +1,11 @@
 {
   "properties": {
+    "jpaAssist.editorStatusItem": {
+      "type": "boolean",
+      "title": "Show the JPA status bar item for the focused entity, DTO, projection or repository (stands in for the editor toolbar; its command lists related artifacts)",
+      "default": true,
+      "group": "Editor"
+    },
     "jpaAssist.designer.showPalette": {
       "type": "boolean",
       "title": "Show the JPA Palette in the Persistence Designer",
