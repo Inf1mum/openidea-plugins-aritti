@@ -2510,7 +2510,7 @@ fn laravel_window_has_separate_resource_tabs() {
     }
     let group: serde_json::Value = serde_json::from_str(include_str!("ui_group.json")).unwrap();
     let tabs = group["tabs"].as_array().unwrap();
-    assert_eq!(tabs.len(), 14);
+    assert_eq!(tabs.len(), 13);
     assert!(tabs.iter().all(|tab| tab["icon"].as_str().is_some_and(|icon| !icon.is_empty())));
 }
 
@@ -2925,7 +2925,7 @@ fn packaged_resource_tabs_include_icons_and_cached_inventory_counts() {
     let reply: serde_json::Value = serde_json::from_str(&messages.last().unwrap().1).unwrap();
     let tabs = reply["model"]["viewTabs"].as_array().expect("bridge tabs");
     let index = plugin.view_index(&ctx).unwrap();
-    assert_eq!(tabs.len(), 14);
+    assert_eq!(tabs.len(), 13);
     for (id, count) in [(VIEW, index.route_defs.len()), ("laravel-views", index.views.len()), ("laravel-components", index.components.len()+index.livewire.len()), ("laravel-config", index.config.len()), ("laravel-translations", index.translations_by_locale.values().map(Names::len).sum()), ("laravel-middleware", index.middleware.len()), ("laravel-env", index.env.len())] {
         let tab = tabs.iter().find(|tab|tab["id"] == id).unwrap();
         assert!(tab["icon"].as_str().is_some_and(|icon| !icon.is_empty()));
@@ -3311,7 +3311,7 @@ fn parity_workspaces_render_without_php_network_or_direct_writes() {
     let host = MockHost::install();
     let mut plugin = activated(&host);
     let ctx = host.invocation();
-    for view in ["laravel-about", "laravel-generators", "laravel-models", "laravel-processes", "laravel-external"] {
+    for view in ["laravel-about", "laravel-generators", "laravel-models", "laravel-processes"] {
         let rendered = plugin.render(view, None, &ctx).unwrap();
         assert!(!matches!(rendered.body, Body::Message(ref message) if message.is_empty()));
     }
@@ -3319,7 +3319,7 @@ fn parity_workspaces_render_without_php_network_or_direct_writes() {
     assert!(host.requests().is_empty());
     assert!(host.terminals().is_empty());
     let config: serde_json::Value = serde_json::from_str(&plugin.web_config(&ctx)).unwrap();
-    for id in ["runtime-open-frame", "sentry-details", "cloud-environments"] {
+    for id in ["runtime-open-frame"] {
         let action = config["actions"].as_array().unwrap().iter().find(|action| action["id"] == id).unwrap();
         assert_eq!(action["keys"], serde_json::json!([]), "Cold captured-row actions must remain unavailable: {id}");
     }
@@ -3488,4 +3488,49 @@ fn dynamic_fillable_does_not_block_phpdoc_updates_or_declared_key_display() {
     h.answer_next_prompt(Some(&["yes"]));let result=main.resolve_file_action(&document,action).unwrap();
     let updated=&result.edits[0].1[0].text;assert!(updated.contains("@openidea-laravel-generated-start"));assert!(updated.contains("Handwritten."));assert!(updated.contains("@property string $manual"));assert!(updated.contains("$fillable = self::FIELDS;"));
     assert_eq!(project.read_file(&document.path).unwrap(),source);assert!(h.process_runs().is_empty());
+}
+
+#[test]
+fn models_toolbar_groups_only_name_real_toolbar_buttons() {
+    let host = MockHost::install();
+    let mut plugin = activated(&host);
+    let ctx = host.invocation();
+    let config: serde_json::Value = serde_json::from_str(&plugin.web_config(&ctx)).unwrap();
+    let groups = config["toolbar_groups"]["laravel-models"].as_array().unwrap();
+    assert!(!groups.is_empty());
+    let rendered = plugin.render("laravel-models", None, &ctx).unwrap();
+    let ids: Vec<_> = rendered.toolbar.iter().map(|button| button.id.as_str()).collect();
+    for group in groups {
+        for item in group["items"].as_array().unwrap() {
+            assert!(ids.contains(&item.as_str().unwrap()), "{item} is not a Models toolbar button");
+        }
+    }
+}
+
+#[test]
+fn eloquent_model_class_line_gets_hub_gutter() {
+    let source = "<?php\nnamespace App\\Models;\nuse Illuminate\\Database\\Eloquent\\Model;\nclass Post extends Model {}\n";
+    let path = "/project/app/Models/Post.php";
+    let mut index = Index::default();
+    crate::eloquent_members::cache(&mut index.eloquent_models, source, path);
+    let doc = Document { path: path.into(), language: "php".into(), version: 0, text: source.into() };
+
+    let gutter = crate::model_gutter(&index, &doc).expect("model gutter");
+
+    assert_eq!(gutter.line, 3);
+    assert_eq!(gutter.command, "reveal");
+}
+
+#[test]
+fn invokable_controller_gets_route_marker() {
+    let host = MockHost::install();
+    let plugin = &mut activated_with(&host, &[
+        ("app/Http/Controllers/WishController.php", "<?php\nnamespace App\\Http\\Controllers;\n/**\n * Adds a family's item.\n */\nclass WishController\n{\n    public function __invoke()\n    {\n    }\n}\n"),
+        ("routes/web.php", "<?php\nuse App\\Http\\Controllers\\WishController;\nRoute::middleware(['auth'])->prefix('x')->group(function () {\n    Route::post('/wish/{item}', WishController::class)->whereNumber('item')->name('wish');\n});\n"),
+    ]);
+    let text = host_text(&host, "app/Http/Controllers/WishController.php");
+
+    let markers = plugin.line_markers(&doc("/project/app/Http/Controllers/WishController.php", "php", &text));
+
+    assert!(markers.iter().any(|m| m.line == 7 && m.tooltip.starts_with("Route POST /x/wish")), "{markers:?}");
 }

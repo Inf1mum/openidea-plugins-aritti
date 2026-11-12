@@ -17,9 +17,8 @@ The current implementation also includes a graphical existing-model field/index
 editor with reviewed casts and mass-assignment edits, module-local factory/seeder
 generation, configurable generation classes/postfixes, and typed rename actions
 for proven route, config, translation and explicit Blade-alias literals. Blade
-layout extraction supports anonymous components with explicit props. Sentry and
-Cloud inventories offer explicit bounded pagination. These are scoped workflows;
-the ledger records their remaining limitations. The [primary baseline qualification](../../docs/laravel-baseline-qualification-20261111.md) now defines exact metadata completion transformers, Cloud read-only workflows and Git/LLM hooks. Generic Pest subject navigation was withdrawn as an invented requirement; native Pest templates/Livewire contexts remain supported.
+layout extraction supports anonymous components with explicit props. These are
+scoped workflows; the ledger records their remaining limitations. The [primary baseline qualification](../../docs/laravel-baseline-qualification-20261111.md) now defines exact metadata completion transformers and Git/LLM hooks. Generic Pest subject navigation was withdrawn as an invented requirement; native Pest templates/Livewire contexts remain supported.
 
 Preset model parameters use searchable indexed model choices; calculated values
 update live with explicit overrides and reset. Dedicated **Search Routes…** matches
@@ -1256,21 +1255,9 @@ for limits and validation evidence.
   parsing without shell evaluation. Extra options precede the structured `--`
   boundary; trailing data follows it. Captured preview/run/history/rerun retain
   the same values. Terminal runs retain their distinct interactive flags.
-- **Processes and errors:** session-owned Artisan process lifecycle/output and
-  bounded structured Monolog parsing. Process supervision across reload/restart,
-  full log-format/timezone coverage and compiled-Blade frame mapping remain open.
-- **External Services:** explicit paginated Sentry issue lists/details/latest
-  stack frames and Laravel Cloud application/environment lists. Configure tokens
-  through plugin Secrets; configure the Sentry organization per project. Token
-  removal affects every project using that plugin-global credential and clears
-  its caches. Rendering performs no HTTP. Remote frame text is not a trusted
-  local navigation destination.
-
-The external integrations use documented read-only HTTP contracts. Token connection and registered-client Sentry device authorization are implemented. Real registered-client/account acceptance remains pending. Persisted OAuth refresh has a narrower API1.4 limitation: a stored keychain refresh token cannot be substituted into the required form body (secret substitution supports headers). OAuth/device flow itself is not API-blocked. Cloud management supersets and endpoint variants require exact public baseline qualification. Load More fetches one validated page per action, bounded to 20
-pages/2000 resources per inventory; the UI marks the limit as incomplete.
-Sentry next cursors and Cloud next links are rebuilt against the original
-service/resource, and captured row keys include project/snapshot identity.
-Account/client prerequisites and unqualified management supersets are not missing host APIs. See the [exact runtime/SDK qualification](../../docs/laravel-runtime-sdk-qualification.md).
+- **Processes and errors:** serve/queue/schedule commands open in terminal tabs
+  and bounded structured Monolog parsing. Full log-format/timezone coverage and
+  compiled-Blade frame mapping remain open.
 
 The current editor-action transaction bridge is deliberate: the pinned SDK does
 not expose direct webview application of a general multi-file FileAction. Exact

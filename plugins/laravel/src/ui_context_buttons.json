@@ -1,6 +1,5 @@
 {
   "laravel": [],
   "laravel-components": [],
-  "laravel-runtime": [],
-  "laravel-external": []
+  "laravel-runtime": []
 }

@@ -1,0 +1,27 @@
+{
+  "laravel-models": [
+    {
+      "id": "helpers",
+      "label": "Helpers",
+      "icon": "settings",
+      "items": [
+        "helper-parameters",
+        "helper-source-automation",
+        "helper-automation-poll",
+        "helper-automation-stop",
+        "regenerate-model-helpers"
+      ]
+    },
+    {
+      "id": "database",
+      "label": "Database",
+      "icon": "database",
+      "items": [
+        "runtime-model-connections",
+        "runtime-schema",
+        "runtime-register-database",
+        "runtime-database-list"
+      ]
+    }
+  ]
+}

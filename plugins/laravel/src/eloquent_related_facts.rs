@@ -32,7 +32,9 @@ fn read(project: &Project, path: &str) -> Option<String> {
         .ok()
         .filter(|source| source.len() <= MAX_TEXT)
 }
-fn subclass(index: &Index, full: &str, target: &str, project: &Project) -> bool {
+type ParsedModels = std::cell::RefCell<BTreeMap<String, Option<(String, String, bool)>>>;
+
+fn subclass(index: &Index, full: &str, target: &str, project: &Project, parsed: &ParsedModels) -> bool {
     let mut name = full;
     let mut seen = BTreeSet::new();
     for _ in 0..8 {
@@ -49,12 +51,19 @@ fn subclass(index: &Index, full: &str, target: &str, project: &Project) -> bool 
         else {
             return false;
         };
-        let Some(current) =
-            read(project, &model.path).and_then(|source| super::model(&source, &model.path))
-        else {
+        let current = parsed
+            .borrow_mut()
+            .entry(model.path.clone())
+            .or_insert_with(|| {
+                read(project, &model.path)
+                    .and_then(|source| super::model(&source, &model.path))
+                    .map(|current| (current.full, current.parent, current.is_trait))
+            })
+            .clone();
+        let Some((current_full, current_parent, current_is_trait)) = current else {
             return false;
         };
-        if current.full != model.full || current.parent != model.parent || current.is_trait {
+        if current_full != model.full || current_parent != model.parent || current_is_trait {
             return false;
         }
         name = &model.parent;
@@ -173,6 +182,7 @@ fn factory_attribute(text: &str) -> Vec<String> {
     out
 }
 pub(crate) fn inventory(index: &Index, project: &Project) -> Vec<Related> {
+    let parsed = ParsedModels::default();
     let models = model_inventory(&index.eloquent_models)
         .into_iter()
         .filter(|(_, path, _)| owned(project, path))
@@ -223,6 +233,7 @@ pub(crate) fn inventory(index: &Index, project: &Project) -> Vec<Related> {
                 full,
                 "Illuminate\\Database\\Eloquent\\Factories\\Factory",
                 project,
+                &parsed,
             ) {
                 ("Factory", model_property(text))
             } else if subclass(
@@ -230,6 +241,7 @@ pub(crate) fn inventory(index: &Index, project: &Project) -> Vec<Related> {
                 full,
                 "Illuminate\\Http\\Resources\\Json\\JsonResource",
                 project,
+                &parsed,
             ) {
                 ("Resource", documentation_model(text))
             } else {
@@ -301,6 +313,7 @@ pub(crate) fn inventory(index: &Index, project: &Project) -> Vec<Related> {
                         &factory,
                         "Illuminate\\Database\\Eloquent\\Factories\\Factory",
                         project,
+                        &parsed,
                     )
                 {
                     out.push(Related {

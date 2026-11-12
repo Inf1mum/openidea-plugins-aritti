@@ -13,8 +13,7 @@
     "laravel-generators": "Generators",
     "laravel-artisan": "Artisan",
     "laravel-runtime": "Runtime",
-    "laravel-processes": "Processes",
-    "laravel-external": "Services"
+    "laravel-processes": "Processes"
   },
   "actions": [
     {
@@ -53,20 +52,6 @@
       "icon": "file-php"
     },
     {
-      "view": "laravel-external",
-      "id": "sentry-details",
-      "label": "Show Issue Details",
-      "kind": "",
-      "icon": "info"
-    },
-    {
-      "view": "laravel-external",
-      "id": "cloud-environments",
-      "label": "Load Environments",
-      "kind": "",
-      "icon": "services"
-    },
-    {
       "view": "laravel-models",
       "id": "model-open-source",
       "label": "Open Model Source",
@@ -93,13 +78,6 @@
       "label": "Remove Database Connection…",
       "kind": "",
       "icon": "delete"
-    },
-    {
-      "view": "laravel-external",
-      "id": "cloud-details-select",
-      "label": "Show Environment Details",
-      "kind": "",
-      "icon": "info"
     }
   ],
   "project_independent": false,
@@ -171,11 +149,6 @@
         "id": "laravel-processes",
         "label": "Processes",
         "icon": "run"
-      },
-      {
-        "id": "laravel-external",
-        "label": "Services",
-        "icon": "server"
       }
     ]
   },
@@ -183,13 +156,38 @@
     "laravel-artisan",
     "laravel-generators",
     "laravel-processes",
-    "laravel-models",
-    "laravel-external"
+    "laravel-models"
   ],
   "context_buttons": {
     "laravel": [],
     "laravel-components": [],
-    "laravel-runtime": [],
-    "laravel-external": []
+    "laravel-runtime": []
+  },
+  "toolbar_groups": {
+    "laravel-models": [
+      {
+        "id": "helpers",
+        "label": "Helpers",
+        "icon": "settings",
+        "items": [
+          "helper-parameters",
+          "helper-source-automation",
+          "helper-automation-poll",
+          "helper-automation-stop",
+          "regenerate-model-helpers"
+        ]
+      },
+      {
+        "id": "database",
+        "label": "Database",
+        "icon": "database",
+        "items": [
+          "runtime-model-connections",
+          "runtime-schema",
+          "runtime-register-database",
+          "runtime-database-list"
+        ]
+      }
+    ]
   }
 }

@@ -19,6 +19,7 @@ impl Main {
     pub(crate) fn queue_index(&mut self, project: &Project) {
         let Ok(root) = project.root() else { return };
         self.runtime_inspection.invalidate_source_views(&root);
+        self.model_rows.borrow_mut().remove(&root);
         let had_index=self.indexes.remove(&root).is_some();
         self.index_builders.remove(&root);
         self.index_progress.remove(&root);
@@ -31,6 +32,7 @@ impl Main {
     pub(crate) fn queue_indexes(&mut self) {
         let projects = host::projects().unwrap_or_default();
         let roots = projects.iter().filter_map(|project| project.root().ok()).collect::<std::collections::BTreeSet<_>>();
+        self.model_rows.borrow_mut().clear();
         self.indexes.retain(|root, _| roots.contains(root));
         self.index_builders.retain(|root, _| roots.contains(root));
         self.pending_indexes.retain(|root| roots.contains(root));
@@ -119,6 +121,7 @@ impl Main {
         self.index_builders.remove(&root);
         self.index_progress.remove(&root);
         self.pending_indexes.remove(&root);
+        self.model_rows.borrow_mut().remove(&root);
         self.indexes.insert(root.clone(), index);
         let _ = host::set_context("indexed", true);
         let checked = self.checked.iter().filter(|path| crate::under(path, &root)).cloned().collect::<Vec<_>>();
