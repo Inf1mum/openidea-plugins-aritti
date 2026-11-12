@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 
 pub mod ddl_parse;
 pub mod generation;
+pub mod introspect;
+pub mod introspect_map;
 pub mod liquibase;
 pub mod naming;
 pub mod schema;
