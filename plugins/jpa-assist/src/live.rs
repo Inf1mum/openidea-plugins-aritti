@@ -293,9 +293,9 @@ fn apply_configured_severities(findings: &mut Vec<Finding>) {
 
 /// Rules that have a counterpart among the inspections the JPA Buddy descriptors register without an explicit level
 /// (enabled, Warning). Rules with no such counterpart keep their own severity.
+// The original raises the missing-identifier, duplicate-version and no-arg-constructor rules to ERROR, so they keep their own severity.
 const ORIGINAL_INSPECTION_CODES: &[&str] = &[
-    "jpa-data-class", "jpa-source-identifier-absent", "jpa-duplicate-version", "jpa-lombok-to-string",
-    "jpa-lombok-equals", "jpa-lombok-data", "jpa-no-arg-constructor",
+    "jpa-data-class", "jpa-lombok-to-string", "jpa-lombok-equals", "jpa-lombok-data",
     "jpa-unsupported-type", "jpa-incompatible-table",
 ];
 // Every consumed framework annotation needs canonical source ownership before

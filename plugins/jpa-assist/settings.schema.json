@@ -44,16 +44,6 @@
       "enum": ["plural", "same", "collection-type"],
       "default": "plural"
     },
-    "dtoNameRegexp": {
-      "type": "string",
-      "title": "DTO Declaration: class name regexp linking a DTO to its entity by type name; needs an (?<entity>...) group holding the entity simple name, empty disables",
-      "default": ""
-    },
-    "dtoCommentLinkRegexp": {
-      "type": "string",
-      "title": "DTO Declaration: comment link regexp linking a DTO to its entity through its Javadoc; needs an (?<entity>...) group holding the entity name or qualified name, empty disables",
-      "default": ""
-    },
     "queryFindPrefix": {
       "type": "string",
       "title": "Subject prefix for generated find query methods (Spring Data query subject keywords find, read, get, query, search; count, exists and delete are unaffected)",

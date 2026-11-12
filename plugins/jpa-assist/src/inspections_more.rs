@@ -684,7 +684,7 @@ mod tests {
     }
 
     #[test]
-    fn every_inspection_is_enabled_and_a_warning_by_default() {
+    fn every_inspection_is_enabled_and_rules_the_original_forces_to_error_keep_their_severity() {
         let schema: serde_json::Value = serde_json::from_str(include_str!("../settings.schema.json")).unwrap();
         let toggles: Vec<_> = schema["properties"].as_object().unwrap().iter().filter(|(name, _)| name.starts_with("jpaAssist.check")).collect();
         assert!(toggles.len() > 20);
@@ -694,15 +694,15 @@ mod tests {
         assert_eq!(schema["properties"]["jpaAssist.inspectionSeverities"]["default"], serde_json::json!([]));
         let _host = MockHost::install();
         let header = "package shop;\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.Version;\n";
-        for (body, code) in [
-            ("@Entity class Person { @Id long id; @Version long revision; @Version long other; }", "jpa-duplicate-version"),
-            ("@Entity class Person { String name; }", "jpa-source-identifier-absent"),
+        for (body, code, expected) in [
+            ("@Entity class Person { @Id long id; @Version long revision; @Version long other; }", "jpa-duplicate-version", openidea_plugin::Severity::Error),
+            ("@Entity class Person { String name; }", "jpa-source-identifier-absent", openidea_plugin::Severity::Info),
         ] {
             let document = Document { path: "/project/src/main/java/shop/Person.java".into(), language: "java".into(), text: format!("{header}{body}"), version: 1 };
             let found = JpaAssist::default().diagnostics(&document);
             let reported: Vec<_> = found.iter().filter(|d| d.code.as_deref() == Some(code)).collect();
             assert!(!reported.is_empty(), "{code}: {found:?}");
-            assert!(reported.iter().all(|d| d.severity == openidea_plugin::Severity::Warning), "{code}: {reported:?}");
+            assert!(reported.iter().all(|d| d.severity == expected), "{code}: {reported:?}");
         }
     }
 }

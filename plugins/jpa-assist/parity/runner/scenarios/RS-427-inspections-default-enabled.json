@@ -7,7 +7,7 @@
     "G030-C1"
   ],
   "verifies": {
-    "G030-C1": "with no plugin setting written, the live inspections run on open entities: the source-local missing-identifier note (jpa-source-identifier-absent, authored as Info) and the duplicate-version rule (authored as Error) both report. Their severity is recorded in the receipt artifact diagnostics.json and the unit test every_inspection_is_enabled_and_a_warning_by_default asserts it is Warning for both, but this runner cannot assert severity, so 'warning severity' is not checked by the scenario itself. 'All scopes' (an IDE inspection-profile concept) and the Settings page are not checked."
+    "G030-C1": "with no plugin setting written, the live inspections run on open entities: the source-local missing-identifier note (jpa-source-identifier-absent, authored as Info) and the duplicate-version rule (authored as Error) both report. Their severity is recorded in the receipt artifact diagnostics.json. The original forces these two rules to ERROR, so they keep their own severity; rules the original registers without a level report as Warning (see ORIGINAL_INSPECTION_CODES in live.rs, unit test every_inspection_is_enabled_and_rules_the_original_forces_to_error_keep_their_severity). This runner cannot assert severity, so 'warning severity' is not checked by the scenario itself. 'All scopes' (an IDE inspection-profile concept) and the Settings page are not checked."
   },
   "fixture": "boot-jpa-java-jakarta",
   "kind": "diagnostics",
