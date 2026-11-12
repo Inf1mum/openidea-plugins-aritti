@@ -204,6 +204,7 @@ impl State {
             if setting("checkClassSignature") { findings.extend(crate::local_inheritance::findings(doc)); }
             if setting("checkClassSignature") { findings.extend(crate::persistence_unit::findings(doc)); }
             findings.extend(crate::inspections_more::findings(doc));
+            findings.extend(crate::file_actions::hibernate_type_findings(doc));
             findings.extend(crate::local_graph::findings(doc));
             findings.extend(crate::local_listener::findings(doc));
             findings.extend(crate::local_listener::callback_findings(doc));
@@ -227,7 +228,7 @@ pub(super) const KNOWN_CODES: &[&str] = &[
     "attribute-type", "jpa-attribute-multiple-relations", "jpa-callback-modifiers", "jpa-column-length-type", "jpa-column-precision-type",
     "jpa-data-class", "jpa-duplicate-embedded-id", "jpa-duplicate-lifecycle-event", "jpa-duplicate-version", "jpa-eager-fetch",
     "jpa-eager-to-one", "jpa-embeddable-identifier", "jpa-entity-multiple-roles", "jpa-entity-nested", "jpa-entity-not-a-class",
-    "jpa-final-entity", "jpa-final-member", "jpa-generated-value-type", "jpa-generated-value-without-id", "jpa-immutable-collection",
+    "jpa-final-entity", "jpa-final-member", "jpa-generated-value-type", "jpa-generated-value-without-id", "jpa-hibernate-type", "jpa-immutable-collection",
     "jpa-kotlin-plugin-missing", "jpa-listener-constructor", "jpa-listener-without-callbacks", "jpa-lombok-constructors", "jpa-lombok-data",
     "jpa-lombok-equals", "jpa-lombok-equals-field", "jpa-lombok-to-string", "jpa-many-to-many-cascade-remove", "jpa-many-to-many-list",
     "jpa-missing-setter", "jpa-mixed-access", "jpa-multiple-id-kinds", "jpa-no-arg-constructor", "jpa-redundant-constructor",
@@ -238,7 +239,7 @@ pub(super) const KNOWN_CODES: &[&str] = &[
     "jpa-xml-class-unknown", "jpa-xml-property", "jpa-xml-provider", "jpa-xml-unit-name", "jpa-xml-value",
 ];
 
-/// `None` removes the finding, `Some` replaces its severity. Malformed rows and unknown codes or levels are skipped.
+/// Every inspection is on by default and, where the original registers a counterpart, a warning (see `ORIGINAL_INSPECTION_CODES`); `None` removes the finding, `Some` replaces its severity. Malformed rows and unknown codes or levels are skipped.
 fn configured_severities() -> HashMap<String, Option<openidea_plugin::Severity>> {
     use openidea_plugin::Severity::*;
     let mut rules = HashMap::new();
@@ -270,18 +271,27 @@ fn configured_severities() -> HashMap<String, Option<openidea_plugin::Severity>>
 
 fn apply_configured_severities(findings: &mut Vec<Finding>) {
     let rules = configured_severities();
-    if rules.is_empty() {
-        return;
-    }
     findings.retain_mut(|f| match rules.get(f.code) {
         Some(None) => false,
         Some(Some(severity)) => {
             f.severity = *severity;
             true
         }
-        None => true,
+        None => {
+            if ORIGINAL_INSPECTION_CODES.contains(&f.code) {
+                f.severity = openidea_plugin::Severity::Warning;
+            }
+            true
+        }
     });
 }
+
+/// Rules that have a counterpart among the inspections the JPA Buddy descriptors register without an explicit level
+/// (enabled, Warning). Rules with no such counterpart keep their own severity.
+const ORIGINAL_INSPECTION_CODES: &[&str] = &[
+    "jpa-data-class", "jpa-source-identifier-absent", "jpa-duplicate-version", "jpa-lombok-to-string",
+    "jpa-lombok-equals", "jpa-lombok-data", "jpa-no-arg-constructor",
+];
 // Every consumed framework annotation needs canonical source ownership before
 // live diagnostics/cache admission. Wildcards and local lookalikes are unknown.
 pub(super) fn trusted_annotations(text: &str) -> bool {

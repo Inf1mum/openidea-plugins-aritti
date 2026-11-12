@@ -17,6 +17,8 @@ use crate::model::{Annotation, Edit};
 
 pub(super) const TOGGLE_TITLE: &str = "Toggle audited (Envers) with preview…";
 pub(super) const REVISION_TITLE: &str = "Create Envers revision entity with preview…";
+#[path = "revision_wizard.rs"]
+mod revision_wizard;
 const ENVERS: &str = "org.hibernate.envers";
 const MAX_FIELDS: usize = 32;
 const MAX_EXTRA: usize = 8;
@@ -269,6 +271,7 @@ pub(super) fn resolve_toggle(pending: &Pending, doc: &Document, project: &Projec
     })
 }
 
+#[cfg(test)]
 pub(super) fn render_revision(
     package: &str,
     ns: &str,
@@ -278,63 +281,9 @@ pub(super) fn render_revision(
     listener: bool,
     crlf: bool,
 ) -> Result<Vec<(String, String)>, Error> {
-    if !["jakarta.persistence", "javax.persistence"].contains(&ns) {
-        return Err(Error::Stale);
-    }
-    let listener_name = format!("{name}Listener");
-    if !identifier(name) || RESERVED_TYPES.contains(&name) || (listener && (!identifier(&listener_name) || RESERVED_TYPES.contains(&listener_name.as_str()))) {
-        return Err("Choose a valid revision entity name that does not clash with a type the file imports.".into());
-    }
-    let mut seen = HashSet::from(["id", "timestamp"]);
-    if extra.len() > MAX_EXTRA || extra.iter().any(|field| !identifier(field) || !seen.insert(field.as_str())) {
-        return Err(format!("Extra fields must be at most {MAX_EXTRA} distinct valid names other than id and timestamp.").into());
-    }
-    let mut members = String::from("    @Id\n    @GeneratedValue\n    @RevisionNumber\n    private int id;\n\n    @RevisionTimestamp\n    private long timestamp;\n");
-    for field in extra {
-        members.push_str(&format!("\n    private String {field};\n"));
-    }
-    let mut accessors = vec![("int".to_owned(), "id".to_owned()), ("long".into(), "timestamp".into())];
-    accessors.extend(extra.iter().map(|field| ("String".to_owned(), field.clone())));
-    for (ty, field) in &accessors {
-        let cap = capitalize(field);
-        members.push_str(&format!(
-            "\n    public {ty} get{cap}() {{\n        return {field};\n    }}\n\n    public void set{cap}({ty} {field}) {{\n        this.{field} = {field};\n    }}\n"
-        ));
-    }
-    let mut imports = vec![
-        format!("{ns}.Entity"),
-        format!("{ns}.GeneratedValue"),
-        format!("{ns}.Id"),
-        format!("{ns}.Table"),
-        format!("{ENVERS}.RevisionEntity"),
-        format!("{ENVERS}.RevisionNumber"),
-        format!("{ENVERS}.RevisionTimestamp"),
-    ];
-    imports.sort();
-    let import_block: String = imports.iter().map(|i| format!("import {i};\n")).collect();
-    let annotation = if listener { format!("@RevisionEntity({listener_name}.class)") } else { "@RevisionEntity".to_owned() };
-    let entity = format!("package {package};\n\n{import_block}\n@Entity\n@Table(name = \"revinfo\")\n{annotation}\npublic class {name} {{\n{members}}}\n");
-    let mut files = vec![(name.to_owned(), entity)];
-    if listener {
-        files.push((
-            listener_name.clone(),
-            format!(
-                "package {package};\n\nimport {ENVERS}.RevisionListener;\n\npublic class {listener_name} implements RevisionListener {{\n    @Override\n    public void newRevision(Object revisionEntity) {{\n        {name} revision = ({name}) revisionEntity;\n    }}\n}}\n"
-            ),
-        ));
-    }
-    files
-        .into_iter()
-        .map(|(stem, text)| {
-            let target = format!("{directory}/{stem}.java");
-            let text = if crlf { text.replace('\n', "\r\n") } else { text };
-            if text.len() > MAX_TEXT || path(&target).as_deref() != Some(target.as_str()) {
-                return Err(Error::from("Generated source exceeds the supported bound."));
-            }
-            let entity = stem != name || parse_class(&text, &target).is_some_and(|class| class.kind == Kind::Entity);
-            entity.then_some((target, text)).ok_or(Error::Stale)
-        })
-        .collect()
+    use revision_wizard::{ListenerChoice, Options, Parent};
+    let listener = if listener { ListenerChoice::New } else { ListenerChoice::None };
+    revision_wizard::render(&Options { package, ns, directory, name, table: "revinfo", parent: Parent::None, number: "id", timestamp: "timestamp", extra, listener, crlf })
 }
 
 fn no_existing_revision_entity(project: &Project) -> Result<(), Error> {
@@ -362,39 +311,7 @@ fn no_existing_revision_entity(project: &Project) -> Result<(), Error> {
 }
 
 pub(super) fn resolve_revision(pending: &Pending, doc: &Document, project: &Project) -> Result<FileAction, Error> {
-    super::current(pending, doc)?;
-    let s = iq::source(doc).filter(|s| !s.class.kotlin && doc.language == "java").ok_or("A revision entity is generated for Java projects only; Kotlin is refused.")?;
-    let directory = doc.path.rsplit_once('/').ok_or(Error::Stale)?.0;
-    proof(project, &pending.root, directory)?;
-    no_existing_revision_entity(project)?;
-    let name = iq::input("Revision entity name (same package)", "CustomRevisionEntity")?;
-    let fields = host::input("Extra String fields, comma separated (empty for none)", Some("username"))?.ok_or(Error::Cancelled)?;
-    let extra: Vec<String> = fields.split(',').map(str::trim).filter(|f| !f.is_empty()).map(str::to_owned).collect();
-    let choices = [PickItem::new("none", "No listener"), PickItem::new("listener", "Also create a RevisionListener skeleton")];
-    let listener = host::pick("RevisionListener", &choices)?.ok_or(Error::Cancelled)? == "listener";
-    let package = s.class.package.clone().ok_or(Error::Stale)?;
-    let files = render_revision(&package, s.ns, directory, &name, &extra, listener, doc.text.contains("\r\n"))?;
-    for (target, _) in &files {
-        let stem = file_stem(target);
-        no_collision(project, &pending.root, directory, stem, None)?;
-    }
-    let shown: String = files.iter().map(|(target, text)| format!("New file: {target}\n\n{text}\n")).collect();
-    if !ui_kit::prompts::confirm_exact(
-        "Create Envers revision entity?",
-        &format!("Source: {}\nSource version: {}\nNamespace: {}\n\n{shown}The revision number is an int as in the Hibernate user guide example. Envers allows one revision entity per persistence unit; other mappings are not read. No existing file is overwritten.", doc.path, doc.version, s.ns),
-    )? {
-        return Err(Error::Cancelled);
-    }
-    super::current(pending, doc)?;
-    for (target, _) in &files {
-        no_collision(project, &pending.root, directory, file_stem(target), None)?;
-    }
-    Ok(FileAction {
-        title: format!("Create Envers revision entity {name}"),
-        kind: Some("refactor.rewrite".into()),
-        operations: files.into_iter().map(|(path, text)| FileOperation::Create { path, text, overwrite: false }).collect(),
-        ..FileAction::default()
-    })
+    revision_wizard::resolve(pending, doc, project)
 }
 
 #[cfg(test)]

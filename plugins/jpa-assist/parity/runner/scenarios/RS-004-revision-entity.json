@@ -7,7 +7,7 @@
     "G029-C1"
   ],
   "verifies": {
-    "G029-C1": "the revision-entity action is offered on a billing entity in a project whose sources declare no @RevisionEntity (grep of the fixture), and it resolves to new @RevisionEntity and RevisionListener files. Parent interface, table name and the pick-an-existing-listener choice (C2, C3), and the revinfo mapping of C5, are not offered by the action, so they are not covered."
+    "G029-C1": "the revision-entity action is offered on a billing entity in a project whose sources declare no @RevisionEntity (grep of the fixture), and it resolves to new @RevisionEntity and RevisionListener files. Parent, table name, existing listener, fields, source root and package (C2..C4) are covered by RS-423..RS-426, the revinfo mapping of C5 by RS-205; here those prompts are only answered with their defaults."
   },
   "fixture": "envers-flyway-liquibase",
   "kind": "fileaction",
@@ -28,6 +28,16 @@
     {
       "pick": "listener"
     },
+    {
+      "pick": "none"
+    },
+    "default",
+    "default",
+    "default",
+    {
+      "pickLabel": "src/main/java"
+    },
+    "default",
     {
       "confirm": "yes"
     }
@@ -53,6 +63,36 @@
           "listener"
         ],
         "name": "create a new revision listener or none"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "Revision entity parent",
+        "name": "parent choice"
+      },
+      {
+        "kind": "input",
+        "titleContains": "Revision table name",
+        "name": "table name"
+      },
+      {
+        "kind": "input",
+        "titleContains": "Revision number field",
+        "name": "number field"
+      },
+      {
+        "kind": "input",
+        "titleContains": "Revision timestamp field",
+        "name": "timestamp field"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "Source root",
+        "name": "source root"
+      },
+      {
+        "kind": "input",
+        "titleContains": "Package",
+        "name": "package"
       },
       {
         "kind": "confirm",
@@ -85,5 +125,5 @@
     "cancelEach": true,
     "stale": true
   },
-  "note": "Create a revision entity with an extra username field and a new RevisionListener from an audited entity."
+  "note": "Create a revision entity with an extra username field and a new RevisionListener from an audited entity; the wizard's parent, table, field, source root and package prompts take their defaults."
 }

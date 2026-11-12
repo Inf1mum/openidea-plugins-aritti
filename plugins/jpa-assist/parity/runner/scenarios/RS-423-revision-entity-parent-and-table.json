@@ -1,0 +1,110 @@
+{
+  "id": "RS-423",
+  "rows": [
+    "G029"
+  ],
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "target": {
+    "file": "src/main/java/com/example/billing/domain/Client.java",
+    "anchor": "class Client"
+  },
+  "action": {
+    "title": "Create Envers revision entity with preview…"
+  },
+  "claimIds": [
+    "G029-C2"
+  ],
+  "verifies": {
+    "G029-C2": "the wizard offers the parent choice (no parent, DefaultRevisionEntity, DefaultTrackingModifyingEntitiesRevisionEntity) and a table name. With DefaultRevisionEntity and the table audit_revision the revision entity extends DefaultRevisionEntity, is mapped with @Table(name = \"audit_revision\") and declares no @RevisionNumber/@Id of its own, and no revision field prompts are shown. The tracking parent is checked by RS-424. The Hibernate class is DefaultTrackingModifiedEntitiesRevisionEntity; the documentation's spelling with 'Modifying' names no existing class, so the option label carries both."
+  },
+  "prompts": [
+    {
+      "input": "AuditRevision"
+    },
+    {
+      "input": "username"
+    },
+    {
+      "pick": "none"
+    },
+    {
+      "pick": "default"
+    },
+    {
+      "input": "audit_revision"
+    },
+    {
+      "pickLabel": "src/main/java"
+    },
+    "default",
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptCount": 8,
+    "promptSequence": [
+      {
+        "kind": "input",
+        "titleContains": "revision entity name"
+      },
+      {
+        "kind": "input",
+        "titleContains": "extra string fields"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "RevisionListener"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "Revision entity parent",
+        "optionsInclude": [
+          "none",
+          "DefaultRevisionEntity",
+          "DefaultTrackingModifyingEntitiesRevisionEntity"
+        ],
+        "name": "parent choice"
+      },
+      {
+        "kind": "input",
+        "titleContains": "Revision table name",
+        "defaultIs": "revinfo",
+        "name": "table name"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "Source root",
+        "name": "no revision field prompts with a parent"
+      }
+    ],
+    "createdFiles": [
+      {
+        "path": "src/main/java/com/example/billing/domain/AuditRevision.java",
+        "contains": [
+          "extends DefaultRevisionEntity",
+          "import org.hibernate.envers.DefaultRevisionEntity;",
+          "@Table(name = \"audit_revision\")",
+          "@RevisionEntity",
+          "private String username;"
+        ]
+      }
+    ],
+    "resultFile": [
+      {
+        "path": "src/main/java/com/example/billing/domain/AuditRevision.java",
+        "notContains": [
+          "@RevisionNumber",
+          "@RevisionTimestamp",
+          "@Id"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "Revision entity with the DefaultRevisionEntity parent and a custom table."
+}

@@ -10,6 +10,11 @@ use super::*;
 pub(super) const TITLE_TYPE: &str = "Create Hibernate user type…";
 pub(super) const TITLE_JSON: &str = "Add JSON column mapping";
 pub(super) const TITLE_LISTENER: &str = "Create Hibernate event listener…";
+#[path = "hibernate_parameters.rs"]
+mod hibernate_parameters;
+#[path = "hibernate_type_inspection.rs"]
+mod hibernate_type_inspection;
+pub(crate) use hibernate_type_inspection::findings as type_findings;
 const PLAIN_ANNOTATIONS: [&str; 2] = ["Column", "Basic"];
 const MAPPING_ANNOTATIONS: [&str; 14] = [
     "Id", "EmbeddedId", "Column", "Basic", "Temporal", "Lob", "Enumerated", "ManyToOne", "OneToMany", "OneToOne",
@@ -575,6 +580,7 @@ pub(super) fn resolve_type_action(pending: &Pending, doc: &Document, project: &P
     let name = host::input(&format!("User type class name (same package), implements UserType<{}>", field.ty), Some(&default))?
         .ok_or(Error::Cancelled)?;
     let name = name.trim().to_owned();
+    let parameterized = hibernate_parameters::ask()?;
     let identity = resolved.fqn.as_deref().is_some_and(|fqn| IDENTITY.iter().any(|row| row.0 == fqn));
     let sql = if identity {
         None
@@ -583,7 +589,10 @@ pub(super) fn resolve_type_action(pending: &Pending, doc: &Document, project: &P
         Some(host::pick(&format!("SQL type code returned by getSqlType() (java.sql.Types constant); {} is not identity-convertible", field.ty), &sqls)?.ok_or(Error::Cancelled)?)
     };
     let same_package_ok = !resolved.same_package || same_package_exists(project, directory, &resolved.simple)?;
-    let rendered = render_type(doc, &chosen, &name, sql.as_deref(), same_package_ok)?;
+    let mut rendered = render_type(doc, &chosen, &name, sql.as_deref(), same_package_ok)?;
+    if parameterized {
+        rendered.text = hibernate_parameters::parameterize(&rendered.text, &field.ty, &name)?;
+    }
     if path(&rendered.target).as_deref() != Some(rendered.target.as_str()) || !inside(&pending.root, &rendered.target) {
         return Err(Error::Stale);
     }
@@ -924,7 +933,7 @@ mod tests {
     fn resolve_type_returns_one_versioned_edit_and_a_no_overwrite_create() {
         let (host, mut plugin, document) = setup(ENTITY, GRADLE);
         let action = pick(&mut plugin, &document, TITLE_TYPE);
-        for value in ["title", "TitleType"] {
+        for value in ["title", "TitleType", "fixed"] {
             host.answer_next_prompt(Some(&[value]));
         }
         host.answer_next_prompt(Some(&[]));
@@ -933,8 +942,21 @@ mod tests {
         assert_eq!(result.edits[0].0, PATH);
         let [FileOperation::Create { path, text, overwrite }] = result.operations.as_slice() else { panic!("one create") };
         assert_eq!(path, "/project/src/main/java/shop/TitleType.java");
-        assert!(!overwrite && text.contains("UserType<String>"));
+        assert!(!overwrite && text.contains("UserType<String>") && !text.contains("ParameterizedType"));
         assert_eq!(host.editor_text(), ENTITY);
+    }
+
+    #[test]
+    fn resolve_type_with_the_parameter_option_creates_a_parameterized_type() {
+        let (host, mut plugin, document) = setup(ENTITY, GRADLE);
+        let action = pick(&mut plugin, &document, TITLE_TYPE);
+        for value in ["title", "TitleType", "parameters"] {
+            host.answer_next_prompt(Some(&[value]));
+        }
+        host.answer_next_prompt(Some(&[]));
+        let result = plugin.resolve_file_action(&document, action).unwrap();
+        let [FileOperation::Create { text, .. }] = result.operations.as_slice() else { panic!("one create") };
+        assert!(text.contains("implements UserType<String>, ParameterizedType") && text.contains("setParameterValues(Properties parameters)"), "{text}");
     }
 
     #[test]

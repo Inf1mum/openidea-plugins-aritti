@@ -662,8 +662,13 @@ impl Model {
         apply_physical(&self.naming, logical).unwrap_or_else(|| snake_case(logical))
     }
 
+    /// An explicit `@Table`/`@Column` name is a logical name too: the physical strategy transforms it (unchanged when the strategy or the quoting is unknown).
+    fn explicit(&self, logical: &str) -> String {
+        apply_physical(&self.naming, logical).unwrap_or_else(|| logical.to_owned())
+    }
+
     fn column_name(&self, a: &Attribute) -> String {
-        a.column.clone().unwrap_or_else(|| self.physical(&a.name))
+        a.column.as_deref().map_or_else(|| self.physical(&a.name), |name| self.explicit(name))
     }
 
     fn resolve(&self, class: &Class, ty: &str) -> Option<usize> {
@@ -675,14 +680,14 @@ impl Model {
     fn own_table(&self, idx: usize) -> (String, Provenance) {
         let c = &self.infos[idx].class;
         match &c.table {
-            Some(name) => (name.clone(), Provenance::Literal),
+            Some(name) => (self.explicit(name), Provenance::Literal),
             None => (self.physical(&c.name), Provenance::Derived),
         }
     }
 
     fn attr_column(&self, a: &Attribute) -> String {
         match a.relation.to_one() {
-            true => a.column.clone().unwrap_or_else(|| self.physical(&format!("{}_id", a.name))),
+            true => a.column.as_deref().map_or_else(|| self.physical(&format!("{}_id", a.name)), |name| self.explicit(name)),
             false => self.column_name(a),
         }
     }
@@ -926,7 +931,7 @@ impl Model {
         };
 
         if a.relation.to_one() {
-            column.name = a.column.clone().unwrap_or_else(|| self.physical(&format!("{}_id", a.name)));
+            column.name = a.column.as_deref().map_or_else(|| self.physical(&format!("{}_id", a.name)), |name| self.explicit(name));
             let target = self.resolve(class, &a.target).filter(|&t| self.infos[t].class.kind == Kind::Entity);
             let outcome = target
                 .ok_or_else(|| format!("target {} is not an entity in the provided sources", a.target))
@@ -1150,6 +1155,22 @@ public class Order {{
 
         let unknown = snap(&docs);
         assert_eq!(cols(table(&unknown, "order_line")).iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["id", "customer_id", "ship_to"]);
+    }
+
+    #[test]
+    fn explicit_names_are_logical_and_go_through_a_known_physical_strategy() {
+        use crate::naming_strategy::{Implicit, NamingStrategy, Physical};
+        let source = "package shop;\nimport jakarta.persistence.*;\n@Entity\n@Table(name = \"GadgetItem\")\npublic class Gadget {\n    @Id\n    private Long id;\n    @Column(name = \"shipTo\")\n    private String address;\n}\n";
+        let docs = [doc("/p/Gadget.java", source)];
+        let named = |physical| NamingStrategy { physical: Fact::Known(physical), implicit: Fact::Known(Implicit::Spring), source: "test".into() };
+        let spring = snapshot_from_entities_named(&docs, &named(Physical::SpringPhysical));
+        let t = table(&spring, "gadget_item");
+        assert_eq!(t.provenance, Provenance::Literal);
+        assert_eq!(cols(t).iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["id", "ship_to"]);
+        let standard = snapshot_from_entities_named(&docs, &named(Physical::Standard));
+        assert_eq!(cols(table(&standard, "GadgetItem")).iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["id", "shipTo"]);
+        let unknown = NamingStrategy::unknown("test");
+        assert!(snapshot_from_entities_named(&docs, &unknown).tables.iter().any(|t| t.name == "GadgetItem"), "unknown strategy keeps the literal name");
     }
 
     #[test]
