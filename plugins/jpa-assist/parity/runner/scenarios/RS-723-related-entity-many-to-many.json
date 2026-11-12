@@ -1,0 +1,105 @@
+{
+  "id": "RS-723",
+  "rows": [],
+  "claimIds": [],
+  "verifies": {},
+  "kindExerciser": true,
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/Ticket.java",
+        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Ticket {\n\n    @Id\n    private Long id;\n\n    protected Ticket() {\n    }\n}\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Ticket.java",
+    "anchor": "class Ticket"
+  },
+  "action": {
+    "title": "Create related entity (relation to)\u2026"
+  },
+  "prompts": [
+    {
+      "input": "Assignee"
+    },
+    {
+      "pick": "ManyToMany"
+    },
+    "default",
+    "default",
+    {
+      "pick": "holder"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "input",
+        "titleContains": "Related entity class name",
+        "name": "new entity name"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "Cardinality",
+        "name": "cardinality"
+      },
+      {
+        "kind": "input",
+        "titleContains": "Attribute on Ticket",
+        "defaultIs": "assignees",
+        "name": "collection attribute"
+      },
+      {
+        "kind": "input",
+        "titleContains": "Inverse attribute on Assignee",
+        "defaultIs": "tickets",
+        "name": "inverse collection attribute"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "Owning side",
+        "name": "owning side"
+      },
+      {
+        "kind": "confirm",
+        "titleContains": "Create related entity",
+        "messageContains": [
+          "Assignee.java"
+        ],
+        "name": "exact preview of both files"
+      }
+    ],
+    "createdFiles": [
+      {
+        "path": "src/main/java/com/example/shop/domain/Assignee.java",
+        "contains": [
+          "@ManyToMany(mappedBy = \"assignees\")",
+          "List<Ticket> tickets"
+        ]
+      }
+    ],
+    "resultFile": {
+      "path": "src/main/java/com/example/shop/domain/Ticket.java",
+      "contains": [
+        "@ManyToMany",
+        "List<Assignee> assignees"
+      ],
+      "notContains": [
+        "mappedBy"
+      ]
+    }
+  },
+  "checks": {
+    "preview": true,
+    "undo": true,
+    "cancelEach": true,
+    "stale": true
+  },
+  "note": "Kind exerciser, covers no documented claim (G003 and G009 state nothing headless-verifiable about creating a related entity). ManyToMany: both sides are collections; the invoking Ticket owns the relationship."
+}

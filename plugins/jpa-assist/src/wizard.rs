@@ -166,7 +166,7 @@ impl RelationOptions {
     }
 }
 
-fn plural(name: &str) -> String {
+pub(crate) fn plural(name: &str) -> String {
     if let Some(stem) = name.strip_suffix('y').filter(|s| s.ends_with(|c: char| !"aeiou".contains(c))) {
         return format!("{stem}ies");
     }

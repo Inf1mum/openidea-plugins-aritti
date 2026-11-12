@@ -1,0 +1,45 @@
+{
+  "id": "RS-732",
+  "rows": [],
+  "claimIds": [],
+  "verifies": {},
+  "kindExerciser": true,
+  "fixture": "boot-jpa-java-jakarta",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/Invoice.java",
+        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.Convert;\nimport org.hibernate.annotations.Type;\n\n@Entity\npublic class Invoice {\n\n    @Id\n    private Long id;\n\n    private Money total;\n\n    @Type(PayloadType.class)\n    private Object payload;\n\n    @Convert(converter = StatusConverter.class)\n    private OrderStatus status;\n\n    protected Invoice() {\n    }\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/MoneyConverter.java",
+        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.AttributeConverter;\nimport jakarta.persistence.Converter;\n\n@Converter(autoApply = true)\npublic class MoneyConverter implements AttributeConverter<Money, Long> {\n\n    @Override\n    public Long convertToDatabaseColumn(Money attribute) {\n        return null;\n    }\n\n    @Override\n    public Money convertToEntityAttribute(Long dbData) {\n        return null;\n    }\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/Money.java",
+        "content": "package com.example.shop.domain;\n\npublic class Money {\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/PayloadType.java",
+        "content": "package com.example.shop.domain;\n\nimport org.hibernate.usertype.UserType;\n\npublic class PayloadType implements UserType<Object> {\n}\n"
+      }
+    }
+  ],
+  "kind": "lineMarkers",
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/PayloadType.java",
+    "anchor": "class PayloadType"
+  },
+  "expect": {
+    "markersInclude": [
+      "Used by Invoice.payload"
+    ]
+  },
+  "note": "Kind exerciser, covers no documented claim (G002-C3 and G025 describe gutter icons, not headless-verifiable). The Hibernate custom type class line shows the attribute that names it in @Type."
+}

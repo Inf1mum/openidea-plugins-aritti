@@ -72,6 +72,11 @@ mod entity_view_options;
 mod dto_assoc_action;
 #[path = "pojo_relations.rs"]
 mod pojo_relations;
+#[path = "related_entity_action.rs"]
+mod related_entity_action;
+#[path = "tree_create_action.rs"]
+mod tree_create_action;
+pub(crate) fn run_tree_command(plugin: &mut JpaAssist, id: &str, ctx: &Invocation) -> Result<Option<String>, Error> { tree_create_action::run(plugin, id, ctx) }
 #[path = "converter_action.rs"]
 mod converter_action;
 #[path = "hibernate_action.rs"]
@@ -205,6 +210,8 @@ enum Operation {
     EnableEnversRepositories,
     EntityViewRepository,
     SchemaRepair,
+    RelatedEntityTo,
+    RelatedEntityFrom,
 }
 impl Operation {
     fn key(self) -> &'static str {
@@ -284,6 +291,8 @@ impl Operation {
             Self::RevisionRepository => "revision-repository",
             Self::EnableEnversRepositories => "enable-envers-repositories",
             Self::EntityViewRepository => "entity-view-repository",
+            Self::RelatedEntityTo => "related-entity-to",
+            Self::RelatedEntityFrom => "related-entity-from",
         }
     }
 }
@@ -552,6 +561,10 @@ impl FileActions for JpaAssist {
         if let Some(class) = current_class(doc) {
             operations.push((Operation::Attribute, "Add JPA attribute with preview…"));
             if class.kind == Kind::Entity { operations.push((Operation::Inverse, "Add inverse attribute to this entity…")); }
+            if related_entity_action::eligible(doc) {
+                operations.push((Operation::RelatedEntityTo, related_entity_action::TITLE_TO));
+                operations.push((Operation::RelatedEntityFrom, related_entity_action::TITLE_FROM));
+            }
         }
         if dto_convert_action::eligible_record(doc) {
             operations.push((Operation::DtoToClass, dto_convert_action::TO_CLASS_TITLE));
@@ -822,6 +835,8 @@ impl FileActions for JpaAssist {
                 })
             }
             Operation::Inverse => self.resolve_inverse(&pending, doc, &project),
+            Operation::RelatedEntityTo => related_entity_action::resolve(&pending, doc, &project, related_entity_action::Direction::To),
+            Operation::RelatedEntityFrom => related_entity_action::resolve(&pending, doc, &project, related_entity_action::Direction::From),
             Operation::ValidationConstraint => validation_action::resolve(&pending, doc),
             Operation::LombokAnnotations => resolve_lombok(&pending, doc),
             Operation::Dto => dto_action::resolve(&pending, doc, &project),

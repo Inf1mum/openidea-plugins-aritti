@@ -13,7 +13,7 @@ activation = ["on-language:jpql", "on-event:file-opened", "on-event:file-saved",
 
 [capabilities]
 required = ["events", "project.read", "editor.read", "storage"]
-optional = ["clipboard", "process:java", "editor.write"]
+optional = ["clipboard", "process:java", "editor.write", "project.write"]
 
 [[contributes.providers]]
 kinds = ["completion", "code-actions", "line-markers", "diagnostics", "definition", "hover", "injections"]
@@ -129,6 +129,72 @@ when = "(editorLangId == java || editorLangId == kotlin) && plugin.aritti.jpa-as
 menu = "editor.context"
 command = "copy-entity"
 when = "editorLangId == sql && plugin.aritti.jpa-assist.hasCreateTable"
+
+[[contributes.commands]]
+id = "tree-new-entity"
+title = "JPA: New JPA Entity…"
+category = "JPA Assist"
+
+[[contributes.commands]]
+id = "tree-new-converter"
+title = "JPA: New Attribute Converter…"
+category = "JPA Assist"
+
+[[contributes.commands]]
+id = "tree-new-user-type"
+title = "JPA: New Hibernate User Type…"
+category = "JPA Assist"
+
+[[contributes.commands]]
+id = "tree-new-repository"
+title = "JPA: New Spring Data Repository…"
+category = "JPA Assist"
+
+[[contributes.commands]]
+id = "tree-new-dto"
+title = "JPA: New DTO…"
+category = "JPA Assist"
+
+[[contributes.commands]]
+id = "tree-new-projection"
+title = "JPA: New Projection…"
+category = "JPA Assist"
+
+[[contributes.menus]]
+menu = "projectView.context"
+command = "tree-new-entity"
+submenu = "JPA"
+when = "workspaceContains:pom.xml || workspaceContains:build.gradle || workspaceContains:build.gradle.kts"
+
+[[contributes.menus]]
+menu = "projectView.context"
+command = "tree-new-converter"
+submenu = "JPA"
+when = "workspaceContains:pom.xml || workspaceContains:build.gradle || workspaceContains:build.gradle.kts"
+
+[[contributes.menus]]
+menu = "projectView.context"
+command = "tree-new-user-type"
+submenu = "JPA"
+when = "workspaceContains:pom.xml || workspaceContains:build.gradle || workspaceContains:build.gradle.kts"
+
+[[contributes.menus]]
+menu = "projectView.context"
+command = "tree-new-repository"
+submenu = "JPA"
+when = "workspaceContains:pom.xml || workspaceContains:build.gradle || workspaceContains:build.gradle.kts"
+
+[[contributes.menus]]
+menu = "projectView.context"
+command = "tree-new-dto"
+submenu = "JPA"
+when = "workspaceContains:pom.xml || workspaceContains:build.gradle || workspaceContains:build.gradle.kts"
+
+[[contributes.menus]]
+menu = "projectView.context"
+command = "tree-new-projection"
+submenu = "JPA"
+when = "workspaceContains:pom.xml || workspaceContains:build.gradle || workspaceContains:build.gradle.kts"
 
 
 

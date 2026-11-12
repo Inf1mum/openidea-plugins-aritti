@@ -1,0 +1,36 @@
+{
+  "id": "RS-724",
+  "rows": [],
+  "claimIds": [],
+  "verifies": {},
+  "kindExerciser": true,
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/Ticket.java",
+        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Ticket {\n\n    @Id\n    private Long id;\n\n    protected Ticket() {\n    }\n}\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Ticket.java",
+    "anchor": "class Ticket"
+  },
+  "action": {
+    "title": "Create related entity (relation to)\u2026"
+  },
+  "prompts": [
+    {
+      "input": "Customer"
+    }
+  ],
+  "expect": {
+    "promptCount": 1,
+    "resolveErrorContains": "already exists",
+    "noFilesChanged": true
+  },
+  "checks": {},
+  "note": "Kind exerciser, covers no documented claim (G003 and G009 state nothing headless-verifiable about creating a related entity). A name that already exists in the folder is refused before any other prompt and nothing is written."
+}

@@ -1,0 +1,98 @@
+{
+  "id": "RS-721",
+  "rows": [],
+  "claimIds": [],
+  "verifies": {},
+  "kindExerciser": true,
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/Ticket.java",
+        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Ticket {\n\n    @Id\n    private Long id;\n\n    protected Ticket() {\n    }\n}\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Ticket.java",
+    "anchor": "class Ticket"
+  },
+  "action": {
+    "title": "Create related entity (relation from)\u2026"
+  },
+  "prompts": [
+    {
+      "input": "Attachment"
+    },
+    {
+      "pick": "ManyToOne"
+    },
+    "default",
+    "default",
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "input",
+        "titleContains": "Related entity class name",
+        "name": "new entity name"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "Cardinality",
+        "itemDescriptions": {
+          "ManyToOne": "many Attachment to one Ticket"
+        },
+        "name": "cardinality read from the new entity"
+      },
+      {
+        "kind": "input",
+        "titleContains": "Attribute on Attachment",
+        "defaultIs": "ticket",
+        "name": "attribute on the new entity"
+      },
+      {
+        "kind": "input",
+        "titleContains": "Inverse attribute on Ticket",
+        "defaultIs": "attachments",
+        "name": "inverse attribute on the invoking entity"
+      },
+      {
+        "kind": "confirm",
+        "titleContains": "Create related entity",
+        "messageContains": [
+          "Attachment.java",
+          "Ticket.java"
+        ],
+        "name": "exact preview of both files"
+      }
+    ],
+    "createdFiles": [
+      {
+        "path": "src/main/java/com/example/shop/domain/Attachment.java",
+        "contains": [
+          "@ManyToOne",
+          "Ticket ticket"
+        ]
+      }
+    ],
+    "resultFile": {
+      "path": "src/main/java/com/example/shop/domain/Ticket.java",
+      "contains": [
+        "@OneToMany(mappedBy = \"ticket\")",
+        "List<Attachment> attachments"
+      ]
+    }
+  },
+  "checks": {
+    "preview": true,
+    "undo": true,
+    "cancelEach": true,
+    "stale": true
+  },
+  "note": "Kind exerciser, covers no documented claim (G003 and G009 state nothing headless-verifiable about creating a related entity). Relation from: the new entity holds the cardinality; the invoking Ticket receives the inverse side."
+}

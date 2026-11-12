@@ -18,6 +18,8 @@ mod datasource_facts;
 mod jdbc_connect;
 mod designer;
 mod creation;
+#[path = "converter_markers.rs"]
+mod converter_markers;
 mod checks;
 mod file_actions;
 mod generate;
@@ -662,6 +664,31 @@ fn is_repository_file(path: &str) -> bool {
 }
 
 impl JpaAssist {
+    fn repository_markers(&mut self, doc: &Document) -> Vec<LineMarker> {
+        let Some(class) = parse_class(&doc.text, &doc.path) else {
+            return Vec::new();
+        };
+        if class.kind != Kind::Entity {
+            return Vec::new();
+        }
+        let Some(project) = project_of(&doc.path) else {
+            return Vec::new();
+        };
+
+        let repositories = self.repositories_of(&project, &class.name);
+        let Some((_, first)) = repositories.first() else {
+            return Vec::new();
+        };
+        let names: Vec<&str> = repositories.iter().map(|(name, _)| name.as_str()).collect();
+
+        vec![LineMarker {
+            line: class.pos.line,
+            icon: Some(REPOSITORY_MARKER.into()),
+            tooltip: format!("Repositories: {}", names.join(", ")),
+            target: Some(first.clone()),
+        }]
+    }
+
     /// Repositories declaring `entity`, from the index; reads at most one budget's worth of unread files.
     fn repositories_of(&mut self, project: &Project, entity: &str) -> Vec<(String, Location)> {
         let index = self.repositories.entry(project.root().unwrap_or_default()).or_default();
@@ -1388,12 +1415,14 @@ impl Plugin for JpaAssist {
                 copied(entity, "Entity")
             }
             "new-entity" => new_entity(ctx),
+            tree if tree.starts_with("tree-new-") => file_actions::run_tree_command(self, tree, ctx),
             "jdbc-manage" | "jdbc-test" | "jdbc-browse" => jdbc_connect::run(id, ctx),
             _ => Err(Error::NotFound(format!("command {id}"))),
         }
     }
 
     fn handle_events(&mut self, events: &[Event], _ctx: &Invocation) {
+        converter_markers::events(events, _ctx);
         self.source_diagram_events(events);
 
         if self.structure_located.is_some() && events.iter().any(|event| matches!(event,
@@ -1532,28 +1561,10 @@ impl Providers for JpaAssist {
     }
 
     fn line_markers(&mut self, doc: &Document) -> Vec<LineMarker> {
-        let Some(class) = parse_class(&doc.text, &doc.path) else {
-            return Vec::new();
-        };
-        if class.kind != Kind::Entity {
-            return Vec::new();
-        }
-        let Some(project) = project_of(&doc.path) else {
-            return Vec::new();
-        };
-
-        let repositories = self.repositories_of(&project, &class.name);
-        let Some((_, first)) = repositories.first() else {
-            return Vec::new();
-        };
-        let names: Vec<&str> = repositories.iter().map(|(name, _)| name.as_str()).collect();
-
-        vec![LineMarker {
-            line: class.pos.line,
-            icon: Some(REPOSITORY_MARKER.into()),
-            tooltip: format!("Repositories: {}", names.join(", ")),
-            target: Some(first.clone()),
-        }]
+        let mut markers = self.repository_markers(doc);
+        markers.extend(converter_markers::markers(doc));
+        markers.sort_by_key(|marker| marker.line);
+        markers
     }
 
     fn code_actions(&mut self, doc: &Document, selection: Range) -> Vec<CodeAction> {
