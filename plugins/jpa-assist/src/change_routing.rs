@@ -20,6 +20,16 @@ pub(crate) enum Location {
     Ignored,
 }
 
+impl Location {
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::Primary => "primary",
+            Self::Secondary => "secondary",
+            Self::Ignored => "ignored",
+        }
+    }
+}
+
 pub(crate) fn parse_routes(raw: Option<&str>) -> Result<Vec<(String, Location)>, String> {
     let Some(raw) = raw else {
         return Ok(Vec::new());
@@ -55,8 +65,8 @@ pub(crate) struct Routing {
     pub ignored: Vec<PlannedChange>,
 }
 
-/// Leaves the primary changes in `plan` and returns the rest.
-pub(crate) fn split_with(plan: &mut ChangePlan, routes: &[(String, Location)]) -> Routing {
+/// The location of every change in plan order; a rename candidate pulls its drop and add along.
+pub(crate) fn assign(plan: &ChangePlan, routes: &[(String, Location)]) -> Vec<Location> {
     let candidates: Vec<(String, String, String, Location)> = plan
         .changes
         .iter()
@@ -65,18 +75,26 @@ pub(crate) fn split_with(plan: &mut ChangePlan, routes: &[(String, Location)]) -
             _ => None,
         })
         .collect();
-    let route = |change: &Change| -> Location {
-        let paired = match change {
-            Change::DropColumn { table, column } => candidates.iter().find(|(t, from, _, _)| t.eq_ignore_ascii_case(table) && from.eq_ignore_ascii_case(column)),
-            Change::AddColumn { table, column } => candidates.iter().find(|(t, _, to, _)| t.eq_ignore_ascii_case(table) && to.eq_ignore_ascii_case(&column.name)),
-            _ => None,
-        };
-        paired.map_or_else(|| location_of(change, routes), |(_, _, _, location)| *location)
-    };
+    plan.changes
+        .iter()
+        .map(|planned| {
+            let paired = match &planned.change {
+                Change::DropColumn { table, column } => candidates.iter().find(|(t, from, _, _)| t.eq_ignore_ascii_case(table) && from.eq_ignore_ascii_case(column)),
+                Change::AddColumn { table, column } => candidates.iter().find(|(t, _, to, _)| t.eq_ignore_ascii_case(table) && to.eq_ignore_ascii_case(&column.name)),
+                _ => None,
+            };
+            paired.map_or_else(|| location_of(&planned.change, routes), |(_, _, _, location)| *location)
+        })
+        .collect()
+}
+
+/// Leaves the primary changes in `plan` and returns the rest.
+pub(crate) fn split_with(plan: &mut ChangePlan, routes: &[(String, Location)]) -> Routing {
+    let locations = assign(plan, routes);
     let mut routing = Routing { secondary: ChangePlan::default(), ignored: Vec::new() };
     let mut kept = Vec::new();
-    for planned in std::mem::take(&mut plan.changes) {
-        match route(&planned.change) {
+    for (planned, location) in std::mem::take(&mut plan.changes).into_iter().zip(locations) {
+        match location {
             Location::Primary => kept.push(planned),
             Location::Secondary => routing.secondary.changes.push(planned),
             Location::Ignored => routing.ignored.push(planned),

@@ -28,6 +28,8 @@ mod flyway_misc_action;
 mod equality_action;
 #[path = "ddl_entities_action.rs"]
 mod ddl_entities_action;
+#[path = "reverse_panel.rs"]
+pub(crate) mod reverse_panel;
 #[path = "ddl_todo_action.rs"]
 mod ddl_todo_action;
 #[path = "migration_action.rs"]
@@ -41,7 +43,7 @@ mod rename_merge;
 #[path = "entity_scope.rs"]
 mod entity_scope;
 #[path = "change_routing.rs"]
-mod change_routing;
+pub(crate) mod change_routing;
 #[path = "schema_repair_action.rs"]
 mod schema_repair_action;
 #[path = "template_settings.rs"]

@@ -237,7 +237,7 @@ struct Plan {
     attr_overrides: Vec<(String, String)>,
 }
 
-fn java_type(logical: LogicalType) -> (&'static str, &'static str, Option<&'static str>) {
+pub(super) fn java_type(logical: LogicalType) -> (&'static str, &'static str, Option<&'static str>) {
     use LogicalType::*;
     match logical {
         Tinyint => ("Byte", "Byte", None),

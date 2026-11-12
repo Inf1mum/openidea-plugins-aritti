@@ -15,8 +15,9 @@
    "supports": "left panel groups Mapped Relations, Tables, Views; labeled when they have unmapped columns",
    "source": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
    "strength": "explicit",
-   "ourFeature": "Generate entities from SQL file… (ddl_entities_action.rs, ddl_parse.rs)",
-   "verifiableHeadless": false
+   "ourFeature": "Designer 'From database / SQL' panel (reverse_panel.rs, web/reverse.js)",
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Headless on the SURFACE equivalent: Designer Create tab, 'From database / SQL' panel groups the relations of a SQL file as Mapped Relations / Tables / Views (compared with the project's entity scan) and labels a mapped relation 'N unmapped columns'. Verified by unit test designer::tests::reverse_inventory_groups_relations_labels_unmapped_columns_and_lists_references and scripts/check-jpa-designer.mjs. Not checked: the original's modal dialog layout; the source is a SQL file (a saved connection is listed but never read by the panel); starting the mapping stays a code action the web view cannot run."
   },
   {
    "id": "G087-C2",
@@ -24,8 +25,9 @@
    "supports": "right panel groups Mapped Columns, Columns, References",
    "source": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
    "strength": "explicit",
-   "ourFeature": "Generate entities from SQL file… (ddl_entities_action.rs, ddl_parse.rs)",
-   "verifiableHeadless": false
+   "ourFeature": "Designer 'From database / SQL' panel (reverse_panel.rs, web/reverse.js)",
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Headless on the SURFACE equivalent: the panel's right side lists Mapped Columns, Columns and References of the selected relation; references are shown even when the table has no matching column (columnPresent=false). Verified by the same unit test and the Designer browser check. Not checked: the original dialog layout; no live database."
   }
  ],
  "undocumented": [

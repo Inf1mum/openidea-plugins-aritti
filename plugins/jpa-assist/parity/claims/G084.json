@@ -15,8 +15,9 @@
    "supports": "Select which database schema you want to reverse engineer",
    "source": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
    "strength": "explicit",
-   "ourFeature": "not implemented",
-   "verifiableHeadless": false
+   "ourFeature": "Designer 'From database / SQL' panel (reverse_panel.rs, web/reverse.js)",
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Headless on the SURFACE equivalent: the panel's Schema selector lists the schemas qualifying the tables of the chosen SQL file and filters the relations (unit test reverse_inventory_* and the Designer browser check). Not checked: schemas of a live database."
   },
   {
    "id": "G084-C2",

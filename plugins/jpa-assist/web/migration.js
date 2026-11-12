@@ -41,7 +41,7 @@
   function syncBackfill() { for (const node of document.querySelectorAll('.migration-backfill')) node.hidden = !includesBackfill(); }
   function el(tag, text, className) { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; if (className) node.className = className; return node; }
   function clearSql() { $('mig-sql-wrap').hidden = true; $('mig-sql').textContent = ''; sqlStale = false; }
-  function clear() { plan = null; renames = new Set(); backfills = new Map(); render(); clearSql(); }
+  function clear() { plan = null; renames = new Set(); backfills = new Map(); window.jpaPreview?.clear(); render(); clearSql(); }
   function renderRow(item) {
     const row = el('li', undefined, 'migration-row');
     const head = el('div', undefined, 'migration-row-head');
@@ -64,6 +64,7 @@
       input.addEventListener('input', () => { if (input.value.trim()) backfills.set(input.dataset.backfill, input.value); else backfills.delete(input.dataset.backfill); sync(); invalidateSql(); change(); });
       label.append(input); wrap.append(label, error); wrap.hidden = !includesBackfill(); row.append(wrap); sync();
     }
+    window.jpaPreview?.decorate(row, item);
     return row;
   }
   function render() {
@@ -76,7 +77,7 @@
       : 'The model matches the baseline; there is nothing to migrate.';
     const warnings = [...plan.incomplete]; if (plan.pendingBaseline) warnings.push('A refreshed baseline (db/jpa-schema-baseline.next.json) is waiting to replace the baseline; the file action refuses until it is moved.');
     $('mig-incomplete').replaceChildren(...warnings.map(w => el('li', w))); $('mig-incomplete').hidden = !warnings.length;
-    const groups = new Map(); for (const c of plan.changes) { if (!groups.has(c.table)) groups.set(c.table, []); groups.get(c.table).push(c); }
+    const groupOf = window.jpaPreview?.group || (c => c.table), groups = new Map(); for (const c of plan.changes) { const g = groupOf(c); if (!groups.has(g)) groups.set(g, []); groups.get(g).push(c); }
     $('mig-groups').replaceChildren(...[...groups].map(([table, items]) => {
       const section = el('section', undefined, 'migration-group');
       const list = el('ul', undefined, 'migration-list'); list.append(...items.map(renderRow));
@@ -91,7 +92,7 @@
   }
   function invalidateSql() { if (!$('mig-sql-wrap').hidden || $('mig-sql').textContent) { sqlStale = true; $('mig-sql-state').textContent = 'Options changed. Preview again to refresh the SQL.'; $('mig-sql').classList.add('migration-stale'); $('mig-copy').disabled = true; } }
   function showPlan(next) {
-    plan = next;
+    plan = next; window.jpaPreview?.plan(next);
     const known = new Set((plan.changes || []).filter(c => c.kind === 'rename-candidate').map(renameKey));
     renames = new Set([...renames].filter(k => known.has(k)));
     const targets = new Set((plan.changes || []).filter(c => c.backfill).map(backfillKey));
@@ -112,12 +113,12 @@
     return {dialect: $('mig-dialect').value, includeDangers: include, renameDecisions: decisions, backfills: values, description: $('mig-description').value};
   }
   const valid = () => !!plan && plan.state === 'ready' && plan.changes.length + plan.notes.length > 0 && /[A-Za-z0-9]/.test($('mig-description').value) && $('mig-description').value.length <= 80 && !(includesBackfill() && backfillError());
-  function freeze(busy) { for (const id of ['mig-plan', 'mig-dialect', 'mig-description']) $(id).disabled = busy; for (const box of document.querySelectorAll('#migration-panel input[type=checkbox], .migration-backfill input')) box.disabled = busy; $('mig-generate').disabled = busy || !valid(); if (sqlStale || !$('mig-sql').textContent) $('mig-copy').disabled = true; else $('mig-copy').disabled = busy; }
+  function freeze(busy) { for (const id of ['mig-plan', 'mig-dialect', 'mig-description']) $(id).disabled = busy; for (const box of document.querySelectorAll('#migration-panel input[type=checkbox], .migration-backfill input')) box.disabled = busy; $('mig-generate').disabled = busy || !valid(); window.jpaPreview?.busy(busy); if (sqlStale || !$('mig-sql').textContent) $('mig-copy').disabled = true; else $('mig-copy').disabled = busy; }
   $('mig-copy').addEventListener('click', async () => {
     try { await navigator.clipboard.writeText($('mig-sql').textContent); $('mig-sql-state').textContent = 'SQL copied.'; }
     catch { $('mig-sql-state').textContent = 'Copy is unavailable here. Select the SQL text and copy it manually.'; }
   });
   for (const id of ['mig-dialect', 'mig-description']) $(id).addEventListener('input', () => { invalidateSql(); change(); });
   for (const box of document.querySelectorAll('#mig-include input')) box.addEventListener('change', () => { syncBackfill(); invalidateSql(); change(); });
-  window.jpaMigration = {showPlan, showSql, clear, draft, valid, freeze, onChange: callback => { change = callback; }, failed: clearSql};
+  window.jpaMigration = {rerender: render, showPlan, showSql, clear, draft, valid, freeze, onChange: callback => { change = callback; }, failed: clearSql};
 })();

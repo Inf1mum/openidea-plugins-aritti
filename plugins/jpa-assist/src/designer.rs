@@ -1,5 +1,5 @@
 //! Explicit current-source inspector. No compiler, XML or database claims.
-use crate::{JpaAssist, attribute_info, model};
+use crate::{JpaAssist, attribute_info, file_actions::reverse_panel, model};
 use openidea_plugin::{
     Error, Invocation, Range, TextEdit, host,
     providers::Document,
@@ -90,7 +90,17 @@ enum Operation {
         token: String,
     },
     Reset,
-    PlanMigration,
+    PlanMigration {
+        #[serde(default)]
+        routes: Option<Vec<RouteDraft>>,
+    },
+    ReverseSources,
+    ReverseInventory {
+        path: String,
+        dialect: Option<String>,
+        schema: Option<String>,
+        table: Option<String>,
+    },
     GenerateMigration {
         dialect: String,
         #[serde(rename = "includeDangers")]
@@ -101,6 +111,13 @@ enum Operation {
         backfills: Vec<BackfillDraft>,
         description: String,
     },
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RouteDraft {
+    change_type: String,
+    location: String,
 }
 
 #[derive(Deserialize)]
@@ -785,8 +802,8 @@ fn migration_inputs(
     Ok(Some((baseline, model)))
 }
 
-fn plan_json(project: &openidea_plugin::Project, root: &str) -> Result<Value, Error> {
-    use crate::file_actions::migration_action as migration;
+fn plan_json(project: &openidea_plugin::Project, root: &str, preview_routes: Option<Vec<RouteDraft>>) -> Result<Value, Error> {
+    use crate::file_actions::{change_routing as routing, migration_action as migration};
     let Some((baseline, model)) = migration_inputs(project, root)? else {
         return Ok(json!({"kind":"plan","state":"no-baseline","fileAction":FILE_ACTION}));
     };
@@ -804,13 +821,26 @@ fn plan_json(project: &openidea_plugin::Project, root: &str) -> Result<Value, Er
     let truncated = plan.changes.len() > MAX_PLAN_CHANGES || plan.notes.len() > MAX_PLAN_NOTES;
     let targets = sql::backfill_targets(&plan, &[]);
     let levels = crate::file_actions::danger_levels::overrides().unwrap_or_default();
+    let setting_routes = routing::parse_routes(host::setting("schemaChangeLocations").as_deref()).map_err(Error::from)?;
+    let previewing = preview_routes.is_some();
+    let routes = match preview_routes {
+        Some(rows) if rows.len() <= 32 => rows
+            .into_iter()
+            .map(|row| routing::parse_routes(Some(&json!([{"changeType":row.change_type,"location":row.location}]).to_string())).map(|mut one| one.remove(0)))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(Error::from)?,
+        Some(_) => return Err("Too many routes were supplied.".into()),
+        None => setting_routes.clone(),
+    };
+    let locations = routing::assign(&plan, &routes);
     let changes: Vec<Value> = plan
         .changes
         .iter()
+        .zip(locations)
         .take(MAX_PLAN_CHANGES)
-        .map(|planned| {
+        .map(|(planned, location)| {
             let (kind, table, detail) = change_summary(&planned.change);
-            let mut item = json!({"kind":kind,"table":table,"detail":detail,"danger":planned.danger,"reason":planned.reason,"level":crate::file_actions::danger_levels::level_of(planned, &levels).label()});
+            let mut item = json!({"kind":kind,"table":table,"detail":detail,"danger":planned.danger,"reason":planned.reason,"level":crate::file_actions::danger_levels::level_of(planned, &levels).label(),"type":crate::file_actions::danger_levels::change_type(&planned.change),"location":location.label()});
             if let schema::Change::RenameCandidate { from, to, .. } = &planned.change {
                 item["from"] = json!(from);
                 item["to"] = json!(to);
@@ -833,6 +863,9 @@ fn plan_json(project: &openidea_plugin::Project, root: &str) -> Result<Value, Er
         "incomplete":incomplete,"pendingBaseline":pending_baseline,
         "changes":changes,"notes":plan.notes.iter().take(MAX_PLAN_NOTES).collect::<Vec<_>>(),
         "truncated":truncated,"fileAction":FILE_ACTION,
+        "routes":routes.iter().map(|(kind, location)| json!({"changeType":kind,"location":location.label()})).collect::<Vec<_>>(),
+        "settingRoutes":setting_routes.iter().map(|(kind, location)| json!({"changeType":kind,"location":location.label()})).collect::<Vec<_>>(),
+        "previewingRoutes":previewing,"statementTypes":reverse_panel::statement_types(&plan, &routes)?,"createTableOptions":reverse_panel::create_table_options(),
     }))
 }
 
@@ -993,6 +1026,7 @@ impl JpaAssist {
             .frames
             .insert(request.frame.clone(), (root.clone(), request.sequence));
         let mut migration: Option<Value> = None;
+        let mut reverse: Option<Value> = None;
         let result = (|| -> Result<(), Error> {
             if matches!(
                 request.operation,
@@ -1192,7 +1226,11 @@ impl JpaAssist {
                     }
                     self.designer.pending = None;
                 }
-                Operation::PlanMigration => migration = Some(plan_json(&project, &root)?),
+                Operation::PlanMigration { routes } => migration = Some(plan_json(&project, &root, routes)?),
+                Operation::ReverseSources => reverse = Some(reverse_panel::sources(&project, &root)?),
+                Operation::ReverseInventory { path, dialect, schema, table } => {
+                    reverse = Some(reverse_panel::inventory(&project, &root, &path, dialect.as_deref(), schema.as_deref(), table.as_deref())?)
+                }
                 Operation::GenerateMigration {
                     dialect,
                     include_dangers,
@@ -1220,7 +1258,7 @@ impl JpaAssist {
                 &error.to_string(),
             );
         }
-        host::post_view_message(VIEW, &json!({"channel":CHANNEL,"frame":request.frame,"sequence":request.sequence,"ok":result.is_ok(),"layout":layout(),"model":self.designer.model(&root),"migration":migration}).to_string())
+        host::post_view_message(VIEW, &json!({"channel":CHANNEL,"frame":request.frame,"sequence":request.sequence,"ok":result.is_ok(),"layout":layout(),"model":self.designer.model(&root),"migration":migration,"reverse":reverse}).to_string())
     }
 }
 
@@ -1790,6 +1828,80 @@ mod tests {
         let project = host.invocation().project().unwrap();
         assert!(!project.exists("/project/src/main/resources/db/migration").unwrap());
         assert!(!project.exists("/project/db/jpa-schema-baseline.next.json").unwrap());
+    }
+
+    #[test]
+    fn route_previews_move_a_change_type_without_writing_anything() {
+        let (host, mut plugin) = migration_host(Some(CUSTOMER), CUSTOMER_PLUS);
+        let base = request(&mut plugin, &host, 2, json!({"kind":"plan-migration"})).unwrap();
+        assert_eq!(base["migration"]["changes"][0]["location"], "primary");
+        assert_eq!(base["migration"]["changes"][0]["type"], "addColumn");
+        assert_eq!(base["migration"]["previewingRoutes"], false);
+        let routes = json!([{"changeType":"addColumn","location":"ignored"}]);
+        let moved = request(&mut plugin, &host, 3, json!({"kind":"plan-migration","routes":routes})).unwrap();
+        assert_eq!(moved["migration"]["changes"][0]["location"], "ignored");
+        assert_eq!(moved["migration"]["previewingRoutes"], true);
+        assert_eq!(moved["migration"]["settingRoutes"], json!([]));
+        let types = moved["migration"]["statementTypes"].as_array().unwrap();
+        assert_eq!(types.len(), 14);
+        let add = types.iter().find(|t| t["type"] == "addColumn").unwrap();
+        assert_eq!((add["count"].clone(), add["location"].clone(), add["levelOverride"].clone()), (json!(1), json!("ignored"), Value::Null));
+        assert_eq!(moved["migration"]["createTableOptions"][1]["setting"], "jpaAssist.maxIdentifierLength");
+        let restored = request(&mut plugin, &host, 4, json!({"kind":"plan-migration","routes":[]})).unwrap();
+        assert_eq!(restored["migration"]["changes"][0]["location"], "primary");
+        let unknown = json!([{"changeType":"nope","location":"ignored"}]);
+        assert_eq!(request(&mut plugin, &host, 5, json!({"kind":"plan-migration","routes":unknown})).unwrap()["ok"], false);
+        let place = json!([{"changeType":"addColumn","location":"elsewhere"}]);
+        assert_eq!(request(&mut plugin, &host, 6, json!({"kind":"plan-migration","routes":place})).unwrap()["ok"], false);
+        assert!(!host.invocation().project().unwrap().exists("/project/src/main/resources/db").unwrap());
+    }
+
+    const SHOP_SQL: &str = "CREATE SCHEMA shop;\nCREATE TABLE shop.customer (id BIGINT PRIMARY KEY, name VARCHAR(40), email VARCHAR(100));\nCREATE TABLE shop.orders (id BIGINT PRIMARY KEY, customer_id BIGINT REFERENCES shop.customer(id), total NUMERIC(10,2));\nCREATE VIEW shop.order_totals AS SELECT id, total FROM shop.orders;\n";
+
+    #[test]
+    fn reverse_inventory_groups_relations_labels_unmapped_columns_and_lists_references() {
+        let (host, mut plugin) = migration_host(Some(CUSTOMER), CUSTOMER);
+        host.add_file("db/schema.sql", SHOP_SQL);
+        let sources = request(&mut plugin, &host, 2, json!({"kind":"reverse-sources"})).unwrap();
+        assert_eq!(sources["reverse"]["sqlFiles"][0]["label"], "db/schema.sql");
+        assert_eq!(sources["reverse"]["generateAction"], "Generate entities from SQL file…");
+        assert_eq!(sources["reverse"]["attributesAction"], "Add attributes from database columns…");
+        let op = json!({"kind":"reverse-inventory","path":"/project/db/schema.sql","dialect":null,"schema":null,"table":"shop.orders"});
+        let inventory = request(&mut plugin, &host, 3, op).unwrap();
+        assert_eq!(inventory["ok"], true);
+        let reverse = &inventory["reverse"];
+        assert_eq!(reverse["dialect"], "postgresql");
+        assert_eq!(reverse["schemas"], json!([{"value":"shop","label":"shop"}]));
+        let group = |name: &str| reverse["relations"].as_array().unwrap().iter().find(|r| r["name"] == name).unwrap()["group"].clone();
+        assert_eq!(group("shop.customer"), "mapped");
+        assert_eq!(group("shop.orders"), "table");
+        assert_eq!(group("shop.order_totals"), "view");
+        let customer = reverse["relations"].as_array().unwrap().iter().find(|r| r["name"] == "shop.customer").unwrap();
+        assert_eq!(customer["unmapped"], 1, "email has no attribute yet");
+        let detail = &reverse["selected"];
+        assert_eq!(detail["references"][0]["refTable"], "shop.customer");
+        assert_eq!(detail["references"][0]["refMapped"], true);
+        assert_eq!(detail["references"][0]["columnPresent"], true);
+        assert!(detail["columns"].as_array().unwrap().iter().any(|c| c["name"] == "total" && c["java"] == "BigDecimal"));
+        assert!(reverse["typeMappings"].as_array().unwrap().iter().any(|m| m["java"] == "Long"));
+        let mapped = request(&mut plugin, &host, 4, json!({"kind":"reverse-inventory","path":"/project/db/schema.sql","dialect":"mysql","schema":"shop","table":"shop.customer"})).unwrap();
+        assert_eq!(mapped["ok"], true);
+        let columns = mapped["reverse"]["selected"]["columns"].as_array().unwrap();
+        assert_eq!(columns.iter().filter(|c| c["mapped"] == true).count(), 2, "id and name are mapped, email is not");
+        assert_eq!(mapped["reverse"]["dialectDetected"], false);
+    }
+
+    #[test]
+    fn reverse_inventory_refuses_files_outside_the_project_and_non_sql_paths() {
+        let (host, mut plugin) = migration_host(Some(CUSTOMER), CUSTOMER);
+        host.add_file("db/schema.sql", SHOP_SQL);
+        for (seq, path) in [(2, "/etc/passwd"), (3, "/project/src/main/java/shop/Customer.java"), (4, "/project/../etc/x.sql"), (5, "db/schema.sql")] {
+            let reply = request(&mut plugin, &host, seq, json!({"kind":"reverse-inventory","path":path,"dialect":null,"schema":null,"table":null})).unwrap();
+            assert_eq!(reply["ok"], false, "{path}");
+            assert!(reply["reverse"].is_null());
+        }
+        let bad_dialect = request(&mut plugin, &host, 6, json!({"kind":"reverse-inventory","path":"/project/db/schema.sql","dialect":"oracle","schema":null,"table":null})).unwrap();
+        assert_eq!(bad_dialect["ok"], false);
     }
 
     const CUSTOMER_REQUIRED: &str = "package shop;\nimport jakarta.persistence.Column;\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n@Entity\npublic class Customer {\n    @Id Long id;\n    String name;\n    @Column(nullable = false, length = 5) String email;\n}\n";
