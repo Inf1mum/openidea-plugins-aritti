@@ -145,18 +145,33 @@ def close_rows(parity, ledger, receipts, analysis, destination, docs_date, exclu
             if not ids:
                 continue
             sources = sorted({explicit[i]['source'] for i in ids})
-            cases.append({
+            audit = [src for src in sources if src.startswith('audit/jpa-buddy-')]
+            common = {
                 'scenario': scenario,
+                'claimIds': ids,
+                'implementationEvidence': rel(destination / f'{scenario}.json'),
+                'test': f'jpa_assist --only {scenario}',
+                'result': 'pass',
+            }
+            if audit:
+                cases.append({
+                    **common,
+                    'referenceType': 'source-reading',
+                    'referenceFiles': audit,
+                    'referenceClaims': [f'{i}: {explicit[i]["statement"]}' for i in ids],
+                    'sourceReadOn': docs_date,
+                    'referenceEvidence': audit[0],
+                    'scope': f'released host v0.1.42, headless, fixture {receipt.get("fixture")}; behaviour read from the original source (read-only reference), not an observed run',
+                })
+                continue
+            cases.append({
+                **common,
                 'referenceType': 'documentation',
                 'referenceSources': sources,
                 'referenceClaims': [f'{i}: {explicit[i]["statement"]}' for i in ids],
-                'claimIds': ids,
                 'docsRetrievedOn': docs_date,
                 'referenceEvidence': sources[0],
-                'implementationEvidence': rel(destination / f'{scenario}.json'),
-                'test': f'jpa_assist --only {scenario}',
                 'scope': f'released host v0.1.42, headless, fixture {receipt.get("fixture")}; documented claims only (documentation-derived, not an observed comparison)',
-                'result': 'pass',
             })
         entry['status'] = 'verified-parity'
         entry['evidence'] = sorted({c['implementationEvidence'] for c in cases})
