@@ -830,7 +830,7 @@ impl Views for Runtime {
                     let url = host::setting_string("actuatorUrl").unwrap_or_else(|| DEFAULT_URL.into());
                     format!("No runtime data yet. Start the application with Spring Boot Actuator, then click Refresh to read {url}.")
                 });
-                return Ok(View::message(&text).button(refresh).button(Button::new("clear","Clear Snapshot").icon("trash")).button(Button::new("runtime-controls","Refresh Controls").icon("settings")));
+                return Ok(View::message(&text).button(refresh).button(Button::new("clear","Clear Snapshot").icon("trash")));
             };
             self.targets.clear();
             let mut tree = Tree { items: Vec::new(), expanded: &self.expanded, targets: &mut self.targets, bytes:0, limited:false };
@@ -858,7 +858,7 @@ impl Views for Runtime {
             if let Some(e) = &self.error {
                 status = format!("Refresh failed: {e} · {status}");
             }
-            Ok(View::new(Body::Tree(tree.items)).button(refresh).button(Button::new("clear", "Clear Snapshot").icon("trash")).button(Button::new("snapshot-details", "Observations").icon("list")).button(Button::new("runtime-graph","Bean Graph").icon("hierarchy")).button(Button::new("runtime-controls","Refresh Controls").icon("settings")).button(Button::new("collapse-all", "Collapse All").icon("collapse-all").enabled(!self.expanded.is_empty())).status(&status))
+            Ok(View::new(Body::Tree(tree.items)).button(refresh).button(Button::new("clear", "Clear Snapshot").icon("trash")).button(Button::new("collapse-all", "Collapse All").icon("collapse-all").enabled(!self.expanded.is_empty())).status(&status))
         })().map(ui_kit::actions::available)
     }
 

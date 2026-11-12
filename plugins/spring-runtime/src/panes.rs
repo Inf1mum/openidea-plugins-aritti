@@ -349,9 +349,6 @@ impl Runtime {
             .button(Button::new("snapshot-copy-request", "Copy HTTP Requests").icon("copy").enabled(self.panes.selected.as_ref().and_then(|key| self.panes.rows.get(key)).is_some_and(|row| row.request.is_some())))
             .button(Button::new("snapshot-search", "Search Observations…").icon("search"))
             .button(Button::new("snapshot-search-clear", "Clear Search").icon("close").enabled(self.panes.query.is_some()))
-            .button(Button::new("runtime-overview", "Overview").icon("spring-boot"))
-            .button(Button::new("runtime-graph", "Bean Graph").icon("hierarchy"))
-            .button(Button::new("runtime-controls", "Refresh Controls").icon("settings"))
             .status(&format!("Cached observations · {visible}/{} shown · {} · Unix {} · bounded sections (up to 64 rows each; health/env 32) · values omitted · Show Details for Observation / Provenance; activate to navigate to a unique source candidate",self.panes.rows.len(),age(at),at)))
     }
     pub(crate) fn choose_related_bean(&mut self,ctx:&Invocation)->Result<(),Error> {
