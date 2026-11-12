@@ -29,6 +29,25 @@ pub(super) fn attribute_under(doc: &Document, selection: Range) -> Option<(Class
     query_method_action::attributes(&class, &doc.text).iter().any(|supported| supported.name == name).then_some((class, name))
 }
 
+/// A repository of `entity` named `<Entity>Repository` beside the entity or in a `repository`/`repositories` package next to it: a few direct reads,
+/// no project search, so code-action requests stay fast. Other layouts become eligible once the repository index is warm.
+pub(super) fn repository_nearby(project: &Project, entity_path: &str, entity: &str) -> bool {
+    let Some((dir, _)) = entity_path.rsplit_once('/') else {
+        return false;
+    };
+    let parent = dir.rsplit_once('/').map_or(dir, |(parent, _)| parent);
+    let mut directories = vec![dir.to_owned()];
+    for name in ["repository", "repositories"] {
+        directories.push(format!("{dir}/{name}"));
+        directories.push(format!("{parent}/{name}"));
+    }
+    directories.iter().any(|directory| {
+        ["java", "kt"].iter().any(|extension| {
+            project.read_file(&format!("{directory}/{entity}Repository.{extension}")).is_ok_and(|text| text.len() <= MAX_TEXT && queries::parse_repository(&text, *extension == "kt").is_some_and(|repository| repository.entity == entity))
+        })
+    })
+}
+
 fn repository_document(project: &Project, root: &str, entity: &str, file: String) -> Option<Document> {
     let file = absolute(root, file);
     if !inside(root, &file) || path(&file).as_deref() != Some(file.as_str()) {
@@ -91,7 +110,10 @@ mod tests {
         }
         host.open_editor(ENTITY_PATH, "java", ENTITY, &[]);
         let doc = Document { path: ENTITY_PATH.into(), language: "java".into(), version: 1, text: ENTITY.into() };
-        (host, JpaAssist::default(), doc)
+        let mut plugin = JpaAssist::default();
+        let project = host::project_of(ENTITY_PATH).unwrap();
+        plugin.repositories_of(&project, "Order");
+        (host, plugin, doc)
     }
 
     fn caret(text: &str, anchor: &str) -> Range {

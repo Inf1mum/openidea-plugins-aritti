@@ -696,7 +696,17 @@ impl JpaAssist {
     }
 
     /// Repositories declaring `entity`, from the index; reads at most one budget's worth of unread files.
+    /// Repositories of `entity` already indexed; reads nothing, so a code-action request can ask without a search or file read.
+    pub(crate) fn repositories_known(&self, project: &Project, entity: &str) -> bool {
+        self.repositories.get(&project.root().unwrap_or_default()).is_some_and(|index| index.by_entity.get(entity).is_some_and(|found| !found.is_empty()))
+    }
+
     fn repositories_of(&mut self, project: &Project, entity: &str) -> Vec<(String, Location)> {
+        self.repositories_within(project, entity, REPOSITORY_BUDGET)
+    }
+
+    /// Like `repositories_of` with a caller-chosen read budget; code-action eligibility uses a very small one so the other actions are not delayed.
+    pub(crate) fn repositories_within(&mut self, project: &Project, entity: &str, budget: Duration) -> Vec<(String, Location)> {
         let index = self.repositories.entry(project.root().unwrap_or_default()).or_default();
 
         if !index.listed {
@@ -707,7 +717,7 @@ impl JpaAssist {
         }
 
         let start = Instant::now();
-        while start.elapsed() < REPOSITORY_BUDGET {
+        while start.elapsed() < budget {
             let Some(path) = index.unread.pop() else {
                 break;
             };

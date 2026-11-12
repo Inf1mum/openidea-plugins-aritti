@@ -734,7 +734,7 @@ impl FileActions for JpaAssist {
         }
         if attribute_refactor::eligible(doc,selection) {operations.push((Operation::Rename,attribute_refactor::TITLE));}
         if attribute_refactor::eligible(doc,selection) && projection_action::eligible(doc) {operations.push((Operation::RenameWithProjections,projection_links::RENAME_TITLE));operations.push((Operation::RenameWithDtos,projection_links::RENAME_DTO_TITLE));}
-        if attribute_repo_method::attribute_under(doc, selection).is_some_and(|(class, _)| host::project_of(&doc.path).is_some_and(|project| !self.repositories_of(&project, &class.name).is_empty())) {
+        if attribute_repo_method::attribute_under(doc, selection).is_some_and(|(class, _)| host::project_of(&doc.path).is_some_and(|project| self.repositories_known(&project, &class.name) || attribute_repo_method::repository_nearby(&project, &doc.path, &class.name))) {
             operations.push((Operation::AttributeRepositoryMethod, attribute_repo_method::TITLE));
         }
         if call_assist::eligible(doc, selection) {
