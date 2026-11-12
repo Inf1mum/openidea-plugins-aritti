@@ -7885,7 +7885,8 @@
       },
       "evidence": [],
       "acceptance": [],
-      "reviewNote": "Reviewed: safe delete of a method is an IDE refactoring (usages search + delete), not a JPA-specific capability; it needs semantic usages, which the host indexer only offers for exact names, and multi-file edits (S007). Leave open; no G row exists. Candidate new row if the owner wants it tracked."
+      "reviewNote": "Reviewed: safe delete of a method is an IDE refactoring (usages search + delete), not a JPA-specific capability; it needs semantic usages, which the host indexer only offers for exact names, and multi-file edits (S007). Leave open; no G row exists. Candidate new row if the owner wants it tracked.",
+      "notApplicable": "Runs the IntelliJ platform Safe Delete refactoring (usage search plus conflict dialog) on the PSI element selected in the JPA Buddy tool window inspector. OpenIDEA has no refactoring API (the porting skill lists safe delete among the refactorings with no equivalent); host indexer usages are exact-name only and multi-file edits are blocked on S007. Attribute-level rename and synchronization (G075, G076) is the only plugin-reachable part and is already mapped there."
     },
     {
       "id": "A004",
@@ -8505,7 +8506,8 @@
       },
       "evidence": [],
       "acceptance": [],
-      "reviewNote": "Reviewed: duplicate registration of the safe-delete-method action (see A003)."
+      "reviewNote": "Reviewed: duplicate registration of the safe-delete-method action (see A003).",
+      "notApplicable": "Second registration (different action id) of the same SafeDeleteMethodAction class as A003; identical platform Safe Delete refactoring, which has no OpenIDEA plugin API."
     },
     {
       "id": "A038",
@@ -8521,7 +8523,8 @@
       },
       "evidence": [],
       "acceptance": [],
-      "reviewNote": "Reviewed: safe delete of a class; same blockers as A003 (semantic usages, multi-file edits S007). Candidate new row."
+      "reviewNote": "Reviewed: safe delete of a class; same blockers as A003 (semantic usages, multi-file edits S007). Candidate new row.",
+      "notApplicable": "Same platform Safe Delete refactoring as A003, applied to a class (entity or repository) selected in the inspector. No OpenIDEA refactoring API; usages are exact-name only in the host indexer and multi-file edits are blocked on S007."
     },
     {
       "id": "A039",
@@ -9077,7 +9080,10 @@
       "baseline": "Missing specific rule",
       "finding": "checks.rs checks relationship count/type but not Column versus association incompatibility.",
       "evidence": [],
-      "acceptance": []
+      "acceptance": [],
+      "mappedTo": [
+        "S005"
+      ]
     },
     {
       "id": "F002",
@@ -9087,7 +9093,11 @@
       "baseline": "Partial",
       "finding": "Scalar Temporal/Enumerated/Version checks exist; no general persistent-type/converter classification.",
       "evidence": [],
-      "acceptance": []
+      "acceptance": [],
+      "mappedTo": [
+        "S005",
+        "G030"
+      ]
     },
     {
       "id": "F003",
@@ -9097,7 +9107,10 @@
       "baseline": "Missing",
       "finding": "No composite-key contract validator found in live dispatch.",
       "evidence": [],
-      "acceptance": []
+      "acceptance": [],
+      "mappedTo": [
+        "S005"
+      ]
     },
     {
       "id": "F004",
@@ -9107,7 +9120,10 @@
       "baseline": "Missing",
       "finding": "No effective AttributeConverter generic target matching.",
       "evidence": [],
-      "acceptance": []
+      "acceptance": [],
+      "mappedTo": [
+        "S005"
+      ]
     },
     {
       "id": "F005",
@@ -9169,7 +9185,10 @@
       "baseline": "Missing",
       "finding": "Requires positive target-role facts and mapping/access ownership.",
       "evidence": [],
-      "acceptance": []
+      "acceptance": [],
+      "mappedTo": [
+        "S005"
+      ]
     },
     {
       "id": "F007",
@@ -9179,7 +9198,11 @@
       "baseline": "Partial, restored",
       "finding": "Latest local_repository.rs emits an informational source-absence note; XML/provider mappings are unknown.",
       "evidence": [],
-      "acceptance": []
+      "acceptance": [],
+      "mappedTo": [
+        "S005",
+        "F005"
+      ]
     },
     {
       "id": "F008",
@@ -9189,7 +9212,10 @@
       "baseline": "Partial",
       "finding": "Multiple EmbeddedId and mixed ID-kind checks exist; general composite-key modelling does not.",
       "evidence": [],
-      "acceptance": []
+      "acceptance": [],
+      "mappedTo": [
+        "S005"
+      ]
     },
     {
       "id": "F009",
@@ -9199,7 +9225,12 @@
       "baseline": "Missing inspection",
       "finding": "Having a generation template is not validating a user-written equals implementation.",
       "evidence": [],
-      "acceptance": []
+      "acceptance": [],
+      "mappedTo": [
+        "S005",
+        "G020",
+        "G035"
+      ]
     },
     {
       "id": "F010",
@@ -9209,7 +9240,11 @@
       "baseline": "Missing",
       "finding": "No general converter-declaration diagnostic found.",
       "evidence": [],
-      "acceptance": []
+      "acceptance": [],
+      "mappedTo": [
+        "S005",
+        "G025"
+      ]
     },
     {
       "id": "F011",
@@ -9219,7 +9254,10 @@
       "baseline": "Partial",
       "finding": "Source-local duplicate Version check exists; inherited/effective mappings remain unknown.",
       "evidence": [],
-      "acceptance": []
+      "acceptance": [],
+      "mappedTo": [
+        "S005"
+      ]
     },
     {
       "id": "F012",
@@ -9229,7 +9267,10 @@
       "baseline": "Partial suite",
       "finding": "Spring Data live provider calls checks::check and includes page-without-pageable. Not a missing suite feature.",
       "evidence": [],
-      "acceptance": []
+      "acceptance": [],
+      "mappedTo": [
+        "S005"
+      ]
     },
     {
       "id": "F013",
@@ -9239,7 +9280,10 @@
       "baseline": "Missing specific rule",
       "finding": "General advice toward LAZY does not model owning-side/provider limitations.",
       "evidence": [],
-      "acceptance": []
+      "acceptance": [],
+      "mappedTo": [
+        "S005"
+      ]
     },
     {
       "id": "F014",
@@ -9249,7 +9293,10 @@
       "baseline": "Missing",
       "finding": "Inheritance strategy/discriminator model absent.",
       "evidence": [],
-      "acceptance": []
+      "acceptance": [],
+      "mappedTo": [
+        "S005"
+      ]
     },
     {
       "id": "F015",
@@ -9259,7 +9306,11 @@
       "baseline": "Partial",
       "finding": "Owned data-class notes exist, without full generated-method/provider semantics.",
       "evidence": [],
-      "acceptance": []
+      "acceptance": [],
+      "mappedTo": [
+        "S005",
+        "G020"
+      ]
     },
     {
       "id": "F016",
@@ -9269,7 +9320,11 @@
       "baseline": "Missing dedicated fixes",
       "finding": "Data replacement and scalar toString generation do not implement exclusion choices for existing ToString.",
       "evidence": [],
-      "acceptance": []
+      "acceptance": [],
+      "mappedTo": [
+        "S005",
+        "G021"
+      ]
     },
     {
       "id": "F017",
@@ -9279,7 +9334,10 @@
       "baseline": "Partial suite",
       "finding": "Spring Data query_needs_modifying is invoked by its live provider for supported literal queries.",
       "evidence": [],
-      "acceptance": []
+      "acceptance": [],
+      "mappedTo": [
+        "S005"
+      ]
     },
     {
       "id": "F018",
@@ -9289,7 +9347,12 @@
       "baseline": "Missing",
       "finding": "No live Builder/AllArgsConstructor versus constructor availability rule found.",
       "evidence": [],
-      "acceptance": []
+      "acceptance": [],
+      "mappedTo": [
+        "S005",
+        "F005",
+        "G022"
+      ]
     },
     {
       "id": "F019",
@@ -9299,7 +9362,11 @@
       "baseline": "Partial",
       "finding": "Active owned Data/EqualsAndHashCode warnings; complete replacement workflow not equivalent.",
       "evidence": [],
-      "acceptance": []
+      "acceptance": [],
+      "mappedTo": [
+        "S005",
+        "G020"
+      ]
     },
     {
       "id": "E001",
@@ -9597,7 +9664,12 @@
       },
       "evidence": [],
       "acceptance": [],
-      "reviewNote": "Reviewed: string-literal annotator for unknown targets; intent not documented publicly (SPECS.md found no page naming it). Needs the original's behavior before it can be mapped or marked not applicable."
+      "reviewNote": "Reviewed: string-literal annotator for unknown targets; intent not documented publicly (SPECS.md found no page naming it). Needs the original's behavior before it can be mapped or marked not applicable.",
+      "mappedTo": [
+        "G009",
+        "G070",
+        "G026"
+      ]
     },
     {
       "id": "E019",
@@ -9920,7 +9992,8 @@
       },
       "evidence": [],
       "acceptance": [],
-      "reviewNote": "Reviewed: event data provider is context plumbing for IntelliJ actions; no user-visible capability identified. Likely not applicable, but the owner must sign it off."
+      "reviewNote": "Reviewed: event data provider is context plumbing for IntelliJ actions; no user-visible capability identified. Likely not applicable, but the owner must sign it off.",
+      "notApplicable": "Platform plumbing: supplies the action-event machinery with two facts, that the tool window toolbar place counts as a global action place and that the ORM framework list is JPA when the event comes from that toolbar or the Project View popup. The user-visible effect (JPA creation actions offered in those menus) is delivered by our own menu/command registration (G003 structure creation, G011 toolbar); there is no plugin-side counterpart to a data provider."
     },
     {
       "id": "E039",

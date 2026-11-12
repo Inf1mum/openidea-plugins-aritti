@@ -381,7 +381,7 @@ fn constructor_findings(text: &str, facts: &Facts) -> Vec<Finding> {
     vec![Finding {
         start: trigger.start,
         end: trigger.end,
-        severity: Severity::Warning,
+        severity: Severity::Error,
         code: "jpa-lombok-constructors",
         message: format!(
             "@{} leaves this entity without a no-arg constructor, which JPA requires (public or protected).",
@@ -577,6 +577,7 @@ mod tests {
     fn constructors_builder_and_all_args_need_no_args() {
         let builder = entity("@Builder\n", BODY);
         assert_eq!(codes(&builder).iter().filter(|c| **c == "jpa-lombok-constructors").count(), 1);
+        assert_eq!(run(&builder, false, false, true)[0].severity, Severity::Error);
         let after = &fixed(&builder, "jpa-lombok-constructors")[0];
         assert!(after.contains("@Builder\n@NoArgsConstructor\n@AllArgsConstructor\npublic class"), "{after}");
         assert!(after.contains("import lombok.AllArgsConstructor;"));

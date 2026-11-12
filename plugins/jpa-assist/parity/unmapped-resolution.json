@@ -1,0 +1,442 @@
+{
+  "resolvedOn": "2026-11-12",
+  "rows": {
+    "A003": {
+      "decision": "notApplicable",
+      "mappedTo": null,
+      "notApplicable": "Runs the IntelliJ platform Safe Delete refactoring (usage search plus conflict dialog) on the PSI element selected in the JPA Buddy tool window inspector. OpenIDEA has no refactoring API (the porting skill lists safe delete among the refactorings with no equivalent); host indexer usages are exact-name only and multi-file edits are blocked on S007. Attribute-level rename and synchronization (G075, G076) is the only plugin-reachable part and is already mapped there.",
+      "ourRules": [],
+      "scenarios": [],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/decompiled/module/com/intellij/jpb/action/insight/SafeDeleteAction.java",
+        "audit/jpa-buddy-263.7307.112/embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml",
+        "audit/jpa-buddy-263.7307.112/decompiled/module/com/intellij/jpb/action/insight/SafeDeleteMethodAction.java"
+      ],
+      "behaviourRead": "Enabled only when the selected inspector model is a repository method; takes the platform PSI element and hands its navigation element to the platform Safe Delete handler. No JPA-specific logic.",
+      "matchesOurs": false,
+      "divergences": "No plugin counterpart by design (platform refactoring)."
+    },
+    "A037": {
+      "decision": "notApplicable",
+      "mappedTo": null,
+      "notApplicable": "Second registration (different action id) of the same SafeDeleteMethodAction class as A003; identical platform Safe Delete refactoring, which has no OpenIDEA plugin API.",
+      "ourRules": [],
+      "scenarios": [],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/decompiled/module/com/intellij/jpb/action/insight/SafeDeleteAction.java",
+        "audit/jpa-buddy-263.7307.112/embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml",
+        "audit/jpa-buddy-263.7307.112/decompiled/module/com/intellij/jpb/action/insight/SafeDeleteMethodAction.java"
+      ],
+      "behaviourRead": "Same class as A003, so identical behaviour (repository-method model only, platform Safe Delete handler).",
+      "matchesOurs": false,
+      "divergences": "No plugin counterpart by design."
+    },
+    "A038": {
+      "decision": "notApplicable",
+      "mappedTo": null,
+      "notApplicable": "Same platform Safe Delete refactoring as A003, applied to a class (entity or repository) selected in the inspector. No OpenIDEA refactoring API; usages are exact-name only in the host indexer and multi-file edits are blocked on S007.",
+      "ourRules": [],
+      "scenarios": [],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/decompiled/module/com/intellij/jpb/action/insight/SafeDeleteAction.java",
+        "audit/jpa-buddy-263.7307.112/embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml",
+        "audit/jpa-buddy-263.7307.112/decompiled/module/com/intellij/jpb/action/insight/SafeDeleteClassAction.java"
+      ],
+      "behaviourRead": "Enabled when the inspector model is a repository or an entity item; passes the selected PSI element to the platform Safe Delete handler. No JPA-specific logic.",
+      "matchesOurs": false,
+      "divergences": "No plugin counterpart by design."
+    },
+    "E018": {
+      "decision": "mappedTo",
+      "mappedTo": [
+        "G009",
+        "G070",
+        "G026"
+      ],
+      "notApplicable": null,
+      "ourRules": [],
+      "scenarios": [],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/decompiled/module/com/intellij/jpb/reference/hard/JpabLiteralExpressionAnnotator.java",
+        "audit/jpa-buddy-263.7307.112/decompiled/module/com/intellij/jpb/reference/hard/LiteralExpressionsAnnotator.java",
+        "audit/jpa-buddy-263.7307.112/decompiled/module/com/intellij/jpb/reference/hard/StringLiteralHardReference.java",
+        "audit/jpa-buddy-263.7307.112/decompiled/module/com/intellij/jpb/reference/JpabUastReferenceContributor.java",
+        "audit/jpa-buddy-263.7307.112/decompiled/module/com/intellij/jpb/reference/MappedByReference.java",
+        "audit/jpa-buddy-263.7307.112/decompiled/module/com/intellij/jpb/reference/MapstructAttributeReference.java",
+        "audit/jpa-buddy-263.7307.112/decompiled/module/com/intellij/jpb/reference/HibernateTypeReference.java",
+        "audit/jpa-buddy-263.7307.112/embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml"
+      ],
+      "behaviourRead": "Annotator that walks references of a string literal and, for each reference of the plugin's own 'hard reference' kind that fails to resolve, adds a warning on the referenced range with wrong-reference styling and optional quick fixes (none of the three providers supplies any). It stays silent when a polyvariant reference has several candidates. Exactly three providers exist: (1) the mappedBy member of the JPA association annotations, resolved through dotted paths to an attribute of the target entity (registered only on non-Ultimate IDEs); (2) the source and target members of the MapStruct mapping annotation, resolved to a method or field of the referenced class with get/set/is name normalisation; (3) the type member of the Hibernate Type annotation, resolved to the custom type class (never to a JPA converter).",
+      "matchesOurs": false,
+      "divergences": "Earlier wave-2 text mapped E018 to the unknown-name rules (attribute override, maps-id, map-key, entity-graph, named-query); that was wrong: the original has no reference for any of those. None of the three real contexts (unresolved mappedBy, unresolved MapStruct @Mapping source/target, unresolved @Type(type)) has a live rule in jpa-assist; README keeps mappedBy-target existence non-live. mappedTo targets are the user-visible capability rows the checks belong to (G009 association advice, G070 mapping methods, G026 Hibernate types); the gap stays open and is a candidate new rule (jpa-unknown-mapped-by first, since it is spec-verifiable). Hibernate @Type(type=) is a Hibernate 5 attribute and is low value on Jakarta/Hibernate 6."
+    },
+    "E038": {
+      "decision": "notApplicable",
+      "mappedTo": null,
+      "notApplicable": "Platform plumbing: supplies the action-event machinery with two facts, that the tool window toolbar place counts as a global action place and that the ORM framework list is JPA when the event comes from that toolbar or the Project View popup. The user-visible effect (JPA creation actions offered in those menus) is delivered by our own menu/command registration (G003 structure creation, G011 toolbar); there is no plugin-side counterpart to a data provider.",
+      "ourRules": [],
+      "scenarios": [],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/decompiled/module/com/intellij/jpb/service/JpabEventDataProvider.java",
+        "audit/jpa-buddy-263.7307.112/embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml"
+      ],
+      "behaviourRead": "Two overrides: global-place test is true only for the structure tool window toolbar place (popup@ prefix stripped); the framework list returns JPA for that place and for the Project View popup, empty otherwise.",
+      "matchesOurs": false,
+      "divergences": "No counterpart needed."
+    },
+    "F001": {
+      "decision": "mappedTo",
+      "mappedTo": [
+        "S005"
+      ],
+      "notApplicable": null,
+      "ourRules": [],
+      "scenarios": [],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml",
+        "audit/jpa-buddy-263.7307.112/decompiled/module/com/intellij/jpb/inspection/UnsupportedTypeWithoutConverterInspection.java"
+      ],
+      "behaviourRead": "None of the 12 registered local inspections, nor the annotator and highlight filter, tests a Column annotation on an association; the unsupported-type inspection even exempts any field carrying a relationship annotation.",
+      "matchesOurs": true,
+      "divergences": "Nothing to follow: no original behaviour. Row exists only from the screenshot-derived family list. Not implemented; keep as S005 reconciliation note (no rule)."
+    },
+    "F002": {
+      "decision": "mappedTo",
+      "mappedTo": [
+        "S005",
+        "G030"
+      ],
+      "notApplicable": null,
+      "ourRules": [
+        "jpa-unsupported-type",
+        "attribute-type"
+      ],
+      "scenarios": [
+        "RS-592"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/decompiled/module/com/intellij/jpb/inspection/UnsupportedTypeWithoutConverterInspection.java"
+      ],
+      "behaviourRead": "Flags non-static, non-transient, non-enum fields whose type is not a basic type, is not Serializable, has no type arguments, carries none of the to-one/to-many, embedded-id, embedded, lob, transient annotations nor a Hibernate Type annotation or converter, is not an entity/embeddable (element-collection arrays need a Serializable element). Highlight on the type reference, default (warning) level, no fix.",
+      "matchesOurs": "partial",
+      "divergences": "Ours (live_project.rs, Warning, in the original-level set) flags only project classes proven plain; JDK/library non-basic types, arrays, and Serializable-less library types stay silent, so recall is lower. Original skips Serializable types; ours skips anything with supertypes. Severity matches (Warning). No quick fix on either side."
+    },
+    "F003": {
+      "decision": "mappedTo",
+      "mappedTo": [
+        "S005"
+      ],
+      "notApplicable": null,
+      "ourRules": [
+        "jpa-composite-id-not-serializable"
+      ],
+      "scenarios": [
+        "RS-595"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/decompiled/module/com/intellij/jpb/inspection/CompositeIdClassSerializableInspection.java"
+      ],
+      "behaviourRead": "Skipped on Hibernate 6 projects (and on Ultimate). For entities and mapped superclasses, finds the first member with the embedded-id annotation (getter must be simple), resolves its type and, if the class is not Serializable, reports on the type reference at error level; fix makes the embeddable Serializable.",
+      "matchesOurs": "partial",
+      "divergences": "Severity matches (Error). Ours covers javax.persistence field sources only (namespace stands in for 'not Hibernate 6'), key classes with no supertypes at all, fields not getters, no mapped-superclass owner, no fix. Original also stops at the first offending member; ours reports it once."
+    },
+    "F004": {
+      "decision": "mappedTo",
+      "mappedTo": [
+        "S005"
+      ],
+      "notApplicable": null,
+      "ourRules": [
+        "jpa-converter-type-mismatch"
+      ],
+      "scenarios": [],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/decompiled/module/com/intellij/jpb/inspection/ConverterSpecifiedIncorrectlyInspection.java"
+      ],
+      "behaviourRead": "For each field carrying the Convert annotation, takes the converter class's AttributeConverter entity type and, when not dumb mode and both valid, reports if the entity type is not assignable from the field type and not textually equal; reported on the Convert annotation, default level, fix removes the annotation.",
+      "matchesOurs": "partial",
+      "divergences": "Ours compares exact JDK types only, no assignability, Info not Warning (an existing unit test pins Info; original is the default warning level), no fix. Unit-tested only; no RS scenario."
+    },
+    "F006": {
+      "decision": "mappedTo",
+      "mappedTo": [
+        "S005"
+      ],
+      "notApplicable": null,
+      "ourRules": [
+        "jpa-entity-field-without-relationship"
+      ],
+      "scenarios": [
+        "RS-593"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/decompiled/module/com/intellij/jpb/inspection/UnsupportedTypeWithoutConverterInspection.java"
+      ],
+      "behaviourRead": "The original unsupported-type inspection explicitly skips entity-typed fields, so there is no original counterpart for an entity-valued field without relationship mapping.",
+      "matchesOurs": true,
+      "divergences": "No original behaviour to compare; our own rule from ledger text (Warning, positive target-role facts, same source root)."
+    },
+    "F007": {
+      "decision": "mappedTo",
+      "mappedTo": [
+        "S005",
+        "F005"
+      ],
+      "notApplicable": null,
+      "ourRules": [
+        "jpa-source-identifier-absent",
+        "jpa-source-hierarchy-identifier-absent",
+        "entity-missing-id"
+      ],
+      "scenarios": [
+        "RS-427"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/decompiled/module/com/intellij/jpb/inspection/EntityIdMissingInspection.java",
+        "audit/jpa-buddy-263.7307.112/decompiled/module/com/intellij/jpb/inspection/AbstractEntityAnnotationInspection.java"
+      ],
+      "behaviourRead": "Applies to entity classes that are not mapped superclasses or embeddables and have no id member (inherited id included via the platform helper); highlight on the class name anchor, error level, fix creates an id.",
+      "matchesOurs": "partial",
+      "divergences": "Real divergence, kept deliberately: original is Error with a Create-id fix; ours is Info (source-local absence cannot prove no id from XML/provider/unsaved ancestors) with no fix on the live rule. Class-kind gating matches (entity only)."
+    },
+    "F008": {
+      "decision": "mappedTo",
+      "mappedTo": [
+        "S005"
+      ],
+      "notApplicable": null,
+      "ourRules": [
+        "jpa-duplicate-embedded-id",
+        "jpa-multiple-id-kinds",
+        "jpa-embeddable-identifier"
+      ],
+      "scenarios": [],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml"
+      ],
+      "behaviourRead": "No original inspection checks conflicting identity declarations: none of the 12 registered inspections reads more than one id kind. Only the composite-id Serializable check (F003) and the missing-id/duplicate-version checks touch identity.",
+      "matchesOurs": true,
+      "divergences": "No original behaviour; these are our own spec-derived rules (Warning/Error per rule), unit-tested only; no RS scenario."
+    },
+    "F009": {
+      "decision": "mappedTo",
+      "mappedTo": [
+        "S005",
+        "G020",
+        "G035"
+      ],
+      "notApplicable": null,
+      "ourRules": [
+        "jpa-lombok-equals",
+        "jpa-lombok-data",
+        "jpa-data-class"
+      ],
+      "scenarios": [
+        "RS-010"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/decompiled/module/com/intellij/jpb/inspection/LombokEqualsAndHashCodeInspection.java",
+        "audit/jpa-buddy-263.7307.112/decompiled/module/com/intellij/jpb/inspection/LombokDataInspection.java",
+        "audit/jpa-buddy-263.7307.112/decompiled/main/com/intellij/jpb/kt/model/inspection/DataClassEqualsAndHashCodeInspection.java"
+      ],
+      "behaviourRead": "No inspection validates a hand-written equals. The equality inspections are: Lombok EqualsAndHashCode on an entity (Java, not embeddable; reported on the annotation, warning, fix replaces it), Lombok Data likewise, and the Kotlin data-class check.",
+      "matchesOurs": "partial",
+      "divergences": "Hand-written equals validation: no original counterpart, not implemented. Lombok checks match on condition (entity, annotation present) and Warning level; ours attaches a Getter/Setter replacement fix only to jpa-lombok-data and none to jpa-lombok-equals; jpa-lombok-equals-field is our own finer rule."
+    },
+    "F010": {
+      "decision": "mappedTo",
+      "mappedTo": [
+        "S005",
+        "G025"
+      ],
+      "notApplicable": null,
+      "ourRules": [
+        "jpa-converter-not-attribute-converter"
+      ],
+      "scenarios": [],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/decompiled/module/com/intellij/jpb/inspection/ConverterSpecifiedIncorrectlyInspection.java"
+      ],
+      "behaviourRead": "The only converter-related inspection is the type-compatibility one (F004). It never checks a missing converter role annotation or that the named class is an AttributeConverter.",
+      "matchesOurs": true,
+      "divergences": "No original behaviour; ours is an own rule (Warning/Info by evidence), unit-tested only."
+    },
+    "F011": {
+      "decision": "mappedTo",
+      "mappedTo": [
+        "S005"
+      ],
+      "notApplicable": null,
+      "ourRules": [
+        "jpa-duplicate-version"
+      ],
+      "scenarios": [
+        "RS-427"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/decompiled/module/com/intellij/jpb/inspection/DuplicateVersionAnnotationInspection.java"
+      ],
+      "behaviourRead": "Applies to every entity; collects fields with the Version annotation and, if more than one, reports every such annotation at error level (no fix).",
+      "matchesOurs": "partial",
+      "divergences": "Level matches (Error). Placement differs: original highlights all Version annotations including the first; ours highlights only the name of the second and later fields, and stays quiet for any class it cannot fully own (inherited, XML, args). Reported, not changed (existing unit test pins the range)."
+    },
+    "F012": {
+      "decision": "mappedTo",
+      "mappedTo": [
+        "S005"
+      ],
+      "notApplicable": null,
+      "ourRules": [
+        "page-without-pageable (plugins/spring-data)"
+      ],
+      "scenarios": [],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml"
+      ],
+      "behaviourRead": "No original inspection or annotator references Pageable return checks: only repository-method creation UI mentions paging. Row comes from the screenshot family list.",
+      "matchesOurs": true,
+      "divergences": "Lives in plugins/spring-data (checks.rs, live provider), not jpa-assist; unit-tested there, no RS scenario. No original behaviour to diverge from."
+    },
+    "F013": {
+      "decision": "mappedTo",
+      "mappedTo": [
+        "S005"
+      ],
+      "notApplicable": null,
+      "ourRules": [],
+      "scenarios": [],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml"
+      ],
+      "behaviourRead": "The only uses of mappedBy in the decompiled plugin are the E018 reference, entity-designer updaters and the create-inverse intention; no inspection warns about inverse one-to-one laziness.",
+      "matchesOurs": true,
+      "divergences": "No original behaviour; not implemented; README documents the inverse OneToOne as deliberately not flagged."
+    },
+    "F014": {
+      "decision": "mappedTo",
+      "mappedTo": [
+        "S005"
+      ],
+      "notApplicable": null,
+      "ourRules": [
+        "jpa-incompatible-table"
+      ],
+      "scenarios": [
+        "RS-594"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/decompiled/module/com/intellij/jpb/inspection/IncompatibleTableAnnotationInspection.java"
+      ],
+      "behaviourRead": "Entity whose hierarchy root is another entity with SINGLE_TABLE or unspecified inheritance and which carries a Table annotation; reported on the Table annotation, default (warning) level, fix removes it.",
+      "matchesOurs": "partial",
+      "divergences": "Condition and Warning level match; ours resolves only a closed literal extends chain in saved source with no mapping XML, and offers no quick fix."
+    },
+    "F015": {
+      "decision": "mappedTo",
+      "mappedTo": [
+        "S005",
+        "G020"
+      ],
+      "notApplicable": null,
+      "ourRules": [
+        "jpa-data-class",
+        "jpa-val-attribute",
+        "jpa-immutable-collection"
+      ],
+      "scenarios": [],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/decompiled/main/com/intellij/jpb/kt/model/inspection/DataClassEqualsAndHashCodeInspection.java"
+      ],
+      "behaviourRead": "Kotlin data class entity (not embeddable) whose primary constructor has parameters not all marked id, and which lacks a physical equals, hashCode or toString (any one missing); warning on the class name anchor; fix generates the three.",
+      "matchesOurs": "partial",
+      "divergences": "Condition close (ours quiet only when all three are overridden). Ours reports on the 'data' modifier, no fix, and does not special-case empty or all-id primary constructors. val/immutable-collection rules have no original counterpart. No RS scenario."
+    },
+    "F016": {
+      "decision": "mappedTo",
+      "mappedTo": [
+        "S005",
+        "G021"
+      ],
+      "notApplicable": null,
+      "ourRules": [
+        "jpa-lombok-to-string"
+      ],
+      "scenarios": [
+        "RS-010"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/decompiled/module/com/intellij/jpb/inspection/LombokToStringLazyInspection.java",
+        "audit/jpa-buddy-263.7307.112/decompiled/module/com/intellij/jpb/inspection/LombokToStringLazyIncludeInspection.java",
+        "audit/jpa-buddy-263.7307.112/decompiled/module/com/intellij/jpb/inspection/LombokToStringInspectionHelper.java"
+      ],
+      "behaviourRead": "Requires a ToString annotation. Without onlyExplicitlyIncluded it flags when no of/exclude is given and any lazy association field is not excluded, or when a lazy association is listed in of, or when exclude is non-empty but misses a lazy association; with onlyExplicitlyIncluded=true a second inspection flags lazy fields marked ToString.Include (fix removes the include). 'Lazy' comes from the fetch type, so eager to-one associations are not reported.",
+      "matchesOurs": "partial",
+      "divergences": "Ours is per field and flags every association (eager to-one and ElementCollection too), also under @Data without @ToString, and gives up when of is used; include-side findings have no fix. Warning level matches. Reported, not changed (existing tests pin 'every association')."
+    },
+    "F017": {
+      "decision": "mappedTo",
+      "mappedTo": [
+        "S005"
+      ],
+      "notApplicable": null,
+      "ourRules": [
+        "query-needs-modifying (plugins/spring-data)"
+      ],
+      "scenarios": [],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/embedded-descriptors/intellij.javaee.jpabuddy.jpabuddy.xml"
+      ],
+      "behaviourRead": "No original inspection checks a write query lacking a modifying marker.",
+      "matchesOurs": true,
+      "divergences": "Lives in plugins/spring-data; unit-tested there, no RS scenario. No original behaviour."
+    },
+    "F018": {
+      "decision": "mappedTo",
+      "mappedTo": [
+        "S005",
+        "F005",
+        "G022"
+      ],
+      "notApplicable": null,
+      "ourRules": [
+        "jpa-lombok-constructors",
+        "jpa-no-arg-constructor"
+      ],
+      "scenarios": [
+        "RS-010"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/decompiled/module/com/intellij/jpb/inspection/NoArgsConstructorInspection.java",
+        "audit/jpa-buddy-263.7307.112/decompiled/module/com/intellij/jpb/inspection/fix/lombok/AppendNoArgsConstructorFix.java"
+      ],
+      "behaviourRead": "For entities and embeddables (skipped when Lombok NoArgs or RequiredArgs is present, and on Ultimate): if the class has constructors (generated ones included) and none takes no parameters, report on the class name at error level; for Lombok classes a fix appends the no-args annotation, otherwise a constructor is added. Visibility of the no-arg constructor is not checked.",
+      "matchesOurs": "partial",
+      "divergences": "Fixed in this task: jpa-lombok-constructors was Warning, the original raises this inspection to Error; now Error (unit test added). Remaining: ours anchors on the Builder/AllArgsConstructor annotation, not the class name; embeddables and Kotlin are not judged by jpa-no-arg-constructor (Java entities only); jpa-no-arg-constructor also requires public/protected while the original accepts a private no-arg constructor (stricter, spec-correct)."
+    },
+    "F019": {
+      "decision": "mappedTo",
+      "mappedTo": [
+        "S005",
+        "G020"
+      ],
+      "notApplicable": null,
+      "ourRules": [
+        "jpa-lombok-data",
+        "jpa-lombok-equals",
+        "jpa-lombok-equals-field"
+      ],
+      "scenarios": [
+        "RS-010"
+      ],
+      "originalFiles": [
+        "audit/jpa-buddy-263.7307.112/decompiled/module/com/intellij/jpb/inspection/LombokDataInspection.java",
+        "audit/jpa-buddy-263.7307.112/decompiled/module/com/intellij/jpb/inspection/LombokEqualsAndHashCodeInspection.java",
+        "audit/jpa-buddy-263.7307.112/decompiled/module/com/intellij/jpb/inspection/fix/lombok/ReplaceDataAnnotation.java",
+        "audit/jpa-buddy-263.7307.112/decompiled/module/com/intellij/jpb/inspection/fix/lombok/ReplaceEqualsAndHashCodeFix.java"
+      ],
+      "behaviourRead": "Java entity (not embeddable) with Data or EqualsAndHashCode: warning on the annotation, fix replaces it (Data becomes Getter+Setter, EqualsAndHashCode replaced by a generated equals/hashCode).",
+      "matchesOurs": "partial",
+      "divergences": "Condition and Warning level match. Quick fix for jpa-lombok-equals is absent in ours (only the Data fix and per-field Exclude exist); jpa-lombok-equals-field is our own finer rule with no original counterpart."
+    }
+  }
+}

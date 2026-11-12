@@ -1,9 +1,3 @@
 # Unmapped ledger entries
 
-No G/S/F row fits these reference entries; neither `mappedTo` nor `notApplicable` is set.
-
-- A003: Safe delete of a method has no G row (G075/G076 cover attributes and renames only)
-- A037: Duplicate safe-delete-method action; no matching G row
-- A038: Safe delete of a class has no matching G row
-- E018: String-literal annotator for unknown targets; no G row fits
-- E038: Event data provider context plumbing; unclear user-visible capability
+Superseded by `unmapped-resolution.json` (resolved 2026-11-12). It decides each of the 23 rows (A003, A037, A038, E018, E038, F001-F004, F006-F019) as `mappedTo` or `notApplicable`, with evidence from the decompiled original, our rule codes, scenarios and divergences. The list that used to be here is no longer authoritative.
