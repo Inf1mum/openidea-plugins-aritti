@@ -1,0 +1,117 @@
+{
+  "id": "RS-403",
+  "rows": [
+    "G019"
+  ],
+  "claimIds": [
+    "G019-C1"
+  ],
+  "verifies": {
+    "G019-C1": "the action lists the entity's attributes and, in a second prompt, its methods (describe and shout, not the id accessor), and moves exactly the chosen ones: attributes label and phone plus the method describe go to BaseContact, the unchosen attribute note and the unchosen method shout stay. The action is offered at document level (invoked here with the cursor on an attribute), not from an attribute-specific context menu entry; that menu placement and Kotlin are not checked."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/Contact.java",
+        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.Column;\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.GeneratedValue;\nimport jakarta.persistence.GenerationType;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Contact {\n\n    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n\n    @Column(nullable = false, length = 80)\n    private String label;\n\n    @Column(name = \"phone_no\", length = 30)\n    private String phone;\n\n    @Column(length = 120)\n    private String note;\n\n    public String describe() {\n        return label + \" / \" + phone;\n    }\n\n    public String shout() {\n        return note.toUpperCase();\n    }\n\n    public Long getId() {\n        return id;\n    }\n}\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Contact.java",
+    "anchor": "private String label"
+  },
+  "action": {
+    "title": "Extract mapped superclass with preview…"
+  },
+  "prompts": [
+    {
+      "input": "BaseContact"
+    },
+    {
+      "pickMany": [
+        "label",
+        "phone"
+      ]
+    },
+    {
+      "pickMany": [
+        "public String describe()"
+      ]
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "input",
+        "titleContains": "superclass name"
+      },
+      {
+        "kind": "pickMany",
+        "titleContains": "attributes to move",
+        "optionsInclude": [
+          "label",
+          "phone",
+          "note"
+        ],
+        "optionsExclude": [
+          "id"
+        ]
+      },
+      {
+        "kind": "pickMany",
+        "titleContains": "Methods to move",
+        "optionsInclude": [
+          "public String describe()",
+          "public String shout()"
+        ],
+        "optionsExclude": [
+          "public Long getId()"
+        ],
+        "name": "methods the user chooses to move"
+      },
+      {
+        "kind": "confirm",
+        "messageContains": "BaseContact",
+        "name": "preview"
+      }
+    ],
+    "createdFiles": [
+      {
+        "path": "src/main/java/com/example/shop/domain/BaseContact.java",
+        "contains": [
+          "public String describe() {",
+          "private String label;",
+          "private String phone;",
+          "MappedSuperclass"
+        ]
+      }
+    ],
+    "resultFile": {
+      "path": "src/main/java/com/example/shop/domain/Contact.java",
+      "contains": [
+        "public class Contact extends BaseContact",
+        "private String note;",
+        "public String shout() {",
+        "public Long getId()"
+      ],
+      "notContains": [
+        "public String describe()",
+        "private String label",
+        "private String phone"
+      ]
+    }
+  },
+  "checks": {
+    "preview": true,
+    "undo": true,
+    "cancelEach": true,
+    "stale": true
+  },
+  "note": "Move two attributes and one of two methods into a new mapped superclass."
+}

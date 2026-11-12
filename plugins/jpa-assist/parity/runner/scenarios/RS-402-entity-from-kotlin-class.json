@@ -1,0 +1,73 @@
+{
+  "id": "RS-402",
+  "rows": [
+    "G013"
+  ],
+  "claimIds": [
+    "G013-C2",
+    "G013-C3"
+  ],
+  "verifies": {
+    "G013-C2": "the Kotlin half of the sentence: a plain Kotlin class Gizmo with a primary constructor and a body (written by setup in the Kotlin fixture) gains @Entity, @Table(name = gizmos) and a var identifier of type UUID with assigned generation. Kotlin classes without a body, data classes and classes with a superclass are withheld and not checked here.",
+    "G013-C3": "same action on a Kotlin class; the original constructor parameter and property are kept unchanged and not mapped."
+  },
+  "fixture": "boot-jpa-kotlin-jakarta",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/kotlin/com/example/shop/domain/Gizmo.kt",
+        "content": "package com.example.shop.domain\n\nclass Gizmo(val title: String) {\n    var note: String? = null\n}\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/kotlin/com/example/shop/domain/Gizmo.kt",
+    "anchor": "class Gizmo"
+  },
+  "action": {
+    "title": "Entity from POJO with preview…"
+  },
+  "prompts": [
+    {
+      "pick": "jakarta"
+    },
+    {
+      "input": "gizmos"
+    },
+    {
+      "input": "key"
+    },
+    "default",
+    {
+      "pick": "uuid"
+    },
+    {
+      "pick": "assigned"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptCount": 7,
+    "resultFile": {
+      "path": "src/main/kotlin/com/example/shop/domain/Gizmo.kt",
+      "contains": [
+        "@jakarta.persistence.Entity",
+        "@jakarta.persistence.Table(name = \"gizmos\")",
+        "class Gizmo(val title: String) {",
+        "@jakarta.persistence.Id",
+        "var key: java.util.UUID? = null",
+        "var note: String? = null"
+      ]
+    }
+  },
+  "checks": {
+    "preview": true,
+    "undo": true,
+    "cancelEach": true,
+    "stale": true
+  },
+  "note": "Convert a written plain Kotlin class into an entity with an assigned UUID identifier."
+}

@@ -269,7 +269,8 @@ fn prompt_entity_with(path: Option<&str>, namespace: &str, fallback_kotlin: Opti
     if table.len() > 128 || (!table.is_empty() && !table.split('.').all(file_actions::identifier)) {
         return Err("Use a literal table identifier (optionally schema-qualified), without quotes or control characters.".into());
     }
-    let source = wizard::entity_source_with(&EntitySpec {
+    let lombok = lombok_entity_annotations();
+    let source = wizard::entity_source_annotated(&EntitySpec {
         role: persistence_core::PersistenceRole::Entity,
         table: if table.is_empty() { file_actions::naming_table_name(&name) } else { table.to_owned() },
         package: path.and_then(package_of),
@@ -279,10 +280,23 @@ fn prompt_entity_with(path: Option<&str>, namespace: &str, fallback_kotlin: Opti
         version: extras.iter().any(|e| e == "version"),
         equals: extras.iter().any(|e| e == "equals"),
         name: name.clone(),
-    }, host::setting_bool("lombokEntityDefaults").unwrap_or(false));
+    }, &lombok);
 
     let source = if namespace == "javax" { source.replace("jakarta.persistence.", "javax.persistence.") } else { source };
     Ok(Some((name, source)))
+}
+
+/// `lombokEntityAnnotations` when it names any supported annotation, else the `lombokEntityDefaults` trio.
+fn lombok_entity_annotations() -> Vec<&'static str> {
+    let rows: Vec<serde_json::Value> = host::setting("lombokEntityAnnotations").and_then(|raw| serde_json::from_str(&raw).ok()).unwrap_or_default();
+    let listed: Vec<&'static str> = wizard::LOMBOK_ENTITY_ANNOTATIONS.into_iter().filter(|a| rows.iter().any(|row| row["annotation"] == *a)).collect();
+    if !listed.is_empty() {
+        return listed;
+    }
+    if host::setting_bool("lombokEntityDefaults").unwrap_or(false) {
+        return wizard::LOMBOK_ENTITY_ANNOTATIONS[..3].to_vec();
+    }
+    Vec::new()
 }
 
 fn new_entity(ctx: &Invocation) -> Result<Option<String>, Error> {

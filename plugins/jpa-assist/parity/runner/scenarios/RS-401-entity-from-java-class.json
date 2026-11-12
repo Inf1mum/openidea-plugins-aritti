@@ -1,0 +1,118 @@
+{
+  "id": "RS-401",
+  "rows": [
+    "G013"
+  ],
+  "claimIds": [
+    "G013-C2",
+    "G013-C3"
+  ],
+  "verifies": {
+    "G013-C2": "a plain Java class Gadget (no persistence annotations, written by setup) is turned into a JPA entity by the code action Entity from POJO: the result file keeps the original members and gains @Entity, @Table(name = gadgets), an @Id with @GeneratedValue(IDENTITY) identifier and its accessors. Kotlin classes are RS-402. The IDE menu placement of the action is not checked.",
+    "G013-C3": "same action and result: any plain Java class (here a class with a String and a Date attribute) is converted; the sentence names the action Entity from POJO and our action carries that name. Mapping of the existing attributes is not claimed and not checked."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/Gadget.java",
+        "content": "package com.example.shop.domain;\n\nimport java.util.Date;\n\npublic class Gadget {\n\n    private String title;\n\n    private Date released;\n\n    public String getTitle() {\n        return title;\n    }\n\n    public void setTitle(String title) {\n        this.title = title;\n    }\n}\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Gadget.java",
+    "anchor": "public class Gadget"
+  },
+  "action": {
+    "title": "Entity from POJO with preview…"
+  },
+  "prompts": [
+    {
+      "pick": "jakarta"
+    },
+    {
+      "input": "gadgets"
+    },
+    {
+      "input": "id"
+    },
+    "default",
+    {
+      "pick": "long"
+    },
+    {
+      "pick": "identity"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pick",
+        "titleContains": "Persistence namespace"
+      },
+      {
+        "kind": "input",
+        "titleContains": "Table name",
+        "defaultIs": "gadget",
+        "name": "table"
+      },
+      {
+        "kind": "input",
+        "titleContains": "Identifier attribute name"
+      },
+      {
+        "kind": "input",
+        "titleContains": "Identifier column name"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "Identifier type",
+        "optionsInclude": [
+          "Long",
+          "UUID"
+        ]
+      },
+      {
+        "kind": "pick",
+        "titleContains": "Identifier generation",
+        "optionsInclude": [
+          "Identity",
+          "Sequence"
+        ]
+      },
+      {
+        "kind": "confirm",
+        "messageContains": "@jakarta.persistence.Entity",
+        "name": "preview"
+      }
+    ],
+    "resultFile": {
+      "path": "src/main/java/com/example/shop/domain/Gadget.java",
+      "contains": [
+        "@jakarta.persistence.Entity",
+        "@jakarta.persistence.Table(name = \"gadgets\")",
+        "public class Gadget {",
+        "@jakarta.persistence.Id",
+        "@jakarta.persistence.GeneratedValue(strategy = jakarta.persistence.GenerationType.IDENTITY)",
+        "private java.lang.Long id;",
+        "public java.lang.Long getId()",
+        "private String title;",
+        "private Date released;",
+        "public String getTitle()",
+        "public void setTitle(String title)"
+      ]
+    }
+  },
+  "checks": {
+    "preview": true,
+    "undo": true,
+    "cancelEach": true,
+    "stale": true
+  },
+  "note": "Convert a written plain Java class into an entity with a new identity identifier."
+}

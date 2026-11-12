@@ -1,0 +1,80 @@
+{
+  "id": "RS-406",
+  "rows": [
+    "G035"
+  ],
+  "claimIds": [
+    "G035-C2"
+  ],
+  "verifies": {
+    "G035-C2": "on the same entity Category equals and hashCode (identifier basis, applied first by preActions) and toString (attribute name, the main action) are all generated and appear in the source. The proxy-safety and lazy-safety properties and the Generate menu placement are not checked."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "preActions": [
+    {
+      "title": "Generate proxy-safe equals and hashCode with preview…",
+      "target": {
+        "file": "src/main/java/com/example/shop/domain/Category.java",
+        "anchor": "public class Category"
+      },
+      "prompts": [
+        {
+          "pick": "identifier"
+        },
+        {
+          "confirm": "yes"
+        }
+      ]
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Category.java",
+    "anchor": "public class Category"
+  },
+  "action": {
+    "title": "Generate lazy-safe toString with preview…"
+  },
+  "prompts": [
+    {
+      "pickMany": [
+        "name"
+      ]
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pickMany",
+        "titleContains": "Attributes to show",
+        "optionsInclude": [
+          "name"
+        ],
+        "optionsExclude": [
+          "products"
+        ]
+      },
+      {
+        "kind": "confirm",
+        "messageContains": "toString"
+      }
+    ],
+    "resultFile": {
+      "path": "src/main/java/com/example/shop/domain/Category.java",
+      "contains": [
+        "public boolean equals(Object o)",
+        "public int hashCode()",
+        "public String toString()",
+        "name"
+      ]
+    }
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "equals/hashCode through a pre-action, then toString as the main action."
+}

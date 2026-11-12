@@ -14,6 +14,8 @@ mod datasource_action;
 mod attribute_refactor;
 #[path = "identifier_action.rs"]
 mod identifier_action;
+#[path = "entity_from_class.rs"]
+mod entity_from_class;
 #[path = "embedded_id_action.rs"]
 mod embedded_id_action;
 #[path = "extract_superclass.rs"]
@@ -93,6 +95,7 @@ enum Operation {
     Identifier,
     ConfiguredEntity,
     EmbeddedIdentifier,
+    EntityFromClass,
     ExtractSuperclass,
     DtoToClass,
     DtoToRecord,
@@ -157,6 +160,7 @@ impl Operation {
             Self::Identifier => "identifier",
             Self::ConfiguredEntity => "configured-entity",
             Self::EmbeddedIdentifier => "embedded-identifier",
+            Self::EntityFromClass => "entity-from-class",
             Self::ExtractSuperclass => "extract-superclass",
             Self::DtoToClass => "dto-to-class",
             Self::DtoToRecord => "dto-to-record",
@@ -465,6 +469,9 @@ impl FileActions for JpaAssist {
             operations.push((Operation::Identifier,"Add JPA identifier with preview…"));
             operations.push((Operation::EmbeddedIdentifier,embedded_id_action::TITLE));
         }
+        if entity_from_class::eligible(doc) {
+            operations.push((Operation::EntityFromClass, entity_from_class::TITLE));
+        }
         if let Some(class) = current_class(doc) {
             operations.push((Operation::Attribute, "Add JPA attribute with preview…"));
             if class.kind == Kind::Entity { operations.push((Operation::Inverse, "Add inverse attribute to this entity…")); }
@@ -722,6 +729,7 @@ impl FileActions for JpaAssist {
             Operation::Rename => attribute_refactor::resolve(&pending,doc),
             Operation::Identifier => identifier_action::resolve(&pending,doc),
             Operation::EmbeddedIdentifier => embedded_id_action::resolve(&pending,doc),
+            Operation::EntityFromClass => entity_from_class::resolve(&pending, doc),
             Operation::ExtractSuperclass => extract_superclass::resolve(&pending, doc, &project),
             Operation::DtoToClass => dto_convert_action::resolve_to_class(&pending, doc, &project),
             Operation::DtoToRecord => dto_convert_action::resolve_to_record(&pending, doc, &project),

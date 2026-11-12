@@ -248,6 +248,10 @@ fn render(field: &Field, kotlin: bool, accessors: bool) -> String {
 }
 
 fn render_with_openness(field: &Field, kotlin: bool, accessors: bool, open: bool) -> String {
+    render_accessors(field, kotlin, accessors, accessors, open)
+}
+
+fn render_accessors(field: &Field, kotlin: bool, getter: bool, setter: bool, open: bool) -> String {
     let mut out: String = field.annotations.iter().map(|a| format!("    {a}\n")).collect();
     let Field { ty, name, init, .. } = field;
 
@@ -265,9 +269,11 @@ fn render_with_openness(field: &Field, kotlin: bool, accessors: bool, open: bool
         None => out.push_str(&format!("    private {ty} {name};")),
     }
 
-    if accessors {
-        let cap = capitalize(name);
+    let cap = capitalize(name);
+    if getter {
         out.push_str(&format!("\n\n    public {ty} get{cap}() {{\n        return {name};\n    }}"));
+    }
+    if setter {
         out.push_str(&format!("\n\n    public void set{cap}({ty} {name}) {{\n        this.{name} = {name};\n    }}"));
     }
 
@@ -283,22 +289,36 @@ pub fn entity_source(spec: &EntitySpec) -> String {
     entity_source_with(spec, false)
 }
 
+/// Lombok annotations a new Java entity can carry, in the order they are written.
+pub const LOMBOK_ENTITY_ANNOTATIONS: [&str; 5] = ["Getter", "Setter", "NoArgsConstructor", "AllArgsConstructor", "ToString"];
+
 /// `lombok` replaces generated Java accessors with `@Getter`, `@Setter` and `@NoArgsConstructor` on entities.
 pub fn entity_source_with(spec: &EntitySpec, lombok: bool) -> String {
+    entity_source_annotated(spec, if lombok { &LOMBOK_ENTITY_ANNOTATIONS[..3] } else { &[] })
+}
+
+/// `lombok_annotations` (names from `LOMBOK_ENTITY_ANNOTATIONS`) are written on a Java entity; generated accessors cover
+/// only what `@Getter` and `@Setter` do not.
+pub fn entity_source_annotated(spec: &EntitySpec, lombok_annotations: &[&str]) -> String {
     let kotlin = spec.kotlin;
     let name = &spec.name;
     let persistence = |what: &str| format!("{PERSISTENCE}.{what}");
     let entity = spec.role == persistence_core::PersistenceRole::Entity;
-    let lombok = lombok && entity && !kotlin;
+    let lombok_annotations: Vec<&str> = if entity && !kotlin {
+        LOMBOK_ENTITY_ANNOTATIONS.into_iter().filter(|a| lombok_annotations.contains(a)).collect()
+    } else {
+        Vec::new()
+    };
+    let (getter, setter) = (lombok_annotations.contains(&"Getter"), lombok_annotations.contains(&"Setter"));
     let mut imports = vec![persistence(spec.role.annotation())];
     let mut class_annotations = vec![format!("@{}", spec.role.annotation())];
     if entity {
         imports.extend([persistence("Table"), persistence("Id")]);
         class_annotations.push(format!("@Table(name = \"{}\")", spec.table));
     }
-    if lombok {
-        imports.extend(["lombok.Getter", "lombok.NoArgsConstructor", "lombok.Setter"].map(str::to_owned));
-        class_annotations.extend(["@Getter", "@Setter", "@NoArgsConstructor"].map(str::to_owned));
+    for annotation in &lombok_annotations {
+        imports.push(format!("lombok.{annotation}"));
+        class_annotations.push(format!("@{annotation}"));
     }
     let mut fields = Vec::new();
 
@@ -338,7 +358,7 @@ pub fn entity_source_with(spec: &EntitySpec, lombok: bool) -> String {
         fields.push(Field { annotations: vec!["@LastModifiedDate".into()], ty: "Instant".into(), name: "updatedAt".into(), init: None });
     }
 
-    let mut members: Vec<String> = fields.iter().map(|f| render(f, kotlin, !lombok)).collect();
+    let mut members: Vec<String> = fields.iter().map(|f| render_accessors(f, kotlin, !getter, !setter, false)).collect();
 
     if spec.equals && entity {
         members.push(equals_and_hash_code(name, kotlin));

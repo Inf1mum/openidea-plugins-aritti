@@ -1,0 +1,82 @@
+{
+  "id": "RS-405",
+  "rows": [
+    "G024"
+  ],
+  "claimIds": [
+    "G024-C1"
+  ],
+  "verifies": {
+    "G024-C1": "the setting lombokEntityAnnotations (Getter, AllArgsConstructor) decides which Lombok annotations the new-entity flow writes: the created Gadget entity carries @Getter and @AllArgsConstructor with their imports, no @Setter or @NoArgsConstructor, no generated getters but generated setters (nothing else covers them). The setting is read from the settings page; the claim's Entity Declaration window and annotations on new attributes are desktop surfaces / not offered and not checked."
+  },
+  "fixture": "mapstruct-lombok-dto",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "settings": {
+        "lombokEntityAnnotations": [
+          {
+            "annotation": "Getter"
+          },
+          {
+            "annotation": "AllArgsConstructor"
+          }
+        ]
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/crm/domain/Account.java",
+    "anchor": "public class Account"
+  },
+  "action": {
+    "title": "Generate JPA entity…"
+  },
+  "prompts": [
+    {
+      "pick": "jakarta"
+    },
+    {
+      "input": "Gadget"
+    },
+    "default",
+    {
+      "pick": "IDENTITY"
+    },
+    {
+      "pickMany": [
+        "version"
+      ]
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "createdFiles": [
+      {
+        "path": "src/main/java/com/example/crm/domain/Gadget.java",
+        "contains": [
+          "import lombok.Getter;",
+          "import lombok.AllArgsConstructor;",
+          "@Getter\n@AllArgsConstructor\npublic class Gadget",
+          "public void setId(",
+          "setVersion("
+        ]
+      }
+    ],
+    "resultFile": {
+      "path": "src/main/java/com/example/crm/domain/Gadget.java",
+      "notContains": [
+        "@Setter",
+        "@NoArgsConstructor",
+        "getId()"
+      ]
+    }
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "New entity with an explicit Lombok annotation selection configured."
+}

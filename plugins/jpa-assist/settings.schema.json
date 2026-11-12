@@ -281,6 +281,17 @@
       "title": "Java entities created by the New Entity wizard use Lombok @Getter, @Setter and @NoArgsConstructor instead of generated accessors (the project must have Lombok)",
       "default": false
     },
+    "lombokEntityAnnotations": {
+      "type": "array",
+      "title": "Lombok annotations the New Entity wizard writes on Java entities (Getter, Setter, NoArgsConstructor, AllArgsConstructor, ToString); empty uses lombokEntityDefaults",
+      "items": {
+        "type": "object",
+        "properties": {
+          "annotation": {"type": "string", "title": "Lombok annotation", "enum": ["Getter", "Setter", "NoArgsConstructor", "AllArgsConstructor", "ToString"], "default": "Getter"}
+        }
+      },
+      "default": []
+    },
     "liquibaseChangeSetDefaults": {
       "type": "array",
       "title": "Liquibase changeSet attributes: row 'all' applies to every generated changeSet, a row for one change type overrides it field by field; unset writes nothing. Preconditions: table/column/index/unique/FK changes; empty rollback: drop changes only",

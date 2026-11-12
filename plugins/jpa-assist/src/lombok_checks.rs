@@ -696,6 +696,39 @@ mod tests {
         }
     }
 
+    fn wizard_source(settings: &[(&str, &str)]) -> String {
+        let host = MockHost::install().with_capabilities(&["project.read", "editor.read"]);
+        let path = "/project/src/main/java/shop/Tag.java";
+        host.open_editor(path, "java", "", &[]);
+        for (key, value) in settings {
+            host.set_setting(key, value);
+        }
+        let doc = Document { path: path.into(), language: "java".into(), text: String::new(), version: 1 };
+        let mut plugin = JpaAssist::default();
+        let pending = plugin.file_actions(&doc, Range::default()).into_iter().find(|a| a.title.starts_with("Generate JPA")).unwrap();
+        for row in [&["jakarta"][..], &["Tag"], &["tags"], &["IDENTITY"], &["version"], &[]] {
+            host.answer_next_prompt(Some(row));
+        }
+        plugin.resolve_file_action(&doc, pending).unwrap().edits[0].1[0].text.clone()
+    }
+
+    #[test]
+    fn new_entity_wizard_writes_the_lombok_annotations_chosen_in_settings() {
+        let source = wizard_source(&[("lombokEntityAnnotations", r#"[{"annotation":"ToString"},{"annotation":"Getter"},{"annotation":"AllArgsConstructor"},{"annotation":"Bogus"}]"#)]);
+        assert!(source.contains("@Getter\n@AllArgsConstructor\n@ToString\npublic class"), "{source}");
+        assert!(!source.contains("@Setter") && !source.contains("@NoArgsConstructor"), "{source}");
+        assert!(!source.contains("getId()") && source.contains("public void setId(") && source.contains("setVersion("), "{source}");
+        for import in ["import lombok.Getter;", "import lombok.AllArgsConstructor;", "import lombok.ToString;"] {
+            assert!(source.contains(import), "{import}\n{source}");
+        }
+        let only_setter = wizard_source(&[("lombokEntityAnnotations", r#"[{"annotation":"Setter"}]"#), ("lombokEntityDefaults", "true")]);
+        assert!(only_setter.contains("@Setter\npublic class") && only_setter.contains("getId()") && !only_setter.contains("setId("), "{only_setter}");
+        let empty_list_keeps_defaults = wizard_source(&[("lombokEntityAnnotations", "[]"), ("lombokEntityDefaults", "true")]);
+        assert!(empty_list_keeps_defaults.contains("@Getter\n@Setter\n@NoArgsConstructor\npublic class"));
+        let unknown_only = wizard_source(&[("lombokEntityAnnotations", r#"[{"annotation":"Bogus"}]"#)]);
+        assert!(!unknown_only.contains("lombok"), "{unknown_only}");
+    }
+
     #[test]
     fn new_entity_wizard_honours_lombok_entity_defaults() {
         for (value, lombok) in [(None, false), (Some("false"), false), (Some("true"), true)] {

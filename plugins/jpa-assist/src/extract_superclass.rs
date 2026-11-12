@@ -195,17 +195,77 @@ fn raw(text: &str, span: (usize, usize)) -> String {
     slice[line..].replace("\r\n", "\n")
 }
 
+struct Method {
+    key: String,
+    name: String,
+    span: (usize, usize),
+    private: bool,
+}
+
+fn method_of(src: &Source, span: (usize, usize)) -> Option<Method> {
+    let clean = crate::model::without_annotations(&src.masked, span.0, span.1);
+    let head = &clean[..clean.find('{')?];
+    let paren = head.find('(')?;
+    let name = idents(&head[..paren]).last()?.to_owned();
+    if name == src.class.name || head.split_whitespace().any(|w| matches!(w, "class" | "interface" | "enum" | "record")) {
+        return None;
+    }
+    let key = head.split_whitespace().collect::<Vec<_>>().join(" ");
+    Some(Method { private: key.split_whitespace().any(|w| w == "private"), key, name, span })
+}
+
+fn methods_of(src: &Source) -> Vec<Method> {
+    src.members.iter().filter(|&&(start, finish)| !src.masked[..finish].ends_with(';') && start < finish).filter_map(|&span| method_of(src, span)).collect()
+}
+
+/// Methods that are not a class constructor or a conventional accessor of one of its attributes.
+fn candidate_methods(src: &Source) -> Vec<Method> {
+    let fields: Vec<Field> = src.class.attributes.iter().map(|a| Field { name: a.name.clone(), ty: a.ty.clone(), span: (0, 0) }).collect();
+    methods_of(src)
+        .into_iter()
+        .filter(|m| {
+            let shape = compact(&src.masked[m.span.0..m.span.1]);
+            !fields.iter().any(|f| accessor(&shape, f))
+        })
+        .collect()
+}
+
 /// Target path, new file text and edits for the invoking document.
+#[cfg(test)]
 pub(super) fn render(doc: &Document, chosen: &[String], name: &str) -> Result<(String, String, Vec<TextEdit>), Error> {
+    render_with(doc, chosen, &[], name)
+}
+
+/// `methods` are keys from `candidate_methods`; attributes the selected methods use are moved with them.
+pub(super) fn render_with(doc: &Document, chosen: &[String], methods: &[String], name: &str) -> Result<(String, String, Vec<TextEdit>), Error> {
     let src = source(doc).map_err(Error::from)?;
-    if chosen.is_empty() || chosen.len() > MAX_MOVED {
-        return Err("Choose between one and 32 offered attributes.".into());
+    if (chosen.is_empty() && methods.is_empty()) || chosen.len() > MAX_MOVED || methods.len() > MAX_MOVED {
+        return Err("Choose between one and 32 offered attributes or methods.".into());
     }
     let mut picked = Vec::new();
     let mut seen = HashSet::new();
     for chosen_name in chosen {
         let field = src.movable.iter().find(|f| f.name == *chosen_name).filter(|_| seen.insert(chosen_name.as_str()));
         picked.push(field.ok_or("Choose offered attributes exactly once.")?);
+    }
+    let offered = candidate_methods(&src);
+    let mut moved_methods: Vec<&Method> = Vec::new();
+    for key in methods {
+        let method = offered.iter().find(|m| m.key == *key).filter(|m| !moved_methods.iter().any(|p| p.span == m.span));
+        moved_methods.push(method.ok_or("Choose offered methods exactly once.")?);
+    }
+    for method in &moved_methods {
+        let text = &src.masked[method.span.0..method.span.1];
+        if has_word(text, &src.class.name) {
+            return Err(format!("Method `{}` refers to the entity class itself and cannot move.", method.name).into());
+        }
+        for attribute in &src.class.attributes {
+            if !has_word(text, &attribute.name) || picked.iter().any(|f| f.name == attribute.name) {
+                continue;
+            }
+            let field = src.movable.iter().find(|f| f.name == attribute.name);
+            picked.push(field.ok_or_else(|| format!("Method `{}` uses attribute `{}`, which cannot be moved.", method.name, attribute.name))?);
+        }
     }
     if !identifier(name) || name == src.class.name || has_word(&src.masked, name) {
         return Err("Choose a valid superclass name that does not occur in this source file.".into());
@@ -223,6 +283,13 @@ pub(super) fn render(doc: &Document, chosen: &[String], name: &str) -> Result<(S
         }
     }
     spans.extend(&accessors);
+    spans.extend(moved_methods.iter().map(|m| m.span));
+    for method in &moved_methods {
+        let text = &src.masked[method.span.0..method.span.1];
+        if let Some(stays) = methods_of(&src).iter().find(|m| !spans.contains(&m.span) && has_word(text, &m.name)) {
+            return Err(format!("Method `{}` calls `{}`, which stays in the entity; move it too or edit manually first.", method.name, stays.name).into());
+        }
+    }
 
     let remaining = blank(&src.masked[src.body.0..src.body.1], src.body.0, &spans);
     if let Some(field) = picked.iter().find(|f| has_word(&remaining, &f.name)) {
@@ -231,6 +298,12 @@ pub(super) fn render(doc: &Document, chosen: &[String], name: &str) -> Result<(S
             field.name
         )
         .into());
+    }
+
+    for method in moved_methods.iter().filter(|m| m.private) {
+        if has_word(&remaining, &method.name) {
+            return Err(format!("Private method `{}` is still called by another member; edit it manually first.", method.name).into());
+        }
     }
 
     let moved_masked: String = spans.iter().map(|&(s, e)| &src.masked[s..e]).collect::<Vec<_>>().join(" ");
@@ -257,6 +330,7 @@ pub(super) fn render(doc: &Document, chosen: &[String], name: &str) -> Result<(S
 
     let mut body: Vec<String> = picked.iter().map(|f| raw(&doc.text, f.span)).collect();
     body.extend(accessors.iter().map(|&span| raw(&doc.text, span)));
+    body.extend(moved_methods.iter().map(|m| raw(&doc.text, m.span)));
     let imports_block: String = copied.iter().map(|i| format!("import {i};\n")).collect();
     let mut source_text = format!(
         "package {};\n\n{}{}@{}.MappedSuperclass\npublic abstract class {name} {{\n{}\n}}\n",
@@ -299,7 +373,13 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> R
     let items: Vec<_> = src.movable.iter().map(|f| PickItem::new(&f.name, &f.name).description(&f.ty)).collect();
     let chosen = host::pick_many("Attributes to move (identifiers, versions, relationships and unknown annotations are not offered)", &items)?
         .ok_or(Error::Cancelled)?;
-    let (target, text, edits) = render(doc, &chosen, &name)?;
+    let candidates = candidate_methods(&src);
+    let mut methods = Vec::new();
+    if !candidates.is_empty() {
+        let items: Vec<_> = candidates.iter().map(|m| PickItem::new(&m.key, &m.key)).collect();
+        methods = host::pick_many("Methods to move (attributes a selected method uses are moved with it)", &items)?.ok_or(Error::Cancelled)?;
+    }
+    let (target, text, edits) = render_with(doc, &chosen, &methods, &name)?;
     let directory = doc.path.rsplit_once('/').ok_or(Error::Stale)?.0;
     if path(&target).as_deref() != Some(target.as_str()) || !inside(&pending.root, &target) {
         return Err(Error::Stale);
@@ -476,6 +556,66 @@ mod tests {
         assert!(refuse(ENTITY, &["missing"], "BaseInvoice").contains("exactly once"));
     }
 
+    fn with_methods(methods: &str) -> String {
+        let at = ENTITY.rfind('}').unwrap();
+        format!("{}\n{methods}\n}}\n", &ENTITY[..at])
+    }
+    fn render_methods(text: &str, attributes: &[&str], methods: &[&str]) -> Result<(String, String), String> {
+        let (attributes, methods) = (names(attributes), names(methods));
+        render_with(&doc(text), &attributes, &methods, "BaseInvoice")
+            .map(|(_, source, edits)| (source, patched(text, &edits).unwrap()))
+            .map_err(|e| format!("{e:?}"))
+    }
+
+    #[test]
+    fn selected_methods_move_and_the_attributes_they_use_move_with_them() {
+        let text = with_methods("    public String label() {\n        return title + note;\n    }\n\n    public Invoice() {\n    }");
+        let src = source(&doc(&text)).unwrap();
+        let offered: Vec<_> = candidate_methods(&src).into_iter().map(|m| m.key).collect();
+        assert_eq!(offered, ["public String label()"]);
+        let (superclass, entity) = render_methods(&text, &[], &["public String label()"]).unwrap();
+        for expected in ["public String label() {", "@Column(name = \"title_text\")\n    private String title;", "private String note;", "public String getTitle() {", "public void setTitle(String title) {"] {
+            assert!(superclass.contains(expected), "{expected}\n{superclass}");
+        }
+        assert!(!superclass.contains("createdAt") && !superclass.contains("Invoice()"));
+        for gone in ["label", "title", "note", "setTitle"] {
+            assert!(!entity.contains(gone), "{gone}\n{entity}");
+        }
+        assert!(entity.contains("extends BaseInvoice") && entity.contains("public Invoice() {") && entity.contains("getCreatedAt"));
+    }
+
+    #[test]
+    fn methods_that_cannot_move_cleanly_are_refused() {
+        let cases = [
+            ("public String tag() { return \"x\" + id; }", "uses attribute `id`"),
+            ("public String both() { return getCreatedAt() + \"\"; }", "calls `getCreatedAt`"),
+            ("public Invoice copy() { return new Invoice(); }", "refers to the entity class"),
+        ];
+        for (method, reason) in cases {
+            let message = render_methods(&with_methods(&format!("    {method}")), &[], &[method.split('{').next().unwrap().trim()]).unwrap_err();
+            assert!(message.contains(reason), "{method}: {message}");
+        }
+        let text = with_methods("    private String clean() { return title; }\n\n    public String show() { return clean(); }");
+        assert!(render_methods(&text, &[], &["private String clean()"]).unwrap_err().contains("Private method `clean`"));
+        assert!(render_methods(&text, &[], &["public String missing()"]).unwrap_err().contains("exactly once"));
+        assert!(render_methods(&text, &[], &["public String show()", "public String show()"]).unwrap_err().contains("exactly once"));
+        assert!(render_methods(&text, &[], &[]).unwrap_err().contains("between one and 32"));
+    }
+
+    #[test]
+    fn resolve_asks_for_methods_only_when_some_can_move() {
+        let text = with_methods("    public String label() {\n        return title;\n    }");
+        let (host, mut plugin, document) = setup(&text);
+        let action = pick(&mut plugin, &document);
+        host.answer_next_prompt(Some(&["BaseInvoice"]));
+        host.answer_next_prompt(Some(&[]));
+        host.answer_next_prompt(Some(&["public String label()"]));
+        host.answer_next_prompt(Some(&[]));
+        let result = plugin.resolve_file_action(&document, action).unwrap();
+        let [FileOperation::Create { text: created, overwrite: false, .. }] = result.operations.as_slice() else { panic!("one create") };
+        assert!(created.contains("public String label()") && created.contains("private String title;"));
+    }
+
     #[test]
     fn oversized_sources_are_not_offered() {
         let text = format!("{ENTITY}// {}\n", "x".repeat(MAX_TEXT));
@@ -552,6 +692,33 @@ mod tests {
                 .output()
                 .expect("javac installed");
             assert!(result.status.success(), "{ns}: {}\n{files:?}", String::from_utf8_lossy(&result.stderr));
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+    #[test]
+    #[ignore = "requires javac and JPA_JAKARTA_API / JPA_JAVAX_API jar paths"]
+    fn generated_superclass_with_moved_methods_compiles_against_both_persistence_apis() {
+        for (ns, variable) in [("jakarta.persistence", "JPA_JAKARTA_API"), ("javax.persistence", "JPA_JAVAX_API")] {
+            let jar = std::env::var(variable).expect("explicit API jar path");
+            let text = with_methods("    public String label() {\n        return title + note;\n    }").replace("jakarta.persistence", ns);
+            let (superclass, entity) = render_methods(&text, &[], &["public String label()"]).unwrap();
+            let dir = std::env::temp_dir().join(format!("jpa-extract-methods-{}-{ns}", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let paths: Vec<_> = [("BaseInvoice.java", superclass), ("Invoice.java", entity)]
+                .iter()
+                .map(|(name, body)| {
+                    let path = dir.join(name);
+                    std::fs::write(&path, body).unwrap();
+                    path
+                })
+                .collect();
+            let result = std::process::Command::new("javac")
+                .args(["--release", "17", "-proc:none", "-classpath", &jar, "-d"])
+                .arg(&dir)
+                .args(&paths)
+                .output()
+                .expect("javac installed");
+            assert!(result.status.success(), "{ns}: {}", String::from_utf8_lossy(&result.stderr));
             std::fs::remove_dir_all(dir).unwrap();
         }
     }

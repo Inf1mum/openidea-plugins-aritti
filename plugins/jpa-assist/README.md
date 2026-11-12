@@ -827,6 +827,15 @@ Apply rechecks editor version, current ownership and sibling type collisions.
 This workflow replaces only the bound empty editor. Existing FileActions provide
 reviewed sibling creation through **Generate JPA entity with identifier options**.
 
+**Entity from POJO with preview** turns a plain top-level Java or Kotlin class into an entity: it asks for the
+namespace, table and identifier, writes fully qualified `@Entity`/`@Table` and either annotates an existing
+identifier field of the chosen type or adds a new one, and adds a protected no-arg constructor to Java classes whose
+constructors all take arguments. Other members are not mapped. Classes with annotations on the class line, generics,
+a superclass, `final`/`data` modifiers, or other top-level types are withheld.
+
+**Extract mapped superclass with preview** also offers the entity's non-accessor methods; attributes a selected
+method uses move with it, and methods that use unmovable attributes or call methods that stay are refused.
+
 **Add JPA identifier with preview** adds a configured ID to a closed plain entity
 or mapped superclass with no existing source ID. Inherited/generic/property-access
 or ambiguous contexts are withheld. These are source-generation choices; API
@@ -915,3 +924,5 @@ associations: `@EqualsAndHashCode.Exclude`) and `jpa-lombok-constructors` (`@Bui
 `Edit Lombok annotations…` previews an add/remove of the common class-level annotations.
 `lombok.config` is not read and Kotlin is not inspected. The `lombokEntityDefaults` setting (default
 off) makes the New Entity wizard emit `@Getter @Setter @NoArgsConstructor` instead of accessors.
+The `lombokEntityAnnotations` setting (rows with an `annotation` each) chooses the annotations instead (any of Getter, Setter,
+NoArgsConstructor, AllArgsConstructor, ToString; accessors are generated only for what `@Getter` and `@Setter` do not cover).

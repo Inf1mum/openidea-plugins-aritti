@@ -1,0 +1,48 @@
+{
+  "id": "RS-400",
+  "rows": [
+    "G009"
+  ],
+  "claimIds": [
+    "G009-C2"
+  ],
+  "verifies": {
+    "G009-C2": "live diagnostics on AssociationDefects flag four mapping declarations that are not the best-performing choice: unidirectional @OneToMany (jpa-unidirectional-one-to-many), @ManyToMany over a List (jpa-many-to-many-list), explicit EAGER fetch (jpa-eager-fetch) and implicit EAGER @ManyToOne (jpa-eager-to-one). The rule set is ours, the documentation names none, so it is not compared with the original inspections; the associated advice texts are not checked."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "diagnostics",
+  "target": {
+    "file": "src/main/java/com/example/shop/defects/AssociationDefects.java"
+  },
+  "expect": {
+    "diagnostics": [
+      {
+        "rule": "jpa-unidirectional-one-to-many",
+        "file": "src/main/java/com/example/shop/defects/AssociationDefects.java"
+      },
+      {
+        "rule": "jpa-many-to-many-list",
+        "file": "src/main/java/com/example/shop/defects/AssociationDefects.java"
+      },
+      {
+        "rule": "jpa-eager-fetch",
+        "file": "src/main/java/com/example/shop/defects/AssociationDefects.java"
+      },
+      {
+        "rule": "jpa-eager-to-one",
+        "file": "src/main/java/com/example/shop/defects/AssociationDefects.java"
+      }
+    ],
+    "diagnosticsAbsent": [
+      {
+        "rule": "jpa-eager-fetch",
+        "file": "src/main/java/com/example/shop/domain/CustomerOrder.java"
+      },
+      {
+        "rule": "jpa-unidirectional-one-to-many",
+        "file": "src/main/java/com/example/shop/domain/CustomerOrder.java"
+      }
+    ]
+  },
+  "note": "Association-advice inspections over the defect fixture; the lazy, mapped CustomerOrder stays quiet."
+}
