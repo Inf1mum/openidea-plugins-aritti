@@ -1,0 +1,1206 @@
+{
+  "version": 1,
+  "complete": true,
+  "tables": [
+    {
+      "name": "account",
+      "columns": {
+        "state": "known",
+        "value": [
+          {
+            "name": "id",
+            "sql_type": {
+              "state": "known",
+              "value": {
+                "logical": "decimal",
+                "raw": "BIGINT UNSIGNED"
+              }
+            },
+            "nullable": {
+              "state": "known",
+              "value": false
+            },
+            "default": {
+              "state": "known",
+              "value": null
+            },
+            "length": null,
+            "precision": 20,
+            "scale": 0,
+            "generated": {
+              "state": "known",
+              "value": true
+            }
+          },
+          {
+            "name": "email",
+            "sql_type": {
+              "state": "known",
+              "value": {
+                "logical": "varchar",
+                "raw": "VARCHAR(255)"
+              }
+            },
+            "nullable": {
+              "state": "known",
+              "value": false
+            },
+            "default": {
+              "state": "known",
+              "value": null
+            },
+            "length": 255,
+            "precision": null,
+            "scale": null,
+            "generated": {
+              "state": "known",
+              "value": false
+            }
+          },
+          {
+            "name": "name",
+            "sql_type": {
+              "state": "known",
+              "value": {
+                "logical": "varchar",
+                "raw": "VARCHAR(100)"
+              }
+            },
+            "nullable": {
+              "state": "known",
+              "value": true
+            },
+            "default": {
+              "state": "known",
+              "value": "anon"
+            },
+            "length": 100,
+            "precision": null,
+            "scale": null,
+            "generated": {
+              "state": "known",
+              "value": false
+            }
+          },
+          {
+            "name": "t_signed",
+            "sql_type": {
+              "state": "known",
+              "value": {
+                "logical": "tinyint",
+                "raw": "TINYINT"
+              }
+            },
+            "nullable": {
+              "state": "known",
+              "value": true
+            },
+            "default": {
+              "state": "known",
+              "value": null
+            },
+            "length": null,
+            "precision": null,
+            "scale": null,
+            "generated": {
+              "state": "known",
+              "value": false
+            }
+          },
+          {
+            "name": "flag",
+            "sql_type": {
+              "state": "known",
+              "value": {
+                "logical": "boolean",
+                "raw": "BIT"
+              }
+            },
+            "nullable": {
+              "state": "known",
+              "value": false
+            },
+            "default": {
+              "state": "known",
+              "value": null
+            },
+            "length": null,
+            "precision": null,
+            "scale": null,
+            "generated": {
+              "state": "known",
+              "value": false
+            }
+          },
+          {
+            "name": "bits",
+            "sql_type": {
+              "state": "unknown",
+              "value": "unmapped SQL type 'BIT' (java.sql.Types -7)"
+            },
+            "nullable": {
+              "state": "known",
+              "value": true
+            },
+            "default": {
+              "state": "known",
+              "value": null
+            },
+            "length": null,
+            "precision": null,
+            "scale": null,
+            "generated": {
+              "state": "known",
+              "value": false
+            }
+          },
+          {
+            "name": "u_tiny",
+            "sql_type": {
+              "state": "known",
+              "value": {
+                "logical": "smallint",
+                "raw": "TINYINT UNSIGNED"
+              }
+            },
+            "nullable": {
+              "state": "known",
+              "value": true
+            },
+            "default": {
+              "state": "known",
+              "value": null
+            },
+            "length": null,
+            "precision": null,
+            "scale": null,
+            "generated": {
+              "state": "known",
+              "value": false
+            }
+          },
+          {
+            "name": "u_small",
+            "sql_type": {
+              "state": "known",
+              "value": {
+                "logical": "integer",
+                "raw": "SMALLINT UNSIGNED"
+              }
+            },
+            "nullable": {
+              "state": "known",
+              "value": true
+            },
+            "default": {
+              "state": "known",
+              "value": null
+            },
+            "length": null,
+            "precision": null,
+            "scale": null,
+            "generated": {
+              "state": "known",
+              "value": false
+            }
+          },
+          {
+            "name": "small",
+            "sql_type": {
+              "state": "known",
+              "value": {
+                "logical": "smallint",
+                "raw": "SMALLINT"
+              }
+            },
+            "nullable": {
+              "state": "known",
+              "value": true
+            },
+            "default": {
+              "state": "known",
+              "value": null
+            },
+            "length": null,
+            "precision": null,
+            "scale": null,
+            "generated": {
+              "state": "known",
+              "value": false
+            }
+          },
+          {
+            "name": "mid",
+            "sql_type": {
+              "state": "known",
+              "value": {
+                "logical": "integer",
+                "raw": "MEDIUMINT"
+              }
+            },
+            "nullable": {
+              "state": "known",
+              "value": true
+            },
+            "default": {
+              "state": "known",
+              "value": null
+            },
+            "length": null,
+            "precision": null,
+            "scale": null,
+            "generated": {
+              "state": "known",
+              "value": false
+            }
+          },
+          {
+            "name": "u_mid",
+            "sql_type": {
+              "state": "known",
+              "value": {
+                "logical": "integer",
+                "raw": "MEDIUMINT UNSIGNED"
+              }
+            },
+            "nullable": {
+              "state": "known",
+              "value": true
+            },
+            "default": {
+              "state": "known",
+              "value": null
+            },
+            "length": null,
+            "precision": null,
+            "scale": null,
+            "generated": {
+              "state": "known",
+              "value": false
+            }
+          },
+          {
+            "name": "i",
+            "sql_type": {
+              "state": "known",
+              "value": {
+                "logical": "integer",
+                "raw": "INT"
+              }
+            },
+            "nullable": {
+              "state": "known",
+              "value": true
+            },
+            "default": {
+              "state": "known",
+              "value": null
+            },
+            "length": null,
+            "precision": null,
+            "scale": null,
+            "generated": {
+              "state": "known",
+              "value": false
+            }
+          },
+          {
+            "name": "u_int",
+            "sql_type": {
+              "state": "known",
+              "value": {
+                "logical": "bigint",
+                "raw": "INT UNSIGNED"
+              }
+            },
+            "nullable": {
+              "state": "known",
+              "value": true
+            },
+            "default": {
+              "state": "known",
+              "value": null
+            },
+            "length": null,
+            "precision": null,
+            "scale": null,
+            "generated": {
+              "state": "known",
+              "value": false
+            }
+          },
+          {
+            "name": "big",
+            "sql_type": {
+              "state": "known",
+              "value": {
+                "logical": "bigint",
+                "raw": "BIGINT"
+              }
+            },
+            "nullable": {
+              "state": "known",
+              "value": true
+            },
+            "default": {
+              "state": "known",
+              "value": null
+            },
+            "length": null,
+            "precision": null,
+            "scale": null,
+            "generated": {
+              "state": "known",
+              "value": false
+            }
+          },
+          {
+            "name": "price",
+            "sql_type": {
+              "state": "known",
+              "value": {
+                "logical": "decimal",
+                "raw": "DECIMAL(10,2)"
+              }
+            },
+            "nullable": {
+              "state": "known",
+              "value": true
+            },
+            "default": {
+              "state": "known",
+              "value": null
+            },
+            "length": null,
+            "precision": 10,
+            "scale": 2,
+            "generated": {
+              "state": "known",
+              "value": false
+            }
+          },
+          {
+            "name": "u_dec",
+            "sql_type": {
+              "state": "known",
+              "value": {
+                "logical": "decimal",
+                "raw": "DECIMAL UNSIGNED(12,4)"
+              }
+            },
+            "nullable": {
+              "state": "known",
+              "value": true
+            },
+            "default": {
+              "state": "known",
+              "value": null
+            },
+            "length": null,
+            "precision": 12,
+            "scale": 4,
+            "generated": {
+              "state": "known",
+              "value": false
+            }
+          },
+          {
+            "name": "f",
+            "sql_type": {
+              "state": "known",
+              "value": {
+                "logical": "real",
+                "raw": "FLOAT"
+              }
+            },
+            "nullable": {
+              "state": "known",
+              "value": true
+            },
+            "default": {
+              "state": "known",
+              "value": null
+            },
+            "length": null,
+            "precision": null,
+            "scale": null,
+            "generated": {
+              "state": "known",
+              "value": false
+            }
+          },
+          {
+            "name": "d",
+            "sql_type": {
+              "state": "known",
+              "value": {
+                "logical": "double",
+                "raw": "DOUBLE"
+              }
+            },
+            "nullable": {
+              "state": "known",
+              "value": true
+            },
+            "default": {
+              "state": "known",
+              "value": null
+            },
+            "length": null,
+            "precision": null,
+            "scale": null,
+            "generated": {
+              "state": "known",
+              "value": false
+            }
+          },
+          {
+            "name": "ch",
+            "sql_type": {
+              "state": "known",
+              "value": {
+                "logical": "char",
+                "raw": "CHAR(2)"
+              }
+            },
+            "nullable": {
+              "state": "known",
+              "value": true
+            },
+            "default": {
+              "state": "known",
+              "value": null
+            },
+            "length": 2,
+            "precision": null,
+            "scale": null,
+            "generated": {
+              "state": "known",
+              "value": false
+            }
+          },
+          {
+            "name": "tiny_text",
+            "sql_type": {
+              "state": "known",
+              "value": {
+                "logical": "text",
+                "raw": "TINYTEXT"
+              }
+            },
+            "nullable": {
+              "state": "known",
+              "value": true
+            },
+            "default": {
+              "state": "known",
+              "value": null
+            },
+            "length": null,
+            "precision": null,
+            "scale": null,
+            "generated": {
+              "state": "known",
+              "value": false
+            }
+          },
+          {
+            "name": "body",
+            "sql_type": {
+              "state": "known",
+              "value": {
+                "logical": "text",
+                "raw": "TEXT"
+              }
+            },
+            "nullable": {
+              "state": "known",
+              "value": true
+            },
+            "default": {
+              "state": "known",
+              "value": null
+            },
+            "length": null,
+            "precision": null,
+            "scale": null,
+            "generated": {
+              "state": "known",
+              "value": false
+            }
+          },
+          {
+            "name": "long_body",
+            "sql_type": {
+              "state": "known",
+              "value": {
+                "logical": "text",
+                "raw": "LONGTEXT"
+              }
+            },
+            "nullable": {
+              "state": "known",
+              "value": true
+            },
+            "default": {
+              "state": "known",
+              "value": null
+            },
+            "length": null,
+            "precision": null,
+            "scale": null,
+            "generated": {
+              "state": "known",
+              "value": false
+            }
+          },
+          {
+            "name": "created",
+            "sql_type": {
+              "state": "known",
+              "value": {
+                "logical": "timestamp",
+                "raw": "DATETIME"
+              }
+            },
+            "nullable": {
+              "state": "known",
+              "value": true
+            },
+            "default": {
+              "state": "known",
+              "value": null
+            },
+            "length": null,
+            "precision": null,
+            "scale": null,
+            "generated": {
+              "state": "known",
+              "value": false
+            }
+          },
+          {
+            "name": "touched",
+            "sql_type": {
+              "state": "known",
+              "value": {
+                "logical": "timestamp",
+                "raw": "TIMESTAMP"
+              }
+            },
+            "nullable": {
+              "state": "known",
+              "value": false
+            },
+            "default": {
+              "state": "known",
+              "value": "CURRENT_TIMESTAMP"
+            },
+            "length": null,
+            "precision": null,
+            "scale": null,
+            "generated": {
+              "state": "known",
+              "value": false
+            }
+          },
+          {
+            "name": "born",
+            "sql_type": {
+              "state": "known",
+              "value": {
+                "logical": "date",
+                "raw": "DATE"
+              }
+            },
+            "nullable": {
+              "state": "known",
+              "value": true
+            },
+            "default": {
+              "state": "known",
+              "value": null
+            },
+            "length": null,
+            "precision": null,
+            "scale": null,
+            "generated": {
+              "state": "known",
+              "value": false
+            }
+          },
+          {
+            "name": "at_time",
+            "sql_type": {
+              "state": "known",
+              "value": {
+                "logical": "time",
+                "raw": "TIME"
+              }
+            },
+            "nullable": {
+              "state": "known",
+              "value": true
+            },
+            "default": {
+              "state": "known",
+              "value": null
+            },
+            "length": null,
+            "precision": null,
+            "scale": null,
+            "generated": {
+              "state": "known",
+              "value": false
+            }
+          },
+          {
+            "name": "yr",
+            "sql_type": {
+              "state": "unknown",
+              "value": "unmapped SQL type 'YEAR' (java.sql.Types 91)"
+            },
+            "nullable": {
+              "state": "known",
+              "value": true
+            },
+            "default": {
+              "state": "known",
+              "value": null
+            },
+            "length": null,
+            "precision": null,
+            "scale": null,
+            "generated": {
+              "state": "known",
+              "value": false
+            }
+          },
+          {
+            "name": "status",
+            "sql_type": {
+              "state": "unknown",
+              "value": "unmapped SQL type 'ENUM' (java.sql.Types 1)"
+            },
+            "nullable": {
+              "state": "known",
+              "value": false
+            },
+            "default": {
+              "state": "known",
+              "value": "new"
+            },
+            "length": null,
+            "precision": null,
+            "scale": null,
+            "generated": {
+              "state": "known",
+              "value": false
+            }
+          },
+          {
+            "name": "perms",
+            "sql_type": {
+              "state": "unknown",
+              "value": "unmapped SQL type 'SET' (java.sql.Types 1)"
+            },
+            "nullable": {
+              "state": "known",
+              "value": true
+            },
+            "default": {
+              "state": "known",
+              "value": null
+            },
+            "length": null,
+            "precision": null,
+            "scale": null,
+            "generated": {
+              "state": "known",
+              "value": false
+            }
+          },
+          {
+            "name": "doc",
+            "sql_type": {
+              "state": "unknown",
+              "value": "unmapped SQL type 'JSON' (java.sql.Types -1)"
+            },
+            "nullable": {
+              "state": "known",
+              "value": true
+            },
+            "default": {
+              "state": "known",
+              "value": null
+            },
+            "length": null,
+            "precision": null,
+            "scale": null,
+            "generated": {
+              "state": "known",
+              "value": false
+            }
+          },
+          {
+            "name": "geom",
+            "sql_type": {
+              "state": "unknown",
+              "value": "unmapped SQL type 'GEOMETRY' (java.sql.Types -2)"
+            },
+            "nullable": {
+              "state": "known",
+              "value": true
+            },
+            "default": {
+              "state": "known",
+              "value": null
+            },
+            "length": null,
+            "precision": null,
+            "scale": null,
+            "generated": {
+              "state": "known",
+              "value": false
+            }
+          },
+          {
+            "name": "uuid_bin",
+            "sql_type": {
+              "state": "known",
+              "value": {
+                "logical": "binary",
+                "raw": "BINARY"
+              }
+            },
+            "nullable": {
+              "state": "known",
+              "value": true
+            },
+            "default": {
+              "state": "known",
+              "value": null
+            },
+            "length": null,
+            "precision": null,
+            "scale": null,
+            "generated": {
+              "state": "known",
+              "value": false
+            }
+          },
+          {
+            "name": "vbin",
+            "sql_type": {
+              "state": "known",
+              "value": {
+                "logical": "binary",
+                "raw": "VARBINARY"
+              }
+            },
+            "nullable": {
+              "state": "known",
+              "value": true
+            },
+            "default": {
+              "state": "known",
+              "value": null
+            },
+            "length": null,
+            "precision": null,
+            "scale": null,
+            "generated": {
+              "state": "known",
+              "value": false
+            }
+          },
+          {
+            "name": "blob_col",
+            "sql_type": {
+              "state": "known",
+              "value": {
+                "logical": "binary",
+                "raw": "LONGBLOB"
+              }
+            },
+            "nullable": {
+              "state": "known",
+              "value": true
+            },
+            "default": {
+              "state": "known",
+              "value": null
+            },
+            "length": null,
+            "precision": null,
+            "scale": null,
+            "generated": {
+              "state": "known",
+              "value": false
+            }
+          },
+          {
+            "name": "tiny_bool",
+            "sql_type": {
+              "state": "known",
+              "value": {
+                "logical": "boolean",
+                "raw": "TINYINT"
+              }
+            },
+            "nullable": {
+              "state": "known",
+              "value": true
+            },
+            "default": {
+              "state": "known",
+              "value": null
+            },
+            "length": null,
+            "precision": null,
+            "scale": null,
+            "generated": {
+              "state": "known",
+              "value": false
+            }
+          },
+          {
+            "name": "stored_total",
+            "sql_type": {
+              "state": "known",
+              "value": {
+                "logical": "integer",
+                "raw": "INT"
+              }
+            },
+            "nullable": {
+              "state": "known",
+              "value": true
+            },
+            "default": {
+              "state": "known",
+              "value": null
+            },
+            "length": null,
+            "precision": null,
+            "scale": null,
+            "generated": {
+              "state": "known",
+              "value": true
+            }
+          }
+        ]
+      },
+      "primary_key": {
+        "state": "known",
+        "value": [
+          "id"
+        ]
+      },
+      "foreign_keys": {
+        "state": "known",
+        "value": []
+      },
+      "unique_constraints": {
+        "state": "known",
+        "value": [
+          {
+            "name": "uq_account_email",
+            "columns": [
+              "email"
+            ]
+          }
+        ]
+      },
+      "indexes": {
+        "state": "known",
+        "value": [
+          {
+            "name": "idx_account_name",
+            "columns": [
+              "name"
+            ],
+            "unique": false
+          }
+        ]
+      },
+      "provenance": "literal"
+    },
+    {
+      "name": "invoice",
+      "columns": {
+        "state": "known",
+        "value": [
+          {
+            "name": "id",
+            "sql_type": {
+              "state": "known",
+              "value": {
+                "logical": "integer",
+                "raw": "INT"
+              }
+            },
+            "nullable": {
+              "state": "known",
+              "value": false
+            },
+            "default": {
+              "state": "known",
+              "value": null
+            },
+            "length": null,
+            "precision": null,
+            "scale": null,
+            "generated": {
+              "state": "known",
+              "value": true
+            }
+          },
+          {
+            "name": "account_id",
+            "sql_type": {
+              "state": "known",
+              "value": {
+                "logical": "decimal",
+                "raw": "BIGINT UNSIGNED"
+              }
+            },
+            "nullable": {
+              "state": "known",
+              "value": false
+            },
+            "default": {
+              "state": "known",
+              "value": null
+            },
+            "length": null,
+            "precision": 20,
+            "scale": 0,
+            "generated": {
+              "state": "known",
+              "value": false
+            }
+          },
+          {
+            "name": "issued",
+            "sql_type": {
+              "state": "known",
+              "value": {
+                "logical": "date",
+                "raw": "DATE"
+              }
+            },
+            "nullable": {
+              "state": "known",
+              "value": true
+            },
+            "default": {
+              "state": "known",
+              "value": null
+            },
+            "length": null,
+            "precision": null,
+            "scale": null,
+            "generated": {
+              "state": "known",
+              "value": false
+            }
+          }
+        ]
+      },
+      "primary_key": {
+        "state": "known",
+        "value": [
+          "id"
+        ]
+      },
+      "foreign_keys": {
+        "state": "known",
+        "value": [
+          {
+            "name": "fk_invoice_account",
+            "columns": [
+              "account_id"
+            ],
+            "ref_table": "account",
+            "ref_columns": {
+              "state": "known",
+              "value": [
+                "id"
+              ]
+            }
+          }
+        ]
+      },
+      "unique_constraints": {
+        "state": "known",
+        "value": []
+      },
+      "indexes": {
+        "state": "known",
+        "value": [
+          {
+            "name": "idx_invoice_issued",
+            "columns": [
+              "issued"
+            ],
+            "unique": false
+          }
+        ]
+      },
+      "provenance": "literal"
+    },
+    {
+      "name": "legacy_log",
+      "columns": {
+        "state": "known",
+        "value": [
+          {
+            "name": "line",
+            "sql_type": {
+              "state": "known",
+              "value": {
+                "logical": "text",
+                "raw": "TEXT"
+              }
+            },
+            "nullable": {
+              "state": "known",
+              "value": true
+            },
+            "default": {
+              "state": "known",
+              "value": null
+            },
+            "length": null,
+            "precision": null,
+            "scale": null,
+            "generated": {
+              "state": "known",
+              "value": false
+            }
+          },
+          {
+            "name": "n",
+            "sql_type": {
+              "state": "known",
+              "value": {
+                "logical": "integer",
+                "raw": "INT"
+              }
+            },
+            "nullable": {
+              "state": "unknown",
+              "value": "the driver reports nullability as unknown"
+            },
+            "default": {
+              "state": "known",
+              "value": null
+            },
+            "length": null,
+            "precision": null,
+            "scale": null,
+            "generated": {
+              "state": "known",
+              "value": false
+            }
+          }
+        ]
+      },
+      "primary_key": {
+        "state": "known",
+        "value": []
+      },
+      "foreign_keys": {
+        "state": "known",
+        "value": []
+      },
+      "unique_constraints": {
+        "state": "known",
+        "value": []
+      },
+      "indexes": {
+        "state": "known",
+        "value": []
+      },
+      "provenance": "literal"
+    },
+    {
+      "name": "note",
+      "columns": {
+        "state": "known",
+        "value": [
+          {
+            "name": "id",
+            "sql_type": {
+              "state": "known",
+              "value": {
+                "logical": "integer",
+                "raw": "INT"
+              }
+            },
+            "nullable": {
+              "state": "known",
+              "value": false
+            },
+            "default": {
+              "state": "known",
+              "value": null
+            },
+            "length": null,
+            "precision": null,
+            "scale": null,
+            "generated": {
+              "state": "known",
+              "value": false
+            }
+          },
+          {
+            "name": "body",
+            "sql_type": {
+              "state": "known",
+              "value": {
+                "logical": "varchar",
+                "raw": "VARCHAR(500)"
+              }
+            },
+            "nullable": {
+              "state": "known",
+              "value": true
+            },
+            "default": {
+              "state": "known",
+              "value": null
+            },
+            "length": 500,
+            "precision": null,
+            "scale": null,
+            "generated": {
+              "state": "known",
+              "value": false
+            }
+          }
+        ]
+      },
+      "primary_key": {
+        "state": "known",
+        "value": [
+          "id"
+        ]
+      },
+      "foreign_keys": {
+        "state": "known",
+        "value": []
+      },
+      "unique_constraints": {
+        "state": "known",
+        "value": []
+      },
+      "indexes": {
+        "state": "unknown",
+        "value": "expression or partial index"
+      },
+      "provenance": "literal"
+    }
+  ]
+}

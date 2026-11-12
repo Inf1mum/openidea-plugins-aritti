@@ -1,0 +1,827 @@
+{
+  "_provenance": "SYNTHETIC: hand-built from documented pgjdbc DatabaseMetaData shapes; NOT recorded from a real PostgreSQL server.",
+  "result": {
+    "tables": [
+      {
+        "name": "orders",
+        "schema": "public",
+        "found": true,
+        "type": "TABLE",
+        "remarks": null,
+        "columns": [
+          {
+            "name": "id",
+            "typeName": "bigserial",
+            "dataType": -5,
+            "size": 19,
+            "scale": 0,
+            "nullable": 0,
+            "default": "nextval('orders_id_seq'::regclass)",
+            "autoIncrement": "YES",
+            "generated": "NO",
+            "remarks": null,
+            "position": 1
+          },
+          {
+            "name": "customer_id",
+            "typeName": "int4",
+            "dataType": 4,
+            "size": 10,
+            "scale": 0,
+            "nullable": 0,
+            "default": null,
+            "autoIncrement": "NO",
+            "generated": "NO",
+            "remarks": null,
+            "position": 2
+          },
+          {
+            "name": "placed_at",
+            "typeName": "timestamp",
+            "dataType": 93,
+            "size": 29,
+            "scale": 6,
+            "nullable": 1,
+            "default": null,
+            "autoIncrement": "NO",
+            "generated": "NO",
+            "remarks": null,
+            "position": 3
+          },
+          {
+            "name": "status",
+            "typeName": "varchar",
+            "dataType": 12,
+            "size": 20,
+            "scale": 0,
+            "nullable": 0,
+            "default": "'new'::character varying",
+            "autoIncrement": "NO",
+            "generated": "NO",
+            "remarks": null,
+            "position": 4
+          }
+        ],
+        "primaryKey": {
+          "name": "orders_pkey",
+          "columns": [
+            "id"
+          ]
+        },
+        "foreignKeys": [
+          {
+            "name": "fk_orders_customer",
+            "refCatalog": null,
+            "refSchema": "public",
+            "refTable": "customer",
+            "columns": [
+              "customer_id"
+            ],
+            "refColumns": [
+              "id"
+            ],
+            "updateRule": 3,
+            "deleteRule": 0
+          }
+        ],
+        "indexes": [
+          {
+            "name": "orders_pkey",
+            "unique": true,
+            "columns": [
+              {
+                "name": "id",
+                "order": "A"
+              }
+            ],
+            "filter": null
+          },
+          {
+            "name": "uq_orders_open",
+            "unique": true,
+            "columns": [
+              {
+                "name": "customer_id",
+                "order": "A"
+              }
+            ],
+            "filter": "(status = 'open'::text)"
+          },
+          {
+            "name": "idx_orders_customer",
+            "unique": false,
+            "columns": [
+              {
+                "name": "customer_id",
+                "order": "A"
+              }
+            ],
+            "filter": null
+          }
+        ]
+      },
+      {
+        "name": "customer",
+        "schema": "public",
+        "found": true,
+        "type": "TABLE",
+        "remarks": "synthetic: a customer",
+        "columns": [
+          {
+            "name": "id",
+            "typeName": "serial",
+            "dataType": 4,
+            "size": 10,
+            "scale": 0,
+            "nullable": 0,
+            "default": "nextval('customer_id_seq'::regclass)",
+            "autoIncrement": "YES",
+            "generated": "NO",
+            "remarks": null,
+            "position": 1
+          },
+          {
+            "name": "email",
+            "typeName": "varchar",
+            "dataType": 12,
+            "size": 255,
+            "scale": 0,
+            "nullable": 0,
+            "default": null,
+            "autoIncrement": "NO",
+            "generated": "NO",
+            "remarks": null,
+            "position": 2
+          },
+          {
+            "name": "full_name",
+            "typeName": "varchar",
+            "dataType": 12,
+            "size": 2147483647,
+            "scale": 0,
+            "nullable": 1,
+            "default": null,
+            "autoIncrement": "NO",
+            "generated": "NO",
+            "remarks": null,
+            "position": 3
+          },
+          {
+            "name": "balance",
+            "typeName": "numeric",
+            "dataType": 2,
+            "size": 12,
+            "scale": 2,
+            "nullable": 1,
+            "default": null,
+            "autoIncrement": "NO",
+            "generated": "NO",
+            "remarks": null,
+            "position": 4
+          },
+          {
+            "name": "loose_amount",
+            "typeName": "numeric",
+            "dataType": 2,
+            "size": 0,
+            "scale": 0,
+            "nullable": 1,
+            "default": null,
+            "autoIncrement": "NO",
+            "generated": "NO",
+            "remarks": null,
+            "position": 5
+          },
+          {
+            "name": "active",
+            "typeName": "bool",
+            "dataType": -7,
+            "size": 1,
+            "scale": 0,
+            "nullable": 0,
+            "default": "true",
+            "autoIncrement": "NO",
+            "generated": "NO",
+            "remarks": null,
+            "position": 6
+          },
+          {
+            "name": "created_at",
+            "typeName": "timestamptz",
+            "dataType": 93,
+            "size": 35,
+            "scale": 6,
+            "nullable": 0,
+            "default": "now()",
+            "autoIncrement": "NO",
+            "generated": "NO",
+            "remarks": null,
+            "position": 7
+          },
+          {
+            "name": "external_id",
+            "typeName": "uuid",
+            "dataType": 1111,
+            "size": 2147483647,
+            "scale": 0,
+            "nullable": 1,
+            "default": null,
+            "autoIncrement": "NO",
+            "generated": "NO",
+            "remarks": null,
+            "position": 8
+          },
+          {
+            "name": "bio",
+            "typeName": "text",
+            "dataType": 12,
+            "size": 2147483647,
+            "scale": 0,
+            "nullable": 1,
+            "default": null,
+            "autoIncrement": "NO",
+            "generated": "NO",
+            "remarks": null,
+            "position": 9
+          },
+          {
+            "name": "payload",
+            "typeName": "jsonb",
+            "dataType": 1111,
+            "size": 2147483647,
+            "scale": 0,
+            "nullable": 1,
+            "default": null,
+            "autoIncrement": "NO",
+            "generated": "NO",
+            "remarks": null,
+            "position": 10
+          },
+          {
+            "name": "tags",
+            "typeName": "_text",
+            "dataType": 2003,
+            "size": 2147483647,
+            "scale": 0,
+            "nullable": 1,
+            "default": null,
+            "autoIncrement": "NO",
+            "generated": "NO",
+            "remarks": null,
+            "position": 11
+          },
+          {
+            "name": "last_ip",
+            "typeName": "inet",
+            "dataType": 1111,
+            "size": 2147483647,
+            "scale": 0,
+            "nullable": 1,
+            "default": null,
+            "autoIncrement": "NO",
+            "generated": "NO",
+            "remarks": null,
+            "position": 12
+          },
+          {
+            "name": "born",
+            "typeName": "date",
+            "dataType": 91,
+            "size": 13,
+            "scale": 0,
+            "nullable": 1,
+            "default": null,
+            "autoIncrement": "NO",
+            "generated": "NO",
+            "remarks": null,
+            "position": 13
+          },
+          {
+            "name": "wakes_at",
+            "typeName": "time",
+            "dataType": 92,
+            "size": 15,
+            "scale": 6,
+            "nullable": 1,
+            "default": null,
+            "autoIncrement": "NO",
+            "generated": "NO",
+            "remarks": null,
+            "position": 14
+          },
+          {
+            "name": "updated_at",
+            "typeName": "timestamp",
+            "dataType": 93,
+            "size": 29,
+            "scale": 6,
+            "nullable": 1,
+            "default": null,
+            "autoIncrement": "NO",
+            "generated": "NO",
+            "remarks": null,
+            "position": 15
+          },
+          {
+            "name": "avatar",
+            "typeName": "bytea",
+            "dataType": -2,
+            "size": 2147483647,
+            "scale": 0,
+            "nullable": 1,
+            "default": null,
+            "autoIncrement": "NO",
+            "generated": "NO",
+            "remarks": null,
+            "position": 16
+          },
+          {
+            "name": "score",
+            "typeName": "float8",
+            "dataType": 8,
+            "size": 17,
+            "scale": 17,
+            "nullable": 1,
+            "default": null,
+            "autoIncrement": "NO",
+            "generated": "NO",
+            "remarks": null,
+            "position": 17
+          },
+          {
+            "name": "ratio",
+            "typeName": "float4",
+            "dataType": 7,
+            "size": 8,
+            "scale": 8,
+            "nullable": 1,
+            "default": null,
+            "autoIncrement": "NO",
+            "generated": "NO",
+            "remarks": null,
+            "position": 18
+          },
+          {
+            "name": "rank_small",
+            "typeName": "int2",
+            "dataType": 5,
+            "size": 5,
+            "scale": 0,
+            "nullable": 1,
+            "default": null,
+            "autoIncrement": "NO",
+            "generated": "NO",
+            "remarks": null,
+            "position": 19
+          },
+          {
+            "name": "visits",
+            "typeName": "int8",
+            "dataType": -5,
+            "size": 19,
+            "scale": 0,
+            "nullable": 1,
+            "default": null,
+            "autoIncrement": "NO",
+            "generated": "NO",
+            "remarks": null,
+            "position": 20
+          },
+          {
+            "name": "country",
+            "typeName": "bpchar",
+            "dataType": 1,
+            "size": 2,
+            "scale": 0,
+            "nullable": 1,
+            "default": null,
+            "autoIncrement": "NO",
+            "generated": "NO",
+            "remarks": null,
+            "position": 21
+          },
+          {
+            "name": "mood",
+            "typeName": "mood",
+            "dataType": 12,
+            "size": 2147483647,
+            "scale": 0,
+            "nullable": 1,
+            "default": null,
+            "autoIncrement": "NO",
+            "generated": "NO",
+            "remarks": null,
+            "position": 22
+          },
+          {
+            "name": "tz_wakes",
+            "typeName": "timetz",
+            "dataType": 92,
+            "size": 21,
+            "scale": 6,
+            "nullable": 1,
+            "default": null,
+            "autoIncrement": "NO",
+            "generated": "NO",
+            "remarks": null,
+            "position": 23
+          },
+          {
+            "name": "legacy_flag",
+            "typeName": "int4",
+            "dataType": 4,
+            "size": 10,
+            "scale": 0,
+            "nullable": 2,
+            "default": null,
+            "autoIncrement": "NO",
+            "generated": "NO",
+            "remarks": null,
+            "position": 24
+          },
+          {
+            "name": "total_cents",
+            "typeName": "int8",
+            "dataType": -5,
+            "size": 19,
+            "scale": 0,
+            "nullable": 1,
+            "default": "(price * qty)",
+            "autoIncrement": "NO",
+            "generated": "YES",
+            "remarks": null,
+            "position": 25
+          },
+          {
+            "name": "ident",
+            "typeName": "int4",
+            "dataType": 4,
+            "size": 10,
+            "scale": 0,
+            "nullable": 0,
+            "default": null,
+            "autoIncrement": "YES",
+            "generated": "NO",
+            "remarks": null,
+            "position": 26
+          },
+          {
+            "name": "no_report",
+            "typeName": "int4",
+            "dataType": 4,
+            "size": 10,
+            "scale": 0,
+            "nullable": 1,
+            "default": null,
+            "autoIncrement": "",
+            "generated": "",
+            "remarks": null,
+            "position": 27
+          }
+        ],
+        "primaryKey": {
+          "name": "customer_pkey",
+          "columns": [
+            "id"
+          ]
+        },
+        "foreignKeys": [],
+        "indexes": [
+          {
+            "name": "customer_pkey",
+            "unique": true,
+            "columns": [
+              {
+                "name": "id",
+                "order": "A"
+              }
+            ],
+            "filter": null
+          },
+          {
+            "name": "uq_customer_email",
+            "unique": true,
+            "columns": [
+              {
+                "name": "email",
+                "order": "A"
+              }
+            ],
+            "filter": null
+          },
+          {
+            "name": "idx_customer_created",
+            "unique": false,
+            "columns": [
+              {
+                "name": "created_at",
+                "order": "D"
+              },
+              {
+                "name": "country",
+                "order": "A"
+              }
+            ],
+            "filter": null
+          }
+        ]
+      },
+      {
+        "name": "order_line",
+        "schema": "public",
+        "found": true,
+        "type": "TABLE",
+        "remarks": null,
+        "columns": [
+          {
+            "name": "order_id",
+            "typeName": "int8",
+            "dataType": -5,
+            "size": 19,
+            "scale": 0,
+            "nullable": 0,
+            "default": null,
+            "autoIncrement": "NO",
+            "generated": "NO",
+            "remarks": null,
+            "position": 1
+          },
+          {
+            "name": "line_no",
+            "typeName": "int4",
+            "dataType": 4,
+            "size": 10,
+            "scale": 0,
+            "nullable": 0,
+            "default": null,
+            "autoIncrement": "NO",
+            "generated": "NO",
+            "remarks": null,
+            "position": 2
+          },
+          {
+            "name": "event_id",
+            "typeName": "int8",
+            "dataType": -5,
+            "size": 19,
+            "scale": 0,
+            "nullable": 1,
+            "default": null,
+            "autoIncrement": "NO",
+            "generated": "NO",
+            "remarks": null,
+            "position": 3
+          }
+        ],
+        "primaryKey": {
+          "name": "order_line_pkey",
+          "columns": [
+            "order_id",
+            "line_no"
+          ]
+        },
+        "foreignKeys": [
+          {
+            "name": "fk_line_order",
+            "refCatalog": null,
+            "refSchema": "public",
+            "refTable": "orders",
+            "columns": [
+              "order_id"
+            ],
+            "refColumns": [
+              "id"
+            ],
+            "updateRule": 3,
+            "deleteRule": 0
+          },
+          {
+            "name": "fk_line_event",
+            "refCatalog": null,
+            "refSchema": "audit",
+            "refTable": "event",
+            "columns": [
+              "event_id"
+            ],
+            "refColumns": [
+              "id"
+            ],
+            "updateRule": 3,
+            "deleteRule": 3
+          }
+        ],
+        "indexes": [
+          {
+            "name": "order_line_pkey",
+            "unique": true,
+            "columns": [
+              {
+                "name": "order_id",
+                "order": "A"
+              },
+              {
+                "name": "line_no",
+                "order": "A"
+              }
+            ],
+            "filter": null
+          }
+        ]
+      },
+      {
+        "name": "product",
+        "schema": "public",
+        "found": true,
+        "type": "TABLE",
+        "remarks": null,
+        "columns": [
+          {
+            "name": "id",
+            "typeName": "int4",
+            "dataType": 4,
+            "size": 10,
+            "scale": 0,
+            "nullable": 0,
+            "default": null,
+            "autoIncrement": "YES",
+            "generated": "NO",
+            "remarks": null,
+            "position": 1
+          },
+          {
+            "name": "sku",
+            "typeName": "varchar",
+            "dataType": 12,
+            "size": 40,
+            "scale": 0,
+            "nullable": 0,
+            "default": null,
+            "autoIncrement": "NO",
+            "generated": "NO",
+            "remarks": null,
+            "position": 2
+          },
+          {
+            "name": "name",
+            "typeName": "varchar",
+            "dataType": 12,
+            "size": 100,
+            "scale": 0,
+            "nullable": 0,
+            "default": null,
+            "autoIncrement": "NO",
+            "generated": "NO",
+            "remarks": null,
+            "position": 3
+          }
+        ],
+        "primaryKey": {
+          "name": "product_pkey",
+          "columns": [
+            "id"
+          ]
+        },
+        "foreignKeys": [],
+        "indexes": [
+          {
+            "name": "product_pkey",
+            "unique": true,
+            "columns": [
+              {
+                "name": "id",
+                "order": "A"
+              }
+            ],
+            "filter": null
+          },
+          {
+            "name": "uq_product_sku",
+            "unique": true,
+            "columns": [
+              {
+                "name": "sku",
+                "order": "A"
+              }
+            ],
+            "filter": null
+          },
+          {
+            "name": "idx_product_lower_name",
+            "unique": false,
+            "columns": [
+              {
+                "name": "lower((name)::text)",
+                "order": "A"
+              }
+            ],
+            "filter": null
+          }
+        ]
+      },
+      {
+        "name": "restricted",
+        "schema": "public",
+        "found": true,
+        "type": "TABLE",
+        "remarks": null,
+        "columns": [
+          {
+            "name": "id",
+            "typeName": "int4",
+            "dataType": 4,
+            "size": 10,
+            "scale": 0,
+            "nullable": 0,
+            "default": null,
+            "autoIncrement": "NO",
+            "generated": "NO",
+            "remarks": null,
+            "position": 1
+          }
+        ],
+        "primaryKey": {
+          "name": "restricted_pkey",
+          "columns": [
+            "id"
+          ]
+        },
+        "foreignKeys": null,
+        "indexes": null,
+        "facetErrors": {
+          "foreignKeys": "ERROR: permission denied for table pg_constraint",
+          "indexes": "ERROR: permission denied for table pg_index"
+        }
+      },
+      {
+        "name": "ghost",
+        "schema": "public",
+        "found": false,
+        "type": null,
+        "remarks": null,
+        "columns": [],
+        "primaryKey": {
+          "name": null,
+          "columns": []
+        },
+        "foreignKeys": [],
+        "indexes": []
+      },
+      {
+        "name": "v_customer",
+        "schema": "public",
+        "found": true,
+        "type": "VIEW",
+        "remarks": null,
+        "columns": [
+          {
+            "name": "id",
+            "typeName": "int4",
+            "dataType": 4,
+            "size": 10,
+            "scale": 0,
+            "nullable": 1,
+            "default": null,
+            "autoIncrement": "NO",
+            "generated": "NO",
+            "remarks": null,
+            "position": 1
+          }
+        ],
+        "primaryKey": {
+          "name": null,
+          "columns": []
+        },
+        "foreignKeys": [],
+        "indexes": []
+      },
+      {
+        "name": "mv_sales",
+        "schema": "public",
+        "found": true,
+        "type": "MATERIALIZED VIEW",
+        "remarks": null,
+        "columns": [
+          {
+            "name": "total",
+            "typeName": "numeric",
+            "dataType": 2,
+            "size": 0,
+            "scale": 0,
+            "nullable": 1,
+            "default": null,
+            "autoIncrement": "NO",
+            "generated": "NO",
+            "remarks": null,
+            "position": 1
+          }
+        ],
+        "primaryKey": {
+          "name": null,
+          "columns": []
+        },
+        "foreignKeys": [],
+        "indexes": []
+      }
+    ]
+  }
+}
