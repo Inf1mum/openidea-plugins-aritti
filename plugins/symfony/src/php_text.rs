@@ -350,6 +350,8 @@ pub struct Param {
     pub has_default: bool,
     pub variadic: bool,
     pub promoted: bool,
+    /// A constructor-promoted parameter that is publicly readable.
+    pub public: bool,
     pub has_attribute: bool,
     pub range: Range<usize>,
 }
@@ -363,7 +365,18 @@ pub struct Method {
     pub params: Vec<Param>,
     pub parameters: Range<usize>,
     pub return_type: Option<String>,
+    /// The simple return type as a class (resolved through `use`) or lower-case built-in.
+    pub return_class: Option<String>,
     pub body: Option<Range<usize>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Property {
+    pub name: String,
+    pub visibility: Visibility,
+    pub is_static: bool,
+    /// The simple declared type, as for [`Param::type_name`].
+    pub type_name: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -376,6 +389,7 @@ pub struct ClassModel {
     pub body: Range<usize>,
     pub has_traits: bool,
     pub methods: Vec<Method>,
+    pub properties: Vec<Property>,
 }
 
 impl ClassModel {
@@ -411,14 +425,10 @@ fn parameter_of(text: &str, masked: &str, header: &Header, range: Range<usize>) 
         words.remove(0);
     }
 
+    let public = promoted && !head.split_whitespace().any(|word| matches!(word.to_ascii_lowercase().as_str(), "protected" | "private"));
     let declared = words.join(" ");
     let nullable = declared.starts_with('?');
-    let plain = declared.trim_start_matches('?');
-    let simple = !plain.is_empty() && !plain.contains(['|', '&', '(', ' ']);
-    let type_name = simple.then(|| match BUILT_IN_TYPES.contains(&plain.to_ascii_lowercase().as_str()) {
-        true => plain.to_ascii_lowercase(),
-        false => resolve(plain, header),
-    });
+    let type_name = declared_type(&declared, header);
 
     let after = &masked[name.end..range.end];
     Some(Param {
@@ -429,8 +439,19 @@ fn parameter_of(text: &str, masked: &str, header: &Header, range: Range<usize>) 
         has_default: after.contains('='),
         variadic,
         promoted,
+        public,
         has_attribute,
         range,
+    })
+}
+
+/// The class (resolved through `use`) or lower-case built-in of a simple declared type; `None` for unions and intersections.
+fn declared_type(declared: &str, header: &Header) -> Option<String> {
+    let plain = declared.trim().trim_start_matches('?');
+    let simple = !plain.is_empty() && !plain.contains(['|', '&', '(', ' ']);
+    simple.then(|| match BUILT_IN_TYPES.contains(&plain.to_ascii_lowercase().as_str()) {
+        true => plain.to_ascii_lowercase(),
+        false => resolve(plain, header),
     })
 }
 
@@ -475,6 +496,56 @@ fn methods_of(text: &str, masked: &str, header: &Header, body: &Range<usize>) ->
     (methods, has_traits)
 }
 
+/// Declared properties and constructor-promoted ones; method bodies and defaults are skipped by depth.
+fn properties_of(text: &str, masked: &str, header: &Header, body: &Range<usize>, methods: &[Method]) -> Vec<Property> {
+    let mut properties = Vec::new();
+    let mut depth = 0usize;
+    let mut boundary = body.start + 1;
+
+    for at in body.start + 1..body.end {
+        match masked.as_bytes()[at] {
+            b'{' | b'(' | b'[' => depth += 1,
+            b'}' | b')' | b']' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 && masked.as_bytes()[at] == b'}' {
+                    boundary = at + 1;
+                }
+            }
+            b';' if depth == 0 => boundary = at + 1,
+            b'$' if depth == 0 => {
+                let prefix = masked[boundary..at].rsplit(']').next().unwrap_or_default();
+                let words: Vec<&str> = prefix.split_whitespace().collect();
+                let is_modifier = |word: &&str| matches!(word.to_ascii_lowercase().as_str(), "public" | "protected" | "private" | "var" | "static" | "readonly");
+                if !words.iter().any(is_modifier) || words.iter().any(|word| word.eq_ignore_ascii_case("function") || word.eq_ignore_ascii_case("const")) {
+                    continue;
+                }
+                let name = read_word(masked, at + 1);
+                if name.is_empty() {
+                    continue;
+                }
+                let lower: Vec<String> = words.iter().map(|word| word.to_ascii_lowercase()).collect();
+                let visibility = match () {
+                    _ if lower.iter().any(|word| word == "private") => Visibility::Private,
+                    _ if lower.iter().any(|word| word == "protected") => Visibility::Protected,
+                    _ => Visibility::Public,
+                };
+                let declared = words.iter().filter(|word| !is_modifier(word)).copied().collect::<Vec<_>>().join(" ");
+                properties.push(Property { name: text[name].to_owned(), visibility, is_static: lower.iter().any(|word| word == "static"), type_name: declared_type(&declared, header) });
+            }
+            _ => {}
+        }
+    }
+
+    if let Some(constructor) = methods.iter().find(|method| method.name.eq_ignore_ascii_case("__construct")) {
+        for param in constructor.params.iter().filter(|param| param.promoted) {
+            let visibility = if param.public { Visibility::Public } else { Visibility::Private };
+            properties.push(Property { name: param.name.clone(), visibility, is_static: false, type_name: param.type_name.clone() });
+        }
+    }
+
+    properties
+}
+
 fn method_at(text: &str, masked: &str, header: &Header, boundary: usize, at: usize, limit: usize) -> Option<(Method, usize)> {
     let prefix = &masked[boundary..at];
     let prefix = prefix.rsplit("]").next().unwrap_or(prefix).to_ascii_lowercase();
@@ -512,6 +583,7 @@ fn method_at(text: &str, masked: &str, header: &Header, boundary: usize, at: usi
         is_static: prefix.split_whitespace().any(|word| word == "static"),
         params,
         parameters: open..close + 1,
+        return_class: return_type.as_deref().and_then(|declared| declared_type(declared, header)),
         return_type,
         body: (masked.as_bytes().get(end) == Some(&b'{')).then(|| end..next),
     };
@@ -587,9 +659,10 @@ pub fn class_model(text: &str) -> Option<ClassModel> {
 
     let body = open..close;
     let (methods, has_traits) = methods_of(text, &masked, &header, &body);
+    let properties = properties_of(text, &masked, &header, &body, &methods);
     let namespace = header.namespace.as_ref().map(|(namespace, _)| format!("{namespace}\\")).unwrap_or_default();
 
-    Some(ClassModel { fqcn: format!("{namespace}{}", &masked[name_range.clone()]), name_range, parent, parent_range, interfaces, body, has_traits, methods })
+    Some(ClassModel { fqcn: format!("{namespace}{}", &masked[name_range.clone()]), name_range, parent, parent_range, interfaces, body, has_traits, methods, properties })
 }
 
 fn target_after(masked: &str, from: usize) -> Target {
@@ -905,5 +978,25 @@ mod tests {
         let found = attributes(text);
         assert_eq!(found.len(), 2);
         assert!(found.iter().all(|attribute| attribute.target == Target::Other));
+    }
+
+    #[test]
+    fn class_model_lists_typed_properties_promoted_ones_and_resolved_return_types() {
+        let text = "<?php\nnamespace App\\Entity;\nuse App\\Entity\\User as Author;\nclass Post\n{\n    #[ORM\\Column]\n    private ?string $title = null;\n    public static int $count = 0;\n    protected array $tags = [];\n    public function __construct(public readonly Author $author, private int $views)\n    {\n        $local = 1;\n    }\n    public function getAuthor(): ?Author { return $this->author; }\n    public function isPublished(): bool { return true; }\n    public function tags(): array|null { return []; }\n}\n";
+        let model = class_model(text).unwrap();
+        let summary: Vec<_> = model.properties.iter().map(|p| (p.name.as_str(), p.visibility, p.is_static, p.type_name.as_deref())).collect();
+        assert_eq!(
+            summary,
+            [
+                ("title", Visibility::Private, false, Some("string")),
+                ("count", Visibility::Public, true, Some("int")),
+                ("tags", Visibility::Protected, false, Some("array")),
+                ("author", Visibility::Public, false, Some("App\\Entity\\User")),
+                ("views", Visibility::Private, false, Some("int")),
+            ]
+        );
+        assert_eq!(model.method("getAuthor").unwrap().return_class.as_deref(), Some("App\\Entity\\User"));
+        assert_eq!(model.method("isPublished").unwrap().return_class.as_deref(), Some("bool"));
+        assert_eq!(model.method("tags").unwrap().return_class, None);
     }
 }

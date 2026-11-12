@@ -1,9 +1,13 @@
 {
   "title": "Symfony",
   "views": {
-    "symfony": "Symfony",
+    "symfony": "Routes",
+    "symfony-templates": "Templates",
+    "symfony-services": "Services",
+    "symfony-translations": "Translations",
     "symfony-profiler": "Profiler",
-    "twig-paths": "Twig Namespace Paths"
+    "twig-paths": "Twig Namespace Paths",
+    "symfony-processes": "Processes"
   },
   "actions": [
     {
@@ -28,21 +32,48 @@
     "tabs": [
       {
         "id": "symfony",
-        "label": "Symfony"
+        "label": "Routes",
+        "icon": "web"
+      },
+      {
+        "id": "symfony-templates",
+        "label": "Templates",
+        "icon": "file-html"
+      },
+      {
+        "id": "symfony-services",
+        "label": "Services",
+        "icon": "class"
+      },
+      {
+        "id": "symfony-translations",
+        "label": "Translations",
+        "icon": "symbol-text"
       },
       {
         "id": "symfony-profiler",
-        "label": "Profiler"
+        "label": "Profiler",
+        "icon": "profile"
       },
       {
         "id": "twig-paths",
-        "label": "Twig Namespace Paths"
+        "label": "Twig Namespace Paths",
+        "icon": "folder"
+      },
+      {
+        "id": "symfony-processes",
+        "label": "Processes",
+        "icon": "run"
       }
     ]
   },
   "context_buttons": {
     "symfony": [],
+    "symfony-templates": [],
+    "symfony-services": [],
+    "symfony-translations": [],
     "symfony-profiler": [],
-    "twig-paths": []
+    "twig-paths": [],
+    "symfony-processes": []
   }
 }

@@ -1,5 +1,9 @@
 {
   "symfony": [],
+  "symfony-templates": [],
+  "symfony-services": [],
+  "symfony-translations": [],
   "symfony-profiler": [],
-  "twig-paths": []
+  "twig-paths": [],
+  "symfony-processes": []
 }
