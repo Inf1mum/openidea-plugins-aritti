@@ -215,6 +215,7 @@ pub(crate) struct Rt {
     pub plugins: Arc<PluginHost>,
     pub script: Arc<Mutex<Script>>,
     pub clipboard: Arc<Mutex<Vec<String>>>,
+    pub view_messages: Arc<Mutex<Vec<(String, String)>>>,
     pub applied: Arc<Mutex<Vec<u32>>>,
     pub install_error: Option<String>,
 }
@@ -250,12 +251,16 @@ fn boot(base: &Path, project: &Path, repo: &Path, wasm: &Path, settings_toml: Op
     let script = Arc::new(Mutex::new(Script::default()));
     let controller = Arc::new(Mutex::new(Weak::<PluginHost>::new()));
     let clipboard = Arc::new(Mutex::new(Vec::<String>::new()));
-    let (sink_script, sink_controller, sink_clipboard) = (script.clone(), controller.clone(), clipboard.clone());
+    let view_messages = Arc::new(Mutex::new(Vec::<(String, String)>::new()));
+    let (sink_script, sink_controller, sink_clipboard, sink_views) = (script.clone(), controller.clone(), clipboard.clone(), view_messages.clone());
     let plugins = Arc::new(PluginHost::new(
         base.join("plugins"),
         Arc::new(move |_: Option<&str>, event| {
             if let PluginEvent::CopyToClipboard { text, .. } = &event {
                 sink_clipboard.lock().unwrap().push(text.clone());
+            }
+            if let PluginEvent::ViewMessage { view, message, .. } = &event {
+                sink_views.lock().unwrap().push((view.clone(), message.clone()));
             }
             if let PluginEvent::PromptRequested { prompt_id, prompt, .. } = event {
                 let answer = answer_for(&mut sink_script.lock().unwrap(), &prompt);
@@ -278,7 +283,7 @@ fn boot(base: &Path, project: &Path, repo: &Path, wasm: &Path, settings_toml: Op
     std::fs::copy(wasm, staged.join("dist/plugin.wasm"))?;
     let consent = Consent { optional: ["clipboard", "editor.write"].map(String::from).into_iter().chain(grants.iter().cloned()).collect(), ..Default::default() };
     let installed = plugins.install_from_dir(&staged, &consent);
-    Ok(Rt { host, plugins, script, clipboard, applied, install_error: installed.err().map(|e| e.to_string()) })
+    Ok(Rt { host, plugins, script, clipboard, view_messages, applied, install_error: installed.err().map(|e| e.to_string()) })
 }
 
 #[derive(Default)]

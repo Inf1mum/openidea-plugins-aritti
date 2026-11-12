@@ -12,16 +12,60 @@ pub(crate) struct Loaded {
     value: Value,
 }
 
-const KINDS: &[&str] = &["fileaction", "diagnostics", "completion", "hover", "command", "tree", "lineMarkers"];
+const KINDS: &[&str] = &["fileaction", "diagnostics", "completion", "hover", "command", "tree", "lineMarkers", "designer"];
 const EXPECT_KEYS: &[&str] = &[
     "promptSequence", "promptCount", "editsContain", "resultFile", "createdFiles", "noFilesChanged", "diagnostics", "diagnosticsAbsent",
     "completionsInclude", "completionsExclude", "hoverContains", "clipboardContains", "treeNodes", "treeChildren", "treeAbsent", "markersInclude", "actionOffered",
-    "resolveErrorContains", "goldenFile",
+    "resolveErrorContains", "goldenFile", "designerReplies",
 ];
 const CHECK_KEYS: &[&str] = &["preview", "undo", "cancelEach", "stale"];
 const TOP_KEYS: &[&str] = &[
     "id", "rows", "claimIds", "verifies", "fixture", "setup", "preActions", "postSetup", "kind", "target", "action", "prompts", "expect", "checks", "note", "kindExerciser", "warm", "grants",
 ];
+
+const DESIGNER_OPERATORS: &[&str] = &["equals", "exists", "contains", "matches", "length", "anyItem", "noItem", "countWhere", "handlerError"];
+const DESIGNER_FRAME: &str = "0123456789abcdef0123456789abcdef";
+
+fn designer_substitute(v: &Value, project: &str, last: &Value) -> Value {
+    match v {
+        Value::String(s) => match s.strip_prefix("$last:") {
+            Some(pointer) => last.pointer(pointer).cloned().unwrap_or(Value::Null),
+            None => Value::String(s.replace("$PROJECT", project)),
+        },
+        Value::Array(a) => Value::Array(a.iter().map(|x| designer_substitute(x, project, last)).collect()),
+        Value::Object(o) => Value::Object(o.iter().map(|(k, x)| (k.clone(), designer_substitute(x, project, last))).collect()),
+        other => other.clone(),
+    }
+}
+
+/// The request frame the web view would post: protocol fields are filled in, `$PROJECT` and `$last:/json/pointer`
+/// (a value of the previous reply) are substituted, and `"context": "auto"` is taken from the previous reply's model.
+fn designer_request(message: &Value, index: usize, project: &str, last: &Value) -> String {
+    let mut request = designer_substitute(message, project, last);
+    let object = request.as_object_mut().expect("validated: messages are objects");
+    object.entry("channel").or_insert(json!("jpa-designer"));
+    object.entry("protocol").or_insert(json!(1));
+    object.entry("frame").or_insert(json!(DESIGNER_FRAME));
+    object.entry("sequence").or_insert(json!(index as u64 + 1));
+    let snapshot = object.get("operation").and_then(|o| o["kind"].as_str()) == Some("snapshot");
+    object.entry("root").or_insert(if snapshot { Value::Null } else { json!(project) });
+    if object.get("context") == Some(&json!("auto")) {
+        let model = &last["model"];
+        object.insert("context".into(), json!({"path": model["source"]["path"], "version": model["source"]["version"], "attribute": model["selected"]}));
+    }
+    request.to_string()
+}
+
+fn json_at<'a>(root: &'a Value, path: &str) -> Option<&'a Value> {
+    path.split('.').filter(|p| !p.is_empty()).try_fold(root, |value, key| match key.parse::<usize>() {
+        Ok(i) if value.is_array() => value.get(i),
+        _ => value.get(key),
+    })
+}
+
+fn subset(item: &Value, want: &Value) -> bool {
+    want.as_object().is_some_and(|w| w.iter().all(|(k, x)| item.get(k) == Some(x)))
+}
 
 fn tree_event(v: &Value, project: &str) -> ViewEvent {
     let text = |key: &str| v[key].as_str().unwrap_or_default().replace("$PROJECT", project);
@@ -203,7 +247,7 @@ pub(crate) fn validate(repo: &Path, scenarios: &[Loaded]) -> Vec<String> {
             }
         }
         match kind {
-            "fileaction" | "diagnostics" | "completion" | "hover" | "lineMarkers" | "command" | "tree" => {}
+            "fileaction" | "diagnostics" | "completion" | "hover" | "lineMarkers" | "command" | "tree" | "designer" => {}
             _ => {}
         }
         if matches!(kind, "fileaction" | "completion" | "hover" | "lineMarkers") && !safe_relative(v["target"]["file"].as_str().unwrap_or("")) {
@@ -217,6 +261,36 @@ pub(crate) fn validate(repo: &Path, scenarios: &[Loaded]) -> Vec<String> {
         }
         if kind == "tree" && v["action"]["view"].as_str().is_none_or(str::is_empty) {
             err("action.view is required".into());
+        }
+        if kind == "designer" {
+            let all_messages = v["action"]["messages"].as_array().cloned().unwrap_or_default();
+            if all_messages.iter().any(|m| m.get("setup").is_some_and(|s| m.as_object().is_some_and(|o| o.len() != 1) || !s.is_array())) {
+                err("a {\"setup\": [steps]} entry between messages has no other key".into());
+            }
+            let messages: Vec<Value> = all_messages.into_iter().filter(|m| m.get("setup").is_none()).collect();
+            if v["action"]["view"].as_str().is_none_or(str::is_empty) || messages.is_empty() || messages.iter().any(|m| !m.is_object()) {
+                err("designer scenarios need action.view and a nonempty action.messages array of objects".into());
+            }
+            for step in v["expect"]["designerReplies"].as_array().cloned().unwrap_or_default() {
+                let message = step["message"].as_u64().unwrap_or(messages.len() as u64);
+                if message == 0 || message as usize > messages.len() {
+                    err(format!("designerReplies message {message} is out of range"));
+                }
+                if let Some(rx) = step["matches"].as_str() {
+                    if Regex::new(rx).is_err() {
+                        err(format!("designerReplies matches regex does not compile: {rx}"));
+                    }
+                }
+                let operators = DESIGNER_OPERATORS.iter().filter(|k| step.get(**k).is_some()).count();
+                if operators != 1 {
+                    err(format!("designerReplies entry needs exactly one of {DESIGNER_OPERATORS:?}: {step}"));
+                }
+                if step.get("handlerError").is_none() && step["path"].as_str().is_none() {
+                    err("designerReplies entry needs a path (or handlerError)".into());
+                }
+            }
+        } else if v["expect"].get("designerReplies").is_some() {
+            err("expect.designerReplies needs kind designer".into());
         }
         if strs(&v["grants"]).iter().any(|g| g != "project.write") {
             err("grants may only name project.write".into());
@@ -354,6 +428,7 @@ struct Obs {
     markers: Vec<Value>,
     nodes: Vec<String>,
     tree_raw: Value,
+    designer: Vec<Value>,
 }
 
 struct Artifacts {
@@ -593,6 +668,50 @@ fn prompt_summary(p: &Value) -> String {
 
 fn evaluate(expect: &Value, obs: &Obs, project: &Path, before: &BTreeMap<String, String>, after: &BTreeMap<String, String>, applied_events: usize, res: &mut Results) {
     let item_matches = |item: &Value, wanted: &str| item["key"].as_str() == Some(wanted) || item["label"].as_str().is_some_and(|l| l.contains(wanted));
+    for spec in expect["designerReplies"].as_array().cloned().unwrap_or_default() {
+        let number = spec["message"].as_u64().unwrap_or(obs.designer.len() as u64) as usize;
+        let name = spec["name"].as_str().map(str::to_owned).unwrap_or_else(|| format!("designer message {number}: {}", spec["path"].as_str().unwrap_or("handler")));
+        let Some(step) = number.checked_sub(1).and_then(|i| obs.designer.get(i)) else {
+            res.add(&name, false, "that message was not sent");
+            continue;
+        };
+        if let Some(wanted) = spec["handlerError"].as_str() {
+            let error = step["error"].as_str().unwrap_or("");
+            res.add(&name, !error.is_empty() && error.contains(wanted), format!("handler error {error:?}, wanted {wanted:?}"));
+            continue;
+        }
+        let Some(reply) = step["reply"].as_object().map(|_| &step["reply"]) else {
+            res.add(&name, false, format!("no reply to message {number} (handler error {:?})", step["error"]));
+            continue;
+        };
+        let got = json_at(reply, spec["path"].as_str().unwrap_or(""));
+        let shown = got.map(|g| g.to_string().chars().take(160).collect::<String>()).unwrap_or_else(|| "<absent>".into());
+        let items = || got.and_then(Value::as_array).cloned().unwrap_or_default();
+        let pass = if let Some(want) = spec.get("equals") {
+            got == Some(want)
+        } else if let Some(want) = spec["exists"].as_bool() {
+            got.is_some_and(|g| !g.is_null()) == want
+        } else if let Some(want) = spec.get("contains") {
+            match got {
+                Some(Value::String(text)) => want.as_str().is_some_and(|w| text.contains(w)),
+                Some(Value::Array(list)) => list.contains(want),
+                _ => false,
+            }
+        } else if let Some(rx) = spec["matches"].as_str() {
+            got.and_then(Value::as_str).is_some_and(|t| Regex::new(rx).is_ok_and(|r| r.is_match(t)))
+        } else if let Some(n) = spec["length"].as_u64() {
+            got.is_some_and(|g| g.as_array().map(Vec::len).or(g.as_str().map(str::len)).or(g.as_object().map(|o| o.len())) == Some(n as usize))
+        } else if let Some(want) = spec.get("anyItem") {
+            items().iter().any(|i| subset(i, want))
+        } else if let Some(want) = spec.get("noItem") {
+            got.is_some() && !items().iter().any(|i| subset(i, want))
+        } else if let Some(want) = spec.get("countWhere") {
+            items().iter().filter(|i| subset(i, &want["where"])).count() as u64 == want["count"].as_u64().unwrap_or(u64::MAX)
+        } else {
+            false
+        };
+        res.add(&name, pass, format!("{} = {shown}", spec["path"].as_str().unwrap_or("")));
+    }
     if let Some(count) = expect["promptCount"].as_u64() {
         res.add("prompt count", obs.prompts.len() as u64 == count, format!("expected {count}, saw {}", obs.prompts.len()));
     }
@@ -1057,6 +1176,62 @@ async fn run_one(repo: &Path, out: &Path, wasm: &Path, wasm_sha: &str, loaded: &
                         }
                         Err(e) => res.add("view renders a model", false, e.to_string()),
                     }
+                }
+                "designer" => {
+                    let view = sc["action"]["view"].as_str().unwrap_or("");
+                    let editor = if target_rel.is_empty() {
+                        None
+                    } else {
+                        let lang = language_for(&target, &sc["target"]);
+                        let doc = provider_doc(&rt.host, &target, &lang)?;
+                        let range = locate(&doc.text, &sc["target"])?;
+                        Some(ide_plugin::EditorContext { path: target.clone(), language: lang, selections: vec![range] })
+                    };
+                    let with_editor = Invocation { editor, ..invocation.clone() };
+                    *rt.script.lock().unwrap() = Script { answers: answers.clone().into(), ..Script::default() };
+                    let _ = rt.plugins.render_view(ID, view, None, with_editor.clone());
+                    let project_text = project.display().to_string();
+                    let mut last = Value::Null;
+                    let mut index = 0usize;
+                    for message in sc["action"]["messages"].as_array().cloned().unwrap_or_default() {
+                        if let Some(steps) = message["setup"].as_array() {
+                            let snapshot_before = snapshot(&project);
+                            if let Err(e) = apply_setup(&project, steps) {
+                                res.add("between-message setup applied", false, e);
+                            }
+                            let documents = rt.host.project(CLIENT)?.documents.clone();
+                            for change in changed_files(&snapshot_before, &snapshot(&project)) {
+                                let path = project.join(change["path"].as_str().unwrap_or(""));
+                                if change["change"] == "modified" {
+                                    if let (Ok(info), Ok(text)) = (documents.open(&path), std::fs::read_to_string(&path)) {
+                                        let _ = documents.replace_all(info.id, &text);
+                                        let _ = documents.save(info.id);
+                                    }
+                                }
+                            }
+                            continue;
+                        }
+                        let text = designer_request(&message, index, &project_text, &last);
+                        index += 1;
+                        rt.view_messages.lock().unwrap().clear();
+                        let sent = rt.plugins.view_event(ID, view, ViewEvent::Message { text: text.clone() }, with_editor.clone());
+                        let replies: Vec<Value> = std::mem::take(&mut *rt.view_messages.lock().unwrap())
+                            .into_iter()
+                            .filter(|(v, _)| v == view)
+                            .filter_map(|(_, m)| serde_json::from_str(&m).ok())
+                            .collect();
+                        let reply = replies.iter().rev().find(|r| r.get("frame").is_some()).cloned().unwrap_or(Value::Null);
+                        if !reply.is_null() {
+                            last = reply.clone();
+                        }
+                        obs.designer.push(json!({
+                            "message": index, "request": serde_json::from_str::<Value>(&text).unwrap_or(Value::Null),
+                            "handled": sent.is_ok(), "error": sent.as_ref().err().map(|e| e.to_string()), "replyCount": replies.len(), "reply": reply,
+                        }));
+                    }
+                    arts.put("designer-exchange.json", &serde_json::to_vec_pretty(&obs.designer)?);
+                    after_files = snapshot(&project);
+                    after_hash = tree_hash(&project);
                 }
                 _ => {}
             }

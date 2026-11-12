@@ -1,0 +1,61 @@
+{
+  "id": "RS-927",
+  "rows": [
+    "G087"
+  ],
+  "claimIds": [
+    "G087-C2"
+  ],
+  "verifies": {
+    "G087-C2": "A table-level FOREIGN KEY naming a column the table does not declare is still listed in the references with columnPresent false. Not checked: the web view's layout, colours and controls, and live databases. Reference rendering is not checked."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "setup": [
+    {
+      "write": {
+        "path": "db/ghost.sql",
+        "content": "CREATE TABLE parent (id BIGINT PRIMARY KEY);\nCREATE TABLE child (id BIGINT PRIMARY KEY, FOREIGN KEY (ghost_id) REFERENCES parent (id));\n"
+      }
+    }
+  ],
+  "kind": "designer",
+  "action": {
+    "view": "designer",
+    "messages": [
+      {
+        "operation": {
+          "kind": "snapshot"
+        }
+      },
+      {
+        "operation": {
+          "kind": "reverse-inventory",
+          "path": "$PROJECT/db/ghost.sql",
+          "dialect": null,
+          "schema": null,
+          "table": "child"
+        }
+      }
+    ]
+  },
+  "expect": {
+    "designerReplies": [
+      {
+        "path": "reverse.selected.references",
+        "message": 2,
+        "length": 1
+      },
+      {
+        "path": "reverse.selected.references.0.columnPresent",
+        "message": 2,
+        "equals": false
+      },
+      {
+        "path": "reverse.selected.references.0.refTable",
+        "message": 2,
+        "equals": "parent"
+      }
+    ]
+  },
+  "note": "Reference over a missing column."
+}
