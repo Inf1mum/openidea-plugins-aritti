@@ -11,6 +11,8 @@ pub enum Kind {
     Class,
     Asset,
     Entry,
+    Stimulus,
+    Component,
     Role,
     Block,
     Tag,
@@ -41,7 +43,8 @@ pub const TEMPLATE_CALLS: &[&str] = &[
 const TRANSLATION_CALLS: &[&str] = &["->trans(", "new TranslatableMessage("];
 const ROLE_CALLS: &[&str] = &["isGranted(", "denyAccessUnlessGranted(", "#[IsGranted("];
 const TWIG_TEMPLATE_TAGS: &[&str] = &["extends", "include", "embed", "import", "from", "use"];
-const TWIG_ENTRY_FUNCTIONS: &[&str] = &["encore_entry_link_tags", "encore_entry_script_tags", "importmap"];
+const TWIG_ENTRY_FUNCTIONS: &[&str] = &["encore_entry_link_tags", "encore_entry_script_tags", "importmap", "vite_entry_script_tags", "vite_entry_link_tags"];
+const TWIG_STIMULUS_FUNCTIONS: &[&str] = &["stimulus_controller", "stimulus_action", "stimulus_target"];
 
 /// Lines longer than this (minified code) are not looked at.
 const MAX_LINE: usize = 4000;
@@ -137,17 +140,183 @@ fn twig_literal_reference(text: &str, literal: &crate::twig::CodeLiteral) -> Opt
     let before=text[literal.code_start..start-1].trim_end();
     let after=if literal.closed {text[literal.range.end+1..literal.code_end].trim_start()}else{""};
     let make=|kind|Some(Reference{kind,start,end});
-    for (name,kind) in [("path",Kind::Route),("url",Kind::Route),("include",Kind::Template),("source",Kind::Template),("asset",Kind::Asset),("is_granted",Kind::Role),("block",Kind::Block)] {
+    for (name,kind) in [("component",Kind::Component),("enum_cases",Kind::Class),("enum",Kind::Class),("path",Kind::Route),("url",Kind::Route),("include",Kind::Template),("source",Kind::Template),("asset",Kind::Asset),("is_granted",Kind::Role),("block",Kind::Block)] {
         if ends_with_function(before,name) {return make(kind);}
     }
     if TWIG_ENTRY_FUNCTIONS.iter().any(|name|ends_with_function(before,name)) {return make(Kind::Entry);}
+    if TWIG_STIMULUS_FUNCTIONS.iter().any(|name|ends_with_function(before,name)) {return make(Kind::Stimulus);}
     if literal.tag && TWIG_TEMPLATE_TAGS.contains(&before.trim_start_matches(['-','~',' ','\t','\r','\n'])) {return make(Kind::Template);}
+    // `{% types name: 'string', user?: '?App\\User' %}`: the class inside the type string, without `?` and `[]`.
+    if literal.tag && before.trim_start_matches(['-','~',' ','\t','\r','\n']).starts_with("types ") && before.ends_with(':') {
+        let start=start+usize::from(text[start..end].starts_with('?'));
+        let end=if text[start..end].ends_with("[]") {end-2} else {end};
+        return Some(Reference{kind:Kind::Class,start,end:end.max(start)});
+    }
     let filtered=after.strip_prefix('|').map(str::trim_start);
     if filtered.is_some_and(|filter|{
         let length=filter.bytes().take_while(|byte|is_identifier(*byte)).count();
         matches!(&filter[..length],"trans"|"transchoice") && !filter.as_bytes().get(length).is_some_and(|byte|*byte>=0x80)
     }) {return make(Kind::Translation);}
     None
+}
+
+/// A route's parameter being typed: `path('route', { | })`, `generateUrl('route', ['|'])`. The route name and the
+/// range of the key typed so far, on the line of `at`.
+pub fn route_parameter_at(language: &str, text: &str, at: usize) -> Option<(String, usize, usize)> {
+    let (line_start, line_end) = line_bounds(text, at);
+    if line_end - line_start > MAX_LINE {
+        return None;
+    }
+    let prefix = &text[line_start..at];
+    let (calls, open): (&[&str], char) = match language {
+        "twig" => (&["path(", "url("], '{'),
+        "php" => (&["generateUrl(", "redirectToRoute(", "->generate("], '['),
+        _ => return None,
+    };
+
+    let (call_at, call) = calls.iter().filter_map(|call| prefix.rfind(call).map(|found| (found, *call))).max_by_key(|(found, _)| *found)?;
+    if !call.starts_with("->") && call_at > 0 && is_identifier(prefix.as_bytes()[call_at - 1]) {
+        return None;
+    }
+    let after = &prefix[call_at + call.len()..];
+    let quote = after.trim_start().chars().next().filter(|quote| matches!(quote, '\'' | '"'))?;
+    let name_start = after.len() - after.trim_start().len() + 1;
+    let name_end = name_start + after[name_start..].find(quote)?;
+    let name = &after[name_start..name_end];
+    let rest = after[name_end + 1..].trim_start().strip_prefix(',')?.trim_start();
+    let inner = rest.strip_prefix(open)?;
+    if inner.contains(['}', ']', ')']) {
+        return None;
+    }
+
+    let segment = inner.rsplit(',').next().unwrap_or(inner);
+    if segment.contains(':') || segment.contains("=>") {
+        return None;
+    }
+    let partial = segment.trim_start().trim_start_matches(['\'', '"']);
+    if !partial.bytes().all(is_identifier) {
+        return None;
+    }
+    (!name.is_empty()).then(|| (name.to_owned(), at - partial.len(), at))
+}
+
+/// The component name in `<twig:Name` / `</twig:Name` under `at`, excluding `twig:block`.
+fn component_tag_at(text: &str, at: usize) -> Option<(usize, usize)> {
+    let (line_start, line_end) = line_bounds(text, at);
+    if line_end - line_start > MAX_LINE {
+        return None;
+    }
+    let name_byte = |byte: u8| is_identifier(byte) || byte == b':';
+    let prefix = &text[line_start..at];
+    let (open, length) = prefix.rfind("</twig:").map(|found| (found, "</twig:".len())).or_else(|| prefix.rfind("<twig:").map(|found| (found, "<twig:".len())))?;
+    let start = line_start + open + length;
+    if !text[start..at].bytes().all(name_byte) {
+        return None;
+    }
+    let end = at + text[at..line_end].bytes().take_while(|byte| name_byte(*byte)).count();
+    (&text[start..end] != "block").then_some((start, end))
+}
+
+/// What is being typed inside a `<twig:…>` element.
+#[derive(Debug, PartialEq, Eq)]
+pub enum ComponentContext {
+    /// An attribute name of `<twig:Component …>`.
+    Prop { component: String, start: usize, end: usize },
+    /// The name of a `<twig:block name="…">` inside `<twig:Component>`.
+    Block { component: String, start: usize, end: usize },
+}
+
+pub fn component_context(text: &str, at: usize) -> Option<ComponentContext> {
+    if text.len() > 128 << 10 || !text.is_char_boundary(at) {
+        return None;
+    }
+    let name_byte = |byte: u8| is_identifier(byte) || byte == b':';
+    let mut stack: Vec<String> = Vec::new();
+    let mut cursor = 0;
+
+    while cursor < at {
+        let rest = &text[cursor..at];
+        let opening = rest.find("<twig:");
+        let closing = rest.find("</twig:");
+        let (found, is_closing) = match (opening, closing) {
+            (Some(open), Some(close)) if close < open => (close, true),
+            (Some(open), _) => (open, false),
+            (None, Some(close)) => (close, true),
+            (None, None) => return None,
+        };
+        let name_start = cursor + found + if is_closing { "</twig:".len() } else { "<twig:".len() };
+        let name_end = name_start + text[name_start..].bytes().take_while(|byte| name_byte(*byte)).count();
+        let name = text[name_start..name_end].to_owned();
+        cursor = name_end;
+        if is_closing {
+            stack.pop();
+            continue;
+        }
+
+        // The end of the opening tag, outside quotes.
+        let mut quote = None;
+        let mut tag_end = None;
+        for (offset, character) in text[name_end..].char_indices() {
+            match (quote, character) {
+                (Some(open), c) if c == open => quote = None,
+                (None, '"' | '\'') => quote = Some(character),
+                (None, '>') => {
+                    tag_end = Some(name_end + offset);
+                    break;
+                }
+                _ => {}
+            }
+        }
+
+        if tag_end.is_none_or(|end| end >= at) {
+            let attributes = &text[name_end..at];
+            let mut open_quote = None;
+            for character in attributes.chars() {
+                match (open_quote, character) {
+                    (Some(open), c) if c == open => open_quote = None,
+                    (None, '"' | '\'') => open_quote = Some(character),
+                    _ => {}
+                }
+            }
+            let typed = attributes.bytes().rev().take_while(|byte| is_identifier(*byte) || matches!(byte, b':' | b'-')).count();
+            let start = at - typed;
+            let component = stack.iter().rev().find(|entry| entry.as_str() != "block").cloned();
+            return match (name.as_str(), open_quote) {
+                ("block", Some(_)) if attributes[..attributes.len() - typed].trim_end().ends_with("name=") || attributes[..attributes.len() - typed].ends_with("name=\"") || attributes[..attributes.len() - typed].ends_with("name='") => {
+                    component.map(|component| ComponentContext::Block { component, start, end: at })
+                }
+                ("block", _) => None,
+                (_, None) => Some(ComponentContext::Prop { component: name, start: start + usize::from(text[start..at].starts_with(':')), end: at }),
+                _ => None,
+            };
+        }
+
+        let end = tag_end.unwrap_or(text.len());
+        let self_closing = text[..end].ends_with('/');
+        cursor = end + 1;
+        if !self_closing {
+            stack.push(name);
+        }
+    }
+    None
+}
+
+/// The controller name under `at` in a `data-controller="a b"` attribute of the line: its range.
+fn stimulus_attribute_at(text: &str, at: usize) -> Option<(usize, usize)> {
+    let (line_start, line_end) = line_bounds(text, at);
+    if line_end - line_start > MAX_LINE {
+        return None;
+    }
+    let before = &text[line_start..at];
+    let attribute = before.rfind("data-controller=")?;
+    let quote = before[attribute + "data-controller=".len()..].chars().next().filter(|quote| matches!(quote, '"' | '\''))?;
+    let value_start = line_start + attribute + "data-controller=".len() + 1;
+    if text[value_start..at].contains(quote) {
+        return None;
+    }
+    let allowed = |byte: u8| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'/' | b'.');
+    let (start, end) = word_at(text, at, allowed);
+    (start >= value_start && !text[end..line_end].starts_with(['{', '}'])).then_some((start, end))
 }
 
 /// What the name at byte offset `at` refers to, if anything.
@@ -157,6 +326,12 @@ pub fn reference_at(language: &str, text: &str, at: usize) -> Option<Reference> 
         if let Some(literal)=crate::twig::code_literals(text).iter().find(|literal|literal.range.start<=at && at<=literal.range.end) {
             let reference=twig_literal_reference(text,literal)?;
             return (at<=reference.end).then_some(reference);
+        }
+        if let Some((start, end)) = component_tag_at(text, at) {
+            return Some(Reference { kind: Kind::Component, start, end });
+        }
+        if let Some((start, end)) = stimulus_attribute_at(text, at) {
+            return Some(Reference { kind: Kind::Stimulus, start, end });
         }
         if !crate::twig::code_regions(text).iter().any(|range|range.start<=at && at<=range.end) {return None;}
         return block_tag_at(text,at).map(|(start,end)|Reference{kind:Kind::Block,start,end});
@@ -579,5 +754,65 @@ mod tests {
 
         assert!(reference_at("php", "#[Assert\\NotBlank(message: 'Must not be blank.')]", 30).is_none());
         assert!(reference_at("php", "#[Assert\\NotBlank(message: 'blank')]", 30).is_none());
+    }
+
+    #[test]
+    fn stimulus_names_in_twig_functions_and_data_controller_attributes() {
+        assert_eq!(kind_at("twig", "<div {{ stimulus_controller('he|llo') }}>"), some(Kind::Stimulus, "hello"));
+        assert_eq!(kind_at("twig", "<div {{ stimulus_action('he|llo', 'click') }}>"), some(Kind::Stimulus, "hello"));
+        assert_eq!(kind_at("twig", "<div data-controller=\"hello us|ers--list\">"), some(Kind::Stimulus, "users--list"));
+        assert_eq!(kind_at("twig", "<div data-controller=\"hello\" class=\"ab|c\">"), None);
+        assert_eq!(kind_at("twig", "{{ vite_entry_script_tags('ap|p.js') }}"), some(Kind::Entry, "app.js"));
+    }
+
+    #[test]
+    fn route_parameters_are_found_inside_the_argument_array_of_route_calls() {
+        let found = |language: &str, text: &str| route_parameter_at(language, text, text.len()).map(|(name, start, end)| (name, text[start..end].to_owned()));
+        let some = |name: &str, typed: &str| Some((name.to_owned(), typed.to_owned()));
+        assert_eq!(found("twig", "{{ path('blog_show', { sl"), some("blog_show", "sl"));
+        assert_eq!(found("twig", "{{ path('blog_show', { id: 1, "), some("blog_show", ""));
+        assert_eq!(found("twig", "{{ url(\"a\", {"), some("a", ""));
+        assert_eq!(found("php", "$this->generateUrl('blog_show', ['"), some("blog_show", ""));
+        assert_eq!(found("php", "$url->generate('blog_show', ['id' => 1, 'sl"), some("blog_show", "sl"));
+        assert_eq!(found("php", "$this->redirectToRoute('home', ["), some("home", ""));
+        assert_eq!(found("twig", "{{ path('blog_show', { id: "), None);
+        assert_eq!(found("twig", "{{ path('blog_show', { id: 1 }) ~ foo({ "), None);
+        assert_eq!(found("twig", "{{ path('blog_show') }}"), None);
+        assert_eq!(found("twig", "{{ mypath('x', { "), None);
+    }
+
+    #[test]
+    fn types_tag_and_enum_functions_reference_classes() {
+        assert_eq!(kind_at("twig", "{% types user: 'App\\Ent|ity\\User', n: 'int' %}"), some(Kind::Class, "App\\Entity\\User"));
+        assert_eq!(kind_at("twig", "{% types users: '?App\\Us|er[]' %}"), some(Kind::Class, "App\\User"));
+        assert_eq!(kind_at("twig", "{{ enum_cases('App\\Enum\\St|atus') }}"), some(Kind::Class, "App\\Enum\\Status"));
+        assert_eq!(kind_at("twig", "{{ enum('App\\Enum\\St|atus').Active }}"), some(Kind::Class, "App\\Enum\\Status"));
+    }
+
+    #[test]
+    fn component_names_and_contexts_in_twig_html_syntax() {
+        assert_eq!(kind_at("twig", "<twig:Al|ert type=\"x\" />"), some(Kind::Component, "Alert"));
+        assert_eq!(kind_at("twig", "<twig:Button:Pri|mary>"), some(Kind::Component, "Button:Primary"));
+        assert_eq!(kind_at("twig", "</twig:Al|ert>"), some(Kind::Component, "Alert"));
+        assert_eq!(kind_at("twig", "<twig:blo|ck name=\"x\">"), None);
+        assert_eq!(kind_at("twig", "{{ component('Al|ert') }}"), some(Kind::Component, "Alert"));
+
+        let typed = |text: &str| {
+            component_context(text, text.len()).map(|context| match context {
+                ComponentContext::Prop { component, start, end } => ("prop", component, text[start..end].to_owned()),
+                ComponentContext::Block { component, start, end } => ("block", component, text[start..end].to_owned()),
+            })
+        };
+        let some = |kind: &'static str, component: &str, word: &str| Some((kind, component.to_owned(), word.to_owned()));
+        assert_eq!(typed("<twig:Alert ty"), some("prop", "Alert", "ty"));
+        assert_eq!(typed("<twig:Alert :"), some("prop", "Alert", ""));
+        assert_eq!(typed("<twig:Alert :ty"), some("prop", "Alert", "ty"));
+        assert_eq!(typed("<twig:Alert type=\"info\" "), some("prop", "Alert", ""));
+        assert_eq!(typed("<twig:Alert type=\"in"), None);
+        assert_eq!(typed("<twig:Alert type=\"info\">text"), None);
+        assert_eq!(typed("<twig:Alert>\n  <twig:Icon na"), some("prop", "Icon", "na"));
+        assert_eq!(typed("<twig:Card>\n  <twig:block name=\"fo"), some("block", "Card", "fo"));
+        assert_eq!(typed("<twig:Card>\n  <twig:block name=\"footer\">x</twig:block>\n  <twig:block name=\""), some("block", "Card", ""));
+        assert_eq!(typed("<twig:Card />\n<twig:block name=\""), None);
     }
 }

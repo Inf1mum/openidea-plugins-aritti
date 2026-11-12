@@ -181,6 +181,41 @@ pub fn mapping_keys(mapping: &str) -> Vec<String> {
     keys
 }
 
+/// The innermost `{% for … %}` open at `offset` that binds `name`: the iterated expression
+/// and where the tag starts.
+pub fn loop_source(text: &str, offset: usize, name: &str) -> Option<(String, usize)> {
+    let head = &text[..offset.min(text.len())];
+    let mut stack: Vec<(Vec<String>, String, usize)> = Vec::new();
+    let mut at = 0;
+
+    while let Some(open) = head[at..].find("{%") {
+        let start = at + open;
+        let Some(close) = head[start..].find("%}") else { break };
+        let tag = head[start + 2..start + close].trim_matches(['-', '~']).trim();
+        if let Some(rest) = tag.strip_prefix("for ") {
+            if let Some((variables, expression)) = rest.split_once(" in ") {
+                let expression = expression.split(" if ").next().unwrap_or(expression).trim().to_owned();
+                stack.push((variables.split(',').map(|variable| variable.trim().to_owned()).collect(), expression, start));
+            }
+        } else if tag == "endfor" || tag.starts_with("endfor ") {
+            stack.pop();
+        }
+        at = start + close + 2;
+    }
+
+    stack.into_iter().rev().find(|(variables, _, _)| variables.iter().any(|variable| variable == name)).map(|(_, expression, start)| (expression, start))
+}
+
+/// `a.b.c`, optionally followed by filters that keep the items (`slice`, `reverse`, `sort`, `filter`): its identifiers.
+pub fn iterated_chain(expression: &str) -> Option<Vec<String>> {
+    const KEEPING: [&str; 4] = ["slice", "reverse", "sort", "filter"];
+    let mut parts = expression.split('|');
+    let chain: Vec<String> = parts.next()?.trim().split('.').map(|part| part.trim().to_owned()).collect();
+    let valid = chain.iter().all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_'));
+    let filters = parts.all(|filter| KEEPING.contains(&filter.trim().split('(').next().unwrap_or_default().trim()));
+    (valid && filters).then_some(chain)
+}
+
 /// Variables visible at `at`: `{% set %}`, `{% for %}` (with `loop`), macro arguments,
 /// `{% with %}` and `{# @var name Type #}` comments. Blocks, macros, loops and `with`
 /// have their own scope; a scope that closed before `at` contributes nothing.
@@ -469,5 +504,18 @@ mod tests {
         assert_eq!(macro_import_at(own, own.len() - 3).map(|(template, _)| template), Some("_self".to_owned()));
         assert_eq!(macro_import_at("{{ g.x }}", 6), None);
         assert_eq!(macro_definitions("{% macro input(name, type = 'text') %}x{% endmacro %}{%- macro row() -%}"), [("input".to_owned(), "name, type = 'text'".to_owned()), ("row".to_owned(), String::new())]);
+    }
+
+    #[test]
+    fn loop_sources_are_scoped_by_endfor_and_nesting() {
+        let text = "{% for a, b in items %}{% for c in b.children|reverse %}{{ x }}{% endfor %}{{ y }}{% endfor %}{{ z }}";
+        let at = |needle: &str| text.find(needle).unwrap();
+        assert_eq!(super::loop_source(text, at("{{ x"), "c"), Some(("b.children|reverse".into(), 23)));
+        assert_eq!(super::loop_source(text, at("{{ x"), "b"), Some(("items".into(), 0)));
+        assert_eq!(super::loop_source(text, at("{{ y"), "c"), None);
+        assert_eq!(super::loop_source(text, at("{{ z"), "a"), None);
+        assert_eq!(super::iterated_chain("a.b|slice(0, 2)|sort"), Some(vec!["a".into(), "b".into()]));
+        assert_eq!(super::iterated_chain("a.b|keys"), None);
+        assert_eq!(super::iterated_chain("range(1, 3)"), None);
     }
 }

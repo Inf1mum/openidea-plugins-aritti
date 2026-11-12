@@ -117,19 +117,27 @@ impl Processes {
     }
 
     fn start(&self, ctx: &Invocation) -> Result<(), Error> {
-        let project = ctx.project().ok_or_else(|| Error::Invalid("Open a Symfony project first.".into()))?;
-        let launch = self.launch()?;
-        if launch.program == "php" && !project.exists("bin/console")? {
-            return Err(Error::Invalid("This project has no bin/console.".into()));
-        }
-        let root = project.root()?;
-        let hash = root.bytes().fold(0xcbf29ce484222325u64, |hash, byte| (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3));
-        let key = format!("symfony-{}-{hash:016x}", self.command());
-        let command = host::Command::new(launch.program).args(&launch.args);
-        match host::open_terminal_session(&key, &launch.line(), &command) {
-            Err(Error::Denied(_)) => Err(Error::Denied(format!("Allow the process:{} capability in Settings › Plugins.", launch.program))),
-            other => other.map(|_| ()),
-        }
+        open(ctx, self.command(), &self.launch()?)
+    }
+}
+
+/// Opens `php bin/console about` in a terminal tab.
+pub(crate) fn console_about(ctx: &Invocation) -> Result<(), Error> {
+    open(ctx, "about", &Launch { program: "php", args: vec!["bin/console".into(), "about".into()] })
+}
+
+fn open(ctx: &Invocation, id: &str, launch: &Launch) -> Result<(), Error> {
+    let project = ctx.project().ok_or_else(|| Error::Invalid("Open a Symfony project first.".into()))?;
+    if launch.program == "php" && !project.exists("bin/console")? {
+        return Err(Error::Invalid("This project has no bin/console.".into()));
+    }
+    let root = project.root()?;
+    let hash = root.bytes().fold(0xcbf29ce484222325u64, |hash, byte| (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3));
+    let key = format!("symfony-{id}-{hash:016x}");
+    let command = host::Command::new(launch.program).args(&launch.args);
+    match host::open_terminal_session(&key, &launch.line(), &command) {
+        Err(Error::Denied(_)) => Err(Error::Denied(format!("Allow the process:{} capability in Settings › Plugins.", launch.program))),
+        other => other.map(|_| ()),
     }
 }
 

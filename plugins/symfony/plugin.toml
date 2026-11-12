@@ -11,7 +11,7 @@ Twig files need the aritti.twig plugin."""
 authors = ["Arnaud Ritti <arnaud.ritti@gmail.com>", "Daniel Espendiller (original Symfony Plugin)", "Adrien Brault (original Symfony Plugin)"]
 homepage = "https://github.com/Haehnchen/idea-php-symfony2-plugin"
 license = "MIT"
-change-notes = """Unreleased: The window has separate Routes, Templates, Services and Translations tabs with counts, and a Processes tab that opens the Symfony CLI server, server log and Messenger/scheduler workers in terminal tabs. Unreleased: Unreleased: indexer gutter markers (services, events, validators, templates, blocks, routes) use dedicated icons. Unreleased form and column type checks (Info): EntityType `class` and CollectionType `entry_type` naming a missing project class, EntityType `choice_label` that is no property or getter of the class, CheckboxType on a property declared int/float/array (Symfony docs: a boolean value, and the `value` option does not change the object value; string is not flagged; Integer/Number/Date types are not checked because their docs allow several underlying types); literal `ORM Column type` attributes string/text/integer/boolean/float/datetime_immutable against a built-in property type per the DBAL types mapping, skipped with `enumType`. Unreleased autowiring and route references: Go to Definition on a constructor type-hint reaches the service definition (explicit service or `alias:`/`Interface: '@Class'` alias, `#[AsAlias]` on a class, or a `resource:`-loaded concrete class whose FQCN equals namespace plus path; plain-path `exclude` honoured, globs and `#[Autowire]`/`#[Target]` parameters stay quiet); `generateUrl()`/`redirectToRoute()`/router `generate()` of an unknown literal route name warns when the route set is provably literal (src/Controller attribute imports only, every `#[Route]` named by a string, no name_prefix, PHP route files or custom router resource) without needing compiled routes; `_` and FQCN/`Class::method` route names stay quiet. Unreleased Doctrine navigation: Go to Declaration from `repositoryClass:` and `targetEntity:` class literals to the class, and from `mappedBy:`/`inversedBy:` strings to the exact property declaration in the target entity (same file-indexed edges as service ids; quiet when unresolved). Unreleased Doctrine/forms reference checks: warns when an association `mappedBy`/`inversedBy` names a property missing from the readable `targetEntity` class chain, and reports Info for `$builder->add()` fields of a form with `data_class` that match no entity property or accessor (silent with mapped/property_path/data/inherit_data, traits, magic accessors or unreadable parents). Profiler details show up to 50 Time collector Stopwatch events (name, category, origin, duration, period count) decoded only from plain StopwatchEvent/StopwatchPeriod shapes with printable-ASCII allowlists; cloned or malformed periods omit the duration; additive to profile summary protocol v2. Unreleased profiler details: decodes Time (start time, stopwatch), Cache (calls/reads/writes/deletes/hits/misses/time totals) and Logger (deprecation/warning/scream counts) collector numbers from raw/GZIP profiles against Symfony 7.4 data shapes; adapter protocol is now version 2. Events/Request collectors stay count-only because their data is VarDumper-cloned. Unreleased profiler paging: the Profiler tab now browses all valid index rows (up to the 10000-record bound) 100 per page, newest first, through Newer/Older Requests buttons over the cached snapshot. Unreleased: fresh read-only source occurrence review for route/service/template literals, with exact source navigation and explicit partial coverage. Unreleased: selection-aware local raw/GZIP profiler collector overview through an optional isolated PHP adapter; modern virtual-type CSV support; endpoint labels retain handler methods. Unreleased profiler source ownership: explicit bounded project-relative CSV source setting, root/source-owned snapshots and source-scoped row keys; nested project ownership loss hides cached details. Unreleased service config workflow: explicit validated production PSR4 resource-load mode replaces the three native service-config template exports after reviewed atomic coverage; generic templates retained. Unreleased compiler workflow: reviewed Composer-owned compiler-pass creation replaces the native compiler template; selected production PSR4 directory/namespace and exact class preview. Unreleased file workflows: custom unambiguous production PSR4 sibling scaffolds and reviewed defaults-only YAML/XML/PHP service-config creation from composer.json, with source/target ownership and no guessed imports. Unreleased ownership audit: positive cached declaration hover, exact-domain fallback isolation and all unsafe host-index associations gated from automatic Rename; explicit source definition providers remain. 0.1.0: first release. Ported from the Symfony Plugin (fr.adrienbrault.idea.symfony2plugin) 2026.2.314, \
+change-notes = """Unreleased: About tab with project metadata, installed versions, index counts and a Run bin/console about button. Unreleased: Config, Env and Entities tabs (container parameter names, `.env` variable names without values, Doctrine entities with fields and relations) and matching MCP tools. Unreleased: Six read-only MCP tools (routes, services, commands, templates, template usage, profiler requests); Stimulus controller, Vite entry and AssetMapper path completion; `{% types %}`, `enum_cases()` and route-parameter completion; UX Twig component names, props, blocks and navigation. Unreleased: Member completion, Go to Definition and hover from inferred types, including `for` loops over typed collections, `$this->`, `container->get('service.id')`, query-builder results, and form fields and options: `variable.` in Twig (from `{# @var #}` comments and controller `render()` arguments) and `$variable->` in PHP (typed parameters and properties, `new`, repository and entity-manager finders, `container->get(Class::class)`). Unreleased: The window has separate Routes, Templates, Services and Translations tabs with counts, and a Processes tab that opens the Symfony CLI server, server log and Messenger/scheduler workers in terminal tabs. Unreleased: Unreleased: indexer gutter markers (services, events, validators, templates, blocks, routes) use dedicated icons. Unreleased form and column type checks (Info): EntityType `class` and CollectionType `entry_type` naming a missing project class, EntityType `choice_label` that is no property or getter of the class, CheckboxType on a property declared int/float/array (Symfony docs: a boolean value, and the `value` option does not change the object value; string is not flagged; Integer/Number/Date types are not checked because their docs allow several underlying types); literal `ORM Column type` attributes string/text/integer/boolean/float/datetime_immutable against a built-in property type per the DBAL types mapping, skipped with `enumType`. Unreleased autowiring and route references: Go to Definition on a constructor type-hint reaches the service definition (explicit service or `alias:`/`Interface: '@Class'` alias, `#[AsAlias]` on a class, or a `resource:`-loaded concrete class whose FQCN equals namespace plus path; plain-path `exclude` honoured, globs and `#[Autowire]`/`#[Target]` parameters stay quiet); `generateUrl()`/`redirectToRoute()`/router `generate()` of an unknown literal route name warns when the route set is provably literal (src/Controller attribute imports only, every `#[Route]` named by a string, no name_prefix, PHP route files or custom router resource) without needing compiled routes; `_` and FQCN/`Class::method` route names stay quiet. Unreleased Doctrine navigation: Go to Declaration from `repositoryClass:` and `targetEntity:` class literals to the class, and from `mappedBy:`/`inversedBy:` strings to the exact property declaration in the target entity (same file-indexed edges as service ids; quiet when unresolved). Unreleased Doctrine/forms reference checks: warns when an association `mappedBy`/`inversedBy` names a property missing from the readable `targetEntity` class chain, and reports Info for `$builder->add()` fields of a form with `data_class` that match no entity property or accessor (silent with mapped/property_path/data/inherit_data, traits, magic accessors or unreadable parents). Profiler details show up to 50 Time collector Stopwatch events (name, category, origin, duration, period count) decoded only from plain StopwatchEvent/StopwatchPeriod shapes with printable-ASCII allowlists; cloned or malformed periods omit the duration; additive to profile summary protocol v2. Unreleased profiler details: decodes Time (start time, stopwatch), Cache (calls/reads/writes/deletes/hits/misses/time totals) and Logger (deprecation/warning/scream counts) collector numbers from raw/GZIP profiles against Symfony 7.4 data shapes; adapter protocol is now version 2. Events/Request collectors stay count-only because their data is VarDumper-cloned. Unreleased profiler paging: the Profiler tab now browses all valid index rows (up to the 10000-record bound) 100 per page, newest first, through Newer/Older Requests buttons over the cached snapshot. Unreleased: fresh read-only source occurrence review for route/service/template literals, with exact source navigation and explicit partial coverage. Unreleased: selection-aware local raw/GZIP profiler collector overview through an optional isolated PHP adapter; modern virtual-type CSV support; endpoint labels retain handler methods. Unreleased profiler source ownership: explicit bounded project-relative CSV source setting, root/source-owned snapshots and source-scoped row keys; nested project ownership loss hides cached details. Unreleased service config workflow: explicit validated production PSR4 resource-load mode replaces the three native service-config template exports after reviewed atomic coverage; generic templates retained. Unreleased compiler workflow: reviewed Composer-owned compiler-pass creation replaces the native compiler template; selected production PSR4 directory/namespace and exact class preview. Unreleased file workflows: custom unambiguous production PSR4 sibling scaffolds and reviewed defaults-only YAML/XML/PHP service-config creation from composer.json, with source/target ownership and no guessed imports. Unreleased ownership audit: positive cached declaration hover, exact-domain fallback isolation and all unsafe host-index associations gated from automatic Rename; explicit source definition providers remain. 0.1.0: first release. Ported from the Symfony Plugin (fr.adrienbrault.idea.symfony2plugin) 2026.2.314, \
 source revision b6c1034f6669784d7a58de7535515b7da93db87e. This port works from a text index of the project, so the \
 features that need PhpStorm's PSI are missing (container type inference, Doctrine, forms, most inspections). \
 Unreleased: the Symfony tool window has Routes (a flat list: method icon, path, controller and route name, controller filter, flat or tree, Copy as curl and Create HTTP Request File on the row menu; optional clipboard and project.write) and Index sections; the unclosed-tag diagnostic moved to aritti.twig, which now reports it in Symfony projects too; project-wide Go to Declaration for service ids and route names (YAML and XML services, attribute, YAML and XML routes; @service, path() and generate() references) from the host's document index. \
@@ -330,3 +330,66 @@ id = "template"
 icon = "icons/marker-template.svg"
 markers = ["template#"]
 tooltip = "Template"
+
+[[contributes.mcpTools]]
+name = "routes"
+description = "List routes from the cached source index as CSV: name, methods, path, controller and file. Optional text filter and pagination."
+inputSchema = "mcp/routes.schema.json"
+readOnly = true
+destructive = false
+
+[[contributes.mcpTools]]
+name = "services"
+description = "List services from the cached source index as CSV: id, class or alias, and file. Optional text filter and pagination."
+inputSchema = "mcp/services.schema.json"
+readOnly = true
+destructive = false
+
+[[contributes.mcpTools]]
+name = "commands"
+description = "List console commands from the cached source index as CSV: name, class and file. Optional text filter and pagination."
+inputSchema = "mcp/commands.schema.json"
+readOnly = true
+destructive = false
+
+[[contributes.mcpTools]]
+name = "templates"
+description = "List Twig templates from the cached source index as CSV: name and file. Optional text filter and pagination."
+inputSchema = "mcp/templates.schema.json"
+readOnly = true
+destructive = false
+
+[[contributes.mcpTools]]
+name = "template_usage"
+description = "Find where a Twig template is used: controllers rendering it and templates extending, including, embedding or importing it, as CSV."
+inputSchema = "mcp/template_usage.schema.json"
+readOnly = true
+destructive = false
+
+[[contributes.mcpTools]]
+name = "profiler_requests"
+description = "List recent profiler requests from the project's profiler index file as CSV: token, method, redacted URL, status and time. Reads a file only; no PHP runs."
+inputSchema = "mcp/profiler_requests.schema.json"
+readOnly = true
+destructive = false
+
+[[contributes.mcpTools]]
+name = "entities"
+description = "List Doctrine entities from #[ORM\\Entity] attributes as CSV: class, table, repository, fields, relations and file. Optional text filter and pagination."
+inputSchema = "mcp/entities.schema.json"
+readOnly = true
+destructive = false
+
+[[contributes.mcpTools]]
+name = "parameters"
+description = "List container parameter names from the cached source index as CSV: name and file. Values are not read. Optional text filter and pagination."
+inputSchema = "mcp/parameters.schema.json"
+readOnly = true
+destructive = false
+
+[[contributes.mcpTools]]
+name = "env"
+description = "List the variable names of the project's .env files as CSV with the files defining them. Values are never returned."
+inputSchema = "mcp/env.schema.json"
+readOnly = true
+destructive = false

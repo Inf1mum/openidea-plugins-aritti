@@ -18,9 +18,14 @@ mod hover;
 mod ownership;
 mod intentions;
 mod make_commands;
+mod mcp;
 mod live;
 mod namespace_paths;
 mod php_checks;
+mod about;
+mod components;
+mod entities;
+mod forms;
 mod php_text;
 mod php_types;
 mod processes;
@@ -75,10 +80,14 @@ fn refresh_main_view() {
 const STATUS_ITEM: &str = "symfony";
 const ROUTES_KEY: &str = "symfony.routes";
 const DEFAULT_BASE_URL: &str = "http://localhost:8000";
+const ABOUT_VIEW: &str = "symfony-about";
+const ENTITIES_VIEW: &str = "symfony-entities";
 const TEMPLATES_VIEW: &str = "symfony-templates";
 const SERVICES_VIEW: &str = "symfony-services";
+const CONFIG_VIEW: &str = "symfony-config";
+const ENV_VIEW: &str = "symfony-env";
 const TRANSLATIONS_VIEW: &str = "symfony-translations";
-const MAIN_VIEWS: [&str; 4] = [VIEW, TEMPLATES_VIEW, SERVICES_VIEW, TRANSLATIONS_VIEW];
+const MAIN_VIEWS: [&str; 8] = [ABOUT_VIEW, VIEW, ENTITIES_VIEW, TEMPLATES_VIEW, SERVICES_VIEW, CONFIG_VIEW, ENV_VIEW, TRANSLATIONS_VIEW];
 const PROFILER_VIEW: &str = "symfony-profiler";
 const SOURCE: &str = "Symfony";
 const DEFAULT_DOMAIN: &str = "messages";
@@ -259,6 +268,8 @@ fn candidates<'a>(index: &'a Index, path: &str, language: &str, text: &str, refe
         Kind::Class => Cow::Borrowed(&index.classes),
         Kind::Asset => Cow::Borrowed(&index.assets),
         Kind::Entry => Cow::Borrowed(&index.entries),
+        Kind::Stimulus => Cow::Borrowed(&index.stimulus),
+        Kind::Component => Cow::Borrowed(&index.components),
         Kind::Role => Cow::Borrowed(&index.roles),
         Kind::Tag => {
             let mut all: Names = CORE_TAGS
@@ -291,7 +302,7 @@ fn completion_kind(kind: Kind) -> CompletionKind {
         Kind::Template | Kind::Asset => CompletionKind::File,
         Kind::Service | Kind::Class => CompletionKind::Class,
         Kind::Translation => CompletionKind::Text,
-        Kind::Entry => CompletionKind::Module,
+        Kind::Entry | Kind::Stimulus | Kind::Component => CompletionKind::Module,
         Kind::Role => CompletionKind::Constant,
         Kind::Block => CompletionKind::Field,
         Kind::Tag => CompletionKind::Keyword,
@@ -371,25 +382,343 @@ fn twig_members(index: &Index, doc: &Document, offset: usize) -> Vec<CompletionI
     };
 
     let template = index.template_of(&doc.path);
-    let mut class = php_types::var_comment_types(&doc.text, offset).remove(&chain[0]);
-    if class.is_none() {
-        class = index
-            .renders
-            .iter()
-            .filter(|render| Some(render.template.as_str()) == template)
-            .find_map(|render| php_types::hint_class(render.variable_types.get(&chain[0])?, &load));
-    }
-
-    let mut class = class;
-    for segment in &chain[1..] {
-        class = class.and_then(|class| php_types::member_class(&load, &class, segment));
-    }
-    let Some(class) = class else {
+    let Some(value) = twig_chain_value(index, doc, template, &load, &chain, offset, 0) else {
         return Vec::new();
     };
 
+    member_items(php_types::value_members(&load, &value), range_of(&doc.text, start, end))
+}
+
+/// The class a service id stands for: its declared class, following aliases, or the id when it is a project class.
+fn service_class(index: &Index, id: &str, depth: u8) -> Option<String> {
+    if depth > 5 {
+        return None;
+    }
+    let is_class_name = |name: &str| !name.is_empty() && name.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'\\'));
+    if let Some(detail) = index.services.get(id).and_then(|entry| entry.detail.as_deref()) {
+        if let Some(target) = detail.strip_prefix("alias of ") {
+            return service_class(index, target.trim(), depth + 1);
+        }
+        if is_class_name(detail) {
+            return Some(detail.trim_start_matches('\\').to_owned());
+        }
+    }
+    (index.classes.contains_key(id) && is_class_name(id)).then(|| id.to_owned())
+}
+
+/// What a Twig variable is at `offset`: a loop variable over a typed list, a `{# @var #}` comment, or a controller's argument.
+fn twig_value(index: &Index, doc: &Document, template: Option<&str>, load: php_types::Loader, name: &str, offset: usize, depth: u8) -> Option<php_types::Value> {
+    if depth > 4 {
+        return None;
+    }
+
+    if let Some((expression, tag_at)) = twig::loop_source(&doc.text, offset, name) {
+        let chain = twig::iterated_chain(&expression)?;
+        return match twig_chain_value(index, doc, template, load, &chain, tag_at, depth + 1)? {
+            php_types::Value::List(item) => Some(php_types::Value::Object(item)),
+            _ => None,
+        };
+    }
+
+    if let Some(value) = php_types::var_comment_values(&doc.text, offset).remove(name) {
+        return Some(value);
+    }
+
+    index.renders.iter().filter(|render| Some(render.template.as_str()) == template).find_map(|render| php_types::hint_value(render.variable_types.get(name)?, load, &|id| service_class(index, id, 0)))
+}
+
+fn twig_chain_value(index: &Index, doc: &Document, template: Option<&str>, load: php_types::Loader, chain: &[String], offset: usize, depth: u8) -> Option<php_types::Value> {
+    let mut value = twig_value(index, doc, template, load, chain.first()?, offset, depth)?;
+    for segment in &chain[1..] {
+        value = php_types::value_member(load, &value, segment)?;
+    }
+    Some(value)
+}
+
+/// The member under the caret in `var.member` (Twig) or `$var->member` / `$this->member` (PHP), for typed variables,
+/// and the byte range of its name.
+fn member_at(index: &Index, doc: &Document, offset: usize, load: &dyn Fn(&str) -> Option<String>) -> Option<(php_types::Member, std::ops::Range<usize>)> {
+    let (name, members, range) = match doc.language.as_str() {
+        "twig" => {
+            let (chain, start, end) = refs::twig_member_chain_at(&doc.text, offset)?;
+            let template = index.template_of(&doc.path);
+            let value = twig_chain_value(index, doc, template, load, &chain, offset, 0)?;
+            (doc.text[start..end].to_owned(), php_types::value_members(load, &value), start..end)
+        }
+        "php" => {
+            let masked = php_text::mask(&doc.text);
+            let (receiver, start, end) = php_types::member_access_at(&masked, offset)?;
+            let members = if receiver == "$this" {
+                php_types::this_members(load, &doc.text)
+            } else {
+                let class = php_types::receiver_hint_at(&doc.text, offset, &receiver).and_then(|hint| php_types::hint_class(&hint, load, &|id| service_class(index, id, 0)))?;
+                php_types::instance_members(load, &class)
+            };
+            (doc.text[start..end].to_owned(), members, start..end)
+        }
+        _ => return None,
+    };
+    if name.is_empty() {
+        return None;
+    }
+    members.into_iter().find(|member| member.name == name).map(|member| (member, range))
+}
+
+/// Go to the declaration of a typed member, in Twig and PHP.
+fn member_definition(index: &Index, doc: &Document, offset: usize, root: &str) -> Vec<Location> {
+    let Some(project) = project_for(&doc.path) else {
+        return Vec::new();
+    };
+    let load = |fqcn: &str| -> Option<String> {
+        let entry = index.classes.get(fqcn.trim_start_matches('\\'))?;
+        project.read_file(&entry.path).ok()
+    };
+    let Some((member, _)) = member_at(index, doc, offset, &load) else {
+        return Vec::new();
+    };
+    if doc.language == "php" && php_text::class_model(&doc.text).is_some_and(|model| model.fqcn == member.owner) {
+        return vec![Location { path: doc.path.clone(), range: Range::new(text::position(&doc.text, member.range.start), text::position(&doc.text, member.range.end)) }];
+    }
+    located(index, &member, root, &load)
+}
+
+/// Hover with the type of a typed member or variable, in Twig and PHP.
+fn type_hover(index: &Index, doc: &Document, offset: usize) -> Option<openidea_plugin::hover::Hover> {
+    let project = project_for(&doc.path)?;
+    let load = |fqcn: &str| -> Option<String> {
+        let entry = index.classes.get(fqcn.trim_start_matches('\\'))?;
+        project.read_file(&entry.path).ok()
+    };
+    let escaped = |value: &str| value.replace('\\', "\\\\").replace(['`', '*', '_', '<', '>'], "");
+    let label = |value: &php_types::Value| match value {
+        php_types::Value::Object(class) => class.clone(),
+        php_types::Value::List(class) => format!("{class}[]"),
+        php_types::Value::Form(form) => format!("form view of {form}"),
+        php_types::Value::Field => "form field view".to_owned(),
+        php_types::Value::Vars => "form.vars".to_owned(),
+    };
+
+    if let Some((member, range)) = member_at(index, doc, offset, &load).filter(|(member, _)| !member.owner.is_empty()) {
+        let signature = match (&member.type_name, &member.element_type) {
+            (_, Some(element)) => format!("{} : {element}[]", member.detail),
+            (Some(type_name), None) => format!("{} : {type_name}", member.detail),
+            (None, None) => member.detail.clone(),
+        };
+        let body = format!("**{}**\n\n`{}`\n\nInferred from project sources; the runtime type may differ.", escaped(&member.owner), escaped(&signature));
+        return Some(openidea_plugin::hover::Hover::new(body).range(range_of(&doc.text, range.start, range.end)));
+    }
+
+    let (name, start, end, value) = match doc.language.as_str() {
+        "twig" => {
+            let (start, end) = refs::twig_variable_at(&doc.text, offset)?;
+            let name = doc.text[start..end].to_owned();
+            let template = index.template_of(&doc.path);
+            let value = twig_value(index, doc, template, &load, &name, offset, 0)?;
+            (name, start, end, value)
+        }
+        "php" => {
+            let masked = php_text::mask(&doc.text);
+            let bytes = masked.as_bytes();
+            let (mut start, mut end) = (offset, offset);
+            while start > 0 && (bytes[start - 1].is_ascii_alphanumeric() || bytes[start - 1] == b'_') {
+                start -= 1;
+            }
+            while end < bytes.len() && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'_') {
+                end += 1;
+            }
+            if start == 0 || bytes[start - 1] != b'$' || start == end {
+                return None;
+            }
+            let name = doc.text[start..end].to_owned();
+            let hint = php_types::receiver_hint_at(&doc.text, offset, &format!("${name}"))?;
+            (name, start, end, php_types::hint_value(&hint, &load, &|id| service_class(index, id, 0))?)
+        }
+        _ => return None,
+    };
+    let body = format!("**{}**: `{}`\n\nInferred from project sources; the runtime type may differ.", escaped(&name), escaped(&label(&value)));
+    Some(openidea_plugin::hover::Hover::new(body).range(range_of(&doc.text, start, end)))
+}
+
+/// The declaration of a member in its owning class's file, when the file belongs to `root`.
+fn located(index: &Index, member: &php_types::Member, root: &str, load: &dyn Fn(&str) -> Option<String>) -> Vec<Location> {
+    let Some(entry) = index.classes.get(member.owner.trim_start_matches('\\')) else {
+        return Vec::new();
+    };
+    if entry.path.is_empty() || host::project_of(&entry.path).and_then(|project| project.root().ok()).as_deref() != Some(root) {
+        return Vec::new();
+    }
+    let Some(source) = load(&member.owner) else {
+        return Vec::new();
+    };
+    vec![Location { path: entry.path.clone(), range: Range::new(text::position(&source, member.range.start), text::position(&source, member.range.end)) }]
+}
+
+/// The innermost `->add(` call whose array argument holds `offset`: the field type class named by
+/// its second argument (when written as `X::class`), found in masked PHP.
+fn form_options_context(text: &str, masked: &str, offset: usize) -> Option<Option<String>> {
+    let bytes = masked.as_bytes();
+    let (mut depth, mut array, mut at) = (0usize, false, offset);
+    while at > 0 {
+        at -= 1;
+        match bytes[at] {
+            b')' | b']' | b'}' => depth += 1,
+            b'(' | b'[' | b'{' if depth > 0 => depth -= 1,
+            b'[' => array = true,
+            b'(' => {
+                if !array || !masked[..at].trim_end().ends_with("->add") {
+                    return None;
+                }
+                let arguments = &text[at + 1..];
+                let mut top = 0usize;
+                let mut commas = Vec::new();
+                for (position, byte) in masked[at + 1..offset].bytes().enumerate() {
+                    match byte {
+                        b'(' | b'[' | b'{' => top += 1,
+                        b')' | b']' | b'}' => top = top.saturating_sub(1),
+                        b',' if top == 0 => commas.push(position),
+                        _ => {}
+                    }
+                }
+                if commas.len() != 2 {
+                    return None;
+                }
+                let second = arguments[commas[0] + 1..commas[1]].trim();
+                let class = second.strip_suffix("::class").map(|name| php_text::resolver(text)(name));
+                return Some(class);
+            }
+            b'{' => return None,
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Form field names in `$form->get('|')` / `has` / `remove`, and option names in `$builder->add('x', Type::class, ['|'])`.
+fn form_completions(index: &Index, doc: &Document, offset: usize) -> Vec<CompletionItem> {
+    if doc.language != "php" {
+        return Vec::new();
+    }
+
+    let line_start = doc.text[..offset].rfind('\n').map_or(0, |at| at + 1);
+    let prefix = &doc.text[line_start..offset];
+    let Some(quote) = prefix.rfind(['\'', '"']) else { return Vec::new() };
+    let partial = &prefix[quote + 1..];
+    if !partial.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-')) || prefix[..quote].matches(prefix[quote..].chars().next().unwrap_or('\'')).count() % 2 == 1 {
+        return Vec::new();
+    }
+    let start = offset - partial.len();
+    let replace = range_of(&doc.text, start, offset);
+    let before = prefix[..quote].trim_end();
+
+    if let Some(options_type) = form_options_context(&doc.text, &php_text::mask(&doc.text), offset) {
+        if before.ends_with(['[', ',']) {
+            return forms::options(options_type.as_deref().unwrap_or_default())
+                .into_iter()
+                .map(|name| {
+                    let mut item = CompletionItem::new(name, CompletionKind::Property);
+                    item.detail = Some("form option".into());
+                    item.replace = Some(replace);
+                    item
+                })
+                .collect();
+        }
+        return Vec::new();
+    }
+
+    let Some(call) = ["->get(", "->has(", "->remove("].iter().find_map(|call| before.strip_suffix(call)) else {
+        return Vec::new();
+    };
+    let length = call.bytes().rev().take_while(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'$' | b'>' | b'-')).count();
+    let receiver = &call[call.len() - length..];
+    let Some(php_types::TypeHint::Form(form)) = php_types::receiver_hint_at(&doc.text, offset, receiver) else {
+        return Vec::new();
+    };
+    let Some(project) = project_for(&doc.path) else {
+        return Vec::new();
+    };
+    let Some(source) = index.classes.get(form.trim_start_matches('\\')).and_then(|entry| project.read_file(&entry.path).ok()) else {
+        return Vec::new();
+    };
+
+    forms::fields(&source)
+        .into_iter()
+        .map(|field| {
+            let mut item = CompletionItem::new(&field.name, CompletionKind::Field);
+            item.detail = field.type_name.as_deref().map(|name| php_text::short_name(name).to_owned());
+            item.replace = Some(replace);
+            item
+        })
+        .collect()
+}
+
+/// The `{placeholder}` names of a route path: `/blog/{slug}/{page<\\d+>?1}` has `slug` and `page`.
+fn route_placeholders(path: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    for (open, _) in path.match_indices('{') {
+        let rest = path[open + 1..].trim_start_matches('!');
+        let name = &rest[..rest.find(['}', '<', '?', '>']).unwrap_or(rest.len())];
+        if !name.is_empty() && name.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_') && !names.contains(&name.to_owned()) {
+            names.push(name.to_owned());
+        }
+    }
+    names
+}
+
+/// Route parameter names in the argument array of `path()`, `url()`, `generateUrl()`, `redirectToRoute()` and `->generate()`.
+fn route_parameter_completions(index: &Index, doc: &Document, offset: usize) -> Vec<CompletionItem> {
+    let Some((route, start, end)) = refs::route_parameter_at(&doc.language, &doc.text, offset) else {
+        return Vec::new();
+    };
     let replace = range_of(&doc.text, start, end);
-    php_types::members(&load, &class)
+    let mut seen = BTreeSet::new();
+    index
+        .route_defs
+        .iter()
+        .filter(|def| def.name.as_deref() == Some(route.as_str()))
+        .flat_map(|def| route_placeholders(&def.path))
+        .filter(|name| seen.insert(name.clone()))
+        .map(|name| {
+            let mut item = CompletionItem::new(&name, CompletionKind::Property);
+            item.detail = Some(format!("route parameter · {route}"));
+            item.replace = Some(replace);
+            item
+        })
+        .collect()
+}
+
+/// UX component props (attribute names of `<twig:Name …>`) and block names (`<twig:block name="…">`).
+fn component_completions(index: &Index, doc: &Document, offset: usize) -> Vec<CompletionItem> {
+    if doc.language != "twig" {
+        return Vec::new();
+    }
+    let Some(context) = refs::component_context(&doc.text, offset) else {
+        return Vec::new();
+    };
+
+    let (names, detail, start, end): (Vec<&String>, &str, usize, usize) = match &context {
+        refs::ComponentContext::Prop { component, start, end } => match index.component_info.get(component) {
+            Some(info) => (info.component.props.iter().collect(), "component prop", *start, *end),
+            None => return Vec::new(),
+        },
+        refs::ComponentContext::Block { component, start, end } => match index.component_info.get(component) {
+            Some(info) => (info.blocks.iter().collect(), "component block", *start, *end),
+            None => return Vec::new(),
+        },
+    };
+    let replace = range_of(&doc.text, start, end);
+    names
+        .into_iter()
+        .map(|name| {
+            let mut item = CompletionItem::new(name, CompletionKind::Property);
+            item.detail = Some(detail.into());
+            item.replace = Some(replace);
+            item
+        })
+        .collect()
+}
+
+fn member_items(members: Vec<php_types::Member>, replace: Range) -> Vec<CompletionItem> {
+    members
         .into_iter()
         .map(|member| {
             let mut item = CompletionItem::new(&member.name, if member.detail.ends_with("()") { CompletionKind::Method } else { CompletionKind::Property });
@@ -401,6 +730,34 @@ fn twig_members(index: &Index, doc: &Document, offset: usize) -> Vec<CompletionI
             item
         })
         .collect()
+}
+
+/// Members of `$object->` and `$this->property->` in PHP, for variables the source types
+/// (typed parameters, `new`, repository and entity-manager finders, `container->get(X::class)`).
+fn php_members(index: &Index, doc: &Document, offset: usize) -> Vec<CompletionItem> {
+    if doc.language != "php" {
+        return Vec::new();
+    }
+
+    let masked = php_text::mask(&doc.text);
+    let Some((receiver, start, end)) = php_types::member_access_at(&masked, offset) else {
+        return Vec::new();
+    };
+    let Some(project) = project_for(&doc.path) else {
+        return Vec::new();
+    };
+    let load = |fqcn: &str| -> Option<String> {
+        let entry = index.classes.get(fqcn.trim_start_matches('\\'))?;
+        project.read_file(&entry.path).ok()
+    };
+    if receiver == "$this" {
+        return member_items(php_types::this_members(&load, &doc.text), range_of(&doc.text, start, end));
+    }
+    let Some(class) = php_types::receiver_hint_at(&doc.text, offset, &receiver).and_then(|hint| php_types::hint_class(&hint, &load, &|id| service_class(index, id, 0))) else {
+        return Vec::new();
+    };
+
+    member_items(php_types::instance_members(&load, &class), range_of(&doc.text, start, end))
 }
 
 /// Twig tags, filters, functions and tests, plus variables where an expression can start.
@@ -1196,6 +1553,26 @@ impl Providers for Main {
             }
         }
 
+        let form_items = form_completions(index, doc, offset);
+        if !form_items.is_empty() {
+            return form_items;
+        }
+
+        let parameters = route_parameter_completions(index, doc, offset);
+        if !parameters.is_empty() {
+            return parameters;
+        }
+
+        let component_items = component_completions(index, doc, offset);
+        if !component_items.is_empty() {
+            return component_items;
+        }
+
+        let php_members = php_members(index, doc, offset);
+        if !php_members.is_empty() {
+            return php_members;
+        }
+
         let Some(reference) = refs::reference_at(&doc.language, &doc.text, offset) else {
             let members = twig_members(index, doc, offset);
             if !members.is_empty() {
@@ -1225,6 +1602,11 @@ impl Providers for Main {
         let Some(offset) = text::offset(&doc.text, at) else {
             return Vec::new();
         };
+        let members = member_definition(index, doc, offset, &root);
+        if !members.is_empty() {
+            return members;
+        }
+
         let Some(reference) = refs::reference_at(&doc.language, &doc.text, offset) else {
             if doc.language != "php" {
                 return Vec::new();
@@ -1251,7 +1633,7 @@ impl Providers for Main {
         if entry.path.is_empty()
             || host::project_of(&doc.path).and_then(|project|project.root().ok()).as_deref()!=Some(root.as_str())
             || host::project_of(&entry.path).and_then(|project|project.root().ok()).as_deref()!=Some(root.as_str()) {return Vec::new();}
-        let is_file = matches!(reference.kind, Kind::Template | Kind::Class | Kind::Asset);
+        let is_file = matches!(reference.kind, Kind::Template | Kind::Class | Kind::Asset | Kind::Stimulus | Kind::Component);
         let width = if is_file { 0 } else { name.encode_utf16().count() as u32 };
         location(entry, width).into_iter().collect()
     }
@@ -1639,6 +2021,9 @@ const GROUPS: &[(&str, &str, &str)] = &[
     ("template", "Templates", "file-html"),
     ("service", "Services", "class"),
     ("translation", "Translations", "text"),
+    ("entity", "Entities", "database"),
+    ("parameter", "Parameters", "settings"),
+    ("env", "Environment", "variable"),
 ];
 
 fn group_names<'a>(index: &'a Index, group: &str) -> Option<&'a Names> {
@@ -1646,6 +2031,8 @@ fn group_names<'a>(index: &'a Index, group: &str) -> Option<&'a Names> {
         "route" => Some(&index.routes),
         "template" => Some(&index.templates),
         "service" => Some(&index.services),
+        "parameter" => Some(&index.parameters),
+        "env" => Some(&index.env),
         _ => None,
     }
 }
@@ -1655,6 +2042,18 @@ fn entry_for<'a>(index: &'a Index, key: &str) -> Option<&'a Entry> {
     if group == "translation" {
         let (domain, name) = name.split_once(':')?;
         return index.translations.get(domain)?.get(name);
+    }
+    match group {
+        "entity" => return index.entities.get(name).map(|entity| &entity.entry),
+        "field" => {
+            let (class, field) = name.rsplit_once(':')?;
+            return index.entities.get(class)?.fields.iter().find(|candidate| candidate.name == field).map(|candidate| &candidate.entry);
+        }
+        "relation" => {
+            let (class, relation) = name.rsplit_once(':')?;
+            return index.entities.get(class)?.relations.iter().find(|candidate| candidate.name == relation).map(|candidate| &candidate.entry);
+        }
+        _ => {}
     }
     group_names(index, group)?.get(name)
 }
@@ -1666,8 +2065,11 @@ impl Main {
             for tab in config["group"]["tabs"].as_array_mut().expect("Symfony tabs") {
                 let count = match tab["id"].as_str().unwrap_or_default() {
                     VIEW => Some(self.routes(index).len()),
+                    ENTITIES_VIEW => Some(index.entities.len()),
                     TEMPLATES_VIEW => Some(index.templates.len()),
                     SERVICES_VIEW => Some(index.services.len()),
+                    CONFIG_VIEW => Some(index.parameters.len()),
+                    ENV_VIEW => Some(index.env.len()),
                     TRANSLATIONS_VIEW => Some(index.translations.values().map(Names::len).sum()),
                     _ => None,
                 };
@@ -1688,6 +2090,28 @@ impl Main {
                 _ => item,
             }
         };
+
+        if group == "entity" {
+            let mut items = Vec::new();
+            for (class, entity) in &index.entities {
+                let key = format!("entity:{class}");
+                let expanded = self.expanded.contains(&key);
+                let detail = format!("{} \u{b7} {} fields \u{b7} {} relations", entity.table, entity.fields.len(), entity.relations.len());
+                items.push(TreeItem::new(&key, php_text::short_name(class)).icon("class").detail(&detail).expandable(expanded));
+                if !expanded {
+                    continue;
+                }
+                for field in &entity.fields {
+                    let detail = format!("{}{}{}", field.type_name, if field.nullable { "?" } else { "" }, if field.id { " \u{b7} id" } else { "" });
+                    items.push(TreeItem::new(&format!("field:{class}:{}", field.name), &field.name).parent(&key).icon("property").detail(&detail));
+                }
+                for relation in &entity.relations {
+                    let detail = format!("{} \u{2192} {}", relation.kind, relation.target.as_deref().map_or("?", php_text::short_name));
+                    items.push(TreeItem::new(&format!("relation:{class}:{}", relation.name), &relation.name).parent(&key).icon("hierarchy").detail(&detail));
+                }
+            }
+            return items;
+        }
 
         if let Some(names) = group_names(index, group) {
             return names.iter().map(|(name, entry)| leaf(format!("{group}:{name}"), name, entry, icon)).collect();
@@ -1819,11 +2243,24 @@ impl Views for Main {
             if view == processes::VIEW {
                 return Ok(self.processes.render());
             }
+            if view == ABOUT_VIEW {
+                let Some(project) = ctx.project() else {
+                    return Ok(View::message("Open a project first."));
+                };
+                let reindex = Button::new("reindex", "Reindex").icon("refresh");
+                let Some(index) = self.view_index(ctx) else {
+                    return Ok(View::message("This project is not a Symfony application.").button(reindex));
+                };
+                return Ok(View::new(about::body(&project, Some(index))).button(Button::new("about-console", "Run bin/console about").icon("terminal")).button(reindex));
+            }
 
             let group = match view {
                 VIEW => "route",
+                ENTITIES_VIEW => "entity",
                 TEMPLATES_VIEW => "template",
                 SERVICES_VIEW => "service",
+                CONFIG_VIEW => "parameter",
+                ENV_VIEW => "env",
                 TRANSLATIONS_VIEW => "translation",
                 _ => return Err(Error::NotFound(view.into())),
             };
@@ -1881,6 +2318,10 @@ impl Views for Main {
 
         if view == processes::VIEW {
             return self.processes.handle(&event, ctx);
+        }
+
+        if view == ABOUT_VIEW && matches!(&event, ViewEvent::Button(id) if id == "about-console") {
+            return processes::console_about(ctx);
         }
 
         if view == PROFILER_VIEW {
@@ -1979,7 +2420,7 @@ impl Views for Main {
     }
 }
 
-openidea_plugin::register_plugin!(Main, providers, views, indexing, endpoints, file_actions, hover, diagnostics);
+openidea_plugin::register_plugin!(Main, providers, views, indexing, endpoints, file_actions, hover, diagnostics, mcp);
 
 #[cfg(test)]
 mod tests {
@@ -2267,6 +2708,382 @@ mod tests {
 
         let commented = "{# @var item \\App\\Entity\\User #}\n{{ item. }}";
         assert_eq!(complete(&mut plugin, commented, 1, 8), ["email"]);
+    }
+
+    #[test]
+    fn php_members_follow_typed_variables_and_stay_quiet_otherwise() {
+        let host = MockHost::install();
+        let mut plugin = activated(&host);
+        host.add_file("src/Entity/Base.php", "<?php\nnamespace App\\Entity;\nabstract class Base\n{\n    public function getId(): ?int { return 1; }\n}\n");
+        host.add_file("src/Entity/Post.php", "<?php\nnamespace App\\Entity;\nclass Post extends Base\n{\n    public string $slug = '';\n    public function getTitle(): string { return ''; }\n    public function rename(string $title): static { return $this; }\n    protected function internal(): void {}\n}\n");
+        host.add_file("src/Repository/PostRepository.php", "<?php\nnamespace App\\Repository;\nuse App\\Entity\\Post;\n/**\n * @extends ServiceEntityRepository<Post>\n */\nclass PostRepository extends ServiceEntityRepository\n{\n    public function latest(int $limit = 5): array { return []; }\n}\n");
+        plugin.run_command("reindex", &host.invocation(), None).unwrap();
+
+        let source = |statement: &str| {
+            format!("<?php\nnamespace App\\Controller;\nuse App\\Entity\\Post;\nuse App\\Repository\\PostRepository;\nclass X\n{{\n    public function __construct(private PostRepository $posts) {{}}\n    public function a(PostRepository $repo, int $id, Post $typed)\n    {{\n        $found = $repo->find($id);\n        $fresh = new Post();\n        $text = 'x';\n{statement}\n    }}\n}}\n")
+        };
+        let complete = |plugin: &mut Main, statement: &str| {
+            let text = source(statement);
+            let line = text.lines().position(|line| line == statement).unwrap() as u32;
+            let php = doc("/project/src/Controller/X.php", "php", &text);
+            labels(plugin.completion(&php, Position::new(line, statement.len() as u32), None))
+        };
+
+        let post = ["getId", "getTitle", "rename", "slug"];
+        assert_eq!(complete(&mut plugin, "        $found->"), post);
+        assert_eq!(complete(&mut plugin, "        $fresh->ge"), post);
+        assert_eq!(complete(&mut plugin, "        $typed->"), post);
+        assert_eq!(complete(&mut plugin, "        $repo->"), ["latest"]);
+        assert_eq!(complete(&mut plugin, "        $this->posts->"), ["latest"]);
+        assert!(complete(&mut plugin, "        $text->").is_empty());
+        assert!(complete(&mut plugin, "        $unknown->").is_empty());
+        assert!(complete(&mut plugin, "        $x = '$found->").is_empty());
+    }
+
+    #[test]
+    fn twig_loops_follow_typed_collections_and_stay_scoped() {
+        let host = MockHost::install();
+        let mut plugin = activated(&host);
+        host.add_file("templates/post/list.html.twig", "{{ posts }}");
+        host.add_file("src/Entity/Comment.php", "<?php\nnamespace App\\Entity;\nclass Comment\n{\n    public function getBody(): string { return ''; }\n}\n");
+        host.add_file("src/Entity/Post.php", "<?php\nnamespace App\\Entity;\nuse Doctrine\\Common\\Collections\\Collection;\nclass Post\n{\n    /**\n     * @return Collection<int, Comment>\n     */\n    public function getComments(): Collection { return new Collection(); }\n    public function getTitle(): string { return ''; }\n}\n");
+        host.add_file("src/Repository/PostRepository.php", "<?php\nnamespace App\\Repository;\nuse App\\Entity\\Post;\n/**\n * @extends ServiceEntityRepository<Post>\n */\nclass PostRepository extends ServiceEntityRepository {}\n");
+        host.add_file(
+            "src/Controller/PostController.php",
+            "<?php\nnamespace App\\Controller;\nuse App\\Repository\\PostRepository;\nclass PostController\n{\n    public function list(PostRepository $repo)\n    {\n        $posts = $repo->findAll();\n        return $this->render('post/list.html.twig', ['posts' => $posts, 'latest' => $repo->findBy([], null, 3)]);\n    }\n}\n",
+        );
+        plugin.run_command("reindex", &host.invocation(), None).unwrap();
+
+        let complete = |plugin: &mut Main, text: &str, line: u32, character: u32| {
+            let twig = doc("/project/templates/post/list.html.twig", "twig", text);
+            labels(plugin.completion(&twig, Position::new(line, character), None))
+        };
+
+        let looped = "{% for post in posts %}\n{{ post. }}\n{% endfor %}";
+        assert_eq!(complete(&mut plugin, looped, 1, 8), ["comments", "title"]);
+        let keyed = "{% for index, post in latest|slice(0, 2) %}\n{{ post. }}\n{% endfor %}";
+        assert_eq!(complete(&mut plugin, keyed, 1, 8), ["comments", "title"]);
+        let nested = "{% for post in posts %}{% for comment in post.comments %}\n{{ comment. }}\n{% endfor %}{% endfor %}";
+        assert_eq!(complete(&mut plugin, nested, 1, 11), ["body"]);
+        let after = "{% for post in posts %}{% endfor %}\n{{ post. }}";
+        assert!(complete(&mut plugin, after, 1, 8).is_empty());
+        let collection = "{{ posts. }}";
+        assert!(complete(&mut plugin, collection, 0, 9).is_empty());
+        let commented = "{# @var items \\App\\Entity\\Comment[] #}\n{% for item in items %}\n{{ item. }}\n{% endfor %}";
+        assert_eq!(complete(&mut plugin, commented, 2, 8), ["body"]);
+    }
+
+    #[test]
+    fn member_definitions_jump_to_the_declaring_class_including_parents() {
+        let host = MockHost::install();
+        let mut plugin = activated(&host);
+        host.add_file("templates/post/show.html.twig", "{{ post }}");
+        host.add_file("src/Entity/Base.php", "<?php\nnamespace App\\Entity;\nabstract class Base\n{\n    public function getId(): ?int { return 1; }\n}\n");
+        host.add_file("src/Entity/Post.php", "<?php\nnamespace App\\Entity;\nclass Post extends Base\n{\n    public string $slug = '';\n    public function getTitle(): string { return ''; }\n}\n");
+        host.add_file("src/Repository/PostRepository.php", "<?php\nnamespace App\\Repository;\nuse App\\Entity\\Post;\n/**\n * @extends ServiceEntityRepository<Post>\n */\nclass PostRepository extends ServiceEntityRepository {}\n");
+        host.add_file(
+            "src/Controller/PostController.php",
+            "<?php\nnamespace App\\Controller;\nuse App\\Repository\\PostRepository;\nclass PostController\n{\n    public function show(PostRepository $repo, int $id)\n    {\n        $post = $repo->find($id);\n        return $this->render('post/show.html.twig', ['post' => $post]);\n    }\n}\n",
+        );
+        plugin.run_command("reindex", &host.invocation(), None).unwrap();
+
+        let twig = |text: &str| doc("/project/templates/post/show.html.twig", "twig", text);
+        let at = |plugin: &mut Main, document: &Document, line: u32, character: u32| plugin.definition(document, Position::new(line, character));
+        let title = at(&mut plugin, &twig("{{ post.title }}"), 0, 10);
+        assert_eq!(title.len(), 1);
+        assert_eq!(title[0].path, "/project/src/Entity/Post.php");
+        assert_eq!((title[0].range.start.line, title[0].range.start.character), (5, 20));
+        let inherited = at(&mut plugin, &twig("{{ post.id }}"), 0, 9);
+        assert_eq!(inherited[0].path, "/project/src/Entity/Base.php");
+        let slug = at(&mut plugin, &twig("{{ post.slug }}"), 0, 10);
+        assert_eq!((slug[0].path.as_str(), slug[0].range.start.line), ("/project/src/Entity/Post.php", 4));
+        assert!(at(&mut plugin, &twig("{{ post.missing }}"), 0, 11).is_empty());
+
+        let php = "<?php\nnamespace App\\Controller;\nuse App\\Entity\\Post;\nclass X\n{\n    public function a(Post $post)\n    {\n        $post->getTitle();\n    }\n}\n";
+        let found = at(&mut plugin, &doc("/project/src/Controller/X.php", "php", php), 7, 17);
+        assert_eq!((found[0].path.as_str(), found[0].range.start.line), ("/project/src/Entity/Post.php", 5));
+    }
+
+    #[test]
+    fn service_ids_and_query_results_type_twig_and_php_members() {
+        let host = MockHost::install();
+        let mut plugin = activated(&host);
+        host.add_file("templates/home.html.twig", "{{ mailer }}");
+        host.add_file("config/services.yaml", "services:\n    app.mailer:\n        class: App\\Service\\Mailer\n    app.mail_alias:\n        alias: app.mailer\n");
+        host.add_file("src/Service/Mailer.php", "<?php\nnamespace App\\Service;\nclass Mailer\n{\n    public function send(string $to): void {}\n    public function getTransport(): string { return ''; }\n}\n");
+        host.add_file("src/Entity/Post.php", "<?php\nnamespace App\\Entity;\nclass Post\n{\n    public function getTitle(): string { return ''; }\n}\n");
+        host.add_file("src/Repository/PostRepository.php", "<?php\nnamespace App\\Repository;\nuse App\\Entity\\Post;\n/**\n * @extends ServiceEntityRepository<Post>\n */\nclass PostRepository extends ServiceEntityRepository {}\n");
+        host.add_file(
+            "src/Controller/HomeController.php",
+            "<?php\nnamespace App\\Controller;\nuse App\\Repository\\PostRepository;\nuse Psr\\Container\\ContainerInterface;\nclass HomeController\n{\n    public function index(ContainerInterface $locator, PostRepository $repo)\n    {\n        $mailer = $locator->get('app.mail_alias');\n        $posts = $repo->createQueryBuilder('p')->orderBy('p.id')->getQuery()->getResult();\n        return $this->render('home.html.twig', ['mailer' => $mailer, 'posts' => $posts]);\n    }\n}\n",
+        );
+        plugin.run_command("reindex", &host.invocation(), None).unwrap();
+
+        let twig = |text: &str| doc("/project/templates/home.html.twig", "twig", text);
+        assert_eq!(labels(plugin.completion(&twig("{{ mailer. }}"), Position::new(0, 10), None)), ["transport"]);
+        let looped = "{% for post in posts %}{{ post. }}{% endfor %}";
+        assert_eq!(labels(plugin.completion(&twig(looped), Position::new(0, 31), None)), ["title"]);
+
+        let php = "<?php\nnamespace App\\Controller;\nuse Psr\\Container\\ContainerInterface;\nclass X\n{\n    public function a(ContainerInterface $locator)\n    {\n        $m = $locator->get('app.mailer');\n        $m->\n    }\n}\n";
+        let items = labels(plugin.completion(&doc("/project/src/Controller/X.php", "php", php), Position::new(8, 12), None));
+        assert_eq!(items, ["getTransport", "send"]);
+    }
+
+    #[test]
+    fn this_members_complete_and_navigate_inside_the_class() {
+        let host = MockHost::install();
+        let mut plugin = activated(&host);
+        host.add_file("src/Base.php", "<?php\nnamespace App;\nclass Base\n{\n    protected function boot(): void {}\n}\n");
+        plugin.run_command("reindex", &host.invocation(), None).unwrap();
+        let php = "<?php\nnamespace App;\nclass Child extends Base\n{\n    private string $label = '';\n    private function helper(): void {}\n    public function run(): void\n    {\n        $this->\n        $this->helper();\n        $this->boot();\n    }\n}\n";
+        let document = doc("/project/src/Child.php", "php", php);
+        assert_eq!(labels(plugin.completion(&document, Position::new(8, 16), None)), ["boot", "helper", "label", "run"]);
+        let own = plugin.definition(&document, Position::new(9, 18));
+        assert_eq!((own[0].path.as_str(), own[0].range.start.line), ("/project/src/Child.php", 5));
+        let parent = plugin.definition(&document, Position::new(10, 17));
+        assert_eq!((parent[0].path.as_str(), parent[0].range.start.line), ("/project/src/Base.php", 4));
+    }
+
+    #[test]
+    fn hover_shows_the_inferred_type_of_members_and_variables() {
+        use openidea_plugin::hover::HoverProvider;
+        let host = MockHost::install();
+        let mut plugin = activated(&host);
+        host.add_file("templates/post/show.html.twig", "{{ post }}");
+        host.add_file("src/Entity/Comment.php", "<?php\nnamespace App\\Entity;\nclass Comment {}\n");
+        host.add_file("src/Entity/Post.php", "<?php\nnamespace App\\Entity;\nclass Post\n{\n    public function getTitle(): string { return ''; }\n    /** @return Comment[] */\n    public function getComments(): array { return []; }\n}\n");
+        host.add_file("src/Repository/PostRepository.php", "<?php\nnamespace App\\Repository;\nuse App\\Entity\\Post;\n/**\n * @extends ServiceEntityRepository<Post>\n */\nclass PostRepository extends ServiceEntityRepository {}\n");
+        host.add_file(
+            "src/Controller/PostController.php",
+            "<?php\nnamespace App\\Controller;\nuse App\\Repository\\PostRepository;\nclass PostController\n{\n    public function show(PostRepository $repo, int $id)\n    {\n        $post = $repo->find($id);\n        return $this->render('post/show.html.twig', ['post' => $post]);\n    }\n}\n",
+        );
+        plugin.run_command("reindex", &host.invocation(), None).unwrap();
+
+        let twig = |text: &str| doc("/project/templates/post/show.html.twig", "twig", text);
+        let member = plugin.hover(&twig("{{ post.title }}"), Position::new(0, 10)).unwrap();
+        assert!(member.markdown.contains("getTitle() : string") && member.markdown.contains("App"), "{}", member.markdown);
+        let list = plugin.hover(&twig("{{ post.comments }}"), Position::new(0, 11)).unwrap();
+        assert!(list.markdown.contains("Comment[]"), "{}", list.markdown);
+        let variable = plugin.hover(&twig("{{ post.title }}"), Position::new(0, 4)).unwrap();
+        assert!(variable.markdown.contains("post") && variable.markdown.contains("Post"), "{}", variable.markdown);
+        assert!(plugin.hover(&twig("{{ unknown }}"), Position::new(0, 5)).is_none());
+
+        let php = "<?php\nnamespace App\\Controller;\nuse App\\Entity\\Post;\nclass X\n{\n    public function a(Post $post)\n    {\n        $post->getTitle();\n    }\n}\n";
+        let document = doc("/project/src/Controller/X.php", "php", php);
+        assert!(plugin.hover(&document, Position::new(7, 17)).unwrap().markdown.contains("getTitle() : string"));
+        assert!(plugin.hover(&document, Position::new(7, 10)).unwrap().markdown.contains("Post"));
+    }
+
+    #[test]
+    fn forms_type_twig_views_php_field_names_and_option_names() {
+        let host = MockHost::install();
+        let mut plugin = activated(&host);
+        host.add_file("templates/post/edit.html.twig", "{{ form }}");
+        host.add_file(
+            "src/Form/PostType.php",
+            "<?php\nnamespace App\\Form;\nuse Symfony\\Component\\Form\\Extension\\Core\\Type\\TextType;\nuse Symfony\\Component\\Form\\Extension\\Core\\Type\\ChoiceType;\nclass PostType extends AbstractType\n{\n    public function buildForm(FormBuilderInterface $builder, array $options): void\n    {\n        $builder\n            ->add('title', TextType::class)\n            ->add('address', AddressType::class)\n            ->add('status', ChoiceType::class);\n    }\n}\n",
+        );
+        host.add_file("src/Form/AddressType.php", "<?php\nnamespace App\\Form;\nuse Symfony\\Component\\Form\\Extension\\Core\\Type\\TextType;\nclass AddressType extends AbstractType\n{\n    public function buildForm(FormBuilderInterface $builder, array $options): void\n    {\n        $builder->add('street', TextType::class);\n    }\n}\n");
+        host.add_file(
+            "src/Controller/PostController.php",
+            "<?php\nnamespace App\\Controller;\nuse App\\Form\\PostType;\nclass PostController\n{\n    public function edit()\n    {\n        $form = $this->createForm(PostType::class, null);\n        return $this->render('post/edit.html.twig', ['form' => $form->createView()]);\n    }\n}\n",
+        );
+        plugin.run_command("reindex", &host.invocation(), None).unwrap();
+
+        let twig = |text: &str| doc("/project/templates/post/edit.html.twig", "twig", text);
+        let sorted = |mut items: Vec<String>| {
+            items.sort();
+            items
+        };
+        let complete = |plugin: &mut Main, text: &str, character: u32| sorted(labels(plugin.completion(&twig(text), Position::new(0, character), None)));
+        assert_eq!(complete(&mut plugin, "{{ form_row(form.) }}", 17), ["address", "children", "methodRendered", "parent", "rendered", "status", "title", "vars"]);
+        assert_eq!(complete(&mut plugin, "{{ form.title. }}", 14), ["children", "methodRendered", "parent", "rendered", "vars"]);
+        assert!(complete(&mut plugin, "{{ form.vars. }}", 13).contains(&"errors".to_owned()));
+        assert!(complete(&mut plugin, "{{ form.address. }}", 16).contains(&"street".to_owned()));
+        let jump = plugin.definition(&twig("{{ form.title }}"), Position::new(0, 10));
+        assert_eq!((jump[0].path.as_str(), jump[0].range.start.line), ("/project/src/Form/PostType.php", 9));
+
+        let controller = |statement: &str| {
+            format!("<?php\nnamespace App\\Controller;\nuse App\\Form\\PostType;\nuse Symfony\\Component\\Form\\Extension\\Core\\Type\\ChoiceType;\nclass X\n{{\n    public function a()\n    {{\n        $form = $this->createForm(PostType::class);\n{statement}\n    }}\n}}\n")
+        };
+        let php = |plugin: &mut Main, statement: &str| {
+            let caret = statement.find('|').unwrap();
+            let line_text = statement.replace('|', "");
+            let text = controller(&line_text);
+            let line = text.lines().position(|line| line == line_text).unwrap() as u32;
+            sorted(labels(plugin.completion(&doc("/project/src/Controller/X.php", "php", &text), Position::new(line, caret as u32), None)))
+        };
+        assert_eq!(php(&mut plugin, "        $form->get('|');"), ["address", "status", "title"]);
+        assert_eq!(php(&mut plugin, "        $form->has(\"st|\");"), ["address", "status", "title"]);
+        let options = php(&mut plugin, "        $builder->add('status', ChoiceType::class, ['|' => 1]);");
+        assert!(options.contains(&"choices".to_owned()) && options.contains(&"label".to_owned()) && !options.contains(&"scale".to_owned()));
+        assert!(php(&mut plugin, "        $builder->add('|');").is_empty());
+        assert!(php(&mut plugin, "        $form->get('title')->foo('|');").is_empty());
+        assert!(php(&mut plugin, "        $builder->add('x', ChoiceType::class, ['a' => '|']);").is_empty());
+    }
+
+    #[test]
+    fn stimulus_controllers_vite_entries_and_assetmapper_paths_complete_and_navigate() {
+        let host = MockHost::install();
+        let mut plugin = activated(&host);
+        host.add_file("assets/controllers/hello_controller.js", "export default class {}");
+        host.add_file("assets/controllers/users/list_item_controller.js", "export default class {}");
+        host.add_file("assets/controllers/helper.js", "export const x = 1;");
+        host.add_file("assets/app.js", "import './styles/app.css';");
+        host.add_file("assets/images/logo.png", "png");
+        host.add_file("vite.config.js", "export default { build: { rollupOptions: { input: { app: 'assets/app.js', admin: 'assets/admin.js' } } } }");
+        plugin.run_command("reindex", &host.invocation(), None).unwrap();
+
+        let twig = |text: &str| doc("/project/templates/page.html.twig", "twig", text);
+        let sorted = |mut items: Vec<String>| {
+            items.sort();
+            items
+        };
+        let attribute = "<div data-controller=\"hello \">";
+        assert_eq!(sorted(labels(plugin.completion(&twig(attribute), Position::new(0, 28), None))), ["hello", "users--list-item"]);
+        let function = "{{ stimulus_controller('') }}";
+        assert_eq!(sorted(labels(plugin.completion(&twig(function), Position::new(0, 24), None))), ["hello", "users--list-item"]);
+        let jump = plugin.definition(&twig("<div data-controller=\"users--list-item\">"), Position::new(0, 24));
+        assert_eq!(jump[0].path, "/project/assets/controllers/users/list_item_controller.js");
+
+        let entries = sorted(labels(plugin.completion(&twig("{{ vite_entry_script_tags('') }}"), Position::new(0, 27), None)));
+        assert_eq!(entries, ["admin", "app"]);
+        let assets = labels(plugin.completion(&twig("{{ asset('') }}"), Position::new(0, 10), None));
+        assert!(assets.contains(&"images/logo.png".to_owned()) && assets.contains(&"app.js".to_owned()), "{assets:?}");
+    }
+
+    #[test]
+    fn route_parameters_types_tag_and_enum_classes_complete() {
+        let host = MockHost::install();
+        let mut plugin = activated(&host);
+        host.add_file("src/Enum/Status.php", "<?php\nnamespace App\\Enum;\nenum Status: string { case Active = 'a'; }\n");
+        host.add_file("src/Entity/User.php", "<?php\nnamespace App\\Entity;\nclass User {}\n");
+        host.add_file(
+            "src/Controller/PostController.php",
+            "<?php\nnamespace App\\Controller;\nclass PostController\n{\n    #[Route('/posts/{slug}/page/{page<\\d+>?1}', name: 'post_show')]\n    public function show() {}\n}\n",
+        );
+        plugin.run_command("reindex", &host.invocation(), None).unwrap();
+
+        let twig = |text: &str| doc("/project/templates/page.html.twig", "twig", text);
+        let sorted = |mut items: Vec<String>| {
+            items.sort();
+            items
+        };
+        let at_end = |plugin: &mut Main, document: &Document| {
+            let line = document.text.lines().count() as u32 - 1;
+            let character = document.text.lines().last().unwrap().len() as u32;
+            sorted(labels(plugin.completion(document, Position::new(line, character), None)))
+        };
+
+        assert_eq!(at_end(&mut plugin, &twig("{{ path('post_show', { ")), ["page", "slug"]);
+        assert_eq!(at_end(&mut plugin, &twig("{{ path('post_show', { slug: 1, ")), ["page", "slug"]);
+        assert!(!at_end(&mut plugin, &twig("{{ path('unknown', { ")).contains(&"slug".to_owned()));
+
+        let php = doc("/project/src/Controller/X.php", "php", "<?php\nclass X { function a() { return $this->generateUrl('post_show', ['");
+        assert_eq!(at_end(&mut plugin, &php), ["page", "slug"]);
+
+        let types = at_end(&mut plugin, &twig("{% types user: 'App"));
+        assert!(types.contains(&"App\\Entity\\User".to_owned()) && types.contains(&"App\\Enum\\Status".to_owned()), "{types:?}");
+        let enums = at_end(&mut plugin, &twig("{{ enum_cases('App\\En"));
+        assert!(enums.contains(&"App\\Enum\\Status".to_owned()), "{enums:?}");
+    }
+
+    #[test]
+    fn ux_components_complete_names_props_and_blocks_and_navigate() {
+        let host = MockHost::install();
+        let mut plugin = activated(&host);
+        host.add_file(
+            "src/Twig/Components/Alert.php",
+            "<?php\nnamespace App\\Twig\\Components;\nuse Symfony\\UX\\TwigComponent\\Attribute\\AsTwigComponent;\n#[AsTwigComponent]\nclass Alert\n{\n    public string $type = 'info';\n    public string $message = '';\n}\n",
+        );
+        host.add_file("templates/components/Alert.html.twig", "<div class=\"{{ type }}\">{% block content %}{{ message }}{% endblock %}{% block footer %}{% endblock %}</div>");
+        host.add_file("templates/components/Button/Primary.html.twig", "{% props label, size = 'md' %}\n<button>{{ label }}</button>");
+        plugin.run_command("reindex", &host.invocation(), None).unwrap();
+
+        let twig = |text: &str| doc("/project/templates/page.html.twig", "twig", text);
+        let sorted = |mut items: Vec<String>| {
+            items.sort();
+            items
+        };
+        let at_end = |plugin: &mut Main, text: &str| {
+            let document = twig(text);
+            let line = text.lines().count() as u32 - 1;
+            sorted(labels(plugin.completion(&document, Position::new(line, text.lines().last().unwrap().len() as u32), None)))
+        };
+
+        assert_eq!(at_end(&mut plugin, "<twig:"), ["Alert", "Button:Primary"]);
+        assert_eq!(at_end(&mut plugin, "{{ component('') }}".trim_end_matches(" }}").trim_end_matches("')")), ["Alert", "Button:Primary"]);
+        assert_eq!(at_end(&mut plugin, "<twig:Alert "), ["message", "type"]);
+        assert_eq!(at_end(&mut plugin, "<twig:Button:Primary label=\"x\" "), ["label", "size"]);
+        assert_eq!(at_end(&mut plugin, "<twig:Alert>\n<twig:block name=\""), ["content", "footer"]);
+        assert!(!at_end(&mut plugin, "<twig:Unknown ").contains(&"type".to_owned()));
+
+        let class_jump = plugin.definition(&twig("<twig:Alert type=\"x\" />"), Position::new(0, 8));
+        assert_eq!(class_jump[0].path, "/project/src/Twig/Components/Alert.php");
+        let template_jump = plugin.definition(&twig("<twig:Button:Primary />"), Position::new(0, 10));
+        assert_eq!(template_jump[0].path, "/project/templates/components/Button/Primary.html.twig");
+    }
+
+    #[test]
+    fn entities_config_and_env_tabs_list_their_inventories_and_navigate() {
+        let host = MockHost::install();
+        let mut plugin = activated(&host);
+        host.add_file(
+            "src/Entity/Post.php",
+            "<?php\nnamespace App\\Entity;\nuse Doctrine\\ORM\\Mapping as ORM;\n#[ORM\\Entity]\n#[ORM\\Table(name: 'blog_post')]\nclass Post\n{\n    #[ORM\\Id, ORM\\Column]\n    private ?int $id = null;\n    #[ORM\\Column(length: 255, nullable: true)]\n    private ?string $title = null;\n    #[ORM\\ManyToOne(targetEntity: User::class)]\n    private ?User $author = null;\n}\n",
+        );
+        host.add_file("src/Entity/Helper.php", "<?php\nnamespace App\\Entity;\nclass Helper {}\n");
+        host.add_file("config/services.yaml", "parameters:\n    app.items_per_page: 10\n    app.name: Blog\nservices:\n    _defaults:\n        autowire: true\n");
+        host.add_file(".env", "# comment\nAPP_ENV=dev\nDATABASE_URL=\"postgresql://user:secret@db/app\"\n");
+        host.add_file(".env.local", "export APP_SECRET=abc\nDATABASE_URL=sqlite:///x\n");
+        plugin.run_command("reindex", &host.invocation(), None).unwrap();
+        let ctx = host.invocation();
+
+        let View { body: Body::Tree(items), .. } = plugin.render(ENTITIES_VIEW, None, &ctx).unwrap() else { panic!("not a tree") };
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].label, "Post");
+        assert_eq!(items[0].detail.as_deref(), Some("blog_post \u{b7} 2 fields \u{b7} 1 relations"));
+
+        plugin.handle(ENTITIES_VIEW, ViewEvent::Expand("entity:App\\Entity\\Post".into()), &ctx).unwrap();
+        let View { body: Body::Tree(items), .. } = plugin.render(ENTITIES_VIEW, None, &ctx).unwrap() else { panic!("not a tree") };
+        let summary: Vec<_> = items.iter().map(|item| (item.label.as_str(), item.detail.clone().unwrap_or_default())).collect();
+        assert_eq!(
+            summary[1..],
+            [("id", "int \u{b7} id".to_owned()), ("title", "string?".to_owned()), ("author", "ManyToOne \u{2192} User".to_owned())]
+        );
+        plugin.handle(ENTITIES_VIEW, ViewEvent::Activate("field:App\\Entity\\Post:title".into()), &ctx).unwrap();
+        assert_eq!(host.opened_locations(), [("/project/src/Entity/Post.php".into(), 10, 21)]);
+
+        let View { body: Body::Tree(items), .. } = plugin.render(CONFIG_VIEW, None, &ctx).unwrap() else { panic!("not a tree") };
+        assert!(items.iter().any(|item| item.label == "app.items_per_page"), "{:?}", items.iter().map(|item| &item.label).collect::<Vec<_>>());
+        let View { body: Body::Tree(items), .. } = plugin.render(ENV_VIEW, None, &ctx).unwrap() else { panic!("not a tree") };
+        let env: Vec<_> = items.iter().map(|item| (item.label.as_str(), item.detail.clone().unwrap_or_default())).collect();
+        assert_eq!(
+            env,
+            [
+                ("APP_ENV", "defined in .env".to_owned()),
+                ("APP_SECRET", "defined in .env.local".to_owned()),
+                ("DATABASE_URL", "defined in .env, .env.local".to_owned()),
+            ]
+        );
+        assert!(items.iter().all(|item| !item.detail.clone().unwrap_or_default().contains("secret") && !item.detail.clone().unwrap_or_default().contains("postgresql")));
+    }
+
+    #[test]
+    fn about_tab_summarises_the_project_and_opens_bin_console_about_in_a_terminal() {
+        let host = MockHost::install().with_capabilities(&["project.read", "process:php"]);
+        let mut plugin = activated(&host);
+        host.add_file("composer.lock", r#"{"packages":[{"name":"symfony/framework-bundle","version":"v7.1.5"}]}"#);
+        let ctx = host.invocation();
+
+        let view = plugin.render(ABOUT_VIEW, None, &ctx).unwrap();
+        let Body::Html(html) = &view.body else { panic!("not html") };
+        assert!(html.contains("v7.1.5") && html.contains("Source index") && html.contains("Routes"), "{html}");
+        assert_eq!(toolbar_labels(&view), ["Run bin/console about", "Reindex"]);
+
+        assert!(plugin.handle(ABOUT_VIEW, ViewEvent::Button("about-console".into()), &ctx).is_err());
+        host.add_file("bin/console", "#!/usr/bin/env php");
+        plugin.handle(ABOUT_VIEW, ViewEvent::Button("about-console".into()), &ctx).unwrap();
     }
 
     #[test]
@@ -2682,9 +3499,13 @@ mod tests {
         assert_eq!(
             counts,
             [
+                (ABOUT_VIEW, None),
                 (VIEW, Some(1)),
+                (ENTITIES_VIEW, Some(0)),
                 (TEMPLATES_VIEW, Some(2)),
                 (SERVICES_VIEW, Some(1)),
+                (CONFIG_VIEW, Some(0)),
+                (ENV_VIEW, Some(0)),
                 (TRANSLATIONS_VIEW, Some(2)),
                 (PROFILER_VIEW, None),
                 (namespace_paths::VIEW, None),
@@ -4024,7 +4845,7 @@ mod grouped_ui_parity_tests {
         let host=MockHost::install();let mut plugin=Main::default();
         let answer=send(&mut plugin,&host,VIEW,json!({"op":"select-view","target":namespace_paths::VIEW}));
         assert_eq!(answer["model"]["activeView"],namespace_paths::VIEW);
-        assert_eq!(answer["model"]["viewTabs"].as_array().unwrap().len(),7);
+        assert_eq!(answer["model"]["viewTabs"].as_array().unwrap().len(),11);
         let answer=send(&mut plugin,&host,namespace_paths::VIEW,json!({"op":"event","event":{"kind":"button","key":"twig-path-add"}}));
         let fields=answer["model"]["body"]["fields"].as_array().unwrap();
         let field=fields.iter().find(|field|field["label"]=="Existing project-relative directory").unwrap()["key"].as_str().unwrap().to_owned();

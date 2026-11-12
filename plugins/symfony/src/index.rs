@@ -26,6 +26,13 @@ pub struct Entry {
 
 pub type Names = BTreeMap<String, Entry>;
 
+/// A UX Twig component with the blocks its template defines.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ComponentInfo {
+    pub component: crate::components::Component,
+    pub blocks: Vec<String>,
+}
+
 /// A controller rendering a template: `$this->render('x.html.twig', ['a' => …])`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Render {
@@ -79,6 +86,15 @@ pub struct Index {
     pub assets: Names,
     /// Webpack Encore and AssetMapper entry points.
     pub entries: Names,
+    /// Stimulus controllers of `assets/controllers/`, by their `data-controller` identifier.
+    pub stimulus: Names,
+    /// UX Twig components by name (`Alert`, `Button:Primary`); the entry points at the class, else the template.
+    pub components: Names,
+    pub component_info: std::collections::BTreeMap<String, ComponentInfo>,
+    /// Doctrine entities by class, from `#[ORM\Entity]` attributes.
+    pub entities: std::collections::BTreeMap<String, crate::entities::Entity>,
+    /// Variable names of the `.env*` files; values are never kept.
+    pub env: Names,
     pub roles: Names,
     /// Container parameters of the project's config and of the compiled container.
     pub parameters: Names,
@@ -326,6 +342,18 @@ impl Index {
             }
         }
 
+        // AssetMapper's logical paths (`asset('images/logo.png')`) and Stimulus controllers live under `assets/`.
+        for path in files(&["assets/**/*"]) {
+            let Some(name) = relative(&path).strip_prefix("assets/").map(str::to_owned) else { continue };
+            if name.is_empty() || name.ends_with(".php") {
+                continue;
+            }
+            if let Some(identifier) = stimulus_identifier(&name) {
+                index.stimulus.entry(identifier).or_insert(Entry { detail: Some(name.clone()), path: path.clone(), at: Position::new(0, 0) });
+            }
+            index.assets.entry(name).or_insert(Entry { detail: Some("AssetMapper path".into()), path, at: Position::new(0, 0) });
+        }
+
         let composer = optional_text(project,"composer.json",&mut index);
         index.framework_version = framework_version(&composer);
         index.deprecation_version = VersionEvidence::from_composer(&composer);
@@ -469,6 +497,99 @@ impl Index {
 
         if let Some(text) = read(&format!("{root}/importmap.php"), &mut index) {
             importmap_entries(&format!("{root}/importmap.php"), &text, &mut index.entries);
+        }
+
+        for config in ["vite.config.js", "vite.config.ts", "vite.config.mjs", "vite.config.mts"] {
+            if let Some(text) = read(&format!("{root}/{config}"), &mut index) {
+                vite_entries(&format!("{root}/{config}"), &text, &mut index.entries);
+            }
+        }
+        let mut found_components: Vec<(crate::components::Component, String)> = Vec::new();
+        for path in files(&["src/**/Components/**/*.php"]) {
+            let Some(text) = read(&path, &mut index) else { continue };
+            if !text.contains("AsTwigComponent") && !text.contains("AsLiveComponent") {
+                continue;
+            }
+            if let Some(component) = crate::components::class_component(&text) {
+                found_components.push((component, path));
+            }
+        }
+        for path in files(&["templates/components/**/*.twig"]) {
+            let relative_path = relative(&path);
+            let Some(file) = relative_path.strip_prefix("templates/components/") else { continue };
+            let Some(name) = crate::components::anonymous_name(file) else { continue };
+            if !found_components.iter().any(|(component, _)| component.name == name) {
+                found_components.push((crate::components::Component { name, class: None, template: format!("components/{file}"), props: Vec::new() }, path));
+            }
+        }
+        for (mut component, path) in found_components {
+            let mut blocks = Vec::new();
+            let template_path = index.templates.get(&component.template).map(|entry| entry.path.clone());
+            if let Some(text) = template_path.and_then(|template_path| read(&template_path, &mut index)) {
+                blocks = crate::components::template_blocks(&text);
+                for prop in crate::components::template_props(&text) {
+                    if !component.props.contains(&prop) {
+                        component.props.push(prop);
+                    }
+                }
+            }
+            let detail = match &component.class {
+                Some(class) => format!("component · {class}"),
+                None => "anonymous component".to_owned(),
+            };
+            index.components.insert(component.name.clone(), Entry { detail: Some(detail), path, at: Position::new(0, 0) });
+            index.component_info.insert(component.name.clone(), ComponentInfo { component, blocks });
+        }
+
+        let doctrine = optional_text(project, "config/packages/doctrine.yaml", &mut index);
+        let mut entity_globs = vec!["src/Entity/**/*.php".to_owned()];
+        for key in yaml_keys(&doctrine) {
+            if key.key == "dir" && key.parents.len() == 4 && key.parents[2] == "mappings" {
+                let directory = key.value.trim_matches(['\'', '"']).trim_start_matches("%kernel.project_dir%/").trim_end_matches('/').to_owned();
+                let glob = format!("{directory}/**/*.php");
+                if !directory.is_empty() && !directory.starts_with('/') && !directory.contains("..") && !entity_globs.contains(&glob) {
+                    entity_globs.push(glob);
+                }
+            }
+        }
+        let entity_globs: Vec<&str> = entity_globs.iter().map(String::as_str).collect();
+        for path in files(&entity_globs) {
+            let Some(text) = read(&path, &mut index) else { continue };
+            if !text.contains("Entity") {
+                continue;
+            }
+            if let Some(entity) = crate::entities::parse(&path, &text) {
+                index.entities.insert(entity.class.clone(), entity);
+            }
+        }
+
+        let mut env_variables: std::collections::BTreeMap<String, (Entry, Vec<&str>)> = std::collections::BTreeMap::new();
+        for file in [".env", ".env.local", ".env.dev", ".env.test", ".env.prod", ".env.dev.local", ".env.test.local", ".env.prod.local"] {
+            let path = format!("{root}/{file}");
+            let Some(text) = read(&path, &mut index) else { continue };
+            for (number, line) in text.lines().enumerate() {
+                let line = line.trim_start();
+                let line = line.strip_prefix("export ").unwrap_or(line);
+                let Some((name, _)) = line.split_once('=') else { continue };
+                let name = name.trim();
+                let valid = name.bytes().next().is_some_and(|byte| byte.is_ascii_alphabetic() || byte == b'_') && name.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_');
+                if valid {
+                    let slot = env_variables.entry(name.to_owned()).or_insert_with(|| (Entry { detail: None, path: path.clone(), at: Position::new(number as u32, 0) }, Vec::new()));
+                    if !slot.1.contains(&file) {
+                        slot.1.push(file);
+                    }
+                }
+            }
+        }
+        for (name, (mut entry, files_defining)) in env_variables {
+            entry.detail = Some(format!("defined in {}", files_defining.join(", ")));
+            index.env.insert(name, entry);
+        }
+
+        for path in files(&["assets/entrypoints/*"]) {
+            if let Some(name) = relative(&path).strip_prefix("assets/entrypoints/").map(str::to_owned) {
+                index.entries.entry(name).or_insert(Entry { detail: Some("Vite entrypoint".into()), path, at: Position::new(0, 0) });
+            }
         }
 
         let route_files: Vec<String> = COMPILED_ROUTES.iter().map(|p| (*p).to_owned()).chain(setting_paths("compiledRoutes")).collect();
@@ -690,6 +811,45 @@ pub fn encore_entries(path: &str, text: &str, names: &mut impl Sink) {
             let Some((name, offset)) = quoted_at(text, at + call.len()) else { continue };
             let file = text[offset + name.len() + 1..].split_once(',').and_then(|(_, rest)| quoted_at(rest, 0)).map(|(f, _)| f.to_owned());
             names.add(name, file, path, lines.position(offset));
+        }
+    }
+}
+
+/// The `data-controller` identifier of a file under `assets/` (`controllers/users/list_item_controller.js`
+/// is `users--list-item`), when it is a Stimulus controller.
+pub fn stimulus_identifier(relative: &str) -> Option<String> {
+    let rest = relative.strip_prefix("controllers/")?;
+    let (stem, extension) = rest.rsplit_once("_controller.")?;
+    (!stem.is_empty() && matches!(extension, "js" | "ts" | "jsx" | "tsx" | "mjs")).then(|| stem.replace('/', "--").replace('_', "-"))
+}
+
+/// Entries of the `input` option of a Vite config: object keys, or the file paths of an array.
+pub fn vite_entries(path: &str, text: &str, names: &mut impl Sink) {
+    let lines = Lines::new(text);
+    let Some(at) = text.find("input:") else { return };
+    let after = &text[at + "input:".len()..];
+    let Some(open) = after.find(['[', '{']) else { return };
+    if after[..open].trim().len() > 0 {
+        return;
+    }
+    let (opener, closer) = if after.as_bytes()[open] == b'[' { ('[', ']') } else { ('{', '}') };
+    let body_start = at + "input:".len() + open + 1;
+    let Some(length) = text[body_start..].find(closer) else { return };
+    let body = &text[body_start..body_start + length];
+    let mut offset = 0;
+    for item in body.split(',') {
+        let item_offset = body_start + offset;
+        offset += item.len() + 1;
+        let item = item.trim();
+        let quoted = |value: &str| -> Option<String> { value.trim().trim_matches(['\'', '"', '`']).to_owned().into() };
+        let (name, value) = match (opener, item.split_once(':')) {
+            ('{', Some((key, value))) => (quoted(key), quoted(value)),
+            ('[', _) => (quoted(item).map(|value| value.trim_start_matches("./").trim_start_matches("assets/").to_owned()), quoted(item)),
+            _ => continue,
+        };
+        let (Some(name), Some(value)) = (name, value) else { continue };
+        if !name.is_empty() && !name.contains(['(', ')', ' ', '$']) {
+            names.add(&name, Some(format!("Vite entry · {value}")), path, lines.position(item_offset));
         }
     }
 }
@@ -1860,5 +2020,31 @@ final class BlogController extends AbstractController
         assert_eq!(template_name("blog/index.html.twig"), "blog/index.html.twig");
         assert_eq!(template_name("bundles/TwigBundle/Exception/error.html.twig"), "@Twig/Exception/error.html.twig");
         assert_eq!(translation_domain("/p/translations/messages+intl-icu.en.yaml"), "messages");
+    }
+
+    #[test]
+    fn stimulus_controllers_get_their_data_controller_identifier() {
+        assert_eq!(stimulus_identifier("controllers/hello_controller.js").as_deref(), Some("hello"));
+        assert_eq!(stimulus_identifier("controllers/users/list_item_controller.ts").as_deref(), Some("users--list-item"));
+        assert_eq!(stimulus_identifier("controllers/csrf-protection_controller.js").as_deref(), Some("csrf-protection"));
+        assert_eq!(stimulus_identifier("controllers/helper.js"), None);
+        assert_eq!(stimulus_identifier("styles/app_controller.css"), None);
+        assert_eq!(stimulus_identifier("other/hello_controller.js"), None);
+    }
+
+    #[test]
+    fn vite_entries_come_from_the_input_option() {
+        let names = |text: &str| {
+            let mut found = Names::new();
+            vite_entries("/p/vite.config.js", text, &mut found);
+            found.into_iter().map(|(name, entry)| (name, entry.detail.unwrap_or_default())).collect::<Vec<_>>()
+        };
+        assert_eq!(
+            names("export default { build: { rollupOptions: { input: { app: 'assets/app.js', admin: \"./assets/admin.ts\" } } } }"),
+            [("admin".to_owned(), "Vite entry · ./assets/admin.ts".to_owned()), ("app".to_owned(), "Vite entry · assets/app.js".to_owned())]
+        );
+        assert_eq!(names("export default { build: { input: ['./assets/app.js', 'assets/theme.css'] } }").len(), 2);
+        assert!(names("export default { input: resolve(__dirname, 'x') }").is_empty());
+        assert!(names("export default {}").is_empty());
     }
 }
