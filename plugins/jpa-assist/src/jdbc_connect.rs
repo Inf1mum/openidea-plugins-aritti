@@ -10,7 +10,7 @@ use openidea_plugin::host::Command;
 use openidea_plugin::{Error, Invocation, NotificationLevel, PickItem, Project, host};
 use persistence_core::connection::{
     Dbms, Profile, SpringSource, connection_summary, count_snapshot, drivers_json, error_message, filter_required_message, needs_filter, parse_drivers,
-    parse_profiles, profiles_json, snapshot_summary, upsert, valid_jar_path,
+    MAX_JAR_SEARCH, driver_jar_candidates, parse_profiles, profiles_json, snapshot_summary, upsert, valid_jar_path,
 };
 use persistence_core::introspect::{
     Client, Connection, ConnectionInfo, DriverSpec, ErrorCode, HelperError, LaunchError, MAX_DESCRIBE_TABLES, PingInfo, RunOutput, Runner, TableEntry, TableMeta,
@@ -511,8 +511,8 @@ fn manage(ctx: &Invocation) -> Result<(), Error> {
     };
     match action.as_str() {
         "spring" => from_spring(ctx),
-        "manual" => manual(),
-        "driver" => set_driver(),
+        "manual" => manual(ctx),
+        "driver" => set_driver(ctx),
         "filter" => edit_profile("Reset the filter of which connection?", |p| p.schema_filter = Default::default(), "Filter reset."),
         "qualify" => edit_profile("Toggle qualification for which connection?", |p| p.schema_filter.qualify_schema = !p.schema_filter.qualify_schema, "Qualification toggled."),
         "delete" => delete_profile(),
@@ -600,7 +600,7 @@ fn from_spring(ctx: &Invocation) -> Result<(), Error> {
     let Some(user) = host::input("Database user (the password is asked at connect time)", source.username.as_deref())? else {
         return Ok(());
     };
-    let Some(jar) = ask_driver_jar(dbms, None)? else {
+    let Some(jar) = ask_driver_jar(dbms, None, ctx.project().as_ref())? else {
         return Ok(());
     };
     let profile = Profile {
@@ -615,7 +615,7 @@ fn from_spring(ctx: &Invocation) -> Result<(), Error> {
     save_new(profile)
 }
 
-fn manual() -> Result<(), Error> {
+fn manual(ctx: &Invocation) -> Result<(), Error> {
     let items = Dbms::ENABLED.iter().map(|d| PickItem::new(d.key(), d.label())).collect();
     let Some(key) = pick_one("Database", items)? else {
         return Ok(());
@@ -648,7 +648,7 @@ fn manual() -> Result<(), Error> {
     let Some(user) = host::input("Database user (the password is asked at connect time)", None)? else {
         return Ok(());
     };
-    let Some(jar) = ask_driver_jar(dbms, None)? else {
+    let Some(jar) = ask_driver_jar(dbms, None, ctx.project().as_ref())? else {
         return Ok(());
     };
     let default_name = format!("{} {}", dbms.label(), persistence_core::connection::describe_target(url.trim()));
@@ -699,10 +699,54 @@ fn save_new(profile: Profile) -> Result<(), Error> {
     Ok(())
 }
 
+const MANUAL_JAR: &str = "manual";
+
+/// Project-local jars named for the family. Only asks the host (`project.find_files`, never reads a jar); the host
+/// skips hidden and gitignored folders and build caches live outside the project, so absence proves nothing.
+fn project_driver_jars(dbms: Dbms, project: Option<&Project>) -> Vec<String> {
+    let (Some(project), Some(glob)) = (project, dbms.jar_glob()) else {
+        return Vec::new();
+    };
+    let Ok(root) = project.root() else {
+        return Vec::new();
+    };
+    let found = project.find_files(&glob, MAX_JAR_SEARCH).unwrap_or_default();
+    driver_jar_candidates(dbms, &root, &found)
+}
+
+fn jar_pick_items(dbms: Dbms, jars: &[String]) -> Vec<PickItem> {
+    let note = if jars.is_empty() {
+        format!("No {} driver jar found in the project. Hidden and gitignored folders are skipped, and ~/.m2 and ~/.gradle are not searched (the plugin has no access to them).", dbms.label())
+    } else {
+        "Not listed: hidden and gitignored folders, ~/.m2 and ~/.gradle (the plugin has no access to them).".to_owned()
+    };
+    let mut items: Vec<PickItem> = jars.iter().enumerate().map(|(i, jar)| PickItem::new(&i.to_string(), jar.rsplit('/').next().unwrap_or(jar)).description(jar)).collect();
+    items.push(PickItem::new(MANUAL_JAR, "Type a path").description(&note));
+    items
+}
+
+/// Offers the jars found in the project; the choice only pre-fills the path prompt, it is never used unasked.
+/// `None` means the user dismissed the list, `Some(None)` means "type a path".
+fn offer_project_jars(dbms: Dbms, project: Option<&Project>) -> Result<Option<Option<String>>, Error> {
+    let jars = project_driver_jars(dbms, project);
+    let items = jar_pick_items(dbms, &jars);
+    let Some(key) = pick_one(&format!("{} driver jar", dbms.label()), items)? else {
+        return Ok(None);
+    };
+    Ok(Some(key.parse::<usize>().ok().and_then(|i| jars.into_iter().nth(i))))
+}
+
 /// Asks for an absolute jar path (the user-supplied driver) and remembers it per family in the plugin directory.
-fn ask_driver_jar(dbms: Dbms, current: Option<&str>) -> Result<Option<String>, Error> {
+/// With no remembered jar the project's own jars are offered first; the chosen one still goes through the same prompt.
+fn ask_driver_jar(dbms: Dbms, current: Option<&str>, project: Option<&Project>) -> Result<Option<String>, Error> {
     let cached = load_drivers()?.get(&dbms).cloned();
-    let initial = current.map(str::to_owned).or(cached);
+    let mut initial = current.map(str::to_owned).or(cached);
+    if initial.is_none() {
+        let Some(chosen) = offer_project_jars(dbms, project)? else {
+            return Ok(None);
+        };
+        initial = chosen;
+    }
     let prompt = format!("Absolute path of the {} JDBC driver jar (JPA Assist never downloads drivers)", dbms.label());
     let Some(path) = host::input(&prompt, initial.as_deref())? else {
         return Ok(None);
@@ -718,7 +762,7 @@ fn ask_driver_jar(dbms: Dbms, current: Option<&str>) -> Result<Option<String>, E
     Ok(Some(path))
 }
 
-fn set_driver() -> Result<(), Error> {
+fn set_driver(ctx: &Invocation) -> Result<(), Error> {
     let items = Dbms::ENABLED.iter().map(|d| PickItem::new(d.key(), d.label())).collect();
     let Some(key) = pick_one("Driver for which database?", items)? else {
         return Ok(());
@@ -726,7 +770,7 @@ fn set_driver() -> Result<(), Error> {
     let Some(dbms) = Dbms::from_key(&key) else {
         return Ok(());
     };
-    if let Some(path) = ask_driver_jar(dbms, None)? {
+    if let Some(path) = ask_driver_jar(dbms, None, ctx.project().as_ref())? {
         info(&format!("{} driver jar set to {path}. Connections without their own jar use it.", dbms.label()));
     }
     Ok(())

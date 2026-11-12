@@ -91,6 +91,23 @@ impl Dbms {
         }
     }
 
+    /// File-name prefixes of this family's driver jar; the character after one must be a digit (`h2-2.2.jar`, not `h2-console.jar`).
+    fn jar_prefixes(self) -> &'static [&'static str] {
+        match self {
+            Self::H2 => &["h2-"],
+            Self::PostgreSql => &["postgresql-"],
+            Self::MySql => &["mysql-connector-j-", "mysql-connector-java-", "mysql-connector-"],
+            Self::MariaDb => &["mariadb-java-client-"],
+            _ => &[],
+        }
+    }
+
+    /// The project-wide glob that finds candidates; `None` for families without a driver file-name rule.
+    pub fn jar_glob(self) -> Option<String> {
+        let first = self.jar_prefixes().iter().min_by_key(|p| p.len())?;
+        Some(format!("**/{first}*.jar"))
+    }
+
     pub fn default_port(self) -> Option<u16> {
         match self {
             Self::PostgreSql => Some(5432),
@@ -201,6 +218,49 @@ pub fn valid_jar_path(path: &str) -> Result<(), ProfileError> {
         return Err(ProfileError("the driver jar path must end in .jar".into()));
     }
     Ok(())
+}
+
+pub const MAX_JAR_CANDIDATES: usize = 15;
+pub const MAX_JAR_SEARCH: u32 = 200;
+const MAX_JAR_DEPTH: usize = 8;
+const SKIPPED_DIRECTORIES: [&str; 5] = ["test", "tests", "test-classes", "node_modules", "testdata"];
+const SKIPPED_SUFFIXES: [&str; 4] = ["-sources", "-javadoc", "-tests", "-test-sources"];
+
+fn jar_name_matches(dbms: Dbms, name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    let Some(stem) = lower.strip_suffix(".jar") else {
+        return false;
+    };
+    if SKIPPED_SUFFIXES.iter().any(|s| stem.contains(s)) {
+        return false;
+    }
+    dbms.jar_prefixes().iter().any(|p| stem.strip_prefix(p).is_some_and(|rest| rest.starts_with(|c: char| c.is_ascii_digit())))
+}
+
+/// Narrows absolute `find_files` results to this family's driver jars inside `root`: no hidden or test directories,
+/// a bounded depth, a valid jar path, no duplicates. Sorted shallowest first, then by path, and capped, so the pick list
+/// is stable. Hidden paths are dropped here too because the host skips them but a plain file walk would not.
+pub fn driver_jar_candidates(dbms: Dbms, root: &str, found: &[String]) -> Vec<String> {
+    let root = root.trim_end_matches('/');
+    let mut kept: Vec<(usize, &String)> = Vec::new();
+    for path in found {
+        let Some(relative) = path.strip_prefix(root).and_then(|r| r.strip_prefix('/')) else {
+            continue;
+        };
+        let parts: Vec<&str> = relative.split('/').collect();
+        let Some((name, directories)) = parts.split_last() else {
+            continue;
+        };
+        let hostile = parts.iter().any(|p| p.is_empty() || *p == ".." || p.starts_with('.'));
+        let excluded = directories.iter().any(|d| SKIPPED_DIRECTORIES.contains(&d.to_ascii_lowercase().as_str()));
+        if hostile || excluded || parts.len() > MAX_JAR_DEPTH || !jar_name_matches(dbms, name) || valid_jar_path(path).is_err() {
+            continue;
+        }
+        kept.push((parts.len(), path));
+    }
+    kept.sort();
+    kept.dedup();
+    kept.into_iter().take(MAX_JAR_CANDIDATES).map(|(_, p)| p.clone()).collect()
 }
 
 /// The helper opens H2 read-only from a file or a TCP server: an in-memory database would be empty in a one-shot
@@ -631,6 +691,49 @@ mod tests {
         assert_eq!(describe_target("jdbc:h2:file:/data/shop"), "file /data/shop");
         assert_eq!(describe_target("jdbc:h2:tcp://db:9092/shop"), "db:9092, database shop");
         assert_eq!(describe_target("jdbc:h2:/data/shop;MODE=PostgreSQL"), "file /data/shop");
+    }
+
+    #[test]
+    fn driver_jar_candidates_match_the_family_and_skip_noise() {
+        let root = "/p";
+        let found: Vec<String> = [
+            "/p/lib/postgresql-42.7.4.jar",
+            "/p/lib/postgresql-42.7.4-sources.jar",
+            "/p/lib/postgresql-42.7.4-javadoc.jar",
+            "/p/lib/postgresql-tools.jar",
+            "/p/lib/h2-2.2.224.jar",
+            "/p/lib/h2-console.jar",
+            "/p/.gradle/postgresql-1.0.jar",
+            "/p/src/test/libs/postgresql-9.jar",
+            "/p/a/b/c/d/e/f/g/h/postgresql-1.jar",
+            "/p/../x/postgresql-2.jar",
+            "/q/postgresql-3.jar",
+            "/p/libs/postgresql-3.jar",
+            "/p/libs/postgresql-3.jar",
+            "/p/POSTGRESQL-4.JAR",
+            "/p/we\nird/postgresql-5.jar",
+        ]
+        .map(String::from)
+        .to_vec();
+        let pg = driver_jar_candidates(Dbms::PostgreSql, root, &found);
+        assert_eq!(pg, ["/p/lib/postgresql-42.7.4.jar", "/p/libs/postgresql-3.jar"]);
+        assert_eq!(driver_jar_candidates(Dbms::H2, root, &found), ["/p/lib/h2-2.2.224.jar"]);
+        assert!(driver_jar_candidates(Dbms::MariaDb, root, &found).is_empty());
+        assert!(driver_jar_candidates(Dbms::Oracle, root, &found).is_empty());
+    }
+
+    #[test]
+    fn driver_jar_candidates_cover_mysql_and_mariadb_names_and_are_capped_and_ordered() {
+        let found: Vec<String> = ["/p/z/mysql-connector-j-8.3.0.jar", "/p/mysql-connector-java-5.1.49.jar", "/p/mysql-connector-8.0.jar", "/p/mysql-connector-j-x.jar", "/p/mariadb-java-client-3.3.2.jar"].map(String::from).to_vec();
+        assert_eq!(driver_jar_candidates(Dbms::MySql, "/p/", &found), ["/p/mysql-connector-8.0.jar", "/p/mysql-connector-java-5.1.49.jar", "/p/z/mysql-connector-j-8.3.0.jar"]);
+        assert_eq!(driver_jar_candidates(Dbms::MariaDb, "/p", &found), ["/p/mariadb-java-client-3.3.2.jar"]);
+        let many: Vec<String> = (0..40).rev().map(|i| format!("/p/l{i:02}/h2-1.{i}.jar")).collect();
+        let capped = driver_jar_candidates(Dbms::H2, "/p", &many);
+        assert_eq!(capped.len(), MAX_JAR_CANDIDATES);
+        assert_eq!(capped[0], "/p/l00/h2-1.0.jar");
+        assert_eq!(driver_jar_candidates(Dbms::H2, "/p", &many), capped);
+        assert_eq!(Dbms::MySql.jar_glob().as_deref(), Some("**/mysql-connector-*.jar"));
+        assert_eq!(Dbms::SqlServer.jar_glob(), None);
     }
 
     #[test]

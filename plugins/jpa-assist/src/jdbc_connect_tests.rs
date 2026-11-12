@@ -439,7 +439,7 @@ fn no_profiles_points_at_manage() {
 // ---- manage ----
 
 fn answer_manual_pg(host: &MockHost) {
-    say(host, &["manual", "postgresql", "db.example", "5432", "app", "app", JAR, "dev"]);
+    say(host, &["manual", "postgresql", "db.example", "5432", "app", "app", "manual", JAR, "dev"]);
 }
 
 #[test]
@@ -484,7 +484,7 @@ fn manual_urls_with_credentials_in_memory_h2_or_h2_settings_are_refused_with_a_r
     assert!(!last(&host).1.contains(SENTINEL));
 
     let host = setup(&[]);
-    say(&host, &["manual", "postgresql", "db", "5432", "a", "u", "relative.jar"]);
+    say(&host, &["manual", "postgresql", "db", "5432", "a", "u", "manual", "relative.jar"]);
     run("jdbc-manage", &host.invocation()).unwrap();
     assert!(last(&host).1.contains("must be absolute"));
 }
@@ -495,7 +495,7 @@ const APPLICATION: &str = "spring.datasource.url=jdbc:postgresql://db.internal:5
 fn spring_discovery_creates_a_profile_and_the_literal_password_is_read_at_connect_time_only() {
     let host = setup(&[]);
     host.add_file("src/main/resources/application.properties", APPLICATION);
-    say(&host, &["spring", "0", "shop", "app", JAR]);
+    say(&host, &["spring", "0", "shop", "app", "manual", JAR]);
     run("jdbc-manage", &host.invocation()).unwrap();
     let stored = host.storage()[PROFILES_KEY].clone();
     assert!(!stored.contains(SENTINEL), "{stored}");
@@ -556,7 +556,7 @@ fn set_filter_reset_qualify_toggle_and_delete_edit_the_stored_profile() {
     say(&host, &["delete", "ok"]);
     run("jdbc-manage", &host.invocation()).unwrap();
     assert!(parse(host.storage().get(PROFILES_KEY).map(String::as_str)).unwrap().is_empty());
-    say(&host, &["driver", "mariadb", "/m2/mariadb.jar"]);
+    say(&host, &["driver", "mariadb", "manual", "/m2/mariadb.jar"]);
     run("jdbc-manage", &host.invocation()).unwrap();
     assert_eq!(load_drivers().unwrap().get(&Dbms::MariaDb).map(String::as_str), Some("/m2/mariadb.jar"));
 }
@@ -797,4 +797,114 @@ fn real_h2_through_the_command_flows() {
     let (_, body) = last(&host);
     assert!(body.contains("3 tables (1 views"), "{body}");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ---- project-local driver jars ----
+
+fn found_jars(host: &MockHost, dbms: Dbms) -> Vec<String> {
+    project_driver_jars(dbms, host.invocation().project().as_ref())
+}
+
+#[test]
+fn project_jars_are_matched_per_family_and_skip_sources_tests_and_hidden_folders() {
+    let host = setup(&[]);
+    for path in [
+        "lib/postgresql-42.7.4.jar",
+        "libs/postgresql-42.7.4-sources.jar",
+        "libs/postgresql-42.7.4-javadoc.jar",
+        "drivers/mysql-connector-j-8.3.0.jar",
+        "drivers/mariadb-java-client-3.3.2.jar",
+        "vendor/h2-2.2.224.jar",
+        "src/test/lib/postgresql-1.0.jar",
+        ".hidden/postgresql-2.0.jar",
+        "build/libs/postgresql-43.0.jar",
+    ] {
+        host.add_file(path, "");
+    }
+    assert_eq!(found_jars(&host, Dbms::PostgreSql), ["/project/lib/postgresql-42.7.4.jar", "/project/build/libs/postgresql-43.0.jar"]);
+    assert_eq!(found_jars(&host, Dbms::MySql), ["/project/drivers/mysql-connector-j-8.3.0.jar"]);
+    assert_eq!(found_jars(&host, Dbms::MariaDb), ["/project/drivers/mariadb-java-client-3.3.2.jar"]);
+    assert_eq!(found_jars(&host, Dbms::H2), ["/project/vendor/h2-2.2.224.jar"]);
+    assert_eq!(found_jars(&host, Dbms::PostgreSql), found_jars(&host, Dbms::PostgreSql));
+}
+
+#[test]
+fn hostile_jar_names_and_a_missing_project_yield_nothing() {
+    let host = setup(&[]);
+    host.add_file("lib/postgresql-1\n.jar", "");
+    host.add_file("lib/postgresql-2\u{7}.jar", "");
+    host.add_file(&format!("lib/postgresql-3{}.jar", "x".repeat(1100)), "");
+    host.add_file("lib/postgresql-4.jar.txt", "");
+    assert!(found_jars(&host, Dbms::PostgreSql).is_empty());
+    assert!(project_driver_jars(Dbms::PostgreSql, None).is_empty());
+    assert!(project_driver_jars(Dbms::Oracle, host.invocation().project().as_ref()).is_empty());
+}
+
+#[test]
+fn the_search_is_bounded_and_the_list_is_capped() {
+    let host = setup(&[]);
+    for i in 0..30 {
+        host.add_file(&format!("lib/d{i:02}/h2-2.{i}.jar"), "");
+    }
+    let jars = found_jars(&host, Dbms::H2);
+    assert_eq!(jars.len(), persistence_core::connection::MAX_JAR_CANDIDATES);
+    assert_eq!(jars[0], "/project/lib/d00/h2-2.0.jar");
+}
+
+#[test]
+fn the_pick_list_names_the_path_and_says_what_is_not_searched() {
+    let jars = vec!["/project/lib/postgresql-42.jar".to_owned()];
+    let items = jar_pick_items(Dbms::PostgreSql, &jars);
+    assert_eq!((items[0].key.as_str(), items[0].description.as_deref()), ("0", Some("/project/lib/postgresql-42.jar")));
+    assert_eq!(items.last().unwrap().key, MANUAL_JAR);
+    let empty = jar_pick_items(Dbms::PostgreSql, &[]);
+    assert_eq!(empty.len(), 1);
+    let note = empty[0].description.clone().unwrap();
+    assert!(note.contains("No PostgreSQL driver jar found") && note.contains("gitignored") && note.contains("~/.m2") && note.contains("~/.gradle"), "{note}");
+}
+
+#[test]
+fn choosing_a_found_jar_still_asks_for_the_path_and_validates_it() {
+    let host = setup(&[]);
+    host.add_file("lib/postgresql-42.7.4.jar", "");
+    say(&host, &["driver", "postgresql", "0", "/typed/other.jar"]);
+    run("jdbc-manage", &host.invocation()).unwrap();
+    assert_eq!(load_drivers().unwrap().get(&Dbms::PostgreSql).map(String::as_str), Some("/typed/other.jar"), "the pick is not used without the prompt");
+
+    let host = setup(&[]);
+    host.add_file("lib/postgresql-42.7.4.jar", "");
+    say(&host, &["driver", "postgresql", "0", "lib/postgresql-42.7.4.jar"]);
+    run("jdbc-manage", &host.invocation()).unwrap();
+    assert!(last(&host).1.contains("must be absolute"));
+    assert!(load_drivers().unwrap().is_empty());
+
+    let host = setup(&[]);
+    host.add_file("lib/postgresql-42.7.4.jar", "");
+    say(&host, &["driver", "postgresql"]);
+    run("jdbc-manage", &host.invocation()).unwrap();
+    assert!(load_drivers().unwrap().is_empty(), "dismissing the list selects nothing");
+}
+
+#[test]
+fn a_remembered_jar_skips_the_project_search_and_a_found_jar_still_needs_the_connect_confirmation() {
+    let mut no_jar = profile();
+    no_jar.driver_jar = None;
+    let host = setup(&[no_jar]);
+    host.add_file("lib/postgresql-42.7.4.jar", "");
+    let seen = serve(&host, pg);
+    say(&host, &["driver", "postgresql", "0", "/project/lib/postgresql-42.7.4.jar"]);
+    run("jdbc-manage", &host.invocation()).unwrap();
+    assert!(seen.borrow().is_empty());
+
+    host.answer_next_prompt(None);
+    run("jdbc-test", &host.invocation()).unwrap();
+    assert!(seen.borrow().is_empty(), "declining the confirm box launches nothing");
+
+    say(&host, &["confirm", "pw"]);
+    run("jdbc-test", &host.invocation()).unwrap();
+    assert!(!seen.borrow().is_empty());
+
+    say(&host, &["driver", "postgresql", "/project/lib/postgresql-43.jar"]);
+    run("jdbc-manage", &host.invocation()).unwrap();
+    assert_eq!(load_drivers().unwrap().get(&Dbms::PostgreSql).map(String::as_str), Some("/project/lib/postgresql-43.jar"), "no list when a jar is remembered");
 }
