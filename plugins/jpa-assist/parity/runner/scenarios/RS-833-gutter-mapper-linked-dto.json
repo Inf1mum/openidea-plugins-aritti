@@ -4,30 +4,30 @@
   "claimIds": [],
   "verifies": {},
   "kindExerciser": true,
-  "fixture": "boot-jpa-java-jakarta",
+  "fixture": "mapstruct-lombok-dto",
   "setup": [
     {
       "write": {
-        "path": "src/main/java/com/example/shop/web/ShopSummary.java",
-        "content": "package com.example.shop.web;\n\npublic class ShopSummary {\n}\n"
+        "path": "src/main/java/com/example/crm/dto/ContactSummary.java",
+        "content": "package com.example.crm.dto;\n\npublic class ContactSummary {\n}\n"
       }
     },
     {
       "write": {
-        "path": "src/main/java/com/example/shop/web/CustomerMapper.java",
-        "content": "package com.example.shop.web;\n\nimport com.example.shop.domain.Customer;\nimport org.mapstruct.Mapper;\n\n@Mapper(componentModel = \"spring\")\npublic interface CustomerMapper {\n    ShopSummary toSummary(Customer customer);\n}\n"
+        "path": "src/main/java/com/example/crm/mapper/ContactSummaryMapper.java",
+        "content": "package com.example.crm.mapper;\n\nimport com.example.crm.domain.Contact;\nimport com.example.crm.dto.ContactSummary;\nimport org.mapstruct.Mapper;\n\n@Mapper(componentModel = \"spring\")\npublic interface ContactSummaryMapper {\n    ContactSummary toSummary(Contact contact);\n}\n"
       }
     }
   ],
   "kind": "lineMarkers",
   "target": {
-    "file": "src/main/java/com/example/shop/web/ShopSummary.java",
-    "anchor": "class ShopSummary"
+    "file": "src/main/java/com/example/crm/dto/ContactSummary.java",
+    "anchor": "class ContactSummary"
   },
   "expect": {
     "markersInclude": [
-      "Entity Customer: DTO · linked by mapper method"
+      "Entity Contact: DTO · linked by mapper method"
     ]
   },
-  "note": "Kind exerciser, covers no documented claim: a type with no naming convention but returned by a MapStruct mapper method of the entity gets the marker."
+  "note": "Kind exerciser, covers no documented claim: a type with no naming convention but returned by a MapStruct mapper method of the entity gets the marker. Uses the smaller mapstruct-lombok-dto fixture: the index is built within the provider's 50 ms budget there; the larger fixture needs event-time scanning, which delays every other provider."
 }

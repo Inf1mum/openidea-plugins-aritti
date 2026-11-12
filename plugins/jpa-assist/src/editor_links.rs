@@ -21,7 +21,7 @@ pub(crate) const STATUS_ITEM: &str = "jpa-editor";
 pub(crate) const COMMAND: &str = "editor-related";
 const MAX_TEXT: usize = 512 * 1024;
 const MAX_FILES: usize = 5_000;
-const PROVIDER_BUDGET: Duration = Duration::from_millis(20);
+const PROVIDER_BUDGET: Duration = Duration::from_millis(30);
 const EVENT_BUDGET: Duration = Duration::from_millis(200);
 const MAX_NAMED: usize = 3;
 const MAX_MAPPED_READS: usize = 8;
@@ -260,10 +260,7 @@ pub(crate) fn markers(doc: &Document) -> Vec<LineMarker> {
     with_index(&project, |index| {
         index.observe(&links, &doc.path, &doc.text);
         let known = index.files.contains_key(&doc.path);
-        if !known && !index.listed {
-            return Vec::new();
-        }
-        if known {
+        if known || !index.listed {
             index.advance(&project, PROVIDER_BUDGET);
         }
         index.unread.retain(|path| *path != doc.path);
@@ -334,7 +331,6 @@ pub(crate) fn events(events: &[Event], invocation: &Invocation) {
     if !refocus {
         return;
     }
-    with_index(&project, |index| index.advance(&project, EVENT_BUDGET));
     refresh_status(&project);
 }
 
@@ -547,8 +543,13 @@ mod tests {
         let host = host();
         let ctx = host.invocation();
         events(&[Event::EditorFocused(Some("/project/src/shop/Customer.java".into()))], &ctx);
+        assert_eq!(host.status_items()[STATUS_ITEM].text, "JPA: Customer");
+        assert!(host.status_items()[STATUS_ITEM].tooltip.as_deref().unwrap().contains("project scan incomplete"), "events never scan the project: {:?}", host.status_items());
+
+        let project = ctx.project().unwrap();
+        with_index(&project, |index| index.advance(&project, Duration::from_secs(5)));
+        events(&[Event::EditorFocused(Some("/project/src/shop/Customer.java".into()))], &ctx);
         let items = host.status_items();
-        assert_eq!(items[STATUS_ITEM].text, "JPA: Customer");
         assert!(items[STATUS_ITEM].tooltip.as_deref().unwrap().contains("3 DTOs or projections"), "{items:?}");
         assert_eq!(items[STATUS_ITEM].command.as_deref(), Some(COMMAND));
 
