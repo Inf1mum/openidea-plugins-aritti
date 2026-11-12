@@ -16,7 +16,8 @@
    "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
    "strength": "explicit",
    "ourFeature": "Add index or unique constraint with preview… (index_query_action.rs)",
-   "verifiableHeadless": false
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Headless on the BEHAVIOUR: code action 'Add index or unique constraint with preview…' collects columns, kind, order and name and adds @Index/@UniqueConstraint to @Table. Not checked: the original's JPA Palette entry, the Indexes wizard window and its layout; ours is an editor code action with pick/input prompts."
   }
  ],
  "undocumented": [

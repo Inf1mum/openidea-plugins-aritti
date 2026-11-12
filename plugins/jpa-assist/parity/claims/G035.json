@@ -21,7 +21,8 @@
    "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
    "strength": "explicit",
    "ourFeature": "Generate proxy-safe equals and hashCode…; Generate lazy-safe toString… (equality_action.rs)",
-   "verifiableHeadless": false
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Headless on the BEHAVIOUR: actions 'Generate proxy-safe equals and hashCode with preview…' and 'Generate lazy-safe toString with preview…' cover Equals/HashCode/ToString. Not checked: the original's JPA Palette Utilities wizard; ours are two separate editor actions."
   },
   {
    "id": "G035-C2",

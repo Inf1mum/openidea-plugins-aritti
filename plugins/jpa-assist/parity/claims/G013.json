@@ -21,7 +21,8 @@
    "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
    "strength": "explicit",
    "ourFeature": "creation.rs, creator.js, generation.rs, identifier_action.rs, wizard.rs",
-   "verifiableHeadless": false
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Headless on the BEHAVIOUR: code action 'Generate JPA entity…' asks namespace, name, table and ID strategy and creates the entity in the package folder of the current source file. Not checked: New > JPA Entity in the folder context menu and the New Entity window; ours needs an open file in that folder and uses prompts."
   },
   {
    "id": "G013-C2",

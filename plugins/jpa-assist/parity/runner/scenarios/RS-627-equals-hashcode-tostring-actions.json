@@ -1,0 +1,98 @@
+{
+  "id": "RS-627",
+  "rows": [
+    "G035"
+  ],
+  "claimIds": [
+    "G035-C1"
+  ],
+  "verifies": {
+    "G035-C1": "BEHAVIOUR only: for one entity the plugin generates all three utilities through two actions: 'Generate lazy-safe toString with preview…' (applied first as preAction, showing code and label) and 'Generate proxy-safe equals and hashCode with preview…' (business key on code); Sku ends up with toString, equals and hashCode. The original's JPA Palette Utilities wizard window is NOT checked: ours are two separate editor actions with their own prompts and previews, not one wizard."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/Sku.java",
+        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Sku {\n\n    @Id\n    private Long id;\n\n    private String code;\n\n    private String label;\n\n    protected Sku() {\n    }\n\n    public Long getId() {\n        return id;\n    }\n\n    public String getCode() {\n        return code;\n    }\n\n    public String getLabel() {\n        return label;\n    }\n}\n"
+      }
+    }
+  ],
+  "preActions": [
+    {
+      "title": "Generate lazy-safe toString with preview…",
+      "target": {
+        "file": "src/main/java/com/example/shop/domain/Sku.java",
+        "anchor": "class Sku"
+      },
+      "prompts": [
+        {
+          "pickMany": [
+            "code",
+            "label"
+          ]
+        },
+        {
+          "confirm": "yes"
+        }
+      ]
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Sku.java",
+    "anchor": "class Sku"
+  },
+  "action": {
+    "title": "Generate proxy-safe equals and hashCode with preview…"
+  },
+  "prompts": [
+    {
+      "pick": "business-key"
+    },
+    {
+      "pickMany": [
+        "code"
+      ]
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pick",
+        "titleContains": "Equality basis",
+        "optionsInclude": [
+          "identifier",
+          "business-key"
+        ],
+        "name": "basis"
+      },
+      {
+        "kind": "pickMany",
+        "titleContains": "Business key",
+        "optionsInclude": [
+          "code",
+          "label"
+        ],
+        "name": "fields"
+      }
+    ],
+    "resultFile": {
+      "path": "src/main/java/com/example/shop/domain/Sku.java",
+      "contains": [
+        "public String toString()",
+        "public boolean equals(Object",
+        "public int hashCode()"
+      ]
+    }
+  },
+  "checks": {
+    "preview": true,
+    "undo": true,
+    "cancelEach": true
+  },
+  "note": "toString then equals and hashCode on one entity."
+}

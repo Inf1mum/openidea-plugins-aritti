@@ -25,7 +25,8 @@
    "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
    "strength": "explicit",
    "ourFeature": "converter_action.rs, hibernate_action.rs",
-   "verifiableHeadless": false
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Headless on the BEHAVIOUR: our plugin offers a JPA attribute converter (code action 'Create attribute converter with preview…') and a Hibernate custom type (code action 'Create Hibernate user type…') for an entity attribute. Not checked: the original's Add button in the JPA Structure tool window and a single shared chooser; ours are two separate editor actions."
   }
  ],
  "undocumented": [

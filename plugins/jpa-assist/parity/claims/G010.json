@@ -21,7 +21,8 @@
    "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
    "strength": "explicit",
    "ourFeature": "Add validation constraint with preview… (validation_action.rs)",
-   "verifiableHeadless": false
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Headless on the BEHAVIOUR: code action 'Add validation constraint with preview…' lists the constraints that fit the picked attribute's type. Not checked: the original's JPA Inspector section, and the 'when Hibernate Validator is on the classpath' condition (ours does not read the classpath)."
   },
   {
    "id": "G010-C2",
@@ -30,7 +31,8 @@
    "source": "https://www.jetbrains.com/help/idea/jpa-buddy.html",
    "strength": "explicit",
    "ourFeature": "Add validation constraint with preview… (validation_action.rs)",
-   "verifiableHeadless": false
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Headless on the BEHAVIOUR: code action 'Add validation constraint with preview…' adds the chosen Bean Validation annotation (with its import) to the attribute. Not checked: the original's JPA Designer surface."
   }
  ],
  "undocumented": [

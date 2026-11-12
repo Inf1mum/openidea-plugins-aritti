@@ -16,7 +16,8 @@
    "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
    "strength": "explicit",
    "ourFeature": "Edit Lombok annotations… (file_actions.rs, lombok_checks.rs)",
-   "verifiableHeadless": false
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Headless on the BEHAVIOUR: code action 'Edit Lombok annotations…' lists the Lombok class annotations to add or remove for an entity. Not checked: the original's JPA Inspector section; the 'Lombok project' condition is not read from the build."
   }
  ],
  "undocumented": [

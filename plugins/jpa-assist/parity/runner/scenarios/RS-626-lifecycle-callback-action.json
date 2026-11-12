@@ -1,0 +1,44 @@
+{
+  "id": "RS-626",
+  "rows": [
+    "G034"
+  ],
+  "claimIds": [
+    "G034-C1"
+  ],
+  "verifies": {
+    "G034-C1": "BEHAVIOUR only: on the entity class line the editor offers one code action per missing lifecycle callback ('Add @PrePersist callback' ... 'Add @PostLoad callback'); applying 'Add @PreUpdate callback' adds an empty @PreUpdate preUpdate() method to Ticket. The actions are offered only on an entity with no annotation outside a short allow-list: an entity with @Table, @Index or a Hibernate annotation gets none (recorded gap). The original's JPA Palette entry and Lifecycle Callbacks wizard window are NOT checked: there is no wizard, no prompt and no choice of several events at once; one action adds one callback."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/Ticket.java",
+        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Ticket {\n\n    @Id\n    private Long id;\n\n    private Boolean active;\n\n    private String nickname;\n\n    protected Ticket() {\n    }\n}\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Ticket.java",
+    "anchor": "class Ticket"
+  },
+  "action": {
+    "title": "Add @PreUpdate callback"
+  },
+  "expect": {
+    "resultFile": {
+      "path": "src/main/java/com/example/shop/domain/Ticket.java",
+      "contains": [
+        "@jakarta.persistence.PreUpdate void preUpdate() {}"
+      ],
+      "notContains": [
+        "PrePersist"
+      ]
+    }
+  },
+  "checks": {
+    "undo": true
+  },
+  "note": "Add a PreUpdate lifecycle callback."
+}

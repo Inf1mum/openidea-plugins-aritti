@@ -16,7 +16,8 @@
    "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
    "strength": "explicit",
    "ourFeature": "Add named query with preview… (index_query_action.rs)",
-   "verifiableHeadless": false
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Headless on the BEHAVIOUR: code action 'Add named query with preview…' collects name and JPQL and adds @NamedQuery. Not checked: the original's JPA Palette entry, the Named Query wizard window and its layout; ours is an editor code action with input prompts."
   }
  ],
  "undocumented": [

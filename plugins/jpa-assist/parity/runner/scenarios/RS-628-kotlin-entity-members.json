@@ -1,0 +1,157 @@
+{
+  "id": "RS-628",
+  "rows": [
+    "G034"
+  ],
+  "claimIds": [
+    "G034-C2"
+  ],
+  "verifies": {
+    "G034-C2": "BEHAVIOUR only, in Kotlin: on the Kotlin Gradle fixture the plugin creates the entity Gadget (preAction 'Generate JPA entity…', a .kt file), adds the attribute code ('Add JPA attribute with preview…'), an index and a unique constraint ('Add index or unique constraint with preview…', two preActions) and, as main action on a separate bare Kotlin entity Ticket written by the setup, the lifecycle callback ('Add @PostLoad callback'); results are checked in Gadget.kt and Ticket.kt. The callback is on Ticket, not Gadget, on purpose: the callback action is not offered on an entity that carries @Table (or any annotation outside a short allow-list), which every generated entity does; this is a recorded gap. The Java half is only partly exercised elsewhere (entity RS-624, index RS-621, callback RS-626 in other scenarios); Java attribute creation and a Java unique constraint are NOT run by any scenario, and nothing here compares the two languages. Editing EXISTING attributes, callbacks, indexes or constraints in place is NOT checked (no such actions): the plugin adds, it does not edit them. The original's palette, wizards and designer window are NOT checked."
+  },
+  "fixture": "boot-jpa-kotlin-jakarta",
+  "kind": "fileaction",
+  "preActions": [
+    {
+      "title": "Generate JPA entity…",
+      "target": {
+        "file": "src/main/kotlin/com/example/shop/domain/Category.kt",
+        "anchor": "class Category"
+      },
+      "prompts": [
+        {
+          "pick": "jakarta"
+        },
+        {
+          "input": "Gadget"
+        },
+        "default",
+        {
+          "pick": "IDENTITY"
+        },
+        {
+          "pickMany": [
+            "version"
+          ]
+        },
+        {
+          "confirm": "yes"
+        }
+      ]
+    },
+    {
+      "title": "Add JPA attribute with preview…",
+      "target": {
+        "file": "src/main/kotlin/com/example/shop/domain/Gadget.kt",
+        "anchor": "class Gadget"
+      },
+      "prompts": [
+        {
+          "input": "code"
+        },
+        {
+          "pick": "none"
+        },
+        {
+          "pick": "String"
+        },
+        {
+          "pickMany": [
+            "notNull"
+          ]
+        },
+        {
+          "confirm": "yes"
+        }
+      ]
+    },
+    {
+      "title": "Add index or unique constraint with preview…",
+      "target": {
+        "file": "src/main/kotlin/com/example/shop/domain/Gadget.kt",
+        "anchor": "class Gadget"
+      },
+      "prompts": [
+        {
+          "pickMany": [
+            "code"
+          ]
+        },
+        {
+          "pick": "index"
+        },
+        {
+          "pick": "ASC"
+        },
+        {
+          "input": "idx_gadget_code"
+        },
+        {
+          "confirm": "yes"
+        }
+      ]
+    },
+    {
+      "title": "Add index or unique constraint with preview…",
+      "target": {
+        "file": "src/main/kotlin/com/example/shop/domain/Gadget.kt",
+        "anchor": "class Gadget"
+      },
+      "prompts": [
+        {
+          "pickMany": [
+            "version",
+            "code"
+          ]
+        },
+        {
+          "pick": "constraint"
+        },
+        {
+          "input": "uq_gadget_code"
+        },
+        {
+          "confirm": "yes"
+        }
+      ]
+    }
+  ],
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/kotlin/com/example/shop/domain/Ticket.kt",
+        "content": "package com.example.shop.domain\n\nimport jakarta.persistence.Entity\nimport jakarta.persistence.Id\n\n@Entity\nclass Ticket {\n\n    @Id\n    var id: Long? = null\n}\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/kotlin/com/example/shop/domain/Ticket.kt",
+    "anchor": "class Ticket"
+  },
+  "action": {
+    "title": "Add @PostLoad callback"
+  },
+  "expect": {
+    "resultFile": [
+      {
+        "path": "src/main/kotlin/com/example/shop/domain/Gadget.kt",
+        "contains": [
+          "class Gadget",
+          "var code: String",
+          "indexes = [Index(name = \"idx_gadget_code\"",
+          "uniqueConstraints = [UniqueConstraint(name = \"uq_gadget_code\""
+        ]
+      },
+      {
+        "path": "src/main/kotlin/com/example/shop/domain/Ticket.kt",
+        "contains": [
+          "@jakarta.persistence.PostLoad fun postLoad() {}"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "undo": true
+  },
+  "note": "Kotlin: create entity, attribute, index, constraint, callback."
+}

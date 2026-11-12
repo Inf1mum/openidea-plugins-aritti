@@ -1,0 +1,98 @@
+{
+  "id": "RS-620",
+  "rows": [
+    "G003"
+  ],
+  "claimIds": [
+    "G003-C2"
+  ],
+  "verifies": {
+    "G003-C2": "BEHAVIOUR only: for the same entity attribute list the plugin offers both a JPA attribute converter (main action 'Create attribute converter with preview…', created AttributeConverter class) and a Hibernate custom type (applied first as preAction 'Create Hibernate user type…', created UserType class with @Type on the attribute). The original's surface is NOT checked: the Add button in the JPA Structure tool window and one shared choice between the two; here they are two separate code actions with their own prompts, not one list."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/Ticket.java",
+        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Ticket {\n\n    @Id\n    private Long id;\n\n    private Boolean active;\n\n    private String nickname;\n\n    protected Ticket() {\n    }\n}\n"
+      }
+    }
+  ],
+  "preActions": [
+    {
+      "title": "Create Hibernate user type…",
+      "target": {
+        "file": "src/main/java/com/example/shop/domain/Ticket.java",
+        "anchor": "class Ticket"
+      },
+      "prompts": [
+        {
+          "pick": "nickname"
+        },
+        {
+          "input": "NicknameType"
+        },
+        {
+          "pick": "fixed"
+        },
+        {
+          "confirm": "yes"
+        }
+      ]
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/shop/domain/Ticket.java",
+    "anchor": "class Ticket"
+  },
+  "action": {
+    "title": "Create attribute converter with preview…"
+  },
+  "prompts": [
+    {
+      "pick": "active"
+    },
+    {
+      "pick": "Integer"
+    },
+    {
+      "input": "ActiveFlagConverter"
+    },
+    {
+      "pick": "auto"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "createdFiles": [
+      {
+        "path": "src/main/java/com/example/shop/domain/ActiveFlagConverter.java",
+        "contains": [
+          "implements AttributeConverter<Boolean, Integer>"
+        ]
+      }
+    ],
+    "resultFile": [
+      {
+        "path": "src/main/java/com/example/shop/domain/NicknameType.java",
+        "contains": [
+          "implements UserType<String>"
+        ]
+      },
+      {
+        "path": "src/main/java/com/example/shop/domain/Ticket.java",
+        "contains": [
+          "@Type(NicknameType.class)"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "One entity, two custom-type kinds through two actions."
+}

@@ -21,7 +21,8 @@
    "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
    "strength": "explicit",
    "ourFeature": "local_callbacks.rs",
-   "verifiableHeadless": false
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Headless on the BEHAVIOUR: code actions 'Add @<Event> callback' on the entity class line add a lifecycle callback method. Not checked: the original's JPA Palette entry and Lifecycle Callbacks wizard window; ours has no wizard and adds one event per action."
   },
   {
    "id": "G034-C2",
@@ -30,7 +31,8 @@
    "source": "https://www.jetbrains.com/help/idea/jpa-buddy.html",
    "strength": "explicit",
    "ourFeature": "local_callbacks.rs",
-   "verifiableHeadless": false
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Headless on the BEHAVIOUR in Kotlin: entity, attribute, index, unique constraint and lifecycle callback creation through code actions (Java only partly exercised by other scenarios). Not checked: editing existing members in place (no such actions), the original's palette, wizards and designer window."
   }
  ],
  "undocumented": [
