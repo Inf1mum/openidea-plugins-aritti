@@ -9,7 +9,7 @@ categories = ["linters", "tools"]
 icon = "icon.svg"
 engines.openidea = "^1.5"
 wasm = "dist/plugin.wasm"
-activation = ["on-event:file-opened", "on-event:file-saved", "on-view:vulnerabilities", "on-view:npm-dependency-graph", "on-view:build-resolution", "on-view:call-analysis", "on-view:sbt-resolution"]
+activation = ["on-event:file-opened", "on-event:file-saved", "on-view:vulnerabilities"]
 
 [capabilities]
 required = ["project.read", "storage"]
@@ -85,7 +85,7 @@ command = "scan"
 
 [[contributes.views]]
 id = "vulnerabilities"
-title = "Vulnerable Dependencies"
+title = "Dependency Audit"
 icon = "warning"
 location = "bottom"
 web = "web/resources/hub.html"
@@ -99,43 +99,18 @@ id = "inspect-npm-graph"
 title = "Dependency Audit: Inspect npm Lockfile Graph"
 category = "Dependency Audit"
 
-[[contributes.views]]
-id = "npm-dependency-graph"
-title = "npm Dependency Graph"
-location = "right"
-icon = "package"
-
 [[contributes.commands]]
 id = "resolve-build-dependencies"
 title = "Dependency Audit: Resolve Effective Build Dependencies…"
 category = "Dependency Audit"
-
-[[contributes.views]]
-id = "build-resolution"
-title = "Dependency Resolution"
-location = "bottom"
-icon = "package"
-
 
 [[contributes.commands]]
 id = "analyze-vulnerable-calls"
 title = "Dependency Audit: Analyze Vulnerable Calls (OSV-Scanner)…"
 category = "Dependency Audit"
 
-[[contributes.views]]
-id = "call-analysis"
-title = "Vulnerable Call Evidence"
-location = "bottom"
-icon = "warning"
-
-
 [[contributes.commands]]
 id = "resolve-sbt-dependencies"
 title = "Dependency Audit: Resolve Effective sbt Dependencies…"
 category = "Dependency Audit"
 
-[[contributes.views]]
-id = "sbt-resolution"
-title = "sbt Dependency Resolution"
-location = "bottom"
-icon = "package"

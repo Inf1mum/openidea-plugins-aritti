@@ -46,6 +46,13 @@ fn refresh_report() {
     host::refresh_view(REPORT_VIEW);
     let _ = host::post_view_message(REPORT_VIEW, r#"{"channel":"ui-kit-refresh"}"#);
 }
+const UI_CONFIG: &str = include_str!("ui_config.json");
+pub(crate) fn reveal(view: &str) -> Result<(), Error> {
+    ui_kit::web::reveal_view(view, UI_CONFIG)
+}
+pub(crate) fn refresh(view: &str) {
+    ui_kit::web::refresh_view(view, UI_CONFIG);
+}
 fn owned_source_path(root: &str, path: &str) -> bool {
     !root.is_empty() && path.starts_with(&format!("{}/",root.trim_end_matches('/')))
         && !path.split('/').any(|part| matches!(part,"."|".."))
@@ -78,6 +85,7 @@ pub struct DependencyAudit {
     expansion: Expansion,
     display_owner: Option<String>,
     npm_graph: Option<npm_graph::Snapshot>,
+    npm_error: Option<String>,
     build_resolution:build_resolution::State,
     call_analysis:call_analysis::State,
     sbt_resolution:sbt_resolution::State,
@@ -577,8 +585,8 @@ impl Plugin for DependencyAudit {
         if matches!(id,"preview-upgrade" | "open-advisory" | "open-declaration") { return self.resource_command(id,ctx,arg); }
         if id == "resolve-sbt-dependencies"{self.sbt_resolution.start(ctx)?;return Ok(None);}
         if id == "analyze-vulnerable-calls"{self.call_analysis.start(ctx)?;return Ok(None);}
-        if id == "resolve-build-dependencies"{self.build_resolution.start(ctx)?;return Ok(None);}
-        if id == "inspect-npm-graph" { self.npm_graph=Some(npm_graph::Snapshot::capture(ctx)?);host::reveal_view(npm_graph::VIEW)?;host::refresh_view(npm_graph::VIEW);return Ok(None); }
+        if id == "resolve-build-dependencies"{self.build_resolution.start(ctx,true)?;return Ok(None);}
+        if id == "inspect-npm-graph" { self.npm_graph=Some(npm_graph::Snapshot::capture(ctx)?);reveal(npm_graph::VIEW)?;return Ok(None); }
         if id != "scan" {
             return Err(Error::NotFound(format!("command {id}")));
         }
@@ -586,6 +594,7 @@ impl Plugin for DependencyAudit {
         let project = ctx.project().ok_or("Open a project first.")?;
         self.clear_presentation();
         scan_and_notify(&project, &mut self.live)?;
+        self.auto_resolve(ctx);
 
         Ok(None)
     }
@@ -600,7 +609,7 @@ impl Plugin for DependencyAudit {
         let cleared=events.iter().any(|event| matches!(event, Event::FileSaved(_) | Event::FilesChanged(_)));
         let owner=ctx.project().and_then(|p|p.root().ok()).filter(|root|!root.is_empty());
         let owner_changed=events.iter().any(|event|matches!(event,Event::EditorFocused(_))) && owner!=self.display_owner;
-        if (cleared || owner_changed) && self.npm_graph.is_some() {host::refresh_view(npm_graph::VIEW);}
+        if (cleared || owner_changed) && self.npm_graph.is_some() {refresh(npm_graph::VIEW);}
         if cleared || owner_changed {
             self.live.clear();
             self.display_owner=owner;
@@ -703,7 +712,10 @@ impl Views for DependencyAudit {
         if view==sbt_resolution::VIEW{return Ok(self.sbt_resolution.render(ctx));}
         if view==call_analysis::VIEW{return Ok(self.call_analysis.render(ctx));}
         if view==build_resolution::VIEW{return Ok(self.build_resolution.render(ctx));}
-        if view==npm_graph::VIEW {return Ok(self.npm_graph.as_ref().map(|s|s.render(ctx)).unwrap_or_else(||View::message("Run Dependency Audit: Inspect npm Lockfile Graph from package-lock.json.")));}
+        if view==npm_graph::VIEW {
+            let inspect=Button::new("inspect-npm-graph","Inspect package-lock.json").icon("refresh");
+            return Ok(self.npm_graph.as_ref().map(|s|s.render(ctx)).unwrap_or_else(||View::message(self.npm_error.as_deref().unwrap_or("Inspect the npm lockfile graph of package-lock.json (focused editor, else the nearest one in the project)."))).button(inspect));
+        }
         (|| -> Result<View, Error> {
             self.targets.clear();
             let Some(project) = ctx.project() else {
@@ -749,14 +761,25 @@ impl Views for DependencyAudit {
     fn handle(&mut self, view: &str, event: ViewEvent, ctx: &Invocation) -> Result<(), Error> {
         if view==sbt_resolution::VIEW{match event{ViewEvent::Button(key)if key=="sbt-poll"=>return self.sbt_resolution.poll(ctx),ViewEvent::Button(key)if key=="sbt-cancel"=>return self.sbt_resolution.cancel(ctx),ViewEvent::Button(key)if key=="sbt-audit"=>{let e=self.sbt_resolution.evidence(ctx)?;let p=ctx.project().ok_or(Error::Stale)?;return sbt_resolution::audit_evidence(&p,e);},_=>return Ok(())}}
         if view==call_analysis::VIEW{match event{ViewEvent::Button(key)if key=="calls-poll"=>return self.call_analysis.poll(ctx),ViewEvent::Button(key)if key=="calls-cancel"=>return self.call_analysis.cancel(ctx),_=>return Ok(())}}
-        if view==build_resolution::VIEW{match event{ViewEvent::Button(key)if key=="resolution-poll"=>return self.build_resolution.poll(ctx),ViewEvent::Button(key)if key=="resolution-cancel"=>return self.build_resolution.cancel(ctx),ViewEvent::Button(key)if key=="resolution-audit"=>{let evidence=self.build_resolution.evidence(ctx)?;let project=ctx.project().ok_or(Error::Stale)?;return build_resolution::audit_evidence(&project,evidence);},_=>return Ok(())}}
-        if view==npm_graph::VIEW {if let Some(snapshot)=self.npm_graph.as_mut(){return snapshot.handle(event,ctx);}return Ok(());}
+        if view==build_resolution::VIEW{match event{ViewEvent::Button(key)if key=="resolve-build"=>return self.build_resolution.start(ctx,true),ViewEvent::Message(raw)=>return self.resolution_tick(&raw,ctx),ViewEvent::Button(key)if key=="resolution-cancel"=>return self.build_resolution.cancel(ctx),ViewEvent::Button(key)if key=="resolution-audit"=>{let evidence=self.build_resolution.evidence(ctx)?;let project=ctx.project().ok_or(Error::Stale)?;return build_resolution::audit_evidence(&project,evidence);},_=>return Ok(())}}
+        if view==npm_graph::VIEW {
+            if matches!(&event,ViewEvent::Button(key) if key=="inspect-npm-graph") {
+                match npm_graph::Snapshot::capture(ctx) {
+                    Ok(snapshot)=>{self.npm_graph=Some(snapshot);self.npm_error=None;}
+                    Err(error)=>{self.npm_graph=None;self.npm_error=Some(error.to_string());}
+                }
+                refresh(npm_graph::VIEW);
+                return Ok(());
+            }
+            if let Some(snapshot)=self.npm_graph.as_mut(){return snapshot.handle(event,ctx);}
+            return Ok(());
+        }
         if ui_kit::web::handle(self, view, &event, ctx, include_str!("ui_config.json"))? {
             return Ok(());
         }
 
         if self.expansion.handle(&event) {
-            host::refresh_view(view);
+            refresh(view);
 
             return Ok(());
         }
@@ -769,7 +792,9 @@ impl Views for DependencyAudit {
             ViewEvent::Button(id) if id == "scan" => {
                 let project = ctx.project().ok_or("Open a project first.")?;
                 self.clear_presentation();
-                scan_and_notify(&project, &mut self.live)
+                scan_and_notify(&project, &mut self.live)?;
+                self.auto_resolve(ctx);
+                Ok(())
             }
             ViewEvent::Activate(key) => {
                 self.rebuild_target(&key, ctx)?;
@@ -795,3 +820,28 @@ register_plugin!(DependencyAudit, providers, views, diagnostics, commit_checks);
 
 #[cfg(test)]
 mod tests;
+
+impl DependencyAudit {
+    fn auto_resolve(&mut self, ctx: &Invocation) {
+        if host::setting_bool("autoResolveBuilds") == Some(false) {
+            return;
+        }
+        let _ = self.build_resolution.start(ctx, false);
+    }
+    fn resolution_tick(&mut self, raw: &str, ctx: &Invocation) -> Result<(), Error> {
+        let request: serde_json::Value = serde_json::from_str(raw).map_err(|_| Error::Stale)?;
+        if request["op"] != "resolution-tick" || !self.build_resolution.running() {
+            return Err(Error::Stale);
+        }
+        let result = self.build_resolution.poll(ctx);
+        let reply = serde_json::json!({"_backgroundPoll": request["_backgroundPoll"]});
+        ui_kit::web::post_view_message(build_resolution::VIEW, &reply.to_string(), UI_CONFIG)?;
+        result?;
+        if self.build_resolution.succeeded() {
+            let evidence = self.build_resolution.evidence(ctx)?;
+            let project = ctx.project().ok_or(Error::Stale)?;
+            build_resolution::audit_evidence(&project, evidence)?;
+        }
+        Ok(())
+    }
+}

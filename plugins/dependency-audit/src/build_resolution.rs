@@ -339,30 +339,22 @@ fn parse_gradle(root: &str, configuration: &str, text: &str) -> Result<Evidence,
     })
 }
 impl State {
-    pub(crate) fn start(&mut self, ctx: &Invocation) -> Result<(), Error> {
+    pub(crate) fn start(&mut self, ctx: &Invocation, focus: bool) -> Result<(), Error> {
         if self.run.as_ref().is_some_and(|run| run.child.is_some()) {
             return Err("Cancel or complete the active resolver before starting another.".into());
         }
         let project = ctx.project().ok_or("Open a local project first.")?;
         let root = project.root()?;
-        let items = [
-            openidea_plugin::PickItem::new("maven", "Maven3.9.16 reactor (dependency plugin3.8.1)"),
-            openidea_plugin::PickItem::new("gradle", "Gradle9.9.1 selected configuration"),
-        ];
-        let Some(tool) = host::pick("Approved effective dependency resolver", &items)? else {
-            return Ok(());
+        let tool = if project.exists(&format!("{root}/pom.xml"))? {
+            Tool::Maven
+        } else if project.exists(&format!("{root}/build.gradle"))? || project.exists(&format!("{root}/build.gradle.kts"))? {
+            Tool::Gradle
+        } else {
+            return Err("No pom.xml or build.gradle(.kts) in the project root.".into());
         };
-        let tool = match tool.as_str() {
-            "maven" => Tool::Maven,
-            "gradle" => Tool::Gradle,
-            _ => return Err(Error::Stale),
-        };
-        let configuration = match tool {
+        let configuration: String = match tool {
             Tool::Maven => "all declared scopes".into(),
-            Tool::Gradle => {
-                host::input("Resolvable Gradle configuration", Some("runtimeClasspath"))?
-                    .ok_or(Error::Cancelled)?
-            }
+            Tool::Gradle => "runtimeClasspath".into(),
         };
         if configuration.len() > 128
             || !configuration
@@ -378,16 +370,6 @@ impl State {
         let before = source_files(&project, &root)?;
         if before.is_empty() {
             return Err("No readable build sources found.".into());
-        }
-        if !host::confirm(
-            "Resolve effective build dependencies",
-            &format!(
-                "Project: {root}\nTool: {} {}\nScope: {configuration}\n\nThe approved build tool executes this project's build/plugins and may contact its configured repositories. A version probe and managed export run only after this review. Outputs are written under .openidea. No dependency file is edited. Poll to observe completion, then explicitly Audit resolved dependencies to query OSV; failed exports retain the previous report.",
-                tool.program(),
-                tool.version()
-            ),
-        )? {
-            return Ok(());
         }
         if ctx.project().ok_or(Error::Stale)?.root()? != root
             || source_files(&project, &root)? != before
@@ -461,11 +443,13 @@ impl State {
             status: None,
         });
         self.message =
-            "Resolver running. Poll for output/completion; cancellation kills the owned process."
+            "Resolver running; output updates automatically. Cancel kills the owned process."
                 .into();
         self.log.clear();
-        host::reveal_view(VIEW)?;
-        host::refresh_view(VIEW);
+        if focus {
+            crate::reveal(VIEW)?;
+        }
+        crate::refresh(VIEW);
         Ok(())
     }
     pub(crate) fn poll(&mut self, ctx: &Invocation) -> Result<(), Error> {
@@ -488,12 +472,12 @@ impl State {
             run.status = Some(status);
             run.child = None;
             self.message = if status == 0 {
-                "Export completed. Audit resolved dependencies explicitly to query OSV.".into()
+                "Export completed.".into()
             } else {
                 format!("Resolver failed with status {status}; previous report retained.")
             };
         }
-        host::refresh_view(VIEW);
+        crate::refresh(VIEW);
         Ok(())
     }
     pub(crate) fn cancel(&mut self, ctx: &Invocation) -> Result<(), Error> {
@@ -506,7 +490,7 @@ impl State {
         }
         run.status = Some(-1);
         self.message = "Resolver cancelled; previous report retained.".into();
-        host::refresh_view(VIEW);
+        crate::refresh(VIEW);
         Ok(())
     }
     pub(crate) fn evidence(&self, ctx: &Invocation) -> Result<Evidence, Error> {
@@ -530,16 +514,33 @@ impl State {
         }
         Ok(evidence)
     }
+    pub(crate) fn running(&self) -> bool {
+        self.run.as_ref().is_some_and(|run| run.child.is_some())
+    }
+    pub(crate) fn succeeded(&self) -> bool {
+        self.run.as_ref().is_some_and(|run| run.status == Some(0) && run.child.is_none())
+    }
     pub(crate) fn render(&self, ctx: &Invocation) -> View {
+        let resolve = Button::new("resolve-build", "Resolve Dependencies").icon("run").enabled(!self.running());
         let Some(run) = &self.run else {
             return View::message(
-                "Run Resolve Effective Build Dependencies to start a reviewed local resolver.",
-            );
+                "Resolve the effective Maven or Gradle dependency versions of this project and audit them against OSV.",
+            )
+            .button(resolve);
         };
         if ctx.project().and_then(|p| p.root().ok()).as_deref() != Some(run.root.as_str()) {
             return View::message(
                 "The active resolver belongs to another project; return there to poll or cancel.",
             );
+        }
+        if run.child.is_some() {
+            let text = format!("{}\n{} {} / {}\n\n{}", self.message, run.tool.program(), run.tool.version(), run.configuration, self.log);
+            return View::new(Body::Other {
+                kind: "message".into(),
+                data: serde_json::json!({"text": text, "backgroundPoll": {"intervalMs": 1000, "message": {"op": "resolution-tick"}}}).to_string(),
+            })
+            .button(resolve)
+            .button(Button::new("resolution-cancel", "Cancel Resolver").icon("stop"));
         }
         View::new(Body::Form(vec![
             openidea_plugin::views::Field::new(
@@ -563,16 +564,7 @@ impl State {
                 openidea_plugin::views::FieldValue::readonly_text(&self.log, true),
             ),
         ]))
-        .button(
-            Button::new("resolution-poll", "Poll Resolver")
-                .icon("refresh")
-                .enabled(run.child.is_some()),
-        )
-        .button(
-            Button::new("resolution-cancel", "Cancel Resolver")
-                .icon("stop")
-                .enabled(run.child.is_some()),
-        )
+        .button(resolve)
         .button(
             Button::new("resolution-audit", "Audit Resolved Dependencies")
                 .icon("check")
@@ -731,10 +723,8 @@ mod tests {
                 stderr: String::new(),
             })
         });
-        h.answer_next_prompt(Some(&["maven"]));
-        h.answer_next_prompt(Some(&["ok"]));
         let mut state = State::default();
-        state.start(&h.invocation()).unwrap();
+        state.start(&h.invocation(), true).unwrap();
         assert!(state.run.as_ref().unwrap().child.is_some());
         let output = state.run.as_ref().unwrap().output.clone();
         h.add_file(
@@ -756,16 +746,6 @@ mod tests {
         assert!(h.requests().is_empty());
         h.add_file("/project/pom.xml", "changed");
         assert!(state.evidence(&h.invocation()).is_err());
-    }
-    #[test]
-    fn cancelling_review_runs_no_build_tool() {
-        let h = openidea_plugin::mock::MockHost::install();
-        h.add_file("/project/pom.xml", "<project/> ");
-        h.answer_next_prompt(Some(&["maven"]));
-        h.answer_next_prompt(None);
-        let mut state = State::default();
-        state.start(&h.invocation()).unwrap();
-        assert!(state.run.is_none() && h.process_runs().is_empty() && h.requests().is_empty());
     }
     #[test]
     fn completed_resolved_coordinates_use_existing_osv_report_pipeline_and_cache_only_editor_facts()
@@ -816,9 +796,8 @@ mod tests {
         h.add_file("/project/pom.xml", "<project/> ");
         h.open_editor("/project/pom.xml", "xml", "<project/> ", &[(0, 0, 0, 0)]);
         h.type_in_editor("<project>unsaved</project>");
-        h.answer_next_prompt(Some(&["maven"]));
         let mut state = State::default();
-        assert!(state.start(&h.invocation()).is_err());
+        assert!(state.start(&h.invocation(), true).is_err());
         assert!(state.run.is_none() && h.process_runs().is_empty());
     }
     #[test]

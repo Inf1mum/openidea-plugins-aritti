@@ -1080,7 +1080,7 @@ fn packaged_selected_actions_validate_kind_membership_and_confirm_current_buffer
     assert!(dep.starts_with("dep:") && advisory.starts_with("advisory:"));
     let requests=host.requests().len();
     let mut command=|id:&str,key:&str| {
-        plugin.handle("vulnerabilities",ViewEvent::Message(json!({"channel":"ui-kit","sequence":50,"project":"/project","op":"command","id":id,"key":key}).to_string()),&host.invocation()).unwrap();
+        plugin.handle("vulnerabilities",ViewEvent::Message(json!({"channel":"ui-kit","sequence":50,"project":"/project","targetView":"vulnerabilities","op":"command","id":id,"key":key}).to_string()),&host.invocation()).unwrap();
         serde_json::from_str::<Value>(&host.view_messages().last().unwrap().1).unwrap()
     };
     let denied=command("preview-upgrade",&advisory);
@@ -1240,13 +1240,13 @@ fn packaged_ignore_and_empty_report_review_restore_use_declared_controls() {
     let selected=selected_advisory(&mut plugin,&host,"com.fasterxml.jackson.core:jackson-databind");
     let requests=host.requests().len();
     host.answer_next_prompt(Some(&["Accepted until patch evaluation"]));host.answer_next_prompt(Some(&[]));
-    plugin.handle("vulnerabilities",ViewEvent::Message(json!({"channel":"ui-kit","sequence":61,"project":"/project","op":"command","id":"ignore-finding","key":selected}).to_string()),&host.invocation()).unwrap();
+    plugin.handle("vulnerabilities",ViewEvent::Message(json!({"channel":"ui-kit","sequence":61,"project":"/project","targetView":"vulnerabilities","op":"command","id":"ignore-finding","key":selected}).to_string()),&host.invocation()).unwrap();
     let response:Value=serde_json::from_str(&host.view_messages().last().unwrap().1).unwrap();
     assert!(response.get("error").is_none(),"{response}");
     assert_eq!(response["model"]["body"]["kind"],"message");
     assert!(response["model"]["toolbar"].as_array().unwrap().iter().any(|b|b["key"]=="review-ignores"),"{response}");
     host.answer_next_prompt(Some(&["0"]));host.answer_next_prompt(Some(&[]));
-    plugin.handle("vulnerabilities",ViewEvent::Message(json!({"channel":"ui-kit","sequence":62,"project":"/project","op":"event","event":{"kind":"button","key":"review-ignores"}}).to_string()),&host.invocation()).unwrap();
+    plugin.handle("vulnerabilities",ViewEvent::Message(json!({"channel":"ui-kit","sequence":62,"project":"/project","targetView":"vulnerabilities","op":"event","event":{"kind":"button","key":"review-ignores"}}).to_string()),&host.invocation()).unwrap();
     let response:Value=serde_json::from_str(&host.view_messages().last().unwrap().1).unwrap();
     assert!(response.get("error").is_none(),"{response}");
     assert_eq!(response["model"]["body"]["kind"],"resources");
@@ -1396,7 +1396,7 @@ fn dependency_row_exposes_advisories_and_exact_ignores_without_losing_upgrade() 
     assert_eq!(open.iter().find(|action|action["kind"]=="dep").unwrap()["replacesOpen"],false);
     let requests=host.requests().len();
     let command=|plugin:&mut DependencyAudit,id:&str| {
-        plugin.handle("vulnerabilities",ViewEvent::Message(json!({"channel":"ui-kit","sequence":70,"project":"/project","op":"command","id":id,"key":dep}).to_string()),&host.invocation()).unwrap();
+        plugin.handle("vulnerabilities",ViewEvent::Message(json!({"channel":"ui-kit","sequence":70,"project":"/project","targetView":"vulnerabilities","op":"command","id":id,"key":dep}).to_string()),&host.invocation()).unwrap();
         serde_json::from_str::<Value>(&host.view_messages().last().unwrap().1).unwrap()
     };
     assert!(command(&mut plugin,"open-advisory").get("error").is_none());
@@ -1473,4 +1473,22 @@ fn notify_project_targets_the_project_and_falls_back_globally_when_it_is_gone() 
     host.set_project_root(None);
     notify_project(&project, NotificationLevel::Info, "T", "two");
     assert_eq!(host.notifications().len(), 1);
+}
+
+#[test]
+fn npm_graph_tab_inspect_button_renders_the_root_lockfile_tree() {
+    let host=MockHost::install().with_capabilities(CAPS);
+    host.add_file("package-lock.json",r#"{"lockfileVersion":3,"packages":{"":{"dependencies":{"a":"*"}},"node_modules/a":{"version":"1"}}}"#);
+    let mut plugin=DependencyAudit::default();
+    let send=|plugin:&mut DependencyAudit,sequence:u32,op:Value|{
+        let mut request=json!({"channel":"ui-kit","sequence":sequence,"project":"/project","targetView":"npm-dependency-graph"});
+        request.as_object_mut().unwrap().extend(op.as_object().unwrap().clone());
+        plugin.handle("vulnerabilities",ViewEvent::Message(request.to_string()),&host.invocation()).unwrap();
+        serde_json::from_str::<Value>(&host.view_messages().last().unwrap().1).unwrap()
+    };
+    let response=send(&mut plugin,1,json!({"op":"select-view","target":"npm-dependency-graph","targetView":"vulnerabilities"}));
+    assert_eq!(response["model"]["activeView"],"npm-dependency-graph","{response}");
+    let response=send(&mut plugin,2,json!({"op":"event","event":{"kind":"button","key":"inspect-npm-graph"}}));
+    assert!(response.get("error").is_none(),"{response}");
+    assert_eq!(response["model"]["body"]["kind"],"tree","{response}");
 }

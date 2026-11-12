@@ -324,8 +324,8 @@ impl State {
         });
         self.message = "Resolving all owned project refs. Poll for output/completion.".into();
         self.log.clear();
-        host::reveal_view(VIEW)?;
-        host::refresh_view(VIEW);
+        crate::reveal(VIEW)?;
+        crate::refresh(VIEW);
         Ok(())
     }
     pub(crate) fn poll(&mut self, ctx: &Invocation) -> Result<(), Error> {
@@ -353,7 +353,7 @@ impl State {
                 format!("sbt failed ({status}); previous report retained.")
             }
         }
-        host::refresh_view(VIEW);
+        crate::refresh(VIEW);
         Ok(())
     }
     pub(crate) fn cancel(&mut self, ctx: &Invocation) -> Result<(), Error> {
@@ -367,7 +367,7 @@ impl State {
         r.child = None;
         r.status = Some(-1);
         self.message = "sbt cancelled; previous report retained.".into();
-        host::refresh_view(VIEW);
+        crate::refresh(VIEW);
         Ok(())
     }
     pub(crate) fn evidence(&self, ctx: &Invocation) -> Result<Evidence, Error> {
