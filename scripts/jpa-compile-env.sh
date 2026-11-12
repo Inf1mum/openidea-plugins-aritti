@@ -83,6 +83,10 @@ _jpa_hib=$(find "$_jpa_m2/org/hibernate/orm/hibernate-core/6.6.49.Final" -name '
 _jpa_export HIBERNATE_CORE_JAR "$_jpa_hib"
 unset _jpa_hib
 
+_jpa_export HIBERNATE_ENVERS_JAR "$_jpa_api/hibernate-envers-6.6.49.Final.jar"
+_jpa_export JAKARTA_PERSISTENCE_JAR "$_jpa_api/jakarta.persistence-api-3.2.0.jar"
+_jpa_export BLAZE_ENTITY_VIEW_API_JAR "$_jpa_api/blaze-persistence-entity-view-api-jakarta-1.6.14.jar"
+
 _jpa_fw=$(find "$_jpa_api" "$_jpa_m2/org/flywaydb/flyway-core" -name 'flyway-core-10*.jar' ! -name '*sources*' 2>/dev/null | head -n 1)
 _jpa_export FLYWAY_CORE_JAR "$_jpa_fw"
 unset _jpa_fw
