@@ -51,6 +51,8 @@ pub struct DataSource {
     pub dialect: Fact<Dialect>,
     pub driver: Option<String>,
     pub username_present: bool,
+    /// The literal user name; `None` for a placeholder, an empty value or when absent. Never a password.
+    pub username: Option<String>,
     pub source_file: String,
     pub key_prefix: String,
 }
@@ -206,7 +208,7 @@ fn flatten(text: &str, yaml: bool) -> Vec<(String, String, bool)> {
     found
 }
 
-fn build(source_file: &str, profile: Option<String>, name: &str, key_prefix: &str, url: &str, driver: Option<String>, username: bool) -> DataSource {
+fn build(source_file: &str, profile: Option<String>, name: &str, key_prefix: &str, url: &str, driver: Option<String>, username: Option<&str>) -> DataSource {
     let raw_dialect = dialect_of(url);
     let (url_fact, dialect) = if url.contains("${") {
         (Fact::Unknown(format!("placeholder {}", url_placeholders(url))), raw_dialect)
@@ -222,7 +224,8 @@ fn build(source_file: &str, profile: Option<String>, name: &str, key_prefix: &st
         url: url_fact,
         dialect,
         driver,
-        username_present: username,
+        username_present: username.is_some(),
+        username: username.filter(|u| !u.is_empty() && !u.contains("${")).map(str::to_owned),
         source_file: source_file.to_owned(),
         key_prefix: key_prefix.to_owned(),
     }
@@ -244,7 +247,7 @@ fn url_placeholders(value: &str) -> String {
 struct Group {
     url: Option<String>,
     driver: Option<String>,
-    username: bool,
+    username: Option<String>,
 }
 
 fn from_application(path: &str, text: &str, out: &mut Vec<DataSource>) {
@@ -280,13 +283,13 @@ fn from_application(path: &str, text: &str, out: &mut Vec<DataSource>) {
         match field.as_str() {
             "url" | "jdbc.url" => group.url = Some(value),
             "driver-class-name" | "jdbc.driver" => group.driver = Some(value).filter(|v| !v.is_empty()),
-            "username" => group.username = true,
+            "username" => group.username = Some(value),
             _ => {}
         }
     }
     for ((profile, name, prefix, _), group) in groups {
         if let Some(url) = group.url {
-            out.push(build(path, profile, &name, &prefix, &url, group.driver, group.username));
+            out.push(build(path, profile, &name, &prefix, &url, group.driver, group.username.as_deref()));
         }
     }
 }
@@ -294,7 +297,7 @@ fn from_application(path: &str, text: &str, out: &mut Vec<DataSource>) {
 fn from_persistence_xml(path: &str, text: &str, out: &mut Vec<DataSource>) {
     let mut url = None;
     let mut driver = None;
-    let mut username = false;
+    let mut username: Option<String> = None;
     for tag in text.split("<property").skip(1) {
         let Some(tag) = tag.split('>').next() else { continue };
         let attr = |name: &str| {
@@ -306,13 +309,26 @@ fn from_persistence_xml(path: &str, text: &str, out: &mut Vec<DataSource>) {
         match name.as_str() {
             "jakarta.persistence.jdbc.url" | "javax.persistence.jdbc.url" => url = value,
             "jakarta.persistence.jdbc.driver" | "javax.persistence.jdbc.driver" => driver = value,
-            "jakarta.persistence.jdbc.user" | "javax.persistence.jdbc.user" => username = true,
+            "jakarta.persistence.jdbc.user" | "javax.persistence.jdbc.user" => username = Some(value.clone().unwrap_or_default()),
             _ => {}
         }
     }
     if let Some(url) = url {
-        out.push(build(path, None, "persistence-unit", "jakarta.persistence.jdbc", &url, driver, username));
+        out.push(build(path, None, "persistence-unit", "jakarta.persistence.jdbc", &url, driver, username.as_deref()));
     }
+}
+
+/// The literal `<prefix>.password` of one configuration file, read at connect time and never stored.
+/// A placeholder (`${DB_PASSWORD}`), an empty value or a missing key yields `None` (the caller prompts).
+pub fn literal_password(text: &str, file: &str, key_prefix: &str) -> Option<String> {
+    let yaml = !file.ends_with(".properties");
+    let wanted = format!("{}.password", key_prefix.replace('"', ""));
+    flatten(text, yaml)
+        .into_iter()
+        .filter(|(key, _, _)| key.strip_prefix('%').and_then(|k| k.split_once('.')).map_or(key.as_str(), |(_, rest)| rest) == wanted)
+        .next_back()
+        .map(|(_, value, _)| value)
+        .filter(|value| !value.is_empty() && !value.contains("${"))
 }
 
 pub struct Sources<'a> {
@@ -489,6 +505,24 @@ mod tests {
             assert_eq!(ds.url, Fact::Known("jdbc:h2:mem:t".into()));
             assert!(ds.username_present);
         }
+    }
+
+    #[test]
+    fn usernames_are_literal_only_and_passwords_are_read_on_demand() {
+        let props = "spring.datasource.url=jdbc:postgresql://db/shop\nspring.datasource.username=app\nspring.datasource.password=S3NT1NEL-pw\n";
+        let [ds] = found(&[(APP, props)]).try_into().unwrap();
+        assert_eq!(ds.username.as_deref(), Some("app"));
+        assert!(!format!("{ds:?}").contains("S3NT1NEL"));
+        let [placeholder] = found(&[(APP, "spring.datasource.url=jdbc:h2:file:/d\nspring.datasource.username=${DB_USER}\n")]).try_into().unwrap();
+        assert!(placeholder.username_present && placeholder.username.is_none());
+
+        assert_eq!(literal_password(props, APP, "spring.datasource").as_deref(), Some("S3NT1NEL-pw"));
+        assert_eq!(literal_password("spring.datasource.password=${DB_PASSWORD}\n", APP, "spring.datasource"), None);
+        assert_eq!(literal_password("spring.datasource.password=\n", APP, "spring.datasource"), None);
+        assert_eq!(literal_password("spring:\n  datasource:\n    password: yaml-pw\n", "/p/application.yml", "spring.datasource").as_deref(), Some("yaml-pw"));
+        let quarkus = "quarkus.datasource.\"inventory\".password=q-pw\n";
+        assert_eq!(literal_password(quarkus, APP, "quarkus.datasource.\"inventory\"").as_deref(), Some("q-pw"));
+        assert_eq!(literal_password(props, APP, "quarkus.datasource"), None);
     }
 
     #[test]

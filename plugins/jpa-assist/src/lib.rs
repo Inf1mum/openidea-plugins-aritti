@@ -15,6 +15,7 @@ mod attribute_info;
 mod auditing_checks;
 mod build;
 mod datasource_facts;
+mod jdbc_connect;
 mod designer;
 mod creation;
 mod checks;
@@ -1376,6 +1377,7 @@ impl Plugin for JpaAssist {
                 copied(entity, "Entity")
             }
             "new-entity" => new_entity(ctx),
+            "jdbc-manage" | "jdbc-test" | "jdbc-browse" => jdbc_connect::run(id, ctx),
             _ => Err(Error::NotFound(format!("command {id}"))),
         }
     }
