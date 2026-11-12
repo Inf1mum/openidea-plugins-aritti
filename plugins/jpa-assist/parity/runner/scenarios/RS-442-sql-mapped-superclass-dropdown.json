@@ -1,0 +1,110 @@
+{
+  "id": "RS-442",
+  "rows": [
+    "G091"
+  ],
+  "claimIds": [
+    "G091-C1"
+  ],
+  "verifies": {
+    "G091-C1": "the per-table parent prompt lists exactly the @MappedSuperclass classes of the project sources (optionsInclude Auditable and Stamped, optionsExclude the entity Client) and the chosen one becomes the extended class. Not checked: drop-down widget, one drop-down per dialog row rather than a prompt per table."
+  },
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "sql-import/rs.sql",
+        "content": "create table notes (\n    id bigserial primary key,\n    created_at timestamp,\n    version bigint,\n    body text\n);\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/billing/domain/Auditable.java",
+        "content": "package com.example.billing.domain;\n\nimport jakarta.persistence.Column;\nimport jakarta.persistence.GeneratedValue;\nimport jakarta.persistence.GenerationType;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.MappedSuperclass;\nimport java.time.LocalDateTime;\n\n@MappedSuperclass\npublic abstract class Auditable {\n    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n\n    @Column(name = \"created\")\n    private LocalDateTime createdAt;\n\n    private Long version;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/billing/domain/Stamped.java",
+        "content": "package com.example.billing.domain;\n\nimport jakarta.persistence.MappedSuperclass;\n\n@MappedSuperclass\npublic abstract class Stamped {\n    private String stamp;\n}\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "sql-import/rs.sql",
+    "anchor": "create "
+  },
+  "action": {
+    "title": "Generate entities from SQL file…"
+  },
+  "prompts": [
+    {
+      "pickMany": [
+        "notes"
+      ]
+    },
+    {
+      "pick": "com.example.billing.domain"
+    },
+    {
+      "pickMany": [
+        "mappedSuperclass"
+      ]
+    },
+    {
+      "pickMany": [
+        "\u0000all"
+      ]
+    },
+    {
+      "pick": "com.example.billing.domain.Auditable"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pickMany"
+      },
+      {
+        "kind": "pick"
+      },
+      {
+        "kind": "pickMany"
+      },
+      {
+        "kind": "pickMany"
+      },
+      {
+        "kind": "pick",
+        "titleContains": "Parent @MappedSuperclass",
+        "optionsInclude": [
+          "com.example.billing.domain.Auditable",
+          "com.example.billing.domain.Stamped"
+        ],
+        "optionsExclude": [
+          "com.example.billing.domain.Client"
+        ]
+      },
+      {
+        "kind": "confirm"
+      }
+    ],
+    "createdFiles": [
+      {
+        "path": "src/main/java/com/example/billing/domain/Notes.java",
+        "contains": [
+          "public class Notes extends Auditable {"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "Two mapped superclasses in the sources; Auditable chosen for notes."
+}

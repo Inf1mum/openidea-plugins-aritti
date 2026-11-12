@@ -1,0 +1,89 @@
+{
+  "id": "RS-446",
+  "rows": [
+    "G094"
+  ],
+  "claimIds": [
+    "G094-C2"
+  ],
+  "verifies": {
+    "G094-C2": "the code action 'Uncomment as is' is offered on the generated TODO block of an unmapped column and turns the commented @Column and field into live code (private Object area; plus the Column import it needs) and drops the TODO line. This half of the claim only; 'Remove column mapping' is RS-447. Not checked: the action being a lightbulb entry inside a comment in a desktop editor, and its availability on a TODO block the user typed by hand."
+  },
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "sql-import/rs.sql",
+        "content": "create table places (\n    id bigserial primary key,\n    name varchar(80),\n    area geometry\n);\n"
+      }
+    }
+  ],
+  "preActions": [
+    {
+      "title": "Generate entities from SQL file…",
+      "target": {
+        "file": "sql-import/rs.sql",
+        "anchor": "create "
+      },
+      "prompts": [
+        {
+          "pickMany": [
+            "places"
+          ]
+        },
+        {
+          "pick": "com.example.billing.domain"
+        },
+        {
+          "pickMany": [
+            "deferred"
+          ]
+        },
+        {
+          "pickMany": [
+            "\u0000all"
+          ]
+        },
+        {
+          "pick": "skip"
+        },
+        {
+          "confirm": "yes"
+        }
+      ]
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/billing/domain/Places.java",
+    "anchor": "// TODO"
+  },
+  "action": {
+    "title": "Uncomment as is"
+  },
+  "prompts": [
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "resultFile": [
+      {
+        "path": "src/main/java/com/example/billing/domain/Places.java",
+        "contains": [
+          "    @Column(name = \"area\")\n    private Object area;",
+          "import jakarta.persistence.Column;"
+        ],
+        "notContains": [
+          "TODO",
+          "// @Column"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "The TODO block is produced by this plugin's own SQL import (preAction), then the action runs on it."
+}

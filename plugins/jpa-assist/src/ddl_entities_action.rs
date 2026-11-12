@@ -15,6 +15,8 @@ use crate::model::{camel_case, decapitalize};
 use persistence_core::ddl_parse::{self, DdlError, Dialect as SqlDialect, ParsedDdl};
 use persistence_core::schema::{Column, Fact, ForeignKey, Index, LogicalType, Table, UniqueConstraint};
 use std::collections::{BTreeMap, BTreeSet};
+#[path = "ddl_entities_extra.rs"]
+mod extra;
 
 pub(super) const TITLE: &str = "Generate entities from SQL file…";
 const MAX_FILES: usize = 20;
@@ -118,6 +120,16 @@ struct Options {
     classes: HashMap<usize, String>,
     /// Lower-cased selected column names by table index; a table that is absent maps every column.
     columns: HashMap<usize, BTreeSet<String>>,
+    basic_references: bool,
+    edit_names: bool,
+    type_overrides: bool,
+    mapped_superclass: bool,
+    hibernate6: bool,
+    hibernate_types: bool,
+    /// Attribute names the user edited, by table index and lower-cased column name.
+    names: HashMap<(usize, String), String>,
+    overrides: HashMap<(usize, String), extra::TypeOverride>,
+    superclasses: HashMap<usize, extra::Super>,
 }
 
 #[derive(Debug)]
@@ -143,6 +155,7 @@ struct Attr {
     comment: Option<String>,
     comment_annotation: Option<String>,
     definition: Option<String>,
+    custom: Option<extra::TypeOverride>,
 }
 
 #[derive(Debug)]
@@ -215,6 +228,8 @@ struct Plan {
     join_column: Option<String>,
     open: bool,
     joined_root: bool,
+    mapped_super: Option<extra::Super>,
+    attr_overrides: Vec<(String, String)>,
 }
 
 fn java_type(logical: LogicalType) -> (&'static str, &'static str, Option<&'static str>) {
@@ -430,6 +445,7 @@ fn column_attr(parsed: &ParsedDdl, ti: usize, dialect: SqlDialect, options: &Opt
     let enumeration = parsed.column_enums.iter().find(|e| e.table == table.name && e.column == column.name);
     let mut enum_plan = None;
     let mut definition = None;
+    let custom = options.overrides.get(&(ti, column.name.to_ascii_lowercase())).filter(|_| !is_key).cloned();
     let (java, kotlin, import, logical) = match (&column.sql_type, enumeration) {
         (Fact::Unknown(reason), Some(found)) => {
             if !options.enums {
@@ -448,6 +464,14 @@ fn column_attr(parsed: &ParsedDdl, ti: usize, dialect: SqlDialect, options: &Opt
             }
             enum_plan = Some(EnumPlan { name: name.clone(), values: found.values.clone() });
             (name.clone(), name, None, None)
+        }
+        (Fact::Unknown(_), None) if custom.is_some() => {
+            let found = custom.as_ref().expect("checked");
+            (found.java.clone(), found.kotlin.clone(), None, None)
+        }
+        (Fact::Known(_), _) if custom.is_some() => {
+            let found = custom.as_ref().expect("checked");
+            (found.java.clone(), found.kotlin.clone(), None, column.sql_type.known().map(|t| t.logical))
         }
         (Fact::Unknown(reason), None) => match options.deferred.get(&(ti, column.name.to_ascii_lowercase())) {
             Some(Deferred::Definition(text)) if !is_key => {
@@ -515,9 +539,10 @@ fn column_attr(parsed: &ParsedDdl, ti: usize, dialect: SqlDialect, options: &Opt
         comment,
         comment_annotation,
         definition,
+        custom,
     };
     let single = gate.foreign_keys.iter().find(|fk| fk.columns.len() == 1 && fk.columns[0].eq_ignore_ascii_case(&column.name));
-    if let Some(fk) = single.filter(|_| !is_key && enum_plan.is_none()) {
+    if let Some(fk) = single.filter(|_| !is_key && enum_plan.is_none() && !options.basic_references) {
         let target = ddl_parse::find_table(&parsed.snapshot, &fk.ref_table).filter(|t| linked.contains_key(t));
         let target_key = target.and_then(|t| parsed.snapshot.tables[t].primary_key.known());
         let ref_matches = match (&fk.ref_columns, target_key) {
@@ -540,6 +565,9 @@ fn column_attr(parsed: &ParsedDdl, ti: usize, dialect: SqlDialect, options: &Opt
                 column.name, fk.ref_table, java
             )),
         }
+    }
+    if let Some(edited) = options.names.get(&(ti, column.name.to_ascii_lowercase())) {
+        attr.name = edited.clone();
     }
     if !identifier(&attr.name) {
         let suffixed = format!("{}Field", attr.name);
@@ -676,6 +704,11 @@ fn plan(parsed: &ParsedDdl, ti: usize, dialect: SqlDialect, linked: &HashMap<usi
             parent = Some(parent_class.clone());
         }
     }
+    let (mut mapped_super, mut attr_overrides) = (None, Vec::new());
+    if let Some(found) = options.superclasses.get(&ti).filter(|_| parent.is_none()) {
+        attr_overrides = extra::inherit(&mut attrs, found, options.kotlin, &mut notes).map_err(|reason| format!("{}: {reason}", table.name))?;
+        mapped_super = Some(found.clone());
+    }
     let maps_id = match options.maps_id.get(&ti).filter(|_| parent.is_none()) {
         Some(&parent_table) => maps_id_member(parsed, &gate, &attrs, linked, parent_table, &mut notes),
         None => None,
@@ -705,6 +738,8 @@ fn plan(parsed: &ParsedDdl, ti: usize, dialect: SqlDialect, linked: &HashMap<usi
         join_column,
         open: false,
         joined_root: false,
+        mapped_super,
+        attr_overrides,
     })
 }
 
@@ -804,6 +839,9 @@ fn render(plan: &Plan, package: &str, ns: &str, kotlin: bool) -> String {
                 imports.insert(format!("{ns}.EnumType"));
                 lines.push("@Enumerated(EnumType.STRING)".into());
             }
+            if let Some(annotation) = attr.custom.as_ref().and_then(|c| c.annotation(ns, kotlin, &mut imports)) {
+                lines.push(annotation);
+            }
             if let Some(package) = plan.validation {
                 if attr.not_null {
                     imports.insert(format!("{package}.NotNull"));
@@ -833,6 +871,9 @@ fn render(plan: &Plan, package: &str, ns: &str, kotlin: bool) -> String {
                 args.push(format!("scale = {scale}"));
             }
             if let Some(definition) = &attr.definition {
+                args.push(format!("columnDefinition = \"{definition}\""));
+            }
+            if let Some(definition) = attr.custom.as_ref().and_then(|c| c.definition.as_ref()) {
                 args.push(format!("columnDefinition = \"{definition}\""));
             }
             if !args.is_empty() {
@@ -966,6 +1007,15 @@ fn render(plan: &Plan, package: &str, ns: &str, kotlin: bool) -> String {
     if plan.join_column.is_some() {
         imports.insert(format!("{ns}.PrimaryKeyJoinColumn"));
     }
+    if let Some(found) = &plan.mapped_super {
+        if found.package.as_deref().is_some_and(|p| p != package) {
+            imports.insert(found.qualified());
+        }
+    }
+    if !plan.attr_overrides.is_empty() {
+        imports.insert(format!("{ns}.AttributeOverride"));
+        imports.insert(format!("{ns}.Column"));
+    }
     let mut out = format!("package {package}{semi}\n\n");
     out.push_str(&imports.iter().map(|i| format!("import {i}{semi}\n")).collect::<String>());
     out.push('\n');
@@ -986,15 +1036,19 @@ fn render(plan: &Plan, package: &str, ns: &str, kotlin: bool) -> String {
     if let Some(join) = &plan.join_column {
         out.push_str(&format!("@PrimaryKeyJoinColumn(name = \"{join}\")\n"));
     }
+    for (name, column) in &plan.attr_overrides {
+        let at = if kotlin { "" } else { "@" };
+        out.push_str(&format!("@AttributeOverride(name = \"{name}\", column = {at}Column(name = \"{column}\"))\n"));
+    }
     if kotlin {
         let open = if plan.open { "open " } else { "" };
-        let parent = plan.parent.as_ref().map_or(String::new(), |p| format!(" : {p}()"));
+        let parent = plan.parent.as_ref().or(plan.mapped_super.as_ref().map(|s| &s.name)).map_or(String::new(), |p| format!(" : {p}()"));
         let constructor = if plan.view { " protected constructor()" } else { "" };
         out.push_str(&format!("{open}class {}{constructor}{parent} {{\n", plan.class));
         out.push_str(body.trim_end());
         out.push_str("\n}\n");
     } else {
-        let parent = plan.parent.as_ref().map_or(String::new(), |p| format!(" extends {p}"));
+        let parent = plan.parent.as_ref().or(plan.mapped_super.as_ref().map(|s| &s.name)).map_or(String::new(), |p| format!(" extends {p}"));
         out.push_str(&format!("public class {}{parent} {{\n", plan.class));
         out.push_str(&body);
         if plan.view {
@@ -1043,7 +1097,7 @@ fn junction_shape(parsed: &ParsedDdl, ti: usize, dialect: SqlDialect, options: &
     let table = &parsed.snapshot.tables[ti];
     let case_sensitive = dialect == SqlDialect::PostgreSql;
     let (schema, name) = table.name.split_once('.').map_or((None, table.name.as_str()), |(schema, name)| (Some(schema), name));
-    if options.views.contains(&ti) || !simple(name, case_sensitive) || schema.is_some_and(|s| !simple(s, case_sensitive)) {
+    if options.basic_references || options.views.contains(&ti) || !simple(name, case_sensitive) || schema.is_some_and(|s| !simple(s, case_sensitive)) {
         return None;
     }
     let columns = table.columns.known()?;
@@ -1313,7 +1367,7 @@ fn prompt_affixes(title: &str) -> Result<Vec<String>, Error> {
     Ok(affixes)
 }
 
-fn prompt_options(parsed: &ParsedDdl, dialect: SqlDialect, selected: &[usize], comment_annotation_ok: bool) -> Result<Options, Error> {
+fn prompt_options(parsed: &ParsedDdl, dialect: SqlDialect, selected: &[usize], comment_annotation_ok: bool, has_superclass: bool) -> Result<Options, Error> {
     let tables = &parsed.snapshot.tables;
     let chosen_tables: Vec<&Table> = selected.iter().map(|&ti| &tables[ti]).collect();
     let names: BTreeSet<&str> = chosen_tables.iter().map(|t| t.name.as_str()).collect();
@@ -1347,6 +1401,8 @@ fn prompt_options(parsed: &ParsedDdl, dialect: SqlDialect, selected: &[usize], c
     items.push(PickItem::new("columnPrefix", "Strip column-name prefixes").description("Comma-separated, for example col_"));
     items.push(PickItem::new("tableSuffix", "Strip table-name suffixes").description("Comma-separated, for example _tbl,_old"));
     items.push(PickItem::new("columnSuffix", "Strip column-name suffixes").description("Comma-separated, for example _col"));
+    let has_references = chosen_tables.iter().any(|t| t.foreign_keys.known().is_some_and(|f| !f.is_empty()));
+    extra::offers(&mut items, has_references, has_superclass);
     let picked: BTreeSet<String> = host::pick_many("Generation options (none chosen: defaults)", &items)?.ok_or(Error::Cancelled)?.into_iter().collect();
     let mut options = Options {
         schema: picked.contains("schema"),
@@ -1356,6 +1412,10 @@ fn prompt_options(parsed: &ParsedDdl, dialect: SqlDialect, selected: &[usize], c
         enums: picked.contains("enums"),
         singular: picked.contains("singular"),
         offer_deferred: picked.contains("deferred"),
+        basic_references: picked.contains("basicReferences"),
+        edit_names: picked.contains("editNames"),
+        type_overrides: picked.contains("typeOverrides"),
+        mapped_superclass: picked.contains("mappedSuperclass") && has_superclass,
         ..Options::default()
     };
     if picked.contains("tablePrefix") {
@@ -1440,6 +1500,12 @@ fn prompt_deferred(parsed: &ParsedDdl, dialect: SqlDialect, selected: &[usize], 
                 continue;
             }
             let Some(raw) = unmapped_text(parsed, table, &column.name).filter(|raw| safe_definition(raw)) else { continue };
+            if options.overrides.contains_key(&(ti, column.name.to_ascii_lowercase())) {
+                continue;
+            }
+            if extra::prompt_suggestion(options, (ti, column.name.to_ascii_lowercase()), raw, table, &column.name)? {
+                continue;
+            }
             let items = [
                 PickItem::new("skip", "Skip the column").description("Not mapped; listed as deferred in the preview"),
                 PickItem::new("string", &format!("String with @Column(columnDefinition = \"{raw}\")")).description("No Java type is guessed; binding a String to this SQL type is not verified"),
@@ -1491,6 +1557,9 @@ fn shared_key_parents(parsed: &ParsedDdl, dialect: SqlDialect, selected: &[usize
 
 fn prompt_parents(parsed: &ParsedDdl, dialect: SqlDialect, selected: &[usize], options: &mut Options) -> Result<(), Error> {
     let tables = &parsed.snapshot.tables;
+    if options.basic_references {
+        return Ok(());
+    }
     for &ti in selected {
         let mut candidates = shared_key_parents(parsed, dialect, selected, ti, options);
         candidates.retain(|&parent| !leads_to(options, parent, ti));
@@ -1741,8 +1810,13 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> R
         }
     }
     let comment_annotation_ok = facts.hibernate6 == crate::project_facts::Fact::Yes;
-    let mut options = prompt_options(&parsed, dialect, &selected, comment_annotation_ok)?;
+    let superclasses = extra::mapped_superclasses(project, &found.files);
+    let mut options = prompt_options(&parsed, dialect, &selected, comment_annotation_ok, !superclasses.is_empty())?;
     options.kotlin = kotlin;
+    options.hibernate6 = comment_annotation_ok;
+    options.hibernate_types = comment_annotation_ok
+        && options.offer_deferred
+        && super::mapper_action::build_text(project, &pending.root, &found.root_dir).is_ok_and(|build| build.contains("hypersistence-utils"));
     let validation_note = match (host::setting_bool("sqlImportValidation").unwrap_or(false), facts.bean_validation) {
         (false, _) => None,
         (true, crate::project_facts::Fact::Yes) => {
@@ -1758,8 +1832,11 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> R
     options.never_required = defaults.never_required;
     prompt_classes(&parsed, dialect, &selected, &mut options)?;
     prompt_columns(&parsed, dialect, &selected, &mut options)?;
+    extra::prompt_names(&parsed, dialect, &selected, &mut options)?;
+    extra::prompt_overrides(&parsed, dialect, &selected, &mut options)?;
     prompt_deferred(&parsed, dialect, &selected, &mut options)?;
     prompt_parents(&parsed, dialect, &selected, &mut options)?;
+    extra::prompt_superclasses(&parsed, dialect, &selected, &superclasses, &mut options)?;
     let Built3 { plans, refused, enums } = build_with(&parsed, dialect, &selected, &options)?;
     if plans.is_empty() {
         return Err(format!("Every selected table was refused: {}", refused.join("; ")).into());
@@ -1804,7 +1881,7 @@ pub(super) fn resolve(pending: &Pending, doc: &Document, project: &Project) -> R
         files.len()
     );
     for (plan, (target, _)) in plans.iter().zip(&files) {
-        let inherited = plan.parent.as_ref().map(|p| format!("inherited from {p}"));
+        let inherited = plan.parent.as_ref().or(plan.mapped_super.as_ref().map(|s| &s.name)).map(|p| format!("inherited from {p}"));
         let key = plan.attrs.iter().find(|a| a.key).map(|a| a.name.clone()).or(inherited).unwrap_or_else(|| "-".into());
         let relations = plan.attrs.iter().filter(|a| a.target.is_some()).count();
         let uuid_key = plan.id_generation == IdGeneration::Uuid && plan.attrs.iter().any(|a| a.key && !a.identity && a.java == "UUID");
@@ -2765,6 +2842,7 @@ mod tests {
         let views = append_views(&mut parsed);
         (parsed, views)
     }
+    const ADDED: &str = "CREATE TABLE customers (id bigserial PRIMARY KEY, created_at timestamp);\nCREATE TABLE orders (id bigserial PRIMARY KEY, customer_id bigint NOT NULL REFERENCES customers (id), created_at timestamp, stamp timestamp);\n";
     fn index(parsed: &ParsedDdl, name: &str) -> usize {
         parsed.snapshot.tables.iter().position(|t| t.name == name).unwrap_or_else(|| panic!("{name}"))
     }
@@ -3006,6 +3084,8 @@ mod tests {
             (EXTRA, SqlDialect::PostgreSql, &["account_emails", "account_mat", "accounts", "people", "employees", "managers", "clashes", "orders2"][..], Options::default()),
             (RELATIONS, SqlDialect::PostgreSql, &["authors", "books", "tags", "book_tags", "people", "passports", "users", "user_profiles"][..], Options::default()),
             (PG, SqlDialect::PostgreSql, &["customers", "order_lines"][..], Options { validation: Some("validation"), ..Options::default() }),
+            (ADDED, SqlDialect::PostgreSql, &["customers", "orders"][..], Options::default()),
+            (ADDED, SqlDialect::PostgreSql, &["customers", "orders"][..], Options { basic_references: true, ..Options::default() }),
         ] {
             let mut parsed = ddl_parse::parse_ddl(sql, dialect).unwrap();
             let views = append_views(&mut parsed);
@@ -3022,6 +3102,26 @@ mod tests {
                     ..Options::default()
                 };
             }
+            if sql == ADDED && !options.basic_references {
+                let orders = index(&parsed, "orders");
+                let parent = extra::Super {
+                    name: "Auditable".into(),
+                    package: Some("shop.base".into()),
+                    attrs: vec![
+                        extra::SuperAttr { name: "id".into(), ty: "Long".into(), id: true, column: "id".into() },
+                        extra::SuperAttr { name: "createdAt".into(), ty: "LocalDateTime".into(), id: false, column: "created".into() },
+                    ],
+                };
+                let converted = extra::TypeOverride {
+                    java: "Instant".into(),
+                    kotlin: "Instant".into(),
+                    imports: vec!["java.time.Instant".into()],
+                    target: extra::Target::Converter("shop.conv.InstantConverter".into()),
+                    definition: None,
+                };
+                options.superclasses = HashMap::from([(orders, parent)]);
+                options.overrides = HashMap::from([((orders, "stamp".to_owned()), converted)]);
+            }
             if sql == RELATIONS {
                 let at = |name: &str| index(&parsed, name);
                 options.maps_id = HashMap::from([(at("user_profiles"), at("users"))]);
@@ -3029,6 +3129,9 @@ mod tests {
             let selected: Vec<usize> = names.iter().map(|n| parsed.snapshot.tables.iter().position(|t| t.name == *n).unwrap()).collect();
             let validated = options.validation.is_some();
             for kotlin in [false, true] {
+                if kotlin && !options.superclasses.is_empty() {
+                    continue;
+                }
                 for ns in ["jakarta.persistence", "javax.persistence"] {
                     let validation = if ns == "jakarta.persistence" { "jakarta.validation.constraints" } else { "javax.validation.constraints" };
                     let for_ns = Options { validation: options.validation.map(|_| validation), ..options.clone() };
@@ -3056,6 +3159,17 @@ mod tests {
                         let file = directory.join(format!("{}.{extension}", e.name));
                         std::fs::write(&file, render_enum(e, "shop.db", kotlin)).unwrap();
                         files.push(file);
+                    }
+                    if !options.superclasses.is_empty() {
+                        let sources = [
+                            ("Auditable.java", format!("package shop.base;\nimport {ns}.*;\nimport java.time.LocalDateTime;\n@MappedSuperclass\npublic abstract class Auditable {{\n  @Id @GeneratedValue(strategy = GenerationType.IDENTITY) private Long id;\n  @Column(name = \"created\") private LocalDateTime createdAt;\n}}\n")),
+                            ("InstantConverter.java", format!("package shop.conv;\nimport {ns}.AttributeConverter;\nimport java.time.Instant;\npublic class InstantConverter implements AttributeConverter<Instant, java.sql.Timestamp> {{\n  public java.sql.Timestamp convertToDatabaseColumn(Instant a) {{ return null; }}\n  public Instant convertToEntityAttribute(java.sql.Timestamp d) {{ return null; }}\n}}\n")),
+                        ];
+                        for (name, text) in sources {
+                            let file = directory.join(name);
+                            std::fs::write(&file, text).unwrap();
+                            files.push(file);
+                        }
                     }
                     if !kotlin {
                         let result = std::process::Command::new("javac")
