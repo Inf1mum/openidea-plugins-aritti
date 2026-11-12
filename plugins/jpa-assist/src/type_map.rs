@@ -46,6 +46,49 @@ pub(super) fn mapped(key: &str, dbms: Option<&str>) -> Result<Option<String>, Er
     }
 }
 
+/// A row of `sqlJavaTypeMappings`: what a SQL type becomes when entities are generated from SQL.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct JavaTarget {
+    pub kind: String,
+    pub java: String,
+    pub class: String,
+}
+
+/// The first row of `sqlJavaTypeMappings` for `sql_type` (compared without length or precision, case-insensitive).
+/// A row for `dbms` wins over a row without a database.
+pub(super) fn find_java(rows: &str, sql_type: &str, dbms: &str) -> Result<Option<JavaTarget>, String> {
+    let rows: Vec<serde_json::Value> = serde_json::from_str(rows).map_err(|_| "sqlJavaTypeMappings is not a list of rows.".to_owned())?;
+    if rows.len() > MAX_ROWS {
+        return Err(format!("sqlJavaTypeMappings has more than {MAX_ROWS} rows."));
+    }
+    let wanted = sql_type.split('(').next().unwrap_or(sql_type).trim().to_ascii_lowercase();
+    let mut generic = None;
+    for row in &rows {
+        let text = |key: &str| row[key].as_str().map(str::trim).unwrap_or_default();
+        if text("sqlType").split('(').next().unwrap_or_default().trim().to_ascii_lowercase() != wanted || wanted.is_empty() {
+            continue;
+        }
+        let kind = text("target");
+        if !["javaType", "converter", "hibernateType"].contains(&kind) || text("java").is_empty() || (kind != "javaType" && text("class").is_empty()) {
+            return Err(format!("sqlJavaTypeMappings: the row for {wanted} needs a target and a Java type (and a class for a converter or Hibernate type)."));
+        }
+        let found = JavaTarget { kind: kind.to_owned(), java: text("java").to_owned(), class: text("class").to_owned() };
+        match text("dbms").to_ascii_lowercase().as_str() {
+            "" => generic = generic.or(Some(found)),
+            row_dbms if row_dbms == dbms => return Ok(Some(found)),
+            _ => {}
+        }
+    }
+    Ok(generic)
+}
+
+pub(super) fn java_mapped(sql_type: &str, dbms: &str) -> Result<Option<JavaTarget>, Error> {
+    match host::setting("sqlJavaTypeMappings") {
+        None => Ok(None),
+        Some(rows) => find_java(&rows, sql_type, dbms).map_err(Error::from),
+    }
+}
+
 /// Rows of `liquibaseStringTypes`: the `dbms` and the type each DBMS gets for `${string.type}`.
 pub(super) fn string_types() -> Result<Vec<(String, String)>, Error> {
     let Some(raw) = host::setting("liquibaseStringTypes") else {
@@ -81,5 +124,16 @@ mod tests {
         assert_eq!(find(per_dbms, "Money", None).unwrap().as_deref(), Some("numeric(19,2)"));
         assert_eq!(find(per_dbms, "Tag", Some("postgresql")).unwrap(), None);
         assert!(find("{}", "Money", None).is_err() && find(r#"[{"type":"A"}]"#, "A", None).is_err());
+    }
+
+    #[test]
+    fn sql_java_rows_match_by_base_type_and_prefer_the_database() {
+        let rows = r#"[{"sqlType":"NUMERIC","java":"BigDecimal","target":"javaType"},{"dbms":"mysql","sqlType":"numeric(10,2)","java":"Money","target":"converter","class":"shop.MoneyConverter"}]"#;
+        let mysql = find_java(rows, "numeric", "mysql").unwrap().unwrap();
+        assert_eq!((mysql.kind.as_str(), mysql.class.as_str()), ("converter", "shop.MoneyConverter"));
+        assert_eq!(find_java(rows, "numeric", "postgresql").unwrap().unwrap().java, "BigDecimal");
+        assert_eq!(find_java(rows, "text", "mysql").unwrap(), None);
+        assert!(find_java(r#"[{"sqlType":"x","java":"A","target":"converter"}]"#, "x", "mysql").is_err());
+        assert!(find_java("{}", "x", "mysql").is_err());
     }
 }

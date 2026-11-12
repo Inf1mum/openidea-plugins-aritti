@@ -64,6 +64,11 @@ command = "inspect-at-caret"
 when = "editorLangId == java || editorLangId == kotlin"
 
 [[contributes.commands]]
+id = "reload-naming-strategy"
+title = "JPA: Reload Naming Strategy"
+category = "JPA Assist"
+
+[[contributes.commands]]
 id = "copy-ddl"
 title = "JPA: Copy DDL of Current Entity"
 category = "JPA Assist"
@@ -208,7 +213,40 @@ when = "workspaceContains:pom.xml || workspaceContains:build.gradle || workspace
 
 [contributes.settings]
 title = "JPA Assist"
-schema = "settings.schema.json"
+
+[[contributes.settings.pages]]
+id = "designer"
+title = "Visual Designer"
+schema = "settings/designer.json"
+
+[[contributes.settings.pages]]
+id = "code-generation"
+title = "Code Generation"
+schema = "settings/code-generation.json"
+
+[[contributes.settings.pages]]
+id = "reverse-engineering"
+title = "Reverse Engineering"
+schema = "settings/reverse-engineering.json"
+
+[[contributes.settings.pages]]
+id = "database-versioning"
+title = "Database Versioning"
+schema = "settings/database-versioning.json"
+
+[[contributes.settings.pages.actions]]
+title = "Reload naming strategy"
+command = "reload-naming-strategy"
+
+[[contributes.settings.pages]]
+id = "inspections"
+title = "Inspections"
+schema = "settings/inspections.json"
+
+[[contributes.settings.pages]]
+id = "query-console"
+title = "Query Console"
+schema = "settings/query-console.json"
 
 [[contributes.fileTemplates]]
 id = "entity-java"

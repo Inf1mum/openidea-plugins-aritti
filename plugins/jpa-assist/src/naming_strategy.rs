@@ -292,6 +292,21 @@ pub(crate) fn gather(project: &openidea_plugin::Project, patterns: &[&str], keep
     out
 }
 
+/// What "Reload naming strategy" reports: the strategy read again from the project files. A custom
+/// `PhysicalNamingStrategy` class is never loaded, so it only ever shows up as an unrecognised name.
+pub fn report(strategy: &NamingStrategy) -> String {
+    let physical = match &strategy.physical {
+        Fact::Known(_) => strategy.physical_label().unwrap_or("unknown").to_owned(),
+        Fact::Unknown(why) => format!("not applied ({why})"),
+    };
+    let implicit = match &strategy.implicit {
+        Fact::Known(Implicit::Spring) => "SpringImplicitNamingStrategy".to_owned(),
+        Fact::Known(Implicit::JpaCompliant) => "ImplicitNamingStrategyJpaCompliantImpl".to_owned(),
+        Fact::Unknown(why) => format!("not applied ({why})"),
+    };
+    format!("Physical: {physical}. Implicit: {implicit}. Source: {}. Custom naming strategy classes are not loaded; names follow the built-in strategies only.", strategy.source)
+}
+
 pub(crate) const APPLICATION_PATTERNS: [&str; 3] = ["**/application*.properties", "**/application*.yml", "**/application*.yaml"];
 
 pub(crate) fn is_main_resource(file: &str) -> bool {
@@ -424,5 +439,15 @@ mod tests {
         assert_eq!(IdentifierPolicy::from_setting(Some("uppercase")).apply("OrderLine"), "ORDERLINE");
         assert_eq!(IdentifierPolicy::from_setting(Some("lowercase")).apply("OrderLine"), "orderline");
         assert_eq!(IdentifierPolicy::AsWritten.apply("OrderLine"), "OrderLine");
+    }
+
+    #[test]
+    fn report_names_the_detected_strategies_and_never_claims_a_custom_class_is_loaded() {
+        let strategy = NamingStrategy { physical: Fact::Known(Physical::Standard), implicit: Fact::Known(Implicit::Spring), source: "literal application properties or persistence.xml".into() };
+        let text = report(&strategy);
+        assert!(text.contains("Physical: PhysicalNamingStrategyStandardImpl") && text.contains("Implicit: SpringImplicitNamingStrategy"), "{text}");
+        let custom = NamingStrategy { physical: physical_of("com.shop.MyNaming"), ..strategy };
+        let text = report(&custom);
+        assert!(text.contains("not applied (physical naming strategy com.shop.MyNaming is not recognised)") && text.contains("not loaded"), "{text}");
     }
 }

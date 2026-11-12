@@ -1,0 +1,136 @@
+{
+  "id": "RS-850",
+  "rows": [
+    "G093",
+    "G103"
+  ],
+  "claimIds": [
+    "G093-C2",
+    "G103-C1"
+  ],
+  "verifies": {
+    "G093-C2": "sqlJavaTypeMappings rows answer the SQL-type override prompt for a PostgreSQL script without asking: the row for the detected database beats a row for another database and a row without one, the SQL type matches without length or precision, and a database-less row applies; no override prompt is shown. Not checked: the Settings page rendering.",
+    "G103-C1": "rows exist for several databases and only the row of the detected database is used (a MySQL row and an Oracle row are ignored for this PostgreSQL script), with the three targets Java type, converter and Hibernate type. Not checked: databases whose SQL the import does not read (H2, HSQLDB, Db2, MariaDB, SQL Server, Oracle)."
+  },
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "settings": {
+        "sqlJavaTypeMappings": [
+          {
+            "dbms": "mysql",
+            "sqlType": "numeric",
+            "target": "javaType",
+            "java": "java.lang.Long",
+            "class": ""
+          },
+          {
+            "dbms": "postgresql",
+            "sqlType": "NUMERIC(8,1)",
+            "target": "javaType",
+            "java": "java.lang.Double",
+            "class": ""
+          },
+          {
+            "dbms": "",
+            "sqlType": "timestamp",
+            "target": "hibernateType",
+            "java": "java.time.Instant",
+            "class": "com.example.billing.types.StampType"
+          },
+          {
+            "dbms": "oracle",
+            "sqlType": "varchar",
+            "target": "converter",
+            "java": "java.util.Locale",
+            "class": "com.example.billing.conv.OracleTag"
+          },
+          {
+            "dbms": "",
+            "sqlType": "varchar",
+            "target": "converter",
+            "java": "java.util.Locale",
+            "class": "com.example.billing.conv.TagConverter"
+          }
+        ]
+      }
+    },
+    {
+      "write": {
+        "path": "sql-import/rs.sql",
+        "content": "create table measures (\n    id bigserial primary key,\n    label varchar(40),\n    amount numeric(10,2),\n    taken_at timestamp\n);\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "sql-import/rs.sql",
+    "anchor": "create "
+  },
+  "action": {
+    "title": "Generate entities from SQL file…"
+  },
+  "prompts": [
+    {
+      "pickMany": [
+        "measures"
+      ]
+    },
+    {
+      "pick": "com.example.billing.domain"
+    },
+    {
+      "pickMany": [
+        "typeOverrides"
+      ]
+    },
+    {
+      "pickMany": [
+        "\u0000all"
+      ]
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pickMany"
+      },
+      {
+        "kind": "pick"
+      },
+      {
+        "kind": "pickMany"
+      },
+      {
+        "kind": "pickMany"
+      },
+      {
+        "kind": "confirm"
+      }
+    ],
+    "resultFile": [
+      {
+        "path": "src/main/java/com/example/billing/domain/Measures.java",
+        "contains": [
+          "private Double amount;",
+          "@Type(StampType.class)",
+          "private Instant takenAt;",
+          "@Convert(converter = TagConverter.class)",
+          "private Locale label;"
+        ],
+        "notContains": [
+          "OracleTag",
+          "Long amount"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "measures with settings rows only: numeric by the PostgreSQL row, timestamp by the database-less Hibernate type row, varchar by the database-less converter row."
+}

@@ -34,7 +34,8 @@
    "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
    "strength": "explicit",
    "ourFeature": "not implemented",
-   "verifiableHeadless": false
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Setting jpaAssist.designer.minimalMode hides the palette, property search, General section and source path of the Persistence Designer (designer.rs test, scripts/check-jpa-designer.mjs at 280px). Not checked: host window sizing, other tool windows."
   },
   {
    "id": "G012-C4",

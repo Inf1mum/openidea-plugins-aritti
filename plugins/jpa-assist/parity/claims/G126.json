@@ -26,7 +26,7 @@
    "strength": "explicit",
    "ourFeature": "Create Hibernate user type…; Add JSON column mapping (hibernate_action.rs)",
    "verifiableHeadless": true,
-   "surfaceEquivalent": "Setting sqlTypeMappings, optional dbms per row (postgresql or mysql, Flyway only). Not checked: the Database Versioning > Type Mappings page; vendors other than PostgreSQL and MySQL."
+   "surfaceEquivalent": "Setting sqlTypeMappings, optional dbms per row (postgresql or mysql, Flyway only). The rows are edited as a table on Settings > JPA Assist > Database Versioning (not rendered here). Not checked: the page rendering; vendors other than PostgreSQL and MySQL."
   },
   {
    "id": "G126-C3",

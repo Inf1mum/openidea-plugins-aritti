@@ -25,7 +25,8 @@
    "source": "https://www.jetbrains.com/help/idea/jpa-buddy-entity-designer.html",
    "strength": "explicit",
    "ourFeature": "live.rs, settings.schema.json",
-   "verifiableHeadless": false
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Settings > Plugins > JPA Assist > Inspections page: one on/off check per rule group (jpaAssist.check*) and the inspectionSeverities table (rule code and level, or off). Checked: every key is on that page (cargo test settings_pages_tests). Not checked: the Editor > Inspections tree, per-scope profiles, rendering of the page."
   }
  ],
  "undocumented": [

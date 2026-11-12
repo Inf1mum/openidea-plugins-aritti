@@ -56,6 +56,8 @@ mod queries;
 mod relationship_edit;
 mod repository_completion;
 mod schema_snapshot;
+#[cfg(test)]
+mod settings_pages_tests;
 mod structure_artifacts;
 mod structure_related;
 mod wizard;
@@ -1369,6 +1371,15 @@ impl Plugin for JpaAssist {
             "jpql-console-run"|"jpql-console-status"|"jpql-console-cancel"=>{self.console.run(id,ctx)?;Ok(None)},
             "source-diagram"=>{self.refresh_source_diagram(ctx)?;ui_kit::web::reveal_view(source_diagram::VIEW,include_str!("ui_config.json"))?;Ok(None)},
             "structure-source" => { self.navigate_structure(arg.ok_or(Error::Stale)?, ctx)?; Ok(None) }
+            "reload-naming-strategy" => {
+                let project = ctx.project().ok_or("Open a project first.")?;
+                self.builds.clear();
+                self.units = None;
+                self.named_queries = None;
+                self.repositories.clear();
+                host::notify(NotificationLevel::Info, "JPA Assist", &naming_strategy::report(&naming_strategy::detect(&project)));
+                Ok(None)
+            }
             "find-attribute-usages" => {file_actions::find_attribute_usages(ctx)?; Ok(None)}
             editor_links::COMMAND => editor_links::run(ctx, &mut |project, entity| self.repositories_of(project, entity)),
             "copy-ddl" => {

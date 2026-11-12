@@ -121,6 +121,23 @@ pub(super) fn prompt_names(parsed: &ParsedDdl, dialect: SqlDialect, selected: &[
     Ok(())
 }
 
+fn override_from_setting(row: &super::type_map::JavaTarget, hibernate6: bool) -> Result<TypeOverride, Error> {
+    let (java, mut imports) = qualified(&row.java)?;
+    if row.kind == "javaType" {
+        return Ok(TypeOverride { kotlin: java.clone(), java, imports, target: Target::Plain, definition: None });
+    }
+    let hibernate = row.kind == "hibernateType";
+    if hibernate && !hibernate6 {
+        return Err("sqlJavaTypeMappings: a Hibernate custom type needs Hibernate 6.2+ proven in the project.".into());
+    }
+    if !row.class.contains('.') {
+        return Err("sqlJavaTypeMappings: the converter or Hibernate type class must be fully qualified.".into());
+    }
+    qualified(&row.class)?;
+    imports.retain(|i| *i != row.class);
+    Ok(TypeOverride { kotlin: java.clone(), java, imports, target: if hibernate { Target::Hibernate(row.class.clone()) } else { Target::Converter(row.class.clone()) }, definition: None })
+}
+
 pub(super) fn prompt_overrides(parsed: &ParsedDdl, dialect: SqlDialect, selected: &[usize], options: &mut Options) -> Result<(), Error> {
     if !options.type_overrides {
         return Ok(());
@@ -142,6 +159,14 @@ pub(super) fn prompt_overrides(parsed: &ParsedDdl, dialect: SqlDialect, selected
             if let Some(raw) = raw {
                 by_type.entry(base_type(&raw)).or_default().push((ti, column.name.to_ascii_lowercase()));
             }
+        }
+    }
+    let dbms = if dialect == SqlDialect::MySql { "mysql" } else { "postgresql" };
+    for base in by_type.keys().cloned().collect::<Vec<_>>() {
+        let Some(row) = super::type_map::java_mapped(&base, dbms)? else { continue };
+        let made = override_from_setting(&row, options.hibernate6)?;
+        for key in by_type.remove(&base).unwrap_or_default() {
+            options.overrides.insert(key, made.clone());
         }
     }
     if by_type.is_empty() {
@@ -366,6 +391,19 @@ mod tests {
         let custom = Options { overrides: HashMap::from([((at("orders"), "price".to_owned()), target(Target::Hibernate("shop.types.MoneyType".into())))]), ..Options::default() };
         let (text, _) = rendered(&custom, "orders");
         assert!(text.contains("@Type(MoneyType.class)") && text.contains("import org.hibernate.annotations.Type;") && text.contains("private Instant price;"), "{text}");
+    }
+
+    #[test]
+    fn setting_rows_become_java_converter_and_hibernate_overrides() {
+        use super::super::type_map::JavaTarget;
+        let row = |kind: &str, java: &str, class: &str| JavaTarget { kind: kind.into(), java: java.into(), class: class.into() };
+        let plain = override_from_setting(&row("javaType", "java.time.Instant", ""), false).unwrap();
+        assert!(matches!(plain.target, Target::Plain) && plain.java == "Instant" && plain.imports == ["java.time.Instant"]);
+        let converter = override_from_setting(&row("converter", "java.time.Instant", "shop.conv.InstantConverter"), false).unwrap();
+        assert!(matches!(&converter.target, Target::Converter(c) if c == "shop.conv.InstantConverter"));
+        assert!(override_from_setting(&row("hibernateType", "Money", "shop.MoneyType"), false).is_err());
+        assert!(matches!(override_from_setting(&row("hibernateType", "Money", "shop.MoneyType"), true).unwrap().target, Target::Hibernate(_)));
+        assert!(override_from_setting(&row("converter", "Money", "MoneyConverter"), true).is_err());
     }
 
     #[test]

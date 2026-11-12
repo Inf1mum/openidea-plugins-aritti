@@ -1,0 +1,290 @@
+{
+  "properties": {
+    "jpaAssist.checkEntityId": {
+      "type": "boolean",
+      "title": "Warn about entities with no @Id, @EmbeddedId or @IdClass, own or inherited",
+      "default": true,
+      "group": "Checks"
+    },
+    "jpaAssist.checkAttributeTypes": {
+      "type": "boolean",
+      "title": "Warn about @Temporal, @Enumerated and @Version on types the JPA specification does not allow",
+      "default": true,
+      "group": "Checks"
+    },
+    "jpaAssist.checkKotlinEntities": {
+      "type": "boolean",
+      "title": "Warn about val attributes, read-only collections and data classes in Kotlin entities",
+      "default": true,
+      "group": "Checks"
+    },
+    "jpaAssist.checkClassSignature": {
+      "type": "boolean",
+      "title": "Warn about entities that are inner classes, interfaces or enums, or also embeddable or mapped superclasses",
+      "default": true,
+      "group": "Checks"
+    },
+    "jpaAssist.checkAttributeSignatures": {
+      "type": "boolean",
+      "title": "Warn about attributes with two associations, an association on the wrong type, @Id with @EmbeddedId, or getter and field annotations mixed",
+      "default": true,
+      "group": "Checks"
+    },
+    "jpaAssist.checkMappingNames": {
+      "type": "boolean",
+      "title": "Warn about attribute names in @AttributeOverride, @MapsId, @MapKey and @NamedAttributeNode that the target class does not have",
+      "default": true,
+      "group": "Checks"
+    },
+    "jpaAssist.checkQueryReferences": {
+      "type": "boolean",
+      "title": "Warn about @Query :parameters the method does not declare, and named queries that do not exist",
+      "default": true,
+      "group": "Checks"
+    },
+    "jpaAssist.checkEntityGraphs": {
+      "type": "boolean",
+      "title": "Warn about @EntityGraph names that no @NamedEntityGraph declares and attributePaths the repository entity does not have",
+      "default": true,
+      "group": "Checks"
+    },
+    "jpaAssist.checkPersistenceXml": {
+      "type": "boolean",
+      "title": "Check persistence.xml and JPA mapping files for invalid values and classes that are not in the project",
+      "default": true,
+      "group": "Checks"
+    },
+    "jpaAssist.checkListenerUsage": {
+      "type": "boolean",
+      "title": "Warn about entity listeners that declare no lifecycle callback or no public constructor without arguments",
+      "default": true,
+      "group": "Checks"
+    },
+    "jpaAssist.checkListenerSignatures": {
+      "type": "boolean",
+      "title": "Warn about lifecycle callbacks with the wrong parameters or return type",
+      "default": true,
+      "group": "Checks"
+    },
+    "jpaAssist.checkLombokEquality": {
+      "type": "boolean",
+      "title": "Warn when Lombok @Data or @EqualsAndHashCode includes associations or a generated id in equals and hashCode",
+      "default": true,
+      "group": "Checks"
+    },
+    "jpaAssist.checkLombokToString": {
+      "type": "boolean",
+      "title": "Warn when Lombok @Data or @ToString includes associations (lazy loading or recursion) in toString",
+      "default": true,
+      "group": "Checks"
+    },
+    "jpaAssist.checkLombokConstructors": {
+      "type": "boolean",
+      "title": "Warn when Lombok @Builder or @AllArgsConstructor leaves an entity without a no-arg constructor",
+      "default": true,
+      "group": "Checks"
+    },
+    "jpaAssist.checkNoArgConstructor": {
+      "type": "boolean",
+      "title": "Error about Java entities that declare constructors but none public or protected without parameters",
+      "default": true,
+      "group": "Checks"
+    },
+    "jpaAssist.checkFinalMembers": {
+      "type": "boolean",
+      "title": "Warn about final methods and final persistent fields in Java entities",
+      "default": true,
+      "group": "Checks"
+    },
+    "jpaAssist.checkGeneratedValueId": {
+      "type": "boolean",
+      "title": "Warn about @GeneratedValue on an attribute without @Id",
+      "default": true,
+      "group": "Checks"
+    },
+    "jpaAssist.checkGeneratedValueType": {
+      "type": "boolean",
+      "title": "Warn about @GeneratedValue strategies that do not fit the identifier type (IDENTITY, SEQUENCE and TABLE need long or int, UUID needs UUID or String)",
+      "default": true,
+      "group": "Checks"
+    },
+    "jpaAssist.checkColumnLength": {
+      "type": "boolean",
+      "title": "Warn about @Column(length) on numeric and boolean attributes",
+      "default": true,
+      "group": "Checks"
+    },
+    "jpaAssist.checkColumnPrecision": {
+      "type": "boolean",
+      "title": "Warn about @Column(precision) and @Column(scale) on String, boolean and char attributes",
+      "default": true,
+      "group": "Checks"
+    },
+    "jpaAssist.checkUnidirectionalOneToMany": {
+      "type": "boolean",
+      "title": "Note unidirectional @OneToMany associations that use a link table",
+      "default": true,
+      "group": "Checks"
+    },
+    "jpaAssist.checkAssociationFetch": {
+      "type": "boolean",
+      "title": "Advise lazy fetching: explicit EAGER on any association and the EAGER default of @ManyToOne and @OneToOne (Hibernate User Guide 29.6.1)",
+      "default": true,
+      "group": "Checks"
+    },
+    "jpaAssist.checkManyToManyCollectionType": {
+      "type": "boolean",
+      "title": "Suggest a Set instead of a List for @ManyToMany (Hibernate User Guide 29.4.2)",
+      "default": true,
+      "group": "Checks"
+    },
+    "jpaAssist.checkManyToManyCascade": {
+      "type": "boolean",
+      "title": "Warn about cascade REMOVE or ALL on @ManyToMany (Hibernate User Guide 3.8.4)",
+      "default": true,
+      "group": "Checks"
+    },
+    "jpaAssist.checkHibernateTypes": {
+      "type": "boolean",
+      "title": "Suggest a Hibernate JSON type for Map and JsonNode attributes without one, with a quick fix (Hibernate 6)",
+      "default": true,
+      "group": "Checks"
+    },
+    "jpaAssist.checkUnsupportedFieldType": {
+      "type": "boolean",
+      "title": "Warn about attributes whose project class type is neither basic, embeddable, entity, Serializable nor converted",
+      "default": true,
+      "group": "Checks"
+    },
+    "jpaAssist.checkEntityFieldRelationship": {
+      "type": "boolean",
+      "title": "Warn about attributes of an entity type that carry no relationship annotation",
+      "default": true,
+      "group": "Checks"
+    },
+    "jpaAssist.checkIncompatibleTable": {
+      "type": "boolean",
+      "title": "Warn about @Table on a subclass of a SINGLE_TABLE hierarchy",
+      "default": true,
+      "group": "Checks"
+    },
+    "jpaAssist.checkCompositeIdSerializable": {
+      "type": "boolean",
+      "title": "Error about an @EmbeddedId class that is not Serializable (javax.persistence sources)",
+      "default": true,
+      "group": "Checks"
+    },
+    "jpaAssist.checkMappedBy": {
+      "type": "boolean",
+      "title": "Warn about a mappedBy that names no attribute of the target entity",
+      "default": true,
+      "group": "Checks"
+    },
+    "jpaAssist.checkMapStructMappings": {
+      "type": "boolean",
+      "title": "Warn about a MapStruct @Mapping source or target that names no property of a plain project class",
+      "default": true,
+      "group": "Checks"
+    },
+    "jpaAssist.inspectionSeverities": {
+      "type": "array",
+      "title": "Inspection severities: remap the level of a rule code, or turn it off (a per-rule check toggle set to off also disables the rule)",
+      "items": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Rule code",
+            "default": "attribute-type",
+            "enum": [
+              "attribute-type",
+              "jpa-attribute-multiple-relations",
+              "jpa-auditing-listener-missing",
+              "jpa-auditing-not-enabled",
+              "jpa-callback-modifiers",
+              "jpa-column-length-type",
+              "jpa-column-precision-type",
+              "jpa-data-class",
+              "jpa-duplicate-embedded-id",
+              "jpa-duplicate-lifecycle-event",
+              "jpa-duplicate-version",
+              "jpa-eager-fetch",
+              "jpa-eager-to-one",
+              "jpa-embeddable-identifier",
+              "jpa-entity-multiple-roles",
+              "jpa-entity-nested",
+              "jpa-entity-not-a-class",
+              "jpa-final-entity",
+              "jpa-final-member",
+              "jpa-generated-value-type",
+              "jpa-generated-value-without-id",
+              "jpa-hibernate-type",
+              "jpa-immutable-collection",
+              "jpa-kotlin-plugin-missing",
+              "jpa-listener-constructor",
+              "jpa-listener-without-callbacks",
+              "jpa-lombok-constructors",
+              "jpa-lombok-data",
+              "jpa-lombok-equals",
+              "jpa-lombok-equals-field",
+              "jpa-lombok-to-string",
+              "jpa-many-to-many-cascade-remove",
+              "jpa-many-to-many-list",
+              "jpa-missing-setter",
+              "jpa-mixed-access",
+              "jpa-multiple-id-kinds",
+              "jpa-no-arg-constructor",
+              "jpa-redundant-constructor",
+              "jpa-redundant-open",
+              "jpa-relationship-target",
+              "jpa-relationship-type",
+              "jpa-repository-id",
+              "jpa-source-identifier-absent",
+              "jpa-source-repository-id",
+              "jpa-unidirectional-one-to-many",
+              "jpa-unknown-attribute-override",
+              "jpa-unknown-entity-graph",
+              "jpa-unknown-entity-graph-node",
+              "jpa-unknown-entity-graph-path",
+              "jpa-unknown-map-key",
+              "jpa-unknown-maps-id",
+              "jpa-unknown-named-query",
+              "jpa-unknown-query-parameter",
+              "jpa-val-attribute",
+              "jpa-xml-class",
+              "jpa-xml-class-duplicate",
+              "jpa-xml-class-not-persistent",
+              "jpa-xml-class-unknown",
+              "jpa-xml-property",
+              "jpa-xml-provider",
+              "jpa-xml-unit-name",
+              "jpa-xml-value",
+              "jpa-unsupported-type",
+              "jpa-entity-field-without-relationship",
+              "jpa-incompatible-table",
+              "jpa-composite-id-not-serializable",
+              "jpa-converter-type-mismatch",
+              "jpa-converter-not-attribute-converter",
+              "jpa-unknown-mapped-by",
+              "jpa-unknown-mapstruct-property"
+            ]
+          },
+          "severity": {
+            "type": "string",
+            "title": "Severity",
+            "enum": [
+              "error",
+              "warning",
+              "info",
+              "hint",
+              "off"
+            ],
+            "default": "warning"
+          }
+        }
+      },
+      "default": [],
+      "group": "Severity"
+    }
+  }
+}

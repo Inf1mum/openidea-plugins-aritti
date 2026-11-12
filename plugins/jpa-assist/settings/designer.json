@@ -1,0 +1,28 @@
+{
+  "properties": {
+    "jpaAssist.designer.showPalette": {
+      "type": "boolean",
+      "title": "Show the JPA Palette in the Persistence Designer",
+      "default": true,
+      "group": "Panels"
+    },
+    "jpaAssist.designer.showInspector": {
+      "type": "boolean",
+      "title": "Show the JPA Inspector in the Persistence Designer (the Add attribute form stays reachable from the palette)",
+      "default": true,
+      "group": "Panels"
+    },
+    "jpaAssist.designer.showEditorToolbar": {
+      "type": "boolean",
+      "title": "Show the toolbar at the top of the Persistence Designer (Inspect at Caret, Reset); the Inspect at Caret command stays available",
+      "default": true,
+      "group": "Panels"
+    },
+    "jpaAssist.designer.minimalMode": {
+      "type": "boolean",
+      "title": "Minimal mode for small screens: hides the palette, the property search, the General section and the source path in the Persistence Designer",
+      "default": false,
+      "group": "Layout"
+    }
+  }
+}

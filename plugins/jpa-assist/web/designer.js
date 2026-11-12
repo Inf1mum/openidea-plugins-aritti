@@ -130,6 +130,8 @@
       return;
     }
     if (message.frame !== frame || message.sequence !== pendingRequest?.sequence) return;
+    if (message.layout) for (const [key, shown] of Object.entries({palette: message.layout.palette, inspector: message.layout.inspector, toolbar: message.layout.toolbar})) document.body.classList.toggle(`no-${key}`, shown === false);
+    if (message.layout) document.body.classList.toggle('minimal', message.layout.minimal === true);
     const completed = pendingRequest.operation.kind;
     clearTimeout(pendingRequest.timer); pendingRequest = null; busy = false;
     if (message.reset) { frame = makeFrame(); sequence = 0; root = null; model = null; grid = null; creator.configure(null); attr.configure(null); rel.configure(null); mig.clear(); send({kind: 'snapshot'}); return; }

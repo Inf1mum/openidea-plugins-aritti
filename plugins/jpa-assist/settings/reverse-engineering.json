@@ -1,0 +1,106 @@
+{
+  "properties": {
+    "entityLanguage": {
+      "type": "string",
+      "title": "Language for entities copied from CREATE TABLE or created without a source file (auto: Kotlin only when the module is Kotlin-only, else Java)",
+      "enum": [
+        "java",
+        "kotlin",
+        "auto"
+      ],
+      "default": "java",
+      "group": "Entities from SQL"
+    },
+    "sqlImportIdGeneration": {
+      "type": "string",
+      "title": "SQL import: @GeneratedValue for generated keys: identity, sequence (no named generator; refused for MySQL), auto, uuid (GenerationType.UUID on uuid keys; jakarta + Boot 3.1+/Hibernate 6.2+ proven) or none",
+      "enum": [
+        "identity",
+        "sequence",
+        "auto",
+        "uuid",
+        "none"
+      ],
+      "default": "identity",
+      "group": "Entities from SQL"
+    },
+    "sqlImportFetch": {
+      "type": "string",
+      "title": "SQL import: fetch of generated @ManyToOne (lazy writes FetchType.LAZY; default leaves the JPA default, EAGER)",
+      "enum": [
+        "lazy",
+        "default"
+      ],
+      "default": "lazy",
+      "group": "Entities from SQL"
+    },
+    "sqlImportOptional": {
+      "type": "string",
+      "title": "SQL import: nullable = false on generated @JoinColumn for NOT NULL foreign keys (nullability) or never",
+      "enum": [
+        "nullability",
+        "never"
+      ],
+      "default": "nullability",
+      "group": "Entities from SQL"
+    },
+    "sqlImportValidation": {
+      "type": "boolean",
+      "title": "SQL import: @NotNull for NOT NULL and @Size(max) for varchar(n) columns; needs Bean Validation declared in the build",
+      "default": false,
+      "group": "Entities from SQL"
+    },
+    "sqlJavaTypeMappings": {
+      "type": "array",
+      "title": "Java type for SQL types when entities are generated from SQL, per database: a matching row answers the SQL type override prompt (a row for the detected database wins over one without a database). Only PostgreSQL and MySQL scripts are read today",
+      "items": {
+        "type": "object",
+        "properties": {
+          "dbms": {
+            "type": "string",
+            "title": "Database (empty applies to all)",
+            "enum": [
+              "",
+              "h2",
+              "hsqldb",
+              "db2",
+              "mariadb",
+              "sqlserver",
+              "mysql",
+              "oracle",
+              "postgresql"
+            ],
+            "default": ""
+          },
+          "sqlType": {
+            "type": "string",
+            "title": "SQL type (length and precision are ignored)",
+            "default": ""
+          },
+          "target": {
+            "type": "string",
+            "title": "Target",
+            "enum": [
+              "javaType",
+              "converter",
+              "hibernateType"
+            ],
+            "default": "javaType"
+          },
+          "java": {
+            "type": "string",
+            "title": "Java attribute type (fully qualified unless java.lang)",
+            "default": ""
+          },
+          "class": {
+            "type": "string",
+            "title": "Converter or Hibernate type class (fully qualified; not for a plain Java type)",
+            "default": ""
+          }
+        }
+      },
+      "default": [],
+      "group": "SQL to Java type mappings"
+    }
+  }
+}

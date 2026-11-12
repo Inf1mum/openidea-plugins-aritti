@@ -16,7 +16,8 @@
    "source": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
    "strength": "explicit",
    "ourFeature": "Generate entities from SQL file… (ddl_entities_action.rs, ddl_parse.rs)",
-   "verifiableHeadless": false
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Setting sqlJavaTypeMappings accepts rows for H2, HSQLDB, Db2, MariaDB, SQL Server, MySQL, Oracle and PostgreSQL (schema test); a row for the detected database wins over a row without one (cargo test, RS-850). Not checked: applying rows of the six databases whose SQL the import does not parse (only PostgreSQL and MySQL scripts are read); the page rendering."
   },
   {
    "id": "G103-C2",

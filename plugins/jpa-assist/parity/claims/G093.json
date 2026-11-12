@@ -25,7 +25,8 @@
    "source": "https://www.jetbrains.com/help/idea/reverse-engineering.html",
    "strength": "explicit",
    "ourFeature": "Generate entities from SQL file… (ddl_entities_action.rs, ddl_parse.rs)",
-   "verifiableHeadless": false
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Setting sqlJavaTypeMappings (rows: dbms, SQL type, target Java type/converter/Hibernate type), Settings > JPA Assist > Reverse Engineering page; a matching row answers the SQL type override prompt of Generate entities from SQL (RS-850, RS-851). Not checked: the page rendering; DBMS other than PostgreSQL and MySQL, because the SQL import reads only those two dialects."
   },
   {
    "id": "G093-C3",

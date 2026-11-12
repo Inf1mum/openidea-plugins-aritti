@@ -485,6 +485,25 @@
     "flywayMigrationPrefix": {"type": "string", "title": "Flyway migration prefix of generated files (V versioned, U undo or B baseline); must match Flyway's own setting", "enum": ["V", "U", "B"], "default": "V"},
     "flywayMigrationSeparator": {"type": "string", "title": "Flyway separator between version and description (2 to 4 underscores); must match Flyway's own setting", "default": "__"},
     "flywayVersionPattern": {"type": "string", "title": "Flyway version of generated files; empty keeps the next-version convention. Same tokens as the changelog name, {seq} = convention version; must be digits with . or _ and sort after existing versions", "default": ""},
-    "migrationDescriptionCase": {"type": "string", "title": "Description in generated Liquibase and Flyway file names (keep case with underscores, lower_snake, or kebab)", "enum": ["keep", "lower_snake", "kebab"], "default": "keep"}
+    "migrationDescriptionCase": {"type": "string", "title": "Description in generated Liquibase and Flyway file names (keep case with underscores, lower_snake, or kebab)", "enum": ["keep", "lower_snake", "kebab"], "default": "keep"},
+    "jpaAssist.designer.showPalette": {"type": "boolean", "title": "Show the JPA Palette in the Persistence Designer", "default": true},
+    "jpaAssist.designer.showInspector": {"type": "boolean", "title": "Show the JPA Inspector in the Persistence Designer (the Add attribute form stays reachable from the palette)", "default": true},
+    "jpaAssist.designer.minimalMode": {"type": "boolean", "title": "Minimal mode for small screens: hides the palette, the property search, the General section and the source path in the Persistence Designer", "default": false},
+    "jpaAssist.designer.showEditorToolbar": {"type": "boolean", "title": "Show the toolbar at the top of the Persistence Designer (Inspect at Caret, Reset); the Inspect at Caret command stays available", "default": true},
+    "sqlJavaTypeMappings": {
+      "type": "array",
+      "title": "Java type for SQL types when entities are generated from SQL, per database: a matching row answers the SQL type override prompt (a row for the detected database wins over one without a database). Only PostgreSQL and MySQL scripts are read today",
+      "items": {
+        "type": "object",
+        "properties": {
+          "dbms": {"type": "string", "title": "Database (empty applies to all)", "enum": ["", "h2", "hsqldb", "db2", "mariadb", "sqlserver", "mysql", "oracle", "postgresql"], "default": ""},
+          "sqlType": {"type": "string", "title": "SQL type (length and precision are ignored)", "default": ""},
+          "target": {"type": "string", "title": "Target", "enum": ["javaType", "converter", "hibernateType"], "default": "javaType"},
+          "java": {"type": "string", "title": "Java attribute type (fully qualified unless java.lang)", "default": ""},
+          "class": {"type": "string", "title": "Converter or Hibernate type class (fully qualified; not for a plain Java type)", "default": ""}
+        }
+      },
+      "default": []
+    }
   }
 }
