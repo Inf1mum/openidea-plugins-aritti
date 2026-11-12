@@ -52,6 +52,8 @@ pub enum LogicalType {
     TimestampTz,
     Uuid,
     Binary,
+    /// A type the user named that is not a generic name: its `raw` text is emitted unchanged.
+    Verbatim,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -609,8 +611,12 @@ fn differs(a: Option<u32>, b: Option<u32>) -> bool {
     matches!((a, b), (Some(x), Some(y)) if x != y)
 }
 
+fn verbatim_differs(a: &Column, b: &Column) -> bool {
+    matches!((&a.sql_type, &b.sql_type), (Fact::Known(x), Fact::Known(y)) if x.logical == LogicalType::Verbatim && x.raw != y.raw)
+}
+
 fn type_differs(a: &Column, b: &Column) -> bool {
-    a.logical() != b.logical() || differs(a.length, b.length) || differs(a.precision, b.precision) || differs(a.scale, b.scale)
+    a.logical() != b.logical() || verbatim_differs(a, b) || differs(a.length, b.length) || differs(a.precision, b.precision) || differs(a.scale, b.scale)
 }
 
 fn rank(l: LogicalType) -> Option<(u8, u8)> {
@@ -681,6 +687,17 @@ mod tests {
 
     fn one(from: Column, to: Column) -> ChangePlan {
         diff(&snap(vec![table("t", vec![from])]), &snap(vec![table("t", vec![to])])).unwrap()
+    }
+
+    #[test]
+    fn verbatim_types_differ_by_their_text() {
+        let verbatim = |raw: &str| {
+            let mut c = col("g", Verbatim);
+            c.sql_type = Fact::Known(SqlType { logical: Verbatim, raw: raw.into() });
+            c
+        };
+        assert!(one(verbatim("geometry"), verbatim("geography")).changes.len() == 1);
+        assert!(one(verbatim("geometry"), verbatim("geometry")).changes.is_empty());
     }
 
     #[test]

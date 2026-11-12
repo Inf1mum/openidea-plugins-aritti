@@ -109,6 +109,21 @@
       "enum": ["as-written", "lowercase", "uppercase"],
       "default": "as-written"
     },
+    "jpaAssist.maxIdentifierLength": {
+      "type": "string",
+      "title": "Maximum identifier length in bytes for generated SQL drafts (for example 30 for Oracle before 12.1); longer names are cut, a collision after cutting refuses. Empty or 0: unlimited",
+      "default": ""
+    },
+    "jpaAssist.primaryKeyConstraintName": {
+      "type": "string",
+      "title": "Primary key constraint name in generated SQL drafts: letters, digits, _ and an optional {table} placeholder (pk_{table}); empty leaves the key unnamed",
+      "default": ""
+    },
+    "jpaAssist.indexForeignKeys": {
+      "type": "boolean",
+      "title": "Schema baselines and migrations also index each foreign key column that no primary key, unique constraint or index already leads with",
+      "default": false
+    },
     "jpaAssist.tableNameCase": {
       "type": "string",
       "title": "Default table name case for new entities, name constants and SQL drafts",
@@ -339,6 +354,30 @@
     "schemaDangerLevels": {"type": "array", "title": "Level shown for each change type in the migration preview: SAFE (green), CAUTION (yellow) or DANGER (red). Only the label changes; which statements are withheld by default does not", "items": {"type": "object", "properties": {"changeType": {"type": "string", "title": "Change type", "enum": ["createTable", "dropTable", "addColumn", "dropColumn", "modifyDataType", "addNotNullConstraint", "dropNotNullConstraint", "addForeignKeyConstraint", "dropForeignKeyConstraint", "addUniqueConstraint", "dropUniqueConstraint", "createIndex", "dropIndex", "renameColumn"], "default": "dropColumn"}, "level": {"type": "string", "title": "Level", "enum": ["SAFE", "CAUTION", "DANGER"], "default": "CAUTION"}}}, "default": []},
     "schemaChangeLocations": {"type": "array", "title": "Where each change type goes in the Liquibase changelog: primary (default), secondary (changes needing manual attention; separate directory) or ignored (written nowhere, listed in the preview). A rename keeps its drop and add together", "items": {"type": "object", "properties": {"changeType": {"type": "string", "title": "Change type", "enum": ["createTable", "dropTable", "addColumn", "dropColumn", "modifyDataType", "addNotNullConstraint", "dropNotNullConstraint", "addForeignKeyConstraint", "dropForeignKeyConstraint", "addUniqueConstraint", "dropUniqueConstraint", "createIndex", "dropIndex", "renameColumn"], "default": "dropColumn"}, "location": {"type": "string", "title": "Location", "enum": ["primary", "secondary", "ignored"], "default": "secondary"}}}, "default": []},
     "liquibaseSecondaryDirectory": {"type": "string", "title": "Directory of the secondary Liquibase changelog, relative to the project root (default: the primary changelog directory with -secondary appended)", "default": ""},
+    "liquibaseStringTypes": {
+      "type": "array",
+      "title": "Liquibase cross-database varchar: each row declares <property name=\"string.type\" dbms=...> and varchar columns are written ${string.type}(n). dbms is a lowercase Liquibase database name (postgresql, mssql); empty writes plain varchar(n)",
+      "items": {
+        "type": "object",
+        "properties": {
+          "dbms": {"type": "string", "title": "dbms (lowercase Liquibase database name)", "default": ""},
+          "type": {"type": "string", "title": "Type used for ${string.type} on that DBMS", "default": "varchar"}
+        }
+      },
+      "default": []
+    },
+    "sqlTypeMappings": {
+      "type": "array",
+      "title": "SQL type for custom Java types, converters and Hibernate types (class name or annotation text); generic names (varchar(255), uuid, clob) are translated per database, other text is used as is. Unmapped types are asked for",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": {"type": "string", "title": "Java type, converter, Hibernate type or annotation text", "default": ""},
+          "sqlType": {"type": "string", "title": "SQL type", "default": ""}
+        }
+      },
+      "default": []
+    },
     "liquibaseChangelogNamePattern": {"type": "string", "title": "Liquibase changelog file name, ending .xml. Tokens: {seq}, {description}, {date}, #date(yyyyMMddHHmmss), #increment(1, 1, 000), ${semVer.getMajor()} (also getMinor, getPatch, getPreRelease, getRawVersion: '+' is kept, other unsafe characters become '_')", "default": "{seq}-{description}.xml"},
     "flywayMigrationPrefix": {"type": "string", "title": "Flyway migration prefix of generated files (V versioned, U undo or B baseline); must match Flyway's own setting", "enum": ["V", "U", "B"], "default": "V"},
     "flywayMigrationSeparator": {"type": "string", "title": "Flyway separator between version and description (2 to 4 underscores); must match Flyway's own setting", "default": "__"},

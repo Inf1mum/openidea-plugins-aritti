@@ -243,7 +243,7 @@ fn java_type(logical: LogicalType) -> (&'static str, &'static str, Option<&'stat
         Real => ("Float", "Float", None),
         Double => ("Double", "Double", None),
         Decimal => ("BigDecimal", "BigDecimal", Some("java.math.BigDecimal")),
-        Char | Varchar | Text => ("String", "String", None),
+        Char | Varchar | Text | Verbatim => ("String", "String", None),
         Date => ("LocalDate", "LocalDate", Some("java.time.LocalDate")),
         Time => ("LocalTime", "LocalTime", Some("java.time.LocalTime")),
         Timestamp => ("LocalDateTime", "LocalDateTime", Some("java.time.LocalDateTime")),

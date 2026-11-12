@@ -19,7 +19,9 @@ use std::collections::BTreeMap;
 const MAX_TEXT: usize = 128 * 1024;
 const MAX_CHAIN: usize = 32;
 
-const OPAQUE: [&str; 15] = [
+pub(crate) const CUSTOM_TYPE_REASON: &str = "no documented column mapping for type ";
+
+const OPAQUE: [&str; 14] = [
     "SecondaryTable",
     "SecondaryTables",
     "IdClass",
@@ -33,7 +35,6 @@ const OPAQUE: [&str; 15] = [
     "AssociationOverrides",
     "Convert",
     "Formula",
-    "JdbcTypeCode",
     "DiscriminatorFormula",
 ];
 
@@ -174,6 +175,7 @@ impl Info {
         let mut discriminator_opaque = false;
         for a in &anns {
             match a.name {
+                "Convert" if a.start >= class_at => {}
                 n if OPAQUE.contains(&n) => info.unknown = Some(format!("@{n} is not read")),
                 "Column" if has(a, "columnDefinition") => info.unknown = Some("@Column(columnDefinition) is not read".into()),
                 "JoinColumn" if has(a, "referencedColumnName") => info.ref_override = true,
@@ -704,7 +706,7 @@ fn map_type(a: &Attribute) -> Fact<SqlType> {
         "UUID" => known(Uuid),
         "Double" | "double" | "Float" | "float" => Fact::unknown("floating point columns vary by database"),
         "Instant" | "OffsetDateTime" | "ZonedDateTime" => Fact::unknown("time zone column type varies by database"),
-        _ => Fact::Unknown(format!("no documented column mapping for type {base}")),
+        _ => Fact::Unknown(format!("{CUSTOM_TYPE_REASON}{base}")),
     }
 }
 
@@ -1003,7 +1005,10 @@ impl Model {
             if let Some(embeddable) = self.resolve(class, &a.ty).filter(|&t| self.infos[t].class.kind == Kind::Embeddable) {
                 return Err(format!("attribute {} is the embeddable {}", a.name, self.infos[embeddable].class.name));
             }
-            column.sql_type = map_type(a);
+            column.sql_type = match &a.custom_type {
+                Some(custom) => Fact::Unknown(format!("{CUSTOM_TYPE_REASON}{custom}")),
+                None => map_type(a),
+            };
             let logical = column.sql_type.known().map(|t| t.logical);
             if matches!(logical, Some(LogicalType::Varchar | LogicalType::Char | LogicalType::Binary)) {
                 column.length = a.length;

@@ -1,0 +1,112 @@
+{
+  "id": "RS-529",
+  "rows": [
+    "G124"
+  ],
+  "claimIds": [
+    "G124-C1"
+  ],
+  "verifies": {
+    "G124-C1": "an entity whose attributes carry @JdbcTypeCode, @Type, @JavaType, @JdbcType, @TimeZoneStorage and @TimeZoneColumn is read instead of being skipped: each such column is asked for its target SQL type (six type prompts, answered once each) and the answered types appear in the migration. @JdbcTypeRegistration and @JavaTypeRegistration are declared on a separate registration class in the project and only checked in the sense that a project holding them is still scanned and migrated; they are class-level registrations that change no column of this entity and nothing about their effect is verified. The extra offset column that @TimeZoneColumn/@TimeZoneStorage(COLUMN) give Hibernate is NOT generated and not checked; the documentation only says 'supported', so only column-level asking is verified."
+  },
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "preActions": [
+    {
+      "title": "Create schema baseline…",
+      "target": {
+        "file": "src/main/java/com/example/billing/domain/Client.java",
+        "anchor": "class Client"
+      },
+      "prompts": [
+        {
+          "confirm": "yes"
+        }
+      ]
+    }
+  ],
+  "postSetup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/billing/domain/Gadget.java",
+        "content": "package com.example.billing.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\nimport java.time.OffsetDateTime;\nimport org.hibernate.annotations.JavaType;\nimport org.hibernate.annotations.JdbcType;\nimport org.hibernate.annotations.JdbcTypeCode;\nimport org.hibernate.annotations.TimeZoneColumn;\nimport org.hibernate.annotations.TimeZoneStorage;\nimport org.hibernate.annotations.TimeZoneStorageType;\nimport org.hibernate.annotations.Type;\nimport org.hibernate.type.SqlTypes;\n\n@Entity\npublic class Gadget {\n    @Id Long id;\n    @JdbcTypeCode(SqlTypes.JSON) String a;\n    @Type(PointType.class) String b;\n    @JavaType(PointJavaType.class) String c;\n    @JdbcType(PointJdbcType.class) String d;\n    @TimeZoneStorage(TimeZoneStorageType.NORMALIZE) OffsetDateTime e;\n    @TimeZoneColumn(name = \"f_tz\") OffsetDateTime f;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/billing/domain/TypeRegistrations.java",
+        "content": "package com.example.billing.domain;\n\nimport org.hibernate.annotations.JavaTypeRegistration;\nimport org.hibernate.annotations.JdbcTypeRegistration;\n\n@JdbcTypeRegistration(PointJdbcType.class)\n@JavaTypeRegistration(javaType = Point.class, descriptorClass = PointJavaType.class)\nclass TypeRegistrations {\n}\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/billing/domain/Client.java",
+    "anchor": "class Client"
+  },
+  "action": {
+    "title": "Generate Flyway migration from model changes…"
+  },
+  "prompts": [
+    {
+      "pick": "postgresql"
+    },
+    {
+      "pickMany": [
+        "data-loss"
+      ]
+    },
+    {
+      "input": "jsonb"
+    },
+    {
+      "input": "geometry(Point,4326)"
+    },
+    {
+      "input": "varchar(20)"
+    },
+    {
+      "input": "varchar(21)"
+    },
+    {
+      "input": "timestamp"
+    },
+    {
+      "input": "timestamptz"
+    },
+    {
+      "input": "add_gadget"
+    },
+    {
+      "confirm": "yes"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "createdFiles": [
+      {
+        "path": "src/main/resources/db/migration/V4__add_gadget.sql",
+        "contains": [
+          "\"a\" jsonb,",
+          "\"b\" geometry(Point,4326),",
+          "\"c\" varchar(20),",
+          "\"d\" varchar(21),",
+          "\"e\" timestamp,",
+          "\"f\" timestamp with time zone,"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": {
+      "paths": [
+        "V4__add_gadget.sql"
+      ]
+    },
+    "undo": true,
+    "cancelEach": true,
+    "stale": true
+  },
+  "note": "Hibernate 6 type annotations."
+}

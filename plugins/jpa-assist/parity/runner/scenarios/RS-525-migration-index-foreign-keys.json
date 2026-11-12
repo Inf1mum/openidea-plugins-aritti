@@ -1,0 +1,91 @@
+{
+  "id": "RS-525",
+  "rows": [
+    "G128"
+  ],
+  "claimIds": [
+    "G128-C2"
+  ],
+  "verifies": {
+    "G128-C2": "with jpaAssist.indexForeignKeys=true a new table with a many-to-one association gets its foreign key constraint and an index statement on the foreign key column (CREATE INDEX ON gadget (client_id)); the foreign key half of the sentence only (the primary key name is RS-524). The default (setting off) is not checked here, only by unit test."
+  },
+  "fixture": "envers-flyway-liquibase",
+  "kind": "fileaction",
+  "preActions": [
+    {
+      "title": "Create schema baseline…",
+      "target": {
+        "file": "src/main/java/com/example/billing/domain/Client.java",
+        "anchor": "class Client"
+      },
+      "prompts": [
+        {
+          "confirm": "yes"
+        }
+      ]
+    }
+  ],
+  "postSetup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/billing/domain/Gadget.java",
+        "content": "package com.example.billing.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.ManyToOne;\n\n@Entity\npublic class Gadget {\n    @Id Long id;\n    @ManyToOne Client client;\n}\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/billing/domain/Client.java",
+    "anchor": "class Client"
+  },
+  "action": {
+    "title": "Generate Flyway migration from model changes…"
+  },
+  "prompts": [
+    {
+      "pick": "postgresql"
+    },
+    {
+      "pickMany": [
+        "data-loss"
+      ]
+    },
+    {
+      "input": "add_gadget"
+    },
+    {
+      "confirm": "yes"
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "createdFiles": [
+      {
+        "path": "src/main/resources/db/migration/V4__add_gadget.sql",
+        "contains": [
+          "FOREIGN KEY",
+          "CREATE INDEX ON \"gadget\" (\"client_id\");"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": {
+      "paths": [
+        "V4__add_gadget.sql"
+      ]
+    },
+    "undo": true,
+    "cancelEach": true,
+    "stale": true
+  },
+  "note": "FK index option.",
+  "setup": [
+    {
+      "settings": {
+        "jpaAssist.indexForeignKeys": true
+      }
+    }
+  ]
+}

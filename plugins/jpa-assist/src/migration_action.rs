@@ -43,7 +43,11 @@ pub(crate) fn scan(project: &Project, root: &str) -> Result<SchemaSnapshot, Erro
 
 pub(crate) fn scan_scoped(project: &Project, root: &str, scope: &Scope) -> Result<ScopedSnapshot, Error> {
     let docs = model_docs(project, root)?;
-    Ok(crate::schema_snapshot::snapshot_configured(&docs, scope, &crate::naming_strategy::detect(project), &EnversConfig::detect(project)))
+    let mut scoped = crate::schema_snapshot::snapshot_configured(&docs, scope, &crate::naming_strategy::detect(project), &EnversConfig::detect(project));
+    if super::ddl_options::index_foreign_keys_enabled() {
+        super::ddl_options::index_foreign_keys(&mut scoped.snapshot);
+    }
+    Ok(scoped)
 }
 
 pub(crate) fn model_docs(project: &Project, root: &str) -> Result<Vec<Document>, Error> {
@@ -193,7 +197,7 @@ pub(super) fn apply_default_lengths(plan: &mut schema::ChangePlan) {
 }
 
 const TYPE_ATTEMPTS: usize = 3;
-const CUSTOM_TYPE_REASON: &str = "no documented column mapping for type ";
+use crate::schema_snapshot::CUSTOM_TYPE_REASON;
 
 /// Columns of a custom Java type get no automatic SQL mapping (JetBrains database versioning help); the user names the
 /// target type once per column name and Java type, so an audit table's mirror column reuses the answer. Empty input
@@ -212,6 +216,11 @@ pub(super) fn ask_custom_types(plan: &mut schema::ChangePlan) -> Result<(), Erro
             if let Some(typed) = answer {
                 (column.sql_type, column.length, column.precision, column.scale) = (typed.sql_type.clone(), typed.length, typed.precision, typed.scale);
             }
+            return Ok(());
+        }
+        if let Some(mapped) = super::type_map::mapped(&java_type)? {
+            sql::apply_type_text(column, &mapped).map_err(|why| Error::from(format!("sqlTypeMappings maps {java_type} to {mapped:?}, which was refused: {why}.")))?;
+            answers.insert(key, Some(column.clone()));
             return Ok(());
         }
         let question = format!("SQL type for column {table}.{} (Java type {java_type}); for example varchar(255), bigint, numeric(19,2); leave empty to withhold it", column.name);
@@ -1005,11 +1014,98 @@ mod tests {
         let pending = action(&mut plugin, &doc, MIGRATION_TITLE);
         host.answer_next_prompt(Some(&["postgresql"]));
         host.answer_next_prompt(Some(&[]));
-        for refused in ["money", "money", "money"] {
+        for refused in ["bigint(x)", "bigint(x)", "bigint(x)"] {
             host.answer_next_prompt(Some(&[refused]));
         }
         let err = plugin.resolve_file_action(&doc, pending).unwrap_err();
         assert!(format!("{err:?}").contains("customer.price"), "{err:?}");
+    }
+
+const HIBERNATE_IMPORTS: &str = "import jakarta.persistence.Convert;\nimport java.time.OffsetDateTime;\nimport org.hibernate.annotations.JavaType;\nimport org.hibernate.annotations.JdbcType;\nimport org.hibernate.annotations.JdbcTypeCode;\nimport org.hibernate.annotations.TimeZoneColumn;\nimport org.hibernate.annotations.TimeZoneStorage;\nimport org.hibernate.annotations.TimeZoneStorageType;\nimport org.hibernate.annotations.Type;\nimport org.hibernate.type.SqlTypes;\n";
+
+fn order_with(host: &MockHost, field: &str) {
+        let source = format!("package shop;\n{HIBERNATE_IMPORTS}import jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n@Entity\npublic class Order {{\n    @Id Long id;\n    {field}\n}}\n");
+        host.add_file("src/main/java/shop/Order.java", &source);
+    }
+
+    fn order_migration(field: &str, mapping: Option<&str>, typed: Option<&str>) -> String {
+        let (host, mut plugin, doc) = migration_ready(ENTITY);
+        order_with(&host, field);
+        if let Some(mapping) = mapping {
+            host.set_setting("sqlTypeMappings", &format!("[{mapping}]"));
+        }
+        let pending = action(&mut plugin, &doc, MIGRATION_TITLE);
+        host.answer_next_prompt(Some(&["postgresql"]));
+        host.answer_next_prompt(Some(&[]));
+        if let Some(typed) = typed {
+            host.answer_next_prompt(Some(&[typed]));
+        }
+        host.answer_next_prompt(Some(&["Add order"]));
+        for _ in 0..3 {
+            host.answer_next_prompt(Some(&[]));
+        }
+        let resolved = plugin.resolve_file_action(&doc, pending).unwrap_or_else(|e| panic!("{field}: {e:?}"));
+        let FileOperation::Create { text, .. } = &resolved.operations[0] else { panic!() };
+        text.clone()
+    }
+
+    #[test]
+    fn an_unknown_sql_type_name_passes_through_and_clob_is_generic() {
+        let entity_money = ENTITY_PLUS.replace("String name;", "String name;\n    Money price;");
+        for (typed, expected) in [("geometry(Point,4326)", "\"price\" geometry(Point,4326);"), ("clob", "\"price\" text;")] {
+            let (host, mut plugin, doc) = migration_ready(&entity_money);
+            let pending = action(&mut plugin, &doc, MIGRATION_TITLE);
+            host.answer_next_prompt(Some(&["postgresql"]));
+            host.answer_next_prompt(Some(&[]));
+            host.answer_next_prompt(Some(&[typed]));
+            host.answer_next_prompt(Some(&["Add price"]));
+            host.answer_next_prompt(Some(&[]));
+            host.answer_next_prompt(Some(&[]));
+            let resolved = plugin.resolve_file_action(&doc, pending).unwrap();
+            let FileOperation::Create { text, .. } = &resolved.operations[0] else { panic!() };
+            assert!(text.contains(expected), "{text}");
+        }
+    }
+
+    #[test]
+    fn sql_type_mappings_setting_answers_the_prompt_for_types_converters_and_hibernate_types() {
+        for (field, mapping) in [
+            ("Money price;", r#"{"type":"shop.Money","sqlType":"numeric(19,2)"}"#),
+            ("@Convert(converter = MoneyConverter.class) String price;", r#"{"type":"MoneyConverter","sqlType":"numeric(19,2)"}"#),
+            ("@Type(MoneyType.class) String price;", r#"{"type":"MoneyType","sqlType":"numeric(19,2)"}"#),
+            ("@JdbcTypeCode(SqlTypes.JSON) String price;", r#"{"type":"@JdbcTypeCode(SqlTypes.JSON)","sqlType":"numeric(19,2)"}"#),
+        ] {
+            let text = order_migration(field, Some(mapping), None);
+            assert!(text.contains("\"price\" numeric(19,2)"), "{field}: {text}");
+        }
+    }
+
+    #[test]
+    fn hibernate_type_annotations_ask_instead_of_guessing_the_java_type() {
+        for field in ["@JdbcTypeCode(SqlTypes.JSON) String price;", "@JavaType(MoneyJt.class) String price;", "@JdbcType(MoneyJdbc.class) String price;", "@TimeZoneStorage(TimeZoneStorageType.NORMALIZE) OffsetDateTime price;", "@TimeZoneColumn(name = \"p_tz\") OffsetDateTime price;"] {
+            let text = order_migration(field, None, Some("varchar(40)"));
+            assert!(text.contains("\"price\" varchar(40)"), "{field}: {text}");
+        }
+    }
+
+    #[test]
+    fn index_foreign_keys_setting_adds_an_index_statement_for_the_foreign_key_column() {
+        for (enabled, expected) in [(true, 1), (false, 0)] {
+            let (host, mut plugin, doc) = migration_ready(ENTITY);
+            host.add_file("src/main/java/shop/Order.java", "package shop;\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.ManyToOne;\n@Entity\npublic class Order {\n    @Id Long id;\n    @ManyToOne Customer customer;\n}\n");
+            host.set_setting("jpaAssist.indexForeignKeys", if enabled { "true" } else { "false" });
+            let pending = action(&mut plugin, &doc, MIGRATION_TITLE);
+            host.answer_next_prompt(Some(&["postgresql"]));
+            host.answer_next_prompt(Some(&[]));
+            host.answer_next_prompt(Some(&["Add order"]));
+            for _ in 0..3 {
+                host.answer_next_prompt(Some(&[]));
+            }
+            let resolved = plugin.resolve_file_action(&doc, pending).unwrap();
+            let FileOperation::Create { text, .. } = &resolved.operations[0] else { panic!() };
+            assert!(text.contains("FOREIGN KEY"), "{text}");
+            assert_eq!(text.matches("CREATE INDEX ON \"order\" (\"customer_id\");").count(), expected, "{text}");
+        }
     }
 
     #[test]

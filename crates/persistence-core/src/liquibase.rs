@@ -27,6 +27,9 @@ pub struct LiquibaseOptions {
     /// changeSet ids are `<prefix>-<n>`; letters, digits, `.`, `_`, `-`, at most 64 characters.
     pub id_prefix: String,
     pub defaults: ChangeSetDefaults,
+    /// `(dbms, type)` pairs: each becomes `<property name="string.type" value="type" dbms="dbms"/>` and every
+    /// varchar column is written `${string.type}(n)` (Liquibase docs, "properties with a dbms attribute").
+    pub string_types: Vec<(String, String)>,
 }
 
 /// What Liquibase does when a changeSet precondition fails or errors: the four values of the docs' "onFail/onError
@@ -141,6 +144,7 @@ pub struct EmittedChangelog {
     pub author: String,
     pub changesets: Vec<ChangeSet>,
     pub plan_notes: Vec<String>,
+    pub string_types: Vec<(String, String)>,
 }
 
 impl EmittedChangelog {
@@ -162,6 +166,9 @@ impl EmittedChangelog {
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<databaseChangeLog\n    xmlns=\"http://www.liquibase.org/xml/ns/dbchangelog\"\n    xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n    xsi:schemaLocation=\"http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd\">\n\n",
         );
         out.push_str("    <!-- Generated from a schema diff. Review before applying; nothing was executed. -->\n");
+        for (dbms, ty) in &self.string_types {
+            out.push_str(&format!("    <property name=\"string.type\" value=\"{}\" dbms=\"{}\"/>\n", esc(ty), esc(dbms)));
+        }
         for note in &self.plan_notes {
             out.push_str(&format!("    <!-- NOTE: {} -->\n", comment(note)));
         }
@@ -296,6 +303,7 @@ fn type_string(column: &Column) -> Result<String, Unsupported> {
         TimestampTz => no("a time-zone-carrying timestamp type is not verified in the Liquibase docs read"),
         Uuid => Ok("uuid".into()),
         Binary => no("binary storage type choice (BLOB mapping differs per database) is not guessed"),
+        Verbatim => Ok(sql_type.raw.clone()),
     }
 }
 
@@ -727,6 +735,16 @@ fn validate_options(options: &LiquibaseOptions) -> Result<(), LiquibaseError> {
     if !prefix.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-')) {
         return bad("id_prefix", "may contain only ASCII letters, digits, '.', '_' and '-'");
     }
+    for (dbms, ty) in &options.string_types {
+        let dbms_ok = !dbms.is_empty() && dbms.len() <= 64 && dbms.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == ',');
+        let type_ok = !ty.is_empty() && ty.len() <= 32 && ty.starts_with(|c: char| c.is_ascii_alphabetic()) && ty.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | ' '));
+        if !dbms_ok {
+            return bad("string_types", "a dbms is lowercase letters and digits, comma-separated");
+        }
+        if !type_ok {
+            return bad("string_types", "a type name is ASCII letters, digits, '_' and spaces");
+        }
+    }
     validate_attributes(&options.defaults.all)?;
     for (kind, attributes) in &options.defaults.by_type {
         if !CHANGE_TYPES.contains(&kind.as_str()) {
@@ -798,7 +816,16 @@ pub fn emit_xml(plan: &ChangePlan, options: &LiquibaseOptions) -> Result<Emitted
         apply_defaults(set, &options.defaults);
     }
     let plan_notes = plan.notes.iter().map(|n| format!("{} / {}: {}", n.table, n.subject, n.reason)).collect();
-    Ok(EmittedChangelog { author: options.author.clone(), changesets, plan_notes })
+    if !options.string_types.is_empty() {
+        for set in &mut changesets {
+            if let Some(body) = &mut set.body {
+                for attribute in ["type", "columnDataType", "newDataType"] {
+                    *body = body.replace(&format!(" {attribute}=\"varchar("), &format!(" {attribute}=\"${{string.type}}("));
+                }
+            }
+        }
+    }
+    Ok(EmittedChangelog { author: options.author.clone(), changesets, plan_notes, string_types: options.string_types.clone() })
 }
 
 #[cfg(test)]
@@ -818,7 +845,7 @@ mod tests {
     }
 
     fn options() -> LiquibaseOptions {
-        LiquibaseOptions { emit: EmitOptions::default(), author: "jpa-assist".into(), id_prefix: "model".into(), defaults: ChangeSetDefaults::default() }
+        LiquibaseOptions { emit: EmitOptions::default(), author: "jpa-assist".into(), id_prefix: "model".into(), defaults: ChangeSetDefaults::default(), string_types: Vec::new() }
     }
 
     fn orders() -> Table {
@@ -1229,6 +1256,29 @@ mod tests {
 </databaseChangeLog>
 "#
         );
+    }
+
+    #[test]
+    fn string_type_properties_replace_varchar_in_every_type_attribute() {
+        let mut o = options();
+        o.string_types = vec![("postgresql".into(), "varchar".into()), ("mssql".into(), "nvarchar".into())];
+        let mut name = col("display_name", LogicalType::Varchar);
+        name.length = Some(100);
+        let mut id = col("id", LogicalType::Bigint);
+        id.nullable = Fact::Known(false);
+        let mut t = Table::new("t");
+        t.columns = Fact::Known(vec![id, name]);
+        t.primary_key = Fact::Known(vec!["id".into()]);
+        let plan = ChangePlan { changes: vec![planned(Change::CreateTable { table: t }, Danger::Safe, "new")], notes: vec![] };
+        let text = emit_xml(&plan, &o).unwrap().render();
+        assert!(text.contains("<property name=\"string.type\" value=\"varchar\" dbms=\"postgresql\"/>"), "{text}");
+        assert!(text.contains("<property name=\"string.type\" value=\"nvarchar\" dbms=\"mssql\"/>"));
+        assert!(text.contains("type=\"${string.type}(100)\"") && !text.contains("type=\"varchar("), "{text}");
+        assert!(!emit_xml(&plan, &options()).unwrap().render().contains("string.type"));
+        o.string_types = vec![("PG".into(), "varchar".into())];
+        assert!(emit_xml(&plan, &o).is_err());
+        o.string_types = vec![("pg".into(), "var\"char".into())];
+        assert!(emit_xml(&plan, &o).is_err());
     }
 
     #[test]

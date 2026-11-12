@@ -91,9 +91,9 @@ fn absent(project: &Project, root: &str, target: &str) -> Result<(), Error> {
     }
     Ok(())
 }
-fn sql(class: &Class, table: &str, dialect: Dialect, policy: crate::naming_strategy::IdentifierPolicy) -> Option<String> {
+fn sql(class: &Class, table: &str, dialect: Dialect, policy: crate::naming_strategy::IdentifierPolicy, options: &super::ddl_options::DdlOptions) -> Option<String> {
     let quote = if dialect == Dialect::MySql { '`' } else { '"' };
-    let quoted = |name: &str| format!("{quote}{}{quote}", policy.apply(name));
+    let quoted = |name: &str| format!("{quote}{}{quote}", options.shorten(&policy.apply(name)));
     let mut cased = HashSet::new();
     let mut fields = Vec::new();
     let mut key = None;
@@ -111,7 +111,8 @@ fn sql(class: &Class, table: &str, dialect: Dialect, policy: crate::naming_strat
             key = Some(name);
         }
     }
-    fields.push(format!("    PRIMARY KEY ({})", key?));
+    let constraint = options.primary_key_constraint(table).map_or_else(String::new, |name| format!("CONSTRAINT {} ", quoted(&name)));
+    fields.push(format!("    {constraint}PRIMARY KEY ({})", key?));
     Some(format!(
         "-- Source-derived scalar draft; review before external use.\n-- Snake-case column names and nullable non-ID columns are draft choices.\n-- No database, naming strategy, converter, schema or deployment validation.\nCREATE TABLE {} (\n{}\n);\n",
         quoted(table),
@@ -163,11 +164,24 @@ pub(super) fn resolve(
     }
     let policy = crate::naming_strategy::IdentifierPolicy::from_setting(host::setting_string("jpaAssist.identifierPolicy").as_deref());
     let strategy = crate::naming_strategy::detect(project);
-    let generated = sql(&class, &table, dialect, policy).ok_or(Error::Stale)?;
+    let options = super::ddl_options::DdlOptions::from_settings()?;
+    let mut shortened = HashSet::new();
+    for attribute in &class.attributes {
+        let column = options.shorten(&policy.apply(&super::naming_column_name(&attribute.name)));
+        if !shortened.insert(column.clone()) {
+            return Err(format!("jpaAssist.maxIdentifierLength shortens column {} to {column}, which another column already has; raise the limit.", attribute.name).into());
+        }
+    }
+    let generated = sql(&class, &table, dialect, policy, &options).ok_or(Error::Stale)?;
+    let limits = format!(
+        "Maximum identifier length: {}. Primary key constraint: {}.",
+        options.max_identifier.map_or("unlimited".to_owned(), |n| format!("{n} bytes (longer names are cut)")),
+        options.primary_key_constraint(&table).map_or("unnamed".to_owned(), |name| format!("{}{}", options.shorten(&policy.apply(&name)), if dialect == Dialect::MySql { " (MySQL always names a primary key PRIMARY)" } else { "" })),
+    );
     current(pending, doc)?;
     absent(project, &pending.root, &target)?;
     let preview = format!(
-        "Source: {}\nSource version: {}\nPackage: {}\nDialect: {selected}\nTable: {table}\nTarget: {target}\n\nAll {} parsed scalar fields, one manual primary key. Non-ID columns are nullable draft choices. Detected physical naming strategy: {}; the names below come from the naming templates, not from it. Identifier policy: {policy:?} (all names are quoted). No DB/schema diff, generated IDs, converters, relationships or deployment check.\n\nExact new SQL file:\n{generated}\nOne atomic non-overwriting Create. This action never executes SQL.",
+        "Source: {}\nSource version: {}\nPackage: {}\nDialect: {selected}\nTable: {table}\nTarget: {target}\n\nAll {} parsed scalar fields, one manual primary key. Non-ID columns are nullable draft choices. Detected physical naming strategy: {}; the names below come from the naming templates, not from it. Identifier policy: {policy:?} (all names are quoted). {limits} No DB/schema diff, generated IDs, converters, relationships or deployment check.\n\nExact new SQL file:\n{generated}\nOne atomic non-overwriting Create. This action never executes SQL.",
         doc.path,
         doc.version,
         package(doc).ok_or(Error::Stale)?,
@@ -298,11 +312,25 @@ mod tests {
         use crate::naming_strategy::IdentifierPolicy;
         let (_host, _plugin, doc) = setup();
         let class = source(&doc).unwrap();
-        let written = sql(&class, "Customers", Dialect::PostgreSql, IdentifierPolicy::AsWritten).unwrap();
+        let written = sql(&class, "Customers", Dialect::PostgreSql, IdentifierPolicy::AsWritten, &Default::default()).unwrap();
         assert!(written.contains("CREATE TABLE \"Customers\"") && written.contains("\"display_name\""), "{written}");
-        let upper = sql(&class, "Customers", Dialect::MySql, IdentifierPolicy::Uppercase).unwrap();
+        let upper = sql(&class, "Customers", Dialect::MySql, IdentifierPolicy::Uppercase, &Default::default()).unwrap();
         assert!(upper.contains("CREATE TABLE `CUSTOMERS`") && upper.contains("`DISPLAY_NAME`"), "{upper}");
     }
+    #[test]
+    fn max_identifier_length_and_primary_key_name_shape_the_draft() {
+        use crate::naming_strategy::IdentifierPolicy;
+        use super::super::ddl_options::DdlOptions;
+        let (_host, _plugin, doc) = setup();
+        let class = source(&doc).unwrap();
+        let options = DdlOptions::parse(Some("8"), Some("pk_{table}")).unwrap();
+        let text = sql(&class, "customer_accounts", Dialect::PostgreSql, IdentifierPolicy::AsWritten, &options).unwrap();
+        assert!(text.contains("CREATE TABLE \"customer\"") && text.contains("\"display_\" VARCHAR(255)"), "{text}");
+        assert!(text.contains("CONSTRAINT \"pk_custo\" PRIMARY KEY (\"id\")"), "{text}");
+        let named = DdlOptions::parse(None, Some("pk_{table}")).unwrap();
+        assert!(sql(&class, "customer", Dialect::MySql, IdentifierPolicy::AsWritten, &named).unwrap().contains("CONSTRAINT `pk_customer` PRIMARY KEY (`id`)"));
+    }
+
     #[test]
     fn cancellation_invalid_inputs_collisions_and_stale_or_foreign_source_return_no_operations() {
         let (h, mut p, d) = setup();

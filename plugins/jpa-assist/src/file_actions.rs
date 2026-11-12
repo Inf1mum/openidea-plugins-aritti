@@ -46,6 +46,10 @@ mod change_routing;
 mod schema_repair_action;
 #[path = "template_settings.rs"]
 mod template_settings;
+#[path = "type_map.rs"]
+mod type_map;
+#[path = "ddl_options.rs"]
+mod ddl_options;
 #[path = "envers_action.rs"]
 mod envers_action;
 #[path = "entity_graph_action.rs"]
