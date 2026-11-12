@@ -315,6 +315,8 @@ fn annotation_admission(text: &str, persistence_only: bool) -> bool {
         "EntityListeners", "PrePersist", "PostPersist", "PreUpdate", "PostUpdate", "PreRemove", "PostRemove", "PostLoad",
         "NamedEntityGraph", "NamedEntityGraphs", "NamedAttributeNode", "NamedSubgraph",
         "AttributeOverride", "AttributeOverrides", "MapsId", "MapKey",
+        "Table", "Index", "UniqueConstraint", "GeneratedValue", "SequenceGenerator", "TableGenerator",
+        "Inheritance", "DiscriminatorColumn", "DiscriminatorValue", "OrderBy", "OrderColumn", "Cacheable",
     ];
     let registered = |name: &str| NAMES.contains(&name) || matches!(name, "Query" | "Param" | "Data" | "EqualsAndHashCode" | "Immutable");
     let known_owner = |name: &str, full: &str| {
@@ -385,6 +387,14 @@ fn annotation_admission(text: &str, persistence_only: bool) -> bool {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_generated_entity_with_table_and_generated_value_is_persistence_only() {
+        let text = "package shop;\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.GeneratedValue;\nimport jakarta.persistence.Id;\nimport jakarta.persistence.Table;\n@Entity\n@Table(name = \"ticket\")\nclass Ticket { @Id @GeneratedValue Long id; }\n";
+        assert!(persistence_annotations_only(text));
+        let hibernate = text.replace("@Entity\n", "@Entity\n@org.hibernate.annotations.Immutable\n");
+        assert!(!persistence_annotations_only(&hibernate));
+    }
     use super::*;
     use crate::JpaAssist;
     use openidea_plugin::diagnostics::DiagnosticsProvider;
