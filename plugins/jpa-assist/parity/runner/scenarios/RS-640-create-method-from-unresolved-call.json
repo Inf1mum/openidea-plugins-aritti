@@ -1,0 +1,71 @@
+{
+  "id": "RS-640",
+  "rows": [
+    "G044",
+    "G045"
+  ],
+  "claimIds": [
+    "G044-C2",
+    "G045-C1"
+  ],
+  "verifies": {
+    "G044-C2": "on the call parcelRepository.findByNameAndColor(\"a\", \"red\"), which ParcelRepository does not declare, the action 'Create repository method from this call\u2026' is offered at the call and, after a confirm preview, adds List<Parcel> findByNameAndColor(String name, String color); to the repository (both parameters derived from the entity attributes) and keeps the existing method. NOT checked: the original's surface (Alt+Enter quick action) and that it opens a query creation wizard; here no wizard opens, the signature is derived from the call name and confirmed in a preview. Offered only for derived-query names on a variable typed *Repository.",
+    "G045-C1": "same flow: the not-yet-existing method is the one named by the call, and the creation is reached through the file action at the call site. NOT checked: writing a bare signature (the action works on a call, not on a signature typed in the repository), the 'special actions' menu of the original, and any wizard; no query-method wizard opens, the method is created directly after the preview."
+  },
+  "fixture": "boot-jpa-java-jakarta",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/Parcel.java",
+        "content": "package com.example.shop.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Parcel {\n\n    @Id\n    private Long id;\n\n    private String name;\n\n    private String color;\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/domain/ParcelRepository.java",
+        "content": "package com.example.shop.domain;\n\nimport java.util.List;\nimport org.springframework.data.jpa.repository.JpaRepository;\n\npublic interface ParcelRepository extends JpaRepository<Parcel, Long> {\n    List<Parcel> findByName(String name);\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/shop/service/ParcelService.java",
+        "content": "package com.example.shop.service;\n\nimport com.example.shop.domain.Parcel;\nimport java.util.List;\nimport org.springframework.stereotype.Service;\nimport com.example.shop.domain.ParcelRepository;\n\n@Service\npublic class ParcelService {\n\n    private final ParcelRepository parcelRepository;\n\n    ParcelService(ParcelRepository parcelRepository) {\n        this.parcelRepository = parcelRepository;\n    }\n\n    void run() {\n        parcelRepository.findByNameAndColor(\"a\", \"red\");\n    }\n}\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/shop/service/ParcelService.java",
+    "anchor": "findByNameAndColor"
+  },
+  "action": {
+    "title": "Create repository method from this call\u2026"
+  },
+  "prompts": [
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "confirm",
+        "messageContains": "ParcelRepository"
+      }
+    ],
+    "resultFile": [
+      {
+        "path": "src/main/java/com/example/shop/domain/ParcelRepository.java",
+        "contains": [
+          "List<Parcel> findByNameAndColor(String name, String color);",
+          "List<Parcel> findByName(String name);"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true
+  },
+  "note": "Behaviour-equivalent check of the unresolved-call quick fix (surface differs, see verifies)."
+}

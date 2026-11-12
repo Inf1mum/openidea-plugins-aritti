@@ -25,7 +25,8 @@
    "source": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
    "strength": "explicit",
    "ourFeature": "Add query method with preview… (query_method_action.rs)",
-   "verifiableHeadless": false
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Action 'Create repository method from this call\u2026' (file action at the call site). Not checked: Alt+Enter intention surface and the query creation wizard (no wizard; confirm preview)."
   }
  ],
  "undocumented": [

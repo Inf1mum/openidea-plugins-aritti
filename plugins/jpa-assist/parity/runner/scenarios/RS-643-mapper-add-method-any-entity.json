@@ -1,0 +1,116 @@
+{
+  "id": "RS-643",
+  "rows": [
+    "G070"
+  ],
+  "claimIds": [
+    "G070-C1"
+  ],
+  "verifies": {
+    "G070-C1": "in an open mapper (WidgetMapper) the action 'Add mapping method to mapper\u2026' first asks which entity to map and offers every entity of the project (Widget and Gadget, not only the mapper's own); choosing the unrelated entity Gadget adds GadgetDto toDto(Gadget entity); and Gadget toEntity(GadgetDto dto); to the mapper. NOT checked: the original's surface (the IntelliJ Generate menu); here it is a file action offered on the mapper file, and the mapper interface member list is rewritten with a confirm preview."
+  },
+  "fixture": "mapstruct-lombok-dto",
+  "kind": "fileaction",
+  "setup": [
+    {
+      "write": {
+        "path": "src/main/java/com/example/crm/domain/WidgetMapper.java",
+        "content": "package com.example.crm.domain;\n\nimport org.mapstruct.Mapper;\n\n@Mapper(componentModel = \"spring\")\npublic interface WidgetMapper {\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/crm/domain/Widget.java",
+        "content": "package com.example.crm.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Widget {\n\n    @Id\n    private Long id;\n\n    private String name;\n\n    public Long getId() {\n        return id;\n    }\n\n    public void setId(Long id) {\n        this.id = id;\n    }\n\n    public String getName() {\n        return name;\n    }\n\n    public void setName(String name) {\n        this.name = name;\n    }\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/crm/domain/Gadget.java",
+        "content": "package com.example.crm.domain;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Gadget {\n\n    @Id\n    private Long id;\n\n    private String name;\n\n    public Long getId() {\n        return id;\n    }\n\n    public void setId(Long id) {\n        this.id = id;\n    }\n\n    public String getName() {\n        return name;\n    }\n\n    public void setName(String name) {\n        this.name = name;\n    }\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/crm/dto/WidgetDto.java",
+        "content": "package com.example.crm.dto;\n\npublic record WidgetDto(Long id, String name) {\n}\n"
+      }
+    },
+    {
+      "write": {
+        "path": "src/main/java/com/example/crm/dto/GadgetDto.java",
+        "content": "package com.example.crm.dto;\n\npublic record GadgetDto(Long id, String name) {\n}\n"
+      }
+    }
+  ],
+  "target": {
+    "file": "src/main/java/com/example/crm/domain/WidgetMapper.java",
+    "anchor": "interface WidgetMapper"
+  },
+  "action": {
+    "title": "Add mapping method to mapper\u2026"
+  },
+  "prompts": [
+    {
+      "pickLabel": "Gadget"
+    },
+    {
+      "pickLabel": "GadgetDto"
+    },
+    {
+      "pickMany": [
+        "toDto",
+        "toEntity"
+      ]
+    },
+    {
+      "confirm": "yes"
+    }
+  ],
+  "expect": {
+    "promptSequence": [
+      {
+        "kind": "pick",
+        "titleContains": "Entity to map",
+        "optionsInclude": [
+          "Widget",
+          "Gadget"
+        ]
+      },
+      {
+        "kind": "pick",
+        "titleContains": "Existing DTO",
+        "optionsInclude": [
+          "GadgetDto"
+        ]
+      },
+      {
+        "kind": "pickMany",
+        "titleContains": "Mapping methods",
+        "optionsInclude": [
+          "toDto",
+          "toEntity"
+        ]
+      },
+      {
+        "kind": "confirm"
+      }
+    ],
+    "resultFile": [
+      {
+        "path": "src/main/java/com/example/crm/domain/WidgetMapper.java",
+        "contains": [
+          "GadgetDto toDto(Gadget entity);",
+          "Gadget toEntity(GadgetDto dto);"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "preview": true,
+    "undo": true,
+    "cancelEach": true,
+    "stale": true
+  },
+  "note": "Add mapping methods for an unrelated entity in an open mapper."
+}

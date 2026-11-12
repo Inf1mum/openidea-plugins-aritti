@@ -16,7 +16,8 @@
    "source": "https://www.jetbrains.com/help/idea/jpa-buddy-spring-data.html",
    "strength": "explicit",
    "ourFeature": "query_method_action.rs",
-   "verifiableHeadless": false
+   "verifiableHeadless": true,
+   "surfaceEquivalent": "Action 'Create repository method from this call\u2026' at the call of a missing method. Not checked: bare-signature trigger, the 'special actions' menu and any wizard (method is created after a preview)."
   }
  ],
  "undocumented": [
